@@ -2,8 +2,9 @@
 
 **Status:** scope only. This was a read-only investigation: no code was changed,
 built or run, and no game tests were run. Every claim carries a tag (legend
-below). Updated 2026-11-16 with Mike's decisions D1, D3 and D4 (section 0); D2,
-the engine and graphics API, is still open (section 5.8).
+below). Updated 2026-11-16 with Mike's decisions D1 to D4 (section 0). D2 picked
+option B (our own renderer on a cross-API library, bgfx); the decisions it
+raises, D5 to D7, are open (section 10).
 
 **Milestone:** 2.0. D-004 limits 1.0 to the base game plus Theater, so this work
 is post-1.0 ([D] `tools/Workbench/data/roadmap.json`, item D-004).
@@ -57,7 +58,25 @@ sections they change are listed at the end.
   one switch, with quality settings on the remastered side only. One lesson
   from that game: its classic mode later had to be fixed because it no longer
   matched the original ([W]). So classic stays the tested reference (R9).
-- **D2. Engine and graphics API: open.** Options are in section 5.8.
+- **D2. Engine and graphics API: option B.** Our own renderer on a thin
+  cross-API library, with classic moved onto the same library (5.8). The
+  working library is bgfx: BSD-2, MinGW-built inside MAME, with D3D11, D3D12,
+  Vulkan and OpenGL 4.3+ backends ([W]). Consequences:
+  - **Correction to 5.8:** bgfx lists no ray tracing support ([W], nothing in
+    its feature list), so B with bgfx brings D3D11, D3D12 and Vulkan, not
+    hardware ray-traced GI. If ray tracing ever matters, the library would be
+    Diligent or NVRHI instead [I]. The GI plan in 7.3 does not need it.
+  - Classic moves first, and must stay pixel-identical (R10). Its biggest
+    change: fast3d writes GLSL at runtime for each color-combiner state
+    (`gfx_opengl.cpp:236-302`, called from `gfx_pc.cpp:308-316` [V]), while
+    bgfx only loads shaders compiled ahead of time [I]. Classic therefore needs
+    a combiner "uber-shader" driven by uniforms, or a fixed set of precompiled
+    variants.
+  - bgfx's OpenGL backend needs GL 4.3+ ([W]), so today's GL 3.0 fallback
+    goes away; older Windows GPUs would use D3D11 instead [I].
+  - The no-DLL rule needs a decision: bgfx's D3D11 backend loads `d3d11.dll`
+    and DXGI at runtime and also tries optional vendor libraries (AMD AGS,
+    NVAPI) ([W]). New decisions D5 to D7 are in section 10.
 - **D3. Remastered base stages get PBR materials and dynamic lighting.** This is
   the full-relight direction from the earlier question, not "keep the baked
   lighting and add to it". Fixture lights become real lights, materials become
@@ -69,8 +88,9 @@ sections they change are listed at the end.
   base materials need a built-in PBR derivation (7.4, 8.9). Art packs are
   ordinary mods under the existing mod rules (8.8), so R8 is dropped.
 
-Sections changed by these decisions: 1, 4.2, 5.6, 5.8, 6 (R8), 7.1 to 7.4, the
-feature summary, 8.8, 8.9, 10, 11, 12 and the appendix.
+Sections changed by these decisions: 1, 4.2, 5.4, 5.6, 5.8, 6 (R8 dropped, R10
+added), 7.1 to 7.4, the feature summary, 8.8, 8.9, 9, 10, 11, 12 and the
+appendix.
 
 ---
 
@@ -109,7 +129,8 @@ only becomes cheap after a separation refactor. [I]
 3. "Remastered" is a built-in renderer (D4) that draws at inline display-list
    commands (a generalization of CORE's `G_SCENE_RENDER_EXT`) into the same
    framebuffer and depth buffer. Anything it doesn't draw yet stays classic.
-   Which engine and graphics API it is built on is decision D2 (5.8).
+   It is built on bgfx, with classic moved onto the same library first (D2,
+   5.8).
 4. Remastered base stages use PBR materials and dynamic lighting (D3). Base
    materials are derived on the player's machine from their own extracted
    textures (D4, BYOR-safe); art packs are ordinary mods that improve them,
@@ -120,9 +141,10 @@ only becomes cheap after a separation refactor. [I]
    lighting (section 11).
 
 **Biggest risks** (section 12): gameplay regressions from splitting `lvRender`;
-the two presentation paths drifting apart; how a full relight looks on
-original geometry, and the per-stage tuning it needs; BYOR limiting art to
-original or locally generated work; the hardware floor. [I]
+keeping classic pixel-identical through the move to bgfx; the two presentation
+paths drifting apart; how a full relight looks on original geometry, and the
+per-stage tuning it needs; BYOR limiting art to original or locally generated
+work. [I]
 
 ---
 
@@ -661,10 +683,10 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   both modes share one source of truth.
 - **Remastered:** a new C++ module, for example `port/fast3d/remaster/`, with a
   frame orchestrator, the scene (absorbing `scenario_scene_renderer.cpp`), a GPU
-  model cache, materials, clustered lights, shadows, post, effects and sky. It
-  owns its GL objects and restores fast3d's state the way the scene renderer
-  already does (`scenario_scene_renderer.cpp:1562-1607`). [V for the existing
-  pattern]
+  model cache, materials, clustered lights, shadows, post, effects and sky.
+  With bgfx (D2), classic and remastered submit to separate bgfx views on one
+  device, so the hand-written GL state save and restore the scene renderer
+  needs today (`scenario_scene_renderer.cpp:1562-1607` [V]) goes away. [I]
 
 ### 5.5 Inline commands (*proposal*)
 
@@ -694,11 +716,12 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   toggle, with a short hitch. [I]
 - Default mode: remastered on hardware that supports it, classic otherwise.
   (*Proposal*; Mike may prefer classic first.)
-- Capability gate: on an OpenGL path (option A in 5.8), remastered needs a GL
-  4.3 core context with compute and SSBOs, the same gate as the GPU swarm
-  (`swarm_gpu.cpp:1-30`). Otherwise the option is greyed out and classic runs
-  on any context (`gfx_sdl2.cpp:186-200`). [V for the existing gate] Other
-  options in 5.8 have their own gates.
+- Capability gate: with bgfx (D2), remastered needs a backend with compute
+  shaders (D3D11, D3D12, Vulkan, or GL 4.3) [W], [I]; otherwise the option is
+  greyed out and classic still runs. bgfx's GL backend itself needs GL 4.3+
+  ([W]), so today's fallback chain down to GL 3.0 and 2.1
+  (`gfx_sdl2.cpp:186-200` [V]) is replaced by D3D11 on older Windows GPUs
+  (D5). [I]
 - Safety: a scripted smoke runs once per mode and compares gameplay logs, such
   as SHOT_RESULT lines, kills and positions. That needs R3 (separate RNG) to be
   exact. [I]
@@ -722,7 +745,11 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   depth, but only behind a clear, because the viewmodel and fast3d passes must
   not share that buffer. [I]
 
-### 5.8 Engine and graphics API options (open: D2)
+### 5.8 Engine and graphics API options (decided: B, D2)
+
+**Decided 2026-11-16: option B, with bgfx as the working library.** The
+comparison below is kept as the record of the choice; section 0 lists what B
+implies, and R10 (section 6) is the classic port it requires.
 
 What any option has to satisfy:
 
@@ -811,7 +838,9 @@ resources and passes so that a later move to B stays contained.
   well-understood work. [I]
 - Pick **B** instead if D3D12 or Vulkan matters for 2.0 itself, for example
   hardware ray-traced GI or a Linux or Steam Deck build. bgfx is the most
-  MinGW-proven of the libraries above. [W], [I]
+  MinGW-proven of the libraries above. [W], [I] *Correction after D2:* bgfx
+  lists no ray tracing support ([W]), so ray-traced GI is not a reason for B
+  with bgfx; Diligent or NVRHI would be needed for that [I].
 - C and D trade feature work for toolchain and integration risk, and lose
   hybrid frames. [I]
 
@@ -849,6 +878,7 @@ resources and passes so that a later move to B stays contained.
 | R7 | Express legacy effects (sparks, smoke, explosions, shards, beams, wall hits) as declarative presentation records, like `.pdeffect`. | 2.7 | M-L | Medium: effect timing and look. |
 | R8 | **Dropped (D4).** It was a presentation-only archive class kept out of match manifests and mod checks; art packs are now ordinary mods. | Enabled mods go into MP match manifests ([D] `context/designs/connectivity/manifest-architecture.md:21`), and no presentation-only class exists [V search for cosmetic and client-optional flags in `port/include`, `port/src/net` and `context/pillars/modding.md`]. So an enabled pack is distributed like any mod; revisit only if large packs cause problems. [I] | none | none |
 | R9 | A parity harness: the same scripted session in classic before and after R1 and R2, comparing gameplay logs and reference captures; later classic against remastered-neutral. | Needed to make R1 and R2 safe. | M | Low. |
+| R10 | Move classic onto bgfx (D2): fast3d's 35-function backend table on bgfx; the runtime GLSL generator replaced by a combiner uber-shader or a precompiled variant set; ImGui drawn through bgfx, with ImGui textures as bgfx handles; the scene renderer and the other raw-GL users ported; an SDL window without a GL context for non-GL backends; bgfx run single-threaded with SDL. Keep the 1.0 GL backend only until parity is proven, then remove it. | Raw GL calls at `361abab8a` [V]: `gfx_opengl.cpp` 190, `scenario_scene_renderer.cpp` 157, `swarm_gpu.cpp` 65, `meshdebug.c` 51, and 74 across seven pdgui files (skin canvas, character preview, theme, character portrait, modding hub, skin editor, backend), plus `gfx_sdl2.cpp` and ImGui's vendored OpenGL backend (`port/fast3d/imgui/imgui_impl_opengl3.cpp`). `server_gui.cpp` is not in the client build (`CMakeLists.txt:575`). bgfx warns that custom windowing needs care with its multithreaded renderer ([W]). | L-XL | High: classic must stay pixel-identical; R9 captures prove it. |
 
 ---
 
@@ -1206,12 +1236,18 @@ These are *proposals*; each one points at the evidence that motivates it.
     not hand-emitted GBI (2.7).
 11. **Don't widen `GfxRenderingAPI` for remastered features;** it sits below
     the point where objects are known (2.2).
-12. **No new dynamic libraries** (zero-DLL), and load GL 4.3+ features with
-    the swarm pattern (5.8).
+12. **No new dynamic libraries in 1.0** (zero-DLL), and load GL 4.3+ features
+    with the swarm pattern. D6 decides the rule for 2.0.
 13. **Version typed archives** so older clients refuse newer material schemas
     cleanly (8.2).
 14. **Keep the classic path capturable** (reference screenshots and logs), since
     it is the parity baseline (R9).
+15. **No new raw OpenGL outside fast3d's backend.** Under D2 every raw-GL user
+    is port work (R10); route new GPU drawing through fast3d, or keep it in one
+    small, isolated module.
+16. **Create ImGui textures through one helper,** so that switching ImGui
+    textures from GL names to bgfx handles (R10) changes one place instead of
+    seven files.
 
 Two cheap things worth doing in 1.x: R3 (presentation RNG, S) and R6 (stable
 material identity, M). [I]
@@ -1225,9 +1261,8 @@ proposals.*
 
 1. **Toggle granularity. Decided (D1):** one switch, like Halo: Combat Evolved
    Anniversary, with developer-only per-pass overrides for debugging.
-2. **Engine and graphics API, and with it the hardware floor. Open (D2):**
-   options A to D are in 5.8. *Recommend A (our own renderer on OpenGL, GL 4.3
-   floor); B if D3D12 or Vulkan matters for 2.0 itself.*
+2. **Engine and graphics API. Decided (D2):** option B, our own renderer on
+   bgfx, with classic moved onto it (5.8, R10). It raises D5 to D7 below.
 3. **Look on base stages. Decided (D3):** PBR materials and dynamic lighting,
    the full-relight direction.
 4. **Source of remastered art. Partly decided (D4):** the baseline is the
@@ -1250,6 +1285,22 @@ proposals.*
     classic? *Recommend both, through one light schema.*
 11. **Who owns R1** (the `lvRender` split)? It touches gameplay timing across
     every lane and should run during a source freeze with the parity harness.
+12. **D5. Default graphics API on Windows. Open.** (A) D3D11 by default, with
+    GL 4.3 as fallback: bgfx's most widely used Windows path [I], using only
+    DLLs that ship with Windows. (B) D3D12 by default. (C) Vulkan by default,
+    which is also the road to Linux and Steam Deck, but its loader comes with
+    GPU drivers. *Recommend: port classic on bgfx's OpenGL backend first, so
+    parity tests compare like with like, then make D3D11 the default with GL
+    4.3 as fallback, and offer Vulkan as an option if D6 allows it.*
+13. **D6. The no-DLL rule. Open.** (A) Allow graphics DLLs that ship with
+    Windows (`d3d11`, `dxgi`, `d3d12`), loaded at runtime as `opengl32` is
+    today, and patch our copy of bgfx so release builds never try vendor
+    extras (AMD AGS, NVAPI) or RenderDoc. (B) Also allow Vulkan's loader, which
+    GPU drivers install. (C) Keep `opengl32` only, which limits bgfx to its GL
+    backend. *Recommend A, adding B only if Vulkan becomes a goal.*
+14. **D7. Ray tracing. Open.** (A) Not needed for 2.0: keep bgfx, with GI from
+    the probe bake (7.3). (B) Wanted: use Diligent or NVRHI instead of bgfx,
+    accepting weaker MinGW support. *Recommend A.*
 
 ---
 
@@ -1259,7 +1310,8 @@ proposals.*
 |---|---|---|---|
 | 0. 1.x guardrails | Section 9 rules; land B-1172 from core; R3 and R6 if cheap; continue the standard-glTF materials plan. | No new couplings in review; extracted materials carry catalog IDs. | S-M [I] |
 | 1. Separation | R1, R2, R4, R5, R9; snapshot schema and producers for views, rooms, lights, environment, instances and `.pdeffect`. | Classic captures and gameplay logs unchanged; the listen host no longer builds remote views; the snapshot covers every opaque world draw. | XL [I] |
-| 2. Remastered skeleton | Engine and API per D2 with its capability gate; HDR target; `G_REMASTER_PASS_EXT`; the Halo-style switch (D1); rooms in neutral shading; tone mapping. If D2 picks B, classic moves onto the new layer first. | Toggling changes only pixels: gameplay logs identical in both modes, classic captures unchanged. | M-L for A, L-XL for B [I] |
+| 2a. Classic onto bgfx (D2, R10) | fast3d backend on bgfx, the combiner uber-shader, ImGui on bgfx, the scene renderer and other raw-GL users, SDL window and API selection (D5), DLL handling (D6). | Classic is pixel-identical to the 1.0 GL renderer on R9 captures; then the old GL backend is removed. | L-XL [I] |
+| 2b. Remastered skeleton | bgfx views and passes; HDR target; `G_REMASTER_PASS_EXT`; the Halo-style switch (D1); rooms in neutral shading; tone mapping. | Toggling changes only pixels: gameplay logs identical in both modes. | M-L [I] |
 | 3. Objects | GPU model cache, per-instance matrices, visibility and shading; characters, props, viewmodel and attachments; translucency order; opaque instancing. | All models remastered; neutral mode matches classic composition. | L-XL [I] |
 | 4. Lighting, shadows and GI (D3) | Normals; clustered lights; fixtures as real lights bounded by rooms; the per-stage lighting file; cached fixture shadows and sun cascades; the per-light probe bake. One showcase stage first, then the rest. | Mike signs off the showcase stage's look; flash and light-op timing match classic. | XL [I] |
 | 5. Built-in materials (D4) | PBR shading, the built-in derivation, the translator for N64 blends and tints. | Every base stage renders in remastered mode with no packs installed. | M-L [I] |
@@ -1269,11 +1321,13 @@ proposals.*
 | 9. Forge lighting | Shared light schema with Forge F4; optional lightmaps for custom maps. | A custom map lit in both modes. | M-L [I] |
 | 10. Qualification | Fallback hardware, split-screen, listen host, Theater, memory, long sessions. | Release gate. | M [I] |
 
-The whole scope is roughly 12 to 20 months of focused work. A first shippable
-remastered mode (phases 1 to 5 plus AO and bloom) is roughly 9 to 13 months.
-Option B in 5.8 adds 1 to 3 months. All ranges have low confidence. D3 is the
-main reason they grew: a full relight needs GI, static shadows and per-stage
-tuning before it looks right. [I]
+With B (D2), the whole scope is roughly 13 to 23 months of focused work, and a
+first shippable remastered mode (phases 1 to 5 plus AO and bloom) roughly 10 to
+16 months. All ranges have low confidence. D3 is the main reason they grew (a
+full relight needs GI, static shadows and per-stage tuning), and D2 adds the
+classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
+`src/game` against the renderer in `port/fast3d`), so they can run in parallel.
+[I]
 
 ---
 
@@ -1284,6 +1338,8 @@ tuning before it looks right. [I]
 | R1 changes gameplay order | Subtle AI, combat or netplay regressions | Keep the per-player interleave, move statements without reordering, run the R9 parity harness, land it in a freeze. [I] |
 | Two presentation paths drift | Remastered shows a different visible set or placement | Record the snapshot in the same functions that emit classic GBI (3.12); neutral-mode parity captures. [I] |
 | Shared depth and draw space | B-936-style invisible or misordered objects | Draw in the game's draw space (5.7); CORE's matrix probe as a test. [I], [V core] |
+| Classic parity on bgfx (D2) | Classic looks different after the port, the problem Halo's classic mode later had ([W]) | Port on bgfx's GL backend first; check the combiner uber-shader against R9 captures from the 1.0 renderer; keep the old backend until parity holds. [I] |
+| Runtime DLL loads (D2) | bgfx loads graphics DLLs and tries vendor extras at runtime ([W]) | Decide D6; patch our copy of bgfx so release builds drop the vendor extras. [I] |
 | Full relight look (D3) | Base stages look flat or wrong on original geometry | One showcase stage with Mike's sign-off before scaling; calibration as data; GI and AO from the start. [I] |
 | Per-stage tuning time | 20-plus stages each need light calibration | Extractor defaults from the original light data, tuned in data files, budgeted inside phase 4. [I] |
 | BYOR | No shippable remastered base art | Built-in derivation runs locally (D4); packs must be original art. [I] |
@@ -1325,7 +1381,12 @@ tuning before it looks right. [I]
 - Filament on Windows builds with clang or MSVC:
   https://github.com/google/filament/issues/12 and
   https://www.mintlify.com/google/filament/platforms/desktop
-- bgfx licence (BSD-2): https://bkaradzic.github.io/bgfx/overview.html
+- bgfx licence (BSD-2), backends (D3D11, D3D12, Vulkan, OpenGL 4.3+), listed
+  compilers, the multithreaded-renderer note, and no ray tracing listed:
+  https://bkaradzic.github.io/bgfx/overview.html
+- bgfx's D3D11 backend loads `d3d11.dll` and DXGI at runtime and tries AMD AGS
+  and NVAPI:
+  https://raw.githubusercontent.com/bkaradzic/bgfx/master/src/renderer_d3d11.cpp
 - MAME builds with MSYS2 MinGW and bundles bgfx:
   https://docs.mamedev.org/initialsetup/compilingmame.html and
   https://git.redump.net/mame/tree/3rdparty/bgfx/README.md
