@@ -20963,10 +20963,11 @@ s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label)
 	return 1;
 }
 
-/* mp_init_simulants (0x0185): spawns the simulant wave. The command goes on
- * whether the wave completed or not, as the game plays today: the botTick
- * failsafe retries a pending wave (the B-949 guard always skipped the
- * original's "leave the opcode in place" return). The caller moves on. */
+/* mp_init_simulants (0x0185): spawns the simulant wave. Returns 1 once the
+ * wave is complete (the caller goes on) and 2 while it is not (the caller
+ * ends the tick without moving, so the next pass retries the retained wave
+ * cursor; a command that returned false without moving would be skipped by
+ * the B-949 guard, B-1255). */
 s32 scenarioSourceAiGraphExecuteMpInitSimulants(void)
 {
 	enum bot_spawn_wave_result wave;
@@ -20992,7 +20993,7 @@ s32 scenarioSourceAiGraphExecuteMpInitSimulants(void)
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged |= bit;
 	}
-	return 1;
+	return wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : 2;
 }
 
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void)

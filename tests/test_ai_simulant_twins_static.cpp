@@ -54,14 +54,22 @@ TEST_CASE("AI simulant twins: the handlers call the graph twins and keep today's
 		!= std::string::npos);
 	REQUIRE(header.find("s32 scenarioSourceAiGraphExecuteMpInitSimulants(void);") != std::string::npos);
 
-	// mp_init_simulants always goes on: it never stops the tick and never
-	// returns without moving (which the B-949 guard would skip anyway).
+	// mp_init_simulants stays on its command while the wave is incomplete:
+	// it ends the tick without moving (B-1255; returning false without
+	// moving would be skipped by the B-949 guard), and goes on once the
+	// wave is complete, on the twin's path and the native one.
 	const std::string init = functionBody(handlers, "bool aiMpInitSimulants(void)");
-	REQUIRE(init.find("if (!scenarioSourceAiGraphExecuteMpInitSimulants()) {\n\t\tbotSpawnAll();\n\t}")
-		!= std::string::npos);
-	REQUIRE(init.find("g_Vars.aioffset += 2;\n\treturn false;") != std::string::npos);
-	REQUIRE(init.find("return true") == std::string::npos);
-	REQUIRE(init.find("!= BOT_SPAWN_WAVE_COMPLETE") == std::string::npos);
+	const size_t call = init.find("s32 graph_result = scenarioSourceAiGraphExecuteMpInitSimulants();");
+	const size_t stay = init.find("if (graph_result == 2\n\t\t\t|| (graph_result == 0 && botSpawnAll() != BOT_SPAWN_WAVE_COMPLETE)) {");
+	const size_t stop = init.find("return true;\n\t}");
+	const size_t on = init.find("g_Vars.aioffset += 2;\n\treturn false;");
+	REQUIRE(call != std::string::npos);
+	REQUIRE(stay != std::string::npos);
+	REQUIRE(stop != std::string::npos);
+	REQUIRE(on != std::string::npos);
+	REQUIRE(call < stay);
+	REQUIRE(stay < stop);
+	REQUIRE(stop < on);
 
 	// if_bot_respawning: the twin first; B-1254, the native path returns on
 	// a chr without an aibot instead of reading through it.
@@ -109,8 +117,9 @@ TEST_CASE("AI simulant twins: the runtime requires both module nodes and runs th
 	REQUIRE(init.find("wave = botSpawnAll();") != std::string::npos);
 	REQUIRE(init.find("\"SCENARIO.GRAPH: AI action mp_init_simulants wave=%s "
 		"source=%s backend=graph.ai.action.simulant+ai/ailists.json\"") != std::string::npos);
-	// The twin never moves the cursor; the handler goes on.
+	// The twin never moves the cursor: 1 goes on, 2 stays.
 	REQUIRE(init.find("aioffset") == std::string::npos);
+	REQUIRE(init.find("return wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : 2;") != std::string::npos);
 }
 
 TEST_CASE("AI simulant twins: every level graph carries both module nodes",

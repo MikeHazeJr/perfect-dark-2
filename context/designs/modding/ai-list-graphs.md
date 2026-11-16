@@ -211,20 +211,24 @@ slices 3-4 not built. The facts below come from a read-only survey of
   false. The native handler read `aibot` through a null pointer in that case
   (the original's missing return); it now returns too (B-1254). Each branch
   outcome is logged once per stage (`... branch=0` and `... branch=1`).
-- `mp_init_simulants`: built as the game plays today, which differs from the
-  "stays on its command" in "Fail closed" above. The original returned
-  without moving while the wave was incomplete ("leave the opcode in place"),
-  but on PC the B-949 guard skips any command that returns without moving, so
-  the command has always gone on; the botTick failsafe retries a pending wave
-  from its retained cursor. Staying would also change a networked client: in
-  a multiplayer match its background chrs run list 0x1000 too (only co-op and
-  counter-op suppress non-simulant AI on a client), so its `rebuild_teams`
-  and `rebuild_squadrons` would wait until its own wave completes. The twin
-  and the native handler call `botSpawnAll()` and go on, complete or not;
-  each wave result is logged once per stage (`wave=complete`, `pending`,
-  `invalid`). Whether a pending wave should hold the list is MULTIPLAYER's
-  call; it is one line in each, and the shadow walk would then need a stop
-  in place for 0x0185, as for `set_camera_animation`.
+- `mp_init_simulants`: MULTIPLAYER's semantics, which are also what the
+  B-174 spawn wave was written for (`tests/test_combat_sim_defect_cohort.cpp`
+  pins it). The twin calls `botSpawnAll()`; once the wave is complete the
+  command goes on, and while it is not the entity's tick ends with the
+  cursor on the command, so the next pass retries the retained wave
+  cursor. The native handler does the same. B-1255: it used to return
+  false without moving ("leave the opcode in place"), which the B-949
+  guard skips, so the retry never ran from the AI list and
+  `rebuild_teams` and `rebuild_squadrons` ran before the wave completed;
+  only the host's botTick failsafe retried. The shadow walk accepts a stop
+  in place for 0x0185, as for `set_camera_animation`. Each wave result is
+  logged once per stage (`wave=complete`, `pending`, `invalid`). For
+  MULTIPLAYER: a networked Combat Simulator client runs list 0x1000 too
+  (its background chrs run their AI; only co-op and counter-op suppress
+  non-simulant AI on a client), so the client calls `botSpawnAll()` and
+  now holds its `rebuild_teams` until its own wave completes; its botTick
+  failsafe never runs. If a client should not spawn at all, the twin can
+  go on without spawning on `NETMODE_CLIENT`.
 - Pins: `tests/test_ai_simulant_twins_static.cpp`.
 
 ## Not in scope

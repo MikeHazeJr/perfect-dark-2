@@ -280,10 +280,12 @@ ai_edge_shadow_verdict_t aiEdgeShadowClassify(const ai_edge_shadow_node_t *node,
 			return next >= 0 && outcome->to == next
 				? AI_EDGE_SHADOW_AGREE : AI_EDGE_SHADOW_DIFFER;
 		}
-		/* end, and set_camera_animation whose cutscene cannot start, end
+		/* end, set_camera_animation whose cutscene cannot start and
+		 * mp_init_simulants whose simulant wave is incomplete end
 		 * the tick where they stand. */
 		if ((node->flags & AI_LIST_NODE_ENDS)
-				|| node->opcode == AI_EDGE_SHADOW_OP_SET_CAMERA_ANIMATION) {
+				|| node->opcode == AI_EDGE_SHADOW_OP_SET_CAMERA_ANIMATION
+				|| node->opcode == AI_EDGE_SHADOW_OP_MP_INIT_SIMULANTS) {
 			return outcome->to >= 0 && (uint32_t)outcome->to == node->index
 				? AI_EDGE_SHADOW_AGREE : AI_EDGE_SHADOW_DIFFER;
 		}

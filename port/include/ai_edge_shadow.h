@@ -31,6 +31,9 @@ extern "C" {
 /* set_camera_animation ends the tick without moving when its cutscene cannot
  * start; that is its documented stop. */
 #define AI_EDGE_SHADOW_OP_SET_CAMERA_ANIMATION 0x0111
+/* mp_init_simulants stays on its command while the simulant wave is
+ * incomplete (B-1255): it stops where it stands, as above. */
+#define AI_EDGE_SHADOW_OP_MP_INIT_SIMULANTS 0x0185
 
 /* Log caps per counter period (aiEdgeShadowResetCounters). */
 #define AI_EDGE_SHADOW_LOG_DIFFER_MAX    32

@@ -322,6 +322,33 @@ TEST_CASE("AI edge shadow: yields, ends and the camera stop", "[ai][edges][shado
 	CHECK(classifyAt(t, 3, STOPPED, 3) == DIFFER);
 }
 
+TEST_CASE("AI edge shadow: mp_init_simulants stays on its command while the wave is incomplete",
+		  "[ai][edges][shadow][simulant]")
+{
+	// A multiplayer stage's background list 0x1000: mp_init_simulants,
+	// rebuild_teams, rebuild_squadrons, set_list (CHR_SELF), end.
+	const std::vector<Cmd> list = {
+		{AI_EDGE_SHADOW_OP_MP_INIT_SIMULANTS, {}},
+		{0x0145, {}},
+		{0x0146, {}},
+		{SET_LIST, {AI_LIST_CHR_SELF, 0x00, 0x00}},
+		{END, {}},
+	};
+	const std::vector<uint8_t> bytes = layOut(list);
+	TablePtr table(build(list, bytes.data(), 0x1000));
+	REQUIRE(table.get() != nullptr);
+	const ai_edge_table_t *t = table.get();
+
+	// B-1255: an incomplete wave ends the tick where it stands; a
+	// complete one goes on to rebuild_teams.
+	CHECK(classifyAt(t, 0, STOPPED, 0) == AGREE);
+	CHECK(classifyAt(t, 0, STOPPED, 1) == DIFFER);
+	CHECK(classifyAt(t, 0, WENT_ON, 1) == AGREE);
+	CHECK(classifyAt(t, 0, WENT_ON, 2) == DIFFER);
+	// Other commands of the list still may not stop.
+	CHECK(classifyAt(t, 1, STOPPED, 1) == DIFFER);
+}
+
 TEST_CASE("AI edge shadow: branches taken and not, gotos and restarts", "[ai][edges][shadow]")
 {
 	const std::vector<uint8_t> bytes = layOut(sampleList());
