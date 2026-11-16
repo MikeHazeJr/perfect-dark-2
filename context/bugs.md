@@ -1,5 +1,468 @@
 # Bug Tracker
 
+## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
+
+Severity high (engine-wide on PC). `Gtri` in `include/PR/gbi.h` had no
+`PLATFORM_64BIT` padding. On 64-bit each `Gwords` word is 8 bytes, so w1
+starts at byte 8, but `Gtri.tri` sat at bytes 4..7, the zero upper half of w0:
+every `gdl->tri.tri.v[...]` read 0. `Gtri4` (PD's four-triangle command) was
+already padded (`pad2[4]`), so stock ROM models, which draw with G_TRI4, were
+fine. Generated models (the mod asset compiler emits `gSP1Triangle` only)
+lost every triangle in the readers that decode G_TRI1: `bgTestHitOnChr`
+(projectiles into characters, and single-player bullets, which use the
+precise test; multiplayer bullets use the cheap box test), the room hit tests,
+`meshWorldAddRenderedRoom`, the x-ray room renderer and `texLoadFromGdl`. The
+readers skip an all-zero triangle without a word, so it never showed in a log.
+Found by `crystal_pistol_bot_embed_smoke`: crystals passed within 12 units of
+an on-screen bot whose bounding boxes they hit, and the triangle test
+(`BONDGUN.PROJECTILE.CHRWALK`: generated body, owned display lists, vertices
+present) found nothing. Fix: the same 4-byte pad before `Tri tri` on 64-bit
+little-endian; a unit test decodes `gSP1Triangle` and G_TRI4 words through
+the union. Pattern: SP-83.
+
+## 2026-11-15 B-1211 Bots never used mod weapons: public weapons had zeroed bot preferences (T-MODDING-008)
+
+Severity high (every `.pdweapon` weapon in a match with simulants). The public
+weapon adapter (`loaderPoolInstallPublicWeaponAdapter`, `port/src/loader_pool.c`)
+zeroed the weapon's `aibotweaponpreference` apart from the reload delay.
+`botinvTick` only considers a function whose `haspriammogoal`/`hassecammogoal`
+bit is set, so a bot spawned with a mod weapon (the spawn weapon arms bots too)
+switched to unarmed at once: bots never fired the crystal pistol or the
+Needler. The last report's "bots throw single mines" was read from code, never
+seen. Fix: `s_publicWeaponBotPrefsBuild` derives defaults until the format
+carries bot preferences (CORE): each executable function usable, scored like
+a mid pistol, attack range by function kind (a committed charge at explosive
+range), no ammo goals for a self-loading magazine, reload delay = the full
+regrow. Two follow-on gaps fixed with it (`botact.c`, `botinv.c`): a
+self-loading magazine counted as empty once fired, so the bot would drop the
+gun until it regrew, and a switch between two functions that share one
+self-loading magazine refilled it from nothing (the native switch returns the
+rounds to a reserve and reloads). Bots now report such a magazine as always
+full, and keep its rounds across the switch. Two more found reading the bot
+fire path (`bot.c`, `botact.c`): a mod weapon's shot has no recoil animation,
+so `botactGetShootInterval60` gave 0 and a bot would fire every frame (all six
+crystals in a tenth of a second); it now uses the function's recovery time,
+else 15 ticks. And a bot fires a "regular" weapon only with rounds loaded, so a
+mod function with no magazine (the Needler's, which fires without ammo per
+B-1151) would never fire; `botactFiresWithoutAmmo` lets it. Pattern: SP-37.
+
+## 2026-11-15 B-1210 The world mesh grid drops triangles past its 128-cell cap (T-MODDING-008, found, not fixed)
+
+Severity low today (only stages wider than 32768 units on an axis). Found by
+the B-1189 unit test. `meshWorldFinalize` (`src/lib/meshcollision.c`) caps the
+grid at `MESHGRID_MAX_DIM` (128) cells of 256 units per axis and clamps each
+triangle's cell range with `if (cx1 >= cellsx) cx1 = cellsx - 1` but leaves
+`cx0`/`cz0` unclamped, so a triangle wholly past the cap gets `cx0 > cx1` and
+is listed in no cell. Grid queries (`meshFindFloor`, `meshFindCeiling`, the new
+`meshGridRayCast`) cannot see it; `meshFindFloor` also skips lookups past the
+cap. `meshGridRayCast` falls back to testing every triangle on a capped grid.
+Proper fix for CORE: size cells to the stage (or clamp both ends and the
+lookups), then drop that fallback.
+
+## 2026-11-15 B-1189 Shots, splats and spawn checks ignored walls on scenario-source stages (T-MODDING-008)
+
+Severity high (every multiplayer arena; Mike asked for it to be fixed). The
+B-1187 pattern in the other `bgTestHitInRoom` callers: on a scenario-source
+stage no room has vertex batches, so the player's hitscan never registered a
+background hit. In MULTIPLAYER's smoke logs every player shot is
+`COMBAT: SHOT_RESULT MISS` (16 of 16, 28 of 28), never `HIT_BG`: shots went
+through walls and floors (no wall hits or sparks; props behind walls could be
+hit). The same gap left blood splats without walls, made every spawn-pool
+candidate look open (its clearance rays never hit), and the `gfxdata` guard in
+`explosions.c` skipped every scorch mark. Fix: `bgTestHitScenarioMesh`
+(`bg.c`) answers from the world collision mesh through a new grid-walked,
+flag-masked ray cast (`src/lib/meshraygrid.c`, `meshRayCastWorldMasked`).
+Shots, splats and sticky projectiles stop at floors and `BLOCK_SHOOT`
+surfaces, so they pass movement-only clip walls (50 on Felicity, 82 on
+Complex) as native render-geometry hits did; spawn clearance uses every
+surface. The Farsight's x-ray mode still skips the whole background test and
+shoots through walls. Callers: `shotCalculateHits`, `shotTestLos` (`prop.c`),
+`splat.c`, `spawnpool.c` (2), the sticky test in `propobj.c`; scorch marks are
+allowed without `gfxdata`. Hits carry texture -1 (default surface sound,
+sparks and bullet holes).
+
+## 2026-11-15 B-1188 Spent mod rounds lying on the floor were collected as the whole weapon (T-MODDING-008)
+
+Severity medium (mod weapons with a self-loading magazine). Found by
+`crystal_pistol_mine_bot_smoke`: crystal mines that came to rest next to a
+bot vanished without arming (`freed ... landed=0 timer240=-1`). Bots and
+players pick up any weapon object unless it carries
+`OBJFLAG_UNCOLLECTABLE` (`bot.c` pickup filter, `objTestForPickup`). Native
+mines are protected by a weapon-number rule (`timer240 >= 0`); custom weapons
+only by a sticky-device entity's `sticky_pickup_policy none`. So a resting
+crystal or crystal mine was collected as the crystal pistol plus ammo, by a
+bot passing by and by its owner, whom the owner's own mines ignore. Fix:
+`weaponCreateProjectileFromGset` marks projectiles of a mod function whose
+ammo slot is self-loading (`bgunModGsetFiresSpentRounds`) uncollectable:
+they are spent rounds with no reserve to refill. Open for MODS/CORE: custom
+deployables with a reserve (a mod mine weapon) still have no "not while
+deployed" pickup rule like the native mine list.
+
+## 2026-11-15 B-1187 Sticky projectiles fell through floors on scenario-source stages (T-MODDING-008)
+
+Severity high (every sticky projectile on every stage whose background comes
+from a scenario source, which includes the multiplayer arenas: mines, bolts,
+knives, laptop guns, mod crystals). Found by the crystal pistol smokes:
+crystals fired at Felicity's floor fell through it and left the world, and
+mines fired at the floor dropped through the bounce fallback instead of
+sticking. `func0f06cd00` (`propobj.c`) tests a sticky projectile's path with
+`bgTestHitInRoom` for loaded rooms and `cdExamLos09` for unloaded ones. On a
+scenario-source stage `bgLoadRoom` only marks a room loaded and never builds
+its vertex batches, so `bgTestHitInRoom` never hits, and `cdExamLos09` only
+checks walls (`GEOFLAG_WALL | BLOCK_SIGHT | BLOCK_SHOOT`). Net effect: sticky
+projectiles hit only walls of rooms that were off screen. Fix: on such a
+stage, with the world collision mesh built, the hit test ray-casts it
+(`meshRayCastWorld`; the stage's collision tiles are compiled from the same
+mesh) and faces the normal toward the projectile; ROM-background stages keep
+the native path. New `bgIsScenarioSource()`. Cost: one brute-force mesh ray
+per sticky projectile per tick (3785 triangles on Felicity); a grid walk
+would cut it if many projectiles fly at once.
+
+## 2026-11-15 B-1186 The forced first-person look put the camera 159 units too high (T-MODDING-008)
+
+Severity low (smoke tooling only; no shipped path uses it). Found when the
+crystal pistol smokes that use `--debug-force-first-person-look` fired
+crystals from 130 units above the camera: they started inside or above the
+ceiling, never touched the room geometry and flew out of the world
+(`freed ... at=(986,-18082,32319) landed=0`). `bootDebugForceFirstPersonPreRenderTick`
+(`port/src/main.c`) built the forced camera position as the player prop
+position plus `vv_eyeheight`, but the player's prop already sits at eye
+height (spawns place it at ground + `vv_eyeheight` in `player.c`), so the eye
+height was counted twice. Since shots, muzzle positions and the bot placement
+hook all derive from the forced camera, every gameplay check under a forced
+look ran from the wrong place. Fix: the prop position is the camera position.
+Only the crystal pistol smokes use the flag (it was added for screenshots in
+957ad3a2), so no other fixture moves.
+
+## 2026-11-15 B-1185 A held mod gun with six or more display lists overwrote the hand's data (T-MODDING-008)
+
+Severity high (silent memory corruption; latent until a mod gun has enough
+parts). Found reading the code before building the crystal pistol's part
+layout. The held gun model's per-node runtime data (rwdata) lives in
+`struct hand` `unk0a6c[32]` (`src/include/types.h`), and `modelInit` writes
+`rwdatalen` words into it without a check (`src/game/bondgun.c`, the
+`bgunTickMasterLoad` init loop). ROM guns fit because their GUNDL nodes cost
+no rwdata, but the mod mesh compiler emits DL nodes (type 24), which cost 6
+words each on x64 (three pointers), plus 1 per toggle. A mod gun with six or
+more display lists overran into `handsavedata` and then `handmodel`. Related:
+`bgunSetPartVisible` and the muzzle-flash collector wrote a toggle's word for
+any node under the part number, toggle or not.
+Fix on `week-pd/crystal-pistol`: a held model larger than `unk0a6c` gets a
+per-player, per-hand side buffer of 1024 words (`bgunHeldRwdataFor`); one larger
+than that is not drawn (logged `BONDGUN.MODEL: ... (B-1185)`). Toggle writes go
+through `hand->gunmodel.rwdatas` and only for TOGGLE nodes. The crystal pistol
+is laid out to fit the original 32 words (27: one DL per look, crystals bound to
+their seat matrices) and its smokes forbid the B-1185 log line.
+
+## 2026-11-15 B-1184 Sixteen input actions had no saved name, so the bindings file broke after the first launch (T-MODDING-008)
+
+Severity high (binding saves refused). Found by the input survey for the new
+gun roll actions. `s_ActionNames` (`port/src/actionmap.cpp`) stopped at action
+104, but actions 105-120 (menu skip, dev hotkeys, GPU swarm toggle, vehicle
+look, handbrake and use) were added later without names. Their pd.ini keys
+registered as `(null)` (`configLoad: malformed keyvalue line: (null)=E` in
+old logs), and writing the complete bindings file stopped at the first unnamed
+row (a bare `gameplay.`), so the next launch refused the file and blocked every
+later binding save ("The current binding file is invalid").
+Fix: names for 105-120 (`MenuSkipUp` ... `VehicleUse`) and the new gun roll
+actions (121-122); the table is now unsized with a `static_assert` that it has
+exactly `ACTION_COUNT` names, so a new action without a name no longer builds.
+An existing file written by an affected build is still refused once (it really
+is truncated); loading a profile or deleting `input-bindings.ini` replaces it.
+
+## 2026-11-15 B-1183 Dying while holding a mod weapon crashed the game (T-MODDING-008)
+
+Severity high (crash in ordinary multiplayer). Found re-running the Needler
+viewmodel fixture with a wait for gameplay on the B-1180 client: the twelve bots
+killed the player at about 65 s, the held Needler was dropped as a physics
+object, and the client crashed in `projectileFall` (`src/game/propobj.c`, the
+`bbox->xmax` read after `objFindBboxRodata`; backtrace via addr2line). A
+modeldef built from an author source hierarchy (`model.nodes.json`) gets a
+bounding box only if the hierarchy lists one; the flat source path always adds
+one, extracted models list their own, and base weapons drop a separate world
+model that has one, but a mod weapon's single model is also its dropped and
+pickup object. Not caused by B-1180 to B-1182 (drop physics untouched).
+Fix on `week-pd/crystal-pistol`: `generatedModeldefEnsureHierarchyBounds`
+(`port/src/modasset_compiler.c`) links a bounding box from the mesh bounds under
+the root when a skeleton-less, non-character hierarchy has none. Extracted models
+(native skeletons) are untouched. Verified on the branch client (shared base 3,
+single process, `--portable`): the Needler fixture with twelve bots played 52
+death screams in 30 s of combat and passed 21/21 with no crash; the same fixture
+on the client without this fix crashed after 15. Static pin `[b1183]`.
+
+## 2026-11-15 B-1180 A held mod gun drew without depth testing (T-MODDING-008)
+
+Severity high (every mod weapon's first-person model draws wrong). Found
+running the Tripo-built Maian crystal pistol model (test mod
+`dev-mods/crystal_pistol`, OBJ + texture, render class 0) in game on shared
+base 3: the gun loaded and rendered, but far-side parts (the muzzle bezel,
+the barrel crystal, inner faces) showed through the body. With every material
+set to `pd_render_class = 3`, which makes the generated display list emit
+`G_RM_AA_ZB_OPA_SURF`, the same model drew clean and matched the expected
+180-degree pose. Cause: `bgunRender` (`src/game/bondgun.c`) set
+`renderdata.zbufferenabled = false` for any skeleton-less generated gun model
+(added in 957ad3a2 with no recorded reason). Generated display lists for
+author meshes set combine and geometry state but inherit the node's render mode,
+which `modelApplyRenderModeType1` makes non-z-buffered when that flag is off,
+so the whole gun drew in triangle order without depth. This is also why held
+mod models looked turned about 225 degrees (MODS stand-in runs): with no depth,
+near and far sides swap visually; the pose is the native 180 degrees.
+Fix on `week-pd/crystal-pistol`: the exception is removed; every held gun is
+drawn with the z-buffer. The static pin in
+`tests/test_mod_external_archive_static.cpp` now requires the exception's absence.
+Verified: the unmodified crystal pistol test mod passes
+`crystal_pistol_viewmodel_smoke` 28/28 and its captures show a clean, depth-correct
+gun pointing into the screen; the Needler still renders solid.
+
+## 2026-11-15 B-1181 A mod weapon whose activation failed was still equipped, and the game crashed (T-MODDING-008)
+
+Severity high (crash). Found with the crystal pistol test mod: its
+`function.empty` secondary made the public weapon adapter fail (B-1182), the
+manifest rolled the weapon back and cleared its custom slot (zeroed: no aim
+settings, no functions), but match setup kept the user-picked spawn weapon
+(`SETUP: user-picked spawn weapon ... preserved`), the player was given and
+equipped slot 86, and the first gun tick dereferenced the null aim settings in
+`bgunSwivelWithDamp` (`bondgun.c`, backtrace via addr2line). Nothing checked that
+a weapon id named an installed definition. Fix on `week-pd/crystal-pistol`: new
+`catalogManagerWeaponIsUsable` (`port/src/catalog_mgr_weapons.c`; every installed
+definition, from the loader pool, the public adapter or the v2 runtime, carries
+aim settings); `bgunEquipWeapon` equips unarmed instead of an unusable id (it is
+the funnel for every equip path), `invGiveSingleWeapon` and `invGiveDoubleWeapon`
+refuse it, and the spawn pick in `setup.c`, `player.c` and `bot.c` falls back to
+the weapon set instead of keeping it, each with a warning naming B-1181.
+Verified with a test-mod variant whose functions use `ammo_slot` 5: the adapter
+rejects it, setup logs `picked spawn weapon ... has no installed definition`,
+the player spawns with the Falcon 2 and the match runs to a clean exit.
+
+## 2026-11-15 B-1182 The mod weapon adapter rejected function.empty, which base weapons and conformance accept (T-MODDING-008)
+
+Severity medium (a valid archive fails to load; with B-1181 it crashed).
+`function.empty` is how every extracted base weapon writes a missing secondary
+(`function_type: none`, `source: empty_slot`), and
+`tools/asset_archive_conformance.py` accepts it, but
+`s_publicWeaponFunctionBuild` (`port/src/loader_pool.c`) treated the valid held
+function as an unsupported function type 0 and failed the whole adapter. Fix on
+`week-pd/crystal-pistol`: new inline `weaponGraphHeldFunctionIsExecutable`
+(`port/include/weapon_graph_runtime.h`) treats a function.empty slot as absent;
+the adapter installs a NULL native function for it, as base weapons have, and
+counts only executable functions. Behavioural test: a graph with a hitscan
+primary and a function.empty secondary compiles, registers, and only the primary
+is executable. Verified in game: a test-mod variant with a function.empty
+secondary installs (`PUBLIC_ADAPTER: installed ... funcs=1`) and renders.
+
+## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
+
+Severity high for Capture the Case (the mode cannot be played as designed),
+medium for King of the Hill and Hold the Briefcase. Found by the propagation
+check for B-1125; same root cause. These scenarios take their places from the
+arena's intro commands, which the extracted arenas do not carry (see B-1125):
+- Capture the Case: each team's case goes on its `INTROCMD_CASE` home pad and
+  its players respawn on `INTROCMD_CASERESPAWN` pads. With none,
+  `spawnpadsperteam[].homepad` stays -1 and `ctcInitProps` places every case on
+  pad -1, so `setupCreateObject` creates it off-world: there is no case to take,
+  and no base room. `mp_capture_the_case_local_smoke` still passes (25/25,
+  2026-11-15) because it asserts only the match lifecycle.
+- King of the Hill: hills are `INTROCMD_HILL` pads. With fewer than two,
+  `kohInitProps` and the hill move in `kohTick` both use pad 0, so the hill is
+  always the room of pad 0 and never moves (no crash: both paths guard
+  `hillcount >= 2`).
+- Hold the Briefcase: `htbCreateToken` replaces a random multiplayer ammo crate,
+  else a random case pad, else pad 0. With neither, the briefcase starts and
+  respawns on pad 0 in every match.
+Fix options: (1) CORE carries the intro CASE, CASERESPAWN and HILL commands
+through extraction and the runtime intro builder (restores the original
+places on every arena; asked in the week note); (2) the walkable-pad fallback
+from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
+how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
+
+## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
+
+Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,
+Complex, three simulants, shared base 2, build 77049d63; receipt
+`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T001057Z.json`)
+crashed in `scenarioInitProps` right after the simulants spawned:
+`EXCEPTION 0xc0000094` (integer divide by zero) at
+`htmInitProps`, `src/game/mplayer/scenarios/hackthatmac.inc:305`
+(`rand = rngRandom() % data->numpads;`, symbolized with addr2line). Not B-1113:
+the rerun on shared base 3 with `week-pd/extract-2` merged crashes the same way
+(`results-20261115T005428Z.json`).
+
+Cause. Hacker Central puts its terminal and its data uplink on pads from a
+bank: the arena's Capture the Case pads (`INTROCMD_CASE` and
+`INTROCMD_CASERESPAWN`, added by `scenarioReset`) plus the
+`MODEL_MULTI_AMMO_CRATE` crates among the active props (setup objects are
+created before `scenarioInitProps`). It picks `htmNumProps()` (2) distinct
+entries. An empty bank divides by zero; a bank with fewer usable entries than
+that never leaves the inner `do ... while (padnum <= 0)`. The extracted arenas
+carry neither source (an extraction-output gap, CORE's area):
+- No setup objects on 16 of 18 arenas: in shared base 3,
+  `base_scenario_mp_*.pdscenario` has an empty `objects.json` (60 bytes) and
+  `setup.fields.json` (`"rows": []`) for all but Ravine and Sewers. Complex
+  allocates `numobjs=2` (the training stage before it: 254). So those arenas
+  also have no weapon, ammo or shield pickups (`WEAPON_MPLOCATION00`..`15` and
+  the crates are setup objects); the spawn-with-weapon fallback hides that.
+- No intro case or hill pads on any arena: the extractor
+  (`s_buildIntroSpawnsTable`, `port/src/romextract_pdarena.c`) writes only
+  `INTROCMD_SPAWN` rows to `spawns.json` (and those rows are empty on all 18
+  arenas), and `port/src/scenario_source_runtime.c` rebuilds the intro script
+  from `spawns.json` alone. Spawns work only through the waypoint fallback in
+  `playerReset` (`SPAWN: populated 24 spawn points from 144 navmesh waypoints`).
+Asked CORE in the week note. Same class: B-1126, SP-80.
+
+Fix (Mike, 2026-11-15: "can we place some so there are enough?"):
+- `htmTopUpBank`: when the bank has fewer distinct usable pads than the mode
+  needs, fill it to `HTM_FALLBACK_BANK_PADS` (8) with walkable pads. Candidates
+  (`scenarioFallbackPads`, `src/game/mplayer/scenarios.c`) are the arena's
+  navigation waypoints, the source the spawn fallback uses, or every pad in a
+  room when there are none; a pad must be in a room (room > 0, the condition
+  under which `setupCreateObject` places an object) and not on a lift. The
+  pure picker `scenarioPadPickSpaced` (`port/src/scenario_pad_fallback.c`)
+  shuffles the candidates once with `rngRandom` and takes pads at the widest
+  spacing that reaches the target (1000, 500, 250, 125, then 0 units), never a
+  pad twice and never one the bank already has. A bank that is already big
+  enough is left alone, so full arenas keep the original placement and random
+  sequence.
+- The selection loop asks for at most as many picks as the bank has usable
+  entries, and a terminal with no pad is skipped with an error instead of being
+  created off-world.
+- The uplink, when no crate is left to replace, takes only bank entries that
+  are still pads and not under the terminal. The original took any entry,
+  including the -1 the terminal selection leaves, so the uplink was created
+  off-world and `htmTick` created it again (a new prop each try) until a pick
+  landed on a real pad. When no entry is left it uses the pad the selection
+  reserved for the uplink, else pad 0 as before.
+- `scenarioCreateObj` returns NULL instead of activating a NULL prop when the
+  pad is in no room or the model fails to load.
+- Logs: `HTM: bank had N usable pad(s) of 2 needed; added M walkable pad(s)`,
+  `HTM: terminal 0 placed pad=P prop=ok`, `HTM: uplink placed pad=P source=...`.
+Tests: `tests/test_scenario_pad_fallback.cpp` (12 cases).
+`mp_hacker_central_local_smoke` now also requires the terminal and the uplink
+on real pads and forbids the no-pad errors.
+
+Verified 2026-11-15 on 86de8e08 (shared base 3, Complex, three simulants):
+`mp_hacker_central_local_smoke` PASS 31/31
+(`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T023803Z.json`).
+The log shows `SCENARIO.PADS: HTM fallback added 8 of 8 pad(s) from 144 waypoint
+candidate(s), existing=0`, `HTM: terminal 0 placed pad=104 prop=ok` and one
+`HTM: uplink placed pad=114 source=bank prop=ok` (no re-creation), and the match
+ran to its 40 second time limit with all four participants in the result.
+pd-tests 1896 cases green.
+
+## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
+
+Severity high (test isolation; it writes the user's real data). Found on the
+first run of `mp_combat_net_bots_smoke`: both game processes logged
+`save dir: C:/Users/mikeh/AppData/Roaming/perfectdark`, loaded and saved
+`playerstats.json` there, and the real profile's `pd.ini` and `playerstats.json`
+carry the run's timestamps (2026-11-14 17:44 local), as do new files under its
+`mod-cache`. Cause: `tools/smoke-verify/run.ps1` (multi-process launch, about
+line 1741) adds `--basedir/--savedir/--moddir/--debug-home-path` only when a
+fixture sets `separate_process_installs`; the single-process path always passes
+`--savedir`. A fixture whose processes share one install and pass neither
+`--portable` nor `--savedir` therefore falls back to the game's default save dir
+(`fsInit`, `port/src/fs.c`: `$H` = `%APPDATA%/perfectdark` on Windows). Seven
+fixtures did: `listen_host_match_smoke`, `listen_host_peer_smoke`,
+`mp_combat_net_bots_smoke`, `network_coop_stage_transaction_smoke`,
+`network_counterop_stage_transaction_smoke`,
+`network_stage_player_rollback_smoke`, `ready_gate_settings_rollback_smoke`.
+Every run of them on this machine, by any session and through any checkout's
+runner, read and rewrote the real profile; MULTIPLAYER's own runs today include
+three through CORE's runner (B-1120 investigation) and two through its own.
+The profile was NOT restored or edited by any session; that is Mike's call.
+Fix on `week-pd/multiplayer`: both processes of those seven fixtures start with
+`--portable` (base and save dir from the executable, which is inside the run's
+install, so data resolution is unchanged); new
+`tools/tests/test_smoke_fixture_isolation.py` (CI step) fails on any fixture
+with a `processes` list that has neither `separate_process_installs` nor
+`--portable`/`--savedir` on every process. Asked of CORE (runner owner): make
+the runner itself refuse or isolate such a launch, so a fixture cannot reach the
+real profile again.
+
+## 2026-11-14 B-1123 Three C++ menu files declared C functions and an array with the 1-byte C++ bool (T-NETWORKING-011)
+
+Severity medium (latent: no wrong value today). Class: SP-75. The pdgui menu
+files avoid `types.h` and declare the game functions they call themselves, in
+`extern "C"` blocks. There `bool` is the one-byte C++ keyword, while the C
+definitions use the project `bool` (`s32`): `pdgui_menu_mainmenu.cpp` declared
+`extern bool g_PlayersWithControl[]` (C++ indexed it with a 1-byte stride over
+4-byte elements) and `void lvSetPaused(bool)`; `pdgui_menu_solomission.cpp`
+declared `bool isStageDifficultyUnlocked(s32, s32)`; `pdgui_menu_botsetup.cpp`
+declared `bool mpIsParticipantActive(s32)`. Today every value is 0 or 1, the
+C++ code touches only element 0 of the array, and the calls pass constants, so
+nothing misbehaves; element 1 to 3, or any non-0/1 value, would. Found by the
+symbol check added to `tools/bool_layout_audit.py` (it compares every named
+`bool` function and global across all files: 1,579 in the client, these 4
+disagreed; a header-only check cannot see declarations made inside a source
+file). Fix on `week-pd/multiplayer`: the four declarations are spelled `s32`.
+
+## 2026-11-14 B-1122 keygen.ps1 garbles the non-ASCII text of updater_pubkey.h on every run (tooling, for CORE)
+
+Severity low (comment text only; the key bytes are right). `devtools/keygen.ps1`
+reads `port/include/updater_pubkey.h` with `Get-Content -Raw`, which in Windows
+PowerShell 5.1 decodes a BOM-less file with the ANSI code page, then writes it
+back as UTF-8. Each run re-encodes every non-ASCII character once more: the em
+dash in the trust-properties comment is already one round garbled at HEAD
+(`â€”`) and a fresh worktree's first build (keygen runs when
+`dev-keys/ed25519-private.pem` is missing) turned it into `Ã¢â‚¬â€` and left
+the tracked header modified. Fix: read with `-Encoding UTF8` (or
+`[IO.File]::ReadAllText`) and restore the comment to plain ASCII `--`. Found by
+MULTIPLAYER; handed to CORE as the tooling owner. Workaround: do not commit the
+build's change to that header (`git checkout -- port/include/updater_pubkey.h`).
+
+## 2026-11-14 B-1121 Project `bool` had two widths in 28 C files and 291 header declarations (T-NETWORKING-011)
+
+Severity high (latent; B-1120 was the instance that broke matches). Class:
+SP-75. After B-1120, the full audit (`tools/bool_layout_audit.py`, every client
+translation unit preprocessed with its own flags) still found 28 C files where
+`<stdbool.h>` turned project `bool` (`s32`) into the 1-byte `_Bool` partway
+through, and 291 header declarations seen with both widths: 290 prototypes,
+globals and typedefs (for example `sndIsMp3`, `modelTickAnim`,
+`g_NetLocalBotAuthority`) and one struct member (`player.h`
+`player_orchestrated_spawn_plan.prepared`, unused by the two files that saw it
+1-byte). Minority views: `main.c` 241 sites, `smoke_harness.c` 142,
+`pdgui_charpreview.c` 22, `modasset_compiler.c` 22, `modmgr.c` 15,
+`assetcatalog_api.c` 2, `netmanifest.c` 1, `romdata.c` 1, and `netmsg.c`, which
+called `netManifestTypeAcceptsCatalogAsset` with an `int` return while its
+definition returned `_Bool` (only the low byte is defined). Sources: the four
+headers `native_write_policy.h`, `net/net_manifest_type.h`, `catalog_checked.h`,
+`bondgun_cache.h`; seven C files with their own `#include <stdbool.h>`; the
+fast3d `gfx_api.h`; ENet (contained by `net/netenet.h`). Root fix on
+`week-pd/multiplayer`: no project code includes `<stdbool.h>`; shared headers
+spell boolean results `s32`; C files built without the precompiled header
+include the new `port/include/pd_bool.h`; the five gfx headers keep a scoped
+one-byte `bool` (push_macro, `_Bool` in C, keyword in C++, pop_macro);
+`modmgr.c` stores 0/1 in two arrays it compares with `!=`. Every other `bool`
+use in the 22 affected files was reviewed as 0/1-valued; none of them writes a
+struct with `bool` members raw to disk or the network. Guards: the audit
+(reports mixed sites, flips that reach project code, and leaking scopes) runs in
+CI on `pd` and `pd-tests`; `tests/test_bool_layout_static.cpp` forbids
+`<stdbool.h>` in project headers and C files. Verification: see the progress
+log of `context/designs/in-flight/week-pd-multiplayer-plan.md`.
+
+## 2026-11-14 B-1120 Two layouts of struct netclient break every listen-host match smoke (T-NETWORKING-011)
+
+Severity high. Root cause, fix and guard are in source on `week-pd/multiplayer`.
+`listen_host_match_smoke` failed 45/58 on the a8ab67f3 baseline client
+(receipt `D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T201305Z.json`):
+the client joined and authenticated but `--host-autostart` never fired. A
+log-only diagnostic (c18ae6ce) printed `remote_in_lobby=0` for 100 s after the
+join (`results-20261114T202711Z.json`). Cause: `port/src/main.c` and
+`port/src/smoke_harness.c` see project `bool` as 1-byte `_Bool` (pulled in by
+`native_write_policy.h` before `net/net.h`) while every other file sees `s32`,
+so they lay out `struct netclient`, `netpreservedplayer` and `netrecentserver`
+differently and index `g_NetClients[]` at the wrong addresses. Proven by
+preprocessing both files with their exact flags; an audit of all 650 client C
+files found no other mismatched shared struct. Fix 0cc573d4: the flags in those
+three structs are spelled `s32`. Guard: `tests/test_bool_layout_static.cpp`.
+Class: SP-75. Probably also why the networked smokes that passed in August
+regressed after `native_write_policy.h` was added to these files in October.
+Runtime proof: with the fix, `listen_host_match_smoke` passes 58/58 (receipt
+`D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T205302Z.json`,
+week-pd/multiplayer build at 0cc573d4, shared base data): autostart fires, both
+players spawn, scores replicate, time-limit end, end screen on both sides.
+Still to re-run against the fix: the reconnect smoke (its harness events used
+the wrong client slot) and the other two-process smokes.
+
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
 
 2026-10-26 pre-conversion TEXTURES root repair: persistent nexttexturetoload now increments before the three-entry budget return, removing the documented third-entry revisit. Both loadable and resident/skipped entries advance; exact multiples3 retain existing next-tick DLS transition. Only this statement/order/comment changed; before/after native donor artifacts retained. Source review confirms fix by inspection. Static guard q_20261026204705964_1b110bb3 and diff PASS; other9 source pins unchanged. Regression requirements authored, no new executable cases this checkpoint; 525 bindings/97 programs,47 whole entries/142 authored cases unchanged. No compiler/gameplay execution; not runtime validated. Next graph conversion must preserve uintptr_t texture/pointer union full unsigned width, s16 numtexconfigs, u32 cursor, captured model/player and fresh texture-array access after texLoad. Legacy MODEL/DLS/dependencies, public graph source and ALL closure remain open. Latest .claude/gameplay-texture-cursor-fix-20261026/source-receipt.json. N-0826

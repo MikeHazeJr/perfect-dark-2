@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Reject unsupported required glTF features and sparse or normalized accessor
+  data before conversion, with clear authoring limits and refreshed caches.
+
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
 

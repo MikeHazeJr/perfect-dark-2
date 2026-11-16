@@ -2857,6 +2857,10 @@ static s32 parseGltfTextMesh(const modasset_model_inputs_t *inputs, const char *
 	memcpy(json, data, size);
 	json[size] = '\0';
 
+	if (!modAssetGltfDocumentValidate(json, size, mesh->error, sizeof(mesh->error))) {
+		free(json);
+		return 0;
+	}
 	root.start = json;
 	root.end = json + size;
 	if (!gltfLoadTextBuffer(inputs, root, source_path, 0, &bin, &bin_size, &error)) {
@@ -2882,6 +2886,8 @@ static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 	}
 	root.start = (const char *)chunks.json;
 	root.end = root.start + chunks.json_size;
+	if (!modAssetGltfDocumentValidate(root.start, chunks.json_size,
+			mesh->error, sizeof(mesh->error))) return 0;
 	if (!gltfValidateGlbBuffer(root, chunks.bin_size, 0, &bin_size)) {
 		objMeshSetError(mesh, 0, "glb_buffer_declaration_invalid");
 		return 0;
@@ -2914,6 +2920,8 @@ static s32 parseGltfAnimationInfoFromJson(const char *json, u32 json_size,
 	}
 
 	memset(info, 0, sizeof(*info));
+	if (!modAssetGltfDocumentValidate(json, json_size, info->error,
+			sizeof(info->error))) return 0;
 	root.start = json;
 	root.end = json + json_size;
 
@@ -5869,6 +5877,45 @@ static void generatedModeldefMeshBounds(const obj_mesh_t *mesh,
 	bbox->ymax = ymax;
 	bbox->zmin = zmin;
 	bbox->zmax = zmax;
+}
+
+/* B-1183: a modeldef built from an author hierarchy (no native skeleton) gets a
+ * bounding box only if the hierarchy lists one. A mod weapon's single model is
+ * also its dropped and pickup object, and object physics reads the box without a
+ * NULL check (projectileFall via objFindBboxRodata), so a mod weapon dropped on
+ * its holder's death crashed the game. Link a box from the mesh bounds under the
+ * root, as the flat source path does. Extracted models keep their own nodes. */
+static void generatedModeldefEnsureHierarchyBounds(generated_modeldef_t *owner,
+                                                   s32 node_count,
+                                                   const struct skeleton *skeleton,
+                                                   const obj_mesh_t *mesh)
+{
+	struct modelnode *root;
+
+	if (!owner || !mesh || node_count <= 0 || skeleton != NULL) {
+		return;
+	}
+	root = &owner->dynamic_nodes[0];
+	if (root->type == MODELNODETYPE_CHRINFO) {
+		return;
+	}
+	for (s32 i = 0; i < node_count; i++) {
+		if ((owner->dynamic_nodes[i].type & 0xff) == MODELNODETYPE_BBOX) {
+			return;
+		}
+	}
+
+	owner->bbox_node.type = MODELNODETYPE_BBOX;
+	owner->bbox_node.rodata = &owner->bbox_rodata;
+	owner->bbox_node.parent = root;
+	owner->bbox_node.prev = NULL;
+	owner->bbox_node.child = NULL;
+	owner->bbox_node.next = root->child;
+	if (root->child) {
+		root->child->prev = &owner->bbox_node;
+	}
+	root->child = &owner->bbox_node;
+	generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);
 }
 
 static void generatedModeldefConfigureSourceBounds(generated_modeldef_t *owner,
@@ -8952,6 +8999,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const modasset_model_inputs_t
 
 	free(parts);
 	owner->def.rootnode = &owner->dynamic_nodes[0];
+	generatedModeldefEnsureHierarchyBounds(owner, hierarchy.row_count, skeleton, mesh);
 	owner->def.skel = skeleton;
 	owner->def.nummatrices = (s16)(max_mtx >= 0 ? max_mtx + 1 : 1);
 	owner->def.scale = generatedModeldefScaleFromMetadata(inputs, source_path);

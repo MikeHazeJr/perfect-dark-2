@@ -130,6 +130,12 @@ static weaponfunc_any_t               s_WeaponFuncs[POOL_WEAPONFUNCS];
 static weaponfunc_any_t               s_PublicWeaponFuncs[CATALOG_MGR_WEAPON_COUNT][2];
 static struct invaimsettings          s_PublicWeaponAim[CATALOG_MGR_WEAPON_COUNT];
 static u8                             s_PublicWeaponSlotActive[CATALOG_MGR_WEAPON_COUNT];
+/* Crystal pistol (T-MODDING-008): the magazine a public weapon declares in
+ * behavior/settings.json (ammo0_* / ammo1_*), its mod-only reload rules, and
+ * the display name the HUD and inventory show. Slot-indexed like the funcs. */
+static struct inventory_ammo          s_PublicWeaponAmmo[CATALOG_MGR_WEAPON_COUNT][2];
+static loader_pool_mod_ammo_t         s_PublicWeaponAmmoExt[CATALOG_MGR_WEAPON_COUNT][2];
+static char                           s_PublicWeaponNames[CATALOG_MGR_WEAPON_COUNT][LOADER_POOL_WEAPON_NAME_LEN];
 static f32                            s_Vibrations[POOL_VIBRATIONS];
 static pool_anim_entry_t              s_Animations[POOL_ANIMATIONS];
 static pool_anim_fixup_t              s_AnimFixups[POOL_ANIM_FIXUPS];
@@ -282,7 +288,9 @@ static s32 s_publicWeaponFunctionBuild(weaponfunc_any_t *out,
 
 	if (!out) return 0;
 	memset(out, 0, sizeof(*out));
-	if (!held || !held->valid) return 1;
+	/* B-1182: no held function, or a function.empty slot, builds nothing; the
+	 * adapter installs a NULL native function for it, as base weapons have. */
+	if (!weaponGraphHeldFunctionIsExecutable(held)) return 1;
 	if (!held->has_function_type_id) {
 		if (err && err_cap) snprintf(err, err_cap,
 			"held function %s has no public function_type", held->node_id);
@@ -372,6 +380,232 @@ static s32 s_publicWeaponFunctionBuild(weaponfunc_any_t *out,
 	return 1;
 }
 
+static f32 s_PublicWeaponRollDeg[CATALOG_MGR_WEAPON_COUNT];
+
+static const weapon_graph_setting_entry_t *s_publicWeaponSetting(
+		const weapon_graph_weapon_settings_t *table, const char *key)
+{
+	s32 i;
+	if (!table || !key) return NULL;
+	for (i = 0; i < table->setting_count; i++) {
+		if (strcmp(table->settings[i].key, key) == 0) return &table->settings[i];
+	}
+	return NULL;
+}
+
+static const weapon_graph_setting_entry_t *s_publicWeaponAmmoSetting(
+		const weapon_graph_weapon_settings_t *table, s32 slot, const char *suffix)
+{
+	char key[48];
+	snprintf(key, sizeof(key), "ammo%d_%s", slot, suffix);
+	return s_publicWeaponSetting(table, key);
+}
+
+static s32 s_publicWeaponSettingInt(const weapon_graph_setting_entry_t *e)
+{
+	if (!e) return 0;
+	if (e->type == WEAPON_GRAPH_PARAM_FLOAT) return (s32)e->f_value;
+	return e->i_value;
+}
+
+/* Crystal pistol (T-MODDING-008): build ammo slot `slot` from the weapon's
+ * ammoN_* settings (values were range-checked when settings.json compiled).
+ * Returns 1 with out_ext->valid 0 when the slot is not declared. */
+static s32 s_publicWeaponAmmoBuild(s32 slot,
+		const weapon_graph_weapon_settings_t *table,
+		struct inventory_ammo *out_ammo, loader_pool_mod_ammo_t *out_ext,
+		char *err, size_t err_cap)
+{
+	static const char *const s_suffixes[] = {
+		"reload", "reserve", "regrow_ticks60", "seat_part_base", "regrow_sound_catalog_id",
+	};
+	const weapon_graph_setting_entry_t *clip = s_publicWeaponAmmoSetting(table, slot, "clip");
+	const weapon_graph_setting_entry_t *reload = s_publicWeaponAmmoSetting(table, slot, "reload");
+	const weapon_graph_setting_entry_t *reserve = s_publicWeaponAmmoSetting(table, slot, "reserve");
+	const weapon_graph_setting_entry_t *regrow = s_publicWeaponAmmoSetting(table, slot, "regrow_ticks60");
+	const weapon_graph_setting_entry_t *seat = s_publicWeaponAmmoSetting(table, slot, "seat_part_base");
+	const weapon_graph_setting_entry_t *sound = s_publicWeaponAmmoSetting(table, slot, "regrow_sound_catalog_id");
+	s32 type;
+	size_t i;
+
+	memset(out_ammo, 0, sizeof(*out_ammo));
+	memset(out_ext, 0, sizeof(*out_ext));
+	out_ext->seat_part_base = -1;
+	out_ext->regrow_sound = -1;
+
+	if (!clip) {
+		for (i = 0; i < sizeof(s_suffixes) / sizeof(s_suffixes[0]); i++) {
+			if (s_publicWeaponAmmoSetting(table, slot, s_suffixes[i])) {
+				if (err && err_cap) snprintf(err, err_cap,
+					"settings ammo%d_%s needs ammo%d_clip", slot, s_suffixes[i], slot);
+				return 0;
+			}
+		}
+		return 1;
+	}
+
+	type = weaponGraphAmmoReserveType(reserve ? reserve->value : "none");
+	if (type < 0) {
+		if (err && err_cap) snprintf(err, err_cap, "settings ammo%d_reserve is unknown", slot);
+		return 0;
+	}
+	out_ext->selfloading = type == WEAPON_GRAPH_AMMO_SELFLOADING_TYPE;
+	out_ext->regrow = reload && strcmp(reload->value, "regrow") == 0;
+	out_ext->regrow_ticks60 = s_publicWeaponSettingInt(regrow);
+	if (out_ext->regrow && out_ext->regrow_ticks60 <= 0) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"settings ammo%d_reload regrow needs ammo%d_regrow_ticks60", slot, slot);
+		return 0;
+	}
+	if (out_ext->regrow && !out_ext->selfloading) {
+		if (err && err_cap) snprintf(err, err_cap,
+			"settings ammo%d_reload regrow needs ammo%d_reserve none", slot, slot);
+		return 0;
+	}
+	if (seat) out_ext->seat_part_base = s_publicWeaponSettingInt(seat);
+	if (sound) {
+		catalog_audio_result_t audio;
+		if (!catalogResolveAudio(sound->value, &audio) || audio.sound_id < 0) {
+			if (err && err_cap) snprintf(err, err_cap,
+				"settings ammo%d_regrow_sound_catalog_id %s does not resolve", slot, sound->value);
+			return 0;
+		}
+		out_ext->regrow_sound = audio.sound_id;
+	}
+
+	out_ammo->type = (u32)type;
+	out_ammo->casingeject = (u32)CASING_NONE;
+	out_ammo->clipsize = (s16)s_publicWeaponSettingInt(clip);
+	out_ammo->reload_animation = NULL; /* mod weapons play no gun animations */
+	out_ammo->flags = out_ext->selfloading ? AMMOFLAG_NORESERVE : 0;
+	out_ext->valid = 1;
+	return 1;
+}
+
+const loader_pool_mod_ammo_t *loaderPoolGetModAmmo(s32 weaponnum, s32 slot)
+{
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= CATALOG_MGR_WEAPON_COUNT ||
+			slot < 0 || slot > 1 || !s_PublicWeaponSlotActive[weaponnum] ||
+			!s_PublicWeaponAmmoExt[weaponnum][slot].valid) {
+		return NULL;
+	}
+	return &s_PublicWeaponAmmoExt[weaponnum][slot];
+}
+
+const char *loaderPoolGetPublicWeaponName(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= CATALOG_MGR_WEAPON_COUNT ||
+			!s_PublicWeaponSlotActive[weaponnum] || !s_PublicWeaponNames[weaponnum][0]) {
+		return NULL;
+	}
+	return s_PublicWeaponNames[weaponnum];
+}
+
+void loaderPoolSetPublicWeaponName(s32 weaponnum, const char *name)
+{
+	size_t len;
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= CATALOG_MGR_WEAPON_COUNT) return;
+	s_PublicWeaponNames[weaponnum][0] = '\0';
+	if (!name || !name[0]) return;
+	/* Native language strings end in a newline; the HUD and menus rely on it. */
+	len = strlen(name);
+	if (len > LOADER_POOL_WEAPON_NAME_LEN - 2) len = LOADER_POOL_WEAPON_NAME_LEN - 2;
+	memcpy(s_PublicWeaponNames[weaponnum], name, len);
+	s_PublicWeaponNames[weaponnum][len] = '\n';
+	s_PublicWeaponNames[weaponnum][len + 1] = '\0';
+}
+
+f32 loaderPoolGetPublicWeaponRollDeg(s32 weaponnum)
+{
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= CATALOG_MGR_WEAPON_COUNT ||
+			!s_PublicWeaponSlotActive[weaponnum]) {
+		return 0.0f;
+	}
+	return s_PublicWeaponRollDeg[weaponnum];
+}
+
+/* T-MODDING-008: the .pdweapon format carries no bot preferences yet (CORE
+ * owns it), and the zeroed ones a public weapon had made every bot drop it:
+ * botinvTick never picks a function whose ammo-goal bit is clear, so a bot
+ * spawned with a mod weapon went unarmed. Defaults until the format has them:
+ *   - every executable function is usable (has*ammogoal);
+ *   - scored like a mid pistol (MagSec 4: 76/88, dual 104/120);
+ *   - attack range by kind: melee close, a throw as an explosive throw, a
+ *     committed charge (a mine volley) at explosive range, other shots the
+ *     default 300..600;
+ *   - ammo goals of 3 clips (critical 1) from a reserve pool, none for a
+ *     self-loading magazine, which never runs out;
+ *   - reload delay: a regrowing magazine's full regrow, capped at the
+ *     field's 7 s, else 2 s; a partial reload takes proportionally less (a
+ *     bot reloads an empty magazine reloaddelay seconds after it runs dry). */
+static void s_publicWeaponBotPrefsBuild(struct aibotweaponpreference *out,
+		const weaponfunc_any_t funcs[2],
+		const weapon_graph_held_function_t *const held[2],
+		const struct inventory_ammo ammo[2],
+		const loader_pool_mod_ammo_t ammo_ext[2], s32 dual_wieldable)
+{
+	s32 reloadsecs = 0;
+	s32 f;
+
+	memset(out, 0, sizeof(*out));
+	out->unk00 = 76;
+	out->unk01 = 88;
+	out->unk02 = dual_wieldable ? 104 : 0;
+	out->unk03 = dual_wieldable ? 120 : 0;
+	out->pridistconfig = BOTDISTCFG_DEFAULT;
+	out->secdistconfig = BOTDISTCFG_DEFAULT;
+
+	for (f = 0; f < 2; f++) {
+		const struct weaponfunc *base = &funcs[f].base;
+		const loader_pool_mod_ammo_t *ext = NULL;
+		u32 distcfg = BOTDISTCFG_DEFAULT;
+		u16 target = 0;
+		u16 critical = 0;
+
+		if (!weaponGraphHeldFunctionIsExecutable(held[f])) continue;
+
+		if ((base->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+			distcfg = BOTDISTCFG_CLOSE;
+		} else if ((base->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+			distcfg = BOTDISTCFG_THROWEXPLOSIVE;
+		} else if (held[f]->has_charge) {
+			distcfg = BOTDISTCFG_SHOOTEXPLOSIVE;
+		}
+
+		if (base->ammoindex >= 0 && base->ammoindex < 2 && ammo_ext[base->ammoindex].valid) {
+			ext = &ammo_ext[base->ammoindex];
+		}
+		if (ext) {
+			const s32 clip = ammo[base->ammoindex].clipsize;
+			if (!ext->selfloading && clip > 0) {
+				target = (u16)(clip * 3);
+				critical = (u16)clip;
+			}
+			if (ext->regrow && clip > 0 && ext->regrow_ticks60 > 0) {
+				const s32 secs = (clip * ext->regrow_ticks60 + 59) / 60;
+				if (secs > reloadsecs) reloadsecs = secs;
+			}
+		}
+
+		if (f == 0) {
+			out->haspriammogoal = 1;
+			out->pridistconfig = distcfg;
+			out->targetammopri = target;
+			out->criticalammopri = critical;
+		} else {
+			out->hassecammogoal = 1;
+			out->secdistconfig = distcfg;
+			out->targetammosec = target;
+			out->criticalammosec = critical;
+		}
+	}
+
+	if (ammo_ext[0].valid || ammo_ext[1].valid) {
+		out->reloaddelay = reloadsecs > 0 ? (reloadsecs > 7 ? 7 : reloadsecs) : 2;
+		out->allowpartialreloaddelay = 1;
+	}
+}
+
 s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 		const char *catalog_id, s32 model_filenum, s32 dual_wieldable,
 		const weapon_graph_archive_descriptor_t *descriptor,
@@ -383,6 +617,12 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 	struct invaimsettings aim;
 	struct weapon weapon;
 	const weapon_graph_held_function_t *held[2] = { primary, secondary };
+	struct inventory_ammo ammo[2];
+	loader_pool_mod_ammo_t ammo_ext[2];
+	const weapon_graph_weapon_settings_t *settings;
+	const weapon_graph_setting_entry_t *roll;
+	f32 roll_deg = 0.0f;
+	s32 f;
 
 	if (err && err_cap) err[0] = '\0';
 	if (runtime_weapon_id < WEAPON_CUSTOM_START ||
@@ -397,10 +637,35 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 			!s_publicWeaponFunctionBuild(&funcs[1], secondary, err, err_cap)) {
 		return 0;
 	}
-	if ((!primary || !primary->valid) && (!secondary || !secondary->valid)) {
+	if (!weaponGraphHeldFunctionIsExecutable(primary) &&
+			!weaponGraphHeldFunctionIsExecutable(secondary)) {
 		if (err && err_cap) snprintf(err, err_cap,
 			"public weapon adapter has no executable held function");
 		return 0;
+	}
+
+	/* Crystal pistol (T-MODDING-008): the magazine from settings.json. */
+	settings = weaponGraphRuntimeGetWeaponSettings(runtime_weapon_id);
+	if (!s_publicWeaponAmmoBuild(0, settings, &ammo[0], &ammo_ext[0], err, err_cap) ||
+			!s_publicWeaponAmmoBuild(1, settings, &ammo[1], &ammo_ext[1], err, err_cap)) {
+		return 0;
+	}
+	for (f = 0; f < 2; f++) {
+		struct weaponfunc *base = &funcs[f].base;
+		if (!weaponGraphHeldFunctionIsExecutable(held[f])) continue;
+		/* B-1151: an ammo slot with no magazine left loadedammo at 0, so every
+		 * hitscan shot was clamped to zero bullets. Fire without ammo instead. */
+		if (base->ammoindex >= 0 && !ammo_ext[base->ammoindex].valid) {
+			sysLogPrintf(LOG_WARNING,
+				"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: %s function %d names ammo_slot %d "
+				"but settings declare no ammo%d_clip; it fires without ammo (B-1151)",
+				catalog_id, f, base->ammoindex, base->ammoindex);
+			base->ammoindex = -1;
+		}
+	}
+	roll = s_publicWeaponSetting(settings, "gun_roll_deg");
+	if (roll) {
+		roll_deg = roll->type == WEAPON_GRAPH_PARAM_FLOAT ? roll->f_value : (f32)roll->i_value;
 	}
 
 	memset(&weapon, 0, sizeof(weapon));
@@ -422,11 +687,19 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 	s_PublicWeaponFuncs[runtime_weapon_id][0] = funcs[0];
 	s_PublicWeaponFuncs[runtime_weapon_id][1] = funcs[1];
 	s_PublicWeaponAim[runtime_weapon_id] = aim;
-	weapon.functions[0] = primary && primary->valid ?
+	weapon.functions[0] = weaponGraphHeldFunctionIsExecutable(primary) ?
 		&s_PublicWeaponFuncs[runtime_weapon_id][0] : NULL;
-	weapon.functions[1] = secondary && secondary->valid ?
+	weapon.functions[1] = weaponGraphHeldFunctionIsExecutable(secondary) ?
 		&s_PublicWeaponFuncs[runtime_weapon_id][1] : NULL;
 	weapon.aimsettings = &s_PublicWeaponAim[runtime_weapon_id];
+	for (f = 0; f < 2; f++) {
+		s_PublicWeaponAmmo[runtime_weapon_id][f] = ammo[f];
+		s_PublicWeaponAmmoExt[runtime_weapon_id][f] = ammo_ext[f];
+		weapon.ammos[f] = ammo_ext[f].valid ? &s_PublicWeaponAmmo[runtime_weapon_id][f] : NULL;
+	}
+	s_PublicWeaponRollDeg[runtime_weapon_id] = roll_deg;
+	s_publicWeaponBotPrefsBuild(&s_BotPrefs[runtime_weapon_id], funcs, held,
+		ammo, ammo_ext, dual_wieldable);
 	s_Weapons[runtime_weapon_id] = weapon;
 	strncpy(s_WeaponCatalogIds[runtime_weapon_id], catalog_id,
 		sizeof(s_WeaponCatalogIds[runtime_weapon_id]) - 1);
@@ -441,8 +714,17 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 	sysLogPrintf(LOG_NOTE,
 		"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: installed id=%s runtime=%d model=%d funcs=%d track=%u",
 		catalog_id, runtime_weapon_id, model_filenum,
-		(primary && primary->valid ? 1 : 0) + (secondary && secondary->valid ? 1 : 0),
+		weaponGraphHeldFunctionIsExecutable(primary) + weaponGraphHeldFunctionIsExecutable(secondary),
 		(u32)aim.tracktype);
+	for (f = 0; f < 2; f++) {
+		if (!ammo_ext[f].valid) continue;
+		sysLogPrintf(LOG_NOTE,
+			"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: ammo id=%s slot=%d clip=%d type=0x%02x reload=%s"
+			" selfloading=%d regrow_ticks60=%d seat_part_base=%d",
+			catalog_id, f, ammo[f].clipsize, (u32)ammo[f].type,
+			ammo_ext[f].regrow ? "regrow" : "magazine", ammo_ext[f].selfloading,
+			ammo_ext[f].regrow_ticks60, ammo_ext[f].seat_part_base);
+	}
 	return 1;
 }
 
@@ -460,6 +742,12 @@ void loaderPoolClearPublicWeaponAdapter(s32 runtime_weapon_id)
 			sizeof(s_PublicWeaponFuncs[runtime_weapon_id]));
 		memset(&s_PublicWeaponAim[runtime_weapon_id], 0,
 			sizeof(s_PublicWeaponAim[runtime_weapon_id]));
+		memset(&s_PublicWeaponAmmo[runtime_weapon_id], 0,
+			sizeof(s_PublicWeaponAmmo[runtime_weapon_id]));
+		memset(&s_PublicWeaponAmmoExt[runtime_weapon_id], 0,
+			sizeof(s_PublicWeaponAmmoExt[runtime_weapon_id]));
+		s_PublicWeaponNames[runtime_weapon_id][0] = '\0';
+		s_PublicWeaponRollDeg[runtime_weapon_id] = 0.0f;
 		s_WeaponCatalogIds[runtime_weapon_id][0] = '\0';
 		s_PublicWeaponSlotActive[runtime_weapon_id] = 0;
 		if (s_WeaponsRegistered > 0) s_WeaponsRegistered--;

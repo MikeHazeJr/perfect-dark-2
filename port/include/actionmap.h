@@ -304,7 +304,15 @@ typedef enum InputAction {
     ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / A-button */
     ACTION_VEHICLE_USE,              /* = 120 E / A-button on-foot mount trigger */
 
-    ACTION_COUNT                /* = 121, sentinel - keep last */
+    /* ---- Gun roll (T-MODDING-008, Mike 2026-11-15) ----
+     * Held: rolls the held gun about its barrel, up to the weapon's
+     * gun_roll_deg setting (0 for every base weapon, so they never roll).
+     * The crystal pistol's charge fan follows the roll. Keyboard Z / X, no
+     * controller default (every pad button already has a gameplay bind). */
+    ACTION_GUN_ROLL_LEFT,            /* = 121 Z */
+    ACTION_GUN_ROLL_RIGHT,           /* = 122 X */
+
+    ACTION_COUNT                /* = 123, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

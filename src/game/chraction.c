@@ -6,6 +6,7 @@
 #include "game/bg.h"
 #include "game/body.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/bot.h"
 #include "game/botact.h"
 #include "game/botcmd.h"
@@ -10129,6 +10130,8 @@ static const weapon_graph_projectile_runtime_t *chrGsetCustomProjectileGraph(con
 	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
 }
 
+bool g_DebugBotsHoldFire = false;
+
 void chrTickShoot(struct chrdata *chr, s32 handnum)
 {
 	struct prop *chrprop = chr->prop;
@@ -10215,7 +10218,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 			f32 rotx = chrGetPitchAngle(chr);
 			bool extracdtypes = isaibot ? CDTYPE_PLAYERS : 0;
 
-			firingthisframe = true;
+			/* Smoke-only target dummies (--debug-bots-hold-fire). */
+			firingthisframe = !(isaibot && g_DebugBotsHoldFire);
 
 			if (!chrGetGunPos(chr, handnum, &gunpos)) {
 				// Gun is off screen - use a quick but inexact calculation
@@ -10367,9 +10371,16 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 						|| customlaunch) {
 					makebeam = false;
 
+					/* T-MODDING-008: a bot's committed charge (the crystal
+					 * pistol's secondary) commits every loaded round on the
+					 * first shot and nothing fires until bgunModBotChargeTick
+					 * launches them; no shot, no round spent here. */
+					if (isaibot && customlaunch && bgunModBotChargeShot(chr, handnum, &gset)) {
+						firingthisframe = false;
+					}
 					// Solo chrs won't fire their projectile weapon
 					// in less than 4 metres of space
-					if (isaibot || sqshotdist > 400.0f * 400.0f) {
+					else if (isaibot || sqshotdist > 400.0f * 400.0f) {
 						struct weaponobj *projectileobj;
 						Mtxf identmtx;
 						struct coord sp16c;
@@ -10802,6 +10813,9 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 				if (chr->aibot->loadedammo[handnum] > 0) {
 					chr->aibot->loadedammo[handnum]--;
 				}
+
+				/* T-MODDING-008: no-op for base weapons. */
+				bgunModBotFired(chr, handnum, &gset);
 
 				osSyncPrintf("numshots(%d) = %d", handnum, chr->aibot->loadedammo[handnum]);
 			}

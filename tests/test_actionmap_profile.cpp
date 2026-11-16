@@ -436,6 +436,35 @@ TEST_CASE("Corrupt current files block implicit overwrites until an explicit val
     REQUIRE(store.saveCurrent(fixture.registry(), current.c_str(), error));
 }
 
+TEST_CASE("B-1184 current files cut off at an unnamed action are replaced from the live bindings",
+          "[input][profile][startup][b1184]")
+{
+    TempDirectory directory;
+    Fixture fixture;
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto current = (directory.path / "current.ini").string();
+    const auto good = encoded(fixture, defaults);
+    // What a build with unnamed actions wrote: complete rows up to the first
+    // unnamed action, then the bare context prefix where the name should be.
+    const auto cut = good.substr(0, good.find(fixture.row(0, ACTION_USE))) + fixture.contextNames[0] + ".\n";
+    std::ofstream(current, std::ios::binary) << cut;
+    REQUIRE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
+    profile::Store store;
+    std::string error;
+    REQUIRE(store.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(bytes(current) == live(fixture));
+    fixture.bind(0, ACTION_USE, {9});
+    REQUIRE(store.saveCurrent(fixture.registry(), current.c_str(), error));
+    REQUIRE(bytes(current) == live(fixture));
+    // Any other damage still blocks implicit overwrites.
+    std::ofstream(current, std::ios::binary) << "format=PD2-bindings-v1\nactive_profile=3\n";
+    REQUIRE_FALSE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
+    std::ofstream(current, std::ios::binary) << cut.substr(0, cut.size() - 1) + "=KEY1\n";
+    REQUIRE_FALSE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
+    std::ofstream(current, std::ios::binary) << good.substr(0, good.find(fixture.row(0, ACTION_USE))) + "nosuchcontext.\n";
+    REQUIRE_FALSE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
+}
+
 TEST_CASE("Device reset keeps the other device and rejects capacity overflow as one candidate",
           "[input][profile][defaults]")
 {

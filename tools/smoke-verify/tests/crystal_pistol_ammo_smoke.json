@@ -1,0 +1,143 @@
+{
+  "scenario_name": "crystal_pistol_ammo_smoke",
+  "description": "Crystal pistol (T-MODDING-008): the six crystals are the magazine. Fires all six (each vanishes from its socket, barrel first), waits for the automatic regrowth one crystal at a time, then fires two, reloads, interrupts the regrowth with a shot and reloads to full. In-game captures of the full, half-spent, regrowing and regrown gun.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "ammo",
+    "viewmodel",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun.c",
+    "src/game/bondgun_mod.c",
+    "port/src/loader_pool.c",
+    "port/src/weapon_graph_runtime.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the pistol as the spawn weapon."
+    },
+    { "at_ms": 2000, "type": "screenshot", "path": "cp-ammo-full.bmp", "comment": "Six crystals seated." },
+    { "at_ms": 2500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 3000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 3500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 4200, "type": "screenshot", "path": "cp-ammo-three-left.bmp", "comment": "Barrel and the two front spine crystals spent." },
+    { "at_ms": 4500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 5500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Sixth crystal: the clip is empty and regrowth starts by itself." },
+    { "at_ms": 6600, "type": "screenshot", "path": "cp-ammo-regrowing.bmp", "comment": "About one crystal grown, the next growing." },
+    { "at_ms": 12800, "type": "screenshot", "path": "cp-ammo-regrown.bmp", "comment": "All six regrown (3.6 s of regrowth plus slack for a first-explosion frame hitch)." },
+    { "at_ms": 13200, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 13700, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 14200, "type": "action", "name": "ACTION_RELOAD", "action": "tap", "comment": "Manual reload with four loaded: regrow two." },
+    { "at_ms": 14500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Firing ends the regrowth (a round is loaded)." },
+    { "at_ms": 14550, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 15300, "type": "action", "name": "ACTION_RELOAD", "action": "tap", "comment": "Reload again and let it finish." },
+    { "at_ms": 18500, "type": "screenshot", "path": "cp-ammo-end.bmp" },
+    { "at_ms": 19000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-ammo-full.bmp" },
+    { "src": "cp-ammo-three-left.bmp" },
+    { "src": "cp-ammo-regrowing.bmp" },
+    { "src": "cp-ammo-regrown.bmp" },
+    { "src": "cp-ammo-end.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_ammo_smoke",
+      "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: ammo id=mod_crystal_pistol:crystal_pistol slot=0 clip=6 type=0x1b reload=regrow selfloading=1 regrow_ticks60=36 seat_part_base=110",
+      "MODASSET\\.COMPILER: built hierarchy modeldef 'mod_crystal_pistol:crystal_pistol_model' .* rwdatalen=27",
+      "BONDGUN\\.REGROW: start weapon=\\d+ hand=0 slot=0 loaded=0/6",
+      "BONDGUN\\.REGROW: full weapon=\\d+ slot=0 loaded=6/6",
+      "BONDGUN\\.REGROW: start weapon=\\d+ hand=0 slot=0 loaded=4/6",
+      "BONDGUN\\.REGROW: interrupted weapon=\\d+ slot=0 loaded=4/6 by=trigger",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "references unknown texture catalog id",
+      "did not resolve to a catalog texture",
+      "selected public texture source unavailable",
+      "integer-native quantization warning source=.*crystal_pistol",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "B-1151",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BONDGUN\\.REGROW: round weapon=\\d+ slot=0",
+        "min": 9
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 5
+      }
+    ]
+  }
+}

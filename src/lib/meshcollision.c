@@ -17,6 +17,7 @@
 #include "types.h"
 #include "data.h"
 #include "lib/meshcollision.h"
+#include "lib/meshraygrid.h"
 #include "game/bg.h"
 #include "game/prop.h"
 #include "model_rodata_guard.h"
@@ -491,10 +492,21 @@ void meshFree(struct colmesh *mesh)
 /* Static world mesh                                                         */
 /* ======================================================================== */
 
+/* B-1189: the world mesh carries authored per-triangle GEOFLAGs (a
+ * collision.flags.json sidecar) rather than flags recovered from normals,
+ * which never include BLOCK_SIGHT or BLOCK_SHOOT. Set by meshWorldFinalize. */
+static bool s_WorldMeshHasShotFlags;
+
+/* B-1189: per-call stamps for meshGridRayCast, one per world triangle. */
+static u32 *s_RayGridStamps;
+static s32 s_RayGridStampCap;
+static u32 s_RayGridStamp;
+
 void meshWorldInit(void)
 {
 	memset(&g_WorldMesh, 0, sizeof(g_WorldMesh));
 	g_WorldMesh.ready = 0;
+	s_WorldMeshHasShotFlags = false;
 }
 
 void meshWorldAddMesh(struct colmesh *mesh, Mtxf *transform)
@@ -832,6 +844,14 @@ void meshWorldFinalize(void)
 		}
 	}
 
+	s_WorldMeshHasShotFlags = false;
+	for (s32 i = 0; i < g_WorldMesh.numtris; i++) {
+		if (g_WorldMesh.tris[i].flags & (GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT)) {
+			s_WorldMeshHasShotFlags = true;
+			break;
+		}
+	}
+
 	g_WorldMesh.ready = 1;
 
 	sysLogPrintf(LOG_NOTE, "MESHCOL: world mesh finalized: %d tris, %dx%d grid (%d cells)",
@@ -853,6 +873,7 @@ void meshWorldShutdown(void)
 		free(g_WorldMesh.tris);
 	}
 	memset(&g_WorldMesh, 0, sizeof(g_WorldMesh));
+	s_WorldMeshHasShotFlags = false;
 }
 
 /* ======================================================================== */
@@ -1258,6 +1279,44 @@ f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
 	f32 best_frac = 1.0f;
 	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal);
 	return best_frac;
+}
+
+f32 meshRayCastWorldMasked(const struct coord *from, const struct coord *to,
+		u16 mask, struct coord *out_normal, s32 *out_tri)
+{
+	if (out_tri) {
+		*out_tri = -1;
+	}
+
+	if (!from || !to || !g_WorldMesh.ready || g_WorldMesh.numtris <= 0 || !g_WorldMesh.cells) {
+		return 1.0f;
+	}
+
+	if (s_RayGridStampCap < g_WorldMesh.numtris) {
+		u32 *stamps = realloc(s_RayGridStamps, (size_t)g_WorldMesh.numtris * sizeof(*stamps));
+
+		if (!stamps) {
+			return 1.0f;
+		}
+
+		memset(stamps + s_RayGridStampCap, 0,
+			(size_t)(g_WorldMesh.numtris - s_RayGridStampCap) * sizeof(*stamps));
+		s_RayGridStamps = stamps;
+		s_RayGridStampCap = g_WorldMesh.numtris;
+	}
+
+	if (++s_RayGridStamp == 0) {
+		memset(s_RayGridStamps, 0, (size_t)s_RayGridStampCap * sizeof(*s_RayGridStamps));
+		s_RayGridStamp = 1;
+	}
+
+	return meshGridRayCast(&g_WorldMesh, from, to, mask, s_RayGridStamps,
+		s_RayGridStamp, out_normal, out_tri);
+}
+
+bool meshWorldHasShotFlags(void)
+{
+	return g_WorldMesh.ready && s_WorldMeshHasShotFlags;
 }
 
 bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,

@@ -111,15 +111,19 @@ reuse. `-PerTestInstall` always creates a separate private working copy. A new
 stable executable path may require the existing firewall allow helper; no firewall
 settings were changed by this storage implementation or its tests.
 
-Checked-in defaults in `storage-policy.json` are:
+Current PD budgets in `storage-policy.json` are:
 
 | Budget | Default |
 |---|---:|
-| Free-space floor after pending growth | 300 GiB |
+| Free-space floor after pending growth | 200 GiB, temporary D-011 decision |
 | Additional growth reserve | 2 GiB |
 | Pending run / queued smoke build | 2 GiB / 4 GiB |
 | Managed full installs, including active/pinned/restored copies | 3 total, 8 GiB |
 | Compact archive, receipts, screenshots and artifacts | 8 GiB |
+
+Mike temporarily reduced only the PD floor on October 3. Pending growth and the
+additional reserve remain unchanged: 204 GiB for a run and 206 GiB for a build.
+No expiry was specified; this does not change Astral or global machine budgets.
 
 Use `-StoragePolicy <policy.json>` for an explicit policy. Unknown fields, invalid
 numbers and nonpositive caps are refused. Before a new copy, only completed,
@@ -292,6 +296,18 @@ that must leave durable dirty-session state behind.
 
 ```json
 { "at_ms": 70000, "type": "unclean_exit" }
+```
+
+#### `kill_player` (T-MODDING-008, 2026-11-15)
+
+Kills local player 0 through the production death path (`playerDie`), as if
+the player had been killed: the hands reset, the held weapon drops and the
+match respawn rules apply. Logs `SMOKE.KILL_PLAYER: player=0 died=1`. Used by
+`crystal_pistol_charge_smoke` to prove that a committed mod-weapon charge still
+launches after its wielder dies. No fields besides `at_ms` and `comment`.
+
+```json
+{ "at_ms": 9800, "type": "kill_player" }
 ```
 
 #### `catalog_recovery_probe`

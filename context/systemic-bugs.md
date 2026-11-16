@@ -8,6 +8,37 @@ N-0826 Budgeted-loop cursor ownership: commit persistent progress before an earl
 
 2026-10-26 N-0805: Donor-fixture scalar widening can conceal bitfield and signed-narrowing behavior. Check every modeled field against native declarations, including bit width; do not infer storage from bool-like names. This affected unrun switch fixtures and is corrected. Source review is not runtime acceptance.
 
+## 2026-11-15 Scenario-source stages have no room render data; native BG hit tests on it go silent
+
+Found with B-1187 (T-MODDING-008). When a stage's background comes from a
+scenario source (`g_BgUsingScenarioSource`, which includes the multiplayer
+arenas), `bgBuildScenarioSourceTables` creates every room with
+`gfxdata = NULL`, `vtxbatches = NULL` and `loaded240 = 1`, and `bgLoadRoom`
+only re-marks rooms loaded. Native code that finds background hits through
+that render data gets "no hit" without any error: `bgTestHitInRoom` returns
+false for every room, and `gfxdata`-guarded paths skip. Rooms off screen for
+a while are still "unloaded" by `bgTickRooms`, so code with an unloaded-room
+fallback works there only, which hides the problem on some surfaces.
+Collision tiles and the world collision mesh (`g_WorldMesh`,
+`meshRayCastWorld`) are built from the same source and do work.
+
+Search: `grep -n "bgTestHitInRoom(\|gfxdata\b\|vtxbatches" src/game/*.c`
+
+Audit (2026-11-15):
+- `propobj.c` `func0f06cd00`, sticky projectiles: fixed (B-1187).
+- `prop.c` hitscan (`shotCalculateHits`, `shotTestLos`): confirmed broken
+  (MULTIPLAYER's logs: every player shot `MISS`, never `HIT_BG`); fixed
+  (B-1189), Farsight x-ray untouched.
+- `splat.c` blood splats, `spawnpool.c` spawn clearance, `explosions.c`
+  scorch marks (its `gfxdata` guard): fixed (B-1189).
+- Not changed: `artifact.c` (`gfxdata`/`loaded240` checks, lens artifacts),
+  render-side code.
+Fix pattern: on `bgUsesScenarioMeshHits()`, call `bgTestHitScenarioMesh`
+(`shot` for hits that should stop at visible solids: floors and
+`BLOCK_SHOOT`; not `shot` for clearance: every surface); keep the native path
+for ROM stages. Do not use `meshRayCastWorld` for hits: it tests every
+triangle, including movement-only clip walls, and ignores the grid.
+
 ## 2026-10-13 Validate the evaluated transform used by collision diagnostics
 
 Visibility exclusion can remove an object from dependency-graph evaluation.
@@ -2048,9 +2079,21 @@ private manifest would have hidden the symptom by creating a second behavior
 source, so the fix instead derives and transactionally owns the legacy adapter
 from the public source/runtime IR.
 
+**Known instance (B-1211, 2026-11-15):** the same public weapon adapter zeroed
+the weapon's bot preferences. Native bot AI reads a clear `haspriammogoal` /
+`hassecammogoal` as "never use this function", so every bot armed with a mod
+weapon went unarmed. The fix derives defaults from the compiled functions and
+magazine (`s_publicWeaponBotPrefsBuild`). Other per-weapon native tables a
+public weapon fills with defaults, to recheck when one misbehaves: aim settings
+(`s_DefaultAim`), casing eject (none), reload animation (none), MP weapon-set
+membership.
+
 **Propagation check:** compare every typed activation/clear pair with the real
 family manager, renderer, audio, collision, or gameplay object it supplies;
 test active -> adapter populated -> final release clears -> reload rebuilds.
+For the public weapon adapter, list each native per-weapon table gameplay
+reads (`catalogManagerGetWeapon*`, `weaponGetAmmoByFunction`, bot preferences)
+and confirm the adapter writes a usable value, not a zeroed default.
 
 `rg -n "ACTIVATE|Register.*Runtime|Clear.*Runtime|loaderPoolParse|catalogManagerGet" port/src src/game`
 
@@ -3627,6 +3670,92 @@ module rule).
   check the counter it meets (`lvupdate60`, `lvupdate240`, a frame or shot
   count).
 
+## SP-75: Project `bool` changes size with include order
+
+**Severity: HIGH - a shared struct can have two layouts in one program, with
+no compiler warning, so files silently read and write each other's members at
+the wrong addresses.**
+
+Project `bool` is a macro, `#define bool s32` (`src/include/types.h:14`, again
+in `src/include/data.h`, restored by `port/include/net/netenet.h` after ENet).
+`<stdbool.h>` in C defines `bool` as the 1-byte `_Bool`. A C file that includes
+`<stdbool.h>` after `types.h`, directly or through a project header, gets
+1-byte `bool` for the rest of the file. Every project struct with `bool`
+members parsed after that point is laid out differently there than in files
+where `bool` is still `s32`. C++ files are not affected the same way: in C++
+`bool` is a keyword (one byte), and `types.h`, when a C++ file includes it,
+turns it into `s32` too. So a `bool` declaration that C and C++ files share
+has one width only if every C++ includer has the types.h macro in force first;
+a header that cannot promise that spells `s32`, or uses the scoped one-byte
+pattern below.
+
+**Known instance (B-1120, 2026-11-14):** `port/src/main.c` and
+`port/src/smoke_harness.c` include `native_write_policy.h` (which includes
+`<stdbool.h>`) just before `net/net.h`. They laid `struct netclient` out with
+twelve 1-byte flags; `net.c`, `netmsg.c` and the rest used 4-byte ones, so
+`&g_NetClients[1]` itself differed between files. Effect: the host autostart
+hook never saw the joined client and every two-process match smoke failed;
+the smoke harness's reconnect and timeout events addressed the wrong client.
+Earlier instance (October 10, recorded in the Finish Tracker):
+`net_player_move_wire.h` included `<stdbool.h>` and changed the size of four
+`net.c` flags and one function; it now includes `types.h` instead.
+
+**Second finding (B-1121, 2026-11-14):** the full audit found 28 C files that
+flipped (sources: those four headers, seven C files with their own
+`#include <stdbool.h>`, the fast3d `gfx_api.h`, and ENet, which
+`net/netenet.h` undoes at once) and 291 header declarations seen with both
+widths, including a real return-width mismatch between `netmsg.c` and
+`net_manifest_type.c`.
+
+**Root fix (B-1121, week-pd/multiplayer):** no project header or C file
+includes `<stdbool.h>`.
+- A header included by both C and C++ files spells boolean results and flags
+  `s32` (0 or 1), never `bool`: `native_write_policy.h`,
+  `net/net_manifest_type.h`, `bondgun_cache.h`, the net.h shared structs.
+- A C file that needs `bool`, `true` and `false` without the game's
+  precompiled header (test targets build without it) includes
+  `port/include/pd_bool.h`, which defines the project `s32` bool in C only.
+- A header whose structs the C++ renderer shares with C files and that must
+  stay one byte in both languages (the five fast3d `gfx_*.h`) uses a scoped
+  bool and restores the includer's meaning:
+  `#pragma push_macro("bool")`, `#undef bool`, `#ifndef __cplusplus`
+  `#define bool _Bool` `#endif`, declarations, `#pragma pop_macro("bool")`.
+- Vendored code may include `<stdbool.h>` only behind a wrapper that restores
+  `s32` before any project code (`net/netenet.h` for ENet).
+Do not fix a symptom by reordering includes. When a file's own `bool` changes
+width, review conversions into it: `_Bool b = 0.5f` is 1, `s32 b = 0.5f` is 0;
+a value compared with `==`/`!=` must be 0 or 1. GCC 15 rejects pointer-to-int
+conversion, so `bool b = ptr` fails to compile instead of truncating.
+
+**Third finding (B-1123, 2026-11-14):** C++ files that avoid `types.h` and
+declare game functions themselves see `bool` as the one-byte keyword:
+`extern bool g_PlayersWithControl[]` in `pdgui_menu_mainmenu.cpp` indexed a
+4-byte array with a 1-byte stride. A C++ file that declares a C function or
+global itself spells the C type (`s32`), never `bool`.
+
+**Guards:** `tools/bool_layout_audit.py` (CI step "Check bool layout", targets
+`pd` and `pd-tests`) preprocesses every translation unit and fails on a header
+declaration seen with two widths, a named function or global declared or
+defined with two widths anywhere (header prototypes, definitions and local
+`extern` declarations in source files, C and C++), a C file whose project code
+runs with a flipped bool, or a push_macro scope that a header never pops; its
+self-test is `tools/tests/test_bool_layout_audit.py`. `tests/test_bool_layout_static.cpp`
+fails if the net.h shared structs gain a `bool` member, if any project header
+or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
+`s32` headers say `bool` again.
+
+**Search commands:**
+- Includes: `git grep -n -E "^\s*#\s*include\s*[<\"]stdbool\.h[>\"]" -- "*.h" "*.c"`
+- Whole program: `python tools/bool_layout_audit.py --compile-commands
+  <build>/compile_commands.json --target pd` (and `--target pd-tests`).
+- Proof for one file: preprocess it with its exact flags from
+  `compile_commands.json` plus `-E -dD` and check which `#define bool` is in
+  force where the struct is defined. GCC prints a push_macro as a blank line
+  and a pop_macro as `#undef bool` without the restored definition, so read the
+  pragmas from the source.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
@@ -3660,3 +3789,79 @@ leaf join. A dependency's existence or standalone load cannot prove the parent
 bound that generation. Missing/incomplete discovery remains pending. Standard
 MTL parsing and the joined ledger regression pass; native texture extension is
 unbuilt/unrun. Search: rg -n 'material_dependencies|dependency_scan|dependency_bindings|selected_coverage' tools/asset-inspection-*.py.
+
+## SP-80: Scenario setup assumes the arena brings its own placement data
+
+**Severity: HIGH - a scenario can crash at match start or start without the
+objects it is about, and a lifecycle-only smoke still passes.**
+
+Multiplayer scenarios place their objects on positions the arena's setup data
+provides: the intro command list (`INTROCMD_CASE`, `INTROCMD_CASERESPAWN`,
+`INTROCMD_HILL`, read in `scenarioReset`) and setup objects (multiplayer ammo
+crates and `WEAPON_MPLOCATION` weapons). The original code assumes every arena
+has them, because every shipped arena did. Arenas that lack them (extracted
+arenas today, mod arenas, solo maps used as arenas) reach code that divides by
+the count, loops until it finds an unused entry, or places an object on pad -1
+(`setupCreateObject` then creates it off-world).
+
+**Known instances (2026-11-15):** B-1125 (Hacker Central: divide by zero in
+`htmInitProps`, endless selection loop with too few pads, uplink created
+off-world and re-created every tick); B-1126 (Capture the Case cases off-world,
+King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
+pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
+(`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
+setup objects.
+
+**Rules:**
+- Never `% count` or index a bank without checking the count first; never
+  `do ... while` an "unused entry" search without bounding the number of picks
+  by the usable entries.
+- Never place an object on a pad < 0 or on a pad with no room; check the pad,
+  or use the result of `scenarioCreateObj`, which returns NULL in that case.
+- When a scenario's own positions are too few, fill the bank with walkable
+  pads through `scenarioFallbackPads` (`src/game/mplayer/scenarios.c`,
+  picker `port/src/scenario_pad_fallback.c`) and log it, instead of falling
+  back to pad 0 or refusing silently. Whether a fallback changes how a mode
+  plays on such arenas is Mike's call per mode (approved for Hacker Central).
+- A scenario smoke asserts that its objects were placed on real pads, not only
+  that the match started and ended.
+
+**Search:**
+- `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`
+- `grep -n "homepad\|hillpads\|padnums\[\|tokenpad\|base.pad = " src/game/mplayer/scenarios/*.inc`
+- `grep -n "while (padnum <= 0)\|while (.*== previndex)" src/game/mplayer/scenarios/*.inc`
+
+**Audit checklist:** for each scenario, its init and respawn paths with (a) no
+intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
+Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
+open in B-1126.
+
+---
+
+## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
+
+**Severity: HIGH — a decoder silently gets zeros or the wrong fields from every
+command of that kind, and skips the work without a log line.**
+
+On 64-bit builds `Gwords` holds two `uintptr_t` words, so w1 starts at byte 8.
+A union member whose second-word fields are narrower than `uintptr_t` (a
+4-byte `Tri`, 32-bit bitfields) packs them at bytes 4..7, the upper half of
+w0, unless it carries a `PLATFORM_64BIT` pad. Members holding a `uintptr_t`
+(`Gdma.addr`) are aligned to byte 8 and are fine.
+
+**Known instance (B-1212, 2026-11-15):** `Gtri` had no pad, so every G_TRI1
+index read 0. `Gtri4` was padded. Generated models draw with G_TRI1 only, so no
+triangle of theirs could be hit, collided with in a rendered-room world mesh,
+drawn in x-ray, or marked by `texLoadFromGdl`.
+
+**Still unpadded, not read today:** `Gvtx.offset/seg`, `GunkC0.tile1/tile2/unk20`,
+and the second words of `Gtexture`, `Gsettile`, `Gloadtile`, `Gsettilesize`,
+`Gfillrect`, `Gsetcombine`, `Gsetcolor`, `Gline3D`. Game code reads only their
+first-word fields (`vtx.unk08`, `unkc0.subcmd`, `texture.cmd`).
+
+**Audit checklist:** before reading any Gfx union member's field, check which
+word it lives in; a second-word field on 64-bit needs the member padded (or
+read `words.w1` and shift). A unit test should decode a macro-built command
+through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
+
+`rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`

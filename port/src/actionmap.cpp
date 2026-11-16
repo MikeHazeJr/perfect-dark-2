@@ -76,6 +76,7 @@ void actionmapRefreshStickMultFromUi(void);
 #define VKL_V     25
 #define VKL_U     24
 #define VKL_Y     28
+#define VKL_X     27
 #define VKL_Z     29
 #define VKL_G     10
 #define VKL_C     6
@@ -307,7 +308,7 @@ static s32 actionmapGetVkByName(const char *name)
  * Action name table (must match InputAction enum order)
  * ============================================================ */
 
-static const char * const s_ActionNames[] = {
+static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_assert below counts the names */
     /* 0-5: movement */
     "MoveForward",
     "MoveBackward",
@@ -437,12 +438,13 @@ static const char * const s_ActionNames[] = {
     /* 103-104: test-scenarios cycler reverse + visibility toggle (S594h-A2) */
     "TestScenCyclePrev",
     "TestScenVisToggle",
-    /* 105-120 (B-1116): these actions were added to the enum without a name.
-     * A nameless action shared the config key "(null)" with the others, so
-     * its binding could not be saved, pd.ini got a line the loader rejects,
-     * and the binding profile code compared and printed a null string. */
+    /* B-1184: 105-120 were added without names, so their pd.ini keys were
+     * "(null)", the complete bindings file stopped at the first unnamed row
+     * and the next launch refused it (and every binding save after that). */
+    /* 105-106: menu skip up/down */
     "MenuSkipUp",
     "MenuSkipDown",
+    /* 107-115: dev hotkeys and tooling chords */
     "DebugBotFreeze",
     "DebugInvincibility",
     "DebugOverlayToggle",
@@ -452,16 +454,21 @@ static const char * const s_ActionNames[] = {
     "DebugWireframeToggle",
     "HotswapToggle",
     "ToggleFullscreen",
+    /* 116: GPU swarm sub-method toggle */
     "TestScenGpuFullToggle",
+    /* 117-120: vehicle controls */
     "VehicleLookX",
     "VehicleLookY",
     "VehicleHandbrake",
     "VehicleUse",
+    /* 121-122: gun roll (T-MODDING-008) */
+    "GunRollLeft",
+    "GunRollRight",
 };
-
-/* Every action has a name: a missing one is a null config key (B-1116). */
+/* Every action has a name: a missing one is a null config key (B-1116 on
+ * week-pd/core, the same fix as CRYSTAL's B-1184). */
 static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
-    "s_ActionNames must name every InputAction, in enum order");
+              "B-1184: every InputAction needs a persisted name");
 
 /* ============================================================
  * Module state
@@ -1922,6 +1929,8 @@ s32 actionIsBlockedInFreefly(InputAction a)
     case ACTION_THROW_WEAPON:
     case ACTION_ZOOM_IN:
     case ACTION_ZOOM_OUT:
+    case ACTION_GUN_ROLL_LEFT:
+    case ACTION_GUN_ROLL_RIGHT:
     /* Weapon selection / radial: block */
     case ACTION_WEAPON_PREV:
     case ACTION_WEAPON_NEXT:
@@ -3029,6 +3038,9 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_A)); /* A_BUTTON / jump */
         addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
         addBind(imc, ACTION_SPRINT,         JOY_BTN(0, JBTN_LSTICK)); /* Left stick click */
+        /* T-MODDING-008: gun roll (held). No pad default: every button is taken. */
+        addBind(imc, ACTION_GUN_ROLL_LEFT,  VKL_Z);
+        addBind(imc, ACTION_GUN_ROLL_RIGHT, VKL_X);
         /* ACTION_ZOOM_IN / ZOOM_OUT: no default kbd bind — user rebinds if needed */
         addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP);
         addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(0, JBTN_LB));
@@ -3837,6 +3849,9 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_VEHICLE_LOOK_Y",       ACTION_VEHICLE_LOOK_Y },
     { "ACTION_VEHICLE_HANDBRAKE",    ACTION_VEHICLE_HANDBRAKE },
     { "ACTION_VEHICLE_USE",          ACTION_VEHICLE_USE },
+    /* 121-122: gun roll (T-MODDING-008) */
+    { "ACTION_GUN_ROLL_LEFT",        ACTION_GUN_ROLL_LEFT },
+    { "ACTION_GUN_ROLL_RIGHT",       ACTION_GUN_ROLL_RIGHT },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

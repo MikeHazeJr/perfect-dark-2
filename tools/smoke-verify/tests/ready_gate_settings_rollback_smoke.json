@@ -17,7 +17,7 @@
       "name": "host",
       "log_file": "pd-host.log",
       "boot_args": [
-        "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro", "--host",
         "--listen-bind", "27217",
         "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0",
         "--host-autostart"
@@ -64,7 +64,7 @@
       "name": "client",
       "log_file": "pd-client.log",
       "boot_args": [
-        "--no-update-check", "--no-sound", "--skip-intro",
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro",
         "--connect-host", "127.0.0.1:27217",
         "--debug-ready-gate-settings-change"
       ],

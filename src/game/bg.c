@@ -35,6 +35,7 @@
 #include "bss.h"
 #include "lib/crash.h"
 #include "lib/dma.h"
+#include "lib/meshcollision.h"
 #include "lib/lib_17ce0.h"
 #include "lib/lib_2f490.h"
 #include "lib/main.h"
@@ -5626,6 +5627,79 @@ bool bgPortalGetOtherRoom(s32 portalnum, s32 roomnum, RoomNum *otherroomnum)
 bool bgRoomIsLoaded(s32 room)
 {
 	return bgRoomIsValid(room) && g_Rooms[room].loaded240;
+}
+
+bool bgIsScenarioSource(void)
+{
+	return g_BgUsingScenarioSource != 0;
+}
+
+bool bgUsesScenarioMeshHits(void)
+{
+	return g_BgUsingScenarioSource && g_WorldMesh.ready && g_WorldMesh.numtris > 0;
+}
+
+bool bgTestHitScenarioMesh(struct coord *frompos, struct coord *topos, bool shot,
+		struct hitthing *hitthing, RoomNum *outroom)
+{
+	struct coord normal = {0.0f, 0.0f, 0.0f};
+	struct coord dir;
+	s32 tri = -1;
+	u16 mask = 0;
+	f32 frac;
+
+	if (outroom) {
+		*outroom = -1;
+	}
+
+	if (!bgUsesScenarioMeshHits() || !frompos || !topos || !hitthing) {
+		return false;
+	}
+
+	/* Shots stop at surfaces that block shooting, as the AI's own line of
+	 * fire does, so they pass movement-only clip walls the way native shots
+	 * passed collision that was never drawn. A mesh without authored flags
+	 * only knows floor/wall/ceiling, so everything counts there. */
+	if (shot && meshWorldHasShotFlags()) {
+		mask = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SHOOT;
+	}
+
+	frac = meshRayCastWorldMasked(frompos, topos, mask, &normal, &tri);
+
+	if (tri < 0 || !(frac < 1.0f)) {
+		return false;
+	}
+
+	dir.x = topos->x - frompos->x;
+	dir.y = topos->y - frompos->y;
+	dir.z = topos->z - frompos->z;
+
+	/* The mesh test is two-sided; face the normal back along the ray like
+	 * the native hit normal. */
+	if (normal.x * dir.x + normal.y * dir.y + normal.z * dir.z > 0.0f) {
+		normal.x = -normal.x;
+		normal.y = -normal.y;
+		normal.z = -normal.z;
+	}
+
+	memset(hitthing, 0, sizeof(*hitthing));
+	hitthing->pos.x = frompos->x + dir.x * frac;
+	hitthing->pos.y = frompos->y + dir.y * frac;
+	hitthing->pos.z = frompos->z + dir.z * frac;
+	hitthing->unk0c = normal;
+	/* No render texture: default surface (texGetDefinition(-1) is the empty
+	 * definition), opaque. */
+	hitthing->texturenum = -1;
+
+	if (outroom) {
+		RoomNum room = g_WorldMesh.tris[tri].roomnum;
+
+		if (room > 0 && room < g_Vars.roomcount) {
+			*outroom = room;
+		}
+	}
+
+	return true;
 }
 
 bool bgRoomContainsCoord(struct coord *pos, RoomNum roomnum)

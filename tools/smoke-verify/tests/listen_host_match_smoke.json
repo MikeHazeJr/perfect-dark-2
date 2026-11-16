@@ -26,6 +26,7 @@
       "name": "host",
       "log_file": "pd-host.log",
       "boot_args": [
+        "--portable",
         "--no-update-check",
         "--no-sound",
         "--skip-intro",
@@ -47,6 +48,7 @@
       "name": "client",
       "log_file": "pd-client.log",
       "boot_args": [
+        "--portable",
         "--no-update-check",
         "--no-sound",
         "--skip-intro",

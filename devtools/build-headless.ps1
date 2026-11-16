@@ -70,6 +70,9 @@ param(
 
     [switch]$SelfTest,
 
+    [switch]$RetainHousekeeping,
+    [string]$BuildRetentionContextFile = "",
+
     # Dev-mod selection copied into <install>/mods. "" = manifest "dev":true
     # mods (default); "all" = every listed mod; "none" = no dev mods;
     # "id1,id2" = only the named mods. See dev-mods/README.md.
@@ -78,6 +81,135 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Retained child protocol: no native launch or housekeeping before validation.
+function Assert-HeadlessRetainedOptions {
+    if (-not $RetainHousekeeping) {
+        if ($BuildRetentionContextFile) { throw 'Retained context requires -RetainHousekeeping.' }
+        return
+    }
+    if ($Clean -or $AutoCommit -or $UseNextVersion -or $SelfTest -or $DevMods) {
+        throw 'Retained child refuses cleanup, Git/version, self-test and mod-copy modes before setup.'
+    }
+    if ($Target -notin @('tests','settings-tests','probe')) {
+        throw 'Retained client/updater/all install-copy preservation is not integrated.'
+    }
+    if (-not $OutputDir -or -not $BuildRetentionContextFile) {
+        throw 'Retained child requires explicit isolated output and invocation context.'
+    }
+}
+
+function Assert-HeadlessRetainedLaunchers([string]$Directory, [bool]$RequireExplicit = $false) {
+    $cache = Join-Path $Directory 'CMakeCache.txt'
+    if (-not (Test-Path -LiteralPath $cache)) {
+        if ($RequireExplicit) { throw 'Retained configure produced no launcher proof.' }
+        return
+    }
+    Assert-SmokePlainTree -Path $cache
+    $seen = @{}
+    foreach ($line in [IO.File]::ReadAllLines($cache)) {
+        if ($line -match '^CMAKE_(C|CXX)_COMPILER_LAUNCHER(?::[^=]+)?=(.*)$') {
+            if ($seen.ContainsKey($Matches[1])) { throw 'Duplicate cached compiler launcher.' }
+            $seen[$Matches[1]] = $true
+            if ($Matches[2] -cne '') { throw 'Retained child refuses an effective cached compiler launcher.' }
+        }
+    }
+    if ($RequireExplicit -and (-not $seen.ContainsKey('C') -or -not $seen.ContainsKey('CXX'))) {
+        throw 'Retained configure lacks explicit empty C and CXX launchers.'
+    }
+}
+
+function Initialize-HeadlessRetainedContext {
+    if (-not $RetainHousekeeping) { return }
+    Assert-SmokePlainTree -Path $BuildRetentionContextFile
+    $context = [IO.File]::ReadAllText($BuildRetentionContextFile) | ConvertFrom-Json
+    foreach ($field in @('schema','run_id','project_root','target','session','build_dir','reviewed_child_sha256')) {
+        if ($context.$field -isnot [string]) { throw ('Retained context must have scalar string '+$field) }
+    }
+    if ($context.session -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$' -or
+        $context.reviewed_child_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        ($context.owner.pid -isnot [int] -and $context.owner.pid -isnot [long]) -or
+        $context.owner.pid -le 0 -or $context.owner.pid -gt [int]::MaxValue -or
+        ($context.owner.creation_ticks -isnot [long] -and $context.owner.creation_ticks -isnot [int]) -or
+        $context.owner.creation_ticks -le 0) {
+        throw 'Retained context owner/session/hash types are invalid.'
+    }
+    $receiptRoot = Join-Path $ProjectDir '.claude/smoke-storage/receipts'
+    if ($context.schema -cne 'pd2.build-retention-context.v1' -or
+        $context.run_id -cnotmatch '^runner-[0-9a-f]{32}$' -or
+        $context.project_root -cne $ProjectDir -or $context.target -cne $Target) {
+        throw 'Retained child context identity mismatch.'
+    }
+    $runRoot = Join-Path $receiptRoot $context.run_id
+    if (-not [string]::Equals([IO.Path]::GetFullPath($BuildRetentionContextFile),
+            (Join-Path $runRoot 'build-context.json'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Retained context escaped the exact receipt root.'
+    }
+    Assert-SmokePlainTree -Path $runRoot -Descendants
+    $marker = [IO.File]::ReadAllText((Join-Path $runRoot 'run-owner.json')) | ConvertFrom-Json
+    if ($marker.schema -isnot [string] -or $marker.run_id -isnot [string] -or
+        $marker.retain_housekeeping -isnot [bool] -or
+        ($marker.owner.pid -isnot [int] -and $marker.owner.pid -isnot [long]) -or
+        ($marker.owner.creation_ticks -isnot [long] -and $marker.owner.creation_ticks -isnot [int])) {
+        throw 'Retained owner marker types are invalid.'
+    }
+    if ($marker.schema -cne 'pd2.smoke-runner-retention.v1' -or
+        $marker.run_id -cne $context.run_id -or $marker.retain_housekeeping -ne $true -or
+        $marker.owner.pid -ne $context.owner.pid -or
+        $marker.owner.creation_ticks -ne $context.owner.creation_ticks) {
+        throw 'Retained context owner marker mismatch.'
+    }
+    $current = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $PID) -ErrorAction Stop
+    if ($current.ParentProcessId -ne $context.owner.pid) { throw 'Retained child parent mismatch.' }
+    $parent = [Diagnostics.Process]::GetProcessById([int]$context.owner.pid)
+    try {
+        if ($parent.HasExited -or $parent.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $context.owner.creation_ticks) {
+            throw 'Retained child parent creation identity mismatch.'
+        }
+    } finally { $parent.Dispose() }
+    $actualSha = (Get-FileHash -Algorithm SHA256 -LiteralPath $PSCommandPath).Hash.ToLowerInvariant()
+    if (-not $context.reviewed_child_sha256 -or $context.reviewed_child_sha256 -cne $actualSha) {
+        throw 'Retained child lacks the exact reviewed source capability.'
+    }
+    $sessionRoot = [IO.Path]::GetFullPath((Join-Path $ProjectDir '.claude/session-builds')).TrimEnd('\')
+    $output = [IO.Path]::GetFullPath($BuildDir)
+    if (-not $output.StartsWith($sessionRoot + '\', [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals($output, [IO.Path]::GetFullPath($context.build_dir), [StringComparison]::OrdinalIgnoreCase) -or
+        -not [string]::Equals($output, (Join-Path $sessionRoot $context.session), [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Retained child output escaped the invocation session.'
+    }
+    Assert-SmokePlainTree -Path $output -Descendants
+    if (-not (Test-Path -LiteralPath (Join-Path $ProjectDir 'dev-keys/ed25519-private.pem'))) {
+        throw 'Retained child refuses key generation before native launch.'
+    }
+    Assert-HeadlessRetainedLaunchers $output
+    [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
+    # Each actor uses the existing accounted receipt publisher with its real PID.
+    # Parent context remains read-only; do not impersonate its storage ownership.
+    $script:HeadlessRetainedContext = New-SmokeRunnerRetentionContext -ProjectRoot $ProjectDir
+    [void](Write-SmokeRunnerRetainedJson -Context $script:HeadlessRetainedContext -Name 'child-binding.json' -Value @{
+        parent_run_id=$context.run_id; parent_owner=$context.owner; child_owner=$script:HeadlessRetainedContext.Owner;
+        source_sha256=$actualSha; build_dir=$output; target=$Target
+    })
+    $script:HeadlessRetainedRunRoot = $script:HeadlessRetainedContext.RunRoot
+    $script:HeadlessRetainedSourceSha256 = $actualSha
+}
+
+function Write-HeadlessRetainedBytes([string]$Path, [byte[]]$Bytes) {
+    if ($Bytes.Length) { throw 'Known receipt payloads require the existing locked storage publisher.' }
+    Assert-SmokePlainTree -Path $Path
+    $stream = [IO.File]::Open($Path, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    try { $stream.Write($Bytes, 0, $Bytes.Length); $stream.Flush($true) }
+    finally { $stream.Dispose() }
+}
+
+function Write-HeadlessRetainedReceipt([string]$Name, [byte[]]$Bytes, [hashtable]$Binding = @{}) {
+    return Write-SmokeRunnerRetainedJson -Context $script:HeadlessRetainedContext -Name $Name -Value @{
+        schema='pd2.headless-retained-bytes.v1'; bytes=$Bytes.Length; raw_base64=[Convert]::ToBase64String($Bytes); step=$Binding
+    }
+}
+
+Assert-HeadlessRetainedOptions
 
 # Worktree-redirect guard (c070): pure resolver, unit-tested via -SelfTest.
 # Builds are NEVER allowed to operate on a .claude\worktrees\<name> copy -- if the
@@ -125,6 +257,13 @@ if ($OutputDir -ne "") {
     $BuildDir = Join-Path $ProjectDir "Build"
 }
 $StateFile  = Join-Path $BuildDir ".last_build_state.json"
+if ($RetainHousekeeping) {
+    . (Join-Path $ProjectDir 'tools/smoke-verify/lib/Storage-Harness.ps1')
+    . (Join-Path $ProjectDir 'tools/smoke-verify/lib/Runner-Retention.ps1')
+    Set-SmokeStorageRetention -RetainHousekeeping
+    Initialize-SmokeStoragePolicy -Path (Join-Path $ProjectDir 'tools/smoke-verify/storage-policy.json')
+}
+Initialize-HeadlessRetainedContext
 $AddinDir   = Join-Path $ProjectDir "..\post-batch-addin"
 $PreferredCMake = "C:\msys64\mingw64\bin\cmake.exe"
 if (Test-Path $PreferredCMake) {
@@ -186,7 +325,7 @@ if ($GitExe -ne "") {
     Write-Warning "Preferred Git executable not found; version metadata probes will fall back nonfatally."
 }
 
-if (Test-Path -LiteralPath $CcacheExe) {
+if (-not $RetainHousekeeping -and (Test-Path -LiteralPath $CcacheExe)) {
     $probeOut = Join-Path $env:TEMP ("pd-ccache-probe-{0}.out" -f $PID)
     $probeErr = Join-Path $env:TEMP ("pd-ccache-probe-{0}.err" -f $PID)
     Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue
@@ -208,6 +347,10 @@ if (Test-Path -LiteralPath $CcacheExe) {
     }
 
     Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue
+}
+
+if ($RetainHousekeeping) {
+    $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER="
 }
 
 $Cores = $env:NUMBER_OF_PROCESSORS
@@ -445,20 +588,49 @@ function Invoke-BuildStep {
     }
 
     $logStamp = [DateTime]::Now.ToString("yyyyMMdd-HHmmss")
+    $stepLogRoot = $BuildDir
+    $retainedStepId = $null; $stepBinding = @{}
+    if ($RetainHousekeeping) {
+        [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
+        $retainedStepId = [guid]::NewGuid().ToString("N")
+        $stepLogRoot = Join-Path $script:HeadlessRetainedRunRoot ("step-" + $retainedStepId)
+        Assert-SmokePlainTree -Path $stepLogRoot
+        New-Item -ItemType Directory -Path $stepLogRoot -ErrorAction Stop | Out-Null
+    }
     $logName = Get-SafeBuildStepLogName $StepName
-    $stepStdoutLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.out.log" -f $logStamp, $logName)
-    $stepStderrLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.err.log" -f $logStamp, $logName)
-    $stepExitLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.exit" -f $logStamp, $logName)
-    $stepHeartbeatLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.heartbeat.log" -f $logStamp, $logName)
-    $stepCmdLineLog = Join-Path $BuildDir ("_build-headless-{0}-{1}.cmdline.txt" -f $logStamp, $logName)
+    $stepStdoutLog = Join-Path $stepLogRoot ("_build-headless-{0}-{1}.out.log" -f $logStamp, $logName)
+    $stepStderrLog = Join-Path $stepLogRoot ("_build-headless-{0}-{1}.err.log" -f $logStamp, $logName)
+    $stepExitLog = Join-Path $stepLogRoot ("_build-headless-{0}-{1}.exit" -f $logStamp, $logName)
+    $stepHeartbeatLog = Join-Path $stepLogRoot ("_build-headless-{0}-{1}.heartbeat.log" -f $logStamp, $logName)
+    $stepCmdLineLog = Join-Path $stepLogRoot ("_build-headless-{0}-{1}.cmdline.txt" -f $logStamp, $logName)
+    if ($RetainHousekeeping) {
+        $stepCmdLineLog = Join-Path $script:HeadlessRetainedRunRoot ('command-'+$retainedStepId+'.json')
+        $stepExitLog = Join-Path $script:HeadlessRetainedRunRoot ('exit-'+$retainedStepId+'.json')
+        $stepBinding = @{
+            id=$retainedStepId; name=$StepName; executable=$Exe; arguments=$ArgList; working_directory=$WorkDir;
+            source_sha256=$script:HeadlessRetainedSourceSha256; run_id=$script:HeadlessRetainedContext.RunId;
+            owner=$script:HeadlessRetainedContext.Owner;
+            stdout=$stepStdoutLog; stderr=$stepStderrLog; heartbeat=$stepHeartbeatLog;
+            command=$stepCmdLineLog; exit=$stepExitLog
+        }
+        foreach ($path in @($stepStdoutLog,$stepStderrLog,$stepExitLog,$stepHeartbeatLog,$stepCmdLineLog)) {
+            Assert-SmokePlainTree -Path $path
+            if (Test-Path -LiteralPath $path) { throw 'Retained step output collision.' }
+        }
+        Write-HeadlessRetainedBytes $stepHeartbeatLog ([byte[]]@())
+    } else {
     Remove-Item -LiteralPath $stepStdoutLog, $stepStderrLog, $stepExitLog, $stepCmdLineLog -Force -ErrorAction SilentlyContinue
     Set-Content -LiteralPath $stepHeartbeatLog -Value "" -Encoding UTF8
+    }
     Write-Info "  [step-log] stdout: $stepStdoutLog"
     Write-Info "  [step-log] stderr: $stepStderrLog"
     Write-Info "  [step-log] heartbeat: $stepHeartbeatLog"
     Write-Info "  [step-log] exit:   $stepExitLog"
     Write-Info "  [step-log] cmdline: $stepCmdLineLog"
 
+    $retainedOut = $null; $retainedErr = $null
+    $retainedOutTask = $null; $retainedErrTask = $null
+    $proc = $null; $retainedStepStarted = $false
     $stdoutLines = @()
     $stderrLines = @()
     $errorLines  = [System.Collections.Generic.List[string]]::new()
@@ -475,7 +647,12 @@ function Invoke-BuildStep {
             "TMP=$goodTemp",
             "NINJA_STATUS=[%r/%f/%t] "
         )
-        Set-Content -LiteralPath $stepCmdLineLog -Value $cmdLines -Encoding ASCII
+        if ($RetainHousekeeping) {
+            $receipt = Write-HeadlessRetainedReceipt ('command-'+$retainedStepId+'.json') ([Text.Encoding]::UTF8.GetBytes(($cmdLines -join "`r`n"))) $stepBinding
+            $stepCmdLineLog = $receipt.Path
+        } else {
+            Set-Content -LiteralPath $stepCmdLineLog -Value $cmdLines -Encoding ASCII
+        }
 
         $oldMsystem = $env:MSYSTEM
         $oldMingwPrefix = $env:MINGW_PREFIX
@@ -490,6 +667,23 @@ function Invoke-BuildStep {
         $env:NINJA_STATUS = "[%r/%f/%t] "
 
         try {
+            if ($RetainHousekeeping) {
+                # Open both destinations exclusively before spawning. A raced file
+                # refuses; native redirection never truncates a prior destination.
+                $retainedOut = [IO.FileStream]::new($stepStdoutLog,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read,4096,$true)
+                $retainedErr = [IO.FileStream]::new($stepStderrLog,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::Read,4096,$true)
+                $start = New-Object Diagnostics.ProcessStartInfo
+                $start.FileName=$Exe; $start.Arguments=$ArgList; $start.WorkingDirectory=$WorkDir
+                $start.UseShellExecute=$false; $start.CreateNoWindow=$true
+                $start.RedirectStandardOutput=$true; $start.RedirectStandardError=$true
+                $proc=New-Object Diagnostics.Process; $proc.StartInfo=$start
+                if (-not $proc.Start()) { throw 'Retained build step did not start.' }
+                $retainedStepStarted = $true
+                $stepBinding.child_pid = $proc.Id
+                $stepBinding.child_creation_ticks = $proc.StartTime.ToUniversalTime().ToFileTimeUtc()
+                $retainedOutTask=$proc.StandardOutput.BaseStream.CopyToAsync($retainedOut)
+                $retainedErrTask=$proc.StandardError.BaseStream.CopyToAsync($retainedErr)
+            } else {
             $proc = Start-Process -FilePath $Exe `
                                   -ArgumentList $ArgList `
                                   -WorkingDirectory $WorkDir `
@@ -497,6 +691,7 @@ function Invoke-BuildStep {
                                   -RedirectStandardError $stepStderrLog `
                                   -WindowStyle Hidden `
                                   -PassThru
+            }
         } finally {
             $env:MSYSTEM = $oldMsystem
             $env:MINGW_PREFIX = $oldMingwPrefix
@@ -505,6 +700,15 @@ function Invoke-BuildStep {
             $env:NINJA_STATUS = $oldNinjaStatus
         }
     } catch {
+        if ($RetainHousekeeping) {
+            $launchFailure = $_.Exception.Message
+            if ($retainedStepStarted -and -not $proc.HasExited) {
+                throw 'Retained step launch/pipe failure: child closeout unknown; preserve parent lease and evidence.'
+            }
+            foreach ($stream in @($retainedOut,$retainedErr)) { if ($null -ne $stream) { $stream.Dispose() } }
+            if ($null -ne $proc) { $proc.Dispose() }
+            [void](Write-HeadlessRetainedReceipt ('launch-failure-'+$retainedStepId+'.json') ([Text.Encoding]::UTF8.GetBytes($launchFailure)) $stepBinding)
+        }
         Write-Err "Failed to launch: $Exe $ArgList"
         Write-Err $_.Exception.Message
         return $false
@@ -553,9 +757,26 @@ function Invoke-BuildStep {
     }
 
     $proc.WaitForExit()
+    if ($RetainHousekeeping) {
+        try {
+            # Root exit alone is insufficient: both pumps must reach EOF.
+            [void]$retainedOutTask.GetAwaiter().GetResult()
+            [void]$retainedErrTask.GetAwaiter().GetResult()
+            $retainedOut.Flush($true); $retainedErr.Flush($true)
+        } finally {
+            $retainedOut.Dispose(); $retainedErr.Dispose()
+        }
+        [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
+    }
     try {
-        Set-Content -LiteralPath $stepExitLog -Value ([string][int]$proc.ExitCode) -Encoding ASCII
+        if ($RetainHousekeeping) {
+            $receipt = Write-HeadlessRetainedReceipt ('exit-'+$retainedStepId+'.json') ([Text.Encoding]::ASCII.GetBytes([string][int]$proc.ExitCode)) $stepBinding
+            $stepExitLog = $receipt.Path
+        } else {
+            Set-Content -LiteralPath $stepExitLog -Value ([string][int]$proc.ExitCode) -Encoding ASCII
+        }
     } catch {
+        if ($RetainHousekeeping) { throw }
         Write-Warn "Could not write step exit file for '$StepName': $stepExitLog"
         Write-Err $_.Exception.Message
     }
@@ -591,7 +812,10 @@ function Invoke-BuildStep {
     Write-Host "`r" + (" " * 72) + "`r" -NoNewline
 
     $exitCode = $null
-    if (Test-Path -LiteralPath $stepExitLog) {
+    if ($RetainHousekeeping) {
+        # The retained receipt is JSON; the cached, exited OS process is authoritative.
+        $exitCode = [int]$proc.ExitCode
+    } elseif (Test-Path -LiteralPath $stepExitLog) {
         $exitText = (Get-Content -LiteralPath $stepExitLog -Raw -ErrorAction SilentlyContinue).Trim()
         if ($exitText -match '^-?\d+$') {
             $exitCode = [int]$exitText
@@ -782,7 +1006,15 @@ function Write-BuildState([string]$headHash) {
     }
     $dir = Split-Path $StateFile -Parent
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
-    try { $state | ConvertTo-Json -Depth 3 | Set-Content $StateFile -Encoding UTF8 -ErrorAction Stop } catch {}
+    if ($RetainHousekeeping) {
+        Assert-SmokePlainTree -Path $StateFile
+        if (Test-Path -LiteralPath $StateFile) {
+            [void](Write-HeadlessRetainedReceipt ('state-before-' + [guid]::NewGuid().ToString('N') + '.json') ([IO.File]::ReadAllBytes($StateFile)))
+        }
+        [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
+    }
+    try { $state | ConvertTo-Json -Depth 3 | Set-Content $StateFile -Encoding UTF8 -ErrorAction Stop }
+    catch { if ($RetainHousekeeping) { throw } }
 }
 
 function Test-NeedsCleanBuild {
@@ -921,9 +1153,15 @@ $needsClean = Test-NeedsCleanBuild
 if ($needsClean) {
     $reason = if ($Clean) { "explicit -Clean flag" } else { "smart-clean heuristic (see above)" }
     if (Test-Path $BuildDir) {
+        if ($RetainHousekeeping) {
+            if (@(Get-ChildItem -LiteralPath $BuildDir -Force).Count) {
+                throw 'Retained child refuses smart-clean of existing build bytes.'
+            }
+        } else {
         Write-Header "Cleaning Build Dir ($reason)"
         Remove-Item -Path $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Ok "  Cleaned: $BuildDir"
+        }
     } else {
         Write-Info "  Build dir does not exist -- fresh build ($reason)"
     }
@@ -962,6 +1200,10 @@ $configOk = Invoke-BuildStep -StepName "Configure (CMake - Ninja + ccache)" `
                               -Exe $CMakeExe `
                               -ArgList $configArgs `
                               -ShowAll $Verbose.IsPresent
+
+if ($RetainHousekeeping -and $configOk) {
+    Assert-HeadlessRetainedLaunchers $BuildDir $true
+}
 
 if (-not $configOk) {
     Write-Err ""

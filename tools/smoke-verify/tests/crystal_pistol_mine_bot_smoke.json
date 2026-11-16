@@ -1,0 +1,130 @@
+{
+  "scenario_name": "crystal_pistol_mine_bot_smoke",
+  "description": "Crystal pistol (T-MODDING-008) proximity mines against a simulant: a full charged volley is launched at the floor around a bot held 240 units in front of the player; the mines arm where they land, the enemy bot inside the 200-unit radius triggers them and they detonate. The spawn and the first-person look are fixed (look 33.5 degrees down, at the floor under the bot) so the volley lands around the bot on every run. The bot holds its fire (--debug-bots-hold-fire): bots now fight with mod weapons, and an armed bot 240 units away would shoot back and make the run depend on its aim.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "projectile",
+    "bots",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun_mod.c",
+    "src/game/propobj.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0.6816,-0.5519,-0.4803",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "1",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-place-bot-near-player",
+    "--debug-place-bot-near-player-hold-sec",
+    "20",
+    "--debug-bots-hold-fire",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with a full clip; the bot is placed 240 units along the forced look and held there."
+    },
+    { "at_ms": 1500, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press", "comment": "Switch to the secondary (charge) function." },
+    { "at_ms": 1600, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
+    { "at_ms": 2500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Commit the charge; the volley launches 1.5 seconds later." },
+    { "at_ms": 2600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 3300, "type": "screenshot", "path": "cp-mine-bot-charging.bmp" },
+    { "at_ms": 4300, "type": "screenshot", "path": "cp-mine-bot-launched.bmp" },
+    { "at_ms": 5500, "type": "screenshot", "path": "cp-mine-bot-after.bmp" },
+    { "at_ms": 8000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-mine-bot-charging.bmp" },
+    { "src": "cp-mine-bot-launched.bmp" },
+    { "src": "cp-mine-bot-after.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_mine_bot_smoke",
+      "BOOT: --debug-bots-hold-fire armed",
+      "BOOT: --debug-spawn-at consumed: .* result=OK",
+      "BOOT: --debug-place-bot-near-player consumed: bot=.* result=OK",
+      "BONDGUN\\.CHARGE: start weapon=\\d+ player=0 func=1 count=6",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ player=0 count=6 launched=6 dead=0 sockets=6",
+      "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=0",
+      "BONDGUN\\.CRYSTAL: mine triggered weapon=\\d+ func=1 owner=0 by=[1-9]\\d* radius=200",
+      "BONDGUN\\.CRYSTAL: mine detonated weapon=\\d+ func=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "BONDGUN\\.CRYSTAL: mine triggered weapon=\\d+ func=1 owner=0 by=0 ",
+      "BONDGUN\\.CRYSTAL: landed registry full",
+      "BONDGUN\\.BOT: fired",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=0",
+        "min": 2
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 3
+      }
+    ]
+  }
+}

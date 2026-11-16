@@ -3,9 +3,12 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <utility>
 
 extern "C" {
 #include "modasset_gltf_source.h"
+#include "modasset_gltf_document.h"
+#include "modasset_gltf_scene.h"
 }
 
 TEST_CASE("glTF buffer URIs retain their source archive and directory",
@@ -256,4 +259,70 @@ TEST_CASE("animation tail values preserve the nonnegative signed 16 bit boundary
 	REQUIRE(modAssetGltfCutSkipFrames("[]", 2, &frames, &count) == 1);
 	REQUIRE(frames == nullptr);
 	REQUIRE(count == 0);
+}
+
+TEST_CASE("glTF required feature refusal reaches provider and scene admission atomically",
+        "[modding][pdxxx][c3842][gltf-source]")
+{
+    const std::vector<std::pair<std::string, std::string>> cases = {
+        {"\"asset\":{\"version\":\"2.0\",\"minVersion\":\"2.1\"}", "gltf_minimum_version_unsupported"},
+        {"\"asset\":{\"version\":\"2.0\"},\"extensionsUsed\":[\"KHR_draco_mesh_compression\"],\"extensionsRequired\":[\"KHR_draco_mesh_compression\"]", "gltf_required_extension_unsupported"},
+        {"\"asset\":{\"version\":\"2.0\"},\"accessors\":[{\"bufferView\":0,\"sparse\":{\"count\":1}}]", "gltf_sparse_accessor_unsupported"},
+        {"\"asset\":{\"version\":\"2.0\"},\"accessors\":[{\"normalized\":true}]", "gltf_normalized_accessor_unsupported"},
+    };
+    for (const auto &item : cases) {
+        INFO(item.first);
+        const std::string json = "{" + item.first + "}";
+        char error[128] = "old";
+        REQUIRE(modAssetGltfDocumentValidate(json.data(), json.size(), error, sizeof(error)) == 0);
+        REQUIRE(std::string(error) == item.second);
+        char uri[64] = "old";
+        u32 size = 99;
+        REQUIRE(modAssetGltfOptionalBufferDocument(json.data(), json.size(), 0, uri, sizeof(uri), &size) == 0);
+        REQUIRE(uri[0] == '\0');
+        REQUIRE(size == 0);
+        int visited = 0;
+        REQUIRE(modAssetGltfDocumentVisitStrings(json.data(), json.size(),
+            [](const char *, const char *, s32, u32, void *context) -> s32 {
+                ++*static_cast<int *>(context);
+                return 0;
+            }, &visited) == 0);
+        REQUIRE(visited == 0);
+        modasset_gltf_scene_plan_t plan{};
+        REQUIRE(modAssetGltfScenePlanBuild(json.data(), json.size(), &plan, error, sizeof(error)) == 0);
+        REQUIRE(plan.instances == nullptr);
+        REQUIRE(plan.count == 0);
+        REQUIRE(std::string(error) == item.second);
+    }
+}
+
+TEST_CASE("glTF extension and normalization declarations require strict decoded types",
+        "[modding][pdxxx][c3842][gltf-source]")
+{
+    for (const char *fields : {
+        "\"extensionsUsed\":null", "\"extensionsUsed\":[]", "\"extensionsUsed\":[42]",
+        "\"extensionsUsed\":[\"\"]", "\"extensionsUsed\":[\"KHR_x\",\"KHR_x\"]",
+        "\"extensionsRequired\":[\"KHR_x\"]", "\"extensionsRequired\":[]",
+        "\"accessors\":{}", "\"accessors\":[null]", "\"accessors\":[{\"normalized\":1}]",
+        "\"accessors\":[{\"normalized\":\"false\"}]"}) {
+        const std::string json = std::string("{\"asset\":{\"version\":\"2.0\"},") + fields + "}";
+        INFO(json);
+        REQUIRE(modAssetGltfDocumentValidate(json.data(), json.size(), nullptr, 0) == 0);
+    }
+}
+
+TEST_CASE("glTF optional extensions and unnormalized sources preserve admission",
+        "[modding][pdxxx][c3842][gltf-source]")
+{
+    const std::string json = "{\"asset\":{\"version\":\"2.0\",\"minVersion\":\"2.0\"},"
+        "\"extensionsUsed\":[\"VENDOR_optional\"],\"accessors\":[{\"normalized\":false}],"
+        "\"extras\":{\"sparse\":{},\"normalized\":true,\"extensionsRequired\":[\"metadata\"]}}";
+    char error[128] = "old";
+    REQUIRE(modAssetGltfDocumentValidate(json.data(), json.size(), error, sizeof(error)) == 1);
+    REQUIRE(error[0] == '\0');
+    char uri[64] = "old";
+    u32 size = 99;
+    REQUIRE(modAssetGltfOptionalBufferDocument(json.data(), json.size(), 0, uri, sizeof(uri), &size) == 1);
+    REQUIRE(uri[0] == '\0');
+    REQUIRE(size == 0);
 }

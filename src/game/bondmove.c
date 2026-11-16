@@ -15,6 +15,7 @@
 #include "game/atan2f.h"
 #include "game/quaternion.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: gun roll */
 #include "game/game_0b0fd0.h"
 #include "game/tex.h"
 #include "game/camera.h"
@@ -404,6 +405,10 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 			bgunEquipWeapon(inmove->weaponnum);
 		}
 	}
+
+	/* v63 (T-MODDING-008): the remote player's held gun roll actions. */
+	bgunModRollTick(allowc1buttons && (inmove->ucmd & UCMD_GUNROLL_LEFT) != 0,
+		allowc1buttons && (inmove->ucmd & UCMD_GUNROLL_RIGHT) != 0);
 
 	if ((inmove->ucmd & UCMD_SECONDARY) && !bgunIsUsingSecondaryFunction()) {
 		bgunConsiderToggleGunFunction(0, false, false, true);
@@ -851,6 +856,9 @@ void bmoveApplyMoveData(struct movedata *data)
 			if (g_Vars.currentplayer->wantsjump) {
 				g_Vars.currentplayer->ucmd |= UCMD_JUMP;
 			}
+			/* v63 (T-MODDING-008): the held gun roll actions, so every peer
+			 * rolls this player's mod gun and the host fans its charge. */
+			g_Vars.currentplayer->ucmd |= bgunModRollUcmd();
 		}
 	}
 }
@@ -1310,6 +1318,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		s32 pi = actionPlayer;
 		c1buttons = 0;
 		c1buttonsthisframe = 0;
+		/* T-MODDING-008: gun roll. Eases back to level when the buttons are
+		 * not allowed (menus, cutscenes) or the weapon does not roll. */
+		bgunModRollTick(allowc1buttons && actionHeld(pi, ACTION_GUN_ROLL_LEFT),
+			allowc1buttons && actionHeld(pi, ACTION_GUN_ROLL_RIGHT));
 		if (allowc1buttons) {
 			/* B-246 round-5 diagnostic (2026-04-26): trace fire-input layer.
 			 * Mike's playtest of f83ca230 shows triggeron_in always 0 in

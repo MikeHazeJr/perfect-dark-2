@@ -2888,8 +2888,9 @@ int modmgrApplyPreparedChanges(const modmgr_apply_plan_t *plan, modmgr_apply_res
                 plan->original[old].requires_restart != mod->requires_restart)
             return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, mod->id,
                 "An installed package changed identity; pending choices were retained.");
-        intended[i] = mod->enabled;
-        originalLoaded[i] = plan->original[old].loaded;
+        /* SP-75: compared with != below, so store 0 or 1 (bool is s32). */
+        intended[i] = mod->enabled != 0;
+        originalLoaded[i] = plan->original[old].loaded != 0;
     }
     if (plan->activation_id[0]) {
         modinfo_t *activation = modmgrFindMod(plan->activation_id);

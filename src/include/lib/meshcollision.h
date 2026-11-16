@@ -170,6 +170,17 @@ f32 meshFindCeiling(struct coord *pos, f32 radius);
 f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
                      const RoomNum *rooms, struct coord *out_normal);
 
+/* B-1189: ray cast against the static world mesh triangles whose flags
+ * intersect mask (0: every triangle), walking only the grid cells the ray
+ * crosses. Returns the hit fraction [0..1] or 1.0 when clear; *out_tri is the
+ * hit index into g_WorldMesh.tris, or -1. */
+f32 meshRayCastWorldMasked(const struct coord *from, const struct coord *to,
+                           u16 mask, struct coord *out_normal, s32 *out_tri);
+
+/* B-1189: the world mesh has authored GEOFLAGs (BLOCK_SIGHT/BLOCK_SHOOT
+ * appear), so a shot-blocking mask is meaningful. */
+bool meshWorldHasShotFlags(void);
+
 /* Ray cast against dynamic movement-solid props in the given rooms. Uses
  * prop->pos/defaultobj.realrot and prop->colmesh, never render matrices. */
 bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,

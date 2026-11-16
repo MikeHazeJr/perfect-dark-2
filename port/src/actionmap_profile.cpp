@@ -4,6 +4,8 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <utility>
 
@@ -383,6 +385,40 @@ bool write(const Registry &registry, const Snapshot &snapshot,
     return true;
 }
 
+// B-1184: while actions 105-120 had no names, writing the complete file
+// stopped at the first of them, leaving a bare "<context>." last row. That
+// file can never load, and it blocked every later save. Recognise exactly
+// that shape (versioned header, last row a known context name plus '.', no
+// '=') so startup can replace it with the live bindings, which pd.ini still
+// carried for every named action.
+bool isUnnamedActionTruncation(const Registry &registry, const char *absolutePath)
+{
+    if (!absolutePath || !*absolutePath) return false;
+    std::ifstream in(absolutePath, std::ios::binary);
+    if (!in) return false;
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    if (text.size() > kMaxDocumentBytes || text.find('\0') != std::string::npos) return false;
+    std::istringstream lines(text);
+    std::string line;
+    std::string first;
+    std::string last;
+    while (std::getline(lines, line)) {
+        line = trim(line);
+        if (line.empty() || line.front() == '#') continue;
+        if (first.empty()) first = line;
+        last = line;
+    }
+    if (first != kFormat || last.size() < 2 || last.back() != '.' ||
+            last.find('=') != std::string::npos) {
+        return false;
+    }
+    const std::string context = last.substr(0, last.size() - 1);
+    for (size_t ci = 0; ci < registry.count; ++ci) {
+        if (context == registry.contexts[ci]->name) return true;
+    }
+    return false;
+}
+
 bool Store::initialize(const Registry &registry, const Snapshot &defaults,
                        const char *currentPath, std::string &error)
 {
@@ -394,6 +430,9 @@ bool Store::initialize(const Registry &registry, const Snapshot &defaults,
     const auto result = read(registry, defaults, currentPath, false, candidate, error);
     initialized_ = true;
     if (result == ReadResult::Invalid) {
+        if (isUnnamedActionTruncation(registry, currentPath)) {
+            return write(registry, accepted_, currentPath, error);
+        }
         blocked_ = true;
         return false;
     }

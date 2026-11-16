@@ -7,6 +7,7 @@
 #include "game/bg.h"
 #include "game/body.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: committed charge release */
 #include "game/bondhead.h"
 #include "game/bondmove.h"
 #include "game/bondview.h"
@@ -1893,6 +1894,11 @@ Gfx *lvRender(Gfx *gdl)
 				propsSort();
 				autoaimTick();
 				handsTickAttack();
+				/* T-MODDING-008: release a mod weapon's committed charge at its
+				 * deadline, whether or not its owner is still alive; bots'
+				 * charges once a frame. */
+				bgunModChargeTick();
+				bgunModBotChargeTick();
 
 				// glares calculated earlier on PC, before prop matrices turn into garbage
 				bgCalculateGlaresForVisibleRooms();
@@ -3013,6 +3019,11 @@ void lvTick(void)
 				}
 			}
 
+			/* Which limit ended the match, for the end-reason witness below.
+			 * The time-limit path logs its own reason above. */
+			bool scorelimit_reached = false;
+			bool teamscorelimit_reached = false;
+
 			if (g_MpScoreLimit > 0) {
 				struct ranking rankings[MAX_MPCHRS];
 				s32 count = mpGetPlayerRankings(rankings);
@@ -3020,6 +3031,7 @@ void lvTick(void)
 				for (i = 0; i < count; i++) {
 					if (rankings[i].score >= g_MpScoreLimit) {
 						g_NumReasonsToEndMpMatch++;
+						scorelimit_reached = true;
 					}
 				}
 			}
@@ -3031,6 +3043,7 @@ void lvTick(void)
 				for (i = 0; i < count; i++) {
 					if (rankings[i].score >= g_MpTeamScoreLimit) {
 						g_NumReasonsToEndMpMatch++;
+						teamscorelimit_reached = true;
 					}
 				}
 			}
@@ -3040,6 +3053,14 @@ void lvTick(void)
 			}
 
 			if (g_NumReasonsToEndMpMatch > 0 && numdying == 0) {
+				/* Match-smoke end milestone, the score-limit counterpart of
+				 * the time-limit line above. Host and offline only: a
+				 * networked client ends on SVC_STAGE_END. */
+				sysLogPrintf(LOG_NOTE,
+					"MATCH: stage end reason=%s scorelimit=%d teamscorelimit=%d",
+					scorelimit_reached ? "scorelimit"
+						: (teamscorelimit_reached ? "teamscorelimit" : "limit"),
+					g_MpScoreLimit, g_MpTeamScoreLimit);
 				mainEndStage();
 			}
 		}

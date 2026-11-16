@@ -60,6 +60,11 @@ ReadResult read(const Registry &registry, const Snapshot &defaults,
 bool write(const Registry &registry, const Snapshot &snapshot,
            const char *absolutePath, std::string &error);
 
+/* B-1184: true for a current-bindings file cut off at its first unnamed
+ * action (a bare "<context>." last row). Startup rewrites such a file from
+ * the live bindings instead of blocking saves. */
+bool isUnnamedActionTruncation(const Registry &registry, const char *absolutePath);
+
 /* Used by the real actionmap entrypoints and directly by tests. Candidates are
  * parsed and committed before live mutation. Failed UI edits are rolled back
  * to accepted mappings. A corrupt current file is never silently overwritten. */

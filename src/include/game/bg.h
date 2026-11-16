@@ -82,6 +82,21 @@ bool bgRoomIsValid(s32 roomnum);
 bool bgPortalGetRooms(s32 portalnum, RoomNum *roomnum1, RoomNum *roomnum2);
 bool bgPortalGetOtherRoom(s32 portalnum, s32 roomnum, RoomNum *otherroomnum);
 bool bgRoomIsLoaded(s32 room);
+/* The stage background comes from a scenario source (scene + collision mesh)
+ * rather than ROM room data. Such rooms are drawn by the scene renderer and
+ * never build vertex batches, so bgTestHitInRoom cannot hit them (B-1187). */
+bool bgIsScenarioSource(void);
+/* B-1189: background hits on such a stage come from the world collision mesh
+ * (built at stage load); true once it can answer. */
+bool bgUsesScenarioMeshHits(void);
+/* B-1189: bgTestHitInRoom's answer for a scenario-source stage, over every
+ * room at once: the nearest mesh hit on the segment, with the normal facing
+ * back along it, texturenum -1 (default surface) and *outroom the hit
+ * triangle's room or -1. shot: only surfaces that block shooting (floors and
+ * BLOCK_SHOOT), as bullets, splats and sticky projectiles need; otherwise
+ * every surface, as clearance checks need. */
+bool bgTestHitScenarioMesh(struct coord *frompos, struct coord *topos, bool shot,
+		struct hitthing *hitthing, RoomNum *outroom);
 bool bgRoomContainsCoord(struct coord *pos, RoomNum roomnum);
 bool bgTestPosInRoomCheap(struct coord *pos, RoomNum roomnum);
 bool bgTestPosInRoomExpensive(struct coord *pos, RoomNum roomnum);

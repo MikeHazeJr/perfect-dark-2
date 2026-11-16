@@ -231,6 +231,7 @@ typedef enum {
     SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT,
     SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT,
     SMOKE_EVENT_NETWORK_RECONNECT,
+    SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -1032,6 +1033,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "network_assert_retired_prop_absent")) {
 		ev->type = SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT;
+		return 1;
+	}
+	if (!strcmp(type_str, "kill_player")) {
+		ev->type = SMOKE_EVENT_KILL_PLAYER;
 		return 1;
 	}
     if (!strcmp(type_str, "network_timeout_client")) {
@@ -2964,6 +2969,26 @@ void smokeHarnessTick(void)
 				"SMOKE.NETWORK: retire_held_weapon client=%d hand=%d prop=%u parent=%u weapon=%d attached=1 state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr at_ms=%d",
 				ev->client_id, ev->hand, (unsigned)syncid,
 				(unsigned)parent_syncid, weaponnum, ev->at_ms);
+			break;
+		}
+		case SMOKE_EVENT_KILL_PLAYER:
+		{
+			/* T-MODDING-008: kill local player 0 through the production death
+			 * path, e.g. to prove a committed mod-weapon charge still releases. */
+			struct player *victim = g_Vars.players[0];
+
+			if (victim != NULL && victim->prop != NULL && !victim->isdead) {
+				s32 prevplayernum = g_Vars.currentplayernum;
+
+				setCurrentPlayerNum(0);
+				playerDie(true);
+				setCurrentPlayerNum(prevplayernum);
+				sysLogPrintf(LOG_NOTE, "SMOKE.KILL_PLAYER: player=0 died=%d at_ms=%d",
+					victim->isdead ? 1 : 0, ev->at_ms);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SMOKE.KILL_PLAYER: player 0 unavailable or already dead at_ms=%d",
+					ev->at_ms);
+			}
 			break;
 		}
 		case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:

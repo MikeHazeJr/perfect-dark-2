@@ -1,7 +1,6 @@
 #ifndef GFX_PC_H
 #define GFX_PC_H
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <unordered_map>
@@ -11,6 +10,13 @@
 #include <PR/gbi.h>
 
 #include "system.h"
+
+/* SP-75: this header is C++ only, and every renderer file must see the same
+ * layout below, so `bool` here is always the one-byte keyword, even in a
+ * file that has the project's `#define bool s32` (types.h) in force. That
+ * meaning is restored at the end of the header. */
+#pragma push_macro("bool")
+#undef bool
 
 #define SCREEN_WIDTH ((int32_t)gfx_current_native_viewport.width)
 #define SCREEN_HEIGHT ((int32_t)gfx_current_native_viewport.height)
@@ -57,5 +63,7 @@ extern "C" {
 #include "gfx_api.h"
 
 }
+
+#pragma pop_macro("bool")
 
 #endif

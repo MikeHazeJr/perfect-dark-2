@@ -142,6 +142,33 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
                 char *err, size_t err_cap);
 void loaderPoolClearPublicWeaponAdapter(s32 runtime_weapon_id);
 
+/* Crystal pistol (T-MODDING-008): mod-only magazine rules for a public
+ * weapon's ammo slot, from behavior/settings.json ammoN_* keys. valid is 0
+ * for a slot the weapon does not declare (and for every base weapon).
+ * selfloading: reserve "none", rounds never come from or go to a reserve.
+ * regrow: reload adds one round per regrow_ticks60, firing interrupts it.
+ * seat_part_base: round j sits on model POSITION part seat_part_base + j
+ * (-1 none). regrow_sound: sound id played per regrown round (-1 none). */
+typedef struct loader_pool_mod_ammo {
+	s32 valid;
+	s32 selfloading;
+	s32 regrow;
+	s32 regrow_ticks60;
+	s32 seat_part_base;
+	s32 regrow_sound;
+} loader_pool_mod_ammo_t;
+
+#define LOADER_POOL_WEAPON_NAME_LEN 64
+
+const loader_pool_mod_ammo_t *loaderPoolGetModAmmo(s32 weaponnum, s32 slot);
+/* Display name of a public (mod) weapon, newline-terminated like the native
+ * language strings, or NULL when the slot has none. */
+const char *loaderPoolGetPublicWeaponName(s32 weaponnum);
+void loaderPoolSetPublicWeaponName(s32 weaponnum, const char *name);
+/* gun_roll_deg from behavior/settings.json: how far the roll input may roll
+ * this weapon (0 = not at all, the default for every weapon). */
+f32 loaderPoolGetPublicWeaponRollDeg(s32 weaponnum);
+
 /* Animation-pool walking accessors used by the .pdanim / .pdweapon
  * emitters at extraction time. */
 s32         loaderPoolGetAnimationCount(void);

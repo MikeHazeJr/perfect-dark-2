@@ -1,4 +1,35 @@
 # Runner plumbing only; existing storage owns locks, budgets and reservations.
+. (Join-Path $PSScriptRoot 'Runner-Supervisor.ps1')
+$loadedPath=[IO.Path]::GetFullPath($PSCommandPath)
+$loadedHash=(Get-FileHash -LiteralPath $loadedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if($script:SmokeReceiptLoadedSources.ContainsKey($loadedPath) -and $script:SmokeReceiptLoadedSources[$loadedPath] -cne $loadedHash){throw 'Runner retention module changed in a live interpreter; preserve its original operations.'}
+$script:SmokeReceiptLoadedSources[$loadedPath]=$loadedHash
+if($null -eq (Get-Variable -Name SmokeRunnerSupervisorOperations -Scope Script -ErrorAction SilentlyContinue)){
+    $script:SmokeRunnerSupervisorOperations=@{}
+}
+
+function Write-SmokeRunnerSupervisedJson {
+    param([Parameter(Mandatory)]$Context,[Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)]$Value,$OwnerRecord=$null)
+    $descriptor=New-SmokeRunnerSupervisorDescriptor $Context $Name $Value
+    $id=$descriptor.Spec.operation
+    if($script:SmokeRunnerSupervisorOperations.ContainsKey($id)){
+        $operation=$script:SmokeRunnerSupervisorOperations[$id]
+        if($operation.Descriptor.Spec.request_sha256 -cne $descriptor.Spec.request_sha256){throw 'Receipt supervisor operation payload changed; never redispatch.'}
+        foreach($key in $descriptor.Spec.sources.Keys){if($operation.Descriptor.Spec.sources.$key -cne $descriptor.Spec.sources[$key]){throw 'Receipt supervisor operation source changed; preserve existing owner.'}}
+    }else{
+        $operation=Start-SmokeRunnerReceiptOperation $descriptor
+        $script:SmokeRunnerSupervisorOperations[$id]=$operation
+    }
+    if($null -ne $OwnerRecord){$OwnerRecord.SupervisorOperation=$operation}
+    # Called in the tracked parent runspace. Finite caller timeout retains it;
+    # its native supervisor/context/broker independently survives wrapper exit.
+    while(-not $operation.Complete){
+        $result=Read-SmokeRunnerReceiptOperation $operation
+        if($null -ne $result){return $result}
+        Start-Sleep -Milliseconds 2
+    }
+    return $operation.Result
+}
 function Assert-SmokeRunnerRetentionOptions {
     param([bool]$Retained, [bool]$BuildRequested, [bool]$SharedRequested,
           [bool]$PrivateRequested, [bool]$TemplateRequested, [bool]$ReuseRequested)

@@ -47,7 +47,7 @@ Decision 2026-05-22: primary and secondary behavior are modular subgraphs inside
 | `fire.hitscan` | `damage`, `spread`, `duration`, `penetration`, `impact_force`, `noise`, `shot_sound`, `recoil`, `special_hit_effects` | pistols, automatics, sniper, Farsight, Laser | Current `weaponfunc_shoot` and `weaponfunc_shootauto` data lands here. |
 | `fire.auto_cadence` | `initial_rpm`, `max_rpm`, `spinup`, `turret_accel`, `turret_decel`, `tick_policy` | automatics, Laptop autogun | Laptop autogun uses entity-side cadence but the parameter shape is shared. |
 | `fire.burst` | `count`, `spacing`, `burst_refire_policy`, `consume_per_shot` | AR34, MagSec, Cyclone, Shotgun, Reaper | Maps `BURST2`, `BURST3`, `BURST5`, and `BURST50`. |
-| `fire.charge_release` | `charge_min`, `charge_max`, `charge_rate`, `decay_rate`, `ammo_per_step`, `release_damage_curve`, `sound`, `sound_pitch_curve` | Mauler secondary | Captures `matmot1` charge behavior and the charge sound pitch curve. |
+| `fire.charge_release` | `charge_min`, `charge_max`, `charge_rate`, `decay_rate`, `ammo_per_step`, `release_damage_curve`, `sound`, `sound_pitch_curve`; committed launch (mod weapons): `charge_time_ticks60`, `charge_sound_catalog_id`, `launch_sound_catalog_id`, `launch_part_base`, `launch_aim_part_base`, `launch_speed`, `launch_fan_deg`, `charge_hide_part`, `charge_show_part` | Mauler secondary; crystal pistol secondary | Captures `matmot1` charge behavior and the charge sound pitch curve. With `charge_time_ticks60` the function commits every loaded round on the press, cannot be cancelled and releases after that many ticks even if the wielder died: round j launches from model part `launch_part_base + j` at `launch_speed` (default 20), and the rounds fan evenly from `-launch_fan_deg` to `+launch_fan_deg` around the crosshair along the spine (the line from aim tip `launch_aim_part_base` to the last round's tip, rolled with the gun). `launch_fan_deg` is 0..90, default 15 (Mike's pick, 2026-11-15); other values are refused at registration. `charge_hide_part`/`charge_show_part` are model toggles switched off/on while charging. Unset part params are -1 (not used). See `crystal-pistol-engine.md`. |
 | `fire.beam_tick` | `damage_per_tick`, `tick_rate`, `range`, `beam_visual`, `sound_loop`, `ammo_tick_policy` | Laser, Watch Laser | Separates beam fire from normal hitscan. |
 | `spawn.fired_projectile` | `projectile_ref`, `origin`, `muzzle_offset`, `aim_source`, `trajectory_correction`, `inherit_owner_velocity`, `launch_sound` | rockets, Slayer, Crossbow, SuperDragon, Devastator | Bridges `.pdweapon` to `.pdprojectile`. |
 | `spawn.thrown_physical` | `payload_ref`, `origin`, `throw_speed`, `vertical_boost`, `trajectory_correction`, `rotation_policy`, `discard_weapon`, `pickup_lockout` | grenades, mines, thrown knife, Dragon, Laptop | Payload can be `.pdprojectile` or `.pdentity` with projectile-carrier behavior. |
@@ -71,7 +71,7 @@ These modules live in `.pdprojectile` behavior or are referenced by a `.pdweapon
 | `projectile.homing` | `target_source`, `target_filter`, `steering_gain`, `steering_damping`, `lost_target_behavior`, `retarget_policy` | homing rocket | Current steering constants need named parameters during cutover. |
 | `projectile.fly_by_wire` | `control_source`, `bot_route_policy`, `turn_rate`, `acceleration`, `enemy_proximity_radius`, `lost_target_timeout`, `max_altitude`, `smoke_interval`, `owner_death_behavior` | Slayer secondary | Covers player controlled rocket plus bot route fallback. |
 | `projectile.wall_hugger` | `stick_surface_filter`, `stick_timer`, `fall_threshold`, `fall_vector`, `post_fall_timer`, `explosion_ref` | Devastator secondary | Captures stick, wait, fall, explode sequence. |
-| `projectile.sticky_attach` | `surface_filter`, `prop_filter`, `allow_background`, `allow_char`, `allow_obj`, `embed_policy`, `on_attach` | mines, bolts, knives, sticky devices, Laptop | Laptop permits background stick but not prop stick. |
+| `projectile.sticky_attach` | `surface_filter`, `prop_filter`, `allow_background`, `allow_char`, `allow_obj`, `embed_policy`, `on_attach`, `cluster_count`, `cluster_radius`, `cluster_explosion_ref` | mines, bolts, knives, sticky devices, Laptop; crystal pistol primary | Laptop permits background stick but not prop stick. Cluster rule (optional): once `cluster_count` landed projectiles of the same asset and owner lie within `cluster_radius` of the one that just landed, they all detonate (`cluster_explosion_ref`, else a small explosion). Any cluster param requires `cluster_count` >= 2 and `cluster_radius` > 0, or the graph is refused. |
 | `projectile.bounce_slide` | `reflect_angle`, `bounce_limit`, `first_bounce_boost`, `rest_speed`, `slide_friction`, `randomize_rotation` | grenades, N-Bomb, grenade rounds | Covers normal bounce and grenade secondary pinball behavior. |
 | `projectile.timer` | `timer`, `timer_unit`, `timer_starts`, `on_expire` | grenades, N-Bomb, Devastator, mines, rockets | `on_expire` can explode, create storm, fall, or delete. |
 | `projectile.impact` | `impact_filter`, `damage`, `explosion_ref`, `spark_ref`, `hit_sound`, `consume_on_hit`, `stick_on_hit` | rockets, bolts, knives, grenade rounds | Separates direct impact from timer expiry. |
@@ -86,7 +86,7 @@ These modules live in `.pdentity` behavior.
 | Module | Key parameters | Base users | Notes |
 | --- | --- | --- | --- |
 | `entity.armed_explosive` | `arm_delay`, `detonation_policy`, `explosion_ref`, `owner_filter`, `damage_response`, `delete_on_detonate` | timed mine, remote mine, proxy mine, Dragon proxy | Shared base for mine-like objects. |
-| `entity.proxy_trigger` | `radius`, `radius_overrides`, `poll_policy`, `target_filter`, `team_filter`, `owner_filter`, `line_of_sight`, `on_trigger` | proximity mine, Dragon, grenade secondary, N-Bomb secondary | Dragon uses a larger trigger radius in one runtime path. |
+| `entity.proxy_trigger` | `radius`, `radius_overrides`, `poll_policy`, `target_filter`, `team_filter`, `owner_filter`, `line_of_sight`, `on_trigger`, `arm_on` | proximity mine, Dragon, grenade secondary, N-Bomb secondary; crystal mines | Dragon uses a larger trigger radius in one runtime path. `arm_on` is `launch` (default: the launch timer arms it) or `land` (inert in flight, armed where it sticks or comes to rest); any other value is refused. For mod mines, `radius` and the filters also apply to bots and NPCs in the native proxy sweep, and passing objects do not set off a `hostile_chr` mine. |
 | `entity.remote_detonatable` | `detonator_ref`, `owner_slot_source`, `coop_policy`, `anti_policy`, `self_attached_policy`, `on_remote_signal` | Remote Mine | Replaces global-mask-only hidden behavior with authored policy. |
 | `entity.timed_detonatable` | `timer`, `starts_when`, `on_expire`, `pause_policy` | Timed Mine, Grenade | Used when the armed entity, not just projectile carrier, owns the timer. |
 | `entity.nbomb_storm` | `storm_ref`, `owner_transfer`, `activation_policy`, `delete_carrier` | N-Bomb | Storm creation is an entity/effect trigger, not just explosion damage. |
@@ -94,6 +94,20 @@ These modules live in `.pdentity` behavior.
 | `entity.sticky_device` | `attachment_filter`, `mission_behavior_ref`, `pickup_policy`, `disable_policy`, `visible_state` | ECM Mine, Comms Rider, Tracer Bug, Target Amplifier | Mission-specific details still need runtime extraction during implementation. |
 | `entity.owner_cleanup` | `owner_lost_behavior`, `owner_death_behavior`, `replace_existing_policy`, `max_active_per_owner` | Laptop, Slayer rocket, mines | Laptop allows one deployed autogun per owner and explodes/replaces old one. |
 | `entity.interaction` | `interact_filter`, `action`, `prompt_ref`, `sound`, `transfer_payload` | Laptop pickup/recover, sticky devices | Keeps pickup and recover rules editable. |
+
+## `.pdweapon` Settings Keys (`behavior/settings.json`)
+
+Flat keys next to the graph (T-MODDING-008, 2026-11-15; CORE may change them). N is the ammo slot, 0 or 1. Bad values refuse the weapon.
+
+| Key | Values | Meaning |
+| --- | --- | --- |
+| `ammoN_clip` | int 1..255 | Declares slot N with this clip size; an undeclared slot fires without ammo. |
+| `ammoN_reload` | `magazine` (default) or `regrow` | `magazine`: one timed refill. `regrow`: one round per `ammoN_regrow_ticks60`, starts on reload or an empty clip, a shot ends it once a round is loaded. |
+| `ammoN_reserve` | `none` (default) or a native ammo type (`pistol`, `smg`, `crossbow`, `rifle`, `shotgun`, `farsight`, `grenade`, `rocket`, `knife`, `magnum`, `devastator`, `reaper`, `dart`, `sedative`) | `none`: self-loading, no reserve, the clip refills for free; such rounds, once fired, are never pickups. A type draws on that reserve. |
+| `ammoN_regrow_ticks60` | int 1..32767 | Regrow time per round; required for `regrow`. |
+| `ammoN_seat_part_base` | int 1..32767 | Round j sits on model part `base + j`, scaled 1 loaded, 0 spent, 0..1 while it regrows. |
+| `ammoN_regrow_sound_catalog_id` | catalog sound id | Played as each round regrows. |
+| `gun_roll_deg` | 0..180 | Enables the gun roll actions (`GunRollLeft`/`GunRollRight`) up to this angle; a charge fan follows the roll. |
 
 ## Base Mapping Decisions
 

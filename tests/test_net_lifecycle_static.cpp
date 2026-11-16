@@ -1931,7 +1931,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
         std::string::npos);
     REQUIRE(enabled_json.find("if (!registry[i].enabled || registry[i].session_only) continue;") !=
         std::string::npos);
-	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 61") != std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 63") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",
