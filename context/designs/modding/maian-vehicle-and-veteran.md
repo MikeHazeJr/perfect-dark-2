@@ -268,7 +268,8 @@ a Modding Hub tab for players), and the tools grow with the mods.
   Shift on keyboard and A on an Xbox controller; the vehicle handbrake's
   controller default moves from A to B (it keeps Space on keyboard).
   WRITTEN 2026-11-16, built and proven with the next build and smoke turn:
-  `ACTION_VEHICLE_BOOST` (121, saved name `VehicleBoost`, Controls menu row,
+  `ACTION_VEHICLE_BOOST` (123 since the merge of dev, whose gun roll actions hold 121 and
+  122; saved name `VehicleBoost`, Controls menu row,
   vehicle layer; actions 105-120 got their saved names too, the names
   `week-pd/crystal-pistol` gave them for B-1184). A vehicle whose archive
   has `behavior/variables.json` (`pd.vehicle_variables.v1`, the drafted
