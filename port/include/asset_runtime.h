@@ -156,6 +156,17 @@ s32 assetRuntimeVehicleAllows(s32 modelnum, const char *action);
 s32 assetRuntimeVehicleHover(s32 modelnum, f32 out_values[13]);
 /* Why the last vehicle hydration refused its sources ("" when it did not). */
 const char *assetRuntimeVehicleGraphError(void);
+/*
+ * Catalog registration's check of a vehicle's behavior graph: a
+ * pd.vehicle_graph.v1 graph is compiled with its variables and its parts are
+ * checked against the model's part tables, so a vehicle with a broken graph is
+ * refused when it registers, not when it is first used. model_path is the
+ * vehicle's model as the catalog holds it and behavior_member its behavior
+ * file. Returns 1 when the vehicle has no v1 graph or its graph compiles, 0
+ * with the reason in err.
+ */
+s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_member,
+                                   const char *catalog_id, char *err, size_t err_cap);
 s32 assetRuntimeSkinAppearance(const char *target_id, f32 out_rgba[4],
                                f32 *out_roughness, f32 *out_metallic,
                                s32 *out_emissive);

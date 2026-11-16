@@ -1,17 +1,42 @@
 # Vehicle behavior graph `pd.vehicle_graph.v1`
 
-Status: ACCEPTED by CORE 2026-11-16 05:50 UTC with the answers in "CORE's
-answers" at the end (they override the draft where they differ). Not
-implemented yet. Builder: MODS, on `week-pd/mods`, from the mission runner's
-compile rules (`port/src/mission_graph_runner.cpp`); CORE reviews the instance
-record and the compile rules before it merges. Draft by MODS, 2026-11-16. CORE asked for it on
-2026-11-15 (19:15 UTC, week note schema table, row "MAIAN VEHICLE 1": "please
-draft it for CORE's review: `pd.vehicle_graph.v1` with `$name` variables as the
-weapon graphs have, each behavior a native module wired from events and gates
-(decision 1), no per-statement nodes"). CORE owns the schema and the runner; MODS
-builds the Maian vehicle on whatever CORE accepts. First user: the Maian hover
-vehicle (`dev-mods/maian_hover_vehicle/`, steps V3 to V7 in
-`maian-vehicle-and-veteran.md`).
+Status: IMPLEMENTED and proven in game on `week-pd/mods` (2026-11-16). CORE
+accepted the design at 05:50 UTC ("CORE's answers" at the end; they override the
+draft text where they differ), reviewed the code at 09:58 UTC and approved the
+fixes at 10:35 UTC ("CORE's review"). The Maian hover vehicle runs its mount,
+dismount, drive, boost and heat through its graph; the base hoverbike keeps its
+v2 files until the extractor writes its graph (a recorded task). Sections
+marked (history) describe a step that is over.
+
+How it came about: CORE asked for the draft on 2026-11-15 (19:15 UTC, week note
+schema table, row "MAIAN VEHICLE 1": "please draft it for CORE's review:
+`pd.vehicle_graph.v1` with `$name` variables as the weapon graphs have, each
+behavior a native module wired from events and gates (decision 1), no
+per-statement nodes"). CORE owns the schema; MODS built the runner from the
+mission runner's compile rules (`port/src/mission_graph_runner.cpp`). First
+user: the Maian hover vehicle (`dev-mods/maian_hover_vehicle/`, steps V3 to V7
+in `maian-vehicle-and-veteran.md`).
+
+## Where the code is
+
+| What | File |
+|---|---|
+| Compile and run a graph (kinds, values, compile rules, the walk, the C API) | `port/src/vehicle_graph_runner.cpp`, `port/include/vehicle_graph_runner.h` |
+| One instance per vehicle (keyed by prop and its lifetime serial) | `port/src/vehicle_graph_runtime.c`, `port/include/vehicle_graph_runtime.h` |
+| The state machine of `og.vehicle.boost_heat` | `port/src/vehicle_boost_heat.c`, `port/include/vehicle_boost_heat.h` |
+| The game side: the events fired and what the modules ask of the game | `src/game/vehiclegraph.c`, `src/include/game/vehiclegraph.h` |
+| The seams that fire the events | `src/game/propobj.c` (`currentPlayerTryMountHoverbike`, `hoverbikeUpdateMovement`, the idle tick), `src/game/bondbike.c` (both dismounts, the boost input) |
+| The lifetime of instances | `src/game/lv.c` (cleared at stage load), `src/game/prop.c` (`propFree` releases a vehicle's record) |
+| Reading a vehicle's files and compiling its graph when the catalog hydrates it | `port/src/asset_runtime.c` (`s_hydrateVehicle`, `s_hydrateVehicleGraph`) |
+| The same rules for packaged mods | `tools/asset_archive_conformance.py` (`validate_vehicle_graph_execution`, `validate_vehicle_variables`) |
+| Tests | `tests/test_vehicle_graph_runner.cpp`, `test_vehicle_boost_heat.cpp`, `test_vehicle_graph_conformance.py`, `test_asset_runtime_adapters.cpp`, `test_maian_hover_vehicle.cpp`, `test_vehicle_observer_layer.cpp` |
+| In-game proof | `tools/smoke-verify/tests/maian_vehicle_drive_smoke.json`, `maian_vehicle_boost_smoke.json`, `mod_vehicle_drive_smoke.json` |
+
+What is a graph and what is not: a v1 vehicle's decisions (who may mount, what a
+tick does, what a heat phase shows and locks) are graph nodes and edges. The
+work inside a node is a native module (`og.vehicle.*`): the original mount,
+dismount and movement code, and the boost and heat machine. Handling numbers
+are data in `physics.json`, and the boost numbers are the graph's params.
 
 ## Why
 
@@ -33,7 +58,7 @@ vehicle (`dev-mods/maian_hover_vehicle/`, steps V3 to V7 in
 | `vehicle.ini` | unchanged | `behavior_graph = behavior.graph.json` (the existing key) |
 | `behavior.graph.json` | `pd.vehicle_graph.v1` | the graph (this document) |
 | `behavior/variables.json` | `pd.vehicle_variables.v1` | optional; named values the graph's params use as `"$name"` |
-| `physics.json` | `pd2.vehicle.physics.v2` | the hover and drive tunables, read by `og.vehicle.hover_drive` (see question 3 for the boost keys) |
+| `physics.json` | `pd2.vehicle.physics.v3` | the hover and drive tunables, read by `og.vehicle.hover_drive`. v3 is v2 without the boost keys (the graph holds them); a v1 graph with v2 physics, or the reverse, is refused |
 
 ## Graph rules (the mission graph runner's, `mission-graph-runner.md` on week-pd/core)
 
@@ -53,9 +78,17 @@ vehicle (`dev-mods/maian_hover_vehicle/`, steps V3 to V7 in
 - One immutable program per catalog id and source digest; state belongs to each
   vehicle instance (below).
 - Follow-up events that a module raises (`event.vehicle.heat_changed`) are queued
-  and fired after the current walk, in order, at most 8 per vehicle per
-  simulation update (refused and logged above that), so a module never re-enters
-  the walk that called it.
+  and fired after the current walk, in order, so a module never re-enters the
+  walk that called it. How many one fired event can lead to is proved when the
+  graph compiles (at most 64; an event that can raise itself again while it is
+  being delivered is refused), and the queue is sized from that proof.
+- One event may reach at most one `og.vehicle.mount_seat` and one
+  `og.vehicle.dismount_seat` per seat, both branches of a gate counted.
+- Comments: a graph, a node, an edge and a variables file may each carry one
+  `"comment"` string, for the people who read and edit it. The runner and
+  conformance check that it is a string and never read it for behavior; in a
+  variables file it is reserved, so `$comment` is not a variable. The Maian
+  graph comments every node.
 
 ## Values and units
 
@@ -106,8 +139,8 @@ turn black; boost continues above base but below full speed; steering is briefly
 limited; the turret cannot fire until the crystals are their normal colour again;
 recharge is faster when stopped and scales with speed.
 
-Input: the driver's boost action (a new `ACTION_VEHICLE_BOOST`, held; it needs a
-saved binding name, B-1184) and the speed fraction (current over max non-boost
+Input: the driver's boost action (`ACTION_VEHICLE_BOOST`, held; Shift and
+controller A by default, mappable) and the speed fraction (current over max non-boost
 speed). State per vehicle: `boost` 0 to 1, `heat` 0 to 1, the phase and a steer
 limit timer.
 
@@ -130,12 +163,14 @@ speed-scaled rate; boost stays capped if pressed again) -> heat 0, `cool`.
 Releasing before overheating goes back to `cool` as the boost ramps down, and
 heat falls at the same rate; heat left from a short break counts towards the
 next overheat. Each change raises `event.vehicle.heat_changed`. The state
-machine is written and unit-tested as `port/src/vehicle_boost_heat.c`
-(`[vehicle-boost-heat]`); nothing calls it yet.
+machine is `port/src/vehicle_boost_heat.c` (`[vehicle-boost-heat]`), run by the
+graph runner for the graph's `og.vehicle.boost_heat` node. It holds no vehicle's
+numbers and does not decide what a phase shows or locks: those are the graph's
+params and its `gate.vehicle.heat_phase` gates.
 Choice to confirm with Mike: boosting again while `recovering` is allowed at the
 capped level and does not lengthen the black-crystal time.
 
-## Interim, until CORE answers
+## Interim, until CORE answers (history: removed in 5aae6799)
 
 As CORE agreed (keep the values in a file in the vehicle archive until the
 graph exists), the game reads `behavior/variables.json` directly: a vehicle
@@ -388,7 +423,7 @@ the ground against a top of 21; part 140 hidden once and shown once):
   dismount reaches it on a listen host). Now one event may reach at most one `mount_seat` and one
   `dismount_seat` per seat, wherever they sit (both branches of a gate count); the runner and
   conformance refuse a second ("reaches a second ... for the driver seat"), and the game's
-  `hoverbikeGraphMountSeat` and `hoverbikeGraphDismountSeat` do nothing once one has acted in that
+  seat action (`hoverbikeGraphSeatAction`, `src/game/vehiclegraph.c`) does nothing once one has acted in that
   request (`seat_done`). Runner cases: a second dismount, a second mount on a gate's other branch,
   and one per seat allowed.
 - (2) Records: `propFree` now releases the vehicle's record by prop and generation
@@ -401,14 +436,18 @@ the ground against a top of 21; part 140 hidden once and shown once):
   toggle logs only when it changes (the boost smoke's counts become 1 shown and 1 hidden after the
   09:40 UTC turn); conformance checks a variables file's `catalog_id` against the vehicle's.
 
-Deviation and follow-up tasks (to become Workbench items at the merge, as agreed for the week):
+Follow-up tasks (to become Workbench items at the merge, as agreed for the week):
 
-- Rule 6 (deviation, recorded as CORE allowed): the parts a graph toggles are checked when the
-  vehicle's instance is made (its model is built then), not at registration; a missing toggle part
-  refuses the instance with one error and the vehicle cannot be mounted. Task (MODS): check at
-  registration from the archive's part table (the embedded mesh's `model.parts.json`, partnum to
-  node, and `model.nodes.json`, node type 18 for a toggle). Base vehicles have ROM models with no
-  part table in an archive, so this follows the extractor task below.
+- Rule 6 (CLOSED 2026-11-16, was a recorded deviation): the parts a graph toggles are checked when
+  the catalog registers the vehicle. `assetRuntimeVehicleGraphAdmits` (`port/src/asset_runtime.c`),
+  called by the scanner's `registerVehicleModel`, compiles the graph with its variables and asks
+  `port/src/vehicle_model_parts.cpp` whether each part is a toggle node, read from the embedded
+  mesh's `model.parts.json` and `model.nodes.json` the way the model compiler reads them. A part
+  the model lacks, a part that is not a toggle, or a mesh with no part tables refuses the vehicle
+  with `PDVEHICLE.MODEL.REJECT ... behavior graph refused: ...`; any other compile refusal does too.
+  The same compile runs again when the vehicle hydrates, and the built model is still checked when
+  the instance is made, as a guard. A base vehicle (a ROM model, v2 today) is not checked at
+  registration; that follows the extractor task below.
 - Rule 5 (task, EXTRACT/CORE): the extractor writes the base hoverbike's `pd.vehicle_graph.v1`
   graph (the base graph in this doc) and `pd2.vehicle.physics.v3` physics behind a vehicle export
   version; then the runtime refuses v2 behavior and physics and conformance reports them. B-1230

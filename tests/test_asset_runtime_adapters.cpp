@@ -1850,8 +1850,27 @@ static std::string adapterVariables(const char *replaceKey = nullptr, const char
 	return json;
 }
 
+/* The model's part tables, written beside the test vehicle's loose model the
+ * way a typed mesh holds them. Part 140 is a toggle node, part 5 a position
+ * node. */
+enum AdapterParts { ADAPTER_PARTS_NONE, ADAPTER_PARTS_TOGGLE_140, ADAPTER_PARTS_NO_TOGGLE };
+
+static void adapterWritePartTables(TempRuntimeDir &dir, AdapterParts parts)
+{
+	if (parts == ADAPTER_PARTS_NONE) return;
+	dir.write("model.nodes.json",
+		"{\"schema\":\"pd2.mesh.nodes.v1\",\"nodes\":["
+		"{\"id\":0,\"type\":2},{\"id\":1,\"type\":18}]}");
+	dir.write("model.parts.json", parts == ADAPTER_PARTS_TOGGLE_140
+		? "{\"schema\":\"pd2.mesh.parts.v1\",\"parts\":["
+			"{\"partnum\":5,\"node\":0},{\"partnum\":140,\"node\":1}]}"
+		: "{\"schema\":\"pd2.mesh.parts.v1\",\"parts\":["
+			"{\"partnum\":5,\"node\":0},{\"partnum\":140,\"node\":0}]}");
+}
+
 static int hydrateGraphVehicle(const char *dirName, const std::string &physics,
-	const std::string &behavior, const char *variables)
+	const std::string &behavior, const char *variables,
+	AdapterParts parts = ADAPTER_PARTS_TOGGLE_140)
 {
 	TempRuntimeDir dir(dirName);
 	asset_entry_t vehicle;
@@ -1866,6 +1885,7 @@ static int hydrateGraphVehicle(const char *dirName, const std::string &physics,
 	std::string modelPath = dir.write("model.gltf", "{}");
 	dir.write("physics.json", physics.c_str());
 	dir.write("behavior.graph.json", behavior.c_str());
+	adapterWritePartTables(dir, parts);
 	if (variables) {
 		std::filesystem::path folder =
 			std::filesystem::path(modelPath).parent_path() / "behavior";
@@ -1875,6 +1895,28 @@ static int hydrateGraphVehicle(const char *dirName, const std::string &physics,
 	}
 	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, modelPath.c_str()) == 1);
 	return assetRuntimeHydrateCatalogEntry(&vehicle);
+}
+
+/* The catalog's registration check for a vehicle laid out like the one above. */
+static int admitGraphVehicle(const char *dirName, const std::string &behavior,
+	const char *variables, AdapterParts parts, std::string &why)
+{
+	TempRuntimeDir dir(dirName);
+	std::string modelPath = dir.write("model.gltf", "{}");
+	dir.write("behavior.graph.json", behavior.c_str());
+	adapterWritePartTables(dir, parts);
+	if (variables) {
+		std::filesystem::path folder =
+			std::filesystem::path(modelPath).parent_path() / "behavior";
+		std::filesystem::create_directories(folder);
+		std::ofstream out(folder / "variables.json", std::ios::binary);
+		out << variables;
+	}
+	char err[320] = { 0 };
+	const int ok = assetRuntimeVehicleGraphAdmits(modelPath.c_str(), "behavior.graph.json",
+		"mod:vehicle_boosted", err, sizeof(err));
+	why = err;
+	return ok;
 }
 
 TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrates the vehicle",
@@ -1951,6 +1993,77 @@ TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrat
 			adapterVariables().c_str()) == 1);
 		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "mount") == 1);
 		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "dismount") == 0);
+	}
+	SECTION("a part the model lacks, or one that is not a toggle, refuses the vehicle") {
+		// CORE's rule (answer 5): og.vehicle.part_visible is checked against the
+		// model's part tables when the graph compiles, not when the vehicle is
+		// first used.
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_part_not_toggle",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NO_TOGGLE) == 0);
+		CHECK(std::string(assetRuntimeVehicleGraphError()).find(
+			"names part 140, which the vehicle's model does not have") != std::string::npos);
+
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_part_missing",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables("\"cool_crystal_part\":140", "\"cool_crystal_part\":141").c_str(),
+			ADAPTER_PARTS_TOGGLE_140) == 0);
+		CHECK(std::string(assetRuntimeVehicleGraphError()).find("names part 141") !=
+			std::string::npos);
+
+		// A model with no part tables has no parts to toggle; the reason says so.
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_no_tables",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE) == 0);
+		const std::string noTables = assetRuntimeVehicleGraphError();
+		CHECK(noTables.find("names part 140") != std::string::npos);
+		CHECK(noTables.find("its model has no model.parts.json") != std::string::npos);
+
+		// A graph that toggles no part needs no tables.
+		assetRuntimeReset();
+		const std::string noParts = adapterGraph(
+			"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"},"
+			"{\"from\":\"black\",\"output\":\"pass\",\"to\":\"hide\",\"input\":\"exec\"},"
+			"{\"from\":\"black\",\"output\":\"fail\",\"to\":\"show\",\"input\":\"exec\"}",
+			"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"}");
+		std::string partless = noParts;
+		for (const char *node : {
+				",{\"id\":\"hide\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":false}}",
+				",{\"id\":\"show\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":true}}" }) {
+			const size_t at = partless.find(node);
+			REQUIRE(at != std::string::npos);
+			partless.erase(at, std::strlen(node));
+		}
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_partless",
+			adapterPhysics("pd2.vehicle.physics.v3", false), partless,
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE) == 1);
+	}
+	SECTION("the catalog's registration check answers the same, before anything hydrates") {
+		std::string why;
+		assetRuntimeReset();
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_ok", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_TOGGLE_140, why) == 1);
+		CHECK(why.empty());
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_not_toggle", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NO_TOGGLE, why) == 0);
+		CHECK(why.find("names part 140, which the vehicle's model does not have") !=
+			std::string::npos);
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_no_tables", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE, why) == 0);
+		CHECK(why.find("its model has no model.parts.json") != std::string::npos);
+		// Any other compile refusal refuses the registration too.
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_bad_graph",
+			adapterGraph("og.vehicle.hover_drive", "og.vehicle.fly"),
+			adapterVariables().c_str(), ADAPTER_PARTS_TOGGLE_140, why) == 0);
+		CHECK(why.find("native module 'og.vehicle.fly' does not exist") != std::string::npos);
+		// A v2 behavior file is not a graph: nothing to check here.
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_v2", kAdapterV2Behavior, nullptr,
+			ADAPTER_PARTS_NONE, why) == 1);
+		// The check binds nothing.
+		CHECK(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
 	}
 	SECTION("sources that do not pair are refused, with the reason") {
 		struct Case {

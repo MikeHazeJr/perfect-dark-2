@@ -37,6 +37,7 @@
 #include "loader_walker_common.h"
 #include "lang_source.h"
 #include "assetcatalog_load.h"
+#include "asset_runtime.h"
 #include "catalog_activation_ledger.h"
 #include "catalog_entry_snapshot.h"
 #include "assetprovider.h"
@@ -1998,6 +1999,11 @@ s32 assetCatalogFinishBodyHeadAdmission(void *admission, s32 commit)
  * the base hoverbike still names FILE_PHOVBIKE, and the vehicle row takes that
  * slot as its runtime index. A vehicle whose model is not an embedded typed
  * mesh (the typed example's loose glTF) stays unplaceable, as before.
+ * A vehicle with a pd.vehicle_graph.v1 behavior graph is also checked here:
+ * the graph must compile, and the parts it shows and hides must be toggle
+ * parts of this model (read from the mesh's part and node tables), so a
+ * broken graph refuses the vehicle when it registers, not when it is first
+ * used.
  * Returns 1 when bound or when there is nothing to bind, 0 when rejected; a
  * rejection restores the catalog.
  */
@@ -2005,6 +2011,8 @@ static s32 registerVehicleModel(const char *vehicle_id, char *err, size_t err_ca
 {
 	char id[CATALOG_ID_LEN];
 	char model_path[FS_MAXPATH];
+	char behavior_path[FS_MAXPATH];
+	char graph_err[256];
 	body_head_mesh_binding_t mesh;
 	external_scan_transaction_t transaction;
 	const asset_entry_t *vehicle;
@@ -2029,7 +2037,9 @@ static s32 registerVehicleModel(const char *vehicle_id, char *err, size_t err_ca
 	/* The catalog pool can grow below: keep copies, never the row pointer. */
 	if (!assetPathCopyChecked(id, sizeof(id), vehicle->id)
 			|| !assetPathCopyChecked(model_path, sizeof(model_path),
-				vehicle->ext.vehicle.model_file)) {
+				vehicle->ext.vehicle.model_file)
+			|| !assetPathCopyChecked(behavior_path, sizeof(behavior_path),
+				vehicle->ext.vehicle.behavior_graph)) {
 		if (err && err_cap) snprintf(err, err_cap, "vehicle model path exceeds capacity: %s",
 			vehicle_id);
 		return 0;
@@ -2055,6 +2065,11 @@ static s32 registerVehicleModel(const char *vehicle_id, char *err, size_t err_ca
 	row->runtime_index = model->runtime_index;
 	if (!catalogDepContains(id, mesh.id)
 			&& !catalogDepRegisterTyped(id, mesh.id, ASSET_MODEL, 0)) goto done;
+	if (!assetRuntimeVehicleGraphAdmits(model_path, behavior_path, id,
+			graph_err, sizeof(graph_err))) {
+		if (err && err_cap) snprintf(err, err_cap, "behavior graph refused: %s", graph_err);
+		goto done;
+	}
 	sysLogPrintf(LOG_NOTE, "PDVEHICLE.MODEL: id=%s model=%s modelnum=%d filenum=%d",
 		id, mesh.id, row->runtime_index, filenum);
 	ok = 1;
