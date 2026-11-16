@@ -2627,7 +2627,12 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
 # the module table in port/src/mission_graph_modules.c.
 MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
                              "event.mission.continue", "event.mission.phase_changed",
-                             "event.volume.entered", "event.volume.left"}
+                             "event.volume.entered", "event.volume.left",
+                             "event.pickup.collected", "event.door.opened",
+                             "event.door.closed", "event.object.used"}
+# object-events.md slice 2: each may filter one object by its record_id.
+MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
+                               "event.door.closed", "event.object.used"}
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
@@ -2686,6 +2691,12 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
             errors.append(f"{where} node {node_id!r} objective must be a string")
         if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
             errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+        if kind in MISSION_GRAPH_OBJECT_EVENTS:
+            if "objective" in node:
+                errors.append(f"{where} object event {node_id!r} has no objective to filter")
+            if "object" in node and not isinstance(node["object"], str):
+                errors.append(f"{where} object event {node_id!r} object must be a string: "
+                              "a record_id of objects.json, or \"any\"")
         if kind in MISSION_GRAPH_VOLUME_EVENTS:
             if "objective" in node:
                 errors.append(f"{where} volume event {node_id!r} has no objective to filter")

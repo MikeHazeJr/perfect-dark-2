@@ -99,6 +99,10 @@ extern void statIncrement(const char *key, u64 amount);
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "scene.h"
+#include "mission_graph_runner.h"
+#include "scenario_source_runtime.h"
+#include "weapondata_authored.h"
+#include <stdio.h>
 
 void rng2SetSeed(u32 seed);
 
@@ -18749,11 +18753,63 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	return false;
 }
 
+/* object-events.md slice 2: an object event's payload, captured from the
+ * object before a pickup or a free can retire it: its objects.json record_id
+ * (its setup command index; "" for an object the setup did not place), its
+ * tag, its type and its catalog id (a weapon pickup's weapon, else its
+ * model). */
+struct objgraphevent {
+	char object[24];
+	s32 tag;
+	s32 type;
+	const char *catalog_id;
+};
+
+static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out)
+{
+	u32 cmdindex = obj && obj->prop ? setupGetCmdIndexByProp(obj->prop) : 0xffffffff;
+
+	out->object[0] = ' ';
+	out->tag = -1;
+	out->type = -1;
+	out->catalog_id = NULL;
+	if (!obj) {
+		return;
+	}
+	if (cmdindex != 0xffffffff) {
+		snprintf(out->object, sizeof(out->object), "setup_%04u", (unsigned)cmdindex);
+	}
+	out->tag = objGetTagNum(obj);
+	out->type = obj->type;
+	if (obj->type == OBJTYPE_WEAPON) {
+		const s32 weaponnum = ((struct weaponobj *)obj)->weaponnum;
+
+		if (weaponnum >= 0 && weaponnum < g_WeaponDataCount) {
+			out->catalog_id = g_WeaponDataCatalogIds[weaponnum];
+		}
+	} else {
+		out->catalog_id = catalogModelIdByModelnum(obj->modelnum);
+	}
+}
+
+/* Fires the event on the host: a networked client fires none (the host's
+ * graphs decide). */
+static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 playernum)
+{
+	if (g_NetMode == NETMODE_CLIENT || ev->type < 0) {
+		return;
+	}
+	scenarioSourceGraphObjectEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id, playernum);
+}
+
 bool propobjInteract(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
 	bool result = false;
 	u32 tag_id = propobjGetCiTagId(prop);
+	struct objgraphevent used;
+
+	objGraphEventCapture(obj, &used);
 
 	if (tag_id) {
 		// CI object - terminals etc
@@ -18908,6 +18964,8 @@ bool propobjInteract(struct prop *prop)
 	}
 
 	doorCallLift(prop, false);
+	/* object-events.md slice 2: the use button on an object, handled. */
+	objGraphEventFire(MISSION_GRAPH_EVENT_OBJECT_USED, &used, g_Vars.currentplayernum);
 
 	return result;
 }
@@ -20154,8 +20212,17 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		}
 	}
 
+	/* object-events.md slice 2: what was collected, captured before a free
+	 * retires the object, and fired once it is given or freed. */
+	struct objgraphevent collected;
+
+	if (result != TICKOP_NONE) {
+		objGraphEventCapture(obj, &collected);
+	}
+
 	if (result == TICKOP_FREE && (obj->hidden & OBJHFLAG_TAGGED) == 0) {
 		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 		return TICKOP_FREE;
 	}
 
@@ -20163,6 +20230,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		if (!given) {
 			invGiveProp(prop);
 		}
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 
 		return TICKOP_GIVETOPLAYER;
 	}
@@ -22768,6 +22836,14 @@ void doorStartOpen(struct doorobj *door)
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 255;
 	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent opened;
+
+		objGraphEventCapture(&door->base, &opened);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_OPENED, &opened, -1);
+	}
 }
 
 /**
@@ -22784,6 +22860,14 @@ void doorStartClose(struct doorobj *door)
 
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 0;
+	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent closed;
+
+		objGraphEventCapture(&door->base, &closed);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_CLOSED, &closed, -1);
 	}
 }
 

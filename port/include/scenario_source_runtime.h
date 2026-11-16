@@ -100,6 +100,16 @@ s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
  * scenarioTick on the host (present[p] 0 when a player has no prop). */
 s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
 	const s32 *present, s32 count);
+/* object-events.md slice 2: an object event from a native seam
+ * (MISSION_GRAPH_EVENT_PICKUP_COLLECTED, _DOOR_OPENED, _DOOR_CLOSED,
+ * _OBJECT_USED), after the native decision and effect: the object's
+ * objects.json record_id ("" when it has none), its tag (-1 when none), its
+ * object type, its catalog id (a pickup's weapon, else its model; may be
+ * NULL) and the player who caused it (-1 when none). Fired on the host only.
+ * Returns the modules run. The totals are logged once per stage. */
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+void scenarioSourceGraphObjectEventsReport(const char *reason);
 s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
 s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
 s32 scenarioSourceMissionGraphTakePendingEnd(void);

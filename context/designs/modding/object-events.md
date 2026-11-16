@@ -136,6 +136,38 @@ under decision 1. Not built. Facts from a read-only survey of
   the campaign fixtures require doors and pickups on the missions that
   have them, so every base mission shows its events arriving.
 
+## Slice 3 plan (CORE, 2026-11-16)
+
+- **Node parameters.** The runner keeps each program node's scalar fields
+  (strings, numbers, booleans) as its parameters, and the module callback
+  receives them (`missionGraphParamText(params, "object")`), so a module
+  knows what to act on. The existing modules ignore them.
+- **Native gates.** A `gate.*` kind the runner does not evaluate itself is
+  a native gate when the module table knows it: the same callback runs it
+  and its result is pass (1) or fail (0). First ones:
+  `gate.player.has_item` (`"item"`: a weapon or item catalog id the
+  event's player carries) and `gate.object.kind` (`"kind"`: the event's
+  object kind).
+- **Query events, before the native rule.** `event.pickup.requested` from
+  `objTestForPickup` (a player touches something it could collect) and
+  `event.door.open_requested` from the player's door use
+  (`doorTestForInteract`), each with the object payload and the player.
+  If the walk runs `og.pickup.refuse` or `og.door.refuse`, the native seam
+  refuses (no pickup; the door stays shut, as a locked one does); if
+  nothing refuses, the native rule decides exactly as today. A program
+  without such handlers changes nothing.
+- **Action modules on objects.** `og.door.open`, `og.door.close`,
+  `og.door.lock` and `og.door.unlock` (on `"object"`, through the same
+  functions the AI door twins use), `og.object.enable` and
+  `og.object.disable` (its collision, visibility and use), and
+  `og.pickup.give` (gives `"object"` to the event's player, as the AI
+  command does). Each finds its object with `setupGetObjByCmdIndex` from
+  the record id and refuses when there is none.
+- Proof: pd-tests (the runner's parameters, native gates and query
+  refusals; the modules' table and seams pinned). In game, a level that
+  wires them: Forge's first levels, or a test arena whose level program
+  refuses one pickup and opens a door when another is collected.
+
 ## Not in scope
 
 - Lifts' own stops and glass breaking (their own events after slice 4).

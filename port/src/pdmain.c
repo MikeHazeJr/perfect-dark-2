@@ -1193,6 +1193,8 @@ void mainTick(void)
 void mainEndStage(void)
 {
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
+	/* object-events.md slice 2: the stage's object event totals. */
+	scenarioSourceGraphObjectEventsReport("stage_end");
 	sndStopNosedive();
 	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 

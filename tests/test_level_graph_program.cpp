@@ -187,3 +187,129 @@ TEST_CASE("Level graph program: the runtime compiles it for every stage and runs
 		!= std::string::npos);
 	REQUIRE(conformance.find("validate_mission_graph_execution(label, graph, level=True))") != std::string::npos);
 }
+
+namespace {
+
+mission_graph_event_t objectEvent(s32 kind, const char *object)
+{
+	mission_graph_event_t event;
+	std::memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object;
+	event.tag = -1;
+	event.object_kind = "door";
+	event.player = -1;
+	return event;
+}
+
+} // namespace
+
+TEST_CASE("Level graph program: object events run on one object or on any",
+	"[level][graph][program][objects]")
+{
+	const std::string json = R"({ "nodes": [
+	{ "id": "vault_opened", "kind": "event.door.opened", "object": "setup_0042" },
+	{ "id": "any_closed", "kind": "event.door.closed", "object": "any" },
+	{ "id": "key_taken", "kind": "event.pickup.collected" },
+	{ "id": "used", "kind": "event.object.used", "object": "setup_0007" },
+	{ "id": "on_vault", "kind": "og.test.vault" },
+	{ "id": "on_closed", "kind": "og.test.closed" },
+	{ "id": "on_key", "kind": "og.test.key" },
+	{ "id": "on_used", "kind": "og.test.used" } ],
+  "edges": [
+	{ "from": "vault_opened", "to": "on_vault", "input": "exec" },
+	{ "from": "any_closed", "to": "on_closed", "input": "exec" },
+	{ "from": "key_taken", "to": "on_key", "input": "exec" },
+	{ "from": "used", "to": "on_used", "input": "exec" } ] })";
+	std::string error;
+	mission_graph_program_t *program = compileLevel(json, &error);
+	INFO(error);
+	REQUIRE(program != nullptr);
+	REQUIRE(missionGraphProgramEventNodeCount(program, MISSION_GRAPH_EVENT_DOOR_OPENED) == 1);
+	REQUIRE(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PICKUP_COLLECTED) == 1);
+
+	struct Case {
+		s32 kind;
+		const char *object;
+		std::vector<std::string> ran;
+	};
+	const Case cases[] = {
+		{MISSION_GRAPH_EVENT_DOOR_OPENED, "setup_0042", {"on_vault"}},
+		{MISSION_GRAPH_EVENT_DOOR_OPENED, "setup_0043", {}},
+		{MISSION_GRAPH_EVENT_DOOR_CLOSED, "setup_0099", {"on_closed"}},
+		{MISSION_GRAPH_EVENT_DOOR_CLOSED, "", {"on_closed"}},
+		{MISSION_GRAPH_EVENT_PICKUP_COLLECTED, "setup_0001", {"on_key"}},
+		{MISSION_GRAPH_EVENT_OBJECT_USED, "setup_0007", {"on_used"}},
+		{MISSION_GRAPH_EVENT_OBJECT_USED, "", {}},
+	};
+	for (const Case &c : cases) {
+		INFO("kind " << c.kind << " object " << c.object);
+		const mission_graph_event_t event = objectEvent(c.kind, c.object);
+		std::vector<std::string> ran;
+		REQUIRE(missionGraphProgramFire(program, &event, runModule, &ran) == (s32)c.ran.size());
+		REQUIRE(ran == c.ran);
+	}
+	// An object event needs its object (the empty string for none).
+	mission_graph_event_t missing = objectEvent(MISSION_GRAPH_EVENT_DOOR_OPENED, nullptr);
+	std::vector<std::string> ran;
+	REQUIRE(missionGraphProgramFire(program, &missing, runModule, &ran) == -1);
+	missionGraphProgramFree(program);
+
+	// What the compiler refuses.
+	REQUIRE(compileLevel(R"({ "nodes": [ { "id": "e", "kind": "event.door.opened", "objective": "x" } ] })",
+		&error) == nullptr);
+	REQUIRE(error.find("object event 'e' has no objective to filter") != std::string::npos);
+	REQUIRE(compileLevel(R"({ "nodes": [ { "id": "e", "kind": "event.object.used", "object": 7 } ] })",
+		&error) == nullptr);
+	REQUIRE(error.find("object event 'e' object must be a string") != std::string::npos);
+}
+
+TEST_CASE("Level graph program: the native seams fire the object events, recorded per stage",
+	"[level][graph][program][objects][static]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string pdmain = readSource("port/src/pdmain.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The payload: the record id (the setup command index), the tag, the
+	// type and the catalog id; fired on the host only.
+	REQUIRE(propobj.find("snprintf(out->object, sizeof(out->object), \"setup_%04u\", (unsigned)cmdindex);")
+		!= std::string::npos);
+	REQUIRE(propobj.find("out->tag = objGetTagNum(obj);") != std::string::npos);
+	REQUIRE(propobj.find("out->catalog_id = g_WeaponDataCatalogIds[weaponnum];") != std::string::npos);
+	REQUIRE(propobj.find("\tif (g_NetMode == NETMODE_CLIENT || ev->type < 0) {") != std::string::npos);
+
+	// Pickups after the give or the free; doors at every start; the use
+	// button once handled.
+	const size_t free_at = propobj.find("\t\tobjFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);\n"
+		"\t\tobjGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);");
+	REQUIRE(free_at != std::string::npos);
+	REQUIRE(propobj.find("\t\t\tinvGiveProp(prop);\n\t\t}\n"
+		"\t\tobjGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);")
+		!= std::string::npos);
+	REQUIRE(propobj.find("objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_OPENED, &opened, -1);") != std::string::npos);
+	REQUIRE(propobj.find("objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_CLOSED, &closed, -1);") != std::string::npos);
+	REQUIRE(propobj.find("objGraphEventFire(MISSION_GRAPH_EVENT_OBJECT_USED, &used, g_Vars.currentplayernum);")
+		!= std::string::npos);
+
+	// The runtime sends each to the level program and the mission program,
+	// logs the first of each kind and the totals once per stage.
+	REQUIRE(runtime.find("s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,")
+		!= std::string::npos);
+	REQUIRE(runtime.find("level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,")
+		!= std::string::npos);
+	REQUIRE(runtime.find("mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,")
+		!= std::string::npos);
+	REQUIRE(runtime.find("\"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d reason=%s backend=graph.level.runner\"")
+		!= std::string::npos);
+	REQUIRE(runtime.find("static void s_resetActiveScenarioGraphs(void)\n{\n\ts_reportObjectEvents(\"next_stage\");")
+		!= std::string::npos);
+	REQUIRE(pdmain.find("\tscenarioSourceGraphObjectEventsReport(\"stage_end\");") != std::string::npos);
+	// The payload's kind is the objects.json kind of the object's type.
+	REQUIRE(runtime.find("static const char *s_setupObjTypeToKind(u8 type)") != std::string::npos);
+
+	REQUIRE(conformance.find("MISSION_GRAPH_OBJECT_EVENTS = {\"event.pickup.collected\", \"event.door.opened\",")
+		!= std::string::npos);
+}

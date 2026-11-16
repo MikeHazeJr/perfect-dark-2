@@ -32,6 +32,7 @@ struct Node {
 	int gate_status = -1;
 	int gate_phase = -1; // gate.mission.phase; -1 for an objective gate
 	std::string volume; // event.volume.*: the volumes.json volume_id
+	std::string object; // object events: the record_id filter; "" for any
 	std::vector<Edge> out;
 };
 
@@ -43,6 +44,15 @@ const char *const kMissionPhaseEvent = "event.mission.phase_changed";
 const char *const kMissionPhaseGate = "gate.mission.phase";
 const char *const kVolumeEnteredEvent = "event.volume.entered";
 const char *const kVolumeLeftEvent = "event.volume.left";
+const char *const kPickupCollectedEvent = "event.pickup.collected";
+const char *const kDoorOpenedEvent = "event.door.opened";
+const char *const kDoorClosedEvent = "event.door.closed";
+const char *const kObjectUsedEvent = "event.object.used";
+
+bool isObjectEventKind(s32 kind)
+{
+	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_OBJECT_USED;
+}
 
 void setError(char *err, size_t err_cap, const std::string &text)
 {
@@ -186,6 +196,26 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 					}
 					program->volumes.push_back(compiled.volume);
 				}
+			} else if (compiled.kind == kPickupCollectedEvent || compiled.kind == kDoorOpenedEvent ||
+					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent) {
+				// object-events.md slice 2: one object (its record_id) or any.
+				if (has_objective) {
+					setError(err, err_cap, "object event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				if (node.contains("object") && !stringField(node, "object", compiled.object)) {
+					setError(err, err_cap, "object event '" + compiled.id +
+						"' object must be a string: a record_id of objects.json, or \"any\"");
+					return nullptr;
+				}
+				if (compiled.object == "any") compiled.object.clear();
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = compiled.kind == kPickupCollectedEvent
+					? MISSION_GRAPH_EVENT_PICKUP_COLLECTED
+					: compiled.kind == kDoorOpenedEvent
+						? MISSION_GRAPH_EVENT_DOOR_OPENED
+						: compiled.kind == kDoorClosedEvent
+							? MISSION_GRAPH_EVENT_DOOR_CLOSED : MISSION_GRAPH_EVENT_OBJECT_USED;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -443,12 +473,17 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 				event->player < 0) {
 			return -1;
 		}
+	} else if (isObjectEventKind(event->kind)) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->object) {
+			return -1;
+		}
 	} else {
 		return -1;
 	}
 	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 	const bool volume_event = event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
 		event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT;
+	const bool object_event = isObjectEventKind(event->kind);
 	try {
 		std::vector<char> reached(program->nodes.size(), 0);
 		std::vector<int> queue;
@@ -457,7 +492,8 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		for (const Node &root : program->nodes) {
 			if (root.type != NODE_EVENT || root.event_kind != event->kind ||
 					(objective_event && !objectiveMatches(root.objective, event)) ||
-					(volume_event && root.volume != event->volume)) {
+					(volume_event && root.volume != event->volume) ||
+					(object_event && !root.object.empty() && root.object != event->object)) {
 				continue;
 			}
 			for (const Edge &edge : root.out) queue.push_back(edge.target);

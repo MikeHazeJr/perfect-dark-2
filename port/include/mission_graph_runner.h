@@ -66,6 +66,12 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED 4
 #define MISSION_GRAPH_EVENT_VOLUME_ENTERED 5
 #define MISSION_GRAPH_EVENT_VOLUME_LEFT 6
+/* object-events.md slice 2: from the native seams, after the native decision
+ * and effect; an event node may filter one object by its record_id. */
+#define MISSION_GRAPH_EVENT_PICKUP_COLLECTED 7
+#define MISSION_GRAPH_EVENT_DOOR_OPENED 8
+#define MISSION_GRAPH_EVENT_DOOR_CLOSED 9
+#define MISSION_GRAPH_EVENT_OBJECT_USED 10
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -94,7 +100,12 @@ typedef struct mission_graph_event {
 	s32 seam;              /* MISSION_GRAPH_SEAM_*, for mission events */
 	s32 phase;             /* MISSION_GRAPH_PHASE_*, for phase events */
 	const char *volume;    /* volume_id, for volume events */
-	s32 player;            /* player index, for volume events */
+	s32 player;            /* player index, for volume and object events (-1: none) */
+	/* object events (object-events.md slice 2) */
+	const char *object;      /* the objects.json record_id ("setup_0123"); "" if none */
+	s32 tag;                 /* the id of the tag record that names it, or -1 */
+	const char *object_kind; /* its objects.json kind ("door", "weapon_pickup", ...) */
+	const char *catalog_id;  /* a pickup's weapon, else the object's model; may be NULL */
 } mission_graph_event_t;
 
 /* "active", "complete" or "failed" as a MISSION_GRAPH_PHASE_* value, or -1. */

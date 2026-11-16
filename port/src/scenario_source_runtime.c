@@ -1265,6 +1265,11 @@ typedef struct scenario_source_graph_state {
 	char level_program_error[160];
 	s32 level_program_volume_count;
 	scenario_source_bound_volume_t level_program_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 2: object events delivered on this stage, by
+	 * kind (pickup.collected, door.opened, door.closed, object.used), and
+	 * whether their totals were logged. */
+	s32 object_event_counts[4];
+	s32 object_events_reported;
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
 	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
@@ -1301,8 +1306,24 @@ static s32 s_objectiveCriterionUsesObjectState(u8 type)
 		type == OBJECTIVETYPE_HOLOGRAPH;
 }
 
+/* object-events.md slice 2: a stage's object event totals, logged once:
+ * at the stage's end, or when the next stage replaces it. */
+static void s_reportObjectEvents(const char *reason)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || s_ActiveScenarioGraphs.object_events_reported) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_events_reported = 1;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d reason=%s backend=graph.level.runner",
+		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
+		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
+		s_ActiveScenarioGraphs.object_event_counts[3], reason);
+}
+
 static void s_resetActiveScenarioGraphs(void)
 {
+	s_reportObjectEvents("next_stage");
 	free(s_ActiveScenarioGraphs.setup_links);
 	free(s_ActiveScenarioGraphs.level_volumes);
 	free(s_ActiveScenarioGraphs.mission_objectives);
@@ -1538,83 +1559,97 @@ static s32 s_parseU32Value(const char *value, u32 *out)
 	return 1;
 }
 
+/* objects.json's record kinds and their object types (the setup loader's,
+ * and object-events.md slice 2's event payloads, both ways). */
+typedef struct scenario_source_kind_map {
+	const char *kind;
+	u8 type;
+} scenario_source_kind_map_t;
+
+static const scenario_source_kind_map_t s_SetupKindMaps[] = {
+	{ "door", OBJTYPE_DOOR },
+	{ "door_scale", OBJTYPE_DOORSCALE },
+	{ "prop", OBJTYPE_BASIC },
+	{ "key", OBJTYPE_KEY },
+	{ "alarm", OBJTYPE_ALARM },
+	{ "cctv", OBJTYPE_CCTV },
+	{ "ammo_crate", OBJTYPE_AMMOCRATE },
+	{ "weapon_pickup", OBJTYPE_WEAPON },
+	{ "character_spawn", OBJTYPE_CHR },
+	{ "single_monitor", OBJTYPE_SINGLEMONITOR },
+	{ "multi_monitor", OBJTYPE_MULTIMONITOR },
+	{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
+	{ "autogun", OBJTYPE_AUTOGUN },
+	{ "linked_guns", OBJTYPE_LINKGUNS },
+	{ "debris", OBJTYPE_DEBRIS },
+	{ "hat", OBJTYPE_HAT },
+	{ "grenade_probability", OBJTYPE_GRENADEPROB },
+	{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
+	{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
+	{ "shield", OBJTYPE_SHIELD },
+	{ "tag", OBJTYPE_TAG },
+	{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
+	{ "objective_end", OBJTYPE_ENDOBJECTIVE },
+	{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
+	{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
+	{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
+	{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
+	{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
+	{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
+	{ "objective_marker", OBJECTIVETYPE_1F },
+	{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
+	{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
+	{ "objective_marker_22", OBJTYPE_22 },
+	{ "briefing", OBJTYPE_BRIEFING },
+	{ "gas_bottle", OBJTYPE_GASBOTTLE },
+	{ "rename_object", OBJTYPE_RENAMEOBJ },
+	{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
+	{ "truck", OBJTYPE_TRUCK },
+	{ "heli", OBJTYPE_HELI },
+	{ "tank", OBJTYPE_TANK },
+	{ "camera_position", OBJTYPE_CAMERAPOS },
+	{ "glass", OBJTYPE_GLASS },
+	{ "safe", OBJTYPE_SAFE },
+	{ "safe_item", OBJTYPE_SAFEITEM },
+	{ "tinted_glass", OBJTYPE_TINTEDGLASS },
+	{ "lift", OBJTYPE_LIFT },
+	{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
+	{ "blocked_path", OBJTYPE_BLOCKEDPATH },
+	{ "hoverbike", OBJTYPE_HOVERBIKE },
+	{ "hover_prop", OBJTYPE_HOVERPROP },
+	{ "fan", OBJTYPE_FAN },
+	{ "hover_car", OBJTYPE_HOVERCAR },
+	{ "pad_effect", OBJTYPE_PADEFFECT },
+	{ "chopper", OBJTYPE_CHOPPER },
+	{ "mine", OBJTYPE_MINE },
+	{ "escalator_step", OBJTYPE_ESCASTEP },
+};
+
 static s32 s_setupKindToObjType(const char *kind, u8 *out_type)
 {
-	struct kind_map {
-		const char *kind;
-		u8 type;
-	};
-	static const struct kind_map maps[] = {
-		{ "door", OBJTYPE_DOOR },
-		{ "door_scale", OBJTYPE_DOORSCALE },
-		{ "prop", OBJTYPE_BASIC },
-		{ "key", OBJTYPE_KEY },
-		{ "alarm", OBJTYPE_ALARM },
-		{ "cctv", OBJTYPE_CCTV },
-		{ "ammo_crate", OBJTYPE_AMMOCRATE },
-		{ "weapon_pickup", OBJTYPE_WEAPON },
-		{ "character_spawn", OBJTYPE_CHR },
-		{ "single_monitor", OBJTYPE_SINGLEMONITOR },
-		{ "multi_monitor", OBJTYPE_MULTIMONITOR },
-		{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
-		{ "autogun", OBJTYPE_AUTOGUN },
-		{ "linked_guns", OBJTYPE_LINKGUNS },
-		{ "debris", OBJTYPE_DEBRIS },
-		{ "hat", OBJTYPE_HAT },
-		{ "grenade_probability", OBJTYPE_GRENADEPROB },
-		{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
-		{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
-		{ "shield", OBJTYPE_SHIELD },
-		{ "tag", OBJTYPE_TAG },
-		{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
-		{ "objective_end", OBJTYPE_ENDOBJECTIVE },
-		{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
-		{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
-		{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
-		{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
-		{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
-		{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
-		{ "objective_marker", OBJECTIVETYPE_1F },
-		{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
-		{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
-		{ "objective_marker_22", OBJTYPE_22 },
-		{ "briefing", OBJTYPE_BRIEFING },
-		{ "gas_bottle", OBJTYPE_GASBOTTLE },
-		{ "rename_object", OBJTYPE_RENAMEOBJ },
-		{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
-		{ "truck", OBJTYPE_TRUCK },
-		{ "heli", OBJTYPE_HELI },
-		{ "tank", OBJTYPE_TANK },
-		{ "camera_position", OBJTYPE_CAMERAPOS },
-		{ "glass", OBJTYPE_GLASS },
-		{ "safe", OBJTYPE_SAFE },
-		{ "safe_item", OBJTYPE_SAFEITEM },
-		{ "tinted_glass", OBJTYPE_TINTEDGLASS },
-		{ "lift", OBJTYPE_LIFT },
-		{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
-		{ "blocked_path", OBJTYPE_BLOCKEDPATH },
-		{ "hoverbike", OBJTYPE_HOVERBIKE },
-		{ "hover_prop", OBJTYPE_HOVERPROP },
-		{ "fan", OBJTYPE_FAN },
-		{ "hover_car", OBJTYPE_HOVERCAR },
-		{ "pad_effect", OBJTYPE_PADEFFECT },
-		{ "chopper", OBJTYPE_CHOPPER },
-		{ "mine", OBJTYPE_MINE },
-		{ "escalator_step", OBJTYPE_ESCASTEP },
-	};
-
 	if (!kind || !out_type) {
 		return 0;
 	}
 
-	for (u32 i = 0; i < ARRAYCOUNT(maps); i++) {
-		if (strcmp(kind, maps[i].kind) == 0) {
-			*out_type = maps[i].type;
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (strcmp(kind, s_SetupKindMaps[i].kind) == 0) {
+			*out_type = s_SetupKindMaps[i].type;
 			return 1;
 		}
 	}
 
 	return 0;
+}
+
+/* The objects.json kind of an object type, or NULL. */
+static const char *s_setupObjTypeToKind(u8 type)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (s_SetupKindMaps[i].type == type) {
+			return s_SetupKindMaps[i].kind;
+		}
+	}
+	return NULL;
 }
 
 static s32 s_setupObjTypeHasDefaultBase(u8 type)
@@ -34883,6 +34918,60 @@ s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
 		s_ActiveScenarioGraphs.level_program_volumes,
 		s_ActiveScenarioGraphs.level_program_volume_count, "SCENARIO.GRAPH",
 		s_ActiveScenarioGraphs.scenario_id, "graph.level.runner", positions, present, count);
+}
+
+/* object-events.md slice 2: an object event from a native seam, after the
+ * native decision and effect (the caller builds the payload and fires
+ * nothing on a networked client). It goes to the level program on every
+ * stage and to the mission program on a mission. The base game's graphs
+ * wire none, so for them it is recorded only: the first event of each kind
+ * on a stage is logged with its payload, every one that ran a module or
+ * failed is logged, and the totals are logged once per stage. Returns the
+ * modules run. */
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	static const char *const names[] = { "pickup.collected", "door.opened", "door.closed",
+		"object.used" };
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_COLLECTED;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	mission_graph_event_t event;
+	s32 level_ran = 0;
+	s32 mission_ran = 0;
+
+	if (index < 0 || index >= 4 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	if (s_ActiveScenarioGraphs.level_program) {
+		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	if (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program) {
+		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	s_ActiveScenarioGraphs.object_event_counts[index]++;
+	if (s_ActiveScenarioGraphs.object_event_counts[index] == 1 || level_ran != 0 || mission_ran != 0) {
+		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s catalog_id=%s player=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
+			names[index], s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-",
+			tag, object_kind ? object_kind : "-", catalog_id && catalog_id[0] ? catalog_id : "-",
+			player, level_ran, mission_ran);
+	}
+	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
+}
+
+void scenarioSourceGraphObjectEventsReport(const char *reason)
+{
+	s_reportObjectEvents(reason && reason[0] ? reason : "stage_end");
 }
 
 s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
