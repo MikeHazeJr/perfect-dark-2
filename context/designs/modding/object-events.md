@@ -3,8 +3,9 @@
 Status: CORE, 2026-11-16. Proposal for the week note's "Pickups" row
 ("touch event, can-pick-up gate, collect action") and "Doors, lifts, glass"
 row ("an archetype graph at the open, activate and lift entry points"),
-under decision 1. Not built. Facts from a read-only survey of
-`week-pd/core` (c0410f15).
+under decision 1. Slices 1 to 3 written on `week-pd/core` (f63e4248,
+5233cbb7, 4881fc32; see "Slices 1-3 as written"), slice 4 not started.
+Facts from a read-only survey of `week-pd/core` (c0410f15).
 
 ## Where it stands
 
@@ -170,6 +171,31 @@ under decision 1. Not built. Facts from a read-only survey of
   refusals; the modules' table and seams pinned). In game, a level that
   wires them: Forge's first levels, or a test arena whose level program
   refuses one pickup and opens a door when another is collected.
+
+## Slices 1-3 as written (CORE, 2026-11-16)
+
+- Slice 1 (f63e4248): `missionGraphProgramCompileLevel` compiles a level
+  graph's program from its event, gate and module nodes only; the runtime
+  compiles it at scenario activation for every stage (a base level graph
+  gives an empty program: its inert `event.scenario.load`), refuses the
+  level graph when it does not compile or names a volume that is no box of
+  `volumes.json`, logs `SCENARIO.GRAPH: level program '...'`, and delivers
+  its trigger-volume events from `lvTick` after `scenarioTick` on the host.
+  Volume binding and delivery are shared with the mission program.
+- Slice 2 (5233cbb7): the four object events from `propPickupByPlayer`,
+  `doorStartOpen`, `doorStartClose` and `propobjInteract`, to the level
+  program and (on a mission) the mission program, host only; per stage the
+  first event of each kind is logged with its payload and the totals once
+  (`SCENARIO.GRAPH: object events '...' pickup.collected=...`). The
+  objects.json kind comes from the setup loader's own table.
+- Slice 3 (4881fc32): node parameters for modules, native gates through
+  the module table, the two queries before the native rule (a refused door
+  behaves as a locked one, at the use button and at an automatic door),
+  the door and pickup modules, `gate.object.kind` and
+  `gate.player.has_item`; object events nest at most four deep.
+- Proof so far: pd-tests (`tests/test_level_graph_program.cpp`); in game,
+  the next campaign turn shows every stage's level program and its object
+  event totals. The gates and modules need a level that wires them.
 
 ## Not in scope
 
