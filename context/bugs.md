@@ -17,6 +17,12 @@ download, Pop a Cap survival) and `botCheckPickups`. Fix: `updateable` again nee
 update; a later pass logs `BOT.TICK: simulant N passed again in one frame (players=P)` once per match. Pinned in
 `tests/test_net_bot_pickup_static.cpp` (`[b1202]`). Pattern SP-87. Built 2026-11-16, the full suite passes (1993
 cases); not yet run in game. This changes how fast simulants act in networked matches, back to the offline speed.
+Not covered (open, a question for Mike and CORE under SP-87): a prop in the background, in no player's view, still gets
+N times the elapsed time, because `propsTickPlayer` adds the frame's time to every prop's `propupdate240` and every
+slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, and a background tick spends that
+accumulated time (the original split-screen scheduler does the same). So a simulant out of every player's view still
+acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
+view can therefore still beat the 30 s rule in the Hold the Briefcase re-run.
 
 ## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed in code)
 

@@ -3783,6 +3783,19 @@ only while the mark is set: `chrTick` and `objTickPlayer` clear it into their
   (`surface_blend_frames--`, `chrSurfaceLocoTick`) runs outside `fulltick`, so
   a chr that uses it blends N times as fast on a networked machine (CORE's
   area; left as it is).
+- Not fixed, open for Mike and CORE: the scheduler's own time accounting.
+  `propsTickPlayer` adds the frame's `lvupdate240` to every prop's
+  `propupdate240` and every slot's `slotupdate240`, and advances
+  `runstateindex`, on every pass, and a background prop's tick spends the
+  accumulated time. So a prop in no player's view gets N times the elapsed
+  time (a simulant out of view acts twice as fast with two players; so does a
+  co-op guard out of view on the host). The original split-screen game works
+  the same way, so this is original behavior there, but a networked match
+  runs a pass for every remote player as well. Options: (a) leave it;
+  (b) in a networked match, add the time and advance the slot on the frame's
+  first pass only, and skip background ticks on later passes, so every prop
+  gets real time as offline (recommended; split screen unchanged); (c) the
+  same for split screen too (departs from the original).
 
 **Rules:**
 - Per-frame work in a prop tick waits on `PROPFLAG_NOTYETTICKED` (or the
