@@ -96,7 +96,9 @@ host's chr ...`. `--debug-clone-guard <seconds>` (port/src/main.c) clones a livi
 it cannot end a smoke's mission, with the guard's weapons, team and flags; `network_coop_mission_end_smoke` uses it
 at 20 s and requires both NET.NPC lines and no `client has no chr`. Pinned in
 `tests/test_net_mission_end_static.cpp` (`[b1196]`). Open: a co-op client that reconnects does not get chrs made
-before it rejoined (T-NETWORKING-007).
+before it rejoined (T-NETWORKING-007); a chr the host makes before the stage's replication release is counted in the
+host's NPC snapshot (`SVC_NPC_RESYNC`) before its spawn is announced (the broadcast starts at the first active
+frame), so that snapshot would still be rejected, as it was before this fix.
 
 ## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
 
