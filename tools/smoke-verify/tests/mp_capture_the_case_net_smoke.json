@@ -99,7 +99,8 @@
       "CTC: team [0-3] case on base [0-3] pad=[0-9]+ room=[1-9][0-9]* respawnpads=[1-6] prop=ok",
       "SCENARIO\\.STATE: sent scenario=5 rev=[0-9]+ reason=baseline",
       "SCENARIO\\.STATE: first state from host scenario=5 rev=[0-9]+",
-      "CTC: client bases from host rev=[0-9]+ team0 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+ team1 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+"
+      "CTC: client bases from host rev=[0-9]+ team0 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+ team1 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+",
+      "MANIFEST-HOST: scenario 5 token weapon 79 as '[^']+'"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",

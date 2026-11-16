@@ -1,0 +1,275 @@
+{
+  "scenario_name": "mp_capture_the_case_net_carrier_death_smoke",
+  "description": "B-1272 / T-NETWORKING-011, networked Capture the Case when a case carrier dies. A listen host and one client start Capture the Case on Complex with three simulants as mp_capture_the_case_net_smoke does (150 s time limit). Once a simulant has carried an enemy case for 1 s, the host kills it (kill_token_holder, chrDamageByMisc). The dying simulant drops the case, which goes back to its home pad (scenarioHandleDroppedToken) and is announced (botinvDrop, SVC_PROP_SPAWN); before B-1272 the briefcase had no session catalog id and the client built it as WEAPON_UNARMED. Passes when the host announces the dropped case as weapon 79, simulants take cases again, and the client never replays a pickup as weapon 1. Each process runs its own schedule; both exit from their results. Written 2026-11-16; port 27268.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "multiplayer-modes",
+    "scenario",
+    "b-1272",
+    "t-networking-011"
+  ],
+  "paths_of_interest": [
+    "src/game/mplayer/scenarios/capturethecase.inc",
+    "src/game/mplayer/scenarios.c",
+    "src/game/botinv.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27268",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:capture_the_case",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "150"
+      ],
+      "wait_for": "NET: created server on port 27268",
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_capture_the_case_net_carrier_death_host.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+          "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=case died=1",
+          "BOT\\.DROP: host announced simulant [2-4] weapon=79 syncid=[0-9]+",
+          "MANIFEST-HOST: scenario 5 token weapon 79 as '[^']+'"
+        ],
+        "required_sequences": [
+          {
+            "name": "dropped-case-announced-and-taken-again",
+            "patterns": [
+              "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+              "BOT\\.DROP: host announced simulant [2-4] weapon=79 syncid=[0-9]+",
+              "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=case died=1",
+              "BOT\\.PICKUP: host sent simulant [2-4] item [0-9]+ weapon=79 "
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "SMOKE\\.KILL_TOKEN_HOLDER: no living simulant",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27268"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_capture_the_case_net_carrier_death_client.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 "
+        ],
+        "required_sequences": [
+          {
+            "name": "client-takes-cases-as-briefcases",
+            "patterns": [
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 ",
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 "
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "BOT\\.PICKUP: client skipped",
+          "BOT\\.PICKUP: client replayed simulant [0-9]+ item [0-9]+ weapon=1 result=",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 840000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_capture_the_case_net_carrier_death_host",
+      "SMOKE: scenario=mp_capture_the_case_net_carrier_death_client",
+      "BOOT: --listen-bind armed: port=27268",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27268'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:capture_the_case' bots=3",
+      "BOOT: --listen-bind consumed: port=27268 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27268' result=OK rc=0",
+      "NET: created server on port 27268",
+      "NET: connecting to 127\\.0\\.0\\.1:27268",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=(timelimit|scorelimit)",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "CTC: team [0-3] case on base [0-3] pad=[0-9]+ room=[1-9][0-9]* respawnpads=[1-6] prop=ok",
+      "SCENARIO\\.STATE: sent scenario=5 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=5 rev=[0-9]+",
+      "CTC: client bases from host rev=[0-9]+ team0 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+ team1 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27268 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27268' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "CTC: base [0-9] has no usable",
+      "SCENARIO\\.MISS:",
+      "SCENARIO: object model=",
+      "SCENARIO\\.STATE: rejected malformed state",
+      "SCENARIO\\.STATE: dropped scenario=",
+      "SCENARIO\\.STATE: send failed",
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "NET: weapon [0-9]+ .* has no session catalog id"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27268",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=5",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "SPAWN\\.ORCH: team [0-9] starts at its base",
+        "min": 2
+      },
+      {
+        "pattern": "SMOKE: scenario=mp_capture_the_case_net_carrier_death_(host|client)",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}

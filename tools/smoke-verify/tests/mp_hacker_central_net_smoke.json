@@ -99,7 +99,8 @@
       "HTM: terminal 0 placed pad=[1-9][0-9]* prop=ok",
       "SCENARIO\\.STATE: sent scenario=2 rev=[0-9]+ reason=baseline",
       "SCENARIO\\.STATE: first state from host scenario=2 rev=[0-9]+",
-      "HTM: client uplink from host holder=-?[0-9]+ present=1 rev=[0-9]+"
+      "HTM: client uplink from host holder=-?[0-9]+ present=1 rev=[0-9]+",
+      "MANIFEST-HOST: scenario 2 token weapon 46 as '[^']+'"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",
