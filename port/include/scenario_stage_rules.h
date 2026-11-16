@@ -28,14 +28,18 @@ extern "C" {
  *   wind_direction                optional {angle, speed_x, speed_z}: a fixed
  *                                 wind instead of the changing one
  *
- * "player": what the stage dresses the player in (the game kept these as
- * stage checks in src/game/player.c and src/game/bondgun.c).
+ * "player": what the stage dresses the player in and leaves them (the game
+ * kept these as stage checks in src/game/player.c and src/game/bondgun.c).
  *   perfect_agent_outfit          an outfit name worn at Perfect Agent and up
  *   disguise                      {outfit, untargetable}: the outfit worn while
  *                                 disguised, and whether a disguised player
  *                                 cannot be targeted
  *   coop_spawn_distance           how far the co-op buddy starts from the
  *                                 player (1..1000; 60 when absent)
+ *   unlimited_ammo_excludes       weapons (catalog ids, 1 to
+ *                                 SCENARIO_STAGE_MAX_AMMO_EXCLUDES) whose
+ *                                 primary ammo the unlimited ammo cheats do
+ *                                 not refill on the stage
  *
  * "ai": stage-wide guard behaviour (src/game/chrai.c).
  *   dark_room_lists               false = guards never switch to their dark
@@ -82,12 +86,17 @@ typedef struct scenario_stage_weather {
 	f32 wind_speed_z;
 } scenario_stage_weather_t;
 
+#define SCENARIO_STAGE_MAX_AMMO_EXCLUDES 8
+#define SCENARIO_STAGE_ID_LEN 64 /* CATALOG_ID_LEN */
+
 typedef struct scenario_stage_player {
 	s32 present;
 	s32 perfect_agent_outfit; /* OUTFIT_* value, or -1 for none */
 	s32 disguise_outfit;      /* OUTFIT_* value, or -1 for none */
 	s32 disguise_untargetable;
 	f32 coop_spawn_distance;  /* 0 when absent (the game's 60) */
+	s32 unlimited_ammo_exclude_count;
+	char unlimited_ammo_excludes[SCENARIO_STAGE_MAX_AMMO_EXCLUDES][SCENARIO_STAGE_ID_LEN];
 } scenario_stage_player_t;
 
 typedef struct scenario_stage_ai {

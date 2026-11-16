@@ -35724,8 +35724,22 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			scenario->id, error);
 		return -1;
 	}
+	/* The weapons named by player.unlimited_ammo_excludes must be in the
+	 * catalog, or the rule could not say which ammo it keeps. */
+	for (s32 i = 0; i < s_StageWideRules.player.unlimited_ammo_exclude_count; i++) {
+		catalog_weapon_result_t weapon;
+
+		if (!catalogResolveWeapon(s_StageWideRules.player.unlimited_ammo_excludes[i], &weapon)
+				|| weapon.weapon_num <= 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.SOURCE: stage.json of '%s' refused: player.unlimited_ammo_excludes names %s, which is not a weapon; the stage runs without stage-wide rules",
+				scenario->id, s_StageWideRules.player.unlimited_ammo_excludes[i]);
+			memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+			return -1;
+		}
+	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f unlimited_ammo_excludes=%d no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
@@ -35738,6 +35752,7 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
 		s_StageWideRules.player.disguise_untargetable,
 		(double)s_StageWideRules.player.coop_spawn_distance,
+		s_StageWideRules.player.unlimited_ammo_exclude_count,
 		s_StageWideRules.ai.no_dark_room_lists,
 		s_StageWideRules.ending.outcome_unknown,
 		s_StageWideRules.hub.present && s_StageWideRules.hub.hub,

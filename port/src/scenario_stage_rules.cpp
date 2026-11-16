@@ -118,7 +118,8 @@ s32 outfit(const Json &object, const char *key, const std::string &where)
 void readPlayer(const Json &player, scenario_stage_player_t &out)
 {
 	if (!player.is_object()) refuse("player must be an object");
-	onlyKeys(player, { "perfect_agent_outfit", "disguise", "coop_spawn_distance" }, "player");
+	onlyKeys(player, { "perfect_agent_outfit", "disguise", "coop_spawn_distance",
+		"unlimited_ammo_excludes" }, "player");
 	out.present = 1;
 	if (player.contains("coop_spawn_distance")) {
 		out.coop_spawn_distance = number(player, "coop_spawn_distance", "player");
@@ -135,6 +136,31 @@ void readPlayer(const Json &player, scenario_stage_player_t &out)
 		onlyKeys(disguise, { "outfit", "untargetable" }, "player.disguise");
 		if (disguise.contains("outfit")) out.disguise_outfit = outfit(disguise, "outfit", "player.disguise");
 		out.disguise_untargetable = boolean(disguise, "untargetable", "player.disguise") ? 1 : 0;
+	}
+	if (player.contains("unlimited_ammo_excludes")) {
+		const Json &list = player["unlimited_ammo_excludes"];
+		if (!list.is_array()) refuse("player.unlimited_ammo_excludes must be a list of weapon catalog ids");
+		const crude_json::array &ids = list.get<crude_json::array>();
+		if (ids.empty() || ids.size() > SCENARIO_STAGE_MAX_AMMO_EXCLUDES) {
+			refuse("player.unlimited_ammo_excludes names 1 to " +
+				std::to_string(SCENARIO_STAGE_MAX_AMMO_EXCLUDES) + " weapons");
+		}
+		for (const Json &id : ids) {
+			const std::string value = id.is_string() ? id.get<crude_json::string>() : std::string();
+			const size_t colon = value.find(':');
+			if (value.empty() || value.size() >= SCENARIO_STAGE_ID_LEN || colon == std::string::npos ||
+					colon == 0 || colon + 1 == value.size()) {
+				refuse("player.unlimited_ammo_excludes holds something that is not a weapon catalog id");
+			}
+			for (s32 i = 0; i < out.unlimited_ammo_exclude_count; i++) {
+				if (value == out.unlimited_ammo_excludes[i]) {
+					refuse("player.unlimited_ammo_excludes names " + value + " twice");
+				}
+			}
+			std::memcpy(out.unlimited_ammo_excludes[out.unlimited_ammo_exclude_count], value.c_str(),
+				value.size() + 1);
+			out.unlimited_ammo_exclude_count++;
+		}
 	}
 }
 

@@ -14218,19 +14218,44 @@ s32 bgunGetCapacityByAmmotype(s32 ammotype)
 	return g_AmmoTypes[ammotype].capacity;
 }
 
+/* A stage built from scenario source names the weapons whose primary ammo the
+ * unlimited ammo cheats leave alone (stage.json
+ * player.unlimited_ammo_excludes); a ROM stage keeps the original's two stage
+ * checks (remote mines on Chicago, timed mines on Air Force One). */
+static bool bgunStageExcludesUnlimitedAmmo(u32 ammotype)
+{
+	scenario_stage_player_t rule;
+	s32 i;
+
+	if (!scenarioSourceStagePlayer(&rule)) {
+		return false;
+	}
+
+	for (i = 0; i < rule.unlimited_ammo_exclude_count; i++) {
+		catalog_weapon_result_t weapon;
+
+		if (catalogResolveWeapon(rule.unlimited_ammo_excludes[i], &weapon)
+				&& weapon.weapon_num > 0
+				&& bgunGetAmmoTypeForWeapon(weapon.weapon_num, FUNC_PRIMARY) == ammotype) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 {
+	if (bgUsesScenarioSource()) {
+		if (bgunStageExcludesUnlimitedAmmo(ammotype)) {
+			return false;
+		}
+	} else if ((ammotype == AMMOTYPE_REMOTE_MINE && g_Vars.stagenum == STAGE_CHICAGO)
+			|| (ammotype == AMMOTYPE_TIMED_MINE && g_Vars.stagenum == STAGE_AIRFORCEONE)) {
+		return false;
+	}
+
 	switch (ammotype) {
-	case AMMOTYPE_REMOTE_MINE:
-		if (g_Vars.stagenum == STAGE_CHICAGO) {
-			return false;
-		}
-		break;
-	case AMMOTYPE_TIMED_MINE:
-		if (g_Vars.stagenum == STAGE_AIRFORCEONE) {
-			return false;
-		}
-		break;
 	case AMMOTYPE_PSYCHOSIS:
 	case AMMOTYPE_17:
 	case AMMOTYPE_BUG:

@@ -50,15 +50,17 @@ draw code already did.
 
 ## `player`
 
-What the stage dresses the player in. The game kept these as stage checks in
-`src/game/player.c` (outfit choice) and `src/game/bondgun.c` (putting on the
-disguise); the extractor writes the same conditions.
+What the stage dresses the player in and leaves them. The game kept these as
+stage checks in `src/game/player.c` (outfit choice) and `src/game/bondgun.c`
+(putting on the disguise, the ammo the unlimited ammo cheats refill); the
+extractor writes the same conditions.
 
 | Field | Meaning |
 |---|---|
 | `perfect_agent_outfit` | the outfit worn at Perfect Agent and up (Villa: `negotiator`) |
 | `disguise` | `{outfit, untargetable}`: the outfit worn while disguised (Rescue: `lab`, Air Base: `stewardess`), and whether a disguised player cannot be targeted (Rescue) |
 | `coop_spawn_distance` | how far the co-op buddy starts from the player, 1..1000 (60 when absent; Defection: 80, a port fix so the buddy does not block the intro) |
+| `unlimited_ammo_excludes` | the weapons (catalog ids, 1 to 8) whose primary ammo the unlimited ammo cheats do not refill on the stage (Chicago: `base:remotemine`, Air Force One: `base:timedmine`, the original's `bgunAmmotypeAllowsUnlimitedAmmo`); every name must be a weapon in the catalog or the file is refused. The game's own list of ammo the cheats never refill (Psychosis darts, bugs, cameras, plastique, ECM mines and others) is not a stage rule and stays in that function |
 
 ## `ai`
 

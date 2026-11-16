@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -298,6 +298,54 @@ TEST_CASE("the co-op spawn distance and the dark room rule come from stage.json"
 	REQUIRE(chraction.find("if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {") != std::string::npos);
 	REQUIRE(chrai.find("&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()\n\t\t\t\t\t: g_Vars.stagenum != STAGE_CRASHSITE)) {") !=
 		std::string::npos);
+}
+
+TEST_CASE("the stage.json player rule names the weapons the unlimited ammo cheats leave alone",
+          "[stage][scenario][stagerules]")
+{
+	Parsed chicago(stage(R"("player": { "unlimited_ammo_excludes": ["base:remotemine"] })"));
+	INFO(chicago.error);
+	REQUIRE(chicago.ok);
+	CHECK(chicago.rules.player.present == 1);
+	REQUIRE(chicago.rules.player.unlimited_ammo_exclude_count == 1);
+	CHECK(std::string(chicago.rules.player.unlimited_ammo_excludes[0]) == "base:remotemine");
+	CHECK(chicago.rules.player.perfect_agent_outfit == -1);
+
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.player.unlimited_ammo_exclude_count == 0);
+
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": "base:remotemine" })"))
+		.find("must be a list of weapon catalog ids") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": [] })")).find("names 1 to 8 weapons") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": ["remotemine"] })"))
+		.find("not a weapon catalog id") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": [1] })")).find("not a weapon catalog id") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": ["base:remotemine", "base:remotemine"] })"))
+		.find("names base:remotemine twice") != std::string::npos);
+
+	// The extractor writes the original's two stage checks as the weapon whose
+	// primary ammo it is; the game asks the rule on a scenario-source stage and
+	// keeps the checks for a ROM stage; the runtime refuses a name that is not a
+	// weapon; the checker knows the key.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	REQUIRE(extractor.find("case STAGE_CHICAGO:     return AMMOTYPE_REMOTE_MINE;") != std::string::npos);
+	REQUIRE(extractor.find("case STAGE_AIRFORCEONE: return AMMOTYPE_TIMED_MINE;") != std::string::npos);
+	REQUIRE(extractor.find("wpn->ammos[FUNC_PRIMARY]->type == ammotype") != std::string::npos);
+	REQUIRE(bondgun.find("if (bgunStageExcludesUnlimitedAmmo(ammotype)) {") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetAmmoTypeForWeapon(weapon.weapon_num, FUNC_PRIMARY) == ammotype") !=
+		std::string::npos);
+	REQUIRE(bondgun.find("(ammotype == AMMOTYPE_REMOTE_MINE && g_Vars.stagenum == STAGE_CHICAGO)") !=
+		std::string::npos);
+	REQUIRE(bondgun.find("(ammotype == AMMOTYPE_TIMED_MINE && g_Vars.stagenum == STAGE_AIRFORCEONE)") !=
+		std::string::npos);
+	REQUIRE(runtime.find("player.unlimited_ammo_excludes names %s, which is not a weapon") != std::string::npos);
+	REQUIRE(conformance.find("\"unlimited_ammo_excludes\"") != std::string::npos);
 }
 
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")

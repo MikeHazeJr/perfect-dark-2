@@ -135,7 +135,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -2670,7 +2670,9 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
 STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars"}
-STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance"}
+STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance",
+                     "unlimited_ammo_excludes"}
+STAGE_MAX_AMMO_EXCLUDES = 8
 STAGE_AI_KEYS = {"dark_room_lists"}
 STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
                  "deepsea", "wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian",
@@ -2723,6 +2725,18 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                 if isinstance(distance, bool) or not isinstance(distance, (int, float)) \
                         or not 1 <= distance <= 1000:
                     errors.append(f"{where} player.coop_spawn_distance must be 1..1000")
+            if "unlimited_ammo_excludes" in player:
+                ids = player["unlimited_ammo_excludes"]
+                if not isinstance(ids, list) or not 1 <= len(ids) <= STAGE_MAX_AMMO_EXCLUDES:
+                    errors.append(f"{where} player.unlimited_ammo_excludes must list 1 to "
+                                  f"{STAGE_MAX_AMMO_EXCLUDES} weapon catalog ids")
+                else:
+                    if any(not isinstance(v, str) or len(v) >= 64 or not CATALOG_ID_RE.match(v)
+                           for v in ids):
+                        errors.append(f"{where} player.unlimited_ammo_excludes holds something "
+                                      f"that is not a weapon catalog id")
+                    elif len(set(ids)) != len(ids):
+                        errors.append(f"{where} player.unlimited_ammo_excludes names a weapon twice")
     if "hub" in doc and not isinstance(doc["hub"], bool):
         errors.append(f"{where} hub must be true or false")
     if "stars" in doc:
