@@ -16,7 +16,7 @@ and a client's stage end read, which may host next; log `NET: match end forgets 
 refusal stays for a genuinely mixed configuration. Pinned in `tests/test_host_autostart_rematch_static.cpp`
 (`[b1200]`); the rematch smoke requires the log line. Not yet built or run.
 
-## 2026-11-16 B-1199 The mission-end Agent Profile save is refused in networked co-op and counter-op (T-NETWORKING-011, open; save codec is CORE's)
+## 2026-11-16 B-1199 The mission-end Agent Profile save is refused in networked co-op and counter-op (T-NETWORKING-011, fixed in code)
 
 Severity medium (mission progress of a networked co-op or counter-op mission may not be saved; no crash). Every
 networked mission end on the host logs `ERROR: SAVE: Agent Profile serialization failed name='Dark'; destination
@@ -27,6 +27,14 @@ refuses the document (a scalar: auto difficulty, auto stage index, thumbnail, so
 value; or the preferences) and keeps its reason to itself. Diagnostic added (not yet run): the failure path logs
 `SAVE.DIAG: agent document ...` with those scalars and the public preferences validator's verdict. Not checked: whether
 a solo mission end fails the same way. The codec is CORE's; report the diagnostic's first result to CORE.
+Named 2026-11-16 by the diagnostic (co-op run `results-20261116T031858Z.json`): `SAVE.DIAG: agent document
+autodifficulty=0 autostageindex=0 thumbnail=0 soundmode=1 controlmode=8,9 preferences=ok`; the validator allows control
+modes up to 8. Root cause (ours, not the codec's): `saveCaptureAgentDocument` takes player 2's control mode from slot 1
+in co-op and counter-op, but in a networked mission slot 1 is the remote partner, whose control mode is
+`CONTROLMODE_NA` (9, `netPlayersAllocate`). So every networked mission-end save was refused and the progress was not
+saved. Fix in code: `saveAgentPlayer2Slot()` (savefile.c) uses slot 1 only in a local mission and slot 5 otherwise, as
+outside co-op, for both the save and the load. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1199]`). Not yet
+built or run.
 
 ## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, fixed in code)
 
@@ -123,7 +131,7 @@ challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in 
 `tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
 (`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
 
-## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed in code)
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
 
 Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
 `mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
@@ -151,6 +159,17 @@ the host announces each held weapon with a dynamic id once the death drop puts i
 held weapon=... syncid=...`), and a client's puppet retires its own held models at death instead of dropping them
 (`OBJHFLAG_DELETING`, as a weapon switch does). Pinned in `tests/test_net_bot_pickup_static.cpp` (`[b1194]`). Not
 yet built or run.
+2026-11-16, run on binary 732dd2fe (540f12d8, `results-20261116T033141Z.json`, 106/107): that root cause was wrong.
+The host logged no `NET.DROP: host announced chr` line at all, while 27 pickups were still skipped, every one the
+match's rolled spawn weapon (weapon 5 this time, weapon 8 last time), all dynamic ids, the client holding no prop under
+any of them. A simulant's lethal damage goes through `chrDie` (chraction.c), whose `botinvDropAll` makes fresh props
+for its inventory and announces them (`BOT.DROP`, 3 this run, all replayed) and deletes the held models, so held
+weapons never reach the world on that path. About 12 deaths, 24 simulant spawns and 32 host pickups, with the first
+skipped items lying in the world six seconds into the match, so where those weapons come from is still open. The
+held-weapon announcement and the puppet's retire stay (they cover `chrBeginDeath` and `botDisarm` drops of weapons with
+dynamic ids, as a co-op clone's are), but they are not this bug's fix. Diagnostic for the next run: the host's
+`BOT.PICKUP: host sent` line now carries the item's `dynamic`, object `flags` (a drop carries AICANNOTUSE), `hidden2`
+(the regen flag) and setup `pad`. Open.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 

@@ -105,7 +105,7 @@
       "MATCH: options=0x[0-9a-f]{8} onehitkills=0 slowmo=0 scenario=4 ",
       "KOH: hill [0-8] of [2-9] at pad=[0-9]+ room=[1-9][0-9]*",
       "MATCH: player spawned slot=",
-      "MATCH: timelimit override applied seconds=40",
+      "MATCH: timelimit override applied seconds=150",
       "MATCH: stage end reason=timelimit",
       "MATCH\\.RESULT: scenario=4 teams=1 chrs=4 netmode=0",
       "MATCH: endscreen shown",

@@ -3712,10 +3712,10 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
 (or its reader's own skip line) every time.
 
 **Known instances (2026-11-16):**
-- B-1194: a simulant's held weapon is made when it equips it; the death drop
-  left the host's copy in the world under an id no client knew, and the
-  client's puppet dropped an unnumbered copy. Fixed: the host announces the
-  dropped held weapon, the client's puppet retires its copy.
+- B-1194: simulants pick up copies of the match's rolled spawn weapon that
+  carry dynamic ids no client knows; a client skips every such pickup. Open:
+  where those weapons are made is not yet known (not the death drop of held
+  weapons, which simulants do not use; `chrDie` announces its drops).
 - B-1196: a guard the host's AI clones or spawns (`try_spawn_clone2` 0x00ca,
   `spawn_chr_at_pad`/`_at_chr`) exists only on the host; the client got its
   `SVC_NPC_MOVE` 20 times a second and never saw it. Fixed in code: the host
@@ -3741,8 +3741,8 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
 **Audit checklist:** for each run-time prop, (a) is it created on the host
 only, on both, or on the client only, and (b) does any host message name it
 by id? Done: player drops (`weaponCreateForPlayerDrop`), simulant inventory
-drops (`botinvDrop`), simulant held weapons at death (B-1194), AI chr spawns
-and clones with their weapons and hats (B-1196, in code). Open: reconnect for
+drops (`botinvDrop`), held weapons dropped through `chrBeginDeath` or `botDisarm`, AI chr spawns
+and clones with their weapons and hats (B-1196, in code). Open: B-1194's spawn-weapon copies; reconnect for
 B-1196's chrs; whether a co-op client drops a guard's held weapons at its
 death (not checked; the host's drop of an initial-id weapon names an id the
 client already has, so its spawn is declined and only the move applies).

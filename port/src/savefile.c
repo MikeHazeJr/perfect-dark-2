@@ -32,6 +32,7 @@
 #include "agent_profile_codec.h"
 #include "assetcatalog.h"
 #include "net/matchsetup.h"
+#include "net/net.h"
 #include "fs.h"
 #include "save_atomic.h"
 #include "prefs_agent.h"
@@ -712,12 +713,24 @@ static s32 saveWriteAgentDocument(const char *name,
 	return 0;
 }
 
+/* B-1199 (T-NETWORKING-011): the agent's player 2 control mode is slot 1 in
+ * local co-op and counter-op, where player 2 sits at this machine. In a
+ * networked mission slot 1 is the remote partner, whose control mode is
+ * CONTROLMODE_NA (netPlayersAllocate), which no profile accepts: every
+ * networked mission-end save was refused, so the progress was not saved.
+ * There, as outside co-op, the setting stays in slot 5. */
+static s32 saveAgentPlayer2Slot(void)
+{
+	return (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)
+		&& g_NetMode == NETMODE_NONE ? 1 : 5;
+}
+
 static void saveCaptureAgentDocument(const char *name,
 		struct agent_profile_document *document)
 {
 	struct gamefile captured = g_GameFile;
 	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
-	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+	s32 player2 = saveAgentPlayer2Slot();
 
 	memset(document, 0, sizeof(*document));
 	strncpy(captured.name, name, sizeof(captured.name) - 1);
@@ -744,7 +757,7 @@ static void saveCommitAgentDocument(
 {
 	struct gamefile committed;
 	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
-	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+	s32 player2 = saveAgentPlayer2Slot();
 
 	prefsAgentCommitSnapshot(&document->preferences);
 	saveAgentDocumentGetGamefile(document, &committed);

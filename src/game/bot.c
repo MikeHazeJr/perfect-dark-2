@@ -1204,6 +1204,11 @@ static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
 	const u32 syncid = prop->syncid;
 	const struct coord pos = prop->pos;
 	const s32 objtype = obj ? obj->type : -1;
+	/* B-1194: where the item came from (a drop carries AICANNOTUSE, a setup
+	 * pickup its pad and the regen flag), read before the pickup frees it. */
+	const u32 objflags = obj ? obj->flags : 0;
+	const u32 objhidden2 = obj ? obj->hidden2 : 0;
+	const s32 objpad = obj ? obj->pad : -1;
 	const s32 weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
 	const s32 wasdeleting = obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0;
 	const s32 hadcase = chr->aibot->hascase;
@@ -1220,9 +1225,10 @@ static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
 			netmsgSvcBotPickupWrite(&g_NetMsgRel, chr, syncid);
 			/* B-1194: the item's place and type, to match the client's view of
 			 * the same sync id when it skips the replay. */
-			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u objtype=%d pos=(%.0f,%.0f,%.0f)",
+			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u objtype=%d pos=(%.0f,%.0f,%.0f) dynamic=%d flags=0x%08x hidden2=0x%02x pad=%d",
 				mpPlayerGetIndex(chr), (unsigned)syncid, weaponnum, (unsigned)result,
-				objtype, pos.x, pos.y, pos.z);
+				objtype, pos.x, pos.y, pos.z, syncid >= g_NetFirstDynamicSyncId ? 1 : 0,
+				(unsigned)objflags, (unsigned)objhidden2, objpad);
 		}
 	}
 

@@ -375,3 +375,18 @@ TEST_CASE("mission end: a disconnect ends a networked mission without results",
 	// The wrapper comes after mainEndStage, so its first mention stays the definition
 	REQUIRE(pdmain.find("mainEndStage(") == pdmain.find("void mainEndStage(void)") + 5);
 }
+
+TEST_CASE("mission end: a networked mission's agent save takes player 2's controls from the agent's slot",
+          "[net][coop][b1199]") {
+	// B-1199: slot 1 is the remote partner in a networked mission, whose
+	// control mode is CONTROLMODE_NA, and the profile validator refused it
+	const std::string save = code_only(read_text_file("port/src/savefile.c"));
+	const std::string slot = function_body(save, "static s32 saveAgentPlayer2Slot(void)\n{");
+	REQUIRE(slot.find("g_NetMode == NETMODE_NONE ? 1 : 5") != std::string::npos);
+	const std::string capture = function_body(save,
+		"static void saveCaptureAgentDocument(const char *name,\n\t\tstruct agent_profile_document *document)\n{");
+	const std::string commit = function_body(save,
+		"static void saveCommitAgentDocument(\n\t\tconst struct agent_profile_document *document)\n{");
+	REQUIRE(capture.find("s32 player2 = saveAgentPlayer2Slot();") != std::string::npos);
+	REQUIRE(commit.find("s32 player2 = saveAgentPlayer2Slot();") != std::string::npos);
+}
