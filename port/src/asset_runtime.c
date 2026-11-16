@@ -379,6 +379,7 @@ s32 assetRuntimeSupportsType(asset_type_e type)
     case ASSET_LANG:
     case ASSET_SCENARIO:
     case ASSET_THEME:
+    case ASSET_AI_LISTS:
         return 1;
     default:
         return 0;
@@ -881,6 +882,14 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                entry->ext.theme.effect_archive);
         return s_finishFileBinding(binding,
             s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
+
+    case ASSET_AI_LISTS:
+        /* global-ai-lists.md: the rows member is required; a bank without
+         * one never becomes an active binding (fail closed). */
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.ai_lists.lists_file);
+        return s_finishFileBinding(binding,
+            s_hasText(binding->authored_file));
 
     default:
         binding->active = 0;

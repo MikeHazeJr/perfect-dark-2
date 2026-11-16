@@ -990,6 +990,41 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	REQUIRE(assetRuntimeCount(ASSET_NONE) == 20);
 }
 
+TEST_CASE("global AI list bank binds its rows member and fails closed without it",
+          "[modding][pdxxx][runtime][adapters][global_ailists]") {
+	assetRuntimeReset();
+	REQUIRE(assetRuntimeSupportsType(ASSET_AI_LISTS) == 1);
+
+	/* global-ai-lists.md: a bank without its rows member never binds. */
+	asset_entry_t empty;
+	initEntry(empty, ASSET_AI_LISTS, "mod:ai_lists_empty");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&empty,
+		"mods/demo/ai/empty.pdai::ai/global_ailists.json") == 0);
+	REQUIRE(assetRuntimeFind("mod:ai_lists_empty") == nullptr);
+
+	asset_entry_t bank;
+	initEntry(bank, ASSET_AI_LISTS, "base:ai_global");
+	std::strncpy(bank.ext.ai_lists.lists_file,
+		"data/ntsc-final/ai/base_ai_global.pdai::ai/global_ailists.json",
+		sizeof(bank.ext.ai_lists.lists_file) - 1);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&bank,
+		bank.ext.ai_lists.lists_file) == 1);
+	const asset_runtime_binding_t *binding =
+		assetRuntimeFindByTypeAndId(ASSET_AI_LISTS, "base:ai_global");
+	REQUIRE(binding != nullptr);
+	REQUIRE(binding->type == ASSET_AI_LISTS);
+	REQUIRE(str(binding->authored_file) ==
+		"data/ntsc-final/ai/base_ai_global.pdai::ai/global_ailists.json");
+	REQUIRE(str(binding->primary_path) == str(binding->authored_file));
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&bank) == 1);
+	REQUIRE(assetRuntimeCount(ASSET_AI_LISTS) == 1);
+
+	assetRuntimeReleaseCatalogEntry("base:ai_global");
+	REQUIRE(assetRuntimeFindByTypeAndId(ASSET_AI_LISTS, "base:ai_global") ==
+		nullptr);
+	assetRuntimeReset();
+}
+
 TEST_CASE("asset runtime bindings grow past the old fixed table size",
           "[modding][pdxxx][runtime][c3838][adapters]") {
 	assetRuntimeReset();

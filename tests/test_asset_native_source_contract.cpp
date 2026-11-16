@@ -13042,7 +13042,7 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 		listed_families++;
 		listed_pos += 8;
 	}
-	REQUIRE(listed_families == 25);
+	REQUIRE(listed_families == 26);
 
 	auto requireFamily = [&](const char *type, const char *label) {
 		REQUIRE(families.find(type) != std::string::npos);
@@ -13074,6 +13074,7 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	requireFamily("ASSET_BOT_PROFILE", "Bot Profile (.pdbotprofile)");
 	requireFamily("ASSET_HUD", "HUD (.pdhud)");
 	requireFamily("ASSET_THEME", "Theme (.pdtheme)");
+	requireFamily("ASSET_AI_LISTS", "AI Lists (.pdai)");
 
 	REQUIRE(families.find("ASSET_TOOL") == std::string::npos);
 	REQUIRE(families.find("ASSET_MAP") == std::string::npos);
@@ -13114,6 +13115,7 @@ TEST_CASE("public source families have explicit runtime load surfaces",
 		"ASSET_BOT_PROFILE",
 		"ASSET_HUD",
 		"ASSET_THEME",
+		"ASSET_AI_LISTS",
 	};
 
 	REQUIRE(!supports.empty());
@@ -13298,7 +13300,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const char *metadataExts[] = {
 		".pdarena", ".pdcharacter", ".pdskin", ".pdprop", ".pdvehicle", ".pdmission",
 		".pdgamemode", ".pdbotprofile", ".pdhud", ".pdeffect", ".pdmaterial",
-		".pdtheme",
+		".pdtheme", ".pdai",
 	};
 	for (const char *ext : metadataExts) {
 		INFO(ext);

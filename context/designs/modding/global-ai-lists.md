@@ -109,6 +109,30 @@ session of its own.
   it for everyone. The Theater stores the new type after `ASSET_THEME`, so no
   stored type number moves.
 
+## Slice 2 progress
+
+- **Step 1 built on `week-pd/core` (2026-11-16): the `.pdai` type is
+  registered, nothing produces or reads it yet.** `ASSET_AI_LISTS` (after
+  `ASSET_THEME`, so no stored type number moves; the Theater's ceiling stays
+  `ASSET_THEME`), `.pdai` with `ai.ini` (`[ai_lists]` `catalog_id`,
+  `ai_lists_file` = `ai/global_ailists.json`) in `data/<romid>/ai/` or a
+  mod's `ai/`, the meta walker (kind `ai_lists`; the public `ai.ini` is the
+  authority, a bank without its rows member is refused), the runtime
+  binding (rows member required), the mod contract, mod manager, modding
+  hub, modpacks and `.pdmod` validation, and conformance (`.pdai` family,
+  list ids below 0x0401; exempt from `--require-all-families` until the
+  writer and an example exist). `.pdai` is the only public unit: a loose
+  `ai.ini` is not read, as for `.pdtheme`. Network: the type is left out of
+  what a host advertises and a direct request is refused.
+- Open for MULTIPLAYER (distribution is theirs): a mod travels whole by its
+  hash, so a mod that holds only AI lists is still one a client must hold;
+  per the product answer such a mod should not be required of clients (a
+  mixed mod may travel whole; its `.pdai` is inert on a client).
+- Next: step 2, the extractor writes `base:ai_global` (`ai/base_ai_global.pdai`)
+  from `romExtractGlobalAiListsJson`, with its own fast-cache kind and the
+  boot round trip against it; step 3, the runtime switch in `setupLoadFiles`;
+  step 4, per-level overrides; step 5, mod precedence.
+
 ## Open questions
 
 - The asset type: a new typed archive (`.pdai`) or a member of an existing

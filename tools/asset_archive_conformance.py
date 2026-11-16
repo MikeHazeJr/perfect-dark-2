@@ -73,6 +73,7 @@ TYPED_DESCRIPTORS = {
     ".pdbotprofile": "botprofile.ini",
     ".pdhud": "hud.ini",
     ".pdtheme": "theme.ini",
+    ".pdai": "ai.ini",
 }
 
 FAMILY_NAMES = {
@@ -103,7 +104,14 @@ FAMILY_NAMES = {
     ".pdbotprofile": "botprofile",
     ".pdhud": "hud",
     ".pdtheme": "theme",
+    ".pdai": "ai_lists",
 }
+
+# Families the checker knows before any archive root carries one, so
+# --require-all-families does not demand them yet. .pdai: the extractor writer
+# for base:ai_global and an example archive are later slices of
+# context/designs/modding/global-ai-lists.md; remove the entry when they land.
+FAMILIES_NOT_YET_REQUIRED = frozenset({".pdai"})
 
 
 def read_json_member(zf: zipfile.ZipFile, member: str) -> dict[str, object]:
@@ -899,6 +907,12 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/music/*.pdsong",
         ],
+    ),
+    # Global AI list bank (context/designs/modding/global-ai-lists.md): one
+    # descriptor and the pd2.scenario.ai.lists.v1 rows of the global lists.
+    ".pdai": schema(
+        required=["ai.ini", "ai/global_ailists.json"],
+        allowed=["ai.ini", "ai/global_ailists.json"],
     ),
 }
 
@@ -5828,6 +5842,61 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
     return row_count, errors
 
 
+# Global AI list ids are below 0x0401; stage lists start there (ailistFindById).
+GLOBAL_AI_LIST_ID_LIMIT = 0x0401
+
+
+def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
+                                      name_set: set[str],
+                                      errors: list[str]) -> None:
+    """Global AI list bank (.pdai, context/designs/modding/global-ai-lists.md).
+
+    ai.ini's [ai_lists] section names the bank and its rows member. The rows
+    are the per-stage pd2.scenario.ai.lists.v1 schema with global list ids.
+    """
+    if "ai.ini" in name_set:
+        text = zf.read("ai.ini").decode("utf-8", errors="replace")
+        sections = [
+            line.strip()[1:-1].strip()
+            for line in text.splitlines()
+            if line.strip().startswith("[") and line.strip().endswith("]")
+        ]
+        if not sections or sections[0] != "ai_lists":
+            errors.append(f"{label} ai.ini must open with an [ai_lists] section")
+        if not CATALOG_ID_RE.fullmatch(descriptor_value(text, "catalog_id")):
+            errors.append(f"{label} ai.ini catalog_id must be a catalog ID")
+        if descriptor_value(text, "ai_lists_file") != "ai/global_ailists.json":
+            errors.append(
+                f"{label} ai.ini must declare ai_lists_file = ai/global_ailists.json"
+            )
+    if "ai/global_ailists.json" not in name_set:
+        return
+    text = zf.read("ai/global_ailists.json").decode("utf-8", errors="replace")
+    _, row_errors = validate_scenario_ai_lists_json_schema(
+        label, "ai/global_ailists.json", text
+    )
+    errors.extend(row_errors)
+    try:
+        rows = json.loads(text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return  # the schema check reports an unreadable file
+    if not isinstance(rows, list):
+        return
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        list_id = row.get("list_id")
+        try:
+            value = int(str(list_id), 0)
+        except ValueError:
+            value = -1
+        if not 0 <= value < GLOBAL_AI_LIST_ID_LIMIT:
+            errors.append(
+                f"{label} ai/global_ailists.json row {idx} list_id "
+                f"{clean_value(list_id)} is not a global list id (below 0x0401)"
+            )
+
+
 def validate_objectives_json_schema(label: str, entry_name: str, text: str,
                                     expected_fields: list[str],
                                     schema_id: str = "pd2.mission.objectives.v1",
@@ -7061,6 +7130,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 validate_skin_source_contract(label, zf, name_set, result.errors)
             if ext == ".pdtheme":
                 validate_theme_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdai":
+                validate_ai_lists_source_contract(label, zf, name_set, result.errors)
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
@@ -8740,7 +8811,9 @@ def validate_root(root: Path, require_all_families: bool = False,
         result.extend(archive_result)
 
     if require_all_families:
-        missing = sorted(set(TYPED_DESCRIPTORS) - result.families)
+        missing = sorted(
+            set(TYPED_DESCRIPTORS) - FAMILIES_NOT_YET_REQUIRED - result.families
+        )
         for ext in missing:
             result.errors.append(
                 f"{root} missing required family {ext} ({FAMILY_NAMES[ext]})"

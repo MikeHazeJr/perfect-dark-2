@@ -1883,6 +1883,7 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_BOT_PROFILE: return "botprofile";
 	case ASSET_SCENARIO:  return "scenario";
 	case ASSET_THEME:     return "theme";
+	case ASSET_AI_LISTS:  return "ai_lists";
 	default:              return "unknown";
 	}
 }
@@ -1920,6 +1921,7 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "botprofile") == 0 || strcmp(s, "bot_profile") == 0) return ASSET_BOT_PROFILE;
 	if (strcmp(s, "scenario") == 0) return ASSET_SCENARIO;
 	if (strcmp(s, "theme") == 0) return ASSET_THEME;
+	if (strcmp(s, "ai_lists") == 0 || strcmp(s, "ai") == 0) return ASSET_AI_LISTS;
 	return ASSET_NONE;
 }
 

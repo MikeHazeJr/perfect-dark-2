@@ -2032,6 +2032,7 @@ TEST_CASE("external archive scanner recognizes canonical descriptor families",
 		{ "botprofiles/x.pdbotprofile", "botprofile.ini", ASSET_BOT_PROFILE },
 		{ "hud/x.pdhud", "hud.ini", ASSET_HUD },
 		{ "themes/x.pdtheme", "theme.ini", ASSET_THEME },
+		{ "ai/x.pdai", "ai.ini", ASSET_AI_LISTS },
 	};
 	for (const TypedFamily &family : families) {
 		INFO(family.path);
@@ -2087,6 +2088,7 @@ TEST_CASE("component enable state persists every user-manageable catalog family"
 		"ASSET_FONT",
 		"ASSET_LANG",
 		"ASSET_THEME",
+		"ASSET_AI_LISTS",
 		"ASSET_TOOL",
 	};
 	for (const char *family : families) {
@@ -2162,6 +2164,9 @@ TEST_CASE("network catalog info advertises every user-manageable catalog family"
 		INFO(family);
 		REQUIRE(collectList.find(family) != std::string::npos);
 	}
+	/* global-ai-lists.md: AI lists never travel with a host's mods, so the
+	 * advertised (client-fetchable) list leaves the type out. */
+	REQUIRE(collectList.find("ASSET_AI_LISTS") == std::string::npos);
 
 	REQUIRE(netmsg.find("netmsgSvcCatalogInfoWriteChunk") != std::string::npos);
 	REQUIRE(netmsg.find("batch_offset") != std::string::npos);
@@ -2215,6 +2220,7 @@ TEST_CASE("mod pack and authoring UIs enumerate every user-manageable catalog fa
 		"ASSET_FONT",
 		"ASSET_LANG",
 		"ASSET_THEME",
+		"ASSET_AI_LISTS",
 		"ASSET_TOOL",
 	};
 
@@ -2281,6 +2287,114 @@ TEST_CASE("mod pack and authoring UIs enumerate every user-manageable catalog fa
 		INFO(std::string("hub:") + descriptor);
 		REQUIRE(hub.find(descriptor) != std::string::npos);
 	}
+}
+
+TEST_CASE("global AI list bank is a typed .pdai family that stays on the host",
+          "[modding][pdmod][static][global_ailists]") {
+	/* context/designs/modding/global-ai-lists.md: appended after ASSET_THEME
+	 * so no stored type number moves; the Theater ceiling stays ASSET_THEME. */
+	REQUIRE((int)ASSET_AI_LISTS == (int)ASSET_THEME + 1);
+	REQUIRE((int)ASSET_TYPE_COUNT == (int)ASSET_AI_LISTS + 1);
+	const std::string theater = readFile("port/src/theater.c");
+	REQUIRE(theater.find("_Static_assert(THEATER_FORMAT_CATALOG_TYPE_MAX == ASSET_THEME,") !=
+		std::string::npos);
+
+	/* Archive policy row. */
+	REQUIRE(assetArchivePathIsTyped("ai/base_ai_global.pdai") == 1);
+	REQUIRE(std::string(assetArchiveDescriptorForPath("ai/base_ai_global.pdai")) == "ai.ini");
+	REQUIRE(assetArchiveTypeForPath("ai/base_ai_global.pdai") == ASSET_AI_LISTS);
+	REQUIRE(assetArchiveLegacyDescriptorForPath("ai/base_ai_global.pdai") == nullptr);
+
+	char err[256];
+	auto bank = writeTypedArchiveEntries("ai-lists-bank", ".pdai", {
+		{ "ai.ini",
+		  "[ai_lists]\n"
+		  "catalog_id = base:ai_global\n"
+		  "ai_lists_file = ai/global_ailists.json\n" },
+		{ "ai/global_ailists.json",
+		  "{ \"schema\": \"pd2.scenario.ai.lists.v1\", \"rows\": [] }\n" },
+		{ "_meta/manifest.json",
+		  "{ \"pd_kind\": \"ai_lists\", \"pd_schema_version\": 1, \"id\": \"base:ai_global\" }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(bank.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+	auto noRows = writeTypedArchiveEntries("ai-lists-no-rows", ".pdai", {
+		{ "ai.ini",
+		  "[ai_lists]\n"
+		  "catalog_id = mod:ai_missing_rows\n"
+		  "ai_lists_file = ai/global_ailists.json\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(noRows.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+	auto noDescriptor = writeTypedArchiveEntries("ai-lists-no-descriptor", ".pdai", {
+		{ "ai/global_ailists.json",
+		  "{ \"schema\": \"pd2.scenario.ai.lists.v1\", \"rows\": [] }\n" },
+	});
+	REQUIRE(assetArchiveValidateFile(noDescriptor.path.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+
+	/* Mod utility contract row: its own component type, utilities like a
+	 * language bank. */
+	const asset_mod_utility_contract_t *ai =
+		assetModUtilityContractForExtension(".pdai");
+	REQUIRE(ai != nullptr);
+	REQUIRE(ai == assetModUtilityContractForType(ASSET_AI_LISTS));
+	REQUIRE(std::string(ai->family) == "ai_lists");
+	REQUIRE(std::string(ai->descriptor) == "ai.ini");
+	REQUIRE(std::string(ai->hub_tool) == "AI Lists");
+	REQUIRE(std::string(ai->cli_noun) == "ai-lists");
+	const asset_mod_utility_contract_t *lang =
+		assetModUtilityContractForType(ASSET_LANG);
+	REQUIRE(lang != nullptr);
+	REQUIRE(ai->ops == lang->ops);
+
+	/* Scanner: content folder, section, descriptor specs, .pdmod paths and
+	 * the rows member. */
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(scanner.find("if (strcmp(dirname, \"ai\") == 0)          return ASSET_AI_LISTS;") !=
+		std::string::npos);
+	REQUIRE(scanner.find("if (strcmp(section, \"ai_lists\") == 0)     return ASSET_AI_LISTS;") !=
+		std::string::npos);
+	// .pdai is the only public unit, as .pdtheme: no loose ai.ini layout.
+	REQUIRE(scanner.find("{ \"\", \"ai.ini\", ASSET_AI_LISTS },") == std::string::npos);
+	REQUIRE(scanner.find("{ \"ai\", \"ai.ini\", ASSET_AI_LISTS },") == std::string::npos);
+	REQUIRE(scanner.find("/* .pdai is the only public AI list unit; loose ai.ini is rejected. */") != std::string::npos);
+	REQUIRE(scanner.find("|| strcmp(leaf, \"ai.ini\") == 0") != std::string::npos);
+	REQUIRE(scanner.find("if (strcmp(seg0, \"ai\") == 0) return ASSET_AI_LISTS;") !=
+		std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"ai_lists_file\", iniGet(ini, \"file_path\", \"\"))") !=
+		std::string::npos);
+
+	/* Base walker: .pdai archives in data/<romid>/ai with the fixed public
+	 * member. */
+	const std::string walker = readFile("port/src/loader_walker_meta.c");
+	REQUIRE(walker.find("{ ASSET_AI_LISTS,    \"ai_lists\",   \"ai\",          \".pdai\",") !=
+		std::string::npos);
+	REQUIRE(walker.find("s_applyAiListsPublicDescriptor(entry, file_path)") !=
+		std::string::npos);
+	REQUIRE(walker.find("strcmp(lists_member, \"ai/global_ailists.json\") != 0") !=
+		std::string::npos);
+
+	/* Catalog lifecycle and runtime binding. */
+	const std::string load = readFile("port/src/assetcatalog_load.c");
+	REQUIRE(load.find("|| type == ASSET_AI_LISTS;") != std::string::npos);
+	const std::string runtime = readFile("port/src/asset_runtime.c");
+	REQUIRE(runtime.find("entry->ext.ai_lists.lists_file") != std::string::npos);
+
+	/* Network: AI lists never travel with a host's mods. The client maps no
+	 * received ai.ini and the host refuses a typed request for one. */
+	const std::string distrib = readFile("port/src/net/netdistrib.c");
+	REQUIRE(distrib.find("strcmp(ini_name, \"ai.ini\")") == std::string::npos);
+	REQUIRE(distrib.find("\"ai.ini\", NULL") == std::string::npos);
+	REQUIRE(distrib.find("if (entry->type == ASSET_AI_LISTS) {") != std::string::npos);
+	const std::string netmsg = readFile("port/src/net/netmsg.c");
+	const size_t infoBegin =
+		netmsg.find("static const asset_type_e s_CatalogInfoTypes[] = {");
+	REQUIRE(infoBegin != std::string::npos);
+	const size_t infoEnd = netmsg.find("};", infoBegin);
+	REQUIRE(infoEnd != std::string::npos);
+	REQUIRE(netmsg.substr(infoBegin, infoEnd - infoBegin).find("ASSET_AI_LISTS") ==
+		std::string::npos);
 }
 
 TEST_CASE("legacy pd asset walkers remain registered during external pdmod migration",

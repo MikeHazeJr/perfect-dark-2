@@ -228,6 +228,7 @@ const char *assetSourceDebugTypeLabel(asset_type_e type)
 	case ASSET_FONT:        return "Font";
 	case ASSET_SCENARIO:    return "Scenario";
 	case ASSET_THEME:       return "Theme";
+	case ASSET_AI_LISTS:    return "AI Lists";
 	default:                return "Unknown";
 	}
 }

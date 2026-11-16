@@ -1305,6 +1305,7 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
 		".pdscenario", ".pdskin", ".pdeffect", ".pdprop", ".pdvehicle",
 		".pdmission", ".pdgamemode", ".pdbotprofile", ".pdhud", ".pdtheme",
+		".pdai",
 		NULL
 	};
 	size_t n = strlen(name);
