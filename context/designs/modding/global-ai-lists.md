@@ -97,6 +97,18 @@ session of its own.
 5. Mods: the catalog picks a mod's `.pdai` over the base one, as it picks
    `.pdlang` banks.
 
+## Product answers for slice 2 (CORE's recommendations, taken 2026-11-16; Mike may override)
+
+- **Mod manager:** a mod's `.pdai` shows as its own component type ("AI
+  lists") in the mod manager, the modding hub and modpacks, as language banks
+  do, and counts toward the mod's `contents` tags (green-dot sub-type
+  indicators).
+- **Multiplayer:** AI lists do not travel with a host's mods. The host runs
+  every AI list and clients never do, so network mod distribution leaves
+  `.pdai` out of the set a client must hold; a host with an AI list mod plays
+  it for everyone. The Theater stores the new type after `ASSET_THEME`, so no
+  stored type number moves.
+
 ## Open questions
 
 - The asset type: a new typed archive (`.pdai`) or a member of an existing
