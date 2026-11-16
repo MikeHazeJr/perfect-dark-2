@@ -2,16 +2,19 @@
 
 Loads a .glb/.gltf (Tripo output in metres, or a PD glTF in model units: the
 camera fits the model's bounds either way) in a headless Blender and writes one
-PNG per view. Three looks:
+PNG per view. Five looks:
   flat     - each material's base colour, no lighting: how the game draws glTF
              models (vertex colours with the shading baked in)
   studio   - Workbench studio lighting with textures, for reviewing Tripo output
   clay     - studio lighting in one grey: the shape alone (creases, silhouette)
+  vflat    - the vertex colours, no lighting: how the game draws a vertex-coloured
+             mod mesh (OBJ path; shading baked into the colours)
+  vstudio  - the vertex colours under studio lighting (colour plus shape)
 
 Axes: glTF +Z is the model's front, +Y up, +X its left; Blender imports glTF
 +Z as -Y and +Y as +Z, so the front faces Blender -Y.
 
-usage: blender -b --factory-startup --python render_views.py -- <model> <out dir> [flat|studio|clay] [views]
+usage: blender -b --factory-startup --python render_views.py -- <model> <out dir> [flat|studio|clay|vflat|vstudio] [views]
 views: comma list of front,rear,left,right,top,bottom,three_quarter,rear_three_quarter
        (default: all)
 """
@@ -74,6 +77,8 @@ def main():
         "flat": (("light", "FLAT"), ("color_type", "MATERIAL")),
         "studio": (("light", "STUDIO"), ("color_type", "TEXTURE")),
         "clay": (("light", "STUDIO"), ("color_type", "SINGLE")),
+        "vflat": (("light", "FLAT"), ("color_type", "VERTEX")),
+        "vstudio": (("light", "STUDIO"), ("color_type", "VERTEX")),
     }[look]
     for attr, value in choices + (("show_backface_culling", False),):
         try:

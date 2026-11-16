@@ -123,7 +123,10 @@ folder): import, clean shell, error-driven decimation to the budget, separate
 the rigged parts (cut a turret at its ring mount; its pivot empty sits on the
 yaw axis), sockets as named empties (seats, muzzle, crystal seats, boost
 points), bake the textures to 1024 then a 128 px base colour, export glTF and
-FBX, write a sockets JSON with transforms in the PD frame.
+FBX, write a sockets JSON with transforms in the PD frame. For a model Tripo
+already made low-poly and textured, the Maian vehicle's `scripts/stage_a` to
+`stage_e` (asset folder) are the pattern: import and weld, split the rigged
+parts, decimate, crease, colours into the vertices, then `export_pd_parts.py`.
 
 - **Editing a Tripo mesh.** It comes split along every UV seam (the vehicle:
   8,573 vertices, 3,117 once welded) and carries custom normals. Before moving
@@ -141,6 +144,25 @@ FBX, write a sockets JSON with transforms in the PD frame.
   crease angle as an argument; run it after the decimate, so the decimate
   cannot smooth the crease away, and show the owner two strengths side by
   side.
+- **Splitting rigged parts** (the vehicle's `stage_b_split.py`): cut at
+  measured heights (horizontal cross-sections find a neck's narrowest point and
+  a ring's top), then take each part by connectivity from the cut, never by a
+  height band (one bent a head's lower rim into spikes). The cut loop's
+  vertices are shared until the parts are separate objects, so move a part
+  (lift a head) only after separating it. In bmesh, create a face layer before
+  collecting faces into sets: adding a layer later lost every tag. Close each
+  cut with `holes_fill`, and leave a pivot empty on each joint.
+- **Colour for the game.** PD images stop at 255 px. A small model (a gun) can
+  carry a 128 px texture (the pistol); on a large one (the vehicle) a 128 px
+  atlas smeared everything, so bake Tripo's colour into the vertices instead:
+  Cycles, selected-to-active, `EMIT` from Tripo's colour map with
+  `bake.target = "VERTEX_COLORS"` into a face-corner colour attribute
+  (`stage_e_vertex_colours.py`). Bake ambient occlusion from the new geometry
+  with every part in place: Tripo's ORM red channel can be flat white. If a
+  texture is still wanted: Smart UV Project shreds a decimated mesh into
+  one-triangle islands, `edges_select_sharp` over-selects, and setting custom
+  normals tags sharp edges everywhere, so take seams from bmesh face angles,
+  and keep a pit (a cockpit) out of the deck's island or it folds over it.
 - **Stateful pieces** (crystals): one piece per state (full, regrowing,
   charged or hot, and black or empty as the design needs), origin on its seat,
   plus a regrow clip (node scale from 0.1 to 1 about the seat). Reuse the
@@ -149,11 +171,22 @@ FBX, write a sockets JSON with transforms in the PD frame.
 
 ## 5. Into the game
 
-- **Mesh.** One `.pdmesh` per model. glTF gives positions, triangles and each
-  material's `baseColorFactor` (flat colour, shading baked in:
-  `dev-mods/maian_hover_vehicle/make_standin_mesh.py`). For a textured look use
-  OBJ + MTL with `vt` in texel units and the texture as its own `.pdtexture`
-  beside the model (the crystal pistol's `export_pd2_mesh.py`).
+- **Mesh.** One `.pdmesh` per model, drawn unlit. Three ways in:
+  - OBJ with vertex colours (the default for large models): one vertex per
+    triangle corner, `v x y z r g b a`, each `g` group a display list of at
+    most 64 colours (colour x occlusion x a fixed key light, k-means
+    quantised); `dev-mods/maian_hover_vehicle/build_vehicle_mesh.py` is the
+    pattern. The recipe removes the template mesh's glTF; the mod author moves
+    the mesh manifest's `model_file` and `geometry` with the descriptor (a
+    recipe cannot replace `_meta/manifest.json`).
+  - OBJ + MTL with `vt` in texel units and a texture: by catalog id as its own
+    `.pdtexture` beside the model (the crystal pistol's `export_pd2_mesh.py`),
+    or a PNG inside the mesh named by `map_Kd` (`bindTexture` loads it into a
+    private slot).
+  - glTF: positions, triangles and each material's `baseColorFactor` only
+    (the stand-in, `make_standin_mesh.py`).
+  Review the game's look with `render_views.py ... vflat` (glTF `COLOR_0` is
+  linear, so a preview converts the sRGB bytes).
   `mesh.ini` uses `[model]` with `kind = mesh`, the geometry key and the four
   sidecars, and `model_scale` = the culling radius (the farthest vertex from
   the origin, in model units). Set `pd_render_class = 3` on opaque materials
@@ -161,8 +194,12 @@ FBX, write a sockets JSON with transforms in the PD frame.
 - **Parts** come from `model.nodes.json` and `model.parts.json` (node names and
   glTF extras are ignored), listed in ascending part order. A vehicle needs the
   hoverbike's layout: a position root, a bounding-box node, the display list.
-  Rigged pieces get their own position node; toggle parts 100 + i for pieces
-  whose visibility follows ammo or state.
+  Rigged pieces get their own position node (vertices in that node's frame,
+  each triangle's matrix in `model.faces.json`); toggle parts for pieces whose
+  visibility follows ammo or state. Toggles start visible (`modelInitRwData`),
+  so an alternative state that must stay hidden until the engine switches it
+  goes inside the default one (the vehicle's black crystals at 97 % inside the
+  seafoam ones).
 - **Archive.** A recipe for the in-game mod author in `dev-mods/<name>/`
   (template from `examples/modding/typed-pdxxx-basic/` plus overrides), a
   pd-tests case that builds and validates it (`tests/test_maian_hover_vehicle.cpp`
