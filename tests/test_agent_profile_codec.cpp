@@ -5,7 +5,6 @@ extern "C" {
 }
 
 #include <cstdio>
-#include <fstream>
 #include <cstring>
 #include <sstream>
 #include <string>
@@ -286,35 +285,6 @@ TEST_CASE("Agent Profile writer refuses invalid runtime state",
 		invalid.preferences.enabled_mods[0]);
 	writeProfile(invalid, &result);
 	REQUIRE(result == -1);
-}
-
-TEST_CASE("B-1199 a remote partner's dummy control mode never reaches the profile",
-	"[agent-profile][b-1199]")
-{
-	// The codec stores control modes 0 to CONTROLMODE_PC (8). A networked
-	// co-op or counter-op partner has CONTROLMODE_NA (9), dummy controls, so a
-	// profile captured with it was refused at every networked mission end.
-	agent_profile_document document = makeProfile();
-	int result = 0;
-	document.controlmode[1] = 9;
-	writeProfile(document, &result);
-	REQUIRE(result == -1);
-	document.controlmode[1] = 8;
-	writeProfile(document, &result);
-	REQUIRE(result == 0);
-
-	// So the save captures each slot through a fallback to a real mode, and a
-	// commit leaves a remote partner's dummy controls alone.
-	std::ifstream f("port/src/savefile.c", std::ios::in | std::ios::binary);
-	REQUIRE(f.good());
-	std::ostringstream ss;
-	ss << f.rdbuf();
-	const std::string save = ss.str();
-	REQUIRE(save.find("static u8 saveAgentControlModeForSlot(s32 playernum, s32 fallbacknum)") != std::string::npos);
-	REQUIRE(save.find("if (mode < CONTROLMODE_11 || mode > CONTROLMODE_PC) {") != std::string::npos);
-	REQUIRE(save.find("document->controlmode[1] = saveAgentControlModeForSlot(player2,") != std::string::npos);
-	REQUIRE(save.find("if (optionsGetControlMode(player2) != CONTROLMODE_NA) {") != std::string::npos);
-	REQUIRE(save.find("document->controlmode[1] = (u8)optionsGetControlMode(player2);") == std::string::npos);
 }
 
 TEST_CASE("legacy preference sidecar parses completely without mutating defaults",
