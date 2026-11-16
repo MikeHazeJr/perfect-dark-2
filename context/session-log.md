@@ -11195,3 +11195,59 @@ Next
   post week-pd/core as ready for Mike's merge call.
 - Pin the phase-delivery counts in the campaign fixtures once a log shows
   them.
+
+## 2026-11-16 (10:33-12:08 UTC) - CORE: the lifts turn, global AI lists slice 2 steps 1-3, MODS' fixes approved
+
+What happened
+- 10:35: MODS' vehicle graph review fixes (afd8739b, eb8eb943) approved in
+  the week note (checked in the diff: a second seat module per seat per event
+  refused at compile time, seat_done guards, records released in propFree).
+- e3a5190d (10:36): global-ai-lists.md product answers (CORE's
+  recommendations; Mike may override): .pdai is its own component type in
+  the mod manager; AI lists never travel with a host's mods.
+- Lifts turn q_20261116095308930_5e4b7388 (10:44-11:07 UTC, client 47e3897d,
+  private copy): Perfect Agent campaign 38/38 with the Extraction chopper's
+  rule applied in play; Complex 12/12; re-extraction for the new kind once,
+  then nothing. combat_sim_infiltration_lifts never reached its match (a test
+  install boots for 67 s, the smoke exited at 70 s): fixture fixed in
+  dce541bc (exit 150 s). The frozen conformance tool lacked its sibling
+  modules (asset_gltf_source and three more); every freeze now copies them.
+- dce541bc (11:11): the five campaign fixtures require one outcome parity
+  line per mission (17; specials 4) and forbid its failure; pd-tests 2,007.
+- 9a5bc8db (11:53), slice 2 step 1: the .pdai type (ASSET_AI_LISTS after
+  ASSET_THEME) registered end to end by a subagent, reviewed; loose ai.ini
+  layouts dropped (as .pdtheme); the debug catalog type filter's missing
+  names fixed (static_assert). Open for MULTIPLAYER: an AI-lists-only mod is
+  still one a client must hold (mods travel whole by hash).
+- 81a47d96 (12:00), step 2: romextract_pdai.c writes base:ai_global
+  (ai/base_ai_global.pdai) from romExtractGlobalAiListsJson, kind
+  pdai_global_ailists_rows_v1, boot phase "pdai"; --check-global-ailists
+  also compiles the extracted bank's rows back to the binary's bytes.
+- de2b6323 (12:05), step 3: setupLoadFiles binds g_GlobalAilists to the
+  bank's compiled lists after the sort (scenarioGlobalAiListsBindBank); a
+  bank that cannot supply exactly the game's lists refuses the stage.
+  pd-tests 2,012.
+- Frozen clients: core-mf4 (81a47d96: mission flow, B-1204, the bank
+  written and round-tripped, nothing reads it) replaced core-mf3 for the
+  queued turn (step 3 was set aside with an explicit-path stash while it was
+  built, then restored; numstat equal); core-gai3 (de2b6323, step 3).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, script
+  tools/core-mf3-turn.sh, gate core-mf3.ready, client core-mf4): extraction
+  with --check-global-ailists (expect romextract pdai written=1 and both
+  AI.GLOBAL round trips exact), conformance, the release and special-
+  assignment campaigns (outcome probe, phase deliveries), the Infiltration
+  lifts, Complex (B-1204's pad line).
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, script
+  tools/core-gai3-turn.sh, gate core-gai3.ready, client core-gai3): the same
+  campaigns and Complex with every stage's global lists from the bank. If
+  the first turn shows the bank unregistered, close its gate before it starts.
+
+Next
+- With both turns: tick Object rules (the lifts), record mission flow and the
+  bank in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (a new shared
+  base after landing: the scenario kind and the new ai/ bank).
+- Global AI lists steps 4 (per-level overrides in a scenario's
+  ai/ailists.json) and 5 (a mod's .pdai over the base bank).
