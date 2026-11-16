@@ -23,6 +23,9 @@
 - Networked co-op and counter-op missions now save your agent's progress at
   the end; the save used to be refused.
 
+- A networked co-op partner no longer crashes when the host quits after
+  both have gone back to the Room from a mission.
+
 - A networked co-op partner now sees the guards that appear during a
   mission, such as a guard calling in a copy of itself.
 
@@ -31,6 +34,10 @@
 
 - Simulants that pick up the briefcase or the uplink now do so on every
   player's screen in networked matches.
+
+- A gun knocked out of a simulant's hands in a networked match now lies in
+  the same place for every player, and disappears for everyone when someone
+  picks it up.
 
 - A player who drops out of a networked King of the Hill, Hold the
   Briefcase, Hacker Central, Pop a Cap or Capture the Case match and rejoins
