@@ -95,9 +95,10 @@ TEST_CASE("every input action has one unique config name, in enum order",
 	}
 
 	// The last action and the last name belong together, so the table has not
-	// merely grown to the right length with an entry missing in the middle.
-	REQUIRE(actions.back() == "ACTION_VEHICLE_USE");
-	REQUIRE(names.back() == "VehicleUse");
+	// merely grown to the right length with an entry missing in the middle
+	// (the gun roll pair, 121-122, came last with the crystal pistol).
+	REQUIRE(actions.back() == "ACTION_GUN_ROLL_RIGHT");
+	REQUIRE(names.back() == "GunRollRight");
 
 	// And the compiler holds the two to the same length from now on.
 	REQUIRE(source.find("static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,") !=
