@@ -376,6 +376,46 @@ B to D, written 2026-11-16 (5aae6799; pd-tests pass). The client is built on e23
 - Also found and fixed on the way: B-1231 (the PC exit key dismounted without the
   vehicle's permission); both dismount paths now go through the graph.
 
+## CORE's review of steps B to D (2026-11-16 09:58 UTC) and what MODS did
+
+CORE reviewed 5aae6799 and 22a2126b: merge after these fixes. Done on week-pd/mods the same
+morning (pd-tests; the game files compile with the client build after the 09:40 UTC smoke turn):
+
+- (1) A crash: two `og.vehicle.dismount_seat` nodes on one event compiled, and the second ran
+  `bbikeDismountToSides` after the first had set `player->hoverbike` to NULL (a remote client's
+  dismount reaches it on a listen host). Now one event may reach at most one `mount_seat` and one
+  `dismount_seat` per seat, wherever they sit (both branches of a gate count); the runner and
+  conformance refuse a second ("reaches a second ... for the driver seat"), and the game's
+  `hoverbikeGraphMountSeat` and `hoverbikeGraphDismountSeat` do nothing once one has acted in that
+  request (`seat_done`). Runner cases: a second dismount, a second mount on a gate's other branch,
+  and one per seat allowed.
+- (2) Records: `propFree` now releases the vehicle's record by prop and generation
+  (`vehicleGraphRuntimeRelease`), and only a vehicle with a graph records the boost input, so
+  destroyed and respawned vehicles never fill the 64. Freeing a program forgets only the vehicles
+  made from it (`vehicleGraphRuntimeForgetProgram`, which `s_freeVehicleGraph` uses instead of a
+  reset of every vehicle), and releasing a vehicle's catalog entry frees its program at once.
+- Smaller: the throttle bonus reads no throttle when the graph's `hover_drive` has
+  `drive: false` (the program records it at compile time; there is one hover_drive); a part
+  toggle logs only when it changes (the boost smoke's counts become 1 shown and 1 hidden after the
+  09:40 UTC turn); conformance checks a variables file's `catalog_id` against the vehicle's.
+
+Deviation and follow-up tasks (to become Workbench items at the merge, as agreed for the week):
+
+- Rule 6 (deviation, recorded as CORE allowed): the parts a graph toggles are checked when the
+  vehicle's instance is made (its model is built then), not at registration; a missing toggle part
+  refuses the instance with one error and the vehicle cannot be mounted. Task (MODS): check at
+  registration from the archive's part table (the embedded mesh's `model.parts.json`, partnum to
+  node, and `model.nodes.json`, node type 18 for a toggle). Base vehicles have ROM models with no
+  part table in an archive, so this follows the extractor task below.
+- Rule 5 (task, EXTRACT/CORE): the extractor writes the base hoverbike's `pd.vehicle_graph.v1`
+  graph (the base graph in this doc) and `pd2.vehicle.physics.v3` physics behind a vehicle export
+  version; then the runtime refuses v2 behavior and physics and conformance reports them. B-1230
+  ends with it; until then the v2 path is the second path.
+- B-1232 (MULTIPLAYER's wire, MODS's choice offered): a remote rider's boost never reaches the
+  host. MODS's preference: a boost bit in the move message, so the host runs `boost_heat` with the
+  client's input as for its own rider, and the phase (with the toggled parts) in the vehicle state
+  for remote clients, which predict no heat, as this design says.
+
 ## CORE's answers (2026-11-16 05:50 UTC, week note To CORE)
 
 1. State: no module-owned side tables. The runner keeps one instance record per
