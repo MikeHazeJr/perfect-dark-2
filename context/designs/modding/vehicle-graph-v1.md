@@ -341,7 +341,8 @@ Step A, written 2026-11-16: the runner, `port/include/vehicle_graph_runner.h` an
   events); `seat_free` asks the host; `heat_phase` reads the instance's phase (cool
   without a `boost_heat`).
 
-Next (B to D), the game:
+B to D, written 2026-11-16 (5aae6799; pd-tests pass, the client build and the in-game proof
+come after the 07:07 UTC smoke turn), the game:
 
 - `asset_runtime.c`: a `pd.vehicle_graph.v1` behavior file compiles with its
   `behavior/variables.json` when the catalog hydrates the vehicle; a refused graph
@@ -362,9 +363,14 @@ Next (B to D), the game:
   callers; `og.vehicle.dismount_seat` is today's side dismount in
   `bbikeHandleActivate`, network intent paths unchanged. Part toggles go through the
   model's toggle nodes, as the V3 interim does now.
-- Then the Maian recipe ships its v1 graph and the interim reader (variables
-  without a v1 graph) goes; conformance gets `validate_vehicle_graph_execution`
-  with the runner's rules and a test that keeps the kind lists equal.
+- The interim reader is gone: `behavior/variables.json` belongs to a v1 graph only, and a
+  v1 graph pairs with `pd2.vehicle.physics.v3` (the v2 keys minus the boost keys); each
+  refusal names its reason (`VEHICLE.SOURCE`, `VEHICLE.GRAPH`). Conformance has
+  `validate_vehicle_graph_execution` with the runner's rules, and a pd-tests case checks
+  its kind sets against the runner's own list (`vehicleGraphKnownKind`). Next: the Maian
+  recipe ships its v1 graph and physics v3 (0.4.0).
+- Also found and fixed on the way: B-1231 (the PC exit key dismounted without the
+  vehicle's permission); both dismount paths now go through the graph.
 
 ## CORE's answers (2026-11-16 05:50 UTC, week note To CORE)
 
