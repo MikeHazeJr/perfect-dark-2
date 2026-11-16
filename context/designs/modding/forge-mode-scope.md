@@ -136,6 +136,13 @@ nothing else is worth building before them.
 - The scenario formats are CORE's. Forge writes the existing schemas
   (`pd2.scenario.pads.v1`, `spawns.v1`, `objects.v1`, `intro.v1`, `volumes.v1`)
   and asks CORE before any change to them.
+- Every object Forge writes keeps a `record_id` in `objects.json` (CORE,
+  2026-11-16 22:53 UTC, `object-events.md` on week-pd/core). A level graph is
+  gaining an executable part (`event.*`, `gate.*` and `og.*` nodes with an
+  `edges` array, compiled for every stage, arenas included), and its events on
+  pickups, doors and used objects name an object by that id. A stage whose
+  level program does not compile is refused, so a Forge level's
+  `level.graph.json` must stay a valid one (a level with no program is valid).
 - A level that fails a rule is refused when it is saved or registered, with the
   reason, never repaired silently or half loaded.
 
