@@ -346,6 +346,15 @@ Progress log:
   picks its first focus), and the client no longer unlinking its own player at a Combat stage end (B-1190 part 2:
   that deferred the whole lvTick); plus Mike's "both players' stats" in co-op (`SVC_MISSION_STATS` 0x7d). Re-run
   queued: q_20261115220622967_0aa23e98 on binary 8c56ad72 (co-op mission end, rematch).
+- Game turn on binary 8c56ad72 (2026-11-15 23:50-00:05 UTC): both 8a34e695 fixes proven in play (the host leaves its
+  Combat results with Use; the client pushes its own results at once), and co-op mission end 119/121 (the host's Next
+  Mission takes the client along; per-machine results with both players' stats). Two new bugs: B-1195, the listen
+  host crashed on Continue (it also unlinked its own player at the stage end, so its global tick stopped under the
+  results, the pause never applied, simulant AI ran from `lvRender`'s `propsTickPlayer`, and the results exit's chr
+  table clear made it divide by zero; fixed in 5931c5f8, pattern SP-84); B-1196, a co-op client is sent
+  `SVC_NPC_MOVE` for a chr it does not have (the co-op run's only failures; diagnostics in 3cad23d4). 3cad23d4 also
+  places co-op NPCs on a client through `chrSetPos` (B-1191 propagation) and adds the B-1194 pickup diagnostic.
+  Game turn q_20261116004335252_ec21ba5e on binary 9078eb6b: rematch, co-op mission end, simulant types net.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
