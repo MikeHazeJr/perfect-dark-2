@@ -150,7 +150,7 @@ challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in 
 `tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
 (`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
 
-## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed in code)
 
 Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
 `mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
@@ -189,6 +189,21 @@ held-weapon announcement and the puppet's retire stay (they cover `chrBeginDeath
 dynamic ids, as a co-op clone's are), but they are not this bug's fix. Diagnostic for the next run: the host's
 `BOT.PICKUP: host sent` line now carries the item's `dynamic`, object `flags` (a drop carries AICANNOTUSE), `hidden2`
 (the regen flag) and setup `pad`. Open.
+Named 2026-11-16 (binary 0587e908, 5a1dfcda, `results-20261116T044504Z.json`, 106/107): every skipped item but one
+carries `flags=0x00004000` (`OBJFLAG_ASSIGNEDTOCHR` alone) and a `pad` of 3 to 13, which are the simulants' chr
+numbers this run (`SIMULANT: allocating chrnum=0..13`); the replayed `BOT.DROP` props carry `0x20004000`. That is a
+simulant's own held model (`weaponCreateForChr` stamps the owner's chrnum in `pad`), and the one path that puts it in
+the world is `botDisarm` (bot.c), run when a simulant takes a hit with `FUNCFLAG_DISARM`: it clears
+`weapons_held[HAND_RIGHT]` and drops that model itself, or, with no held model, makes a fresh one (`AICANNOTUSE`,
+the one outlier, item 36 with `0x20004000` and pad 0). The death-drop announcement only looked at `weapons_held`,
+which `botDisarm` had already cleared, so it never fired. Worse, `SVC_CHR_DAMAGE` runs `chrDamage` on the client, so
+the client's puppet ran the same disarm and dropped an unnumbered copy of its own. Fix (pattern SP-85): the chr drop
+block in `chrTick` notes every weapon with a dynamic sync id the chr carries before `objDropRecursively` and announces
+each one the drop leaves in the world (`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`; log `NET.DROP: host
+announced chr ... dropped weapon=... syncid=... flags=...`), so any drop path is covered, not only the held slots; and
+on a networked client `botDisarm` retires the puppet's held model and drops or makes nothing. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1194]`, two cases). Built 2026-11-16, the full suite passes (1992 cases);
+the smoke re-run is queued.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 

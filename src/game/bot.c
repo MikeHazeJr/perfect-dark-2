@@ -2444,7 +2444,18 @@ void botDisarm(struct chrdata *chr, struct prop *attackerprop)
 			chr->weapons_held[HAND_LEFT] = NULL;
 		}
 
-		if (chr->weapons_held[HAND_RIGHT]) {
+		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			/* B-1194: on a networked client a simulant is the host's puppet,
+			 * and SVC_CHR_DAMAGE brings the host's disarm here too. The host
+			 * drops the real gun and announces it (the chr.c drop block); a
+			 * copy dropped or made here would carry no sync id the host
+			 * knows, so no host pickup of the real one could reach it. Retire
+			 * this client's held model instead, as chrBeginDeath does. */
+			if (chr->weapons_held[HAND_RIGHT]) {
+				chr->weapons_held[HAND_RIGHT]->obj->hidden |= OBJHFLAG_DELETING;
+				chr->weapons_held[HAND_RIGHT] = NULL;
+			}
+		} else if (chr->weapons_held[HAND_RIGHT]) {
 			prop = chr->weapons_held[HAND_RIGHT];
 			weaponSetGunfireVisible(prop, false, -1);
 			chr->weapons_held[HAND_RIGHT] = NULL;

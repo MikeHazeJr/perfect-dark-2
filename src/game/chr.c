@@ -66,6 +66,9 @@ extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct pro
 
 void rng2SetSeed(u32 seed);
 
+/* B-1194: how many numbered weapons one chr drop can announce (chrTick) */
+#define CHR_NET_DROP_MAX 16
+
 s32 var8009ccc0[20];
 
 s32 g_NumChrs;
@@ -3308,27 +3311,47 @@ s32 chrTick(struct prop *prop)
 
 	if (fulltick && (chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
 		if (chr->hidden & CHRHFLAG_DROPPINGITEM) {
-			/* B-1194: a held weapon equipped after the stage start (as a
-			 * simulant's are) has a dynamic sync id that no client knows, so
-			 * the host announces it once this drop puts it in the world, as
-			 * botinvDrop does for a simulant's other weapons. A client's
-			 * puppet retires its own copy (chrBeginDeath). */
-			struct prop *heldprops[2] = { chr->weapons_held[0], chr->weapons_held[1] };
+			/* B-1194: a weapon made for a chr after the stage start (a
+			 * simulant's held guns, the gun botDisarm drops) has a dynamic
+			 * sync id that no client knows. The host notes every such weapon
+			 * the chr carries before this drop and announces each one the
+			 * drop puts in the world, as botinvDrop does for a simulant's
+			 * other weapons. botDisarm clears weapons_held before this runs,
+			 * so the held slots alone would miss its gun. A client's puppet
+			 * retires its own copies (chrBeginDeath, botDisarm). */
+			struct prop *dropweapons[CHR_NET_DROP_MAX];
+			s32 numdropweapons = 0;
+
+			if (g_NetMode == NETMODE_SERVER) {
+				for (struct prop *carried = prop->child; carried; carried = carried->next) {
+					if (carried->type != PROPTYPE_WEAPON || carried->weapon == NULL
+							|| carried->syncid < g_NetFirstDynamicSyncId) {
+						continue;
+					}
+
+					if (numdropweapons < CHR_NET_DROP_MAX) {
+						dropweapons[numdropweapons++] = carried;
+					} else {
+						sysLogPrintf(LOG_WARNING, "NET.DROP: chr %d carries more than %d numbered weapons; syncid=%u is not announced",
+							(s32)chr->chrnum, CHR_NET_DROP_MAX, (unsigned)carried->syncid);
+					}
+				}
+			}
 
 			objDropRecursively(prop, false);
 			chr->hidden &= ~CHRHFLAG_DROPPINGITEM;
 
 			if (g_NetMode == NETMODE_SERVER) {
-				for (s32 h = 0; h < 2; h++) {
-					struct prop *wprop = heldprops[h];
+				for (s32 d = 0; d < numdropweapons; d++) {
+					struct prop *wprop = dropweapons[d];
 
-					if (wprop && wprop->type == PROPTYPE_WEAPON && wprop->weapon
-							&& wprop->parent == NULL
+					if (wprop->parent == NULL
 							&& wprop->syncid >= g_NetFirstDynamicSyncId
 							&& netmsgSvcPropSpawnWrite(&g_NetMsgRel, wprop) == 0) {
 						netmsgSvcPropMoveWrite(&g_NetMsgRel, wprop, NULL);
-						sysLogPrintf(LOG_NOTE, "NET.DROP: host announced chr %d held weapon=%d syncid=%u",
-							(s32)chr->chrnum, (s32)wprop->weapon->weaponnum, (unsigned)wprop->syncid);
+						sysLogPrintf(LOG_NOTE, "NET.DROP: host announced chr %d dropped weapon=%d syncid=%u flags=0x%08x",
+							(s32)chr->chrnum, (s32)wprop->weapon->weaponnum, (unsigned)wprop->syncid,
+							(unsigned)wprop->obj->flags);
 					}
 				}
 			}

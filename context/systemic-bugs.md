@@ -3717,9 +3717,13 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
 
 **Known instances (2026-11-16):**
 - B-1194: simulants pick up copies of the match's rolled spawn weapon that
-  carry dynamic ids no client knows; a client skips every such pickup. Open:
-  where those weapons are made is not yet known (not the death drop of held
-  weapons, which simulants do not use; `chrDie` announces its drops).
+  carry dynamic ids no client knows; a client skips every such pickup.
+  Named and fixed in code: they are disarmed simulants' own held models
+  (`botDisarm` drops the right-hand model after clearing `weapons_held`, so
+  the held-slot announcement missed it), and the client's puppet ran the same
+  disarm through `SVC_CHR_DAMAGE` and dropped an unnumbered copy. The chr drop
+  block now announces every dynamic-id weapon the drop puts in the world,
+  whatever path marked it, and the puppet retires its model instead.
 - B-1196: a guard the host's AI clones or spawns (`try_spawn_clone2` 0x00ca,
   `spawn_chr_at_pad`/`_at_chr`) exists only on the host; the client got its
   `SVC_NPC_MOVE` 20 times a second and never saw it. Fixed in code: the host
@@ -3745,8 +3749,14 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
 **Audit checklist:** for each run-time prop, (a) is it created on the host
 only, on both, or on the client only, and (b) does any host message name it
 by id? Done: player drops (`weaponCreateForPlayerDrop`), simulant inventory
-drops (`botinvDrop`), held weapons dropped through `chrBeginDeath` or `botDisarm`, AI chr spawns
-and clones with their weapons and hats (B-1196, in code). Open: B-1194's spawn-weapon copies; reconnect for
-B-1196's chrs; whether a co-op client drops a guard's held weapons at its
+drops (`botinvDrop`), every weapon a chr's drop block puts in the world (held
+weapons through `chrBeginDeath`, a disarmed simulant's gun through `botDisarm`,
+concealed items; B-1194, in code), AI chr spawns and clones with their weapons
+and hats (B-1196, in code). Note for new drop paths: the `chrTick` drop block
+covers any weapon marked with `objSetDropped` that is still the chr's child,
+but a path that creates and places a prop itself (as `botinvDrop` does with
+`objDrop`) must announce it. Open: reconnect for B-1196's chrs; a client-side
+run of another host-only effect through `SVC_CHR_DAMAGE` (`chrDamage` runs in
+full on a client); whether a co-op client drops a guard's held weapons at its
 death (not checked; the host's drop of an initial-id weapon names an id the
 client already has, so its spawn is declined and only the move applies).
