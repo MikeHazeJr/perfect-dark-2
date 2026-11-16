@@ -4,9 +4,10 @@
  * A record is keyed by the vehicle's prop and the prop's lifecycle_generation
  * (CORE's answer 1, context/designs/modding/vehicle-graph-v1.md), so a prop
  * slot that a new vehicle reuses gets a new record. The record carries the
- * driver's boost input from the input read to the movement update and holds
- * the graph instance, made on the vehicle's first tick from the program its
- * catalog binding compiled. lv.c clears the table at every stage load, and
+ * driver's boost input from the input read to the movement update, says who
+ * sits in which seat, and holds the graph instance, made on the vehicle's
+ * first tick from the program its catalog binding compiled. lv.c clears the
+ * table at every stage load, and
  * assetRuntimeReset clears it before it frees the programs, so no instance
  * outlives its vehicle or its program.
  */
@@ -41,7 +42,8 @@ void vehicleGraphRuntimeRefuse(const void *prop, u64 generation);
 
 /* A program is about to be freed (its binding is released or replaced): free
  * every instance made from it and forget those records; other vehicles keep
- * theirs. */
+ * theirs. A record with a rider in a seat is kept without its instance, so
+ * the riders stay where they sit and the next program finds them there. */
 void vehicleGraphRuntimeForgetProgram(const vehicle_graph_program_t *program);
 
 /* The vehicle's prop is freed (propFree): free its instance and its record,
@@ -65,6 +67,27 @@ s32 vehicleGraphRuntimeTakeBoostHeld(const void *prop, u64 generation);
 f32 vehicleGraphRuntimeGroundSpeed(const void *prop, u64 generation, f32 x, f32 z, f32 ticks60);
 /* The highest ground speed since the last take (0 when none), then 0 again. */
 f32 vehicleGraphRuntimeTakePeakGround(const void *prop, u64 generation);
+
+/*
+ * Seats: who sits where on this vehicle (VEHICLE_GRAPH_SEAT_DRIVER,
+ * VEHICLE_GRAPH_SEAT_GUNNER). The game's seat actions keep it, and
+ * gate.vehicle.seat_free reads it through the host. The seats belong to the
+ * vehicle, not to its program: a program that is freed and compiled again
+ * (vehicleGraphRuntimeForgetProgram) leaves the riders where they sit.
+ *
+ * SeatOccupant: the player number in the seat, or -1 when it is empty (or the
+ * vehicle has no record, or seat is not a seat).
+ * SetSeatOccupant: put a player in a seat, or empty it with player -1. A
+ * player sits in one seat of a vehicle, so seating a player who is recorded
+ * in its other seat empties that one (a seat switch is one call). Returns 1
+ * when it is so now, and 0 when it refused: seat or player out of range, the
+ * seat holds another player, or the table is full.
+ * SeatOfPlayer: the seat this player is recorded in, or
+ * VEHICLE_GRAPH_SEAT_NONE.
+ */
+s32 vehicleGraphRuntimeSeatOccupant(const void *prop, u64 generation, s32 seat);
+s32 vehicleGraphRuntimeSetSeatOccupant(const void *prop, u64 generation, s32 seat, s32 player);
+s32 vehicleGraphRuntimeSeatOfPlayer(const void *prop, u64 generation, s32 player);
 
 /* Records in use (tests and diagnostics). */
 s32 vehicleGraphRuntimeCount(void);

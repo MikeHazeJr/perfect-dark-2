@@ -60,14 +60,22 @@ static struct modelnode *hoverbikeTogglePart(struct hoverbikeobj *bike, s32 part
 	return node && node->type == MODELNODETYPE_TOGGLE ? node : NULL;
 }
 
-/* gate.vehicle.seat_free: nobody is in that seat. */
+/* gate.vehicle.seat_free: nobody is in that seat. The driver seat is taken
+ * while the vehicle is mounted (OBJHFLAG_MOUNTED, the original flag, which the
+ * physics, the doors and the network all read, so it also covers a remote
+ * driver). The gunner seat is in the vehicle's graph record. */
 static s32 hoverbikeGraphSeatFree(void *context, s32 seat)
 {
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
 
-	/* One seat until the gunner seat (V4). */
-	return seat == VEHICLE_GRAPH_SEAT_DRIVER
-		&& (host->bike->base.hidden & OBJHFLAG_MOUNTED) == 0;
+	if (seat == VEHICLE_GRAPH_SEAT_DRIVER) {
+		return (host->bike->base.hidden & OBJHFLAG_MOUNTED) == 0;
+	}
+	if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return vehicleGraphRuntimeSeatOccupant(host->prop, host->prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER) < 0;
+	}
+	return 0;
 }
 
 /* og.vehicle.mount_seat and og.vehicle.dismount_seat: run the request's
@@ -117,6 +125,9 @@ static void hoverbikeGraphHostInit(vehicle_graph_host_t *table, hoverbike_graph_
 	memset(host, 0, sizeof(*host));
 	host->bike = bike;
 	host->prop = prop;
+	/* A callback left NULL refuses its module (the seat switch, until the
+	 * gunner seat is built). */
+	memset(table, 0, sizeof(*table));
 	table->context = host;
 	table->seat_free = hoverbikeGraphSeatFree;
 	table->mount_seat = hoverbikeGraphSeatAction;

@@ -2253,18 +2253,22 @@ VEHICLE_GRAPH_MAX_EDGES = 16384
 VEHICLE_GRAPH_MAX_LOCKOUT_REASONS = 32
 VEHICLE_GRAPH_MAX_PENDING = 64
 VEHICLE_GRAPH_EVENTS = {"event.vehicle.mount_requested", "event.vehicle.dismount_requested",
-                        "event.vehicle.tick", "event.vehicle.heat_changed"}
+                        "event.vehicle.tick", "event.vehicle.heat_changed",
+                        "event.vehicle.switch_seat_requested"}
 VEHICLE_GRAPH_GATES = {"gate.vehicle.seat", "gate.vehicle.seat_free", "gate.vehicle.heat_phase"}
 VEHICLE_GRAPH_MODULES = {"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                         "og.vehicle.switch_seat",
                          "og.vehicle.hover_drive", "og.vehicle.throttle_boost",
                          "og.vehicle.boost_heat", "og.vehicle.part_visible",
                          "og.vehicle.turret_lockout"}
 # The events a native seam fires; heat_changed is raised by og.vehicle.boost_heat.
 VEHICLE_GRAPH_FIRED_EVENTS = ("event.vehicle.mount_requested",
-                              "event.vehicle.dismount_requested", "event.vehicle.tick")
+                              "event.vehicle.dismount_requested", "event.vehicle.tick",
+                              "event.vehicle.switch_seat_requested")
 VEHICLE_GRAPH_MODULE_EVENTS = {
     "og.vehicle.mount_seat": {"event.vehicle.mount_requested"},
     "og.vehicle.dismount_seat": {"event.vehicle.dismount_requested"},
+    "og.vehicle.switch_seat": {"event.vehicle.switch_seat_requested"},
     "og.vehicle.hover_drive": {"event.vehicle.tick"},
     "og.vehicle.throttle_boost": {"event.vehicle.tick"},
     "og.vehicle.boost_heat": {"event.vehicle.tick"},
@@ -2282,6 +2286,7 @@ VEHICLE_GRAPH_PARAMS = {
     "gate.vehicle.heat_phase": {"phases": "phases"},
     "og.vehicle.mount_seat": {"seat": "seat"},
     "og.vehicle.dismount_seat": {"seat": "seat"},
+    "og.vehicle.switch_seat": {"seat": "seat"},
     "og.vehicle.hover_drive": {"drive": "bool?"},
     "og.vehicle.throttle_boost": {"boost_speed": "speed", "ramp_time": "time+"},
     "og.vehicle.boost_heat": {
@@ -2297,8 +2302,9 @@ _VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
 _VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
 _VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
 _VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
-# The modules that mount or dismount a seat: one per seat on one event.
-VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat"})
+# The modules that change who sits where: one of each per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                                        "og.vehicle.switch_seat"})
 
 
 def vehicle_time_ticks240(value: object):
@@ -2569,7 +2575,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
             seen.add(at)
             queue.extend(out[at])
         reach[event] = [node_id for node_id in order if node_id in seen]
-        # One event mounts or dismounts a seat at most once (the runner's rule).
+        # One event mounts, dismounts or switches to a seat at most once (the
+        # runner's rule).
         seat_modules: dict[tuple[str, str], int] = {}
         for node_id in reach[event]:
             kind = kinds[node_id]
@@ -2580,8 +2587,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
                 seat_modules[key] = seat_modules.get(key, 0) + 1
                 if seat_modules[key] == 2:
                     errors.append(f"{where} {event} reaches a second {kind} for the "
-                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts or "
-                                  "dismounts a seat once")
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts, "
+                                  "dismounts or switches to a seat once")
     if errors:
         return errors
 

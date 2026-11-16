@@ -149,13 +149,72 @@ struct Host {
 		of(context).calls.push_back("dismount " + std::to_string(seat));
 		return 1;
 	}
+	static s32 switchSeat(void *context, s32 seat, const vehicle_graph_event_t *event)
+	{
+		of(context).calls.push_back("switch to " + std::to_string(seat) + " player " +
+			std::to_string(event->player));
+		return 1;
+	}
 	static s32 part(void *context, s32 part, s32 visible)
 	{
 		of(context).calls.push_back("part " + std::to_string(part) + (visible ? " shown" : " hidden"));
 		return 1;
 	}
-	vehicle_graph_host_t table() { return { this, seatFree, mount, dismount, part }; }
+	vehicle_graph_host_t table()
+	{
+		vehicle_graph_host_t host{};
+		host.context = this;
+		host.seat_free = seatFree;
+		host.mount_seat = mount;
+		host.dismount_seat = dismount;
+		host.switch_seat = switchSeat;
+		host.set_part_visible = part;
+		return host;
+	}
 };
+
+/* A two-seat vehicle: each seat mounts when it is free, either seat
+ * dismounts, and a rider may switch to the other seat when it is free. */
+const char *const kTwoSeatGraph = R"({
+  "schema": "pd.vehicle_graph.v1",
+  "catalog_id": "mod:vehicle_two_seat",
+  "nodes": [
+    { "id": "mount", "kind": "event.vehicle.mount_requested" },
+    { "id": "dismount", "kind": "event.vehicle.dismount_requested" },
+    { "id": "switch", "kind": "event.vehicle.switch_seat_requested" },
+    { "id": "tick", "kind": "event.vehicle.tick" },
+    { "id": "mount_wants_driver", "kind": "gate.vehicle.seat", "params": { "seat": "driver" } },
+    { "id": "driver_free", "kind": "gate.vehicle.seat_free", "params": { "seat": "driver" } },
+    { "id": "gunner_free", "kind": "gate.vehicle.seat_free", "params": { "seat": "gunner" } },
+    { "id": "mount_driver", "kind": "og.vehicle.mount_seat", "params": { "seat": "driver" } },
+    { "id": "mount_gunner", "kind": "og.vehicle.mount_seat", "params": { "seat": "gunner" } },
+    { "id": "leaves_driver", "kind": "gate.vehicle.seat", "params": { "seat": "driver" } },
+    { "id": "dismount_driver", "kind": "og.vehicle.dismount_seat", "params": { "seat": "driver" } },
+    { "id": "dismount_gunner", "kind": "og.vehicle.dismount_seat", "params": { "seat": "gunner" } },
+    { "id": "switch_wants_gunner", "kind": "gate.vehicle.seat", "params": { "seat": "gunner" } },
+    { "id": "gunner_free_for_switch", "kind": "gate.vehicle.seat_free", "params": { "seat": "gunner" } },
+    { "id": "driver_free_for_switch", "kind": "gate.vehicle.seat_free", "params": { "seat": "driver" } },
+    { "id": "switch_to_gunner", "kind": "og.vehicle.switch_seat", "params": { "seat": "gunner" } },
+    { "id": "switch_to_driver", "kind": "og.vehicle.switch_seat", "params": { "seat": "driver" } },
+    { "id": "drive", "kind": "og.vehicle.hover_drive" }
+  ],
+  "edges": [
+    { "from": "mount", "output": "out", "to": "mount_wants_driver", "input": "exec" },
+    { "from": "mount_wants_driver", "output": "pass", "to": "driver_free", "input": "exec" },
+    { "from": "mount_wants_driver", "output": "fail", "to": "gunner_free", "input": "exec" },
+    { "from": "driver_free", "output": "pass", "to": "mount_driver", "input": "exec" },
+    { "from": "gunner_free", "output": "pass", "to": "mount_gunner", "input": "exec" },
+    { "from": "dismount", "output": "out", "to": "leaves_driver", "input": "exec" },
+    { "from": "leaves_driver", "output": "pass", "to": "dismount_driver", "input": "exec" },
+    { "from": "leaves_driver", "output": "fail", "to": "dismount_gunner", "input": "exec" },
+    { "from": "switch", "output": "out", "to": "switch_wants_gunner", "input": "exec" },
+    { "from": "switch_wants_gunner", "output": "pass", "to": "gunner_free_for_switch", "input": "exec" },
+    { "from": "switch_wants_gunner", "output": "fail", "to": "driver_free_for_switch", "input": "exec" },
+    { "from": "gunner_free_for_switch", "output": "pass", "to": "switch_to_gunner", "input": "exec" },
+    { "from": "driver_free_for_switch", "output": "pass", "to": "switch_to_driver", "input": "exec" },
+    { "from": "tick", "output": "out", "to": "drive", "input": "exec" }
+  ]
+})";
 
 vehicle_graph_event_t tick(float throttle, bool boost = false, float speed_frac = 0.0f,
 	int ticks240 = 4)
@@ -363,6 +422,161 @@ TEST_CASE("Mounting and dismounting go through the seat gate and the host", "[ve
 	vehicle_graph_event_t bad = tick(1.0f);
 	bad.ticks240 = -1;
 	CHECK(fire(v.instance, bad, &table) == -1);
+}
+
+TEST_CASE("A two-seat graph mounts, dismounts and switches seats through its gates", "[vehicle-graph]")
+{
+	Program p(kTwoSeatGraph);
+	INFO(p.error);
+	REQUIRE(p.program != nullptr);
+	const u32 driver = 1u << VEHICLE_GRAPH_SEAT_DRIVER;
+	const u32 gunner = 1u << VEHICLE_GRAPH_SEAT_GUNNER;
+
+	// What the game asks before it fires: which seats each request can act on.
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED) == (driver | gunner));
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED) == (driver | gunner));
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED) == (driver | gunner));
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_TICK) == 0);
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_HEAT_CHANGED) == 0);
+	CHECK(vehicleGraphProgramEventSeats(p.program, 0) == 0);
+	CHECK(vehicleGraphProgramEventSeats(p.program, VEHICLE_GRAPH_EVENT_KIND_END) == 0);
+	CHECK(vehicleGraphProgramEventSeats(nullptr, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED) == 0);
+	CHECK(vehicleGraphProgramEventReachesModule(p.program, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED,
+		"og.vehicle.switch_seat") == 1);
+	CHECK(vehicleGraphProgramEventReachesModule(p.program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		"og.vehicle.switch_seat") == 0);
+	// A one-seat vehicle has no gunner seat and nothing to switch to.
+	{
+		Program base(kBaseGraph);
+		REQUIRE(base.program != nullptr);
+		CHECK(vehicleGraphProgramEventSeats(base.program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED) == driver);
+		CHECK(vehicleGraphProgramEventSeats(base.program, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED) == driver);
+		CHECK(vehicleGraphProgramEventSeats(base.program, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED) == 0);
+		Instance one(base.program);
+		Host host;
+		vehicle_graph_host_t table = host.table();
+		CHECK(fire(one.instance, seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED,
+			VEHICLE_GRAPH_SEAT_GUNNER), &table) == 0);
+		CHECK(host.calls.empty());
+	}
+
+	Instance v(p.program);
+	Host host;
+	vehicle_graph_host_t table = host.table();
+
+	// Each mount takes the seat it asks for.
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 1), &table) == 1);
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER, 0), &table) == 1);
+	REQUIRE(host.calls.size() == 2);
+	CHECK(host.calls[0] == "mount 1 player 1");
+	CHECK(host.calls[1] == "mount 0 player 0");
+
+	// A taken seat refuses its mount; the other seat is not offered instead.
+	host.free_seat[VEHICLE_GRAPH_SEAT_GUNNER] = false;
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 2), &table) == 0);
+	CHECK(host.calls.size() == 2);
+
+	// A dismount leaves the seat it names.
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 1), &table) == 1);
+	CHECK(host.calls.back() == "dismount 1");
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER, 0), &table) == 1);
+	CHECK(host.calls.back() == "dismount 0");
+	REQUIRE(host.calls.size() == 4);
+
+	// A switch moves the rider to the seat asked for, once, when it is free.
+	host.free_seat[VEHICLE_GRAPH_SEAT_GUNNER] = true;
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 3), &table) == 1);
+	REQUIRE(host.calls.size() == 5);
+	CHECK(host.calls.back() == "switch to 1 player 3");
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER, 3), &table) == 1);
+	REQUIRE(host.calls.size() == 6);
+	CHECK(host.calls.back() == "switch to 0 player 3");
+
+	// With someone in the other seat the switch does nothing.
+	host.free_seat[VEHICLE_GRAPH_SEAT_GUNNER] = false;
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 3), &table) == 0);
+	CHECK(host.calls.size() == 6);
+
+	// A host that cannot switch refuses the module; a switch names a seat.
+	host.free_seat[VEHICLE_GRAPH_SEAT_GUNNER] = true;
+	vehicle_graph_host_t noSwitch = host.table();
+	noSwitch.switch_seat = nullptr;
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_GUNNER, 3), &noSwitch) == -1);
+	CHECK(fire(v.instance,
+		seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_NONE, 3), &table) == -1);
+	CHECK(fire(v.instance, seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, 2, 3), &table) == -1);
+	CHECK(host.calls.size() == 6);
+}
+
+TEST_CASE("Seat modules run only on their own request, once per seat", "[vehicle-graph]")
+{
+	// A switch on the mount request.
+	CHECK(refusal(withEdits(kTwoSeatGraph,
+		"{ \"from\": \"gunner_free\", \"output\": \"pass\", \"to\": \"mount_gunner\", \"input\": \"exec\" }",
+		"{ \"from\": \"gunner_free\", \"output\": \"pass\", \"to\": \"switch_to_gunner\", \"input\": \"exec\" }"))
+		.find("og.vehicle.switch_seat 'switch_to_gunner' cannot run on event.vehicle.mount_requested") !=
+		std::string::npos);
+	// A mount on the switch request.
+	CHECK(refusal(withEdits(kTwoSeatGraph,
+		"{ \"from\": \"gunner_free_for_switch\", \"output\": \"pass\", \"to\": \"switch_to_gunner\", \"input\": \"exec\" }",
+		"{ \"from\": \"gunner_free_for_switch\", \"output\": \"pass\", \"to\": \"mount_gunner\", \"input\": \"exec\" }"))
+		.find("og.vehicle.mount_seat 'mount_gunner' cannot run on event.vehicle.switch_seat_requested") !=
+		std::string::npos);
+	// A tick module on the switch request.
+	CHECK(refusal(withEdits(kTwoSeatGraph,
+		"{ \"from\": \"driver_free_for_switch\", \"output\": \"pass\", \"to\": \"switch_to_driver\", \"input\": \"exec\" }",
+		"{ \"from\": \"driver_free_for_switch\", \"output\": \"pass\", \"to\": \"drive\", \"input\": \"exec\" }"))
+		.find("og.vehicle.hover_drive 'drive' cannot run on event.vehicle.switch_seat_requested") !=
+		std::string::npos);
+	// Two switches to one seat on one request, even on a gate's two branches.
+	const std::string switchEdge =
+		"{ \"from\": \"driver_free_for_switch\", \"output\": \"pass\", \"to\": \"switch_to_driver\", \"input\": \"exec\" }";
+	const std::string secondSwitch = withEdits(withEdits(kTwoSeatGraph,
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+		"    { \"id\": \"switch_again\", \"kind\": \"og.vehicle.switch_seat\", \"params\": { \"seat\": \"driver\" } }").c_str(),
+		switchEdge, switchEdge + ",\n"
+		"    { \"from\": \"driver_free_for_switch\", \"output\": \"fail\", \"to\": \"switch_again\", \"input\": \"exec\" }");
+	CHECK(refusal(secondSwitch)
+		.find("event.vehicle.switch_seat_requested reaches a second og.vehicle.switch_seat for the driver seat") !=
+		std::string::npos);
+	// A switch names a seat.
+	CHECK(refusal(withEdits(kTwoSeatGraph,
+		"\"kind\": \"og.vehicle.switch_seat\", \"params\": { \"seat\": \"gunner\" }",
+		"\"kind\": \"og.vehicle.switch_seat\", \"params\": { \"seat\": \"turret\" }"))
+		.find("must be \"driver\" or \"gunner\"") != std::string::npos);
+	CHECK(refusal(withEdits(kTwoSeatGraph,
+		"\"kind\": \"og.vehicle.switch_seat\", \"params\": { \"seat\": \"gunner\" }",
+		"\"kind\": \"og.vehicle.switch_seat\""))
+		.find("param 'seat' is missing") != std::string::npos);
+	// A part or a lockout may run on a switch, as on any event.
+	{
+		const std::string withPart = withEdits(withEdits(kTwoSeatGraph,
+			"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+			"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+			"    { \"id\": \"lock\", \"kind\": \"og.vehicle.turret_lockout\", \"params\": { \"reason\": \"switching\", \"locked\": true } }").c_str(),
+			switchEdge, switchEdge + ",\n"
+			"    { \"from\": \"switch_to_driver\", \"output\": \"out\", \"to\": \"lock\", \"input\": \"exec\" }");
+		Program p(withPart.c_str());
+		INFO(p.error);
+		REQUIRE(p.program != nullptr);
+		Instance v(p.program);
+		Host host;
+		vehicle_graph_host_t table = host.table();
+		CHECK(vehicleGraphInstanceTurretLockMask(v.instance) == 0);
+		CHECK(fire(v.instance,
+			seatEvent(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER, 0), &table) == 2);
+		CHECK(vehicleGraphInstanceTurretLockMask(v.instance) == 1u);
+	}
 }
 
 TEST_CASE("The Maian graph turns the crystals black and locks the turret at the heat phases",
@@ -693,14 +907,17 @@ TEST_CASE("Conformance knows exactly the runner's vehicle graph kinds", "[vehicl
 		else if (k.rfind("gate.", 0) == 0) gates.insert(k);
 		else modules.insert(k);
 	}
-	CHECK(events.size() == 4);
+	CHECK(events.size() == 5);
 	CHECK(gates.size() == 3);
-	CHECK(modules.size() == 7);
+	CHECK(modules.size() == 8);
 	CHECK(set_of("VEHICLE_GRAPH_EVENTS") == events);
 	CHECK(set_of("VEHICLE_GRAPH_GATES") == gates);
 	CHECK(set_of("VEHICLE_GRAPH_MODULES") == modules);
+	CHECK(events.count("event.vehicle.switch_seat_requested") == 1);
+	CHECK(modules.count("og.vehicle.switch_seat") == 1);
 	CHECK(vehicleGraphKnownKind(-1) == nullptr);
-	CHECK(vehicleGraphKnownKind(14) == nullptr);
+	CHECK(vehicleGraphKnownKind(15) != nullptr);
+	CHECK(vehicleGraphKnownKind(16) == nullptr);
 	REQUIRE(conformance.find("errors.extend(validate_vehicle_graph_execution(") != std::string::npos);
 }
 
@@ -818,6 +1035,109 @@ TEST_CASE("Each vehicle keeps its own graph instance until the stage resets", "[
 	CHECK(vehicleGraphRuntimeInstance(&many.back(), 1, maian.program, nullptr) == nullptr);
 	vehicleGraphRuntimeRelease(&many[0], 1);
 	CHECK(vehicleGraphRuntimeInstance(&many.back(), 1, maian.program, nullptr) != nullptr);
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeCount() == 0);
+}
+
+TEST_CASE("A vehicle's record says who sits in which seat", "[vehicle-graph]")
+{
+	Program maian(kMaianGraph, kMaianVariables);
+	Program base(kBaseGraph);
+	REQUIRE(maian.program != nullptr);
+	REQUIRE(base.program != nullptr);
+	vehicleGraphRuntimeReset();
+	int a = 0, b = 0;
+	const s32 driver = VEHICLE_GRAPH_SEAT_DRIVER;
+	const s32 gunner = VEHICLE_GRAPH_SEAT_GUNNER;
+
+	// A vehicle nobody has touched: empty seats, and asking makes no record.
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, driver) == -1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == -1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == VEHICLE_GRAPH_SEAT_NONE);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, -1) == 1); // already empty
+	CHECK(vehicleGraphRuntimeCount() == 0);
+
+	// Player 0 drives, player 2 is the gunner.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, driver, 0) == 1);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, 2) == 1);
+	CHECK(vehicleGraphRuntimeCount() == 1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, driver) == 0);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == 2);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == driver);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 2) == gunner);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 1) == VEHICLE_GRAPH_SEAT_NONE);
+	// Seating the same player again changes nothing.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, 2) == 1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == 2);
+	// A taken seat refuses another player, and a rider cannot switch into it.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, 3) == 0);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, 0) == 0);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == 2);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == driver);
+
+	// The gunner leaves; the driver then switches to that seat in one call.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, -1) == 1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == -1);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, gunner, 0) == 1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, gunner) == 0);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, driver) == -1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == gunner);
+
+	// Each vehicle has its own seats.
+	CHECK(vehicleGraphRuntimeSeatOccupant(&b, 1, gunner) == -1);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&b, 1, driver, 0) == 1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&b, 1, 0) == driver);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == gunner);
+
+	// Out of range: nothing is recorded.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, 2, 1) == 0);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, -1, 1) == 0);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 1, driver, -2) == 0);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(nullptr, 1, driver, 1) == 0);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, 2) == -1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(nullptr, 1, driver) == -1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, -1) == VEHICLE_GRAPH_SEAT_NONE);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 1, driver) == -1);
+
+	// The seats are the vehicle's, not the program's: a freed program takes
+	// its instance and leaves the riders, and a vehicle nobody rides is
+	// forgotten whole, as before.
+	s32 created = 0;
+	int unridden = 0;
+	REQUIRE(vehicleGraphRuntimeInstance(&a, 1, maian.program, &created) != nullptr);
+	REQUIRE(vehicleGraphRuntimeInstance(&unridden, 1, maian.program, &created) != nullptr);
+	CHECK(vehicleGraphRuntimeCount() == 3);
+	vehicleGraphRuntimeForgetProgram(maian.program);
+	CHECK(vehicleGraphRuntimeCount() == 2);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == gunner);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&b, 1, 0) == driver);
+	// The next program finds the rider where they sat.
+	REQUIRE(vehicleGraphRuntimeInstance(&a, 1, base.program, &created) != nullptr);
+	CHECK(created == 1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 1, 0) == gunner);
+
+	// A new vehicle in the prop slot (another generation) has empty seats.
+	REQUIRE(vehicleGraphRuntimeInstance(&a, 2, base.program, &created) != nullptr);
+	CHECK(created == 1);
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 2, gunner) == -1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&a, 2, 0) == VEHICLE_GRAPH_SEAT_NONE);
+	// A freed vehicle takes its seats with it.
+	vehicleGraphRuntimeRelease(&b, 1);
+	CHECK(vehicleGraphRuntimeSeatOfPlayer(&b, 1, 0) == VEHICLE_GRAPH_SEAT_NONE);
+	// So does a stage reset.
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&a, 2, driver, 1) == 1);
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeSeatOccupant(&a, 2, driver) == -1);
+	CHECK(vehicleGraphRuntimeCount() == 0);
+
+	// A full table refuses a new vehicle's rider; emptying a seat needs no room.
+	std::vector<int> many(VEHICLE_GRAPH_RUNTIME_MAX);
+	for (int &vehicle : many) {
+		REQUIRE(vehicleGraphRuntimeSetSeatOccupant(&vehicle, 1, driver, 0) == 1);
+	}
+	int late = 0;
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&late, 1, driver, 0) == 0);
+	CHECK(vehicleGraphRuntimeSetSeatOccupant(&late, 1, driver, -1) == 1);
 	vehicleGraphRuntimeReset();
 	CHECK(vehicleGraphRuntimeCount() == 0);
 }
