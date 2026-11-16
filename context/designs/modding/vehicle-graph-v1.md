@@ -341,8 +341,9 @@ Step A, written 2026-11-16: the runner, `port/include/vehicle_graph_runner.h` an
   events); `seat_free` asks the host; `heat_phase` reads the instance's phase (cool
   without a `boost_heat`).
 
-B to D, written 2026-11-16 (5aae6799; pd-tests pass, the client build and the in-game proof
-come after the 07:07 UTC smoke turn), the game:
+B to D, written 2026-11-16 (5aae6799; pd-tests pass). The client is built on e23f6ea7 (with
+`week-pd/extract-6`, shared base 7); the in-game proof is the three vehicle smokes on base 7
+(q_20261116090706870_9fada84f). The game:
 
 - `asset_runtime.c`: a `pd.vehicle_graph.v1` behavior file compiles with its
   `behavior/variables.json` when the catalog hydrates the vehicle; a refused graph
@@ -367,8 +368,11 @@ come after the 07:07 UTC smoke turn), the game:
   v1 graph pairs with `pd2.vehicle.physics.v3` (the v2 keys minus the boost keys); each
   refusal names its reason (`VEHICLE.SOURCE`, `VEHICLE.GRAPH`). Conformance has
   `validate_vehicle_graph_execution` with the runner's rules, and a pd-tests case checks
-  its kind sets against the runner's own list (`vehicleGraphKnownKind`). Next: the Maian
-  recipe ships its v1 graph and physics v3 (0.4.0).
+  its kind sets against the runner's own list (`vehicleGraphKnownKind`). The Maian
+  recipe ships its v1 graph and physics v3 (0.4.0, c3d09fda): 15 nodes, 11 exec edges, one
+  raised event pending at most, one part (140); the recipe test compiles the built
+  archive's graph with the runner, and the boost smoke counts one boost cycle's part lines
+  (shown at ramping, full and cool, hidden at overheated and recovering).
 - Also found and fixed on the way: B-1231 (the PC exit key dismounted without the
   vehicle's permission); both dismount paths now go through the graph.
 
