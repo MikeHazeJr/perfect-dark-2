@@ -11145,3 +11145,53 @@ Next
   Mike's merge call (it needs a new shared base after landing, for the
   scenario kind).
 - Mission flow: the design of the fail-closed mission end module.
+
+## 2026-11-16 (10:00-10:33 UTC) - CORE: mission flow designed and slices 1 and 2 built; B-1204 fixed
+
+What happened
+- b7cb41ff (10:03): context/designs/modding/mission-flow.md. One objective's
+  status was already the mission graph's alone (decision 1); the outcome
+  rule (objectiveIsAllComplete, 23 callers), the phase and the end were
+  native. Week note row and log updated.
+- b5ea6dba (10:11), slice 1: "required": false on a row of kind objective
+  in the mission's objectives.json (bonus objective, out of the outcome;
+  one source: conformance refuses it on graph nodes and on the scenario's
+  table); scenarioSourceMissionObjectiveRequired; both aggregates in
+  objectives.c leave optional objectives out; the campaign runner's outcome
+  parity probe ("outcome parity probe stage_id=... outcome=...").
+  tests/test_mission_outcome_static.cpp.
+- ea93a083 (10:23), slice 2: event.mission.phase_changed and
+  gate.mission.phase in the runner (tests/test_mission_graph_phase.cpp,
+  behavioral), delivered once per change from objectivesCheckAll (logged
+  with or without a handler); og.mission.end_failed and
+  og.mission.end_completed (two modules: the table takes no params) force
+  the outcome and set a pending end that player.c takes after the check
+  (func0000e990, the end_level path); refused on a network client and a
+  forced completion in co-op/counter-op; refused at activation and by
+  conformance after the end. The runner/checker sync pins moved with the
+  kinds (test_mission_graph_runner.cpp). pd-tests 2,006.
+- 9a9cfc9f (10:30), B-1204 (MULTIPLAYER's root cause): every scenario pad
+  was forced PADFLAG_HASBBOXDATA, so the extractor's -100..100 default box
+  for boxless pads (19,349 of 26,109) became real and setup.c dropped
+  objects from 100 under their pads. Pads keep their own bit now; no
+  re-extraction (every boxless base pad has exactly padUnpack's default).
+  The pad build logs "pads.json N pads, M with a box of their own".
+  MULTIPLAYER keeps the B-1204 row (asked to mark it fixed).
+- Frozen clients: core-mf2 (ea93a083, superseded) and core-mf3 (9a9cfc9f;
+  B-1252's build-time version line named it correctly after the commit).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (lifts; waiter bs7omrzh0), third in the
+  game-runtime queue at 10:28 (MULTIPLAYER's local smokes since 10:06, then
+  a MODS boost smoke).
+
+Next
+- After the lifts turn: apply scratchpad patch_missionflow_fixtures.py (the
+  five campaign fixtures require one outcome line per mission, and a pin),
+  commit, then queue tools/core-mf3-turn.sh (gate core-mf3.ready): the
+  release and special-assignment campaigns (outcome probe, phase
+  deliveries), the Infiltration lifts and Complex (B-1204's pad line).
+- Tick Object rules when the lifts turn shows the lifts and the chopper;
+  post week-pd/core as ready for Mike's merge call.
+- Pin the phase-delivery counts in the campaign fixtures once a log shows
+  them.
