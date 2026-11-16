@@ -55,6 +55,28 @@ struct colmesh {
 #define MESHGRID_CELL_SIZE 256.0f  /* world units per cell */
 #define MESHGRID_MAX_DIM   128     /* max cells per axis */
 
+/* B-1210: the grid cell of world coordinate v on one axis, clamped into
+ * [0, cells - 1]. A stage wider than MESHGRID_MAX_DIM cells (Crash Site and
+ * Deep Sea are) keeps every triangle past the cap in the last row or column,
+ * because meshWorldFinalize clamps both ends of a triangle's span with this,
+ * and a lookup past the cap clamps into that same row or column. A position
+ * outside the grid only adds candidates, which the exact triangle tests
+ * reject. NaN maps to cell 0. */
+static inline s32 meshGridCell(f32 v, f32 origin, s32 cells)
+{
+	f32 f = (v - origin) / MESHGRID_CELL_SIZE;
+
+	if (!(f > 0.0f)) {
+		return 0;
+	}
+
+	if (f >= (f32)cells) {
+		return cells - 1;
+	}
+
+	return (s32)f;
+}
+
 struct meshgridcell {
 	s32 *triindices;       /* indices into the world mesh tri array */
 	s32 count;

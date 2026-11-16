@@ -1211,6 +1211,9 @@ set(SRC_TESTS
   # pure checks for normal classification.
   ${CMAKE_SOURCE_DIR}/tests/test_jump_two_stage_design.cpp
 
+  # B-1210: the world mesh grid keeps triangles past its 128-cell cap.
+  ${CMAKE_SOURCE_DIR}/tests/test_mesh_grid_cell.cpp
+
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.
   ${CMAKE_SOURCE_DIR}/tests/stubs.c
