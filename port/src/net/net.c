@@ -689,6 +689,7 @@ bool netServerStageReplicationBlocked(void)
 }
 
 static void netServerNpcRemoveClear(const char *why);
+static void netServerAuthorityHeldClear(const char *why);
 
 static void netResetStageReplication(const char *reason,
 		bool clear_epoch)
@@ -705,6 +706,7 @@ static void netResetStageReplication(const char *reason,
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 	netServerNpcRemoveClear("the stage replication was reset");
+	netServerAuthorityHeldClear("the stage replication was reset");
 
 	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE,
@@ -725,6 +727,7 @@ static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 	netServerNpcRemoveClear("the stage start rolled back");
+	netServerAuthorityHeldClear("the stage start rolled back");
 	sysLogPrintf(LOG_WARNING,
 		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
 		(unsigned)prior_epoch, reason ? reason : "unknown");
@@ -762,6 +765,7 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 	s_NetStageAuthorityReady = false;
 	netNpcReplicationReset();
 	netServerNpcRemoveClear("a new stage starts");
+	netServerAuthorityHeldClear("a new stage starts");
 	/* Stage publication may be initiated late in netEndFrame. Retire every
 	 * shared gameplay byte from the lobby/current stage before serializing the
 	 * new SVC_STAGE_START control transaction. */
@@ -4041,6 +4045,90 @@ static void netServerNpcRemoveFlush(void)
 	s_NetNpcRemoveCount = 0;
 }
 
+/* SP-91: the reliable bytes the game tick wrote on a frame that publishes a
+ * cutscene authority packet (START or END). They used to be discarded with the
+ * rest of that frame's shared output, so a one-shot event the host decided in
+ * that tick (a pickup, a stage flag, an objective status, a door, damage)
+ * never reached a client. Now they are held, and once the authority packet is
+ * out they go first in that frame's reliable buffer: same reliable channel
+ * (NETCHAN_DEFAULT), so a client applies them after the cutscene state
+ * changed, as the host's tick saw them in that frame. No client handler gates
+ * on cutscene state, so a message the tick wrote just before START holds when
+ * applied just after it (CORE, 2026-11-16). Only the unreliable buffer is
+ * dropped, as before. While the authority publication retries, they stay held
+ * and the next frames' bytes join them in order. */
+static u8 s_NetAuthorityHeldRel[65536]; /* the size of g_NetMsgRelBuf */
+static u32 s_NetAuthorityHeldRelLen = 0;
+static bool s_NetAuthorityHeldRelOut = false; /* copied into g_NetMsgRel this frame */
+
+static void netServerAuthorityHeldClear(const char *why)
+{
+	if (s_NetAuthorityHeldRelLen > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes not sent: %s",
+			(unsigned)s_NetAuthorityHeldRelLen, why);
+	}
+
+	s_NetAuthorityHeldRelLen = 0;
+	s_NetAuthorityHeldRelOut = false;
+}
+
+/* Move the frame's reliable bytes, so far, to the end of the hold */
+static void netServerAuthorityHoldReliable(const char *why)
+{
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (bytes == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || s_NetAuthorityHeldRelLen + bytes > sizeof(s_NetAuthorityHeldRel)) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u game-tick bytes dropped (%s): held=%u overflow=%d",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen, g_NetMsgRel.error ? 1 : 0);
+	} else {
+		memcpy(s_NetAuthorityHeldRel + s_NetAuthorityHeldRelLen, g_NetMsgRel.data, bytes);
+		s_NetAuthorityHeldRelLen += bytes;
+		sysLogPrintf(LOG_NOTE, "NET.SP91: held %u game-tick bytes (%s), %u in all",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen);
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+}
+
+/* Put the held bytes in front of whatever the frame's reliable buffer holds */
+static void netServerAuthorityReleaseHeld(const char *why)
+{
+	const u32 held = s_NetAuthorityHeldRelLen;
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (held == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || held + bytes > g_NetMsgRel.size) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u held game-tick bytes do not fit before %u frame bytes (%s); still held",
+			(unsigned)held, (unsigned)bytes, why);
+		return;
+	}
+
+	memmove(g_NetMsgRel.data + held, g_NetMsgRel.data, bytes);
+	memcpy(g_NetMsgRel.data, s_NetAuthorityHeldRel, held);
+	g_NetMsgRel.wp = held + bytes;
+	s_NetAuthorityHeldRelOut = true;
+	sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes go out (%s)", (unsigned)held, why);
+}
+
+/* The frame's reliable buffer was sent (sent=true) or discarded */
+static void netServerAuthorityHeldSettle(bool sent)
+{
+	if (s_NetAuthorityHeldRelOut && sent) {
+		s_NetAuthorityHeldRelLen = 0;
+	}
+
+	s_NetAuthorityHeldRelOut = false;
+}
+
 void netEndFrame(void)
 {
 	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
@@ -4063,27 +4151,48 @@ void netEndFrame(void)
 		&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
 		&& netmsgCutsceneAuthorityHasPendingEvents();
 
-	/* Any authority event already pending at this boundary supersedes ordinary
-	 * game messages accumulated since netStartFrame. Discard those shared
-	 * buffers, then publish the dedicated authority packet first. This keeps a
-	 * retained START/ACCEPT retry from being overtaken just as strictly as the
-	 * terminal END + SVC_STAGE_END transaction. */
+	/* Any authority event already pending at this boundary is published before
+	 * the ordinary game messages accumulated since netStartFrame. Discard the
+	 * unreliable buffer; SP-91: hold the reliable one and put it back, first,
+	 * once the dedicated authority packet is out (same reliable channel, so it
+	 * follows the packet in order). This keeps a retained START/ACCEPT retry
+	 * from being overtaken just as strictly as the terminal END +
+	 * SVC_STAGE_END transaction, without losing what the tick decided. */
 	if (terminal_stage_end_frame
 			|| (g_NetMode == NETMODE_SERVER
 				&& (s_NetStageReplicationPhase
 					!= NET_STAGE_REPLICATION_ACTIVE))
 			|| authority_pending_frame) {
+		if (authority_pending_frame) {
+			netServerAuthorityHoldReliable("cutscene authority frame");
+		} else if (terminal_stage_end_frame) {
+			netServerAuthorityHeldClear("the stage ends");
+		}
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
 	} else {
+		/* SP-91: bytes held from an earlier authority frame go first, unless
+		 * that packet is still unpublished: then this frame's join the hold */
+		if (s_NetAuthorityHeldRelLen > 0) {
+			if (g_NetMode == NETMODE_SERVER && netmsgCutsceneAuthorityHasPendingEvents()) {
+				netServerAuthorityHoldReliable("its cutscene authority packet is still pending");
+			} else {
+				netServerAuthorityReleaseHeld("after an earlier authority packet");
+			}
+		}
 		// send whatever messages have accumulated so far
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
 	}
 	if (terminal_stage_end_frame && s_NetStageEndPending.active) {
 		(void)netServerFlushPendingStageEnd("end-frame-stage-end");
-	} else if (authority_pending_frame
-			&& !netServerFlushCutsceneAuthority("end-frame-priority")) {
-		authority_publication_failed = true;
+	} else if (authority_pending_frame) {
+		if (!netServerFlushCutsceneAuthority("end-frame-priority")) {
+			authority_publication_failed = true;
+		} else {
+			/* SP-91: the packet is out; the held bytes lead the frame's reliable output */
+			netServerAuthorityReleaseHeld("after the cutscene authority packet");
+		}
 	}
 
 	/* Phase 3 (v42): spectator host fan-out. Server-side only. The
@@ -4396,8 +4505,11 @@ void netEndFrame(void)
 					!= NET_STAGE_REPLICATION_RELEASE)) {
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
+		/* SP-91: what was put back stays held for a later frame */
+		netServerAuthorityHeldSettle(false);
 	} else {
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
 	}
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
 			&& !authority_publication_failed

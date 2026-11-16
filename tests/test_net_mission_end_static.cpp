@@ -594,3 +594,74 @@ TEST_CASE("co-op chr removals: a client's rooms update moves the prop's room reg
 	REQUIRE(skip != std::string::npos);
 	REQUIRE(skip < prop_resync.find("struct defaultobj *obj = prop->obj;"));
 }
+
+TEST_CASE("net frame: a cutscene authority frame keeps the tick's reliable messages for after its packet",
+          "[net][coop][sp91]") {
+	// SP-91: netEndFrame discarded both shared buffers on a frame that
+	// publishes a cutscene START or END authority packet, so a one-shot event
+	// the host's tick decided in that frame never reached a client. The
+	// reliable bytes are now held and put back first once the packet is out
+	// (same reliable channel, so in order); only the unreliable buffer drops.
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+
+	const std::string hold = function_body(net, "static void netServerAuthorityHoldReliable(const char *why)\n{");
+	const size_t copy = hold.find("memcpy(s_NetAuthorityHeldRel + s_NetAuthorityHeldRelLen, g_NetMsgRel.data, bytes);");
+	const size_t full = hold.find("s_NetAuthorityHeldRelLen + bytes > sizeof(s_NetAuthorityHeldRel)");
+	const size_t empty = hold.find("netbufStartWrite(&g_NetMsgRel);");
+	REQUIRE(copy != std::string::npos);
+	REQUIRE(full != std::string::npos);
+	REQUIRE(empty != std::string::npos);
+	REQUIRE(full < copy);
+	REQUIRE(copy < empty);
+
+	const std::string release = function_body(net, "static void netServerAuthorityReleaseHeld(const char *why)\n{");
+	const size_t fits = release.find("held + bytes > g_NetMsgRel.size");
+	const size_t shift = release.find("memmove(g_NetMsgRel.data + held, g_NetMsgRel.data, bytes);");
+	const size_t front = release.find("memcpy(g_NetMsgRel.data, s_NetAuthorityHeldRel, held);");
+	const size_t out = release.find("s_NetAuthorityHeldRelOut = true;");
+	REQUIRE(fits != std::string::npos);
+	REQUIRE(shift != std::string::npos);
+	REQUIRE(front != std::string::npos);
+	REQUIRE(out != std::string::npos);
+	REQUIRE(fits < shift);
+	REQUIRE(shift < front);
+	REQUIRE(front < out);
+	// The hold is emptied only once what was put back went out
+	const std::string settle = function_body(net, "static void netServerAuthorityHeldSettle(bool sent)\n{");
+	REQUIRE(settle.find("if (s_NetAuthorityHeldRelOut && sent) {") != std::string::npos);
+	REQUIRE(settle.find("s_NetAuthorityHeldRelOut = false;") != std::string::npos);
+
+	const std::string end_frame = function_body(net, "void netEndFrame(void)\n{");
+	const size_t first_if = end_frame.find("if (terminal_stage_end_frame\n");
+	const size_t keep = end_frame.find("netServerAuthorityHoldReliable(\"cutscene authority frame\");", first_if);
+	const size_t drop_unreliable = end_frame.find("netbufStartWrite(&g_NetMsg);", keep);
+	const size_t first_flush = end_frame.find("netFlushSendBuffers();");
+	const size_t lead = end_frame.find("netServerAuthorityReleaseHeld(\"after an earlier authority packet\");");
+	const size_t publish = end_frame.find("netServerFlushCutsceneAuthority(\"end-frame-priority\")");
+	const size_t after_packet = end_frame.find("netServerAuthorityReleaseHeld(\"after the cutscene authority packet\");", publish);
+	const size_t broadcast = end_frame.find("g_NetMode == NETMODE_SERVER && g_NetNumClients > 0");
+	REQUIRE(first_if != std::string::npos);
+	REQUIRE(keep != std::string::npos);
+	REQUIRE(drop_unreliable != std::string::npos);
+	REQUIRE(first_flush != std::string::npos);
+	REQUIRE(lead != std::string::npos);
+	REQUIRE(publish != std::string::npos);
+	REQUIRE(after_packet != std::string::npos);
+	REQUIRE(broadcast != std::string::npos);
+	REQUIRE(keep < drop_unreliable);
+	REQUIRE(drop_unreliable < first_flush);
+	REQUIRE(lead < first_flush);
+	REQUIRE(after_packet < broadcast);
+	// Put back only when the packet went out
+	REQUIRE(end_frame.rfind("if (!netServerFlushCutsceneAuthority(\"end-frame-priority\")) {", after_packet) != std::string::npos);
+	REQUIRE(end_frame.find("netServerAuthorityHeldClear(\"the stage ends\");") != std::string::npos);
+	REQUIRE(end_frame.find("netServerAuthorityHeldSettle(true);", first_flush) != std::string::npos);
+	REQUIRE(end_frame.find("netServerAuthorityHeldSettle(false);") != std::string::npos);
+
+	// A stage boundary drops whatever is held
+	for (const char *why : { "the stage replication was reset", "the stage start rolled back", "a new stage starts" }) {
+		INFO(why);
+		REQUIRE(net.find(std::string("netServerNpcRemoveClear(\"") + why + "\");\n\tnetServerAuthorityHeldClear(\"" + why + "\");")
+			!= std::string::npos);
+	}
+}
