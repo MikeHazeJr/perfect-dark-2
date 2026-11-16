@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 SCHEMA_LEGACY = 1
 SCHEMA_GEOMETRY = 2
-SCHEMA_CURRENT = 3
+SCHEMA_VERTEX_CACHE = 3
+# B-1154: v4 adds "texture" rows (the source list's G_TEXTURE scale).
+SCHEMA_TEXTURE = 4
+SCHEMA_CURRENT = 4
 G_LIGHTING = 0x00020000
 G_TEXTURE_GEN = 0x00040000
 G_TEXTURE_GEN_LINEAR = 0x00080000
@@ -90,7 +93,8 @@ def validate_render_stream(
                 f"{legacy_schema!r}"
             )
     if (isinstance(schema, bool) or not isinstance(schema, int) or
-            schema not in {SCHEMA_LEGACY, SCHEMA_GEOMETRY, SCHEMA_CURRENT}):
+            schema not in {SCHEMA_LEGACY, SCHEMA_GEOMETRY,
+                           SCHEMA_VERTEX_CACHE, SCHEMA_TEXTURE}):
         raise RenderStreamError(
             "model.render.json has unsupported pd_schema_version "
             f"{schema!r}"
@@ -108,8 +112,10 @@ def validate_render_stream(
     allowed_commands = set(_BASE_COMMANDS)
     if schema >= SCHEMA_GEOMETRY:
         allowed_commands.update(_GEOMETRY_COMMANDS)
-    if schema >= SCHEMA_CURRENT:
+    if schema >= SCHEMA_VERTEX_CACHE:
         allowed_commands.update(_VERTEX_CACHE_COMMANDS)
+    if schema >= SCHEMA_TEXTURE:
+        allowed_commands.add("texture")
 
     tri_faces: list[int] = []
     triangle_groups: list[str] = []
@@ -194,6 +200,17 @@ def validate_render_stream(
             geometry_known_by_group[group] = (
                 geometry_known_by_group.get(group, 0) | geometry_mask
             )
+            continue
+
+        if name == "texture":
+            for field in ("scale_s", "scale_t"):
+                value = command.get(field)
+                if (isinstance(value, bool) or not isinstance(value, int) or
+                        not 0 <= value <= 0xFFFF):
+                    raise RenderStreamError(
+                        f"model.render.json texture command {index} has "
+                        f"invalid {field} {value!r}"
+                    )
             continue
 
         if name == "vertex_load":
@@ -290,7 +307,7 @@ def validate_render_stream(
         vertex_known = _u32_array3(command, "vertex_geometry_known", index)
         cache_slots = (
             _u32_array3(command, "vertex_cache_slots", index)
-            if schema >= SCHEMA_CURRENT else None
+            if schema >= SCHEMA_VERTEX_CACHE else None
         )
         states = triangle_lighting.setdefault(group, [])
         for corner in range(3):
@@ -342,7 +359,7 @@ def validate_render_stream(
                     "has unrelocatable G_VTX geometry state"
                 )
             if not (corner_known & G_LIGHTING):
-                if (schema == SCHEMA_CURRENT and
+                if (schema >= SCHEMA_VERTEX_CACHE and
                         (group_render_modes or {}).get(group) == 3):
                     states.append("baseline")
                 else:

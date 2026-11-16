@@ -6,7 +6,8 @@ s32 modAssetRenderStreamSchemaSupported(s32 schema_version)
 {
 	return schema_version == MODASSET_RENDER_STREAM_SCHEMA_LEGACY ||
 		schema_version == MODASSET_RENDER_STREAM_SCHEMA_GEOMETRY ||
-		schema_version == MODASSET_RENDER_STREAM_SCHEMA_CURRENT;
+		schema_version == MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE ||
+		schema_version == MODASSET_RENDER_STREAM_SCHEMA_TEXTURE;
 }
 
 s32 modAssetRenderStreamResolveSchema(s32 has_numeric_schema,
@@ -42,17 +43,21 @@ modasset_render_stream_op_t modAssetRenderStreamOpFromText(
 			return MODASSET_RENDER_OP_GEOMETRY_CLEAR;
 		}
 	}
-	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_CURRENT &&
+	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE &&
 			strcmp(text, "vertex_load") == 0) {
 		return MODASSET_RENDER_OP_VERTEX_LOAD;
 	}
-	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_CURRENT &&
+	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE &&
 			strcmp(text, "vertex_scope") == 0) {
 		return MODASSET_RENDER_OP_VERTEX_SCOPE;
 	}
-	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_CURRENT &&
+	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE &&
 			strcmp(text, "vertex_cache_reset") == 0) {
 		return MODASSET_RENDER_OP_VERTEX_CACHE_RESET;
+	}
+	if (schema_version >= MODASSET_RENDER_STREAM_SCHEMA_TEXTURE &&
+			strcmp(text, "texture") == 0) {
+		return MODASSET_RENDER_OP_TEXTURE;
 	}
 
 	return MODASSET_RENDER_OP_INVALID;
@@ -153,7 +158,8 @@ s32 modAssetRenderStreamCompilerVertexBaseline(s32 render_mode_type,
 s32 modAssetRenderStreamVertexScopeAllowed(s32 schema_version,
 		s32 render_mode_type)
 {
-	return schema_version == MODASSET_RENDER_STREAM_SCHEMA_CURRENT &&
+	return schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE &&
+		modAssetRenderStreamSchemaSupported(schema_version) &&
 		modAssetRenderStreamCompilerVertexBaseline(render_mode_type,
 			NULL, NULL);
 }
@@ -161,7 +167,8 @@ s32 modAssetRenderStreamVertexScopeAllowed(s32 schema_version,
 s32 modAssetRenderStreamVertexCacheResetAllowed(s32 schema_version,
 		s32 render_mode_type)
 {
-	return schema_version == MODASSET_RENDER_STREAM_SCHEMA_CURRENT &&
+	return schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE &&
+		modAssetRenderStreamSchemaSupported(schema_version) &&
 		render_mode_type != 3;
 }
 

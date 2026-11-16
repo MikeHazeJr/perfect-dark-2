@@ -269,7 +269,7 @@ CONTRACT_SENTINELS = {
     "tools/pdmesh_render_stream.py": [
         "Shared validation for editable",
         "SCHEMA_GEOMETRY = 2",
-        "SCHEMA_CURRENT = 3",
+        "SCHEMA_CURRENT = 4",
         "pd2.mesh.render.v1",
         "VERTEX_LOAD_GEOMETRY_MASK",
         "VERTEX_CACHE_SLOTS = 64",
