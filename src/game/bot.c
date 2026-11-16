@@ -94,6 +94,16 @@ static bool s_BotRetiredLogged = false;
 /* B-1202: one log line per match when a frame passes a simulant twice. */
 static bool s_BotRepeatPassLogged = false;
 
+/* T-NETWORKING-011: the goals a simulant chooses, for the objective smokes (a
+ * networked simulant never fetched the briefcase). BOT.CMD when its command
+ * changes; BOT.GOAL when it starts or fails a route to an item or a scenario
+ * prop other than the last one logged for it, or with the other outcome.
+ * Capped per match so a simulant that keeps failing cannot flood the log. */
+#define BOT_GOAL_LOG_CAP 200
+static s32 s_BotGoalLogLines = 0;
+static struct prop *s_BotGoalLastProp[MAX_MPCHRS];
+static s8 s_BotGoalLastRouted[MAX_MPCHRS];
+
 s32 botIsPuppetTick(void)
 {
 	return s_BotPuppetTick;
@@ -138,6 +148,9 @@ void botSpawnWaveReset(void)
 	s_BotSpawnFailsafeDone = false;
 	s_BotSpawnFailsafeRetryPending = false;
 	s_BotRepeatPassLogged = false;
+	s_BotGoalLogLines = 0;
+	memset(s_BotGoalLastProp, 0, sizeof(s_BotGoalLastProp));
+	memset(s_BotGoalLastRouted, -1, sizeof(s_BotGoalLastRouted));
 	memset(s_BotSlotFrozen, 0, sizeof(s_BotSlotFrozen));
 }
 
@@ -2448,8 +2461,46 @@ void botApplyHold(struct chrdata *chr, struct coord *pos, RoomNum *room, f32 ang
 
 void botApplyScenarioCommand(struct chrdata *chr, u32 command)
 {
+	if (chr->aibot->command != command && s_BotGoalLogLines < BOT_GOAL_LOG_CAP) {
+		s_BotGoalLogLines++;
+		sysLogPrintf(LOG_NOTE, "BOT.CMD: simulant %d command %d -> %d at %.1f s scenario=%d teamisonlyai=%d netmode=%d",
+			mpPlayerGetIndex(chr), (s32)chr->aibot->command, (s32)command, g_Vars.lvframe60 / 60.0f,
+			(s32)g_MpSetup.scenario, (s32)chr->aibot->teamisonlyai, (s32)g_NetMode);
+	}
+
 	chr->aibot->command = command;
 	chr->aibot->forcemainloop = true;
+}
+
+/* T-NETWORKING-011: log a simulant's new item or scenario goal and whether
+ * chrGoToProp gave it a route (ACT_GOPOS); see s_BotGoalLogLines. */
+static void botLogGoal(struct chrdata *chr, struct prop *goal, const char *what)
+{
+	const s32 slot = mpPlayerGetIndex(chr);
+	const s8 routed = chr->actiontype == ACT_GOPOS ? 1 : 0;
+	s32 objtype = -1;
+
+	if (goal == NULL || slot < 0 || slot >= MAX_MPCHRS || s_BotGoalLogLines >= BOT_GOAL_LOG_CAP) {
+		return;
+	}
+
+	if (s_BotGoalLastProp[slot] == goal && s_BotGoalLastRouted[slot] == routed) {
+		return;
+	}
+
+	s_BotGoalLastProp[slot] = goal;
+	s_BotGoalLastRouted[slot] = routed;
+	s_BotGoalLogLines++;
+
+	if ((goal->type == PROPTYPE_OBJ || goal->type == PROPTYPE_WEAPON) && goal->obj) {
+		objtype = goal->obj->type;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BOT.GOAL: simulant %d %s prop %u type=%d obj=%d at (%.0f,%.0f,%.0f) room=%d from (%.0f,%.0f,%.0f) room=%d: route %s at %.1f s cmd=%d netmode=%d",
+		slot, what, (unsigned)goal->syncid, (s32)goal->type, objtype,
+		goal->pos.x, goal->pos.y, goal->pos.z, (s32)goal->rooms[0],
+		chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z, (s32)chr->prop->rooms[0],
+		routed ? "started" : "refused", g_Vars.lvframe60 / 60.0f, (s32)chr->aibot->command, (s32)g_NetMode);
 }
 
 void botDisarm(struct chrdata *chr, struct prop *attackerprop)
@@ -4652,6 +4703,7 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->gotoprop) {
 					chrGoToProp(chr, aibot->gotoprop, GOPOSFLAG_RUN);
 					chr->myaction = newaction;
+					botLogGoal(chr, aibot->gotoprop, "fetches item");
 				}
 			} else if (newaction == MA_AIBOTATTACK) {
 				if (chr->myaction != MA_AIBOTATTACK) {
@@ -4702,6 +4754,7 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->gotoprop) {
 					chr->myaction = newaction;
 					chrGoToProp(chr, aibot->gotoprop, GOPOSFLAG_RUN);
+					botLogGoal(chr, aibot->gotoprop, "goes for");
 				}
 			} else if (newaction == MA_AIBOTDOWNLOAD) {
 				chr->myaction = newaction;

@@ -574,6 +574,12 @@ void mpCalculateTeamIsOnlyAi(void)
 				}
 			}
 		}
+
+		/* T-NETWORKING-011: a simulant chooses scenario goals by itself only
+		 * when no human shares its team (bot.c, the commandtimer60 block). */
+		sysLogPrintf(LOG_NOTE, "BOT.TEAM: simulant %d team=%d teamisonlyai=%d players=%d chrs=%d teams=%d netmode=%d",
+			i, (s32)g_MpAllChrPtrs[i]->team, (s32)g_MpAllChrPtrs[i]->aibot->teamisonlyai, playercount,
+			g_MpNumChrs, (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 1 : 0, (s32)g_NetMode);
 	}
 }
 
