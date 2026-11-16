@@ -1,6 +1,6 @@
 # Bug Tracker
 
-## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed in code, not yet run)
+## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; uplink checked in play)
 
 Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of
 `mp_hacker_central_net_carrier_death_smoke` (d44b87d0, base 7, `results-20261116T212817Z.json`, 102/104): the host
@@ -28,6 +28,13 @@ real weapon with no session id (`NET: weapon N ('<id>') has no session catalog i
 forbidden in the four Hacker Central, Hold the Briefcase and Capture the Case net smokes. Co-op and counter-op
 manifests scan the stage's setup and AI lists for weapons (`manifestBuildMission`), a separate path. Pinned by
 `[b1272]` in `tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+**Checked in play for the uplink (b2a2a720, base 7, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`):** the host's manifest listed it (`MANIFEST-HOST: scenario 2 token weapon 46 as
+'base:datauplink'`), the host killed the first carrier at 23.4 s and announced the replacement (syncid 48), and the
+client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and showed simulant 4 as the holder; no
+`has no session catalog id` warning. The briefcase's twin, `mp_hold_the_briefcase_net_carrier_death_smoke`, runs
+next.
 
 ## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, open, intermittent: the original's rule; fix waits for Mike)
 
@@ -69,6 +76,16 @@ still armed: `not holding the uplink`), was unarmed in `MA_AIBOTDOWNLOAD` 0.1 s 
 action=46`) and completed four downloads (85.2, 105.3, 125.3 and 145.3 s). The host and the client both rank it
 first with 8 points. As the cause says, it takes a simulant reaching range facing away (171 degrees in the a669d118
 run) to stand for good; the fix question for Mike stands.
+
+**Caught by the diagnostic (b2a2a720, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`; the smoke does not need a score):** after the host killed the first carrier,
+simulant 4 took the replacement uplink and started a download at 47.3 s (`in progress ... angle=43 weapon=1
+action=46`), drifted into the terminal (`not facing the terminal at 49.2 s xz=46 ... angle=89`), which cancelled it,
+and from 50.9 s to the end of the match stood 183 to 198 units away facing 160 to 175 degrees away: `holds the
+uplink, not downloading (not facing the terminal) ... action=46 actiontype=1 inrange=4 target=-1 weapon=1`, every
+10 s. That is the deadlock in the cause: in `MA_AIBOTDOWNLOAD`, standing (`ACT_STAND`), unarmed, counted in range,
+never turned toward the terminal. Nobody scored in that match. So a simulant also gets there by losing its facing
+during a download, not only by arriving facing away.
 
 ## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
 
