@@ -1244,6 +1244,15 @@ typedef struct scenario_source_graph_state {
 	s32 mission_phase_node_count;
 	char mission_phase_state[32];
 	s32 mission_phase_delivered; /* MISSION_GRAPH_PHASE_* last delivered as an event */
+	/* trigger-volume-events.md: the boxes event.volume.* names, bound at
+	 * activation, and which players are inside each (a bit per player). */
+	s32 mission_volume_count;
+	struct {
+		const char *id; /* the program's string */
+		f32 min[3];
+		f32 max[3];
+		u32 inside;
+	} mission_volumes[MISSION_GRAPH_MAX_VOLUMES];
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
 	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
@@ -9422,6 +9431,45 @@ static const asset_entry_t *s_findMissionForScenario(
 	return match.archive_match;
 }
 
+/* trigger-volume-events.md: binds every volume the mission program's
+ * event.volume.* nodes name to its box in the stage's volumes.json. Returns
+ * 0 with the reason when one is missing or not an aabb. */
+static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
+{
+	const s32 count = missionGraphProgramVolumeCount(s_ActiveScenarioGraphs.mission_program);
+
+	s_ActiveScenarioGraphs.mission_volume_count = 0;
+	for (s32 i = 0; i < count && i < MISSION_GRAPH_MAX_VOLUMES; i++) {
+		const char *id = missionGraphProgramVolumeAt(s_ActiveScenarioGraphs.mission_program, i);
+		const scenario_source_volume_row_t *row = NULL;
+
+		for (s32 v = 0; id && s_ActiveScenarioGraphs.level_volumes
+				&& v < s_ActiveScenarioGraphs.level_volume_count; v++) {
+			if (strcmp(s_ActiveScenarioGraphs.level_volumes[v].id, id) == 0) {
+				row = &s_ActiveScenarioGraphs.level_volumes[v];
+				break;
+			}
+		}
+		if (!row || strcmp(row->shape, "aabb") != 0) {
+			snprintf(error, error_size,
+				"event.volume.* names volume '%s', which is not a box of the stage's volumes.json",
+				id ? id : "?");
+			return 0;
+		}
+		s_ActiveScenarioGraphs.mission_volumes[i].id = id;
+		memcpy(s_ActiveScenarioGraphs.mission_volumes[i].min, row->min, sizeof(row->min));
+		memcpy(s_ActiveScenarioGraphs.mission_volumes[i].max, row->max, sizeof(row->max));
+		s_ActiveScenarioGraphs.mission_volumes[i].inside = 0;
+		s_ActiveScenarioGraphs.mission_volume_count = i + 1;
+	}
+	if (count > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: bound %d trigger volume(s) of '%s' backend=graph.mission.volume+volumes.json",
+			count, s_ActiveScenarioGraphs.mission_id);
+	}
+	return 1;
+}
+
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp)
 {
@@ -13495,6 +13543,14 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 				break;
 			}
 		}
+	}
+	/* trigger-volume-events.md: every volume an event names must be a box
+	 * of the stage's volumes.json. */
+	if (s_ActiveScenarioGraphs.mission_program && !s_missionGraphBindVolumes(
+			s_ActiveScenarioGraphs.mission_program_error,
+			sizeof(s_ActiveScenarioGraphs.mission_program_error))) {
+		missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+		s_ActiveScenarioGraphs.mission_program = NULL;
 	}
 	if (s_ActiveScenarioGraphs.mission_program) {
 		sysLogPrintf(LOG_NOTE,
@@ -34665,6 +34721,63 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
  * mission graph as event.mission.phase_changed, once per change, after the
  * objectives' own events and never inside another event's walk (only
  * objectivesCheckAll calls this). load and end are not delivered. */
+/* trigger-volume-events.md: from the objectives check, after the phase
+ * event: each player who went into or out of a bound volume since the last
+ * check fires event.volume.entered or event.volume.left. The caller passes
+ * the players' positions (present[p] 0 for a player with no prop) and
+ * delivers nothing on a networked client (the host's graph decides).
+ * Returns the modules run. */
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	s32 total = 0;
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program
+			|| s_ActiveScenarioGraphs.mission_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	for (s32 v = 0; v < s_ActiveScenarioGraphs.mission_volume_count; v++) {
+		for (s32 p = 0; p < count && p < 32; p++) {
+			const u32 bit = 1u << p;
+			mission_graph_event_t event;
+			s32 inside = 0;
+			s32 ran;
+
+			if (present[p]) {
+				const struct coord *pos = &positions[p];
+				const f32 *min = s_ActiveScenarioGraphs.mission_volumes[v].min;
+				const f32 *max = s_ActiveScenarioGraphs.mission_volumes[v].max;
+
+				inside = pos->x >= min[0] && pos->x <= max[0] && pos->y >= min[1]
+					&& pos->y <= max[1] && pos->z >= min[2] && pos->z <= max[2];
+			}
+			if (inside == ((s_ActiveScenarioGraphs.mission_volumes[v].inside & bit) != 0)) {
+				continue;
+			}
+			if (inside) {
+				s_ActiveScenarioGraphs.mission_volumes[v].inside |= bit;
+			} else {
+				s_ActiveScenarioGraphs.mission_volumes[v].inside &= ~bit;
+			}
+			memset(&event, 0, sizeof(event));
+			event.kind = inside ? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
+			event.objective_index = -1;
+			event.volume = s_ActiveScenarioGraphs.mission_volumes[v].id;
+			event.player = p;
+			ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+				missionGraphModuleRun, NULL);
+			sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+				"MISSION.GRAPH: %s '%s' volume=%s player=%d modules=%d backend=graph.mission.runner",
+				inside ? "event.volume.entered" : "event.volume.left",
+				s_ActiveScenarioGraphs.mission_id, event.volume, p, ran);
+			if (ran > 0) {
+				total += ran;
+			}
+		}
+	}
+	return total;
+}
+
 s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
 {
 	mission_graph_event_t event;

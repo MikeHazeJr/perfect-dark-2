@@ -2626,7 +2626,10 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
 # pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
 # the module table in port/src/mission_graph_modules.c.
 MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
-                             "event.mission.continue", "event.mission.phase_changed"}
+                             "event.mission.continue", "event.mission.phase_changed",
+                             "event.volume.entered", "event.volume.left"}
+# trigger-volume-events.md: each names one volume of the stage's volumes.json.
+MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
                                 "event.mission.phase_changed"}
 MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase"}
@@ -2674,6 +2677,13 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
             errors.append(f"{where} node {node_id!r} objective must be a string")
         if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
             errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+        if kind in MISSION_GRAPH_VOLUME_EVENTS:
+            if "objective" in node:
+                errors.append(f"{where} volume event {node_id!r} has no objective to filter")
+            volume = node.get("volume")
+            if not isinstance(volume, str) or not volume or volume == "any":
+                errors.append(f"{where} volume event {node_id!r} needs \"volume\": "
+                              "the volume_id of a volumes.json row")
     edges = graph.get("edges", [])
     if not isinstance(edges, list):
         return errors + [f"{where} edges must be an array"]

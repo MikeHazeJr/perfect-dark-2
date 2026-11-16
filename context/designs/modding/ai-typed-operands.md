@@ -3,8 +3,8 @@
 Status: CORE, 2026-11-16. Design for the remaining target of the week note's
 "AI commands and cutscene triggers" row ("typed operands, parsed nodes,
 trigger-volume events"), under decision 1 (players can recreate any existing
-behavior with the nodes). Slices 1 and 2 built (see "Slice 1 as built" and
-"Slice 2 as built"); slices 3-4 not built. The facts below come from a read-only survey of `week-pd/core`
+behavior with the nodes). Slices 1, 2 and 4 built (see "Slice 1 as built",
+"Slice 2 as built" and trigger-volume-events.md); slice 3 not built. The facts below come from a read-only survey of `week-pd/core`
 (0d2022b8) and the extracted base 7 data.
 
 ## Where it stands
@@ -78,9 +78,9 @@ AI editing and hand-written lists need named, typed parameters.
    `pd2.scenario.ai.lists.v2`); a v1 row is refused with a message naming v2.
    Kinds move again. A schema notice in the week note first.
 4. Trigger-volume events: `event.volume.entered` and `event.volume.left` on
-   `volumes.json` rows, delivered by the level graph runtime, so a list (or
-   a module) can react without polling `if_chr_in_room`. Its own design; the
-   base game keeps polling, which the AI lists already express.
+   `volumes.json` rows, so a mission graph can react without polling
+   `if_chr_in_room`; the base game keeps polling, which the AI lists already
+   express. Built in the mission graph runner (trigger-volume-events.md).
 
 ## Slice 1 as built
 

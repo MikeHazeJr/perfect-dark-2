@@ -939,6 +939,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_mission_outcome_static.cpp
   # Mission flow slice 2: the phase event and gate in the runner.
   ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_phase.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_volume.cpp
   # Global AI lists slice 2, step 2: the base:ai_global writer.
   ${CMAKE_SOURCE_DIR}/tests/test_global_ailists_bank_static.cpp
   # Decision 3: stage-wide rules in stage.json (weather first).

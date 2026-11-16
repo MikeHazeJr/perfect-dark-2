@@ -1,5 +1,6 @@
 // Mission graph runner (decision 2, CORE, 2026-11-15). See
 // port/include/mission_graph_runner.h for the contract.
+#include <algorithm>
 #include "mission_graph_runner.h"
 
 #include "modasset_gltf_document.h"
@@ -30,6 +31,7 @@ struct Node {
 	std::string objective; // "" means any objective
 	int gate_status = -1;
 	int gate_phase = -1; // gate.mission.phase; -1 for an objective gate
+	std::string volume; // event.volume.*: the volumes.json volume_id
 	std::vector<Edge> out;
 };
 
@@ -39,6 +41,8 @@ const char *const kMissionContinueEvent = "event.mission.continue";
 const char *const kObjectiveStatusGate = "gate.objective.status";
 const char *const kMissionPhaseEvent = "event.mission.phase_changed";
 const char *const kMissionPhaseGate = "gate.mission.phase";
+const char *const kVolumeEnteredEvent = "event.volume.entered";
+const char *const kVolumeLeftEvent = "event.volume.left";
 
 void setError(char *err, size_t err_cap, const std::string &text)
 {
@@ -68,6 +72,7 @@ int statusFromText(const std::string &text)
 
 struct mission_graph_program {
 	std::vector<Node> nodes;
+	std::vector<std::string> volumes; // distinct event.volume.* volumes
 	int exec_edges = 0;
 	int modules = 0;
 };
@@ -133,6 +138,30 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 					? MISSION_GRAPH_EVENT_MISSION_COMPLETED
 					: compiled.kind == kMissionContinueEvent
 						? MISSION_GRAPH_EVENT_MISSION_CONTINUE : MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
+			} else if (compiled.kind == kVolumeEnteredEvent || compiled.kind == kVolumeLeftEvent) {
+				// trigger-volume-events.md: one named volume per node.
+				if (has_objective) {
+					setError(err, err_cap, "volume event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				if (!stringField(node, "volume", compiled.volume) || compiled.volume.empty() ||
+						compiled.volume == "any") {
+					setError(err, err_cap, "volume event '" + compiled.id +
+						"' needs \"volume\": the volume_id of a volumes.json row");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = compiled.kind == kVolumeEnteredEvent
+					? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
+				if (std::find(program->volumes.begin(), program->volumes.end(), compiled.volume) ==
+						program->volumes.end()) {
+					if (program->volumes.size() >= MISSION_GRAPH_MAX_VOLUMES) {
+						setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_VOLUMES) +
+							" volumes in volume events");
+						return nullptr;
+					}
+					program->volumes.push_back(compiled.volume);
+				}
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -290,6 +319,19 @@ extern "C" s32 missionGraphProgramModuleNodeCount(const mission_graph_program_t 
 	return program ? program->modules : 0;
 }
 
+extern "C" s32 missionGraphProgramVolumeCount(const mission_graph_program_t *program)
+{
+	return program ? static_cast<s32>(program->volumes.size()) : 0;
+}
+
+extern "C" const char *missionGraphProgramVolumeAt(const mission_graph_program_t *program, s32 index)
+{
+	if (!program || index < 0 || static_cast<size_t>(index) >= program->volumes.size()) {
+		return nullptr;
+	}
+	return program->volumes[static_cast<size_t>(index)].c_str();
+}
+
 extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind)
 {
 	if (!program) return 0;
@@ -353,10 +395,18 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 				event->phase > MISSION_GRAPH_PHASE_FAILED) {
 			return -1;
 		}
+	} else if (event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
+			event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->volume || !event->volume[0] ||
+				event->player < 0) {
+			return -1;
+		}
 	} else {
 		return -1;
 	}
 	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	const bool volume_event = event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
+		event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT;
 	try {
 		std::vector<char> reached(program->nodes.size(), 0);
 		std::vector<int> queue;
@@ -364,7 +414,8 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		bool refused = false;
 		for (const Node &root : program->nodes) {
 			if (root.type != NODE_EVENT || root.event_kind != event->kind ||
-					(objective_event && !objectiveMatches(root.objective, event))) {
+					(objective_event && !objectiveMatches(root.objective, event)) ||
+					(volume_event && root.volume != event->volume)) {
 				continue;
 			}
 			for (const Edge &edge : root.out) queue.push_back(edge.target);

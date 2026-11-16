@@ -89,6 +89,12 @@ s32 scenarioSourceMissionObjectiveRequired(s32 index);
  * mission from its graph (og.mission.end_*); the outcome a graph forced; and
  * whether the stage must end now (taken once, after the objectives check). */
 s32 scenarioSourceMissionGraphDeliverPhaseEvent(void);
+/* trigger-volume-events.md: players going into or out of the volumes the
+ * mission graph names; called from the objectives check after the phase
+ * with every player's position (present[p] 0 when it has no prop). */
+struct coord;
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
 s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
 s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
 s32 scenarioSourceMissionGraphTakePendingEnd(void);

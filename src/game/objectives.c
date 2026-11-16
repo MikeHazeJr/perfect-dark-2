@@ -988,6 +988,21 @@ void objectivesCheckAll(void)
 		 * graph as event.mission.phase_changed, after the objectives' own
 		 * events. */
 		scenarioSourceMissionGraphDeliverPhaseEvent();
+		/* trigger-volume-events.md: a player going into or out of a box the
+		 * mission graph names; the host's graph decides on a network game. */
+		if (g_NetMode != NETMODE_CLIENT) {
+			struct coord positions[MAX_PLAYERS];
+			s32 present[MAX_PLAYERS];
+			const s32 count = PLAYERCOUNT() < MAX_PLAYERS ? PLAYERCOUNT() : MAX_PLAYERS;
+
+			for (i = 0; i < count; i++) {
+				present[i] = g_Vars.players[i] && g_Vars.players[i]->prop;
+				if (present[i]) {
+					positions[i] = g_Vars.players[i]->prop->pos;
+				}
+			}
+			scenarioSourceMissionGraphDeliverVolumeEvents(positions, present, count);
+		}
 	}
 }
 

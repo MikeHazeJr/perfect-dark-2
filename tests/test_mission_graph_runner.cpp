@@ -524,7 +524,8 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 		return out;
 	};
 	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == std::set<std::string>{ "event.objective.status_changed",
-		"event.mission.completed", "event.mission.continue", "event.mission.phase_changed" });
+		"event.mission.completed", "event.mission.continue", "event.mission.phase_changed",
+		"event.volume.entered", "event.volume.left" });
 	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == std::set<std::string>{ "gate.objective.status",
 		"gate.mission.phase" });
 	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == std::set<std::string>{ "og.hud.objective_status_message",
