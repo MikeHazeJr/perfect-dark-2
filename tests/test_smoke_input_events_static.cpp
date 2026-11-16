@@ -1392,3 +1392,87 @@ TEST_CASE("a template run seeds every per-process install from the template",
     requireContains(staging, "$explicitProcessState = $true");
     requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
 }
+
+namespace {
+// The text of the JSON array whose '[' is at text[open], skipping strings.
+std::string jsonArrayAt(const std::string &text, size_t open)
+{
+    int depth = 0;
+    bool in_string = false;
+    for (size_t i = open; i < text.size(); i++) {
+        const char c = text[i];
+        if (in_string) {
+            if (c == '\\') {
+                i++;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '[') {
+            depth++;
+        } else if (c == ']' && --depth == 0) {
+            return text.substr(open, i - open + 1);
+        }
+    }
+    return std::string();
+}
+}
+
+// The harness stable-sorts a fixture's events by at_ms, so an entry written
+// after a later-timed one runs before it. network_counterop_agent_death_host
+// wrote its results wait (at_ms 0) after the kill (15000): the wait would have
+// run first and timed out. The harness now refuses such a sequence, and every
+// checked-in sequence is written in the order it runs.
+TEST_CASE("smoke input sequences are written in the at_ms order they run in",
+    "[smoke][tooling][fixtures][static]")
+{
+    namespace fs = std::filesystem;
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string parse = requireSlice(harness,
+        "} else if (!strcmp(field, \"input_sequence\")) {",
+        "} else if (!strcmp(field, \"screenshots\")) {");
+    const char *guard = "if (seq_index > 0 && ev->at_ms < prev_at_ms) {";
+    requireContains(parse, guard);
+    requireContains(parse, "events run in at_ms order, so author them in that order");
+    REQUIRE(parse.find(guard) < parse.find("s_State.event_count++;"));
+    REQUIRE(harness.find(guard) < harness.find("Stable-sort events by at_ms"));
+
+    const std::regex key(R"REGEX("input_sequence"\s*:\s*\[)REGEX");
+    const std::regex at_ms(R"REGEX("at_ms"\s*:\s*([0-9]+))REGEX");
+    const std::sregex_iterator none;
+    size_t sequences = 0;
+    for (const char *dir : {"tests", "fixtures"}) {
+        const fs::path root = fs::path(PD_SOURCE_DIR) / "tools" / "smoke-verify" / dir;
+        REQUIRE(fs::is_directory(root));
+        for (const fs::directory_entry &entry : fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            REQUIRE(in.good());
+            std::ostringstream out;
+            out << in.rdbuf();
+            const std::string text = out.str();
+            for (std::sregex_iterator it(text.begin(), text.end(), key); it != none; ++it) {
+                const std::string array = jsonArrayAt(text,
+                    (size_t)it->position(0) + (size_t)it->length(0) - 1);
+                CAPTURE(entry.path().generic_string());
+                REQUIRE_FALSE(array.empty());
+                long long prev = -1;
+                int index = 0;
+                for (std::sregex_iterator a(array.begin(), array.end(), at_ms); a != none; ++a) {
+                    const long long value = std::stoll((*a)[1].str());
+                    CAPTURE(index, value, prev);
+                    REQUIRE(value >= prev);
+                    prev = value;
+                    index++;
+                }
+                sequences++;
+            }
+        }
+    }
+    REQUIRE(sequences > 100);
+}

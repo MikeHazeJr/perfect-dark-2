@@ -27,7 +27,10 @@
  *     - log "SMOKE: result=<reason> elapsed_ms=<N> events_fired=<M>"
  *     - exit(code)
  *
- * Event schema (input_sequence[] in the JSON test file):
+ * Event schema (input_sequence[] in the JSON test file). Entries run in at_ms
+ * order (ties in written order), and at_ms is script time, which stands still
+ * during a wait_until; write the entries in that order, since the harness
+ * refuses a sequence that goes back in time.
  *
  *   { "at_ms": N, "type": "wait" }
  *     -- inert marker; useful for sequencing comments / dwell.
@@ -1506,6 +1509,12 @@ static s32 smokeParseJson(const char *src)
             s_State.timeout_ms = (s32)(secs * 1000);
         } else if (!strcmp(field, "input_sequence")) {
             if (t.type == JT_LBRACKET) {
+                /* The events run in at_ms order (stable sort below), so an
+                 * entry authored after a later-timed one would silently run
+                 * before it: a wait written after an action would run first.
+                 * Refuse a sequence that goes back in time. */
+                s32 seq_index = 0;
+                s32 prev_at_ms = 0;
                 t = j_next(&p);
                 while (t.type != JT_RBRACKET && t.type != JT_EOF) {
                     if (t.type == JT_LBRACE) {
@@ -1518,6 +1527,14 @@ static s32 smokeParseJson(const char *src)
                             if (!smokeParseEvent(&p, ev)) {
                                 return 0;
                             }
+                            if (seq_index > 0 && ev->at_ms < prev_at_ms) {
+                                sysLogPrintf(LOG_ERROR,
+                                    "SMOKE: input_sequence entry %d has at_ms=%d, before the entry above it (at_ms=%d); events run in at_ms order, so author them in that order",
+                                    seq_index, ev->at_ms, prev_at_ms);
+                                return 0;
+                            }
+                            prev_at_ms = ev->at_ms;
+                            seq_index++;
                             s_State.event_count++;
                         }
 					} else {
