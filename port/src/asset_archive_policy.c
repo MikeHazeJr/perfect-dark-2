@@ -45,7 +45,13 @@ typedef struct asset_archive_mem_ref_ctx {
 } asset_archive_mem_ref_ctx_t;
 
 #define ASSET_ARCHIVE_MAX_REF_DEPTH 8
-#define ASSET_ARCHIVE_TEXT_SCAN_LIMIT (4u * 1024u * 1024u)
+/* B-1112: a text member the validator scans for references (.ini, .obj, .mtl,
+ * .json, the manifest) is read whole; it has been extracted whole by then
+ * anyway. A member above this size refuses the archive instead of passing
+ * unchecked, as everything above the old 4 MiB limit did. The largest such
+ * member in the base archives is a 5.03 MiB collision.obj (Area 51 stages,
+ * 2026-11-15), 19 of 83,268 were over 4 MiB, none over 16 MiB. */
+#define ASSET_ARCHIVE_TEXT_SCAN_LIMIT (128u * 1024u * 1024u)
 
 static const asset_archive_family_rule_t s_FamilyRules[] = {
 	{ ".pdweapon",     "weapon.ini",     NULL,        ASSET_WEAPON },
@@ -85,6 +91,17 @@ static void setErr(char *err, size_t err_cap, const char *fmt, ...)
 	vsnprintf(err, err_cap, fmt, ap);
 	va_end(ap);
 	err[err_cap - 1] = '\0';
+}
+
+/* B-1112: a text member too large to scan refuses the archive. */
+static s32 refuseOversizedText(const char *archive, const char *entry,
+                               u32 size, char *err, size_t err_cap)
+{
+	setErr(err, err_cap,
+		"%s has a text member too large to check for references: %s (%u bytes, limit %u)",
+		archive ? archive : "(archive)", entry ? entry : "(entry)",
+		(unsigned)size, (unsigned)ASSET_ARCHIVE_TEXT_SCAN_LIMIT);
+	return -1;
 }
 
 static s32 endsWithNoCase(const char *value, const char *suffix)
@@ -1000,7 +1017,10 @@ static s32 validateOpenedManifestDependencies(mod_archive_t *archive,
 	if (idx < 0) return 0;
 	u32 size = 0;
 	char *text = extractOpenedEntryTextAlloc(archive, idx, &size);
-	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) {
+		return refuseOversizedText(archive_path, ASSET_ARCHIVE_META_MANIFEST,
+			size, err, err_cap);
+	}
 	if (!text) return 0;
 	s32 r = validateManifestDependencyText(archive_path, text,
 		openedDependencyArchiveExists, archive, err, err_cap);
@@ -1014,13 +1034,20 @@ static s32 validateMemManifestDependencies(const void *archive_bytes,
                                            char *err, size_t err_cap)
 {
 	u32 size = 0;
+	const char *manifest = ASSET_ARCHIVE_META_MANIFEST_PATH;
 	char *text = extractMemEntryTextAlloc(archive_bytes, archive_size,
-		ASSET_ARCHIVE_META_MANIFEST_PATH, &size);
-	if (!text) {
+		manifest, &size);
+	/* Fall back to the other spelling only when the first is absent: an
+	 * oversized first manifest must not be skipped by a second read. */
+	if (!text && size == 0) {
+		manifest = ASSET_ARCHIVE_META_MANIFEST;
 		text = extractMemEntryTextAlloc(archive_bytes, archive_size,
-			ASSET_ARCHIVE_META_MANIFEST, &size);
+			manifest, &size);
 	}
-	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) {
+		return refuseOversizedText(archive_name, manifest, size,
+			err, err_cap);
+	}
 	if (!text) return 0;
 	mem_dependency_exists_ctx_t ctx;
 	ctx.archive_bytes = archive_bytes;
@@ -1245,7 +1272,10 @@ static s32 validateOpenedTextEntryRefs(mod_archive_t *archive,
 	if (idx < 0) return 0;
 	u32 size = 0;
 	char *text = extractOpenedEntryTextAlloc(archive, idx, &size);
-	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) {
+		return refuseOversizedText(archive_path, entry_name, size,
+			err, err_cap);
+	}
 	if (!text) return 0;
 	s32 r = 0;
 	if (endsWithNoCase(entry_name, ".ini")) {
@@ -1288,7 +1318,10 @@ static s32 validateMemTextEntryRefs(const void *archive_bytes, u32 archive_size,
 	u32 size = 0;
 	char *text = extractMemEntryTextAlloc(archive_bytes, archive_size,
 		entry_name, &size);
-	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) return 0;
+	if (!text && size > ASSET_ARCHIVE_TEXT_SCAN_LIMIT) {
+		return refuseOversizedText(archive_name, entry_name, size,
+			err, err_cap);
+	}
 	if (!text) return 0;
 	s32 r = 0;
 	if (endsWithNoCase(entry_name, ".ini")) {

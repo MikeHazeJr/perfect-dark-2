@@ -3430,6 +3430,39 @@ or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
 
 ---
 
+## SP-86: An export version moves but the folder fast cache that skips it does not
+
+**Severity: HIGH when it hits - the new extractor runs, reports success, and
+writes nothing, so a base made with it silently keeps the old output.**
+
+An extractor that stamps each archive with an export version and also keeps a
+whole-folder fast cache (`romExtractPdFastCacheCanSkip` with its own
+`*_FAST_CACHE_KIND`) checks the folder stamp first. If a change bumps only the
+per-archive version, the folder skip still matches (same kind, same file
+count, sizes and times) and the per-archive check never runs.
+
+**Known instances:**
+
+- B-1154 follow-up (fixed 2026-11-16, `week-pd/core`): the mesh export version
+  gained `_texscale_b1154` but `ROMEXTRACT_PDMESH_FAST_CACHE_KIND` did not, so
+  the first base 7 kept all 733 meshes at render schema v3 (its mesh census
+  showed no texture rows). The kind is now built from the export version
+  label, so they cannot drift again.
+- Checked, not affected: arenas and scenarios share one skip that needs both
+  kinds to match, so a scenario kind bump rewrites the arenas too; bodies,
+  heads, characters and weapons have no folder skip and compare each nested
+  mesh copy with the current mesh archive.
+
+**Rule:** a folder fast-cache kind must change whenever anything its skip
+vouches for changes. Build the kind from the version macros it depends on
+instead of keeping two strings in step by hand, and after any extractor
+change, check the census of what a fresh base actually holds, not just that
+the run passed.
+
+**Search:**
+- `rg -n 'FAST_CACHE_KIND|EXPORT_VERSION' port/src/romextract_*.c`, then for
+  each extractor with both, check that the kind changes with the version.
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

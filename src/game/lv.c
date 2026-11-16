@@ -471,6 +471,20 @@ static s32 lvRollbackCommittedPlayers(
 	return rolled_back;
 }
 
+/* The hub rule (CORE, 2026-11-15): whether the current stage is a hub the
+ * player spends time in between missions. A scenario-source stage says so in
+ * its stage.json ("hub": true); a ROM stage is a hub when it is the Carrington
+ * Institute, as the game checked. See scenario_stage_rules.h for what a hub
+ * changes. */
+bool lvStageIsHub(void)
+{
+	if (bgUsesScenarioSource()) {
+		return scenarioSourceStageIsHub() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_CITRAINING;
+}
+
 bool lvReset(s32 stagenum)
 {
 	s32 i;
@@ -813,15 +827,23 @@ bool lvReset(s32 stagenum)
 	weatherReset();
 	lvResetMiscSfx();
 
-	switch (g_Vars.stagenum) {
-	case STAGE_ESCAPE:
-	case STAGE_EXTRACTION:
-	case STAGE_INFILTRATION:
-	case STAGE_DEFECTION:
-	case STAGE_ATTACKSHIP:
-	case STAGE_TEST_OLD:
-		starsReset();
-		break;
+	/* Decision 1: a stage built from scenario source has a starfield when its
+	 * stage.json has a stars rule; a ROM stage keeps the stage list. */
+	if (bgUsesScenarioSource()) {
+		if (scenarioSourceStageStars(NULL)) {
+			starsReset();
+		}
+	} else {
+		switch (g_Vars.stagenum) {
+		case STAGE_ESCAPE:
+		case STAGE_EXTRACTION:
+		case STAGE_INFILTRATION:
+		case STAGE_DEFECTION:
+		case STAGE_ATTACKSHIP:
+		case STAGE_TEST_OLD:
+			starsReset();
+			break;
+		}
 	}
 
 	func0f0099a4();

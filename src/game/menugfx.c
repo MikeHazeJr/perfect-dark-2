@@ -21,6 +21,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/game_006900.h"
+#include "game/endscreen.h"
 #include "game/bondgun.h"
 #include "game/tex.h"
 #include "game/savebuffer.h"
@@ -1707,7 +1708,7 @@ Gfx *menugfxRenderBgSuccess(Gfx *gdl)
 	f32 speed = 5.0f;
 	bool gray = false;
 
-	if (g_StageIndex == STAGEINDEX_DEFENSE) {
+	if (endscreenStageOutcomeUnknown()) {
 		speed = 2.0f;
 		gray = true;
 	}

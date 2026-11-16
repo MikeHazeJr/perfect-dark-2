@@ -11,6 +11,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/corpsestore.h"
+#include "game/lv.h"
 #include "game/chr.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"
@@ -81,7 +82,7 @@ bool corpseStoreShouldFreeze(struct chrdata *chr)
 		return false;
 	}
 	/* Solo campaign only (MP keeps OG fading; the firing range recycles). */
-	if (g_Vars.normmplayerisrunning || g_Vars.stagenum == STAGE_CITRAINING) {
+	if (g_Vars.normmplayerisrunning || lvStageIsHub()) {
 		return false;
 	}
 	if (chr == NULL || chr->model == NULL || chr->prop == NULL) {

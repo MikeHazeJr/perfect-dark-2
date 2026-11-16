@@ -33,6 +33,10 @@
 #include "assetcatalog.h"
 #include "savefile.h"
 #include "system.h"
+#include "game/bg.h"
+#include "mission_graph_runner.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -402,7 +406,7 @@ char *endscreenMenuTextMissionStatus(struct menuitem *item)
 		return langGet(L_OPTIONS_293); // "Failed"
 	}
 
-	if (g_StageIndex == STAGEINDEX_DEFENSE) {
+	if (endscreenStageOutcomeUnknown()) {
 		return langGet(L_MPWEAPONS_062); // "Unknown"
 	}
 
@@ -423,7 +427,7 @@ char *endscreenMenuTextAgentStatus(struct menuitem *item)
 		return langGet(L_OPTIONS_290); // "Deceased"
 	}
 
-	if (g_StageIndex == STAGEINDEX_DEFENSE) {
+	if (endscreenStageOutcomeUnknown()) {
 		return langGet(L_MPWEAPONS_063); // "Missing"
 	}
 
@@ -478,6 +482,152 @@ char *endscreenMenuTextMissionTime(struct menuitem *item)
 	strcat(g_StringPointer, "\n");
 
 	return g_StringPointer;
+}
+
+/*
+ * Mission endings (CORE, 2026-11-15). On a stage built from scenario source,
+ * what a completed mission leads to and what its completion unlocks come from
+ * its mission graph (event.mission.continue and event.mission.completed, with
+ * og.mission.start_next_stage, og.mission.start_credits and
+ * og.progress.unlock_alt_title), and how it presents its outcome from the
+ * ending rule of its stage.json. A ROM stage keeps the original stage checks:
+ * Deep Sea goes straight on, Skedar Ruins to the credits and unlocks the
+ * alternate title, Defense's outcome is unknown.
+ */
+bool endscreenStageOutcomeUnknown(void)
+{
+	if (bgUsesScenarioSource()) {
+		scenario_stage_ending_t rule;
+
+		return scenarioSourceStageEnding(&rule) && rule.outcome_unknown;
+	}
+
+	return g_StageIndex == STAGEINDEX_DEFENSE;
+}
+
+static bool endscreenMissionContinuesDirectly(void)
+{
+	if (scenarioSourceMissionGraphOwnsEvents()) {
+		return scenarioSourceMissionGraphHandlesContinue() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_DEEPSEA || g_Vars.stagenum == STAGE_SKEDARRUINS;
+}
+
+/* Whether continuing from the completed mission's end screen starts the
+ * credits (the PC end screen labels its action Credits and offers it). */
+bool endscreenMissionLeadsToCredits(void)
+{
+	if (scenarioSourceMissionGraphOwnsEvents()) {
+		return scenarioSourceMissionGraphContinueStartsCredits() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_SKEDARRUINS;
+}
+
+bool endscreenCoopStageEndStartsNextStage(void)
+{
+	if (scenarioSourceMissionGraphOwnsEvents()) {
+		return scenarioSourceMissionGraphContinueStartsNextStage() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_DEEPSEA;
+}
+
+/* og.mission.start_next_stage from the end screen: the next solo stage starts
+ * at once; if it is not unlocked at this difficulty the end screen closes. */
+void endscreenStartNextSoloStage(void)
+{
+	if (!isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty)) {
+		menuPopDialog();
+		menuPopDialog();
+		return;
+	}
+
+	// Commit to starting next stage
+	g_MissionConfig.stageindex++;
+	// PC: guard — clamp to last valid solo stage to prevent OOB
+	if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+		g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+	}
+	missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
+
+	titleSetNextStage(g_MissionConfig.stagenum);
+
+	if (g_MissionConfig.iscoop) {
+		if (g_Vars.numaibuddies == 0) {
+			g_Vars.bondplayernum = 0;
+			g_Vars.coopplayernum = 1;
+			g_Vars.antiplayernum = -1;
+			setNumPlayers(2);
+		} else {
+			g_Vars.bondplayernum = 0;
+			g_Vars.coopplayernum = -1;
+			g_Vars.antiplayernum = -1;
+			setNumPlayers(1);
+		}
+	} else {
+		g_Vars.bondplayernum = 0;
+		g_Vars.coopplayernum = -1;
+		g_Vars.antiplayernum = -1;
+		setNumPlayers(1);
+	}
+
+	lvSetDifficulty(g_MissionConfig.difficulty);
+	titleSetNextMode(TITLEMODE_SKIP);
+	/* L-CO4: resolve stagenum from catalog at point of consumption */
+	{
+		catalog_stage_result_t r;
+		if (catalogResolveStage(g_MissionConfig.stage_id, &r)) {
+			mainChangeToStage(r.stagenum);
+		} else {
+			mainChangeToStage(g_MissionConfig.stagenum);
+		}
+	}
+	viBlack(true);
+}
+
+/* og.mission.start_credits: the credits start. */
+void endscreenStartCredits(void)
+{
+	missionSetStagenum(STAGE_CREDITS);
+	titleSetNextStage(g_MissionConfig.stagenum);
+	lvSetDifficulty(g_MissionConfig.difficulty);
+	titleSetNextMode(TITLEMODE_SKIP);
+	mainChangeToStage(g_MissionConfig.stagenum);
+	viBlack(true);
+}
+
+/* og.progress.unlock_alt_title: the alternate title screen is unlocked, once. */
+void endscreenUnlockAltTitle(void)
+{
+	if (g_AltTitleUnlocked == false) {
+		g_AltTitleUnlocked = true;
+#if VERSION >= VERSION_NTSC_1_0
+		*(s8 *)&g_AltTitleEnabled = true;
+#else
+		g_AltTitleEnabled = true;
+#endif
+		bossfileSave();
+	}
+}
+
+/* What continuing from a completed mission's end screen leads to. When the
+ * mission graph runs nothing (a module refused), the end screen closes rather
+ * than leaving the player on it. */
+static void endscreenRunMissionContinue(void)
+{
+	if (scenarioSourceMissionGraphOwnsEvents()) {
+		if (scenarioSourceMissionGraphMissionEvent(MISSION_GRAPH_EVENT_MISSION_CONTINUE,
+				MISSION_GRAPH_SEAM_ENDSCREEN) <= 0) {
+			menuPopDialog();
+			menuPopDialog();
+		}
+	} else if (g_Vars.stagenum == STAGE_DEEPSEA) {
+		endscreenStartNextSoloStage();
+	} else if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+		endscreenStartCredits();
+	}
 }
 
 struct menudialogdef *endscreenAdvance(void)
@@ -687,65 +837,10 @@ void endscreenContinue(s32 context)
 	} else if (g_Vars.coopplayernum >= 0 && PLAYERCOUNT() >= 2 && context == 0) {
 		menuPopDialog();
 	} else {
-		if (g_Vars.stagenum == STAGE_DEEPSEA || g_Vars.stagenum == STAGE_SKEDARRUINS) {
+		if (endscreenMissionContinuesDirectly()) {
 			if (context == 2 || g_Menus[g_MpPlayerNum].endscreen.isfirstcompletion) {
 				// Pressed continue
-				if (g_Vars.stagenum == STAGE_DEEPSEA) {
-					if (!isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty)) {
-						menuPopDialog();
-						menuPopDialog();
-					} else {
-						// Commit to starting next stage
-						g_MissionConfig.stageindex++;
-						// PC: guard — clamp to last valid solo stage to prevent OOB
-						if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
-							g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
-						}
-						missionSetStageByCatalog(g_SoloStages[g_MissionConfig.stageindex].catalog_id);
-
-						titleSetNextStage(g_MissionConfig.stagenum);
-
-						if (g_MissionConfig.iscoop) {
-							if (g_Vars.numaibuddies == 0) {
-								g_Vars.bondplayernum = 0;
-								g_Vars.coopplayernum = 1;
-								g_Vars.antiplayernum = -1;
-								setNumPlayers(2);
-							} else {
-								g_Vars.bondplayernum = 0;
-								g_Vars.coopplayernum = -1;
-								g_Vars.antiplayernum = -1;
-								setNumPlayers(1);
-							}
-						} else {
-							g_Vars.bondplayernum = 0;
-							g_Vars.coopplayernum = -1;
-							g_Vars.antiplayernum = -1;
-							setNumPlayers(1);
-						}
-
-						lvSetDifficulty(g_MissionConfig.difficulty);
-						titleSetNextMode(TITLEMODE_SKIP);
-						/* L-CO4: resolve stagenum from catalog at point of consumption */
-						{
-							catalog_stage_result_t r;
-							if (catalogResolveStage(g_MissionConfig.stage_id, &r)) {
-								mainChangeToStage(r.stagenum);
-							} else {
-								mainChangeToStage(g_MissionConfig.stagenum);
-							}
-						}
-						viBlack(true);
-					}
-				} else if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
-					// Commit to starting credits
-					missionSetStagenum(STAGE_CREDITS);
-					titleSetNextStage(g_MissionConfig.stagenum);
-					lvSetDifficulty(g_MissionConfig.difficulty);
-					titleSetNextMode(TITLEMODE_SKIP);
-					mainChangeToStage(g_MissionConfig.stagenum);
-					viBlack(true);
-				}
+				endscreenRunMissionContinue();
 			} else {
 				if (context == 1) {
 					menuPushRootDialog(&g_MissionContinueOrReplyMenuDialog, MENUROOT_COOPCONTINUE);
@@ -766,7 +861,7 @@ void endscreenContinue(s32 context)
 					menuPushDialog(&g_MissionContinueOrReplyMenuDialog);
 				}
 			} else if (stageGetIndex(g_MissionConfig.stagenum) < 0
-						|| g_Vars.stagenum == STAGE_CITRAINING
+						|| lvStageIsHub()
 						|| g_MissionConfig.stageindex >= SOLOSTAGEINDEX_MBR) {
 				if (context == 2) {
 					menuPopDialog();
@@ -832,7 +927,7 @@ MenuDialogHandlerResult endscreenHandle2PCompleted(s32 operation, struct menudia
 						} else if (g_Vars.antiplayernum >= 0
 								|| (g_Vars.coopplayernum >= 0 && PLAYERCOUNT() >= 2)
 								|| (stageGetIndex(g_MissionConfig.stagenum) < 0
-									|| g_Vars.stagenum == STAGE_CITRAINING
+									|| lvStageIsHub()
 									|| g_MissionConfig.stageindex > SOLOSTAGEINDEX_SKEDARRUINS
 									|| ((g_CheatsActiveBank0 || g_CheatsActiveBank1)
 										&& !isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty)))) {
@@ -878,7 +973,7 @@ MenuDialogHandlerResult endscreenHandle2PFailed(s32 operation, struct menudialog
 						if (g_Vars.antiplayernum >= 0
 								|| (g_Vars.coopplayernum >= 0 && PLAYERCOUNT() >= 2)
 								|| stageGetIndex(g_MissionConfig.stagenum) < 0
-								|| g_Vars.stagenum == STAGE_CITRAINING) {
+								|| lvStageIsHub()) {
 							menuPopDialog();
 						} else {
 							endscreenResetModels();
@@ -1763,14 +1858,11 @@ void endscreenPrepare(void)
 
 				challengeDetermineUnlockedFeatures();
 
-				if (g_MissionConfig.stagenum == STAGE_SKEDARRUINS && g_AltTitleUnlocked == false) {
-					g_AltTitleUnlocked = true;
-#if VERSION >= VERSION_NTSC_1_0
-					*(s8 *)&g_AltTitleEnabled = true;
-#else
-					g_AltTitleEnabled = true;
-#endif
-					bossfileSave();
+				if (scenarioSourceMissionGraphOwnsEvents()) {
+					scenarioSourceMissionGraphMissionEvent(MISSION_GRAPH_EVENT_MISSION_COMPLETED,
+						MISSION_GRAPH_SEAM_NONE);
+				} else if (g_MissionConfig.stagenum == STAGE_SKEDARRUINS) {
+					endscreenUnlockAltTitle();
 				}
 			}
 		}

@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -724,6 +724,8 @@ SCHEMAS: dict[str, Schema] = {
             "collision.flags.json",  # decoded collision GEOFLAG/floortype sidecar (c3844 B-943)
             "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "rooms.json",      # authored BG room table sidecar (B-1113)
+            "stage.json",      # stage-wide rules (decision 3)
+            "intro.json",      # the setup intro other than spawn pads
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -1041,7 +1043,9 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.obj": slot("OBJ collision override source", "scenario collision importer", "uses explicit collision mesh instead of deriving collision from scene source", "collision is deterministically generated from the scene source"),
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
-        "rooms.json": slot("authored per-room table: bounding box, origin and brightness range", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range"),
+        "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance), ai (no dark room lists), ending (an unknown outcome), hub (the between-missions stage rules) and stars (the starfield: count, grid, below the horizon)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
+        "intro.json": slot("the setup intro other than its spawn pads (pd2.scenario.intro.v1): starting weapons, ammo and outfit, watch time, multiplayer cases, case respawns and hills, and the unread legacy commands", "scenario setup compiler", "rebuilds the intro script after the spawn pads, so the player starts with the mission's loadout and the objective modes find their pads", "the stage has only its spawn pads: no starting loadout, no authored cases or hills"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -2504,6 +2508,8 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must bind mission.objectives.source to objectives.json"
                 )
+            if isinstance(nodes, list) and nodes:
+                errors.extend(validate_mission_graph_execution(label, graph))
 
     if "objectives.json" in name_set:
         objectives_text = zf.read("objectives.json").decode(
@@ -2517,6 +2523,321 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
+
+
+# Mission graph runner (decision 2, CORE, 2026-11-15): the executable part of
+# pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
+# the module table in port/src/mission_graph_modules.c.
+MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
+                             "event.mission.continue"}
+MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status"}
+MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
+                                "og.mission.start_credits", "og.progress.unlock_alt_title"}
+MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
+
+
+def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
+    """The same rules the runner applies when it compiles a mission graph:
+    unique ids, known og.* modules and gate kinds, every edge between existing
+    nodes, and execution edges ("input": "exec") only from an executable
+    event, gate or module to a gate or module, with the right output port."""
+    errors: list[str] = []
+    where = f"{label} mission.graph.json"
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(graph.get("nodes") or []):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("og.") and kind not in MISSION_GRAPH_NATIVE_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+        if kind.startswith("gate.") and kind not in MISSION_GRAPH_EXEC_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+        if kind == "gate.objective.status" and node.get("status") not in MISSION_GRAPH_STATUSES:
+            errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+        if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
+            errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not (src_kind in MISSION_GRAPH_EXEC_EVENTS or src_kind in MISSION_GRAPH_EXEC_GATES
+                or src_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+        if not (dst_kind in MISSION_GRAPH_EXEC_GATES or dst_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind in MISSION_GRAPH_EXEC_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    return errors
+
+
+# Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
+# port/src/scenario_stage_rules.cpp.
+STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars"}
+STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance"}
+STAGE_AI_KEYS = {"dark_room_lists"}
+STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
+                 "deepsea", "wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian",
+                 "negotiator"]
+STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
+                      "weather_rooms", "dry_rooms", "wind_direction"}
+STAGE_WEATHER_MAX_ROOMS = 127
+
+
+def validate_stage_json(label: str, text: str) -> list[str]:
+    """The reader's rules for stage.json: the schema, known keys only, and a
+    usable weather rule (numbers, y_min below y_max, exactly one room list of
+    room numbers 1..32767, at most 127 of them)."""
+    where = f"{label} stage.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not valid JSON: {exc.msg}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    errors: list[str] = []
+    if doc.get("schema") != STAGE_RULES_SCHEMA:
+        errors.append(f"{where} must declare schema {STAGE_RULES_SCHEMA}")
+    for key in sorted(set(doc) - STAGE_RULES_KEYS):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    player = doc.get("player")
+    if player is not None:
+        if not isinstance(player, dict):
+            errors.append(f"{where} player must be an object")
+        else:
+            for key in sorted(set(player) - STAGE_PLAYER_KEYS):
+                errors.append(f"{where} player has an unknown key {key!r}")
+            if "perfect_agent_outfit" in player and player["perfect_agent_outfit"] not in STAGE_OUTFITS:
+                errors.append(f"{where} player.perfect_agent_outfit is not an outfit")
+            disguise = player.get("disguise")
+            if disguise is not None:
+                if not isinstance(disguise, dict):
+                    errors.append(f"{where} player.disguise must be an object")
+                else:
+                    for key in sorted(set(disguise) - {"outfit", "untargetable"}):
+                        errors.append(f"{where} player.disguise has an unknown key {key!r}")
+                    if "outfit" in disguise and disguise["outfit"] not in STAGE_OUTFITS:
+                        errors.append(f"{where} player.disguise.outfit is not an outfit")
+                    if "untargetable" in disguise and not isinstance(disguise["untargetable"], bool):
+                        errors.append(f"{where} player.disguise.untargetable must be true or false")
+            if "coop_spawn_distance" in player:
+                distance = player["coop_spawn_distance"]
+                if isinstance(distance, bool) or not isinstance(distance, (int, float)) \
+                        or not 1 <= distance <= 1000:
+                    errors.append(f"{where} player.coop_spawn_distance must be 1..1000")
+    if "hub" in doc and not isinstance(doc["hub"], bool):
+        errors.append(f"{where} hub must be true or false")
+    if "stars" in doc:
+        stars = doc["stars"]
+        if not isinstance(stars, dict):
+            errors.append(f"{where} stars must be an object")
+        else:
+            for key in sorted(set(stars) - {"count", "grid", "below_horizon"}):
+                errors.append(f"{where} stars has an unknown key {key!r}")
+            for key, lo, hi in (("count", 1, 8192), ("grid", 1, 8)):
+                value = stars.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                    errors.append(f"{where} stars.{key} must be a whole number from {lo} to {hi}")
+            if "below_horizon" in stars and not isinstance(stars["below_horizon"], bool):
+                errors.append(f"{where} stars.below_horizon must be true or false")
+    ending = doc.get("ending")
+    if ending is not None:
+        if not isinstance(ending, dict):
+            errors.append(f"{where} ending must be an object")
+        else:
+            for key in sorted(set(ending) - {"outcome"}):
+                errors.append(f"{where} ending has an unknown key {key!r}")
+            if "outcome" in ending and ending["outcome"] not in ("known", "unknown"):
+                errors.append(f"{where} ending.outcome must be known or unknown")
+    ai = doc.get("ai")
+    if ai is not None:
+        if not isinstance(ai, dict):
+            errors.append(f"{where} ai must be an object")
+        else:
+            for key in sorted(set(ai) - STAGE_AI_KEYS):
+                errors.append(f"{where} ai has an unknown key {key!r}")
+            if "dark_room_lists" in ai and not isinstance(ai["dark_room_lists"], bool):
+                errors.append(f"{where} ai.dark_room_lists must be true or false")
+    weather = doc.get("weather")
+    if weather is None:
+        return errors
+    if not isinstance(weather, dict):
+        return errors + [f"{where} weather must be an object"]
+
+    def number(obj: dict, key: str, path: str) -> float | None:
+        value = obj.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or abs(value) > 1.0e7:
+            errors.append(f"{where} {path}.{key} must be a number")
+            return None
+        return float(value)
+
+    for key in sorted(set(weather) - STAGE_WEATHER_KEYS):
+        errors.append(f"{where} weather has an unknown key {key!r}")
+    number(weather, "wind_speed", "weather")
+    y_min = number(weather, "y_min", "weather")
+    y_max = number(weather, "y_max", "weather")
+    if "z_max" in weather:
+        number(weather, "z_max", "weather")
+    if y_min is not None and y_max is not None and not y_min < y_max:
+        errors.append(f"{where} weather.y_min must be below weather.y_max")
+    if "cutscene_only" in weather and not isinstance(weather["cutscene_only"], bool):
+        errors.append(f"{where} weather.cutscene_only must be true or false")
+    lists = [key for key in ("weather_rooms", "dry_rooms") if key in weather]
+    if len(lists) != 1:
+        errors.append(f"{where} weather needs exactly one of weather_rooms and dry_rooms")
+    else:
+        rooms = weather[lists[0]]
+        if not isinstance(rooms, list) or len(rooms) > STAGE_WEATHER_MAX_ROOMS or not all(
+                isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= 32767 for r in rooms):
+            errors.append(f"{where} weather.{lists[0]} must list at most {STAGE_WEATHER_MAX_ROOMS} "
+                          "room numbers 1..32767")
+    wind = weather.get("wind_direction")
+    if wind is not None:
+        if not isinstance(wind, dict):
+            errors.append(f"{where} weather.wind_direction must be an object")
+        else:
+            for key in sorted(set(wind) - {"angle", "speed_x", "speed_z"}):
+                errors.append(f"{where} weather.wind_direction has an unknown key {key!r}")
+            for key in ("angle", "speed_x", "speed_z"):
+                number(wind, key, "weather.wind_direction")
+    return errors
+
+
+# The stage intro (CORE, 2026-11-15): the reader's rules for intro.json, from
+# port/src/scenario_intro.cpp (port/include/scenario_intro.h).
+INTRO_SCHEMA = "pd2.scenario.intro.v1"
+INTRO_MAX_ROWS = 1024
+INTRO_ROW_KEYS = {
+    "weapon": {"cmd", "weapon_catalog_id", "weapon_selector", "left_weapon_catalog_id", "player"},
+    "ammo": {"cmd", "ammo_type", "quantity", "player"},
+    "outfit": {"cmd", "outfit"},
+    "watch_time": {"cmd", "hours", "minutes"},
+    "case": {"cmd", "team", "pad_ref"},
+    "case_respawn": {"cmd", "team", "pad_ref"},
+    "hill": {"cmd", "pad_ref"},
+    "legacy_3": {"cmd", "words"},
+    "legacy_4": {"cmd", "words"},
+    "legacy_6": {"cmd", "words"},
+}
+INTRO_LEGACY_WORDS = {"legacy_3": 7, "legacy_4": 1, "legacy_6": 9}
+
+
+def validate_intro_json(label: str, text: str) -> list[str]:
+    """The reader's rules for intro.json: the schema, known commands and keys
+    only, whole numbers in range, pad_NNNN pads and named outfits. Catalog ids
+    are resolved by the game, so only their shape is checked here."""
+    errors: list[str] = []
+    where = f"{label} intro.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not JSON: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    if doc.get("schema") != INTRO_SCHEMA:
+        errors.append(f"{where} must declare schema {INTRO_SCHEMA}")
+    for key in sorted(set(doc) - {"schema", "note", "rows"}):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    rows = doc.get("rows")
+    if not isinstance(rows, list):
+        return errors + [f"{where} rows must be a list"]
+    if len(rows) > INTRO_MAX_ROWS:
+        errors.append(f"{where} has more than {INTRO_MAX_ROWS} rows")
+
+    def whole(row: dict, key: str, lo: int, hi: int, at: str) -> None:
+        value = row.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or value != int(value) or not lo <= value <= hi:
+            errors.append(f"{at}.{key} must be a whole number {lo}..{hi}")
+
+    def catalog_id(row: dict, key: str, at: str) -> None:
+        value = row.get(key)
+        if not isinstance(value, str) or ":" not in value or value.startswith(":") or value.endswith(":"):
+            errors.append(f"{at}.{key} must be a catalog weapon id")
+
+    def pad_ref(row: dict, at: str) -> None:
+        value = row.get("pad_ref")
+        if not isinstance(value, str) or not value.startswith("pad_") or not value[4:].isdigit() \
+                or len(value) > 9 or int(value[4:]) > 0x7FFF:
+            errors.append(f"{at}.pad_ref must be pad_NNNN with a pad 0..32767")
+
+    for index, row in enumerate(rows):
+        at = f"{where} rows[{index}]"
+        if not isinstance(row, dict):
+            errors.append(f"{at} must be an object")
+            continue
+        cmd = row.get("cmd")
+        if cmd not in INTRO_ROW_KEYS:
+            errors.append(f"{at}.cmd {cmd!r} is not an intro command")
+            continue
+        for key in sorted(set(row) - INTRO_ROW_KEYS[cmd]):
+            errors.append(f"{at} has an unknown key {key!r}")
+        if cmd == "weapon":
+            has_id, has_selector = "weapon_catalog_id" in row, "weapon_selector" in row
+            if has_id == has_selector:
+                errors.append(f"{at} needs exactly one of weapon_catalog_id and weapon_selector")
+            elif has_id:
+                catalog_id(row, "weapon_catalog_id", at)
+            elif row.get("weapon_selector") != "none":
+                errors.append(f"{at}.weapon_selector must be \"none\"")
+            if "left_weapon_catalog_id" in row:
+                catalog_id(row, "left_weapon_catalog_id", at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "ammo":
+            whole(row, "ammo_type", 0, 32, at)
+            whole(row, "quantity", 0, 1000000, at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "outfit":
+            if row.get("outfit") not in STAGE_OUTFITS:
+                errors.append(f"{at}.outfit is not an outfit ({row.get('outfit')!r})")
+        elif cmd == "watch_time":
+            whole(row, "hours", 0, 23, at)
+            whole(row, "minutes", 0, 59, at)
+        elif cmd in ("case", "case_respawn"):
+            whole(row, "team", 0, 3, at)
+            pad_ref(row, at)
+        elif cmd == "hill":
+            pad_ref(row, at)
+        else:
+            words = row.get("words")
+            if not isinstance(words, list) or len(words) != INTRO_LEGACY_WORDS[cmd] or not all(
+                    not isinstance(w, bool) and isinstance(w, int) and -2**31 <= w < 2**31 for w in words):
+                errors.append(f"{at}.words must hold exactly {INTRO_LEGACY_WORDS[cmd]} whole 32-bit numbers")
+    return errors
 
 
 SCENARIO_ROOM_COUNT_MIN = 2
@@ -5571,6 +5892,12 @@ def validate_portals_json_schema(label: str, entry_name: str,
             errors.append(
                 f"{label} {entry_name} row {idx} flags must be an integer or hex string"
             )
+        # Optional per-portal light rules (CORE, 2026-11-15).
+        for rule_key in ("light_flood_blocked", "open_to_light"):
+            if rule_key in row and not isinstance(row[rule_key], bool):
+                errors.append(
+                    f"{label} {entry_name} row {idx} {rule_key} must be true or false"
+                )
         vertices = row.get("vertices")
         if not isinstance(vertices, list) or len(vertices) < 3:
             errors.append(
@@ -6556,6 +6883,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         source_room_count=source_room_count,
                     )
                     result.errors.extend(portal_errors)
+                if "stage.json" in name_set:
+                    result.errors.extend(validate_stage_json(
+                        label, zf.read("stage.json").decode("utf-8", errors="replace")))
+                if "intro.json" in name_set:
+                    result.errors.extend(validate_intro_json(
+                        label, zf.read("intro.json").decode("utf-8", errors="replace")))
                 if "objectives_file = objectives.json" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare objectives_file = objectives.json"
