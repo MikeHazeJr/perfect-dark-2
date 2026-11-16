@@ -3897,6 +3897,16 @@ void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 				ncl->reviewing_results = 1;
 				sysLogPrintf(LOG_NOTE, "LOBBY.REVIEW: client=%u reviewing=1 reason=stage-end room=%u",
 					(unsigned)ncl->id, (unsigned)room_id);
+				/* B-1195: the listen host's own link is this machine's
+				 * presentation context (playermgrGetLocalPlayerNum), as on a
+				 * client (B-1190). Clearing it deferred the host's whole
+				 * global tick under the results: lvSetPaused never froze the
+				 * match, simulant AI kept running from the render pass, and
+				 * after Continue retired the chr table it divided by zero.
+				 * The next stage's player allocation replaces the link. */
+				if (ncl == g_NetLocalClient) {
+					continue;
+				}
 				if (ncl->player) {
 					ncl->player->client = NULL;
 					ncl->player->isremote = false;

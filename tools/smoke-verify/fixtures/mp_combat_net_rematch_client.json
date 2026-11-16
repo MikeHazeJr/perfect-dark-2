@@ -19,7 +19,7 @@
       "condition": "network_stage_live",
       "timeout_ms": 180000,
       "stable_ms": 2000,
-      "comment": "60 s after the first match went live it has ended (35 s limit) and the client is in its Room; this waits for the host's second match."
+      "comment": "60 s after the first match went live it has ended (35 s limit) and the client is on its results; this waits for the host's second match, which takes it along."
     },
     {
       "at_ms": 110000,

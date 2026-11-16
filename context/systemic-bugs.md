@@ -3640,3 +3640,53 @@ sector.
 player/simulant boundary or a team count, and (b) would 8 players or 8 teams
 reach past it? Done: `func0f18d0e8` (B-1136) and the two team spawn paths
 (B-1138). Open: the three lower-impact `mplayer.c` sites above.
+
+## SP-84: A process clears its own player link while its stage is still drawn
+
+**Severity: HIGH - the process's whole global tick stops, and the world can
+keep running from the render pass.**
+
+Since B-1090, `mainTick` (`port/src/pdmain.c`) runs `lvTick`, and with it
+`menuTick`, `scenarioTick`, music and the pause gate, only when
+`playermgrRestoreLocalPlayerContext()` finds this process's player through
+`g_NetLocalClient->player`. `lvRender`'s `propsTickPlayer` and the per-player
+`lvTickPlayer` run either way, with the last `g_Vars.lvupdate240` that
+`lvTick` computed. So a process that clears its own link while its stage is
+still drawn loses its menu tick and pause gate, and when its last `lvTick`
+was not paused, chrs, simulants and objects keep simulating at that rate.
+The log shows `GLOBAL.TICK: deferred; receiver-local player context is not
+committed` once.
+
+**Known instances (2026-11-15):** B-1190 part 2 (a client's MP stage end,
+`netmsgSvcStageEndRead`: its results waited for a disconnect) and B-1195 (the
+listen host's `netmsgSvcStageEndCommit`: simulant AI ran under the results
+and divided by zero after Continue). Both fixed: a process keeps its own link
+at the stage end, and the next stage's player allocation replaces it.
+
+**Safe only by order (recorded 2026-11-15):** `pdguiEndscreenExitToRoom`
+clears every co-op and counter-op link, the local one too, so a networked
+mission's Return to Room defers the global tick until the next stage. The
+last `lvTick` ran under the paused results, so the kept update is 0 and the
+mission stays frozen; a change that unpauses before that clear would run the
+mission behind the Room.
+
+**Not checked:** a spectator client (`CLFLAG_SPECTATOR`) is never given a
+player; if it loads the stage, its global tick is deferred all match.
+
+**Rules:**
+- Do not clear `g_NetLocalClient->player` while this process's stage is still
+  loaded and drawn; the next player allocation replaces it.
+- Code that retires match state while the stage stays loaded (for example
+  `mpClearRuntimeChrState` in the results exit, B-368) leaves whatever still
+  ticks inert, not only paused (the `botTick` gate of B-1195).
+
+**Search:**
+- `grep -rn "player = NULL" port/src/net port/fast3d`, then check each loop
+  over `g_NetClients` for an `ncl == g_NetLocalClient` skip.
+- `grep -n "GLOBAL.TICK: deferred" pd-host.log pd-client.log`: one per stage
+  start is normal; one after a stage end or a results exit is this pattern.
+
+**Audit checklist:** for each hit, (a) can it clear this process's own link,
+and (b) is the stage still loaded and drawn afterwards? Done: both MP stage
+end paths (B-1190, B-1195). Open: the co-op and counter-op results exit (safe
+while it stays paused), spectators.

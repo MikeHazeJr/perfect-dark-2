@@ -88,6 +88,9 @@ s32 botGetUpdatesDisabled(void)
  * records the same for frozen bots, and the networked render smoke saw it. */
 static s32 s_BotPuppetTick = 0;
 
+/* B-1195: one log line per retired match (see the botTick gate). */
+static bool s_BotRetiredLogged = false;
+
 s32 botIsPuppetTick(void)
 {
 	return s_BotPuppetTick;
@@ -1706,6 +1709,27 @@ s32 botTick(struct prop *prop)
 			s_BotPuppetTick = 0;
 			return puppetresult;
 		}
+
+		/* B-1195: a networked results exit to the Room retires the match's
+		 * runtime chr table (mpClearRuntimeChrState, B-368) while the ended
+		 * arena stays loaded behind the Room until the next stage. Its
+		 * simulants are scenery from then on (a client already puppets
+		 * them above): the AI divides by g_MpNumChrs
+		 * (botChooseGeneralTarget), and spawning, room recovery and stuck
+		 * repair would act on a finished match. chrTick still runs so the
+		 * model keeps its per-frame state (B-217 v2). A live match always
+		 * counts its simulants here (botmgrAllocateBot). */
+		if (g_MpNumChrs <= 0) {
+			if (!s_BotRetiredLogged) {
+				sysLogPrintf(LOG_NOTE,
+					"BOT: match chr table retired; simulants are inert until the next stage");
+				s_BotRetiredLogged = true;
+			}
+			aibot->speedmultforwards = 0;
+			aibot->speedmultsideways = 0;
+			return chrTick(prop);
+		}
+		s_BotRetiredLogged = false;
 
 		/* PC failsafe: On solo mission maps used as MP arenas, the AI script
 		 * doesn't contain aiMpInitSimulants so botSpawnAll() never fires.

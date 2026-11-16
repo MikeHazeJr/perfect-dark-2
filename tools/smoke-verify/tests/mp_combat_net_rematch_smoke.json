@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_rematch_smoke",
-  "description": "Finding 4 of the multiplayer week plan: two matches in the same room on a listen host (--host-autostart-matches 2). Port 27246, Felicity, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), is back in the room, re-arms after about 10 s and starts the second match through the same Room start path; the client, which goes back to its Room at stage end (B-1190), follows the host into the second match. Each process has its own schedule (fixtures mp_combat_net_rematch_host.json and mp_combat_net_rematch_client.json). Requires two server stage starts, two client stage starts, results for both matches on both sides and the host's exit to the room; forbids a rejected start.",
+  "description": "Finding 4 of the multiplayer week plan: two matches in the same room on a listen host (--host-autostart-matches 2). Port 27246, Felicity, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), is back in the room, re-arms after about 10 s and starts the second match through the same Room start path; the client shows its results at each stage end (B-1190) and never presses Continue, so the host's second match takes it along. B-1195: the host keeps its own player linked at the stage end, so its pause holds under the results, and its simulants go inert once Continue retires the chr table. Each process has its own schedule (fixtures mp_combat_net_rematch_host.json and mp_combat_net_rematch_client.json). Requires two server stage starts, two client stage starts, results for both matches on both sides and the host's exit to the room; forbids a rejected start.",
   "tags": [
     "network",
     "combatsim",
@@ -108,7 +108,8 @@
       "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
       "LOBBY\\.REVIEW: client=[0-9]+ reviewing=1 reason=stage-end",
       "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=continue",
-      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=match-start"
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=match-start",
+      "BOT: match chr table retired; simulants are inert until the next stage"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",

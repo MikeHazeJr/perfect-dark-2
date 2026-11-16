@@ -1,5 +1,26 @@
 # Bug Tracker
 
+## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
+
+Severity high (the host crashes in every networked Combat match with simulants once it presses Continue on its
+results). Seen in `mp_combat_net_rematch_smoke` on binary 8c56ad72 (8a34e695): host `GAMELOOP.MP: endscreen
+EXIT_TO_ROOM`, the Room opens, then `FATAL: EXCEPTION ... CODE=0xc0000094` (integer divide by zero) in
+`botChooseGeneralTarget` (`bot.c`, `% g_MpNumChrs`), called from `lvRender` > `propsTickPlayer` > `botTick` >
+`botTickUnpaused`. Root cause: the host's stage end commit (`netmsgSvcStageEndCommit`, MP branch) unlinked every room
+member's player, the host's own too, so from the results on `playermgrRestoreLocalPlayerContext` failed (`GLOBAL.TICK:
+deferred` right after the results opened) and the host's `lvTick` never ran. `lvSetPaused(true)` from the results push
+never zeroed the update, and `lvRender`'s `propsTickPlayer` kept ticking the simulants with the last live delta, AI
+included. Continue then ran `mpClearRuntimeChrState()` (B-368), which sets `g_MpNumChrs` to 0 while the ended arena
+stays loaded behind the Room, and the next AI tick divided by it. Same class as B-1190 part 2 on the client (SP-84).
+Fix: (1) the commit skips the listen host's own netclient, as the client's stage end read does; the next stage's
+player allocation replaces the link (`netPlayersAllocate`). With its global tick running, the host's results pause
+holds, and after Continue the game-over pause keeps the arena's update at 0. (2) `botTick` treats a simulant whose
+match chr table is retired (`g_MpNumChrs <= 0`; a live match always counts its simulants) as scenery: no AI, spawning,
+room recovery or stuck repair, speeds zeroed, `chrTick` kept for the model, and one log line `BOT: match chr table
+retired; simulants are inert until the next stage`. (2) is needed besides (1) because `mpApplyConfig` (presets,
+challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in the Room. Tests: `[b1195]` in
+`tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Not yet run in play.
+
 ## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
 
 Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in

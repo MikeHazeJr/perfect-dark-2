@@ -286,6 +286,53 @@ TEST_CASE("results for every player: a client keeps its own player linked at a C
 	REQUIRE(end.find("continue;", skip) < unlink);
 }
 
+TEST_CASE("results for every player: the listen host keeps its own player linked at a Combat stage end",
+          "[net][rematch][finding4][b1195]") {
+	// B-1195: the host's stage-end commit unlinked its own player too, so its
+	// global tick was deferred under the results, the pause never applied and
+	// simulant AI ran from the render pass until it divided by zero
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string commit = function_body(msg, "void netmsgSvcStageEndCommit(u8 room_id, u8 mode)\n{");
+	const size_t review = commit.find("ncl->reviewing_results = 1;");
+	const size_t skip = commit.find("if (ncl == g_NetLocalClient) {", review);
+	const size_t unlink = commit.find("ncl->player = NULL;", review);
+	REQUIRE(review != std::string::npos);
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(unlink != std::string::npos);
+	REQUIRE(skip < unlink);
+	REQUIRE(commit.find("continue;", skip) < unlink);
+}
+
+TEST_CASE("results for every player: simulants of a retired match do not think",
+          "[net][rematch][finding4][b1195]") {
+	// The results exit to the Room retires the chr table (B-368) while the
+	// ended arena stays loaded; the simulant AI divides by g_MpNumChrs
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const std::string tick = function_body(bot, "s32 botTick(struct prop *prop)\n{");
+	const size_t puppet = tick.find("return puppetresult;");
+	const size_t retired = tick.find("if (g_MpNumChrs <= 0) {", puppet);
+	const size_t spawn = tick.find("wave_result = botSpawnAll();");
+	const size_t think = tick.find("botTickUnpaused(chr);");
+	REQUIRE(puppet != std::string::npos);
+	REQUIRE(retired != std::string::npos);
+	REQUIRE(spawn != std::string::npos);
+	REQUIRE(think != std::string::npos);
+	REQUIRE(retired < spawn);
+	REQUIRE(retired < think);
+	const size_t live = tick.find("s_BotRetiredLogged = false;", retired);
+	REQUIRE(live != std::string::npos);
+	REQUIRE(live < spawn);
+	const std::string gate = tick.substr(retired, live - retired);
+	REQUIRE(gate.find("\"BOT: match chr table retired; simulants are inert until the next stage\"") != std::string::npos);
+	REQUIRE(gate.find("aibot->speedmultforwards = 0;") != std::string::npos);
+	REQUIRE(gate.find("return chrTick(prop);") != std::string::npos);
+
+	// B-368 still clears the table in that exit
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string exit = function_body(bridge, "void pdguiEndscreenExitToRoom(void)\n{");
+	REQUIRE(exit.find("mpClearRuntimeChrState();") != std::string::npos);
+}
+
 TEST_CASE("results for every player: the primary results button is the default focus",
           "[net][rematch][finding4][b1192]") {
 	// B-1192 part 2: the debounce disables the bar when ImGui picks the first
