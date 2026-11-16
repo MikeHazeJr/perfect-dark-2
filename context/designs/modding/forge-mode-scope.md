@@ -42,10 +42,12 @@ the whole `.pdscenario` embedded in it. The scenario holds the geometry
 `spawns.json`, `objects.json`, `intro.json`, `volumes.json`, `stage.json`,
 `objectives.json`), navigation, AI lists and `level.graph.json`
 (`port/src/romextract_pdarena.c`; readers in `port/src/scenario_source_runtime.c`).
-The scanner registers a mod's arena and scenario on a private stage number, and
-the in-game mod author already saves a `.pdarena` mod from a template with
-overrides that reach members of the embedded scenario. No game run has loaded a
-mod level yet.
+The scanner gives a mod's arena a private stage number (32 slots, 0x60 to
+0x7f), and the in-game mod author already saves a `.pdarena` mod from a
+template with overrides that reach members of the embedded scenario. No game
+run has loaded a mod level yet, and the survey below shows why none could: the
+stage lookup accepts only map rows, and the scenario inside a mod arena is never
+registered.
 
 ## The target
 
@@ -79,11 +81,10 @@ nothing else is worth building before them.
 
 - F1. A mod level loads. The mod author saves a base arena as a named mod
   level; it shows in The Grid and in match setup under that name and a match
-  starts on it. Known blockers from the survey: a mod arena has no display
-  name (every picker reads only `name_langid`); the scanner reads `load_mode`
-  as a number while the extractor writes a name; a saved level is not rescanned
-  and enabled in the running game. Proof: a smoke that builds the level from a
-  recipe and spawns in a match on it.
+  starts on it. What stands in the way is in "F1 work list" below: no stage row
+  and no registered scenario for a mod arena, a `load_mode` read as a number,
+  and no name of its own. Proof: a smoke that builds the level from a recipe
+  and spawns in a match on it.
 - F2. Forge opens and saves the level's own data. Opening a level fills the
   editor from the scenario's pads, spawns, objects and intro setup; Save writes
   those members back through the mod author as a new mod level or an update of
@@ -148,6 +149,59 @@ nothing else is worth building before them.
 
 ## First piece of work
 
-F1: prove a mod level loads. It is small, every later step stands on it, and
-it will show whether custom stage numbers, the pickers and the mod author's
-arena family hold in a real run.
+F1: prove a mod level loads. Every later step stands on it. It is not small:
+the survey below found that a mod arena cannot load today.
+
+### F1 work list (read-only survey of `week-pd/mods` at 2fdbb7f8, 2026-11-16)
+
+READ in code (file:line as the survey reported them; not re-read line by line):
+
+1. No stage row. A custom stage number gets a cloned `g_Stages` row
+   (`s_mintCustomStagenum`, `assetcatalog_scanner.c:1658`), but every stage
+   lookup goes through `catalogResolveStage`, which accepts `ASSET_MAP` rows
+   only (`assetcatalog_api.c:296`, `689`, `1440`; callers in `bg.c`, `setup.c`,
+   `tilesreset.c`, `lv.c:187`). A mod arena has no map row, so the load stops at
+   a catalog fatal.
+2. The scenario is not registered. Nested registration exists for effects,
+   weapons, themes and vehicles only (`assetcatalog_scanner.c:5425`); the arena
+   row keeps just `scenario_id` and `scenario_archive`. The scenario runtime
+   finds a stage's scenario by stage number among `ASSET_SCENARIO` rows
+   (`s_findScenarioForStage`, `scenario_source_runtime.c:7342`) and never reads
+   the arena's `scenario_id`; a miss is fatal. Its fallback id
+   (`<ns>:scenario_<stage slug>`) cannot match the id the mod author gives a
+   cloned scenario (`mod:<slug>__scenario_<name>`, `asset_archive_clone.c:388`).
+3. `load_mode` is read as a number (`iniGetInt`), and the extractor writes its
+   name, so every mod arena reads as playable, a canvas template included
+   (`assetcatalog_scanner.c:2343`, `romextract_pdarena.c:9666`).
+4. A mod arena has no name of its own. Arenas have no display-name field
+   (`assetcatalog.h:255`), and the mod author's arena family has no name key
+   (`mod_author.c:55`), so a saved level shows its template's name (a second
+   "Complex") and category. The Grid and match setup skip an arena whose name
+   is empty; the Room lists it as "???".
+5. `--boot-stage` sends any stage number above 0x5f to the title screen
+   (`main.c:4638`). `--launch-mp-room <arena id> <game mode id> <bots>` with
+   `--debug-auto-start-match` is the way a smoke starts a match on an arena by
+   catalog id, and it takes custom stage numbers.
+
+INFERRED, to check in the first run:
+
+6. `s_copyMemberPath` cuts a member path at its first `::`
+   (`scenario_source_runtime.c:7242`), so `intro.json`, `stage.json`,
+   `rooms.json` and `room_lights.json` of a scenario nested in an arena would be
+   looked for in the outer `.pdarena`. `fs.c` itself reads nested chains.
+
+What already works: a save rescans, enables and rebuilds the catalog with no
+restart (`modAuthorRuntimeSave`; the author never writes `requires_restart`),
+and the Grid's list is invalidated; the pickers put non-bundled arenas in a Mod
+section and do not filter them out.
+
+Split proposed to CORE (items 1, 2 and 6 are in the catalog core and the
+scenario runtime, which are CORE's): MODS registers the embedded scenario with
+the arena's stage number and gives the arena its own name (a `display_name` key
+the pickers read before the language id; the mod author writes it) and a named
+`load_mode`; CORE decides how a custom stage resolves (a map row minted with the
+stage number, or a lookup that accepts an arena) and how the runtime opens a
+nested scenario's members. MODS writes the smoke: a recipe saves Complex as
+"Forge Test", then `--launch-mp-room mod:arena_forge_test base:combat 3
+--debug-auto-start-match`, requiring the scenario's intro line and the player's
+spawn.
