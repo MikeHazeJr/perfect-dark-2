@@ -1,5 +1,27 @@
 # Bug Tracker
 
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, open, diagnostic added)
+
+Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
+contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
+`results-20261116T101515Z.json`) and after it (490e8baf, 8dafe7f0, `results-20261116T130655Z.json`, 31/32, the
+missing line is the nonzero score). In the second run the uplink stands on its pad (pad 67, y 2), simulant 2 takes it
+at about 4 s and heads for terminal 0 (pad 7 at (-3305,36,1606), room 39) at 4.4, 22.8 and 41.5 s, fetching shields
+in between, and no download completes in 150 s. The terminal is reachable: it stands on room 39's ground floor
+(floor y 0, pad y 53) with route point pad 221 123 units away at the same height.
+
+What the code needs (`htmTickChr`): the carrier within 250 units (xz) and 200 (y) of the terminal, facing it within
+45 degrees and unarmed (`aibot->weaponnum == WEAPON_UNARMED`), for 20 s without a break. A simulant switches to
+unarmed and turns to the terminal only in `MA_AIBOTDOWNLOAD`, which it enters after a check fails within range
+(`playernuminrange`). It turns only while a download is active (`botTick` reads `dlterminalnum`), while
+`scenarioTickChr` runs after that facing step and cancels the download in the same tick when a test fails. Which
+test fails is not known yet. Diagnostic (this commit, offline and host): `HTM: uplink holder A -> B at T s
+pos=(...)` and `HTM: player N download <out of range | not facing the terminal | not holding the uplink | in
+progress> at T s xz= y= angle= weapon= action=` on each change (300 lines a stage at most), and `HTM: player N
+download complete at T s points=P`. Next run: `mp_hacker_central_net_smoke` in the queued objective-scoring turn,
+and `mp_hacker_central_local_smoke` after it. If the cause is the original's own logic, the fix changes how the
+mode plays and goes to Mike first.
+
 ## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed in code, not yet run)
 
 Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on

@@ -169,9 +169,48 @@ static s32 s_HtmNetWasDownloading;
 static s32 s_HtmNetPrevTerminal = -1;
 static s32 s_HtmNetPrevPoints;
 
+/* PC (T-NETWORKING-011): the uplink's holder and each change in a carrier's
+ * download, logged offline as well, so a match that ends without a point
+ * shows whether anyone carried the uplink to a terminal and what stopped the
+ * download (range, facing or the gun in hand). */
+#define HTM_DL_LOG_CAP 300
+static s32 s_HtmLoggedHolder = -2;
+static s8 s_HtmLoggedDlState[MAX_MPCHRS];
+static s32 s_HtmDlLogLines;
+
+static void htmLogDownloadReset(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		s_HtmLoggedDlState[i] = -1;
+	}
+}
+
+static void htmLogDownloadState(s32 playernum, s32 state, f32 rangexz, f32 rangey, f32 relangle,
+		s32 weaponnum, s32 action)
+{
+	static const char *const names[] = { "", "out of range", "not facing the terminal",
+		"not holding the uplink", "in progress" };
+
+	if (playernum < 0 || playernum >= MAX_MPCHRS || s_HtmLoggedDlState[playernum] == state
+			|| s_HtmDlLogLines >= HTM_DL_LOG_CAP) {
+		return;
+	}
+
+	s_HtmLoggedDlState[playernum] = state;
+	s_HtmDlLogLines++;
+	sysLogPrintf(LOG_NOTE, "HTM: player %d download %s at %.1f s xz=%.0f y=%.0f angle=%.0f weapon=%d action=%d",
+		playernum, names[state], g_Vars.lvframe60 / 60.0f, rangexz, rangey, relangle, weaponnum, action);
+}
+
 void htmReset(void)
 {
 	s32 i;
+
+	s_HtmLoggedHolder = -2;
+	s_HtmDlLogLines = 0;
+	htmLogDownloadReset();
 
 	s_HtmNetHolder = -1;
 	s_HtmNetPresent = false;
@@ -776,6 +815,21 @@ void htmTick(void)
 	if (g_ScenarioData.htm.uplink == NULL) {
 		htbCreateUplink();
 	}
+
+	// PC (T-NETWORKING-011): log each change of holder (-1 = on the ground)
+	{
+		struct prop *uplink = g_ScenarioData.htm.uplink;
+		const s32 holder = htmUplinkHolderSlot(uplink);
+
+		if (holder != s_HtmLoggedHolder) {
+			sysLogPrintf(LOG_NOTE, "HTM: uplink holder %d -> %d at %.1f s pos=(%.0f,%.0f,%.0f) netmode=%d",
+				s_HtmLoggedHolder, holder, g_Vars.lvframe60 / 60.0f,
+				uplink ? uplink->pos.x : 0.0f, uplink ? uplink->pos.y : 0.0f, uplink ? uplink->pos.z : 0.0f,
+				(s32)g_NetMode);
+			s_HtmLoggedHolder = holder;
+			htmLogDownloadReset();
+		}
+	}
 }
 
 void htmTickChr(struct chrdata *chr)
@@ -905,6 +959,12 @@ void htmTickChr(struct chrdata *chr)
 		osSyncPrintf("HTM : Player %d - Range Y  = %d", playernum, rangey);
 		osSyncPrintf("HTM : Player %d - Angle XZ = %d", playernum, relangle);
 
+		htmLogDownloadState(playernum,
+			(rangexz > 250 || rangey > 200) ? 1 : relangle > 45 ? 2 : !holdinguplink ? 3 : 4,
+			rangexz, rangey, relangle,
+			chr ? chr->aibot->weaponnum : bgunGetWeaponNum(HAND_RIGHT),
+			chr ? chr->myaction : -1);
+
 		if (rangexz > 250 || rangey > 200 || relangle > 45 || !holdinguplink) {
 			if (rangexz < 250 && rangey < 200) {
 				data->playernuminrange = playernum;
@@ -932,6 +992,13 @@ void htmTickChr(struct chrdata *chr)
 			if (*time > 20 * TICKS(240)) {
 				data->numpoints[playernum]++;
 				data->playernuminrange = playernum;
+
+				sysLogPrintf(LOG_NOTE, "HTM: player %d download complete at %.1f s points=%d",
+					playernum, g_Vars.lvframe60 / 60.0f, data->numpoints[playernum]);
+
+				if (playernum >= 0 && playernum < MAX_MPCHRS) {
+					s_HtmLoggedDlState[playernum] = -1;
+				}
 
 				if (chr == NULL) {
 					// "Download successful."
