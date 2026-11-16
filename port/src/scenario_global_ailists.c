@@ -194,18 +194,29 @@ s32 scenarioGlobalAiListsRoundTrip(void)
 	return mismatches;
 }
 
-/* Step 3: the bank the stage lists come from, compiled once per change. */
+/* Steps 3 and 5: the banks the stage lists come from, compiled once per
+ * change. The base bank (base:ai_global, bundled) must carry every global
+ * list; an enabled mod bank (a .pdai of a mod) may carry any of them, and its
+ * lists replace the base's by id. When two mod banks carry the same list, the
+ * smaller catalog id wins, the order .pdlang banks use. */
 #define GLOBAL_AILISTS_MAX 128
+#define GLOBAL_AILIST_BANKS_MAX 16
+#define GLOBAL_AILIST_BANK_SIGNATURE (GLOBAL_AILIST_BANKS_MAX * (CATALOG_ID_LEN + FS_MAXPATH + 2))
 
-static struct {
+typedef struct global_ailist_bank {
 	const asset_entry_t *entry;
-	char lists_file[FS_MAXPATH + 1];
 	scenario_ai_compiled_list_t *lists;
 	s32 count;
+} global_ailist_bank_t;
+
+static struct {
+	char signature[GLOBAL_AILIST_BANK_SIGNATURE];
+	global_ailist_bank_t banks[GLOBAL_AILIST_BANKS_MAX]; /* [0] the base, then mods by id */
+	s32 bank_count;
 	u32 bytes;
 } s_Bank;
 
-/* Writes the reason the bank cannot be used and returns 0. */
+/* Writes the reason the banks cannot be used and returns 0. */
 static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
 	__attribute__((format(printf, 3, 4)));
 static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
@@ -220,93 +231,188 @@ static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
 	return 0;
 }
 
+static void s_freeBanks(void)
+{
+	for (s32 b = 0; b < s_Bank.bank_count; b++) {
+		if (s_Bank.banks[b].lists) {
+			scenarioSourceAiListsFree(s_Bank.banks[b].lists, s_Bank.banks[b].count);
+		}
+	}
+	memset(&s_Bank, 0, sizeof(s_Bank));
+}
+
+static s32 s_isGameGlobalId(s32 id)
+{
+	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
+		if ((s32)g_GlobalAilists[i].id == id) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* The enabled mod banks, by catalog id. Returns how many. */
+static s32 s_modBanks(const asset_entry_t **out, s32 max)
+{
+	s32 count = 0;
+	s32 pool = assetCatalogGetPoolSize();
+
+	for (s32 i = 0; i < pool; i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		s32 at;
+
+		if (!entry || !entry->occupied || entry->type != ASSET_AI_LISTS || !entry->enabled
+				|| entry->bundled || !entry->ext.ai_lists.lists_file[0]) {
+			continue;
+		}
+		if (count >= max) {
+			sysLogPrintf(LOG_WARNING, "AI.GLOBAL: more than %d mod AI list banks; '%s' is not used",
+				max, entry->id);
+			continue;
+		}
+		at = count++;
+		while (at > 0 && strcmp(entry->id, out[at - 1]->id) < 0) {
+			out[at] = out[at - 1];
+			at--;
+		}
+		out[at] = entry;
+	}
+	return count;
+}
+
+static s32 s_compileBank(global_ailist_bank_t *bank, const asset_entry_t *entry,
+	char *reason, u32 reason_size)
+{
+	char error[192];
+	u32 size = 0;
+	char *text = (char *)fsFileLoad(entry->ext.ai_lists.lists_file, &size);
+
+	bank->entry = entry;
+	if (!text || !size) {
+		free(text);
+		return s_bindFail(reason, reason_size, "%s's rows could not be read (%s)",
+			entry->id, entry->ext.ai_lists.lists_file);
+	}
+	if (!scenarioSourceAiListsCompile(text, &bank->lists, &bank->count, error, sizeof(error))) {
+		free(text);
+		return s_bindFail(reason, reason_size, "%s's rows do not compile: %s", entry->id, error);
+	}
+	free(text);
+	for (s32 b = 0; b < bank->count; b++) {
+		if (!s_isGameGlobalId(bank->lists[b].id)) {
+			return s_bindFail(reason, reason_size,
+				"%s has list 0x%04x, which is not one of the game's global lists",
+				entry->id, (unsigned)bank->lists[b].id);
+		}
+	}
+	return 1;
+}
+
 s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)
 {
-	const asset_entry_t *bank = assetCatalogResolve("base:ai_global");
+	const asset_entry_t *base = assetCatalogResolve("base:ai_global");
+	const asset_entry_t *mods[GLOBAL_AILIST_BANKS_MAX - 1];
+	char signature[GLOBAL_AILIST_BANK_SIGNATURE];
+	s32 mod_count;
 	s32 native_count = 0;
+	s32 from_mods = 0;
+	size_t used;
 
 	if (reason && reason_size) {
 		reason[0] = '\0';
 	}
-	if (!bank || bank->type != ASSET_AI_LISTS || !bank->ext.ai_lists.lists_file[0]) {
+	if (!base || base->type != ASSET_AI_LISTS || !base->enabled || !base->ext.ai_lists.lists_file[0]) {
 		return s_bindFail(reason, reason_size,
-			"base:ai_global is not in the catalog as an AI list bank");
+			"base:ai_global is not in the catalog as an enabled AI list bank");
 	}
-	if (bank != s_Bank.entry || strcmp(bank->ext.ai_lists.lists_file, s_Bank.lists_file) != 0
-			|| !s_Bank.lists) {
-		char error[192];
-		u32 size = 0;
-		char *text = (char *)fsFileLoad(bank->ext.ai_lists.lists_file, &size);
-		scenario_ai_compiled_list_t *lists = NULL;
-		s32 count = 0;
+	mod_count = s_modBanks(mods, GLOBAL_AILIST_BANKS_MAX - 1);
 
-		if (!text || !size) {
-			free(text);
-			return s_bindFail(reason, reason_size,
-				"base:ai_global's rows could not be read (%s)", bank->ext.ai_lists.lists_file);
-		}
-		if (!scenarioSourceAiListsCompile(text, &lists, &count, error, sizeof(error))) {
-			free(text);
-			return s_bindFail(reason, reason_size, "base:ai_global's rows do not compile: %s", error);
-		}
-		free(text);
+	used = (size_t)snprintf(signature, sizeof(signature), "%s=%s;", base->id,
+		base->ext.ai_lists.lists_file);
+	for (s32 m = 0; m < mod_count && used < sizeof(signature); m++) {
+		used += (size_t)snprintf(signature + used, sizeof(signature) - used, "%s=%s;",
+			mods[m]->id, mods[m]->ext.ai_lists.lists_file);
+	}
+
+	if (strcmp(signature, s_Bank.signature) != 0 || s_Bank.bank_count == 0) {
 		/* Nothing runs an AI list while a stage loads, so the previous
 		 * compile can go before the table points at the new one. */
-		if (s_Bank.lists) {
-			scenarioSourceAiListsFree(s_Bank.lists, s_Bank.count);
+		s_freeBanks();
+		if (!s_compileBank(&s_Bank.banks[0], base, reason, reason_size)) {
+			s_Bank.bank_count = 1;
+			s_freeBanks();
+			return 0;
 		}
-		s_Bank.entry = bank;
-		snprintf(s_Bank.lists_file, sizeof(s_Bank.lists_file), "%s", bank->ext.ai_lists.lists_file);
-		s_Bank.lists = lists;
-		s_Bank.count = count;
-		s_Bank.bytes = 0;
-		for (s32 i = 0; i < count; i++) {
-			s_Bank.bytes += lists[i].size;
+		s_Bank.bank_count = 1;
+		for (s32 m = 0; m < mod_count; m++) {
+			s32 ok = s_compileBank(&s_Bank.banks[s_Bank.bank_count], mods[m], reason, reason_size);
+
+			s_Bank.bank_count++;
+			if (!ok) {
+				s_freeBanks();
+				return 0;
+			}
 		}
-		sysLogPrintf(LOG_NOTE, "AI.GLOBAL: compiled the AI list bank '%s': %d lists, %u bytes (%s)",
-			bank->id, count, s_Bank.bytes, s_Bank.lists_file);
+		snprintf(s_Bank.signature, sizeof(s_Bank.signature), "%s", signature);
+		for (s32 b = 0; b < s_Bank.bank_count; b++) {
+			for (s32 l = 0; l < s_Bank.banks[b].count; l++) {
+				s_Bank.bytes += s_Bank.banks[b].lists[l].size;
+			}
+			sysLogPrintf(LOG_NOTE, "AI.GLOBAL: compiled the AI list bank '%s': %d lists (%s)",
+				s_Bank.banks[b].entry->id, s_Bank.banks[b].count,
+				s_Bank.banks[b].entry->ext.ai_lists.lists_file);
+		}
 	}
 
-	/* Every list the bank carries must be one of the game's, and every one
-	 * of the game's must be in the bank. */
-	for (s32 b = 0; b < s_Bank.count; b++) {
+	/* The base must carry every one of the game's lists. */
+	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
 		s32 found = 0;
-		for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
-			if ((s32)g_GlobalAilists[i].id == s_Bank.lists[b].id) {
+
+		for (s32 l = 0; l < s_Bank.banks[0].count; l++) {
+			if (s_Bank.banks[0].lists[l].id == (s32)g_GlobalAilists[i].id) {
 				found = 1;
 				break;
 			}
 		}
 		if (!found) {
-			return s_bindFail(reason, reason_size,
-				"base:ai_global has list 0x%04x, which is not one of the game's global lists",
-				(unsigned)s_Bank.lists[b].id);
-		}
-	}
-	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
-		u8 *list = NULL;
-		for (s32 b = 0; b < s_Bank.count; b++) {
-			if (s_Bank.lists[b].id == (s32)g_GlobalAilists[i].id) {
-				list = s_Bank.lists[b].bytes;
-				break;
-			}
-		}
-		if (!list) {
-			return s_bindFail(reason, reason_size,
-				"base:ai_global has no global list 0x%04x", (unsigned)g_GlobalAilists[i].id);
+			return s_bindFail(reason, reason_size, "base:ai_global has no global list 0x%04x",
+				(unsigned)g_GlobalAilists[i].id);
 		}
 		native_count++;
 	}
+
+	/* Each list from the first mod bank (by id) that carries it, else the base. */
 	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
-		for (s32 b = 0; b < s_Bank.count; b++) {
-			if (s_Bank.lists[b].id == (s32)g_GlobalAilists[i].id) {
-				g_GlobalAilists[i].list = s_Bank.lists[b].bytes;
-				break;
+		u8 *list = NULL;
+
+		for (s32 b = 1; b < s_Bank.bank_count && !list; b++) {
+			for (s32 l = 0; l < s_Bank.banks[b].count; l++) {
+				if (s_Bank.banks[b].lists[l].id == (s32)g_GlobalAilists[i].id) {
+					list = s_Bank.banks[b].lists[l].bytes;
+					from_mods++;
+					break;
+				}
 			}
 		}
+		if (!list) {
+			for (s32 l = 0; l < s_Bank.banks[0].count; l++) {
+				if (s_Bank.banks[0].lists[l].id == (s32)g_GlobalAilists[i].id) {
+					list = s_Bank.banks[0].lists[l].bytes;
+					break;
+				}
+			}
+		}
+		g_GlobalAilists[i].list = list;
 	}
-	sysLogPrintf(LOG_NOTE, "AI.GLOBAL: stage 0x%02x runs the %d global lists of '%s'",
-		(unsigned)g_Vars.stagenum, native_count, s_Bank.entry->id);
+	if (from_mods) {
+		sysLogPrintf(LOG_NOTE,
+			"AI.GLOBAL: stage 0x%02x runs the %d global lists of '%s', %d of them from %d mod bank(s)",
+			(unsigned)g_Vars.stagenum, native_count, s_Bank.banks[0].entry->id, from_mods,
+			s_Bank.bank_count - 1);
+	} else {
+		sysLogPrintf(LOG_NOTE, "AI.GLOBAL: stage 0x%02x runs the %d global lists of '%s'",
+			(unsigned)g_Vars.stagenum, native_count, s_Bank.banks[0].entry->id);
+	}
 	return 1;
 }
 

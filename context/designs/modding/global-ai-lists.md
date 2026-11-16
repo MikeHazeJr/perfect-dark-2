@@ -128,10 +128,31 @@ session of its own.
   hash, so a mod that holds only AI lists is still one a client must hold;
   per the product answer such a mod should not be required of clients (a
   mixed mod may travel whole; its `.pdai` is inert on a client).
-- Next: step 2, the extractor writes `base:ai_global` (`ai/base_ai_global.pdai`)
-  from `romExtractGlobalAiListsJson`, with its own fast-cache kind and the
-  boot round trip against it; step 3, the runtime switch in `setupLoadFiles`;
-  step 4, per-level overrides; step 5, mod precedence.
+- **Step 2 (81a47d96):** boot extraction writes `base:ai_global`
+  (`data/<romid>/ai/base_ai_global.pdai`) from `romExtractGlobalAiListsJson`
+  (kind `pdai_global_ailists_rows_v1`, boot phase `pdai`), and
+  `--check-global-ailists` also compiles the extracted bank's rows back to the
+  binary's exact bytes.
+- **Step 3 (de2b6323):** `setupLoadFiles`, after sorting the global lists,
+  points every entry of `g_GlobalAilists` at the list of the same id compiled
+  from the bank (`scenarioGlobalAiListsBindBank`); ids and order unchanged. A
+  bank that is missing or cannot supply exactly the game's lists refuses the
+  stage. Every stage logs `AI.GLOBAL: stage 0xNN runs the 46 global lists of
+  'base:ai_global'`.
+- **Step 4 (e0850c0c):** a stage's own list with a global id (its
+  scenario's `ai/ailists.json`) replaces that global list for the stage; an id
+  that is not one of the game's refuses the stage.
+- **Step 5:** an enabled mod bank (a non-bundled `.pdai`) may carry any of the
+  game's global lists; its lists replace the base's by id, and when two mod
+  banks carry the same list the smaller catalog id wins (the order `.pdlang`
+  banks use). The base bank stays complete; a mod bank list that is not one of
+  the game's refuses the stage, naming the bank. The compile is cached on the
+  set of banks and their rows members.
+- In game: the bank written and round-tripped (CORE's turn
+  q_20261116111144955_af9935d1), the campaigns on the bank (q_20261116120723346_a56d5b4c).
+  Overrides and mod banks need a level or a mod that carries one; the proof
+  waits for a test mod (mods are not custom levels; a `.pdmod` fixture with a
+  `.pdai` replacing one list is enough).
 
 ## Open questions
 

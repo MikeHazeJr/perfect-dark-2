@@ -68,12 +68,12 @@ TEST_CASE("global AI lists: a stage built from scenario source runs the bank's l
 	// The bank is compiled from its public rows once per change and must
 	// carry exactly the game's list ids; the table keeps its ids and order.
 	REQUIRE(bind.find("s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)") != std::string::npos);
-	REQUIRE(bind.find("if (bank != s_Bank.entry || strcmp(bank->ext.ai_lists.lists_file, s_Bank.lists_file) != 0") !=
+	REQUIRE(bind.find("if (strcmp(signature, s_Bank.signature) != 0 || s_Bank.bank_count == 0) {") !=
 		std::string::npos);
-	REQUIRE(bind.find("\"base:ai_global has list 0x%04x, which is not one of the game's global lists\"") !=
+	REQUIRE(bind.find("\"%s has list 0x%04x, which is not one of the game's global lists\"") !=
 		std::string::npos);
 	REQUIRE(bind.find("\"base:ai_global has no global list 0x%04x\"") != std::string::npos);
-	REQUIRE(bind.find("g_GlobalAilists[i].list = s_Bank.lists[b].bytes;") != std::string::npos);
+	REQUIRE(bind.find("g_GlobalAilists[i].list = list;") != std::string::npos);
 	REQUIRE(bind.find("g_GlobalAilists[i].id = ") == std::string::npos);
 
 	// setupLoadFiles binds after sorting the global lists and refuses the
@@ -106,4 +106,22 @@ TEST_CASE("global AI lists: a stage's own list with a global id replaces it for 
 	REQUIRE(ovr != std::string::npos);
 	CHECK(bind_call < count);
 	CHECK(count < ovr);
+}
+
+TEST_CASE("global AI lists: a mod's bank replaces the base's lists by id",
+          "[ai][globalailists][runtime][mods]")
+{
+	const std::string bind = readSource("port/src/scenario_global_ailists.c");
+
+	// Enabled mod banks (non-bundled .pdai), ordered by catalog id; the base
+	// stays complete and each list comes from the first mod bank carrying it.
+	REQUIRE(bind.find("if (!entry || !entry->occupied || entry->type != ASSET_AI_LISTS || !entry->enabled\n"
+		"\t\t\t\t|| entry->bundled || !entry->ext.ai_lists.lists_file[0]) {") != std::string::npos);
+	REQUIRE(bind.find("while (at > 0 && strcmp(entry->id, out[at - 1]->id) < 0) {") != std::string::npos);
+	REQUIRE(bind.find("/* Each list from the first mod bank (by id) that carries it, else the base. */") !=
+		std::string::npos);
+	REQUIRE(bind.find("\"AI.GLOBAL: stage 0x%02x runs the %d global lists of '%s', %d of them from %d mod bank(s)\"") !=
+		std::string::npos);
+	// A mod bank's list must be one of the game's, as the base's.
+	REQUIRE(bind.find("if (!s_isGameGlobalId(bank->lists[b].id)) {") != std::string::npos);
 }
