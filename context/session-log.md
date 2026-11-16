@@ -1,5 +1,22 @@
 # Session Log (Active)
 
+2026-11-16 (02:05 ET) MULTIPLAYER, continued. All pushed (head ba2517fd). Two game turns on binary c5a12bca (c3d737c3),
+all PASS: co-op Return to Room 129/129 (B-1201 fixed in play; the host's whole co-op end flow now passes) and simulant
+types net 107/107 (B-1194 fixed in play: no skipped pickup, 16 disarm drops announced; B-1202's repeat-pass line seen),
+then local Hold the Briefcase 30/30 (a simulant held the briefcase from 11 s and scored every 30 s, 4 points), local Pop a
+Cap 25/25 and networked Hold the Briefcase 84/84 (nobody reached the briefcase on fallback pad 173, so no rate check;
+pads 152 and 173 were never reached in two runs, 122 and 134 were). Merged `week-pd/extract-6` (d42d9ab1; shared base
+7, authored case, hill and crate placements; one conflict in systemic-bugs.md, both patterns kept; every added line of
+both sides checked present with `merge_addedlines_check.py`, CRLF-aware) and fixed the one test it broke: my B-1193
+`pdguiEndscreenNetMissionHasNext` now asks `endscreenMissionLeadsToCredits()` like CORE's three bridge sites (32681e81).
+pd-tests 2,018 cases green. New smokes: rematches for the five objective modes, a local Combat score-limit end, the
+Combat rejoin with CORE's agreed lobby check, and networked co-op on Deep Sea (the local Deep Sea auto-advance changes
+stage on one machine only; the smoke forbids it). Frozen binary 03f2a9c9 (32681e81); my runs now use shared base 7
+(`run_base7.sh`). Queued: q_20261116064525787_3b2798fb (Combat net with simulants, Hold the Briefcase net, Hacker
+Central and Capture the Case local scoring, Combat score limit). Open for Mike: SP-87's scheduler half (background
+props get N times the time in networked play; recommended counting it once per frame there), plus the earlier three.
+Gotcha: `build-session.ps1` refuses even `-Target tests` while a smoke in this worktree runs.
+
 2026-11-16 (00:25 ET) MULTIPLAYER, continued. All pushed (head c3d737c3). The 0587e908 game turn proved in play co-op
 Retry Mission (126/126) and the networked Combat rematch (95/95); co-op Return to Room reached the Room on both machines
 (125/129), then the client crashed when the host left: B-1201, the ended mission stayed loaded behind the Room and ran
