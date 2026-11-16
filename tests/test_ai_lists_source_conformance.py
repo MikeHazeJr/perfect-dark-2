@@ -364,6 +364,70 @@ class GlobalAiListsGraphTests(unittest.TestCase):
             GOOD_INI + "extract_version = global_ailists_rows_v1\n", rows, None), [])
 
 
+class AssetArgsTests(unittest.TestCase):
+    """ai-typed-operands.md slice 3b: every asset argument (model, weapon,
+    body, head, anim, sound) is a catalog id or null, never a number; a
+    sound named by id carries its playback values; the base animation
+    table names every slot."""
+
+    SPEAK = 0x00CD  # chr, text, sound, channel, colour
+    SPAWN = 0x00C6  # spawn_chr_at_pad: body, head, pad, ai_list, flags, label
+
+    def speak(self, **sound):
+        return dict({"chr": 1, "text": 5, "channel": 9, "colour": 0}, **sound)
+
+    def test_encoder(self):
+        from asset_archive_conformance import ai_command_encode
+        # Ids and null pass; an id's bytes are zero here, null is every bit set.
+        self.assertEqual(ai_command_encode(self.SPEAK, self.speak(
+            sound="base:voice_ap1_01", sound_priority=2, sound_response=3)),
+            ([1, 0, 5, 0, 0, 9, 0], None))
+        self.assertEqual(ai_command_encode(self.SPEAK, self.speak(sound=None)),
+                         ([1, 0, 5, 0xFF, 0xFF, 9, 0], None))
+        refused = [
+            (self.speak(sound=354), "gives a sound by number; name it by catalog id"),
+            (self.speak(sound=None, sound_response=1), "go with a sound named by catalog id"),
+            (self.speak(sound="base:voice_ap1_01", sound_priority=4), "from 1 to 3"),
+            (self.speak(sound="base:voice_ap1_01", sound_response=-1), "from 0 to 3"),
+            (self.speak(sound="base:sfx_alarm_2", sound_volume=1), "no argument 'sound_volume'"),
+        ]
+        for args, reason in refused:
+            values, error = ai_command_encode(self.SPEAK, args)
+            self.assertIsNone(values, args)
+            self.assertIn(reason, error)
+        # The dual-use fields are no asset: an attack's target, a sound's source.
+        self.assertIsNone(ai_command_encode(0x0015, {"flags": 0, "target": 0, "label": 3})[1])
+        self.assertIn("no argument 'entity'",
+                      ai_command_encode(0x0015, {"flags": 0, "entity": 0, "label": 3})[1])
+
+    def test_rows_with_operands_and_args(self):
+        from asset_archive_conformance import _ai_row_args_error
+        # A spawn with no body or head given (every bit set): null in args.
+        operands = [0xFF, 0xFF, 0x00, 0x10, 0x04, 0x01, 0, 0, 0, 0, 0x03]
+        nulls = {"body": None, "head": None, "pad": 16, "ai_list": 1025, "flags": 0, "label": 3}
+        self.assertIsNone(_ai_row_args_error({"args": nulls}, self.SPAWN, operands))
+        number = _ai_row_args_error({"args": dict(nulls, body=255)}, self.SPAWN, operands)
+        self.assertIn("gives a body by number; name it by catalog id", number)
+
+    def test_base_animation_slot_ids(self):
+        from asset_archive_conformance import (
+            _catalog_alpha_ordinal, _catalog_readable_slug, base_animation_slot_ids)
+        self.assertEqual([_catalog_alpha_ordinal(v) for v in (0, 25, 26, 27, 702)],
+                         ["a", "z", "aa", "ab", "aaa"])
+        # catalogReadableAnimationId's rule: the symbol's words, a placeholder
+        # symbol's ordinal, a leading hex token dropped.
+        self.assertEqual(_catalog_readable_slug("ANIM_BLINDED", "character", 552), "blinded")
+        self.assertEqual(_catalog_readable_slug("ANIM_001B", "character", 27), "character_ab")
+        self.assertEqual(_catalog_readable_slug("ANIM_02C_CROUCH", "character", 44), "crouch_as")
+        self.assertEqual(_catalog_readable_slug(None, "character", 0), "character_a")
+        slots = base_animation_slot_ids()
+        # Every slot of the base table, the empty ones of the cut beta cave
+        # cutscene included.
+        self.assertGreaterEqual(len(slots), 1207)
+        self.assertEqual(slots[552], "base:animation_blinded")
+        self.assertEqual(slots[363], "base:animation_cut_cave_beta_cam")
+
+
 class ScenarioAiEdgesKindTests(unittest.TestCase):
     """The example arena embeds a scenario whose one list is a single end."""
 

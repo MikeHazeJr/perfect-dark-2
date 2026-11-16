@@ -547,7 +547,7 @@ TEST_CASE("AI list edges: the extractor writes them and conformance recomputes t
 	REQUIRE(arena.find("\"  \\\"schema\\\": \\\"pd2.scenario.ai.graph.v1\\\",\\n\"") !=
 		std::string::npos);
 	// SP-86: the scenario kind moved with the edges.
-	REQUIRE(arena.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs\"") != std::string::npos);
+	REQUIRE(arena.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs\"") != std::string::npos);
 
 	// Conformance: the scenario's graph against its rows, required when the
 	// embedding arena's kind is the new one; the bank's graph member.
@@ -563,5 +563,5 @@ TEST_CASE("AI list edges: the extractor writes them and conformance recomputes t
 	REQUIRE(conformance.find("errors.extend(validate_ai_lists_graph_member(label, zf, rows))") !=
 		std::string::npos);
 	REQUIRE(conformance.find("missing {kind} edge to {describe(target)}") != std::string::npos);
-	REQUIRE(conformance.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs\"") != std::string::npos);
+	REQUIRE(conformance.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs\"") != std::string::npos);
 }

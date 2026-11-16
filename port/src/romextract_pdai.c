@@ -43,8 +43,8 @@
 #define PDAI_CATALOG_ID "base:ai_global"
 #define PDAI_ROWS_MEMBER "ai/global_ailists.json"
 #define PDAI_GRAPH_MEMBER "ai/global_ailists.graph.json"
-#define PDAI_EXTRACT_VERSION "global_ailists_rows_v4_catalogargs"
-#define PDAI_FAST_CACHE_KIND "pdai_global_ailists_rows_v4_catalogargs"
+#define PDAI_EXTRACT_VERSION "global_ailists_rows_v5_assetargs"
+#define PDAI_FAST_CACHE_KIND "pdai_global_ailists_rows_v5_assetargs"
 
 #if !defined(PD_SERVER)
 static s32 s_writePdaiArchive(const char *dst_full)

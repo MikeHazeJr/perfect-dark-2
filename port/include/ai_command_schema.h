@@ -3,7 +3,7 @@
 
 /*
  * ai_command_schema.h -- the typed operands of every AI command
- * (context/designs/modding/ai-typed-operands.md, slice 1).
+ * (context/designs/modding/ai-typed-operands.md, slices 1-3b).
  *
  * Pure and game-independent. For each opcode the schema gives the command's
  * name, its length (opcode included; 0 for print, whose text ends at a NUL)
@@ -116,12 +116,32 @@ int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
 	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
 	uint32_t error_size);
 
-/* Slice 3: catalog references. A field of kind model, weapon, body or head
- * may be written as a catalog id ("weapon": "base:cmp150"). The writer asks
- * namer for a value's id (NULL or "" keeps the number); the reader asks
- * resolver for an id's value (0 when it does not resolve). With NULL
- * callbacks these are aiCommandArgsToJson and aiCommandArgsEncode, and a
- * catalog id is refused. */
+/* Slices 3 and 3b: catalog references. A field of kind model, weapon, body,
+ * head, anim or sound is written as a catalog id ("weapon": "base:cmp150")
+ * or as null, the field's "none" value with every bit set (a head of -1, a
+ * cutscene weapon of 255). The writer asks namer for a value's id; with a
+ * namer, a value it cannot name that is not "none" fails the writer (the
+ * extractor writes no asset by number). The reader asks resolver for an
+ * id's value (0 when it does not resolve); with a resolver, a plain number
+ * for a catalog kind is refused. With NULL callbacks these are
+ * aiCommandArgsToJson and aiCommandArgsEncode: numbers as they are, and a
+ * catalog id is refused.
+ *
+ * A sound field's 16 bits are an asset and two playback values. With bit
+ * 15 set it is a configured sound, and the whole value is the asset.
+ * Otherwise bits 11-12 are the MP3 priority (not 0 for an MP3 voice line,
+ * whose 11-bit id is then a file number, not a sample), bits 13-14 the MP3
+ * response (1 whisper, 2 acknowledge) and bits 0-10 the id. The asset part
+ * (what the namer names and the resolver returns) is the configured value,
+ * a sample's id, or an MP3 voice line's file number with AI_SOUND_REF_MP3
+ * set. Args give the playback values as their own keys after the sound's
+ * id: "<field>_priority" (1 to 3; every MP3 voice line has one, nothing
+ * else may) and "<field>_response" (1 to 3, written when not 0). */
+#define AI_SOUND_REF_CONFIGURED 0x8000
+#define AI_SOUND_REF_MP3        0x0800
+#define AI_SOUND_REF_ID_MASK    0x07ff
+void aiSoundRefSplit(int64_t value, int64_t *out_asset, int *out_priority,
+	int *out_response);
 int aiOperandKindIsCatalog(ai_operand_kind_t kind);
 typedef const char *(*ai_command_ref_namer_fn)(ai_operand_kind_t kind, int64_t value,
 	void *user);

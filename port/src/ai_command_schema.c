@@ -66,16 +66,16 @@ static const ai_command_field_t s_AiCommandFields[] = {
 	{ "label", 2, 1, 0, AI_OPERAND_LABEL }, /* 0x0013 try_attack_run */
 	{ "label", 2, 1, 0, AI_OPERAND_LABEL }, /* 0x0014 try_attack_roll */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x0015 try_attack_stand */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0015 try_attack_stand */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0015 try_attack_stand */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x0015 try_attack_stand */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x0016 try_attack_kneel */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0016 try_attack_kneel */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0016 try_attack_kneel */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x0016 try_attack_kneel */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x0017 try_modify_attack */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0017 try_modify_attack */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0017 try_modify_attack */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x0017 try_modify_attack */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x0018 face_entity */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0018 face_entity */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0018 face_entity */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x0018 face_entity */
 	{ "chr", 2, 1, 0, AI_OPERAND_CHR }, /* 0x0019 ai_0019 */
 	{ "hitpart", 3, 1, 1, AI_OPERAND_NUMBER }, /* 0x0019 ai_0019 */
@@ -87,7 +87,7 @@ static const ai_command_field_t s_AiCommandFields[] = {
 	{ "target_chr", 3, 1, 0, AI_OPERAND_CHR }, /* 0x001a chr_damage_chr */
 	{ "hitpart", 4, 1, 1, AI_OPERAND_NUMBER }, /* 0x001a chr_damage_chr */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x001b consider_grenade_throw */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x001b consider_grenade_throw */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x001b consider_grenade_throw */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x001b consider_grenade_throw */
 	{ "model", 2, 2, 0, AI_OPERAND_MODEL }, /* 0x001c drop_item */
 	{ "weapon", 4, 1, 0, AI_OPERAND_WEAPON }, /* 0x001c drop_item */
@@ -688,11 +688,11 @@ static const ai_command_field_t s_AiCommandFields[] = {
 	{ "chr", 2, 1, 0, AI_OPERAND_CHR }, /* 0x0178 if_player_auto_walk_finished */
 	{ "label", 3, 1, 0, AI_OPERAND_LABEL }, /* 0x0178 if_player_auto_walk_finished */
 	{ "channel", 2, 1, 1, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
-	{ "entity", 3, 1, 0, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
+	{ "source", 3, 1, 0, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
 	{ "fade_time60", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
 	{ "falloff_distance", 6, 2, 0, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
 	{ "max_distance", 8, 2, 0, AI_OPERAND_NUMBER }, /* 0x0179 play_sound_from_entity */
-	{ "entity_is_chr", 10, 1, 0, AI_OPERAND_BOOL }, /* 0x0179 play_sound_from_entity */
+	{ "source_is_chr", 10, 1, 0, AI_OPERAND_BOOL }, /* 0x0179 play_sound_from_entity */
 	{ "label", 2, 1, 0, AI_OPERAND_LABEL }, /* 0x017a if_los_to_attack_target */
 	{ "chr", 2, 1, 0, AI_OPERAND_CHR }, /* 0x017b if_chr_knocked_out */
 	{ "label", 3, 1, 0, AI_OPERAND_LABEL }, /* 0x017b if_chr_knocked_out */
@@ -792,7 +792,7 @@ static const ai_command_field_t s_AiCommandFields[] = {
 	{ "object", 2, 1, 0, AI_OPERAND_OBJECT }, /* 0x01b8 set_autogun_target_team */
 	{ "team", 3, 1, 0, AI_OPERAND_TEAM }, /* 0x01b8 set_autogun_target_team */
 	{ "flags", 2, 2, 0, AI_OPERAND_FLAGS }, /* 0x01ba try_attack_lie */
-	{ "entity", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x01ba try_attack_lie */
+	{ "target", 4, 2, 0, AI_OPERAND_NUMBER }, /* 0x01ba try_attack_lie */
 	{ "label", 6, 1, 0, AI_OPERAND_LABEL }, /* 0x01ba try_attack_lie */
 	{ "unused", 2, 1, 0, AI_OPERAND_UNUSED }, /* 0x01bb noop_01bb */
 	{ "unused2", 3, 1, 0, AI_OPERAND_UNUSED }, /* 0x01bb noop_01bb */
@@ -1473,7 +1473,42 @@ static int s_append(char *out, uint32_t out_size, uint32_t *len, const char *fmt
 int aiOperandKindIsCatalog(ai_operand_kind_t kind)
 {
 	return kind == AI_OPERAND_MODEL || kind == AI_OPERAND_WEAPON || kind == AI_OPERAND_BODY
-		|| kind == AI_OPERAND_HEAD;
+		|| kind == AI_OPERAND_HEAD || kind == AI_OPERAND_ANIM || kind == AI_OPERAND_SOUND;
+}
+
+void aiSoundRefSplit(int64_t value, int64_t *out_asset, int *out_priority,
+	int *out_response)
+{
+	const uint32_t bits = (uint32_t)value & 0xffffu;
+	int64_t asset;
+	int priority = 0;
+	int response = 0;
+
+	if (bits & AI_SOUND_REF_CONFIGURED) {
+		asset = bits;
+	} else {
+		priority = (int)((bits >> 11) & 3u);
+		response = (int)((bits >> 13) & 3u);
+		asset = (int64_t)(bits & AI_SOUND_REF_ID_MASK) | (priority ? AI_SOUND_REF_MP3 : 0);
+	}
+	if (out_asset) {
+		*out_asset = asset;
+	}
+	if (out_priority) {
+		*out_priority = priority;
+	}
+	if (out_response) {
+		*out_response = response;
+	}
+}
+
+/* A catalog kind's "none": the field's value with every bit set. */
+static int64_t s_noneValue(const ai_command_field_t *field)
+{
+	if (field->is_signed) {
+		return -1;
+	}
+	return field->width >= 4 ? (int64_t)0xffffffffu : ((int64_t)1 << (8 * field->width)) - 1;
 }
 
 /* A catalog id as the writer names it: only id characters, so it needs no
@@ -1547,16 +1582,36 @@ int aiCommandArgsToJsonRefs(const ai_command_schema_t *schema, const uint8_t *op
 			continue;
 		}
 		if (namer && aiOperandKindIsCatalog((ai_operand_kind_t)field->kind)) {
-			const char *id = namer((ai_operand_kind_t)field->kind, value, user);
+			int64_t asset = value;
+			int priority = 0;
+			int response = 0;
+			const char *id;
 
+			if (field->kind == AI_OPERAND_SOUND) {
+				aiSoundRefSplit(value, &asset, &priority, &response);
+			}
+			id = namer((ai_operand_kind_t)field->kind, asset, user);
 			if (s_isCatalogIdText(id)) {
 				if (!s_append(out, out_size, &len, "%s\"%s\": \"%s\"", first ? "" : ", ",
-						field->name, id)) {
+						field->name, id)
+						|| (priority && !s_append(out, out_size, &len, ", \"%s_priority\": %d",
+							field->name, priority))
+						|| (response && !s_append(out, out_size, &len, ", \"%s_response\": %d",
+							field->name, response))) {
 					return -1;
 				}
 				first = 0;
 				continue;
 			}
+			/* Slice 3b: no asset by number. "none" is null; any other value
+			 * the catalog cannot name fails the writer. */
+			if (value != s_noneValue(field)
+					|| !s_append(out, out_size, &len, "%s\"%s\": null", first ? "" : ", ",
+						field->name)) {
+				return -1;
+			}
+			first = 0;
+			continue;
 		}
 		if (field->kind == AI_OPERAND_BOOL && (value == 0 || value == 1)) {
 			ok = s_append(out, out_size, &len, "%s\"%s\": %s", first ? "" : ", ",
@@ -1660,6 +1715,166 @@ static const char *s_readString(const char *p, const char *end, uint8_t *out,
 	return p + 1;
 }
 
+/* A JSON whole number at p (at most 18 digits). Returns the byte after it,
+ * or NULL. */
+static const char *s_readWhole(const char *p, const char *end, int64_t *out)
+{
+	int64_t value = 0;
+	int negative = 0;
+	int digits = 0;
+
+	if (p < end && *p == '-') {
+		negative = 1;
+		p++;
+	}
+	while (p < end && *p >= '0' && *p <= '9') {
+		if (digits >= 18) {
+			return NULL;
+		}
+		value = value * 10 + (*p - '0');
+		digits++;
+		p++;
+	}
+	if (!digits) {
+		return NULL;
+	}
+	*out = negative ? -value : value;
+	return p;
+}
+
+/* Slice 3b: a sound field's value from its asset and its playback values
+ * (-1 when an argument does not give one). Returns 0, or -1 with the
+ * reason. */
+static int s_soundRefJoin(const ai_command_schema_t *schema, const ai_command_field_t *field,
+	int64_t asset, int priority, int response, int64_t *out, char *error, uint32_t error_size)
+{
+	uint32_t bits;
+
+	if (asset < 0 || asset > 0xffff) {
+		return s_fail(error, error_size, "%s argument '%s' names no sound", schema->name,
+			field->name);
+	}
+	if (asset & AI_SOUND_REF_CONFIGURED) {
+		if (priority >= 0 || response >= 0) {
+			return s_fail(error, error_size, "%s argument '%s' is a configured sound, which"
+				" takes no '%s_priority' or '%s_response'", schema->name, field->name,
+				field->name, field->name);
+		}
+		bits = (uint32_t)asset;
+	} else if (asset & AI_SOUND_REF_MP3) {
+		if (priority < 1) {
+			return s_fail(error, error_size, "%s argument '%s' is an MP3 voice line, which"
+				" needs '%s_priority' (1 to 3)", schema->name, field->name, field->name);
+		}
+		bits = ((uint32_t)asset & AI_SOUND_REF_ID_MASK) | ((uint32_t)priority << 11);
+	} else {
+		if (priority >= 0) {
+			return s_fail(error, error_size, "%s argument '%s' is a sample; '%s_priority' is"
+				" for an MP3 voice line", schema->name, field->name, field->name);
+		}
+		bits = (uint32_t)asset;
+	}
+	if (response > 0) {
+		bits |= (uint32_t)response << 13;
+	}
+	*out = field->is_signed && (bits & 0x8000u) ? (int64_t)bits - 0x10000 : (int64_t)bits;
+	return 0;
+}
+
+/* One argument's value at *pp (after its key): checks it once, encodes it
+ * into out and moves *pp past it. A sound named by catalog id is not
+ * written here: its asset goes to *sound_asset, joined with its playback
+ * values once every argument is read. Returns 0, or -1 with the reason. */
+static int s_encodeField(const ai_command_schema_t *schema, const ai_command_field_t *field,
+	const char **pp, const char *end, uint8_t *out, uint32_t out_size, uint32_t *count,
+	ai_command_ref_resolver_fn resolver, void *user, int64_t *sound_asset, uint8_t *seen,
+	char *error, uint32_t error_size)
+{
+	const char *p = *pp;
+	const int catalog = aiOperandKindIsCatalog((ai_operand_kind_t)field->kind);
+	int64_t value = 0;
+
+	if (*seen) {
+		return s_fail(error, error_size, "%s argument '%s' appears twice", schema->name,
+			field->name);
+	}
+	*seen = 1;
+	p = s_skipSpace(p, end);
+	if (p >= end || *p != ':') {
+		return s_fail(error, error_size, "%s argument '%s' has no value", schema->name,
+			field->name);
+	}
+	p = s_skipSpace(p + 1, end);
+	if (field->kind == AI_OPERAND_STRING) {
+		uint32_t text_len = 0;
+
+		if (out_size < 1) {
+			return s_fail(error, error_size, "no room for %s's text", schema->name);
+		}
+		p = s_readString(p, end, out, out_size, &text_len);
+		if (!p) {
+			return s_fail(error, error_size, "%s argument '%s' is not a text it can hold",
+				schema->name, field->name);
+		}
+		*count = text_len + 1u;
+		*pp = p;
+		return 0;
+	}
+	if (catalog && end - p >= 4 && strncmp(p, "null", 4) == 0) {
+		value = s_noneValue(field);
+		p += 4;
+	} else if (catalog && p < end && *p == '"') {
+		uint8_t id[96];
+		uint32_t id_len = 0;
+
+		p = s_readString(p, end, id, sizeof(id), &id_len);
+		if (!p || !id_len) {
+			return s_fail(error, error_size, "%s argument '%s' is not a catalog id",
+				schema->name, field->name);
+		}
+		if (!resolver) {
+			return s_fail(error, error_size, "%s argument '%s' names '%s'; this reader"
+				" has no catalog", schema->name, field->name, (const char *)id);
+		}
+		if (!resolver((ai_operand_kind_t)field->kind, (const char *)id, &value, user)) {
+			return s_fail(error, error_size, "%s argument '%s' names '%s', which is no %s"
+				" in the catalog", schema->name, field->name, (const char *)id,
+				aiOperandKindName((ai_operand_kind_t)field->kind));
+		}
+		if (field->kind == AI_OPERAND_SOUND) {
+			*sound_asset = value;
+			*pp = p;
+			return 0;
+		}
+	} else if (field->kind == AI_OPERAND_BOOL && end - p >= 4 && strncmp(p, "true", 4) == 0) {
+		value = 1;
+		p += 4;
+	} else if (field->kind == AI_OPERAND_BOOL && end - p >= 5 && strncmp(p, "false", 5) == 0) {
+		value = 0;
+		p += 5;
+	} else {
+		p = s_readWhole(p, end, &value);
+		if (!p) {
+			return s_fail(error, error_size, "%s argument '%s' must be %s", schema->name,
+				field->name, field->kind == AI_OPERAND_BOOL ? "true or false"
+				: catalog ? "a catalog id or null" : "a whole number");
+		}
+		if (catalog && resolver) {
+			/* Slice 3b: with a catalog, an asset is named by its id. */
+			return s_fail(error, error_size, "%s argument '%s' gives a %s by number; name it"
+				" by catalog id", schema->name, field->name,
+				aiOperandKindName((ai_operand_kind_t)field->kind));
+		}
+	}
+	if (!aiCommandFieldWrite(field, out, *count, value)) {
+		return s_fail(error, error_size, "%s argument '%s' = %" PRId64
+			" is outside its %u-byte %s range", schema->name, field->name, value,
+			(unsigned)field->width, field->is_signed ? "signed" : "unsigned");
+	}
+	*pp = p;
+	return 0;
+}
+
 int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
 	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
 	uint32_t error_size)
@@ -1675,6 +1890,10 @@ int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
 	const char *end;
 	const char *p;
 	uint8_t seen[64];
+	/* Slice 3b: a sound named by catalog id, and its playback values. */
+	int64_t sound_asset[64];
+	int sound_priority[64];
+	int sound_response[64];
 	uint32_t count;
 
 	if (error && error_size) {
@@ -1687,6 +1906,11 @@ int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
 		return s_fail(error, error_size, "%s has too many fields", schema->name);
 	}
 	memset(seen, 0, sizeof(seen));
+	for (uint32_t i = 0; i < sizeof(seen); i++) {
+		sound_asset[i] = -1;
+		sound_priority[i] = -1;
+		sound_response[i] = -1;
+	}
 	count = schema->length ? (uint32_t)schema->length - 2u : 0u;
 	if (count > out_size) {
 		return s_fail(error, error_size, "%s needs %u operand bytes", schema->name,
@@ -1707,6 +1931,7 @@ int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
 			uint32_t key_len = 0;
 			const ai_command_field_t *field = NULL;
 			uint32_t index = 0;
+			int playback = 0; /* 1: "<sound>_priority", 2: "<sound>_response" */
 
 			p = s_readString(p, end, key, sizeof(key), &key_len);
 			if (!p) {
@@ -1719,91 +1944,48 @@ int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
 				}
 			}
 			if (!field) {
+				for (index = 0; index < schema->field_count; index++) {
+					const ai_command_field_t *sound = &schema->fields[index];
+					const size_t name_len = strlen(sound->name);
+
+					if (sound->kind != AI_OPERAND_SOUND
+							|| strncmp((const char *)key, sound->name, name_len) != 0) {
+						continue;
+					}
+					playback = strcmp((const char *)key + name_len, "_priority") == 0 ? 1
+						: strcmp((const char *)key + name_len, "_response") == 0 ? 2 : 0;
+					if (playback) {
+						field = sound;
+						break;
+					}
+				}
+			}
+			if (!field) {
 				return s_fail(error, error_size, "%s has no argument '%s'", schema->name,
 					(const char *)key);
 			}
-			if (seen[index]) {
-				return s_fail(error, error_size, "%s argument '%s' appears twice",
-					schema->name, field->name);
-			}
-			seen[index] = 1;
-			p = s_skipSpace(p, end);
-			if (p >= end || *p != ':') {
-				return s_fail(error, error_size, "%s argument '%s' has no value",
-					schema->name, field->name);
-			}
-			p = s_skipSpace(p + 1, end);
-			if (field->kind == AI_OPERAND_STRING) {
-				uint32_t text_len = 0;
-
-				if (out_size < 1) {
-					return s_fail(error, error_size, "no room for %s's text", schema->name);
-				}
-				p = s_readString(p, end, out, out_size, &text_len);
-				if (!p) {
-					return s_fail(error, error_size, "%s argument '%s' is not a text it can hold",
-						schema->name, field->name);
-				}
-				count = text_len + 1u;
-			} else {
+			if (playback) {
+				int *slot = playback == 1 ? &sound_priority[index] : &sound_response[index];
 				int64_t value = 0;
 
-				if (p < end && *p == '"' && aiOperandKindIsCatalog((ai_operand_kind_t)field->kind)) {
-					uint8_t id[96];
-					uint32_t id_len = 0;
-
-					p = s_readString(p, end, id, sizeof(id), &id_len);
-					if (!p || !id_len) {
-						return s_fail(error, error_size, "%s argument '%s' is not a catalog id",
-							schema->name, field->name);
-					}
-					if (!resolver) {
-						return s_fail(error, error_size, "%s argument '%s' names '%s'; this reader"
-							" has no catalog", schema->name, field->name, (const char *)id);
-					}
-					if (!resolver((ai_operand_kind_t)field->kind, (const char *)id, &value, user)) {
-						return s_fail(error, error_size, "%s argument '%s' names '%s', which is no %s"
-							" in the catalog", schema->name, field->name, (const char *)id,
-							aiOperandKindName((ai_operand_kind_t)field->kind));
-					}
-				} else if (field->kind == AI_OPERAND_BOOL && end - p >= 4 && strncmp(p, "true", 4) == 0) {
-					value = 1;
-					p += 4;
-				} else if (field->kind == AI_OPERAND_BOOL && end - p >= 5
-						&& strncmp(p, "false", 5) == 0) {
-					value = 0;
-					p += 5;
-				} else {
-					int negative = 0;
-					int digits = 0;
-
-					if (p < end && *p == '-') {
-						negative = 1;
-						p++;
-					}
-					while (p < end && *p >= '0' && *p <= '9') {
-						if (digits >= 18) {
-							return s_fail(error, error_size, "%s argument '%s' is too large",
-								schema->name, field->name);
-						}
-						value = value * 10 + (*p - '0');
-						digits++;
-						p++;
-					}
-					if (!digits) {
-						return s_fail(error, error_size, "%s argument '%s' must be %s",
-							schema->name, field->name,
-							field->kind == AI_OPERAND_BOOL ? "true or false" : "a whole number");
-					}
-					if (negative) {
-						value = -value;
-					}
+				if (*slot >= 0) {
+					return s_fail(error, error_size, "%s argument '%s' appears twice",
+						schema->name, (const char *)key);
 				}
-				if (!aiCommandFieldWrite(field, out, count, value)) {
-					return s_fail(error, error_size, "%s argument '%s' = %" PRId64
-						" is outside its %u-byte %s range", schema->name, field->name, value,
-						(unsigned)field->width, field->is_signed ? "signed" : "unsigned");
+				p = s_skipSpace(p, end);
+				if (p >= end || *p != ':') {
+					return s_fail(error, error_size, "%s argument '%s' has no value",
+						schema->name, (const char *)key);
 				}
+				p = s_readWhole(s_skipSpace(p + 1, end), end, &value);
+				if (!p || value < (playback == 1 ? 1 : 0) || value > 3) {
+					return s_fail(error, error_size, "%s argument '%s' must be a whole number"
+						" from %d to 3", schema->name, (const char *)key, playback == 1 ? 1 : 0);
+				}
+				*slot = (int)value;
+			} else if (s_encodeField(schema, field, &p, end, out, out_size, &count, resolver,
+					user, &sound_asset[index], &seen[index], error, error_size) < 0) {
+				return -1;
 			}
 			p = s_skipSpace(p, end);
 			if (p < end && *p == ',') {
@@ -1823,9 +2005,30 @@ int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
 			schema->name);
 	}
 	for (uint32_t i = 0; i < schema->field_count; i++) {
-		if (!seen[i] && schema->fields[i].kind != AI_OPERAND_UNUSED) {
+		const ai_command_field_t *field = &schema->fields[i];
+
+		if (!seen[i] && field->kind != AI_OPERAND_UNUSED) {
 			return s_fail(error, error_size, "%s is missing argument '%s'", schema->name,
-				schema->fields[i].name);
+				field->name);
+		}
+		if (field->kind != AI_OPERAND_SOUND) {
+			continue;
+		}
+		if (sound_asset[i] >= 0) {
+			int64_t value = 0;
+
+			if (s_soundRefJoin(schema, field, sound_asset[i], sound_priority[i],
+					sound_response[i], &value, error, error_size) < 0) {
+				return -1;
+			}
+			if (!aiCommandFieldWrite(field, out, count, value)) {
+				return s_fail(error, error_size, "%s argument '%s' = %" PRId64
+					" is outside its %u-byte %s range", schema->name, field->name, value,
+					(unsigned)field->width, field->is_signed ? "signed" : "unsigned");
+			}
+		} else if (sound_priority[i] >= 0 || sound_response[i] >= 0) {
+			return s_fail(error, error_size, "%s arguments '%s_priority' and '%s_response'"
+				" go with a sound named by catalog id", schema->name, field->name, field->name);
 		}
 	}
 	return (int)count;

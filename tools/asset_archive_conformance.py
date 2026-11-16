@@ -144,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -5841,13 +5841,13 @@ AI_COMMAND_SCHEMA = {
     0x0012: ("try_attack_walk", 3, (("label", 2, 1, False, "label"),)),
     0x0013: ("try_attack_run", 3, (("label", 2, 1, False, "label"),)),
     0x0014: ("try_attack_roll", 3, (("label", 2, 1, False, "label"),)),
-    0x0015: ("try_attack_stand", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
-    0x0016: ("try_attack_kneel", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
-    0x0017: ("try_modify_attack", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
-    0x0018: ("face_entity", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0015: ("try_attack_stand", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0016: ("try_attack_kneel", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0017: ("try_modify_attack", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0018: ("face_entity", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
     0x0019: ("ai_0019", 8, (("chr", 2, 1, False, "chr"), ("hitpart", 3, 1, True, "number"), ("weapon", 4, 1, False, "weapon"), ("weapon_upgrade", 5, 1, False, "flags"), ("weapon_unk", 6, 1, False, "number"), ("weapon_function", 7, 1, False, "number"))),
     0x001a: ("chr_damage_chr", 5, (("chr", 2, 1, False, "chr"), ("target_chr", 3, 1, False, "chr"), ("hitpart", 4, 1, True, "number"))),
-    0x001b: ("consider_grenade_throw", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x001b: ("consider_grenade_throw", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
     0x001c: ("drop_item", 6, (("model", 2, 2, False, "model"), ("weapon", 4, 1, False, "weapon"), ("label", 5, 1, False, "label"))),
     0x001d: ("jog_to_pad", 4, (("pad", 2, 2, False, "pad"),)),
     0x001e: ("go_to_pad_preset", 3, (("speed", 2, 1, False, "number"),)),
@@ -6171,7 +6171,7 @@ AI_COMMAND_SCHEMA = {
     0x0176: ("if_bot_respawning", 3, (("label", 2, 1, False, "label"),)),
     0x0177: ("player_auto_walk", 9, (("chr", 2, 1, False, "chr"), ("pad", 3, 2, True, "pad"), ("walk_speed", 5, 1, False, "number"), ("turn_speed", 6, 1, False, "number"), ("look_up", 7, 1, False, "number"), ("distance", 8, 1, False, "number"))),
     0x0178: ("if_player_auto_walk_finished", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
-    0x0179: ("play_sound_from_entity", 11, (("channel", 2, 1, True, "number"), ("entity", 3, 1, False, "number"), ("fade_time60", 4, 2, False, "number"), ("falloff_distance", 6, 2, False, "number"), ("max_distance", 8, 2, False, "number"), ("entity_is_chr", 10, 1, False, "bool"))),
+    0x0179: ("play_sound_from_entity", 11, (("channel", 2, 1, True, "number"), ("source", 3, 1, False, "number"), ("fade_time60", 4, 2, False, "number"), ("falloff_distance", 6, 2, False, "number"), ("max_distance", 8, 2, False, "number"), ("source_is_chr", 10, 1, False, "bool"))),
     0x017a: ("if_los_to_attack_target", 3, (("label", 2, 1, False, "label"),)),
     0x017b: ("if_chr_knocked_out", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
     0x017c: ("assign_sound", 5, (("sound", 2, 2, True, "sound"), ("channel", 4, 1, True, "number"))),
@@ -6222,7 +6222,7 @@ AI_COMMAND_SCHEMA = {
     0x01b7: ("chr_set_cloaked", 5, (("chr", 2, 1, False, "chr"), ("cloaked", 3, 1, False, "bool"), ("play_sound", 4, 1, False, "bool"))),
     0x01b8: ("set_autogun_target_team", 4, (("object", 2, 1, False, "object"), ("team", 3, 1, False, "team"))),
     0x01b9: ("shuffle_pelagic_switches", 2, ()),
-    0x01ba: ("try_attack_lie", 7, (("flags", 2, 2, False, "flags"), ("entity", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x01ba: ("try_attack_lie", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
     0x01bb: ("noop_01bb", 4, (("unused", 2, 1, False, "unused"), ("unused2", 3, 1, False, "unused"))),
     0x01bc: ("if_pouncebits_eq", 4, (("pounce_bits", 2, 1, False, "flags"), ("label", 3, 1, False, "label"))),
     0x01bd: ("if_training_pc_holographed", 3, (("label", 2, 1, False, "label"),)),
@@ -6295,8 +6295,38 @@ def ai_command_args(opcode: int, operands: list[int]) -> dict | None:
     return args
 
 
-# ai-typed-operands.md slice 3: these kinds may name a catalog id.
-AI_CATALOG_KINDS = {"model", "weapon", "body", "head"}
+# ai-typed-operands.md slices 3 and 3b: these kinds name their asset by
+# catalog id, or are null (the field's "none" value, every bit set); never a
+# number in an archive.
+AI_CATALOG_KINDS = {"model", "weapon", "body", "head", "anim", "sound"}
+# Slice 3b: a sound named by catalog id may carry its playback values as
+# "<field>_priority" (1 to 3, an MP3 voice line) and "<field>_response"
+# (0 to 3).
+AI_SOUND_PLAYBACK_KEYS = {"_priority": (1, 3), "_response": (0, 3)}
+
+
+def _ai_sound_playback_key(fields: tuple, key: str) -> tuple[str, str] | None:
+    """(sound field, suffix) when key is a sound field's playback key."""
+    for field_name, _offset, _width, _signed, kind in fields:
+        if kind != "sound" or not key.startswith(field_name):
+            continue
+        suffix = key[len(field_name):]
+        if suffix in AI_SOUND_PLAYBACK_KEYS:
+            return field_name, suffix
+    return None
+
+
+def ai_args_catalog_number_error(opcode: int, args: object) -> str | None:
+    """Slice 3b: an asset argument is a catalog id or null, never a number."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None or not isinstance(args, dict):
+        return None
+    for field_name, _offset, _width, _signed, kind in command[2]:
+        value = args.get(field_name)
+        if kind in AI_CATALOG_KINDS and isinstance(value, int):
+            return (f"{command[0]} argument '{field_name}' gives a {kind} by number; "
+                    f"name it by catalog id")
+    return None
 
 
 def ai_args_have_refs(opcode: int, args: object) -> bool:
@@ -6319,9 +6349,22 @@ def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str 
     if not isinstance(args, dict):
         return None, f"{name} args must be an object"
     known = {field[0] for field in fields}
+    playback: dict[str, dict[str, int]] = {}
     for key in args:
-        if key not in known:
+        if key in known:
+            continue
+        sound_key = _ai_sound_playback_key(fields, key)
+        if sound_key is None:
             return None, f"{name} has no argument '{key}'"
+        value = args[key]
+        low, high = AI_SOUND_PLAYBACK_KEYS[sound_key[1]]
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            return None, f"{name} argument '{key}' must be a whole number from {low} to 3"
+        playback.setdefault(sound_key[0], {})[sound_key[1]] = value
+    for sound_name in playback:
+        if not isinstance(args.get(sound_name), str):
+            return None, (f"{name} arguments '{sound_name}_priority' and "
+                          f"'{sound_name}_response' go with a sound named by catalog id")
     if length == 0:
         text = args.get(fields[0][0])
         if not isinstance(text, str):
@@ -6341,12 +6384,19 @@ def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str 
             return None, f"{name} is missing argument '{field_name}'"
         value = args[field_name]
         if isinstance(value, str) and kind in AI_CATALOG_KINDS:
-            # Slice 3: a catalog id. Conformance has no catalog to resolve it;
-            # the id's form is checked and its bytes stay zero here (they do
-            # not steer control flow).
+            # Slices 3-3b: a catalog id. Conformance has no catalog to resolve
+            # it; the id's form is checked and its bytes stay zero here (they
+            # do not steer control flow).
             if not CATALOG_ID_RE.fullmatch(value):
                 return None, f"{name} argument '{field_name}' is not a catalog id"
             continue
+        if kind in AI_CATALOG_KINDS:
+            # Slice 3b: null is the field's "none" (every bit set); a number
+            # is refused.
+            if value is not None:
+                return None, (f"{name} argument '{field_name}' gives a {kind} by number; "
+                              f"name it by catalog id")
+            value = -1 if signed else (1 << (8 * width)) - 1
         if isinstance(value, bool):
             if kind != "bool":
                 return None, f"{name} argument '{field_name}' must be a whole number"
@@ -6392,8 +6442,16 @@ def _ai_row_args_error(row: dict, opcode: int, values: list[int]) -> str | None:
         return None
     if ai_args_have_refs(opcode, row.get("args")):
         return "names catalog ids in its args and also gives operands"
+    number_error = ai_args_catalog_number_error(opcode, row.get("args"))
+    if number_error:
+        return number_error
     expected = ai_command_args(opcode, values)
     args = row.get("args")
+    if isinstance(expected, dict) and isinstance(args, dict):
+        for field_name, _offset, width, signed, kind in AI_COMMAND_SCHEMA[opcode][2]:
+            if (kind in AI_CATALOG_KINDS and args.get(field_name, 0) is None
+                    and expected.get(field_name) == (-1 if signed else (1 << (8 * width)) - 1)):
+                expected[field_name] = None
     if not isinstance(args, dict) or _ai_args_text(args) != _ai_args_text(expected):
         return (f"args {clean_value(_ai_args_text(args))} do not match its operands "
                 f"({clean_value(_ai_args_text(expected))})")
@@ -6572,8 +6630,12 @@ PDAI_TYPED_ARGS_EXTRACT_VERSION = "global_ailists_rows_v3_typedargs"
 # From this extract_version on the bank's rows give args alone, with catalog
 # references (ai-typed-operands.md slice 3).
 PDAI_CATALOG_ARGS_EXTRACT_VERSION = "global_ailists_rows_v4_catalogargs"
+# From this extract_version on every asset argument is a catalog id or null
+# (slice 3b).
+PDAI_ASSET_ARGS_EXTRACT_VERSION = "global_ailists_rows_v5_assetargs"
 PDAI_GRAPH_EXTRACT_VERSIONS = (PDAI_AI_EDGES_EXTRACT_VERSION, PDAI_TYPED_ARGS_EXTRACT_VERSION,
-                               PDAI_CATALOG_ARGS_EXTRACT_VERSION)
+                               PDAI_CATALOG_ARGS_EXTRACT_VERSION,
+                               PDAI_ASSET_ARGS_EXTRACT_VERSION)
 PDAI_GRAPH_MEMBER = "ai/global_ailists.graph.json"
 AI_GRAPH_SCHEMA = "pd2.scenario.ai.graph.v1"
 
@@ -6978,7 +7040,8 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} ai/global_ailists.json row {idx} list_id "
                 f"{clean_value(list_id)} is not a global list id (below 0x0401)"
             )
-    if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION):
+    if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION,
+                           PDAI_ASSET_ARGS_EXTRACT_VERSION):
         without = sum(1 for row in rows if isinstance(row, dict) and "args" not in row)
         if without:
             errors.append(
@@ -7515,8 +7578,109 @@ SOURCE_CATALOG_ID_FILES = (
 )
 
 
+# ai-typed-operands.md slice 3b: the catalog registers every slot of the base
+# animation table (port/src/assetcatalog_base_extended.c), named from its
+# ANIM_* symbol (port/src/loader_enum_reverse.c) by the catalog's readable-id
+# rule (port/src/catalog_readable_ids.c; a placeholder symbol falls back to
+# "character_<ordinal>", B-1258). The slots the ROM leaves empty (a
+# cut cutscene's, say) have no archive but are still named; an AI argument
+# may name one. base_animation_slot_id_errors checks the rule against every
+# authored animation archive.
+BASE_ANIMATION_ENUM_SOURCE = "port/src/loader_enum_reverse.c"
+
+
+def _catalog_alpha_ordinal(value: int) -> str:
+    """catalogReadableAlphaOrdinal: a, b, ... z, aa, ab, ..."""
+    if value < 0:
+        return "unknown"
+    letters = []
+    while True:
+        letters.append(chr(ord("a") + value % 26))
+        if value < 26:
+            break
+        value = value // 26 - 1
+    return "".join(reversed(letters))
+
+
+def _catalog_readable_slug(symbol: str | None, fallback_role: str, ordinal: int) -> str:
+    """s_slugFromSymbol in port/src/catalog_readable_ids.c."""
+    body = symbol or ""
+    for prefix in ("SFX_", "ANIM_", "FILE_G", "FILE_P", "FILE_"):
+        if body.startswith(prefix):
+            body = body[len(prefix):]
+            break
+    slug_chars: list[str] = []
+    last_was_sep = True
+    for char in body:
+        if char.isascii() and char.isalnum():
+            slug_chars.append(char.lower())
+            last_was_sep = False
+        elif not last_was_sep:
+            slug_chars.append("_")
+            last_was_sep = True
+    slug = "".join(slug_chars)
+    if slug.endswith("_"):
+        slug = slug[:-1]
+    hexdigits = set("0123456789abcdefABCDEF")
+    first = slug.split("_", 1)[0] if "_" in slug else ""
+    had_leading_hex = bool(first) and all(c in hexdigits for c in first)
+    if had_leading_hex and slug[len(first) + 1:]:
+        slug = slug[len(first) + 1:]
+    hex_only = any(c != "_" for c in slug) and all(c == "_" or c in hexdigits for c in slug)
+    if not slug or hex_only:
+        return f"{fallback_role or 'unlabeled'}_{_catalog_alpha_ordinal(ordinal)}"
+    if had_leading_hex:
+        return f"{slug}_{_catalog_alpha_ordinal(ordinal)}"
+    return slug
+
+
+def base_animation_slot_ids(repo_root: Path = REPO_ROOT) -> dict[int, str]:
+    """Every base animation slot's catalog id, by its index."""
+    try:
+        text = (repo_root / BASE_ANIMATION_ENUM_SOURCE).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    start = text.find("k_AnimEnum[] = {")
+    end = text.find("};", start)
+    if start < 0 or end < 0:
+        return {}
+    ids: dict[int, str] = {}
+    for symbol, value in re.findall(r'\{ "(ANIM_\w+)", (\d+) \}', text[start:end]):
+        index = int(value)
+        ids.setdefault(index, "base:animation_" + _catalog_readable_slug(symbol, "character", index))
+    return ids
+
+
+def base_animation_slot_id_errors(archives: list[Path]) -> list[str]:
+    """The readable-id rule above against the authored animation archives:
+    each base character animation's id is its slot's."""
+    slot_ids = base_animation_slot_ids()
+    errors: list[str] = []
+    if not slot_ids:
+        return errors
+    for archive in archives:
+        if archive.suffix.lower() != ".pdanim":
+            continue
+        try:
+            with zipfile.ZipFile(archive) as zf:
+                manifest = json.loads(zf.read("_meta/manifest.json"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            continue
+        archive_id = manifest.get("id") if isinstance(manifest, dict) else None
+        index = manifest.get("source_index") if isinstance(manifest, dict) else None
+        if (not isinstance(archive_id, str) or not archive_id.startswith("base:animation_")
+                or not isinstance(index, int) or isinstance(index, bool)):
+            continue
+        if slot_ids.get(index) != archive_id:
+            errors.append(
+                f"{archive.name} declares {archive_id} for animation slot {index}; the base "
+                f"animation table names that slot {slot_ids.get(index, '(no symbol)')}"
+            )
+    return errors
+
+
 def collect_source_catalog_ids(repo_root: Path = REPO_ROOT) -> set[str]:
-    ids: set[str] = set()
+    ids: set[str] = set(base_animation_slot_ids(repo_root).values())
     for rel in SOURCE_CATALOG_ID_FILES:
         path = repo_root / rel
         try:
@@ -9937,6 +10101,7 @@ def validate_root(root: Path, require_all_families: bool = False,
                 archive.read_bytes(), archive.suffix, recurse=recurse
             )
         )
+    result.errors.extend(base_animation_slot_id_errors(sorted(archives)))
 
     for archive in sorted(archives):
         archive_result = validate_archive_path(

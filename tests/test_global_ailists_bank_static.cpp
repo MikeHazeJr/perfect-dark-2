@@ -53,8 +53,8 @@ TEST_CASE("global AI lists: the extractor writes base:ai_global and the round tr
 	REQUIRE(writer.find("assetArchiveWriterAddPublicMem(&writer, PDAI_GRAPH_MEMBER, graph,") != std::string::npos);
 	REQUIRE(header.find("char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges);") != std::string::npos);
 	// SP-86: the kind names the writer's output and moves with it.
-	REQUIRE(writer.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v4_catalogargs\"") != std::string::npos);
-	REQUIRE(writer.find("#define PDAI_FAST_CACHE_KIND \"pdai_global_ailists_rows_v4_catalogargs\"") != std::string::npos);
+	REQUIRE(writer.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v5_assetargs\"") != std::string::npos);
+	REQUIRE(writer.find("#define PDAI_FAST_CACHE_KIND \"pdai_global_ailists_rows_v5_assetargs\"") != std::string::npos);
 	REQUIRE(writer.find("romExtractPdFastCacheKindMismatch(PDAI_FAST_CACHE_KIND, ai_dir)") != std::string::npos);
 	REQUIRE(writer.find("romExtractPdFastCacheWrite(PDAI_FAST_CACHE_KIND, ai_dir, \".pdai\");") != std::string::npos);
 

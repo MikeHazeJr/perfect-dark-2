@@ -22,6 +22,7 @@
 #include "scenario_stage_rules.h"
 #include "scenario_intro.h"
 #include "ai_command_schema.h"
+#include "ai_catalog_refs.h"
 #include "ai_edge_shadow.h"
 #include "bss.h"
 #include "game/bondmove.h"
@@ -2500,29 +2501,19 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	return 1;
 }
 
-/* ai-typed-operands.md slice 3: a model, weapon, body or head argument may
- * name a catalog id; it resolves as the *_catalog_id fields always did.
- * user counts the references a row's args resolved. */
+/* ai-typed-operands.md slices 3-3b: a model, weapon, body, head, animation
+ * or sound argument names a catalog id; it resolves exactly as the
+ * extractor checked it when it wrote the row (ai_catalog_refs.c). user
+ * counts the references a row's args resolved. */
 static int s_aiArgsResolveRef(ai_operand_kind_t kind, const char *id, int64_t *out_value,
 	void *user)
 {
-	s32 value = 0;
-	s32 ok;
-
-	switch (kind) {
-	case AI_OPERAND_MODEL: ok = s_setupResolveModelnum(id, &value); break;
-	case AI_OPERAND_WEAPON: ok = s_setupResolveWeaponnum(id, &value); break;
-	case AI_OPERAND_BODY: ok = s_setupResolveBodyNum(id, &value); break;
-	case AI_OPERAND_HEAD: ok = s_setupResolveHeadNum(id, &value); break;
-	default: ok = 0; break;
-	}
-	if (!ok) {
+	if (!aiCatalogRefResolve(kind, id, out_value)) {
 		return 0;
 	}
 	if (user) {
 		(*(s32 *)user)++;
 	}
-	*out_value = value;
 	return 1;
 }
 

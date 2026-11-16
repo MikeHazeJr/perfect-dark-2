@@ -216,8 +216,8 @@ TEST_CASE("AI command schema: the handlers read the bytes as the fields say",
 
 	// A byte read as another kind than its field's on purpose: chr_move_to_pad
 	// reads its pad's low byte as a chr when its mode byte is 88, and
-	// play_sound_from_entity's entity is a chr or an object tag by its
-	// entity_is_chr byte (so its kind is number).
+	// play_sound_from_entity's source is a chr or an object tag by its
+	// source_is_chr byte (so its kind is number).
 	const std::set<std::tuple<uint16_t, int, std::string>> other_use = {
 		{0x00e2, 4, "chr"},
 		{0x0179, 3, "chr"},
@@ -495,8 +495,14 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(extractor.find("static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)")
 		!= std::string::npos);
 	REQUIRE(extractor.find("args_len = schema ? aiCommandArgsToJsonRefs(schema, cmd + 2, len - 2, args,") != std::string::npos);
-	// Slice 3: catalog references, checked back to the bytes as written.
-	REQUIRE(extractor.find("sizeof(args), s_aiCatalogNamer, NULL) : -1;") != std::string::npos);
+	// Slices 3-3b: catalog references, checked back to the bytes as written;
+	// the extractor and the compiler name and resolve them the same way.
+	REQUIRE(extractor.find("sizeof(args), s_aiCatalogNamer, unnamed) : -1;") != std::string::npos);
+	REQUIRE(extractor.find("const char *id = aiCatalogRefName(kind, value);") != std::string::npos);
+	REQUIRE(extractor.find("return aiCatalogRefResolve(kind, id, out_value);") != std::string::npos);
+	REQUIRE(extractor.find("\"romextract: AI command 0x%04x (%s): the catalog names no %s %lld\"")
+		!= std::string::npos);
+	REQUIRE(runtime.find("if (!aiCatalogRefResolve(kind, id, out_value)) {") != std::string::npos);
 	REQUIRE(extractor.find("count = aiCommandArgsEncodeRefs(schema, args, (u32)args_len, bytes, sizeof(bytes),\n"
 		"\t\ts_aiCatalogResolver, NULL, error, sizeof(error));") != std::string::npos);
 	REQUIRE(extractor.find("s_appendAiOperandsJsonArray") == std::string::npos);
@@ -509,8 +515,8 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(extractor.find("s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],")
 		!= std::string::npos);
 	// SP-86: the scenario kind and the bank's version moved with the output.
-	REQUIRE(extractor.find("_aiedges_simtwins_typedargs_catalogargs\"") != std::string::npos);
-	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v4_catalogargs\"") != std::string::npos);
+	REQUIRE(extractor.find("_aiedges_simtwins_typedargs_catalogargs_assetargs\"") != std::string::npos);
+	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v5_assetargs\"") != std::string::npos);
 
 	// The compiler encodes a row's args and compares them with its operands
 	// before the catalog ids patch the bytes.
@@ -547,21 +553,50 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 		!= std::string::npos);
 	REQUIRE(conformance.find("PDAI_TYPED_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v3_typedargs\"")
 		!= std::string::npos);
-	REQUIRE(conformance.find("if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION):")
-		!= std::string::npos);
+	REQUIRE(conformance.find("if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION,\n"
+		"                           PDAI_ASSET_ARGS_EXTRACT_VERSION):") != std::string::npos);
 	REQUIRE(conformance.find("PDAI_CATALOG_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v4_catalogargs\"")
 		!= std::string::npos);
-	REQUIRE(conformance.find("AI_CATALOG_KINDS = {\"model\", \"weapon\", \"body\", \"head\"}")
+	// Slice 3b: every asset kind by catalog id or null, never a number; the
+	// base animation table's slots are known ids (the empty ones included).
+	REQUIRE(conformance.find("PDAI_ASSET_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v5_assetargs\"")
+		!= std::string::npos);
+	REQUIRE(conformance.find("AI_CATALOG_KINDS = {\"model\", \"weapon\", \"body\", \"head\", \"anim\", \"sound\"}")
+		!= std::string::npos);
+	REQUIRE(conformance.find("def ai_args_catalog_number_error(opcode: int, args: object) -> str | None:")
+		!= std::string::npos);
+	REQUIRE(conformance.find("def base_animation_slot_ids(repo_root: Path = REPO_ROOT) -> dict[int, str]:")
+		!= std::string::npos);
+	REQUIRE(conformance.find("result.errors.extend(base_animation_slot_id_errors(sorted(archives)))")
 		!= std::string::npos);
 }
 
 namespace {
 
+// A fake catalog: two models' and weapons' ids, and three sounds' (slice 3b):
+// a sample (0x0162), a configured sound (0x80f6) and an MP3 voice file
+// (0x759, its asset marked AI_SOUND_REF_MP3).
+const struct {
+	ai_operand_kind_t kind;
+	int64_t value;
+	const char *id;
+} kFakeCatalog[] = {
+	{AI_OPERAND_WEAPON, 0x0a, "base:cmp150"},
+	{AI_OPERAND_MODEL, 0x00fd, "base:model_chrcmp150"},
+	{AI_OPERAND_SOUND, 0x0162, "base:sfx_alarm_2"},
+	{AI_OPERAND_SOUND, 0x80f6, "base:sfx_configured"},
+	{AI_OPERAND_SOUND, AI_SOUND_REF_MP3 | 0x0759, "base:voice_ap1_01"},
+	{AI_OPERAND_ANIM, 552, "base:animation_blinded"},
+};
+
 const char *fakeNamer(ai_operand_kind_t kind, int64_t value, void *user)
 {
 	(void)user;
-	if (kind == AI_OPERAND_WEAPON && value == 0x0a) return "base:cmp150";
-	if (kind == AI_OPERAND_MODEL && value == 0x00fd) return "base:model_chrcmp150";
+	for (const auto &entry : kFakeCatalog) {
+		if (entry.kind == kind && entry.value == value) {
+			return entry.id;
+		}
+	}
 	return nullptr;
 }
 
@@ -570,13 +605,11 @@ int fakeResolver(ai_operand_kind_t kind, const char *id, int64_t *out_value, voi
 	if (user) {
 		(*static_cast<int *>(user))++;
 	}
-	if (kind == AI_OPERAND_WEAPON && std::string(id) == "base:cmp150") {
-		*out_value = 0x0a;
-		return 1;
-	}
-	if (kind == AI_OPERAND_MODEL && std::string(id) == "base:model_chrcmp150") {
-		*out_value = 0x00fd;
-		return 1;
+	for (const auto &entry : kFakeCatalog) {
+		if (entry.kind == kind && std::string(id) == entry.id) {
+			*out_value = entry.value;
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -594,7 +627,10 @@ TEST_CASE("AI command schema: catalog references in args", "[ai][schema][args][r
 	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_MODEL) == 1);
 	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_BODY) == 1);
 	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_HEAD) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_ANIM) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_SOUND) == 1);
 	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_CHR) == 0);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_MUSIC) == 0);
 
 	// Model 0x00fd and weapon 0x0a by catalog id; flags and label as numbers.
 	const uint8_t operands[8] = {0x00, 0xfd, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x06};
@@ -608,9 +644,19 @@ TEST_CASE("AI command schema: catalog references in args", "[ai][schema][args][r
 	REQUIRE(std::memcmp(bytes, operands, 8) == 0);
 	REQUIRE(resolved == 2);
 
-	// A number the namer does not know stays a number.
+	// Slice 3b: a value the namer cannot name fails the writer, unless it is
+	// the field's "none" (every bit set), which is null.
 	const uint8_t other[8] = {0x01, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x06};
-	REQUIRE(aiCommandArgsToJsonRefs(equip, other, 8, json, sizeof(json), fakeNamer, nullptr) > 0);
+	REQUIRE(aiCommandArgsToJsonRefs(equip, other, 8, json, sizeof(json), fakeNamer, nullptr) == -1);
+	const uint8_t none[8] = {0xff, 0xff, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x06};
+	const int none_len = aiCommandArgsToJsonRefs(equip, none, 8, json, sizeof(json), fakeNamer, nullptr);
+	REQUIRE(none_len > 0);
+	REQUIRE(std::string(json) == "{\"model\": null, \"weapon\": \"base:cmp150\", \"flags\": 0, \"label\": 6}");
+	REQUIRE(aiCommandArgsEncodeRefs(equip, json, (uint32_t)none_len, bytes, sizeof(bytes), fakeResolver,
+		nullptr, error, sizeof(error)) == 8);
+	REQUIRE(std::memcmp(bytes, none, 8) == 0);
+	// Without a namer, numbers as they are (the reader of plain rows).
+	REQUIRE(aiCommandArgsToJson(equip, other, 8, json, sizeof(json)) > 0);
 	REQUIRE(std::string(json) == "{\"model\": 256, \"weapon\": 11, \"flags\": 0, \"label\": 6}");
 
 	// Without a resolver, or with an id the catalog does not have, refused.
@@ -618,13 +664,135 @@ TEST_CASE("AI command schema: catalog references in args", "[ai][schema][args][r
 	REQUIRE(aiCommandArgsEncode(equip, by_id.c_str(), (uint32_t)by_id.size(), bytes, sizeof(bytes),
 		error, sizeof(error)) == -1);
 	REQUIRE(std::string(error).find("names 'base:cmp150'; this reader has no catalog") != std::string::npos);
-	const std::string unknown = "{\"model\": 253, \"weapon\": \"base:nogun\", \"flags\": 0, \"label\": 6}";
+	const std::string unknown = "{\"model\": null, \"weapon\": \"base:nogun\", \"flags\": 0, \"label\": 6}";
 	REQUIRE(aiCommandArgsEncodeRefs(equip, unknown.c_str(), (uint32_t)unknown.size(), bytes, sizeof(bytes),
 		fakeResolver, nullptr, error, sizeof(error)) == -1);
 	REQUIRE(std::string(error).find("names 'base:nogun', which is no weapon in the catalog") != std::string::npos);
+	// With a catalog, an asset is never given by number.
+	REQUIRE(aiCommandArgsEncodeRefs(equip, by_id.c_str(), (uint32_t)by_id.size(), bytes, sizeof(bytes),
+		fakeResolver, nullptr, error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("argument 'model' gives a model by number; name it by catalog id")
+		!= std::string::npos);
 	// A catalog id only where the field is a catalog kind.
-	const std::string label_id = "{\"model\": 253, \"weapon\": 10, \"flags\": 0, \"label\": \"base:cmp150\"}";
+	const std::string label_id = "{\"model\": null, \"weapon\": \"base:cmp150\", \"flags\": 0,"
+		" \"label\": \"base:cmp150\"}";
 	REQUIRE(aiCommandArgsEncodeRefs(equip, label_id.c_str(), (uint32_t)label_id.size(), bytes, sizeof(bytes),
 		fakeResolver, nullptr, error, sizeof(error)) == -1);
 	REQUIRE(std::string(error).find("must be a whole number") != std::string::npos);
+	// null only where the field is a catalog kind.
+	const std::string label_null = "{\"model\": null, \"weapon\": \"base:cmp150\", \"flags\": 0,"
+		" \"label\": null}";
+	REQUIRE(aiCommandArgsEncodeRefs(equip, label_null.c_str(), (uint32_t)label_null.size(), bytes,
+		sizeof(bytes), fakeResolver, nullptr, error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("must be a whole number") != std::string::npos);
+}
+
+TEST_CASE("AI command schema: sounds by catalog id with their playback values",
+	"[ai][schema][args][refs]")
+{
+	char json[256];
+	uint8_t bytes[64];
+	char error[160];
+	int64_t asset = 0;
+	int priority = 0;
+	int response = 0;
+
+	// The split: a configured sound is its whole value; otherwise the id,
+	// the MP3 priority (bits 11-12) and the response (bits 13-14).
+	aiSoundRefSplit(-32522, &asset, &priority, &response); // 0x80f6
+	REQUIRE(asset == 0x80f6);
+	REQUIRE(priority == 0);
+	REQUIRE(response == 0);
+	aiSoundRefSplit(0x7759, &asset, &priority, &response);
+	REQUIRE(asset == (AI_SOUND_REF_MP3 | 0x0759));
+	REQUIRE(priority == 2);
+	REQUIRE(response == 3);
+	aiSoundRefSplit(0x0162, &asset, &priority, &response);
+	REQUIRE(asset == 0x0162);
+	REQUIRE(priority == 0);
+	REQUIRE(response == 0);
+
+	// speak: chr, text, sound, channel, colour.
+	const ai_command_schema_t *speak = aiCommandSchemaFind(0x00cd);
+	REQUIRE(speak != nullptr);
+	REQUIRE(std::string(speak->name) == "speak");
+	struct Case {
+		uint8_t hi;
+		uint8_t lo;
+		const char *sound;
+	};
+	const Case cases[] = {
+		{0x77, 0x59, "\"sound\": \"base:voice_ap1_01\", \"sound_priority\": 2, \"sound_response\": 3"},
+		{0x08, 0x05 | 0x00, nullptr}, // MP3 file 0x005 is not in the fake catalog
+		{0x80, 0xf6, "\"sound\": \"base:sfx_configured\""},
+		{0x01, 0x62, "\"sound\": \"base:sfx_alarm_2\""},
+		{0xff, 0xff, "\"sound\": null"},
+	};
+	for (const Case &c : cases) {
+		const uint8_t operands[7] = {0x01, 0x00, 0x05, c.hi, c.lo, 0x09, 0x00};
+		INFO("sound " << std::hex << (int)c.hi << (int)c.lo);
+		const int len = aiCommandArgsToJsonRefs(speak, operands, 7, json, sizeof(json), fakeNamer,
+			nullptr);
+		if (!c.sound) {
+			REQUIRE(len == -1);
+			continue;
+		}
+		REQUIRE(len > 0);
+		REQUIRE(std::string(json) == std::string("{\"chr\": 1, \"text\": 5, ") + c.sound
+			+ ", \"channel\": 9, \"colour\": 0}");
+		// Back to the same bytes, with the playback keys in any order.
+		REQUIRE(aiCommandArgsEncodeRefs(speak, json, (uint32_t)len, bytes, sizeof(bytes),
+			fakeResolver, nullptr, error, sizeof(error)) == 7);
+		REQUIRE(std::memcmp(bytes, operands, 7) == 0);
+	}
+	const std::string reordered = "{\"sound_response\": 3, \"chr\": 1, \"text\": 5, \"sound_priority\": 2,"
+		" \"sound\": \"base:voice_ap1_01\", \"channel\": 9, \"colour\": 0}";
+	REQUIRE(aiCommandArgsEncodeRefs(speak, reordered.c_str(), (uint32_t)reordered.size(), bytes,
+		sizeof(bytes), fakeResolver, nullptr, error, sizeof(error)) == 7);
+	REQUIRE(bytes[3] == 0x77);
+	REQUIRE(bytes[4] == 0x59);
+
+	// Refusals, each with its reason.
+	const std::vector<std::pair<std::string, std::string>> refused = {
+		{"\"sound\": \"base:voice_ap1_01\"", "is an MP3 voice line, which needs 'sound_priority'"},
+		{"\"sound\": \"base:sfx_alarm_2\", \"sound_priority\": 1", "is a sample; 'sound_priority' is"},
+		{"\"sound\": \"base:sfx_configured\", \"sound_response\": 1", "is a configured sound"},
+		{"\"sound\": null, \"sound_response\": 1", "go with a sound named by catalog id"},
+		{"\"sound\": \"base:voice_ap1_01\", \"sound_priority\": 4", "from 1 to 3"},
+		{"\"sound\": \"base:voice_ap1_01\", \"sound_priority\": 2, \"sound_priority\": 2", "appears twice"},
+		{"\"sound\": 354", "gives a sound by number; name it by catalog id"},
+		{"\"sound\": \"base:sfx_alarm_2\", \"sound_volume\": 1", "no argument 'sound_volume'"},
+	};
+	for (const auto &[sound, reason] : refused) {
+		const std::string text = "{\"chr\": 1, \"text\": 5, " + sound + ", \"channel\": 9, \"colour\": 0}";
+		INFO(text);
+		REQUIRE(aiCommandArgsEncodeRefs(speak, text.c_str(), (uint32_t)text.size(), bytes,
+			sizeof(bytes), fakeResolver, nullptr, error, sizeof(error)) == -1);
+		REQUIRE(std::string(error).find(reason) != std::string::npos);
+	}
+	// Without a catalog a sound is a number, and its playback keys are refused.
+	const std::string plain = "{\"chr\": 1, \"text\": 5, \"sound\": 30553, \"sound_priority\": 2,"
+		" \"channel\": 9, \"colour\": 0}";
+	REQUIRE(aiCommandArgsEncode(speak, plain.c_str(), (uint32_t)plain.size(), bytes, sizeof(bytes),
+		error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("go with a sound named by catalog id") != std::string::npos);
+
+	// An animation by catalog id (chr_do_animation's anim).
+	const ai_command_schema_t *anim = aiCommandSchemaFind(0x000b);
+	REQUIRE(anim != nullptr);
+	REQUIRE(aiCommandSchemaField(anim, "anim")->kind == AI_OPERAND_ANIM);
+	uint8_t anim_operands[16] = {0};
+	REQUIRE(aiCommandFieldWrite(aiCommandSchemaField(anim, "anim"), anim_operands,
+		(uint32_t)anim->length - 2u, 552) == 1);
+	const int anim_len = aiCommandArgsToJsonRefs(anim, anim_operands, (uint32_t)anim->length - 2u,
+		json, sizeof(json), fakeNamer, nullptr);
+	REQUIRE(anim_len > 0);
+	REQUIRE(std::string(json).find("\"anim\": \"base:animation_blinded\"") != std::string::npos);
+
+	// The renamed dual-use fields (slice 3b): an attack's target, a sound's source.
+	REQUIRE(aiCommandSchemaField(aiCommandSchemaFind(0x0015), "target") != nullptr);
+	REQUIRE(aiCommandSchemaField(aiCommandSchemaFind(0x0018), "target") != nullptr);
+	REQUIRE(aiCommandSchemaField(aiCommandSchemaFind(0x0179), "source") != nullptr);
+	REQUIRE(aiCommandSchemaField(aiCommandSchemaFind(0x0179), "source_is_chr") != nullptr);
+	REQUIRE(aiCommandSchemaField(aiCommandSchemaFind(0x0015), "entity") == nullptr);
 }

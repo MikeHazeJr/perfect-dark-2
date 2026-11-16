@@ -59,6 +59,7 @@
 #include "fs.h"
 #include "loader_enum_reverse.h"
 #include "ai_command_schema.h"
+#include "ai_catalog_refs.h"
 #include "ai_list_edges.h"
 #include "assetcatalog.h"
 #include "asset_archive_writer.h"
@@ -92,7 +93,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4249,55 +4250,27 @@ static void s_aiOpcodeSemanticKind(u16 opcode, const char *opcode_name,
 	}
 }
 
-/* context/designs/modding/ai-typed-operands.md, slices 2-3: model, weapon,
- * body and head arguments by catalog id when the catalog names the number
- * (else the number), and back to the number as the compiler resolves it. */
+/* context/designs/modding/ai-typed-operands.md, slices 2-3b: every model,
+ * weapon, body, head, animation and sound argument by catalog id (a "none"
+ * value as null), and back to its value as the compiler resolves it
+ * (ai_catalog_refs.c). A value the catalog cannot name fails the archive:
+ * the namer says which. */
 static const char *s_aiCatalogNamer(ai_operand_kind_t kind, int64_t value, void *user)
 {
-	(void)user;
-	if (value < 0 || value > 0xffff) {
-		return NULL;
+	const char *id = aiCatalogRefName(kind, value);
+
+	if (!id && user) {
+		((int64_t *)user)[0] = (int64_t)kind;
+		((int64_t *)user)[1] = value;
 	}
-	switch (kind) {
-	case AI_OPERAND_MODEL: return catalogModelIdByModelnum((s32)value);
-	case AI_OPERAND_WEAPON: return catalogWeaponIdByRuntimeWeaponNum((s32)value);
-	case AI_OPERAND_BODY: return catalogBodyIdByBodynum((s32)value);
-	case AI_OPERAND_HEAD: return catalogHeadIdByHeadnum((s32)value);
-	default: return NULL;
-	}
+	return id;
 }
 
 static int s_aiCatalogResolver(ai_operand_kind_t kind, const char *id, int64_t *out_value,
 	void *user)
 {
 	(void)user;
-	switch (kind) {
-	case AI_OPERAND_MODEL: {
-		catalog_model_result_t result;
-		if (!catalogResolveModel(id, &result)) return 0;
-		*out_value = result.modelnum;
-		return 1;
-	}
-	case AI_OPERAND_WEAPON: {
-		catalog_weapon_result_t result;
-		if (!catalogResolveWeapon(id, &result)) return 0;
-		*out_value = result.weapon_num;
-		return 1;
-	}
-	case AI_OPERAND_BODY: {
-		catalog_body_result_t result;
-		if (!catalogResolveBody(id, &result) || !result.entry) return 0;
-		*out_value = result.entry->runtime_index;
-		return 1;
-	}
-	case AI_OPERAND_HEAD: {
-		catalog_head_result_t result;
-		if (!catalogResolveHead(id, &result) || !result.entry) return 0;
-		*out_value = result.entry->runtime_index;
-		return 1;
-	}
-	default: return 0;
-	}
+	return aiCatalogRefResolve(kind, id, out_value);
 }
 
 /* One command's arguments as ", \"args\": {...}" from the command schema
@@ -4305,7 +4278,8 @@ static int s_aiCatalogResolver(ai_operand_kind_t kind, const char *id, int64_t *
  * references by id). The row gives its bytes by these args alone, so the
  * writer checks here that they encode back to exactly the command's bytes,
  * the catalog ids resolved as the compiler resolves them. A command the
- * schema cannot type, or args that do not give its bytes, fail the archive. */
+ * schema cannot type, an asset the catalog cannot name, or args that do not
+ * give its bytes, fail the archive. */
 static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)
 {
 	char args[1024];
@@ -4313,15 +4287,24 @@ static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)
 	char error[160];
 	const u16 opcode = len >= 2 ? (u16)(((u16)cmd[0] << 8) | cmd[1]) : 0;
 	const ai_command_schema_t *schema = len >= 2 ? aiCommandSchemaFind(opcode) : NULL;
+	/* The last value the catalog could not name: [0] its kind, [1] the value. */
+	int64_t unnamed[2] = { -1, 0 };
 	s32 args_len;
 	s32 count;
 
 	args_len = schema ? aiCommandArgsToJsonRefs(schema, cmd + 2, len - 2, args,
-		sizeof(args), s_aiCatalogNamer, NULL) : -1;
+		sizeof(args), s_aiCatalogNamer, unnamed) : -1;
 	if (args_len < 0) {
-		sysLogPrintf(LOG_ERROR,
-			"romextract: AI command 0x%04x (%u bytes) does not fit the AI command schema",
-			(unsigned)opcode, (unsigned)len);
+		if (schema && unnamed[0] >= 0) {
+			sysLogPrintf(LOG_ERROR,
+				"romextract: AI command 0x%04x (%s): the catalog names no %s %lld",
+				(unsigned)opcode, schema->name,
+				aiOperandKindName((ai_operand_kind_t)unnamed[0]), (long long)unnamed[1]);
+		} else {
+			sysLogPrintf(LOG_ERROR,
+				"romextract: AI command 0x%04x (%u bytes) does not fit the AI command schema",
+				(unsigned)opcode, (unsigned)len);
+		}
 		return -1;
 	}
 	count = aiCommandArgsEncodeRefs(schema, args, (u32)args_len, bytes, sizeof(bytes),

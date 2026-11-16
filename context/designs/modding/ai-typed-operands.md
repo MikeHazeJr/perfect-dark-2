@@ -76,6 +76,8 @@ AI editing and hand-written lists need named, typed parameters.
    move (SP-86).
 3. Catalog references in args (model, weapon, body and head by catalog id)
    and extracted rows that give args alone. Built (see "Slice 3 as built").
+   3b. Every asset argument by catalog id: animations and sounds too, a
+   "none" value as null, no asset by number. Built (see "Slice 3b as built").
 4. Trigger-volume events: `event.volume.entered` and `event.volume.left` on
    `volumes.json` rows, so a mission graph can react without polling
    `if_chr_in_room`; the base game keeps polling, which the AI lists already
@@ -185,6 +187,61 @@ AI editing and hand-written lists need named, typed parameters.
 - pd-tests: references through a fake catalog (named, resolved, a number
   the catalog does not know, refusals); pins on the extractor's namer,
   resolver and write-time check and on the compiler's rule.
+
+## Slice 3b as built
+
+Why: the archive scan of conformance refuses a number under an asset key
+(`anim`, `sound`, `weapon`, `head`, `entity`, ...). Slice 3 named only the
+values the catalog named at extraction and left the rest as numbers, and
+its first full conformance run (CORE's turn q_20261116162649494_8c375cad,
+2026-11-16) found 23,762 of them, all in AI args (B-1257): animations and
+sounds (never named), 15 solo weapons (unarmed, the horizon scanner, the
+suitcase, devices: the extraction-time catalog does not map their native
+numbers), a spawn's "no head" (-1) and a cutscene's "no weapon" (255), and
+the dual-use `entity` fields, which are no asset at all.
+
+- Catalog kinds: model, weapon, body, head, `anim` and `sound`. With a
+  catalog, such an argument is a catalog id or `null`, never a number: the
+  extractor's writer fails on a value it cannot name, and the compiler and
+  conformance refuse a number. `null` is the field's "none", every bit set
+  (head -1, weapon 255, ...).
+- One naming rule for the extractor and the compiler,
+  `port/src/ai_catalog_refs.c`: weapons from the base weapon table
+  (`g_WeaponDataCatalogIds`, every native number) before the catalog;
+  animations by the catalog's readable id for the slot, checked against
+  the catalog; sounds as below; models, bodies and heads as before.
+- Sounds: a sound field's 16 bits are a configured sound (bit 15; the
+  catalog's configured alias, all 172 the AI uses are named), or an id with
+  two playback values: the MP3 priority (bits 11-12; not 0 means the id is
+  an MP3 voice file, named by its direct voice archive) and the MP3
+  response (bits 13-14; 1 whisper, 2 acknowledge). The playback values are
+  arguments of their own next to the sound's id:
+  `{"sound": "base:voice_ap1_01", "sound_priority": 2, "sound_response": 3}`.
+  Every MP3 voice line has a priority (1 to 3); a sample or a configured
+  sound may not.
+- Renamed: the attack and face commands' `entity` (a chr, pad or
+  direction by the flags) is `target`; `play_sound_from_entity`'s `entity`
+  and `entity_is_chr` are `source` and `source_is_chr`.
+- Animation slots the ROM leaves empty (257 of 1,207, among them the cut
+  beta cave cutscene of Air Base, ANIM_CUT_CAVE_BETA_*, which one Air Base
+  list still names) have no archive. The catalog registers every slot of
+  the base table, so such a slot is still named; conformance derives the
+  slot ids from the table (`port/src/loader_enum_reverse.c`) by the
+  catalog's readable-id rule and checks that rule against every authored
+  animation archive on each run. That check found B-1258: the base
+  registration named the 380 slots with placeholder symbols
+  `base:animation_unlabeled_*` while their archives say
+  `base:animation_character_*`; the registration now uses the archives' rule.
+- Scenario kind `_assetargs`, bank version
+  `global_ailists_rows_v5_assetargs`.
+- Music tracks (`track`, kind `music`) stay numbers: the archive scan does
+  not treat `track` as an asset key, and the AI's track numbers are the
+  native sequence numbers, which the catalog's music entries (indexed by
+  the multiplayer track list) do not cover yet.
+- pd-tests: a fake catalog's sounds (sample, configured, MP3 voice line),
+  null, the playback values in any order, each refusal, the renamed
+  fields, an animation by id; conformance unit tests for the encoder, rows
+  with operands and args, and the slot-id rule.
 
 ## Not in scope
 
