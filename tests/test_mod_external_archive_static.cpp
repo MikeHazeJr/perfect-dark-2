@@ -10342,7 +10342,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
 	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19_texscale_b1154\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_fastcache_v29_allmodels_menuhud_\" \\\n\tROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("cmd == (u8)G_SETGEOMETRYMODE") != std::string::npos);
 	REQUIRE(mesh.find("cmd == (u8)G_CLEARGEOMETRYMODE") != std::string::npos);
