@@ -690,6 +690,68 @@ TEST_CASE("typed archive rebuild keeps the manifest's copy of a changed descript
 	CHECK(cloneCountFiles(dir.path) == 1);
 }
 
+TEST_CASE("typed archive rebuild moves a mesh manifest's geometry with its descriptor",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle");
+	const std::string sourceBytes = cloneReadFileBytes(source);
+	const std::string mesh =
+		cloneReadFileBytes(cloneSourcePath("examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh"));
+	const std::filesystem::path out = dir.path / "obj_vehicle.pdvehicle";
+	const char *newId = "mod_clonetest:obj_vehicle";
+	const std::string hull = "dependencies/assets/models/hull.pdmesh";
+
+	/* The embedded mesh swaps its glTF for an OBJ (the Maian vehicle recipe does
+	 * this): a descriptor naming model.obj, the OBJ, the glTF removed. The
+	 * template mesh's manifest names model.gltf twice: "model_file" (the
+	 * descriptor's own key) and "geometry" (the echo of whichever geometry key
+	 * the descriptor uses), and a recipe cannot replace a manifest. */
+	std::string meshIni = cloneEntryBytes(mesh, "mesh.ini");
+	const std::string oldGeometry = "model_file = model.gltf";
+	REQUIRE(meshIni.find(oldGeometry) != std::string::npos);
+	meshIni.replace(meshIni.find(oldGeometry), oldGeometry.size(), "model_file = model.obj");
+	const std::string sourceMeshManifest = cloneEntryBytes(mesh, "_meta/manifest.json");
+	REQUIRE(sourceMeshManifest.find("\"geometry\": \"model.gltf\"") != std::string::npos);
+	REQUIRE(sourceMeshManifest.find("\"model_file\": \"model.gltf\"") != std::string::npos);
+	std::string descriptor = cloneEntryBytes(sourceBytes, "vehicle.ini");
+	const std::string oldModel = "model_file = model.gltf";
+	REQUIRE(descriptor.find(oldModel) != std::string::npos);
+	descriptor.replace(descriptor.find(oldModel), oldModel.size(), "model_file = " + hull);
+	const std::string obj = "v 0 0 0 255 255 255 255\nv 100 0 0 255 255 255 255\n"
+		"v 0 100 0 255 255 255 255\nf 1 2 3\n";
+	const std::string iniEntry = hull + "::mesh.ini";
+	const std::string objEntry = hull + "::model.obj";
+	const std::string gltfEntry = hull + "::model.gltf";
+
+	const asset_archive_clone_override_t overrides[] = {
+		cloneReplace("vehicle.ini", descriptor),
+		cloneReplace(hull.c_str(), mesh),
+		cloneReplace(iniEntry.c_str(), meshIni),
+		cloneReplace(objEntry.c_str(), obj),
+		cloneRemove(gltfEntry.c_str()),
+		cloneRemove("model.gltf"),
+	};
+	asset_archive_clone_report_t report;
+	char err[256] = {};
+	const s32 code = assetArchiveRebuildFile(source.c_str(), out.string().c_str(), newId,
+		"pd-tests", overrides, 6, &report, err, sizeof(err));
+	INFO("rebuild error: " << err);
+	REQUIRE(code == ASSET_ARCHIVE_CLONE_OK);
+	REQUIRE(assetArchiveValidateFile(out.string().c_str(), ASSET_ARCHIVE_VALIDATE_RELEASE,
+		err, sizeof(err)) == 0);
+
+	const std::string result = cloneReadFileBytes(out);
+	const std::string newMesh = cloneEntryBytes(result, hull.c_str());
+	const std::string manifest = cloneEntryBytes(newMesh, "_meta/manifest.json");
+	CHECK(manifest.find("\"model_file\": \"model.obj\"") != std::string::npos);
+	CHECK(manifest.find("\"geometry\": \"model.obj\"") != std::string::npos);
+	CHECK(manifest.find("model.gltf") == std::string::npos);
+	CHECK(manifest.find("\"material_file\": \"model.mtl\"") != std::string::npos);
+	CHECK(cloneEntryBytes(newMesh, "model.obj") == obj);
+	CHECK(cloneCountFiles(dir.path) == 1);
+}
+
 TEST_CASE("typed archive rebuild edits an archive under its own id",
           "[modding][pdxxx][clone]") {
 	CloneTempDir dir;

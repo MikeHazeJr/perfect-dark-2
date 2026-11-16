@@ -19,6 +19,7 @@
 #include "asset_archive_clone.h"
 #include "asset_archive_policy.h"
 #include "asset_archive_writer.h"
+#include "loader_walker_mesh_source.h"
 #include "modarchive.h"
 #include "sha256.h"
 #include "weapon_graph_archive.h"
@@ -956,6 +957,27 @@ static s32 cloneIniValue(const char *text, u32 n, const char *key, u32 *vs, u32 
 	return 0;
 }
 
+/* Replace the JSON string at [ms, me) (quotes included) in *out (length *len)
+ * with value. 0 when out of memory (*out is then still valid). */
+static s32 cloneReplaceJsonString(char **out, u32 *len, u32 ms, u32 me,
+		const char *value, u32 value_len)
+{
+	const u32 old_len = me - ms - 2;
+	const u32 new_len = *len - old_len + value_len;
+
+	if (new_len > *len) {
+		char *grown = (char *)realloc(*out, (size_t)new_len + 1);
+		if (!grown) return 0;
+		*out = grown;
+	}
+	/* The closing quote and everything after it move as one. */
+	memmove(*out + ms + 1 + value_len, *out + me - 1, *len - (me - 1));
+	memcpy(*out + ms + 1, value, value_len);
+	*len = new_len;
+	(*out)[new_len] = '\0';
+	return 1;
+}
+
 /* The manifest text with every mirrored value the descriptor changed brought
  * up to date. NULL when out of memory. */
 static char *cloneSyncManifestMirrors(const char *manifest, u32 size,
@@ -988,26 +1010,40 @@ static char *cloneSyncManifestMirrors(const char *manifest, u32 size,
 					&& cloneJsonTopString(out, len, key, &ms, &me)
 					&& me - ms - 2 == oe - os
 					&& memcmp(out + ms + 1, source_desc + os, oe - os) == 0
-					&& cloneJsonPlain(value, value_len)) {
-				const u32 old_len = me - ms - 2;
-				const u32 new_len = len - old_len + value_len;
-
-				if (new_len > len) {
-					char *grown = (char *)realloc(out, (size_t)new_len + 1);
-					if (!grown) {
-						free(out);
-						return NULL;
-					}
-					out = grown;
-				}
-				/* The closing quote and everything after it move as one. */
-				memmove(out + ms + 1 + value_len, out + me - 1, len - (me - 1));
-				memcpy(out + ms + 1, value, value_len);
-				len = new_len;
-				out[len] = '\0';
+					&& cloneJsonPlain(value, value_len)
+					&& !cloneReplaceJsonString(&out, &len, ms, me, value, value_len)) {
+				free(out);
+				return NULL;
 			}
 		}
 		pos = end + 1;
+	}
+
+	/* A mesh manifest's "geometry" echoes the descriptor's geometry key
+	 * (model_file and its aliases, loaderWalkerMeshPublicGeometryKey). The
+	 * loader takes the descriptor as the truth and the echo only as a
+	 * fallback, so when an override moves the geometry (a recipe that swaps a
+	 * mesh's glTF for an OBJ) the echo that named the old file follows it,
+	 * instead of naming a member that may be gone. */
+	for (size_t i = 0; i < loaderWalkerMeshPublicGeometryKeyCount(); i++) {
+		const char *key = loaderWalkerMeshPublicGeometryKey(i);
+		u32 os, oe, ns, ne, ms, me;
+
+		if (strcmp(key, "geometry") == 0) continue; /* the same-name pass above */
+		if (cloneIniValue(source_desc, source_size, key, &os, &oe)
+				&& cloneIniValue(final_desc, final_size, key, &ns, &ne)
+				&& !(ne - ns == oe - os
+					&& memcmp(source_desc + os, final_desc + ns, oe - os) == 0)
+				&& cloneJsonPlain(final_desc + ns, ne - ns)
+				&& cloneJsonTopString(out, len, "geometry", &ms, &me)
+				&& me - ms - 2 == oe - os
+				&& memcmp(out + ms + 1, source_desc + os, oe - os) == 0) {
+			if (!cloneReplaceJsonString(&out, &len, ms, me, final_desc + ns, ne - ns)) {
+				free(out);
+				return NULL;
+			}
+			break;
+		}
 	}
 	*out_size = len;
 	return out;
