@@ -1,6 +1,6 @@
 {
   "scenario_name": "maian_vehicle_drive_smoke",
-  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: after Escape's skipped intro the player never gets walk mode back (B-1159), so the mount hook never fires there.",
+  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: after Escape's skipped intro the player never gets walk mode back (B-1159), so the mount hook never fires there. A fresh install has no agent, so CI training would stop at Agent Select: the smoke agent profile is staged in the portable save folder and loaded at boot (--launch-load-agent smoke).",
   "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "maian-vehicle", "pillar:modding"],
   "paths_of_interest": [
     "dev-mods/maian_hover_vehicle/recipe.json",
@@ -27,6 +27,7 @@
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json" },
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" },
     { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
   ],
   "boot_args": [
@@ -36,6 +37,8 @@
     "--portable",
     "--mod-author",
     "mod-recipes/maian_hover_vehicle/recipe.json",
+    "--launch-load-agent",
+    "smoke",
     "--launch-mission",
     "0x26",
     "--debug-swap-vehicle",

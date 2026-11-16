@@ -233,6 +233,13 @@ a Modding Hub tab for players), and the tools grow with the mods.
     its ring and a cannon pitching at its neck, decimate to about 4,000 triangles, bake
     128 px textures, crystal pieces in full, regrowing and black states), then the
     `.pdmesh` replaces the stand-in in `dev-mods/maian_hover_vehicle/`.
+  - FINAL MODEL IN THE MOD 2026-11-16 (98f9125a, 635ef82e): Mike picked the strong creases; the
+    stand-in is replaced by `build_vehicle_mesh.py`'s OBJ mesh (vertex colours, no texture:
+    PD images stop at 255 px and a 128 px atlas smeared the vehicle). 3.10 m long, 4,085
+    triangles of hull, gunner's pod and cannon plus 19 crystals; parts 1 turret yaw, 2 cannon
+    pitch, 50 muzzle, 110-127 ring seats, 128 muzzle seat, toggles 140 (seafoam crystals) and
+    141 (black, overheat, inside the seafoam ones). Focused pd-tests pass: [maian-vehicle] 49 assertions, [clone] 1,668, [author] 1,023, [vehicle-model-slot] 56. In-game proof waits on the smoke turn
+    (both vehicle smokes now on CI training: B-1159 blocks Escape).
 - V3. Boost and heat: a boost action; ramp to full over about 1 s; after
   about 4 s the crystals turn black, boost stays above base below full,
   steering is limited briefly and the turret is locked out until the crystals
