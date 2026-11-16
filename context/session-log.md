@@ -11424,3 +11424,55 @@ Next
 - With the queued turn: tick the AI commands row (typed args in play) and
   record the simulant twins' respawn branch.
 - Then the Pickups or Doors rows of the checklist.
+
+## 2026-11-16 (19:43-21:25 UTC) - CORE: typed AI args slice 3b (B-1257, B-1258), kill_simulant, object identity, level programs started
+
+What happened
+- Turn q_20261116162649494_8c375cad (19:12-19:43 UTC, client core-te =
+  e051fda0): release 61/61, specials 49/49, Complex arena 12/12, mod bank
+  10/10 with args-only rows; but conformance failed with 23,762 errors, all
+  in AI args (B-1257: animations and sounds as numbers, 15 solo weapons and
+  two "none" values unnamed, the entity fields carrying an asset key's
+  name), and the simulant smoke was 12/15 again (in 150 s on Complex the
+  simulants only shot the idle player; no death, no respawn branch).
+- 5af33056, typed operands slice 3b (ai-typed-operands.md "Slice 3b as
+  built"): anim and sound are catalog kinds; every asset argument is a
+  catalog id or null (the field's "none"); a sound's MP3 priority and
+  response are arguments of their own; entity is target or source; one
+  naming rule for the extractor and the compiler (port/src/ai_catalog_refs.c:
+  weapons from g_WeaponDataCatalogIds first, animations by the catalog's id
+  for the slot, sounds as configured alias, sample or MP3 voice file, the
+  last by the voice extractor's rule because the loader registers voice
+  archives after extraction); conformance mirrors it and derives the base
+  animation table's slot ids (the empty ANIM_CUT_CAVE_BETA_* slots one Air
+  Base list names), checked against every authored animation archive, which
+  found B-1258 (380 placeholder slots had two catalog ids; the base
+  registration now uses the archives' "character" rule). Kind _assetargs,
+  bank v5.
+- da7cd094: the smoke harness's kill_simulant (chrDamageByMisc on the first
+  live simulant); combat_sim_simulant_twins kills twice on Complex.
+- pd-tests 2,053 cases pass; client core-tf frozen at da7cd094 (the freeze
+  now copies the sources conformance reads for catalog ids).
+- Turn q_20261116203323322_e9d475f5 (21:14-21:19 UTC, core-tf):
+  re-extraction once then nothing; no AI row gives an asset by number
+  (2,839 sounds, 1,181 animations, 639 weapons by id, 117 nulls, 514 MP3
+  lines with their priority); conformance 0 errors over 9,026 archives. The
+  five smokes did not start: CORE's C: smoke storage refused to seed
+  ("Archive budget refused", its 2 GiB archive cap is full). The permission
+  check stopped CORE from raising the cap in its location file; Mike chooses
+  (week note 21:22): raise it to 4 GiB (recommended), recycle the older
+  evidence already copied to D:, or a D: storage root.
+- object-events.md: object identity decided (record_id = the setup command
+  index, plus tag, kind and catalog id in payloads); slice 1 planned and
+  started (uncommitted at 21:25): missionGraphProgramCompileLevel (only
+  event/gate/og nodes; level data skipped), the runtime compiles the level
+  program for every stage (refusal when it does not compile), shared volume
+  binding and delivery, level volume events from lvTick after scenarioTick
+  on the host, conformance's level mode, tests/test_level_graph_program.cpp.
+
+Next
+- Mike's storage choice, then the smokes of slice 3b (core-tf): the simulant
+  respawn branch, the Complex arena, the mod bank, release, specials; then
+  tick AI commands and AI actions and simulants.
+- Build and test object-events slice 1 once MULTIPLAYER's smoke ends; then
+  slice 2 (record-only pickup, door and use events).

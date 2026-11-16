@@ -63,6 +63,21 @@ under decision 1. Not built. Facts from a read-only survey of
    play unchanged; a parity probe counts native and graph decisions as the
    objective probe does.
 
+## Object identity (decided, CORE, 2026-11-16)
+
+- An event, gate or module names an object by its `objects.json`
+  `record_id` (`"setup_0123"`). Every setup record has one, and it is the
+  setup command index the game keeps for each object both ways
+  (`setupGetCmdIndexByProp`, `setupGetObjByCmdIndex` in `setuputils.c`),
+  so a native seam can name the object it acts on and a module can find
+  the object it is given. A Forge object gets a record id the same way.
+- The payload also carries what a graph may filter by: the object's tag
+  (the id of the `tag` record that names it, -1 when none does, as the AI
+  commands address objects), its `kind` (`weapon_pickup`, `door`,
+  `ammo_crate`, ...) and, when it has one, its catalog id (the weapon or
+  the model). A gate or filter may use any of them; a module that acts on
+  an object takes the record id.
+
 ## Slices
 
 1. The level graph's executable part and the runner on arenas (no events
@@ -73,6 +88,28 @@ under decision 1. Not built. Facts from a read-only survey of
    wires them, after Forge).
 4. The native rules and effects as modules wired by the extractor; the
    parity probe; the rows tick.
+
+## Slice 1 plan (CORE, 2026-11-16)
+
+- A level graph today: up to 6,887 nodes (Deep Sea), all `scenario.*` data
+  but one inert `event.*` node, and `links` for its structure; no `edges`.
+  Its executable part will be its `event.*`, `gate.*` and `og.*` nodes and
+  an `edges` array of execution edges, as in a mission graph.
+- The runner compiles a level graph's program from those nodes alone (a
+  compile option that skips every other node, so the data nodes neither
+  count toward the 4,096-node limit nor become program nodes); the
+  mission graph keeps compiling as today.
+- The runtime compiles the level program at scenario activation for every
+  stage (arenas and missions), logs it once
+  (`SCENARIO.GRAPH: level program '...' nodes=... exec_edges=... events=...
+  modules=...`) and refuses a stage whose level program does not compile.
+  Base level graphs have no program nodes, so every base stage compiles an
+  empty program: no kind move, no extraction change.
+- Trigger-volume events go to the level program too (bound to the stage's
+  `volumes.json`), so an arena can react to a box; objective and phase
+  events stay the mission's.
+- Conformance checks a level graph's program part as it checks a mission
+  graph's.
 
 ## Not in scope
 
