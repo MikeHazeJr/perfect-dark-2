@@ -8642,14 +8642,14 @@ u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl)
  * actions that decide those (chraTick), so before this message it kept every
  * such chr: a guard the level script removed stayed frozen where it stood,
  * and every NPC snapshot after that was refused for a count the client could
- * not match. The host sends this once, reliably, as it removes the chr; the
- * client removes its copy at once, so a snapshot later in the same packet
- * already counts the same chrs. Bit 0 of the flags says the host's removal
- * dropped the chr's items (CHRHFLAG_DROPPINGITEM), so the client drops its
- * copies of them too; otherwise they go with the chr, as on the host.
+ * not match. The host queues the removal as it removes the chr
+ * (netServerNpcRemoveQueue) and sends it once, reliably, from the frame's
+ * entity broadcast, ahead of that frame's NPC traffic; the client removes its
+ * copy at once. Bit 0 of the flags (NET_NPC_REMOVE_DROPPEDITEMS) says the
+ * host's removal dropped the chr's items (CHRHFLAG_DROPPINGITEM), so the
+ * client drops its copies of them too; otherwise they go with the chr, as on
+ * the host.
  * ======================================================================== */
-
-#define NET_NPC_REMOVE_DROPPEDITEMS 0x01
 
 /* Remove this client's copy of a chr the host no longer has, the way the
  * host's chrTick and prop loop remove it: chrRemove, then the free tick
@@ -8674,26 +8674,18 @@ static void netNpcRemoveLocal(struct prop *prop, bool dropitems, const char *why
 	propExecuteTickOperation(prop, TICKOP_FREE);
 }
 
-u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, struct chrdata *chr)
+u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, u32 syncid, u8 flags)
 {
-	struct prop *prop = chr ? chr->prop : NULL;
-	u8 flags;
-
-	if (!dst || !prop || prop->syncid == 0 || !netNpcIsReplicationReady(chr)) {
+	if (!dst || syncid == 0) {
 		return 1;
 	}
 
-	flags = (chr->hidden & CHRHFLAG_DROPPINGITEM) ? NET_NPC_REMOVE_DROPPEDITEMS : 0;
-
 	netbufWriteU8(dst, SVC_NPC_REMOVE);
-	netbufWriteU32(dst, prop->syncid);
+	netbufWriteU32(dst, syncid);
 	netbufWriteU8(dst, flags);
 
-	sysLogPrintf(LOG_NOTE,
-		"NET.NPC: host removed chr syncid=%u chrnum=%d body=%d dead=%d action=%d dropitems=%d",
-		(unsigned)prop->syncid, (s32)chr->chrnum, (s32)chr->bodynum,
-		chrIsDead(chr) ? 1 : 0, (s32)chr->actiontype,
-		(flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
+	sysLogPrintf(LOG_NOTE, "NET.NPC: host sent the removal of chr syncid=%u dropitems=%d",
+		(unsigned)syncid, (flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
 
 	return dst->error;
 }

@@ -117,6 +117,7 @@ typedef struct net_vehicle_state_txn_s {
  * reaches chrTick's deleting branch); a client's NPC AI is off, so it never
  * removes one by itself. The client removes its copy at once. */
 #define SVC_NPC_REMOVE     0x7f
+#define NET_NPC_REMOVE_DROPPEDITEMS 0x01 /* SVC_NPC_REMOVE flags: the chr's items dropped */
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
@@ -378,7 +379,7 @@ u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcSpawnWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, struct chrdata *chr);
+u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, u32 syncid, u8 flags);
 u32 netmsgSvcNpcRemoveRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcStateWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcStateRead(struct netbuf *src, struct netclient *srccl);

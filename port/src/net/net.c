@@ -40,6 +40,7 @@
 #include "game/playermgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
+#include "game/chraction.h"
 #include "game/bondgun.h"
 #include "game/game_1531a0.h"
 #include "game/game_0b0fd0.h"
@@ -687,6 +688,8 @@ bool netServerStageReplicationBlocked(void)
 		&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE;
 }
 
+static void netServerNpcRemoveClear(const char *why);
+
 static void netResetStageReplication(const char *reason,
 		bool clear_epoch)
 {
@@ -701,6 +704,7 @@ static void netResetStageReplication(const char *reason,
 	}
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage replication was reset");
 
 	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE,
@@ -720,6 +724,7 @@ static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
 	g_NetStageEpoch = prior_epoch;
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage start rolled back");
 	sysLogPrintf(LOG_WARNING,
 		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
 		(unsigned)prior_epoch, reason ? reason : "unknown");
@@ -756,6 +761,7 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 	s_NetStageReplicationWaitMask = wait_mask;
 	s_NetStageAuthorityReady = false;
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("a new stage starts");
 	/* Stage publication may be initiated late in netEndFrame. Retire every
 	 * shared gameplay byte from the lobby/current stage before serializing the
 	 * new SVC_STAGE_START control transaction. */
@@ -3961,6 +3967,80 @@ static bool netServerNpcSpawnSettled(const struct chrdata *chr)
 	return g_NetTick - s_NetNpcSpawnTicks[index] >= NET_NPC_SPAWN_SETTLE_TICKS;
 }
 
+/* B-1206: chrs the host removed (chrTick's deleting branch), each announced
+ * once with SVC_NPC_REMOVE from the frame's entity broadcast below, ahead of
+ * the frame's spawns, moves and states. chrTick runs in the game tick, and
+ * netEndFrame discards that tick's shared messages on a frame that publishes
+ * a cutscene or stage authority packet, or before the stage replication is
+ * active (SP-91); a removal written there was lost, and the client kept a
+ * chr the host no longer had (Deep Sea's intro actor, removed on the frame
+ * the intro ended). A removal still queued when the stage's release baseline
+ * goes out needs no message: the baseline leaves the chr out and the client
+ * removes what it does not name. A full queue asks for a full NPC snapshot. */
+#define NET_NPC_REMOVE_MAX 64
+
+static u32 s_NetNpcRemoveIds[NET_NPC_REMOVE_MAX];
+static u8 s_NetNpcRemoveFlags[NET_NPC_REMOVE_MAX];
+static s32 s_NetNpcRemoveCount = 0;
+
+static void netServerNpcRemoveClear(const char *why)
+{
+	if (s_NetNpcRemoveCount > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.NPC: %d queued chr removal(s) not sent: %s",
+			s_NetNpcRemoveCount, why);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
+void netServerNpcRemoveQueue(struct chrdata *chr)
+{
+	u32 syncid;
+	u8 flags;
+
+	if (g_NetMode != NETMODE_SERVER || !netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+	flags = (chr->hidden & CHRHFLAG_DROPPINGITEM) ? NET_NPC_REMOVE_DROPPEDITEMS : 0;
+
+	if (syncid >= g_NetFirstDynamicSyncId && netServerNpcSpawnIndex(syncid) < 0) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.NPC: host removed chr syncid=%u chrnum=%d before announcing it; no client has it",
+			(unsigned)syncid, (s32)chr->chrnum);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: host removed chr syncid=%u chrnum=%d body=%d dead=%d action=%d dropitems=%d",
+		(unsigned)syncid, (s32)chr->chrnum, (s32)chr->bodynum,
+		chrIsDead(chr) ? 1 : 0, (s32)chr->actiontype,
+		(flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
+
+	if (s_NetNpcRemoveCount >= NET_NPC_REMOVE_MAX) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.NPC: more than %d chr removals queued; a full NPC snapshot replaces them",
+			NET_NPC_REMOVE_MAX);
+		s_NetNpcRemoveCount = 0;
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_NPCS;
+		return;
+	}
+
+	s_NetNpcRemoveIds[s_NetNpcRemoveCount] = syncid;
+	s_NetNpcRemoveFlags[s_NetNpcRemoveCount] = flags;
+	s_NetNpcRemoveCount++;
+}
+
+static void netServerNpcRemoveFlush(void)
+{
+	for (s32 i = 0; i < s_NetNpcRemoveCount; i++) {
+		netmsgSvcNpcRemoveWrite(&g_NetMsgRel, s_NetNpcRemoveIds[i], s_NetNpcRemoveFlags[i]);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
 void netEndFrame(void)
 {
 	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
@@ -4122,6 +4202,9 @@ void netEndFrame(void)
 				sysLogPrintf(LOG_NOTE, "NET: starting NPC broadcast with %u npcs", netNpcCount());
 				s_npcBroadcastStarted = true;
 			}
+
+			/* B-1206: the chrs removed since the last broadcast, first */
+			netServerNpcRemoveFlush();
 
 			/* B-1196: a chr the host made after the stage start is announced
 			 * (SVC_NPC_SPAWN) before any move or state names it. */
@@ -4321,6 +4404,8 @@ void netEndFrame(void)
 			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
 		s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE;
 		s_NetStageReplicationWaitMask = 0;
+		/* B-1206: the baseline just published leaves those chrs out */
+		netServerNpcRemoveClear("the stage's release baseline covers them");
 		sysLogPrintf(LOG_NOTE,
 			"NET.STAGE.REPLICATION phase=active epoch=%u room=%u fresh_release=1",
 			(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId);

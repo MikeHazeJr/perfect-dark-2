@@ -2943,11 +2943,12 @@ s32 chrTick(struct prop *prop)
 
 		if (chr->hidden & CHRHFLAG_DELETING) {
 			/* B-1206: a co-op or counter-op client runs no NPC AI or actions
-			 * (chraTick), so it never removes a chr by itself; tell it this one
-			 * is gone, and whether its items drop, before the removal below. */
+			 * (chraTick), so it never removes a chr by itself; queue the news
+			 * that this one is gone, and whether its items drop, before the
+			 * removal below (sent from the frame's broadcast, SP-91). */
 			if (g_NetMode == NETMODE_SERVER
 					&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-				netmsgSvcNpcRemoveWrite(&g_NetMsgRel, chr);
+				netServerNpcRemoveQueue(chr);
 			}
 
 			if (chr->hidden & CHRHFLAG_DROPPINGITEM) {

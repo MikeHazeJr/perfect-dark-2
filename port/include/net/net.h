@@ -686,6 +686,8 @@ s32 netServerStageStart(void);
 s32 netServerCoopStageStart(u8 stagenum, u8 difficulty);
 void netServerStageEnd(void);
 void netServerKick(struct netclient *cl, const u32 reason);
+/* B-1206: queue a co-op or counter-op chr's removal for the frame's broadcast */
+void netServerNpcRemoveQueue(struct chrdata *chr);
 
 struct netclient *netClientForPlayerNum(s32 playernum);
 

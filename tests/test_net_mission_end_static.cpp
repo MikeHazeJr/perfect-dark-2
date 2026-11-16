@@ -427,11 +427,12 @@ TEST_CASE("co-op chr removals: a chr the host removes leaves the client too",
 	const std::string net = code_only(read_text_file("port/src/net/net.c"));
 	REQUIRE(net.find("case SVC_NPC_REMOVE: rc = netmsgSvcNpcRemoveRead(&cl->in, cl); break;") != std::string::npos);
 
-	// The host announces every removal chrTick makes, before it makes it
+	// The host queues every removal chrTick makes, before it makes it (the chr
+	// and its flags are gone after it)
 	const std::string chr_c = code_only(read_text_file("src/game/chr.c"));
 	const std::string tick = function_body(chr_c, "s32 chrTick(struct prop *prop)\n{");
 	const size_t deleting = tick.find("if (chr->hidden & CHRHFLAG_DELETING) {");
-	const size_t announce = tick.find("netmsgSvcNpcRemoveWrite(&g_NetMsgRel, chr);", deleting);
+	const size_t announce = tick.find("netServerNpcRemoveQueue(chr);", deleting);
 	const size_t drop = tick.find("objDropRecursively(prop, true);", deleting);
 	const size_t remove = tick.find("chrRemove(prop, true);", deleting);
 	REQUIRE(deleting != std::string::npos);
@@ -441,11 +442,53 @@ TEST_CASE("co-op chr removals: a chr the host removes leaves the client too",
 	REQUIRE(announce < drop);
 	REQUIRE(drop < remove);
 	REQUIRE(tick.rfind("g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI", announce) > deleting);
+	// SP-91: nothing written in the game tick, which netEndFrame may discard
+	REQUIRE(chr_c.find("netmsgSvcNpcRemoveWrite") == std::string::npos);
+
+	const std::string queue = function_body(net, "void netServerNpcRemoveQueue(struct chrdata *chr)\n{");
+	REQUIRE(queue.find("!netNpcIsReplicationReady(chr)") != std::string::npos);
+	REQUIRE(queue.find("CHRHFLAG_DROPPINGITEM") != std::string::npos);
+	// A chr made after the stage start and never announced is on no client
+	REQUIRE(queue.find("syncid >= g_NetFirstDynamicSyncId && netServerNpcSpawnIndex(syncid) < 0") != std::string::npos);
+	// A full queue asks for a full NPC snapshot, whose sweep removes the rest
+	REQUIRE(queue.find("g_NetPendingResyncFlags |= NET_RESYNC_FLAG_NPCS;") != std::string::npos);
+
+	// The queue goes out from the ACTIVE broadcast, ahead of the frame's spawns
+	const std::string end_frame = function_body(net, "void netEndFrame(void)\n{");
+	const size_t active = end_frame.find("if (s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE) {");
+	const size_t coop = end_frame.find("if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {", active);
+	const size_t flush = end_frame.find("netServerNpcRemoveFlush();", coop);
+	const size_t spawns = end_frame.find("netServerNpcSpawnAnnounce(&g_ChrSlots[i]);", coop);
+	REQUIRE(active != std::string::npos);
+	REQUIRE(coop != std::string::npos);
+	REQUIRE(flush != std::string::npos);
+	REQUIRE(spawns != std::string::npos);
+	REQUIRE(flush < spawns);
+	REQUIRE(end_frame.find("netServerNpcRemoveFlush();") == flush);
+	const std::string flusher = function_body(net, "static void netServerNpcRemoveFlush(void)\n{");
+	REQUIRE(flusher.find("netmsgSvcNpcRemoveWrite(&g_NetMsgRel, s_NetNpcRemoveIds[i], s_NetNpcRemoveFlags[i]);") != std::string::npos);
+	REQUIRE(flusher.find("s_NetNpcRemoveCount = 0;") != std::string::npos);
+
+	// The release baseline covers what is still queued, and every replication
+	// reset (a new stage, a reset, a rolled-back start) empties the queue, so a
+	// removal never names a chr of the next stage
+	const size_t release = end_frame.find("s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE;");
+	REQUIRE(release != std::string::npos);
+	REQUIRE(end_frame.find("netServerNpcRemoveClear(", release) != std::string::npos);
+	size_t resets = 0;
+	for (size_t at = net.find("netNpcReplicationReset();"); at != std::string::npos;
+			at = net.find("netNpcReplicationReset();", at + 1)) {
+		const size_t next = net.find_first_not_of(" \t\r\n", at + std::string("netNpcReplicationReset();").size());
+		REQUIRE(net.compare(next, std::string("netServerNpcRemoveClear(").size(), "netServerNpcRemoveClear(") == 0);
+		resets++;
+	}
+	REQUIRE(resets == 3);
 
 	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
-	const std::string write = function_body(msg, "u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, struct chrdata *chr)\n{");
-	REQUIRE(write.find("!netNpcIsReplicationReady(chr)") != std::string::npos);
-	REQUIRE(write.find("CHRHFLAG_DROPPINGITEM") != std::string::npos);
+	const std::string write = function_body(msg, "u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, u32 syncid, u8 flags)\n{");
+	REQUIRE(write.find("netbufWriteU8(dst, SVC_NPC_REMOVE);") != std::string::npos);
+	REQUIRE(write.find("netbufWriteU32(dst, syncid);") != std::string::npos);
+	REQUIRE(write.find("netbufWriteU8(dst, flags);") != std::string::npos);
 
 	// The client removes its copy at once, as the host's chrTick and prop loop do
 	const std::string local = function_body(msg,
