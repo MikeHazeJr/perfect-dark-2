@@ -699,6 +699,26 @@ static s32 saveWriteAgentDocument(const char *name,
 	return 0;
 }
 
+/* B-1199: the profile keeps each local player's own control mode. A
+ * networked co-op or counter-op partner plays on another machine with dummy
+ * controls (CONTROLMODE_NA), which the profile codec refuses (modes above
+ * CONTROLMODE_PC), so every networked mission end failed to save. Outside
+ * co-op the second player's setting is held in slot 5 (see the player2 index
+ * below); a partner without real controls falls back to it, then to the
+ * default. */
+static u8 saveAgentControlModeForSlot(s32 playernum, s32 fallbacknum)
+{
+	s32 mode = optionsGetControlMode(playernum);
+
+	if (mode < CONTROLMODE_11 || mode > CONTROLMODE_PC) {
+		mode = fallbacknum >= 0 ? optionsGetControlMode(fallbacknum) : CONTROLMODE_11;
+	}
+	if (mode < CONTROLMODE_11 || mode > CONTROLMODE_PC) {
+		mode = CONTROLMODE_11;
+	}
+	return (u8)mode;
+}
+
 static void saveCaptureAgentDocument(const char *name,
 		struct agent_profile_document *document)
 {
@@ -714,8 +734,9 @@ static void saveCaptureAgentDocument(const char *name,
 	document->sfxvolume = g_SfxVolume;
 	document->musicvolume = optionsGetMusicVolume();
 	document->soundmode = g_SoundMode;
-	document->controlmode[0] = (u8)optionsGetControlMode(player1);
-	document->controlmode[1] = (u8)optionsGetControlMode(player2);
+	document->controlmode[0] = saveAgentControlModeForSlot(player1, -1);
+	document->controlmode[1] = saveAgentControlModeForSlot(player2,
+		player2 != 5 ? 5 : -1);
 	for (s32 challenge = 0; challenge < SAVE_AGENT_CHALLENGE_COUNT; challenge++) {
 		for (s32 players = 0; players < SAVE_AGENT_PLAYER_COUNTS; players++) {
 			document->challengecompleted[challenge][players] =
@@ -742,8 +763,11 @@ static void saveCommitAgentDocument(
 	sndSetSoundMode(document->soundmode);
 	optionsSetControlMode(player1, g_PlayerExtCfg[0].extcontrols
 		? CONTROLMODE_PC : document->controlmode[0]);
-	optionsSetControlMode(player2, g_PlayerExtCfg[1].extcontrols
-		? CONTROLMODE_PC : document->controlmode[1]);
+	/* B-1199: a remote partner keeps its dummy controls. */
+	if (optionsGetControlMode(player2) != CONTROLMODE_NA) {
+		optionsSetControlMode(player2, g_PlayerExtCfg[1].extcontrols
+			? CONTROLMODE_PC : document->controlmode[1]);
+	}
 	for (s32 challenge = 0; challenge < SAVE_AGENT_CHALLENGE_COUNT; challenge++) {
 		for (s32 players = 0; players < SAVE_AGENT_PLAYER_COUNTS; players++) {
 			challengeSetCompletedByAnyPlayerWithNumPlayers(challenge,
