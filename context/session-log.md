@@ -1,5 +1,20 @@
 # Session Log (Active)
 
+2026-11-16 (14:15 ET) MULTIPLAYER, continued. A second networked match in the same Room passes for Combat
+95/95, Hold the Briefcase 101/101, Hacker Central 101/101, Pop a Cap 100/100 and Capture the Case 101/101 (a669d118,
+base 7); King of the Hill's run is to be repeated: its host stalled 111 s in the boot asset check while my session
+build ran on the same disks (memory saved: no build while a smoke turn runs; the storage lock does not prevent it).
+Since 13:20 ET, all pushed, pd-tests 2,037: the SP-91 class fix (ded9b22f; CORE gave it to MULTIPLAYER at 17:04 UTC):
+a cutscene authority frame holds the game tick's reliable bytes and sends them right after its packet, in order;
+SP-92 audit done (ae1fa9fd): the reconnect snapshot's prop state now moves the room registration too, SVC_PROP_SPAWN
+checked correct; counter-op results log their outcome and new network_counterop_agent_death_smoke (369f4562);
+B-1271's cause (c35b35a2, from the code): the original's download rule deadlocks a simulant that reaches range
+facing away (unarmed, still, turns toward the terminal only once a download runs), which the port's stuck watchdog
+used to break until B-1207; the fix (turn toward the terminal while waiting) changes the original's behaviour and
+waits for Mike. Queued on c35b35a2 behind CORE's turn: q_20261116183120118_5e31664e (co-op Deep Sea, co-op and
+counter-op mission end, Hacker Central net) and q_20261116183120950_df5e28cf (co-op retry and return, ready-gate
+repeat and rollback, counter-op agent death, King of the Hill rematch).
+
 2026-11-16 (13:20 ET) MULTIPLAYER, continued. Turn q_20261116152127415_a38e0af1 on a669d118, base 7, done:
 co-op mission end PASS 130/130 and the ready-gate repeat smoke 39/40 (B-1208 checked in play; the miss was the
 smoke's step order, fixed); Hacker Central local PASS 32/32 with a simulant scoring three downloads (B-1207 checked
