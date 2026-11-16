@@ -7339,7 +7339,10 @@ static vehicle_graph_instance_t *hoverbikeGraphInstance(struct hoverbikeobj *bik
 			vehicleGraphRuntimeRefuse(prop, prop->lifecycle_generation);
 			return NULL;
 		}
-		modelGetNodeRwData(bike->base.model, node)->toggle.visible = true;
+		{
+			union modelrwdata *rwdata = modelGetNodeRwData(bike->base.model, node);
+			rwdata->toggle.visible = true;
+		}
 	}
 	heat = vehicleGraphProgramBoostHeatParams(program);
 	sysLogPrintf(LOG_NOTE,
