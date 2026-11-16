@@ -94,7 +94,7 @@ vehicle (`dev-mods/maian_hover_vehicle/`, steps V3 to V7 in
 | `og.vehicle.mount_seat` | the original side mount (proximity, facing, commit; `propobj.c` mount path) into `seat` | `seat` |
 | `og.vehicle.dismount_seat` | the original dismount to the sides | `seat` |
 | `og.vehicle.hover_drive` | the original hover and drive (`hoverbikeUpdateMovement` without its throttle bonus) from `physics.json`; hovers always, drives while the driver seat is occupied | `drive` (bool, default true; `allow_drive: false` in v2 terms) |
-| `og.vehicle.throttle_boost` | the original bonus: full throttle (at least 0.99) ramps extra forward speed up to `boost_speed` over `ramp_time`; at 0.8 or more it holds, from -0.1 it decays, below that it resets | `boost_speed`, `ramp_time` (base: 7.0 and `{1800, ticks240}`, 7.5 s) |
+| `og.vehicle.throttle_boost` | the original bonus: full throttle (at least 0.99) ramps extra forward speed up to `boost_speed` over `ramp_time`; at 0.8 or more it holds, from -0.1 it decays, below that it resets | `boost_speed`, `ramp_time` (base: 5.0 and `{2400, ticks240}`, 10 s) |
 | `og.vehicle.boost_heat` | Mike's boost and heat, below | below |
 | `og.vehicle.part_visible` | shows or hides a model part of this vehicle (toggle nodes; parts start visible) | `part` (model part number), `visible` |
 | `og.vehicle.turret_lockout` | sets or clears a named lockout; the turret cannot fire while any is set (V5 reads it) | `reason`, `locked` |
