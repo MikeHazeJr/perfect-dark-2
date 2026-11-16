@@ -2,7 +2,7 @@
 
 ## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, root cause found, not fixed; CORE's code)
 
-**Root cause (read from data and source, 10:40 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
+**Root cause (read from data and source, 10:15 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
 sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
 box of -100..100 (`romextract_pdarena.c`, `f32 bbox[6] = { -100.0f, 100.0f, ... }`). Complex has 226 pads; only 5
 carry the ROM flag, and their boxes start at the pad (y 0 to 105). The other 221 now claim a 200-unit box.
