@@ -239,10 +239,12 @@ a Modding Hub tab for players), and the tools grow with the mods.
     triangles of hull, gunner's pod and cannon plus 19 crystals; parts 1 turret yaw, 2 cannon
     pitch, 50 muzzle, 110-127 ring seats, 128 muzzle seat, toggles 140 (seafoam crystals) and
     141 (black, overheat, inside the seafoam ones). Focused pd-tests pass: [maian-vehicle] 49 assertions, [clone] 1,668, [author] 1,023, [vehicle-model-slot] 56. In-game proof waits on the smoke turn
-    (the vehicle smokes run on Escape: CI training's hoverbike is in the hangar, not among
-    the active props near the player, so the mount hook never found it there; Escape
-    starts in grab mode, B-1159, not a bug, so the smokes drop the hover bed with one
-    direct activate, ACTION_VEHICLE_USE, before the mount).
+    (the vehicle smokes run on Escape, which starts in grab mode, B-1159, not a bug, so
+    the smokes drop the hover bed with one direct activate, ACTION_VEHICLE_USE, before
+    the mount. Correction 2026-11-16 07:04 UTC: the mount hook never fired on CI
+    training or Escape because B-1158's first fix waited for Player 0's body model,
+    which a solo player outside a cutscene never has; it was not the hangar, the
+    hook's walk covers paused props too. Fixed in chrMoveToPos, see B-1158).
 - V3. Boost and heat: a boost action; ramp to full over about 1 s; after
   about 4 s the crystals turn black, boost stays above base below full,
   steering is limited briefly and the turret is locked out until the crystals

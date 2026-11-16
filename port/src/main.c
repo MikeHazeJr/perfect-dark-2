@@ -3033,11 +3033,11 @@ s32 bootDebugMountBikeTick(void)
 			|| !g_Vars.players[0]->prop->chr) {
 		return 0;
 	}
-	/* B-1158: chrMoveToPos below sets the chr's model root, and Player 0's
-	 * body model is made by the player tick (playerTickChrBody), not at stage
-	 * load, so on the first gameplay frame it can still be NULL. Wait for it,
-	 * and for the lvframenum >= 4 settle --debug-spawn-at uses. */
-	if (g_Vars.lvframenum < 4 || !g_Vars.players[0]->prop->chr->model) {
+	/* B-1158: a solo player outside a cutscene has no body model (the normal
+	 * tick removes it every frame), so this must not wait for one: that wait
+	 * never ended in campaign stages. chrMoveToPos now skips the model when
+	 * there is none. Keep the lvframenum >= 4 settle --debug-spawn-at uses. */
+	if (g_Vars.lvframenum < 4) {
 		return 0;
 	}
 	if (sceneCurrentLayer() != LAYER_GAMEPLAY
@@ -3057,8 +3057,14 @@ s32 bootDebugMountBikeTick(void)
 		return 1;
 	}
 
+	/* The active list runs on into the paused list (propActivate links the
+	 * new head to g_Vars.pausedprops), so this walks every listed prop, paused
+	 * ones too. */
+	static s32 s_noBikeLogged = 0;
+	s32 walked = 0;
 	struct prop *prop = g_Vars.activeprops;
 	while (prop) {
+		walked++;
 		if (prop->type == PROPTYPE_OBJ
 				&& prop->obj
 				&& prop->obj->type == OBJTYPE_HOVERBIKE
@@ -3096,6 +3102,13 @@ s32 bootDebugMountBikeTick(void)
 			return 1;
 		}
 		prop = prop->next;
+	}
+	if (!s_noBikeLogged) {
+		/* Once, so a smoke that never mounts says why. */
+		s_noBikeLogged = 1;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-mount-bike ready but no free hoverbike among %d listed props on stage 0x%02x; still waiting",
+			walked, (u32)g_Vars.stagenum);
 	}
 	/* Keep the latch pending when the current stage has not exposed a bike yet.
 	 * Stage/player readiness, rather than a process- or frame-start timeout,

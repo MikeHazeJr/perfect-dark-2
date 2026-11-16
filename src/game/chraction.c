@@ -16108,17 +16108,27 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 		propDeregisterRooms(chr->prop);
 		roomsCopy(rooms2, chr->prop->rooms);
 		chr0f0220ac(chr);
-		modelSetRootPosition(chr->model, &pos2);
 
-		nodetype = chr->model->definition->rootnode->type;
+		/* B-1158: a solo player outside a cutscene has no body model (the
+		 * normal tick removes it every frame, playerRemoveChrBody), so there
+		 * is no root node to move or turn. Its position is the prop's and its
+		 * facing is vv_theta, both set here. */
+		if (chr->model) {
+			modelSetRootPosition(chr->model, &pos2);
 
-		if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
-			rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
-			rwdata->chrinfo.ground = ground;
+			nodetype = chr->model->definition->rootnode->type;
+
+			if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
+				rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+				rwdata->chrinfo.ground = ground;
+			}
 		}
 
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
-		chrSetLookAngle(chr, angle);
+
+		if (chr->model || chr->aibot) {
+			chrSetLookAngle(chr, angle);
+		}
 
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			player = g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)];
