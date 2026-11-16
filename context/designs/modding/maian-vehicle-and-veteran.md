@@ -290,8 +290,14 @@ a Modding Hub tab for players), and the tools grow with the mods.
     ring (it is round the gunner's pod, behind the driver), and the log's `speed` is the
     non-boost velocity only, so the speed boost adds was not measured. Each phase line
     now gives `peak_ground` (the fastest the vehicle moved over the ground in the phase
-    that ended) and `top` (21 here); the boost smoke requires the ramp or full phase to
-    reach 25 or more, which only boost can do.
+    that ended) and `top` (21 here, the drag-limited top speed without boost).
+  - BOOST SPEED MEASURED in game 2026-11-16 10:41 UTC (base 7, client 3aca4167): 14.73 in
+    the half second of throttle before boost, 24.93 in the ramp (19 % over the top speed
+    of 21, which drag holds without boost), then about 0: on Escape the vehicle meets the
+    hangar's back wall about 1.4 s after it starts, so the full phase (and the four
+    screenshots) are spent against it. The boost smoke now requires 22.5 or more in the
+    ramp or full phase (5f2e4548). A longer straight, for the full phase and screenshots
+    in motion, needs a route on Escape or another stage.
 - V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
   seat; the seat on the wire is MULTIPLAYER's message.
 - V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw
