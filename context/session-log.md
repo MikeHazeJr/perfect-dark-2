@@ -11377,3 +11377,50 @@ Next
   lists row) and the twins in play (AI commands row).
 - Then slice 3 of AI lists as graphs (twins report outcomes, the interpreter
   takes edges) or slice 4 (authoring from edges); mission flow slice 3.
+
+## 2026-11-16 (15:36-17:02 UTC) - CORE: typed AI operands slices 1-3, trigger-volume events, the shadow walk in play (B-1256)
+
+What happened
+- Turn q_20261116150249689_2d221fc9 (15:57-17:00 UTC, client core-st =
+  0d2022b8, private copy): re-extraction for _simtwins (87 scenarios, 47
+  arenas, 21 missions written, a second pass nothing), conformance 0 errors
+  (9,026 archives), the mod AI list bank smoke 10/10 (a mod's .pdai replaces
+  a global list in play), the simulant twin smoke 12/15 on Car Park (family
+  and wave=complete; no simulant died in 90 s, so if_bot_respawning was not
+  reached: moved to Complex 150 s, e9a41a04), and with the shadow walk:
+  soak 42/42 (19.7 million AI commands compared with their edges, differ 0,
+  refused_fallthrough 0, untracked 0 on all 17 missions), release 59/59,
+  specials 47/47, Special Agent 40/40, Perfect Agent 40/40, all with differ 0 and
+  untracked 0; the outcome probe agrees on all 55 campaign missions, each
+  delivering active then complete; no refusal or FATAL line.
+- e6bd6b9a, typed operands slice 3: catalog ids in args for models,
+  weapons, bodies and heads; the extractor writes rows as args alone and
+  checks each back to its bytes; scenario kind _catalogargs, bank v4.
+- e051fda0: the five campaign fixtures pin one AI edge parity line per
+  mission (differ 0, untracked 0) and forbid the failure line.
+- Week note 17:01: Global AI lists and Mission flow ticked; the AI
+  commands row updated (to tick after the typed args turn); Soak 11-16 for
+  the 17 campaign missions.
+- Typed AI operands (context/designs/modding/ai-typed-operands.md, b2458fd7):
+  slice 1 b18b562f (the schema: 441 commands, 819 fields, from the handlers
+  plus two reviewing agents; every base row round-trips; conformance row
+  check), slice 2 61adaf37 (args on rows and nodes, the compiler checks them
+  against the bytes; scenario kind _typedargs, bank v3), 3d92264d (a row may
+  give args alone; the mod bank fixture is args only).
+- Trigger-volume events (context/designs/modding/trigger-volume-events.md,
+  6709c495): event.volume.entered/left in the mission graph runner, bound to
+  volumes.json boxes at activation, delivered from the objectives check;
+  pd-tests 2,050; in game after Forge.
+- B-1256 (low, fixed 537e3022): the AI edge parity counters were reset only
+  for a campaign's first mission (later ones are queued from the end screen).
+- Week note: 16:31 notice on typed args; frozen clients core-ae, core-mf4,
+  core-sw, core-ta, core-tb, core-tc, core-td to the Recycle Bin; core-te
+  (e051fda0) for the queued turn q_20261116162649494_8c375cad (waiter
+  bcim75k45, tools/core-ta-turn.sh: re-extraction for _catalogargs and v4,
+  conformance, the simulant smoke on Complex, the Complex arena, the mod bank
+  smoke with args-only rows, release, specials).
+
+Next
+- With the queued turn: tick the AI commands row (typed args in play) and
+  record the simulant twins' respawn branch.
+- Then the Pickups or Doors rows of the checklist.
