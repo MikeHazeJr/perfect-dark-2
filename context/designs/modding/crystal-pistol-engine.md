@@ -106,7 +106,7 @@ aim tips (POSITION, seat + launch direction); an explicit BBOX node.
 
 ## Status (2026-11-15)
 
-Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod-weapon check:
+Landed on `week-pd/crystal-pistol` (6e43ca22 and later) and merged into dev on 2026-11-16, everything behind a mod-weapon check:
 
 | Piece | Code | Proven in game |
 |---|---|---|
