@@ -629,6 +629,9 @@ struct vehicle_graph_program {
 	int throttle_slots = 0;
 	int boost_heat_node = -1;
 	vehicle_boost_heat_params_t boost_heat{};
+	/* The hover_drive's drive param (0 without one): when 0 the game zeroes
+	 * the driver's inputs, so the throttle bonus sees no throttle either. */
+	int drive_takes_input = 0;
 	std::vector<std::string> reasons;
 	std::vector<s32> parts;
 	int pending_bound = 0;
@@ -758,6 +761,7 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 			error = "a vehicle graph has one og.vehicle.hover_drive ('" + node.id + "' is a second)";
 			return nullptr;
 		}
+		if (node.module == MOD_HOVER_DRIVE) program->drive_takes_input = node.drive ? 1 : 0;
 		if (node.module == MOD_BOOST_HEAT) {
 			if (program->boost_heat_node >= 0) {
 				error = "a vehicle graph has one og.vehicle.boost_heat ('" + node.id + "' is a second)";
@@ -803,13 +807,25 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 		for (const Edge &edge : node.out) program->roots[node.event_kind].push_back(edge.target);
 	}
 	for (int kind = 1; kind < VEHICLE_GRAPH_EVENT_KIND_END; kind++) {
+		/* One event mounts or dismounts a seat at most once (CORE's review,
+		 * 2026-11-16): the host's mount and dismount change the rider, so a
+		 * second one for the same seat would act on a rider who has gone. */
+		int seat_modules[2][2] = { { 0, 0 }, { 0, 0 } };
 		program->reach[kind] = reachFrom(*program, kind);
 		for (size_t i = 0; i < program->nodes.size(); i++) {
 			const Node &node = program->nodes[i];
-			if (program->reach[kind][i] && node.type == NODE_MODULE &&
-					!(node.events & eventBit(kind))) {
+			if (!program->reach[kind][i] || node.type != NODE_MODULE) continue;
+			if (!(node.events & eventBit(kind))) {
 				error = node.kind + " '" + node.id + "' cannot run on " + eventName(kind) +
 					", which reaches it";
+				return nullptr;
+			}
+			if ((node.module == MOD_MOUNT_SEAT || node.module == MOD_DISMOUNT_SEAT) &&
+					node.seat >= 0 && node.seat < 2 &&
+					++seat_modules[node.module == MOD_DISMOUNT_SEAT][node.seat] > 1) {
+				error = std::string(eventName(kind)) + " reaches a second " + node.kind +
+					" for the " + (node.seat == VEHICLE_GRAPH_SEAT_DRIVER ? "driver" : "gunner") +
+					" seat ('" + node.id + "'); one event mounts or dismounts a seat once";
 				return nullptr;
 			}
 		}
@@ -883,14 +899,17 @@ int runModule(vehicle_graph_instance &instance, const Node &node,
 	case MOD_THROTTLE_BOOST: {
 		// The original full-throttle bonus (hoverbikeUpdateMovement), with its
 		// timer (maxspeedtime240) in this node's state.
+		// With hover_drive {drive: false} the game zeroes the driver's inputs,
+		// so the bonus reads no throttle either (CORE's review, 2026-11-16).
+		const f32 throttle = program.drive_takes_input ? event.throttle : 0.0f;
 		f32 &time = instance.throttle[node.slot];
-		if (event.throttle >= 0.99f) {
+		if (throttle >= 0.99f) {
 			time += static_cast<f32>(event.ticks240);
 			if (time > node.ramp_ticks240) time = node.ramp_ticks240;
 		} else if (time > 0.0f) {
-			if (event.throttle >= 0.8f) {
+			if (throttle >= 0.8f) {
 				// held
-			} else if (event.throttle >= -0.1f) {
+			} else if (throttle >= -0.1f) {
 				time -= static_cast<f32>(event.ticks240);
 				if (time < 0.0f) time = 0.0f;
 			} else {

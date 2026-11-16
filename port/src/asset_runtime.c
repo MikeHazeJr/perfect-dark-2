@@ -1284,8 +1284,9 @@ static s32 s_hydrateVehicleGraph(asset_runtime_binding_t *binding,
 static void s_freeVehicleGraph(asset_runtime_binding_t *binding)
 {
     if (binding && binding->vehicle_graph) {
-        /* Instances point at their program: none may outlive it. */
-        vehicleGraphRuntimeReset();
+        /* Instances point at their program: none may outlive it. Only the
+         * vehicles made from this program lose theirs. */
+        vehicleGraphRuntimeForgetProgram(binding->vehicle_graph);
         vehicleGraphProgramFree(binding->vehicle_graph);
         binding->vehicle_graph = NULL;
     }
@@ -1602,6 +1603,10 @@ void assetRuntimeReleaseCatalogEntry(const char *asset_id)
 		if (binding->type == ASSET_PROP) {
 			propGraphRuntimeClearAsset(asset_id);
 		}
+        /* A released vehicle's graph program goes now, not at the next
+         * reset; a binding comes back only through s_allocBinding, which
+         * compiles it again. */
+        s_freeVehicleGraph(binding);
         binding->active = 0;
     }
 }

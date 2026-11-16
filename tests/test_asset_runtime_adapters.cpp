@@ -11,6 +11,7 @@
 extern "C" {
 #include "asset_runtime.h"
 #include "prop_graph_runtime.h"
+#include "vehicle_graph_runtime.h"
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
 void testStubAssetCatalogResolvePair(const asset_entry_t *first, const asset_entry_t *second);
 void testStubCatalogCompleteBodyNum(s32 bodynum);
@@ -1916,6 +1917,31 @@ TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrat
 		REQUIRE(vehicleGraphProgramPartCount(b->vehicle_graph) == 1);
 		REQUIRE(vehicleGraphProgramPart(b->vehicle_graph, 0) == 140);
 		REQUIRE(b->vehicle_boost_time_ticks60 == 0);
+
+		/* Releasing the vehicle's catalog entry frees its program now, and the
+		 * instances made from it first (CORE's review, 2026-11-16); a vehicle
+		 * of another program keeps its instance. */
+		vehicleGraphRuntimeReset();
+		int vehicle = 0, other = 0;
+		REQUIRE(vehicleGraphRuntimeInstance(&vehicle, 1, b->vehicle_graph, nullptr) != nullptr);
+		const std::string otherGraph = adapterGraph();
+		const std::string otherVariables = adapterVariables();
+		char otherErr[256] = { 0 };
+		vehicle_graph_program_t *otherProgram = vehicleGraphProgramCompile(otherGraph.c_str(),
+			otherGraph.size(), otherVariables.c_str(), otherVariables.size(),
+			"mod:vehicle_boosted", nullptr, nullptr, otherErr, sizeof(otherErr));
+		INFO(otherErr);
+		REQUIRE(otherProgram != nullptr);
+		REQUIRE(vehicleGraphRuntimeInstance(&other, 1, otherProgram, nullptr) != nullptr);
+		REQUIRE(vehicleGraphRuntimeCount() == 2);
+		assetRuntimeReleaseCatalogEntry("mod:vehicle_boosted");
+		CHECK(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
+		CHECK(vehicleGraphRuntimeCount() == 1);
+		s32 created = 0;
+		CHECK(vehicleGraphRuntimeInstance(&other, 1, otherProgram, &created) != nullptr);
+		CHECK(created == 0);
+		vehicleGraphRuntimeReset();
+		vehicleGraphProgramFree(otherProgram);
 	}
 	SECTION("a graph without the dismount edge cannot be dismounted") {
 		assetRuntimeReset();

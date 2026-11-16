@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "effect_instance_runtime.h"
+#include "vehicle_graph_runtime.h"
 #include "constants.h"
 #include "system.h"
 #include "../lib/naudio/n_sndp.h"
@@ -248,6 +249,9 @@ void propFree(struct prop *prop)
 {
 	effectInstanceRuntimeCancelEntity(prop);
 	meshDetachFromProp(prop);
+	/* A vehicle's graph record goes with its prop (keyed by the generation
+	 * this prop is about to lose). */
+	vehicleGraphRuntimeRelease(prop, prop->lifecycle_generation);
 
 	if (prop->type == PROPTYPE_CHR) {
 		g_Vars.propstates[prop->propstateindex].chrpropcount--;

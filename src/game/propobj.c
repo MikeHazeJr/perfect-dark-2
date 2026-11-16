@@ -7249,7 +7249,11 @@ static s32 hoverbikeGraphMountSeat(void *context, s32 seat, const vehicle_graph_
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
 
 	(void)event;
-	if (seat != VEHICLE_GRAPH_SEAT_DRIVER || !currentPlayerTryMountHoverbikeNative(host->prop)) {
+	/* Once one mount or dismount has acted in this request, the rider has
+	 * changed: a second does nothing (the compiler refuses a second for one
+	 * seat on one event; this keeps the host safe whatever the graph). */
+	if (host->seat_done || seat != VEHICLE_GRAPH_SEAT_DRIVER
+			|| !currentPlayerTryMountHoverbikeNative(host->prop)) {
 		return 0;
 	}
 	host->seat_done = 1;
@@ -7261,7 +7265,9 @@ static s32 hoverbikeGraphDismountSeat(void *context, s32 seat, const vehicle_gra
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
 
 	(void)event;
-	if (seat != VEHICLE_GRAPH_SEAT_DRIVER || !host->dismount
+	/* After the first dismount, player->hoverbike is NULL: a second would
+	 * read it (CORE's review, 2026-11-16). */
+	if (host->seat_done || seat != VEHICLE_GRAPH_SEAT_DRIVER || !host->dismount
 			|| !host->dismount(host->dismount_context)) {
 		return 0;
 	}
@@ -7279,6 +7285,9 @@ static s32 hoverbikeGraphPartVisible(void *context, s32 part, s32 visible)
 		return 0;
 	}
 	rwdata = modelGetNodeRwData(host->bike->base.model, node);
+	if ((rwdata->toggle.visible ? 1 : 0) == (visible ? 1 : 0)) {
+		return 1; /* already so: no change, no line (a tick may ask every update) */
+	}
 	rwdata->toggle.visible = visible ? true : false;
 	sysLogPrintf(LOG_NOTE, "VEHICLE.GRAPH: modelnum=%d part %d %s",
 		host->bike->base.modelnum, part, visible ? "shown" : "hidden");

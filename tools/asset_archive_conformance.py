@@ -2297,6 +2297,8 @@ _VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
 _VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
 _VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
 _VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
+# The modules that mount or dismount a seat: one per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat"})
 
 
 def vehicle_time_ticks240(value: object):
@@ -2314,11 +2316,12 @@ def vehicle_time_ticks240(value: object):
 
 
 def validate_vehicle_variables(label: str, variables: object,
-                               errors: list[str]):
+                               errors: list[str], catalog_id: str | None = None):
     """behavior/variables.json (pd.vehicle_variables.v1): names a-z, 0-9 and _
     (1 to 63), values a number, a bool, a string or a {value, unit} time;
-    schema and catalog_id reserved. Returns the variables, or None when the
-    file is not usable."""
+    schema and catalog_id reserved, and a catalog_id must be the vehicle's
+    (catalog_id, when given), as the runner refuses. Returns the variables,
+    or None when the file is not usable."""
     where = f"{label} behavior/variables.json"
     if not isinstance(variables, dict):
         errors.append(f"{where} must be a JSON object")
@@ -2333,6 +2336,8 @@ def validate_vehicle_variables(label: str, variables: object,
         if name == "catalog_id":
             if not isinstance(value, str):
                 errors.append(f"{where} catalog_id must be a string")
+            elif catalog_id is not None and value != catalog_id:
+                errors.append(f"{where} is for {value!r}, not {catalog_id!r}")
             continue
         if not _VEHICLE_NAME.match(name):
             errors.append(f"{where} variable name {name!r} must be 1 to 63 of a-z, 0-9 and _")
@@ -2430,6 +2435,7 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
         return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_NODES} nodes"]
 
     kinds: dict[str, str] = {}
+    seats: dict[str, object] = {}
     order: list[str] = []
     reasons: list[str] = []
     counts = {"og.vehicle.hover_drive": 0, "og.vehicle.boost_heat": 0}
@@ -2486,6 +2492,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
                                   f"unknown variable {value!r}")
                     continue
                 value = variables[value[1:]]
+            if key == "seat" and kind in VEHICLE_GRAPH_SEAT_MODULES:
+                seats[node_id] = value
             _vehicle_graph_param(where, node_id, kind, key, typ, value, reasons, errors)
     if len(reasons) > VEHICLE_GRAPH_MAX_LOCKOUT_REASONS:
         errors.append(f"{where} has more than {VEHICLE_GRAPH_MAX_LOCKOUT_REASONS} "
@@ -2550,10 +2558,19 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
             seen.add(at)
             queue.extend(out[at])
         reach[event] = [node_id for node_id in order if node_id in seen]
+        # One event mounts or dismounts a seat at most once (the runner's rule).
+        seat_modules: dict[tuple[str, str], int] = {}
         for node_id in reach[event]:
             kind = kinds[node_id]
             if kind in VEHICLE_GRAPH_MODULE_EVENTS and event not in VEHICLE_GRAPH_MODULE_EVENTS[kind]:
                 errors.append(f"{where} {kind} {node_id!r} cannot run on {event}, which reaches it")
+            if kind in VEHICLE_GRAPH_SEAT_MODULES and isinstance(seats.get(node_id), str):
+                key = (kind, seats[node_id])
+                seat_modules[key] = seat_modules.get(key, 0) + 1
+                if seat_modules[key] == 2:
+                    errors.append(f"{where} {event} reaches a second {kind} for the "
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts or "
+                                  "dismounts a seat once")
     if errors:
         return errors
 
@@ -2697,7 +2714,7 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{VEHICLE_GRAPH_SCHEMA} behavior graph"
             )
         else:
-            variables = validate_vehicle_variables(label, parsed, errors)
+            variables = validate_vehicle_variables(label, parsed, errors, catalog_id)
 
     if graph_v1:
         errors.extend(validate_vehicle_graph_execution(

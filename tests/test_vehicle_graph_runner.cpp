@@ -292,6 +292,32 @@ TEST_CASE("The base hoverbike graph boosts exactly like the original full-thrott
 	CHECK(drive.extra_speed == 0.0f);
 }
 
+TEST_CASE("A drive that ignores the driver's inputs gives no throttle bonus", "[vehicle-graph]")
+{
+	// CORE's review, 2026-11-16: with hover_drive {drive: false} the game
+	// zeroes the inputs, so the bonus must not creep forward on the throttle.
+	Program normal(kBaseGraph);
+	Program parked(withEdits(kBaseGraph, "{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\", \"params\": { \"drive\": false } }").c_str());
+	REQUIRE(normal.program != nullptr);
+	INFO(parked.error);
+	REQUIRE(parked.program != nullptr);
+	Instance a(normal.program);
+	Instance b(parked.program);
+	for (int i = 0; i < 100; i++) {
+		REQUIRE(fire(a.instance, tick(1.0f), nullptr) >= 0);
+		REQUIRE(fire(b.instance, tick(1.0f), nullptr) >= 0);
+	}
+	vehicle_graph_drive_t da{}, db{};
+	vehicleGraphInstanceDrive(a.instance, &da);
+	vehicleGraphInstanceDrive(b.instance, &db);
+	CHECK(da.drive == 1);
+	CHECK(da.extra_speed > 0.0f);
+	CHECK(db.hover == 1);
+	CHECK(db.drive == 0);
+	CHECK(db.extra_speed == 0.0f);
+}
+
 TEST_CASE("Mounting and dismounting go through the seat gate and the host", "[vehicle-graph]")
 {
 	Program p(kBaseGraph);
@@ -508,6 +534,42 @@ TEST_CASE("Broken vehicle graphs are refused when they compile", "[vehicle-graph
 		kMaianVariables).find("names a phase twice") != std::string::npos);
 	CHECK(refusal(withEdits(kMaianGraph, "\"reason\": \"heat\", \"locked\": true", "\"reason\": \"Heat!\", \"locked\": true"),
 		kMaianVariables).find("param 'reason' must be 1 to 31") != std::string::npos);
+	// One event mounts or dismounts a seat once (CORE's review, 2026-11-16: a
+	// second dismount on the host would act on a rider who has already gone).
+	const std::string secondDismount = withEdits(kBaseGraph,
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+		"    { \"id\": \"dismount_again\", \"kind\": \"og.vehicle.dismount_seat\", \"params\": { \"seat\": \"driver\" } }");
+	const std::string dismountEdge =
+		"{ \"from\": \"dismount\", \"output\": \"out\", \"to\": \"dismount_driver\", \"input\": \"exec\" }";
+	CHECK(refusal(withEdits(secondDismount.c_str(), dismountEdge, dismountEdge + ",\n"
+		"    { \"from\": \"dismount\", \"output\": \"out\", \"to\": \"dismount_again\", \"input\": \"exec\" }"))
+		.find("event.vehicle.dismount_requested reaches a second og.vehicle.dismount_seat for the driver seat") !=
+		std::string::npos);
+	// Even on the two branches of a gate.
+	const std::string mountEdge =
+		"{ \"from\": \"driver_free\", \"output\": \"pass\", \"to\": \"mount_driver\", \"input\": \"exec\" }";
+	const std::string secondMount = withEdits(withEdits(kBaseGraph,
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+		"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+		"    { \"id\": \"mount_again\", \"kind\": \"og.vehicle.mount_seat\", \"params\": { \"seat\": \"driver\" } }").c_str(),
+		mountEdge, mountEdge + ",\n"
+		"    { \"from\": \"driver_free\", \"output\": \"fail\", \"to\": \"mount_again\", \"input\": \"exec\" }");
+	CHECK(refusal(secondMount)
+		.find("event.vehicle.mount_requested reaches a second og.vehicle.mount_seat for the driver seat") !=
+		std::string::npos);
+	// One for each seat is fine.
+	{
+		const std::string bothSeats = withEdits(withEdits(kBaseGraph,
+			"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" }",
+			"{ \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+			"    { \"id\": \"dismount_gunner\", \"kind\": \"og.vehicle.dismount_seat\", \"params\": { \"seat\": \"gunner\" } }").c_str(),
+			dismountEdge, dismountEdge + ",\n"
+			"    { \"from\": \"dismount\", \"output\": \"out\", \"to\": \"dismount_gunner\", \"input\": \"exec\" }");
+		Program both(bothSeats.c_str());
+		INFO(both.error);
+		CHECK(both.program != nullptr);
+	}
 	CHECK(refusal("[1, 2]").find("is not one JSON object") != std::string::npos);
 	CHECK(refusal("{ \"schema\": \"pd.vehicle_graph.v1\", \"catalog_id\": \"x:y\" }")
 		.find("has no nodes array") != std::string::npos);
@@ -661,6 +723,38 @@ TEST_CASE("Each vehicle keeps its own graph instance until the stage resets", "[
 	CHECK(vehicleGraphRuntimeCount() == records);
 	CHECK(vehicleGraphRuntimeTakeBoostHeld(&idle, 1) == 0);
 
+	// A freed vehicle's record goes with it (propFree); another generation's
+	// record in that slot, or a release for a prop with none, changes nothing.
+	{
+		int freed = 0;
+		REQUIRE(vehicleGraphRuntimeInstance(&freed, 4, maian.program, &created) != nullptr);
+		const s32 withFreed = vehicleGraphRuntimeCount();
+		vehicleGraphRuntimeRelease(&freed, 3);
+		CHECK(vehicleGraphRuntimeCount() == withFreed);
+		vehicleGraphRuntimeRelease(&freed, 4);
+		CHECK(vehicleGraphRuntimeCount() == withFreed - 1);
+		vehicleGraphRuntimeRelease(&freed, 4);
+		vehicleGraphRuntimeRelease(nullptr, 4);
+		CHECK(vehicleGraphRuntimeCount() == withFreed - 1);
+		// A vehicle respawned in that slot starts fresh.
+		CHECK(vehicleGraphRuntimeInstance(&freed, 5, maian.program, &created) != nullptr);
+		CHECK(created == 1);
+		vehicleGraphRuntimeRelease(&freed, 5);
+	}
+
+	// Freeing a program forgets only the vehicles made from it.
+	{
+		int x = 0, y = 0;
+		REQUIRE(vehicleGraphRuntimeInstance(&x, 1, maian.program, &created) != nullptr);
+		REQUIRE(vehicleGraphRuntimeInstance(&y, 1, base.program, &created) != nullptr);
+		vehicleGraphRuntimeForgetProgram(maian.program);
+		CHECK(vehicleGraphRuntimeInstance(&y, 1, base.program, &created) != nullptr);
+		CHECK(created == 0);
+		CHECK(vehicleGraphRuntimeInstance(&x, 1, maian.program, &created) != nullptr);
+		CHECK(created == 1);
+		vehicleGraphRuntimeForgetProgram(nullptr);
+	}
+
 	// A refused vehicle gets no instance until a new vehicle takes its slot.
 	vehicleGraphRuntimeRefuse(&b, 9);
 	CHECK(vehicleGraphRuntimeInstance(&b, 9, maian.program, &created) == nullptr);
@@ -676,6 +770,11 @@ TEST_CASE("Each vehicle keeps its own graph instance until the stage resets", "[
 		if (vehicleGraphRuntimeInstance(&vehicle, 1, maian.program, nullptr)) made++;
 	}
 	CHECK(made == VEHICLE_GRAPH_RUNTIME_MAX);
+	// Freeing one vehicle makes room for the next, so destroying and
+	// respawning vehicles never runs the table out.
+	CHECK(vehicleGraphRuntimeInstance(&many.back(), 1, maian.program, nullptr) == nullptr);
+	vehicleGraphRuntimeRelease(&many[0], 1);
+	CHECK(vehicleGraphRuntimeInstance(&many.back(), 1, maian.program, nullptr) != nullptr);
 	vehicleGraphRuntimeReset();
 	CHECK(vehicleGraphRuntimeCount() == 0);
 }

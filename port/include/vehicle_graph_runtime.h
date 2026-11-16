@@ -39,6 +39,16 @@ vehicle_graph_instance_t *vehicleGraphRuntimeInstance(const void *prop, u64 gene
  * instance and make none again for this prop and generation. */
 void vehicleGraphRuntimeRefuse(const void *prop, u64 generation);
 
+/* A program is about to be freed (its binding is released or replaced): free
+ * every instance made from it and forget those records; other vehicles keep
+ * theirs. */
+void vehicleGraphRuntimeForgetProgram(const vehicle_graph_program_t *program);
+
+/* The vehicle's prop is freed (propFree): free its instance and its record,
+ * so a stage that destroys and respawns vehicles never fills the table. A
+ * record of another generation in that slot is left alone. */
+void vehicleGraphRuntimeRelease(const void *prop, u64 generation);
+
 /* The driver holds boost this update (the input read calls it every update
  * while mounted); the movement update takes it, clearing it, so a vehicle
  * that nobody drives never boosts. */

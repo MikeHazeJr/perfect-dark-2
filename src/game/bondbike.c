@@ -609,10 +609,17 @@ void bbikeApplyMoveData(struct movedata *data)
 		f32 vBrake  = actionValue(actionPlayer, ACTION_VEHICLE_BRAKE);
 		f32 vHandbrake = actionValue(actionPlayer, ACTION_VEHICLE_HANDBRAKE);
 		/* Held boost, for a vehicle whose pd.vehicle_graph.v1 graph has
-		 * og.vehicle.boost_heat (its tick takes it); others ignore it. */
+		 * og.vehicle.boost_heat (its tick takes it). Only a vehicle with a
+		 * graph gets a record: a v2 bike never takes one (CORE's review). */
 		f32 vBoost = actionValue(actionPlayer, ACTION_VEHICLE_BOOST);
-		vehicleGraphRuntimeSetBoostHeld(bikeprop, bikeprop->lifecycle_generation,
-			vBoost > 0.5f);
+		{
+			const asset_runtime_binding_t *vsource =
+				assetRuntimeVehicleForModelnum(bike->base.modelnum);
+			if (vsource && vsource->vehicle_graph) {
+				vehicleGraphRuntimeSetBoostHeld(bikeprop, bikeprop->lifecycle_generation,
+					vBoost > 0.5f);
+			}
+		}
 		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
 				|| vLeft > 0.0f || vRight > 0.0f || vHandbrake > 0.0f);
 		if (vehicleInputs) {

@@ -102,6 +102,32 @@ vehicle_graph_instance_t *vehicleGraphRuntimeInstance(const void *prop, u64 gene
 	return record->instance;
 }
 
+void vehicleGraphRuntimeForgetProgram(const vehicle_graph_program_t *program)
+{
+	if (!program) {
+		return;
+	}
+	for (s32 i = 0; i < VEHICLE_GRAPH_RUNTIME_MAX; i++) {
+		if (s_Records[i].program == program) {
+			vgrClear(&s_Records[i]);
+		}
+	}
+}
+
+void vehicleGraphRuntimeRelease(const void *prop, u64 generation)
+{
+	if (!prop) {
+		return;
+	}
+	for (s32 i = 0; i < VEHICLE_GRAPH_RUNTIME_MAX; i++) {
+		vehicle_graph_record_t *record = &s_Records[i];
+		if (record->prop == prop && record->generation == generation) {
+			vgrClear(record);
+			return;
+		}
+	}
+}
+
 void vehicleGraphRuntimeRefuse(const void *prop, u64 generation)
 {
 	vehicle_graph_record_t *record = vgrRecord(prop, generation, 1);

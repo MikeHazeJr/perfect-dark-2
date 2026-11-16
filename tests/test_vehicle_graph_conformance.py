@@ -187,6 +187,16 @@ class VehicleGraphConformanceTests(unittest.TestCase):
             ("two heats", edit(lambda g: g["nodes"].append(
                 dict(copy.deepcopy(find(g, "boost")), id="boost2"))),
              "has one og.vehicle.boost_heat"),
+            ("two dismounts", edit(lambda g: (
+                g["nodes"].append(node("dismount_again", "og.vehicle.dismount_seat", seat="driver")),
+                g["edges"].append(edge("dismount", "dismount_again")))),
+             "event.vehicle.dismount_requested reaches a second og.vehicle.dismount_seat for the "
+             "driver seat"),
+            ("two mounts on a gate's branches", edit(lambda g: (
+                g["nodes"].append(node("mount_again", "og.vehicle.mount_seat", seat="driver")),
+                g["edges"].append(edge("driver_free", "mount_again", "fail")))),
+             "event.vehicle.mount_requested reaches a second og.vehicle.mount_seat for the "
+             "driver seat"),
         ]
         for name, graph, expected in cases:
             with self.subTest(name=name):
@@ -227,6 +237,15 @@ class VehicleGraphConformanceTests(unittest.TestCase):
         errors = []
         validate_vehicle_variables("x", {"schema": "pd.vehicle_variables.v1", "Bad": 1}, errors)
         self.assertTrue(any("variable name 'Bad'" in e for e in errors), errors)
+        # A catalog_id must be the vehicle's, as the runner refuses.
+        errors = []
+        validate_vehicle_variables(
+            "x", {"schema": "pd.vehicle_variables.v1", "catalog_id": "mod:other"}, errors, CATALOG)
+        self.assertTrue(any("is for 'mod:other', not" in e for e in errors), errors)
+        errors = []
+        validate_vehicle_variables(
+            "x", {"schema": "pd.vehicle_variables.v1", "catalog_id": CATALOG}, errors, CATALOG)
+        self.assertEqual(errors, [])
 
 
 def pdvehicle(physics_schema, behavior, boost_keys, variables=None):
