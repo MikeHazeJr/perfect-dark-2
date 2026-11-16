@@ -1109,11 +1109,13 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/character_head_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/body_head_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/body_blood.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_properties.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_stage_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_body_blood.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
