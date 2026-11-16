@@ -1,6 +1,6 @@
 {
   "scenario_name": "mod_author_weapon_play_smoke",
-  "description": "KNOWN RED on 2026-11-14 (20 of 21, receipt results-20261114T215943Z.json): the created weapon spawns in the player's hand but logs no shot, is drawn at the camera origin and has no name, because a weapon made from a base template carries no view position, name or ammo definition for the mod weapon adapter. Kept as the reproduction until those gaps are closed. In-game mod author, gameplay proof: one ordinary client launch creates a weapon mod from the extracted base Falcon 2 through --mod-author (the save, rescan, enable and apply path the in-game creators use), then starts an offline Combat Simulator match with that weapon as the spawn weapon, holds it in first person and fires it twice. No mod exists before the launch. The recipe has no overrides, so the held model, the animations, the sounds and both fire functions all come from the mod-owned archive the launch just wrote. Screenshots give a visual check that the weapon is drawn in the player's hand.",
+  "description": "In-game mod author, gameplay proof (red 20 of 21 from 2026-11-14 until the weapon got its view position, name and ammo, B-1149 to B-1151; since 2026-11-16 on shared base 7 the weapon is named, held and fires): one ordinary client launch creates a weapon mod from the extracted base Falcon 2 through --mod-author (the save, rescan, enable and apply path the in-game creators use), then starts an offline Combat Simulator match with that weapon as the spawn weapon, holds it in first person and fires it twice. No mod exists before the launch. The recipe has no overrides, so the held model, the animations, the sounds and both fire functions all come from the mod-owned archive the launch just wrote. Screenshots give a visual check that the weapon is drawn in the player's hand.",
   "tags": ["modding", "mod-author", "pdweapon", "weapon", "recipe", "gameplay", "known-red", "pillar:modding"],
   "paths_of_interest": [
     "port/src/mod_author.c",
@@ -63,8 +63,8 @@
       "BOOT: --launch-mp-room direct match start",
       "BOOT: --debug-spawn-weapon 'mod:weapon_smoke_falcon' \\(SPECIFIC\\)",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
-      "SETUP: user-picked spawn weapon 'mod:weapon_smoke_falcon' num=\\d+ preserved",
-      "SPAWN: player 0 spawned with weapon \\d+ \\(.*\\) -- auto-equipped to right hand",
+      "SETUP: MP weapon models preloaded from match config \\(spawnWeapon=\\d+ random=0\\)",
+      "SPAWN: player 0 spawned with weapon \\d+ \\(Smoke Falcon\\) -- auto-equipped to right hand",
       "COMBAT: SHOT_FIRED ",
       "SMOKE: result=scripted_exit"
     ],

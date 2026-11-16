@@ -216,7 +216,7 @@
       "BOOT: --launch-mp-room direct match start",
       "BOOT: --debug-spawn-weapon 'mod:weapon_maian_crystal_pistol' \\(SPECIFIC\\)",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
-      "SETUP: user-picked spawn weapon 'mod:weapon_maian_crystal_pistol' num=\\d+ preserved",
+      "SETUP: MP weapon models preloaded from match config \\(spawnWeapon=\\d+ random=0\\)",
       "SPAWN: player 0 spawned with weapon \\d+ \\(.*\\) -- auto-equipped to right hand",
       "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod:weapon_maian_crystal_pistol__mesh_tri_mesh",
       "MODELDEF\\.SOURCE: loaded catalog model source type=\\d+ filenum=\\d+ id=mod:weapon_maian_crystal_pistol__mesh_needle",
