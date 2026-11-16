@@ -11337,3 +11337,43 @@ Next
 - A test mod with a .pdai for the mod bank proof.
 - Mission flow slice 3 once the outcome probe has held on the PA, SA and soak
   campaigns too.
+
+## 2026-11-16 (14:21-15:36 UTC) - CORE: the mod AI list bank fixture, the simulant graph twins, B-1254 and B-1255
+
+What happened
+- 5c7d1ef6: tests/fixtures/modpipe/ai-lists-bank, a mod whose .pdai carries
+  global list 0x0000 (a byte copy of the base list), and the smoke
+  ai_lists_mod_bank_smoke (packs and enables it in a Complex match; requires
+  "1 of them from 1 mod bank(s)").
+- 6067830d: graph twins for the two simulant commands that had none
+  (if_bot_respawning 0x0176, mp_init_simulants 0x0185): module nodes in every
+  level graph (extractor, conformance, typed examples), a "simulant" family
+  in the scenario runtime that refuses a level graph without them, the native
+  handlers call the twins; scenario kind _simtwins (pins in six tests);
+  tests/test_ai_simulant_twins_static.cpp. 436 of 441 handlers have a twin;
+  the five left are the control flow the edges carry.
+- B-1254 (low, fixed): if_bot_respawning read aibot through a null pointer on
+  a chr that is not a simulant (the original's missing return).
+- B-1255 (low, fixed in 0d2022b8): mp_init_simulants never retried an
+  incomplete wave from the AI list; B-174 made it return false without
+  moving, which the B-949 guard always skips. 6067830d first kept "go on";
+  pd-tests (test_combat_sim_defect_cohort.cpp, the B-174 pins) and
+  MULTIPLAYER's semantics both said "stay", so the handler and the twin end
+  the tick with the cursor on the command while the wave is incomplete, and
+  the shadow walk accepts that stop. A networked Combat Simulator client runs
+  list 0x1000 too (noted for MULTIPLAYER in the week note).
+- c7db8ba5: combat_sim_simulant_twins (Car Park, 12 simulants, 90 s): the
+  family line, one wave=complete, a simulant kill, if_bot_respawning branch=0
+  and branch=1.
+- pd-tests 2,039 on 0d2022b8; client core-st frozen at 0d2022b8; the queued
+  turn q_20261116150249689_2d221fc9 (waiter bq2vokz32,
+  tools/core-sw-turn.sh) now runs core-st: two extraction passes for
+  _simtwins, conformance, the two smokes, then the soak, release and specials
+  with the shadow walk.
+
+Next
+- With the turn: pin the ai edge parity lines in the campaign fixtures (17
+  and 4) and forbid "ai edge parity: "; record the mod bank proof (Global AI
+  lists row) and the twins in play (AI commands row).
+- Then slice 3 of AI lists as graphs (twins report outcomes, the interpreter
+  takes edges) or slice 4 (authoring from edges); mission flow slice 3.
