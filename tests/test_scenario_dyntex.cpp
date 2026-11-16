@@ -294,4 +294,9 @@ TEST_CASE("dyntex is wired from extraction through the renderer to the game", "[
 
     // The game passes the interval and the stage flags every frame.
     REQUIRE(bg.find("scenarioSceneRendererSetDyntexFrame(g_Lv80SecIntervalFrac,") != std::string::npos);
+
+    // B-1172's last gap is sized at extraction: roomHighlight's per-colour
+    // light flag, read with the colour index into the vertex table.
+    REQUIRE(arena.find("B-1172 light-flag census") != std::string::npos);
+    REQUIRE(arena.find("(uintptr_t)ci * sizeof(Vtx) + offsetof(Vtx, flags)") != std::string::npos);
 }

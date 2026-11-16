@@ -336,6 +336,10 @@ typedef struct {
 	f32 max_x, max_y, max_z;
 	s32 has_bounds;
 	s32 stagenum; /* STAGE_*, for the animated surfaces' stage rules */
+	/* B-1172 census: roomHighlight's per-colour light flag. */
+	u32 light_flag_rooms;
+	u32 light_flag_colours;
+	u32 light_colours_total;
 } pdscenario_bgscene_t;
 
 static void s_textbufFree(pdscenario_textbuf_t *b)
@@ -8210,6 +8214,26 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 			return -1;
 		}
 		struct roomgfxdata *gfx = (struct roomgfxdata *)room;
+		/* B-1172 census: roomHighlight (dlights.c) keeps colour i's rgb and
+		 * scales only its alpha by the room brightness when the room's
+		 * vertex i has flags & 1 (it reads the vertex table with the colour
+		 * index). The scene renderer lights every colour; this counts how
+		 * many colours that misses. */
+		if (gfx->vertices) {
+			u32 flagged = 0;
+			s32 numcolours = gfx->numcolours > 0 ? gfx->numcolours : 0;
+			for (s32 ci = 0; ci < numcolours; ci++) {
+				const u8 *flag_byte = (const u8 *)gfx->vertices +
+					(uintptr_t)ci * sizeof(Vtx) + offsetof(Vtx, flags);
+				if (s_rangeInBuffer(room, new_len, flag_byte, 1) &&
+						(*flag_byte & 1u)) {
+					flagged++;
+				}
+			}
+			scene->light_flag_colours += flagged;
+			scene->light_flag_rooms += flagged ? 1u : 0u;
+			scene->light_colours_total += (u32)numcolours;
+		}
 		if (s_exportBgRoomBlocks(scene, gfx, room, new_len,
 				&rooms[roomnum].pos, roomnum) != 0) {
 			sysMemFree(room);
@@ -10079,6 +10103,12 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		if (s_buildBgVisualExports(bg_data, bg_size, &bg_scene,
 				spec->stagenum) == 0) {
 			has_visual = 1;
+			sysLogPrintf(LOG_NOTE,
+				"romextract pdscenario: B-1172 light-flag census \"%s\" rooms=%u flagged_rooms=%u flagged_colours=%u of %u",
+				scenario_id, (unsigned)bg_scene.room_count,
+				(unsigned)bg_scene.light_flag_rooms,
+				(unsigned)bg_scene.light_flag_colours,
+				(unsigned)bg_scene.light_colours_total);
 		} else {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: BG visual display-list export failed for \"%s\"",
