@@ -1138,6 +1138,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_runtime.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
+  # pd.vehicle_graph.v1: the vehicle behavior graph runner (accepted by CORE
+  # 2026-11-16, context/designs/modding/vehicle-graph-v1.md).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_graph_runner.cpp
   # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
   ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp
   # The Maian crystal pistol recipe, built the way --mod-author builds it.

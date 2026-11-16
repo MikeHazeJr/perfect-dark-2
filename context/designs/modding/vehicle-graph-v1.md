@@ -304,6 +304,68 @@ are v1 already; the conformance tool reports v2 as not clean.
 5. Names: `event.vehicle.*`, `gate.vehicle.*` and `og.vehicle.*`, as the
    mission graph's `og.hud.*` and `og.mission.*`?
 
+## Implementation (MODS, for CORE's review before it merges)
+
+Step A, written 2026-11-16: the runner, `port/include/vehicle_graph_runner.h` and
+`port/src/vehicle_graph_runner.cpp`, unit cases `[vehicle-graph]`
+(`tests/test_vehicle_graph_runner.cpp`). Not called by the game yet.
+
+- Compile: the mission runner's rules (exec edges, `pass`/`fail`/`out`, data nodes
+  and structural edges never walked, 4,096 nodes and 16,384 edges), plus: every
+  `event.*`, `gate.*` and `og.*` kind must be one of v1's, with only its own params;
+  `"$name"` takes the variable whole; times are `{value, unit}` only; a module
+  reachable from an event it is not made for refuses the graph (mount and dismount
+  modules on their events, `hover_drive`, `throttle_boost` and `boost_heat` on the
+  tick, `part_visible` and `turret_lockout` on any); at most one `hover_drive` and
+  one `boost_heat`; lockout reasons get bits when the graph compiles (at most 32);
+  `catalog_id` must match the archive's.
+- The raised-event bound: for each event kind, the raising modules its walk can
+  reach (both gate branches); a raised kind already being delivered refuses the
+  graph; the bound is the sum of 1 plus the raised kind's own bound over those
+  nodes, at most 64. Each instance's queue has exactly that room. The Maian graph's
+  bound is 1, the base graph's 0.
+- The instance (one per vehicle): the program, per-node state (each
+  `throttle_boost` node's timer; the one `boost_heat` state), the lockout bits, the
+  pending queue, and the walk's reached flags and queue, sized when it is made, so
+  a fire allocates nothing.
+- The tick: its modules only record this update's drive (hover, drive, extra
+  forward speed as a sum, steering scale as a product), reset at each tick; the
+  host's movement reads it after the walk. So `throttle_boost` before or after
+  `hover_drive` in the authored order gives the same physics, and the original
+  order (bonus, then integration) holds. `throttle_boost` is the original bonus with
+  its timer in node state; the unit case checks it bit for bit against the original
+  code over 2,000 uneven updates. `vehicleGraphInstanceRest` is the original's
+  rest reset (an empty bike that stopped zeroes `maxspeedtime240`).
+- Gates: `seat` passes on mount and dismount events for its seat (never on tick or
+  heat events, as the mission runner's objective gate never passes on mission
+  events); `seat_free` asks the host; `heat_phase` reads the instance's phase (cool
+  without a `boost_heat`).
+
+Next (B to D), the game:
+
+- `asset_runtime.c`: a `pd.vehicle_graph.v1` behavior file compiles with its
+  `behavior/variables.json` when the catalog hydrates the vehicle; a refused graph
+  logs `VEHICLE.GRAPH: refused the executable program` with the reason and the
+  vehicle does not hydrate (nothing falls back). The v2 booleans become derived for
+  v1 (`mount` = the mount event reaches `og.vehicle.mount_seat`, and so on), so
+  `assetRuntimeVehicleAllows` keeps answering the committed-state and network
+  paths. v2 files keep today's reader until the base re-extract.
+- One instance per vehicle prop, keyed by the prop and its `lifecycle_generation`,
+  replacing `vehicle_boost_runtime.c`'s table; cleared at stage load. The parts the
+  graph shows and hides are checked against the vehicle's model when its instance
+  is made (the model is not built when the catalog registers the vehicle); a missing
+  toggle part refuses the instance, logged.
+- Seams: the tick fires where `hoverbikeUpdateMovement` runs (its drive replaces
+  the original bonus and scales the steering; no hover means no movement);
+  `og.vehicle.mount_seat` is today's mount candidate and commit
+  (`currentPlayerTryMountHoverbike`'s range, facing and apply), fired from the same
+  callers; `og.vehicle.dismount_seat` is today's side dismount in
+  `bbikeHandleActivate`, network intent paths unchanged. Part toggles go through the
+  model's toggle nodes, as the V3 interim does now.
+- Then the Maian recipe ships its v1 graph and the interim reader (variables
+  without a v1 graph) goes; conformance gets `validate_vehicle_graph_execution`
+  with the runner's rules and a test that keeps the kind lists equal.
+
 ## CORE's answers (2026-11-16 05:50 UTC, week note To CORE)
 
 1. State: no module-owned side tables. The runner keeps one instance record per
