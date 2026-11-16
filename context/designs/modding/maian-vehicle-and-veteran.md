@@ -425,6 +425,97 @@ Build order:
   press exit twice (turret layer on top, the player at the pod), twice again
   (driver), drive, press once and dismount.
 
+#### V4b step plan (read-only survey at ee3809a9, 2026-11-16)
+
+READ by a planning survey; file:line as it reported them, not re-read line by
+line. Nothing here is built.
+
+Where things go:
+
+- The rider's seat is read from the record
+  (`vehicleGraphRuntimeSeatOfPlayer`), with no new field on the player. Only
+  the gunner is recorded; a rider who is not the recorded gunner is the driver,
+  so a one-seat or v2 vehicle makes no record and takes today's path. Helpers
+  in `bondbike.c`: `bbikeSeatOfPlayer(playernum)`, `bbikeCurrentSeat()`.
+- Pure helpers with unit cases, `port/src/vehicle_seats.c`
+  (`[vehicle-seats]`): the view angle to a seat, the seat choice from each
+  seat's free, in range, angle and distance, and the exit button's press
+  machine (`vehicleExitPressStep`).
+- Mount points in `vehiclegraph.c` (`hoverbikeSeatWorldPos`): the driver's is
+  the seat offset (0, 80, -50) over the model scale (`bondbike.c:297`); the
+  gunner's is model part 1 through `modelNodeGetModelRelativePosition`
+  (`model.c:549`), not the render matrices (they exist only for a prop drawn
+  that frame). Range is the native check on the mount point
+  (`propobj.c:18555`); the view angle is the interact cone's formula
+  (`propobj.c:18331`).
+- The seat action takes the seat (`hoverbike_seat_action_fn(context, seat)`)
+  and also serves the switch callback. The native mount and both apply
+  functions keep their text (pinned by `test_vehicle_observer_layer.cpp`); a
+  gunner mount is a new function, solo only (`g_NetMode == NETMODE_NONE`)
+  until the wire carries a seat.
+- `bbikeInit` and `bbikeExitLocal` split into what both seats do and what only
+  the driver does (the scene kind, the projectile speed handoff,
+  `objFreeEmbedmentOrProjectile`, `OBJHFLAG_MOUNTED`, momentum, the engine
+  sounds). The gunner branch of the exit must come before the flag's early
+  return (`bondbike.c:145`), and `bbikeCanDismount` and `bbikeTryDismount`
+  have the same early return (`:197`, `:227`).
+- `bbikeTick` branches to a gunner tick: no physics, engine sound, collision
+  move or bike camera; the seat transform with the pod's offset, free yaw at
+  the walk rate, the head through `bmoveUpdateHead`. `bbikeApplyMoveData`
+  returns early for the gunner after the shared exit read (no drive, no boost).
+  The bike's perimeter and the death explosion stay the driver's.
+- Exit and switch: the press is read in `bbikeApplyMoveData`
+  (`bondbike.c:580`). Per-player state beside `s_VehicleExitIntentPending`,
+  stamped with `g_Vars.lvframe60`, window `TICKS(18)` (0.3 s). A switch fires
+  `event.vehicle.switch_seat_requested`; its action swaps the driver half of
+  the exit or the init, fires the scene's dismount and then board for the new
+  kind (board does nothing while a vehicle handle exists, `scene.c:208`) and
+  restarts the camera blend.
+- Input: `g_LayerVehicleTurret` is a stub today (`inputlayer.c:292`: no action
+  set, no context), so every gameplay action would pass, the hand gun included.
+  It needs its action set (exit, look, aim axes, pause, and two new actions),
+  a `g_ImcVehicleTurret` context registered everywhere the driver's is
+  (`actionmap.cpp:923`, `1253`, `2309`, `2923`, `3557`, `3603`), defaults
+  (mouse buttons, the triggers, F and X), and Controls menu rows
+  (`pdgui_menu_mainmenu.cpp:1862`, `2009`, `2033`). New actions
+  `ACTION_TURRET_FIRE` (124) and `ACTION_TURRET_ZOOM` (125), appended.
+- Smoke: `--debug-mount-seat <driver|gunner>` beside `--debug-mount-bike`
+  (`main.c:3112`), two exit taps 150 ms apart from the harness, a readiness
+  condition for the gunner, and `VEHICLE.SEAT:` lines for the choice, each
+  mount, each switch and each dismount.
+
+Order: (1) the pure helpers and their cases; (2) the actions, the turret
+context, layer and menu rows; (3) `vehiclegraph.c`: the seat-carrying action,
+the switch callback, the mount points, the three pins; (4) `bondbike.c` and
+`player.c`: the seat helper, gunner init, exit, tick, move data, the dismount
+guards; (5) `propobj.c` and `main.c`: the gunner mount, the seat choice, the
+debug seat; (6) the press machine and the switch action; (7) the Maian graph's
+gunner nodes (the smokes' `nodes=15 exec_edges=11` lines change); (8) the
+readiness condition and the V4c smoke.
+
+Risks the survey found, to settle before or in step 5:
+
+- The two mount points nearly coincide on the Maian model: pod part 1 is 11.6
+  world units from the driver's seat offset, so "where you look" cannot tell
+  them apart, and from the debug hook's spot the pod wins on both angle and
+  distance. The model needs a driver seat part of its own (in
+  `build_vehicle_mesh.py`), placed at the cockpit.
+- `objTestForInteract` aims the interact cone at the vehicle's origin
+  (`propobj.c:18313`), so looking at a seat far from the centre may not
+  interact at all.
+- Bindings files: `actionmap_profile.cpp:324` wants exactly contexts times
+  actions rows, so two new actions and a thirteenth context make every existing
+  `input-bindings.ini` invalid and block saving (`:425`). This needs a
+  migration (or the tolerant read B-1184 added for a file cut off at an
+  unnamed action, extended to a missing context), decided with whoever owns
+  the bindings file before step 2 lands.
+- A driverless vehicle slides as a projectile in the prop pass
+  (`propobj.c:8052`) and excludes only its owner prop from collision, so it may
+  hit its own gunner, and the gunner's eye may lag a frame. Unconfirmed in
+  play.
+- Whether the gunner mount should keep the driver mount's side gate
+  (`propobj.c:18594`) is not decided.
+
 ### Veteran
 
 - C1. The Characters tab: character, body and head mods from templates with
