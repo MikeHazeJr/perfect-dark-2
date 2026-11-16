@@ -11086,3 +11086,62 @@ Next
   Object rules three of four in game; then post week-pd/core as ready for
   Mike's merge call (it needs a new shared base after the merge, for the
   scenario kind).
+
+## 2026-11-16 (09:21-10:00 UTC) - CORE: the recheck passed, B-1203 taken, the lifts rule and B-1253, B-1252 fixed, the vehicle graph review
+
+What happened
+- Recheck turn q_20261116072829623_cf241f34 (09:00-09:20 UTC, client 14f8d527
+  on the private copy of base 7): two extraction passes and every test
+  install's boot re-extracted nothing (B-1250 fixed in play), release 54/54
+  (B-1251 fixed in play), Complex 12/12, conformance 0 errors, the three
+  sweeps green. Loaded in game: the limited mine ammo rule (Chicago, Air Force
+  One), Crash Site's sparks rule, Escape's gas rule (12 rooms and the sphere)
+  and the object rules of Defection, Investigation and Extraction. Room
+  effects and Player and setup rules are ticked in the week note. The
+  Extraction chopper is left out on Agent (flags2 0x110 = EXCLUDE_A | NOFALL),
+  so its hum and fall wait for a Perfect Agent run.
+- bc3f87fe (09:27): MULTIPLAYER's B-1203 runner fix (fdfd1b5a) cherry-picked
+  (CORE owns the runner): a single-process smoke that names neither
+  --portable nor --savedir gets --portable. The two context conflicts kept
+  both sides; the numstat equals the original's. The 07:18 UTC
+  stage_sky_depth_defection of CORE's turn 1 was the last run against Mike's
+  real profile (nothing there was restored; Mike's call).
+- 191fa10f, 65bc904c: B-1252 (the version line named the configure-time
+  commit: the 14f8d527 client logged 576d86ec8) recorded and fixed:
+  pd_versioninfo runs cmake/versioninfo.cmake every build and writes
+  versioninfo.h from git only when it changed; every compiling target depends
+  on it. Proof: a rebuild after the commit, with no CMake re-run (34 s), named
+  65bc904ce. pd-tests 2,002.
+- e9fbf089: dev 841650c7 merged (two context lines; line counts unchanged).
+- 47e3897d: B-228's lift list is the objects.json row rule "multiplayer":
+  true on lift and escalator_step rows (6 base rows: CI Training 2,
+  Infiltration 4; Chicago, Villa, G5 Building and Pelagic have no lifts).
+  B-1253 fixed: an arena on a campaign stage loads that stage's own scenario
+  (kind solo), so the main pass already made its lifts and the SP-in-MP
+  overlay made them again (Infiltration 4 -> 8); the overlay is a ROM stage's
+  only. New smoke combat_sim_infiltration_lifts. Scenario kind _mplifts.
+  SP-80 instance (the other direction). The object rules row is converted.
+- MODS' vehicle graph steps B to D reviewed (a read-only subagent; F1, F2, F3
+  and F5 re-checked in code): merge after fixes. A crash (two
+  og.vehicle.dismount_seat nodes on one event: the second dereferences a NULL
+  player->hoverbike on the host), records never released in propFree, the
+  part check at the first instance instead of registration, the v2 retirement
+  task to record; for MULTIPLAYER, a remote rider's boost never reaches the
+  host (no boost on the wire). Week note 09:58, hub chats to both.
+- Week note: the AI commands row's "audit in progress" corrected (finished
+  2026-11-15: B-1161 to B-1165, then B-1167).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (waiter bs7omrzh0, script
+  tools/core-merged3-turn.sh, gate core-merged3.ready, client
+  .claude/week-pd-client/core-merged3 = 47e3897d): the old client's
+  Infiltration arena match (before), re-extraction (kind moved), a second pass
+  (written=0), conformance, then combat_sim_infiltration_lifts,
+  auto_campaign_release_pa (the chopper rule applied) and
+  mp_arena_setup_source.
+
+Next
+- With the turn: tick Object rules; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after landing, for the
+  scenario kind).
+- Mission flow: the design of the fail-closed mission end module.
