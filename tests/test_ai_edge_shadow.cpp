@@ -763,5 +763,13 @@ TEST_CASE("AI edge shadow: the campaign runner reports and enforces edge parity 
 		"aiEdgeShadowResetCounters();",
 		"return 1;",
 	});
-	CHECK(countOf(runner, "aiEdgeShadowResetCounters();") == 1);
+	// B-1256: a campaign's later missions are queued from the end screen, and
+	// the counters start there too (they were campaign totals before).
+	requireOrder(functionBlock(runner, "void autocampaignTick(void)"), {
+		"pdguiEndscreenNextMission();",
+		"mission->stage_id, route_to, final, next_unlocked)) {",
+		"if (!final) {\n\t\t\taiEdgeShadowResetCounters();\n\t\t}",
+		"ACLOG(\"routed plan=%d idx=%d stage_id='%s' route_to='%s' unlocked=%d\",",
+	});
+	CHECK(countOf(runner, "aiEdgeShadowResetCounters();") == 2);
 }

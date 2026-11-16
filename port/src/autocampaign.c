@@ -1053,6 +1053,12 @@ void autocampaignTick(void)
 			stopFailed();
 			break;
 		}
+		/* B-1256: the next mission is queued from the end screen, so the AI
+		 * edge parity probe counts it from here, as the first mission counts
+		 * from menuhandlerAcceptMission. */
+		if (!final) {
+			aiEdgeShadowResetCounters();
+		}
 		ACLOG("routed plan=%d idx=%d stage_id='%s' route_to='%s' unlocked=%d",
 			plan_index, mission->solo_index, mission->stage_id,
 			route_to, next_unlocked);

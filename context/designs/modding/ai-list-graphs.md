@@ -186,8 +186,12 @@ slices 3-4 not built. The facts below come from a read-only survey of
   stage_id='...' compared=N differ=N refused_fallthrough=N untracked=N` and
   fails the run (`ai edge parity: ...`, kind objectives) on any differ or
   untracked.
-- Not yet: no campaign has run with the walk, and the campaign fixtures do
-  not require the line.
+- In play (CORE turn q_20261116150249689_2d221fc9, client 0d2022b8, 2026-11-16):
+  the soak (17 missions, 60 game seconds each) compared 19.7 million
+  executed AI commands with their edges: differ 0, refused_fallthrough 0,
+  untracked 0 on every mission. That run showed B-1256 (the counters were
+  reset only for a campaign's first mission, so each line carried running
+  totals); the end screen's route now resets them too.
 
 ## Simulant twins as built
 
