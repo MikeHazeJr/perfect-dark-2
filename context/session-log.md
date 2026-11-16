@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+2026-11-15 (23:05 ET) MULTIPLAYER, continued. All pushed (head 9eb1eaa9). The 732dd2fe game turn proved in play the whole
+networked Combat rematch (93/95; the two misses were stale counts, fixed), B-1196 (co-op guard clones replicated with
+`SVC_NPC_SPAWN`, 129/129, including a natural clone with the original failure's sync id), the counter-op mission end
+(127/127, with B-1198's disconnect fix) and local King of the Hill scoring (150 s matches now). B-1199's diagnostic
+named it: player 2's control mode was `CONTROLMODE_NA`, because the agent save read it from the remote partner's slot;
+fixed in 5a1dfcda. B-1194 reopened: my held-weapon death-drop theory was wrong (simulants die through `chrDie`, which
+announces its drops); the skipped items are copies of the rolled spawn weapon of unknown origin, and the host's pickup
+line now logs their flags and pad. Local Hold the Briefcase scored nothing in 150 s (open). New smokes, not yet run:
+co-op Retry Mission and Return to Room. Next: turn q_20261116022652209_aceb2d30 on 0587e908 (Retry, Return to Room,
+rematch, simulant types net). Decisions for Mike: where Challenges and presets go in the Room; what a co-op or
+counter-op mission does when a player drops (co-op rejoin, T-NETWORKING-007); whether to bring back the co-op AI-buddy
+option.
+
 2026-11-15 (21:15 ET) MULTIPLAYER, continued. All pushed (head cecdb143). Two game turns since 19:55: co-op mission end
 PASS 121/121 (9078eb6b) and counter-op mission end 123/124 (30973012; host control works, the Anti client is taken
 along; the miss was B-1198). Each run uncovered the next layer of the Combat rematch: B-1195's fix held in play, then
