@@ -774,6 +774,8 @@ static void bootRunCatalogWork(void *arg)
 		"pdeffect-pdprop-pdvehicle",
 		romExtractAllPdmeta(0));
 	bootRecordAssetPhase("pdtheme", romExtractAllPdtheme(0));
+	/* Global AI lists slice 2: the binary's lists as base:ai_global. */
+	bootRecordAssetPhase("pdai", romExtractAllPdai(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_WALKER);

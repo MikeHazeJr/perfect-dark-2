@@ -492,6 +492,11 @@ s32 romExtractPdArchivePublicUnmodified(const char *archive_path);
  * context/designs/modding/global-ai-lists.md. */
 char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands);
 
+/* Writes those rows as the base asset base:ai_global,
+ * <data>/ai/base_ai_global.pdai (romextract_pdai.c). Returns 1 when written,
+ * 0 when the archive of the current kind is kept, -1 on failure. */
+s32 romExtractAllPdai(s32 force_rewrite);
+
 #ifdef __cplusplus
 }
 #endif
