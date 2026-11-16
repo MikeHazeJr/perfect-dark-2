@@ -8,6 +8,12 @@
 - After a networked match the Room no longer opens on top of the host's
   results screen.
 
+- In networked co-op and counter-op, each player now sees only their own
+  mission results, and co-op results show both players' stats. The host
+  chooses what comes next: its Next Mission takes the other player along
+  into the next mission, and in counter-op that player stays the enemy
+  agent.
+
 - Networked clients now see the simulants: they are drawn, animated and stay
   on the ground instead of disappearing.
 
