@@ -1,5 +1,28 @@
 # Session Log (Active)
 
+2026-11-16 (10:25 ET) MULTIPLAYER, continued. All pushed (head a669d118). Re-run turn q_20261116123806406_e534707d
+on 5cd5d0e5 (639c9a8a), base 7: networked Combat score limit PASS 76/76 (B-1205 checked in play: four early respawn
+finishes, nothing skipped), co-op Deep Sea end PASS 126/126 (B-1206's snapshot sweep checked: no refused snapshot,
+883 before), co-op mission end never started (62 of 130 checks failed: B-1208). The objective net turn
+q_20261116124216413_be8c603a is still running; its Hacker Central net run (84/86) gave B-1207's cause and B-1209.
+Fixed in code, pd-tests 2,035 cases: B-1208 (e660b3d2), a client's unchanged settings resend (its Room opening as
+the autostart moved it in) cancelled the host's ready gate; an unchanged candidate now keeps the gate, new seam
+--debug-ready-gate-settings-repeat and ready_gate_settings_repeat_smoke. B-1206 follow-up (e3030857): no removal
+reached the client as a message, because netEndFrame discards the game tick's messages before ACTIVE and on cutscene
+authority frames (Deep Sea's intro actor stayed on the client); removals are queued and sent from the ACTIVE
+broadcast. The class is new SP-91: about 48 one-shot game-tick writers are exposed on cutscene START/END frames;
+the class fix (keep the reliable bytes and send them after the authority packet, same channel) changes the
+T-ENGINE-004 frame rule and waits for a decision. B-1207 (a669d118): the port's stuck watchdog moved a downloading
+simulant 4,330 units away 3 s into every download (MA_AIBOTDOWNLOAD counted as navigation intent); taken off the
+list, King of the Hill checked and unchanged. B-1209 (a669d118): Hacker Central's new uplink after a carrier's death
+(and Hold the Briefcase's new case) was made on the host only; scenarioNetAnnounceProp announces it. Queued
+q_20261116152127415_a38e0af1: six smokes on a669d118, frozen when the turn starts. Next: read the rest of the
+objective net turn (Capture the Case, King of the Hill, Pop a Cap, counter-op end), then the a669d118 turn. B-1209 was
+the last number of my B-1190 to B-1209 range; claim the next range in the week note before the next bug. Waiting:
+CORE on SP-87 (b) and the B-1203 runner change; MODS on UCMD_VEHICLE_BOOST. Open for Mike: Challenges and presets in
+the Room, co-op player drop (T-NETWORKING-007), the co-op AI-buddy entry, SP-87 (b), restoring the real profile
+(B-1203), and SP-91's class fix.
+
 2026-11-16 (07:40 ET) MULTIPLAYER, continued. All pushed (head 8dafe7f0). Lifecycle turn
 q_20261116101215836_0cfaa542 on df1734a2 (db7c8b51, CORE's B-1204 fix cherry-picked), base 7: Combat rejoin 116/116,
 co-op mission end 130/130, first networked Combat score-limit end 75/76 (ends by score limit 1), co-op Deep Sea 120/126
