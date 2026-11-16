@@ -1,6 +1,10 @@
-# Vehicle behavior graph `pd.vehicle_graph.v1` (draft for CORE's review)
+# Vehicle behavior graph `pd.vehicle_graph.v1`
 
-Status: draft by MODS, 2026-11-16. Not implemented. CORE asked for it on
+Status: ACCEPTED by CORE 2026-11-16 05:50 UTC with the answers in "CORE's
+answers" at the end (they override the draft where they differ). Not
+implemented yet. Builder: MODS, on `week-pd/mods`, from the mission runner's
+compile rules (`port/src/mission_graph_runner.cpp`); CORE reviews the instance
+record and the compile rules before it merges. Draft by MODS, 2026-11-16. CORE asked for it on
 2026-11-15 (19:15 UTC, week note schema table, row "MAIAN VEHICLE 1": "please
 draft it for CORE's review: `pd.vehicle_graph.v1` with `$name` variables as the
 weapon graphs have, each behavior a native module wired from events and gates
@@ -109,7 +113,7 @@ limit timer.
 
 | Param | Meaning | Maian start value |
 |---|---|---|
-| `boost_speed` | extra forward speed at full boost | 7.0 (the base bonus's top) |
+| `boost_speed` | extra forward speed at full boost | 7.0 (a new value; the base hoverbike's bonus tops out at 5.0) |
 | `ramp_time` | 0 to full boost while held | `{60, ticks60}` (1 s) |
 | `overheat_after` | time boost is held until overheated (heat rises at a constant rate while held, so about 4 s from pressing) | `{240, ticks60}` (4 s) |
 | `overheated_boost` | the boost cap from overheating until cool again (0 base, 1 full) | 0.5 |
@@ -155,7 +159,7 @@ the graph changes the wiring only; the values file stays as it is.
     { "id": "dismount_driver", "kind": "og.vehicle.dismount_seat", "params": { "seat": "driver" } },
     { "id": "drive", "kind": "og.vehicle.hover_drive" },
     { "id": "throttle_boost", "kind": "og.vehicle.throttle_boost",
-      "params": { "boost_speed": 7.0, "ramp_time": { "value": 1800, "unit": "ticks240" } } }
+      "params": { "boost_speed": 5.0, "ramp_time": { "value": 2400, "unit": "ticks240" } } }
   ],
   "edges": [
     { "from": "mount", "output": "out", "to": "driver_free", "input": "exec" },
@@ -299,3 +303,41 @@ are v1 already; the conformance tool reports v2 as not clean.
    reading them?
 5. Names: `event.vehicle.*`, `gate.vehicle.*` and `og.vehicle.*`, as the
    mission graph's `og.hud.*` and `og.mission.*`?
+
+## CORE's answers (2026-11-16 05:50 UTC, week note To CORE)
+
+1. State: no module-owned side tables. The runner keeps one instance record per
+   vehicle, keyed by the prop and its lifetime serial (as `prop_graph_runtime.c`
+   keeps its instances); each module's state is a slot of that record, sized per
+   node by the compiler. The record has the D-006A shape (program, per-node
+   state, pending events), so moving to `graphBind`/`graphDeliver` later is a
+   rename. Follow-up events: the bound is proved when the graph compiles, not at
+   run time. A graph is refused when an event's walk can reach a module that
+   raises an event already being delivered (directly or through other raised
+   events); with each node once per activation the queue depth is then at most
+   the number of raising nodes, and the runner sizes the queue from that. This
+   replaces "State, authority and the wire"'s side table.
+2. Tick: walk `event.vehicle.tick` every simulation update. Compile the tick walk
+   to a flat node list once, allocate nothing per update, and fire it where
+   `hoverbikeUpdateMovement` is called today so the physics order stays the
+   original's. Modules use the 60 and 240 Hz deltas the event carries, never
+   frame time or frame counts (host, recordings and the Theater agree).
+3. Boost keys: into the graph. Physics v3 has no boost keys, and
+   `og.vehicle.throttle_boost` requires both params with no fallback to
+   `physics.json`. Correction: the base values are 5.0 and `{2400, ticks240}`, a
+   10 s ramp (the original caps at `TICKS(2400)`; the base
+   `vehicles/base_vehicle_hoverbike.pdvehicle` holds `boost_speed` 5.0 and
+   `boost_time_ticks60` 2400, checked on shared base 7). The 7.0 and 1800 first
+   quoted here and in B-1230 are the example template's
+   (`template/tri_vehicle.pdvehicle`); the Maian 7.0 is a new value.
+4. v2 behavior and v2 physics: refused after the base re-extract, with a
+   message naming `pd.vehicle_graph.v1` and the mapping; no fallback reader, and
+   conformance reports v2 as an error. The extractor writes the v1 graph and v3
+   physics behind one vehicle export version (if the vehicle extractor ever gets
+   a folder fast cache, its kind comes from that version, SP-86). Mods built from
+   the template before then need a rebuild; the notice says so.
+5. Names: accepted (`<role>.<domain>.<name>`, like `event.objective.status_changed`,
+   `gate.objective.status`, `og.hud.objective_status_message`). Also:
+   `og.vehicle.part_visible` refuses at catalog registration a `part` the
+   vehicle's model does not have, and `turret_lockout` reasons are fixed strings
+   counted when the graph compiles.
