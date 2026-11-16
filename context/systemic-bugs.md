@@ -3814,6 +3814,15 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
   dropped) and the client removes its copy at once; a snapshot also removes
   any NPC of the client's that it does not name, for removals made while the
   client was still loading.
+  Follow-up (SP-91): the message was written in `chrTick` and dropped on
+  frames that discard the game tick's messages; it is now queued and sent
+  from the ACTIVE entity broadcast.
+- B-1209: scenario props the host makes during the match: Hacker Central's
+  new uplink after each carrier's death (`htbCreateUplink` from `htmTick`)
+  and Hold the Briefcase's new case (`htbCreateToken` from `htbTick`). A
+  client runs neither, so it never saw them and skipped every simulant
+  pickup of the uplink. Fixed in code: `scenarioNetAnnounceProp` sends
+  `SVC_PROP_SPAWN` and `SVC_PROP_MOVE` right after the host makes one.
 
 **Rules:**
 - A prop the host creates at run time that clients must see or act on is
@@ -3841,7 +3850,9 @@ weapons through `chrBeginDeath`, a disarmed simulant's gun through `botDisarm`,
 concealed items; B-1194, in code), AI chr spawns and clones with their weapons
 and hats (B-1196, in code), chr removals through `chrTick` (B-1206, in code;
 the counter-op takeover in `player.c` removes a guard outside it, covered only
-by the snapshot sweep). Note for new drop paths: the `chrTick` drop block
+by the snapshot sweep). Scenario props made during the match (B-1209, in code: Hacker
+Central's uplink, Hold the Briefcase's case; Capture the Case makes its cases
+only at the stage start). Note for new drop paths: the `chrTick` drop block
 covers any weapon marked with `objSetDropped` that is still the chr's child,
 but a path that creates and places a prop itself (as `botinvDrop` does with
 `objDrop`) must announce it. Open: reconnect for B-1196's chrs; a client-side
@@ -3940,6 +3951,62 @@ and build on the machine.
 intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
 Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
 open in B-1126.
+
+---
+
+## SP-91: A one-shot message written in the game tick is dropped by a frame that discards the shared buffers
+
+**Severity: HIGH - a client never hears of an event the host made once (a
+removal, a pickup, a stage flag, an objective status), and nothing logs the
+loss.**
+
+`netStartFrame` empties `g_NetMsg` and `g_NetMsgRel`; the game tick then writes
+into them (pickups, prop spawns and moves, doors, alarms, stage flags,
+objective status, chr damage, player stats: about 48 call sites in
+`src/game`), and `netEndFrame` normally sends them. It empties both buffers
+instead on three kinds of server frame: (1) the terminal stage-end frame;
+(2) any frame while the stage replication is not ACTIVE (INACTIVE, WAITING;
+RELEASE publishes only its baseline); (3) an ACTIVE frame with a cutscene
+authority event pending (START or END: "Any authority event already pending
+at this boundary supersedes ordinary game messages accumulated since
+netStartFrame"). (1) is harmless, the stage is ending. (2) is covered when the
+release baseline carries the state, and a producer can check
+`netServerStageReplicationBlocked()`. (3) is not covered: no baseline follows,
+and the authority packet and the shared reliable buffer both go reliably on
+`NETCHAN_DEFAULT`, so the frame's messages could have been sent after the
+authority packet in order instead of thrown away.
+
+**Known instance (B-1206, 2026-11-16):** the host's `SVC_NPC_REMOVE` for Deep
+Sea's intro actor was written on the frame that published the intro's cutscene
+END; the client kept that chr for the rest of the stage. Fixed for that
+message: removals are queued (`netServerNpcRemoveQueue`) and written by the
+ACTIVE entity broadcast, after any authority packet.
+
+**Open, not audited:** every other one-shot writer in the game tick is exposed
+on cutscene START and END frames in co-op and counter-op, which are frames where
+level scripts commonly act (end the intro, set objectives and stage flags, open
+doors, remove actors). A class fix would keep the reliable game-tick bytes
+across the authority publish and append them after the authority packet (same
+reliable channel, so ENet keeps the order), discarding only the unreliable
+buffer. It changes the T-ENGINE-004 authority frame rule, so it waits for a
+decision.
+
+**Rules:**
+- A one-shot reliable message the host decides in the game tick is queued and
+  written by `netEndFrame`'s ACTIVE broadcast, or its writer says what covers
+  its loss before ACTIVE (the release baseline; `netServerStageReplicationBlocked()`).
+- A frame rule that drops buffered messages names what resends each one.
+
+**Search:**
+- `grep -rn "g_NetMsgRel" src/game --include=*.c` lists the game-tick
+  writers; for each, what restores the event if its frame is discarded?
+- In a co-op log pair: a host line for a one-shot event with no client line,
+  in the frame of `CUTSCENE.AUTHORITY: tick-mode START|END queued`.
+
+**Audit checklist:** for each game-tick writer, (a) one-shot or periodic (a
+periodic one is resent next frame), (b) covered by a baseline or snapshot,
+(c) can it run on a frame that publishes authority. Done: `SVC_NPC_REMOVE`
+(queued, B-1206). Open: the rest of the search list.
 
 ---
 

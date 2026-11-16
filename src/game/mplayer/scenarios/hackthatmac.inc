@@ -814,6 +814,9 @@ void htmTick(void)
 
 	if (g_ScenarioData.htm.uplink == NULL) {
 		htbCreateUplink();
+
+		// PC (B-1209): clients learn the uplink made during the match
+		scenarioNetAnnounceProp(g_ScenarioData.htm.uplink, "uplink");
 	}
 
 	// PC (T-NETWORKING-011): log each change of holder (-1 = on the ground)

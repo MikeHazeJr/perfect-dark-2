@@ -44,6 +44,10 @@ struct net_scenario_state;
 /* Whether this peer decides the scenario: offline play or the listen host. */
 s32 scenarioNetIsAuthority(void);
 
+/* B-1209: on the listen host, announce a scenario prop made during the match
+ * (SVC_PROP_SPAWN then SVC_PROP_MOVE); no-op offline and on a client. */
+void scenarioNetAnnounceProp(struct prop *prop, const char *what);
+
 /* Whether the running match's scenario has network state (a wire body). */
 s32 scenarioNetHasState(void);
 

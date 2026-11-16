@@ -1,6 +1,54 @@
 # Bug Tracker
 
-## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, open, diagnostic added)
+## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity high for networked Hacker Central: once the first uplink carrier dies, no client sees the uplink or can
+take it, and the client skips every host pickup of it. Seen in `mp_hacker_central_net_smoke` on binary 5cd5d0e5
+(639c9a8a, base 7, `results-20261116T150839Z.json`, 84/86): simulant 3 died at 94.7 s carrying the uplink; the
+host announced its two guns (`BOT.DROP: host announced simulant 3 weapon=2 syncid=57`, `weapon=5 syncid=58`), then
+`htmTick` found no uplink and made a new one at crate pad 69 (`HTM: uplink placed pad=69 source=crate`), prop 59, a
+dynamic id. The client logged nothing about it, and when simulant 3 took it at 102 s: `BOT.PICKUP: client skipped
+item 59 for simulant 3, it is not in this world (no prop has this sync id; first_dynamic=39 ...)`.
+
+Root cause: the original drops no uplink at a carrier's death; `htmTick` makes a new one wherever a crate stands
+(`htbCreateUplink`), and Hold the Briefcase's `htbTick` does the same for its case when none is left
+(`htbCreateToken`; rare, since a dying carrier drops the case as an announced weapon). A networked client runs
+neither (T-NETWORKING-011: it shows the host's scenario and never makes its own), and the host never announced
+the prop, so it had an id only on the host (SP-85).
+
+Fix: new `scenarioNetAnnounceProp` (`scenarios.c`): on the listen host, `SVC_PROP_SPAWN` then `SVC_PROP_MOVE` for
+the new prop, as `botinvDrop` announces a simulant's drop (log `SCENARIO.NET: host announced the new <uplink |
+briefcase> syncid=... rc=0`). `htmTick` and `htbTick` call it right after making the prop during the match; a
+client's `htmNetPresent` already finds a ground uplink by scanning its props. No wire change. Pinned by `[b1209]`
+in `tests/test_net_bot_pickup_static.cpp`. Not changed: the crate that the new uplink replaces is hidden on the
+host only (`OBJHFLAG_DELETING`, regenerating); the prop dirty check's `SVC_PROP_RESYNC` carries hidden state.
+
+## 2026-11-16 B-1208 A client's unchanged settings resend cancels the host's ready gate (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity medium: a networked start fails whenever a client sends its settings again, with nothing changed, inside
+the ready gate. The host cancels the start (`NET: ready gate aborted by '<name>'`) and someone must press Start
+again; an autostarted smoke fires once, so its match never starts. Seen in `network_coop_mission_end_smoke` on binary
+5cd5d0e5 (639c9a8a, base 7, `results-20261116T145034Z.json`, 62/130; 130/130 at 490e8baf): the host's autostart
+added the client to room 1 at 02:18.78 and fired at 02:19.05; the client's Room opened as it was moved in, its match
+setup reset sent `CLC_SETTINGS` (same body, head, team, handicap and name; no rename line followed), and that
+reached the host at 02:19.21, inside the gate: `PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1`,
+and both machines waited 300 s for a stage that never started.
+
+Root cause: `netmsgClcSettingsRead` rolls the gate back for every valid `CLC_SETTINGS` from a preparing participant
+(B-1103, SP-67), changed or not, and a client sends one whenever its Room opens (`matchConfigInit` calls
+`netClientSettingsChanged` after the match setup reset) and whenever a settings menu closes, changed or not
+(`pdgui_menu_playerconfig.cpp` calls the send "idempotent and cheap").
+
+Fix: a candidate equal to the client's published settings, field for field and raw from the wire (name, body,
+head, options, team, handicap, fovy, fovzoommult), keeps the gate and publishes nothing (`NET: CLC_SETTINGS
+client=N repeats its settings during the ready gate; gate kept, nothing published`); any difference still rolls the
+gate back before publishing, as SP-67 requires. New smoke-only seam `--debug-ready-gate-settings-repeat` (the B-1103
+seam's twin: the same ordinary send at the PREPARING boundary with nothing changed) and
+`ready_gate_settings_repeat_smoke` (port 27218): the gate keeps and the match starts on both machines;
+`ready_gate_settings_rollback_smoke` stays the negative twin (its changed handicap still rolls back). Pinned in
+`tests/test_prepared_stage_transaction_static.cpp` (the B-1067 and B-1103 cases).
+
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed in code, not yet run)
 
 Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
 contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
@@ -22,7 +70,20 @@ download complete at T s points=P`. Next run: `mp_hacker_central_net_smoke` in t
 and `mp_hacker_central_local_smoke` after it. If the cause is the original's own logic, the fix changes how the
 mode plays and goes to Mike first.
 
-## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed in code, not yet run)
+**Root cause (found 2026-11-16 with the diagnostic; not the original's logic):** in `mp_hacker_central_net_smoke`
+on 5cd5d0e5 (`results-20261116T150839Z.json`) simulant 3 reached the terminal three times (32.6, 54.4 and
+142.3 s: 209 to 230 units away, facing it, unarmed, `in progress` in `MA_AIBOTDOWNLOAD`), and each time, about 3 s
+later, `STUCK: bot slot=1 ... relocated to safe waypoint 73 (-698,394,-1889) penalty=25.0%` moved it 4,330 units
+away in the same frame (`out of range ... xz=4330`). The port's stuck watchdog (`botTick`, Phase F 2026-04-02, not
+in the original) relocates a simulant that moved less than 10 units in 3 s while its action counts as navigation
+intent, and `MA_AIBOTDOWNLOAD` was on that list, though a download is 20 s standing at the terminal. So every
+download a simulant began was cancelled 3 s in, with a 25% health penalty. **Fix (in code, not yet run):**
+`MA_AIBOTDOWNLOAD` leaves the intent list; nothing else changes, so the original's download rules apply again (no
+gameplay decision needed). King of the Hill was checked for the same trap (a simulant holding the hill stands in
+`MA_AIBOTGOTOPOS`): its simulants scored 1 and 2 points with one relocation a run in three earlier runs, so that
+case stays as it is. Pinned by `[b1207]` in `tests/test_net_bot_pickup_static.cpp`. The same run found B-1209.
+
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, snapshot sweep checked in play; removal message re-fixed in code, not yet run)
 
 Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
 the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20
@@ -51,7 +112,21 @@ in `tests/test_net_mission_end_static.cpp`. Pattern SP-85 (its removal case). No
 counter-op takeover in `player.c` (the anti player takes a guard's body) removes the guard outside `chrTick`; if
 that ever runs on one machine only, the snapshot sweep removes the other copy at the next snapshot.
 
-## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed in code, not yet run)
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `network_coop_deepsea_end_smoke` 126/126
+(`results-20261116T143714Z.json`; 120/126 with 883 refused snapshots before): no snapshot refused. But none of the
+host's four removals reached the client as a message. Each came on a frame where `netEndFrame` throws away the game
+tick's messages: three before the stage replication was active (two guards in Deep Sea's first tick, one in
+Defense's), which the release snapshot covered (the client's sweep removed all three), and the intro's actor
+(syncid 1, chrnum 64) on the frame that published the cutscene END authority packet: its message was dropped and no
+later snapshot came, so the client kept that chr for the rest of Deep Sea. **Follow-up fix (in code, not yet run):**
+`chrTick` queues the removal (`netServerNpcRemoveQueue`, same `host removed chr` line), and `netEndFrame` sends the
+queue from the ACTIVE entity broadcast, after any authority packet and ahead of the frame's spawns, moves and states
+(`NET.NPC: host sent the removal of chr syncid=...`). The release baseline, a new stage, a reset and a rolled-back
+start empty the queue (`N queued chr removal(s) not sent: <why>`); a chr made after the stage start that was never
+announced is skipped (no client has it); a full queue (64) asks for a full NPC snapshot. The pins in `[b1206]`
+follow. The class, every one-shot message written in the game tick, is SP-91.
+
+## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed; checked in play)
 
 Severity medium: the shield or crate a simulant took on the host stays on the client's floor until the client's own
 respawn cycle, so the two worlds disagree about it; no crash. Seen in `mp_combat_net_scorelimit_smoke` on binary
@@ -78,6 +153,11 @@ as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`
 2026-11-16 (490e8baf, `mp_hold_the_briefcase_net_smoke` 84/84): `BOT.PICKUP: client finished item 6's respawn
 for simulant 3, 27 ticks before its own wait ended`, then `client replayed simulant 3 item 6`; the Combat
 score-limit re-run that failed on it is queued.
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `mp_combat_net_scorelimit_smoke` 76/76
+(`results-20261116T143007Z.json`; it failed on this race before): the client finished an item's respawn early
+four times, three simulant pickups (38, 39 and 47 ticks early) and one host-player pickup (`SVC_PROP_PICKUP client
+finished prop 8's respawn for client 0, 54 ticks ...`), replayed all 19 simulant pickups, skipped none, and the
+match ended by score limit 1 on both machines.
 
 ## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
 

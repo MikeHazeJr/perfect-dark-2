@@ -1914,13 +1914,15 @@ s32 botTick(struct prop *prop)
 
 					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
 					if (frames_since >= STUCK_CHECK_FRAMES) {
-						/* Active pathfinding: bot is trying to navigate */
+						/* Active pathfinding: bot is trying to navigate. Not
+						 * MA_AIBOTDOWNLOAD (B-1207): a Hacker Central download
+						 * is 20 s standing at the terminal, and moving the bot
+						 * away 3 s in cancelled every download a simulant began. */
 						bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP
 							|| chr->myaction == MA_AIBOTGOTOPOS
 							|| chr->myaction == MA_AIBOTGETITEM
 							|| chr->myaction == MA_AIBOTGOTOPROP
-							|| chr->myaction == MA_AIBOTRUNAWAY
-							|| chr->myaction == MA_AIBOTDOWNLOAD);
+							|| chr->myaction == MA_AIBOTRUNAWAY);
 						if (bs->relocating) {
 							/* A relocation suppresses only the immediately following
 							 * audit. Clear the latch so continued AI intent can recover

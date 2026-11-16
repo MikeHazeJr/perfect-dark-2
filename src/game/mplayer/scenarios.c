@@ -43,6 +43,7 @@
 #include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
 #include "scenario_pad_fallback.h"  /* B-1125, B-1126: placement pads for arenas that carry too few */
 #include "net/net.h"                /* g_NetMode: who decides scenario state */
+#include "net/netmsg.h"             /* B-1209: announcing a scenario prop made in the match */
 #include "net/net_scenario_state_wire.h"
 
 _Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE
@@ -530,6 +531,30 @@ static s32 s_ScenarioNetHaveShown;
 s32 scenarioNetIsAuthority(void)
 {
 	return g_NetMode != NETMODE_CLIENT;
+}
+
+/* B-1209 (SP-85): a scenario prop the host makes during the match (Hacker
+ * Central's uplink after its carrier died, Hold the Briefcase's case when none
+ * is left) has a dynamic sync id no client knows, and a client never makes its
+ * own. Announce it as a simulant's dropped weapon is announced (botinvDrop),
+ * or no client sees it and every host pickup of it is skipped. */
+void scenarioNetAnnounceProp(struct prop *prop, const char *what)
+{
+	u32 rc;
+
+	if (g_NetMode != NETMODE_SERVER || prop == NULL) {
+		return;
+	}
+
+	rc = netmsgSvcPropSpawnWrite(&g_NetMsgRel, prop);
+
+	if (rc == 0) {
+		rc = netmsgSvcPropMoveWrite(&g_NetMsgRel, prop, NULL);
+	}
+
+	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.NET: host announced the new %s syncid=%u pos=(%.0f,%.0f,%.0f) rc=%u",
+		what, (unsigned)prop->syncid, prop->pos.x, prop->pos.y, prop->pos.z, (unsigned)rc);
 }
 
 /* Every match starts from revision 0 on both sides. */

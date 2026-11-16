@@ -479,3 +479,67 @@ TEST_CASE("prop scheduler: a networked match counts the frame's time once howeve
 	REQUIRE(tick.find("if (prop->propstateindex == runstateindex && !netrepeatpass) {") != std::string::npos);
 	REQUIRE(tick.find("if (prop->propstateindex == runstateindex) {") == std::string::npos);
 }
+
+TEST_CASE("bot pickup net: a scenario prop the host makes during the match is announced",
+          "[net][scenario][b1209]") {
+	// B-1209 (SP-85): Hacker Central makes a new uplink each time its carrier
+	// dies, and Hold the Briefcase a new case when none is left. A client never
+	// makes its own, so before the announcement it never saw them and skipped
+	// every host pickup of them.
+	const std::string scenarios = code_only(read_text_file("src/game/mplayer/scenarios.c"));
+	const std::string announce = function_body(scenarios,
+		"void scenarioNetAnnounceProp(struct prop *prop, const char *what)\n{");
+	const size_t gate = announce.find("if (g_NetMode != NETMODE_SERVER || prop == NULL) {");
+	const size_t spawn = announce.find("netmsgSvcPropSpawnWrite(&g_NetMsgRel, prop);");
+	const size_t move = announce.find("netmsgSvcPropMoveWrite(&g_NetMsgRel, prop, NULL);");
+	REQUIRE(gate != std::string::npos);
+	REQUIRE(spawn != std::string::npos);
+	REQUIRE(move != std::string::npos);
+	REQUIRE(gate < spawn);
+	REQUIRE(spawn < move);
+
+	struct site { const char *file; const char *tick; const char *create; const char *told; };
+	const site sites[] = {
+		{ "src/game/mplayer/scenarios/hackthatmac.inc", "void htmTick(void)\n{", "htbCreateUplink();",
+			"scenarioNetAnnounceProp(g_ScenarioData.htm.uplink, \"uplink\");" },
+		{ "src/game/mplayer/scenarios/holdthebriefcase.inc", "void htbTick(void)\n{", "htbCreateToken();",
+			"scenarioNetAnnounceProp(g_ScenarioData.htb.token, \"briefcase\");" },
+	};
+
+	for (const site &s : sites) {
+		INFO(s.file);
+		const std::string tick = function_body(code_only(read_text_file(s.file)), s.tick);
+		const size_t client = tick.find("if (!scenarioNetIsAuthority()) {");
+		const size_t create = tick.find(s.create);
+		const size_t told = tick.find(s.told);
+		REQUIRE(client != std::string::npos);
+		REQUIRE(create != std::string::npos);
+		REQUIRE(told != std::string::npos);
+		// only the host makes it during the match, and tells the clients at once
+		REQUIRE(client < create);
+		REQUIRE(create < told);
+		REQUIRE(tick.find(s.create, create + 1) == std::string::npos);
+	}
+}
+
+TEST_CASE("bot stuck watchdog: a simulant downloading at a Hacker Central terminal is not stuck",
+          "[bot][scenario][b1207]") {
+	// B-1207: a download is 20 s standing at the terminal; the port's stuck
+	// watchdog counted MA_AIBOTDOWNLOAD as navigation intent and moved the
+	// simulant away about 3 s into every download, so none ever completed.
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const size_t intent = bot.find("bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP");
+	REQUIRE(intent != std::string::npos);
+	REQUIRE(bot.find("bool hasIntent = ", intent + 1) == std::string::npos);
+	const size_t end = bot.find(");", intent);
+	REQUIRE(end != std::string::npos);
+	const std::string list = bot.substr(intent, end - intent);
+	REQUIRE(list.find("MA_AIBOTGOTOPROP") != std::string::npos);
+	REQUIRE(list.find("MA_AIBOTDOWNLOAD") == std::string::npos);
+	// the relocation is still gated on that intent
+	const size_t gated = bot.find("} else if (hasIntent) {", end);
+	const size_t relocate = bot.find("relocated to safe waypoint", end);
+	REQUIRE(gated != std::string::npos);
+	REQUIRE(relocate != std::string::npos);
+	REQUIRE(gated < relocate);
+}

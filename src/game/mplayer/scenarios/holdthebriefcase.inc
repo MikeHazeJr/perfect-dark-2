@@ -545,6 +545,9 @@ void htbTick(void)
 
 	if (g_ScenarioData.htb.token == NULL) {
 		htbCreateToken();
+
+		// PC (B-1209): clients learn the case made during the match
+		scenarioNetAnnounceProp(g_ScenarioData.htb.token, "briefcase");
 	}
 
 	if (g_ScenarioData.htb.token == NULL) {
