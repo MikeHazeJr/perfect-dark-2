@@ -86,10 +86,28 @@ gates and `og.*` modules, D-006 option A).
    outcome=...`, a failure on a difference), conformance, and pd-tests pins
    (`tests/test_mission_outcome_static.cpp`). The campaign fixtures require
    one outcome line per mission. No base data change.
-2. `event.mission.phase_changed` (the runtime-owned phase fires it),
-   `gate.mission.phase` and `og.mission.end`, with a smoke that plays a test
-   mission (not base content) with an optional objective and ends it from its
-   graph: the in-game proof of `required: false`.
+2. **Built on `week-pd/core` (2026-11-16):** `event.mission.phase_changed`
+   and `gate.mission.phase` in the runner (`"phase"`: `active`, `complete`
+   or `failed`; load and end are not delivered), delivered by
+   `scenarioSourceMissionGraphDeliverPhaseEvent` from `objectivesCheckAll`
+   once per change, after the objectives' own events and never inside
+   another walk. `og.mission.end` became two modules without params,
+   `og.mission.end_failed` and `og.mission.end_completed` (the module table
+   takes no params): from an objective or phase event they force the
+   outcome (`objectiveIsAllComplete` returns it from then on, the phase holds
+   it) and set a pending end that `player.c` takes after the objectives
+   check, through the AI's `end_level` path (`func0000e990`). The first
+   request wins. Refused on a network client (the host decides) and, for a
+   forced completion, in co-op and counter-op until the stage end carries
+   the outcome (the clients judge it from their cached statuses: MULTIPLAYER).
+   A program that reaches either module from `event.mission.completed` or
+   `event.mission.continue` is refused at activation, and conformance says
+   the same. Proof: the runner's routing in pd-tests
+   (`tests/test_mission_graph_phase.cpp`), the phase deliveries in the
+   campaign logs (every base mission delivers `active` and `complete`). The
+   in-game proof of `og.mission.end_*` and of `required: false` needs a
+   playable test mission, which is custom-level work and waits for Forge
+   (Mike, 2026-11-15).
 3. Remove the native loop from the scenario-source path once the outcome
    parity has held on all four campaigns; it stays the ROM stage's.
 

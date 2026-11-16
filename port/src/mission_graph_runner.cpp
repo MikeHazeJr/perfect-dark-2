@@ -29,6 +29,7 @@ struct Node {
 	int event_kind = 0;
 	std::string objective; // "" means any objective
 	int gate_status = -1;
+	int gate_phase = -1; // gate.mission.phase; -1 for an objective gate
 	std::vector<Edge> out;
 };
 
@@ -36,6 +37,8 @@ const char *const kObjectiveStatusEvent = "event.objective.status_changed";
 const char *const kMissionCompletedEvent = "event.mission.completed";
 const char *const kMissionContinueEvent = "event.mission.continue";
 const char *const kObjectiveStatusGate = "gate.objective.status";
+const char *const kMissionPhaseEvent = "event.mission.phase_changed";
+const char *const kMissionPhaseGate = "gate.mission.phase";
 
 void setError(char *err, size_t err_cap, const std::string &text)
 {
@@ -119,14 +122,17 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 				compiled.objective = objective;
-			} else if (compiled.kind == kMissionCompletedEvent || compiled.kind == kMissionContinueEvent) {
+			} else if (compiled.kind == kMissionCompletedEvent || compiled.kind == kMissionContinueEvent ||
+					compiled.kind == kMissionPhaseEvent) {
 				if (has_objective) {
 					setError(err, err_cap, "mission event '" + compiled.id + "' has no objective to filter");
 					return nullptr;
 				}
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = compiled.kind == kMissionCompletedEvent
-					? MISSION_GRAPH_EVENT_MISSION_COMPLETED : MISSION_GRAPH_EVENT_MISSION_CONTINUE;
+					? MISSION_GRAPH_EVENT_MISSION_COMPLETED
+					: compiled.kind == kMissionContinueEvent
+						? MISSION_GRAPH_EVENT_MISSION_CONTINUE : MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -139,6 +145,19 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				compiled.type = NODE_GATE;
 				compiled.gate_status = statusFromText(status);
 				compiled.objective = objective;
+			} else if (compiled.kind == kMissionPhaseGate) {
+				std::string phase;
+				if (has_objective) {
+					setError(err, err_cap, "gate '" + compiled.id + "' is a phase gate; it has no objective to filter");
+					return nullptr;
+				}
+				if (!stringField(node, "phase", phase) || missionGraphPhaseFromText(phase.c_str()) < 0) {
+					setError(err, err_cap, "gate '" + compiled.id +
+						"' needs phase \"active\", \"complete\" or \"failed\"");
+					return nullptr;
+				}
+				compiled.type = NODE_GATE;
+				compiled.gate_phase = missionGraphPhaseFromText(phase.c_str());
 			} else if (compiled.kind.rfind("gate.", 0) == 0) {
 				setError(err, err_cap, "gate kind '" + compiled.kind + "' is not executable");
 				return nullptr;
@@ -232,6 +251,15 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 	}
 }
 
+extern "C" s32 missionGraphPhaseFromText(const char *text)
+{
+	if (!text) return -1;
+	if (std::strcmp(text, "active") == 0) return MISSION_GRAPH_PHASE_ACTIVE;
+	if (std::strcmp(text, "complete") == 0) return MISSION_GRAPH_PHASE_COMPLETE;
+	if (std::strcmp(text, "failed") == 0) return MISSION_GRAPH_PHASE_FAILED;
+	return -1;
+}
+
 extern "C" void missionGraphProgramFree(mission_graph_program_t *program)
 {
 	delete program;
@@ -320,6 +348,11 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		if (event->seam != MISSION_GRAPH_SEAM_ENDSCREEN && event->seam != MISSION_GRAPH_SEAM_COOP_STAGE_END) {
 			return -1;
 		}
+	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || event->phase < MISSION_GRAPH_PHASE_ACTIVE ||
+				event->phase > MISSION_GRAPH_PHASE_FAILED) {
+			return -1;
+		}
 	} else {
 		return -1;
 	}
@@ -343,8 +376,10 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
 			if (node.type == NODE_GATE) {
-				const bool pass = objective_event && node.gate_status == event->status &&
-					objectiveMatches(node.objective, event);
+				const bool pass = node.gate_phase >= 0
+					? event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED && node.gate_phase == event->phase
+					: objective_event && node.gate_status == event->status &&
+						objectiveMatches(node.objective, event);
 				for (const Edge &edge : node.out) {
 					if ((pass && edge.port == PORT_PASS) || (!pass && edge.port == PORT_FAIL)) {
 						queue.push_back(edge.target);

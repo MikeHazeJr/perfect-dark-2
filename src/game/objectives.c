@@ -801,6 +801,13 @@ s32 objectivesDebugCompleteCurrentMission(void)
 bool objectiveIsAllComplete(void)
 {
 	s32 i;
+	s32 forced_complete = 0;
+
+	/* mission-flow.md: once a mission graph ended the mission
+	 * (og.mission.end_*), the outcome is the graph's. */
+	if (scenarioSourceMissionGraphForcedOutcome(&forced_complete)) {
+		return forced_complete != 0;
+	}
 
 	for (i = 0; i < objectiveGetCount(); i++) {
 		u32 diffbits = objectiveGetDifficultyBits(i);
@@ -977,6 +984,10 @@ void objectivesCheckAll(void)
 						"active"),
 				"objectives.check");
 		}
+		/* mission-flow.md: the phase just recorded reaches the mission
+		 * graph as event.mission.phase_changed, after the objectives' own
+		 * events. */
+		scenarioSourceMissionGraphDeliverPhaseEvent();
 	}
 }
 

@@ -34,8 +34,14 @@ extern "C" {
  *       the next-mission menu. Seam COOP_STAGE_END: a co-op stage of a mission
  *       whose continue reaches og.mission.start_next_stage has just ended; the
  *       co-op end screen is skipped (the original Deep Sea rule).
+ *   event.mission.phase_changed  The mission's phase moved to "active",
+ *       "complete" or "failed" (mission-flow.md): the runtime delivers it from
+ *       the objectives check after the objectives' own events, never while
+ *       another event is being delivered.
  *   gate.objective.status  Passes when the event's status is its "status"
  *       ("complete", "incomplete" or "failed"); optional "objective" as above.
+ *   gate.mission.phase  Passes when a phase event's phase is its "phase"
+ *       ("active", "complete" or "failed"); never for any other event.
  *   og.*  A native module from the caller's module table, for example
  *       og.hud.objective_status_message (the original "Objective N: Completed"
  *       message). An og.* kind the table does not know refuses the program.
@@ -52,6 +58,14 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED 1
 #define MISSION_GRAPH_EVENT_MISSION_COMPLETED 2
 #define MISSION_GRAPH_EVENT_MISSION_CONTINUE 3
+#define MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED 4
+
+/* The phases a phase event carries (mission_graph_event_t.phase). The phase
+ * table's load and end are not delivered: nothing runs before the stage starts
+ * or while it ends. */
+#define MISSION_GRAPH_PHASE_ACTIVE 1
+#define MISSION_GRAPH_PHASE_COMPLETE 2
+#define MISSION_GRAPH_PHASE_FAILED 3
 
 /* Where a mission event came from (mission_graph_event_t.seam). */
 #define MISSION_GRAPH_SEAM_NONE 0
@@ -70,7 +84,11 @@ typedef struct mission_graph_event {
 	s32 previous_status;
 	const char *objective_node; /* its mission.objective.source id, or NULL */
 	s32 seam;              /* MISSION_GRAPH_SEAM_*, for mission events */
+	s32 phase;             /* MISSION_GRAPH_PHASE_*, for phase events */
 } mission_graph_event_t;
+
+/* "active", "complete" or "failed" as a MISSION_GRAPH_PHASE_* value, or -1. */
+s32 missionGraphPhaseFromText(const char *text);
 
 typedef struct mission_graph_program mission_graph_program_t;
 

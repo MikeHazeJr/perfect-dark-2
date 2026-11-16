@@ -8,6 +8,10 @@
 #include "mission_graph_modules.h"
 #include "game/endscreen.h"
 #include "game/objectives.h"
+#include "bss.h"
+#include "net/net.h"
+#include "scenario_source_runtime.h"
+#include "system.h"
 
 /* og.hud.objective_status_message: the original "Objective N: Completed",
  * "Incomplete" or "Failed" message, shown to every player
@@ -63,6 +67,41 @@ static s32 s_runUnlockAltTitle(const mission_graph_event_t *event)
 	return 1;
 }
 
+/* og.mission.end_failed / og.mission.end_completed (mission-flow.md): end the
+ * mission now with that outcome, from an objective or phase event. The host
+ * decides: refused on a network client, and a forced completion is refused in
+ * co-op and counter-op until the stage end carries the outcome (the clients
+ * judge it from their cached objective statuses). */
+static s32 s_runEndMission(const mission_graph_event_t *event, s32 completed)
+{
+	if (event->kind != MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED
+			&& event->kind != MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED) {
+		return 0;
+	}
+	if (g_NetMode == NETMODE_CLIENT) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: og.mission.end_%s refused on a network client; the host ends the mission",
+			completed ? "completed" : "failed");
+		return 0;
+	}
+	if (completed && (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: og.mission.end_completed refused in co-op and counter-op: the stage end does not carry the outcome yet");
+		return 0;
+	}
+	return scenarioSourceMissionGraphRequestEnd(completed);
+}
+
+static s32 s_runEndMissionFailed(const mission_graph_event_t *event)
+{
+	return s_runEndMission(event, 0);
+}
+
+static s32 s_runEndMissionCompleted(const mission_graph_event_t *event)
+{
+	return s_runEndMission(event, 1);
+}
+
 static const struct {
 	const char *kind;
 	s32 (*run)(const mission_graph_event_t *event);
@@ -71,6 +110,8 @@ static const struct {
 	{ "og.mission.start_next_stage", s_runStartNextStage },
 	{ "og.mission.start_credits", s_runStartCredits },
 	{ "og.progress.unlock_alt_title", s_runUnlockAltTitle },
+	{ "og.mission.end_failed", s_runEndMissionFailed },
+	{ "og.mission.end_completed", s_runEndMissionCompleted },
 };
 
 s32 missionGraphModuleKnown(const char *kind)

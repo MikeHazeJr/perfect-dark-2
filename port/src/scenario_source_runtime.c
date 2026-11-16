@@ -1236,6 +1236,9 @@ typedef struct scenario_source_graph_state {
 	s32 mission_objective_range_warning_logged;
 	s32 mission_phase_node_count;
 	char mission_phase_state[32];
+	s32 mission_phase_delivered; /* MISSION_GRAPH_PHASE_* last delivered as an event */
+	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
+	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
 
 typedef struct scenario_source_mission_match {
@@ -13283,6 +13286,26 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		text_size, missionGraphModuleKnown,
 		s_ActiveScenarioGraphs.mission_program_error,
 		sizeof(s_ActiveScenarioGraphs.mission_program_error));
+	/* mission-flow.md: og.mission.end_* ends the mission while it is played;
+	 * after the end (event.mission.completed, event.mission.continue) it has
+	 * nothing to end, so such a program is refused. */
+	if (s_ActiveScenarioGraphs.mission_program) {
+		static const s32 after_end[] = { MISSION_GRAPH_EVENT_MISSION_COMPLETED,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE };
+		for (s32 ei = 0; ei < 2; ei++) {
+			if (missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_failed")
+					|| missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_completed")) {
+				snprintf(s_ActiveScenarioGraphs.mission_program_error,
+					sizeof(s_ActiveScenarioGraphs.mission_program_error), "%s",
+					"og.mission.end_* runs on an objective or phase event, not after the mission ended");
+				missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+				s_ActiveScenarioGraphs.mission_program = NULL;
+				break;
+			}
+		}
+	}
 	if (s_ActiveScenarioGraphs.mission_program) {
 		sysLogPrintf(LOG_NOTE,
 			"MISSION.GRAPH: compiled executable program '%s' nodes=%d exec_edges=%d objective_status_events=%d modules=%d backend=graph.mission.runner",
@@ -34359,6 +34382,11 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		return s_missionObjectiveGraphRuntimeFailure("phase", -1,
 			"missing mission phase source nodes");
 	}
+	/* Once a graph ended the mission (og.mission.end_*), its outcome is the
+	 * phase until the stage ends. */
+	if (s_ActiveScenarioGraphs.mission_forced_outcome && strcmp(phase, "end") != 0) {
+		phase = s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "complete" : "failed";
+	}
 	if (strcmp(s_ActiveScenarioGraphs.mission_phase_state, phase) == 0) {
 		return 1;
 	}
@@ -34370,6 +34398,95 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		s_ActiveScenarioGraphs.mission_graph_path,
 		phase,
 		reason && reason[0] ? reason : "runtime");
+	return 1;
+}
+
+/* mission-flow.md: the phase the objectives check just recorded reaches the
+ * mission graph as event.mission.phase_changed, once per change, after the
+ * objectives' own events and never inside another event's walk (only
+ * objectivesCheckAll calls this). load and end are not delivered. */
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
+{
+	mission_graph_event_t event;
+	s32 phase;
+	s32 ran;
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program) {
+		return 0;
+	}
+	phase = missionGraphPhaseFromText(s_ActiveScenarioGraphs.mission_phase_state);
+	if (phase < 0 || phase == s_ActiveScenarioGraphs.mission_phase_delivered) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_phase_delivered = phase;
+	if (!missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED)) {
+		/* Logged without a handler too: the campaign logs show every base
+		 * mission's phases arrive (active, then complete). */
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=0 (no handler) backend=graph.mission.runner",
+			s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state);
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
+	event.objective_index = -1;
+	event.phase = phase;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state, ran);
+	return ran;
+}
+
+/* og.mission.end_failed / og.mission.end_completed (mission_graph_modules.c,
+ * which refuses them on a network client and a forced completion in co-op
+ * and counter-op): from now on the outcome is the graph's, and the stage ends
+ * through the AI's end_level path once the objectives check that ran the
+ * module has returned (scenarioSourceMissionGraphTakePendingEnd). The first
+ * request wins. */
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed)
+{
+	const char *what = completed ? "completed" : "failed";
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_forced_outcome) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: og.mission.end_%s ignored: '%s' is already ending %s",
+			what, s_ActiveScenarioGraphs.mission_id,
+			s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "completed" : "failed");
+		return 1;
+	}
+	s_ActiveScenarioGraphs.mission_forced_outcome = completed ? 2 : 1;
+	s_ActiveScenarioGraphs.mission_end_pending = 1;
+	scenarioSourceMissionGraphRecordPhase(completed ? "complete" : "failed", "og.mission.end");
+	sysLogPrintf(LOG_NOTE,
+		"MISSION.GRAPH: og.mission.end_%s: '%s' ends %s from its mission graph",
+		what, s_ActiveScenarioGraphs.mission_id, what);
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_forced_outcome) {
+		return 0;
+	}
+	if (out_complete) {
+		*out_complete = s_ActiveScenarioGraphs.mission_forced_outcome == 2;
+	}
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphTakePendingEnd(void)
+{
+	if (!s_ActiveScenarioGraphs.mission_end_pending) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_end_pending = 0;
 	return 1;
 }
 

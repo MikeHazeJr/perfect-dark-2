@@ -84,6 +84,14 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
  * row); 1 otherwise, also with no mission graph or an objective it does not
  * know (that one stays incomplete, so the mission cannot complete). */
 s32 scenarioSourceMissionObjectiveRequired(s32 index);
+/* mission-flow.md: deliver a recorded phase change as
+ * event.mission.phase_changed (only objectivesCheckAll calls it); end the
+ * mission from its graph (og.mission.end_*); the outcome a graph forced; and
+ * whether the stage must end now (taken once, after the objectives check). */
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void);
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
+s32 scenarioSourceMissionGraphTakePendingEnd(void);
 s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	struct chopperobj *hovercar);
 s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr);

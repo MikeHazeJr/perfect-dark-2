@@ -2602,11 +2602,18 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
 # pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
 # the module table in port/src/mission_graph_modules.c.
 MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
-                             "event.mission.continue"}
-MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue"}
-MISSION_GRAPH_EXEC_GATES = {"gate.objective.status"}
+                             "event.mission.continue", "event.mission.phase_changed"}
+MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
+                                "event.mission.phase_changed"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase"}
 MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
-                                "og.mission.start_credits", "og.progress.unlock_alt_title"}
+                                "og.mission.start_credits", "og.progress.unlock_alt_title",
+                                "og.mission.end_failed", "og.mission.end_completed"}
+# mission-flow.md: the phases a phase event carries, and the modules that end
+# a mission (never reached after it ended).
+MISSION_GRAPH_PHASES = {"active", "complete", "failed"}
+MISSION_GRAPH_END_MODULES = {"og.mission.end_failed", "og.mission.end_completed"}
+MISSION_GRAPH_AFTER_END_EVENTS = {"event.mission.completed", "event.mission.continue"}
 MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
 
 
@@ -2634,6 +2641,11 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
             errors.append(f"{where} gate kind {kind!r} is not executable")
         if kind == "gate.objective.status" and node.get("status") not in MISSION_GRAPH_STATUSES:
             errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        if kind == "gate.mission.phase":
+            if node.get("phase") not in MISSION_GRAPH_PHASES:
+                errors.append(f"{where} gate {node_id!r} needs phase active, complete or failed")
+            if "objective" in node:
+                errors.append(f"{where} gate {node_id!r} is a phase gate; it has no objective to filter")
         if "objective" in node and not isinstance(node["objective"], str):
             errors.append(f"{where} node {node_id!r} objective must be a string")
         if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
@@ -2670,6 +2682,25 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
                 errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
         elif output is not None and output != "out":
             errors.append(f"{where} edge {idx} output must be \"out\"")
+    # og.mission.end_* ends the mission while it is played; nothing reached
+    # after the end may end it (the runtime refuses such a program).
+    exec_out: dict[str, list[str]] = {}
+    for edge in edges:
+        if isinstance(edge, dict) and edge.get("input") == "exec" \
+                and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
+            exec_out.setdefault(edge["from"], []).append(edge["to"])
+    seen: set[str] = set()
+    queue = [dst for src, kind in kinds.items() if kind in MISSION_GRAPH_AFTER_END_EVENTS
+             for dst in exec_out.get(src, [])]
+    while queue:
+        node_id = queue.pop()
+        if node_id in seen or node_id not in kinds:
+            continue
+        seen.add(node_id)
+        if kinds[node_id] in MISSION_GRAPH_END_MODULES:
+            errors.append(f"{where} {kinds[node_id]} {node_id!r} is reached after the mission ended "
+                          "(event.mission.completed or event.mission.continue)")
+        queue.extend(exec_out.get(node_id, []))
     return errors
 
 

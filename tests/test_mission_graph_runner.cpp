@@ -524,11 +524,19 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 		return out;
 	};
 	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == std::set<std::string>{ "event.objective.status_changed",
-		"event.mission.completed", "event.mission.continue" });
-	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == std::set<std::string>{ "gate.objective.status" });
+		"event.mission.completed", "event.mission.continue", "event.mission.phase_changed" });
+	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == std::set<std::string>{ "gate.objective.status",
+		"gate.mission.phase" });
 	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == std::set<std::string>{ "og.hud.objective_status_message",
-		"og.mission.start_next_stage", "og.mission.start_credits", "og.progress.unlock_alt_title" });
+		"og.mission.start_next_stage", "og.mission.start_credits", "og.progress.unlock_alt_title",
+		"og.mission.end_failed", "og.mission.end_completed" });
 	REQUIRE(runner.find("const char *const kObjectiveStatusEvent = \"event.objective.status_changed\";") != std::string::npos);
 	REQUIRE(runner.find("const char *const kObjectiveStatusGate = \"gate.objective.status\";") != std::string::npos);
+	// Mission flow slice 2 (mission-flow.md): the phase event and gate, and the
+	// two modules that end a mission.
+	REQUIRE(runner.find("const char *const kMissionPhaseEvent = \"event.mission.phase_changed\";") != std::string::npos);
+	REQUIRE(runner.find("const char *const kMissionPhaseGate = \"gate.mission.phase\";") != std::string::npos);
+	REQUIRE(modules.find("{ \"og.mission.end_failed\", s_runEndMissionFailed },") != std::string::npos);
+	REQUIRE(modules.find("{ \"og.mission.end_completed\", s_runEndMissionCompleted },") != std::string::npos);
 	REQUIRE(conformance.find("errors.extend(validate_mission_graph_execution(label, graph))") != std::string::npos);
 }

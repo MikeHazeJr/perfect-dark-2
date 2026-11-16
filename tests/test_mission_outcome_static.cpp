@@ -72,3 +72,41 @@ TEST_CASE("mission flow: required objectives are mission data and decide the out
 	REQUIRE(conformance.find("required belongs to the mission's objectives.json") != std::string::npos);
 	REQUIRE(conformance.find("objective's objectives.json row (mission-flow.md)") != std::string::npos);
 }
+
+TEST_CASE("mission flow: the phase reaches the graph and a graph can end the mission",
+          "[mission][objectives][missionflow]")
+{
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string modules = readSource("port/src/mission_graph_modules.c");
+	const std::string objectives = readSource("src/game/objectives.c");
+	const std::string player = readSource("src/game/player.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The phase event is delivered once per change, only from the
+	// objectives check, after the objectives' own events.
+	REQUIRE(runtime.find("if (phase < 0 || phase == s_ActiveScenarioGraphs.mission_phase_delivered) {") !=
+		std::string::npos);
+	REQUIRE(countOf(objectives, "scenarioSourceMissionGraphDeliverPhaseEvent();") == 1);
+	REQUIRE(countOf(runtime, "scenarioSourceMissionGraphDeliverPhaseEvent()") == 0);
+
+	// og.mission.end_*: the host decides, the first request wins, the outcome
+	// is then the graph's, and the stage ends outside the walk.
+	REQUIRE(modules.find("{ \"og.mission.end_failed\", s_runEndMissionFailed },") != std::string::npos);
+	REQUIRE(modules.find("{ \"og.mission.end_completed\", s_runEndMissionCompleted },") != std::string::npos);
+	REQUIRE(modules.find("if (g_NetMode == NETMODE_CLIENT) {") != std::string::npos);
+	REQUIRE(modules.find("if (completed && (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0)) {") !=
+		std::string::npos);
+	REQUIRE(runtime.find("if (s_ActiveScenarioGraphs.mission_forced_outcome) {\n\t\tsysLogPrintf(LOG_NOTE,\n"
+		"\t\t\t\"MISSION.GRAPH: og.mission.end_%s ignored:") != std::string::npos);
+	REQUIRE(objectives.find("if (scenarioSourceMissionGraphForcedOutcome(&forced_complete)) {\n"
+		"\t\treturn forced_complete != 0;") != std::string::npos);
+	REQUIRE(player.find("if (scenarioSourceMissionGraphTakePendingEnd() && debugAllowEndLevel()) {\n"
+		"\t\t\tfunc0000e990();") != std::string::npos);
+	// Never after the end: the runtime refuses the program, the checker too.
+	REQUIRE(runtime.find("\"og.mission.end_* runs on an objective or phase event, not after the mission ended\"") !=
+		std::string::npos);
+	REQUIRE(conformance.find("MISSION_GRAPH_AFTER_END_EVENTS = {\"event.mission.completed\", \"event.mission.continue\"}") !=
+		std::string::npos);
+	REQUIRE(conformance.find("MISSION_GRAPH_EXEC_GATES = {\"gate.objective.status\", \"gate.mission.phase\"}") !=
+		std::string::npos);
+}
