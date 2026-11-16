@@ -1,8 +1,8 @@
 # Bug Tracker
 
-## 2026-11-16 B-1271 Networked Hacker Central: a simulant holding the uplink stands by the terminal and never downloads (T-NETWORKING-011, open: cause found in the original's rule, fix waits for Mike)
+## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, open, intermittent: the original's rule; fix waits for Mike)
 
-Severity high for networked Hacker Central: no simulant scores. Seen in `mp_hacker_central_net_smoke` on binary
+Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
 a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
 uplink at 17.8 s, reached the terminal at 42.0 s (`HTM: player 2 download not facing the terminal at 42.0 s xz=240
 y=62 angle=171 weapon=2 action=44`, 240 units away, armed, facing away, still in `MA_AIBOTGOTOPROP`) and logged
@@ -32,7 +32,16 @@ the original's simulant behaviour: while in `MA_AIBOTDOWNLOAD` before its downlo
 the terminal (at its normal turning speed, about 1 s for half a turn), so it starts instead of standing. Recommended;
 the alternative is to leave the original rule, with a simulant sometimes standing at the terminal forever.
 
-## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed in code, not yet run)
+**Run on c35b35a2 (2026-11-16, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`): networked
+Hacker Central scored, so the deadlock is intermittent.** Simulant 3 took the uplink at 18.8 s and spent 46 s
+fetching items (`holds the uplink, not downloading (out of range) ... xz=545` to `2371 ... action=42`,
+`MA_AIBOTGETITEM`), went for the terminal (`action=44`), reached it at 65.1 s 230 units away facing it (4 degrees,
+still armed: `not holding the uplink`), was unarmed in `MA_AIBOTDOWNLOAD` 0.1 s later (`in progress ... weapon=1
+action=46`) and completed four downloads (85.2, 105.3, 125.3 and 145.3 s). The host and the client both rank it
+first with 8 points. As the cause says, it takes a simulant reaching range facing away (171 degrees in the a669d118
+run) to stand for good; the fix question for Mike stands.
+
+## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
 
 Severity critical for networked co-op and counter-op: the client crashes. Seen in `network_coop_deepsea_end_smoke`
 on binary a669d118 (base 7, `results-20261116T173916Z.json`, 116/126): as the intro cutscene ended, the client read
@@ -59,6 +68,12 @@ the host sends: `prop->obj` shares storage with `prop->chr`, so a row whose id n
 object fields into the chr. Pinned by `[b1270]` in `tests/test_net_mission_end_static.cpp`. Not changed: the
 bot-authority stub update (`netmsgClcBotMoveRead`, a stub with no room registration) and the reconnect
 snapshot paths, which keep their own staged registration.
+
+**Checked in play (c35b35a2, base 7, `network_coop_deepsea_end_smoke` 126/126, `results-20261116T195117Z.json`):**
+the client read the same removal at 75.3 s (`client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the
+host removed it)`) and one more in Defense (`syncid=147 chrnum=56`), and played on to the end screen and a clean exit
+(`MEMPC [shutdown]: all 5 allocations intact`); no fatal in either process. The reconnect snapshot's prop state
+(`netmsgSvcReconnectPropStateRead`) uses `propSetRooms` too since ae1fa9fd (SP-92 audit).
 
 ## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed in code, not yet run)
 
@@ -110,7 +125,7 @@ seam's twin: the same ordinary send at the PREPARING boundary with nothing chang
 
 **Checked in play (a669d118, base 7):** `ready_gate_settings_repeat_smoke` (`results-20261116T170717Z.json`): `NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published`, then the match started on both machines; its one failure was the smoke's own step order (the stage start logs two lines before the rollback snapshot release), fixed in 746d79a7. `network_coop_mission_end_smoke` passed 130/130 (`results-20261116T171610Z.json`).
 
-## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed; checked in play locally; networked: B-1271)
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed; checked in play locally and networked)
 
 Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
 contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
@@ -147,7 +162,11 @@ case stays as it is. Pinned by `[b1207]` in `tests/test_net_bot_pickup_static.cp
 
 **Checked in play locally (a669d118, base 7):** `mp_hacker_central_local_smoke` 32/32 (`results-20261116T174929Z.json`): a simulant reached the terminal, turned and unarmed in 0.3 s, and completed three downloads (`HTM: player 3 download complete at 99.7 s points=1`, then 119.8 and 139.8 s; score 6), with no stuck relocation. Networked, a simulant still scores nothing, for another reason: B-1271.
 
-## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, snapshot sweep checked in play; the removal message now reaches the client, which exposed B-1270)
+**Networked, checked in play (c35b35a2, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`):**
+simulant 3's downloads ran to completion on the host four times, with no watchdog move, and the host and the client
+results both show its 8 points. A simulant that reaches range facing away still stands for good: B-1271.
+
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed; snapshot sweep and removal message checked in play, the second once B-1270 was fixed)
 
 Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
 the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20

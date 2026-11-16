@@ -3990,7 +3990,7 @@ across the authority publish and append them after the authority packet (same
 reliable channel, so ENet keeps the order), discarding only the unreliable
 buffer.
 
-**Class fix (ded9b22f, 2026-11-16, not yet run; CORE agreed the change and
+**Class fix (ded9b22f, 2026-11-16, checked in play on c35b35a2; CORE agreed the change and
 gave it to MULTIPLAYER, week note 17:04 UTC):** on (3), `netEndFrame` holds
 the tick's reliable bytes (`netServerAuthorityHoldReliable`) and, once the
 authority packet is out, puts them first in the frame's reliable buffer
@@ -4003,6 +4003,9 @@ emptied only after what was put back went out
 full hold (64 KB) drops with a `NET.SP91` warning. (1) and (2) are unchanged.
 Log: `NET.SP91: held N game-tick bytes`, `NET.SP91: N held game-tick bytes go
 out`. Pinned by `[sp91]` in `tests/test_net_mission_end_static.cpp`.
+In play (c35b35a2, base 7): every cutscene authority frame held the
+tick's bytes and sent them right after its packet (co-op Deep Sea end 34
+and 106 bytes, co-op mission end 5 and 98, counter-op mission end 5).
 
 **Rules:**
 - A one-shot reliable message the host decides in the game tick is queued and
