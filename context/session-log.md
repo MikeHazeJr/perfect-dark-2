@@ -1,6 +1,6 @@
 # Session Log (Active)
 
-2026-11-16 (23:24 ET) MULTIPLAYER, continued. Turn on b2a2a720 (base 7): Capture the Case carrier death 102/102
+2026-11-16 (18:24 ET) MULTIPLAYER, continued. Turn on b2a2a720 (base 7): Capture the Case carrier death 102/102
 (new smoke, port 27268; B-1272 now checked for all three token modes), counter-op agent death 132/132 (spec count
 fixed), co-op mission end 22/130 for no game reason: a machine-wide stall during the host's intro-skip hold meant no
 frame saw the 650 ms skip threshold before the harness released it (it ticks at the top of the frame, before the game
