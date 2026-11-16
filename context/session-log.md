@@ -1,5 +1,26 @@
 # Session Log (Active)
 
+2026-11-16 (04:10 ET) MULTIPLAYER, continued. All pushed (head 80bf07b5). Turn q_20261116064525787_3b2798fb on
+340eca64, base 7: Combat net with simulants 70/70 and Hold the Briefcase net 84/84, with the B-1202 once-per-frame
+line on host and client. Hacker Central local, Capture the Case local and Combat score-limit local each crashed
+0.03 s into boot. Cause, B-1203: the runner's single-process launch passes --savedir only under -ReuseInstallId,
+so 81 fixtures without --portable/--savedir (my mp_*_local smokes among them) ran on Mike's real profile all week,
+for every session. B-1124's record had said the opposite; it is corrected. CORE's stage_sky_depth_defection
+rewrote the real bindings file at 07:19:35Z with all 123 action rows, and this branch still lacked B-1184
+(CRYSTAL's names for actions 105-120), so its loader read a NULL name. Fixes: run.ps1 adds --portable to such a
+launch (fdfd1b5a, pinned by test_runner_isolates_single_process; CORE, the runner owner, may take it or redo it);
+SP-90 claims the class; nothing in the real profile was touched (Mike's call). Merged dev 841650c7 (b2c33604):
+B-1184 comes in, and the wire is v64 (my v62 renumbered after CRYSTAL's v63, in net.h, the version pin, two
+static pins, the code notes and constraints.md). There were two merge bases, and every line either side added is
+present apart from the renumbering. pd-tests 2031 cases pass. Open bug, not yet filed: in networked Hold the Briefcase
+no simulant fetched the case in 150 s (base 3 and base 7; DY357 rolled both times), while the local base-3 run
+took it at 11 s from a spawn beside it. 80bf07b5 adds BOT.TEAM, BOT.CMD and BOT.GOAL log lines (log only) to
+show which step fails. Queued on frozen binary 4ec6444d: q_20261116091034575_99b56360 (HTB local and net) and
+q_20261116091036044_6514de17 (the three local smokes again, now --portable). CORE answered: local co-op Deep Sea
+is never reached, in the original either; the networked Next Mission is the path that matters. Next: read the
+goal lines and fix the networked case fetch; then the base-7 reconnect, rematch and co-op turns; CORE's review of
+SP-87 (b); Mike's open questions (Challenges and presets in the Room, a co-op drop, the co-op AI buddy).
+
 2026-11-16 (02:05 ET) MULTIPLAYER, continued. All pushed (head ba2517fd). Two game turns on binary c5a12bca (c3d737c3),
 all PASS: co-op Return to Room 129/129 (B-1201 fixed in play; the host's whole co-op end flow now passes) and simulant
 types net 107/107 (B-1194 fixed in play: no skipped pickup, 16 disarm drops announced; B-1202's repeat-pass line seen),
