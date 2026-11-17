@@ -62,38 +62,26 @@
       "comment": "On the PD logo (the legal, Rare and Nintendo screens take about 12.6 s): leave the title for Agent Select."
     },
     {
-      "at_ms": 16000,
+      "at_ms": 17000,
       "type": "wait_until",
       "condition": "agent_select_ready",
       "timeout_ms": 120000,
       "stable_ms": 1000,
-      "comment": "Agent Select is the current menu and takes input."
+      "comment": "Agent Select is the current menu and takes input. One second after the tap: a wait cannot begin while a tap is still held (pending_tap)."
     },
     {
-      "at_ms": 18000,
+      "at_ms": 19000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Activate the only staged JSON profile and enter the live Main Menu."
     },
     {
-      "at_ms": 28000,
+      "at_ms": 29000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap",
       "comment": "Clamp restored Main Menu focus to the first Play row without assuming persisted cursor state."
-    },
-    {
-      "at_ms": 28500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 29000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
     },
     {
       "at_ms": 29500,
@@ -144,28 +132,40 @@
       "action": "tap"
     },
     {
+      "at_ms": 33500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
       "at_ms": 34000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 35000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Main Menu Play accept."
     },
     {
-      "at_ms": 36000,
+      "at_ms": 37000,
       "type": "action",
       "name": "ACTION_MENU_DOWN",
       "action": "tap",
       "comment": "Move from Solo Missions to Combat Simulator in the Play subview."
     },
     {
-      "at_ms": 37000,
+      "at_ms": 38000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Open the real offline Room; it opens on the Campaign tab and its one-shot Start Match fires once that tab is shown."
     },
     {
-      "at_ms": 38000,
+      "at_ms": 39000,
       "type": "wait_until",
       "condition": "offline_gameplay_ready",
       "timeout_ms": 180000,
@@ -176,7 +176,7 @@
       "comment": "The co-op mission live and controllable, with one bounded Skip if the authored intro owns input."
     },
     {
-      "at_ms": 39000,
+      "at_ms": 40000,
       "type": "wait_until",
       "condition": "endscreen_visible",
       "timeout_ms": 120000,
@@ -184,7 +184,7 @@
       "comment": "The results, after --debug-end-mission ends the mission at 40 s."
     },
     {
-      "at_ms": 43000,
+      "at_ms": 44000,
       "type": "exit",
       "comment": "Scripted clean exit 4 s (script time) after the results."
     }
@@ -239,7 +239,9 @@
       "ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
-      "SMOKE: result=wait_timeout"
+      "SMOKE: result=wait_timeout",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

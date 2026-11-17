@@ -187,6 +187,8 @@
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id",
       "prop with syncid .* does not exist",
       "SVC_NPC_SYNC checksum mismatch",
       "SVC_NPC_SYNC snapshot mismatch",

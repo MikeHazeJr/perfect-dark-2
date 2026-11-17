@@ -109,7 +109,9 @@
       "PLAYER\\.INIT\\.PREFLIGHT roster=reject",
       "EXCEPTION_ACCESS_VIOLATION",
       "ACCESS_VIOLATION",
-      "FATAL: "
+      "FATAL: ",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

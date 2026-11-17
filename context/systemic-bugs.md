@@ -4401,6 +4401,9 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
 - [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
   for SVC_PROP_SPAWN's weapon and object models; its first run found B-1273.
 - [ ] Object models in SVC_PROP_SPAWN (thrown laptops and other spawned objects): watch the warning.
+- [x] Co-op and counter-op missions (B-1275, 2026-11-17): their manifest listed no weapons at all; a mission's
+  loadout and items reached clients as unarmed. Every base weapon is listed now, and the co-op and counter-op
+  net smokes forbid the warning.
 
 ---
 

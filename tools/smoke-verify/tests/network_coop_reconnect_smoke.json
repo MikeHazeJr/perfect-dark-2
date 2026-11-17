@@ -59,7 +59,8 @@
           "PLAYER\\.INIT\\.COMMIT reconnect client=[0-9]+ player=1 ",
           "BOOT: --debug-end-mission ending stage=0x[0-9a-f]+ result=complete",
           "GAMELOOP\\.COOP: endscreenPushCoop entry playernum=0 ",
-          "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+          "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+          "MANIFEST-HOST: mission weapons listed=[1-9][0-9]*"
         ],
         "required_sequences": [
           {
@@ -162,7 +163,9 @@
       "NET\\.NPC: client could not make the host's chr",
       "NET\\.NPC: client has no chr for syncid=",
       "SAVE: Agent Profile serialization failed",
-      "PLAYER\\.INIT\\.ROLLBACK"
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

@@ -10,7 +10,7 @@ processes waited for `network_stage_live` from boot with 220 s, and the host sta
 and passed narrowly. Fix: both first waits 300 s, test timeout 420 s (schedule bound 368 s). Other network fixtures
 with shorter first stage waits wait for `network_listen_ready` first, so the boot is not on their clock.
 
-## 2026-11-17 B-1275 A co-op client's rejoin is refused at the end of the reconnect prop set (T-NETWORKING-007 S2, open; diagnostics added)
+## 2026-11-17 B-1275 A co-op client's rejoin is refused at the end of the reconnect prop set (T-NETWORKING-007 S2, cause found, fixed in code, not yet run)
 
 Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin). First run of `network_coop_reconnect_smoke`
 (47/52, `results-20261117T103226Z.json`): the host parked the timed-out partner (S1), un-parked it at the same spot
@@ -19,6 +19,20 @@ matching the host's `prop=295 dynamic_prop=2`) and rejected `SVC_RECONNECT_PROP_
 so it disconnected with no retry and the host parked it again. `netmsgSvcReconnectPropEndRead` has eleven rejections
 and logged none. No chr was made after the stage start on the host (no `NET.NPC: host announced` line). Each
 rejection now logs `NET.RECONNECT.WORLD end rejected reason=<check> slot= syncid= a= b=`; the next run names it.
+
+Cause, from the rerun (`results-20261117T141505Z.json`): `reason=dual_weapon slot=270 syncid=271 a=272 b=271`,
+and SP-93 again. The host logged `NET: weapon 3 ('base:falcon2_silencer') has no session catalog id`, and the same
+for the comms rider (53), the tracer bug (54), the laptop gun (14) and the silenced Falcon's model (251), in every
+co-op and counter-op run today. A co-op or counter-op lobby start lists the stage, the players and the host's base
+set, but no weapons, while the mission names its own: the starting loadout, the guards' guns, the items a level
+script hands out. The reconnect snapshot names a weapon prop and its dual partner by session id, so on the client a
+pair of silenced Falcons came back as unarmed with no partner number, and the dual check refused the whole set. The
+same gap made any mission weapon a client receives by id (a drop, a spawn) unarmed.
+
+Fix: the co-op and counter-op lobby start lists every base weapon (`netLobbyManifestAppendMissionWeapons`,
+`MANIFEST-HOST: mission weapons listed=N`; a mod's custom weapon stays out, it is not on every client); their world
+models follow (B-1273). Every co-op and counter-op net smoke now forbids both session-id warnings. Pinned by
+`[b1275]` in `tests/test_net_mission_end_static.cpp`. SP-93.
 
 ## 2026-11-17 B-1274 Networked co-op and counter-op run as a Combat Simulator match: no objective checks during the mission, no co-op AI branches (T-NETWORKING-007, fixed in code on week-pd/multiplayer-coop, not yet run)
 

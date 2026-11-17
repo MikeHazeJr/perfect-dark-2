@@ -918,3 +918,28 @@ TEST_CASE("co-op rejoin (S2): a parked partner comes back alive where it was, be
 	}
 	REQUIRE(fn.find("if (!player->parkedwashidden) {") != npos);
 }
+
+TEST_CASE("B-1275: a co-op or counter-op lobby start lists every base weapon the mission can name",
+          "[net][coop][counterop][sp93][b1275]") {
+	const size_t npos = std::string::npos;
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+
+	// The list: every base weapon with a catalog id; no mod custom weapon
+	const std::string fn = function_body(netmsg,
+		"static bool netLobbyManifestAppendMissionWeapons(match_manifest_t *manifest)\n{");
+	REQUIRE(fn.find("for (s32 weaponnum = WEAPON_UNARMED + 1; weaponnum < WEAPON_CUSTOM_START; weaponnum++) {") != npos);
+	REQUIRE(fn.find("catalogWeaponIdByRuntimeWeaponNum(weaponnum)") != npos);
+	REQUIRE(fn.find("manifestAppendCatalogClosure(manifest, id, MANIFEST_SLOT_MATCH)") != npos);
+	REQUIRE(fn.find("\"MANIFEST-HOST: mission weapons listed=%d\"") != npos);
+
+	// The lobby start lists them for every mode but the Combat Simulator,
+	// before the weapon world models are added
+	const std::string write = function_body(netmsg,
+		"static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,");
+	const size_t mission = write.find("} else if (!netLobbyManifestAppendMissionWeapons(&plan->manifest)) {");
+	const size_t models = write.find("if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {");
+	REQUIRE(mission != npos);
+	REQUIRE(models != npos);
+	REQUIRE(mission < models);
+	REQUIRE(write.rfind("if (gamemode == NETGAMEMODE_MP) {", mission) != npos);
+}

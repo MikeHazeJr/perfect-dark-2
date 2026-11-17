@@ -10611,6 +10611,35 @@ static bool netLobbyStartWriteReject(const char *detail)
 	return false;
 }
 
+/* B-1275 (SP-93): a co-op or counter-op mission names its own weapons on the
+ * wire: the starting loadout, the guards' guns, the items a level script hands
+ * out. Their numbers come from the mission, not from a weapon set, so on
+ * Defection the Falcon 2 (silencer), comms rider, tracer bug and laptop gun had
+ * no session catalog id; a client read them as unarmed, and a co-op rejoin was
+ * refused when two silenced Falcons came back as a broken dual pair. List
+ * every base weapon (a mod's custom weapon is not on every client, so it stays
+ * out); their world models follow in netLobbyManifestAppendWeaponModels. */
+static bool netLobbyManifestAppendMissionWeapons(match_manifest_t *manifest)
+{
+	s32 listed = 0;
+
+	for (s32 weaponnum = WEAPON_UNARMED + 1; weaponnum < WEAPON_CUSTOM_START; weaponnum++) {
+		const char *id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+
+		if (!id || !id[0]) {
+			continue;
+		}
+		if (!manifestAppendCatalogClosure(manifest, id, MANIFEST_SLOT_MATCH)) {
+			sysLogPrintf(LOG_ERROR,
+				"MANIFEST-HOST: mission weapon %d '%s' could not be listed", weaponnum, id);
+			return false;
+		}
+		listed++;
+	}
+	sysLogPrintf(LOG_NOTE, "MANIFEST-HOST: mission weapons listed=%d", listed);
+	return true;
+}
+
 /* B-1273 (SP-93): a weapon prop sent to clients (a dying simulant's or
  * player's drop, a reconnect snapshot) names its world model by session catalog
  * id, and the reader builds the prop with model 0 (the roof gun) when the id is
@@ -11014,6 +11043,9 @@ static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 					"host manifest cannot publish bot closure");
 			}
 		}
+	} else if (!netLobbyManifestAppendMissionWeapons(&plan->manifest)) {
+		return netLobbyStartWriteReject(
+			"host manifest cannot publish the mission's weapons");
 	}
 	if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {
 		return netLobbyStartWriteReject(
