@@ -93,6 +93,9 @@
       "SMOKE\\.GIVE_WEAPON: weapon=base:dragon weaponnum=[0-9]+ result=1",
       "PROJECTILE\\.EVENT: spawned weapon=base:grenade func=primary object=base:grenade projectile=base:[a-z0-9_]+ ",
       "PROJECTILE\\.EVENT: detonated weapon=base:grenade func=primary ",
+      "PROJECTILE\\.RULE: timer_expired weapon=base:grenade func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
+      "PROJECTILE\\.RULE: timer_expired weapon=base:rocketlauncher func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
+      "PROJECTILE\\.RULE: timer_expired weapon=base:timedmine func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
       "PROJECTILE\\.EVENT: spawned weapon=base:grenade func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:nbomb func=primary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:rocketlauncher func=primary object=base:[a-z0-9_]+ ",
@@ -112,7 +115,7 @@
       "PROJECTILE\\.EVENT: spawned weapon=base:laptopgun func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:superdragon func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:dragon func=secondary ",
-      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]* fuse\\.compared=[0-9]+ fuse\\.differ=0",
+      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]* fuse\\.compared=[1-9][0-9]* fuse\\.differ=0",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -122,6 +125,8 @@
       "SMOKE: result=timeout",
       "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
       "PROJECTILE\\.EVENT: spawned weapon=base:slayer func=secondary [^\\n]*flags=0x[0-9a-f]{5}[89a-f][0-9a-f]{2}",
+      "PROJECTILE\\.RULE: timer_expired [^\\n]*fuse=0",
+      "program refused",
       "ASSET\\.FALLBACK",
       "LOUDFAIL\\.FALLBACK"
     ]

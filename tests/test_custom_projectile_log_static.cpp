@@ -89,6 +89,16 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(events.find("strcmp(kind, \"og.projectile.fuse_expired\") == 0") != std::string::npos);
 	REQUIRE(events.find("return 1; /* a v1 archive: the native rule decides */") != std::string::npos);
 	REQUIRE(events.find(" fuse.compared=%d fuse.differ=%d") != std::string::npos);
+
+	// Step 4: every base projectile and entity archive is v2 with its fuse
+	// wired, behind the weapon cache kind.
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(countOf(extractor, "\"  \\\"schema\\\": \\\"pd.projectile_graph.v2\\\",\\n\"") == 1);
+	REQUIRE(countOf(extractor, "\"  \\\"schema\\\": \\\"pd.entity_graph.v2\\\",\\n\"") == 1);
+	REQUIRE(countOf(extractor, "{ \\\"id\\\": \\\"fuse\\\", \\\"kind\\\": \\\"event.projectile.timer_expired\\\" }") == 2);
+	REQUIRE(countOf(extractor, "{ \\\"id\\\": \\\"fuse_expired\\\", \\\"kind\\\": \\\"og.projectile.fuse_expired\\\" }") == 2);
+	REQUIRE(countOf(extractor, "{ \\\"from\\\": \\\"fuse\\\", \\\"output\\\": \\\"out\\\", \\\"to\\\": \\\"fuse_expired\\\", \\\"input\\\": \\\"exec\\\" }") == 2);
+	REQUIRE(extractor.find("_projref_fuseprogram\"") != std::string::npos);
 }
 
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")

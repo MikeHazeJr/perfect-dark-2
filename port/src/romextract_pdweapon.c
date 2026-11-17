@@ -44,7 +44,9 @@
 #include "animdata_authored.h"
 
 #define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v15"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref"
+/* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
+ * fuse wired (projectile-events.md slice 2), so installs re-extract them. */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1829,10 +1831,12 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
 	}
 
+	/* projectile-events.md slice 2: v2, the records plus the program that
+	 * decides the fuse; the base archive wires the original fuse. */
 	char graph[4096];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
-		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"schema\": \"pd.projectile_graph.v2\",\n"
 		"  \"asset_id\": \"%s\",\n"
 		"  \"graph_id\": \"base_projectile_payload_v1\",\n"
 		"  \"nodes\": [\n"
@@ -1863,10 +1867,13 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"        \"powered\": %s,\n"
 		"        \"calculate_trajectory\": %s\n"
 		"      }\n"
-		"    }%s%s%s%s\n"
+		"    }%s%s%s%s,\n"
+		"    { \"id\": \"fuse\", \"kind\": \"event.projectile.timer_expired\" },\n"
+		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }\n"
 		"  ],\n"
 		"  \"edges\": [\n"
-		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s\n"
+		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s,\n"
+		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"%s\" }\n"
@@ -1974,10 +1981,12 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 	else if (strstr(archetype, "timed")) entity_kind = "entity.timed_detonatable";
 	else if (strstr(archetype, "storm")) entity_kind = "entity.nbomb_storm";
 
+	/* projectile-events.md slice 2: v2, the record plus the program that
+	 * decides a deployed item's fuse; the base archive wires the original. */
 	char graph[4096];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
-		"  \"schema\": \"pd.entity_graph.v1\",\n"
+		"  \"schema\": \"pd.entity_graph.v2\",\n"
 		"  \"asset_id\": \"%s\",\n"
 		"  \"graph_id\": \"base_entity_payload_v1\",\n"
 		"  \"nodes\": [\n"
@@ -1994,9 +2003,13 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"        \"flags\": %u,\n"
 		"        \"runtime_detail\": \"module adapter extracts current C constants\"\n"
 		"      }\n"
-		"    }\n"
+		"    },\n"
+		"    { \"id\": \"fuse\", \"kind\": \"event.projectile.timer_expired\" },\n"
+		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }\n"
 		"  ],\n"
-		"  \"edges\": [],\n"
+		"  \"edges\": [\n"
+		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }\n"
+		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"entity_behavior\" }\n"
 		"  ]\n"
