@@ -4264,6 +4264,12 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
 	u32 bytesremaining = gdlbytes;
 	u32 commandsseen = 0;
 	bool bounded = gdlbytes > 0;
+	// The memory this walk has found readable so far. The walk checks every
+	// native command and every vertex batch before it reads them; asking the
+	// operating system each time cost a system call per command and per
+	// triangle (B-1234), so the checks share this span and ask once per run
+	// of readable memory. It lives for this one walk only.
+	model_rodata_span_t readable = { 0, 0 };
 
 	intersectsbbox = false;
 
@@ -4282,7 +4288,7 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
 					"native_command_cap");
 				break;
 			}
-			if (!modelRodataIsReadable(gdl, sizeof(Gfx))) {
+			if (!modelRodataIsReadableInSpan(&readable, gdl, sizeof(Gfx))) {
 				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl, 0,
 					"native_unreadable_command");
 				break;
@@ -4339,7 +4345,8 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
 			}
 			vertexaddr -= (uintptr_t)count * sizeof(Vtx);
 			vertexbytes = (size_t)numvertices * sizeof(Vtx);
-			if (!modelRodataIsReadable((const void *)vertexaddr, vertexbytes)) {
+			if (!modelRodataIsReadableInSpan(&readable,
+					(const void *)vertexaddr, vertexbytes)) {
 				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
 					bytesremaining, "vertex_data_unreadable");
 				break;
@@ -4635,6 +4642,11 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 	u32 bytesremaining = gdlbytes;
 	u32 commandsseen = 0;
 	bool bounded = gdlbytes > 0;
+	// The memory this walk has found readable so far: one question to the
+	// operating system per run of readable memory, not one per command and
+	// per vertex batch (B-1234; see the object walker above). It lives for
+	// this one walk only.
+	model_rodata_span_t readable = { 0, 0 };
 
 	spdc = 16;
 	spd8 = 0;
@@ -4658,7 +4670,7 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 					"native_command_cap");
 				break;
 			}
-			if (!modelRodataIsReadable(gdl, sizeof(Gfx))) {
+			if (!modelRodataIsReadableInSpan(&readable, gdl, sizeof(Gfx))) {
 				bgHitGdlLogReject("bgTestHitOnChr", model, gdl, 0,
 					"native_unreadable_command");
 				break;
@@ -4711,7 +4723,8 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 			}
 			vertexaddr = (uintptr_t)vertices + word;
 			vertexbytes = (size_t)numvertices * sizeof(Vtx);
-			if (!modelRodataIsReadable((const void *)vertexaddr, vertexbytes)) {
+			if (!modelRodataIsReadableInSpan(&readable,
+					(const void *)vertexaddr, vertexbytes)) {
 				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
 					bytesremaining, "vertex_data_unreadable");
 				break;

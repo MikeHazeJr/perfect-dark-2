@@ -14405,7 +14405,13 @@ TEST_CASE("source-generated hit tests carry exact owned display-list spans",
 	REQUIRE(!bounded_walker.empty());
 	REQUIRE(bounded_walker.find("generated_span_exhausted_before_enddl") !=
 	        std::string::npos);
-	REQUIRE(bounded_walker.find("modelRodataIsReadable(gdl, sizeof(Gfx))") !=
+	// The native walk still checks every command before it reads it. The
+	// check shares one span per walk so that it asks the operating system
+	// once per run of readable memory and not once per command (B-1234).
+	REQUIRE(bounded_walker.find(
+		"modelRodataIsReadableInSpan(&readable, gdl, sizeof(Gfx))") !=
+	        std::string::npos);
+	REQUIRE(bounded_walker.find("model_rodata_span_t readable = { 0, 0 };") !=
 	        std::string::npos);
 	REQUIRE(bounded_walker.find("BG_HIT_GDL_NATIVE_COMMAND_CAP") !=
 	        std::string::npos);
@@ -14419,7 +14425,10 @@ TEST_CASE("source-generated hit tests carry exact owned display-list spans",
 	REQUIRE(bounded_obj_walker.find(
 		"generated_span_exhausted_before_enddl") != std::string::npos);
 	REQUIRE(bounded_obj_walker.find(
-		"modelRodataIsReadable(gdl, sizeof(Gfx))") != std::string::npos);
+		"modelRodataIsReadableInSpan(&readable, gdl, sizeof(Gfx))") !=
+		std::string::npos);
+	REQUIRE(bounded_obj_walker.find(
+		"model_rodata_span_t readable = { 0, 0 };") != std::string::npos);
 	REQUIRE(bounded_obj_walker.find("BG_HIT_GDL_NATIVE_COMMAND_CAP") !=
 		std::string::npos);
 	REQUIRE(bounded_obj_walker.find("bytesremaining = gdl2bytes") !=

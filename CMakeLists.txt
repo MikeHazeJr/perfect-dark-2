@@ -1127,6 +1127,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_body_blood.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_tool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_seats.cpp
+  # The readable-memory probe and one walk's span of it (B-1234).
+  ${CMAKE_SOURCE_DIR}/port/src/model_rodata_guard.c
+  ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
