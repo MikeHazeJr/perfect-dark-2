@@ -841,6 +841,31 @@ void mainTick(void)
 		(void)bootLaunchMpMatchTick();
 	}
 
+	/* T-NETWORKING-011: --launch-challenge one-shot, same readiness gate. */
+	{
+		extern s32 bootLaunchChallengeTick(void);
+		(void)bootLaunchChallengeTick();
+	}
+
+	/* T-NETWORKING-011 (finding 3): --debug-face-nearest-bot turns the local
+	 * player toward the nearest simulant every frame of a match. */
+	{
+		extern s32 bootDebugFaceNearestBotTick(void);
+		(void)bootDebugFaceNearestBotTick();
+	}
+
+	/* B-1193: --debug-end-mission ends a mission on the host or offline. */
+	{
+		extern s32 bootDebugEndMissionTick(void);
+		(void)bootDebugEndMissionTick();
+	}
+
+	/* B-1196: --debug-clone-guard clones a guard on the host or offline. */
+	{
+		extern s32 bootDebugCloneGuardTick(void);
+		(void)bootDebugCloneGuardTick();
+	}
+
 	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
 	 * Marks a fully validated deterministic kill matrix ready only after a
 	 * live offline match reaches its configured frame. mpEndMatch commits the
@@ -1190,6 +1215,12 @@ void mainTick(void)
 	}
 }
 
+/* B-1198: set while netDisconnect ends a networked stage it is leaving: the
+ * stage goes straight to CI, so no mission results are pushed (they flashed up
+ * for both players, as g_NetMode was already NETMODE_NONE, and tried to save
+ * the agent's progress for a mission nobody finished). */
+static s32 s_MainEndStageWithoutResults = 0;
+
 void mainEndStage(void)
 {
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
@@ -1202,11 +1233,25 @@ void mainEndStage(void)
 		pak0f11c6d0();
 		joyDisableTemporarily();
 
-		if (g_Vars.coopplayernum >= 0) {
+		if (s_MainEndStageWithoutResults
+				&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0
+					|| !g_Vars.normmplayerisrunning)) {
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP: stage ended by a disconnect; no mission results (coop=%d anti=%d)",
+				(s32)g_Vars.coopplayernum, (s32)g_Vars.antiplayernum);
+		} else if (g_Vars.coopplayernum >= 0) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			s32 i;
 
 			for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+				/* B-1193: in a networked mission each machine shows only its
+				 * own player's results; the other player's are shown on its
+				 * machine. isremote is per machine and still set here (the
+				 * host's stage end commit below does not clear it for co-op). */
+				if (g_NetMode != NETMODE_NONE && g_Vars.players[i]
+						&& g_Vars.players[i]->isremote) {
+					continue;
+				}
 				setCurrentPlayerNum(i);
 				endscreenPushCoop();
 			}
@@ -1218,6 +1263,11 @@ void mainEndStage(void)
 			s32 i;
 
 			for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+				/* B-1193: as for co-op, only this machine's own player. */
+				if (g_NetMode != NETMODE_NONE && g_Vars.players[i]
+						&& g_Vars.players[i]->isremote) {
+					continue;
+				}
 				setCurrentPlayerNum(i);
 				endscreenPushAnti();
 			}
@@ -1236,6 +1286,14 @@ void mainEndStage(void)
 	}
 
 	g_MainIsEndscreen = 1;
+}
+
+/* B-1198: netDisconnect's stage end (see s_MainEndStageWithoutResults). */
+void mainEndStageWithoutResults(void)
+{
+	s_MainEndStageWithoutResults = 1;
+	mainEndStage();
+	s_MainEndStageWithoutResults = 0;
 }
 
 /**

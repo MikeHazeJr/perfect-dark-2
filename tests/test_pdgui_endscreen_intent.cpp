@@ -128,7 +128,10 @@ TEST_CASE("Production results callers capture owned Back and defer one graph dis
         REQUIRE(body.rfind("pdguiSetPalette(prevPalette);") < dispatch);
         REQUIRE(body.find("menuGraphFire") > dispatch);
         REQUIRE(body.find("pdguiNavSuppressActivation();", dispatch) < body.find("menuGraphFire"));
-        REQUIRE(occurrences(body, "menuGraphFire") == 3);
+        // B-1193: the solo renderer also serves a networked mission's Return
+        // to Room and Disconnect
+        REQUIRE(occurrences(body, "menuGraphFire")
+            == (std::string(signature) == "static void renderSoloEndscreen(" ? 5 : 3));
     }
     const auto solo = functionBody(source, "static void renderSoloEndscreen(");
     REQUIRE(solo.find("completed ? PdguiEndscreenIntent::MainMenu") != std::string::npos);

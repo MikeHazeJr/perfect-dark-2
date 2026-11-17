@@ -10,12 +10,22 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 63  /* v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
+#define NET_PROTOCOL_VER 64  /* v64 (2026-11-16, MULTIPLAYER; numbered v62 on
+                             * week-pd/multiplayer and renumbered when dev's
+                             * v63 merged in, so no released build ever spoke
+                             * v62): SVC_SCENARIO_STATE, host-authoritative
+                             * objective scenario state in the stage baseline
+                             * and on every change (every objective scenario;
+                             * net_scenario_state_wire.h); SVC_BOT_PICKUP, a
+                             * simulant's pickup as the host decided it, and
+                             * simulant drops announced with SVC_PROP_SPAWN;
+                             * SVC_MISSION_RETURN and SVC_MISSION_STATS
+                             * (B-1193, the host's mission end); SVC_NPC_SPAWN
+                             * and SVC_NPC_REMOVE (B-1196, B-1206, a co-op or
+                             * counter-op chr the host made or removed).
+                             * v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
                                carry a mod gun's roll input so every peer
                                rolls it and the host fans a charge with it.
-                               (v62 is MULTIPLAYER's SVC_SCENARIO_STATE on
-                               week-pd/multiplayer; whichever merges second
-                               renumbers.)
                              * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include
@@ -352,6 +362,7 @@ _Static_assert(NET_MAX_CLIENTS < NET_NULL_CLIENT,
 #define NET_RESYNC_FLAG_PROPS  (1 << 1)
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
+#define NET_RESYNC_FLAG_SCENARIO (1 << 4) /* v64: objective scenario state */
 
 extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
 extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */
@@ -433,6 +444,9 @@ extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 extern u8 g_NetCounterOpClientId; /* NET_NULL_CLIENT when not in Counter-Op */
+/* B-1193: the counter-op client of the room's last mission, kept past its stage
+ * end so the host's Next Mission or Retry can start the same roles again. */
+extern u8 g_NetLastCounterOpClientId;
 extern u8 g_NetMatchRoomId; /* 0xFF = lounge/global scope, otherwise exact room */
 extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delegated */
 
@@ -547,6 +561,9 @@ struct netclient {
 	s32 reconnect_resync_pending; /* v57: stage queued; exact state waits for post-load READY */
 	s32 reconnect_gameplay_witness_pending; /* v57: next accepted fire move proves restored authority use */
 	s32 stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
+	/* server: this player is still on its results screen after the room's
+	 * last match (B-1190, shown in the lobby as "reviewing match stats") */
+	s32 reviewing_results;
 	s32 is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
 	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
 
@@ -669,6 +686,8 @@ s32 netServerStageStart(void);
 s32 netServerCoopStageStart(u8 stagenum, u8 difficulty);
 void netServerStageEnd(void);
 void netServerKick(struct netclient *cl, const u32 reason);
+/* B-1206: queue a co-op or counter-op chr's removal for the frame's broadcast */
+void netServerNpcRemoveQueue(struct chrdata *chr);
 
 struct netclient *netClientForPlayerNum(s32 playernum);
 
@@ -690,6 +709,11 @@ enum net_player_allocate_result {
 enum net_player_allocate_result netPlayersAllocate(
 	struct player *const *candidates, s32 candidate_count);
 const char *netPlayerAllocateResultString(enum net_player_allocate_result result);
+
+/* B-1127: a character slot as the host numbers it, translated to this peer's
+ * own numbering (a client runs itself as player 0; see net.c). Its own
+ * inverse; the identity on the host, offline and for simulant slots. */
+s32 netChrSlotFromHost(s32 slot);
 void netSyncIdsAllocate(void);
 
 void netServerPreservePlayer(struct netclient *cl);

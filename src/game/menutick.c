@@ -756,6 +756,28 @@ void menuTick(void)
 		}
 	}
 
+	/* T-NETWORKING-011 (B-1190): the end of a match pushes its end screen only
+	 * once no dialog is open; name the dialog that holds it back, once per wait. */
+	{
+		static s32 s_MatchEndWaitLogged = 0;
+
+		if (g_MenuData.prevmenuroot == -6 && isdialogopen) {
+			if (!s_MatchEndWaitLogged) {
+				for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
+					if (g_Menus[i].curdialog) {
+						sysLogPrintf(LOG_NOTE,
+							"MENU.MATCHEND: end screen waits for an open dialog menu=%d def=%p",
+							i, (void *)g_Menus[i].curdialog->definition);
+						break;
+					}
+				}
+				s_MatchEndWaitLogged = 1;
+			}
+		} else {
+			s_MatchEndWaitLogged = 0;
+		}
+	}
+
 	if ((g_MenuData.isdialogopen || g_MenuData.prevmenuroot != -1) && isdialogopen == false) {
 		if ((g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU)
 				&& g_MenuData.prevmenuroot == -1) {
@@ -814,7 +836,18 @@ void menuTick(void)
 							endscreenPushAnti();
 							setCurrentPlayerNum(prevplayernum);
 							isdialogopen = true;
-						} else {
+						} else if (!(mpGetParticipant(i)
+								&& mpGetParticipant(i)->type == PARTICIPANT_REMOTE)) {
+							/* PC (T-NETWORKING-011, finding 4): a remote player's end screen
+							 * is shown on that player's own machine. A listen host that
+							 * also pushed one built a two-player end screen here, and its
+							 * one local Use press never left it, so the host could not
+							 * get back to the room for a rematch (B-1139). Participant
+							 * types are per machine: a client marks its own player local
+							 * at stage start (B-1190; the mask decode records every
+							 * player as remote). The player's isremote would not do here:
+							 * the host's stage end commit has already cleared it. The
+							 * player number still counts the remote player below. */
 							mpPushEndscreenDialog(playernum, i);
 							isdialogopen = true;
 
@@ -897,6 +930,22 @@ void menuTick(void)
 			case MENUROOT_MPPAUSE:
 				break;
 			case MENUROOT_MPENDSCREEN:
+				/* B-1197 (T-NETWORKING-011): a networked results screen has
+				 * exits of its own that decide what follows on this machine:
+				 * Return to Room keeps the stage until the host's next one
+				 * (pdguiEndscreenExitToRoom), the host's mission choices start
+				 * it (pdguiEndscreenNetMission*), and Disconnect ends the
+				 * session first (netDisconnect, after which g_NetMode is
+				 * NETMODE_NONE). The offline close below loaded CI as a
+				 * networked host, whose player setup rolled back to the title,
+				 * so the host's next match never started. */
+				if (g_NetMode != NETMODE_NONE) {
+					sysLogPrintf(LOG_NOTE,
+						"MENU.MPENDSCREEN: networked results closed; no local stage change (netmode=%d)",
+						(s32)g_NetMode);
+					break;
+				}
+
 				if (g_Vars.normmplayerisrunning) {
 					var80087260 = 3;
 				}

@@ -1892,7 +1892,10 @@ Gfx *lvRender(Gfx *gdl)
 				scenarioTickChr(NULL);
 				{
 					extern s32 bootDebugPlaceBotNearPlayerPreRenderTick(void);
+					extern void bootDebugPlaceBotNearPlayerRestorePlayer(void);
 					(void)bootDebugPlaceBotNearPlayerPreRenderTick();
+					/* Back to this viewport's player if the hook targeted another */
+					bootDebugPlaceBotNearPlayerRestorePlayer();
 				}
 				propsSort();
 				autoaimTick();

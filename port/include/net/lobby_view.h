@@ -11,6 +11,7 @@ struct lobbyplayer_view {
     char name[32];
     int32_t isLocal, state;
     uint8_t clientId;
+    uint8_t reviewing; /* B-1190: "reviewing match stats" */
 };
 struct lobbyplayer;
 int32_t lobbyProjectPlayerView(const struct lobbyplayer *player,

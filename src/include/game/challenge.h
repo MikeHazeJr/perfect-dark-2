@@ -10,6 +10,10 @@ extern struct mpconfigfull *g_MpCurrentChallengeConfig;
 void challengesInit(void);
 
 void challengeDetermineUnlockedFeatures(void);
+/* A Combat Challenge is for 1 to 4 human players (Mike, 2026-11-15), as in
+ * the original. mpStartMatch refuses an offline challenge with more. */
+#define CHALLENGE_MAX_PLAYERS 4
+
 void challengePerformSanityChecks(void);
 char *challengeGetNameBySlot(s32 slot);
 bool challengeIsCompletedByAnyChrWithNumPlayersBySlot(s32 slot, s32 numplayers);

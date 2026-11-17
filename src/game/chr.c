@@ -68,6 +68,9 @@ extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct pro
 
 void rng2SetSeed(u32 seed);
 
+/* B-1194: how many numbered weapons one chr drop can announce (chrTick) */
+#define CHR_NET_DROP_MAX 16
+
 s32 var8009ccc0[20];
 
 s32 g_NumChrs;
@@ -1041,6 +1044,20 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							if (floorflags & GEOFLAG_DIE) {
 								die = true;
 							}
+						}
+
+						/* B-1191: on a networked client a simulant is a puppet
+						 * of the host, which decides its deaths (SVC_CHR_STATE);
+						 * a fall seen only by the client must not kill it. The
+						 * same holds for a co-op or counter-op NPC on a client
+						 * (SVC_NPC_STATE; its AI is suppressed in chraTick). */
+						if (die && chr->aibot && botIsPuppetTick()) {
+							die = false;
+						}
+						if (die && !chr->aibot && g_NetMode == NETMODE_CLIENT
+								&& (g_NetGameMode == NETGAMEMODE_COOP
+									|| g_NetGameMode == NETGAMEMODE_ANTI)) {
+							die = false;
 						}
 
 						if (die) {
@@ -2926,6 +2943,15 @@ s32 chrTick(struct prop *prop)
 		}
 
 		if (chr->hidden & CHRHFLAG_DELETING) {
+			/* B-1206: a co-op or counter-op client runs no NPC AI or actions
+			 * (chraTick), so it never removes a chr by itself; queue the news
+			 * that this one is gone, and whether its items drop, before the
+			 * removal below (sent from the frame's broadcast, SP-91). */
+			if (g_NetMode == NETMODE_SERVER
+					&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
+				netServerNpcRemoveQueue(chr);
+			}
+
 			if (chr->hidden & CHRHFLAG_DROPPINGITEM) {
 				objDropRecursively(prop, true);
 			}
@@ -3311,8 +3337,50 @@ s32 chrTick(struct prop *prop)
 
 	if (fulltick && (chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
 		if (chr->hidden & CHRHFLAG_DROPPINGITEM) {
+			/* B-1194: a weapon made for a chr after the stage start (a
+			 * simulant's held guns, the gun botDisarm drops) has a dynamic
+			 * sync id that no client knows. The host notes every such weapon
+			 * the chr carries before this drop and announces each one the
+			 * drop puts in the world, as botinvDrop does for a simulant's
+			 * other weapons. botDisarm clears weapons_held before this runs,
+			 * so the held slots alone would miss its gun. A client's puppet
+			 * retires its own copies (chrBeginDeath, botDisarm). */
+			struct prop *dropweapons[CHR_NET_DROP_MAX];
+			s32 numdropweapons = 0;
+
+			if (g_NetMode == NETMODE_SERVER) {
+				for (struct prop *carried = prop->child; carried; carried = carried->next) {
+					if (carried->type != PROPTYPE_WEAPON || carried->weapon == NULL
+							|| carried->syncid < g_NetFirstDynamicSyncId) {
+						continue;
+					}
+
+					if (numdropweapons < CHR_NET_DROP_MAX) {
+						dropweapons[numdropweapons++] = carried;
+					} else {
+						sysLogPrintf(LOG_WARNING, "NET.DROP: chr %d carries more than %d numbered weapons; syncid=%u is not announced",
+							(s32)chr->chrnum, CHR_NET_DROP_MAX, (unsigned)carried->syncid);
+					}
+				}
+			}
+
 			objDropRecursively(prop, false);
 			chr->hidden &= ~CHRHFLAG_DROPPINGITEM;
+
+			if (g_NetMode == NETMODE_SERVER) {
+				for (s32 d = 0; d < numdropweapons; d++) {
+					struct prop *wprop = dropweapons[d];
+
+					if (wprop->parent == NULL
+							&& wprop->syncid >= g_NetFirstDynamicSyncId
+							&& netmsgSvcPropSpawnWrite(&g_NetMsgRel, wprop) == 0) {
+						netmsgSvcPropMoveWrite(&g_NetMsgRel, wprop, NULL);
+						sysLogPrintf(LOG_NOTE, "NET.DROP: host announced chr %d dropped weapon=%d syncid=%u flags=0x%08x",
+							(s32)chr->chrnum, (s32)wprop->weapon->weaponnum, (unsigned)wprop->syncid,
+							(unsigned)wprop->obj->flags);
+					}
+				}
+			}
 		}
 
 		func0f041a74(chr);

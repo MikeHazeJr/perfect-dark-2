@@ -20,6 +20,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/mpspawn_orchestrate.h"
 #include "game/mplayer/mpspawn_hungarian.h"
+#include "game/mplayer/scenarios.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/chr.h"
@@ -58,7 +59,11 @@ static struct coord s_PlacedPos[ORCH_MAX_PART];
 
 static int64_t s_HungSquare[SPAWNPOOL_MAX * SPAWNPOOL_MAX];
 static s32 s_VoronoiOwner[SPAWNPOOL_MAX];
-static struct coord s_Anchors[4];
+/* SP-82: one spawn sector per team, up to all MAX_TEAMS. The orchestrator was
+ * written for four, so teams 5 to 8 fell into team 1's sector
+ * (orch_team_bits_to_sector's fallback). */
+#define ORCH_MAX_SECTORS MAX_TEAMS
+static struct coord s_Anchors[ORCH_MAX_SECTORS];
 static s32 s_HungMatch[SPAWNPOOL_MAX];
 
 void mpOrchestrateReset(void)
@@ -151,7 +156,7 @@ static s32 orch_team_bits_to_sector(u32 team_bits, u32 active_mask)
 	s32 idx = 0;
 	s32 b;
 
-	for (b = 0; b < 4; b++) {
+	for (b = 0; b < ORCH_MAX_SECTORS; b++) {
 		if (active_mask & (1u << b)) {
 			if (team_bits & (1u << b)) {
 				return idx;
@@ -496,7 +501,7 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 
 	active_mask = (u32)orch_active_team_mask();
 	num_sectors = 0;
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < ORCH_MAX_SECTORS; i++) {
 		if (active_mask & (1u << i)) {
 			num_sectors++;
 		}
@@ -504,8 +509,8 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 	if (!(g_MpSetup.options & MPOPTION_TEAMSENABLED) || num_sectors < 2) {
 		num_sectors = 1;
 	}
-	if (num_sectors > 4) {
-		num_sectors = 4;
+	if (num_sectors > ORCH_MAX_SECTORS) {
+		num_sectors = ORCH_MAX_SECTORS;
 	}
 
 	for (i = 0; i < s_PartCount; i++) {
@@ -519,6 +524,33 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 
 	k_anchors = num_sectors;
 	orch_compute_team_anchors(pool, &center, k_anchors, s_Anchors);
+
+	/* PC (T-NETWORKING-011, finding 8): a scenario whose teams start at a
+	 * base (Capture the Case) anchors each team's sector on that base, so
+	 * teams start at home as in the original, which spawned them on their
+	 * base's pads. Sector s is the s-th active team bit, as in
+	 * orch_team_bits_to_sector. A team without a base keeps the spread
+	 * anchor above. */
+	if (num_sectors >= 2) {
+		s32 b;
+		s32 s = 0;
+
+		for (b = 0; b < ORCH_MAX_SECTORS && s < k_anchors; b++) {
+			struct coord base;
+
+			if (!(active_mask & (1u << b))) {
+				continue;
+			}
+
+			if (scenarioGetTeamSpawnAnchor(b, &base)) {
+				s_Anchors[s] = base;
+				sysLogPrintf(LOG_NOTE, "SPAWN.ORCH: team %d starts at its base (%.0f, %.0f)",
+					b, base.x, base.z);
+			}
+
+			s++;
+		}
+	}
 
 	for (pi = 0; pi < pool->count && pi < SPAWNPOOL_MAX; pi++) {
 		s_VoronoiOwner[pi] = orch_voronoi_nearest_anchor(

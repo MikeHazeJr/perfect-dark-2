@@ -1,0 +1,42 @@
+{
+  "scenario_name": "mp_capture_the_case_net_carrier_death_host",
+  "description": "Host schedule for mp_capture_the_case_net_carrier_death_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 800,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 360000,
+      "comment": "The client joined, the ready gate ran and the match is live on the host."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "scenario_token_held",
+      "timeout_ms": 150000,
+      "stable_ms": 1000,
+      "comment": "A simulant has carried an enemy case for 1 s."
+    },
+    {
+      "at_ms": 3000,
+      "type": "kill_token_holder",
+      "comment": "The carrier dies through chrDamageByMisc; its case goes home and is announced (botinvDrop)."
+    },
+    {
+      "at_ms": 3000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 240000,
+      "stable_ms": 1000,
+      "comment": "The 150 s time limit ends the match; same at_ms as the kill so it runs after it."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Scripted clean exit 5 s (script time) after the host's results."
+    }
+  ]
+}

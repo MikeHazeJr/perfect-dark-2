@@ -11,8 +11,9 @@
  * game-side capture and apply between g_ScenarioData and these structs lives
  * with the scenario code, not here, so this file links into pd-tests as is.
  *
- * Scenarios are added one body at a time. King of the Hill is the first.
- * Combat has no scenario state and is never sent.
+ * Every objective scenario has a body: King of the Hill, Pop a Cap, Hold the
+ * Briefcase, Hacker Central and Capture the Case. Combat has no scenario
+ * state and is never sent.
  */
 
 #include <PR/ultratypes.h>
@@ -53,7 +54,96 @@ typedef struct net_scenario_koh_state {
 	u8 move_hill;
 	/* Raw hill time setting; seconds per point is this plus 10. */
 	u8 hill_time;
+	/* 1 while two or more teams are in the hill (the hold timer is paused),
+	 * else 0. Lets a receiver run the timer between snapshots. */
+	u8 contested;
+	/* Team that scored the most recent hill point: -1 before the first, else
+	 * 0..NET_SCENARIO_STATE_MAX_TEAMS-1. */
+	s8 scoring_team;
+	/* Hill points scored so far this match. A receiver that sees it rise
+	 * presents the point (sound and message), as the host did. */
+	u16 scores;
 } net_scenario_koh_state_t;
+
+/* Equal to MAX_MPCHRS (players plus simulants); the game-side adapter
+ * asserts that. Per-character counts are sent for every slot. */
+#define NET_SCENARIO_STATE_MAX_CHRS 40
+
+/* Pop a Cap: survival lasts this long before it earns a point (60 s in
+ * 1/240 s units); age240 never exceeds it. */
+#define NET_SCENARIO_PAC_MAX_AGE240 (240 * 60)
+
+typedef struct net_scenario_pac_state {
+	/* Character slot of the current victim: -1 before the first, else
+	 * 0..NET_SCENARIO_STATE_MAX_CHRS-1. */
+	s8 victim;
+	/* Goes up by one (wrapping) every time a new victim is chosen, so a
+	 * receiver announces each victim once even if the same slot comes round
+	 * again. */
+	u8 victim_serial;
+	/* The victim's survival time so far in 1/240 s units. */
+	u16 age240;
+	/* Victims popped by each character (two points each) and survival points
+	 * earned by each, by character slot. Never negative. */
+	s16 killcounts[NET_SCENARIO_STATE_MAX_CHRS];
+	s16 survivalcounts[NET_SCENARIO_STATE_MAX_CHRS];
+} net_scenario_pac_state_t;
+
+typedef struct net_scenario_htb_state {
+	/* Character slot holding the briefcase: -1 while it lies on the ground
+	 * or before it exists, else 0..NET_SCENARIO_STATE_MAX_CHRS-1. */
+	s8 holder;
+	/* 1 once the briefcase exists (held or on the ground), else 0. */
+	u8 present;
+	/* Where it is: the holder's position while held. A receiver uses it only
+	 * when it has no local prop to read the position from. */
+	f32 pos[3];
+} net_scenario_htb_state_t;
+
+/* Equal to ARRAYCOUNT(scenariodata_htm.terminals); the game uses the first. */
+#define NET_SCENARIO_HTM_MAX_TERMINALS 7
+
+/* Hacker Central: a download completes after 20 s (1/240 s units). */
+#define NET_SCENARIO_HTM_DOWNLOAD240 (240 * 20)
+
+typedef struct net_scenario_htm_state {
+	/* The data uplink, as net_scenario_htb_state_t's briefcase. */
+	s8 uplink_holder;
+	u8 uplink_present;
+	f32 uplink_pos[3];
+	/* Character slot downloading and the terminal it uses: both -1 when no
+	 * download runs, else a slot and 0..NET_SCENARIO_HTM_MAX_TERMINALS-1. */
+	s8 dl_player;
+	s8 dl_terminal;
+	/* Character slot within range of the terminal, -1 for none. */
+	s8 player_in_range;
+	/* Download progress (1/240 s units, at most NET_SCENARIO_HTM_DOWNLOAD240)
+	 * and completed downloads, by character slot. */
+	u16 dltime240[NET_SCENARIO_STATE_MAX_CHRS];
+	s16 numpoints[NET_SCENARIO_STATE_MAX_CHRS];
+} net_scenario_htm_state_t;
+
+/* Equal to the Capture the Case base slots and their respawn pads
+ * (scenariodata_ctc.spawnpadsperteam[4].spawnpads[6]). */
+#define NET_SCENARIO_CTC_BASES 4
+#define NET_SCENARIO_CTC_SPAWNPADS 6
+
+typedef struct net_scenario_ctc_state {
+	/* Base slot of each team: -1 for a team with no players, else
+	 * 0..NET_SCENARIO_CTC_BASES-1, each slot at most once. */
+	s8 teamindexes[NET_SCENARIO_CTC_BASES];
+	/* Each base slot's home pad (-1 none) and respawn pads (the first
+	 * numspawnpads of spawnpads, -1 after them). Pads are stage data, the
+	 * same on every peer. */
+	s16 homepads[NET_SCENARIO_CTC_BASES];
+	u8 numspawnpads[NET_SCENARIO_CTC_BASES];
+	s16 spawnpads[NET_SCENARIO_CTC_BASES][NET_SCENARIO_CTC_SPAWNPADS];
+	/* Each team's case: the character slot holding it (-1 while it lies on
+	 * the ground or does not exist), whether it exists, and where it is. */
+	s8 holders[NET_SCENARIO_CTC_BASES];
+	u8 present[NET_SCENARIO_CTC_BASES];
+	f32 pos[NET_SCENARIO_CTC_BASES][3];
+} net_scenario_ctc_state_t;
 
 typedef struct net_scenario_state {
 	/* NET_SCENARIO_STATE_* id of the body that follows. */
@@ -63,6 +153,10 @@ typedef struct net_scenario_state {
 	u32 revision;
 	union {
 		net_scenario_koh_state_t koh;
+		net_scenario_pac_state_t pac;
+		net_scenario_htb_state_t htb;
+		net_scenario_htm_state_t htm;
+		net_scenario_ctc_state_t ctc;
 	} body;
 } net_scenario_state_t;
 

@@ -109,17 +109,47 @@ TEST_CASE("smoke transition uses at most one bounded assist before stable succes
 	REQUIRE(plan.stability_started);
 	REQUIRE_FALSE(plan.satisfied);
 	plan = smokeTransitionTick(&state, &config, &target, 1000);
-	REQUIRE(plan.release_assist);
+	// the hold has elapsed; the release waits a tick so a whole frame sees it
+	REQUIRE_FALSE(plan.release_assist);
 	REQUIRE_FALSE(plan.satisfied);
-	REQUIRE_FALSE(smokeTransitionAssistIsHeld(&state));
-	REQUIRE(smokeTransitionAssistWasUsed(&state));
+	REQUIRE(smokeTransitionAssistIsHeld(&state));
 	plan = smokeTransitionTick(&state, &config, &target, 1600);
+	REQUIRE(plan.release_assist);
 	REQUIRE(plan.satisfied);
 	REQUIRE(plan.stable_elapsed_ms == 1000);
+	REQUIRE_FALSE(smokeTransitionAssistIsHeld(&state));
+	REQUIRE(smokeTransitionAssistWasUsed(&state));
 
 	plan = smokeTransitionTick(&state, &config, &aperture, 1700);
 	REQUIRE(plan.satisfied);
 	REQUIRE_FALSE(plan.press_assist);
+}
+
+// network_coop_mission_end_smoke 22/130 (2026-11-16): both processes stalled
+// about 1.5 s while the cutscene-skip assist was held. The harness ticks at the
+// top of a frame, so its first tick after the stall released the hold before
+// that frame's production check, and no frame saw the 650 ms skip threshold.
+TEST_CASE("smoke transition keeps a stalled assist held for one more frame",
+	"[smoke][transition][b1088]")
+{
+	auto config = assistedConfig();
+	smoke_transition_state_t state{};
+	smokeTransitionInit(&state, &config, 0);
+	auto aperture = input(false, true);
+
+	auto plan = smokeTransitionTick(&state, &config, &aperture, 100);
+	REQUIRE(plan.press_assist);
+	plan = smokeTransitionTick(&state, &config, &aperture, 690);   // under the production threshold
+	REQUIRE_FALSE(plan.release_assist);
+	plan = smokeTransitionTick(&state, &config, &aperture, 1860);  // first frame after the stall
+	REQUIRE_FALSE(plan.release_assist);
+	REQUIRE(smokeTransitionAssistIsHeld(&state));
+	plan = smokeTransitionTick(&state, &config, &aperture, 1876);  // the frame after it
+	REQUIRE(plan.release_assist);
+	REQUIRE_FALSE(smokeTransitionAssistIsHeld(&state));
+	REQUIRE(smokeTransitionAssistWasUsed(&state));
+	plan = smokeTransitionTick(&state, &config, &aperture, 1900);
+	REQUIRE_FALSE(plan.press_assist);  // never re-armed
 }
 
 TEST_CASE("smoke transition completes stable gameplay without synthetic input",
