@@ -2340,7 +2340,21 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 			sizeof(e->ext.arena.scenario_archive) - 1);
 		e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
-		e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+		{
+			/* B-1235: arena.ini carries the mode's name, as the extractor
+			 * and the mod author write it (romextract_pdarena.c). Reading
+			 * it as a number gave 0 for every name, so a mod arena made
+			 * from a canvas template loaded as a playable one, mission
+			 * scripts and all. A number is still read. */
+			const char *mode = iniGet(ini, "load_mode", "");
+			if (strcmp(mode, "ARENA_LOADMODE_CANVAS") == 0) {
+				e->ext.arena.load_mode = ARENA_LOADMODE_CANVAS;
+			} else if (strcmp(mode, "ARENA_LOADMODE_PLAYABLE") == 0) {
+				e->ext.arena.load_mode = ARENA_LOADMODE_PLAYABLE;
+			} else {
+				e->ext.arena.load_mode = (u8)iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+			}
+		}
 		if (e->ext.arena.scenario_archive[0]) {
 			catalogSetPrimaryFile(e, e->ext.arena.scenario_archive);
 		}

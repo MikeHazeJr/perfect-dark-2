@@ -163,6 +163,20 @@ TEST_CASE("received Public Mods validate strict archive payloads before install"
 	REQUIRE(arena_scenario < arena_scenario_archive);
 	REQUIRE(arena_scenario_archive < arena_archive);
 	REQUIRE(scanner.find("geometry_file", arena_case) > arena_end);
+	/* B-1235: arena.ini carries the load mode's name; the scanner reads it
+	 * by name (a number still reads). Read as a number, every name was 0,
+	 * so a canvas arena from a mod loaded as a playable one. */
+	const size_t arena_mode_canvas = scanner.find(
+		"strcmp(mode, \"ARENA_LOADMODE_CANVAS\") == 0", arena_case);
+	const size_t arena_mode_playable = scanner.find(
+		"strcmp(mode, \"ARENA_LOADMODE_PLAYABLE\") == 0", arena_case);
+	REQUIRE(arena_mode_canvas != std::string::npos);
+	REQUIRE(arena_mode_playable != std::string::npos);
+	REQUIRE(arena_mode_canvas < arena_end);
+	REQUIRE(arena_mode_playable < arena_end);
+	REQUIRE(scanner.find(
+		"e->ext.arena.load_mode = iniGetInt(ini, \"load_mode\", ARENA_LOADMODE_PLAYABLE);") ==
+		std::string::npos);
 
 	const size_t shared = scanner.find("static s32 registerBodyHeadPublicIni(");
 	const size_t head_mesh = scanner.find("bodyHeadSourcePrepareMesh(source.mesh_archive", shared);
