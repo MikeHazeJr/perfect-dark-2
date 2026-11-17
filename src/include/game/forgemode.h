@@ -114,6 +114,19 @@ s32  forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_d
  *  turn it with the look input. Does nothing outside FREEFLY. */
 void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg);
 
+/** The editor camera's own view, while it is flying and `g_Vars.currentplayer`
+ *  is the player it rides: where it is, and its up and look vectors from its
+ *  yaw and pitch (a turn angle t faces (-sin t, 0, cos t), the game's reading
+ *  of a player's turn angle; pitch tips that toward +y). Returns 1 and fills
+ *  the three, or 0 outside FREEFLY.
+ *
+ *  player.c asks this where a player's view is set (player0f0c1840) and uses
+ *  the answer in place of what it was handed. Without that the editor's yaw
+ *  and pitch never reached the view: the flying camera holds the player in
+ *  the cutscene move mode, where nothing turns the player's own look vectors
+ *  (B-1240, measured 2026-11-17). */
+s32  forgeCameraOverride(struct coord *pos, struct coord *up, struct coord *look);
+
 /** Turns the editor camera by a number of degrees while it is flying: yaw to
  *  the right for a positive `dyaw_deg`, pitch up for a positive
  *  `dpitch_deg`, the directions the look stick turns it. For a look input the

@@ -754,7 +754,10 @@ void forgePlaceUpdate(const f32 cpos[3], f32 yaw_deg, f32 pitch_deg, f32 distanc
 	const f32 DEG2RAD = 0.017453292519943f;
 	f32 yr = yaw_deg * DEG2RAD;
 	f32 pr = pitch_deg * DEG2RAD;
-	f32 fx = sinf(yr) * cosf(pr);
+	/* A turn angle t faces (-sin t, 0, cos t), the axes the editor's view is
+	 * drawn with (forgemode.c, forgeCameraOverride). This was +sin until
+	 * 2026-11-17: the ghost stood on the mirror image of the view (B-1238). */
+	f32 fx = -sinf(yr) * cosf(pr);
 	f32 fy = sinf(pr);
 	f32 fz = cosf(yr) * cosf(pr);
 
@@ -883,7 +886,10 @@ void forgeHeldUpdateFromCamera(const f32 cpos[3], f32 yaw_deg, f32 pitch_deg, f3
 	const f32 DEG2RAD = 0.017453292519943f;
 	f32 yr = yaw_deg * DEG2RAD;
 	f32 pr = pitch_deg * DEG2RAD;
-	f32 fx = sinf(yr) * cosf(pr);
+	/* A turn angle t faces (-sin t, 0, cos t), the axes the editor's view is
+	 * drawn with (forgemode.c, forgeCameraOverride). This was +sin until
+	 * 2026-11-17: the ghost stood on the mirror image of the view (B-1238). */
+	f32 fx = -sinf(yr) * cosf(pr);
 	f32 fy = sinf(pr);
 	f32 fz = cosf(yr) * cosf(pr);
 

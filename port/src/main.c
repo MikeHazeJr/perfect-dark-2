@@ -240,10 +240,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       editor camera flying, opens the level's placements, adds a player
  *       start where the camera is and saves the result as a level mod under
  *       the display name, through the calls the Level File section's buttons
- *       make. It then turns the camera level and to a yaw away from every
- *       axis and logs where the editor's world markers put five known points
- *       (FORGE.MARKERS.PROBE), which checks the projection and the facing
- *       math by numbers. It takes no screenshot and ends nothing: a smoke
+ *       make. It then turns the camera to a yaw away from every axis and a
+ *       pitch that is not level, and logs where the editor's world markers
+ *       put five known points (FORGE.MARKERS.PROBE), which checks by numbers
+ *       the projection and that the editor's angles are the view's. It takes
+ *       no screenshot and ends nothing: a smoke
  *       waits on forge_level_file_open and times those itself. Logged as
  *       FORGE.LEVEL.* lines.
  *
@@ -3103,28 +3104,38 @@ s32 bootLaunchScenarioTick(void)
 	return 1;
 }
 
-/* The yaw the session debug flag turns the editor camera to before it
- * measures. Far from every axis on purpose: at 0, 90, 180 and 270 degrees
- * sin or cos is zero and a wrong sign in the facing math cannot be seen. */
+/* The yaw and pitch the session debug flag turns the editor camera to before
+ * it measures. The yaw is far from every axis on purpose: at 0, 90, 180 and
+ * 270 degrees sin or cos is zero and a wrong sign in the facing math cannot
+ * be seen. The pitch is not level, so that a pitch that does not reach the
+ * view shows too. */
 #define BOOT_FORGE_PROBE_YAW_DEG 217.0f
+#define BOOT_FORGE_PROBE_PITCH_DEG -20.0f
 
 /* Where the editor's world markers put five known points, logged so a run
- * can check the projection, and the facing math it rests on, without anyone
- * looking at a picture.
+ * can check the projection, and that the editor camera's angles are the
+ * view's, without anyone looking at a picture.
  *
- * The camera's yaw is the player's turn angle t, and the player faces
- * (-sin t, 0, cos t) (bondmove.c, bond2.unk00). The view's right is up cross
- * back (mtx00016874), which for a flat forward f is (-f.z, 0, f.x). So with
- * the camera level: a point straight ahead must be at the middle of the
- * picture (0.5, 0.5), one ahead and to the right must be right of the
- * middle, one ahead and above must be above it, and one behind must be out
- * of view. The fifth point is ahead by the other reading of the angle,
- * (+sin t, 0, cos t), which the editor's own fly and placement code uses
- * (forgeUpdateFreefly, forgePlaceUpdate); it is logged, not judged, so a run
- * shows where that reading points (B-1238).
+ * The camera's yaw is a turn angle t, and a turn angle t faces (-sin t, 0,
+ * cos t), the game's reading of a player's turn angle (bondmove.c,
+ * bmoveUpdateVerta). Pitch p tips that toward +y: look = (-sin t cos p,
+ * sin p, cos t cos p), up = (sin t sin p, cos p, -cos t sin p), and the
+ * view's right is (-cos t, 0, -sin t). These are the vectors the editor's
+ * view is drawn with (forgemode.c, forgeCameraOverride). So a point along the
+ * look must be at the middle of the picture (0.5, 0.5), one beside it along
+ * the right must be right of the middle, one along the up must be above it,
+ * and one behind must be out of view.
+ *
+ * The first run of this probe (2026-11-17, yaw 217, level) put the point
+ * ahead at x = -0.146: the view was looking along +X whatever the editor's
+ * yaw said (B-1240). The fifth point is ahead by the mirrored reading of the
+ * angle, (+sin t, ., cos t), which the editor's fly and placement code used
+ * until then (B-1238); it is logged, not judged.
  *
  * Fractions of the renderer's native size, the units forgeProjectWorldPos
- * answers in and the Forge HUD scales to the window. */
+ * answers in and the Forge HUD scales to the window. The player's own turn
+ * angle and pitch are logged beside the editor's: they are what the game's
+ * player code holds that frame, for diagnosis. */
 static void bootForgeMarkerProbe(void)
 {
 	struct coord cam;
@@ -3132,9 +3143,12 @@ static void bootForgeMarkerProbe(void)
 	const f32 native_h = (f32)videoGetNativeHeight();
 	const f32 reach = 1000.0f;
 	const f32 aside = 300.0f;
-	f32 yaw;
-	f32 fwd[3];
-	f32 right[3];
+	const f32 yaw = forgeGetCameraYawDeg() * 0.017453292f;
+	const f32 pitch = forgeGetCameraPitchDeg() * 0.017453292f;
+	const f32 look[3] = { -sinf(yaw) * cosf(pitch), sinf(pitch), cosf(yaw) * cosf(pitch) };
+	const f32 up[3] = { sinf(yaw) * sinf(pitch), cosf(pitch), -cosf(yaw) * sinf(pitch) };
+	const f32 right[3] = { -cosf(yaw), 0.0f, -sinf(yaw) };
+	const f32 mirrored[3] = { sinf(yaw) * cosf(pitch), sinf(pitch), cosf(yaw) * cosf(pitch) };
 	f32 point[3];
 	char text[5][48];
 
@@ -3142,23 +3156,17 @@ static void bootForgeMarkerProbe(void)
 	cam.y = 0.0f;
 	cam.z = 0.0f;
 	forgeGetCameraPos(&cam);
-	yaw = forgeGetCameraYawDeg() * 0.017453292f;
-	fwd[0] = -sinf(yaw);
-	fwd[1] = 0.0f;
-	fwd[2] = cosf(yaw);
-	right[0] = -fwd[2];
-	right[1] = 0.0f;
-	right[2] = fwd[0];
 
 	for (s32 i = 0; i < 5; i++) {
-		const f32 along = (i == 3) ? -reach : reach;
-		const f32 fx = (i == 4) ? -fwd[0] : fwd[0];
+		const f32 *along = (i == 4) ? mirrored : look;
+		const f32 distance = (i == 3) ? -reach : reach;
+		const f32 *beside = (i == 1) ? right : ((i == 2) ? up : NULL);
 		f32 x = 0.0f;
 		f32 y = 0.0f;
 
-		point[0] = cam.x + fx * along + (i == 1 ? right[0] * aside : 0.0f);
-		point[1] = cam.y + (i == 2 ? aside : 0.0f);
-		point[2] = cam.z + fwd[2] * along + (i == 1 ? right[2] * aside : 0.0f);
+		point[0] = cam.x + along[0] * distance + (beside ? beside[0] * aside : 0.0f);
+		point[1] = cam.y + along[1] * distance + (beside ? beside[1] * aside : 0.0f);
+		point[2] = cam.z + along[2] * distance + (beside ? beside[2] * aside : 0.0f);
 		if (native_w > 0.0f && native_h > 0.0f && forgeProjectWorldPos(point, &x, &y, NULL)) {
 			snprintf(text[i], sizeof(text[i]), "(%.3f, %.3f)", x / native_w, y / native_h);
 		} else {
@@ -3166,9 +3174,11 @@ static void bootForgeMarkerProbe(void)
 		}
 	}
 	sysLogPrintf(LOG_NOTE,
-		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s other_reading=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f",
+		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s other_reading=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f player_theta=%.1f player_verta=%.1f",
 		text[0], text[1], text[2], text[3], text[4], (s32)native_w, (s32)native_h, cam.x, cam.y, cam.z,
-		forgeGetCameraYawDeg(), forgeGetCameraPitchDeg());
+		forgeGetCameraYawDeg(), forgeGetCameraPitchDeg(),
+		g_Vars.currentplayer ? g_Vars.currentplayer->vv_theta : 0.0f,
+		g_Vars.currentplayer ? g_Vars.currentplayer->vv_verta : 0.0f);
 }
 
 /* --launch-forge-level <arena id> and --debug-forge-session-save <name>.
@@ -3182,8 +3192,9 @@ static void bootForgeMarkerProbe(void)
  *      the way it faces, and save the level under the name
  *      (forgeLevelDebugSessionEdit). The level file stays open, so the HUD
  *      marks its starts and objects in the world.
- *   3. Twenty frames later: turn the camera level and to a yaw far from
- *      every axis (BOOT_FORGE_PROBE_YAW_DEG).
+ *   3. Twenty frames later: turn the camera to a yaw far from every axis
+ *      and a pitch that is not level (BOOT_FORGE_PROBE_YAW_DEG,
+ *      BOOT_FORGE_PROBE_PITCH_DEG).
  *   4. Forty frames after that, once frames have been drawn at that angle:
  *      log where the markers' projection puts five known points
  *      (bootForgeMarkerProbe).
@@ -3268,7 +3279,7 @@ s32 bootForgeLevelTick(void)
 		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 20) {
 			return 0;
 		}
-		forgeDebugSetCameraAngles(BOOT_FORGE_PROBE_YAW_DEG, 0.0f);
+		forgeDebugSetCameraAngles(BOOT_FORGE_PROBE_YAW_DEG, BOOT_FORGE_PROBE_PITCH_DEG);
 		s_step = 4;
 		return 1;
 	}

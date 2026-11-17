@@ -27,6 +27,7 @@
 #include "game/game_0b2150.h"
 #include "game/tex.h"
 #include "game/camera.h"
+#include "game/forgemode.h"
 #include "game/player.h"
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
@@ -7476,6 +7477,23 @@ void player0f0c1840(struct coord *pos, struct coord *up, struct coord *look, str
 	RoomNum tmp;
 	s32 i;
 	s32 room;
+	struct coord forgepos;
+	struct coord forgeup;
+	struct coord forgelook;
+
+	/* B-1240: while the Forge editor camera flies, the view is the editor's
+	 * own: its position, and the up and look vectors of its yaw and pitch.
+	 * The flying camera holds the player in the cutscene move mode, where
+	 * nothing refreshes the player's look vectors from its turn angle (the
+	 * walk, bike and grab ticks do that; the cutscene tick is empty), and the
+	 * third-person tick takes the turn angle from the character model and
+	 * zeroes the pitch. So the yaw and pitch the editor kept never reached
+	 * the picture. Every way a player's view is set passes through here. */
+	if (forgeCameraOverride(&forgepos, &forgeup, &forgelook)) {
+		pos = &forgepos;
+		up = &forgeup;
+		look = &forgelook;
+	}
 
 	if (rooms2 != NULL && *rooms2 != -1) {
 		portal00018148(pos2, pos, rooms2, sp54, NULL, 0);

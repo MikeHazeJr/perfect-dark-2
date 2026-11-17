@@ -464,9 +464,12 @@ static void forgeUpdateFreefly(void)
 	if (s_forge.fly.pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
 	if (s_forge.fly.pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
 
-	/* Build the world-space movement vector.  PD yaw 0 looks down +Z and
-	 * increases turning right (CW from above) -- this matches the existing
-	 * bwalkUpdateTheta convention used by the legacy walk code. */
+	/* Build the world-space movement vector, along the axes the view is
+	 * drawn with (forgeCameraOverride): a turn angle t faces (-sin t, 0,
+	 * cos t), which is the game's own reading of a player's turn angle
+	 * (bondmove.c, bmoveUpdateVerta), and the view's right is (-cos t, 0,
+	 * -sin t), the way the angle grows. Until 2026-11-17 this used (+sin t,
+	 * ., cos t) and (cos t, 0, -sin t), the mirror image in X (B-1238). */
 	const f32 yaw_rad   = s_forge.fly.yaw_deg   * FORGE_DEG2RAD;
 	const f32 pitch_rad = s_forge.fly.pitch_deg * FORGE_DEG2RAD;
 	const f32 cos_yaw   = cosf(yaw_rad);
@@ -478,12 +481,12 @@ static void forgeUpdateFreefly(void)
 	 * cos so pitch contributes Y, but we still treat WASD as 6DOF horizontal
 	 * + Q/E vertical -- forward axis still gets vertical contribution from
 	 * pitch for that "look down and fly down" feel). */
-	const f32 fwd_x =  sin_yaw * cos_pitch;
+	const f32 fwd_x = -sin_yaw * cos_pitch;
 	const f32 fwd_y =  sin_pitch;
 	const f32 fwd_z =  cos_yaw * cos_pitch;
 
-	/* Right vector (yaw + 90deg, no pitch). */
-	const f32 right_x =  cos_yaw;
+	/* Right vector (the way the turn angle grows, no pitch). */
+	const f32 right_x = -cos_yaw;
 	const f32 right_y =  0.0f;
 	const f32 right_z = -sin_yaw;
 
@@ -946,6 +949,46 @@ void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg)
 	s_forge.fly.yaw_deg = yaw_deg;
 	s_forge.fly.pitch_deg = pitch_deg;
 	sysLogPrintf(LOG_NOTE, "GRID: debug camera angles yaw=%.1f pitch=%.1f", yaw_deg, pitch_deg);
+}
+
+s32 forgeCameraOverride(struct coord *pos, struct coord *up, struct coord *look)
+{
+	const struct player *p;
+	f32 yaw_rad;
+	f32 pitch_rad;
+	f32 sin_yaw;
+	f32 cos_yaw;
+	f32 sin_pitch;
+	f32 cos_pitch;
+
+	if (s_forge.state != FORGE_SESSION_FREEFLY || !pos || !up || !look) {
+		return 0;
+	}
+	p = forgeCurrentPlayer();
+	if (!p || p != g_Vars.currentplayer) {
+		return 0;
+	}
+
+	yaw_rad = s_forge.fly.yaw_deg * FORGE_DEG2RAD;
+	pitch_rad = s_forge.fly.pitch_deg * FORGE_DEG2RAD;
+	sin_yaw = sinf(yaw_rad);
+	cos_yaw = cosf(yaw_rad);
+	sin_pitch = sinf(pitch_rad);
+	cos_pitch = cosf(pitch_rad);
+
+	/* The game's reading of a turn angle (bondmove.c, bmoveUpdateVerta): a
+	 * player with turn angle t faces (-sin t, 0, cos t). Pitch tips that
+	 * toward +y, and the up vector tips back with it. */
+	pos->x = s_forge.fly.pos.x;
+	pos->y = s_forge.fly.pos.y;
+	pos->z = s_forge.fly.pos.z;
+	look->x = -sin_yaw * cos_pitch;
+	look->y = sin_pitch;
+	look->z = cos_yaw * cos_pitch;
+	up->x = sin_yaw * sin_pitch;
+	up->y = cos_pitch;
+	up->z = -cos_yaw * sin_pitch;
+	return 1;
 }
 
 void forgeAddCameraAngles(f32 dyaw_deg, f32 dpitch_deg)
