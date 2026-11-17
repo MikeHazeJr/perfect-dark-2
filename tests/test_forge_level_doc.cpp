@@ -2311,6 +2311,86 @@ TEST_CASE("A level gains a hoverbike made from nothing, with the record every ba
 	CHECK(forgeLevelDocPadCount(level.doc) == 5);
 }
 
+TEST_CASE("A level gains a plain prop made from nothing, drawn with the model it is given",
+          "[forge-level-doc]")
+{
+	const char *const noObjects = "{\n  \"schema\": \"pd2.scenario.objects.v1\",\n  \"rows\": [\n  ]\n}\n";
+	Level level(kPads, kSpawns, noObjects, kVolumes, kNoFields);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	/* A model id that cannot be one changes nothing. */
+	CHECK(forgeLevelDocAddProp(level.doc, "Base:Crate", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "\"Base:Crate\" is not a model's catalog id");
+	CHECK(forgeLevelDocAddProp(level.doc, "", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddProp(level.doc, nullptr, kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddProp(level.doc, std::string(70, 'a').c_str(), kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddProp(nullptr, "base:model_crate2_cq", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(std::string(id).empty());
+	CHECK(forgeLevelDocObjectCount(level.doc) == 0);
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		CAPTURE(member);
+		CHECK(forgeLevelDocMemberChanged(level.doc, member) == 0);
+	}
+
+	REQUIRE(forgeLevelDocAddProp(level.doc, "base:model_crate2_cq", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0000");
+	CHECK(forgeLevelDocObjectCount(level.doc) == 1);
+	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	/* 30 rows, as every plain prop of the base levels has. */
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 30);
+
+	const forge_level_object_t prop = armouryFind(level.doc, "setup_0000");
+	CHECK(std::string(prop.kind) == "prop");
+	CHECK(std::string(prop.pad_ref) == "pad_0003");
+	CHECK(std::string(prop.model_catalog_id) == "base:model_crate2_cq");
+	CHECK(prop.weapon_slot == -1);
+	CHECK(prop.movable == 1);
+	CHECK(prop.removable == 1);
+	CHECK(prop.model_settable == 1);
+	CHECK(prop.weapon_settable == 0);
+
+	const std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(objects.find("      \"kind\": \"prop\",\n      \"pad_ref\": \"pad_0003\",\n"
+		"      \"model_catalog_id\": \"base:model_crate2_cq\",\n") != std::string::npos);
+	CHECK(objects.find("      \"flags\": \"0x00000001\",\n      \"flags2\": \"0x00000000\",\n"
+		"      \"flags3\": \"0x00000000\"\n    }") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "prop", "command.order", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "prop", "base.extra_scale", "s32", "256") + ",\n" +
+		fieldRow("setup_0000", "prop", "base.hidden2", "s32", "0") + ",\n" +
+		catalogRow("setup_0000", "prop", "base.model", "model_catalog_id", "base:model_crate2_cq") + ",\n" +
+		fieldRow("setup_0000", "prop", "base.pad", "pad_ref", "pad_0003") + ",\n") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "prop", "base.geo_count", "s32", "0") + "\n  ]\n}\n") !=
+		std::string::npos);
+
+	/* It takes the edits a prop of a base level takes. */
+	REQUIRE(forgeLevelDocSetObjectModel(level.doc, "setup_0000", "base:model_barrel", err, sizeof(err)) == 1);
+	CHECK(std::string(armouryFind(level.doc, "setup_0000").model_catalog_id) == "base:model_barrel");
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0001");
+	CHECK(std::string(armouryFind(level.doc, "setup_0001").model_catalog_id) == "base:model_barrel");
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+	CHECK(armouryFind(level.doc, "setup_0001").removed == 1);
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 60);
+
+	/* What was written reads back as the same props. */
+	Level again(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, level.text(FORGE_LEVEL_MEMBER_OBJECTS),
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES), level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS),
+		level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(again.error);
+	REQUIRE(again.doc != nullptr);
+	CHECK(std::string(armouryFind(again.doc, "setup_0000").model_catalog_id) == "base:model_barrel");
+	CHECK(armouryFind(again.doc, "setup_0000").model_settable == 1);
+	CHECK(armouryFind(again.doc, "setup_0001").removed == 1);
+}
+
 TEST_CASE("The Blank Room, a level that holds nothing of the original game, is edited and saved as a level",
           "[forge-level-doc]")
 {

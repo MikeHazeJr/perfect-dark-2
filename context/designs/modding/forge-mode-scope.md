@@ -1075,3 +1075,23 @@ in a Combat Simulator match (the hoverbike is swapped for the mod vehicle at
 setup, as on Escape). Which vehicle a record names is still the base
 hoverbike: a record that names a mod vehicle's model is the next step, and
 then a level needs no swap flag.
+
+## F3: props from the catalog (WRITTEN 2026-11-17, unit-tested, not run)
+
+A level can gain a plain prop drawn with any model of the catalog, made from
+nothing: `forgeLevelDocAddProp` writes the record all 2,226 plain props of
+the base levels share (30 field rows), life size, falling to the floor under
+it, with no other flags. In the editor's Level File section a filter box and
+a list of the catalog's models choose a model; New Prop Here places one where
+the camera is, and What It Looks Like redraws a selected plain prop with the
+chosen model (`forgeLevelDocSetObjectModel`). `--debug-forge-level-prop
+<model id>` adds one to the scripted level edit (420 units in front of the
+first start, after checking the catalog has that model), and
+`forge_blank_room_edit_smoke` now makes a `base:model_crate2_cq` crate on the
+Blank Room and requires the level to compile it as a third setup record.
+
+Survey (structure only, shared base 9): of the 2,226 plain props, 1,837 are
+life size, 1,388 are fitted to their pad's box (flag bits 0x000000e0) and 616
+only fall to the floor; 244 distinct models, all `base:model_*`. A prop made
+here is never fitted to a pad's box: Forge's pads are 200 units each way, and
+a fitted prop would take that size.

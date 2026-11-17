@@ -1662,22 +1662,19 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	return 1;
 }
 
-s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
+/* A plain prop, made by forgeLevelDocAddProp: not in the public list of
+ * kinds, because a prop needs a model to be made. */
+constexpr s32 kNewProp = FORGE_LEVEL_NEW_KIND_COUNT + 1;
+
+/* forgeLevelDocAddObject and forgeLevelDocAddProp: `kind` is one of the
+ * public kinds or kNewProp, `prop_model` the prop's model (kNewProp only). */
+static s32 addFromNothing(forge_level_doc_t *doc, s32 kind, s32 weapon_slot, const char *prop_model,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
 	char *err, size_t err_cap)
 {
-	if (err && err_cap) err[0] = '\0';
-	if (out_record_id && out_cap) out_record_id[0] = '\0';
-	if (!doc) {
-		setError(err, err_cap, "no level is open");
-		return 0;
-	}
-	if (kind < 0 || kind >= FORGE_LEVEL_NEW_KIND_COUNT) {
-		setError(err, err_cap, "%d is not a kind of object that can be made here", static_cast<int>(kind));
-		return 0;
-	}
 	const bool isPlace = kind == FORGE_LEVEL_NEW_WEAPON_PLACE;
 	const bool isBike = kind == FORGE_LEVEL_NEW_HOVERBIKE;
+	const bool isProp = kind == kNewProp;
 	if (isPlace && (weapon_slot < 0 || weapon_slot >= kWeaponSlots)) {
 		setError(err, err_cap, "a match has weapon places 0 to %ld, not %d", kWeaponSlots - 1,
 			static_cast<int>(weapon_slot));
@@ -1697,10 +1694,10 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 		setError(err, err_cap, "the level already has a %s", id.c_str());
 		return 0;
 	}
-	const char *const kindName = isPlace ? kPickupKind : isBike ? kBikeKind : kCrateKind;
-	const char *const model = isPlace ? kPlaceModel : isBike ? kBikeModel : kCrateModel;
-	/* A weapon place and a crate fall to the floor under them and have no
-	 * other flag; a hoverbike has its own three words. */
+	const char *const kindName = isPlace ? kPickupKind : isBike ? kBikeKind : isProp ? kPropKind : kCrateKind;
+	const char *const model = isPlace ? kPlaceModel : isBike ? kBikeModel : isProp ? prop_model : kCrateModel;
+	/* A weapon place, a crate and a prop fall to the floor under them and
+	 * have no other flag; a hoverbike has its own three words. */
 	const char *const flagsWord = isBike ? kBikeFlags : "0x00000001";
 	const char *const flags2Word = isBike ? kBikeFlags2 : "0x00000000";
 	const char *const flags3Word = isBike ? kBikeFlags3 : "0x00000000";
@@ -1777,6 +1774,8 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 				"relative_speed[0]", "relative_speed[1]" }) {
 			add(std::string("hoverbike.") + name, "f32", "0");
 		}
+	} else if (isProp) {
+		/* A plain prop's record is the common rows only (2,226 of 2,226). */
 	} else {
 		for (int i = 0; i < kCrateSlots; i++) {
 			const std::string slot = "multi_ammo_crate.slots[" + std::to_string(i) + "]";
@@ -1838,6 +1837,42 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	graphSyncCounts(*doc);
 	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
 	return 1;
+}
+
+s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (out_record_id && out_cap) out_record_id[0] = '\0';
+	if (!doc) {
+		setError(err, err_cap, "no level is open");
+		return 0;
+	}
+	if (kind < 0 || kind >= FORGE_LEVEL_NEW_KIND_COUNT) {
+		setError(err, err_cap, "%d is not a kind of object that can be made here", static_cast<int>(kind));
+		return 0;
+	}
+	return addFromNothing(doc, kind, weapon_slot, nullptr, position, look, out_record_id, out_cap, err, err_cap);
+}
+
+s32 forgeLevelDocAddProp(forge_level_doc_t *doc, const char *model_catalog_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (out_record_id && out_cap) out_record_id[0] = '\0';
+	if (!doc) {
+		setError(err, err_cap, "no level is open");
+		return 0;
+	}
+	if (!model_catalog_id || !catalogIdOk(model_catalog_id) ||
+			strlen(model_catalog_id) >= sizeof(forge_level_object_t::model_catalog_id)) {
+		setError(err, err_cap, "\"%s\" is not a model's catalog id", model_catalog_id ? model_catalog_id : "");
+		return 0;
+	}
+	return addFromNothing(doc, kNewProp, -1, model_catalog_id, position, look, out_record_id, out_cap, err,
+		err_cap);
 }
 
 s32 forgeLevelDocSetObjectRemoved(forge_level_doc_t *doc, const char *record_id, s32 removed,

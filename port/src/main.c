@@ -238,7 +238,9 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       of the catalog instead of being one of the match's weapon places.
  *       With --debug-forge-level-vehicle it also makes a hoverbike 600 units
  *       in front of the level's first start, facing the way it faces: the
- *       vehicle smokes' own place to drive (B-1241).
+ *       vehicle smokes' own place to drive (B-1241). With
+ *       --debug-forge-level-prop <model catalog id> it also makes a plain prop
+ *       drawn with that model, 420 units in front of the first start.
  *       Runs right after the level tool's flags, so one launch can make
  *       the level and then start a match on it. Logged as FORGE.LEVEL.*
  *       lines.
@@ -1271,7 +1273,8 @@ static void bootApplyDebugForgeLevel(void)
 	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' weapon=%s result=%s",
 		arena_id, name, (weapon_id && weapon_id[0]) ? weapon_id : "(none)",
 		forgeLevelDebugEdit(arena_id, name, weapon_id,
-			sysArgCheck("--debug-forge-level-vehicle") ? 1 : 0) ? "OK" : "FAIL");
+			sysArgCheck("--debug-forge-level-vehicle") ? 1 : 0,
+			sysArgGetString("--debug-forge-level-prop")) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.

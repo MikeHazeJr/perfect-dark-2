@@ -428,7 +428,7 @@ done:
 }
 
 s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id,
-		s32 make_vehicle)
+		s32 make_vehicle, const char *prop_model_id)
 {
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
@@ -560,6 +560,31 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const ch
 		}
 		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made hoverbike %s at (%.0f, %.0f, %.0f) facing (%.2f, %.2f, %.2f)",
 			bike_id, place[0], place[1], place[2], pad.look[0], pad.look[1], pad.look[2]);
+	}
+
+	/* A plain prop drawn with a model of the catalog, between the crate and
+	 * the hoverbike's place. The catalog must have the model: a level that
+	 * names a model the game cannot find is not what this proves. */
+	if (prop_model_id && prop_model_id[0]) {
+		char prop_id[32];
+		const asset_entry_t *model = assetCatalogResolve(prop_model_id);
+
+		prop_id[0] = '\0';
+		if (!model || model->type != ASSET_MODEL) {
+			snprintf(err, sizeof(err), "\"%s\" is not a model in the catalog", prop_model_id);
+			goto done;
+		}
+		if (!forgeLevelDocGetSpawn(doc, 0, &spawn) || !forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) {
+			snprintf(err, sizeof(err), "the level has no player start to step from");
+			goto done;
+		}
+		levelStepFrom(&pad, 420.0f, place);
+		if (!forgeLevelDocAddProp(doc, prop_model_id, place, pad.look, prop_id, sizeof(prop_id),
+				err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made prop %s drawn with %s at (%.0f, %.0f, %.0f)",
+			prop_id, prop_model_id, place[0], place[1], place[2]);
 	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level now has pads=%d spawns=%d objects=%d",
 		forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));

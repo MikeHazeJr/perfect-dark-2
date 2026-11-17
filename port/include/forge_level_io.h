@@ -116,13 +116,15 @@ s32 forgeLevelStartForge(const char *arena_id);
  * it a weapon place like the one it was copied from). With `make_vehicle`
  * (--debug-forge-level-vehicle) it also makes a hoverbike 600 units in front
  * of the level's first start, facing the same way, which gives the vehicle
- * smokes a level with no mission to end the ride (B-1241). It is what a
- * smoke uses to prove an edited level loads; the Forge editor makes the
- * same open and save calls. Returns 1 when the level was saved and is in the
- * catalog.
+ * smokes a level with no mission to end the ride (B-1241). With
+ * `prop_model_id` (--debug-forge-level-prop <model id>) it also makes a plain
+ * prop drawn with that model of the catalog, 420 units in front of the first
+ * start. It is what a smoke uses to prove an edited level loads; the Forge
+ * editor makes the same open and save calls. Returns 1 when the level was
+ * saved and is in the catalog.
  */
 s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id,
-		s32 make_vehicle);
+		s32 make_vehicle, const char *prop_model_id);
 
 /**
  * The model and the size a pickup of the weapon `weapon_catalog_id` is shown

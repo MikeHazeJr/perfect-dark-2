@@ -1897,6 +1897,8 @@ static int  s_LevelFileEdits                     = 0;    /* edits since the leve
 static bool s_LevelFileCloseArmed                = false;
 static char s_LevelFileWeapon[CATALOG_ID_LEN]    = "";   /* the weapon chosen for a pickup, by catalog id */
 static int  s_LevelFilePlace                     = 1;    /* the weapon place chosen for a pickup, 1 to 16 */
+static char s_LevelFileModel[CATALOG_ID_LEN]     = "";   /* the model chosen for a prop, by catalog id */
+static char s_LevelFileModelFilter[64]           = "";   /* text the model list must contain */
 
 /* One line of the weapon list: every weapon the catalog has enabled, a mod's
  * included, by its catalog id. */
@@ -1906,6 +1908,19 @@ static void forgeLevelFileWeaponRow(const asset_entry_t *entry, void *userdata)
 	if (!entry || !entry->id[0]) return;
 	if (ImGui::Selectable(entry->id, strcmp(entry->id, s_LevelFileWeapon) == 0)) {
 		snprintf(s_LevelFileWeapon, sizeof(s_LevelFileWeapon), "%s", entry->id);
+	}
+}
+
+/* One line of the model list: every model the catalog has, a mod's included,
+ * by its catalog id, when it contains the filter text. The ids are drawn as
+ * the list is walked; nothing of the catalog is kept past the walk. */
+static void forgeLevelFileModelRow(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	if (!entry || !entry->id[0]) return;
+	if (s_LevelFileModelFilter[0] && !strstr(entry->id, s_LevelFileModelFilter)) return;
+	if (ImGui::Selectable(entry->id, strcmp(entry->id, s_LevelFileModel) == 0)) {
+		snprintf(s_LevelFileModel, sizeof(s_LevelFileModel), "%s", entry->id);
 	}
 }
 
@@ -2141,6 +2156,32 @@ static void forgeDrawLevelFileSection(void)
 		}
 	}
 
+	/* A new plain prop, drawn with a model chosen from the catalog. The same
+	 * choice redraws a selected plain prop (below). */
+	ImGui::SetNextItemWidth(150 * pdguiScale(1.0f));
+	ImGui::InputTextWithHint("##LevelFileModelFilter", "filter models", s_LevelFileModelFilter,
+		sizeof(s_LevelFileModelFilter));
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(250 * pdguiScale(1.0f));
+	if (ImGui::BeginCombo("##LevelFileModel", s_LevelFileModel[0] ? s_LevelFileModel : "choose a model")) {
+		assetCatalogIterateByType(ASSET_MODEL, forgeLevelFileModelRow, NULL);
+		ImGui::EndCombo();
+	}
+	ImGui::SameLine();
+	ImGui::BeginDisabled(s_LevelFileModel[0] == '\0');
+	if (ImGui::Button("New Prop Here")) {
+		char id[32];
+		if (forgeLevelDocAddProp(doc, s_LevelFileModel, position, look, id, sizeof(id), err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Added the prop %s (%s) where the camera is.", id, s_LevelFileModel);
+			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+		} else {
+			forgeLevelFileStatus(true, "Could not add a prop: %s", err);
+		}
+	}
+	ImGui::EndDisabled();
+
 	ImGui::BeginDisabled(!haveSelected || !selected.movable);
 	if (ImGui::Button("Move Object Here")) {
 		if (forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err))) {
@@ -2193,6 +2234,27 @@ static void forgeDrawLevelFileSection(void)
 		"of a weapon is another spot for that slot. Removing an object leaves it out "
 		"of the level and keeps its line in the list, so anything that refers to it "
 		"still finds it. Lifts, escalator steps and characters cannot be removed yet.");
+
+	/* What a selected plain prop is drawn with: the model chosen above. */
+	if (haveSelected && strcmp(selected.kind, "prop") == 0) {
+		ImGui::SeparatorText("What It Looks Like");
+		ImGui::TextWrapped("%s is drawn with %s.", selected.record_id,
+			selected.model_catalog_id[0] ? selected.model_catalog_id : "no model the level names");
+		if (!selected.model_settable) {
+			ImGui::TextDisabled("The level's two object files do not agree about its model, "
+				"so it cannot be changed here.");
+		}
+		ImGui::BeginDisabled(!selected.model_settable || s_LevelFileModel[0] == '\0');
+		if (ImGui::Button("Draw It With The Chosen Model")) {
+			if (forgeLevelDocSetObjectModel(doc, s_LevelFileObject, s_LevelFileModel, err, sizeof(err))) {
+				s_LevelFileEdits++;
+				forgeLevelFileStatus(false, "%s is now drawn with %s.", s_LevelFileObject, s_LevelFileModel);
+			} else {
+				forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
+			}
+		}
+		ImGui::EndDisabled();
+	}
 
 	/* What a selected weapon pickup gives: one of the match's weapon places,
 	 * which the match's weapon set fills, or one weapon of the catalog. */

@@ -251,6 +251,23 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	char *err, size_t err_cap);
 
 /*
+ * A plain prop (`kind` "prop") at a place, drawn with the model
+ * `model_catalog_id` ("base:model_crate2_cq", or a mod's model), made from
+ * nothing as forgeLevelDocAddObject makes its kinds: a pad of its own, the
+ * next id. Its record is the one every plain prop of the base levels has (30
+ * field rows, one list across all 2,226 of them) with the values most share:
+ * life size (256), it falls to the floor under it (flags 0x00000001), no other
+ * flags, 1000 damage before it breaks. It can be moved, copied, left out and
+ * given another model afterwards. The id must look like a catalog id (lower-
+ * case letters, digits, '_', '-', '.', one ':'); whether the catalog has that
+ * model is the caller's to check. 1 with the new record's id in
+ * out_record_id; 0 with the reason, and the document unchanged.
+ */
+s32 forgeLevelDocAddProp(forge_level_doc_t *doc, const char *model_catalog_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap);
+
+/*
  * Leaves an object out of the level (removed = 1) or puts it back (0). The
  * record keeps its place in the command list. Only a `removable` object: one
  * whose flags word is in both files and agrees, and of a kind the game always
