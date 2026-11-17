@@ -11539,3 +11539,84 @@ Next
   objects.json row (record id, kind, catalog id).
 - Then object-events slice 4 (Pickups and Doors rows).
 - Recycle the frozen clients core-te and core-tf once core-th is frozen.
+
+## 2026-11-17 (01:10 UTC) to (05:07 UTC) - CORE: B-1259 proven, slices 4 and 5 written, dev merged, vehicles on graphs only, Forge F1 answered
+
+Mike (relayed 02:00 UTC): "Mike approves merging all branches into dev. For
+CORE: once your proof turn passes, merge week-pd/core into dev. Then do the
+same with slice 4 (week-pd/core-s4) once its turn passes. Go after MODS lands
+its vehicle branch. Each time, merge dev into your branch first, rebuild and
+test, then merge, push, and post it in the week note. If a proof is red, fix
+it before you merge. main stays untouched. After that, carry on with the
+unfinished work: the lifts and glass slice next, then the remaining
+behavior-graph rows." Later: "Continue your work while you wait. You can run
+tests after larger batches / full chunks".
+
+Done
+- Turn q_20261117010613172_f7fbd316 (01:43-02:34 UTC, core-th = 1ccc2c4e):
+  all pass (simulant twins 17/17, Complex 12/12, release 61/61, specials
+  49/49, campaign soak 44/44, AI edge parity 19.6 million commands, nothing
+  differs). B-1259 fixed in play: every payload names its objects.json
+  record; 31 of the first 37 match kind and catalog id, the other 6 found
+  B-1260 (objects.json left device and item pickups' weapon empty). Doors
+  close in the soak (door.closed on 13 missions).
+- Slice 4 on week-pd/core-s4 (ca42b3af, 7326bbe8, bc590b1d): the native
+  pickup and door rules as wired modules (event.pickup.touched,
+  event.door.use, event.door.approach; gate.pickup.native_rules,
+  og.pickup.collect, gate.door.native_unlocked, og.door.activate,
+  og.door.locked_message, og.door.activate_automatic), wired in every base
+  level graph by the extractor (scenario kind _ruleevents), level programs
+  must handle them and mission graphs may not, a parity probe per mission;
+  B-1260 fixed (ae0cf825). Harness use_door, fixture mp_arena_door_rules.
+- Slice 5 on week-pd/core-s5 (5b34fc8d): lifts and glass (event.lift.called,
+  event.lift.idle, event.lift.arrived, event.glass.damaged, record event
+  glass.broken; their native gates and modules; kind _liftglass). Harness
+  use_lift_door and damage_glass, fixture mission_lift_glass_rules.
+- Vehicles on core-s5: 3419fa96 gives the base hoverbike its
+  pd.vehicle_graph.v1 graph and physics v3 (meta kind _vehiclegraph),
+  refuses v2 behavior and physics (B-1230 fixed, vehicle-graph-v1.md Rule 5
+  done); 4a0a2a84 removes the dead v2 fallbacks (mount, both dismounts,
+  movement, the binding's two boost fields) and fixes the B-959 adapter case
+  that still hydrated a v2 vehicle (pd-tests would have failed on it).
+- week-pd/core: merged dev 8f41913f (9f38d6dd; resolutions in modmgr.c,
+  fs.c, fs.h, test_save_paths_static.cpp). Turn
+  q_20261117013932337_19ccdc1b failed pd-tests 2,149/2,150: the action name
+  pin still expected ACTION_GUN_ROLL_RIGHT last; dev added
+  ACTION_VEHICLE_BOOST. Fixed in 7f7871f9 (hosted CI green on PR #5, run
+  44011419982) and merged into core-s4 (605aefa8) and core-s5 (a51e12bc).
+- Turn q_20261117033645172_617e7a0e (04:09-05:00 UTC, core-tj = 7f7871f9,
+  base 8 candidate): pd-tests 2,150 cases / 478,152 assertions; the candidate
+  extracted twice (the second pass wrote nothing); conformance ok over 9,026
+  archives; MODS's vehicle drives 32/32 and 34/34, crystal pistol ammo 31/31,
+  simulant twins 17/17, Complex 12/12, mod bank 10/10, release 61/61,
+  specials 49/49. Red: mods_user_folder_smoke 20/23, B-1262: the dev merge
+  9f38d6dd dropped the two resets at the top of modmgrScanDirectory, so a
+  rescan appended every mod again ("Duplicate installed package identity").
+  Fixed in 2308f036 and merged into slices 4 (1a165116), 5 (c132d949) and 6
+  (95a18d52); a scan of every file the merge changed for lines both parents
+  had and the result lost found nothing else.
+- B-1261 (week-pd/core-s6, 78072e83): projectile records' function flags
+  were copied into projectile flags (the Slayer's fly-by-wire rocket SLIDING,
+  the N-bomb FALLING, the homing rocket LIGHTWEIGHT); SP-96. The Projectiles
+  row's design (projectile-events.md) and slice 1 (772f0497: record-only
+  events at the native seams, give_weapon, projectile_events_smoke); hosted
+  CI green on PR #12 (60ba64a4).
+- Forge F1 (MODS's questions of 23:30 UTC): a stage a mod minted resolves
+  through the scenario or arena row that owns it, with no minted map row;
+  the nested scenario's members resolve in the innermost archive. Written on
+  week-pd/core-forge (c3fc7068, from dev 8f41913f; draft PR #10, CI only)
+  for MODS to merge into mods-v4. Reviewed MODS's B-1234 span change to
+  CORE's hit test (c2050b8d): no objection.
+- Draft PRs #10 and #11 opened for hosted CI only (do not merge).
+
+Next
+- The B-1262 rerun (q_20261117040743721_6f1493c4, core-tj3: build, pd-tests,
+  the user folder smoke and four others on the base 8 candidate); if green,
+  land week-pd/core on dev (land-on-dev.py, the in-flight types.h keeps its
+  wording) and publish base 8 from the candidate.
+- The slice 4 proof follows in the next slot only if the rerun passed
+  (q_20261117040744651_e9633827, client core-tk); then land slice 4 and
+  publish base 9; then the slice 5 proof (q_20261117050710243_821994ae).
+- Projectiles row: run projectile_events_smoke in a turn; then slice 2
+  (timers and detonation as rule events on v2 programs).
+- Held weapons waits for Mike (the parked week-pd/inflight-20261114 lane).
