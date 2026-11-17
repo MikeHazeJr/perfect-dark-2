@@ -60,8 +60,11 @@ REVIEWED = {
     # Project C++ profile serializer, not the CRT write descriptor function.
     # Re-reviewed for B-1184 (T-MODDING-008): Store::initialize also rewrites a
     # bindings file cut off at an unnamed action through the same serializer.
-    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "6ea382d50e72f8fb3c7cc0be270d0f9251547f69ce152cda8b2f61017dd60a55"},
-    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "931d3c9353490aaba4efe430025169c1454c6cb3af3844f1d936183031cf9795"},
+    # Re-reviewed for B-1233 (T-MODDING-008): Store::initialize also rewrites,
+    # through the same serializer, a complete bindings file saved by a build
+    # with fewer actions, once it has been read and applied.
+    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "ee30087477ac847653ef68c5e197fd9e8976c71bc87ca4db1d56fc889224b8ab"},
+    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "03d168b8946aac8b3fd73491df60fae0ea248b640b050ef1b00f68c748135220"},
     # Inactive POSIX branches; the Windows counterparts are wrapped.
     "port/src/crash.c": {"routes": ["open"], "sha256": "766fc2f5ffb484f092be672bded832cd300d97d90805ffe5cc038d89d13c33f7"},
     "port/src/fs.c": {"routes": ["mkdir"], "sha256": "95a210fddb3711643c1ec36e0b219dc1cde9bcac74594f504dc353f1c1e7e53d"},
