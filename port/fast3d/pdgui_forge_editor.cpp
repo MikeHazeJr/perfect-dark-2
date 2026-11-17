@@ -2002,6 +2002,45 @@ static void forgeLevelFileCamera(f32 position[3], f32 look[3])
 	look[2] = cosf(yaw);
 }
 
+/* How far one press of a Nudge button moves a start or an object. */
+static int s_LevelFileNudgeStep = 50;
+
+/*
+ * A row of Nudge buttons for something that faces `look` from where the
+ * camera looks (`camera_look`, flat): left and right along the camera's
+ * right, nearer and farther along its facing, up and down. 1 with the
+ * offset to add when one was pressed. A camera at yaw t faces (-sin t, 0,
+ * cos t) and its right is (-cos t, 0, -sin t): for a flat look (lx, 0, lz)
+ * that is (-lz, 0, lx).
+ */
+static bool forgeLevelFileNudgeRow(const char *id, const f32 camera_look[3], f32 offset[3])
+{
+	static const char *const names[6] = { "Left", "Right", "Nearer", "Farther", "Up", "Down" };
+	const f32 step = (f32)s_LevelFileNudgeStep;
+	const f32 right[3] = { -camera_look[2], 0.0f, camera_look[0] };
+	bool pressed = false;
+
+	ImGui::PushID(id);
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted("Nudge");
+	for (int i = 0; i < 6; i++) {
+		ImGui::SameLine();
+		if (!ImGui::Button(names[i])) continue;
+		pressed = true;
+		for (int k = 0; k < 3; k++) offset[k] = 0.0f;
+		switch (i) {
+		case 0: for (int k = 0; k < 3; k++) offset[k] = -right[k] * step; break;
+		case 1: for (int k = 0; k < 3; k++) offset[k] = right[k] * step; break;
+		case 2: for (int k = 0; k < 3; k++) offset[k] = -camera_look[k] * step; break;
+		case 3: for (int k = 0; k < 3; k++) offset[k] = camera_look[k] * step; break;
+		case 4: offset[1] = step; break;
+		default: offset[1] = -step; break;
+		}
+	}
+	ImGui::PopID();
+	return pressed;
+}
+
 static void forgeDrawLevelFileSection(void)
 {
 	forgeScrollAnchorMaybe(FGT_SETUP, 3);   /* sidebar "Level File" */
@@ -2097,6 +2136,8 @@ static void forgeDrawLevelFileSection(void)
 		}
 		ImGui::TextDisabled("Diamonds are player starts, squares are objects. They show through walls; "
 			"the one selected in a list below is yellow.");
+		ImGui::SetNextItemWidth(180 * pdguiScale(1.0f));
+		ImGui::SliderInt("Nudge step (units)##LevelFileNudgeStep", &s_LevelFileNudgeStep, 5, 500);
 	}
 
 	f32 position[3];
@@ -2166,6 +2207,27 @@ static void forgeDrawLevelFileSection(void)
 						turn == 0 ? "left" : "right");
 				} else {
 					forgeLevelFileStatus(true, "Could not turn %s: %s", s_LevelFileStart, err);
+				}
+			}
+		}
+	}
+	/* Nudge the selected start a step, as seen from the camera. */
+	{
+		f32 offset[3];
+		if (s_LevelFileStart[0] && forgeLevelFileNudgeRow("LevelFileStartNudge", look, offset)) {
+			forge_level_pad_t pad;
+			if (!forgeLevelFileStartPad(doc, s_LevelFileStart, &pad)) {
+				forgeLevelFileStatus(true, "%s has no place to move from.", s_LevelFileStart);
+			} else {
+				const f32 to[3] = { pad.position[0] + offset[0], pad.position[1] + offset[1], pad.position[2] + offset[2] };
+				forgeLevelSessionEditBegin();
+				const s32 levelEdit = forgeLevelDocMoveSpawn(doc, s_LevelFileStart, to, pad.look, err, sizeof(err));
+				forgeLevelSessionEditEnd(levelEdit);
+				if (levelEdit) {
+					s_LevelFileEdits++;
+					forgeLevelFileStatus(false, "Nudged %s to (%.0f, %.0f, %.0f).", s_LevelFileStart, to[0], to[1], to[2]);
+				} else {
+					forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileStart, err);
 				}
 			}
 		}
@@ -2348,6 +2410,27 @@ static void forgeDrawLevelFileSection(void)
 						turn == 0 ? "left" : "right");
 				} else {
 					forgeLevelFileStatus(true, "Could not turn %s: %s", s_LevelFileObject, err);
+				}
+			}
+		}
+	}
+	/* Nudge the selected object a step, as seen from the camera. */
+	{
+		f32 offset[3];
+		if (forgeLevelFileNudgeRow("LevelFileObjectNudge", look, offset)) {
+			forge_level_pad_t pad;
+			if (!haveSelected || !forgeLevelDocFindPad(doc, selected.pad_ref, &pad)) {
+				forgeLevelFileStatus(true, "%s has no place to move from.", s_LevelFileObject);
+			} else {
+				const f32 to[3] = { pad.position[0] + offset[0], pad.position[1] + offset[1], pad.position[2] + offset[2] };
+				forgeLevelSessionEditBegin();
+				const s32 levelEdit = forgeLevelDocMoveObject(doc, s_LevelFileObject, to, pad.look, err, sizeof(err));
+				forgeLevelSessionEditEnd(levelEdit);
+				if (levelEdit) {
+					s_LevelFileEdits++;
+					forgeLevelFileStatus(false, "Nudged %s to (%.0f, %.0f, %.0f).", s_LevelFileObject, to[0], to[1], to[2]);
+				} else {
+					forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileObject, err);
 				}
 			}
 		}
