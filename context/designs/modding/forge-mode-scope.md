@@ -1272,6 +1272,26 @@ and the archive rebuild). What it would add: the scene's conversion to the
 game's form (unindexed, float colours, `_PD_ROOM`), `collision.obj` and its
 flags, the room box, and the starts from the model's empties.
 
+## Proven in the game (2026-11-17, turn q_20261117154917611_f73cf2e8)
+
+15:49 to 16:19 UTC, client de514e91, shared base 9, receipts under
+`D:\PD2-wt\pd2-smoke-mods\receipts\20261117T16*` and `...T15*`. pd-tests pass
+(2,319 cases, the base sweep included). Every smoke passed.
+
+- Props from the catalog (F3): `forge_blank_room_edit_smoke` 33/33. The
+  scripted edit made `setup_0002` drawn with `base:model_crate2_cq` from
+  nothing on the Blank Room, beside a weapon place pinned to `base:dragon`, an
+  ammo crate and a new start, saved it as a level and played a match on it.
+- Undo and redo (F3): `forge_blank_room_session_smoke` 42/42. In a running
+  session the added start was undone (`FORGE.LEVEL.UNDO: ... pads=8 spawns=8
+  ... undo_left=0 redo=1`) and redone (`FORGE.LEVEL.REDO: ... pads=9 spawns=9
+  ... undo=1 redo_left=0`), and the level saved the same as before.
+- A hoverbike placed by a level (F3): the Maian vehicle mod rides it on the
+  Blank Room through boost, overheat and recovery (`maian_vehicle_room_*`
+  50/50 and 60/60; B-1241 and B-1243 closed). Their pictures found B-1244 (the
+  rider's view there draws only the floor), a vehicle fault, parked while
+  Forge comes first.
+
 ## One editor: the level file first (WRITTEN 2026-11-17, not compiled)
 
 Mike, 2026-11-17 16:14 UTC: "Focus on Forge mode, we will return to the other
