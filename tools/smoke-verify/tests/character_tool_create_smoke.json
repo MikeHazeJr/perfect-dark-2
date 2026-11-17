@@ -85,6 +85,8 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "MODAUTHOR\\.[A-Z.]*FAIL",
+      "mesh source bridge belongs to another catalog ID",
+      "native model bridge ownership collision",
       "CHARMOD\\.SAVE\\.[A-Z_]*FAIL",
       "CHARMOD\\.SAVE\\.(NO_TEMPLATE|BAD_DISPLAY_NAME|BAD_FORM|NAME_TAKEN)",
       "CHARMOD\\.DEBUG\\.CREATE\\.RESULT result=FAIL",

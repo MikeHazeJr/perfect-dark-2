@@ -904,6 +904,61 @@ static s32 cloneJsonTopString(const char *s, u32 n, const char *key, u32 *vstart
 	return 0;
 }
 
+/* See asset_archive_clone.h. */
+s32 assetArchiveCloneJsonDropTopMember(char *s, u32 *len, const char *key)
+{
+	const size_t klen = key ? strlen(key) : 0;
+	u32 n;
+	u32 i;
+	u32 prev_comma;
+
+	if (!s || !len || !klen) return 0;
+	n = *len;
+	prev_comma = n; /* the comma before the current member; n while there is none */
+	i = cloneJsonSkipWs(s, n, 0);
+	if (i >= n || s[i] != '{') return 0;
+	i = cloneJsonSkipWs(s, n, i + 1);
+	while (i < n && s[i] == '"') {
+		const u32 mstart = i;
+		const u32 kstart = i + 1;
+		const u32 kend = cloneJsonSkipString(s, n, i);
+		u32 v;
+		u32 after;
+		u32 next;
+
+		if (kend >= n) return 0;
+		i = cloneJsonSkipWs(s, n, kend);
+		if (i >= n || s[i] != ':') return 0;
+		v = cloneJsonSkipWs(s, n, i + 1);
+		after = cloneJsonSkipValue(s, n, v);
+		if (after >= n) return 0;
+		next = cloneJsonSkipWs(s, n, after);
+		if (kend - 1 - kstart == klen && memcmp(s + kstart, key, klen) == 0) {
+			u32 cut_start = mstart;
+			u32 cut_end = after;
+
+			if (next < n && s[next] == ',') {
+				/* Not the last member: it goes with the comma after it, up to
+				 * where the next member starts. */
+				cut_end = cloneJsonSkipWs(s, n, next + 1);
+			} else if (prev_comma < n) {
+				/* The last member: it goes with the comma before it. */
+				cut_start = prev_comma;
+			}
+			memmove(s + cut_start, s + cut_end, n - cut_end);
+			*len = n - (cut_end - cut_start);
+			return 1;
+		}
+		if (next < n && s[next] == ',') {
+			prev_comma = next;
+			i = cloneJsonSkipWs(s, n, next + 1);
+		} else {
+			i = next;
+		}
+	}
+	return 0;
+}
+
 static s32 cloneJsonPlain(const char *value, u32 len)
 {
 	for (u32 i = 0; i < len; i++) {
@@ -1309,6 +1364,18 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				}
 				data = synced;
 				data_size = synced_size;
+			}
+			if (strcmp(leaf, ASSET_ARCHIVE_META_MANIFEST) == 0
+					&& cloneEqNoCase(ext, ".pdmesh")) {
+				/* A cloned mesh is a new asset. The native file its template
+				 * stands for (source_filenum_symbol, which the extractor writes
+				 * for every base mesh) stays the template's: a copy that kept it
+				 * claimed that file's slot when it was a weapon's mesh (B-1152:
+				 * the base gun then loaded the mod's copy) and is refused as a
+				 * second owner when it is a body's or a head's. Without it the
+				 * loader gives the mesh a private slot. */
+				(void)assetArchiveCloneJsonDropTopMember(data, &data_size,
+					"source_filenum_symbol");
 			}
 		}
 		stale = cloneFindStaleId(ctx, data, data_size);

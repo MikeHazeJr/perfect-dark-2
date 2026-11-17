@@ -752,6 +752,55 @@ TEST_CASE("typed archive rebuild moves a mesh manifest's geometry with its descr
 	CHECK(cloneCountFiles(dir.path) == 1);
 }
 
+/* B-1152: a cloned mesh gives up its manifest's source_filenum_symbol, the
+ * native file its template stands for. A copy that kept it claimed the base
+ * gun's file slot as a weapon's mesh, and is refused as a second owner as a
+ * body's or a head's. The example meshes carry no such symbol (only extracted
+ * base meshes do), so the text edit is proved here and the effect in the game
+ * by the weapon play and Characters tool smokes. */
+TEST_CASE("a cloned mesh manifest can drop one top-level member and stay JSON",
+          "[modding][pdxxx][clone][b1152]") {
+	auto drop = [](const std::string &text, const char *key, s32 expect) {
+		std::string buf = text;
+		u32 len = static_cast<u32>(buf.size());
+		const s32 removed = assetArchiveCloneJsonDropTopMember(buf.data(), &len, key);
+		CHECK(removed == expect);
+		buf.resize(len);
+		return buf;
+	};
+	const char *key = "source_filenum_symbol";
+
+	// The extractor's layout: the member in the middle, one per line.
+	CHECK(drop("{\n  \"id\": \"base:model_falcon2_hi\",\n  \"source_filenum_symbol\": \"FILE_GFALCON2Z\",\n"
+	           "  \"geometry\": \"model.obj\"\n}\n", key, 1)
+		== "{\n  \"id\": \"base:model_falcon2_hi\",\n  \"geometry\": \"model.obj\"\n}\n");
+	// First, last and only member: the neighbouring comma goes with it.
+	CHECK(drop("{\"source_filenum_symbol\":\"FILE_X\",\"id\":\"a\"}", key, 1) == "{\"id\":\"a\"}");
+	CHECK(drop("{ \"id\": \"a\", \"source_filenum_symbol\": \"FILE_X\" }", key, 1) == "{ \"id\": \"a\" }");
+	CHECK(drop("{ \"source_filenum_symbol\": \"FILE_X\" }", key, 1) == "{  }");
+	// Any value, not only a string; braces and commas inside values are not structure.
+	CHECK(drop("{\"a\":1,\"source_filenum_symbol\":{\"x\":[1,2,{\"y\":\"},\"}]},\"b\":true}", key, 1)
+		== "{\"a\":1,\"b\":true}");
+	CHECK(drop("{\"a\":\"x,}\",\"source_filenum_symbol\":null}", key, 1) == "{\"a\":\"x,}\"}");
+	// Only a top-level member with exactly that name.
+	CHECK(drop("{\"a\":{\"source_filenum_symbol\":\"FILE_X\"},\"b\":1}", key, 0)
+		== "{\"a\":{\"source_filenum_symbol\":\"FILE_X\"},\"b\":1}");
+	CHECK(drop("{\"source_filenum_symbol_2\":\"x\",\"xsource_filenum_symbol\":\"y\"}", key, 0)
+		== "{\"source_filenum_symbol_2\":\"x\",\"xsource_filenum_symbol\":\"y\"}");
+	CHECK(drop("{\"a\":\"source_filenum_symbol\"}", key, 0) == "{\"a\":\"source_filenum_symbol\"}");
+	// Not an object, cut short, or nothing to look for: untouched.
+	CHECK(drop("[\"source_filenum_symbol\"]", key, 0) == "[\"source_filenum_symbol\"]");
+	CHECK(drop("{\"source_filenum_symbol\":\"FILE_X\"", key, 0) == "{\"source_filenum_symbol\":\"FILE_X\"");
+	CHECK(drop("", key, 0).empty());
+	CHECK(drop("{\"a\":1}", "", 0) == "{\"a\":1}");
+	u32 len = 7;
+	char text[] = "{\"a\":1}";
+	CHECK(assetArchiveCloneJsonDropTopMember(nullptr, &len, "a") == 0);
+	CHECK(assetArchiveCloneJsonDropTopMember(text, nullptr, "a") == 0);
+	CHECK(assetArchiveCloneJsonDropTopMember(text, &len, nullptr) == 0);
+	CHECK(len == 7);
+}
+
 TEST_CASE("typed archive rebuild edits an archive under its own id",
           "[modding][pdxxx][clone]") {
 	CloneTempDir dir;
