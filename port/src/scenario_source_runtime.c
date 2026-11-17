@@ -1270,8 +1270,12 @@ typedef struct scenario_source_graph_state {
 	 * whether their totals were logged. */
 	s32 object_event_counts[4];
 	s32 object_events_reported;
-	/* object-events.md slice 3: queries refused on this stage (pickup, door). */
-	s32 object_query_refusals[2];
+	/* object-events.md slice 4: rule events fired on this stage
+	 * (pickup.touched, door.use, door.approach), and the parity probe's
+	 * comparisons and differences. */
+	s32 object_rule_counts[3];
+	s32 object_rule_compared;
+	s32 object_rule_differ;
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
 	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
@@ -1317,12 +1321,15 @@ static void s_reportObjectEvents(const char *reason)
 	}
 	s_ActiveScenarioGraphs.object_events_reported = 1;
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.refused=%d door.refused=%d reason=%s backend=graph.level.runner",
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.touched=%d door.use=%d door.approach=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner",
 		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
 		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
 		s_ActiveScenarioGraphs.object_event_counts[3],
-		s_ActiveScenarioGraphs.object_query_refusals[0],
-		s_ActiveScenarioGraphs.object_query_refusals[1], reason);
+		s_ActiveScenarioGraphs.object_rule_counts[0],
+		s_ActiveScenarioGraphs.object_rule_counts[1],
+		s_ActiveScenarioGraphs.object_rule_counts[2],
+		s_ActiveScenarioGraphs.object_rule_compared,
+		s_ActiveScenarioGraphs.object_rule_differ, reason);
 }
 
 static void s_resetActiveScenarioGraphs(void)
@@ -9558,6 +9565,32 @@ static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
 	return 1;
 }
 
+/* object-events.md slice 4: a level program must handle every rule event,
+ * or its stage would have no pickups and no doors: it is refused (fails
+ * closed). The extractor writes the wiring into every level graph. */
+static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, char *err,
+	size_t err_cap)
+{
+	static const struct {
+		s32 kind;
+		const char *name;
+	} rules[] = {
+		{ MISSION_GRAPH_EVENT_PICKUP_TOUCHED, "event.pickup.touched" },
+		{ MISSION_GRAPH_EVENT_DOOR_USE, "event.door.use" },
+		{ MISSION_GRAPH_EVENT_DOOR_APPROACH, "event.door.approach" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(rules) / sizeof(rules[0]); i++) {
+		if (!missionGraphProgramHandlesEvent(program, rules[i].kind)) {
+			snprintf(err, err_cap, "it handles no %s: the level's pickup and door rules are not wired",
+				rules[i].name);
+			return 0;
+		}
+	}
+	return 1;
+}
+
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp)
 {
@@ -12774,8 +12807,9 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_ai_mp_init_simulants_node_count;
 	/* object-events.md slice 1: the level graph's own program (its event.*,
 	 * gate.* and og.* nodes), for every stage. One that does not compile,
-	 * or names a volume that is no box of volumes.json, refuses the level
-	 * graph. A base level graph has none: an empty program. */
+	 * names a volume that is no box of volumes.json, or (slice 4) does not
+	 * handle every rule event refuses the level graph. A base level graph's
+	 * program is the pickup and door rules' wiring. */
 	s_ActiveScenarioGraphs.level_program = missionGraphProgramCompileLevel(text, text_size,
 		missionGraphModuleKnown, s_ActiveScenarioGraphs.level_program_error,
 		sizeof(s_ActiveScenarioGraphs.level_program_error));
@@ -12783,6 +12817,9 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 			|| !s_graphBindVolumes(s_ActiveScenarioGraphs.level_program,
 				s_ActiveScenarioGraphs.level_program_volumes,
 				&s_ActiveScenarioGraphs.level_program_volume_count,
+				s_ActiveScenarioGraphs.level_program_error,
+				sizeof(s_ActiveScenarioGraphs.level_program_error))
+			|| !s_levelProgramHandlesRules(s_ActiveScenarioGraphs.level_program,
 				s_ActiveScenarioGraphs.level_program_error,
 				sizeof(s_ActiveScenarioGraphs.level_program_error))) {
 		char reason[200];
@@ -34988,35 +35025,32 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
 }
 
-/* object-events.md slice 3: a query from a native seam, before the native
- * rule (event.pickup.requested, event.door.open_requested). Returns 1 when
- * the level program or, on a mission, the mission program refused it
- * (og.pickup.refuse, og.door.refuse), 0 to let the native rule decide. A
- * program without a handler for the kind is not asked, so the base game's
- * rules decide exactly as before. The first refusal of each kind on a stage
- * is logged, and the refusals are counted in the stage totals. */
-s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+static const char *const s_ObjectRuleEventNames[] = { "pickup.touched", "door.use", "door.approach" };
+
+s32 scenarioSourceGraphObjectRulesActive(void)
+{
+	return s_ActiveScenarioGraphs.level_graph_active && s_ActiveScenarioGraphs.level_program != NULL;
+}
+
+/* object-events.md slice 4: a rule event, into the level program only (a
+ * mission graph cannot name one). The seam holds the rule the gates and
+ * modules decide on (missionGraphModulesRuleBegin). */
+s32 scenarioSourceGraphObjectRuleEvent(s32 kind, const char *object, s32 tag, s32 objtype,
 	const char *catalog_id, s32 player)
 {
-	const s32 index = kind == MISSION_GRAPH_EVENT_PICKUP_REQUESTED ? 0
-		: kind == MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED ? 1 : -1;
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_TOUCHED;
 	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
-	s32 ask_level;
-	s32 ask_mission;
 	mission_graph_event_t event;
-	s32 level_ran = 0;
-	s32 mission_ran = 0;
-	s32 outer;
-	s32 refused;
+	s32 ran;
 
-	if (index < 0 || !s_ActiveScenarioGraphs.level_graph_active) {
+	if (index < 0 || index >= 3 || !scenarioSourceGraphObjectRulesActive()) {
 		return 0;
 	}
-	ask_level = s_ActiveScenarioGraphs.level_program
-		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);
-	ask_mission = s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
-		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind);
-	if ((!ask_level && !ask_mission) || s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s not delivered: object events nested %d deep",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			object && object[0] ? object : "-", s_ObjectEventDepth);
 		return 0;
 	}
 	memset(&event, 0, sizeof(event));
@@ -35028,40 +35062,49 @@ s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 ob
 	event.catalog_id = catalog_id;
 	event.player = player;
 	s_ObjectEventDepth++;
-	outer = missionGraphModulesQueryBegin();
-	if (ask_level) {
-		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
-			missionGraphModuleRun, NULL);
-	}
-	if (ask_mission) {
-		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
-			missionGraphModuleRun, NULL);
-	}
-	refused = missionGraphModulesQueryEnd(outer);
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+		missionGraphModuleRun, NULL);
 	s_ObjectEventDepth--;
-	if (refused) {
-		s_ActiveScenarioGraphs.object_query_refusals[index]++;
+	s_ActiveScenarioGraphs.object_rule_counts[index]++;
+	if (ran < 0 || s_ActiveScenarioGraphs.object_rule_counts[index] == 1) {
+		sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s catalog_id=%s player=%d level_modules=%d backend=graph.level.runner",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			event.object[0] ? event.object : "-", tag, object_kind ? object_kind : "-",
+			catalog_id && catalog_id[0] ? catalog_id : "-", player, ran);
 	}
-	if ((refused && s_ActiveScenarioGraphs.object_query_refusals[index] == 1)
-			|| level_ran < 0 || mission_ran < 0) {
-		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
-			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s player=%d refused=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
-			index == 0 ? "pickup.requested" : "door.open_requested",
-			s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-", tag,
-			object_kind ? object_kind : "-", player, refused, level_ran, mission_ran);
-	}
-	return refused ? 1 : 0;
+	return ran;
 }
 
-s32 scenarioSourceGraphHandlesObjectQuery(s32 kind)
+void scenarioSourceGraphObjectRuleCompared(s32 kind, const char *object, const char *native,
+	const char *graph, s32 differ)
 {
-	if (!s_ActiveScenarioGraphs.level_graph_active) {
-		return 0;
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_TOUCHED;
+
+	if (index < 0 || index >= 3 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return;
 	}
-	return (s_ActiveScenarioGraphs.level_program
-			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind))
-		|| (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
-			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind));
+	s_ActiveScenarioGraphs.object_rule_compared++;
+	if (!differ) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_rule_differ++;
+	if (s_ActiveScenarioGraphs.object_rule_differ <= 8) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: object rule differs: event.%s '%s' object=%s native=%s graph=%s backend=graph.level.runner",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			object && object[0] ? object : "-", native ? native : "-", graph ? graph : "-");
+	}
+}
+
+void scenarioSourceGraphObjectRuleParity(s32 *compared, s32 *differ)
+{
+	if (compared) {
+		*compared = s_ActiveScenarioGraphs.object_rule_compared;
+	}
+	if (differ) {
+		*differ = s_ActiveScenarioGraphs.object_rule_differ;
+	}
 }
 
 void scenarioSourceGraphObjectEventsReport(const char *reason)

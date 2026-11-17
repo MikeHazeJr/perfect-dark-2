@@ -1,0 +1,90 @@
+{
+  "scenario_name": "mp_arena_door_rules",
+  "description": "Object events slice 4 (context/designs/modding/object-events.md): the level's door rule is its level program. A Combat match on Felicity, whose arena carries 19 doors; the harness has player 0 use the nearest door three times through propdoorInteract, as the use button does (use_door). Each use fires event.door.use into the level program, whose wiring runs gate.door.native_unlocked and then og.door.activate (the door opens, closes, opens), compared with the original rule; the door's moves fire event.door.opened and event.door.closed with the door's objects.json record id. The stage's totals are logged at the scripted exit.",
+  "tags": [
+    "graph",
+    "objects",
+    "doors",
+    "combatsim"
+  ],
+  "paths_of_interest": [
+    "src/game/propobj.c",
+    "port/src/mission_graph_modules.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/romextract_pdarena.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 160000,
+      "stable_ms": 1000,
+      "comment": "Pause until the local player of the Felicity match is spawned and live."
+    },
+    {
+      "at_ms": 3000,
+      "type": "use_door",
+      "comment": "The nearest door is closed: the level program opens it."
+    },
+    {
+      "at_ms": 7000,
+      "type": "use_door",
+      "comment": "Four seconds later it stands open: the same use closes it."
+    },
+    {
+      "at_ms": 11000,
+      "type": "use_door",
+      "comment": "And opens it again."
+    },
+    {
+      "at_ms": 15000,
+      "type": "exit",
+      "comment": "The stage's object event totals are logged at the exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_arena_door_rules",
+      "SCENARIO\\.GRAPH: level program 'base:scenario_mp_felicity' nodes=11 exec_edges=7 modules=4 volumes=0 ",
+      "SMOKE\\.USE_DOOR: object=setup_[0-9]{4} distance=[0-9]+ mode=0->[1-9] ",
+      "SCENARIO\\.GRAPH: event\\.door\\.use 'base:scenario_mp_felicity' object=setup_[0-9]{4} tag=-?[0-9]+ kind=door catalog_id=base:[a-z0-9_]+ player=0 level_modules=1 ",
+      "SCENARIO\\.GRAPH: event\\.door\\.opened 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",
+      "SCENARIO\\.GRAPH: event\\.door\\.closed 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",
+      "SCENARIO\\.GRAPH: object events 'base:scenario_mp_felicity' pickup\\.collected=[0-9]+ door\\.opened=[1-9][0-9]* door\\.closed=[1-9][0-9]* object\\.used=[0-9]+ pickup\\.touched=[0-9]+ door\\.use=3 door\\.approach=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0 reason=smoke_exit",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE\\.USE_DOOR: no door",
+      "SCENARIO\\.GRAPH: object rule differs",
+      "level program refused: ",
+      "SCENARIO\\.GRAPH: event\\.door\\.[a-z_]+ '[^']+' object=- "
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.USE_DOOR: object=setup_[0-9]{4} ",
+        "min": 3,
+        "max": 3
+      }
+    ]
+  }
+}

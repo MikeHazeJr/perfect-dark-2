@@ -50,6 +50,11 @@ extern "C" {
  *   og.*  A native module from the caller's module table, for example
  *       og.hud.objective_status_message (the original "Objective N: Completed"
  *       message). An og.* kind the table does not know refuses the program.
+ *   event.pickup.collected, event.door.opened, event.door.closed,
+ *       event.object.used (object-events.md slice 2) and the rule events
+ *       event.pickup.touched, event.door.use, event.door.approach (slice 4,
+ *       level programs only): an object's event; optional "object": "any"
+ *       (the default) or an objects.json record_id.
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
@@ -72,11 +77,14 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_DOOR_OPENED 8
 #define MISSION_GRAPH_EVENT_DOOR_CLOSED 9
 #define MISSION_GRAPH_EVENT_OBJECT_USED 10
-/* object-events.md slice 3: queries, fired before the native rule; a
- * program that runs og.pickup.refuse or og.door.refuse refuses the pickup
- * or keeps the door shut (as a locked one), else the native rule decides. */
-#define MISSION_GRAPH_EVENT_PICKUP_REQUESTED 11
-#define MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED 12
+/* object-events.md slice 4: the rule events. On a scenario-source stage the
+ * native seams decide nothing; the level program does, through
+ * gate.pickup.native_rules and og.pickup.collect, gate.door.native_unlocked,
+ * og.door.activate, og.door.locked_message and og.door.activate_automatic.
+ * Level programs only: a mission graph that names one is refused. */
+#define MISSION_GRAPH_EVENT_PICKUP_TOUCHED 11
+#define MISSION_GRAPH_EVENT_DOOR_USE 12
+#define MISSION_GRAPH_EVENT_DOOR_APPROACH 13
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -157,6 +165,10 @@ const char *missionGraphProgramVolumeAt(const mission_graph_program_t *program, 
 /* Whether firing an event of this kind would run anything: some event node of
  * the kind has an execution edge. */
 s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind);
+
+/* object-events.md slice 4: whether the kind is a rule event
+ * (MISSION_GRAPH_EVENT_PICKUP_TOUCHED, _DOOR_USE, _DOOR_APPROACH). */
+s32 missionGraphEventIsObjectRule(s32 event_kind);
 
 /* Whether an event of this kind can reach a native module of this og.* kind
  * along execution edges (both branches of every gate). */
