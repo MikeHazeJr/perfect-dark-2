@@ -1440,7 +1440,12 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	}
 
 	projectile = obj->projectile;
-	projectile->flags |= runtime->flags & ~PROJECTILEFLAG_FREE;
+	/* B-1261: the record's `flags` are its weapon function's FUNCFLAG_* bits
+	 * (the extractor writes them so, and every other reader takes them so);
+	 * they are not projectile flags. The spawn sites derive the projectile
+	 * flags from the function's flags as the original does (LIGHTWEIGHT or
+	 * POWERED in bgunCreateFiredProjectile), and the latches below add what
+	 * the graph declares, so nothing here copies the raw bits. */
 
 	/* B-914 (Q1 homing widen): latch the graph's projectile.homing intent onto
 	 * the spawned projectile so the projectileTick steering gate can honor it

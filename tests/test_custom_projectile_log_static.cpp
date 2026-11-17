@@ -30,6 +30,28 @@ size_t countOf(const std::string &text, const std::string &needle)
 
 } // namespace
 
+// B-1261: a projectile record's `flags` are its weapon function's FUNCFLAG_*
+// bits; applying the record never copies them into PROJECTILEFLAG_*.
+TEST_CASE("a projectile record's function flags never become projectile flags",
+	"[weapon][graph][projectile][static][b1261]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const size_t apply = propobj.find("void projectileApplyGraphRuntime(struct defaultobj *obj,");
+	REQUIRE(apply != std::string::npos);
+	const size_t end = propobj.find("\n}\n", apply);
+	REQUIRE(end != std::string::npos);
+	const std::string body = propobj.substr(apply, end - apply);
+	REQUIRE(body.find("runtime->flags") == std::string::npos);
+	REQUIRE(body.find("projectile->flags |= PROJECTILEFLAG_HOMING;") != std::string::npos);
+
+	// The extractor still writes the function's flags there, and the held
+	// readers still take a record's flags as function flags.
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("u32 flags = f ? f->flags : 0;") != std::string::npos);
+	const std::string bgun = readSource("src/game/bondgun.c");
+	REQUIRE(bgun.find("u32 funcflags = graph ? graph->flags : func->flags;") != std::string::npos);
+}
+
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")
 {
 	const std::string bgun = readSource("src/game/bondgun.c");
