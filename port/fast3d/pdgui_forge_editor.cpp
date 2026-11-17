@@ -1895,6 +1895,21 @@ static char s_LevelFileStart[32]                 = "";   /* selected player star
 static char s_LevelFileObject[32]                = "";   /* selected object, by id */
 static int  s_LevelFileObjectIndex               = -1;   /* its row; objects are only added, so rows do not move */
 static int  s_LevelFileSizePercent               = 100;  /* the Size section's slider */
+
+/* Where the editor's panel was drawn last (pdguiForgeEditorPanelRect). */
+static bool   s_EditorPanelShown = false;
+static ImVec2 s_EditorPanelMin   = ImVec2(0.0f, 0.0f);
+static ImVec2 s_EditorPanelMax   = ImVec2(0.0f, 0.0f);
+
+s32 pdguiForgeEditorPanelRect(float *x0, float *y0, float *x1, float *y1)
+{
+	if (!s_EditorPanelShown || !forgeSessionIsActive()) return 0;
+	if (x0) *x0 = s_EditorPanelMin.x;
+	if (y0) *y0 = s_EditorPanelMin.y;
+	if (x1) *x1 = s_EditorPanelMax.x;
+	if (y1) *y1 = s_EditorPanelMax.y;
+	return 1;
+}
 static int  s_LevelFileEdits                     = 0;    /* edits since the level was opened or last saved */
 static bool s_LevelFileCloseArmed                = false;
 static char s_LevelFileWeapon[CATALOG_ID_LEN]    = "";   /* the weapon chosen for a pickup, by catalog id */
@@ -2821,6 +2836,7 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	/* Before the window: the look works with the editor hidden too. */
 	forgeEditorMouseLook();
 
+	s_EditorPanelShown = false;
 	if (!s_EditorVisible) return;
 
 	const float scale = pdguiScale(1.0f);
@@ -2829,6 +2845,12 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 
 	ImGui::Begin("The Grid -- Editor", nullptr,
 			ImGuiWindowFlags_NoCollapse);
+	/* For the HUD, which draws before the panel: its labels stay out from
+	 * under it (the panel is translucent). */
+	s_EditorPanelMin = ImGui::GetWindowPos();
+	s_EditorPanelMax = ImVec2(s_EditorPanelMin.x + ImGui::GetWindowWidth(),
+		s_EditorPanelMin.y + ImGui::GetWindowHeight());
+	s_EditorPanelShown = true;
 
 	/* Undo / redo bar always visible. */
 	if (ImGui::Button("Undo")) forgeUndoApplyUndo();

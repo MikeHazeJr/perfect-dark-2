@@ -58,6 +58,11 @@ s32  pdguiForgeLevelMarkersTakePick(char *start_id, size_t start_cap, char *obje
  *  catalog/placement panels only respond to input in FREEFLY. */
 void pdguiForgeEditorRender(s32 winW, s32 winH);
 
+/** Where the editor's panel was drawn last, in window pixels: 1 with its
+ *  corners while it is shown, 0 when it is hidden or was not drawn. The HUD
+ *  keeps the world markers' labels from showing through it. */
+s32 pdguiForgeEditorPanelRect(float *x0, float *y0, float *x1, float *y1);
+
 /** Per-frame hook called from the game loop (before render) so the
  *  editor runtime can tick (currently a no-op placeholder; room for
  *  placement reticle integration with the freefly camera). */

@@ -1261,3 +1261,13 @@ facing, through the exporter's axis change. Not played yet.
 
 Next for F5: play a Blender-made level in a game turn, and then the Maian
 arena when Forge's authoring is finished (Mike, 2026-11-15).
+
+Later, so a level's geometry can come in through the in-game tools as well:
+the Levels tool's "New level from a model file", doing in the client what
+the builder does. The pieces exist: the client reads glTF
+(`port/src/modasset_gltf_document.cpp`, the mod asset compiler's reader),
+and a save from a template with replaced members already brings the pads,
+volumes, graph nodes and the navigation record into step (the level document
+and the archive rebuild). What it would add: the scene's conversion to the
+game's form (unindexed, float colours, `_PD_ROOM`), `collision.obj` and its
+flags, the room box, and the starts from the model's empties.

@@ -190,6 +190,14 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 		pickIndex = index;
 	};
 
+	/* Labels are not drawn under the editor's translucent panel, where they
+	 * would show through its text; the markers are. */
+	float panel[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	const bool havePanel = pdguiForgeEditorPanelRect(&panel[0], &panel[1], &panel[2], &panel[3]) != 0;
+	const auto underPanel = [&](ImVec2 at) {
+		return havePanel && at.x >= panel[0] && at.x <= panel[2] && at.y >= panel[1] && at.y <= panel[3];
+	};
+
 	const s32 objects = forgeLevelDocObjectCount(doc);
 	for (s32 i = 0; i < objects; i++) {
 		forge_level_object_t object;
@@ -212,7 +220,8 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 			char label[112];
 			snprintf(label, sizeof(label), "%s %s%s", object.kind, object.record_id,
 				object.removed ? " (removed)" : "");
-			forgehudMarkerLabel(dl, ImVec2(at.x + half + 4.0f * scale, at.y - half), col, label);
+			const ImVec2 labelAt(at.x + half + 4.0f * scale, at.y - half);
+			if (!underPanel(labelAt)) forgehudMarkerLabel(dl, labelAt, col, label);
 		}
 	}
 
@@ -237,7 +246,8 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 		if (selected || distance < labelRange) {
 			char label[96];
 			snprintf(label, sizeof(label), "start %s%s", spawn.spawn_id, pad.added ? " (new)" : "");
-			forgehudMarkerLabel(dl, ImVec2(at.x + half + 4.0f * scale, at.y - half), col, label);
+			const ImVec2 labelAt(at.x + half + 4.0f * scale, at.y - half);
+			if (!underPanel(labelAt)) forgehudMarkerLabel(dl, labelAt, col, label);
 		}
 	}
 
