@@ -215,6 +215,15 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       buttons call. Runs right after the weapon tool's flags. Logged as
  *       CHARMOD.* lines.
  *
+ *   --debug-level-tool-new <arena catalog id>
+ *   --debug-level-tool-name <display name>
+ *       Runs the Modding Hub's Levels tool without the mouse: makes a new
+ *       level from the named level under the display name, through the
+ *       function the Create button calls. Runs right after the character
+ *       tool's flags and before --debug-forge-level, so that flag and
+ *       --launch-forge-level can name the level it made. Logged as
+ *       LEVELTOOL.* lines.
+ *
  *   --debug-forge-level <arena catalog id>
  *   --debug-forge-level-name <display name>
  *   --debug-forge-level-weapon <weapon catalog id>
@@ -225,7 +234,7 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       under the display name, through the open and save calls the Forge
  *       editor makes. With a weapon id, the copied pickup gives that weapon
  *       of the catalog instead of being one of the match's weapon places.
- *       Runs right after the character tool's flags, so one launch can make
+ *       Runs right after the level tool's flags, so one launch can make
  *       the level and then start a match on it. Logged as FORGE.LEVEL.*
  *       lines.
  *
@@ -984,6 +993,7 @@ extern void pdguiModdingHubShowTool(s32 tool);
 extern s32 pdguiModdingHubDebugWeaponCreate(const char *template_id, const char *display_name);
 extern s32 pdguiCharacterToolDebugCreate(const char *template_id, const char *display_name,
 	const char *gender, const char *build, s32 height);
+extern s32 pdguiLevelToolDebugNew(const char *template_id, const char *display_name);
 extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
@@ -1149,6 +1159,23 @@ static void bootApplyDebugCharacterToolCreate(void)
 		pdguiCharacterToolDebugCreate(template_id, name,
 			gender && gender[0] ? gender : NULL, build && build[0] ? build : NULL,
 			height) ? "OK" : "FAIL");
+}
+
+/* --debug-level-tool-new <arena id> [--debug-level-tool-name <name>]: the
+ * Levels tool's own New Level, without the mouse. */
+static void bootApplyDebugLevelToolNew(void)
+{
+	const char *template_id = sysArgGetString("--debug-level-tool-new");
+	const char *name = sysArgGetString("--debug-level-tool-name");
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Level";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-level-tool-new template=%s name='%s' result=%s",
+		template_id, name, pdguiLevelToolDebugNew(template_id, name) ? "OK" : "FAIL");
 }
 
 /* --debug-forge-level <arena id> [--debug-forge-level-name <name>]: Forge's
@@ -2953,6 +2980,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
 	bootApplyDebugWeaponToolCreate();
 	bootApplyDebugCharacterToolCreate();
+	bootApplyDebugLevelToolNew();
 	bootApplyDebugForgeLevel();
 
 	if (player_init_fault != NULL) {

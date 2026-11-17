@@ -1200,6 +1200,9 @@ set(SRC_TESTS
   # A level's pads, spawns and objects as Forge edits them (Forge F2).
   ${CMAKE_SOURCE_DIR}/port/src/forge_level_doc.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc.cpp
+  # The rules of the Modding Hub's Levels tool (Forge F4).
+  ${CMAKE_SOURCE_DIR}/port/src/level_tool.c
+  ${CMAKE_SOURCE_DIR}/tests/test_level_tool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp

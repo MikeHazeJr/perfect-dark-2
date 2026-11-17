@@ -943,3 +943,65 @@ starts, whether simulants walk the ring, whether a match with no pickups is
 acceptable, the minted stage's music, sky and fog, and wall winding in play.
 After that: the same builder fed a Blender model (plain GLB in, room
 attribute and collision added), which is what the Maian arena needs.
+
+## F4 first slice: the Modding Hub's Levels tool (WRITTEN 2026-11-17, not compiled, not run)
+
+Level authoring joins the other in-game mod tools: a Levels tab in the
+Modding Hub, after Characters.
+
+What a player does there:
+
+- Two lists, by name: Level Mods (levels made here, installed level mods and
+  templates such as the Blank Room) and Game Levels (the game's own arenas
+  and missions). A player with no level mods yet starts on Game Levels.
+- The selected level's pane says what it holds, read from the level's own
+  files by the document Forge edits (`forgeLevelOpen`): for example "8 starts,
+  12 weapon places, 1 fixed weapon, 3 ammo crates, 40 props, 25 other objects",
+  its pads and its archive. A level Forge cannot open says why there, before
+  the player tries.
+- Open in Forge starts a Forge session on the level (`forgeLevelStartForge`,
+  the call The Grid's Enter makes) and closes the hub. It is off while a
+  network game runs.
+- New level from this one: a name, the id the name gives, then Create, or
+  Create and Open in Forge. The new level is the template's archive under the
+  new name, saved by the mod author with the active agent as its author and
+  `levels-tool` as its tool. Forge's Save under that level's own name then
+  updates it in place (F2's own-template save).
+- A new level never replaces anything. The mod author updates a mod in place
+  when a name gives the id of one the player already has; that is right for
+  Forge's Save and wrong here, where it would put a fresh copy of the template
+  over a level the player has worked on. Such a name is refused with the level
+  that has it, and so is the template's own name.
+- A level made from one of the game's levels holds data from the player's own
+  game files; the pane says so and that it must stay on this computer (BYOR),
+  in the words the Characters tool uses.
+
+Where it is:
+
+- Rules, unit-tested (`[level-tool]`): `port/src/level_tool.c`
+  (`level_tool.h`): what a level's placements add up to (a record the level
+  leaves out counts as left out, not under its kind), the one-line summary,
+  and which names a new level may take.
+- Window: `port/fast3d/pdgui_menu_leveltool.cpp` (`pdgui_leveltool.h`); the
+  hub's table has one more row (`HUB_TOOL_LEVELS`). The mod author's answer
+  for a name is asked again only when the name or the template changes,
+  because it looks at the mods folder.
+- `--debug-level-tool-new <arena id>` with `--debug-level-tool-name <name>`
+  runs the Create button's function at boot, before `--debug-forge-level` and
+  `--launch-forge-level`, so one launch can make a level, open it in Forge and
+  save it. Lines: `LEVELTOOL.NEW.*`, `LEVELTOOL.FORGE`, `LEVELTOOL.DEBUG.NEW.*`.
+- Smoke `forge_level_tool_smoke`: the Blank Room staged as a mod; a new level
+  `Tool_Room` made from it by the tool's function; a Forge session started on
+  the new level; a start added and the level saved under its own name from
+  inside the session. That last step is new ground for the game too: the save
+  replaces the archive of the level that is loaded and the mod manager rescans
+  and applies while it runs (`own_template=1`, `updated=1`). Every later Save
+  of a level being worked on is that step, so the smoke is there to find out
+  whether it holds.
+
+Not in this slice: a check of a level beyond "its files are read" (the game's
+own checks run when it loads one: the graph's rules, the navigation record,
+the scene and the collision; a Check Level button would run them without a
+load); deleting a level (the Mod Manager turns one off); the author's name on
+Forge's own Save (it is still the mod author's default, "Player"); a picture
+of each level in the list.

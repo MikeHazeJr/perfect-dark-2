@@ -43,6 +43,7 @@
 #include "pdgui_model_preview.h"
 #include "pdgui_weapon_graph_node_editor.h"
 #include "pdgui_charactertool.h"
+#include "pdgui_leveltool.h"
 #include "system.h"
 #include "asset_mod_utility_contract.h"
 #include "asset_archive_policy.h"
@@ -166,6 +167,7 @@ enum HubTool {
     HUB_TOOL_FONT_MOD,
     HUB_TOOL_WEAPONS,
     HUB_TOOL_CHARACTERS,
+    HUB_TOOL_LEVELS,
     HUB_TOOL_COUNT
 };
 
@@ -187,6 +189,7 @@ static const HubToolInfo kHubTools[HUB_TOOL_COUNT] = {
     { "Font Mod",    "##modhub_fontmod",    "Import a .ttf/.otf font as a mod" },
     { "Weapons",     "##modhub_weapons",    "Browse weapon archives and graph payloads" },
     { "Characters",  "##modhub_characters", "Make character, body and head mods from templates" },
+    { "Levels",      "##modhub_levels",     "Make a level from a template and open it in Forge" },
 };
 
 static bool s_Visible    = false;
@@ -4457,6 +4460,7 @@ static void moddingHubActivateTool(int tool)
         case 8: fontToolReset(); break;
         case 9: weaponToolRefresh(); break;
         case HUB_TOOL_CHARACTERS: pdguiCharacterToolRefresh(); break;
+        case HUB_TOOL_LEVELS: pdguiLevelToolRefresh(); break;
     }
 }
 
@@ -4656,6 +4660,8 @@ static void renderModdingHub(s32 winW, s32 winH)
                 renderWeaponTool(dialogW, contentH, scale);
             } else if (s_ActiveTool == HUB_TOOL_CHARACTERS) {
                 pdguiCharacterToolRender(dialogW, contentH, scale);
+            } else if (s_ActiveTool == HUB_TOOL_LEVELS) {
+                pdguiLevelToolRender(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
