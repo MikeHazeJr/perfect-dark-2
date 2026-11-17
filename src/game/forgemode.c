@@ -931,6 +931,23 @@ s32 forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_di
 	return 1;
 }
 
+void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg)
+{
+	if (s_forge.state != FORGE_SESSION_FREEFLY) {
+		return;
+	}
+
+	/* The same range forgeUpdateFreefly keeps them in. The next tick hands
+	 * them to the player (forgeApplyFreeflyToPlayer), and the view follows. */
+	while (yaw_deg < 0.0f)    yaw_deg += 360.0f;
+	while (yaw_deg >= 360.0f) yaw_deg -= 360.0f;
+	if (pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
+	if (pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
+	s_forge.fly.yaw_deg = yaw_deg;
+	s_forge.fly.pitch_deg = pitch_deg;
+	sysLogPrintf(LOG_NOTE, "GRID: debug camera angles yaw=%.1f pitch=%.1f", yaw_deg, pitch_deg);
+}
+
 f32 forgeGetCameraYawDeg(void)
 {
 	return s_forge.fly.yaw_deg;

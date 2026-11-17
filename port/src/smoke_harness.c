@@ -39,7 +39,8 @@
  *        network_listen_ready, network_stage_live, network_reconnect_available,
  *        cutscene_skip_ready, gameplay_ready, offline_gameplay_ready, and
  *        vehicle_driver_ready, endscreen_visible, agent_select_ready,
- *        agent_create_ready and forge_editor_ready. The real-time harness
+ *        agent_create_ready, forge_editor_ready and forge_level_file_open.
+ *        The real-time harness
  *        watchdog continues while the script is paused, and every wait
  *        requires a bounded timeout.
  *
@@ -158,6 +159,7 @@
 #include "game/playermgr.h"
 #include "game/propobj.h"
 #include "game/forgemode.h"
+#include "forge_level_io.h"
 #include "input.h"
 #include "inputctx.h"
 #include "inputlayer.h"
@@ -2067,8 +2069,10 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
      * not an active driver aperture when an overlay owns the stack. */
     facts.vehicle_driver_layer_active = inputLayerTopType()
         == LAYER_VEHICLE_DRIVER;
-    /* The Forge editor camera is flying: a Forge session's own state. */
+    /* The Forge editor camera is flying: a Forge session's own state. And
+     * whether the editor has the level's own file open (forge_level_io.h). */
     facts.forge_freefly = forgeIsFreefly() != 0;
+    facts.forge_level_file_open = forgeLevelSessionDoc() != NULL;
     facts.endscreen = g_MainIsEndscreen != 0;
 	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP);
 	facts.menu_input_active = inputCtxIsActive(&g_CtxImGuiMenu);
@@ -2125,8 +2129,10 @@ static void smokeLogReadinessWait(s32 level, const char *status,
         sysLogPrintf(level, "SMOKE.WAIT.LOBBY: boot=%d net=%d client_lobby=%d",
             facts->boot_complete, facts->network_active, facts->local_client_in_lobby);
     }
-    if (ev->readiness_condition == SMOKE_READINESS_FORGE_EDITOR_READY) {
-        sysLogPrintf(level, "SMOKE.WAIT.FORGE: freefly=%d", facts->forge_freefly);
+    if (ev->readiness_condition == SMOKE_READINESS_FORGE_EDITOR_READY
+            || ev->readiness_condition == SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN) {
+        sysLogPrintf(level, "SMOKE.WAIT.FORGE: freefly=%d level_file_open=%d",
+            facts->forge_freefly, facts->forge_level_file_open);
     }
     sysLogPrintf(level,
 		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d"

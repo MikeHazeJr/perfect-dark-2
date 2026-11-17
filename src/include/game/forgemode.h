@@ -109,6 +109,11 @@ void forgeGetCameraPos(struct coord *out_pos);
  *  point at the camera or behind it, or when there is no view yet. */
 s32  forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_distance);
 
+/** Turns the editor camera to a yaw and a pitch, in degrees, while it is
+ *  flying. For a debug flag that needs the camera at a known angle; players
+ *  turn it with the look input. Does nothing outside FREEFLY. */
+void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg);
+
 f32  forgeGetCameraYawDeg(void);
 f32  forgeGetCameraPitchDeg(void);
 f32  forgeGetCurrentSpeedScale(void); /* 1.0 default, 3.0 boost, 0.25 precision */

@@ -30,6 +30,7 @@
 #include "pdgui_glyphs.h"
 
 #include "forge_level_doc.h"   /* the open level's starts and objects (world markers) */
+#include "inputctx.h"          /* which input context is on top (the editor's is not a menu) */
 
 extern "C" {
 #include "game/forgemode.h"
@@ -207,8 +208,16 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	if (!forgeSessionIsActive()) {
 		return;
 	}
-	/* Suppress reticle and ghost preview while any menu is open. */
-	if (pdguiIsActive()) return;
+	/* Suppress the HUD while a menu is open. The editor's own input context
+	 * is not a menu: it is on top for the whole of FREEFLY (pushed there
+	 * since 2026-05-01, forgemode.c), and while this line counted it as one,
+	 * pdguiIsActive() was true on every FREEFLY frame and nothing below was
+	 * ever drawn while the camera flew: no badge, no reticle, no camera
+	 * readout (B-1237). */
+	{
+		const InputContext *top = inputCtxGetTop();
+		if (top && top != &g_CtxGameplay && top != &g_CtxForgeEditor) return;
+	}
 
 	const forge_session_state_t state = forgeGetSessionState();
 	const float scale = pdguiScale(1.0f);

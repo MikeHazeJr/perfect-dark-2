@@ -1925,8 +1925,13 @@ static void forgeLevelFileForget(void)
 	s_LevelFileCloseArmed = false;
 }
 
-/* Where the editor camera is and the way it faces, flat: a pad's look is
- * read back into a player's turn angle as atan2f(look.x, look.z). */
+/* Where the editor camera is and the way it faces, flat. The camera's yaw is
+ * the player's turn angle (forgemode.c sets vv_theta from it), and a player
+ * with turn angle t faces (-sin t, 0, cos t) (bondmove.c: bond2.unk00). A
+ * player started on a pad gets t = 360 - atan2(look.x, look.z) (player.c),
+ * which turns this look back into the same angle, so someone who starts here
+ * sees what the camera saw. The X sign matters: with +sin the start faced
+ * the mirror image of the camera for every yaw but 0 and 180. */
 static void forgeLevelFileCamera(f32 position[3], f32 look[3])
 {
 	struct forge_editor_coord { f32 x, y, z; } cpos = { 0.0f, 0.0f, 0.0f };
@@ -1935,7 +1940,7 @@ static void forgeLevelFileCamera(f32 position[3], f32 look[3])
 	position[0] = cpos.x;
 	position[1] = cpos.y;
 	position[2] = cpos.z;
-	look[0] = sinf(yaw);
+	look[0] = -sinf(yaw);
 	look[1] = 0.0f;
 	look[2] = cosf(yaw);
 }

@@ -587,3 +587,42 @@ TEST_CASE("Forge editor readiness is a live offline stage with the editor camera
     REQUIRE(smokeReadinessConditionMet(condition, &facts));
     REQUIRE_FALSE(smokeReadinessConditionMet(condition, nullptr));
 }
+
+TEST_CASE("Forge level file readiness is the editor up with the level's own file open",
+          "[smoke][readiness][offline][forge]")
+{
+    const auto condition = SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN;
+    REQUIRE(smokeReadinessConditionFromName("forge_level_file_open") == condition);
+    REQUIRE(std::string(smokeReadinessConditionName(condition)) == "forge_level_file_open");
+
+    auto facts = stageLiveFacts();
+    facts.network_active = 0;
+    facts.local_client_in_game = 0;
+    facts.multiplayer_running = 0;
+    facts.player_in_cutscene = 1;
+    facts.forge_freefly = 1;
+    /* The editor alone is not enough: the file has to be open. */
+    REQUIRE(smokeReadinessConditionMet(SMOKE_READINESS_FORGE_EDITOR_READY, &facts));
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+    facts.forge_level_file_open = 1;
+    REQUIRE(smokeReadinessConditionMet(condition, &facts));
+
+    for (auto field : {&facts.gameplay_stage, &facts.stage_ready_epoch,
+                      &facts.local_player_present, &facts.local_player_spawned,
+                      &facts.stage_tick_active, &facts.forge_freefly,
+                      &facts.forge_level_file_open}) {
+        *field = 0;
+        REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+        *field = 1;
+    }
+
+    /* A file left open by a session that has ended does not count. */
+    facts.forge_freefly = 0;
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+    facts.forge_freefly = 1;
+    facts.endscreen = 1;
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+    facts.endscreen = 0;
+    REQUIRE(smokeReadinessConditionMet(condition, &facts));
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, nullptr));
+}

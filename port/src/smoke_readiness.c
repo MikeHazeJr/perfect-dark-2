@@ -58,6 +58,9 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	if (strcmp(name, "forge_editor_ready") == 0) {
 		return SMOKE_READINESS_FORGE_EDITOR_READY;
 	}
+	if (strcmp(name, "forge_level_file_open") == 0) {
+		return SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN;
+	}
 	for (unsigned int i = 0; i < sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]); ++i) {
 		if (strcmp(name, mainMenuConditions[i]) == 0)
 			return (smoke_readiness_condition_t)(SMOKE_READINESS_MAIN_MENU_PLAY_READY + i);
@@ -101,6 +104,8 @@ const char *smokeReadinessConditionName(
 		return "agent_create_ready";
 	case SMOKE_READINESS_FORGE_EDITOR_READY:
 		return "forge_editor_ready";
+	case SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN:
+		return "forge_level_file_open";
 	default:
 		return "invalid";
 	}
@@ -234,6 +239,8 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		 * owns the top input layer, so none of the walking-player facts
 		 * apply: a live offline stage and the camera flying are the state. */
 		return offline_stage_live && facts->forge_freefly;
+	case SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN:
+		return offline_stage_live && facts->forge_freefly && facts->forge_level_file_open;
 	default:
 		return 0;
 	}

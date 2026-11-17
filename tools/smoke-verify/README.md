@@ -337,13 +337,20 @@ latest virtual event plus the sum of all wait timeouts.
 Exact conditions are `title_sequence_ready`, `network_listen_ready`, `network_stage_live`,
 `network_reconnect_available`, `cutscene_skip_ready`, `gameplay_ready`,
 `offline_gameplay_ready`, `vehicle_driver_ready`, `endscreen_visible`,
-`agent_select_ready`, `agent_create_ready`, and `forge_editor_ready`.
+`agent_select_ready`, `agent_create_ready`, `forge_editor_ready`, and
+`forge_level_file_open`.
 
 `forge_editor_ready` is the state a Forge session starts in: the offline
 stage-live boundary (current stage epoch, local player allocated and spawned,
 stage ticking, no results screen) and the Forge editor camera flying. The
 editor camera holds the player in a cutscene move mode with its own input layer
 on top, so none of the walking-player facts apply and none is asked for.
+`forge_level_file_open` is that plus the editor having the level's own file
+open. Opening and saving a level file can hold one frame for seconds, and the
+script clock runs on through such a frame, so a fixture that wants a
+screenshot or an exit after a save waits on this condition first and times
+them from there; timed from before the save, several events can come due in
+the same tick and an exit beats the screenshot it follows.
 
 Reconnect exact-set fixtures may use
 `{"type":"network_retire_held_weapon","client_id":1,"hand":"right"}`.

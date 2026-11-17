@@ -1614,7 +1614,7 @@ const char *forgeLevelDocMemberName(s32 member)
 	return member >= 0 && member < FORGE_LEVEL_MEMBER_COUNT ? kMemberNames[member] : nullptr;
 }
 
-s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
+static s32 levelOverrides(forge_level_doc_t *doc, const char *scenario_member, bool every,
 	forge_level_overrides_t *out, char *err, size_t err_cap)
 {
 	if (err && err_cap) err[0] = '\0';
@@ -1626,7 +1626,7 @@ s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
 	const std::string prefix = scenario_member && scenario_member[0]
 		? std::string(scenario_member) + "::" : std::string();
 	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
-		if (!forgeLevelDocMemberChanged(doc, member)) continue;
+		if (!every && !forgeLevelDocMemberChanged(doc, member)) continue;
 		const std::string name = prefix + kMemberNames[member];
 		const std::string &text = doc->tables[member].text();
 		if (name.size() >= FORGE_LEVEL_OVERRIDE_NAME_MAX || text.size() > 0xffffffffu) {
@@ -1644,6 +1644,18 @@ s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
 		out->count++;
 	}
 	return 1;
+}
+
+s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
+	forge_level_overrides_t *out, char *err, size_t err_cap)
+{
+	return levelOverrides(doc, scenario_member, false, out, err, err_cap);
+}
+
+s32 forgeLevelDocOverridesAll(forge_level_doc_t *doc, const char *scenario_member,
+	forge_level_overrides_t *out, char *err, size_t err_cap)
+{
+	return levelOverrides(doc, scenario_member, true, out, err, err_cap);
 }
 
 } // extern "C"

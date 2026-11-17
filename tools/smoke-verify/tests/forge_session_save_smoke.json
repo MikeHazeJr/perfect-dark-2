@@ -1,6 +1,6 @@
 {
   "scenario_name": "forge_session_save_smoke",
-  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. A second and a half later the flag logs where the world markers' projection puts four known points (straight ahead of the camera must be the middle of the picture, ahead and to the right must be right of it, ahead and above must be above it, behind must be out of view) and takes a screenshot with the markers on; three seconds after the save it ends the launch. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running, and the markers' projection has the right centre and the right sense left to right and top to bottom. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
+  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. The flag then turns the camera level and to a yaw of 217 degrees, away from every axis, and logs where the world markers' projection puts known points: straight ahead of the camera must be the middle of the picture, ahead and to the right must be right of it, ahead and above must be above it, and behind must be out of view. The script waits for the editor, then for the level file to be open, takes one screenshot with the markers on and ends the launch six seconds after the file opened. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running for seconds afterwards, and the markers' projection and the facing math under it (a camera at turn angle t faces (-sin t, 0, cos t)) are right at an angle where a wrong sign would show. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
   "tags": [
     "modding",
     "forge",
@@ -15,12 +15,12 @@
     "port/src/forge_level_doc.cpp",
     "port/src/main.c",
     "port/fast3d/pdgui_forge_editor.cpp",
+    "port/fast3d/pdgui_forge_hud.cpp",
     "port/fast3d/pdgui_menu_forge.cpp",
     "src/game/forgemode.c",
     "port/src/mod_author_runtime.c",
-    "context/designs/modding/forge-mode-scope.md",
-    "port/fast3d/pdgui_forge_hud.cpp",
-    "port/src/smoke_readiness.c"
+    "port/src/smoke_readiness.c",
+    "context/designs/modding/forge-mode-scope.md"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
@@ -45,18 +45,32 @@
     "--debug-forge-session-save",
     "Forge_Session"
   ],
+  "screenshots": [
+    {
+      "at_ms": 2500,
+      "name": "forge-session-markers"
+    }
+  ],
   "input_sequence": [
     {
       "at_ms": 0,
       "type": "wait_until",
       "condition": "forge_editor_ready",
       "timeout_ms": 200000,
-      "comment": "The launch flag starts the Forge session once the boot stage has placed the player. A session that never comes up fails here with the facts that were missing, not at the fallback exit."
+      "comment": "The launch flag starts the Forge session once the boot stage has placed the player. A session that never comes up fails here, with the facts that were missing."
     },
     {
-      "at_ms": 60000,
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_level_file_open",
+      "timeout_ms": 60000,
+      "stable_ms": 500,
+      "comment": "The save flag opens the level file and saves in one frame, two seconds into the level, and that frame can take seconds. The script clock runs on through it, so the screenshot and the exit are timed from here, after it: timed from before, both could come due in the same tick and the exit would beat the screenshot."
+    },
+    {
+      "at_ms": 6000,
       "type": "exit",
-      "comment": "Fallback only, a minute after the editor came up. The launch normally ends itself: --debug-forge-session-save saves two seconds into the level, takes the screenshot a second and a half after the save, and ends the launch three seconds after it. The screenshot entry's own time is far past that on purpose; the flag takes it, because only the flag knows when the save is over."
+      "comment": "Six seconds after the level file opened: the camera has been turned (20 frames after the save), the projection logged (60 frames after it) and the screenshot taken (2.5 seconds), and the game has kept running on a level it just saved a copy of."
     }
   ],
   "assertions": {
@@ -67,19 +81,20 @@
       "FORGE\\.LEVEL\\.SESSION: arena=base:arena_mp_complex",
       "BOOT: --launch-forge-level arena=base:arena_mp_complex result=OK",
       "GRID: session active stage=0x[0-9a-f]+ \\(starting in FREEFLY\\)",
+      "SMOKE\\.WAIT: satisfied condition=forge_editor_ready ",
       "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.BEGIN: arena=base:arena_mp_complex name='Forge_Session'",
       "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=[1-9]\\d* archive='.*base_arena_mp_complex\\.pdarena'",
       "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0019 at the camera \\(-?\\d+, -?\\d+, -?\\d+\\); the level now has pads=227 spawns=20 objects=35",
       "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_session mod_id=mod\\.arena_forge_session updated=0",
       "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_forge_session restart_count=\\d+",
-      "FORGE\\.LEVEL\\.SAVE\\.OK: template=base:arena_mp_complex catalog=mod:arena_forge_session changed_members=4 restart_count=\\d+ archive='.*arena_forge_session\\.pdarena'",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=base:arena_mp_complex catalog=mod:arena_forge_session changed_members=4 restart_count=\\d+ archive='.*arena_forge_session\\.pdarena' own_template=0",
       "PDARENA\\.SCENARIO: owner=mod:arena_forge_session id=mod:arena_forge_session__\\S+ stagenum=0x[0-9a-f]+ source=",
       "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.RESULT: result=OK catalog=mod:arena_forge_session",
       "BOOT: --debug-forge-session-save name='Forge_Session' result=OK",
-      "SMOKE\\.WAIT: satisfied condition=forge_editor_ready ",
-      "FORGE\\.MARKERS\\.PROBE: ahead=\\(0\\.(4[5-9]|5[0-5])\\d, 0\\.(4[5-9]|5[0-5])\\d\\) right=\\(0\\.(5[6-9]|[6-9]\\d)\\d, 0\\.\\d{3}\\) up=\\(0\\.\\d{3}, 0\\.([0-3]\\d|4[0-4])\\d\\) behind=hidden ",
-      "BOOT: --debug-forge-session-save screenshot -> .*001-forge-session-markers\\.bmp",
-      "BOOT: --debug-forge-session-save ran on for \\d+ frames after the save",
+      "SMOKE\\.WAIT: satisfied condition=forge_level_file_open ",
+      "GRID: debug camera angles yaw=217\\.0 pitch=0\\.0",
+      "FORGE\\.MARKERS\\.PROBE: ahead=\\(0\\.(4[5-9]|5[0-5])\\d, 0\\.(4[5-9]|5[0-5])\\d\\) right=\\(0\\.(5[6-9]|[6-9]\\d)\\d, 0\\.\\d{3}\\) up=\\(0\\.\\d{3}, 0\\.([0-3]\\d|4[0-4])\\d\\) behind=hidden other_reading=(hidden|\\(-?\\d+\\.\\d{3}, -?\\d+\\.\\d{3}\\)) native=\\d+x\\d+ camera=\\(-?\\d+, -?\\d+, -?\\d+\\) yaw=217\\.0 pitch=0\\.0",
+      "SMOKE: screenshot at_ms=2500 -> .*forge-session-markers\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -97,11 +112,5 @@
       "ENDSCREEN\\.STATE:",
       "MATCH: endscreen shown"
     ]
-  },
-  "screenshots": [
-    {
-      "at_ms": 225000,
-      "name": "forge-session-markers"
-    }
-  ]
+  }
 }

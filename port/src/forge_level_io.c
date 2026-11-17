@@ -17,6 +17,7 @@
 #include "mod_author.h"
 #include "mod_author_runtime.h"
 #include "modarchive.h"
+#include "modmgr.h"
 #include "net/matchsetup.h"
 #include "pdgui_forge.h"
 #include "system.h"
@@ -129,8 +130,10 @@ s32 forgeLevelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
 		const char *display_name, mod_author_result_t *result, char *err, size_t err_cap)
 {
 	forge_level_overrides_t *overrides;
+	mod_author_result_t *names;
 	mod_author_request_t request;
 	s32 restarts = 0;
+	s32 own = 0;
 	s32 code;
 
 	if (err && err_cap) err[0] = '\0';
@@ -139,29 +142,47 @@ s32 forgeLevelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
 		levelFail(err, err_cap, "a save needs an open level and a name", "");
 		return MOD_AUTHOR_ERR_ARGS;
 	}
+
+	memset(&request, 0, sizeof(request));
+	request.template_path = source->archive_path;
+	request.display_name = display_name;
+	request.tool = "forge";
+
+	/* Is this a save over the level the document was opened from (a level of
+	 * the player's own, kept under its name)? Then the archive it replaces is
+	 * the one "changed" is measured against, and every member is written, so
+	 * that an edit taken back since the last save is taken back in the file
+	 * too. Asked of the mod author, which knows the id a name gives. A name
+	 * the author refuses is refused again, with its reason, by the save. */
+	names = (mod_author_result_t *)calloc(1, sizeof(*names));
+	request.mods_root = modmgrGetModsDir();
+	if (names && request.mods_root && request.mods_root[0] &&
+			modAuthorNames(&request, names, NULL, 0) == MOD_AUTHOR_OK) {
+		own = strcmp(names->catalog_id, source->arena_id) == 0;
+	}
+	free(names);
+	request.mods_root = NULL;   /* modAuthorRuntimeSave supplies it */
+
 	/* The override names are long; keep them off the stack. */
 	overrides = (forge_level_overrides_t *)calloc(1, sizeof(*overrides));
 	if (!overrides) {
 		levelFail(err, err_cap, "out of memory", "");
 		return MOD_AUTHOR_ERR_WRITE;
 	}
-	if (!forgeLevelDocOverrides(doc, source->scenario_member, overrides, err, err_cap)) {
+	if (!(own ? forgeLevelDocOverridesAll(doc, source->scenario_member, overrides, err, err_cap)
+			: forgeLevelDocOverrides(doc, source->scenario_member, overrides, err, err_cap))) {
 		free(overrides);
 		return MOD_AUTHOR_ERR_ARGS;
 	}
 
-	memset(&request, 0, sizeof(request));
-	request.template_path = source->archive_path;
-	request.display_name = display_name;
-	request.tool = "forge";
 	request.overrides = overrides->entries;
 	request.override_count = overrides->count;
 	code = modAuthorRuntimeSave(&request, result, &restarts, err, err_cap);
 	if (code == MOD_AUTHOR_OK) {
 		sysLogPrintf(LOG_NOTE,
-			"FORGE.LEVEL.SAVE.OK: template=%s catalog=%s changed_members=%u restart_count=%d archive='%s'",
+			"FORGE.LEVEL.SAVE.OK: template=%s catalog=%s changed_members=%u restart_count=%d archive='%s' own_template=%d",
 			source->arena_id, result ? result->catalog_id : "", (unsigned)overrides->count, restarts,
-			result ? result->archive_path : "");
+			result ? result->archive_path : "", own);
 	} else {
 		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.SAVE.FAIL: template=%s name='%s' code=%d reason='%s'",
 			source->arena_id, display_name, code, err ? err : "");

@@ -235,10 +235,12 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       editor camera flying, opens the level's placements, adds a player
  *       start where the camera is and saves the result as a level mod under
  *       the display name, through the calls the Level File section's buttons
- *       make. A second and a half later it logs where the editor's world
- *       markers put four known points (FORGE.MARKERS.PROBE) and, in a smoke
- *       run that asked for a screenshot, takes it. Three seconds after the
- *       save a smoke run ends. Logged as FORGE.LEVEL.* lines.
+ *       make. It then turns the camera level and to a yaw away from every
+ *       axis and logs where the editor's world markers put five known points
+ *       (FORGE.MARKERS.PROBE), which checks the projection and the facing
+ *       math by numbers. It takes no screenshot and ends nothing: a smoke
+ *       waits on forge_level_file_open and times those itself. Logged as
+ *       FORGE.LEVEL.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -3090,15 +3092,26 @@ s32 bootLaunchScenarioTick(void)
 	return 1;
 }
 
-/* port/fast3d/gfx_sdl.h: a grab of the picture at the next swap, the capture
- * the smoke harness's own screenshot events use. */
-extern void gfxRequestSmokeScreenshot(const char *path);
+/* The yaw the session debug flag turns the editor camera to before it
+ * measures. Far from every axis on purpose: at 0, 90, 180 and 270 degrees
+ * sin or cos is zero and a wrong sign in the facing math cannot be seen. */
+#define BOOT_FORGE_PROBE_YAW_DEG 217.0f
 
-/* Where the editor's world markers put four known points, logged so a run
- * can check the projection without anyone looking at a picture: a point
- * straight ahead of the editor camera must be at the middle of the picture
- * (0.5, 0.5), one ahead and to the right must be right of the middle, one
- * ahead and above must be above it, and one behind must be out of view.
+/* Where the editor's world markers put five known points, logged so a run
+ * can check the projection, and the facing math it rests on, without anyone
+ * looking at a picture.
+ *
+ * The camera's yaw is the player's turn angle t, and the player faces
+ * (-sin t, 0, cos t) (bondmove.c, bond2.unk00). The view's right is up cross
+ * back (mtx00016874), which for a flat forward f is (-f.z, 0, f.x). So with
+ * the camera level: a point straight ahead must be at the middle of the
+ * picture (0.5, 0.5), one ahead and to the right must be right of the
+ * middle, one ahead and above must be above it, and one behind must be out
+ * of view. The fifth point is ahead by the other reading of the angle,
+ * (+sin t, 0, cos t), which the editor's own fly and placement code uses
+ * (forgeUpdateFreefly, forgePlaceUpdate); it is logged, not judged, so a run
+ * shows where that reading points (B-1238).
+ *
  * Fractions of the renderer's native size, the units forgeProjectWorldPos
  * answers in and the Forge HUD scales to the window. */
 static void bootForgeMarkerProbe(void)
@@ -3106,35 +3119,35 @@ static void bootForgeMarkerProbe(void)
 	struct coord cam;
 	const f32 native_w = (f32)videoGetNativeWidth();
 	const f32 native_h = (f32)videoGetNativeHeight();
+	const f32 reach = 1000.0f;
+	const f32 aside = 300.0f;
 	f32 yaw;
-	f32 pitch;
 	f32 fwd[3];
 	f32 right[3];
 	f32 point[3];
-	char text[4][48];
+	char text[5][48];
 
 	cam.x = 0.0f;
 	cam.y = 0.0f;
 	cam.z = 0.0f;
 	forgeGetCameraPos(&cam);
 	yaw = forgeGetCameraYawDeg() * 0.017453292f;
-	pitch = forgeGetCameraPitchDeg() * 0.017453292f;
-	/* The camera's own forward and right (forgeUpdateFreefly). */
-	fwd[0] = sinf(yaw) * cosf(pitch);
-	fwd[1] = sinf(pitch);
-	fwd[2] = cosf(yaw) * cosf(pitch);
-	right[0] = cosf(yaw);
+	fwd[0] = -sinf(yaw);
+	fwd[1] = 0.0f;
+	fwd[2] = cosf(yaw);
+	right[0] = -fwd[2];
 	right[1] = 0.0f;
-	right[2] = -sinf(yaw);
+	right[2] = fwd[0];
 
-	for (s32 i = 0; i < 4; i++) {
-		const f32 along = (i == 3) ? -300.0f : 300.0f;
+	for (s32 i = 0; i < 5; i++) {
+		const f32 along = (i == 3) ? -reach : reach;
+		const f32 fx = (i == 4) ? -fwd[0] : fwd[0];
 		f32 x = 0.0f;
 		f32 y = 0.0f;
 
-		point[0] = cam.x + fwd[0] * along + (i == 1 ? right[0] * 100.0f : 0.0f);
-		point[1] = cam.y + fwd[1] * along + (i == 2 ? 100.0f : 0.0f);
-		point[2] = cam.z + fwd[2] * along + (i == 1 ? right[2] * 100.0f : 0.0f);
+		point[0] = cam.x + fx * along + (i == 1 ? right[0] * aside : 0.0f);
+		point[1] = cam.y + (i == 2 ? aside : 0.0f);
+		point[2] = cam.z + fwd[2] * along + (i == 1 ? right[2] * aside : 0.0f);
 		if (native_w > 0.0f && native_h > 0.0f && forgeProjectWorldPos(point, &x, &y, NULL)) {
 			snprintf(text[i], sizeof(text[i]), "(%.3f, %.3f)", x / native_w, y / native_h);
 		} else {
@@ -3142,8 +3155,8 @@ static void bootForgeMarkerProbe(void)
 		}
 	}
 	sysLogPrintf(LOG_NOTE,
-		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f",
-		text[0], text[1], text[2], text[3], (s32)native_w, (s32)native_h, cam.x, cam.y, cam.z,
+		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s other_reading=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f",
+		text[0], text[1], text[2], text[3], text[4], (s32)native_w, (s32)native_h, cam.x, cam.y, cam.z,
 		forgeGetCameraYawDeg(), forgeGetCameraPitchDeg());
 }
 
@@ -3154,19 +3167,24 @@ static void bootForgeMarkerProbe(void)
  *   1. Once the boot stage has placed the player (lvframenum >= 4, the gate
  *      --launch-scenario uses), start a Forge session on the arena.
  *   2. With --debug-forge-session-save: two seconds into that level, with the
- *      editor camera flying, add a player start where the camera is and save
- *      the level under the name (forgeLevelDebugSessionEdit). The level file
- *      stays open, so the HUD marks its starts and objects in the world.
- *   3. A second and a half later: log where the markers' projection puts four
- *      known points (bootForgeMarkerProbe) and, in a smoke run that asked for
- *      a screenshot, take one with the markers on.
- *   4. Three seconds after the save, with the game still running on the level
- *      it just saved a copy of, end a smoke run.
+ *      editor camera flying, add a player start where the camera is, facing
+ *      the way it faces, and save the level under the name
+ *      (forgeLevelDebugSessionEdit). The level file stays open, so the HUD
+ *      marks its starts and objects in the world.
+ *   3. Twenty frames later: turn the camera level and to a yaw far from
+ *      every axis (BOOT_FORGE_PROBE_YAW_DEG).
+ *   4. Forty frames after that, once frames have been drawn at that angle:
+ *      log where the markers' projection puts five known points
+ *      (bootForgeMarkerProbe).
+ *
+ * The flag takes no screenshot and ends nothing. A smoke waits for the level
+ * file to be open (forge_level_file_open) and times its screenshot and its
+ * exit from there, on the harness's own clock.
  *
  * Returns 1 on a frame where a step ran. */
 s32 bootForgeLevelTick(void)
 {
-	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 probe, 4 run on, 5 done */
+	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 turn, 4 probe, 5 done */
 	static const char *s_arena = NULL;
 	static const char *s_name = NULL;
 	static s32 s_saved_frame = 0;
@@ -3211,8 +3229,10 @@ s32 bootForgeLevelTick(void)
 		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) {
 			return 0;
 		}
-		/* The camera's facing, flat: the way a pad's look is read back into a
-		 * player's turn angle (atan2f(look.x, look.z)). */
+		/* The camera's facing, flat. Its yaw is the player's turn angle t, and
+		 * a player with turn angle t faces (-sin t, 0, cos t); a player started
+		 * on a pad with this look gets the same angle back (player.c), so the
+		 * start faces what the camera faces. */
 		cam.x = 0.0f;
 		cam.y = 0.0f;
 		cam.z = 0.0f;
@@ -3221,48 +3241,31 @@ s32 bootForgeLevelTick(void)
 		position[0] = cam.x;
 		position[1] = cam.y;
 		position[2] = cam.z;
-		look[0] = sinf(yaw);
+		look[0] = -sinf(yaw);
 		look[1] = 0.0f;
 		look[2] = cosf(yaw);
 		saved = forgeLevelDebugSessionEdit(s_name, position, look);
 		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
 			s_name, saved ? "OK" : "FAIL");
 		s_saved_frame = g_Vars.lvframenum;
-		s_step = 3;
+		s_step = saved ? 3 : 5;
 		return 1;
 	}
+	/* A stage that was loaded again counts its frames from zero; then there is
+	 * nothing left to wait for. */
 	if (s_step == 3) {
-		const char *shot_dir = sysArgGetString("--smoke-screenshot-dir");
-
-		/* A stage that was loaded again counts its frames from zero. */
-		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 90) {
+		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 20) {
 			return 0;
 		}
-		bootForgeMarkerProbe();
-		if (smokeHarnessIsActive() && shot_dir && shot_dir[0]) {
-			/* The file the runner plans for the smoke's first screenshot
-			 * (smokeBuildScreenshotEvent: "<dir>/<ordinal>-<name>.bmp", and
-			 * the first is number 1). The scenario lists it far too late to be
-			 * taken by the harness's own clock, because only this flag knows
-			 * when the save is over. */
-			static char path[1024];
-
-			snprintf(path, sizeof(path), "%s/001-forge-session-markers.bmp", shot_dir);
-			sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-session-save screenshot -> %s", path);
-			gfxRequestSmokeScreenshot(path);
-		}
+		forgeDebugSetCameraAngles(BOOT_FORGE_PROBE_YAW_DEG, 0.0f);
 		s_step = 4;
 		return 1;
 	}
-	if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 180) {
+	if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 60) {
 		return 0;
 	}
+	bootForgeMarkerProbe();
 	s_step = 5;
-	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-session-save ran on for %d frames after the save (lvframenum=%d)",
-		(s32)(g_Vars.lvframenum - s_saved_frame), (s32)g_Vars.lvframenum);
-	if (smokeHarnessIsActive()) {
-		smokeHarnessExit(0, "scripted_exit");
-	}
 	return 1;
 }
 

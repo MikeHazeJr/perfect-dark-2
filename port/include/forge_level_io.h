@@ -45,6 +45,14 @@ forge_level_doc_t *forgeLevelOpen(const char *arena_id, forge_level_source_t *so
  * template is a base arena holds data from the player's own game files and
  * is local only.
  *
+ * What is written depends on where the save lands. Under a new name, the
+ * new level is the template's archive plus the members the document changed.
+ * Under the name that gives the level's own id (a mod level opened and saved
+ * again), the archive being rebuilt is the template itself, which after an
+ * earlier save no longer is what the document was opened from; then every
+ * member is written, so an edit taken back since is taken back in the file
+ * too. The log line's `own_template` says which of the two it was.
+ *
  * Returns MOD_AUTHOR_OK, or the mod author's error code with the reason in
  * `err`.
  */

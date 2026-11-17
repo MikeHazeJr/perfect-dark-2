@@ -255,6 +255,18 @@ typedef struct forge_level_overrides {
 s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
 	forge_level_overrides_t *out, char *err, size_t err_cap);
 
+/*
+ * The same, with every member whether it changed or not. For a save that
+ * replaces the very archive the document was read from (a level saved again
+ * under its own name). "Changed" above is measured against what was read, and
+ * after such a save the archive no longer holds what was read: an edit taken
+ * back since the last save leaves its member "unchanged", so
+ * forgeLevelDocOverrides would not write it and the archive would keep the
+ * edit. Writing every member makes the archive what the document says.
+ */
+s32 forgeLevelDocOverridesAll(forge_level_doc_t *doc, const char *scenario_member,
+	forge_level_overrides_t *out, char *err, size_t err_cap);
+
 #ifdef __cplusplus
 }
 #endif

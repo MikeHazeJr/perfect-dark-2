@@ -497,11 +497,13 @@ this arena; any open document is closed), `forgeLevelSessionOpen`,
   (`forgeDrawLevelFileSection` in `pdgui_forge_editor.cpp`, sidebar row "Level
   File"): Open Level File; Add Start Here, Move Start Here, Remove Start; Move
   Object Here, Copy Object Here, Remove Object and Put Object Back; a name and
-  Save As Level; Close Without Saving (asks twice when there are changes). Everything is placed where the
-  editor camera is, facing the way it faces, flat (a pad's look becomes a
-  player's turn angle as `atan2f(look.x, look.z)`, the camera's own
-  convention). The two lists show each start's team and place and each
-  object's kind, model or weapon, and pad.
+  Save As Level; Close Without Saving (asks twice when there are changes).
+  Everything is placed where the editor camera is, facing the way it faces,
+  flat: the camera's yaw is the player's turn angle t, a player with turn
+  angle t faces (-sin t, 0, cos t) (`bondmove.c`), and that is the look a new
+  pad is given, which the game turns back into the same angle when someone
+  starts there (`player.c`). The two lists show each start's team and place
+  and each object's kind, model or weapon, and pad.
 - **Markers in the world (the first piece of F3).** While the editor camera
   flies, the HUD marks each player start (a diamond) and each object that
   stands on a pad (a square) on the picture, named when within 2,500 units,
@@ -525,31 +527,73 @@ this arena; any open document is closed), `forgeLevelSessionOpen`,
   id>` starts a Forge session on a level as The Grid does
   (`forgeLevelStartForge`: a clean match setup on the level, then the stage
   change). `--debug-forge-session-save <name>` then waits two seconds into the
-  level, adds a start where the camera is, saves the level under the name,
-  lets the game run three more seconds and ends a smoke run. Both are driven
-  from `pdguiForgeEditorTick` (`bootForgeLevelTick` in `main.c`).
+  level, adds a start where the camera is and saves the level under the name;
+  twenty frames later it turns the camera level and to yaw 217 (away from
+  every axis), and forty frames after that it logs where known points land.
+  It takes no screenshot and ends nothing. Both are driven from
+  `pdguiForgeEditorTick` (`bootForgeLevelTick` in `main.c`).
 - `forge_session_save_smoke` is the proof of the part no run has done: the
   mod author's save, rescan, enable and apply while the level it was made
-  from is loaded and the editor is up. It waits for `forge_editor_ready` (a
-  new wait condition of the smoke harness: a live offline stage with the
-  editor camera flying; `smoke_readiness.c`, unit-tested), and requires the
-  save's lines, the new level's scenario registered (`PDARENA.SCENARIO`), and
-  the game still running afterwards. It does not use the mouse, so the
-  section's widgets themselves are unproven until someone opens the editor.
-- The same smoke checks the markers' projection by numbers, with nobody
-  looking: a second and a half after the save the flag logs where four known
-  points land (`FORGE.MARKERS.PROBE`), and the smoke requires the point
-  straight ahead of the camera within 5% of the middle of the picture, the
+  from is loaded and the editor is up. It waits on two new wait conditions of
+  the smoke harness (`smoke_readiness.c`, unit-tested): `forge_editor_ready`
+  (a live offline stage with the editor camera flying) and then
+  `forge_level_file_open`. The second exists because the save holds one frame
+  for an unknown time while the script clock runs on: timed from before the
+  save, a screenshot and an exit could come due in the same tick and the exit
+  would win. The smoke requires the save's lines, the new level's scenario
+  registered (`PDARENA.SCENARIO`), and six more seconds of the game running.
+  It does not use the mouse, so the section's widgets themselves are unproven
+  until someone opens the editor.
+- The same smoke checks the markers' projection and the facing math by
+  numbers, with nobody looking. At yaw 217 the flag logs
+  `FORGE.MARKERS.PROBE`; the smoke requires the point straight ahead of the
+  camera, by the reading above, within 5% of the middle of the picture, the
   one ahead and to the right at least 6% right of the middle, the one ahead
   and above at least 5% above it, and the one behind out of view. A mirrored
-  or upside-down projection fails that line. It also takes one screenshot
-  with the markers on, for a person to look at; whether each marker sits on
-  its object is not something the numbers show.
+  projection or a wrong sign in the facing fails that line (at yaw 0 or 180,
+  where the session starts on Complex, a wrong sign would not show). The line
+  also carries, unjudged, where the other reading of the angle points: the
+  one the editor's older fly and placement code uses (B-1238). The harness
+  takes one screenshot with the markers on, for a person to look at; whether
+  each marker sits on its object is not something the numbers show.
 
 Not known until a run: whether a level loaded for Forge straight from the boot
 stage (no agent chosen, no match started) has a player for the session to
 attach to, which is what `--launch-scenario empty_map` relies on for CI
 Training; and whether applying mods with a level loaded disturbs it.
+
+### An independent read of this code, before any run (2026-11-17)
+
+Everything from the open and save glue to the markers had been compiled by
+hosted CI and run by nothing, so a second reader was given the diff
+(a3775be7 to f88ff301) and asked for bugs only. It found five, each then
+confirmed in the code by MODS, and all are fixed:
+
+1. The session smoke would have been refused by the harness before it began:
+   a wait of 200 s plus a screenshot listed at 225 s is past the 300 s
+   watchdog, which the harness checks up front. And the runner collects a
+   screenshot by its listed time, so one taken by a debug flag at a time of
+   its own was the wrong design. The harness now owns the screenshot and the
+   exit, timed from `forge_level_file_open`.
+2. The world markers would never have been drawn, nor has anything else on
+   the Forge HUD while the camera flies since 2026-05-01 (B-1237).
+3. A start placed from the camera faced the camera's mirror image for every
+   yaw but 0 and 180: the look was written (+sin t, 0, cos t). It is
+   (-sin t, 0, cos t).
+4. The probe's "right" was the camera's left, for the same reason. It now
+   takes the view's own right, up cross back, and the measurement is made at
+   yaw 217 so that the sign is tested.
+5. A level saved again under its own name could keep an edit that had been
+   taken back: the save sent only members that differ from what was read
+   when the level was opened, and after the first such save the archive no
+   longer is what was read. A save over the level's own archive now writes
+   every member (`forgeLevelDocOverridesAll`; the game side asks the mod
+   author whether the name gives the level's own id). A unit case does the
+   sequence both ways.
+
+The same reading says the editor's older fly and placement math uses the
+mirrored angle too. That is recorded as B-1238 and left alone until the probe
+has measured it.
 
 ## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
 

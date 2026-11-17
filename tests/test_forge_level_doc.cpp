@@ -1598,6 +1598,105 @@ TEST_CASE("A saved level is its own template: edited again, it is saved under it
 	fs::remove_all(root, ec);
 }
 
+TEST_CASE("A level saved over itself is written whole, so an edit taken back since is taken back in the file",
+          "[forge-level-doc]")
+{
+	/* One sitting in the editor: open a level of the player's own, add a
+	 * start, save, take the start back out, save again. Both saves keep the
+	 * level's name, so each replaces the archive the document was read from. */
+	const fs::path templatePath = fs::path(PD_SOURCE_DIR) /
+		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
+	const char *const scenarioMember = "dependencies/assets/scenarios/tri_scenario.pdscenario";
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-whole-" + std::to_string(stamp));
+	fs::create_directories(root);
+	const std::string rootText = root.string();
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	const auto save = [&](const std::string &templateFile, const forge_level_overrides_t &overrides,
+			mod_author_result_t &result) {
+		mod_author_request_t request = {};
+		request.template_path = templateFile.c_str();
+		request.mods_root = rootText.c_str();
+		request.display_name = "Forge Whole";
+		request.tool = "pd-tests";
+		request.overrides = overrides.entries;
+		request.override_count = overrides.count;
+		result = {};
+		const s32 code = modAuthorSave(&request, &result, err, sizeof(err));
+		INFO("save from " << templateFile << ": " << err);
+		REQUIRE(code == MOD_AUTHOR_OK);
+	};
+	const auto spawnsIn = [&](const std::string &archive) {
+		const SavedLevel saved = readSavedLevel(archive.c_str(), scenarioMember);
+		Level level(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
+			levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
+			levelMember(saved.scenario, "setup.fields.json"), levelMember(saved.scenario, "level.graph.json"));
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		return forgeLevelDocSpawnCount(level.doc);
+	};
+
+	/* The player's own level, made from the example with nothing changed. */
+	forge_level_overrides_t none = {};
+	mod_author_result_t made = {};
+	save(templatePath.string(), none, made);
+	const std::string own = made.archive_path;
+	CHECK(std::string(made.catalog_id) == "mod:arena_forge_whole");
+	CHECK(spawnsIn(own) == 1);
+
+	/* Opened once, and kept open across both saves, as the editor keeps it. */
+	const SavedLevel opened = readSavedLevel(own.c_str(), scenarioMember);
+	Level level(levelMember(opened.scenario, "pads.json"), levelMember(opened.scenario, "spawns.json"),
+		levelMember(opened.scenario, "objects.json"), levelMember(opened.scenario, "volumes.json"),
+		levelMember(opened.scenario, "setup.fields.json"), levelMember(opened.scenario, "level.graph.json"));
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+	forge_level_overrides_t whole;
+	REQUIRE(forgeLevelDocOverridesAll(level.doc, scenarioMember, &whole, err, sizeof(err)) == 1);
+	/* Every member, in the order of the members, changed or not. */
+	REQUIRE(whole.count == FORGE_LEVEL_MEMBER_COUNT);
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		CHECK(std::string(whole.entries[member].entry) ==
+			std::string(scenarioMember) + "::" + forgeLevelDocMemberName(member));
+		CHECK(std::string(static_cast<const char *>(whole.entries[member].data), whole.entries[member].len) ==
+			level.text(member));
+	}
+	mod_author_result_t first = {};
+	save(own, whole, first);
+	CHECK(first.updated == 1);
+	CHECK(std::string(first.archive_path) == own);
+	CHECK(spawnsIn(own) == 2);
+
+	/* The start is taken back out. The spawns are now the text that was read
+	 * when the level was opened, so that member does not count as changed,
+	 * and a save of the changed members alone leaves the file's two starts
+	 * where they are: the level on disk no longer is what was read. */
+	REQUIRE(forgeLevelDocRemoveSpawn(level.doc, id, err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 0);
+	forge_level_overrides_t changed;
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &changed, err, sizeof(err)) == 1);
+	REQUIRE(changed.count == 3);   /* the pads, the bounds and the graph */
+	mod_author_result_t stale = {};
+	save(own, changed, stale);
+	CHECK(spawnsIn(own) == 2);
+
+	/* Written whole, the file is what the document says: one start. */
+	REQUIRE(forgeLevelDocOverridesAll(level.doc, scenarioMember, &whole, err, sizeof(err)) == 1);
+	mod_author_result_t second = {};
+	save(own, whole, second);
+	CHECK(second.updated == 1);
+	CHECK(spawnsIn(own) == 1);
+	CHECK(forgeLevelDocOverridesAll(nullptr, scenarioMember, &whole, err, sizeof(err)) == 0);
+	CHECK(whole.count == 0);
+
+	std::error_code ec;
+	fs::remove_all(root, ec);
+}
+
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",
           "[forge-level-doc][.local]")
 {
