@@ -169,7 +169,12 @@ TEST_CASE("AI simulant twins: the smoke harness kills a simulant through the dam
 
 	// kill_simulant is a fixture event with the common fields only.
 	REQUIRE(schema.find("\"kill_player\", \"kill_simulant\",") != std::string::npos);
-	REQUIRE(schema.find("|| !strcmp(type, \"kill_simulant\")) {") != std::string::npos);
+	REQUIRE(schema.find("|| !strcmp(type, \"kill_simulant\")\n") != std::string::npos);
+	// use_door (object-events.md slice 4) is one too.
+	REQUIRE(schema.find("\"kill_player\", \"kill_simulant\", \"use_door\",") != std::string::npos);
+	REQUIRE(schema.find("|| !strcmp(type, \"use_door\")) {") != std::string::npos);
+	REQUIRE(harness.find("if (!strcmp(type_str, \"use_door\")) {") != std::string::npos);
+	REQUIRE(harness.find("\t\t\t\tpropdoorInteract(door->base.prop);") != std::string::npos);
 	REQUIRE(harness.find("if (!strcmp(type_str, \"kill_simulant\")) {") != std::string::npos);
 	// The first live simulant takes lethal damage the way play deals it, so
 	// it dies, runs its dead list and respawns.

@@ -662,6 +662,30 @@ static s32 probeAiEdgeParity(const char *stage_id)
 }
 
 /*
+ * Object rule parity probe (object-events.md slice 4).
+ *
+ * On this stage every rule event (a pickup touched, a door used or
+ * approached) compared the original rule's decision, computed first, with
+ * what the level program did; none may differ. Returns the number compared,
+ * or -1 after failing the run.
+ */
+static s32 probeObjectRuleParity(const char *stage_id)
+{
+	s32 compared = 0;
+	s32 differ = 0;
+
+	scenarioSourceGraphObjectRuleParity(&compared, &differ);
+	ACLOG("object rule parity stage_id='%s' compared=%d differ=%d", stage_id, compared, differ);
+	if (differ > 0) {
+		failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+			"object rule parity: '%s' differ=%d of %d compared (the object rule differs lines name them)",
+			stage_id, differ, compared);
+		return -1;
+	}
+	return compared;
+}
+
+/*
  * Soak (--auto-campaign-soak <seconds>).
  *
  * Holds the mission in live play for that many game seconds before the
@@ -920,6 +944,9 @@ void autocampaignTick(void)
 			break;
 		}
 		if (probeAiEdgeParity(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeObjectRuleParity(mission->stage_id) < 0) {
 			break;
 		}
 		forced_count = objectivesDebugCompleteCurrentMission();

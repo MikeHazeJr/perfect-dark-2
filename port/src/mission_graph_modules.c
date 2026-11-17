@@ -1,8 +1,8 @@
 /*
  * The game's native modules for mission and level graphs (decision 2, CORE,
- * 2026-11-15; object-events.md slice 3). Each og.* kind and native gate.*
- * kind a graph may wire is one row here; the runner refuses a graph that
- * names any other og.* or gate.* kind when it compiles.
+ * 2026-11-15; object-events.md slices 3 and 4). Each og.* kind and native
+ * gate.* kind a graph may wire is one row here; the runner refuses a graph
+ * that names any other og.* or gate.* kind when it compiles.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,49 +124,6 @@ static s32 s_runEndMissionCompleted(const mission_graph_params_t *params,
 }
 
 /* ---- object-events.md slice 3: objects ---- */
-
-/* The answer to the query event being fired. */
-static s32 s_QueryRefused;
-
-s32 missionGraphModulesQueryBegin(void)
-{
-	const s32 outer = s_QueryRefused;
-
-	s_QueryRefused = 0;
-	return outer;
-}
-
-s32 missionGraphModulesQueryEnd(s32 outer)
-{
-	const s32 refused = s_QueryRefused;
-
-	s_QueryRefused = outer;
-	return refused;
-}
-
-/* og.pickup.refuse / og.door.refuse: the player does not get the object, or
- * the door stays shut as a locked one does. Only inside its own query. */
-static s32 s_runPickupRefuse(const mission_graph_params_t *params,
-	const mission_graph_event_t *event)
-{
-	(void)params;
-	if (event->kind != MISSION_GRAPH_EVENT_PICKUP_REQUESTED) {
-		return 0;
-	}
-	s_QueryRefused = 1;
-	return 1;
-}
-
-static s32 s_runDoorRefuse(const mission_graph_params_t *params,
-	const mission_graph_event_t *event)
-{
-	(void)params;
-	if (event->kind != MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED) {
-		return 0;
-	}
-	s_QueryRefused = 1;
-	return 1;
-}
 
 /* The object a node's "object" parameter names: an objects.json record_id,
  * "setup_0123", the setup command index. NULL when there is none. */
@@ -318,6 +275,143 @@ static s32 s_gatePlayerHasItem(const mission_graph_params_t *params,
 	return has;
 }
 
+/* ---- object-events.md slice 4: the native pickup and door rules ---- */
+
+/* The rule event being decided (NULL outside one). */
+static mission_graph_object_rule_t *s_Rule;
+
+mission_graph_object_rule_t *missionGraphModulesRuleBegin(mission_graph_object_rule_t *rule)
+{
+	mission_graph_object_rule_t *outer = s_Rule;
+
+	s_Rule = rule;
+	return outer;
+}
+
+void missionGraphModulesRuleEnd(mission_graph_object_rule_t *outer)
+{
+	s_Rule = outer;
+}
+
+/* The rule being decided, when the event is that rule's own event of one of
+ * the two kinds (the same kind twice for one); NULL anywhere else. */
+static mission_graph_object_rule_t *s_ruleFor(const mission_graph_event_t *event, s32 kind, s32 other)
+{
+	if (!s_Rule || !s_Rule->prop || (event->kind != kind && event->kind != other)) {
+		return NULL;
+	}
+	return s_Rule;
+}
+
+static struct doorobj *s_ruleDoor(mission_graph_object_rule_t *rule)
+{
+	return rule && rule->user && rule->prop->type == PROPTYPE_DOOR ? rule->prop->door : NULL;
+}
+
+/* gate.pickup.native_rules: the original pickup rules (objPickupRulesAllow)
+ * for the touched object and the current player. */
+static s32 s_gatePickupNativeRules(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
+		MISSION_GRAPH_EVENT_PICKUP_TOUCHED);
+
+	(void)params;
+	return rule && objPickupRulesAllow(rule->prop) ? 1 : 0;
+}
+
+/* og.pickup.collect: the player collects the touched object (with its HUD
+ * message); the seam returns the tick operation. Once per touch. */
+static s32 s_runPickupCollect(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
+		MISSION_GRAPH_EVENT_PICKUP_TOUCHED);
+
+	(void)params;
+	if (!rule || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->collected) {
+		rule->collected = 1;
+		rule->tickop = propPickupByPlayer(rule->prop, true);
+	}
+	return 1;
+}
+
+/* gate.door.native_unlocked: doorIsUnlocked for whoever uses or approaches
+ * the door (key flags, locked front or back, padlocks). */
+static s32 s_gateDoorNativeUnlocked(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_DOOR_USE,
+		MISSION_GRAPH_EVENT_DOOR_APPROACH);
+
+	(void)params;
+	return s_ruleDoor(rule) && doorIsUnlocked(rule->user, rule->prop) ? 1 : 0;
+}
+
+/* og.door.activate: the used door opens or closes for its user (swing
+ * direction, doorsActivate). Once per use. */
+static s32 s_runDoorActivate(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_DOOR_USE,
+		MISSION_GRAPH_EVENT_DOOR_USE);
+	struct doorobj *door = s_ruleDoor(rule);
+
+	(void)params;
+	if (!door || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->activated) {
+		rule->activated = 1;
+		doorsChooseSwingDirection(rule->user, door);
+		doorsActivate(rule->prop, true);
+	}
+	return 1;
+}
+
+/* og.door.locked_message: the original refusal of a used door (doorShowLocked:
+ * the locked message while it is shut, who tried, the pending activation). */
+static s32 s_runDoorLockedMessage(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_DOOR_USE,
+		MISSION_GRAPH_EVENT_DOOR_USE);
+	struct doorobj *door = s_ruleDoor(rule);
+
+	(void)params;
+	if (!door || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->locked_message) {
+		rule->locked_message = 1;
+		doorShowLocked(door);
+	}
+	return 1;
+}
+
+/* og.door.activate_automatic: an automatic door the player approaches opens
+ * (doorOpenAutomatic). Once per approach. */
+static s32 s_runDoorActivateAutomatic(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_DOOR_APPROACH,
+		MISSION_GRAPH_EVENT_DOOR_APPROACH);
+	struct doorobj *door = s_ruleDoor(rule);
+
+	(void)params;
+	if (!door || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->activated) {
+		rule->activated = 1;
+		doorOpenAutomatic(door);
+	}
+	return 1;
+}
+
 static const struct {
 	const char *kind;
 	s32 (*run)(const mission_graph_params_t *params, const mission_graph_event_t *event);
@@ -329,8 +423,6 @@ static const struct {
 	{ "og.mission.end_failed", s_runEndMissionFailed },
 	{ "og.mission.end_completed", s_runEndMissionCompleted },
 	/* object-events.md slice 3 */
-	{ "og.pickup.refuse", s_runPickupRefuse },
-	{ "og.door.refuse", s_runDoorRefuse },
 	{ "og.door.open", s_runDoorOpen },
 	{ "og.door.close", s_runDoorClose },
 	{ "og.door.lock", s_runDoorLock },
@@ -338,6 +430,13 @@ static const struct {
 	{ "og.pickup.give", s_runPickupGive },
 	{ "gate.object.kind", s_gateObjectKind },
 	{ "gate.player.has_item", s_gatePlayerHasItem },
+	/* object-events.md slice 4: the native pickup and door rules */
+	{ "gate.pickup.native_rules", s_gatePickupNativeRules },
+	{ "og.pickup.collect", s_runPickupCollect },
+	{ "gate.door.native_unlocked", s_gateDoorNativeUnlocked },
+	{ "og.door.activate", s_runDoorActivate },
+	{ "og.door.locked_message", s_runDoorLockedMessage },
+	{ "og.door.activate_automatic", s_runDoorActivateAutomatic },
 };
 
 s32 missionGraphModuleKnown(const char *kind)

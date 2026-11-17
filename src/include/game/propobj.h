@@ -275,6 +275,13 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual);
 void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual);
 s32 propPickupByPlayer(struct prop *prop, bool showhudmsg);
 s32 objTestForPickup(struct prop *prop);
+/* object-events.md slice 4: the original pickup rules for the current player
+ * (gate.pickup.native_rules), the refusal of a locked door
+ * (og.door.locked_message) and an automatic door opening
+ * (og.door.activate_automatic). */
+bool objPickupRulesAllow(struct prop *prop);
+void doorShowLocked(struct doorobj *door);
+void doorOpenAutomatic(struct doorobj *door);
 bool func0f0899dc(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3);
 void modelFreeVertices(s32 vtxstoretype, struct model *model);
 struct prop *hatApplyToChr(struct hatobj *hat, struct chrdata *chr, struct modeldef *modeldef, struct prop *prop, struct model *model);

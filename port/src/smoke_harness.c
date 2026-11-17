@@ -144,6 +144,7 @@
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
+#include <math.h>
 #include <SDL.h>
 
 #include <PR/ultratypes.h>
@@ -170,6 +171,8 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
+#include "game/setuputils.h"
+#include "scenario_source_runtime.h"
 #include "input.h"
 #include "inputctx.h"
 #include "inputlayer.h"
@@ -247,6 +250,7 @@ typedef enum {
     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
     SMOKE_EVENT_KILL_TOKEN_HOLDER,  /* B-1209: the simulant carrying the scenario token dies */
     SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
+    SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -1060,6 +1064,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "kill_simulant")) {
 		ev->type = SMOKE_EVENT_KILL_SIMULANT;
+		return 1;
+	}
+	if (!strcmp(type_str, "use_door")) {
+		ev->type = SMOKE_EVENT_USE_DOOR;
 		return 1;
 	}
     if (!strcmp(type_str, "network_timeout_client")) {
@@ -3121,6 +3129,54 @@ void smokeHarnessTick(void)
 			}
 			break;
 		}
+		case SMOKE_EVENT_USE_DOOR:
+		{
+			/* T-MODDING-011 (object-events.md slice 4): player 0 uses the
+			 * nearest door the setup placed, through propdoorInteract as the
+			 * use button does, so the level program's door rule runs in play
+			 * (a closed door opens; an open one closes). */
+			struct doorobj *door = NULL;
+			s32 doorindex = -1;
+			f32 best = 0.0f;
+			s32 index;
+
+			if (g_Vars.players[0] && g_Vars.players[0]->prop) {
+				const struct coord *at = &g_Vars.players[0]->prop->pos;
+
+				for (index = 0; setupGetCmdByIndex(index) != NULL; index++) {
+					struct defaultobj *obj = setupGetObjByCmdIndex(index);
+
+					if (obj && obj->type == OBJTYPE_DOOR && obj->prop
+							&& obj->prop->type == PROPTYPE_DOOR) {
+						const f32 dx = obj->prop->pos.x - at->x;
+						const f32 dy = obj->prop->pos.y - at->y;
+						const f32 dz = obj->prop->pos.z - at->z;
+						const f32 d2 = dx * dx + dy * dy + dz * dz;
+
+						if (!door || d2 < best) {
+							door = (struct doorobj *)obj;
+							doorindex = index;
+							best = d2;
+						}
+					}
+				}
+			}
+			if (door) {
+				const s32 prevplayernum = g_Vars.currentplayernum;
+				const s32 mode = door->mode;
+				const f32 frac = door->frac;
+
+				setCurrentPlayerNum(0);
+				propdoorInteract(door->base.prop);
+				setCurrentPlayerNum(prevplayernum);
+				sysLogPrintf(LOG_NOTE,
+					"SMOKE.USE_DOOR: object=setup_%04d distance=%.0f mode=%d->%d frac=%.2f at_ms=%d",
+					doorindex, sqrtf(best), mode, door->mode, frac, ev->at_ms);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SMOKE.USE_DOOR: no door at_ms=%d", ev->at_ms);
+			}
+			break;
+		}
 		case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:
 		{
 			struct prop *found = NULL;
@@ -3192,6 +3248,9 @@ void smokeHarnessTick(void)
             break;
         case SMOKE_EVENT_EXIT:
             sysLogPrintf(LOG_NOTE, "SMOKE: scripted exit at_ms=%d", ev->at_ms);
+            /* object-events.md: a stage the smoke leaves before it ends
+             * still logs its object event totals. */
+            scenarioSourceGraphObjectEventsReport("smoke_exit");
             s_State.next_event_idx++;
             s_State.events_fired++;
             smokeHarnessExit(0, "scripted_exit");

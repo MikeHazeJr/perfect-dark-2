@@ -11,7 +11,7 @@ from asset_archive_conformance import (
     AI_COMMAND_SCHEMA,
     ARENA_SCENARIO_GRAPH_CACHE_KIND, FAMILIES_NOT_YET_REQUIRED,
     TYPED_DESCRIPTORS, ai_list_control_flow, ai_list_edge_errors,
-    validate_archive_bytes,
+    validate_archive_bytes, validate_object_weapon_refs,
 )
 
 
@@ -426,6 +426,37 @@ class AssetArgsTests(unittest.TestCase):
         self.assertGreaterEqual(len(slots), 1207)
         self.assertEqual(slots[552], "base:animation_blinded")
         self.assertEqual(slots[363], "base:animation_cut_cave_beta_cam")
+
+
+class ObjectWeaponRefTests(unittest.TestCase):
+    """B-1260: objects.json names the weapons setup.fields.json gives."""
+
+    @staticmethod
+    def texts(weapon, field_type, catalog_id):
+        objects = json.dumps({"schema": "pd2.scenario.objects.v1", "rows": [
+            {"record_id": "setup_0187", "kind": "weapon_pickup", "weapon_catalog_id": weapon,
+             "secondary_weapon_catalog_id": ""}]})
+        fields = json.dumps({"rows": [
+            {"record_id": "setup_0187", "kind": "weapon_pickup", "field": "pickup.weapon",
+             "type": field_type, "value": "", "catalog_id": catalog_id, "ref_record_id": ""},
+            {"record_id": "setup_0187", "kind": "weapon_pickup", "field": "pickup.dual_weapon",
+             "type": "weapon_selector", "value": "none", "catalog_id": "", "ref_record_id": ""}]})
+        return objects, fields
+
+    def test_the_same_weapon_passes(self):
+        self.assertEqual(validate_object_weapon_refs(
+            "x", *self.texts("base:tracerbug", "weapon_catalog_id", "base:tracerbug")), [])
+
+    def test_an_unnamed_weapon_is_refused(self):
+        errors = validate_object_weapon_refs(
+            "x", *self.texts("", "weapon_catalog_id", "base:tracerbug"))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("weapon_catalog_id '' is not the pickup.weapon of setup.fields.json "
+                      "('base:tracerbug')", errors[0])
+
+    def test_a_selector_names_none(self):
+        self.assertEqual(validate_object_weapon_refs(
+            "x", *self.texts("", "weapon_selector", "")), [])
 
 
 class ScenarioAiEdgesKindTests(unittest.TestCase):
