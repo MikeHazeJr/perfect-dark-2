@@ -1188,6 +1188,183 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	fs::remove_all(root, ec);
 }
 
+namespace {
+
+/* The value of `key = value` in a descriptor's text, or "" when it has none. */
+std::string iniValue(const std::string &text, const char *key)
+{
+	for (const std::string &line : linesOf(text)) {
+		const size_t eq = line.find('=');
+		if (eq == std::string::npos) continue;
+		const auto trim = [](std::string part) {
+			const char *const space = " \t\r";
+			const size_t first = part.find_first_not_of(space);
+			if (first == std::string::npos) return std::string();
+			return part.substr(first, part.find_last_not_of(space) - first + 1);
+		};
+		if (trim(line.substr(0, eq)) == key) return trim(line.substr(eq + 1));
+	}
+	return std::string();
+}
+
+/* What a saved level archive says about itself and the scenario inside it. */
+struct SavedLevel {
+	std::string arenaId;
+	std::string arenaName;
+	std::string arenaScenario;   /* the scenario id the arena names */
+	std::string scenarioId;      /* the id the scenario gives itself */
+	std::string scenario;        /* the scenario archive's bytes */
+	std::string record;          /* its navigation record */
+};
+
+SavedLevel readSavedLevel(const char *archivePath, const char *scenarioMember)
+{
+	SavedLevel out;
+	const std::string arena = levelReadFile(archivePath);
+	REQUIRE(!arena.empty());
+	const std::string arenaIni = levelMember(arena, "arena.ini");
+	out.arenaId = iniValue(arenaIni, "catalog_id");
+	out.arenaName = iniValue(arenaIni, "display_name");
+	out.arenaScenario = iniValue(arenaIni, "scenario");
+	out.scenario = levelMember(arena, scenarioMember);
+	REQUIRE(!out.scenario.empty());
+	out.scenarioId = iniValue(levelMember(out.scenario, "scenario.ini"), "catalog_id");
+	out.record = levelMember(out.scenario, "_meta/generated-navmesh.json");
+	return out;
+}
+
+} // namespace
+
+TEST_CASE("A saved level is its own template: edited again, it is saved under its name or a new one",
+          "[forge-level-doc]")
+{
+	/* How a level gets made: save it, play it, open it again, change it, save
+	 * it again. The second save's template is the level itself. */
+	const fs::path templatePath = fs::path(PD_SOURCE_DIR) /
+		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
+	const char *const scenarioMember = "dependencies/assets/scenarios/tri_scenario.pdscenario";
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-loop-" + std::to_string(stamp));
+	fs::create_directories(root);
+	const std::string rootText = root.string();
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	/* Saves `templateFile` plus one more spawn as the level `name`. */
+	const auto saveWithOneMoreSpawn = [&](const std::string &templateFile, const char *name,
+			mod_author_result_t &result) {
+		const std::string arena = levelReadFile(templateFile);
+		REQUIRE(!arena.empty());
+		const std::string scenario = levelMember(arena, scenarioMember);
+		REQUIRE(!scenario.empty());
+		Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
+			levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
+			levelMember(scenario, "setup.fields.json"));
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+		forge_level_overrides_t overrides;
+		REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
+		mod_author_request_t request = {};
+		request.template_path = templateFile.c_str();
+		request.mods_root = rootText.c_str();
+		request.display_name = name;
+		request.tool = "pd-tests";
+		request.overrides = overrides.entries;
+		request.override_count = overrides.count;
+		result = {};
+		const s32 code = modAuthorSave(&request, &result, err, sizeof(err));
+		INFO("save of '" << name << "' from " << templateFile << ": " << err);
+		REQUIRE(code == MOD_AUTHOR_OK);
+		char policy[256] = { 0 };
+		const s32 valid = assetArchiveValidateFile(result.archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
+			policy, sizeof(policy));
+		INFO("release validation: " << policy);
+		CHECK(valid == 0);
+	};
+	const auto countsOf = [&](const SavedLevel &saved, s32 pads, s32 spawns) {
+		Level level(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
+			levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
+			levelMember(saved.scenario, "setup.fields.json"));
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		CHECK(forgeLevelDocPadCount(level.doc) == pads);
+		CHECK(forgeLevelDocVolumeCount(level.doc) == pads);
+		CHECK(forgeLevelDocSpawnCount(level.doc) == spawns);
+		CHECK(forgeLevelDocObjectCount(level.doc) == 1);
+		const std::string counts = "\"source_counts\": { \"pads\": " + std::to_string(pads) +
+			", \"volumes\": " + std::to_string(pads) + ", ";
+		INFO(saved.record);
+		CHECK(saved.record.find(counts) != std::string::npos);
+		CHECK(saved.record.find("\"pads.json\": \"" + levelSha(levelMember(saved.scenario, "pads.json")) + "\"") !=
+			std::string::npos);
+		CHECK(saved.record.find("\"spawns.json\": \"" + levelSha(levelMember(saved.scenario, "spawns.json")) + "\"") !=
+			std::string::npos);
+	};
+
+	/* First save, from the example level: one pad and one spawn become two. */
+	mod_author_result_t first = {};
+	saveWithOneMoreSpawn(templatePath.string(), "Forge Loop", first);
+	CHECK(first.updated == 0);
+	CHECK(std::string(first.catalog_id) == "mod:arena_forge_loop");
+	const std::string firstArchive = first.archive_path;
+	const SavedLevel one = readSavedLevel(first.archive_path, scenarioMember);
+	CHECK(one.arenaId == "mod:arena_forge_loop");
+	CHECK(one.arenaName == "Forge Loop");
+	/* The scenario inside has an id under the level's, and the arena names it. */
+	CHECK(one.scenarioId.rfind("mod:arena_forge_loop__", 0) == 0);
+	CHECK(one.arenaScenario == one.scenarioId);
+	countsOf(one, 2, 2);
+
+	/* Second save: the level is its own template and keeps its name. It is
+	 * updated where it stands, and no id in it changes. */
+	mod_author_result_t second = {};
+	saveWithOneMoreSpawn(firstArchive, "Forge Loop", second);
+	CHECK(second.updated == 1);
+	CHECK(std::string(second.catalog_id) == "mod:arena_forge_loop");
+	CHECK(std::string(second.archive_path) == firstArchive);
+	const SavedLevel two = readSavedLevel(second.archive_path, scenarioMember);
+	CHECK(two.arenaId == one.arenaId);
+	CHECK(two.arenaName == "Forge Loop");
+	CHECK(two.scenarioId == one.scenarioId);
+	CHECK(two.arenaScenario == one.scenarioId);
+	countsOf(two, 3, 3);
+	/* Nothing of the save is left beside it. */
+	CHECK(!fs::exists(firstArchive + ASSET_ARCHIVE_CLONE_STAGING_SUFFIX));
+
+	/* Third save: the same level under a new name is a second level. Its
+	 * scenario takes the new level's id and keeps the rest of its own. */
+	mod_author_result_t third = {};
+	saveWithOneMoreSpawn(firstArchive, "Forge Loop Two", third);
+	CHECK(third.updated == 0);
+	CHECK(std::string(third.catalog_id) == "mod:arena_forge_loop_two");
+	CHECK(std::string(third.archive_path) != firstArchive);
+	const SavedLevel three = readSavedLevel(third.archive_path, scenarioMember);
+	CHECK(three.arenaId == "mod:arena_forge_loop_two");
+	CHECK(three.arenaName == "Forge Loop Two");
+	CHECK(three.arenaScenario == three.scenarioId);
+	CHECK(three.scenarioId == "mod:arena_forge_loop_two__" +
+		one.scenarioId.substr(strlen("mod:arena_forge_loop__")));
+	countsOf(three, 4, 4);
+	/* The level it was made from is as the second save left it. */
+	const SavedLevel still = readSavedLevel(firstArchive.c_str(), scenarioMember);
+	CHECK(still.scenario == two.scenario);
+
+	const char *artifacts = std::getenv("PD2_TEST_ARTIFACT_DIR");
+	if (artifacts && artifacts[0]) {
+		std::error_code copyError;
+		const fs::path dir = fs::path(artifacts) / "clones";
+		fs::create_directories(dir, copyError);
+		for (const std::string &archive : { firstArchive, std::string(third.archive_path) }) {
+			fs::copy_file(archive, dir / fs::path(archive).filename(),
+				fs::copy_options::overwrite_existing, copyError);
+		}
+	}
+
+	std::error_code ec;
+	fs::remove_all(root, ec);
+}
+
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",
           "[forge-level-doc][.local]")
 {
