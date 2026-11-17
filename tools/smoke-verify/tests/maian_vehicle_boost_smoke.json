@@ -104,19 +104,19 @@
   ],
   "screenshots": [
     {
-      "at_ms": 12000,
+      "at_ms": 13500,
       "name": "maian-boost-full"
     },
     {
-      "at_ms": 15400,
+      "at_ms": 20000,
       "name": "maian-crystals-black"
     },
     {
-      "at_ms": 17000,
+      "at_ms": 21500,
       "name": "maian-crystals-recovering"
     },
     {
-      "at_ms": 22500,
+      "at_ms": 30500,
       "name": "maian-crystals-cool"
     }
   ],
@@ -168,26 +168,26 @@
       "type": "action",
       "name": "ACTION_VEHICLE_BOOST",
       "action": "press",
-      "comment": "Hold boost: ramping, full after about 1 s (turret locked), overheated after about 4 s."
+      "comment": "Hold boost: ramping, full after about 1 s of game time (turret locked), overheated after about 4 s."
     },
     {
-      "at_ms": 16000,
+      "at_ms": 20500,
       "type": "action",
       "name": "ACTION_VEHICLE_BOOST",
       "action": "release",
-      "comment": "Let go after 5.5 s: the crystals stay black while they recover."
+      "comment": "Let go after 10 s of real time. The boost needs 4 s of game time to overheat, and the game falls behind real time when the frame rate drops under about 20 (B-1234: the Maian vehicle runs at 17 to 41 frames a second in most runs on the test PC; a 5.5 s hold at 17 frames a second gave only 3 s of game time and no overheat). 10 s covers the game running at less than half speed. The crystals stay black while they recover."
     },
     {
-      "at_ms": 16000,
+      "at_ms": 20500,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "release",
       "comment": "Slow down; recovery is faster at low speed."
     },
     {
-      "at_ms": 23000,
+      "at_ms": 31000,
       "type": "exit",
-      "comment": "Scripted exit once the crystals are cool again (2 to 4 s after letting go)."
+      "comment": "Scripted exit once the crystals are cool again: 2 to 4 s of game time after letting go, up to about 9 s of real time when the game runs at half speed."
     }
   ],
   "assertions": {
