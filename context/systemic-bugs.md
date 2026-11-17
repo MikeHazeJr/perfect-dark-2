@@ -4118,7 +4118,12 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
 - [x] Scenario tokens in the Combat Simulator manifest (B-1272).
 - [ ] Weapons a co-op or counter-op stage can drop that its setup and AI-list scans do not list (watch the new
   warning in the co-op smokes).
-- [ ] `MPWEAPON_SHIELD` is skipped by both manifest weapon loops; check no message names the shield by id.
+- [ ] `MPWEAPON_SHIELD` (`WEAPON_MPSHIELD`, a weapon prop) is skipped by both manifest weapon loops. Shield
+  pickups are made at stage load on every machine, but the reconnect snapshot names each weapon prop by
+  session id and its reader writes the number back (`netmsgSvcReconnectPropStateRead`: `weapon->weaponnum =
+  (u8)wire.weaponnum`), so a reconnecting client would turn shield pickups into no-weapon props, unless the
+  lobby start's `weapon_ids` closures already list the shield. Check with a reconnect smoke whose weapon set
+  has the shield: the new warning names it if it is missing.
 - [ ] Model refs (`netWriteModelRef`) have no such warning yet.
 
 ---
