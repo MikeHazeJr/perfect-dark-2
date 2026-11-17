@@ -1004,9 +1004,15 @@ bool readGraph(forge_level_doc &doc, const char *json, size_t size, std::string 
 		error = std::string(file) + " needs \"schema\": \"" + kSchemas[FORGE_LEVEL_MEMBER_LEVEL_GRAPH] + "\"";
 		return false;
 	}
-	if (!root.contains("nodes") || !root["nodes"].is_array() ||
-			!root.contains("links") || !root["links"].is_array()) {
-		error = std::string(file) + " has no nodes array or no links array";
+	if (!root.contains("nodes") || !root["nodes"].is_array()) {
+		error = std::string(file) + " has no nodes array";
+		return false;
+	}
+	/* The game takes a graph with `links`, with `edges`, or with both. Only
+	 * `links` is written to here, and only when the graph has it. */
+	const bool hasLinks = root.contains("links");
+	if (hasLinks && !root["links"].is_array()) {
+		error = std::string(file) + " has links that are not an array";
 		return false;
 	}
 	table.original.assign(json, size);
@@ -1019,8 +1025,8 @@ bool readGraph(forge_level_doc &doc, const char *json, size_t size, std::string 
 	Span value;
 	std::vector<Span> elements;
 	if (!graphValue(table.original, "nodes", value, &elements) || elements.size() != nodes.size() ||
-			!graphValue(table.original, "links", value, &elements) ||
-			elements.size() != root["links"].get<crude_json::array>().size()) {
+			(hasLinks && (!graphValue(table.original, "links", value, &elements) ||
+				elements.size() != root["links"].get<crude_json::array>().size()))) {
 		error = std::string(file) + " could not be laid out";
 		return false;
 	}

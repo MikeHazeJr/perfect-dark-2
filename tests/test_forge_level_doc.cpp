@@ -838,9 +838,12 @@ TEST_CASE("The level's graph keeps one trigger volume node for each bounds row",
 		CHECK(more.doc == nullptr);
 		Level notGraph(kPads, kSpawns, kObjects, kVolumes, levelFields(), kVolumes);
 		CHECK(notGraph.error == "level.graph.json needs \"schema\": \"pd2.level.graph.v1\"");
-		Level noLists(kPads, kSpawns, kObjects, kVolumes, levelFields(),
-			"{ \"schema\": \"pd2.level.graph.v1\", \"nodes\": [] }");
-		CHECK(noLists.error == "level.graph.json has no nodes array or no links array");
+		Level noNodes(kPads, kSpawns, kObjects, kVolumes, levelFields(),
+			"{ \"schema\": \"pd2.level.graph.v1\", \"links\": [] }");
+		CHECK(noNodes.error == "level.graph.json has no nodes array");
+		Level oddLinks(kPads, kSpawns, kObjects, kVolumes, levelFields(),
+			"{ \"schema\": \"pd2.level.graph.v1\", \"nodes\": [], \"links\": {} }");
+		CHECK(oddLinks.error == "level.graph.json has links that are not an array");
 		Level cut(kPads, kSpawns, kObjects, kVolumes, levelFields(), "{ \"schema\": \"pd2.level.graph.v1\"");
 		CHECK(cut.error == "level.graph.json is not one JSON object");
 	}
@@ -909,6 +912,26 @@ TEST_CASE("The level's graph keeps one trigger volume node for each bounds row",
 		CHECK(after.find("{ \"from\": \"scenario.load\", \"to\": \"trigger.volume.0003\" },\n"
 			"    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0004\" }\n  ],") != std::string::npos);
 		CHECK(after.find("\"pads\": 9, \"volumes\": 4, \"objects\": 3,") != std::string::npos);
+	}
+
+	/* A graph with edges and no links, which the game also takes: the node
+	 * is added, and nothing is written to a list the graph does not have. */
+	{
+		std::string graph = levelGraph(3, 3, 3);
+		const size_t linksAt = graph.find("  \"links\": [");
+		const size_t countsAt = graph.find("  \"counts\"");
+		REQUIRE(linksAt != std::string::npos);
+		REQUIRE(countsAt != std::string::npos);
+		graph.replace(linksAt, countsAt - linksAt, "  \"edges\": [],\n");
+		Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), graph);
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+		const std::string after = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+		CHECK(occurrences(after, kVolumeNode) == 4);
+		CHECK(after.find("\"links\"") == std::string::npos);
+		CHECK(after.find("  \"edges\": [],\n  \"counts\": { \"rooms\": 2, \"triangles\": 1, \"pads\": 4, "
+			"\"volumes\": 4, \"objects\": 3,") != std::string::npos);
 	}
 }
 
