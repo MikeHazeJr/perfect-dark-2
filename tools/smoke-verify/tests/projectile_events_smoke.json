@@ -112,7 +112,7 @@
       "PROJECTILE\\.EVENT: spawned weapon=base:laptopgun func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:superdragon func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:dragon func=secondary ",
-      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]*",
+      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]* fuse\\.compared=[0-9]+ fuse\\.differ=0",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

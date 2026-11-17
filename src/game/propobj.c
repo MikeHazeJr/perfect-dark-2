@@ -5642,7 +5642,8 @@ void weaponTick(struct prop *prop)
 			// Normal grenade
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			if (weapon->timer240 < 0) {
+			/* projectile-events.md slice 2: a v2 program decides the fuse. */
+			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
 				propUnsetDangerous(prop);
 
 				if (weapon->gunfunc == FUNC_2) {
@@ -5679,7 +5680,8 @@ void weaponTick(struct prop *prop)
 		if (weapon->timer240 >= 0) {
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			if (weapon->timer240 < 0) {
+			/* projectile-events.md slice 2: a v2 program decides the fuse. */
+			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
 				// Nbombs detonate when they hit the ground, so this code only
 				// runs if it's airborne for the entire duration of its timer.
 				struct prop *ownerprop = NULL;
@@ -5723,7 +5725,8 @@ void weaponTick(struct prop *prop)
 			|| weapon->weaponnum == WEAPON_HOMINGROCKET
 			|| weapon->weaponnum == WEAPON_SKROCKET) {
 		// Handle rockets
-		if (weapon->timer240 == 0) {
+		/* projectile-events.md slice 2: a v2 program decides the fuse. */
+		if (weapon->timer240 == 0 && projectileFuseRule(obj)) {
 			propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
 
 			obj->hidden |= OBJHFLAG_DELETING;
@@ -5899,7 +5902,8 @@ void weaponTick(struct prop *prop)
 		if (weapon->gunfunc == FUNC_PRIMARY) {
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			if (weapon->timer240 < 0) {
+			/* projectile-events.md slice 2: a v2 program decides the fuse. */
+			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
 				if (propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET)) {
 					weapon->timer240 = -1;
 					obj->hidden |= OBJHFLAG_DELETING;

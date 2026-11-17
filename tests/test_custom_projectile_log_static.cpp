@@ -81,6 +81,14 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(pdmain.find("projectileEventsReport(\"stage_end\");") != std::string::npos);
 	REQUIRE(harness.find("projectileEventsReport(\"smoke_exit\");") != std::string::npos);
 	REQUIRE(harness.find("case SMOKE_EVENT_GIVE_WEAPON:") != std::string::npos);
+
+	// Slice 2: the four fuses ask the rule, and the rule fires the program's
+	// timer event, runs the fuse module and counts parity.
+	REQUIRE(countOf(propobj, "projectileFuseRule(obj)") == 4);
+	REQUIRE(events.find("event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;") != std::string::npos);
+	REQUIRE(events.find("strcmp(kind, \"og.projectile.fuse_expired\") == 0") != std::string::npos);
+	REQUIRE(events.find("return 1; /* a v1 archive: the native rule decides */") != std::string::npos);
+	REQUIRE(events.find(" fuse.compared=%d fuse.differ=%d") != std::string::npos);
 }
 
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")

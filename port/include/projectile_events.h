@@ -38,8 +38,28 @@ struct defaultobj;
 void projectileEventRecord(s32 kind, struct defaultobj *obj);
 
 /* Logs "PROJECTILE.EVENTS: <why> spawned=N bounced=N hit_target=N landed=N
- * ended=N detonated=N" and starts the counts again. */
+ * ended=N detonated=N fuse.compared=N fuse.differ=N" and starts the counts
+ * again. */
 void projectileEventsReport(const char *why);
+
+/*
+ * The fuse rule (projectile-events.md slice 2). At a fuse expiry the native
+ * code in weaponTick asks whether to run its original fuse (the explosion or
+ * the N-bomb storm). When the projectile's archive, or for a deployed item
+ * its entity's, has a program (pd.projectile_graph.v2, pd.entity_graph.v2),
+ * the program decides: event.projectile.timer_expired runs
+ * og.projectile.fuse_expired, and a program that does not reach it keeps the
+ * fuse from running (fail closed). With no program (a v1 archive) the native
+ * rule decides, as before. A networked client keeps the native rule; the
+ * host's outcome replicates.
+ *
+ * The parity probe counts each expiry a program decided (fuse.compared) and
+ * the ones where it did not run the fuse the original would have run
+ * (fuse.differ); the base programs must leave fuse.differ at 0. The first
+ * decision for a weapon and function logs "PROJECTILE.RULE: timer_expired
+ * weapon=... func=... object=... program=... fuse=0|1".
+ */
+s32 projectileFuseRule(struct defaultobj *obj);
 
 #ifdef __cplusplus
 }
