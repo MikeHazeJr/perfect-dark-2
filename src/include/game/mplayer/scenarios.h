@@ -53,6 +53,10 @@ void scenarioNetAnnounceProp(struct prop *prop, const char *what);
  * Case), or -1. The match manifest must list it (SP-93). */
 s32 scenarioTokenWeaponNum(s32 scenario);
 
+/* B-1273: the model the scenario's token prop is drawn with (its template's
+ * modelnum), or -1. The match manifest must list it too (SP-93). */
+s32 scenarioTokenModelNum(s32 scenario);
+
 /* Whether the running match's scenario has network state (a wire body). */
 s32 scenarioNetHasState(void);
 

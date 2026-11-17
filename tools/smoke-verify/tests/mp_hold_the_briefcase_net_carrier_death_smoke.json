@@ -150,7 +150,8 @@
       "HTB: briefcase placed pad=[1-9][0-9]* source=(crate|bank) prop=ok",
       "SCENARIO\\.STATE: sent scenario=1 rev=[0-9]+ reason=baseline",
       "SCENARIO\\.STATE: first state from host scenario=1 rev=[0-9]+",
-      "HTB: client briefcase from host holder=-?[0-9]+ present=1 rev=[0-9]+"
+      "HTB: client briefcase from host holder=-?[0-9]+ present=1 rev=[0-9]+",
+      "MANIFEST-HOST: scenario 1 token weapon 79 as '[^']+'"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",
@@ -192,7 +193,8 @@
       "NET: scenario state append failed",
       "BOT\\.PICKUP: client skipped",
       "NET: malformed or unknown message 0x4[dD]",
-      "NET: weapon [0-9]+ .* has no session catalog id"
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

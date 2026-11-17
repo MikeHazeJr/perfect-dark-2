@@ -635,3 +635,45 @@ TEST_CASE("bot turn: a simulant waiting to download turns toward the terminal",
 	REQUIRE(aim < follow);
 	REQUIRE(follow < tween);
 }
+
+TEST_CASE("bot pickup net: the match manifest lists the models weapon props are drawn with",
+          "[net][scenario][b1273]") {
+	// B-1273 (SP-93): a weapon prop sent to clients names its world model by
+	// session catalog id, and the reader builds it with model 0 (the roof gun)
+	// when the id is missing. The manifest listed weapons but not their world
+	// models: every gun a dying simulant dropped reached clients as a roof gun
+	// ("NET: model 246 ('base:model_chrleegun1') has no session catalog id"),
+	// and so did Hacker Central's replacement uplink (model_chrdatathief).
+	const std::string scenarios = code_only(read_text_file("src/game/mplayer/scenarios.c"));
+	const std::string token = function_body(scenarios, "s32 scenarioTokenModelNum(s32 scenario)\n{");
+	REQUIRE(token.find("case MPSCENARIO_HACKERCENTRAL:\n\t\treturn MODEL_CHRDATATHIEF;") != std::string::npos);
+	REQUIRE(token.find("case MPSCENARIO_HOLDTHEBRIEFCASE:\n\tcase MPSCENARIO_CAPTURETHECASE:\n\t\treturn MODEL_CHRBRIEFCASE;")
+		!= std::string::npos);
+
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string models = function_body(netmsg,
+		"static bool netLobbyManifestAppendWeaponModels(match_manifest_t *manifest)\n{");
+	REQUIRE(models.find("if (manifest->entries[i].type != MANIFEST_TYPE_WEAPON) {") != std::string::npos);
+	REQUIRE(models.find("modelnum = playermgrGetModelOfWeapon(weapon->runtime_index);") != std::string::npos);
+	REQUIRE(models.find("model_id = catalogModelIdByModelnum(modelnum);") != std::string::npos);
+	REQUIRE(models.find("if (!manifestAppendCatalogClosure(manifest, model_id, MANIFEST_SLOT_MATCH)) {")
+		!= std::string::npos);
+
+	const std::string prepare = function_body(netmsg,
+		"static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,");
+	const size_t weapon_token = prepare.find("const s32 token = scenarioTokenWeaponNum((s32)plan->scenario);");
+	const size_t model_token = prepare.find("const s32 token_model = scenarioTokenModelNum((s32)plan->scenario);");
+	const size_t world_models = prepare.find("if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {");
+	const size_t hash = prepare.find("manifestComputeHash(&plan->manifest);");
+	REQUIRE(weapon_token != std::string::npos);
+	REQUIRE(model_token != std::string::npos);
+	REQUIRE(world_models != std::string::npos);
+	REQUIRE(hash != std::string::npos);
+	// the token's own model with its weapon; every weapon's world model after
+	// all weapons are listed, for every game mode, before the hash
+	REQUIRE(weapon_token < model_token);
+	REQUIRE(model_token < world_models);
+	REQUIRE(world_models < hash);
+	// at function level (one tab), outside the Combat Simulator branch
+	REQUIRE(prepare.find("\n\tif (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {") != std::string::npos);
+}

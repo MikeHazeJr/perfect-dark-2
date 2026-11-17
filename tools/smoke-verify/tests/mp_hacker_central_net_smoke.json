@@ -143,7 +143,8 @@
       "NET: scenario state append failed",
       "BOT\\.PICKUP: client skipped",
       "NET: malformed or unknown message 0x4[dD]",
-      "NET: weapon [0-9]+ .* has no session catalog id"
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

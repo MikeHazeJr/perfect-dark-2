@@ -1,5 +1,26 @@
 # Bug Tracker
 
+## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.
+Found by SP-93's new model warning on 4789effa (base 7): in `mp_hacker_central_net_smoke` (`results-20261117T014259Z.json`)
+a simulant died and the host logged `NET: model 253 ('base:model_chrcmp150') has no session catalog id` and `model 246
+('base:model_chrleegun1')` as it announced the guns it dropped (`BOT.DROP: host announced simulant 4 weapon=10
+syncid=44`); in the carrier-death run the replacement uplink gave `model 19 ('base:model_chrdatathief')`.
+
+Root cause: SVC_PROP_SPAWN names a weapon prop's model by session catalog id (`netWriteModelRef`), and the client's
+reader builds the prop from that number with no fallback (`setupLoadModeldef(modelnum)`), so a missing id makes it
+model 0, `MODEL_ROOFGUN`. The match manifest lists weapons (the pool, the set, the token) but not the models their
+props are drawn with, so every gun a dying simulant or player drops, B-1209's replacement uplink and a dropped
+briefcase were drawn on clients as the roof gun. The weapon number itself was right (B-1272 made the token's right).
+
+Fix: the host's lobby start adds the world model of every weapon the manifest lists
+(`netLobbyManifestAppendWeaponModels`, `playermgrGetModelOfWeapon`, every game mode, `MANIFEST-HOST: weapon world
+models listed=N`), and the scenario token's own model (`scenarioTokenModelNum`: the uplink's prop is
+`MODEL_CHRDATATHIEF`, which is not the weapon's mapped model; `MANIFEST-HOST: scenario N token model M`). The token-mode,
+carrier-death and Combat-with-simulants net smokes forbid the model warning. Pinned by `[b1273]` in
+`tests/test_net_bot_pickup_static.cpp`. SP-93.
+
 ## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; checked in play for the uplink and the briefcase)
 
 Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of

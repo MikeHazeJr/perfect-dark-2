@@ -575,6 +575,22 @@ s32 scenarioTokenWeaponNum(s32 scenario)
 	}
 }
 
+/* B-1273 (SP-93): the model of the scenario's token prop, as its template in
+ * hackthatmac.inc, holdthebriefcase.inc and capturethecase.inc gives it. The
+ * uplink's is not the one playermgrGetModelOfWeapon names for the weapon. */
+s32 scenarioTokenModelNum(s32 scenario)
+{
+	switch (scenario) {
+	case MPSCENARIO_HACKERCENTRAL:
+		return MODEL_CHRDATATHIEF;
+	case MPSCENARIO_HOLDTHEBRIEFCASE:
+	case MPSCENARIO_CAPTURETHECASE:
+		return MODEL_CHRBRIEFCASE;
+	default:
+		return -1;
+	}
+}
+
 /* Every match starts from revision 0 on both sides. */
 static void scenarioNetResetState(void)
 {

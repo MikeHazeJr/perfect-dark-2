@@ -4102,6 +4102,11 @@ weapon slot; Hacker Central's data uplink and the briefcase of Hold the Briefcas
 so every message naming one reached clients as no weapon (B-1209's replacement uplink replayed as `weapon=1`).
 Fixed by `scenarioTokenWeaponNum` and the lobby start's token closure.
 
+**Second instance (B-1273, 2026-11-17), found by the new model warning:** the manifest listed weapons but not
+the models their props are drawn with, so a dropped gun, the replacement uplink and a dropped briefcase
+reached clients as model 0 (`MODEL_ROOFGUN`). Fixed by listing every manifest weapon's world model and the
+token's own model.
+
 **Search:**
 ```
 grep -n "netWriteWeaponRef(\|netWriteModelRef(\|catalogWriteAssetRef(" port/src/net/netmsg.c
@@ -4123,7 +4128,8 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
   (`netmsgSvcReconnectPropStateRead`), but it is covered: `matchConfigPrepareExactWeaponIds` gives every slot
   but `MPWEAPON_NONE` a catalog id, the shield included, and the lobby start adds each `weapon_ids` closure.
 - [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
-  for SVC_PROP_SPAWN's weapon and object models; first run pending.
+  for SVC_PROP_SPAWN's weapon and object models; its first run found B-1273.
+- [ ] Object models in SVC_PROP_SPAWN (thrown laptops and other spawned objects): watch the warning.
 
 ---
 

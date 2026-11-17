@@ -10581,6 +10581,58 @@ static bool netLobbyStartWriteReject(const char *detail)
 	return false;
 }
 
+/* B-1273 (SP-93): a weapon prop sent to clients (a dying simulant's or
+ * player's drop, a reconnect snapshot) names its world model by session catalog
+ * id, and the reader builds the prop with model 0 (the roof gun) when the id is
+ * missing. The weapon entries name only the weapons, so add the world model of
+ * every weapon the manifest lists. A weapon with no world model (unarmed, the
+ * combat boost) adds nothing. */
+static bool netLobbyManifestAppendWeaponModels(match_manifest_t *manifest)
+{
+	const s32 listed = (s32)manifest->num_entries;
+	s32 added = 0;
+
+	for (s32 i = 0; i < listed; i++) {
+		char weapon_id[CATALOG_ID_LEN];
+		const asset_entry_t *weapon;
+		const char *model_id;
+		s32 modelnum;
+
+		if (manifest->entries[i].type != MANIFEST_TYPE_WEAPON) {
+			continue;
+		}
+		/* appending below may move the entries; keep this one's id */
+		strncpy(weapon_id, manifest->entries[i].id, sizeof(weapon_id) - 1);
+		weapon_id[sizeof(weapon_id) - 1] = '\0';
+		weapon = assetCatalogResolve(weapon_id);
+		if (!weapon || weapon->type != ASSET_WEAPON
+				|| weapon->runtime_index <= WEAPON_UNARMED) {
+			continue;
+		}
+		modelnum = playermgrGetModelOfWeapon(weapon->runtime_index);
+		if (modelnum < 0) {
+			continue;
+		}
+		model_id = catalogModelIdByModelnum(modelnum);
+		if (!model_id) {
+			sysLogPrintf(LOG_WARNING,
+				"MANIFEST-HOST: weapon '%s' world model %d has no catalog id",
+				weapon_id, modelnum);
+			continue;
+		}
+		if (!manifestAppendCatalogClosure(manifest, model_id, MANIFEST_SLOT_MATCH)) {
+			sysLogPrintf(LOG_ERROR,
+				"MANIFEST-HOST: weapon '%s' world model '%s' could not be listed",
+				weapon_id, model_id);
+			return false;
+		}
+		added++;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"MANIFEST-HOST: weapon world models listed=%d for %d entries", added, listed);
+	return true;
+}
+
 static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 		u8 gamemode, const char *stage_id, u8 difficulty, u8 anti_client_id,
 		u8 num_sims, u8 sim_type, u8 timelimit, u32 options, u8 scenario,
@@ -10888,6 +10940,24 @@ static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 					(unsigned)plan->scenario, token, token_id);
 			}
 		}
+		/* B-1273 (SP-93): and the model its prop is drawn with, which is not
+		 * the weapon's own world model for the uplink. */
+		{
+			const s32 token_model = scenarioTokenModelNum((s32)plan->scenario);
+
+			if (token_model >= 0) {
+				const char *model_id = catalogModelIdByModelnum(token_model);
+
+				if (!model_id || !manifestAppendCatalogClosure(&plan->manifest,
+						model_id, MANIFEST_SLOT_MATCH)) {
+					return netLobbyStartWriteReject(
+						"host manifest cannot publish the scenario's token model");
+				}
+				sysLogPrintf(LOG_NOTE,
+					"MANIFEST-HOST: scenario %u token model %d as '%s'",
+					(unsigned)plan->scenario, token_model, model_id);
+			}
+		}
 		for (s32 wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
 			if (plan->weapon_ids[wi][0]
 					&& !manifestAppendCatalogClosure(&plan->manifest,
@@ -10914,6 +10984,10 @@ static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 					"host manifest cannot publish bot closure");
 			}
 		}
+	}
+	if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {
+		return netLobbyStartWriteReject(
+			"host manifest cannot publish a weapon's world model");
 	}
 	manifestComputeHash(&plan->manifest);
 	if (!netLobbyManifestValidate(&plan->manifest, plan->stage_id)) {

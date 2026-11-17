@@ -126,7 +126,8 @@
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
       "BOT\\.PICKUP: client skipped",
-      "NET: malformed or unknown message 0x4[dD]"
+      "NET: malformed or unknown message 0x4[dD]",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {
