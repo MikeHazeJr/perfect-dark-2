@@ -274,6 +274,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual);
 void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual);
 s32 propPickupByPlayer(struct prop *prop, bool showhudmsg);
 s32 objTestForPickup(struct prop *prop);
+s32 objPickupTouchForSmoke(struct prop *prop);
 /* object-events.md slice 4: the original pickup rules for the current player
  * (gate.pickup.native_rules), the refusal of a locked door
  * (og.door.locked_message) and an automatic door opening

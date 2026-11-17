@@ -20479,6 +20479,24 @@ s32 objTestForPickup(struct prop *prop)
 	return propPickupByPlayer(prop, true);
 }
 
+/* The smoke harness's touch (touch_pickup): the decision objTestForPickup
+ * makes once the player touches the prop, without the distance test, so a
+ * smoke can show the level program's pickup rule in play. The caller
+ * applies the tick operation as the prop loop does. */
+s32 objPickupTouchForSmoke(struct prop *prop)
+{
+	struct defaultobj *obj = prop ? prop->obj : NULL;
+
+	if (!obj || (obj->hidden & OBJHFLAG_DELETING) || g_NetMode == NETMODE_CLIENT
+			|| !objPickupIsCandidate(obj)) {
+		return TICKOP_NONE;
+	}
+	if (scenarioSourceGraphObjectRulesActive()) {
+		return objPickupTouched(prop);
+	}
+	return objPickupRulesAllow(prop) ? propPickupByPlayer(prop, true) : TICKOP_NONE;
+}
+
 /* The original pickup rules for the current player, after the candidate
  * test and before the touch (gate.pickup.native_rules). */
 bool objPickupRulesAllow(struct prop *prop)

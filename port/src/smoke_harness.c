@@ -159,6 +159,7 @@
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
+#include "game/prop.h" /* propExecuteTickOperation (touch_pickup) */
 #include "game/setuputils.h"
 #include "scenario_source_runtime.h"
 #include "input.h"
@@ -240,6 +241,7 @@ typedef enum {
     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
     SMOKE_EVENT_USE_LIFT_DOOR,      /* T-MODDING-011: player 0 uses the nearest lift door */
     SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
+    SMOKE_EVENT_TOUCH_PICKUP,       /* T-MODDING-011: player 0 touches the nearest pickup (objPickupTouchForSmoke) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -1061,6 +1063,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "damage_glass")) {
 		ev->type = SMOKE_EVENT_DAMAGE_GLASS;
+		return 1;
+	}
+	if (!strcmp(type_str, "touch_pickup")) {
+		ev->type = SMOKE_EVENT_TOUCH_PICKUP;
 		return 1;
 	}
     if (!strcmp(type_str, "network_timeout_client")) {
@@ -3095,6 +3101,59 @@ void smokeHarnessTick(void)
 			} else {
 				sysLogPrintf(LOG_WARNING, "SMOKE.%s: no door at_ms=%d",
 					ev->type == SMOKE_EVENT_USE_LIFT_DOOR ? "USE_LIFT_DOOR" : "USE_DOOR", ev->at_ms);
+			}
+			break;
+		}
+		case SMOKE_EVENT_TOUCH_PICKUP:
+		{
+			/* T-MODDING-011 (object-events.md slice 4): player 0 touches the
+			 * nearest weapon pickup the setup placed, with the decision
+			 * objTestForPickup makes once the player stands on it and the
+			 * tick operation the prop loop then applies, so the level
+			 * program's pickup rule runs in play. */
+			struct defaultobj *pickup = NULL;
+			s32 pickupindex = -1;
+			f32 best = 0.0f;
+			s32 index;
+
+			if (g_Vars.players[0] && g_Vars.players[0]->prop) {
+				const struct coord *at = &g_Vars.players[0]->prop->pos;
+
+				for (index = 0; setupGetCmdByIndex(index) != NULL; index++) {
+					struct defaultobj *obj = setupGetObjByCmdIndex(index);
+
+					if (obj && obj->type == OBJTYPE_WEAPON && obj->prop
+							&& obj->prop->type == PROPTYPE_WEAPON
+							&& obj->prop->parent == NULL
+							&& obj->prop->timetoregen <= 0
+							&& (obj->hidden & OBJHFLAG_DELETING) == 0) {
+						const f32 dx = obj->prop->pos.x - at->x;
+						const f32 dy = obj->prop->pos.y - at->y;
+						const f32 dz = obj->prop->pos.z - at->z;
+						const f32 d2 = dx * dx + dy * dy + dz * dz;
+
+						if (!pickup || d2 < best) {
+							pickup = obj;
+							pickupindex = index;
+							best = d2;
+						}
+					}
+				}
+			}
+			if (pickup) {
+				const s32 prevplayernum = g_Vars.currentplayernum;
+				struct prop *prop = pickup->prop;
+				s32 op;
+
+				setCurrentPlayerNum(0);
+				op = objPickupTouchForSmoke(prop);
+				propExecuteTickOperation(prop, op);
+				setCurrentPlayerNum(prevplayernum);
+				sysLogPrintf(LOG_NOTE,
+					"SMOKE.TOUCH_PICKUP: object=setup_%04d distance=%.0f op=%d at_ms=%d",
+					pickupindex, sqrtf(best), op, ev->at_ms);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SMOKE.TOUCH_PICKUP: no pickup at_ms=%d", ev->at_ms);
 			}
 			break;
 		}
