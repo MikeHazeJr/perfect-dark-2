@@ -18,6 +18,7 @@
 extern "C" {
 #include "mission_graph_runner.h"
 #include "modarchive.h"
+#include "weapon_graph_runtime.h"
 }
 
 namespace {
@@ -539,6 +540,62 @@ TEST_CASE("projectile programs take the projectile events, and only they do",
 	CHECK(program == nullptr);
 	CHECK(std::string(err).find("belongs to a projectile or entity graph") != std::string::npos);
 	missionGraphProgramFree(program);
+}
+
+// projectile-events.md slice 2: a v2 projectile archive registers its record
+// and its program; a program that does not compile refuses the archive.
+TEST_CASE("a v2 projectile graph registers its record and its program",
+	"[mission-graph][projectile-graph][weapon-graph]")
+{
+	const std::string v2 = R"({
+  "schema": "pd.projectile_graph.v2",
+  "asset_id": "base:test__projectile_fuse",
+  "graph_id": "test_projectile_fuse",
+  "nodes": [
+    { "id": "spawn_state", "kind": "projectile.spawn_state",
+      "params": { "model_catalog_id": "base:model_chrgrenade", "scale": 1 } },
+    { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "explode", "kind": "og.projectile.fuse_expired" }
+  ],
+  "edges": [
+    { "from": "spawn_state", "to": "motion" },
+    { "from": "fuse", "output": "out", "to": "explode", "input": "exec" }
+  ],
+  "exports": [ { "name": "main", "node": "motion" } ]
+})";
+	const char *const id = "base:test__projectile_fuse";
+	char err[256] = { 0 };
+
+	weaponGraphRuntimeClearAll();
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, v2.data(),
+		(u32)v2.size(), err, sizeof(err)) == 0);
+	const mission_graph_program_t *program = weaponGraphRuntimeProjectileProgram(id);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 2);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED,
+		"og.projectile.fuse_expired") == 1);
+
+	// A module the projectile table does not know refuses the archive.
+	std::string unknown = v2;
+	unknown.replace(unknown.find("og.projectile.fuse_expired"),
+		std::string("og.projectile.fuse_expired").size(), "og.projectile.unknown");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, unknown.data(),
+		(u32)unknown.size(), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("program refused") != std::string::npos);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+
+	// A v1 graph is records only: no program, and a program node is refused.
+	std::string v1 = v2;
+	v1.replace(v1.find("pd.projectile_graph.v2"), std::string("pd.projectile_graph.v2").size(),
+		"pd.projectile_graph.v1");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, v1.data(),
+		(u32)v1.size(), err, sizeof(err)) != 0);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

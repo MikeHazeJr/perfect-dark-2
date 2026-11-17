@@ -25,6 +25,7 @@
 #include "platform.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
+#include "mission_graph_runner.h"
 
 typedef struct json_span {
 	const char *start;
@@ -443,6 +444,23 @@ static s32 endsWith(const char *value, const char *suffix)
 	return vlen >= slen && strcmp(value + vlen - slen, suffix) == 0;
 }
 
+/* projectile-events.md slice 2: the executable versions of the projectile
+ * and entity graphs, the v1 data nodes plus a program of event.*, gate.* and
+ * og.* nodes joined by execution edges. */
+static s32 weaponGraphSchemaHasProgram(asset_type_e graph_type, const char *schema)
+{
+	return schema && ((graph_type == ASSET_PROJECTILE &&
+			strcmp(schema, "pd.projectile_graph.v2") == 0) ||
+		(graph_type == ASSET_ENTITY && strcmp(schema, "pd.entity_graph.v2") == 0));
+}
+
+/* A program node of a v2 graph: the graph runner's, not the record IR's. */
+static s32 weaponGraphKindIsProgram(const char *kind)
+{
+	return kind && (strncmp(kind, "event.", 6) == 0 || strncmp(kind, "gate.", 5) == 0 ||
+		strncmp(kind, "og.", 3) == 0);
+}
+
 const char *weaponGraphSchemaForType(asset_type_e type)
 {
 	switch (type) {
@@ -619,9 +637,99 @@ static s32 ownerBitsAny(const u32 bits[WEAPON_GRAPH_RUNTIME_OWNER_WORDS])
 	return 0;
 }
 
+/* projectile-events.md slice 2: the program of each v2 projectile or entity
+ * archive, by asset id. Kept beside the records, not in them, because the
+ * records are cleared with memset. */
+#define WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS \
+	(WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES + WEAPON_GRAPH_RUNTIME_MAX_ENTITIES)
+typedef struct projectile_program_slot {
+	char asset_id[CATALOG_ID_LEN];
+	mission_graph_program_t *program;
+} projectile_program_slot_t;
+static projectile_program_slot_t s_projectile_programs[WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS];
+
+/* The native modules a projectile program may name; their code runs at the
+ * game's seams (propobj.c), which pass the run function when they fire. */
+static s32 projectileProgramModuleKnown(const char *kind)
+{
+	static const char *const known[] = {
+		"og.projectile.fuse_expired",
+	};
+
+	if (!kind) return 0;
+	for (size_t i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
+		if (strcmp(kind, known[i]) == 0) return 1;
+	}
+	return 0;
+}
+
+static void projectileProgramForget(const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS; i++) {
+		if (s_projectile_programs[i].program &&
+				strcmp(s_projectile_programs[i].asset_id, asset_id) == 0) {
+			missionGraphProgramFree(s_projectile_programs[i].program);
+			memset(&s_projectile_programs[i], 0, sizeof(s_projectile_programs[i]));
+		}
+	}
+}
+
+static void projectileProgramsClearAll(void)
+{
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS; i++) {
+		missionGraphProgramFree(s_projectile_programs[i].program);
+	}
+	memset(s_projectile_programs, 0, sizeof(s_projectile_programs));
+}
+
+/* Compiles and keeps the IR's program (a v2 graph) in place of the asset's
+ * old one; a v1 IR drops it. -1 with the reason when the program does not
+ * compile: the archive then refuses (fail closed). */
+static s32 projectileProgramRegister(const weapon_graph_ir_t *ir, char *err, size_t err_cap)
+{
+	char why[256];
+	mission_graph_program_t *program;
+
+	projectileProgramForget(ir->asset_id);
+	if (!ir->program_json) return 0;
+	why[0] = '\0';
+	program = missionGraphProgramCompileProjectile(ir->program_json, ir->program_json_size,
+		projectileProgramModuleKnown, why, sizeof(why));
+	if (!program) {
+		setErr(err, err_cap, "%s program refused: %s", ir->asset_id,
+			why[0] ? why : "it does not compile");
+		return -1;
+	}
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS; i++) {
+		if (!s_projectile_programs[i].program) {
+			copyStr(s_projectile_programs[i].asset_id,
+				sizeof(s_projectile_programs[i].asset_id), ir->asset_id);
+			s_projectile_programs[i].program = program;
+			return 0;
+		}
+	}
+	missionGraphProgramFree(program);
+	setErr(err, err_cap, "projectile program table is full");
+	return -1;
+}
+
+const struct mission_graph_program *weaponGraphRuntimeProjectileProgram(const char *asset_id)
+{
+	if (!asset_id || !asset_id[0]) return NULL;
+	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS; i++) {
+		if (s_projectile_programs[i].program &&
+				strcmp(s_projectile_programs[i].asset_id, asset_id) == 0) {
+			return s_projectile_programs[i].program;
+		}
+	}
+	return NULL;
+}
+
 static void projectileRuntimeClearSlot(s32 index)
 {
 	if (index < 0 || index >= WEAPON_GRAPH_RUNTIME_MAX_PROJECTILES) return;
+	projectileProgramForget(s_projectile_runtimes[index].asset_id);
 	memset(&s_projectile_runtimes[index], 0,
 		sizeof(s_projectile_runtimes[index]));
 	memset(s_projectile_owner_bits[index], 0,
@@ -632,6 +740,7 @@ static void projectileRuntimeClearSlot(s32 index)
 static void entityRuntimeClearSlot(s32 index)
 {
 	if (index < 0 || index >= WEAPON_GRAPH_RUNTIME_MAX_ENTITIES) return;
+	projectileProgramForget(s_entity_runtimes[index].asset_id);
 	memset(&s_entity_runtimes[index], 0, sizeof(s_entity_runtimes[index]));
 	memset(s_entity_owner_bits[index], 0, sizeof(s_entity_owner_bits[index]));
 	s_entity_external_refs[index] = 0;
@@ -783,6 +892,7 @@ void weaponGraphRuntimeClearAll(void)
 	memset(s_entity_owner_bits, 0, sizeof(s_entity_owner_bits));
 	memset(s_projectile_external_refs, 0, sizeof(s_projectile_external_refs));
 	memset(s_entity_external_refs, 0, sizeof(s_entity_external_refs));
+	projectileProgramsClearAll();
 }
 
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
@@ -1485,6 +1595,12 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 			setErr(err, err_cap, "graph node %s missing kind", node->id);
 			return -1;
 		}
+		if (ir->program_json && weaponGraphKindIsProgram(node->kind)) {
+			/* projectile-events.md slice 2: the graph runner compiles a v2
+			 * graph's program nodes (projectileProgramRegister). */
+			memset(node, 0, sizeof(*node));
+			continue;
+		}
 		if (!jsonOptionalString(obj, "subgraph", node->subgraph, sizeof(node->subgraph), err, err_cap)) return -1;
 		node->opcode = weaponGraphOpcodeForKind(graph_type, node->kind);
 		if (node->opcode == WEAPON_GRAPH_OP_INVALID) {
@@ -1583,6 +1699,16 @@ static s32 compileEdges(json_span_t root, weapon_graph_ir_t *ir,
 				!jsonObjectString(obj, "to", to_id, sizeof(to_id))) {
 			setErr(err, err_cap, "edge missing from/to");
 			return -1;
+		}
+		if (ir->program_json) {
+			char input[16];
+
+			/* projectile-events.md slice 2: a v2 graph's execution edges join
+			 * its program nodes, which the graph runner compiles. */
+			if (jsonObjectString(obj, "input", input, sizeof(input)) &&
+					strcmp(input, "exec") == 0) {
+				continue;
+			}
 		}
 		from = graphNodeIndex(ir, from_id);
 		to = graphNodeIndex(ir, to_id);
@@ -1792,7 +1918,7 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 				sysLogPrintf(LOG_WARNING,
 					"EFFECTGRAPH.PARSE: schema 'pd2.effect.graph.v1' is deprecated; use 'pd.effect_graph.v1'");
 			}
-		} else {
+		} else if (!weaponGraphSchemaHasProgram(graph_type, out->schema)) {
 			setErr(err, err_cap, "graph schema must be %s", schema_expected);
 			return -1;
 		}
@@ -1822,6 +1948,20 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 	sha256Hash(json, json_size, digest);
 	sha256ToHex(digest, out->source_sha256);
 
+	/* projectile-events.md slice 2: a v2 projectile or entity graph keeps its
+	 * text for its program (weaponGraphRuntimeProjectileProgram); the record
+	 * IR below skips the program's nodes and execution edges. */
+	if (weaponGraphSchemaHasProgram(graph_type, out->schema)) {
+		out->program_json = (char *)malloc((size_t)json_size + 1);
+		if (!out->program_json) {
+			setErr(err, err_cap, "no memory for the graph's program");
+			goto fail;
+		}
+		memcpy(out->program_json, json, json_size);
+		out->program_json[json_size] = '\0';
+		out->program_json_size = json_size;
+	}
+
 	if (compileSharedContexts(root, out, err, err_cap) != 0) goto fail;
 	if (compileNodes(graph_type, root, out, err, err_cap) != 0) goto fail;
 	if (compileSubgraphs(root, out, err, err_cap) != 0) goto fail;
@@ -1845,9 +1985,12 @@ void weaponGraphIrFree(weapon_graph_ir_t *ir)
 	free(ir->contexts);
 	free(ir->exports);
 	free(ir->subgraphs);
+	free(ir->program_json);
 	ir->contexts = NULL;
 	ir->exports = NULL;
 	ir->subgraphs = NULL;
+	ir->program_json = NULL;
+	ir->program_json_size = 0;
 	ir->context_count = 0;
 	ir->export_count = 0;
 	ir->subgraph_count = 0;
@@ -5168,6 +5311,12 @@ static s32 weaponGraphRuntimeRegisterProjectileIrOwned(
 		ownerBitsSet(s_projectile_owner_bits[index], owner_weapon);
 	}
 
+	/* projectile-events.md slice 2: a v2 archive's program, or the archive
+	 * does not register. */
+	if (projectileProgramRegister(ir, err, err_cap) != 0) {
+		if (index >= 0) projectileRuntimeClearSlot(index);
+		return -1;
+	}
 	return 0;
 }
 
@@ -5242,6 +5391,12 @@ static s32 weaponGraphRuntimeRegisterEntityIrOwned(
 		ownerBitsSet(s_entity_owner_bits[index], owner_weapon);
 	}
 
+	/* projectile-events.md slice 2: a v2 archive's program, or the archive
+	 * does not register. */
+	if (projectileProgramRegister(ir, err, err_cap) != 0) {
+		if (index >= 0) entityRuntimeClearSlot(index);
+		return -1;
+	}
 	return 0;
 }
 
