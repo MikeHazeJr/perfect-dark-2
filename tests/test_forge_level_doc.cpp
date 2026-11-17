@@ -2311,6 +2311,45 @@ TEST_CASE("A level gains a hoverbike made from nothing, with the record every ba
 	CHECK(forgeLevelDocPadCount(level.doc) == 5);
 }
 
+TEST_CASE("A facing is turned about the vertical, positive to the right", "[forge-level-doc]")
+{
+	f32 out[3] = { 9.0f, 9.0f, 9.0f };
+
+	/* Yaw 0 faces +z and its right is -x (the camera's convention): a
+	 * quarter turn right faces -x. */
+	const f32 ahead[3] = { 0.0f, 0.0f, 1.0f };
+	REQUIRE(forgeLevelTurnLook(ahead, 90.0f, out) == 1);
+	CHECK(out[0] == Approx(-1.0f));
+	CHECK(out[1] == 0.0f);
+	CHECK(out[2] == Approx(0.0f).margin(1e-6));
+	REQUIRE(forgeLevelTurnLook(ahead, -90.0f, out) == 1);
+	CHECK(out[0] == Approx(1.0f));
+
+	/* The same as the camera's yaw growing: from yaw t to yaw t + 45. */
+	const f32 t = 217.0f * 3.14159265f / 180.0f;
+	const f32 at[3] = { -std::sin(t), 0.0f, std::cos(t) };
+	REQUIRE(forgeLevelTurnLook(at, 45.0f, out) == 1);
+	const f32 t2 = 262.0f * 3.14159265f / 180.0f;
+	CHECK(out[0] == Approx(-std::sin(t2)).margin(1e-5));
+	CHECK(out[2] == Approx(std::cos(t2)).margin(1e-5));
+
+	/* Any length and any tilt: the result is flat and of unit length. */
+	const f32 tilted[3] = { 3.0f, 7.0f, -4.0f };
+	REQUIRE(forgeLevelTurnLook(tilted, 0.0f, out) == 1);
+	CHECK(out[0] == Approx(0.6f));
+	CHECK(out[1] == 0.0f);
+	CHECK(out[2] == Approx(-0.8f));
+	REQUIRE(forgeLevelTurnLook(tilted, 360.0f, out) == 1);
+	CHECK(out[0] == Approx(0.6f).margin(1e-5));
+
+	/* Nothing to turn. */
+	const f32 up[3] = { 0.0f, 1.0f, 0.0f };
+	CHECK(forgeLevelTurnLook(up, 45.0f, out) == 0);
+	const f32 broken[3] = { std::numeric_limits<f32>::quiet_NaN(), 0.0f, 1.0f };
+	CHECK(forgeLevelTurnLook(broken, 45.0f, out) == 0);
+	CHECK(forgeLevelTurnLook(nullptr, 45.0f, out) == 0);
+}
+
 TEST_CASE("A copy of a document shares nothing with it and goes on exactly as it would",
           "[forge-level-doc]")
 {

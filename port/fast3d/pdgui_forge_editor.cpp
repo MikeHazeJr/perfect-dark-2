@@ -1924,6 +1924,18 @@ static void forgeLevelFileModelRow(const asset_entry_t *entry, void *userdata)
 	}
 }
 
+/* The pad a player start stands on, by the start's id. */
+static bool forgeLevelFileStartPad(forge_level_doc_t *doc, const char *spawn_id, forge_level_pad_t *pad)
+{
+	for (s32 i = 0; i < forgeLevelDocSpawnCount(doc); i++) {
+		forge_level_spawn_t spawn;
+		if (forgeLevelDocGetSpawn(doc, i, &spawn) && strcmp(spawn.spawn_id, spawn_id) == 0) {
+			return forgeLevelDocFindPad(doc, spawn.pad_ref, pad) != 0;
+		}
+	}
+	return false;
+}
+
 static void forgeLevelFileStatus(bool bad, const char *fmt, ...)
 {
 	va_list ap;
@@ -2099,6 +2111,30 @@ static void forgeDrawLevelFileSection(void)
 			forgeLevelFileStatus(true, "Could not remove %s: %s", s_LevelFileStart, err);
 		}
 	}
+	/* Turn the selected start where it stands, 45 degrees at a time. */
+	for (int turn = 0; turn < 2; turn++) {
+		ImGui::SameLine();
+		if (ImGui::Button(turn == 0 ? "Turn Left 45###LevelFileStartLeft" : "Turn Right 45###LevelFileStartRight")) {
+			forge_level_pad_t pad;
+			f32 turned[3];
+			if (!forgeLevelFileStartPad(doc, s_LevelFileStart, &pad)
+					|| !forgeLevelTurnLook(pad.look, turn == 0 ? -45.0f : 45.0f, turned)) {
+				forgeLevelFileStatus(true, "%s has no facing to turn.", s_LevelFileStart);
+			} else {
+				forgeLevelSessionEditBegin();
+				const s32 levelEdit = forgeLevelDocMoveSpawn(doc, s_LevelFileStart, pad.position, turned, err,
+					sizeof(err));
+				forgeLevelSessionEditEnd(levelEdit);
+				if (levelEdit) {
+					s_LevelFileEdits++;
+					forgeLevelFileStatus(false, "Turned %s 45 degrees %s.", s_LevelFileStart,
+						turn == 0 ? "left" : "right");
+				} else {
+					forgeLevelFileStatus(true, "Could not turn %s: %s", s_LevelFileStart, err);
+				}
+			}
+		}
+	}
 	ImGui::EndDisabled();
 	ImGui::TextDisabled("A start goes where the camera is, facing the way it faces. "
 		"The game finds the floor under it.");
@@ -2255,6 +2291,30 @@ static void forgeDrawLevelFileSection(void)
 			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
 		} else {
 			forgeLevelFileStatus(true, "Could not copy %s: %s", s_LevelFileObject, err);
+		}
+	}
+	/* Turn the selected object where it stands, 45 degrees at a time. */
+	for (int turn = 0; turn < 2; turn++) {
+		ImGui::SameLine();
+		if (ImGui::Button(turn == 0 ? "Turn Left 45###LevelFileObjectLeft" : "Turn Right 45###LevelFileObjectRight")) {
+			forge_level_pad_t pad;
+			f32 turned[3];
+			if (!haveSelected || !forgeLevelDocFindPad(doc, selected.pad_ref, &pad)
+					|| !forgeLevelTurnLook(pad.look, turn == 0 ? -45.0f : 45.0f, turned)) {
+				forgeLevelFileStatus(true, "%s has no facing to turn.", s_LevelFileObject);
+			} else {
+				forgeLevelSessionEditBegin();
+				const s32 levelEdit = forgeLevelDocMoveObject(doc, s_LevelFileObject, pad.position, turned, err,
+					sizeof(err));
+				forgeLevelSessionEditEnd(levelEdit);
+				if (levelEdit) {
+					s_LevelFileEdits++;
+					forgeLevelFileStatus(false, "Turned %s 45 degrees %s.", s_LevelFileObject,
+						turn == 0 ? "left" : "right");
+				} else {
+					forgeLevelFileStatus(true, "Could not turn %s: %s", s_LevelFileObject, err);
+				}
+			}
 		}
 	}
 	ImGui::EndDisabled();

@@ -191,6 +191,16 @@ s32 forgeLevelDocGetObject(const forge_level_doc_t *doc, s32 index, forge_level_
 s32 forgeLevelDocFindPad(const forge_level_doc_t *doc, const char *pad_ref, forge_level_pad_t *out);
 
 /*
+ * `look` turned `degrees` about the vertical axis, flat (y 0) and of unit
+ * length. Positive turns right, as seen by someone facing along `look`: the
+ * way the editor camera's yaw grows (a camera at yaw t faces (-sin t, 0,
+ * cos t), and its right is (-cos t, 0, -sin t), which the projection probe
+ * measured on screen). 1 with the result; 0 when `look` has no flat part to
+ * turn (straight up or down, or not finite).
+ */
+s32 forgeLevelTurnLook(const f32 look[3], f32 degrees, f32 out[3]);
+
+/*
  * Adds a spawn at a position, facing along look (any length but zero; up is
  * straight up). team is "any" when NULL or empty. The new spawn's id goes to
  * out_spawn_id. 1 on success; 0 with the reason, and the document unchanged.

@@ -1354,6 +1354,28 @@ void forgeLevelDocFree(forge_level_doc_t *doc)
 	delete doc;
 }
 
+s32 forgeLevelTurnLook(const f32 look[3], f32 degrees, f32 out[3])
+{
+	if (!look || !out || !std::isfinite(look[0]) || !std::isfinite(look[2]) || !std::isfinite(degrees)) {
+		return 0;
+	}
+	const double length = std::sqrt(static_cast<double>(look[0]) * look[0] + static_cast<double>(look[2]) * look[2]);
+	if (length < 1e-6) {
+		return 0;
+	}
+	const double x = look[0] / length;
+	const double z = look[2] / length;
+	const double radians = degrees * 3.14159265358979323846 / 180.0;
+	const double c = std::cos(radians);
+	const double s = std::sin(radians);
+	/* The right of (x, 0, z) is (-z, 0, x): the turned look is
+	 * cos * look + sin * right. */
+	out[0] = static_cast<f32>(x * c - z * s);
+	out[1] = 0.0f;
+	out[2] = static_cast<f32>(z * c + x * s);
+	return 1;
+}
+
 forge_level_doc_t *forgeLevelDocClone(const forge_level_doc_t *doc)
 {
 	/* Every part of a document is a value (texts, lists, maps), so a copy

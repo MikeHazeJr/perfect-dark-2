@@ -288,11 +288,19 @@ s32 vehicleGraphRuntimeSeatOfPlayer(const void *prop, u64 generation, s32 player
 	return VEHICLE_GRAPH_SEAT_NONE;
 }
 
+/* Not NaN and not infinite: x - x is 0 only for a finite x. (The math.h the
+ * client build finds does not declare isfinite.) */
+static s32 vgrFinite(f32 x)
+{
+	const f32 d = x - x;
+	return d == 0.0f;
+}
+
 void vehicleGraphRuntimeSetTurretAim(const void *prop, u64 generation, f32 yaw, f32 pitch)
 {
 	vehicle_graph_record_t *record;
 
-	if (!isfinite(yaw) || !isfinite(pitch)) {
+	if (!vgrFinite(yaw) || !vgrFinite(pitch)) {
 		return;
 	}
 	record = vgrRecord(prop, generation, 1);
