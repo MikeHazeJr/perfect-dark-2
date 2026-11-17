@@ -2021,6 +2021,24 @@ static void forgeDrawLevelFileSection(void)
 		return;
 	}
 
+	/* A marker clicked in the world selects its start or object here. */
+	{
+		char pickStart[32];
+		char pickObject[32];
+		s32 pickIndex = -1;
+		if (pdguiForgeLevelMarkersTakePick(pickStart, sizeof(pickStart), pickObject, sizeof(pickObject),
+				&pickIndex)) {
+			if (pickObject[0]) {
+				snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", pickObject);
+				s_LevelFileObjectIndex = (int)pickIndex;
+				forgeLevelFileStatus(false, "Selected %s.", pickObject);
+			} else if (pickStart[0]) {
+				snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", pickStart);
+				forgeLevelFileStatus(false, "Selected %s.", pickStart);
+			}
+		}
+	}
+
 	ImGui::Text("Level: %s", source->arena_id);
 	ImGui::Text("%d player starts, %d objects, %d pads",
 		(int)forgeLevelDocSpawnCount(doc), (int)forgeLevelDocObjectCount(doc),

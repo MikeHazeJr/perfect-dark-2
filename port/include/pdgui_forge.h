@@ -14,6 +14,7 @@
 #ifndef _IN_PDGUI_FORGE_H
 #define _IN_PDGUI_FORGE_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -43,6 +44,14 @@ void pdguiForgeHudRender(s32 winW, s32 winH);
 s32  pdguiForgeLevelMarkersGet(void);
 void pdguiForgeLevelMarkersSet(s32 on);
 void pdguiForgeLevelMarkersSelect(const char *start_id, const char *object_id);
+
+/** A marker the player clicked in the world (a left click off the editor's
+ *  windows, within a few pixels of the marker): 1 once per click with the
+ *  start's id or the object's id and row ("" and -1 for the other kind), for
+ *  the Level File section to take into its own selection; 0 when there is
+ *  none waiting. The HUD shows the pick at once. */
+s32  pdguiForgeLevelMarkersTakePick(char *start_id, size_t start_cap, char *object_id, size_t object_cap,
+		s32 *object_index);
 
 /** Full editor overlay -- drawn on top of the HUD when in-session. The
  *  editor is visible regardless of NORMAL vs FREEFLY sub-mode, but the

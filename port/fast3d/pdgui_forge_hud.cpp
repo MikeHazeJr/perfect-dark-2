@@ -98,6 +98,24 @@ static bool s_LevelMarkers          = true;
 static char s_LevelMarkerStart[32]  = "";
 static char s_LevelMarkerObject[32] = "";
 
+/* A marker the player clicked in the world, waiting for the editor's Level
+ * File section to take it into its own selection. */
+static bool s_LevelPickPending      = false;
+static char s_LevelPickStart[32]    = "";
+static char s_LevelPickObject[32]   = "";
+static s32  s_LevelPickObjectIndex  = -1;
+
+s32 pdguiForgeLevelMarkersTakePick(char *start_id, size_t start_cap, char *object_id, size_t object_cap,
+		s32 *object_index)
+{
+	if (!s_LevelPickPending) return 0;
+	s_LevelPickPending = false;
+	if (start_id && start_cap) snprintf(start_id, start_cap, "%s", s_LevelPickStart);
+	if (object_id && object_cap) snprintf(object_id, object_cap, "%s", s_LevelPickObject);
+	if (object_index) *object_index = s_LevelPickObjectIndex;
+	return 1;
+}
+
 s32 pdguiForgeLevelMarkersGet(void)
 {
 	return s_LevelMarkers ? 1 : 0;
@@ -149,6 +167,29 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 	const f32 markerRange = 15000.0f;
 	const f32 labelRange  = 2500.0f;
 
+	/* A left click on the world (not on a window of the editor) picks the
+	 * marker nearest the pointer, within a few pixels of it, for the editor
+	 * to select. */
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	const bool click = ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+		&& !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) && !ImGui::IsAnyItemHovered();
+	const float pickRadius = 12.0f * scale;
+	float pickBest = pickRadius * pickRadius;
+	char pickStart[32] = "";
+	char pickObject[32] = "";
+	s32 pickIndex = -1;
+	const auto consider = [&](ImVec2 at, const char *start_id, const char *object_id, s32 index) {
+		if (!click) return;
+		const float dx = at.x - mouse.x;
+		const float dy = at.y - mouse.y;
+		const float d2 = dx * dx + dy * dy;
+		if (d2 > pickBest) return;
+		pickBest = d2;
+		snprintf(pickStart, sizeof(pickStart), "%s", start_id);
+		snprintf(pickObject, sizeof(pickObject), "%s", object_id);
+		pickIndex = index;
+	};
+
 	const s32 objects = forgeLevelDocObjectCount(doc);
 	for (s32 i = 0; i < objects; i++) {
 		forge_level_object_t object;
@@ -159,6 +200,7 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 		if (!forgeLevelDocGetObject(doc, i, &object) || !object.pad_ref[0]) continue;
 		if (!forgeLevelDocFindPad(doc, object.pad_ref, &pad)) continue;
 		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+		consider(at, "", object.record_id, i);
 
 		const bool selected = s_LevelMarkerObject[0] && strcmp(object.record_id, s_LevelMarkerObject) == 0;
 		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255)
@@ -184,6 +226,7 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 		if (!forgeLevelDocGetSpawn(doc, i, &spawn)) continue;
 		if (!forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) continue;
 		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+		consider(at, spawn.spawn_id, "", -1);
 
 		const bool selected = s_LevelMarkerStart[0] && strcmp(spawn.spawn_id, s_LevelMarkerStart) == 0;
 		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255) : IM_COL32(140, 240, 150, 230);
@@ -196,6 +239,17 @@ static void forgehudDrawLevelFile(float winW, float winH, float scale)
 			snprintf(label, sizeof(label), "start %s%s", spawn.spawn_id, pad.added ? " (new)" : "");
 			forgehudMarkerLabel(dl, ImVec2(at.x + half + 4.0f * scale, at.y - half), col, label);
 		}
+	}
+
+	/* The pick shows at once; the editor takes it into its lists when its
+	 * Level File section next draws. */
+	if (pickStart[0] || pickObject[0]) {
+		if (pickStart[0]) snprintf(s_LevelMarkerStart, sizeof(s_LevelMarkerStart), "%s", pickStart);
+		if (pickObject[0]) snprintf(s_LevelMarkerObject, sizeof(s_LevelMarkerObject), "%s", pickObject);
+		snprintf(s_LevelPickStart, sizeof(s_LevelPickStart), "%s", pickStart);
+		snprintf(s_LevelPickObject, sizeof(s_LevelPickObject), "%s", pickObject);
+		s_LevelPickObjectIndex = pickIndex;
+		s_LevelPickPending = true;
 	}
 }
 
