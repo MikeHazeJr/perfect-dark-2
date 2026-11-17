@@ -2,8 +2,6 @@
  * vehicle_seats.c -- the rules of a two-seat vehicle that need no game state:
  * see vehicle_seats.h.
  */
-#include <math.h>
-
 #include <PR/ultratypes.h>
 
 #include "vehicle_seats.h"
@@ -12,6 +10,13 @@
  * interact cone uses; kept here so this file needs no game header. */
 #define VEHICLE_SEATS_PI  3.141092641f
 #define VEHICLE_SEATS_TAU (VEHICLE_SEATS_PI * 2)
+
+/* The bearing of (x, z) from +z towards +x. The client links the game's own
+ * (src/game/atan2f.c, 0 up to a turn) and pd-tests the C library's (minus half
+ * a turn up to half a turn); they agree up to a whole turn, which the fold
+ * below removes. Declared here because the math.h the client build finds does
+ * not declare it, and game/atan2f.h brings the game's types with it. */
+float atan2f(float x, float z);
 
 f32 vehicleSeatViewAngle(f32 dx, f32 dz, f32 view_theta_deg)
 {
