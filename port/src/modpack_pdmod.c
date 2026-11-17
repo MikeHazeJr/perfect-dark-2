@@ -30,6 +30,8 @@
 #include "asset_archive_policy.h"
 #include "assetcatalog_scanner.h"
 #include "modarchive.h"
+#include "mod_asset_validate.h"
+#include "mod_manifest_validate.h"
 #include "modpack_pdmod.h"
 
 static char s_pdmodLastError[512];
@@ -957,6 +959,14 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
 		return MODPACK_PDMOD_ERR_LAYOUT;
 	}
+	/* Release validation does not read member content; a pack must not carry
+	 * an archive its loader would refuse. This also runs before the
+	 * descriptor is handed to the shared INI parser below. */
+	if (modAssetValidateArchiveFile(descriptorAbs, policyErr, sizeof(policyErr))
+			!= MOD_ASSET_VALIDATE_OK) {
+		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
 	mod_archive_t *typedArchive = modArchiveOpen(descriptorAbs);
 	if (!typedArchive) {
 		pdmodSetLastError("%s is not a zip-openable typed asset archive", descriptorRel);
@@ -1508,6 +1518,16 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 		return MODPACK_PDMOD_ERR_OPEN;
 	}
 
+	/* T-MODDING-012 in game: no archive is opened for an invalid manifest. */
+	{
+		char manifestErr[192];
+		if (modManifestValidateBytes(manifest_json, manifest_len,
+				manifestErr, sizeof(manifestErr)) != MOD_MANIFEST_OK) {
+			pdmodSetLastError("mod.json: %s", manifestErr);
+			return MODPACK_PDMOD_ERR_BAD_MFST;
+		}
+	}
+
 	for (s32 i = 0; i < entry_count; i++) {
 		const modpack_entry_t *e = &entries[i];
 		if (!e->entry_name || !e->entry_name[0]) continue;
@@ -1532,6 +1552,11 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 					ASSET_ARCHIVE_VALIDATE_RELEASE,
 					policyErr, sizeof(policyErr)) != 0) {
 				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			if (modAssetValidateArchiveBytes(e->data, e->len, e->entry_name,
+					policyErr, sizeof(policyErr)) != MOD_ASSET_VALIDATE_OK) {
+				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
 				return MODPACK_PDMOD_ERR_LAYOUT;
 			}
 			char badNested[FS_MAXPATH + 1];
@@ -1678,7 +1703,7 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 	}
 	fseek(mf, 0, SEEK_END);
 	long mfsize = ftell(mf);
-	if (mfsize <= 0 || mfsize > (long)(8 * 1024 * 1024)) {
+	if (mfsize <= 0 || mfsize > (long)MOD_MANIFEST_MAX_BYTES) {
 		fclose(mf);
 		pdmodSetLastError("mod.json is empty or too large: %s", mfstPath);
 		return MODPACK_PDMOD_ERR_BAD_MFST;
@@ -1698,6 +1723,19 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 	}
 	fclose(mf);
 	mfBuf[mfsize] = '\0';
+
+	/* T-MODDING-012 in game: refuse an invalid manifest before the layout
+	 * pass, which may write INI templates into the source folder, and
+	 * before any archive is opened. */
+	{
+		char manifestErr[192];
+		if (modManifestValidateBytes(mfBuf, (size_t)mfsize,
+				manifestErr, sizeof(manifestErr)) != MOD_MANIFEST_OK) {
+			free(mfBuf);
+			pdmodSetLastError("%s: %s", mfstPath, manifestErr);
+			return MODPACK_PDMOD_ERR_BAD_MFST;
+		}
+	}
 
 	s32 r = validateExternalFolderLayout(src_folder, out_path);
 	if (r != MODPACK_PDMOD_OK) {

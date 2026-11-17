@@ -1,0 +1,7 @@
+{
+  "id": "mod.install_only",
+  "name": "Install Only",
+  "version": "1.0.0",
+  "author": "PD2 smoke",
+  "description": "A mod only in the install mods folder; it must still be found."
+}

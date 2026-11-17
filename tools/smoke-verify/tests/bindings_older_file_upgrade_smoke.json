@@ -1,0 +1,78 @@
+{
+  "scenario_name": "bindings_older_file_upgrade_smoke",
+  "description": "B-1233 (2026-11-17): a saved bindings file from a build with fewer actions is kept, not refused. The install starts with the complete default bindings file a build wrote before the Vehicle Boost action existed (12 contexts of 123 actions, the last one GunRollRight; tools/smoke-verify/fixtures/input_bindings_before_vehicle_boost.ini), which is the shape every player's file had when that action reached dev. One ordinary client launch must read it as a complete file from an older build, keep its bindings, give the new action its default and write the file out complete; before the fix the client logged 'The complete binding file is missing required rows.', ignored the saved bindings and refused every later save. The launch then loads the base Falcon 2 through the typed catalog loader and exits, only to end the run. The unit cases tagged [upgrade] in tests/test_actionmap_profile.cpp prove which bindings are kept and which shapes are still refused; this proves the real client, context names and action names. It does not press a key.",
+  "tags": [
+    "input",
+    "bindings",
+    "persistence",
+    "smoke",
+    "pillar:input-menu",
+    "boot"
+  ],
+  "paths_of_interest": [
+    "port/src/actionmap_profile.cpp",
+    "port/include/actionmap_profile.h",
+    "port/src/actionmap.cpp",
+    "tools/smoke-verify/fixtures/input_bindings_before_vehicle_boost.ini"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/input_bindings_before_vehicle_boost.ini",
+      "dst": "input-bindings.ini"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "weapon=base:falcon2"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "The bindings are read at startup. The catalog probe only ends the run."
+    },
+    {
+      "at_ms": 170000,
+      "type": "exit",
+      "comment": "Fallback only. The launch normally ends itself through --debug-exit-after-catalog-probes."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=bindings_older_file_upgrade_smoke",
+      "ACTIONMAP: bindings file from an older build \\(123 of 124 actions per context\\): bindings kept, new actions take their defaults, file brought up to date",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='base:falcon2' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ACTIONMAP: The complete binding file is missing required rows",
+      "ACTIONMAP: The current binding file is invalid",
+      "ACTIONMAP: The binding file"
+    ],
+    "required_counts": [
+      {
+        "pattern": "ACTIONMAP: bindings file from an older build",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

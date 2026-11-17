@@ -47,16 +47,20 @@ const char *fsGetModDir(void);
 s32 fsCreateDir(const char *path);
 
 /* B-1160: the mods/ roots every mod scanner walks, in priority order, so
- * modmgr, fonts, themes and the migration bench cannot disagree.
+ * modmgr, fonts, themes, map import and the migration bench cannot disagree.
  *   - native write policy: $B/mods only (reuse mounts the verified base);
  *   - explicit --moddir: exactly that folder, even before it exists
  *     (B-1031: an isolation contract, never one more candidate);
- *   - otherwise discovery: $E/../mods, ./mods, $E/mods, then <base>/mods.
- * explicit_dir is 1 only in the --moddir case. */
+ *   - otherwise the user mods folder (mods_roots.h; the only folder the
+ *     game writes mods to), then the install's own folders (B-1169,
+ *     mods_install_roots.h), which are only read.
+ * explicit_dir is 1 only in the --moddir case; user_dir is 1 when path[0]
+ * is the user mods folder (named, not yet created: modmgr creates it). */
 #define FS_MOD_ROOTS_MAX 4
 typedef struct fs_mod_roots {
 	s32 count;
 	s32 explicit_dir;
+	s32 user_dir;
 	char path[FS_MOD_ROOTS_MAX][FS_MAXPATH + 1];
 } fs_mod_roots_t;
 void fsModRoots(fs_mod_roots_t *out);
