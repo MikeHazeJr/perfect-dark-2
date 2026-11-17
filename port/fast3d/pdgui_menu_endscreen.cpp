@@ -109,6 +109,11 @@ s32 pdguiEndscreenGetDifficulty(void);
 const char *pdguiEndscreenGetCheatTimedName(void);
 const char *pdguiEndscreenGetCheatComplName(void);
 void pdguiEndscreenExitToRoom(void); /* Networked MP exit-to-room variant. */
+/* B-1193: what the host chooses after a networked co-op or counter-op mission. */
+s32 pdguiEndscreenNetMissionHasNext(void);
+void pdguiEndscreenNetMissionStart(s32 next);
+void pdguiEndscreenNetMissionReturnToRoom(void);
+s32 pdguiEndscreenNetMissionStats(s32 which, s32 *kills, s32 *shots, char *name, s32 namelen);
 void netSendLobbyResync(void); /* v49 CLC_LOBBY_RESYNC client helper. */
 s32 pdguiEndscreenGetPlacementIndex(void);
 const char *pdguiEndscreenGetTitle(void);
@@ -257,6 +262,29 @@ static s32 endscreenGraphDisconnect(void *userdata)
     (void)userdata;
     netDisconnect();
     pdguiEndscreenExitToMainMenu();
+    return 0;
+}
+
+/* B-1193 (Mike, 2026-11-15): after a networked co-op or counter-op mission the
+ * host decides what follows, for both players. */
+static s32 endscreenGraphNetMissionNext(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenNetMissionStart(1);
+    return 0;
+}
+
+static s32 endscreenGraphNetMissionRetry(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenNetMissionStart(0);
+    return 0;
+}
+
+static s32 endscreenGraphNetMissionRoom(void *userdata)
+{
+    (void)userdata;
+    pdguiEndscreenNetMissionReturnToRoom();
     return 0;
 }
 
@@ -451,6 +479,7 @@ static s32 s_SoloEndscreenDebounce = 0;
  * reads/clears this; set to GetFrameCount() at the site that opens the
  * popup.  The MP trackers live further down near the MP statics. */
 static s32 s_SoloFailedMainMenuOpenFrame = -1;
+static s32 s_SoloNetDisconnectOpenFrame = -1; /* B-1193: the client's Disconnect confirm */
 
 static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 {
@@ -515,6 +544,10 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     }
 
     if (ImGui::IsWindowAppearing()) {
+        /* B-1193: take focus as the multiplayer results do, so keyboard and
+         * controller navigation start on this screen (the default button
+         * below is SetItemDefaultFocus). */
+        ImGui::SetWindowFocus();
         /* M2.3: Refresh achievements so newly unlocked ones show.
          * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
@@ -578,6 +611,31 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     s32 gunShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_GUN);
     s32 hatShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HAT);
     s32 objShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_OBJECT);
+
+    /* B-1193 (Mike, 2026-11-15: in co-op you want to see stats from all
+     * players): a networked mission shows this machine's player and then the
+     * other player, both from the host's final numbers (SVC_MISSION_STATS).
+     * The current player is not used here: on a networked machine it can be
+     * whichever player was ticked last. */
+    const bool netStats = (g_NetMode != ES_NETMODE_NONE);
+    s32  partnerKills = 0;
+    s32  partnerShots[7] = {0};
+    char partnerName[32] = "";
+    bool hasPartner = false;
+    if (netStats) {
+        s32 ownShots[7] = {0};
+        if (pdguiEndscreenNetMissionStats(0, &kills, ownShots, NULL, 0)) {
+            totalShots = ownShots[ES_SHOT_TOTAL];
+            headShots  = ownShots[ES_SHOT_HEAD];
+            bodyShots  = ownShots[ES_SHOT_BODY];
+            limbShots  = ownShots[ES_SHOT_LIMB];
+            gunShots   = ownShots[ES_SHOT_GUN];
+            hatShots   = ownShots[ES_SHOT_HAT];
+            objShots   = ownShots[ES_SHOT_OBJECT];
+        }
+        hasPartner = pdguiEndscreenNetMissionStats(1, &partnerKills, partnerShots,
+            partnerName, (s32)sizeof(partnerName)) != 0;
+    }
 
     float accuracy = 0.0f;
     char  accuracyBuf[32] = "0.0%";
@@ -664,6 +722,36 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                     gunShots + hatShots + objShots, totalShots);
         ImGui::PopStyleColor();
 
+        /* B-1193: the other player in a networked mission */
+        if (hasPartner) {
+            const s32 pHits = partnerShots[ES_SHOT_HEAD] + partnerShots[ES_SHOT_BODY]
+                + partnerShots[ES_SHOT_LIMB] + partnerShots[ES_SHOT_GUN]
+                + partnerShots[ES_SHOT_HAT] + partnerShots[ES_SHOT_OBJECT];
+            char partnerHeader[48];
+            char pKillBuf[16];
+            char pAccBuf[32] = "0.0%";
+            snprintf(partnerHeader, sizeof(partnerHeader), "PARTNER: %s",
+                     partnerName[0] ? partnerName : "Agent");
+            snprintf(pKillBuf, sizeof(pKillBuf), "%d", partnerKills);
+            if (partnerShots[ES_SHOT_TOTAL] > 0) {
+                float pAcc = (float)pHits / (float)partnerShots[ES_SHOT_TOTAL];
+                if (pAcc > 1.0f) pAcc = 1.0f;
+                snprintf(pAccBuf, sizeof(pAccBuf), "%.1f%%", pAcc * 100.0f);
+            }
+
+            ImGui::Spacing();
+            SectionHeader(partnerHeader);
+            StatRow("Kills:", pKillBuf);
+            StatRow("Accuracy:", pAccBuf);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.75f, 1.0f));
+            ImGui::Text("Head %d  Body %d  Limb %d", partnerShots[ES_SHOT_HEAD],
+                        partnerShots[ES_SHOT_BODY], partnerShots[ES_SHOT_LIMB]);
+            ImGui::Text("Other %d  Total %d", partnerShots[ES_SHOT_GUN]
+                        + partnerShots[ES_SHOT_HAT] + partnerShots[ES_SHOT_OBJECT],
+                        partnerShots[ES_SHOT_TOTAL]);
+            ImGui::PopStyleColor();
+        }
+
         /* === RIGHT: Objectives === */
         ImGui::TableSetColumnIndex(1);
 
@@ -738,22 +826,77 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     const bool parentActionsAllowed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_ACCEPT);
     const bool backPressed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_CANCEL)
         && (pdguiConsumeTitleClose() || pdguiMenuCancelPressed());
+    /* B-1193 (Mike, 2026-11-15): in a networked co-op or counter-op mission the
+     * host decides what follows, for both players, and the other player waits
+     * for it; neither machine changes stage on its own. */
+    const bool netMission = (g_NetMode != ES_NETMODE_NONE);
+    const bool netHost = (g_NetMode == ES_NETMODE_SERVER);
+    const char *netDisconnectPopupId = "Disconnect?##es_solo_net_disc";
     PdguiEndscreenDecision decision;
-    if (backPressed) decision.request(completed ? PdguiEndscreenIntent::MainMenu
-                                              : PdguiEndscreenIntent::ConfirmMainMenu);
+    if (backPressed) {
+        if (!netMission) {
+            decision.request(completed ? PdguiEndscreenIntent::MainMenu
+                                       : PdguiEndscreenIntent::ConfirmMainMenu);
+        } else if (!netHost) {
+            decision.request(PdguiEndscreenIntent::ConfirmDisconnect);
+        }
+    }
 
     ImGui::BeginDisabled(!parentActionsAllowed || backPressed);
     if (pdguiBeginActionBar("##es_solo_ab")) {
         float availW = ImGui::GetContentRegionAvail().x;
         float halfW  = availW * 0.5f;
 
-        if (completed) {
+        if (netMission && netHost) {
+            /* NEXT MISSION (completed, default) | RETRY MISSION | RETURN TO ROOM */
+            const bool hasNext = completed && pdguiEndscreenNetMissionHasNext();
+            const float slotW = availW / (hasNext ? 3.0f : 2.0f);
+            if (hasNext) {
+                if (pdguiActionBarButton("Next Mission", 1, slotW) && !inputSuppressed) {
+                    decision.request(PdguiEndscreenIntent::Continue);
+                }
+                ImGui::SetItemDefaultFocus(); /* B-1193: Use presses the default */
+                ImGui::SameLine();
+            }
+            if (pdguiActionBarButton("Retry Mission", hasNext ? 0 : 1, slotW) && !inputSuppressed) {
+                decision.request(PdguiEndscreenIntent::Retry);
+            }
+            if (!hasNext) {
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::SameLine();
+            if (pdguiActionBarButton("Return to Room", 0,
+                                      ImGui::GetContentRegionAvail().x)
+                    && !inputSuppressed) {
+                decision.request(PdguiEndscreenIntent::ReturnToRoom);
+            }
+        } else if (netMission) {
+            /* The other player: a waiting note, and Disconnect to leave. */
+            const float discW = pdguiScale(260.0f) < availW * 0.4f
+                ? pdguiScale(260.0f) : availW * 0.4f;
+            const ImVec2 barPos = ImGui::GetCursorScreenPos();
+            const float noteY = barPos.y
+                + (pdguiActionBarHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+            ImGui::GetWindowDrawList()->AddText(ImVec2(barPos.x, noteY),
+                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                "Waiting for the host to choose what comes next");
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + availW - discW);
+            ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(0.5f, 0.1f, 0.1f, 1.0f));
+            if (pdguiActionBarButton("Disconnect", 0, discW) && !inputSuppressed
+                    && !ImGui::IsPopupOpen(netDisconnectPopupId)) {
+                decision.request(PdguiEndscreenIntent::ConfirmDisconnect);
+            }
+            ImGui::PopStyleColor(3);
+        } else if (completed) {
             /* NEXT MISSION (default)  |  RETRY MISSION / MAIN MENU */
             if (pdguiEndscreenHasNextMission()) {
                 const char *nextLabel = pdguiEndscreenNextMissionLabel();
                 if (pdguiActionBarButton(nextLabel, 1, halfW) && !inputSuppressed) {
                     decision.request(PdguiEndscreenIntent::Continue);
                 }
+                ImGui::SetItemDefaultFocus(); /* B-1193: the default the comment names */
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Retry Mission", 0,
                                           ImGui::GetContentRegionAvail().x)
@@ -764,6 +907,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                 if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                     decision.request(PdguiEndscreenIntent::Retry);
                 }
+                ImGui::SetItemDefaultFocus(); /* B-1193 */
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Main Menu", 0,
                                           ImGui::GetContentRegionAvail().x)
@@ -779,6 +923,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
             if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Retry);
             }
+            ImGui::SetItemDefaultFocus(); /* B-1193 */
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImVec4(0.3f, 0.1f, 0.1f, 0.9f));
@@ -799,6 +944,20 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 
     ImGui::EndDisabled();
     bool wantSoloMainMenuConfirm = decision.consume(PdguiEndscreenIntent::ConfirmMainMenu);
+    bool wantNetDisconnectConfirm = decision.consume(PdguiEndscreenIntent::ConfirmDisconnect);
+
+    if (wantNetDisconnectConfirm && !ImGui::IsPopupOpen(netDisconnectPopupId)) {
+        pdguiNavSuppressActivation();
+        ImGui::OpenPopup(netDisconnectPopupId);
+        s_SoloNetDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
+    s32 netDiscRes = pdguiRenderConfirmModal(
+        netDisconnectPopupId,
+        "Disconnect?",
+        "Leave the mission and disconnect from the host?",
+        "Disconnect",
+        &s_SoloNetDisconnectOpenFrame);
 
     if (wantSoloMainMenuConfirm && !ImGui::IsPopupOpen(sfmmPopupId)) {
         pdguiNavSuppressActivation();
@@ -822,20 +981,30 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     /* Restore presentation before a selected callback can change scenes. */
     pdguiSetPalette(prevPalette);
     if (sfmmRes == PDGUI_CONFIRM_OK) decision.request(PdguiEndscreenIntent::MainMenu);
+    if (netDiscRes == PDGUI_CONFIRM_OK) decision.request(PdguiEndscreenIntent::Disconnect);
     decision.dispatch([](PdguiEndscreenIntent intent) {
         pdguiNavSuppressActivation();
+        const bool netMission = (g_NetMode != ES_NETMODE_NONE);
         switch (intent) {
         case PdguiEndscreenIntent::Continue:
             menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "continue",
-                endscreenGraphNextMission, NULL);
+                netMission ? endscreenGraphNetMissionNext : endscreenGraphNextMission, NULL);
             break;
         case PdguiEndscreenIntent::Retry:
             menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
-                endscreenGraphRetryMission, NULL);
+                netMission ? endscreenGraphNetMissionRetry : endscreenGraphRetryMission, NULL);
             break;
         case PdguiEndscreenIntent::MainMenu:
             menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
                 endscreenGraphExitToMainMenu, NULL);
+            break;
+        case PdguiEndscreenIntent::ReturnToRoom:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "room",
+                endscreenGraphNetMissionRoom, NULL);
+            break;
+        case PdguiEndscreenIntent::Disconnect:
+            menuGraphFireNetworkOp(MENU_TYPE_ENDSCREEN_SOLO, "disconnect",
+                endscreenGraphDisconnect, NULL);
             break;
         default: break;
         }
@@ -1375,6 +1544,11 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                     && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Continue);
             }
+            /* B-1192: the default focus. The debounce disables the bar on the
+             * frame the window appears, when ImGui picks its first focus and
+             * skips disabled items, so without this no button had focus and
+             * Use pressed nothing. */
+            ImGui::SetItemDefaultFocus();
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
@@ -1392,6 +1566,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                     && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Continue);
             }
+            ImGui::SetItemDefaultFocus(); /* B-1192 */
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));

@@ -3024,7 +3024,9 @@ void setupCreateProps(s32 stagenum)
 
 					if (mpIsParticipantActive(slotnum + MAX_PLAYERS)
 							&& mpIsSimSlotEnabled(slotnum)) {
-						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d", chrnum, slotnum);
+						sysLogPrintf(LOG_NOTE, "SIMULANT: allocating chrnum=%d slot=%d type=%d difficulty=%d",
+							chrnum, slotnum, (s32)g_BotConfigsArray[slotnum].type,
+							(s32)g_BotConfigsArray[slotnum].difficulty);
 						botmgrAllocateBot(chrnum, slotnum);
 						chrnum++;
 					} else {

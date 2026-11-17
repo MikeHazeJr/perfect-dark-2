@@ -53,7 +53,13 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum >= 0) {
+	if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum == WEAPON_NONE) {
+		/* A dead player's gun switches to none, and every move it sends until
+		 * it respawns carries that select (49 rejections in one death). The
+		 * host makes the death itself; drop the select without a warning. */
+		newmove.weaponnum = -1;
+		newmove.ucmd &= ~(UCMD_SELECT | UCMD_SELECT_DUAL);
+	} else if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum >= 0) {
 		const bool dualwield = (newmove.ucmd & UCMD_SELECT_DUAL) != 0;
 		if (!netmsgClientCanSelectWeapon(srccl, newmove.weaponnum, dualwield)) {
 			sysLogPrintf(LOG_WARNING,

@@ -32,6 +32,7 @@ typedef struct smoke_transition_state {
 	uint32_t stable_started_ms;
 	uint32_t stable_elapsed_ms;
 	uint32_t assist_pressed_ms;
+	int assist_hold_seen;
 	int initialized;
 	int stable_active;
 	smoke_transition_assist_state_t assist_state;
@@ -56,8 +57,11 @@ typedef struct smoke_transition_plan {
 
 /* Pure real-time wait policy used by the smoke harness. Expiration wins on
  * the exact boundary. A target must remain continuously true for stable_ms;
- * any false sample resets that window. An optional assist can press once,
- * remains held for at most assist_hold_ms, and can never be re-armed. */
+ * any false sample resets that window. An optional assist can press once and
+ * can never be re-armed. It is released on the tick after the one that finds
+ * assist_hold_ms elapsed: the harness ticks at the top of a frame, before the
+ * game reads input, so one whole frame always sees the full hold, however long
+ * the frames are (a stall must not swallow a production hold threshold). */
 int smokeTransitionConfigValid(const smoke_transition_config_t *config);
 void smokeTransitionInit(smoke_transition_state_t *state,
 	const smoke_transition_config_t *config, uint32_t now_ms);

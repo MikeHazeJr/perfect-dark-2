@@ -296,8 +296,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                 stateColor = ImVec4(1.0f, 0.8f, 0.2f, 0.8f);
                 break;
             case CLSTATE_LOBBY:
-                stateStr = "In Lobby";
-                stateColor = ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
+                stateStr = pv.reviewing ? "Reviewing match stats" : "In Lobby";
+                stateColor = pv.reviewing ? ImVec4(0.47f, 0.78f, 1.0f, 0.8f)
+                                          : ImVec4(0.3f, 1.0f, 0.3f, 0.8f);
                 break;
             case CLSTATE_GAME:
                 stateStr = "In Match";

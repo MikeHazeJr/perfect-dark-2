@@ -270,7 +270,37 @@ TEST_CASE("validated client settings abort an exact prepared participant before 
 		"a valid settings change aborts and rolls back the prepared launch");
 	INFO("contract: a valid settings race is neither a kick nor a parser failure");
 	REQUIRE(prepared_race.text.find("netServerKick(") == std::string::npos);
-	REQUIRE(prepared_race.text.find("return") == std::string::npos);
+	REQUIRE(prepared_race.text.find("return1") == std::string::npos);
+
+	/* B-1208: a repeat of the published settings (a Room opening, a settings
+	 * menu closing) keeps the gate: its only exit is a success before the
+	 * rollback, and it publishes nothing. */
+	INFO("contract: an unchanged repeat keeps the gate and publishes nothing");
+	const size_t repeat = prepared_race.text.find(
+		"if(netmsgClcSettingsUnchanged(srccl,&plan)){");
+	REQUIRE(repeat != std::string::npos);
+	const source_block repeat_block = block_at(prepared_race.text,
+		"if(netmsgClcSettingsUnchanged(srccl,&plan))");
+	REQUIRE(repeat_block.text.find("return0;") != std::string::npos);
+	REQUIRE(repeat_block.text.find("srccl->settings.") == std::string::npos);
+	REQUIRE(repeat_block.end <= abort);
+	REQUIRE(prepared_race.text.find("return", repeat_block.end) == std::string::npos);
+	const source_block unchanged = definition_block(source,
+		"staticboolnetmsgClcSettingsUnchanged(conststructnetclient*srccl,"
+		"constnet_client_settings_plan_t*plan)");
+	for (const char *field : {
+			"srccl->settings.name[0]!='\\0'",
+			"strncmp(srccl->settings.name,plan->name,",
+			"strncmp(srccl->settings.body_id,plan->identity.body_id,",
+			"strncmp(srccl->settings.head_id,plan->identity.head_id,",
+			"srccl->settings.options==plan->options",
+			"srccl->settings.team==plan->team",
+			"srccl->settings.handicap==plan->handicap",
+			"srccl->settings.fovy==plan->fovy",
+			"srccl->settings.fovzoommult==plan->fovzoommult"}) {
+		require_text(unchanged.text, field,
+			"every published settings field is compared, raw from the wire");
+	}
 
 	INFO("contract: rollback precedes team recomputation and all settings publication");
 	REQUIRE(abort != std::string::npos);
@@ -317,6 +347,25 @@ TEST_CASE("ready-gate settings smoke uses one ordinary validated client send",
 	REQUIRE(settings_tick.text.find("netSend(") == std::string::npos);
 	require_text(main_tick.text, "bootReadyGateSettingsChangeTick();",
 		"the seam runs in the normal main frame between network receive and flush");
+
+	/* B-1208: the repeat seam sends the same ordinary update with nothing
+	 * changed, at the same boundary, and returns before the handicap change. */
+	require_order(boot.text,
+		{"sysArgCheck(\"--debug-ready-gate-settings-repeat\")",
+			"if(!smokeHarnessIsActive())",
+			"g_BootReadyGateSettingsChangeArmed=2;"},
+		"the repeat seam is armed only by an active smoke");
+	const source_block repeat = block_at(settings_tick.text,
+		"if(g_BootReadyGateSettingsChangeArmed==2)");
+	require_order(repeat.text,
+		{"g_BootReadyGateSettingsChangeFired=1;",
+			"g_BootReadyGateSettingsChangeArmed=0;",
+			"rc=netClientSettingsChanged();",
+			"return1;"},
+		"an unchanged ordinary send is frozen as one-shot");
+	REQUIRE(repeat.text.find("g_PlayerConfigsArray") == std::string::npos);
+	REQUIRE(settings_tick.text.find("CLSTATE_PREPARING") < repeat.begin);
+	REQUIRE(repeat.end <= settings_tick.text.find("candidate_handicap="));
 }
 
 TEST_CASE("stage player initialization uses canonical identity and rolls back actual commit order",

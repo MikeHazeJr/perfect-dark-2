@@ -431,6 +431,42 @@ TEST_CASE("endscreen readiness requires visible state, menu ownership, and input
 
 }
 
+// B-1209: a fixture waits for a simulant to carry the scenario's token before
+// it kills the carrier, so the replacement token's announcement is exercised.
+TEST_CASE("scenario token readiness requires a running match and a carried token",
+		"[smoke][readiness][b1209]")
+{
+	const smoke_readiness_condition_t condition =
+		smokeReadinessConditionFromName("scenario_token_held");
+	smoke_readiness_facts_t facts{};
+	int *required[] = {
+		&facts.multiplayer_running,
+		&facts.gameplay_stage,
+		&facts.stage_tick_active,
+		&facts.scenario_token_held,
+	};
+
+	REQUIRE(condition == SMOKE_READINESS_SCENARIO_TOKEN_HELD);
+	REQUIRE(std::string(smokeReadinessConditionName(condition)) == "scenario_token_held");
+	REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+	for (int *field : required) {
+		*field = 1;
+	}
+	REQUIRE(smokeReadinessConditionMet(condition, &facts));
+	for (int *field : required) {
+		*field = 0;
+		REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+		*field = 1;
+	}
+	facts.endscreen = 1;
+	REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+	facts.endscreen = 0;
+	// Network facts are not part of it: offline and the listen host both run
+	// the scenario.
+	facts.network_active = 1;
+	REQUIRE(smokeReadinessConditionMet(condition, &facts));
+}
+
 TEST_CASE("Settings readiness requires submitted content and an active Agent on the owning menu",
     "[smoke][readiness][menus]")
 {

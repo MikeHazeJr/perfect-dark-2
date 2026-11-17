@@ -71,6 +71,12 @@ extern struct menudialogdef g_SoloMissionOptionsMenuDialog;
  * on stage transition. */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
+/* B-1193: the two-player mission results are not dead on PC; networked co-op
+ * and counter-op push them (endscreen.c), one per machine. */
+extern struct menudialogdef g_2PMissionEndscreenCompletedHMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenFailedHMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenCompletedVMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenFailedVMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
 extern struct menudialogdef g_NetJoiningDialog;
 
@@ -683,6 +689,12 @@ void menupoolInit(void)
      * menupoolAcquireDialog, leaving the ctx leak-prone on force-close. */
     REG(&g_SoloMissionEndscreenCompletedMenuDialog, MENU_TYPE_ENDSCREEN_SOLO);
     REG(&g_SoloMissionEndscreenFailedMenuDialog,    MENU_TYPE_ENDSCREEN_SOLO);
+    /* B-1193: networked co-op and counter-op results (one per machine), so
+     * the lobby UI and the smoke harness can tell they are open. */
+    REG(&g_2PMissionEndscreenCompletedHMenuDialog,  MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenFailedHMenuDialog,     MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenCompletedVMenuDialog,  MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenFailedVMenuDialog,     MENU_TYPE_ENDSCREEN_SOLO);
 
     /* ---- End Game confirm (DANGER popup) ----
      * B-End-Game-Input: routes through the shared WARNING_MODAL slot so

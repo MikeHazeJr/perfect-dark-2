@@ -13260,7 +13260,13 @@ bool propCanRegen(struct prop *prop)
 	return true;
 }
 
-u32 objTick(struct prop *prop)
+/**
+ * Advance a taken or destroyed object's respawn wait by elapsed60 ticks. This
+ * is objTick's respawn handling, moved here unchanged so objRegenNow can run
+ * the same steps: the object starts fading in when the wait drops below a
+ * second and is available again when it reaches zero.
+ */
+static void objTickRegen(struct prop *prop, s32 elapsed60)
 {
 	struct defaultobj *obj = prop->obj;
 	bool silent = false;
@@ -13269,7 +13275,7 @@ u32 objTick(struct prop *prop)
 	u32 padnum;
 	struct defaultobj *newparent;
 
-	if (prop->timetoregen > 0) {
+	{
 		// Prop is taken/unavailable
 		regenning = true;
 
@@ -13277,7 +13283,7 @@ u32 objTick(struct prop *prop)
 			regenning = false;
 		}
 
-		prop->timetoregen -= g_Vars.lvupdate60;
+		prop->timetoregen -= elapsed60;
 
 		// If ready to start fading in but propCanRegen returns false, wait
 		// another second and try again. In practice propCanRegen will always
@@ -13344,6 +13350,43 @@ u32 objTick(struct prop *prop)
 						-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 			}
 		}
+	}
+}
+
+/**
+ * B-1205: finish an object's respawn now, the way objTick does once the wait
+ * runs out: start the fade-in if it has not started (the object comes back,
+ * with its respawn sound unless it goes back inside its parent object), then
+ * complete it, so the object can be taken again.
+ *
+ * A networked client calls this when the host reports that a player or a
+ * simulant took an item this client still has respawning. Each machine starts
+ * the wait when it learns of the earlier pickup, so the client's wait can end
+ * a few frames after the host's, and a simulant waiting on the spot takes the
+ * host's copy the moment it is back.
+ */
+void objRegenNow(struct prop *prop)
+{
+	if (prop == NULL || prop->obj == NULL || prop->timetoregen <= 0) {
+		return;
+	}
+
+	if (prop->timetoregen >= TICKS(60)) {
+		// Bring the wait just under a second, which starts the fade-in
+		objTickRegen(prop, prop->timetoregen - (TICKS(60) - 1));
+	}
+
+	if (prop->timetoregen > 0) {
+		objTickRegen(prop, prop->timetoregen);
+	}
+}
+
+u32 objTick(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (prop->timetoregen > 0) {
+		objTickRegen(prop, g_Vars.lvupdate60);
 	}
 
 	if (obj->type == OBJTYPE_AUTOGUN) {
@@ -20194,6 +20237,10 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 			if (g_Vars.normmplayerisrunning) {
 				if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+					// PC (T-NETWORKING-011): a Capture the Case capture (touching
+					// your own case while carrying theirs) returns TICKOP_NONE
+					const s32 hadcase = g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE && invHasBriefcase();
+
 					sp64 = scenarioPickUpBriefcase(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -20201,6 +20248,12 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 						if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
 							netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, sp64);
 						}
+					} else if (hadcase && !invHasBriefcase()
+							&& g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
+						// The capture took the carried case; clients replay it
+						// (the capturer's inventory, the point and the messages).
+						// The touched home case stays where it is.
+						netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, TICKOP_NONE);
 					}
 
 					return sp64;

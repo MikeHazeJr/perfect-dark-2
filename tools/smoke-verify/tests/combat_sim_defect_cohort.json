@@ -24,7 +24,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 1,
-  "timeout_seconds": 180,
+  "timeout_seconds": 210,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",

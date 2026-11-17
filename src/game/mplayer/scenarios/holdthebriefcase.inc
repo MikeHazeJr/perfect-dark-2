@@ -170,9 +170,26 @@ void htbRemoveAmmoCrateAtPad(s16 padnum)
 	}
 }
 
+/* PC (T-NETWORKING-011): a networked client's copy of the host's briefcase
+ * (see htbNetPresent). */
+static s32 s_HtbNetHolder = -1;
+static s32 s_HtbNetPresent;
+static struct coord s_HtbNetPos;
+
+/* T-NETWORKING-011: the holder slot htbTick last logged (-1 on the ground,
+ * -2 not yet logged), so every match logs each pickup and drop */
+static s32 s_HtbLoggedHolder = -2;
+
 void htbReset(void)
 {
 	s32 i;
+
+	s_HtbNetHolder = -1;
+	s_HtbLoggedHolder = -2;
+	s_HtbNetPresent = false;
+	s_HtbNetPos.x = 0;
+	s_HtbNetPos.y = 0;
+	s_HtbNetPos.z = 0;
 
 	g_ScenarioData.htb.nextindex = 0;
 
@@ -220,6 +237,7 @@ void htbCreateToken(void)
 	struct defaultobj *obj;
 	s32 count = 0;
 	struct defaultobj *candidates[20];
+	const char *source;
 
 	// Build a list of candidate objects to replace. Consider only ammocrates.
 	// NTSC beta doesn't check the prop type, so it could potentially replace a
@@ -247,10 +265,13 @@ void htbCreateToken(void)
 		g_ScenarioData.htb.tokenpad = var800869ec->pad;
 		var800869ec->hidden |= OBJHFLAG_DELETING;
 		var800869ec->hidden2 |= OBJH2FLAG_CANREGEN;
+		source = "crate";
 	} else if (g_ScenarioData.htb.nextindex > 0) {
 		g_ScenarioData.htb.tokenpad = g_ScenarioData.htb.padnums[rngRandom() % g_ScenarioData.htb.nextindex];
+		source = "bank";
 	} else {
 		g_ScenarioData.htb.tokenpad = 0;
+		source = "pad0";
 	}
 
 	// Set up the token
@@ -266,12 +287,190 @@ void htbCreateToken(void)
 	if (g_ScenarioData.htb.token) {
 		g_ScenarioData.htb.token->forcetick = true;
 	}
+
+	sysLogPrintf(g_ScenarioData.htb.token && strcmp(source, "pad0") != 0 ? LOG_NOTE : LOG_WARNING,
+		"HTB: briefcase placed pad=%d source=%s prop=%s",
+		g_ScenarioData.htb.tokenpad, source, g_ScenarioData.htb.token ? "ok" : "none");
+}
+
+#define HTB_FALLBACK_BANK_PADS 8
+
+/**
+ * PC (B-1126): multiplayer ammo crates the briefcase can replace, counted the
+ * way htbCreateToken lists them.
+ */
+static s32 htbCountMultiAmmoCrates(void)
+{
+	struct prop *prop = g_Vars.activeprops;
+	s32 count = 0;
+
+	while (prop) {
+		if (prop->type == PROPTYPE_OBJ && prop->obj && prop->obj->type == OBJTYPE_MULTIAMMOCRATE) {
+			count++;
+		}
+
+		prop = prop->next;
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1126): bank pads the briefcase can stand on.
+ */
+static s32 htbCountUsableBankPads(void)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < g_ScenarioData.htb.nextindex && i < (s32)ARRAYCOUNT(g_ScenarioData.htb.padnums); i++) {
+		if (g_ScenarioData.htb.padnums[i] > 0 && scenarioPadIsInRoom(g_ScenarioData.htb.padnums[i])) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1126): the briefcase starts, and respawns when it is lost, on a random
+ * multiplayer ammo crate, else on a random bank pad (the arena's Capture the
+ * Case pads), else on pad 0. Arenas extracted today carry neither, so it was
+ * always pad 0. Such arenas get a bank of spaced walkable pads (Mike,
+ * 2026-11-15: the same fill-in as Hacker Central). An arena with a crate or a
+ * usable bank pad is left as it is and makes no extra random calls.
+ */
+static void htbTopUpBank(void)
+{
+	struct scenariodata_htb *data = &g_ScenarioData.htb;
+	s16 added[HTB_FALLBACK_BANK_PADS];
+	s32 listed = data->nextindex;
+	s32 usable = htbCountUsableBankPads();
+	s32 numadded;
+	s32 i;
+
+	if (htbCountMultiAmmoCrates() > 0 || usable > 0) {
+		return;
+	}
+
+	// Nothing in the bank can hold the briefcase: start it afresh
+	htbReset();
+
+	numadded = scenarioFallbackPads(added, HTB_FALLBACK_BANK_PADS, NULL, 0, "HTB");
+
+	for (i = 0; i < numadded; i++) {
+		htbAddPad(added[i]);
+	}
+
+	sysLogPrintf(numadded > 0 ? LOG_NOTE : LOG_ERROR,
+		"HTB: no ammo crate and %d usable bank pad(s) of %d listed; added %d walkable pad(s), bank now %d (B-1126)",
+		usable, listed, numadded, data->nextindex);
 }
 
 void htbInitProps(void)
 {
 	var800869ec = NULL;
+	htbTopUpBank();
 	htbCreateToken();
+}
+
+/*
+ * PC (T-NETWORKING-011): Hold the Briefcase state that the host sends and a
+ * networked client shows (SVC_SCENARIO_STATE). Simulant pickups are not sent
+ * as messages, so a client cannot find a simulant's briefcase by itself; it
+ * takes the holder from the host instead and never makes a briefcase of its
+ * own during the match (the one made at match start keeps every peer's
+ * setup props, and so their sync ids, in the same order). The client state
+ * (s_HtbNet*) is declared and reset with htbReset.
+ */
+
+/* Host: the briefcase's holder slot, or -1 when it lies on the ground. */
+static s32 htbHolderSlot(struct prop *token)
+{
+	s32 i;
+
+	if (token == NULL || (token->type != PROPTYPE_PLAYER && token->type != PROPTYPE_CHR) || token->chr == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		if (g_MpAllChrPtrs[i] == token->chr) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void htbNetCapture(net_scenario_htb_state_t *out)
+{
+	struct prop *token = g_ScenarioData.htb.token;
+
+	out->present = token != NULL;
+	out->holder = token != NULL ? htbHolderSlot(token) : -1;
+	out->pos[0] = g_ScenarioData.htb.pos.x;
+	out->pos[1] = g_ScenarioData.htb.pos.y;
+	out->pos[2] = g_ScenarioData.htb.pos.z;
+}
+
+/**
+ * Client: the briefcase as the host has it. The holder's prop while held, the
+ * local briefcase prop while it lies on the ground (the host's prop updates
+ * keep it in place), and the host's position when there is no local prop.
+ */
+static void htbNetPresent(void)
+{
+	net_scenario_state_t state;
+	struct prop *token = NULL;
+
+	if (scenarioNetTakePending(&state)) {
+		const net_scenario_htb_state_t *in = &state.body.htb;
+		s32 holder = in->holder;
+
+		// The holder indexes g_MpAllChrPtrs, so it must be a character of this match
+		if (holder >= g_MpNumChrs || (holder >= 0 && g_MpAllChrPtrs[holder] == NULL)) {
+			sysLogPrintf(LOG_WARNING, "HTB: client holder from host chr=%d is not a character of this match (%d)",
+				holder, g_MpNumChrs);
+			holder = -1;
+		}
+
+		if (holder != s_HtbNetHolder || in->present != s_HtbNetPresent) {
+			sysLogPrintf(LOG_NOTE, "HTB: client briefcase from host holder=%d present=%d rev=%u",
+				holder, in->present, (unsigned)state.revision);
+		}
+
+		s_HtbNetHolder = holder;
+		s_HtbNetPresent = in->present;
+		s_HtbNetPos.x = in->pos[0];
+		s_HtbNetPos.y = in->pos[1];
+		s_HtbNetPos.z = in->pos[2];
+	}
+
+	if (s_HtbNetPresent) {
+		if (s_HtbNetHolder >= 0) {
+			token = g_MpAllChrPtrs[s_HtbNetHolder]->prop;
+		} else {
+			struct prop *prop = g_Vars.activeprops;
+
+			while (prop) {
+				// A copy a replayed simulant pickup marked for deletion is not on the ground
+				if (prop->type == PROPTYPE_WEAPON && prop->weapon->weaponnum == WEAPON_BRIEFCASE2
+						&& (prop->obj->hidden & OBJHFLAG_DELETING) == 0) {
+					token = prop;
+				}
+
+				prop = prop->next;
+			}
+		}
+	}
+
+	g_ScenarioData.htb.token = token;
+
+	if (token) {
+		g_ScenarioData.htb.pos = token->pos;
+	} else {
+		g_ScenarioData.htb.pos = s_HtbNetPos;
+	}
 }
 
 void htbTick(void)
@@ -279,6 +478,13 @@ void htbTick(void)
 	s32 i;
 	u32 prevplayernum = g_Vars.currentplayernum;
 	struct prop *prop;
+
+	// PC (T-NETWORKING-011): a networked client shows the host's briefcase and
+	// never makes one of its own during the match
+	if (!scenarioNetIsAuthority()) {
+		htbNetPresent();
+		return;
+	}
 
 	if (var800869ec && var800869ec->prop) {
 		if (g_ScenarioData.htb.token == NULL || g_ScenarioData.htb.token->type != PROPTYPE_WEAPON) {
@@ -339,6 +545,9 @@ void htbTick(void)
 
 	if (g_ScenarioData.htb.token == NULL) {
 		htbCreateToken();
+
+		// PC (B-1209): clients learn the case made during the match
+		scenarioNetAnnounceProp(g_ScenarioData.htb.token, "briefcase");
 	}
 
 	if (g_ScenarioData.htb.token == NULL) {
@@ -351,10 +560,48 @@ void htbTick(void)
 		pos->y = g_ScenarioData.htb.token->pos.y;
 		pos->z = g_ScenarioData.htb.token->pos.z;
 	}
+
+	// PC (T-NETWORKING-011): log each pickup and drop, offline as well, so a
+	// match that ends without a point shows whether anyone held the briefcase
+	{
+		const s32 holder = htbHolderSlot(g_ScenarioData.htb.token);
+
+		if (holder != s_HtbLoggedHolder) {
+			sysLogPrintf(LOG_NOTE, "HTB: briefcase holder %d -> %d at %.1f s pos=(%.0f,%.0f,%.0f) netmode=%d",
+				s_HtbLoggedHolder, holder, g_Vars.lvframe60 / 60.0f,
+				g_ScenarioData.htb.pos.x, g_ScenarioData.htb.pos.y, g_ScenarioData.htb.pos.z, (s32)g_NetMode);
+			s_HtbLoggedHolder = holder;
+		}
+	}
 }
 
 void htbTickChr(struct chrdata *chr)
 {
+	// PC (T-NETWORKING-011): the host awards the points (sent in the scores);
+	// a client only runs its own player's hold timer for the HUD and the
+	// point message
+	if (!scenarioNetIsAuthority()) {
+		if (chr == NULL) {
+			if (invHasBriefcase()) {
+				g_Vars.currentplayerstats->tokenheldtime += g_Vars.lvupdate240;
+
+				if (g_Vars.currentplayerstats->tokenheldtime >= TICKS(7200)) {
+					sndStart(var80095200, SFX_MP_SCOREPOINT, NULL, -1, -1, -1, -1, -1);
+#if VERSION >= VERSION_JPN_FINAL
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_024), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP); // "1 Point!"
+#else
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_024), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE); // "1 Point!"
+#endif
+					g_Vars.currentplayerstats->tokenheldtime = 0;
+				}
+			} else {
+				g_Vars.currentplayerstats->tokenheldtime = 0;
+			}
+		}
+
+		return;
+	}
+
 	if (chr) {
 		if (chr->aibot->hasbriefcase) {
 			chr->aibot->htbheldtimer60 += g_Vars.lvupdate240;

@@ -1,5 +1,383 @@
 # Bug Tracker
 
+## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
+
+Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.
+Found by SP-93's new model warning on 4789effa (base 7): in `mp_hacker_central_net_smoke` (`results-20261117T014259Z.json`)
+a simulant died and the host logged `NET: model 253 ('base:model_chrcmp150') has no session catalog id` and `model 246
+('base:model_chrleegun1')` as it announced the guns it dropped (`BOT.DROP: host announced simulant 4 weapon=10
+syncid=44`); in the carrier-death run the replacement uplink gave `model 19 ('base:model_chrdatathief')`.
+
+Root cause: SVC_PROP_SPAWN names a weapon prop's model by session catalog id (`netWriteModelRef`), and the client's
+reader builds the prop from that number with no fallback (`setupLoadModeldef(modelnum)`), so a missing id makes it
+model 0, `MODEL_ROOFGUN`. The match manifest lists weapons (the pool, the set, the token) but not the models their
+props are drawn with, so every gun a dying simulant or player drops, B-1209's replacement uplink and a dropped
+briefcase were drawn on clients as the roof gun. The weapon number itself was right (B-1272 made the token's right).
+
+Fix: the host's lobby start adds the world model of every weapon the manifest lists
+(`netLobbyManifestAppendWeaponModels`, `playermgrGetModelOfWeapon`, every game mode, `MANIFEST-HOST: weapon world
+models listed=N`), and the scenario token's own model (`scenarioTokenModelNum`: the uplink's prop is
+`MODEL_CHRDATATHIEF`, which is not the weapon's mapped model; `MANIFEST-HOST: scenario N token model M`). The token-mode,
+carrier-death and Combat-with-simulants net smokes forbid the model warning. Pinned by `[b1273]` in
+`tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+Checked in play 2026-11-17 on 326df90c (built in hub turn q_20261117014917169_52e3ea4a, pd-tests 2045/2045, base 7):
+`mp_hacker_central_net_carrier_death_smoke` PASS 107/107 (`results-20261117T035213Z.json`) and `mp_combat_net_bots_smoke`
+PASS 71/71 (`results-20261117T040515Z.json`). The host lists the uplink's model (`MANIFEST-HOST: scenario 2 token model 19
+as 'base:model_chrdatathief'`) and 13 weapon world models (`listed=13 for 28 entries`; 26 in Combat); in the carrier-death
+run five dropped guns are announced (weapons 8, 2, 8, 8, 5) and the replacement uplink is placed, with no `has no session
+catalog id` line on either side, and the client replays simulants taking the dropped guns as the right weapons (items 44,
+45, 49 as weapons 8, 2, 8).
+
+## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; checked in play for the uplink and the briefcase)
+
+Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of
+`mp_hacker_central_net_carrier_death_smoke` (d44b87d0, base 7, `results-20261116T212817Z.json`, 102/104): the host
+killed the uplink's carrier, made the replacement and announced it (`SCENARIO.NET: host announced the new uplink
+syncid=48 ... rc=0`, B-1209 working), and when simulant 3 took it the host sent `BOT.PICKUP: host sent simulant 3
+item 48 weapon=46` while the client replayed `item 48 weapon=1 result=1`: its copy of the uplink was a
+`WEAPON_UNARMED` weapon prop. (The run's other failure was the spec's: the match ended on the score limit, 5
+downloads, before the time limit.)
+
+Root cause: messages name a weapon by its session catalog id (`netWriteWeaponRef`), and a reader turns id 0 into
+`WEAPON_UNARMED` without a word. The session catalog is built from the match manifest, whose weapon pool takes only
+weapons with an MP weapon slot (`s_manifestSkipMpWeaponSlot`); the data uplink (46) and the briefcase
+(`WEAPON_BRIEFCASE2`) have none, so no Combat Simulator manifest listed them. Every message naming one reached
+clients as no weapon: an announced token (B-1209's replacement uplink or case, a dying carrier's dropped case), a
+simulant's held weapon (`SVC_CHR_STATE`, the resync), a player's gun in `SVC_PLAYER_STATS`, reconnect inventory. A
+client's token scans look for the token's weapon number on the ground (`htmNetPresent`, HTB and CTC alike), so a
+replacement or dropped token also vanished from its radar and HUD. Tokens placed at the stage start are made on
+both machines from the scenario's own template, so the first one was right, which is why the scoring smokes passed.
+
+Fix: `scenarioTokenWeaponNum` (`scenarios.c`) names each scenario's token (Hacker Central the data uplink, Hold the
+Briefcase and Capture the Case the briefcase), and the host's lobby start adds that weapon's catalog closure to
+the Combat Simulator manifest after the scenario's own (`MANIFEST-HOST: scenario N token weapon W as '<id>'`), or
+refuses the start. `netWriteWeaponRef` now says once per weapon, while a session catalog is live, when it sends a
+real weapon with no session id (`NET: weapon N ('<id>') has no session catalog id; clients read it as unarmed`),
+forbidden in the four Hacker Central, Hold the Briefcase and Capture the Case net smokes. Co-op and counter-op
+manifests scan the stage's setup and AI lists for weapons (`manifestBuildMission`), a separate path. Pinned by
+`[b1272]` in `tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+**Checked in play for the uplink (b2a2a720, base 7, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`):** the host's manifest listed it (`MANIFEST-HOST: scenario 2 token weapon 46 as
+'base:datauplink'`), the host killed the first carrier at 23.4 s and announced the replacement (syncid 48), and the
+client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and showed simulant 4 as the holder; no
+`has no session catalog id` warning. **And for the briefcase** (b2a2a720, `mp_hold_the_briefcase_net_carrier_death_smoke` 102/102,
+`results-20261116T222007Z.json`): `MANIFEST-HOST: scenario 1 token weapon 79 as 'base:briefcase2'`; the host killed the
+carrier at 23.5 s, the dying simulant's case was announced (`BOT.DROP: host announced simulant 2 weapon=79 syncid=48`),
+and the client replayed simulant 4's pickup of it as `item 48 weapon=79 result=0` and showed simulant 4 as the holder.
+
+## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, fixed with Mike's OK; checked in play)
+
+Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
+a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
+uplink at 17.8 s, reached the terminal at 42.0 s (`HTM: player 2 download not facing the terminal at 42.0 s xz=240
+y=62 angle=171 weapon=2 action=44`, 240 units away, armed, facing away, still in `MA_AIBOTGOTOPROP`) and logged
+nothing more until the match ended at about 2.5 min: no new goal, no stuck relocation, no download. The same binary
+run locally (`mp_hacker_central_local_smoke`, 32/32, `results-20261116T174929Z.json`) scores: there the simulant
+logged the same `not facing` at 240 units with weapon 2 and action 44, then 0.3 s later `in progress ... weapon=1
+action=46` (unarmed, `MA_AIBOTDOWNLOAD`), and completed three downloads (score 6). So something in the networked
+host keeps the simulant from leaving `MA_AIBOTGOTOPROP` for `MA_AIBOTDOWNLOAD`; `bot.c` makes that switch when
+`g_ScenarioData.htm.playernuminrange` names the simulant, which `htmTickChr` sets whenever it is within 250 units.
+Not found by reading. **Diagnostic (746d79a7):** while a simulant holds the uplink without downloading, `HTM:
+simulant player N holds the uplink, not downloading (<reason>) ... action= actiontype= inrange= target= weapon=
+netmode=` every 10 s. Next run: `mp_hacker_central_net_smoke`.
+
+**Cause (found by reading the code, 2026-11-16; the queued run's diagnostic will confirm it):** the original's
+download rule can deadlock a simulant, and B-1207 removed what used to break it. Within 250 units (and 200 up or
+down) of the terminal, `htmTickChr` counts the simulant in range (`playernuminrange`), so its next decision is
+`MA_AIBOTDOWNLOAD`: it stands (`chrStand`) and `botinvTick` unarms it (in that action it skips weapon scoring and
+switches to `WEAPON_UNARMED`). A download then starts only if it faces the terminal within 45 degrees, and the only
+code that turns it toward the terminal (`botTick`'s target angle, `MA_AIBOTDOWNLOAD && htm.dlterminalnum != -1`)
+needs a download already running: `htmTickChr` starts one each frame and cancels it in the same call while the
+simulant faces away, so `dlterminalnum` is always -1 when the turn is decided. A simulant that reaches range facing
+away therefore stands there for good. Locally it walked in facing the terminal (in range at 100 degrees while still
+walking, 45 degrees when it stood: download started 0.3 s later); over the network it reached range walking away
+(171 degrees) and stood. Until B-1207 the port's stuck watchdog moved any simulant that stood 3 s in
+`MA_AIBOTDOWNLOAD`, which broke this deadlock and also cancelled every good download. **For Mike:** the fix changes
+the original's simulant behaviour: while in `MA_AIBOTDOWNLOAD` before its download starts, a simulant turns toward
+the terminal (at its normal turning speed, about 1 s for half a turn), so it starts instead of standing. Recommended;
+the alternative is to leave the original rule, with a simulant sometimes standing at the terminal forever.
+
+**Run on c35b35a2 (2026-11-16, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`): networked
+Hacker Central scored, so the deadlock is intermittent.** Simulant 3 took the uplink at 18.8 s and spent 46 s
+fetching items (`holds the uplink, not downloading (out of range) ... xz=545` to `2371 ... action=42`,
+`MA_AIBOTGETITEM`), went for the terminal (`action=44`), reached it at 65.1 s 230 units away facing it (4 degrees,
+still armed: `not holding the uplink`), was unarmed in `MA_AIBOTDOWNLOAD` 0.1 s later (`in progress ... weapon=1
+action=46`) and completed four downloads (85.2, 105.3, 125.3 and 145.3 s). The host and the client both rank it
+first with 8 points. As the cause says, it takes a simulant reaching range facing away (171 degrees in the a669d118
+run) to stand for good; the fix question for Mike stands.
+
+**Caught by the diagnostic (b2a2a720, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`; the smoke does not need a score):** after the host killed the first carrier,
+simulant 4 took the replacement uplink and started a download at 47.3 s (`in progress ... angle=43 weapon=1
+action=46`), drifted into the terminal (`not facing the terminal at 49.2 s xz=46 ... angle=89`), which cancelled it,
+and from 50.9 s to the end of the match stood 183 to 198 units away facing 160 to 175 degrees away: `holds the
+uplink, not downloading (not facing the terminal) ... action=46 actiontype=1 inrange=4 target=-1 weapon=1`, every
+10 s. That is the deadlock in the cause: in `MA_AIBOTDOWNLOAD`, standing (`ACT_STAND`), unarmed, counted in range,
+never turned toward the terminal. Nobody scored in that match. So a simulant also gets there by losing its facing
+during a download, not only by arriving facing away.
+
+**Fix (Mike's OK 2026-11-16, "fix the bug"; constraints.md):** in `botTick`'s target angle, right after the branch
+that turns a downloading simulant toward its download's terminal, a simulant in `MA_AIBOTDOWNLOAD` whose download
+has not started turns toward the nearest Hacker Central terminal (`botHtmNearestTerminal`, Hacker Central only), at
+the ordinary turning speed (about 1 s for half a turn), so the download starts once it faces within 45 degrees.
+This departs from the original on purpose. Pinned by `[b1271]` in `tests/test_net_bot_pickup_static.cpp`. Not
+built yet; the queued carrier-death run builds it.
+
+**Checked in play (4789effa, base 7):** `mp_hacker_central_net_carrier_death_smoke` 106/106
+(`results-20261117T012828Z.json`) and `mp_hacker_central_net_smoke` 88/88 (`results-20261117T014259Z.json`, it
+needs a score): no `holds the uplink, not downloading (not facing the terminal)` line in either, 5 and 2 downloads,
+scores 10 (the score limit) and 4.
+
+## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
+
+Severity critical for networked co-op and counter-op: the client crashes. Seen in `network_coop_deepsea_end_smoke`
+on binary a669d118 (base 7, `results-20261116T173916Z.json`, 116/126): as the intro cutscene ended, the client read
+the host's first chr removal (`NET.NPC: client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the host
+removed it)`, the intro actor) and crashed at once: `FATAL: ACCESS_VIOLATION PC=... (+0x153681)`, backtrace
+`propIsOfCdType` (prop.c, reading `chr->actiontype` with `chr` NULL) <- `cdCollectGeoForCyl` <-
+`cdFindGroundInfoAtCyl` <- `chrSetPos` <- `netmsgSvcNpcMoveRead` <- `netStartFrame`. B-1206's follow-up (a669d118)
+made this the first removal message ever to reach a client; before it, no client removed a chr this way.
+
+Root cause: the client's NPC resync (`netmsgNpcResyncRecordApply`, every SVC_NPC_RESYNC, including the one at the
+stage start) wrote the host's rooms straight into `prop->rooms`, without taking the chr out of its old rooms' prop
+lists or putting it into the new ones. A chr whose rooms changed stayed listed in its old rooms. While it lived
+that was harmless (the listing points at a live chr), but when it was removed, `chrRemove` and `propFree` cleared
+only the rooms named in `prop->rooms`, and `propFree` left a `PROPTYPE_CHR` prop with no chr in the old rooms'
+lists. The next NPC move's collision query in such a room read it. The host never runs a resync apply, so only
+the client crashed. The same direct write is in the bot resync (`netmsgSvcChrResyncRead`) and the prop resync
+(`netmsgSvcPropResyncRead`), and SVC_PROP_MOVE and the lift move moved the registration only when `prop->active`,
+which leaves a paused, listed prop in its old rooms (SP-92).
+
+Fix (746d79a7): new `propSetRooms` (prop.c) copies a rooms list exactly (up to and including its terminator; the
+NPC snapshot digest covers the rooms) and moves the prop's registration with it when the prop is in the world
+(active, or listed in its first room). All five paths use it. The prop resync also applies to objects only now, as
+the host sends: `prop->obj` shares storage with `prop->chr`, so a row whose id named a chr on the client wrote
+object fields into the chr. Pinned by `[b1270]` in `tests/test_net_mission_end_static.cpp`. Not changed: the
+bot-authority stub update (`netmsgClcBotMoveRead`, a stub with no room registration) and the reconnect
+snapshot paths, which keep their own staged registration.
+
+**Checked in play (c35b35a2, base 7, `network_coop_deepsea_end_smoke` 126/126, `results-20261116T195117Z.json`):**
+the client read the same removal at 75.3 s (`client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the
+host removed it)`) and one more in Defense (`syncid=147 chrnum=56`), and played on to the end screen and a clean exit
+(`MEMPC [shutdown]: all 5 allocations intact`); no fatal in either process. The reconnect snapshot's prop state
+(`netmsgSvcReconnectPropStateRead`) uses `propSetRooms` too since ae1fa9fd (SP-92 audit).
+
+## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed; announcement checked in play, its weapon type was B-1272)
+
+Severity high for networked Hacker Central: once the first uplink carrier dies, no client sees the uplink or can
+take it, and the client skips every host pickup of it. Seen in `mp_hacker_central_net_smoke` on binary 5cd5d0e5
+(639c9a8a, base 7, `results-20261116T150839Z.json`, 84/86): simulant 3 died at 94.7 s carrying the uplink; the
+host announced its two guns (`BOT.DROP: host announced simulant 3 weapon=2 syncid=57`, `weapon=5 syncid=58`), then
+`htmTick` found no uplink and made a new one at crate pad 69 (`HTM: uplink placed pad=69 source=crate`), prop 59, a
+dynamic id. The client logged nothing about it, and when simulant 3 took it at 102 s: `BOT.PICKUP: client skipped
+item 59 for simulant 3, it is not in this world (no prop has this sync id; first_dynamic=39 ...)`.
+
+Root cause: the original drops no uplink at a carrier's death; `htmTick` makes a new one wherever a crate stands
+(`htbCreateUplink`), and Hold the Briefcase's `htbTick` does the same for its case when none is left
+(`htbCreateToken`; rare, since a dying carrier drops the case as an announced weapon). A networked client runs
+neither (T-NETWORKING-011: it shows the host's scenario and never makes its own), and the host never announced
+the prop, so it had an id only on the host (SP-85).
+
+Fix: new `scenarioNetAnnounceProp` (`scenarios.c`): on the listen host, `SVC_PROP_SPAWN` then `SVC_PROP_MOVE` for
+the new prop, as `botinvDrop` announces a simulant's drop (log `SCENARIO.NET: host announced the new <uplink |
+briefcase> syncid=... rc=0`). `htmTick` and `htbTick` call it right after making the prop during the match; a
+client's `htmNetPresent` already finds a ground uplink by scanning its props. No wire change. Pinned by `[b1209]`
+in `tests/test_net_bot_pickup_static.cpp`. Not changed: the crate that the new uplink replaces is hidden on the
+host only (`OBJHFLAG_DELETING`, regenerating); the prop dirty check's `SVC_PROP_RESYNC` carries hidden state.
+
+## 2026-11-16 B-1208 A client's unchanged settings resend cancels the host's ready gate (T-NETWORKING-011, fixed; checked in play)
+
+Severity medium: a networked start fails whenever a client sends its settings again, with nothing changed, inside
+the ready gate. The host cancels the start (`NET: ready gate aborted by '<name>'`) and someone must press Start
+again; an autostarted smoke fires once, so its match never starts. Seen in `network_coop_mission_end_smoke` on binary
+5cd5d0e5 (639c9a8a, base 7, `results-20261116T145034Z.json`, 62/130; 130/130 at 490e8baf): the host's autostart
+added the client to room 1 at 02:18.78 and fired at 02:19.05; the client's Room opened as it was moved in, its match
+setup reset sent `CLC_SETTINGS` (same body, head, team, handicap and name; no rename line followed), and that
+reached the host at 02:19.21, inside the gate: `PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1`,
+and both machines waited 300 s for a stage that never started.
+
+Root cause: `netmsgClcSettingsRead` rolls the gate back for every valid `CLC_SETTINGS` from a preparing participant
+(B-1103, SP-67), changed or not, and a client sends one whenever its Room opens (`matchConfigInit` calls
+`netClientSettingsChanged` after the match setup reset) and whenever a settings menu closes, changed or not
+(`pdgui_menu_playerconfig.cpp` calls the send "idempotent and cheap").
+
+Fix: a candidate equal to the client's published settings, field for field and raw from the wire (name, body,
+head, options, team, handicap, fovy, fovzoommult), keeps the gate and publishes nothing (`NET: CLC_SETTINGS
+client=N repeats its settings during the ready gate; gate kept, nothing published`); any difference still rolls the
+gate back before publishing, as SP-67 requires. New smoke-only seam `--debug-ready-gate-settings-repeat` (the B-1103
+seam's twin: the same ordinary send at the PREPARING boundary with nothing changed) and
+`ready_gate_settings_repeat_smoke` (port 27218): the gate keeps and the match starts on both machines;
+`ready_gate_settings_rollback_smoke` stays the negative twin (its changed handicap still rolls back). Pinned in
+`tests/test_prepared_stage_transaction_static.cpp` (the B-1067 and B-1103 cases).
+
+**Checked in play (a669d118, base 7):** `ready_gate_settings_repeat_smoke` (`results-20261116T170717Z.json`): `NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published`, then the match started on both machines; its one failure was the smoke's own step order (the stage start logs two lines before the rollback snapshot release), fixed in 746d79a7. `network_coop_mission_end_smoke` passed 130/130 (`results-20261116T171610Z.json`).
+
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed; checked in play locally and networked)
+
+Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
+contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
+`results-20261116T101515Z.json`) and after it (490e8baf, 8dafe7f0, `results-20261116T130655Z.json`, 31/32, the
+missing line is the nonzero score). In the second run the uplink stands on its pad (pad 67, y 2), simulant 2 takes it
+at about 4 s and heads for terminal 0 (pad 7 at (-3305,36,1606), room 39) at 4.4, 22.8 and 41.5 s, fetching shields
+in between, and no download completes in 150 s. The terminal is reachable: it stands on room 39's ground floor
+(floor y 0, pad y 53) with route point pad 221 123 units away at the same height.
+
+What the code needs (`htmTickChr`): the carrier within 250 units (xz) and 200 (y) of the terminal, facing it within
+45 degrees and unarmed (`aibot->weaponnum == WEAPON_UNARMED`), for 20 s without a break. A simulant switches to
+unarmed and turns to the terminal only in `MA_AIBOTDOWNLOAD`, which it enters after a check fails within range
+(`playernuminrange`). It turns only while a download is active (`botTick` reads `dlterminalnum`), while
+`scenarioTickChr` runs after that facing step and cancels the download in the same tick when a test fails. Which
+test fails is not known yet. Diagnostic (this commit, offline and host): `HTM: uplink holder A -> B at T s
+pos=(...)` and `HTM: player N download <out of range | not facing the terminal | not holding the uplink | in
+progress> at T s xz= y= angle= weapon= action=` on each change (300 lines a stage at most), and `HTM: player N
+download complete at T s points=P`. Next run: `mp_hacker_central_net_smoke` in the queued objective-scoring turn,
+and `mp_hacker_central_local_smoke` after it. If the cause is the original's own logic, the fix changes how the
+mode plays and goes to Mike first.
+
+**Root cause (found 2026-11-16 with the diagnostic; not the original's logic):** in `mp_hacker_central_net_smoke`
+on 5cd5d0e5 (`results-20261116T150839Z.json`) simulant 3 reached the terminal three times (32.6, 54.4 and
+142.3 s: 209 to 230 units away, facing it, unarmed, `in progress` in `MA_AIBOTDOWNLOAD`), and each time, about 3 s
+later, `STUCK: bot slot=1 ... relocated to safe waypoint 73 (-698,394,-1889) penalty=25.0%` moved it 4,330 units
+away in the same frame (`out of range ... xz=4330`). The port's stuck watchdog (`botTick`, Phase F 2026-04-02, not
+in the original) relocates a simulant that moved less than 10 units in 3 s while its action counts as navigation
+intent, and `MA_AIBOTDOWNLOAD` was on that list, though a download is 20 s standing at the terminal. So every
+download a simulant began was cancelled 3 s in, with a 25% health penalty. **Fix (in code, not yet run):**
+`MA_AIBOTDOWNLOAD` leaves the intent list; nothing else changes, so the original's download rules apply again (no
+gameplay decision needed). King of the Hill was checked for the same trap (a simulant holding the hill stands in
+`MA_AIBOTGOTOPOS`): its simulants scored 1 and 2 points with one relocation a run in three earlier runs, so that
+case stays as it is. Pinned by `[b1207]` in `tests/test_net_bot_pickup_static.cpp`. The same run found B-1209.
+
+**Checked in play locally (a669d118, base 7):** `mp_hacker_central_local_smoke` 32/32 (`results-20261116T174929Z.json`): a simulant reached the terminal, turned and unarmed in 0.3 s, and completed three downloads (`HTM: player 3 download complete at 99.7 s points=1`, then 119.8 and 139.8 s; score 6), with no stuck relocation. Networked, a simulant still scores nothing, for another reason: B-1271.
+
+**Networked, checked in play (c35b35a2, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`):**
+simulant 3's downloads ran to completion on the host four times, with no watchdog move, and the host and the client
+results both show its 8 points. A simulant that reaches range facing away still stands for good: B-1271.
+
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed; snapshot sweep and removal message checked in play, the second once B-1270 was fixed)
+
+Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
+the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20
+times a second. Seen in `network_coop_deepsea_end_smoke` on binary df1734a2 (db7c8b51, base 7,
+`results-20261116T121205Z.json`, 120/126; the Next Mission into Defense itself passed): from the first snapshot
+after Deep Sea loaded, `NET: SVC_NPC_RESYNC rejected incomplete snapshot tick=2698 server_count=51
+local_ready_count=53`, then 52 against 55 until the stage ended, 883 rejections in 42 s, each followed by `SVC_NPC_SYNC
+snapshot mismatch` and `requesting npc resync`. Both machines had the same 290 initial ids, the two chrs the host's
+AI made (syncid 292 and 293) reached the client (`client made the host's chr`), and no chr died. So the host removed
+2 chrs in the stage's first second and one more later, and the client kept all three.
+
+Root cause: every in-stage removal of a chr goes through `chrTick`'s `CHRHFLAG_DELETING` branch (`aiRemoveChr`
+sets the flag; so do a corpse's fade, an off-screen reap and a robot's death), and a co-op client runs no NPC AI or
+actions (`chraTick` returns early for NPCs on a client; B-1191 already keeps a client's fall check from deleting
+one), so nothing removed the client's copy, and no message told it to.
+
+Fix (wire v64, still unreleased, so no bump; ledger in `net.h`): new `SVC_NPC_REMOVE` 0x7f {sync id, flags; bit 0
+= the host's removal dropped the chr's items}. The host writes it in that branch, before the removal, in co-op and
+counter-op (log `NET.NPC: host removed chr syncid=... dropitems=...`). A client removes its copy at once, as the
+host's `chrTick` and prop loop do (`chrRemove`, then `TICKOP_FREE`), dropping the items first only when the host
+did (log `NET.NPC: client removed chr ... (the host removed it)`). A client that is still loading cannot take the
+message (its reader needs `CLSTATE_GAME`), which is when a level script's first removals happen, so
+`netmsgSvcNpcResyncRead` also removes every NPC of the client's that the snapshot does not name, after it has read
+the whole snapshot, and then counts again (log `... (the host's snapshot does not name it)`). Pinned by `[b1206]`
+in `tests/test_net_mission_end_static.cpp`. Pattern SP-85 (its removal case). Not covered by the message: the
+counter-op takeover in `player.c` (the anti player takes a guard's body) removes the guard outside `chrTick`; if
+that ever runs on one machine only, the snapshot sweep removes the other copy at the next snapshot.
+
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `network_coop_deepsea_end_smoke` 126/126
+(`results-20261116T143714Z.json`; 120/126 with 883 refused snapshots before): no snapshot refused. But none of the
+host's four removals reached the client as a message. Each came on a frame where `netEndFrame` throws away the game
+tick's messages: three before the stage replication was active (two guards in Deep Sea's first tick, one in
+Defense's), which the release snapshot covered (the client's sweep removed all three), and the intro's actor
+(syncid 1, chrnum 64) on the frame that published the cutscene END authority packet: its message was dropped and no
+later snapshot came, so the client kept that chr for the rest of Deep Sea. **Follow-up fix (in code, not yet run):**
+`chrTick` queues the removal (`netServerNpcRemoveQueue`, same `host removed chr` line), and `netEndFrame` sends the
+queue from the ACTIVE entity broadcast, after any authority packet and ahead of the frame's spawns, moves and states
+(`NET.NPC: host sent the removal of chr syncid=...`). The release baseline, a new stage, a reset and a rolled-back
+start empty the queue (`N queued chr removal(s) not sent: <why>`); a chr made after the stage start that was never
+announced is skipped (no client has it); a full queue (64) asks for a full NPC snapshot. The pins in `[b1206]`
+follow. The class, every one-shot message written in the game tick, is SP-91.
+
+**The queued removal in play (a669d118, base 7):** in `network_coop_deepsea_end_smoke` (`results-20261116T173916Z.json`) the host queued and sent the intro actor's removal as the intro ended (`NET.NPC: host removed chr syncid=1 chrnum=64 ... action=3`, then `host sent the removal of chr syncid=1`), and the client removed it (`client removed chr syncid=1 ... (the host removed it)`), the first removal message any client has read. The client then crashed in the next NPC move: B-1270.
+
+## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed; checked in play)
+
+Severity medium: the shield or crate a simulant took on the host stays on the client's floor until the client's own
+respawn cycle, so the two worlds disagree about it; no crash. Seen in `mp_combat_net_scorelimit_smoke` on binary
+df1734a2 (db7c8b51, base 7, `results-20261116T120430Z.json`, 75/76, the only failure): `BOT.PICKUP: client skipped
+item 13 for simulant 3, it is not in this world (the item is waiting to respawn; ... objtype=21 timetoregen=21 ...)`
+and the same for item 19 (`objtype=20`, `timetoregen=17`), a shield and a multi-ammo crate. On the host, simulant 3
+took item 13 at 03:10.37 and again at 03:30.93 (host log time), 20.5 s apart, with a 20 s respawn wait
+(`TICKS(1200)`): the second time the moment it was back. The client's copy still had 17 to 21 ticks (about 0.3 s)
+to wait. Item 19 went the same way, and its next pickup 20 s later was replayed fine.
+
+Root cause: each machine starts the respawn wait when it applies the earlier pickup
+(`propExecuteTickOperation(..., TICKOP_FREE)` sets `timetoregen`), so the client's wait ends later than the host's
+by the message's delivery delay plus any difference in counted frame time. `netmsgSvcBotPickupRead` refused any item
+with `timetoregen != 0`. `netmsgSvcPropPickupRead` (a human's pickup on the host) had the same exposure the other
+way: it took the still-respawning item without the respawn's own steps (a shield's charge is refilled when it
+comes back).
+
+Fix (client only, no wire change): `objTick`'s respawn steps moved unchanged into `objTickRegen(prop, elapsed60)`
+(`propobj.c`), and the new `objRegenNow(prop)` runs them to the end: the fade-in start (the item comes back, with
+its respawn sound) and then the finish. Both pickup replays call it first when this client still has the item
+respawning (logs `BOT.PICKUP: client finished item N's respawn for simulant S, T ticks before its own wait ended`
+and `NET: SVC_PROP_PICKUP client finished prop N's respawn ...`), then replay as before, so the wait starts again
+as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`. Seen working once in play
+2026-11-16 (490e8baf, `mp_hold_the_briefcase_net_smoke` 84/84): `BOT.PICKUP: client finished item 6's respawn
+for simulant 3, 27 ticks before its own wait ended`, then `client replayed simulant 3 item 6`; the Combat
+score-limit re-run that failed on it is queued.
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `mp_combat_net_scorelimit_smoke` 76/76
+(`results-20261116T143007Z.json`; it failed on this race before): the client finished an item's respawn early
+four times, three simulant pickups (38, 39 and 47 ticks early) and one host-player pickup (`SVC_PROP_PICKUP client
+finished prop 8's respawn for client 0, 54 ticks ...`), replayed all 19 simulant pickups, skipped none, and the
+match ended by score limit 1 on both machines.
+
+## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
+
+**Fixed** by CORE on week-pd/core 9a9cfc9f, cherry-picked here as 0ad19dca: each scenario pad keeps its own
+`PADFLAG_HASBBOXDATA` (the ROM's flags in pads.json), so a boxless pad's six box floats stay unread and
+`padUnpack` gives its usual default, so objects stand on their pads again. No re-extraction (every base pad without the bit
+has exactly that default box); a contract pin refuses the forced bit. **Checked in play 2026-11-16** on binary
+490e8baf (8dafe7f0), base 7: in `mp_hold_the_briefcase_net_smoke` (84/84, `results-20261116T125201Z.json`) the
+case stands on pad 67 at y 4, a simulant takes it at 18.4 s and scores, and simulants collect the upper-floor
+crates and weapons (y 278 to 291) they could never take before; `mp_combat_local_scorelimit_smoke` (24/24,
+`results-20261116T125730Z.json`, no kill in 240 s before) ends by score limit 1 after a simulant's kill.
+
+**Root cause (read from data and source, 10:15 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
+sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
+box of -100..100 (`romextract_pdarena.c`, `f32 bbox[6] = { -100.0f, 100.0f, ... }`). Complex has 226 pads; only 5
+carry the ROM flag, and their boxes start at the pad (y 0 to 105). The other 221 now claim a 200-unit box.
+`setup.c` places a pad's object from `centre`: the pad position when the pad has no box data, otherwise the
+box centre moved down by half its height, so here 100 under the pad. `func0f06a730` (`propobj.c`) then
+looks for a floor from there. Pads sit about 52 above their floor, so the search starts about 48 units under
+it. With another floor below (Complex rooms 24, 26, 39: floors at 0 and 276), the object lands on that one,
+276 units down (the ground-floor weapons at y 2 and 15 from pads at y 328). With no floor below, it stays where
+the search started: weapons at pad - 98, crates at pad - 95, the case at pad - 96. The collision mesh confirms
+each case, for example pad 73 at y 328 over a single floor at 276 put the case at 232. Every observed height
+matches pad - 100 plus the object's own bottom offset. Fix options for CORE: set the flag only when the source pad
+has it (records then vary in length, as in the ROM), or keep the layout and write a zero box for pads without one,
+so `centre` is the pad, as in the original. Either needs no re-extraction. Check B-1113's room assignment and
+anything else that reads pad boxes. Solo stages that load from scenario sources would be affected the same way.
+
+Severity high for every mode with simulants on a multi-level arena (they waste the match fetching items they cannot
+take, and an objective that lands there is never taken); possibly for players too, if a sunken item is hidden. Found
+with the BOT.TEAM, BOT.CMD and BOT.GOAL lines (80bf07b5) in `mp_hold_the_briefcase_local_smoke` and
+`mp_hold_the_briefcase_net_smoke` on base 7 (`results-20261116T094935Z.json`, `results-20261116T100549Z.json`).
+It is not a networking difference. In both runs every simulant has `teamisonlyai`, takes the get-case command at
+2.4 s and starts routes to items and to the case. Some items are never collected, although simulants reach them
+(xz within 1 to 50 units, 135 to 148 units above). On Complex these are the weapons at (-3087,230,-717) room 2,
+(-4888,230,-378) room 22 and (-3642,-321,1334) room 42, and the ammo crate at (-3064,-42,69) room 21; one simulant went
+for the room 22 weapon five times in 150 s. Items at y 2 to 15 on the ground floor, and the raised crate at y 509,
+are collected (`BOT.PICKUP`). The networked case landed at y 232 in all three networked runs (base 3 pad 173; base 7
+pads 74 and 73) and was never taken. The local case landed at y 4 (pads 134 and 58) and was taken at 11 s and at
+64 s. So the local/networked difference was where the case landed (their rng streams differ), not the network.
+An item 42 to 46 units under the floor fails `botTestPropForPickup`'s line of sight (`cdTestLos06`, DOORS|BG) from
+a simulant standing over it. The crate at y 509, 42 under its 551 floor, was collected only from the floor below,
+where that line is clear. (My first guess, a wrong floor from `func0f06a650`, was wrong: that function has no
+callers; the root cause is above.) Next, CORE's call: the fix, then a game check that the briefcase, weapons and
+crates rest on their own floors (on Complex: rooms 2, 21, 22, 24 and 42).
+
 ## 2026-11-16 B-1203 Single-process smokes ran against the real user profile (T-NETWORKING-011, fixed in the runner)
 
 Severity high (test isolation; it writes the user's real data). Found when three local smokes on 340eca64
@@ -23,6 +401,697 @@ install, so `--portable` keeps the install as base dir and moves the save dir an
 still replaces the arguments with explicit directories. Pinned by `test_runner_isolates_single_process` in
 `tools/tests/test_smoke_fixture_isolation.py`, which fails on the old runner. Nothing in the real profile was
 restored or edited; that is Mike's call. Class: B-1124, the other launch path; SP-90.
+
+## 2026-11-16 B-1202 In a networked match every simulant updates once per player each frame (T-NETWORKING-011, fixed in code)
+
+Severity high for networked matches with simulants (they think, turn, check pickups and earn scenario points twice
+as fast with two players, three times with three; offline is unaffected). Found by reading the Hold the Briefcase
+scores: the networked 150 s run on 21eec732 (`results-20261115T121447Z.json`) gave a simulant 7 points in a 151 s
+match, and a point needs 30 s held (`htbTickChr`, `TICKS(7200)`), so 5 is the most possible. Root cause: `lvRender`
+loops over every player of a networked match (`if (g_NetMode) forcesingleplayer = false;`, "tick all players"), so
+`propsTickPlayer` runs once per player each frame. Its first pass sets `PROPFLAG_NOTYETTICKED` on every prop, and
+the original `botTick` ran its update only while that flag was set (`chrTick`, called later in `botTick`, clears it),
+as `chrTick` still does for its full tick. 41431a3d ("FIX 1", 2026-04-04) changed `botTick` to read
+`g_Vars.lvupdate240` alone, on the belief that `chrTick` cleared the flag before `botTick` ran (it does not: nothing
+ticks a simulant's chr before `botTick`), so every later pass in the frame ran the whole update again: AI
+(`botTickUnpaused`), turning, stuck checks, `scenarioTickChr` (Hold the Briefcase hold time, Hacker Central
+download, Pop a Cap survival) and `botCheckPickups`. Fix: `updateable` again needs the flag as well as a nonzero
+update; a later pass logs `BOT.TICK: simulant N passed again in one frame (players=P)` once per match. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1202]`). Pattern SP-87. Built 2026-11-16, the full suite passes (1993
+cases). Seen in play 2026-11-16 (binary c5a12bca, `mp_simulant_types_net_smoke` PASS 107/107): the host logged `BOT.TICK: simulant 4 passed again in one frame (players=2)`, so the second per-player pass happens and now skips the update; the Hold the Briefcase re-run checks the effect on points. This changes how fast simulants act in networked matches, back to the offline speed.
+Not covered (open, a question for Mike and CORE under SP-87): a prop in the background, in no player's view, still gets
+N times the elapsed time, because `propsTickPlayer` adds the frame's time to every prop's `propupdate240` and every
+slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, and a background tick spends that
+accumulated time (the original split-screen scheduler does the same). So a simulant out of every player's view still
+acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
+view can therefore still beat the 30 s rule in the Hold the Briefcase re-run. **Fixed in code 2026-11-16 with option (b)** (CORE agreed on the hub, 05:59 UTC): in a networked match `propsTickPlayer` counts the frame's time once (`netrepeatpass`: on a pass after the first, no prop or slot gains time, the background slot does not advance and no background prop ticks), so every prop gets real time as offline; local split screen keeps the original per-pass accounting. Background pickups no longer regenerate N times as fast either. Pinned in `tests/test_net_bot_pickup_static.cpp` (`[sp87]`); pd-tests 2,019 cases green; not yet run in game.
+**Checked in play 2026-11-16** on binary 490e8baf (8dafe7f0), `mp_hold_the_briefcase_net_smoke` 84/84
+(`results-20261116T125201Z.json`): the simulant that took the case at 18.4 s scored at 48.4, 78.4, 108.3 and
+138.3 s, one point per 30 s held as in the original (7 points in 151 s before the fix), and the client's points
+and final result lines match the host's.
+
+## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed)
+
+Severity high (client crash). Found by the first run of `network_coop_mission_return_smoke` on binary 0587e908
+(5a1dfcda, 125/129, `results-20261116T042438Z.json`): Return to Room worked on both machines (`GAMELOOP.COOP: host chose
+return to room`, the client's `host returned to room 1; leaving the mission results`, each Room opened), then the
+host's scripted exit came first, the client read `NET: disconnected from server: Server is shutting down`, and 10 ms
+later crashed: ACCESS_VIOLATION in `chrTickAttack` (chraction.c, `chr->act_attack.animcfg`), from `chraTick` <
+`chrTick` < `propsTickPlayer` < `lvRender`. Root cause: since B-1197 a player in the Room after networked results is in
+the lobby state while the ended mission stays loaded behind the Room, so `netDisconnectWithIntent`'s `wasingame` (the
+game state only) was false and the client stayed in that stage, now offline. With `g_NetMode` at `NETMODE_NONE` the
+client's suppression of co-op NPC AI in `chraTick` no longer applied and its global tick ran again, unpaused (the
+results exit unpauses), so a guard the host had left in `ACT_ATTACK`, whose action data a client never sets up, ran its
+attack tick. Same class as SP-84's "safe only by order" note. B-1198 had also removed the results push that paused the
+stage on an in-game disconnect. Fix: the disconnect also leaves for CI when an ended gameplay stage (not CI) is still
+loaded (`leftendedstage`, from `g_MainIsEndscreen`; log `NET: disconnect leaves the ended stage ... behind the Room for
+CI`), and whenever it leaves a stage it first freezes it (`lvSetPaused(true)`, the update zeroed, every prop's catch-up
+time dropped) until CI loads. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1201]`). Built 2026-11-16, the
+full suite passes (1992 cases). **Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3,
+`network_coop_mission_return_smoke` PASS 129/129, `results-20261116T054147Z.json`): after the host's Return to Room
+and its exit, the client logged `NET: disconnect leaves the ended stage 0x30 behind the Room for CI` 20 ms after
+`Server is shutting down`, and did not crash.
+
+## 2026-11-16 B-1200 A second networked Combat match in the same room is refused (T-NETWORKING-011, fixed in code)
+
+Severity high (no rematch in a room after a match with a random spawn weapon, the default). Found by
+`mp_combat_net_rematch_smoke` on binary 30973012 (f8d79928, 79/94, `results-20261116T020226Z.json`), the first run to
+get past B-1195 and B-1197: the host left its results with Return to Room, stayed in the arena behind the Room
+(`MENU.MPENDSCREEN: networked results closed; no local stage change`, `BOT: match chr table retired`), re-armed and
+fired its second match, and the lobby start refused it: `PLAYER.INIT.ROLLBACK lobby-write detail=random/Fiesta spawn
+mode retains a typed ID`, `BOOT: --host-autostart started match 2 of 2 rc=-5`. Root cause: a random spawn weapon is
+rolled per match (`netLobbyStartResolveRandomSpawn`) and the start commit copies the resolved config, roll included,
+into `g_MatchConfig` (`netLobbyStartCommit`; a client stores it too from `SVC_STAGE_START`), which the match reads at
+every spawn; the next `netLobbyStartWritePrepare` refuses a random mode that still holds a typed ID. Fix: the match
+end forgets the roll for random and Fiesta modes (`netMatchConfigForgetSpawnRoll`, from the host's stage end commit
+and a client's stage end read, which may host next; log `NET: match end forgets the rolled spawn weapon ...`); the
+refusal stays for a genuinely mixed configuration. Pinned in `tests/test_host_autostart_rematch_static.cpp`
+(`[b1200]`); the rematch smoke requires the log line. Not yet built or run.
+
+## 2026-11-16 B-1199 The mission-end Agent Profile save is refused in networked co-op and counter-op (T-NETWORKING-011, fixed in code)
+
+Severity medium (mission progress of a networked co-op or counter-op mission may not be saved; no crash). Every
+networked mission end on the host logs `ERROR: SAVE: Agent Profile serialization failed name='Dark'; destination
+preserved` right after `endscreenPushCoop`/`endscreenPushAnti` (co-op run `results-20261116T011832Z.json` and
+counter-op run `results-20261116T014445Z.json`; once on the counter-op client too, in its disconnect teardown,
+B-1198). `saveWriteAgentDocument` (savefile.c) calls `agentProfileWriteJson`, whose `profileDocumentValidate`
+refuses the document (a scalar: auto difficulty, auto stage index, thumbnail, sound mode, control modes; a challenge
+value; or the preferences) and keeps its reason to itself. Diagnostic added (not yet run): the failure path logs
+`SAVE.DIAG: agent document ...` with those scalars and the public preferences validator's verdict. Not checked: whether
+a solo mission end fails the same way. The codec is CORE's; report the diagnostic's first result to CORE.
+Named 2026-11-16 by the diagnostic (co-op run `results-20261116T031858Z.json`): `SAVE.DIAG: agent document
+autodifficulty=0 autostageindex=0 thumbnail=0 soundmode=1 controlmode=8,9 preferences=ok`; the validator allows control
+modes up to 8. Root cause (ours, not the codec's): `saveCaptureAgentDocument` takes player 2's control mode from slot 1
+in co-op and counter-op, but in a networked mission slot 1 is the remote partner, whose control mode is
+`CONTROLMODE_NA` (9, `netPlayersAllocate`). So every networked mission-end save was refused and the progress was not
+saved. Fix in code: `saveAgentPlayer2Slot()` (savefile.c) uses slot 1 only in a local mission and slot 5 otherwise, as
+outside co-op, for both the save and the load. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1199]`). Not yet
+built or run.
+
+## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, fixed in code)
+
+Severity low (a results screen for both players flashes up while the client drops to CI; the agent save attempt in it
+fails, B-1199). Seen in `network_counterop_mission_end_smoke` (`results-20261116T014445Z.json`): the host's scripted
+exit came first, the client read `NET: disconnected from server: Server is shutting down`, and `netDisconnect` ended
+the stage (`mainEndStage`), which pushed `endscreenPushAnti` for player 0 and player 1: by then `g_NetMode` is no
+longer networked (`g_NetMode = NETMODE_NONE` comes first in `netDisconnectWithIntent`), so `mainEndStage`'s skip of
+remote players (B-1193) no longer applies. Fix in code: `netDisconnect` ends the stage with
+`mainEndStageWithoutResults()` (pdmain.c), which pushes no co-op, counter-op or solo results on the way to CI and logs
+`GAMELOOP: stage ended by a disconnect; no mission results`; a networked Combat match still ends through `mpEndMatch`.
+The counter-op smoke checks one push per machine at the mission end and exactly two in all. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1198]`). Not yet built or run.
+
+## 2026-11-16 B-1197 Closing networked Combat results loaded CI on the listen host (T-NETWORKING-011, fixed in code)
+
+Severity high (the host's next match never starts after it leaves its results). Found by `mp_combat_net_rematch_smoke`
+on binary 9078eb6b (3cad23d4, 77/91, `results-20261116T010715Z.json`), right after B-1195 let the host's global tick
+run under the results: Continue (`GAMELOOP.MP: endscreen EXIT_TO_ROOM`) popped the results menus, and the next
+`menuTick` ran the offline close of `MENUROOT_MPENDSCREEN` (`GAMELOOP.CAMPAIGN: MPENDSCREEN → CITRAINING lobby
+return`): it unpaused MP, cleared `mplayerisrunning`, and loaded CI as a networked host, whose player setup rolled
+back to the title (`PLAYER.INIT.ROLLBACK phase=stage stage=0x26; returning to title`), so the host never re-armed its
+second match. The same close never ran before because the host's tick was deferred (B-1195) and a client's too
+(B-1190 part 2). B-1195's simulant gate held through it (`BOT: match chr table retired` once, no crash). Fix: that
+close does nothing while `g_NetMode` is not `NETMODE_NONE` and logs `MENU.MPENDSCREEN: networked results closed; no
+local stage change`; the networked exits decide what follows (Return to Room keeps the stage until the host's next
+match, the host's mission choices start it, Disconnect ends the session first, after which the offline close runs as
+before). `menuReset()` clears the close state at every stage load, so the co-op path, whose tick is deferred after its
+exit, never hits it later. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1197]`); the rematch smoke
+forbids the CI return and `PLAYER.INIT.ROLLBACK` and requires the new line. Not yet run.
+
+## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, fixed in code)
+
+Severity medium until the chr is named (the client cannot see or place that chr; if it is an enemy, the client is
+shot by someone it cannot see). Seen in `network_coop_mission_end_smoke` on binary 8c56ad72 (119/121; both failures
+are this): the client logged `NET: prop with syncid 335 does not exist` 720 times, every 55 ms on average (the
+20 Hz `SVC_NPC_MOVE`), from 1.5 s after Defection's gameplay start until the mission end. Both sides agree on the
+initial ids (`last initial syncid=331 first dynamic syncid=332`), so 335 is the host's fourth prop allocated after
+the stage start: on the host every such prop takes `g_NetNextSyncId++` (`propAllocate`), on a client it stays 0
+unless a spawn message names it, and `SVC_PROP_SPAWN` carries objects only. `SVC_NPC_MOVE` goes to every chr
+`netNpcIsReplicationReady` accepts (`PROPTYPE_CHR`), so 335 is a chr. Not a scripted spawn: Defection's AI lists
+have no `spawn_chr_at_pad`/`spawn_chr_at_chr`, and the co-op buddy spawn (`player.c`) needs `normmplayerisrunning`
+0, which networked co-op is not. The initial NPC snapshots matched (36 and 52 NPCs), and no periodic check compares
+the count, so nothing else notices. Diagnostics added (not yet run): the host logs each chr with a dynamic id once
+when it first sends its move (`NET.NPC: host replicates a chr created after the stage start ...`), and the client
+logs each unknown id once with its nearest local chr (`NET.NPC: client has no chr for syncid=...`). That says
+which chr it is and whether the client holds an unlinked copy (deterministic creation on both sides) or none
+(host-only creation, which needs a spawn message).
+2026-11-16: the re-run on binary 9078eb6b passed 121/121 with no `NET.NPC` line on either side, so the host made no
+chr after the stage start that time: the spawn is conditional. Likely source (by reading, pattern SP-85): the shared
+AI lists (`gailists.c`) have an unalerted guard "create a spawn", a clone of itself searching for the player
+(`try_spawn_clone2(CHR_SELF, GAILIST_SEARCH_FOR_PLAYER, ...)`, opcode 0x00ca, `aiDuplicateChr`, only for a
+`CHRCFLAG_CLONEABLE` guard); in the failing run a guard shot the host as gameplay began. Co-op AI runs only on the
+host, and no message names a chr the host's AI makes, so a co-op client never sees a clone (or a `spawn_chr_at_*`
+guard) while the host's copy can shoot it. Fix needed: a chr spawn message (the host announces a chr with a dynamic
+id, with its held weapons and hat, before its moves; the client makes a puppet with the same ids), plus a host
+debug trigger so a smoke can prove it.
+Fixed in code 2026-11-16 (not yet built or run): new `SVC_NPC_SPAWN` 0x7e (unreleased v62, co-op and counter-op
+only). Each net frame the host announces, once and reliably, every replication-ready chr whose sync id is dynamic
+(`netServerNpcSpawnAnnounce`, net.c), with its chr number, body, head, place, angle, rooms, team, flags, held
+weapons (sync id, weapon, model, left hand, dual) and hat; its moves and states wait 15 ticks after that, since
+ENet does not order the reliable spawn against an unreliable move. The client makes the chr at the host's place
+without a second spot search (`chrSpawnReplicated`, chraction.c, idle list; its AI stays suppressed there), binds
+the host's ids to the chr, weapons and hat, and sets the chr number, team and flags; a spawn for an id it already
+has is ignored. Logs: `NET.NPC: host announced a chr made after the stage start ...`, `NET.NPC: client made the
+host's chr ...`. `--debug-clone-guard <seconds>` (port/src/main.c) clones a living guard once on the host, idle so
+it cannot end a smoke's mission, with the guard's weapons, team and flags; `network_coop_mission_end_smoke` uses it
+at 20 s and requires both NET.NPC lines and no `client has no chr`. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1196]`). Open: a co-op client that reconnects does not get chrs made
+before it rejoined (T-NETWORKING-007); a chr the host makes before the stage's replication release is counted in the
+host's NPC snapshot (`SVC_NPC_RESYNC`) before its spawn is announced (the broadcast starts at the first active
+frame), so that snapshot would still be rejected, as it was before this fix.
+
+## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
+
+Severity high (the host crashes in every networked Combat match with simulants once it presses Continue on its
+results). Seen in `mp_combat_net_rematch_smoke` on binary 8c56ad72 (8a34e695): host `GAMELOOP.MP: endscreen
+EXIT_TO_ROOM`, the Room opens, then `FATAL: EXCEPTION ... CODE=0xc0000094` (integer divide by zero) in
+`botChooseGeneralTarget` (`bot.c`, `% g_MpNumChrs`), called from `lvRender` > `propsTickPlayer` > `botTick` >
+`botTickUnpaused`. Root cause: the host's stage end commit (`netmsgSvcStageEndCommit`, MP branch) unlinked every room
+member's player, the host's own too, so from the results on `playermgrRestoreLocalPlayerContext` failed (`GLOBAL.TICK:
+deferred` right after the results opened) and the host's `lvTick` never ran. `lvSetPaused(true)` from the results push
+never zeroed the update, and `lvRender`'s `propsTickPlayer` kept ticking the simulants with the last live delta, AI
+included. Continue then ran `mpClearRuntimeChrState()` (B-368), which sets `g_MpNumChrs` to 0 while the ended arena
+stays loaded behind the Room, and the next AI tick divided by it. Same class as B-1190 part 2 on the client (SP-84).
+Fix: (1) the commit skips the listen host's own netclient, as the client's stage end read does; the next stage's
+player allocation replaces the link (`netPlayersAllocate`). With its global tick running, the host's results pause
+holds, and after Continue the game-over pause keeps the arena's update at 0 (once B-1197 stopped the offline results
+close from unpausing it and loading CI). (2) `botTick` treats a simulant whose
+match chr table is retired (`g_MpNumChrs <= 0`; a live match always counts its simulants) as scenery: no AI, spawning,
+room recovery or stuck repair, speeds zeroed, `chrTick` kept for the model, and one log line `BOT: match chr table
+retired; simulants are inert until the next stage`. (2) is needed besides (1) because `mpApplyConfig` (presets,
+challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in the Room. Tests: `[b1195]` in
+`tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
+(`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
+
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed)
+
+Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
+`mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
+`BOT.PICKUP: client skipped item 26 for simulant 14, it is not in this world`, and the same for items 23, 25, 29 and
+30, while the host sent all of them (`BOT.PICKUP: host sent simulant 14 item 26 weapon=5 result=1`) and the client
+replayed later ones (items 34 to 43). No `BOT.DROP` lines, so these are not dropped weapons. The skipped ids are the
+lowest, which suggests the arena's starting weapon pickups have no counterpart with the same sync id on the client.
+The 3-simulant runs never took one. Each skipped item was the host's first pickup of it (no earlier pickup on
+either side), so it is not respawn-timer drift: the reader's refusal (`netmsgSvcBotPickupRead`: no prop for the sync
+id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the start. Diagnostic added 2026-11-16
+(not yet run): the host's `BOT.PICKUP: host sent` line now carries the item's object type and position, and the
+client's skip line names the test that refused and what it holds under the id (type, object type, respawn timer,
+position, and the first dynamic id). Initial ids are prop slot index + 1 on each side (`netSyncIdsAllocate`), so a
+"no prop has this sync id" with a low id means the client's setup left that slot free.
+Named 2026-11-16 (`mp_simulant_types_net_smoke` on binary 9078eb6b, 106/107, `results-20261116T013126Z.json`):
+both sides log `last initial syncid=17 first dynamic syncid=18`, so every skipped item (23 to 58, 14 of them) is a
+dynamic prop; the client has no prop under any of those ids, and on the host every one is weapon 8 (`objtype=8`,
+a weapon) that no `BOT.DROP: host announced` line covers (those four, 33, 34, 40 and 53, were replayed fine).
+Root cause: a simulant's held weapon is a prop made when it equips it, after the stage start, so it has a dynamic
+id on the host and none on a client. `chrBeginDeath` drops the held weapons (`objSetDropped`, then `chrTick`'s
+`objDropRecursively`) on both machines: the host's copy lies in the world under an id the client never learns, and
+the client's puppet drops an unnumbered copy, so a later host pickup cannot reach it. Fix in code (pattern SP-85):
+the host announces each held weapon with a dynamic id once the death drop puts it in the world
+(`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`, as `botinvDrop` does; log `NET.DROP: host announced chr ...
+held weapon=... syncid=...`), and a client's puppet retires its own held models at death instead of dropping them
+(`OBJHFLAG_DELETING`, as a weapon switch does). Pinned in `tests/test_net_bot_pickup_static.cpp` (`[b1194]`). Not
+yet built or run.
+2026-11-16, run on binary 732dd2fe (540f12d8, `results-20261116T033141Z.json`, 106/107): that root cause was wrong.
+The host logged no `NET.DROP: host announced chr` line at all, while 27 pickups were still skipped, every one the
+match's rolled spawn weapon (weapon 5 this time, weapon 8 last time), all dynamic ids, the client holding no prop under
+any of them. A simulant's lethal damage goes through `chrDie` (chraction.c), whose `botinvDropAll` makes fresh props
+for its inventory and announces them (`BOT.DROP`, 3 this run, all replayed) and deletes the held models, so held
+weapons never reach the world on that path. About 12 deaths, 24 simulant spawns and 32 host pickups, with the first
+skipped items lying in the world six seconds into the match, so where those weapons come from is still open. The
+held-weapon announcement and the puppet's retire stay (they cover `chrBeginDeath` and `botDisarm` drops of weapons with
+dynamic ids, as a co-op clone's are), but they are not this bug's fix. Diagnostic for the next run: the host's
+`BOT.PICKUP: host sent` line now carries the item's `dynamic`, object `flags` (a drop carries AICANNOTUSE), `hidden2`
+(the regen flag) and setup `pad`. Open.
+Named 2026-11-16 (binary 0587e908, 5a1dfcda, `results-20261116T044504Z.json`, 106/107): every skipped item but one
+carries `flags=0x00004000` (`OBJFLAG_ASSIGNEDTOCHR` alone) and a `pad` of 3 to 13, which are the simulants' chr
+numbers this run (`SIMULANT: allocating chrnum=0..13`); the replayed `BOT.DROP` props carry `0x20004000`. That is a
+simulant's own held model (`weaponCreateForChr` stamps the owner's chrnum in `pad`), and the one path that puts it in
+the world is `botDisarm` (bot.c), run when a simulant takes a hit with `FUNCFLAG_DISARM`: it clears
+`weapons_held[HAND_RIGHT]` and drops that model itself, or, with no held model, makes a fresh one (`AICANNOTUSE`,
+the one outlier, item 36 with `0x20004000` and pad 0). The death-drop announcement only looked at `weapons_held`,
+which `botDisarm` had already cleared, so it never fired. Worse, `SVC_CHR_DAMAGE` runs `chrDamage` on the client, so
+the client's puppet ran the same disarm and dropped an unnumbered copy of its own. Fix (pattern SP-85): the chr drop
+block in `chrTick` notes every weapon with a dynamic sync id the chr carries before `objDropRecursively` and announces
+each one the drop leaves in the world (`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`; log `NET.DROP: host
+announced chr ... dropped weapon=... syncid=... flags=...`), so any drop path is covered, not only the held slots; and
+on a networked client `botDisarm` retires the puppet's held model and drops or makes nothing. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1194]`, two cases). Built 2026-11-16, the full suite passes (1992 cases).
+**Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3, `mp_simulant_types_net_smoke` PASS 107/107,
+`results-20261116T055414Z.json`): no client skip at all (24 host pickups sent, 24 replayed; 23 were skipped on
+0587e908), and the host logged 16 `NET.DROP: host announced chr N dropped weapon=10 ... flags=0x00004000` lines, the
+disarmed simulants' own guns, under low dynamic ids such as 21 and 24 like the ones skipped before.
+
+## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
+
+Severity high for networked co-op and counter-op (the next mission or a retry drops the other player; no mission
+end has ever run in a smoke). Found by a read-only map of the code on 760ba423 (not run; no fixture ends a mission).
+What happens today: (1) each machine pushes a results dialog for both players (`pdmain.c` mainEndStage loops over
+`PLAYERCOUNT()`; `endscreenPushCoop`/`Anti` check nothing), so each shows the other machine's player too, and
+counter-op draws `renderSoloEndscreen` twice a frame; (2) the host's stage end commit leaves the partner in
+`CLSTATE_GAME` (`netmsgSvcStageEndCommit`, co-op branch), so it is not in the next lobby start's roster and
+`netServerMatchInProgress()` stays true (new connections refused); (3) Next Mission, Retry and Main Menu act only on
+the machine where they are pressed (`pdgui_bridge.c`): a host's Next or Retry reloads alone, its player allocation
+finds one of two players and the rollback disconnects the client; a client's reloads alone while connected;
+(4) networked co-op runs with `normmplayerisrunning` 1 (`mpReset`), so the death branch (`player.c`, both players
+dead in co-op, Bond dead in counter-op) and the pause menu's End Match end the stage on a client too, without the
+host; (5) the host's Room draws over the co-op results, as in B-1192, because the 2P results dialogs are not
+registered in the menu pool; (6) inferred: `netServerStageEnd` wipes the outgoing buffers, which can drop an
+`SVC_OBJ_STATUS` queued in the same frame, and a client decides completed or failed from its cached statuses.
+Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `port/src/pdmain.c`. Fix (Mike, 2026-11-15,
+host control), in code: (1) `mainEndStage` pushes results only for this machine's own player (`isremote`, still set
+there; the participant type does not work, the co-op stage load makes both local); the four 2P results dialogs are
+registered as `MENU_TYPE_ENDSCREEN_SOLO`, so the lobby gate (B-1192) and the rematch re-arm also wait on them;
+(2) the co-op/anti stage end commit returns the partner to `CLSTATE_LOBBY` (linkages kept for the results), and
+`g_NetLastCounterOpClientId` keeps the counter-op client past the end; (3) the host's results screen offers Next
+Mission (before Skedar Ruins), Retry Mission and Return to Room (`pdguiEndscreenNetMission*` in `pdgui_bridge.c`):
+Next and Retry go through the Room's lobby start, which takes the other player along; Return to Room sends the new
+`SVC_MISSION_RETURN` 0x7c (unreleased v62) and the client leaves its results for the Room; the other player sees
+"Waiting for the host to choose what comes next" and Disconnect; (4) the both-dead and Bond-dead ends and the pause
+menu's End Game no longer end the mission on a client (End Game there leaves the session); (5) the final objective
+statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`); (6) Mike, 2026-11-15, "in co-op don't
+you want to see stats from all players?": each machine's results show its own player's combat stats and then a
+PARTNER block with the other player's, read by the per-machine `isremote` (`pdguiEndscreenNetMissionStats`, not
+the current player, which on a networked machine can be whichever player was ticked last), and the host sends every
+player's final kills and shots by region with the final objective statuses (`SVC_MISSION_STATS` 0x7d, unreleased
+v62; the host decides hits and kills on the mission's characters, so a client's own count can be off). Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check: `network_coop_mission_end_smoke` (new): the host ends co-op Defection at 40 s with
+`--debug-end-mission 40:complete` (the level script's end, host or offline only), both machines wait for their
+own results (`endscreen_visible` now also sees the solo results type), the host presses its default Next
+Mission and the client, pressing nothing, must be taken into the next mission. First run, binary 91a54a5d
+(`results-20261115T212355Z.json`, 111/119): proven in play: the end at 40 s, the six final objective statuses on
+the client just before `SVC_STAGE_END` (all complete), `NET: mission end returns client=1 to the lobby`, one
+results push per machine (host Bond, client its own player) and both results screens up. Not reached: the host's
+Use press did nothing (no `MENU.GRAPH.FIRE`), so the next mission never started. The solo results screen never took
+window focus and had no default button, and its content child comes before the action bar, so keyboard and
+controller navigation had no button to activate. Fix: `SetWindowFocus` when it appears, as the multiplayer
+results do, and `SetItemDefaultFocus` on the button the comments already call the default (Next Mission, else
+Retry; offline too); the client's Disconnect is not a default. Two assertions also named the test instead of the
+per-process scenarios. Re-run after the current turn.
+
+## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
+
+Severity high (every networked match with simulants: the clients' players could not see them; no
+crash). Proven by the reworked `mp_combat_net_bot_render_smoke` (`results-20261115T154128Z.json`, 64/66): the
+client turned its player straight at the simulant 120 units away (`look_dot=1.000`, a spot the host had checked
+for line of sight), yet the simulant's prop never got an on-screen flag (`prop_flags=0xc` for 20 s), the render
+audit logged `propsSort-scan` but never `propsSort-included` or `chrRender-modelRender`, and its animation frame
+stayed at 4.00. Cause: on a non-authority client `botTick` (`src/game/bot.c`) returned `TICKOP_NONE` before
+`chrTick`, and `chrTick` is what advances a character's animation, places its model and marks it on screen
+(`chr.c`: `PROPFLAG_ONTHISSCREENTHISTICK`). `bot.c` already recorded the same symptom for frozen bots (B-217 v2).
+Fix, after the co-op NPC pattern: the client runs `chrTick` for the simulant as a puppet tick
+(`s_BotPuppetTick`, read through `botIsPuppetTick()`), and `chraTick` (`chraction.c`) skips the AI and the
+action dispatch for it, as it already does for co-op NPCs on a client; the host stays authoritative for
+position, angle and action type (`SVC_CHR_MOVE`). Known limit: the client does not run the simulant's actions,
+so the simulant plays the animation it has (its stand animation) while it moves; running and attacking
+animations would need the host's animation state on the wire. Pinned in `tests/test_mp_chrnum_static.cpp`
+(`[finding3]`). Game check: the render smoke, re-queued. The client view in that run is also black outside one
+doorway (room 33 of Felicity drawn black); recorded separately, not yet explained.
+
+Part 2, 2026-11-15. The render re-run on that fix (`results-20261115T175033Z.json`, 64/66) showed the puppet ticked
+(`prop_flags=0x4`) but never on screen: culling saw the simulant at y -2552 while the host had it at -534 (ground
+-693, room 37), one sample in six read y -30000 (the no-floor value), and the model had no animation
+(`anim=0 frame=-1.00`). Two causes. First, `netmsgSvcChrMoveRead` wrote `prop->pos` (and copied the rooms) only,
+while a character's position is rebuilt every tick from its model root plus `manground` (`chr.c`, the root
+position callback); on a client those stayed stale, so the puppet tick moved the simulant back to the old root and
+let it fall, and at `manground <= -30000` that code can even call `chrDie` on the client. The rematch run shows
+the same: the client's `SVC_CHR_SYNC` checksum never changed (32 `chr desync detected`, local value constant).
+Second, the puppet path skipped `botApplyMovement`, which the host calls before `chrTick` to choose the
+third-person animation (run, strafe, stand, die) from the speeds `SVC_CHR_MOVE` already carries. Fix: the move
+reader applies the host's position through `chrSetPos` (ground, rooms with registration, model root, force to
+ground), as remote players' moves are applied, and keeps the host's look angle; the puppet tick calls
+`botApplyMovement` before `chrTick`; the root position callback no longer kills a puppet for a fall only the client
+saw (the host sends deaths). Pinned in `tests/test_mp_chrnum_static.cpp` (`[b1191]`). Still not on the wire: the
+aiming pose toward a target and which death animation plays (the client picks one). Propagation: the co-op NPC
+reader `netmsgSvcNpcMoveRead` makes the same bare `prop->pos` write; the co-op run verified the NPC snapshot
+(`SVC_NPC_SYNC snapshot verified ... count=36`, idle NPCs), but walking NPCs on a client are unproven, left to the
+co-op step. Propagation done in code 2026-11-16: `netmsgSvcNpcMoveRead` places the NPC through `chrSetPos` (the
+current rooms kept when a move has none), and the root position callback no longer kills a co-op or counter-op NPC
+on a client for a fall only the client saw (the host decides; `chraTick` already suppresses that NPC's AI there).
+Pinned in `tests/test_mp_chrnum_static.cpp` (`[coop][b1191]`). Walking NPCs on a client are still not proven in
+play: no smoke checks an NPC's place on the client. Game check: `mp_combat_net_bot_render_smoke` PASS 66/66 on binary 91a54a5d
+(`results-20261115T214359Z.json`): the client's simulant is on screen (`prop_flags=0xc4`, `propsSort-included`,
+`chrRender-modelRender`), animated (animation 89, frames advancing) and at its height (y -604). Fixed in play.
+Observation: the client still logs some `chr desync detected` (14 in that run, 2 resyncs, against 32 before): the
+`SVC_CHR_SYNC` checksum compares exact positions while a client extrapolates puppets between moves; not acted on.
+
+## 2026-11-15 B-1192 A listen host's Room drew over its own results screen and took focus (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host could not leave its results screen with Use or A, so no rematch;
+no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T174226Z.json`, 71/85, binary 86c1025f) after
+the B-1139 fix: the host had one results dialog, and the harness's Use press reached it (`ENDSCREEN.DIAG: input
+action_bar_visible=1 accept_pressed=1 ... suppressed=0`), but Return to Room never fired. At stage end the host is
+back in the lobby state with `s_InRoom` still set (B-1042 keeps it so the Room returns after a match), so
+`pdguiLobbyRender` drew the Room in the same frame as the results screen (`MENU_IMGUI: room OPEN` straight after
+`MENUPOOL: acquired endscreen_mp`). The Room's first frame calls `SetWindowFocus`, so keyboard and controller
+navigation had no item on the results screen. The offline results screen has no Room beside it, and the same press
+works there (`combat_sim_ui_release_cycle`). Same cause as B-1190 on the client. Fix: `pdguiLobbyRender`
+(`port/fast3d/pdgui_lobby.cpp`) draws neither the Room nor the social lobby while
+`menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)`; Return to Room (`endscreenGraphMpContinue` →
+`pdguiEndscreenExitToRoom`) releases the menu pool and the Room opens on the next frame. The host autostart re-arm
+already waits on the same query. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1192]`). Game check:
+the rematch smoke, queued (q_20261115173307314_394b483c). Co-op and counter-op use the solo results screen; left to
+the co-op end-flow decision.
+
+Part 2, 2026-11-15. The rematch on binary 91a54a5d (`results-20261115T213538Z.json`, 72/90) kept the Room back as
+intended (no `room OPEN` on the host after the end), and Use reached the results screen again (`accept_pressed=1
+suppressed=0`), yet Return to Room still never fired; the co-op mission end smoke showed the same on the solo
+results screen. So the Room was not the whole cause. The input debounce disables the action bar on the frame the
+results window appears, which is when ImGui picks its first focus item, and ImGui skips disabled items there, so
+no button had focus and Use pressed nothing. Fix: `SetItemDefaultFocus` on the primary button of both results
+screens (Return to Room or Play Again; Next Mission or Retry), which names the default even while it is disabled,
+and the solo screen now takes focus when it appears, as the multiplayer one does. Game check: the rematch and the
+co-op mission end smokes, next turn.
+
+## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decided: option A)
+
+Decided by Mike, 2026-11-15: option A. Everyone sees the results and presses Continue to go back to the Room, and
+while a player is still on the results, the others see that player in the lobby as "reviewing match stats". The
+host's next match start takes any player still on the results along (part of option A as proposed). Done the same
+day, in three parts. (1) A client never pushed its own end screen: `mpParticipantsDecodeActiveMask` records every
+player of a client's match as remote, and the B-1139 skip in `menutick.c` (remote participants get no dialog) then
+skipped all of them. The client's stage start now marks its own player local (a client owns runtime slot zero),
+so participant types mean the same on host and client. The player's `isremote` was no alternative: the host's
+stage end commit clears it before the push. (2) `netmsgSvcStageEndRead` holds the lobby UI back
+(`pdguiLobbyHoldForResults`) until the results screen is open; then the B-1192 gate holds it; a 300-frame fallback
+logs `LOBBY: results screen did not open within` and shows the lobby. menuTick also logs `MENU.MATCHEND: end screen
+waits for an open dialog` once if a dialog delays the push. (3) "Reviewing match stats": the host sets
+`netclient.reviewing_results` for everyone in the room at stage end and clears it on that player's Continue
+(`CLC_LOBBY_RESYNC`, or the listen host's local resync) or when the next match takes the player along
+(`LOBBY.REVIEW:` lines); `lobbyUpdate` copies it into the roster in the lobby state only, `SVC_LOBBY_ROSTER` rows end
+with a flags byte (bit 0, unreleased v62, no bump), and the Room and the social lobby show "reviewing match stats".
+Part 2, same day: the rematch on binary 91a54a5d (`results-20261115T213538Z.json`) showed the client still without
+results while connected: its fallback fired (`LOBBY: results screen did not open within 300 frames`) and its end
+screen was pushed only when the host shut down. Cause: `netmsgSvcStageEndRead`'s loop that unlinks the room's peers
+also unlinked the client itself, and without `g_NetLocalClient->player` there is no local player
+(`playermgrGetLocalPlayerNum`), so `mainTick` deferred the whole `lvTick` (`GLOBAL.TICK: deferred`, B-1090) and
+menuTick never pushed the results. The co-op path does not unlink, which is why co-op results appeared at once.
+Fix: the loop skips the local client. (The host also unlinks itself at its commit, but its push runs in the same
+frame before that.)
+Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1190]`) and `tests/test_net_lobby_roster.cpp`. Game
+check: the rematch smoke (its client stays on its results, so the second match has to take it along), queued with
+binary eab25274. Original entry follows.
+
+Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in
+two runs: `mp_king_of_the_hill_net_smoke` (`results-20261115T132151Z.json`) and
+`mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`). At stage end the client logs `MATCH: endscreen
+shown` (that is `mpEndMatch`, not the screen) and in the same frame opens its Room (`MENU_IMGUI: room OPEN`); its
+end screen dialogs appear only minutes later, when the host shuts down and the Room closes. Cause:
+`netmsgSvcStageEndRead` (`port/src/net/netmsg.c`), on the multiplayer path, sets the local client to
+`CLSTATE_LOBBY` before `mainEndStage`, so the lobby UI opens the Room before `menutick.c`'s "match is ending"
+branch can push the end screen. The end screen's networked Continue (`endscreenGraphMpContinue`: exit to room,
+lobby resync) shows the client was meant to pass through it. Earlier status-table entries that read "end screen
+PASS" for networked modes were true for the host only. Not fixed: whether clients should see the results screen
+(and how a client still on it joins the host's next match) changes how the end of a networked match plays, so it
+is Mike's call. Option A: every player sees the results and presses Continue to go back to the Room, as in the
+original and as the Continue code expects; the host's next match start takes any client still on its results
+screen along. Option B: keep the straight return and show the last match's results in the Room.
+
+## 2026-11-15 B-1139 A listen host could not leave its multiplayer end screen with Use (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host is stuck on the end screen with keyboard or controller;
+no rematch; no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`, 70/84 after
+the B-1135 fixture fix): the first match ended on time, the client went straight back to its Room
+(the networked client never shows an end screen), but the host stayed on its end screen although
+the harness pressed Use 4 s after it appeared; the same press leaves the offline end screen
+(`combat_sim_ui_release_cycle`). The host's end screen had two dialogs (`count=2`, the render
+alternating mpindex 0 and 1): `menutick.c`'s "match is ending" branch pushes a dialog for every active
+player participant, which in the original were all local players, and on a listen host the remote
+client's player is a participant too. Fix: that branch skips remote participants for the
+multiplayer end screen (`mpGetParticipant(i)->type == PARTICIPANT_REMOTE`) and still counts them as
+player numbers. Co-op and counter-op keep their branches as they are until Mike decides their end
+flow. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[finding4]`). Game check: the rematch
+smoke, re-queued.
+
+## 2026-11-15 B-1138 Teams past the fourth spawned in team 1's region, and some teams got no respawn sector (T-NETWORKING-011, SP-82)
+
+Severity medium (unfair spawns in team matches with five or more teams, or with team colours that
+are not the first ones in order; no crash). Found by the SP-82 sweep after B-1136, from source. The
+port allows `MAX_TEAMS` (8) teams, but both team spawn paths looked at the first 4 team bits only:
+the PC's match-start orchestrator (`mpspawn_orchestrate.c`: `s_Anchors[4]`, the sector count, the
+4-sector cap and `orch_team_bits_to_sector`, whose fallback put any later team in sector 0, team
+1's) and the respawn helper `playerMpResolveTeamSpawnParams` (`player.c`), which left a team past
+the fourth with no team at all. The respawn helper also passed the raw team number as the sector,
+while `spawnPoolSelect*` (`spawnpool.c`) takes a sector in 0..num_teams-1, so with Red and Blue
+active Blue (team 2 of 2) never got its sector when no teammate was placed yet. Fix: the
+orchestrator has one sector per active team up to `MAX_TEAMS` (`ORCH_MAX_SECTORS`), and the respawn
+helper counts all team bits and gives the team's place among the active teams, as the orchestrator
+already did. Matches with the first two or four contiguous teams are unchanged. Pinned in
+`tests/test_mp_chrnum_static.cpp` (`[sp82]`). Not run in game: no smoke has five or more teams yet.
+
+## 2026-11-15 B-1137 A challenge started from the challenge screen had no player in it (T-NETWORKING-011, finding 10)
+
+Severity high for challenges (the mode does not work from a fresh session; no crash). Seen in the
+first run of `mp_challenge_local_smoke` (`results-20261115T133628Z.json`, 27/30): Challenge 1
+started, ran to its time limit and showed its end screen, but `PARTICIPANTS: 1 active (0 players,
+1 bots)` and the results listed only the simulant. `matchStartFromChallenge`
+(`port/src/net/matchsetup.c`), used by both the ImGui challenge screen and `--launch-challenge`,
+applies the challenge, adds its simulants (`challengePerformSanityChecks`, ea187a63) and calls
+`mpStartMatch`, but the local player becomes a participant only in the Room's match start
+(`matchStartCommit`), which this path skips. So the player spawned in the arena without being in
+the match: no score, no result, and the simulant count was chosen for "one player" only by the
+fallback in the sanity check. Fix: the launch clears the participant table and adds the local
+player in slot 0 on team 0 (`challengeApply` sets every player's team to 0) before the simulants
+are added. Pinned in `tests/test_mp_chrnum_static.cpp` (`[finding10]`). Game check: the challenge
+smoke requires `PARTICIPANTS: 2 active (1 players, 1 bots)` and two result lines.
+
+## 2026-11-15 B-1136 Simulants never scored their Pop a Cap or Hacker Central points (T-NETWORKING-011, SP-82)
+
+Severity medium (wrong scores and rankings in two modes, local and networked; no crash). Seen in
+the 150 s networked Pop a Cap smoke (`results-20261115T130939Z.json`): a simulant was the victim
+for the whole match and the host sent two survival-point changes, yet every final score was 0 on
+both sides. `func0f18d0e8` (`src/game/mplayer/mplayer.c`) turns an mpchrnum into its slot in
+`g_MpAllChrConfigPtrs`. It split players from simulants at the N64's player count, written as a
+literal 4 (`arg0 < 4`, `g_BotConfigsArray[arg0 - 4]`), while the port's mpchrnums put players at
+0 to `MAX_PLAYERS - 1` (8) and simulants after them, as `MPCHR` and the inverse `func0f18d074`
+already do. So simulant 0 (mpchrnum 8) looked up simulant 4's config: not found with fewer than
+five simulants (-1, so no points), the wrong simulant with more. Effects: `pacCalculatePlayerScore`
+dropped every simulant's victim kills and survival points and `htmCalculatePlayerScore` every
+simulant's download points; players 5 to 8 (mpchrnums 4 to 7) took simulant 0 to 3's points
+instead of their own; a JudgeSim's "attack the leader" could not see a simulant in the lead; and
+Capture the Case's team bits (`ctcInitProps` after wrapping teams) went to the wrong character.
+Fix: the boundary is `MAX_PLAYERS`, with a range check. Pinned in `tests/test_mp_chrnum_static.cpp`.
+Game check: the Pop a Cap net smoke's victim should end with its survival points. Related, not
+fixed: the PC's match-start orchestrator (`mpspawn_orchestrate.c`) has 4 spawn sectors, so teams 5
+to 8 start in team 1's sector (`orch_team_bits_to_sector` falls back to 0); see SP-82.
+
+## 2026-11-15 B-1135 Two smoke fixtures could never run: their timeout was shorter than their own waits (T-NETWORKING-011)
+
+Severity low (test tooling; no game effect, but a wasted runtime turn each time). `smokeParseJson`
+(`port/src/smoke_harness.c`) refuses a schedule whose latest event plus every `wait_until` timeout
+(plus 1 s per controller attach or detach) is not strictly below the file's `timeout_seconds`. It
+logs `SMOKE: timeout_ms=... must exceed schedule bound=...` and the run fails on every assertion.
+The refusal happens inside the game, after the runner has built the install, so nothing caught it
+earlier. Seen 2026-11-15: `mp_combat_net_rematch_smoke` (new this week; 640 s against a 730 s
+bound) failed 44/84 in 259 s without starting a match. A sweep of all 180 schedules found one more:
+`combat_sim_defect_cohort` (T-ENGINE-005; 180 s against 195 s), which explains why that gate had
+never produced a result. Fix: the timeouts are now 760 s and 210 s; neither fixture's waits
+changed. Class fix: `tests/test_smoke_schedule_bounds_static.cpp` reads every JSON file under
+`tools/smoke-verify/tests` and `fixtures` with the harness's arithmetic and fails on any schedule
+that does not fit; it also pins that arithmetic in `smoke_harness.c` so the two cannot drift. Checked
+by putting the old 640 s back: the test failed with the harness's exact numbers.
+
+## 2026-11-15 B-1134 Capture the Case teams started the match anywhere instead of at their base (T-NETWORKING-011, finding 8)
+
+Severity medium (the mode starts wrong; respawns were right). The original placed every player on its
+team's base pads at match start (`ctcChooseSpawnLocation`). The PC's match-start orchestrator
+(`mpOrchestrateMatchStartSpawns`, `src/game/mplayer/mpspawn_orchestrate.c`) assigns all
+participants with a Hungarian solve around team anchors that it spreads as far apart as the spawn
+pool allows, and never asked the scenario, so in Capture the Case a team could start next to the
+other team's base. Respawns already went through `ctcChooseSpawnLocation`. Fix: the orchestrator
+asks `scenarioGetTeamSpawnAnchor` for each active team and, for Capture the Case, anchors that
+team's region on its base's home pad (`ctcGetTeamSpawnAnchor`), before the team regions are drawn;
+logged as `SPAWN.ORCH: team N starts at its base`. A team without a base keeps the spread anchor.
+The bases are set by `ctcInitProps` during stage setup, before the orchestrator runs (checked in the
+Capture the Case net smoke logs). Other scenarios are unchanged. Pinned in
+`tests/test_net_team_limit_static.cpp`; game check: the Capture the Case smokes count the line.
+
+## 2026-11-15 B-1133 The capsule sweep classified a hit by geometry its collision test never recorded (T-NETWORKING-011)
+
+Severity high (a crash, intermittent, in any mode; plus wrong hit classification). Seen in
+`mp_hold_the_briefcase_net_smoke` on c3c66668 (2026-11-15, `results-20261115T085746Z.json`,
+receipt `20261115T084611729343Z-mp_hold_the_briefcase_net_smoke-4c39af09`): the host died 2.5 s into
+the match, `FATAL: ACCESS_VIOLATION PC=+0x5f3bdc`, which `addr2line` on the frozen binary puts at
+`cdGetGeoFlags` (`src/lib/collision.c:104`, `switch (g_CdObstacleGeo->type)`), right after the host
+force-moved the client's player. Not related to B-1129 (no simulant pickup or drop had happened).
+Cause: `collision.c` has "Exam" queries, which record the obstacle's geometry
+(`cdSetObstacleVtxColPropFltGeo`), and "Test" queries, which record only its prop
+(`cdSetObstacleProp`). Every original caller reads geometry only after an Exam query. The PC capsule
+sweep (`capsuleSweep`'s stage 1, `src/lib/capsule.c:303-329`) tests the volume with `cdTestVolume`, a
+Test query, and then classifies the hit with `cdGetGeoFlags()`, which reads `g_CdObstacleGeo`: NULL
+until the first Exam query of the process (the crash: a host whose first capsule collision came
+before any Exam query), and afterwards whatever surface an earlier Exam query hit, so a wall hit
+could be classified as floor or ceiling from someone else's flags. Fix: `cdTestVolume` records the
+geometry it hit (it has it, `collisions[0].geo`), and `cdGetGeoFlags` / `cdGetObstacleNormal` answer
+"no flags" / leave the caller's normal when no geometry is recorded, logging that once. Original
+behavior is unchanged: no original caller reads geometry after `cdTestVolume`. The capsule's stage 1
+now classifies by the surface it actually touched, which can change how players and simulants
+respond to wall contact where the leftover flags said floor or ceiling. Propagation: the only other
+readers of the obstacle geometry, `surface_loco.c:378,611` and `propobj.c:4187`, read it after
+`cdExamLos08` / `cdExamLos09`, which are Exam queries. Pinned in
+`tests/test_collision_obstacle_static.cpp`; game check pending (the briefcase smoke re-run).
+
+## 2026-11-15 B-1132 The in-match team switch offered 8 teams in Capture the Case (T-NETWORKING-011, finding 8)
+
+Severity low (gameplay; no crash found). The port's in-match team switch for networked team
+matches (`menuhandlerNetTeamSwitch`, `src/game/mplayer/ingame.c`) offered `MAX_TEAMS` = 8 teams, and
+the host's `netmsgSanitizeClientTeam` (`netmsg.c`) accepted any team below 8. Capture the Case has 4
+bases (`ctcGetMaxTeams`) and 4-entry team arrays; `ctcInitProps` folds teams into 0..3 only at match
+start. A player who switched to team 5 mid-match had no base, spawned anywhere, and every case
+counted as the other team's. Checked for out-of-bounds: `ctcChooseSpawnLocation` bounds the team
+index (B-1126), and the simulant code that indexes by team uses the simulant's own, folded team.
+Fix: the switch offers `scenarioGetMaxTeams()` teams, and the host keeps the current team when a
+client in a match asks for one past that. Propagation: `scenarioGetMaxTeams`,
+`scenarioIsRoomHighlighted` and `scenarioHighlightRoom` indexed `g_MpScenarios` by
+`g_MpSetup.scenario` without the range check the other 21 lookups have; they now check it quietly
+(they run per menu tick or per room).
+
+## 2026-11-15 B-1131 A client stops reading a packet at the first message it rejects (T-NETWORKING-011, SP-81)
+
+Severity medium (silent loss of reliable messages; no instance seen in a log yet). Found reading
+the client receive loop for B-1129: `netClientEvReceive` (`port/src/net/net.c`) runs
+`while (!rc && netbufReadLeft(&cl->in) > 0)`, and 14 read handlers in `port/src/net/netmsg.c`
+return `src->error ? src->error : 1` when they reject a well-formed message (a prop or character
+this client does not have, a stage it is not in). Every message after it in the same packet is then
+dropped with only `NET: malformed or unknown message 0x..` in the log. Before B-1129 the likely
+trigger was `SVC_PROP_PICKUP` for a weapon a simulant dropped, which a client never had under the
+host's sync id. Not fixed as a class: several handlers reject before reading the rest of their
+message (`netmsgSvcPropSpawnRead` returns before the weapon fields), so simply continuing would
+misread the following bytes as new messages. Each handler has to read its whole message first and
+then return 0 on a rejection. The new `netmsgSvcBotPickupRead` does that. Search and checklist in
+SP-81.
+Worse half, found by the SP-81 audit (2026-11-15): four in-match readers returned 0 with part of
+their message unread, so the loop read the tail as the next messages (a stream desync, not just a
+dropped packet): `netmsgSvcPlayerStatsRead` (a player with no prop here: the hand ammo, ammo mask,
+held ammo and attacker id were left), `netmsgSvcPropMoveRead` (a prop this client does not have:
+the projectile tail was left), `netmsgSvcChrDisarmRead` (not in the game yet, or a chr victim: the
+grenade position was left; its writer also skipped the position when given none, which the reader
+cannot see) and `netmsgSvcPropSpawnRead` (no prop allocated: the object fields were left).
+Fixed (2026-11-15, built; pd-tests 1,951 cases green): the first three read their whole message
+into locals before deciding; the disarm writer always sends a position with positive damage; the
+spawn path stops the packet instead of desyncing (it allocates props while it parses, so its
+read-first rewrite is separate); pickup, use and character damage skip a message they cannot apply
+with a warning and return 0. Left failing closed on purpose: the reconnect, auth and vehicle state
+readers (the dispatcher's terminal disconnect for a rejected reconnect message depends on it) and
+the hoverbike raw-use rejection. Pinned in `tests/test_net_reader_consumes_static.cpp`.
+`netmsgSvcPropSpawnRead` second pass (2026-11-15, built; pd-tests 1,953 cases green): it now parses
+the whole row (header, weapon or laptop fields, object block, projectile block) before it decides
+or allocates, skips a declined row with 0 outside a reconnect (not in the game, a sync id it already
+has, an owner it cannot resolve, no prop allocated, a topology mismatch) and still fails closed
+inside one; it also no longer writes `realrot` through a NULL `prop->obj`. Its writer sent the
+projectile block only with a non-NULL projectile, a condition the reader could not see; it now
+clears `OBJHFLAG_PROJECTILE` in the written value when there is no projectile. Simulant drops
+(B-1129) arrive as spawns, so this matters more than before. Open: the lobby, catalog, distribution
+and admin readers the audit lists (`audit_readers.py`, session scratchpad: 27 readers return before
+their last read, most of them on purpose or on a broken buffer).
+Third pass (2026-11-15, the open list): every remaining reader and every writer that announces a row
+count was checked (a second scan, `audit_count_writers.py`, found the writers; the first scan missed
+returns inside row loops). The worst finds are in the resync transaction, which
+`netServerPublishPendingResyncs` (`net.c`) sends as one packet: character, prop, score and NPC
+resyncs, then the NPC digest, stage flags, objective statuses and the v62 scenario baseline. A short
+row anywhere garbles everything after it. Fixed: `netmsgSvcChrResyncWrite` wrote a 4-byte null
+placeholder for a simulant without a prop or aibot while the reader reads a whole row for every
+count; it now counts and writes whole rows only (it is also in the reconnect exact state, where a
+garbled message is a terminal disconnect). `netmsgSvcChrResyncRead` and `netmsgSvcPropResyncRead`
+returned 0 from inside their row loop when the client was not in the game yet, leaving the other
+rows to be read as messages; they now read every row and apply none. `netmsgSvcPlayerScoresWrite`
+wrote `g_MpNumChrs` as the count and then skipped participants without a config; it now writes the
+number of rows it sends. `netmsgSvcNpcResyncRead` declines an incomplete snapshot with 0 (it has
+read every record by then), so the digest, flags, objectives and scenario state after it still
+apply. `netmsgClcAdminRead` returned 0 for an unauthenticated or non-server command without reading
+its arguments (a desync) and 0 for an unknown subcode; it now consumes the arguments by the layout in
+`server_admin.h` and stops the packet on an unknown subcode. Checked and left as they are: the
+catalog and distribution readers (they stop only on a broken count, OOM or an empty id, and those
+are reconnect control messages that fail closed on purpose), `CLC_MANIFEST_STATUS` (every send is
+its own packet, so its early stops lose nothing; its order is a security pin), `CLC_BOT_MOVE` (its
+count check is a security pin and stops without desync), the room list (count and rows use the same
+predicate), room settings and playlist updates and the NPC "not ready" gate (they stop after or
+before a whole message, never inside one). Pinned in `tests/test_net_reader_consumes_static.cpp`
+(11 cases); the 224 `[net]` cases pass.
+
+## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
+
+Severity high for networked Capture the Case. Found reading the pickup path for B-1129: touching
+your own case while carrying the other team's returns `TICKOP_NONE` from `scenarioPickUpBriefcase`
+(`scenarios.c`), and `propPickupByPlayer` (`propobj.c`) sends `SVC_PROP_PICKUP` only for a nonzero
+tick operation. So on the host the capturer scored, dropped the carried case (announced, it goes
+back to its base) and lost it from the inventory, while the capturing client kept the case in its
+own inventory, heard no point sound and saw no capture message. Fix: the host notes whether the
+player carried a case before the pickup and, when a capture took it, sends `SVC_PROP_PICKUP` with
+`TICKOP_NONE`; every client replays the capture (inventory, point, messages) and the touched home
+case stays put. Pinned in `tests/test_net_bot_pickup_static.cpp`; game check pending.
+
+## 2026-11-15 B-1129 Simulant pickups and drops were not sent to clients (T-NETWORKING-011, finding 3)
+
+Severity high for networked play with simulants (every mode; the token modes worst). Simulant AI
+runs only on the host (`botCheckPickups` from the bot tick), and nothing told the clients:
+- A pickup (`botPickupProp`, `bot.c`): the weapon, crate, shield, briefcase, uplink or case stayed
+  where it was in a client's world; a human walking onto it there got nothing, because the host,
+  which decides human pickups, no longer had it.
+- A drop (`botinvDrop`, `botinv.c`, from `chrDie`, which a client also reaches when it applies
+  `SVC_CHR_DAMAGE` through `chrDamage`, `chraction.c:5125`): each client made its own copy
+  of every item a dead simulant dropped. A prop a client allocates gets sync id 0 (`prop.c:211`),
+  so the host's `SVC_PROP_PICKUP` for its own copy (host sync id) could never resolve on the
+  client: the client's player did not get the weapon, the local copy stayed, and the rejected
+  message stopped the rest of the packet (B-1131).
+Fix: the host wraps each simulant pickup (`botPickupPropAndAnnounce`) and sends the new
+`SVC_BOT_PICKUP` 0x4D {simulant, item sync id taken before the pickup} when the pickup took effect
+(a tick operation, a deletion mark for the scenario tokens, which return `TICKOP_NONE`, or a Capture
+the Case capture); a client replays the same `botPickupProp` on its copy of the simulant plus the
+`TICKOP_FREE` that `botCheckPickups` runs, and skips (logs, returns 0) a pickup it cannot apply.
+`botinvDrop` makes drop props on the host only and announces each with `SVC_PROP_SPAWN` and
+`SVC_PROP_MOVE`, after a Capture the Case case went back to its base, as the player drop does, and
+retires a half-dropped prop as the player drop does. The client token searches
+(`htbNetPresent`, `htmNetPresent`, `ctcNetPresent`) skip a copy marked for deletion. Wire stays
+v62 (unreleased when this was added). Pinned in `tests/test_net_bot_pickup_static.cpp`; game check
+pending.
+
+## 2026-11-15 B-1128 A networked client set up the objective scenario on the previous stage (T-NETWORKING-011)
+
+Severity medium (reads and changes the wrong stage's data; harmless so far only because the old
+stage was still loaded). Seen in `mp_king_of_the_hill_net_smoke` (2026-11-15, build 71f23c32,
+install `20261115T065303450187Z-mp_king_of_the_hill_net_smoke-8c2bfc97`): on the client,
+`netmsgSvcStageStartRead` called `scenarioInitProps()` right after `mpStartMatch()`, which only
+requests the stage, so King of the Hill picked "hill 0 of 6 at pad=176 room=84" from the stage
+still loaded; the real stage load then ran it again ("SETUP: calling scenarioInitProps", hill 5 of
+6 at pad 192 room 7, the host's own pick). For Hacker Central, Hold the Briefcase and Capture the
+Case that early call also created objects on the old stage's pads. The comment justifying it (the
+`normmplayerisrunning` guard "can be false" on a client) does not hold: the client's `setup.c` path
+ran. Fix: the early call is removed; the stage load sets the scenario up as on every peer, and the
+host's scenario state (v62) corrects anything a client picked. Propagation: no other
+`scenarioInitProps` caller runs before the stage loads (`setup.c:2900` only).
+
+## 2026-11-15 B-1127 A networked client applies the host's character-slot data to the wrong two players (T-NETWORKING-011)
+
+Severity high (every networked scoreboard). Found reading the code for the scenario state seam;
+the slot swap itself is in the `mp_combat_net_bots_smoke` logs of 2026-11-14
+(receipt `20261114T225327900327Z-mp_combat_net_bots_smoke-2a52b4b2`): the host logs
+`NET: allocated playernum=0` for its own player and `1` for the client, while the client allocates
+the host's player to `playernum=1` and itself to `0`. A client runs its own player as player 0:
+`netPlayersAllocate` (`port/src/net/net.c`) gives the local client player number 0 and gives the
+host's player the slot the host assigned this client (k); everyone else keeps the host's number.
+`g_PlayerConfigsArray`, `g_Vars.playerstats` and `g_MpAllChrPtrs`/`g_MpAllChrConfigPtrs` follow that
+local numbering (`netmsg.c:3715` places each roster config at `runtime_playernum`;
+`player.c:3435`), and `netSyncIdsAllocate` swaps the two players' prop sync ids to match. But
+`SVC_PLAYER_SCORES` writes the host's slot index and the client applies it to its own slot of the
+same number (`netmsgSvcPlayerScoresRead`), with each player's `killcounts[]` indexed the same way,
+so slots 0 and k would trade team, deaths, points and kill counts on the client. Not visible in
+`mp_combat_net_bots_smoke` (2026-11-14) because both humans ended with score 0 and 1 death. Any
+scenario state indexed by character slot (Pop a Cap victims and counts, the briefcase holder) has
+the same exposure.
+Verified in game 2026-11-15 on 4a467190 (networked smokes of all five objective modes, two humans
+and three simulants on Complex; host and client logs compared by `net_compare.py`, session
+scratchpad): after mapping the client's slots 0 and 1, every final result line agrees, including the
+three deaths in Hacker Central (one of them the client's own player, host slot 1), the two in
+Capture the Case and a simulant's hill point in King of the Hill.
+Fix (2026-11-15, built; pd-tests 1,931 cases green): `netChrSlotFromHost`
+(`net.c`, declared in `net.h`) maps a host slot to the client's own (0 <-> k, its own inverse, the
+identity on the host, offline and for simulants); `netmsgSvcPlayerScoresRead` maps the slot and
+every `killcounts[]` index, and `scenarioNetLocalizeSlots` (`scenarios.c`, run on every received
+scenario state) maps every character slot in it: the Pop a Cap victim and per-slot counts, the
+briefcase holder, the uplink holder, download player, player in range and per-slot progress and
+points, and each case holder.
+Propagation: no other message in `netmsg.c` indexes characters by slot (the lobby kill feed
+matches by name). The networked smokes' cross-log score comparison is the check.
 
 ## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
 
@@ -298,6 +1367,50 @@ through extraction and the runtime intro builder (restores the original
 places on every arena; asked in the week note); (2) the walkable-pad fallback
 from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
 how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
+
+Fix (Mike, 2026-11-15: "get all the MP modes functional", including the same
+fill-in as Hacker Central for these three). Option (2), used only where the
+arena's own pads are missing; option (1) is still asked of CORE and makes the
+fill-in idle again on the standard arenas. Candidates are the same walkable
+pads as B-1125 (`scenarioCollectFallbackCandidates` in
+`src/game/mplayer/scenarios.c`: navigation waypoints, else every pad in a room;
+in a room and not on a lift). New pure pickers in
+`port/src/scenario_pad_fallback.c`, unit-tested:
+- Capture the Case (`ctcFillMissingPads`, called in `ctcInitProps` after the
+  teams get their base slots): a base in play whose home pad is not a pad in a
+  room gets the walkable pad farthest from the other bases in play
+  (`scenarioPadPickFarthest`; with no usable base at all the first is random,
+  one `rngRandom` call); a base in play with no usable respawn pad gets up to
+  six walkable pads nearest its home pad among those nearer to it than to any
+  other base (`scenarioPadPickNearest`, distance in three dimensions), so its
+  players respawn at their own base. Each team's case placement is logged
+  (`CTC: team T case on base B pad=P room=R respawnpads=N prop=ok`).
+  Hardening found on the way: `baserooms[]` no longer dereferences a NULL case
+  prop, and `ctcChooseSpawnLocation` refuses a team with no base slot (index
+  -1 used to read before the array).
+- King of the Hill (`kohFillMissingHills`, start of `kohInitProps`): with fewer
+  than two usable hills the match gets up to six, one pad per room
+  (`scenarioPadReduceToRooms`: the pad nearest the room's middle, rooms crossed
+  by two or more waypoints when there are enough), in rooms none of the
+  arena's own hills is in, spaced apart (`scenarioPadPickSpaced`). Listed hills
+  that are not in a room are dropped. The original `@bug` (a single hill used
+  the room of pad 0) is fixed in `kohInitProps` and in the hill move in
+  `kohTick`. Logged: `KOH: hill I of N at pad=P room=R` and
+  `KOH: hill moved to I of N pad=P room=R`.
+- Hold the Briefcase (`htbTopUpBank`, start of `htbInitProps`): with no
+  multiplayer ammo crate and no usable bank pad, the bank is reset and gets
+  eight spaced walkable pads (the HTM picker), so the briefcase starts and
+  respawns on a random real pad. Logged:
+  `HTB: briefcase placed pad=P source=crate|bank|pad0 prop=ok|none`.
+Arenas with their own pads keep the original placement and make no extra
+random calls. Picks use `rngRandom`; whether a networked client picks the same
+pads as the host is not established (the client runs `scenarioInitProps` from
+its own stage-start path), so the network work (scenario state sent from the
+host) has to carry these placements, not assume them. The
+three local smokes now assert the outcome, not the fill-in, so they stay
+valid once CORE's extraction carries the arenas' own pads: every team's case
+on a pad in a room with respawn pads, the starting hill a real room chosen
+from two or more hills, the briefcase on a real pad from a crate or the bank.
 
 ## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
 

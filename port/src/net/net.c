@@ -29,6 +29,7 @@
 #include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "net/netmanifest.h"
+#include "net/net_scenario_state_wire.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -39,6 +40,7 @@
 #include "game/playermgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
+#include "game/chraction.h"
 #include "game/bondgun.h"
 #include "game/game_1531a0.h"
 #include "game/game_0b0fd0.h"
@@ -47,6 +49,9 @@
 #include "game/menu.h"
 #include "game/pdmode.h"
 #include "game/mplayer/mplayer.h"
+#if !defined(PD_SERVER)
+#include "game/mplayer/scenarios.h"
+#endif
 #include "lib/main.h"
 #include "lib/vi.h"
 #include "config.h"
@@ -86,6 +91,7 @@
 s32 g_NetMode = NETMODE_NONE;
 u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 u8  g_NetCounterOpClientId = NET_NULL_CLIENT;
+u8  g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 u8  g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
 s32 g_NetHostLatch = false;
@@ -175,6 +181,8 @@ typedef struct net_stage_end_pending_s {
 	/* The final Combat Simulator scores went out ahead of the terminal packet.
 	 * Kept across a failed terminal send so a retry does not depend on it. */
 	bool final_scores_sent;
+	/* B-1193: the same for a co-op or counter-op mission's objective statuses. */
+	bool final_objectives_sent;
 } net_stage_end_pending_t;
 
 static net_stage_end_pending_t s_NetStageEndPending;
@@ -680,6 +688,9 @@ bool netServerStageReplicationBlocked(void)
 		&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE;
 }
 
+static void netServerNpcRemoveClear(const char *why);
+static void netServerAuthorityHeldClear(const char *why);
+
 static void netResetStageReplication(const char *reason,
 		bool clear_epoch)
 {
@@ -694,6 +705,8 @@ static void netResetStageReplication(const char *reason,
 	}
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage replication was reset");
+	netServerAuthorityHeldClear("the stage replication was reset");
 
 	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE,
@@ -713,6 +726,8 @@ static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
 	g_NetStageEpoch = prior_epoch;
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage start rolled back");
+	netServerAuthorityHeldClear("the stage start rolled back");
 	sysLogPrintf(LOG_WARNING,
 		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
 		(unsigned)prior_epoch, reason ? reason : "unknown");
@@ -749,6 +764,8 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 	s_NetStageReplicationWaitMask = wait_mask;
 	s_NetStageAuthorityReady = false;
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("a new stage starts");
+	netServerAuthorityHeldClear("a new stage starts");
 	/* Stage publication may be initiated late in netEndFrame. Retire every
 	 * shared gameplay byte from the lobby/current stage before serializing the
 	 * new SVC_STAGE_START control transaction. */
@@ -815,6 +832,62 @@ typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
 /* Append one complete resync message or leave the destination byte-for-byte
  * writable at its prior boundary. The pending bit is cleared by the caller
  * only after the complete baseline is queued. */
+#if !defined(PD_SERVER)
+/* v64 (T-NETWORKING-011): the objective scenario state the host last sent,
+ * so a running timer is resent at a low rate rather than every frame. */
+static net_scenario_state_t s_NetScenarioLastSent;
+static s32 s_NetScenarioHaveSent;
+static u32 s_NetScenarioLastSentTick;
+
+#define NET_SCENARIO_TIMER_RESEND_TICKS 30
+
+static void netServerScenarioStateResetSend(void)
+{
+	memset(&s_NetScenarioLastSent, 0, sizeof(s_NetScenarioLastSent));
+	s_NetScenarioHaveSent = false;
+	s_NetScenarioLastSentTick = 0;
+}
+
+/* Host, every update frame of an active match: send the scenario state when
+ * it changed, or when only its timer moved and half a second has passed.
+ * Nothing goes out before the stage baseline has carried the first state. */
+static void netServerScenarioStateTick(void)
+{
+	net_scenario_state_t state;
+	s32 changed = false;
+
+	if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCENARIO) {
+		return;
+	}
+
+	if (!scenarioNetCaptureState(&state, &changed)) {
+		return;
+	}
+
+	if (!changed && s_NetScenarioHaveSent) {
+		if (memcmp(&state, &s_NetScenarioLastSent, sizeof(state)) == 0
+				|| (u32)(g_NetTick - s_NetScenarioLastSentTick) < NET_SCENARIO_TIMER_RESEND_TICKS) {
+			return;
+		}
+	}
+
+	if (netmsgSvcScenarioStateWrite(&g_NetMsgRel, &state) != 0) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: send failed scenario=%u rev=%u; next frame retries",
+			(unsigned)state.scenario, (unsigned)state.revision);
+		return;
+	}
+
+	if (changed) {
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=change",
+			(unsigned)state.scenario, (unsigned)state.revision);
+	}
+
+	memcpy(&s_NetScenarioLastSent, &state, sizeof(state));
+	s_NetScenarioHaveSent = true;
+	s_NetScenarioLastSentTick = g_NetTick;
+}
+#endif
+
 static bool netAppendResyncTransaction(struct netbuf *dst,
 		net_resync_writer_fn writer)
 {
@@ -899,6 +972,16 @@ static bool netServerPublishPendingResyncs(void)
 		if (!netAppendNpcResyncTransaction(&wire)) {
 			sysLogPrintf(LOG_WARNING,
 				"NET: npc resync group append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	/* v64: the objective scenario's state rides in the same baseline, so a
+	 * client never shows its own pick of a hill or a base first. */
+	if (complete && (requested & NET_RESYNC_FLAG_SCENARIO)) {
+		if (!netAppendResyncTransaction(&wire,
+				netmsgSvcScenarioStateBaselineWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: scenario state append failed; request retained for retry");
 			complete = false;
 		}
 	}
@@ -1635,6 +1718,13 @@ s32 netServerStageStart(void)
 	// kills get current scores immediately rather than waiting for the next
 	// 300-frame periodic broadcast (L1-2).
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
+#if !defined(PD_SERVER)
+	// v64: an objective scenario's state is part of the baseline
+	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()) {
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_SCENARIO;
+	}
+	netServerScenarioStateResetSend();
+#endif
 	netPropSnapReset();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
@@ -1954,6 +2044,7 @@ static void netServerCommitPendingStageEnd(void)
 		}
 	}
 	g_NetMatchRoomId = 0xFF;
+	g_NetLastCounterOpClientId = g_NetCounterOpClientId;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
 	sessionCatalogTeardown();
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
@@ -1998,6 +2089,47 @@ static bool netServerSendFinalScores(u8 room_id, const char *reason)
 	return true;
 }
 
+/* B-1193: the frame that ends a co-op or counter-op mission wipes the outgoing
+ * buffers (netServerStageEnd), which can drop an SVC_OBJ_STATUS queued earlier
+ * in that frame, and a client shows completed or failed from its cached
+ * statuses. Publish every status on the terminal packet's channel first, as
+ * Combat publishes its final scores. */
+static bool netServerSendFinalObjectives(u8 room_id, const char *reason)
+{
+	/* The objective statuses, then SVC_MISSION_STATS: an id and a count, and
+	 * per player a client id, kills and seven shot counts. */
+	u8 data[MAX_OBJECTIVES * 3u + 2u + MAX_PLAYERS * 17u];
+	struct netbuf wire = { .data = data, .size = sizeof(data) };
+	s32 count = 0;
+	u32 bytes;
+
+	netbufStartWrite(&wire);
+	for (s32 i = 0; i <= g_ObjectiveLastIndex && i < MAX_OBJECTIVES; i++) {
+		netmsgSvcObjStatusWrite(&wire, (u8)i, (u8)g_ObjectiveStatuses[i]);
+		count++;
+	}
+	/* B-1193: and every player's final stats, so each machine's results show
+	 * both players with the host's numbers. */
+	netmsgSvcMissionStatsWrite(&wire);
+	if (wire.error) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses write failed reason=%s room=%u",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	bytes = wire.wp;
+	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses send failed reason=%s room=%u; retry retained",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"MISSION: final objective statuses published before stage end room=%u count=%d",
+		(unsigned)room_id, count);
+	return true;
+}
+
 static bool netServerFlushPendingStageEnd(const char *reason)
 {
 	if (!s_NetStageEndPending.active) {
@@ -2009,6 +2141,14 @@ static bool netServerFlushPendingStageEnd(const char *reason)
 			return false;
 		}
 		s_NetStageEndPending.final_scores_sent = true;
+	}
+	if ((s_NetStageEndPending.mode == NETGAMEMODE_COOP
+				|| s_NetStageEndPending.mode == NETGAMEMODE_ANTI)
+			&& !s_NetStageEndPending.final_objectives_sent) {
+		if (!netServerSendFinalObjectives(s_NetStageEndPending.room_id, reason)) {
+			return false;
+		}
+		s_NetStageEndPending.final_objectives_sent = true;
 	}
 	if (!netServerFlushCutsceneAuthorityPacket(reason, true,
 			s_NetStageEndPending.room_id, s_NetStageEndPending.mode)) {
@@ -2300,6 +2440,7 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	}
 	g_NetMatchRoomId = 0xFF;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -2308,15 +2449,43 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 		SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
 		"netDisconnect");
 
-	if (wasingame && !g_AppQuitting) {
+	/* B-1201: since B-1197 a player in the Room after networked results is in
+	 * the lobby state while the ended match or mission stays loaded behind
+	 * the Room until the next one. A disconnect there left that stage live
+	 * offline: a co-op client's guards, puppets of the host whose actions
+	 * were never set up here, then ran their own AI and crashed
+	 * (chrTickAttack). Leave such a stage for CI as an in-game disconnect does. */
+	const bool leftendedstage = !wasingame && g_MainIsEndscreen
+		&& STAGE_IS_GAMEPLAY(g_Vars.stagenum) && g_Vars.stagenum != STAGE_CITRAINING;
+
+	if (leftendedstage) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: disconnect leaves the ended stage 0x%02x behind the Room for CI",
+			(u32)g_Vars.stagenum);
+	}
+
+	if ((wasingame || leftendedstage) && !g_AppQuitting) {
+		/* B-1201: freeze the stage being left for the frames before CI loads
+		 * (lvReset unpauses CI). Its chrs are this client's puppets of the
+		 * host: with g_NetMode now NETMODE_NONE their AI is no longer
+		 * suppressed (chraTick), and an action the host was running (an
+		 * attack, say) was never set up here. The results push that used to
+		 * pause it is gone (B-1198); each prop's catch-up time goes too, so
+		 * no backgrounded chr ticks with time saved from before the pause. */
+		lvSetPaused(true);
+		g_Vars.lvupdate240 = 0;
+		for (s32 i = 0; g_Vars.props && i < g_Vars.maxprops; i++) {
+			g_Vars.props[i].propupdate240 = 0;
+		}
+
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 			if (g_Vars.players[i]) {
 				g_PlayerConfigsArray[i].options |= OPTION_ASKEDSAVEPLAYER;
 			}
 		}
-		// end the stage immediately
-		mainEndStage();
+		// end the stage immediately, without mission results (B-1198)
+		mainEndStageWithoutResults();
 		// try to drop back to main menu with 1 player
 		mpSetPaused(MPPAUSEMODE_UNPAUSED);
 		/* B-12 Phase 3: reset the participant pool to one local player. */
@@ -3485,14 +3654,18 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_PROP_SYNC: rc = netmsgSvcPropSyncRead(&cl->in, cl); break;
 			case SVC_PROP_RESYNC: rc = netmsgSvcPropResyncRead(&cl->in, cl); break;
 			case SVC_NPC_MOVE: rc = netmsgSvcNpcMoveRead(&cl->in, cl); break;
+			case SVC_NPC_SPAWN: rc = netmsgSvcNpcSpawnRead(&cl->in, cl); break;
+			case SVC_NPC_REMOVE: rc = netmsgSvcNpcRemoveRead(&cl->in, cl); break;
 			case SVC_NPC_STATE: rc = netmsgSvcNpcStateRead(&cl->in, cl); break;
 			case SVC_NPC_SYNC: rc = netmsgSvcNpcSyncRead(&cl->in, cl); break;
 			case SVC_NPC_RESYNC: rc = netmsgSvcNpcResyncRead(&cl->in, cl); break;
 			/* Bot authority relay */
 			case SVC_BOT_AUTHORITY: rc = netmsgSvcBotAuthorityRead(&cl->in, cl); break;
+			case SVC_BOT_PICKUP: rc = netmsgSvcBotPickupRead(&cl->in, cl); break;
 			case SVC_STAGE_FLAG: rc = netmsgSvcStageFlagRead(&cl->in, cl); break;
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
+			case SVC_SCENARIO_STATE: rc = netmsgSvcScenarioStateRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
 			case SVC_CUTSCENE_SKIP: rc = netmsgSvcCutsceneSkipRead(&cl->in, cl); break;
 			case SVC_RECONNECT_PROP_BEGIN: rc = netmsgSvcReconnectPropBeginRead(&cl->in, cl); break;
@@ -3513,6 +3686,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_ROOM_RESULT:      rc = netmsgSvcRoomResultRead(&cl->in, cl); break;
 				case SVC_LOBBY_ROSTER:     rc = netmsgSvcLobbyRosterRead(&cl->in, cl); break;
+			case SVC_MISSION_RETURN:   rc = netmsgSvcMissionReturnRead(&cl->in, cl); break;
+			case SVC_MISSION_STATS:    rc = netmsgSvcMissionStatsRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */
@@ -3715,6 +3890,245 @@ void netStartFrame(void)
 	netbufStartWrite(&g_NetMsgRel);
 }
 
+/* B-1196 (T-NETWORKING-011): chrs the host made after the stage start (AI
+ * clones and spawns, SP-85), each announced once with SVC_NPC_SPAWN. The ids
+ * grow for the whole stage (propAllocate), so the list restarts when the
+ * stage's first dynamic id changes. Their moves and states wait a quarter
+ * second after the announcement: the spawn goes on the reliable channel and
+ * a move on the unreliable one, which ENet does not order between them. */
+#define NET_NPC_SPAWN_MAX         128
+#define NET_NPC_SPAWN_SETTLE_TICKS 15
+
+static u32 s_NetNpcSpawnIds[NET_NPC_SPAWN_MAX];
+static u32 s_NetNpcSpawnTicks[NET_NPC_SPAWN_MAX];
+static s32 s_NetNpcSpawnCount = 0;
+static u32 s_NetNpcSpawnFirst = 0;
+static bool s_NetNpcSpawnFullLogged = false;
+
+static s32 netServerNpcSpawnIndex(u32 syncid)
+{
+	if (s_NetNpcSpawnFirst != g_NetFirstDynamicSyncId) {
+		s_NetNpcSpawnFirst = g_NetFirstDynamicSyncId;
+		s_NetNpcSpawnCount = 0;
+		s_NetNpcSpawnFullLogged = false;
+	}
+
+	for (s32 i = 0; i < s_NetNpcSpawnCount; i++) {
+		if (s_NetNpcSpawnIds[i] == syncid) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void netServerNpcSpawnAnnounce(struct chrdata *chr)
+{
+	u32 syncid;
+
+	if (!netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+
+	if (syncid < g_NetFirstDynamicSyncId || netServerNpcSpawnIndex(syncid) >= 0) {
+		return;
+	}
+
+	if (s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX) {
+		if (!s_NetNpcSpawnFullLogged) {
+			sysLogPrintf(LOG_WARNING, "NET.NPC: more than %d chrs made after the stage start; later ones are not announced",
+				NET_NPC_SPAWN_MAX);
+			s_NetNpcSpawnFullLogged = true;
+		}
+		return;
+	}
+
+	if (netmsgSvcNpcSpawnWrite(&g_NetMsgRel, chr) == 0) {
+		s_NetNpcSpawnIds[s_NetNpcSpawnCount] = syncid;
+		s_NetNpcSpawnTicks[s_NetNpcSpawnCount] = g_NetTick;
+		s_NetNpcSpawnCount++;
+	}
+}
+
+static bool netServerNpcSpawnSettled(const struct chrdata *chr)
+{
+	const u32 syncid = chr->prop->syncid;
+	s32 index;
+
+	if (syncid < g_NetFirstDynamicSyncId) {
+		return true;
+	}
+
+	index = netServerNpcSpawnIndex(syncid);
+
+	if (index < 0) {
+		/* Not announced (the list is full): send as before */
+		return s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX;
+	}
+
+	return g_NetTick - s_NetNpcSpawnTicks[index] >= NET_NPC_SPAWN_SETTLE_TICKS;
+}
+
+/* B-1206: chrs the host removed (chrTick's deleting branch), each announced
+ * once with SVC_NPC_REMOVE from the frame's entity broadcast below, ahead of
+ * the frame's spawns, moves and states. chrTick runs in the game tick, and
+ * netEndFrame discards that tick's shared messages on a frame that publishes
+ * a cutscene or stage authority packet, or before the stage replication is
+ * active (SP-91); a removal written there was lost, and the client kept a
+ * chr the host no longer had (Deep Sea's intro actor, removed on the frame
+ * the intro ended). A removal still queued when the stage's release baseline
+ * goes out needs no message: the baseline leaves the chr out and the client
+ * removes what it does not name. A full queue asks for a full NPC snapshot. */
+#define NET_NPC_REMOVE_MAX 64
+
+static u32 s_NetNpcRemoveIds[NET_NPC_REMOVE_MAX];
+static u8 s_NetNpcRemoveFlags[NET_NPC_REMOVE_MAX];
+static s32 s_NetNpcRemoveCount = 0;
+
+static void netServerNpcRemoveClear(const char *why)
+{
+	if (s_NetNpcRemoveCount > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.NPC: %d queued chr removal(s) not sent: %s",
+			s_NetNpcRemoveCount, why);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
+void netServerNpcRemoveQueue(struct chrdata *chr)
+{
+	u32 syncid;
+	u8 flags;
+
+	if (g_NetMode != NETMODE_SERVER || !netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+	flags = (chr->hidden & CHRHFLAG_DROPPINGITEM) ? NET_NPC_REMOVE_DROPPEDITEMS : 0;
+
+	if (syncid >= g_NetFirstDynamicSyncId && netServerNpcSpawnIndex(syncid) < 0) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.NPC: host removed chr syncid=%u chrnum=%d before announcing it; no client has it",
+			(unsigned)syncid, (s32)chr->chrnum);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: host removed chr syncid=%u chrnum=%d body=%d dead=%d action=%d dropitems=%d",
+		(unsigned)syncid, (s32)chr->chrnum, (s32)chr->bodynum,
+		chrIsDead(chr) ? 1 : 0, (s32)chr->actiontype,
+		(flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
+
+	if (s_NetNpcRemoveCount >= NET_NPC_REMOVE_MAX) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.NPC: more than %d chr removals queued; a full NPC snapshot replaces them",
+			NET_NPC_REMOVE_MAX);
+		s_NetNpcRemoveCount = 0;
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_NPCS;
+		return;
+	}
+
+	s_NetNpcRemoveIds[s_NetNpcRemoveCount] = syncid;
+	s_NetNpcRemoveFlags[s_NetNpcRemoveCount] = flags;
+	s_NetNpcRemoveCount++;
+}
+
+static void netServerNpcRemoveFlush(void)
+{
+	for (s32 i = 0; i < s_NetNpcRemoveCount; i++) {
+		netmsgSvcNpcRemoveWrite(&g_NetMsgRel, s_NetNpcRemoveIds[i], s_NetNpcRemoveFlags[i]);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
+/* SP-91: the reliable bytes the game tick wrote on a frame that publishes a
+ * cutscene authority packet (START or END). They used to be discarded with the
+ * rest of that frame's shared output, so a one-shot event the host decided in
+ * that tick (a pickup, a stage flag, an objective status, a door, damage)
+ * never reached a client. Now they are held, and once the authority packet is
+ * out they go first in that frame's reliable buffer: same reliable channel
+ * (NETCHAN_DEFAULT), so a client applies them after the cutscene state
+ * changed, as the host's tick saw them in that frame. No client handler gates
+ * on cutscene state, so a message the tick wrote just before START holds when
+ * applied just after it (CORE, 2026-11-16). Only the unreliable buffer is
+ * dropped, as before. While the authority publication retries, they stay held
+ * and the next frames' bytes join them in order. */
+static u8 s_NetAuthorityHeldRel[65536]; /* the size of g_NetMsgRelBuf */
+static u32 s_NetAuthorityHeldRelLen = 0;
+static bool s_NetAuthorityHeldRelOut = false; /* copied into g_NetMsgRel this frame */
+
+static void netServerAuthorityHeldClear(const char *why)
+{
+	if (s_NetAuthorityHeldRelLen > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes not sent: %s",
+			(unsigned)s_NetAuthorityHeldRelLen, why);
+	}
+
+	s_NetAuthorityHeldRelLen = 0;
+	s_NetAuthorityHeldRelOut = false;
+}
+
+/* Move the frame's reliable bytes, so far, to the end of the hold */
+static void netServerAuthorityHoldReliable(const char *why)
+{
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (bytes == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || s_NetAuthorityHeldRelLen + bytes > sizeof(s_NetAuthorityHeldRel)) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u game-tick bytes dropped (%s): held=%u overflow=%d",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen, g_NetMsgRel.error ? 1 : 0);
+	} else {
+		memcpy(s_NetAuthorityHeldRel + s_NetAuthorityHeldRelLen, g_NetMsgRel.data, bytes);
+		s_NetAuthorityHeldRelLen += bytes;
+		sysLogPrintf(LOG_NOTE, "NET.SP91: held %u game-tick bytes (%s), %u in all",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen);
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+}
+
+/* Put the held bytes in front of whatever the frame's reliable buffer holds */
+static void netServerAuthorityReleaseHeld(const char *why)
+{
+	const u32 held = s_NetAuthorityHeldRelLen;
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (held == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || held + bytes > g_NetMsgRel.size) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u held game-tick bytes do not fit before %u frame bytes (%s); still held",
+			(unsigned)held, (unsigned)bytes, why);
+		return;
+	}
+
+	memmove(g_NetMsgRel.data + held, g_NetMsgRel.data, bytes);
+	memcpy(g_NetMsgRel.data, s_NetAuthorityHeldRel, held);
+	g_NetMsgRel.wp = held + bytes;
+	s_NetAuthorityHeldRelOut = true;
+	sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes go out (%s)", (unsigned)held, why);
+}
+
+/* The frame's reliable buffer was sent (sent=true) or discarded */
+static void netServerAuthorityHeldSettle(bool sent)
+{
+	if (s_NetAuthorityHeldRelOut && sent) {
+		s_NetAuthorityHeldRelLen = 0;
+	}
+
+	s_NetAuthorityHeldRelOut = false;
+}
+
 void netEndFrame(void)
 {
 	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
@@ -3737,27 +4151,48 @@ void netEndFrame(void)
 		&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
 		&& netmsgCutsceneAuthorityHasPendingEvents();
 
-	/* Any authority event already pending at this boundary supersedes ordinary
-	 * game messages accumulated since netStartFrame. Discard those shared
-	 * buffers, then publish the dedicated authority packet first. This keeps a
-	 * retained START/ACCEPT retry from being overtaken just as strictly as the
-	 * terminal END + SVC_STAGE_END transaction. */
+	/* Any authority event already pending at this boundary is published before
+	 * the ordinary game messages accumulated since netStartFrame. Discard the
+	 * unreliable buffer; SP-91: hold the reliable one and put it back, first,
+	 * once the dedicated authority packet is out (same reliable channel, so it
+	 * follows the packet in order). This keeps a retained START/ACCEPT retry
+	 * from being overtaken just as strictly as the terminal END +
+	 * SVC_STAGE_END transaction, without losing what the tick decided. */
 	if (terminal_stage_end_frame
 			|| (g_NetMode == NETMODE_SERVER
 				&& (s_NetStageReplicationPhase
 					!= NET_STAGE_REPLICATION_ACTIVE))
 			|| authority_pending_frame) {
+		if (authority_pending_frame) {
+			netServerAuthorityHoldReliable("cutscene authority frame");
+		} else if (terminal_stage_end_frame) {
+			netServerAuthorityHeldClear("the stage ends");
+		}
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
 	} else {
+		/* SP-91: bytes held from an earlier authority frame go first, unless
+		 * that packet is still unpublished: then this frame's join the hold */
+		if (s_NetAuthorityHeldRelLen > 0) {
+			if (g_NetMode == NETMODE_SERVER && netmsgCutsceneAuthorityHasPendingEvents()) {
+				netServerAuthorityHoldReliable("its cutscene authority packet is still pending");
+			} else {
+				netServerAuthorityReleaseHeld("after an earlier authority packet");
+			}
+		}
 		// send whatever messages have accumulated so far
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
 	}
 	if (terminal_stage_end_frame && s_NetStageEndPending.active) {
 		(void)netServerFlushPendingStageEnd("end-frame-stage-end");
-	} else if (authority_pending_frame
-			&& !netServerFlushCutsceneAuthority("end-frame-priority")) {
-		authority_publication_failed = true;
+	} else if (authority_pending_frame) {
+		if (!netServerFlushCutsceneAuthority("end-frame-priority")) {
+			authority_publication_failed = true;
+		} else {
+			/* SP-91: the packet is out; the held bytes lead the frame's reliable output */
+			netServerAuthorityReleaseHeld("after the cutscene authority packet");
+		}
 	}
 
 	/* Phase 3 (v42): spectator host fan-out. Server-side only. The
@@ -3877,13 +4312,26 @@ void netEndFrame(void)
 				s_npcBroadcastStarted = true;
 			}
 
+			/* B-1206: the chrs removed since the last broadcast, first */
+			netServerNpcRemoveFlush();
+
+			/* B-1196: a chr the host made after the stage start is announced
+			 * (SVC_NPC_SPAWN) before any move or state names it. */
+			if (g_NumChrSlots > 0) {
+				for (s32 i = 0; i < g_NumChrSlots; ++i) {
+					netServerNpcSpawnAnnounce(&g_ChrSlots[i]);
+				}
+			}
+
 			// NPC position updates every 3 frames (~20 Hz)
 			if ((g_NetTick % 3) == 0) {
 				if (g_NumChrSlots > 0) {
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							}
 						}
 					}
 				}
@@ -3895,7 +4343,9 @@ void netEndFrame(void)
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							}
 						}
 					}
 				}
@@ -3914,6 +4364,13 @@ void netEndFrame(void)
 			 * score broadcast from the HOST proves score replication is live. */
 			sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 		}
+
+#if !defined(PD_SERVER)
+		/* v64 (T-NETWORKING-011): the objective scenario's state. */
+		if (g_Vars.normmplayerisrunning && g_NetGameMode == NETGAMEMODE_MP) {
+			netServerScenarioStateTick();
+		}
+#endif
 		}
 
 	}
@@ -4048,14 +4505,19 @@ void netEndFrame(void)
 					!= NET_STAGE_REPLICATION_RELEASE)) {
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
+		/* SP-91: what was put back stays held for a later frame */
+		netServerAuthorityHeldSettle(false);
 	} else {
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
 	}
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
 			&& !authority_publication_failed
 			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
 		s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE;
 		s_NetStageReplicationWaitMask = 0;
+		/* B-1206: the baseline just published leaves those chrs out */
+		netServerNpcRemoveClear("the stage's release baseline covers them");
 		sysLogPrintf(LOG_NOTE,
 			"NET.STAGE.REPLICATION phase=active epoch=%u room=%u fresh_release=1",
 			(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId);
@@ -4211,6 +4673,43 @@ static enum net_player_allocate_result netPlayersAllocationReject(
 		netPlayerAllocateResultString(result), client_id, playernum,
 		playerIdentityStatusString(identity_status));
 	return result;
+}
+
+/*
+ * B-1127: a client runs its own player as player 0 and gives the host's
+ * player the slot the host gave this client (netPlayersAllocate below); every
+ * other player keeps the host's number. The player configs, player stats and
+ * g_MpAllChrPtrs/g_MpAllChrConfigPtrs follow that local numbering, so a
+ * character slot sent by the host must be translated before a client indexes
+ * anything with it. The swap is its own inverse, so the same call maps a
+ * local slot back to the host's number. Simulant slots and every slot on the
+ * host or offline are unchanged.
+ */
+s32 netChrSlotFromHost(s32 slot)
+{
+	s32 hostslot;
+
+	if (g_NetMode != NETMODE_CLIENT || slot < 0 || slot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	// Where the host's player runs on this client (the client's own number
+	// on the host)
+	hostslot = g_NetClients[0].playernum;
+
+	if (hostslot <= 0 || hostslot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	if (slot == 0) {
+		return hostslot;
+	}
+
+	if (slot == hostslot) {
+		return 0;
+	}
+
+	return slot;
 }
 
 enum net_player_allocate_result netPlayersAllocate(

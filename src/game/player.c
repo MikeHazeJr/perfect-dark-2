@@ -776,18 +776,29 @@ static void playerMpResolveTeamSpawnParams(struct prop *selfprop, s32 *team, s32
 		active_teams |= (u32)g_MpBotChrPtrs[i]->team;
 	}
 
-	for (i = 0; i < 4; i++) {
+	/* SP-82: every team, not only the first four (MAX_TEAMS is 8). The
+	 * spawn pool takes team as a sector in 0..num_teams-1, so it is this
+	 * team's place among the active teams, as in the match-start orchestrator
+	 * (orch_team_bits_to_sector); the raw team number gave a team past the
+	 * count no sector (red and blue: blue is team 2 of 2 active). */
+	for (i = 0; i < MAX_TEAMS; i++) {
 		if (active_teams & (1u << i)) {
 			(*num_teams)++;
 		}
 	}
 
 	if (selfprop && selfprop->chr) {
-		for (i = 0; i < 4; i++) {
+		s32 sector = 0;
+
+		for (i = 0; i < MAX_TEAMS; i++) {
+			if (!(active_teams & (1u << i))) {
+				continue;
+			}
 			if (selfprop->chr->team & (1u << i)) {
-				*team = i;
+				*team = sector;
 				break;
 			}
+			sector++;
 		}
 	}
 
@@ -6457,12 +6468,19 @@ void playerTick(bool arg0)
 						&& g_Vars.coop->isdead
 						&& g_Vars.coop->redbloodfinished
 						&& g_Vars.coop->deathanimfinished) {
-					mainEndStage();
+					/* B-1193: in network co-op the host ends the mission for
+					 * both players (SVC_STAGE_END); a client waits for it. */
+					if (g_NetMode != NETMODE_CLIENT) {
+						mainEndStage();
+					}
 				} else {
 					chrsClearRefsToPlayer(g_Vars.currentplayernum);
 				}
 			} else if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {
-				mainEndStage();
+				/* B-1193: as for co-op, the host ends it. */
+				if (g_NetMode != NETMODE_CLIENT) {
+					mainEndStage();
+				}
 			}
 		}
 	}

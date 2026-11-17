@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "system.h"
 #include "game/chraction.h"
@@ -40,7 +41,31 @@
 #include "types.h"
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 #include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
-#include "scenario_pad_fallback.h"  /* B-1125: placement pads for arenas that carry too few */
+#include "scenario_pad_fallback.h"  /* B-1125, B-1126: placement pads for arenas that carry too few */
+#include "net/net.h"                /* g_NetMode: who decides scenario state */
+#include "net/netmsg.h"             /* B-1209: announcing a scenario prop made in the match */
+#include "net/net_scenario_state_wire.h"
+
+_Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE
+		&& MPSCENARIO_HACKERCENTRAL == NET_SCENARIO_STATE_HACKERCENTRAL
+		&& MPSCENARIO_POPACAP == NET_SCENARIO_STATE_POPACAP
+		&& MPSCENARIO_KINGOFTHEHILL == NET_SCENARIO_STATE_KINGOFTHEHILL
+		&& MPSCENARIO_CAPTURETHECASE == NET_SCENARIO_STATE_CAPTURETHECASE,
+	"scenario state wire ids must equal the MPSCENARIO_* values");
+_Static_assert(MAX_TEAMS == NET_SCENARIO_STATE_MAX_TEAMS,
+	"scenario state wire team range must equal MAX_TEAMS");
+_Static_assert(MAX_MPCHRS == NET_SCENARIO_STATE_MAX_CHRS,
+	"scenario state wire character slots must equal MAX_MPCHRS");
+_Static_assert(sizeof(((struct scenariodata_htm *)0)->terminals) / sizeof(((struct scenariodata_htm *)0)->terminals[0])
+		== NET_SCENARIO_HTM_MAX_TERMINALS,
+	"scenario state wire terminal range must equal scenariodata_htm.terminals");
+_Static_assert(sizeof(((struct scenariodata_ctc *)0)->spawnpadsperteam) / sizeof(((struct scenariodata_ctc *)0)->spawnpadsperteam[0])
+		== NET_SCENARIO_CTC_BASES
+		&& sizeof(((struct scenariodata_ctc *)0)->tokens) / sizeof(((struct scenariodata_ctc *)0)->tokens[0])
+		== NET_SCENARIO_CTC_BASES
+		&& sizeof(((struct ctcspawnpadsperteam *)0)->spawnpads) / sizeof(((struct ctcspawnpadsperteam *)0)->spawnpads[0])
+		== NET_SCENARIO_CTC_SPAWNPADS,
+	"scenario state wire Capture the Case shape must equal scenariodata_ctc");
 
 /**
  * There are six multiplayer scenarios:
@@ -194,8 +219,103 @@ static s32 scenarioPadCanHoldProp(s32 padnum, struct scenariopadpick *pick)
 	pick->padnum = padnum;
 	pick->x = pad.pos.x;
 	pick->z = pad.pos.z;
+	pick->y = pad.pos.y;
+	pick->room = pad.room;
 
 	return true;
+}
+
+/**
+ * PC (B-1126): whether a pad the arena itself names (an intro CASE, CASERESPAWN
+ * or HILL pad) can carry a scenario object: a real pad in a room, the
+ * condition under which setupCreateObject places an object. Unlike the banks,
+ * pad 0 counts, and an authored pad on a lift is left to the arena.
+ */
+static s32 scenarioPadIsInRoom(s32 padnum)
+{
+	struct pad pad;
+
+	if (padnum < 0 || g_PadsFile == NULL || padnum >= g_PadsFile->numpads) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_ROOM, &pad);
+
+	return pad.room > 0;
+}
+
+/* Candidate storage shared by the fallback helpers below (setup runs on one
+ * thread, and each helper finishes with it before returning). */
+static struct scenariopadpick s_ScenarioFallbackCands[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
+
+/**
+ * PC (B-1125, B-1126): walkable pads that can carry a scenario object: the
+ * arena's navigation waypoints (the source the spawn fallback in playerReset
+ * uses) or, when it has none, every pad in a room. Fills
+ * s_ScenarioFallbackCands and returns the count; *source names the source.
+ */
+static s32 scenarioCollectFallbackCandidates(const char **source)
+{
+	struct scenariopadpick *cands = s_ScenarioFallbackCands;
+	s32 maxcands = (s32)ARRAYCOUNT(s_ScenarioFallbackCands);
+	s32 numcands = 0;
+	s32 i;
+
+	*source = "none";
+
+	if (g_StageSetup.waypoints) {
+		struct waypoint *wpts = g_StageSetup.waypoints;
+
+		for (i = 0; wpts[i].padnum >= 0 && numcands < maxcands; i++) {
+			if (scenarioPadCanHoldProp(wpts[i].padnum, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		*source = "waypoint";
+	}
+
+	if (numcands == 0 && g_PadsFile) {
+		for (i = 1; i < g_PadsFile->numpads && numcands < maxcands; i++) {
+			if (scenarioPadCanHoldProp(i, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		*source = "pad";
+	}
+
+	return numcands;
+}
+
+/**
+ * PC (B-1126): loads the pads a scenario already has into picks, so new picks
+ * keep their distance from them. Pads below minpad are skipped (the banks use
+ * 0 and -1 for "empty"; an authored base or hill pad 0 is real).
+ */
+static s32 scenarioLoadExistingPicks(struct scenariopadpick *picks, s32 maxpicks,
+		const s16 *existing, s32 numexisting, s32 minpad)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; existing && i < numexisting && count < maxpicks; i++) {
+		struct pad pad;
+
+		if (existing[i] < minpad) {
+			continue;
+		}
+
+		padUnpack(existing[i], PADFIELD_POS | PADFIELD_ROOM, &pad);
+		picks[count].padnum = existing[i];
+		picks[count].x = pad.pos.x;
+		picks[count].z = pad.pos.z;
+		picks[count].y = pad.pos.y;
+		picks[count].room = pad.room;
+		count++;
+	}
+
+	return count;
 }
 
 /**
@@ -219,11 +339,10 @@ static s32 scenarioPadCanHoldProp(s32 padnum, struct scenariopadpick *pick)
  */
 static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
 {
-	static struct scenariopadpick cands[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
 	struct scenariopadpick chosen[64];
-	const char *source = "none";
-	s32 numcands = 0;
-	s32 count = 0;
+	const char *source;
+	s32 numcands;
+	s32 count;
 	s32 total;
 	s32 i;
 
@@ -232,47 +351,14 @@ static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s
 	}
 
 	// Pads the scenario already has keep their places; new picks avoid them
-	for (i = 0; existing && i < numexisting && count < (s32)ARRAYCOUNT(chosen); i++) {
-		struct pad pad;
-
-		if (existing[i] <= 0) {
-			continue;
-		}
-
-		padUnpack(existing[i], PADFIELD_POS, &pad);
-		chosen[count].padnum = existing[i];
-		chosen[count].x = pad.pos.x;
-		chosen[count].z = pad.pos.z;
-		count++;
-	}
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 1);
 
 	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
 		maxout = (s32)ARRAYCOUNT(chosen) - count;
 	}
 
-	if (g_StageSetup.waypoints) {
-		struct waypoint *wpts = g_StageSetup.waypoints;
-
-		for (i = 0; wpts[i].padnum >= 0 && numcands < (s32)ARRAYCOUNT(cands); i++) {
-			if (scenarioPadCanHoldProp(wpts[i].padnum, &cands[numcands])) {
-				numcands++;
-			}
-		}
-
-		source = "waypoint";
-	}
-
-	if (numcands == 0 && g_PadsFile) {
-		for (i = 1; i < g_PadsFile->numpads && numcands < (s32)ARRAYCOUNT(cands); i++) {
-			if (scenarioPadCanHoldProp(i, &cands[numcands])) {
-				numcands++;
-			}
-		}
-
-		source = "pad";
-	}
-
-	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, cands, numcands, rngRandom);
+	numcands = scenarioCollectFallbackCandidates(&source);
+	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, s_ScenarioFallbackCands, numcands, rngRandom);
 
 	for (i = count; i < total; i++) {
 		outpads[i - count] = chosen[i].padnum;
@@ -283,6 +369,253 @@ static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s
 		who ? who : "?", total - count, maxout, numcands, source, count);
 
 	return total - count;
+}
+
+/**
+ * PC (B-1126): walkable pads as far as possible from each other and from
+ * existing[0..numexisting) (Capture the Case bases). With no existing pad the
+ * first pick is random (rngRandom), so bases vary between matches; later picks
+ * take the candidate farthest from every pad chosen so far. Writes up to maxout
+ * new, distinct pads to outpads and returns the number written.
+ */
+static s32 scenarioFallbackFarthestPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
+{
+	struct scenariopadpick chosen[16];
+	const char *source;
+	s32 numcands;
+	s32 count;
+	s32 total;
+	s32 i;
+
+	if (outpads == NULL || maxout <= 0) {
+		return 0;
+	}
+
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 0);
+
+	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
+		maxout = (s32)ARRAYCOUNT(chosen) - count;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+	total = scenarioPadPickFarthest(chosen, count, count + maxout, count + maxout, s_ScenarioFallbackCands, numcands, rngRandom);
+
+	for (i = count; i < total; i++) {
+		outpads[i - count] = chosen[i].padnum;
+	}
+
+	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s farthest fallback added %d of %d pad(s) from %d %s candidate(s), existing=%d",
+		who ? who : "?", total - count, maxout, numcands, source, count);
+
+	return total - count;
+}
+
+/**
+ * PC (B-1126): the walkable pads nearest to anchorpads[owner] that are nearer
+ * to it than to any other anchor (Capture the Case respawn pads around a base;
+ * see scenarioPadPickNearest). Writes up to maxout pads to outpads, nearest
+ * first, and returns the number written. Makes no rngRandom call.
+ */
+static s32 scenarioFallbackNearestPads(s16 *outpads, s32 maxout, s32 owner,
+		const s16 *anchorpads, s32 numanchors, const char *who)
+{
+	struct scenariopadpick anchors[8];
+	const char *source;
+	s32 numcands;
+	s32 count;
+
+	if (outpads == NULL || maxout <= 0 || owner < 0 || owner >= numanchors
+			|| numanchors > (s32)ARRAYCOUNT(anchors)) {
+		return 0;
+	}
+
+	if (scenarioLoadExistingPicks(anchors, (s32)ARRAYCOUNT(anchors), anchorpads, numanchors, 0) != numanchors) {
+		return 0;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+	count = scenarioPadPickNearest(outpads, maxout, owner, anchors, numanchors, s_ScenarioFallbackCands, numcands);
+
+	sysLogPrintf(count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s nearest fallback added %d of %d pad(s) around pad %d from %d %s candidate(s), anchors=%d",
+		who ? who : "?", count, maxout, anchorpads[owner], numcands, source, numanchors);
+
+	return count;
+}
+
+/**
+ * PC (B-1126): walkable pads in distinct rooms, spaced apart, in rooms that
+ * none of existing[0..numexisting) is in (King of the Hill hills: the hill is
+ * the room of its pad). Rooms crossed by two or more candidates are used when
+ * there are enough of them for maxout; otherwise every room is. Each room
+ * contributes the candidate nearest its middle. Writes up to maxout new pads to
+ * outpads and returns the number written.
+ */
+static s32 scenarioFallbackRoomPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
+{
+	static struct scenariopadpick rooms[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
+	struct scenariopadpick chosen[16];
+	const char *source;
+	s32 minperroom = 2;
+	s32 numcands;
+	s32 numrooms;
+	s32 count;
+	s32 total;
+	s32 i;
+	s32 j;
+
+	if (outpads == NULL || maxout <= 0) {
+		return 0;
+	}
+
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 0);
+
+	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
+		maxout = (s32)ARRAYCOUNT(chosen) - count;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+
+	// Rooms that already hold one of the scenario's pads are taken
+	for (i = 0, j = 0; i < numcands; i++) {
+		s32 k;
+
+		for (k = 0; k < count; k++) {
+			if (chosen[k].room == s_ScenarioFallbackCands[i].room) {
+				break;
+			}
+		}
+
+		if (k == count) {
+			s_ScenarioFallbackCands[j++] = s_ScenarioFallbackCands[i];
+		}
+	}
+
+	numcands = j;
+
+	memcpy(rooms, s_ScenarioFallbackCands, (size_t)numcands * sizeof(rooms[0]));
+	numrooms = scenarioPadReduceToRooms(rooms, numcands, minperroom);
+
+	if (numrooms < maxout) {
+		minperroom = 1;
+		memcpy(rooms, s_ScenarioFallbackCands, (size_t)numcands * sizeof(rooms[0]));
+		numrooms = scenarioPadReduceToRooms(rooms, numcands, minperroom);
+	}
+
+	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, rooms, numrooms, rngRandom);
+
+	for (i = count; i < total; i++) {
+		outpads[i - count] = chosen[i].padnum;
+	}
+
+	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s room fallback added %d of %d pad(s) from %d room(s) (%d+ candidate(s) each, %d %s candidate(s)), existing=%d",
+		who ? who : "?", total - count, maxout, numrooms, minperroom, numcands, source, count);
+
+	return total - count;
+}
+
+/*
+ * PC (T-NETWORKING-011): host-authoritative scenario state, shared part. The
+ * scenario files capture and present their own bodies; see scenarios.h.
+ */
+static net_scenario_state_t s_ScenarioNetLast;    // host: previous capture
+static s32 s_ScenarioNetHaveLast;
+static u32 s_ScenarioNetRevision;                 // host: revision of the newest change
+static net_scenario_state_t s_ScenarioNetPending; // client: newest state from the host
+static s32 s_ScenarioNetHavePending;
+static u32 s_ScenarioNetShownRevision;            // client: revision already presented
+static s32 s_ScenarioNetHaveShown;
+
+s32 scenarioNetIsAuthority(void)
+{
+	return g_NetMode != NETMODE_CLIENT;
+}
+
+/* B-1209 (SP-85): a scenario prop the host makes during the match (Hacker
+ * Central's uplink after its carrier died, Hold the Briefcase's case when none
+ * is left) has a dynamic sync id no client knows, and a client never makes its
+ * own. Announce it as a simulant's dropped weapon is announced (botinvDrop),
+ * or no client sees it and every host pickup of it is skipped. */
+void scenarioNetAnnounceProp(struct prop *prop, const char *what)
+{
+	u32 rc;
+
+	if (g_NetMode != NETMODE_SERVER || prop == NULL) {
+		return;
+	}
+
+	rc = netmsgSvcPropSpawnWrite(&g_NetMsgRel, prop);
+
+	if (rc == 0) {
+		rc = netmsgSvcPropMoveWrite(&g_NetMsgRel, prop, NULL);
+	}
+
+	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.NET: host announced the new %s syncid=%u pos=(%.0f,%.0f,%.0f) rc=%u",
+		what, (unsigned)prop->syncid, prop->pos.x, prop->pos.y, prop->pos.z, (unsigned)rc);
+}
+
+/* B-1272 (SP-93): a scenario's token is a weapon with no MP weapon slot, so
+ * the match manifest's weapon pool leaves it out. Without a session catalog id
+ * every message that names it (a carrier's drop, B-1209's replacement, a
+ * simulant's held weapon, reconnect inventory) reaches a client as unarmed. The
+ * host's lobby start adds the weapon named here. */
+s32 scenarioTokenWeaponNum(s32 scenario)
+{
+	switch (scenario) {
+	case MPSCENARIO_HACKERCENTRAL:
+		return WEAPON_DATAUPLINK;
+	case MPSCENARIO_HOLDTHEBRIEFCASE:
+	case MPSCENARIO_CAPTURETHECASE:
+		return WEAPON_BRIEFCASE2;
+	default:
+		return -1;
+	}
+}
+
+/* B-1273 (SP-93): the model of the scenario's token prop, as its template in
+ * hackthatmac.inc, holdthebriefcase.inc and capturethecase.inc gives it. The
+ * uplink's is not the one playermgrGetModelOfWeapon names for the weapon. */
+s32 scenarioTokenModelNum(s32 scenario)
+{
+	switch (scenario) {
+	case MPSCENARIO_HACKERCENTRAL:
+		return MODEL_CHRDATATHIEF;
+	case MPSCENARIO_HOLDTHEBRIEFCASE:
+	case MPSCENARIO_CAPTURETHECASE:
+		return MODEL_CHRBRIEFCASE;
+	default:
+		return -1;
+	}
+}
+
+/* Every match starts from revision 0 on both sides. */
+static void scenarioNetResetState(void)
+{
+	memset(&s_ScenarioNetLast, 0, sizeof(s_ScenarioNetLast));
+	memset(&s_ScenarioNetPending, 0, sizeof(s_ScenarioNetPending));
+	s_ScenarioNetHaveLast = false;
+	s_ScenarioNetRevision = 0;
+	s_ScenarioNetHavePending = false;
+	s_ScenarioNetShownRevision = 0;
+	s_ScenarioNetHaveShown = false;
+}
+
+/* Client, scenario tick: takes the newest state the host sent, once. */
+static s32 scenarioNetTakePending(net_scenario_state_t *out)
+{
+	if (!s_ScenarioNetHavePending) {
+		return false;
+	}
+
+	*out = s_ScenarioNetPending;
+	s_ScenarioNetHavePending = false;
+	s_ScenarioNetShownRevision = out->revision;
+	s_ScenarioNetHaveShown = true;
+
+	return true;
 }
 
 // Include the code files where each scenario implements its callbacks
@@ -793,6 +1126,32 @@ void scenarioCreateMatchStartHudmsgs(void)
 /**
  * Called on every frame during a match, including while paused.
  */
+/* PC (T-NETWORKING-011): the scenario points scenarioTick last logged per
+ * runtime chr slot. Points are not logged where the scenarios award them, so a
+ * match that ends without a score could not show whether anyone scored. */
+static s16 s_ScenarioLoggedPoints[MAX_MPCHRS];
+
+static void scenarioLogPointChanges(void)
+{
+	s32 i;
+
+	// A new stage starts its frame count again: every chr starts on 0
+	if (g_Vars.lvframenum <= 1) {
+		memset(s_ScenarioLoggedPoints, 0, sizeof(s_ScenarioLoggedPoints));
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		const struct mpchrconfig *mpchr = g_MpAllChrConfigPtrs[i];
+
+		if (mpchr && mpchr->numpoints != s_ScenarioLoggedPoints[i]) {
+			sysLogPrintf(LOG_NOTE, "MATCH.POINTS: scenario=%d slot=%d %s points %d -> %d at %.1f s netmode=%d",
+				(s32)g_MpSetup.scenario, i, i < PLAYERCOUNT() ? "player" : "simulant",
+				(s32)s_ScenarioLoggedPoints[i], (s32)mpchr->numpoints, g_Vars.lvframe60 / 60.0f, (s32)g_NetMode);
+			s_ScenarioLoggedPoints[i] = mpchr->numpoints;
+		}
+	}
+}
+
 void scenarioTick(void)
 {
 	static s32 s_ScenarioTickFirstRun = 1;
@@ -812,6 +1171,8 @@ void scenarioTick(void)
 		if (g_MpScenarios[scenario].tickfunc) {
 			g_MpScenarios[scenario].tickfunc();
 		}
+
+		scenarioLogPointChanges();
 	}
 }
 
@@ -1094,12 +1455,224 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
  * stage specific such as pad and room numbers, then re-reads the setup
  * file to reload that information.
  */
+s32 scenarioNetHasState(void)
+{
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return false;
+	}
+
+	return netScenarioStatePayloadSize((u8)g_MpSetup.scenario) > 0;
+}
+
+/* Whether two captures differ in anything but the revision and a running
+ * timer (the King of the Hill hold time), which the host resends at a low
+ * rate instead. Captures are zeroed before they are filled, so padding is
+ * equal and memcmp is exact. */
+static s32 scenarioNetStateChanged(const net_scenario_state_t *a, const net_scenario_state_t *b)
+{
+	net_scenario_state_t x;
+	net_scenario_state_t y;
+
+	memcpy(&x, a, sizeof(x));
+	memcpy(&y, b, sizeof(y));
+	x.revision = 0;
+	y.revision = 0;
+
+	if (x.scenario == NET_SCENARIO_STATE_KINGOFTHEHILL && y.scenario == NET_SCENARIO_STATE_KINGOFTHEHILL) {
+		x.body.koh.elapsed240 = 0;
+		y.body.koh.elapsed240 = 0;
+	}
+
+	if (x.scenario == NET_SCENARIO_STATE_POPACAP && y.scenario == NET_SCENARIO_STATE_POPACAP) {
+		x.body.pac.age240 = 0;
+		y.body.pac.age240 = 0;
+	}
+
+	// A carried briefcase moves with its holder every frame; only who holds
+	// it counts as a change
+	if (x.scenario == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE && y.scenario == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE) {
+		memset(x.body.htb.pos, 0, sizeof(x.body.htb.pos));
+		memset(y.body.htb.pos, 0, sizeof(y.body.htb.pos));
+	}
+
+	// The same for the uplink, and download progress is a running timer
+	if (x.scenario == NET_SCENARIO_STATE_HACKERCENTRAL && y.scenario == NET_SCENARIO_STATE_HACKERCENTRAL) {
+		memset(x.body.htm.uplink_pos, 0, sizeof(x.body.htm.uplink_pos));
+		memset(y.body.htm.uplink_pos, 0, sizeof(y.body.htm.uplink_pos));
+		memset(x.body.htm.dltime240, 0, sizeof(x.body.htm.dltime240));
+		memset(y.body.htm.dltime240, 0, sizeof(y.body.htm.dltime240));
+	}
+
+	// Carried cases move with their holders
+	if (x.scenario == NET_SCENARIO_STATE_CAPTURETHECASE && y.scenario == NET_SCENARIO_STATE_CAPTURETHECASE) {
+		memset(x.body.ctc.pos, 0, sizeof(x.body.ctc.pos));
+		memset(y.body.ctc.pos, 0, sizeof(y.body.ctc.pos));
+	}
+
+	return memcmp(&x, &y, sizeof(x)) != 0;
+}
+
+s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
+{
+	net_scenario_state_t state;
+
+	if (changed) {
+		*changed = false;
+	}
+
+	if (out == NULL || !scenarioNetHasState()) {
+		return false;
+	}
+
+	memset(&state, 0, sizeof(state));
+	state.scenario = (u8)g_MpSetup.scenario;
+
+	switch (state.scenario) {
+	case NET_SCENARIO_STATE_KINGOFTHEHILL:
+		kohNetCapture(&state.body.koh);
+		break;
+	case NET_SCENARIO_STATE_POPACAP:
+		pacNetCapture(&state.body.pac);
+		break;
+	case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
+		htbNetCapture(&state.body.htb);
+		break;
+	case NET_SCENARIO_STATE_HACKERCENTRAL:
+		htmNetCapture(&state.body.htm);
+		break;
+	case NET_SCENARIO_STATE_CAPTURETHECASE:
+		ctcNetCapture(&state.body.ctc);
+		break;
+	default:
+		return false;
+	}
+
+	if (!s_ScenarioNetHaveLast || scenarioNetStateChanged(&state, &s_ScenarioNetLast)) {
+		s_ScenarioNetRevision++;
+
+		if (changed) {
+			*changed = true;
+		}
+	}
+
+	state.revision = s_ScenarioNetRevision;
+	memcpy(&s_ScenarioNetLast, &state, sizeof(state));
+	s_ScenarioNetHaveLast = true;
+	memcpy(out, &state, sizeof(state));
+
+	return true;
+}
+
+/*
+ * B-1127: character slots in a state are the host's numbers; translate them
+ * to this client's own (it runs itself as player 0). Counts indexed by slot
+ * move with their slot.
+ */
+static void scenarioNetLocalizeSlots(net_scenario_state_t *state)
+{
+	s32 i;
+
+	switch (state->scenario) {
+	case NET_SCENARIO_STATE_POPACAP: {
+		net_scenario_pac_state_t *pac = &state->body.pac;
+		s16 kills[NET_SCENARIO_STATE_MAX_CHRS];
+		s16 survivals[NET_SCENARIO_STATE_MAX_CHRS];
+
+		if (pac->victim >= 0) {
+			pac->victim = (s8)netChrSlotFromHost(pac->victim);
+		}
+
+		for (i = 0; i < NET_SCENARIO_STATE_MAX_CHRS; i++) {
+			kills[netChrSlotFromHost(i)] = pac->killcounts[i];
+			survivals[netChrSlotFromHost(i)] = pac->survivalcounts[i];
+		}
+
+		memcpy(pac->killcounts, kills, sizeof(kills));
+		memcpy(pac->survivalcounts, survivals, sizeof(survivals));
+		break;
+	}
+	case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
+		if (state->body.htb.holder >= 0) {
+			state->body.htb.holder = (s8)netChrSlotFromHost(state->body.htb.holder);
+		}
+		break;
+	case NET_SCENARIO_STATE_HACKERCENTRAL: {
+		net_scenario_htm_state_t *htm = &state->body.htm;
+		u16 times[NET_SCENARIO_STATE_MAX_CHRS];
+		s16 points[NET_SCENARIO_STATE_MAX_CHRS];
+
+		if (htm->uplink_holder >= 0) {
+			htm->uplink_holder = (s8)netChrSlotFromHost(htm->uplink_holder);
+		}
+
+		if (htm->dl_player >= 0) {
+			htm->dl_player = (s8)netChrSlotFromHost(htm->dl_player);
+		}
+
+		if (htm->player_in_range >= 0) {
+			htm->player_in_range = (s8)netChrSlotFromHost(htm->player_in_range);
+		}
+
+		for (i = 0; i < NET_SCENARIO_STATE_MAX_CHRS; i++) {
+			times[netChrSlotFromHost(i)] = htm->dltime240[i];
+			points[netChrSlotFromHost(i)] = htm->numpoints[i];
+		}
+
+		memcpy(htm->dltime240, times, sizeof(times));
+		memcpy(htm->numpoints, points, sizeof(points));
+		break;
+	}
+	case NET_SCENARIO_STATE_CAPTURETHECASE:
+		for (i = 0; i < NET_SCENARIO_CTC_BASES; i++) {
+			if (state->body.ctc.holders[i] >= 0) {
+				state->body.ctc.holders[i] = (s8)netChrSlotFromHost(state->body.ctc.holders[i]);
+			}
+		}
+		break;
+	default:
+		break;
+	}
+}
+
+s32 scenarioNetReceiveState(const net_scenario_state_t *in)
+{
+	if (in == NULL || scenarioNetIsAuthority()) {
+		return false;
+	}
+
+	if (!scenarioNetHasState() || in->scenario != (u8)g_MpSetup.scenario) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: dropped scenario=%u rev=%u, match runs scenario %d",
+			(unsigned)in->scenario, (unsigned)in->revision, (s32)g_MpSetup.scenario);
+		return false;
+	}
+
+	// Reliable and ordered, so an older revision means a stale copy (for
+	// example a baseline retried after a newer change was sent)
+	if ((s_ScenarioNetHaveShown && in->revision < s_ScenarioNetShownRevision)
+			|| (s_ScenarioNetHavePending && in->revision < s_ScenarioNetPending.revision)) {
+		return false;
+	}
+
+	if (!s_ScenarioNetHaveShown && !s_ScenarioNetHavePending) {
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: first state from host scenario=%u rev=%u",
+			(unsigned)in->scenario, (unsigned)in->revision);
+	}
+
+	memcpy(&s_ScenarioNetPending, in, sizeof(s_ScenarioNetPending));
+	scenarioNetLocalizeSlots(&s_ScenarioNetPending);
+	s_ScenarioNetHavePending = true;
+
+	return true;
+}
+
 void scenarioReset(void)
 {
 	s32 i;
 	s32 j;
 	s32 *cmd = g_StageSetup.intro;
 	s32 scenario = scenarioGetSafeIndex("scenarioReset");
+
+	scenarioNetResetState();
 
 	switch (scenario) {
 	case MPSCENARIO_KINGOFTHEHILL:
@@ -1214,7 +1787,9 @@ void scenarioResetForStageLoad(s32 stagenum)
  */
 s32 scenarioGetMaxTeams(void)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].maxteamsfunc) {
+	// PC (B-1132): the in-match team switch asks too; a scenario outside the
+	// table has no callbacks (quiet: these three run per menu tick or per room)
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].maxteamsfunc) {
 		return g_MpScenarios[g_MpSetup.scenario].maxteamsfunc();
 	}
 
@@ -1222,11 +1797,26 @@ s32 scenarioGetMaxTeams(void)
 }
 
 /**
+ * PC (T-NETWORKING-011, finding 8): the match-start position a team's spawn
+ * region should be anchored on, for scenarios whose teams start at a base
+ * (Capture the Case). False when the scenario has no such place for the
+ * team; the orchestrator then keeps its own spread-out anchor.
+ */
+s32 scenarioGetTeamSpawnAnchor(s32 team, struct coord *out)
+{
+	if (!g_Vars.normmplayerisrunning || g_MpSetup.scenario != MPSCENARIO_CAPTURETHECASE) {
+		return false;
+	}
+
+	return ctcGetTeamSpawnAnchor(team, out);
+}
+
+/**
  * This callback is unused.
  */
 bool scenarioIsRoomHighlighted(RoomNum room)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc) {
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc) {
 		return g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc(room);
 	}
 
@@ -1240,7 +1830,7 @@ bool scenarioIsRoomHighlighted(RoomNum room)
  */
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
 		g_MpScenarios[g_MpSetup.scenario].highlightroomfunc(room, arg1, arg2, arg3);
 	}
 }

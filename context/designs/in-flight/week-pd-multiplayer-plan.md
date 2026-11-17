@@ -122,6 +122,250 @@ Progress log:
   only intro spawn rows, so no arena has case or hill pads. Capture the Case cases are created off-world, King of
   the Hill's hill never moves, Hold the Briefcase always uses pad 0 (B-1126, SP-80). Asked CORE to carry the intro
   case and hill commands; the same fallback for those three modes waits for Mike.
+- Merged into dev on Mike's OK (2026-11-15, "Merge our work"): merge commit e7503299, tree identical to
+  da7f042b; local dev only, not pushed. Work continues on this branch; later units go to dev by the same route.
+- Canonical-checkout edits (2026-11-15, Mike: commit them): five verified commits fast-forwarded onto dev
+  (55812690, local only): T-TOOLING-007 agent guidance with the SP-75 line, T-TOOLING-005 cleaner, T-TOOLING-006
+  D-011 floor and the opt-in retained modes, T-ASSETS-052 glTF limits (plus the stale material-order pin 14->15).
+  Verified on a temp branch first: build, pd-tests 1899/1899, the CI tool self-tests, 171 retained-wrapper checks,
+  31 runner-supervisor tests. Held back, with the reason given to Mike: CORE's uncompiled T-MODDING-011
+  GGV/bondgun lane (already saved on `week-pd/inflight-20261114`) and the live crystal pistol files. Merged dev
+  into this branch (4a26fe59). Branch pushes are held while dev holds unpushed commits.
+- B-1126 fill-in (2026-11-15, Mike: "get all the MP modes functional", the same fill-in as Hacker Central):
+  dbc660f1. Capture the Case bases farthest apart plus up to six respawn pads per base, King of the Hill up to six
+  hills one per room, Hold the Briefcase an eight-pad bank; three new pure pickers with 15 unit cases; pd-tests
+  1914/1914. The three local smokes assert placement outcomes; their game runs are queued on the hub.
+- Unit F written (2026-11-15, not yet built or run): `SVC_SCENARIO_STATE` 0x5a, wire v62. The King of the Hill body
+  gains `contested`, `scoring_team` and `scores`; the host sends the state in the stage baseline
+  (`NET_RESYNC_FLAG_SCENARIO`), on every change and every 30 ticks while only the hold timer moves, and in the
+  reconnect snapshot. A networked client's `kohTick` only presents it: hill room lighting (room bounded by this
+  stage's room count before it indexes `g_Rooms`), capture and point announcements (moved into shared helpers so
+  host and client play the same), a locally run hold timer between snapshots, and the host's hill time for the
+  HUD without touching the client's own setting. Fixture `mp_king_of_the_hill_net_smoke` (port 27241) asserts the
+  baseline send and the client taking the host's hill; `koh_net_compare.py` (session scratchpad) checks that
+  both end on the same hill room and identical score lines.
+- Local smokes on dbc660f1 (2026-11-15, my receipts under `D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\`):
+  `mp_capture_the_case_local_smoke` PASS 31/31 (`results-20261115T063003Z.json`: bases on pads 172 and 122, rooms
+  33 and 15, six respawn pads each), `mp_hold_the_briefcase_local_smoke` PASS 29/29 (`results-20261115T063743Z.json`:
+  eight-pad bank, briefcase on pad 141), `mp_hacker_central_local_smoke` PASS 31/31 (`results-20261115T064512Z.json`,
+  the refactored candidate collection unchanged: terminal pad 106, uplink pad 197). Each run takes about 7.5 to 9.5
+  minutes, of which about 4.5 is `storage.py seed` making the private install from shared-base-3.
+- Units G to J written and built (2026-11-15): wire bodies and client presentation for Pop a Cap, Hold the
+  Briefcase, Hacker Central and Capture the Case (details in the commit and in B-1127), plus B-1127 itself, found
+  on the way: a client numbers players its own way (itself 0, the host's player in the client's slot), and
+  `SVC_PLAYER_SCORES` applied slots unchanged. Also B-1128 (a client's early `scenarioInitProps` at
+  `SVC_STAGE_START` ran on the previous stage; removed) and the King of the Hill client log now prints on the first
+  state, not only on a room change. Full pd-tests on the tree with step 7 below: 1,931 cases, 359,072 assertions,
+  all passed. Networked smokes for all five modes are next.
+- Step 7 table fix (ea187a63, 2026-11-15): `mpconfigs.c` now uses designated initializers for all 44 configs,
+  slots 8..MAX_BOTS-1 are disabled simulants, and 5 to 8 players use the 4-player difficulty (Mike to confirm).
+  `mpApplyConfig` fills `stage_id` from `stagenum` through the catalog and logs `MPCONFIG: applied ...`.
+  `matchStartFromChallenge` (the ImGui challenge launch) now calls `challengePerformSanityChecks`, which only the
+  legacy menu tick called, so challenges from the ImGui screen had no simulants; the check treats zero joined
+  players as one. `tests/test_mpconfig_table.cpp` pins it (fails on the positional table). Still open: the Room
+  has no entry for challenges or presets (Mike's call), and no game run of a challenge yet.
+- Notes for the token scenarios (Hold the Briefcase, Hacker Central, Capture the Case), read 2026-11-15: a
+  human's briefcase or uplink pickup is decided on the host (`propobj.c:19527-19549`, server only) and sent as
+  `SVC_PROP_PICKUP`, which a client replays through `propPickupByPlayer` (`netmsg.c:6322`). Simulant pickups and
+  drops send nothing (finding 3), so on a client a case or briefcase a simulant took stays on the ground and one
+  it dropped never appears. `htbTick` and `htmTick` also create a new token on any peer that cannot find one.
+  Their seam therefore needs, besides a state body (holder slot or ground position, per-player timers and
+  points), host-only token creation and the simulant pickup and drop sent like a human's. Units G to J built the
+  first two: a client takes the holder from the host for its HUD and radar and never makes a token of its own.
+  Still to build (next unit after the networked smokes): the simulant pickup and drop messages; until then a
+  briefcase, uplink or case a simulant carries still lies where it was in a client's world.
+- Networked smokes on 4a467190 (2026-11-15, 2 humans + 3 bots on Complex, receipts under
+  `D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\`): King of the Hill 78/78 (`results-20261115T072451Z.json`),
+  Pop a Cap 76/76 (`results-20261115T073804Z.json`), Hold the Briefcase 79/79 (`results-20261115T074919Z.json`),
+  Hacker Central 80/80 (`results-20261115T080027Z.json`), Capture the Case 77/77 (`results-20261115T081148Z.json`),
+  all one binary (sha256 4C45D9C6...). `net_compare.py` (session scratchpad) maps the client's slots 0 and 1
+  and finds every final result line identical on both sides (B-1127 confirmed in play: Hacker Central's three
+  deaths include the client's own player; a simulant's King of the Hill point agrees). The matches are 35 s with
+  idle humans: no token pickup, pop, download or capture happened, so those paths are unproven over the network.
+  The token re-runs after unit K get longer matches.
+- Finding 4, the test (2026-11-15): `--host-autostart-matches <n>` (1..8, default 1) starts n matches in the
+  same room. After a match it re-arms once the host has left its end screen into the room (Return to Room,
+  pressed by the harness as a player would), the match room is released and the room is in Lobby again, waits
+  about 10 s for the clients, and fires the same Room start path again reusing the room. Every attempt counts,
+  so a failed start is not retried past n. Fixture `mp_combat_net_rematch_smoke` (port 27246, Felicity, 3
+  bots, 35 s): both processes wait for the end screen, tap its default button, wait for the second match and
+  its end screen; it requires two server stage starts, two client stage starts, four result lines and the
+  re-arm line, and forbids a rejected start. Pins in `tests/test_host_autostart_rematch_static.cpp`. Queued.
+- Finding 9, part (2026-11-15): the Room now offers the original's Team Score limit (1 to 400 points or no
+  limit, 0-based store with 400 = no limit like `menuhandlerMpTeamScoreLimitSlider`; shown with teams on),
+  Display Team (with teams on) and Kills Score (Hold the Briefcase, Hacker Central, King of the Hill and Capture
+  the Case, as in their original option lists; not Pop a Cap). All three already rode in the room settings and
+  the match start, so no wire change. Not done: King of the Hill hill time (`g_Vars.mphilltime` is in neither
+  the room settings nor the stage start; the host's value reaches clients only through the v62 hill body) and
+  Smart slow motion (it decides per peer from `bgRoomIsOnPlayerScreen` for every player, which a client cannot
+  answer for the host's screen, so host and client would run different time scales; needs a host-decided time
+  scale first). On slow motion is the same on every peer and stays offered.
+- Unit K written (2026-11-15, building once the networked smokes have their binary): B-1129, simulant pickups and
+  drops. `SVC_BOT_PICKUP` 0x4D (v62, unreleased): the host announces each simulant pickup that took effect and a
+  client replays `botPickupProp` on its copy of the simulant; `botinvDrop` makes drops on the host only and
+  announces them with `SVC_PROP_SPAWN`/`SVC_PROP_MOVE`, so dropped weapons, briefcases, uplinks and cases carry the
+  host's sync ids on every peer. B-1130 on the way: a human's Capture the Case capture now reaches the clients
+  (`SVC_PROP_PICKUP` with `TICKOP_NONE`). B-1131 / SP-81 recorded, not fixed as a class: a client stops reading a
+  packet at the first message it declines. Static pins in `tests/test_net_bot_pickup_static.cpp`. Witness: the
+  token net fixtures gain `BOT.PICKUP`/`BOT.DROP` counts and forbid `BOT.PICKUP: client skipped`.
+- Notes for step 7 (Challenges and presets), read 2026-11-15 before the fix above: besides the positional
+  initializers landing in `stage_id[64]` and `head_id[64]` (finding 10), `struct mpconfig` now holds
+  `simulants[MAX_BOTS]` = 32 while `mpconfigs.c` authors 8 per config, so slots 8..31 are zero: type 0 and every
+  difficulty 0 = `BOTDIFF_MEAT`, which `mpApplyConfig` (`mplayer.c:4561`) copies for all 32, so a fixed table would
+  still add 24 MeatSims to every challenge. `difficulties[MAX_PLAYERS]` is 8 wide; the table authors 4 (one per
+  player count of the original). `stage_id` is empty, but `catalogStageIdByStagenum` can resolve it from
+  `stagenum` in `mpApplyConfig`; head and body ids already fall back to the catalog by number. Planned fix:
+  designated initializers (`.stagenum =`, `.mpheadnum =`, ...), slots past the authored 8 forced to
+  `BOTDIFF_DISABLED`, and 5 to 8 players using the 4-player difficulty (to confirm with Mike: the original has no
+  such counts). `mpconfig.jumpimpulse` has no reader.
+- Networked smokes on 21eec732 (2026-11-15, frozen binary sha256 07f86b79..., 150 s matches, 2 humans + 3 bots,
+  receipts under `D:\PD2-wt\multiplayer\.claude\smoke-storage\receipts\`): Hold the Briefcase 84/84
+  (`results-20261115T121447Z.json`; the B-1133 host crash is gone), Hacker Central 85/85
+  (`results-20261115T122843Z.json`), Capture the Case 83/83 (`results-20261115T124052Z.json`, both teams start at
+  their base, B-1134), Combat with simulants 70/70 (`results-20261115T125103Z.json`). In Hold the Briefcase and
+  Hacker Central a simulant picked up the briefcase or the uplink, the host announced it and the client replayed it
+  (one `BOT.PICKUP` sent and one replayed in each): the first in-game proof of B-1129's pickup path. No simulant drop happened in any run, so
+  `BOT.DROP` is still unproven in play. The rematch smoke never started (B-1135: its timeout was shorter than its
+  own waits); fixed and re-queued. Simulants fight only for the first 5 to 25 s of a 150 s match: they fire the
+  magazine they spawn with and then stop, because 16 of 18 arenas have no weapon or ammo pickups (the extraction
+  ask to CORE, 2026-11-15 01:05 UTC). Older runs looked livelier only because those builds kept the world running
+  after the match ended. Not worked around here.
+- SP-81 third pass (2026-11-15, B-1131): the rest of the reader audit, plus a writer audit (a count on the wire must
+  equal the rows that follow). The resync transaction sends character, prop, score and NPC resyncs, the NPC digest,
+  stage flags, objective statuses and the v62 scenario baseline in one packet, so one short row garbles every later
+  part: the character resync writer wrote 4-byte placeholders the reader took for whole rows, and the character and
+  prop resync readers returned from inside their row loop on a client not yet in the game. Also fixed: the score
+  writer's count, the NPC resync declining with 0, and `CLC_ADMIN` reading a rejected command's arguments. Nothing
+  open in the client or server readers; details in `context/bugs.md` B-1131 and SP-81.
+- Pop a Cap and King of the Hill at 150 s on 21eec732 (same binary): Pop a Cap 81/81 (`results-20261115T130939Z.json`),
+  King of the Hill 83/83 (`results-20261115T132151Z.json`); final results agree on both sides in both. King of the
+  Hill: two simulants scored 2 hill points each and the client followed all of the host's hill-team changes (rev 12).
+  Pop a Cap: a simulant was the victim for the whole match and the host sent two survival-point changes, but every
+  final score was 0. Cause B-1136 (the mpchrnum lookup used the N64's 4 as the player/simulant boundary, so no
+  simulant's Pop a Cap or Hacker Central points ever counted), fixed in 9d0bfc32, not yet run in game. New SP-82 for
+  the class.
+- Third runtime turn so far (binary 82ae8985, the 05:32 build): `mp_combat_net_bot_render_smoke` 59/59
+  (`results-20261115T132935Z.json`; the screenshots are read by eye, next entry); `mp_challenge_local_smoke` 27/30
+  (`results-20261115T133628Z.json`): `--launch-challenge 0` started Challenge 1 on Skedar with its simulant, ran to the
+  time limit and the end screen, but with no player in the match (B-1137: the challenge launch never made the local
+  player a participant). Fixed; re-run queued.
+- Finding 3, the render smoke's first run proved nothing: its four screenshots show the client's player standing
+  against a wall. The host placed the simulant 240 units straight ahead (the first spot with floor at the player's
+  level; the helper has no line-of-sight check), which was on the far side of that wall. 8c9e6701 adds two opt-in
+  smoke hooks: `--debug-place-bot-near-player-visible` (search in eight directions around the target player, take a
+  spot only with a clear line of sight, keep the first direction through the hold) and `--debug-face-nearest-bot`
+  (each frame, turn the local player level toward the nearest simulant with the engine's yaw convention, log the
+  simulant's flags, model, animation frame and `look_dot`, and point the existing `BOT.RENDER.AUDIT` traces at it).
+  The fixture now requires `look_dot` of at least 0.9 and the client's `propsSort-included` and
+  `chrRender-modelRender` audit lines, so a client that does not draw simulants fails it.
+- Rest of the third turn (binary 82ae8985): `mp_king_of_the_hill_reconnect_smoke` 119/119
+  (`results-20261115T135435Z.json`), the first Rejoin of an objective mode with the v62 snapshot: the client times out
+  mid-match, reconnects, gets the exact world and inventories, and replaces the hill its own stage reload picked
+  (index 4) with the host's (index 5, room 19). Co-op 100/100 and counter-op 102/102 stage baselines at v62.
+- B-1138 (608747c4, from the SP-82 sweep): the match-start orchestrator and the respawn helper only knew 4 teams, so
+  teams 5 to 8 started in team 1's region, and the respawn sector used the raw team number, so with Red and Blue
+  Blue never got its sector. One sector per active team up to `MAX_TEAMS`, numbered among the active teams. Not run in
+  game (no smoke has five or more teams).
+- Fourth turn (binary 71486ce2 = eeadbcb1): `combat_sim_defect_cohort` 35/35 on its first ever run (12 simulants on
+  Car Park, T-ENGINE-005); `mp_pop_a_cap_net_smoke` 81/81 with B-1136 fixed in play (the simulant victim ended with 2
+  survival points, one per minute, both sides agree). The rematch ran its first match, but the host never left its
+  end screen: B-1139, the "match is ending" branch of `menutick.c` pushed a dialog for the remote client's player as
+  well, and one Use press does not leave a two-player end screen. The networked client goes straight back to its Room
+  at stage end (no end screen there). Fixed in 854b044c; rematch re-queued.
+- B-1190, for Mike: that straight return means a networked client never sees the match results while connected
+  (`netmsgSvcStageEndRead` sets `CLSTATE_LOBBY` before `mainEndStage`, so the Room opens before `menutick.c` pushes
+  the end screen; seen in two runs). Earlier "end screen PASS" entries for networked modes were the host only.
+  Options: A, everyone sees the results and presses Continue (the original, and what `endscreenGraphMpContinue`
+  expects); B, results in the Room. Recommended A. Until then the rematch smoke runs a schedule per process
+  (676b9e46): the host leaves its end screen with Use, the client follows the host into the second match.
+- Fifth turn (binary 71486ce2): `mp_challenge_local_smoke` 30/30 (B-1137 fixed in play: Challenge 1 with its player and
+  simulant, results for both). Finding 3 proven by the reworked render smoke (`results-20261115T154128Z.json`, 64/66):
+  the client looked straight at the simulant (`look_dot=1.000`, line of sight checked on the host), but the simulant
+  was never marked on screen, never drawn, and its animation stayed on frame 4.00: B-1191, the client returned from
+  `botTick` before `chrTick`. Fixed in 8bdb24ee with a client puppet tick after the co-op NPC pattern (`chrTick` runs,
+  `chraTick` skips the AI and actions); clients will see the stand animation while a simulant moves until the host's
+  animation state is replicated. Render re-run queued. Side observation for CORE: the client's own room (33, Felicity)
+  was drawn black in those shots.
+- First rejoin turn (binary 71486ce2): `mp_hacker_central_reconnect_smoke` 119/119; `mp_hold_the_briefcase_reconnect_smoke`
+  118/119 with the reconnect complete end to end (the rejoined client takes the host's briefcase state twice and
+  fires). Its one miss was a race in the ordered sequence inherited from `network_reconnect_smoke`: a 440 ms host frame
+  between the weapon retire and the scripted timeout let the 250 ms retired-weapon check log before the preserve.
+  3276bcce takes that check out of the ordered sequence in all six reconnect smokes (it stays a required line).
+- Second rejoin turn (binary 71486ce2): `mp_pop_a_cap_reconnect_smoke` 119/119 and `mp_capture_the_case_reconnect_smoke`
+  120/120. Every objective mode now rejoins with the host's scenario state from the v62 reconnect snapshot (the Rejoin
+  column of section 3 and finding 7).
+- Simulant types (binary 86c1025f = 8bdb24ee): both smokes added only 2 of 12 simulants. The base bot profiles follow
+  the original, the general type in six difficulties plus twelve special types that exist only at Normal, and Hard,
+  Perfect and Dark need challenge unlocks (`requirefeature` 25, 26, 28), so a fresh save offers 15; my spec asked for
+  pairs with no profile. Re-made for those 15 (5b6fe90e) and re-queued. The networked run was still an early check of
+  B-1191: the client ran its simulants as puppets with no errors and both sides logged the same results.
+- Rematch on 86c1025f (`results-20261115T174226Z.json`, 71/85): one results dialog now (B-1139 in play), Use reached the
+  host's results screen, but the Room drew in the same frame and took focus: B-1192, fixed (the lobby UI holds the
+  Room and social lobby back while the results screen is open), rematch re-queued with the simulant types.
+- Render re-run on 86c1025f (`results-20261115T175033Z.json`, 64/66): the puppet tick runs now (`prop_flags` 0x4, the
+  not-yet-ticked flag gone; `NET: simulant AI suppressed on client`), but the simulant is still never on screen. The
+  host's packets put it at its real height (y -534, ground -693, room 37), and between packets the client's tick moves
+  it: the culling check saw y -2552, and one sample in six reads y -30000 (the no-floor value). The client's model
+  has no animation set (`anim=0 frame=-1.00`) because nothing on a client starts the simulant's actions, and the host's
+  `ACT_GOPOS` sends `chrTick` into its walk branch, which advances the model from that animation. Next: B-1191 part 2.
+- Mike, 2026-11-15: B-1190 decided, option A, with a lobby state "reviewing match stats" that other players see while
+  someone is still on the results. Asked to explain: the co-op end flow, which challenges and presets, the 5-8 player
+  challenge difficulty, the GGV lane, and whether simulants on clients have any live state without animation
+  replication.
+- Fixed and pushed since: c6572a21 (B-1192), 262dc602 (B-1191 part 2: `SVC_CHR_MOVE` goes through `chrSetPos`, the
+  puppet tick calls `botApplyMovement`, a fall only the client saw no longer kills a puppet), 2ce8765a (B-1190 option
+  A: a client marks its own participant local so it pushes its results, the lobby UI waits for the results screen,
+  "reviewing match stats" in the roster and the Room). Correction to the answer on animation: run, strafe, stand and
+  death animations come from the speeds `SVC_CHR_MOVE` already carries (`botApplyMovement`, the original design); only
+  the aiming pose and which death animation plays are not on the wire. Queued on binary eab25274 (= 2ce8765a): render,
+  rematch (its client stays on the results, so the second match must take it along), simulant types net and local.
+- Mike, 2026-11-15 (second answer): co-op and counter-op end flow, the host decides (Next Mission, Retry Mission or
+  Return to Room on the host; the other player sees the results with a waiting note and follows); Combat Challenges
+  capped at 4 human players, as in the original. Both recorded in `context/constraints.md`. He asked again what
+  one of the remaining items means (Challenges/presets placement or the GGV lane): answered in plain terms.
+- Mike, 2026-11-15: the GGV lane decision belongs to the session that now implements node-based behavior, not to
+  MULTIPLAYER. Handed over on the hub (m_20261115201639822_80626e68, addressed to that session, CORE named) with the
+  facts: branch `week-pd/inflight-20261114`, still uncommitted in the main checkout, never compiled or run. Removed
+  from MULTIPLAYER's open questions; I do not touch it. Still open for Mike: where Challenges and presets go in the
+  Room.
+- Step 8 end flow, B-1193 (host control, Mike's call): a read-only map found the networked co-op/counter-op end
+  local on each machine (both players' results on each, the partner left in game on the host, Next and Retry
+  reloading alone, deaths and End Game ending it on a client). Built on 7e3704d5 and 6c817270: per-machine results,
+  the partner back to the lobby at the host's commit, the host's Next Mission / Retry Mission / Return to Room for
+  both (lobby start, or the new `SVC_MISSION_RETURN` 0x7c), a waiting note and Disconnect for the other player, no
+  client-side ends, and the final objective statuses ahead of `SVC_STAGE_END`. `--debug-end-mission` and
+  `network_coop_mission_end_smoke` give it its first game check (queued first in q_20261115173307314_394b483c on
+  binary 91a54a5d, with the render, rematch and simulant type smokes). Counter-op uses the same code; its smoke comes
+  after the co-op one passes. Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `pdmain.c`.
+- Game turn on binary 91a54a5d (2026-11-15 21:05-22:05 UTC, D: slow since the 17:54 crash): render PASS 66/66
+  (B-1191 fixed in play: the client's simulant is drawn, animated and at its height); simulant types local PASS
+  54/54 (all 15 open profiles), net 106/107 (B-1194: the client skips some simulant pickups, open); co-op mission end
+  111/119 (per-machine results, the partner to the lobby and the final objectives proven; Use pressed nothing);
+  rematch 72/90 (Use again pressed nothing on the host; the client's results waited for a disconnect). Root causes
+  and fixes in 8a34e695: the results screens' default focus (B-1192 part 2: the debounce disables the bar when ImGui
+  picks its first focus), and the client no longer unlinking its own player at a Combat stage end (B-1190 part 2:
+  that deferred the whole lvTick); plus Mike's "both players' stats" in co-op (`SVC_MISSION_STATS` 0x7d). Re-run
+  queued: q_20261115220622967_0aa23e98 on binary 8c56ad72 (co-op mission end, rematch).
+- Game turn on binary 8c56ad72 (2026-11-15 23:50-00:05 UTC): both 8a34e695 fixes proven in play (the host leaves its
+  Combat results with Use; the client pushes its own results at once), and co-op mission end 119/121 (the host's Next
+  Mission takes the client along; per-machine results with both players' stats). Two new bugs: B-1195, the listen
+  host crashed on Continue (it also unlinked its own player at the stage end, so its global tick stopped under the
+  results, the pause never applied, simulant AI ran from `lvRender`'s `propsTickPlayer`, and the results exit's chr
+  table clear made it divide by zero; fixed in 5931c5f8, pattern SP-84); B-1196, a co-op client is sent
+  `SVC_NPC_MOVE` for a chr it does not have (the co-op run's only failures; diagnostics in 3cad23d4). 3cad23d4 also
+  places co-op NPCs on a client through `chrSetPos` (B-1191 propagation) and adds the B-1194 pickup diagnostic.
+  Game turn q_20261116004335252_ec21ba5e on binary 9078eb6b: rematch, co-op mission end, simulant types net.
+- Game turns on 9078eb6b, 30973012, 30628ea5, 732dd2fe and 0587e908 (2026-11-16 00:45-04:45 UTC): co-op mission end
+  121/121 and then 129/129 with guard clones replicated (B-1196, `SVC_NPC_SPAWN`), counter-op mission end 127/127,
+  the whole networked Combat rematch 95/95 (B-1195, B-1197 closing networked results no longer loads CI, B-1200 the
+  rolled spawn weapon is forgotten at the match end), co-op Retry Mission 126/126, local King of the Hill scoring.
+  Fixed on the way: B-1198 (a disconnect ends a networked mission without results), B-1199 (the networked agent save
+  read player 2's controls from the remote partner's slot). Found by the last turn and fixed in code: B-1201 (a co-op
+  client in the Room crashed when the host left; 6158cf4c), B-1194 (a disarmed simulant's own gun reached the world
+  unannounced; 7ea55351). Found by reading the Hold the Briefcase scores: B-1202 (with two players every networked
+  simulant updated twice a frame, `botTick` ignored `PROPFLAG_NOTYETTICKED` since 41431a3d; 4189fb54, SP-87).
+  c3d737c3 logs scenario points and briefcase holders and makes three more local smokes 150 s scoring checks. Queued
+  on binary c5a12bca: q_20261116050125504_74a4fe33 and q_20261116052314091_3ff93b3f.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

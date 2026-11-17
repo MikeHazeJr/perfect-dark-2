@@ -3437,14 +3437,29 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 
 	// Drop items
 	if (race == RACE_HUMAN || race == RACE_SKEDAR) {
-		if (chr->weapons_held[0] && (chr->weapons_held[0]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
-			objSetDropped(chr->weapons_held[0], DROPTYPE_DEFAULT);
-			chr->hidden |= CHRHFLAG_DROPPINGITEM;
-		}
+		/* B-1194: on a networked client a simulant is the host's puppet. The
+		 * host drops the weapons it holds and announces them with its own sync
+		 * ids (chr.c, SVC_PROP_SPAWN); a copy dropped here would carry none,
+		 * so no host pickup of the real one could reach it. Retire this
+		 * client's held models instead, as a weapon switch does
+		 * (botinvSwitchToWeapon). */
+		if (chr->aibot && g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			for (s32 i = 0; i < 2; i++) {
+				if (chr->weapons_held[i]) {
+					chr->weapons_held[i]->obj->hidden |= OBJHFLAG_DELETING;
+					chr->weapons_held[i] = NULL;
+				}
+			}
+		} else {
+			if (chr->weapons_held[0] && (chr->weapons_held[0]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
+				objSetDropped(chr->weapons_held[0], DROPTYPE_DEFAULT);
+				chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			}
 
-		if (chr->weapons_held[1] && (chr->weapons_held[1]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
-			objSetDropped(chr->weapons_held[1], DROPTYPE_DEFAULT);
-			chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			if (chr->weapons_held[1] && (chr->weapons_held[1]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
+				objSetDropped(chr->weapons_held[1], DROPTYPE_DEFAULT);
+				chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			}
 		}
 
 		chrDropConcealedItems(chr);
@@ -13790,6 +13805,19 @@ void chraTick(struct chrdata *chr)
 		return;
 	}
 
+	// T-NETWORKING-011 (finding 3): the same for a simulant the host owns. A
+	// client's botTick runs chrTick as a puppet tick so the simulant is drawn
+	// and animated; its AI and actions stay with the host, which sends its
+	// position, angle and action type.
+	if (chr->aibot && botIsPuppetTick()) {
+		static bool s_simAiSuppressed = false;
+		if (!s_simAiSuppressed) {
+			sysLogPrintf(LOG_NOTE, "NET: simulant AI suppressed on client (host-authoritative puppet)");
+			s_simAiSuppressed = true;
+		}
+		return;
+	}
+
 	chr->sleep -= g_Vars.lvupdate60;
 
 	if (chr->sleep < 0
@@ -15859,6 +15887,60 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 	}
 
 	return NULL;
+}
+
+/**
+ * B-1196 (T-NETWORKING-011): a networked client's copy of a chr the host's AI
+ * made after the stage start (SVC_NPC_SPAWN). The host already found the spot
+ * (chrAdjustPosForSpawn in chrSpawnAtCoord), so this takes the host's place as
+ * it is: a second search could move it, or fail where the client's puppets
+ * stand slightly apart from the host's. The client never runs this chr's AI
+ * (chraTick suppresses co-op NPC AI there), so it gets the idle list.
+ */
+struct prop *chrSpawnReplicated(s32 bodynum, s32 headnum, struct coord *pos, RoomNum *rooms, f32 angle, bool noblood)
+{
+	struct model *model;
+	struct prop *prop;
+	struct chrdata *chr;
+	RoomNum rooms2[8];
+
+	/* The host resolved the head already (bodyChooseHead in chrSpawnAtCoord);
+	 * -1 is a body with its own head, as there. */
+	if (chrsGetNumFree() < 1) {
+		return NULL;
+	}
+
+	roomsCopy(rooms, rooms2);
+	model = bodyAllocateModel(bodynum, headnum, 0);
+
+	if (!model) {
+		return NULL;
+	}
+
+	prop = chrAllocate(model, pos, rooms2, angle, ailistFindById(GAILIST_IDLE));
+
+	if (!prop) {
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	propActivateThisFrame(prop);
+	propEnable(prop);
+
+	chr = prop->chr;
+	chr->headnum = headnum;
+	chr->bodynum = bodynum;
+	chr->race = bodyGetRace(chr->bodynum);
+	bodyInitChrBeams(chr, chr->bodynum);
+	chr->flags = 0;
+	chr->flags2 = 0;
+	chr->hidden2 |= CHRH2FLAG_SPAWNED;
+
+	if (noblood) {
+		chr->noblood = true;
+	}
+
+	return prop;
 }
 
 struct prop *chrSpawnAtPad(struct chrdata *basechr, s32 body, s32 head, s32 pad_id, u8 *ailist, u32 spawnflags)

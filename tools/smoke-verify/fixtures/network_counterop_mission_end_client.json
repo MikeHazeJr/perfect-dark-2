@@ -1,0 +1,48 @@
+{
+  "scenario_name": "network_counterop_mission_end_client",
+  "description": "Client schedule for network_counterop_mission_end_smoke: it never presses anything on its results screen, so the host's Next Mission has to take it along.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "input_sequence": [
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "The ordinary ready gate, typed stage publication, load, allocation and spawn are live.",
+      "at_ms": 0
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "at_ms": 0,
+      "comment": "The client's own results with the waiting note, after the host's end."
+    },
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 360000,
+      "stable_ms": 2000,
+      "at_ms": 5000,
+      "comment": "Taken along into the host's next mission."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Scripted clean exit once the next mission is live."
+    }
+  ]
+}
