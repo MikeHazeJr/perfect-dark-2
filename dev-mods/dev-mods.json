@@ -22,6 +22,13 @@
       "dev": false,
       "release": false,
       "summary": "Blank Room: a small original level (one room, four pillars, eight player starts) that holds nothing of the original game. The template Forge starts a shareable level from. Built by dev-mods/blank_room/build_blank_room.py. Include with -DevMods blank_room."
+    },
+    {
+      "id": "model_room",
+      "path": "model_room",
+      "dev": false,
+      "release": false,
+      "summary": "Model Room: an original level made from a model (model_room.glb, written by dev-mods/model_room/make_model_room.py) by tools/build_level_from_model.py: two platforms on ramps, pillars, cover, eight starts. Forge step F5's example. Include with -DevMods model_room."
     }
   ]
 }

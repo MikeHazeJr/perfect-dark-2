@@ -1199,3 +1199,56 @@ The planning half is unit-tested (`[forge-level-live]`, five cases in
 Kinds drawn: props, weapon pickups, ammo crates, hoverbikes, hover props,
 keys, hats, shields, gas bottles, monitors, alarms, cameras, autoguns, safes
 and glass. Doors, lifts and characters keep their markers only.
+
+## F3: an object's size (WRITTEN 2026-11-17, unit-tested, not compiled)
+
+`forgeLevelDocSetObjectScale` writes an object's `base.extra_scale` row (256
+is life size), the one file that holds it; it refuses a record with no such
+row and one of the match's weapon places, which the match's weapon set sizes
+whatever the level says (`setupPlaceWeapon`). The Level File section has a
+Size slider (25% to 400%) and Set Size, an edit that can be undone, and the
+world's stand-in is drawn at the new size.
+
+## F5: a level from a model (BUILT 2026-11-17, unit-tested, not run)
+
+The Blank Room's builder is split: everything that does not depend on what a
+level looks like is `tools/level_archive.py` (the tables, the AI list, the
+navigation files and record, the graph, the archives, the scene writer and
+the checks), and the Blank Room keeps its room, tile and starts. Its
+`--check` says the split builds the identical level.
+
+`tools/build_level_from_model.py MODEL.glb --id ID --name NAME --out DIR`
+makes a level from a model, the way one exported from Blender comes:
+
+- every mesh is drawn and collided with; a node named `collision...` is
+  collided with and not drawn, `nocollide...` is drawn and not collided with;
+  a face that looks down is never collided with (ceilings, as in the base
+  arenas); a face that looks up (normal y 0.5 or more, the game's floor
+  test) is a floor, the rest walls; a mirroring node's faces are turned back
+  the right way round;
+- each material's base colour texture (embedded; PNG as is, other kinds
+  converted when Pillow is there) and factor become one textured, tinted
+  part of the scene; a material with no texture is drawn plain in its colour;
+- empties named `start...` are the starts: set 50 above the floor under them
+  and facing where the empty's +Z points in glTF (Blender's -Y), walked in
+  order round their middle by the simulants' path;
+- `--scale` (default 100) turns metres into the game's centimetres;
+- one room: every triangle and start is in room 1, the room's box is the
+  model's. Several rooms need portals and are later work.
+
+`tools/tests/test_level_from_model.py` (7 cases, local; hosted CI does not
+run it yet) builds a model in memory and checks the collision kinds and
+counts, the mirrored part's winding, the scene's parts, the starts' heights,
+facings and order, and the refusals. `tools/simple_glb.py` is the small
+writer it and the example use.
+
+The example is the Model Room (`dev-mods/model_room`, a dev mod off by
+default): `make_model_room.py` writes `model_room.glb` (a 24 m room, a
+platform 1.2 m up at each end on a ramp, the west one a mirrored copy, four
+pillars, two cover blocks, a ceiling, a strip along a wall that is not
+collided with, eight starts) and builds it: 90 collision triangles, 14 of
+them floors, starts at 50 and 170 high, accepted by the archive validator.
+`forge_model_room_smoke` plays a match on it.
+
+Next for F5: the same with a model made in Blender, and then the Maian arena
+when Forge's authoring is finished (Mike, 2026-11-15).
