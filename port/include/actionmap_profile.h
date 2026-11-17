@@ -51,12 +51,21 @@ bool resetDevice(const Registry &, const Snapshot &defaults, const Snapshot &bef
                  Snapshot &out, std::string &error);
 bool encode(const Registry &registry, const Snapshot &snapshot,
             std::string &text, std::string &error);
+/* A versioned document lists every context/action pair, with one exception:
+ * a complete document from a build with a shorter action list. Saved names
+ * are positional and new actions are appended, so such a document lists, for
+ * every context, the same leading run of the action list and nothing after
+ * it. decode accepts it, keeps its bindings and leaves the actions it could
+ * not know at their defaults; *olderActions (optional) then receives how many
+ * actions per context it lists, and 0 for a current document. Any other
+ * missing row is damage and is refused. Without this, every added action
+ * turned each player's saved bindings into a file that could not load. */
 bool decode(const Registry &registry, const Snapshot &defaults,
             const std::string &text, bool allowLegacy,
-            Snapshot &out, std::string &error);
+            Snapshot &out, std::string &error, size_t *olderActions = nullptr);
 ReadResult read(const Registry &registry, const Snapshot &defaults,
                 const char *absolutePath, bool allowLegacy,
-                Snapshot &out, std::string &error);
+                Snapshot &out, std::string &error, size_t *olderActions = nullptr);
 bool write(const Registry &registry, const Snapshot &snapshot,
            const char *absolutePath, std::string &error);
 
@@ -72,6 +81,10 @@ class Store {
 public:
     bool initialized() const { return initialized_; }
     int activeProfile() const { return accepted_.activeProfile; }
+    /* How many actions per context the current file listed when initialize
+     * read it as a complete file from an older build (and brought it up to
+     * date); 0 when it was current, missing or refused. */
+    size_t upgradedFromActions() const { return upgradedFromActions_; }
     bool initialize(const Registry &, const Snapshot &defaults,
                     const char *currentPath, std::string &error);
     bool saveCurrent(const Registry &, const char *currentPath, std::string &error);
@@ -83,6 +96,7 @@ private:
     Snapshot accepted_;
     bool initialized_ = false;
     bool blocked_ = false;
+    size_t upgradedFromActions_ = 0;
 };
 } // namespace actionmap_profile
 #endif // __cplusplus

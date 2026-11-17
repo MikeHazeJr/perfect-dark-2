@@ -1,0 +1,73 @@
+{
+  "scenario_name": "weapon_tool_create_smoke",
+  "description": "Modding Hub Weapons creator, runtime proof of the clean archive layout: one ordinary client launch starts the creator from the extracted base Falcon 2 as a template and saves it as 'Hub Falcon' through --debug-weapon-tool-create, which calls the same two functions as the creator's Create and Save buttons. The template's own behavior graph is read from its three clean files into the graph editor (four nodes, two links, not a made-up default), written back as primary, secondary and shared-context files, compiled, and handed to the mod author, which writes, validates, enables and applies the mod. The saved weapon is then loaded through the typed catalog loader in the same launch. No mod exists before the launch. It does not prove gameplay with the weapon, and it does not click through the hub's windows.",
+  "tags": ["modding", "weapons-tool", "modding-hub", "pdweapon", "weapon", "smoke", "pillar:modding", "boot"],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_moddinghub.cpp",
+    "port/fast3d/pdgui_weapon_graph_node_editor.cpp",
+    "port/src/weapon_graph_editor_io.cpp",
+    "port/src/mod_author.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "remove_paths": ["mods/Weapons/weapon_hub_falcon"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-weapon-tool-create",
+    "base:falcon2",
+    "--debug-weapon-tool-name",
+    "Hub_Falcon",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "weapon=mod:weapon_hub_falcon"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The creator run is a CLI fast path that runs once the catalog is initialised, right after --mod-author. The catalog probe for the new id runs after it in the same dispatcher." },
+    { "at_ms": 170000, "type": "exit", "comment": "Fallback only. The launch normally ends itself through --debug-exit-after-catalog-probes; on the hard disk the client needs about 45 seconds of boot before the CLI fast paths are reached." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=weapon_tool_create_smoke",
+      "WEAPONMOD\\.DEBUG\\.CREATE\\.BEGIN template=base:falcon2 display='Hub_Falcon'",
+      "WEAPONMOD\\.TEMPLATE\\.START template=base:falcon2 .*archive='.*base_falcon2\\.pdweapon'",
+      "WEAPONMOD\\.DEBUG\\.CREATE\\.GRAPH nodes=4 links=2 primary=primary_action secondary=secondary_action graph_bytes=[1-9]\\d*",
+      "WEAPONMOD\\.SAVE\\.BEGIN catalog=mod:weapon_hub_falcon template=base:falcon2 display='Hub_Falcon'",
+      "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_hub_falcon mod_id=mod\\.weapon_hub_falcon updated=0 archives=[1-9]\\d* ids=[1-9]\\d* archive='.*weapon_hub_falcon\\.pdweapon'",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.weapon_hub_falcon restart_count=0",
+      "WEAPONMOD\\.SAVE\\.OK catalog=mod:weapon_hub_falcon mod_id=mod\\.weapon_hub_falcon archive='.*weapon_hub_falcon\\.pdweapon' updated=0",
+      "WEAPONMOD\\.DEBUG\\.CREATE\\.RESULT result=OK catalog=mod:weapon_hub_falcon",
+      "BOOT: --debug-weapon-tool-create template=base:falcon2 name='Hub_Falcon' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='mod:weapon_hub_falcon'",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod:weapon_hub_falcon' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "WEAPONMOD\\.TEMPLATE\\.[A-Z_]*FAIL",
+      "WEAPONMOD\\.SAVE\\.[A-Z_]*FAIL",
+      "WEAPONMOD\\.SAVE\\.(NO_TEMPLATE|BAD_DISPLAY_NAME|TEMPLATE_MISSING|DEPENDENCY_CHANGE_UNSUPPORTED|NAME_TAKEN)",
+      "WEAPONMOD\\.DEBUG\\.CREATE\\.RESULT result=FAIL",
+      "BOOT: --debug-weapon-tool-create .* result=FAIL",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod:weapon_hub_falcon' result=(FAIL|MISSING)",
+      "modmgr: mod\\.json validation failed for 'mod\\.weapon_hub_falcon'"
+    ],
+    "required_counts": [
+      { "pattern": "WEAPONMOD\\.SAVE\\.OK catalog=mod:weapon_hub_falcon", "min": 1, "max": 1 }
+    ]
+  }
+}

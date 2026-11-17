@@ -1146,6 +1146,50 @@ if ($state -and $state.builtHash -and $currentHash -and $state.builtHash -ne $cu
 }
 
 # ============================================================================
+# Mods in the build dir survive a clean
+# ============================================================================
+# A clean removes the whole build directory. The game can keep its mods folder
+# there ($E/mods): mods made with the in-game tools, mods a person dropped in,
+# and the list of enabled mods. None of that is build output. It is moved to a
+# folder beside the build directory for the wipe and moved back afterwards;
+# nothing here ever deletes it. Dev mods (dev-mods/) are copied in again after
+# the build, as before, on top of what was kept.
+
+$script:BuildDirModItems = @("mods", "mods-enabled.json")
+
+function Save-BuildDirMods([string]$Dir) {
+    $present = @($script:BuildDirModItems | Where-Object { Test-Path -LiteralPath (Join-Path $Dir $_) })
+    if ($present.Count -eq 0) { return $null }
+    $keep = $Dir.TrimEnd('\', '/') + ".mods-keep"
+    if (Test-Path -LiteralPath $keep) {
+        # Left by a clean that was interrupted: it still holds mods. Never
+        # write over it; stop so a person can put them back.
+        throw "Mods from an interrupted clean are still in '$keep'. Move its contents back into '$Dir' and build again."
+    }
+    New-Item -ItemType Directory -Path $keep -Force | Out-Null
+    foreach ($name in $present) {
+        Move-Item -LiteralPath (Join-Path $Dir $name) -Destination (Join-Path $keep $name) -Force -ErrorAction Stop
+    }
+    Write-Info "  Kept aside for the clean: $($present -join ', ') -> $keep"
+    return $keep
+}
+
+function Restore-BuildDirMods([string]$Dir, [string]$Keep) {
+    if (-not $Keep) { return }
+    if (-not (Test-Path -LiteralPath $Dir)) {
+        New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+    }
+    foreach ($name in $script:BuildDirModItems) {
+        $src = Join-Path $Keep $name
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        Move-Item -LiteralPath $src -Destination (Join-Path $Dir $name) -Force -ErrorAction Stop
+    }
+    # Empty by now; without -Recurse this cannot remove anything that is left.
+    Remove-Item -LiteralPath $Keep -Force -ErrorAction SilentlyContinue
+    Write-Ok "  Mods put back into: $Dir"
+}
+
+# ============================================================================
 # Smart clean (heuristic-based)
 # ============================================================================
 
@@ -1159,8 +1203,12 @@ if ($needsClean) {
             }
         } else {
         Write-Header "Cleaning Build Dir ($reason)"
+        # Mods in this build's own mods folder are the player's work, not
+        # build output: moved aside for the wipe, moved back after it.
+        $modKeep = Save-BuildDirMods -Dir $BuildDir
         Remove-Item -Path $BuildDir -Recurse -Force -ErrorAction SilentlyContinue
         Write-Ok "  Cleaned: $BuildDir"
+        Restore-BuildDirMods -Dir $BuildDir -Keep $modKeep
         }
     } else {
         Write-Info "  Build dir does not exist -- fresh build ($reason)"

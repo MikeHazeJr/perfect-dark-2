@@ -55,6 +55,9 @@
 #include "modmgr_save_status.h"
 #include "modmgr_apply.h"
 #include "modpack_pdmod.h"
+#include "mod_author.h"
+#include "mod_author_runtime.h"
+#include "weapon_graph_editor_io.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "../external/stb_image.h"
@@ -348,7 +351,7 @@ static bool     s_IniEmptyLogged = false;
  * Weapon browser state (Tab 9)
  * ======================================================================== */
 
-#define HUB_WEAPON_TEXT_PREVIEW_LEN 8192
+#define HUB_WEAPON_TEXT_PREVIEW_LEN 32768
 #define HUB_WEAPON_GRAPH_MAX_NODES  PDGUI_WEAPON_GRAPH_MAX_NODES
 #define HUB_WEAPON_GRAPH_MAX_EDGES  PDGUI_WEAPON_GRAPH_MAX_EDGES
 #define HUB_WEAPON_GRAPH_PARAM_LEN  PDGUI_WEAPON_GRAPH_PARAM_LEN
@@ -400,6 +403,16 @@ static char s_WeaponImportProjectilePath[FS_MAXPATH] = "";
 static char s_WeaponImportEntityPath[FS_MAXPATH] = "";
 static char s_WeaponImportGraphPath[FS_MAXPATH] = "";
 static char s_WeaponMeshPickerSelected[CATALOG_ID_LEN] = "";
+/* The references a template had when it was opened. Save compares the
+ * fields with these to see what the player changed. */
+static char s_WeaponTemplateModelRef[CATALOG_ID_LEN] = "";
+static char s_WeaponTemplateTextureRef[CATALOG_ID_LEN] = "";
+static char s_WeaponTemplateAnimationRef[CATALOG_ID_LEN] = "";
+static char s_WeaponTemplateAudioRef[CATALOG_ID_LEN] = "";
+static char s_WeaponTemplateProjectileRef[CATALOG_ID_LEN] = "";
+static char s_WeaponTemplateEntityRef[CATALOG_ID_LEN] = "";
+/* Why the selected archive's behavior graph could not be read, if so. */
+static char s_WeaponGraphLoadError[192] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
@@ -877,40 +890,23 @@ static void weaponSetStatus(bool ok, const char *msg)
     }
 }
 
-static void weaponToolSlugify(const char *src, char *dst, size_t dstSize)
-{
-    if (!dst || dstSize == 0) return;
-    dst[0] = '\0';
-    if (!src) return;
-    size_t j = 0;
-    for (size_t i = 0; src[i] && j + 1 < dstSize; i++) {
-        char c = src[i];
-        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
-        if (c == ' ' || c == ':' || c == '.' || c == '/') c = '_';
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-                c == '_' || c == '-') {
-            if ((c == '_' || c == '-') && j == 0) continue;
-            dst[j++] = c;
-        }
-    }
-    while (j > 0 && (dst[j - 1] == '_' || dst[j - 1] == '-')) j--;
-    dst[j] = '\0';
-}
-
+/* The catalog name the mod author gives a weapon with this display name.
+ * The creator shows it before saving, so it has to be the author's own
+ * answer and not a second rule that can drift from it. */
 static bool weaponCatalogSlugForDisplayName(const char *displayName,
                                             char *out,
                                             size_t outSize)
 {
     if (!out || outSize == 0) return false;
     out[0] = '\0';
-    char raw[96];
-    weaponToolSlugify(displayName, raw, sizeof(raw));
-    if (!raw[0]) return false;
-    if (strncmp(raw, "weapon_", 7) == 0) {
-        snprintf(out, outSize, "%s", raw);
-    } else {
-        snprintf(out, outSize, "weapon_%s", raw);
-    }
+    mod_author_request_t request;
+    mod_author_result_t names;
+    memset(&request, 0, sizeof(request));
+    request.template_path = "template.pdweapon";
+    request.mods_root = "mods";
+    request.display_name = displayName;
+    if (modAuthorNames(&request, &names, NULL, 0) != MOD_AUTHOR_OK) return false;
+    snprintf(out, outSize, "%s", names.slug);
     return out[0] != '\0';
 }
 
@@ -968,38 +964,6 @@ static const char *weaponActiveAgentName(void)
 {
     identity_profile_t *profile = identityGetActiveProfile();
     return (profile && profile->name[0]) ? profile->name : "Agent";
-}
-
-static const char *weaponPathLeaf(const char *path)
-{
-    if (!path) return "";
-    const char *slash = strrchr(path, '/');
-    const char *backslash = strrchr(path, '\\');
-    const char *leaf = slash > backslash ? slash : backslash;
-    return leaf ? leaf + 1 : path;
-}
-
-static bool weaponImportEntryName(const char *folder, const char *srcPath,
-                                  char *out, size_t outSize)
-{
-    if (!out || outSize == 0) return false;
-    out[0] = '\0';
-    const char *leaf = weaponPathLeaf(srcPath);
-    if (!folder || !folder[0] || !leaf || !leaf[0]) return false;
-    char safe[128];
-    size_t j = 0;
-    for (size_t i = 0; leaf[i] && j + 1 < sizeof(safe); i++) {
-        char c = leaf[i];
-        if (c == '\\' || c == '/' || c == ':') c = '_';
-        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.') {
-            safe[j++] = c;
-        }
-    }
-    safe[j] = '\0';
-    if (!safe[0]) return false;
-    snprintf(out, outSize, "%s/%s", folder, safe);
-    return true;
 }
 
 static bool weaponReadTextFilePreview(const char *path, char *dst, size_t dstSize)
@@ -2066,6 +2030,53 @@ static void weaponToolRefresh(void)
     s_WeaponStatusOk = true;
 }
 
+static bool weaponReadArchiveText(const char *archivePath, const char *entry,
+                                  std::string &out)
+{
+    char *text = NULL;
+    u32 size = 0;
+    out.clear();
+    if (weaponGraphArchiveReadTextFile(archivePath, entry, &text, &size) != 0) {
+        return false;
+    }
+    out.assign(text, size);
+    free(text);
+    return true;
+}
+
+/* A clean weapon archive keeps its behavior as primary, secondary and
+ * shared-context files; the editor works on one document. */
+static bool weaponComposeCleanGraph(const char *archivePath, const char *assetId,
+                                    char *out, size_t outSize,
+                                    char *err, size_t errSize)
+{
+    std::string primary;
+    std::string secondary;
+    std::string shared;
+    if (out && outSize) out[0] = '\0';
+    if (err && errSize) err[0] = '\0';
+    if (!weaponReadArchiveText(archivePath, "behavior/primary.graph.json", primary) ||
+            !weaponReadArchiveText(archivePath, "behavior/secondary.graph.json",
+                                   secondary)) {
+        snprintf(err, errSize, "the archive has no behavior graph files");
+        return false;
+    }
+    weaponReadArchiveText(archivePath, "behavior/shared-context.json", shared);
+    char *doc = weaponGraphEditorCompose(primary.c_str(), secondary.c_str(),
+        shared.empty() ? NULL : shared.c_str(), assetId, err, errSize);
+    if (!doc) return false;
+    const size_t len = strlen(doc);
+    const bool fits = len < outSize;
+    if (fits) {
+        memcpy(out, doc, len + 1);
+    } else {
+        snprintf(err, errSize, "the behavior graph is too large for the editor (%u bytes)",
+                 (unsigned)len);
+    }
+    free(doc);
+    return fits;
+}
+
 static void weaponToolLoadSelected(void)
 {
     const asset_entry_t *e = weaponSelectedEntry();
@@ -2073,6 +2084,7 @@ static void weaponToolLoadSelected(void)
     s_WeaponIniPreview[0] = '\0';
     s_WeaponGraphPreview[0] = '\0';
     s_WeaponNestedPreview[0] = '\0';
+    s_WeaponGraphLoadError[0] = '\0';
     s_WeaponStatus[0] = '\0';
     s_WeaponStatusOk = true;
 
@@ -2110,6 +2122,15 @@ static void weaponToolLoadSelected(void)
         weaponCopyPreview(s_WeaponNestedPreview, sizeof(s_WeaponNestedPreview), text, size);
         free(text);
         text = NULL;
+    }
+    if (!s_WeaponGraphPreview[0] &&
+            !weaponComposeCleanGraph(s_WeaponArchivePath, e->id,
+                                     s_WeaponGraphPreview, sizeof(s_WeaponGraphPreview),
+                                     s_WeaponGraphLoadError,
+                                     sizeof(s_WeaponGraphLoadError))) {
+        s_WeaponGraphPreview[0] = '\0';
+        sysLogPrintf(LOG_WARNING, "WEAPONMOD.TEMPLATE.GRAPH_FAIL id=%s archive='%s' reason='%s'",
+                     e->id, s_WeaponArchivePath, s_WeaponGraphLoadError);
     }
 
     snprintf(s_WeaponStatus, sizeof(s_WeaponStatus), "Loaded weapon archive preview");
@@ -2529,6 +2550,23 @@ static void weaponToolPopulateTemplateRefs(const asset_entry_t *e)
     }
 }
 
+/* The typed archives a template carries, one member path per line. */
+static void weaponListEmbeddedArchives(const char *archivePath, char *out, size_t outSize)
+{
+    size_t pos = 0;
+    if (!out || outSize == 0) return;
+    out[0] = '\0';
+    mod_archive_t *arc = modArchiveOpen(archivePath);
+    if (!arc) return;
+    const s32 count = modArchiveGetEntryCount(arc);
+    for (s32 i = 0; i < count; i++) {
+        const char *name = modArchiveGetEntryName(arc, i);
+        if (!name || strncmp(name, "dependencies/", 13) != 0) continue;
+        if (!weaponAppendf(out, outSize, &pos, "%s\n", name)) break;
+    }
+    modArchiveClose(arc);
+}
+
 static void weaponToolStartTemplate(const asset_entry_t *e)
 {
     if (!e) {
@@ -2540,6 +2578,14 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     if (!s_WeaponArchivePath[0] || !hubPathExists(s_WeaponArchivePath)) {
         weaponSetStatus(false, "Template archive is not available yet");
+        return;
+    }
+    if (!s_WeaponGraphPreview[0]) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Template behavior could not be read: %s",
+                 s_WeaponGraphLoadError[0] ? s_WeaponGraphLoadError
+                                           : "no behavior graph in the archive");
+        weaponSetStatus(false, msg);
         return;
     }
 
@@ -2589,30 +2635,38 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
         strncpy(s_WeaponEditModelRef, e->ext.weapon.model_file,
                 sizeof(s_WeaponEditModelRef) - 1);
     }
-    if (s_WeaponGraphPreview[0]) {
-        strncpy(s_WeaponEditGraph, s_WeaponGraphPreview,
-                sizeof(s_WeaponEditGraph) - 1);
-        s_WeaponEditGraph[sizeof(s_WeaponEditGraph) - 1] = '\0';
-    } else {
-        weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
-                           sizeof(s_WeaponEditGraph));
-    }
+    strncpy(s_WeaponEditGraph, s_WeaponGraphPreview,
+            sizeof(s_WeaponEditGraph) - 1);
+    s_WeaponEditGraph[sizeof(s_WeaponEditGraph) - 1] = '\0';
     weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
                                  "asset_id", s_WeaponEditCatalogId);
     weaponToolPopulateTemplateRefs(e);
     if (!weaponGraphBuilderLoadEditModelFromJson(true)) {
-        weaponGraphBuilderSeedSingleShot();
+        /* Never open a template with made-up behavior in place of its own. */
+        s_WeaponEditActive = false;
+        if (s_WeaponStatusOk) {
+            weaponSetStatus(false,
+                "Template behavior could not be opened in the graph editor");
+        }
+        sysLogPrintf(LOG_WARNING,
+                     "WEAPONMOD.TEMPLATE.EDITOR_FAIL template=%s status='%s'",
+                     e->id, s_WeaponStatus);
+        return;
     }
-    if (s_WeaponNestedPreview[0]) {
-        strncpy(s_WeaponEditNested, s_WeaponNestedPreview,
-                sizeof(s_WeaponEditNested) - 1);
-        s_WeaponEditNested[sizeof(s_WeaponEditNested) - 1] = '\0';
-    } else {
-        snprintf(s_WeaponEditNested, sizeof(s_WeaponEditNested),
-                 "{\n  \"schema\": \"pd.weapon_nested_payloads.v1\",\n"
-                 "  \"asset_id\": \"%s\",\n  \"payloads\": []\n}\n",
-                 s_WeaponEditCatalogId);
-    }
+    weaponListEmbeddedArchives(s_WeaponEditTemplateArchive, s_WeaponEditNested,
+                               sizeof(s_WeaponEditNested));
+    snprintf(s_WeaponTemplateModelRef, sizeof(s_WeaponTemplateModelRef), "%s",
+             s_WeaponEditModelRef);
+    snprintf(s_WeaponTemplateTextureRef, sizeof(s_WeaponTemplateTextureRef), "%s",
+             s_WeaponEditTextureRef);
+    snprintf(s_WeaponTemplateAnimationRef, sizeof(s_WeaponTemplateAnimationRef), "%s",
+             s_WeaponEditAnimationRef);
+    snprintf(s_WeaponTemplateAudioRef, sizeof(s_WeaponTemplateAudioRef), "%s",
+             s_WeaponEditAudioRef);
+    snprintf(s_WeaponTemplateProjectileRef, sizeof(s_WeaponTemplateProjectileRef), "%s",
+             s_WeaponEditProjectileRef);
+    snprintf(s_WeaponTemplateEntityRef, sizeof(s_WeaponTemplateEntityRef), "%s",
+             s_WeaponEditEntityRef);
 
     s_WeaponEditActive = true;
     s_WeaponTemplateMenuOpen = true;
@@ -2626,270 +2680,79 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     weaponSetStatus(true, "Template ready. Edit fields, then save as a weapon mod.");
 }
 
-static bool weaponAddImportFile(mod_archive_writer_t *w,
-                                const char *folder,
-                                const char *srcPath,
-                                char *outEntry,
-                                size_t outEntrySize)
+static bool weaponPathHasSuffix(const char *path, const char *suffix)
 {
-    if (outEntry && outEntrySize) outEntry[0] = '\0';
-    if (!w || !srcPath || !srcPath[0]) return true;
-    char entry[FS_MAXPATH];
-    if (!weaponImportEntryName(folder, srcPath, entry, sizeof(entry))) {
-        return false;
-    }
-    if (modArchiveAddFileDisk(w, entry, srcPath) != MODARCHIVE_OK) {
-        return false;
-    }
-    if (outEntry && outEntrySize) {
-        strncpy(outEntry, entry, outEntrySize - 1);
-        outEntry[outEntrySize - 1] = '\0';
+    const size_t pathLen = path ? strlen(path) : 0;
+    const size_t suffixLen = strlen(suffix);
+    if (pathLen < suffixLen) return false;
+    const char *tail = path + pathLen - suffixLen;
+    for (size_t i = 0; i < suffixLen; i++) {
+        char c = tail[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != suffix[i]) return false;
     }
     return true;
 }
 
-static const char *weaponExtForCatalogType(asset_type_e type)
+static bool weaponReadWholeFile(const char *path, std::vector<char> &out)
 {
-    switch (type) {
-        case ASSET_MODEL:      return ".pdmesh";
-        case ASSET_ANIMATION:  return ".pdanim";
-        case ASSET_PROJECTILE: return ".pdprojectile";
-        case ASSET_ENTITY:     return ".pdentity";
-        default:               return "";
+    const size_t limit = 256u * 1024u * 1024u;
+    char chunk[65536];
+    size_t n;
+    out.clear();
+    FILE *f = fopen(path, "rb");
+    if (!f) return false;
+    while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) {
+        out.insert(out.end(), chunk, chunk + n);
+        if (out.size() > limit) break;
     }
-}
-
-static const char *weaponExtFromRef(const char *srcRef)
-{
-    if (!srcRef || !srcRef[0]) return "";
-    const char *sep = strstr(srcRef, "::");
-    const char *name = sep ? sep + 2 : weaponPathLeaf(srcRef);
-    const char *dot = strrchr(name, '.');
-    return dot ? dot : "";
-}
-
-static bool weaponArchiveRefPayloadSource(const char *srcRef,
-                                          char *archiveOut, size_t archiveOutSize,
-                                          char *entryOut, size_t entryOutSize)
-{
-    if (!srcRef || !archiveOut || !entryOut ||
-            archiveOutSize == 0 || entryOutSize == 0) return false;
-    archiveOut[0] = '\0';
-    entryOut[0] = '\0';
-    const char *sep = strstr(srcRef, "::");
-    if (!sep || sep == srcRef || !sep[2]) return false;
-    size_t archiveLen = (size_t)(sep - srcRef);
-    if (archiveLen >= archiveOutSize) archiveLen = archiveOutSize - 1;
-    memcpy(archiveOut, srcRef, archiveLen);
-    archiveOut[archiveLen] = '\0';
-    strncpy(entryOut, sep + 2, entryOutSize - 1);
-    entryOut[entryOutSize - 1] = '\0';
-    return archiveOut[0] && entryOut[0];
-}
-
-static bool weaponAddArchiveRefPayload(mod_archive_writer_t *w,
-                                       const char *entry,
-                                       const char *srcRef)
-{
-    if (!w || !entry || !entry[0] || !srcRef || !srcRef[0]) return false;
-    char archiveRef[FS_MAXPATH];
-    char nestedEntry[FS_MAXPATH];
-    if (weaponArchiveRefPayloadSource(srcRef, archiveRef, sizeof(archiveRef),
-            nestedEntry, sizeof(nestedEntry))) {
-        char archiveFull[FS_MAXPATH + 1];
-        const char *archivePath = archiveRef;
-        if (!hubPathIsAbsolute(archiveRef)) {
-            archivePath = fsFullPath(archiveRef, archiveFull, sizeof(archiveFull));
-        }
-        mod_archive_t *arc = modArchiveOpen(archivePath);
-        if (!arc) return false;
-        s32 idx = modArchiveFindEntry(arc, nestedEntry);
-        if (idx < 0) {
-            modArchiveClose(arc);
-            return false;
-        }
-        u32 size = 0;
-        void *bytes = modArchiveExtractAlloc(arc, idx, &size);
-        modArchiveClose(arc);
-        if (!bytes) return false;
-        bool ok = modArchiveAddFileMem(w, entry, bytes, size) == MODARCHIVE_OK;
-        free(bytes);
-        return ok;
-    }
-
-    char full[FS_MAXPATH + 1];
-    const char *srcPath = srcRef;
-    if (!hubPathIsAbsolute(srcRef)) {
-        srcPath = fsFullPath(srcRef, full, sizeof(full));
-    }
-    return srcPath && srcPath[0] &&
-           modArchiveAddFileDisk(w, entry, srcPath) == MODARCHIVE_OK;
-}
-
-static bool weaponResolveDataArchiveForCatalog(asset_type_e type,
-                                               const asset_entry_t *e,
-                                               const char *catalogId,
-                                               char *out, size_t outSize)
-{
-    if (!out || outSize == 0 || !catalogId || !catalogId[0]) return false;
-    out[0] = '\0';
-    char slug[128];
-    char rel[FS_MAXPATH];
-    weaponIdToFilename(catalogId, slug, sizeof(slug));
-
-    if (type == ASSET_MODEL) {
-        snprintf(rel, sizeof(rel), "meshes/%s.pdmesh", slug);
-    } else if (type == ASSET_ANIMATION) {
-        snprintf(rel, sizeof(rel), "animations/%s.pdanim", slug);
-    } else if (type == ASSET_AUDIO && e) {
-        const char *folder = "sfx";
-        const char *ext = ".pdsfx";
-        if (e->ext.audio.category == AUDIO_CAT_VOICE) {
-            folder = "voice";
-            ext = ".pdvoice";
-        } else if (e->ext.audio.category == AUDIO_CAT_MUSIC) {
-            folder = "music";
-            ext = ".pdsong";
-        }
-        snprintf(rel, sizeof(rel), "audio/%s/%s%s", folder, slug, ext);
-    } else {
-        return false;
-    }
-    fsDataPathFor(rel, out, outSize);
-    return out[0] && fsFileSize(out) > 0;
-}
-
-static bool weaponResolveCatalogPayloadSource(asset_type_e type,
-                                              const char *catalogId,
-                                              char *out, size_t outSize)
-{
-    if (!out || outSize == 0) return false;
-    out[0] = '\0';
-    if (!catalogId || !catalogId[0]) return false;
-    const asset_entry_t *e = assetCatalogResolve(catalogId);
-    if (!e) return false;
-
-    const char *direct = NULL;
-    if (type == ASSET_TEXTURE) {
-        direct = e->ext.texture.file_path;
-    } else if (type == ASSET_AUDIO) {
-        direct = e->ext.audio.file_path;
-    }
-    if (direct && direct[0]) {
-        strncpy(out, direct, outSize - 1);
-        out[outSize - 1] = '\0';
-        return true;
-    }
-
-    const char *expectedExt = weaponExtForCatalogType(type);
-    if (expectedExt[0] && strstr(e->dirpath, expectedExt)) {
-        strncpy(out, e->dirpath, outSize - 1);
-        out[outSize - 1] = '\0';
-        return true;
-    }
-    if (type == ASSET_TEXTURE && e->dirpath[0]) {
-        const char *ext = weaponExtFromRef(e->dirpath);
-        if (ext && ext[0]) {
-            strncpy(out, e->dirpath, outSize - 1);
-            out[outSize - 1] = '\0';
-            return true;
-        }
-    }
-    return weaponResolveDataArchiveForCatalog(type, e, catalogId, out, outSize);
-}
-
-static bool weaponAddCatalogAssetArchive(mod_archive_writer_t *w,
-                                         asset_type_e type,
-                                         const char *catalogId,
-                                         const char *folder,
-                                         char *outEntry,
-                                         size_t outEntrySize)
-{
-    if (outEntry && outEntrySize) outEntry[0] = '\0';
-    if (!catalogId || !catalogId[0]) return true;
-    if (!strchr(catalogId, ':')) return true;
-    char srcRef[FS_MAXPATH];
-    if (!weaponResolveCatalogPayloadSource(type, catalogId,
-            srcRef, sizeof(srcRef))) {
-        return false;
-    }
-    const char *ext = weaponExtForCatalogType(type);
-    if (!ext[0]) ext = weaponExtFromRef(srcRef);
-    if (!ext || !ext[0]) return false;
-
-    char slug[128];
-    weaponIdToFilename(catalogId, slug, sizeof(slug));
-    char entry[FS_MAXPATH];
-    snprintf(entry, sizeof(entry), "%s/catalog_%s%s", folder, slug, ext);
-    if (!weaponAddArchiveRefPayload(w, entry, srcRef)) return false;
-    if (outEntry && outEntrySize) {
-        strncpy(outEntry, entry, outEntrySize - 1);
-        outEntry[outEntrySize - 1] = '\0';
-    }
-    return true;
-}
-
-static bool weaponEntryMatchesImport(const char *entry,
-                                     const char *modelEntry,
-                                     const char *textureEntry,
-                                     const char *animEntry,
-                                     const char *audioEntry,
-                                     const char *projectileEntry,
-                                     const char *entityEntry)
-{
-    return (modelEntry && modelEntry[0] && strcmp(entry, modelEntry) == 0) ||
-           (textureEntry && textureEntry[0] && strcmp(entry, textureEntry) == 0) ||
-           (animEntry && animEntry[0] && strcmp(entry, animEntry) == 0) ||
-           (audioEntry && audioEntry[0] && strcmp(entry, audioEntry) == 0) ||
-           (projectileEntry && projectileEntry[0] && strcmp(entry, projectileEntry) == 0) ||
-           (entityEntry && entityEntry[0] && strcmp(entry, entityEntry) == 0);
-}
-
-static bool weaponCopyTemplatePayloads(mod_archive_writer_t *w,
-                                       const char *archivePath,
-                                       const char *modelEntry,
-                                       const char *textureEntry,
-                                       const char *animEntry,
-                                       const char *audioEntry,
-                                       const char *projectileEntry,
-                                       const char *entityEntry)
-{
-    mod_archive_t *arc = modArchiveOpen(archivePath);
-    if (!arc) return false;
-    const s32 count = modArchiveGetEntryCount(arc);
-    bool ok = true;
-    for (s32 i = 0; i < count; i++) {
-        const char *name = modArchiveGetEntryName(arc, i);
-        if (!name || !name[0]) continue;
-        if (strncmp(name, "_meta/", 6) == 0 ||
-                strcmp(name, "weapon.ini") == 0 ||
-                strcmp(name, "manifest.json") == 0 ||
-                strcmp(name, "behavior.graph.json") == 0 ||
-                strcmp(name, "nested_payloads.json") == 0) {
-            continue;
-        }
-        if (weaponEntryMatchesImport(name, modelEntry, textureEntry,
-                                     animEntry, audioEntry,
-                                     projectileEntry, entityEntry)) {
-            continue;
-        }
-        u32 size = 0;
-        void *bytes = modArchiveExtractAlloc(arc, i, &size);
-        if (!bytes) {
-            ok = false;
-            break;
-        }
-        if (modArchiveAddFileMem(w, name, bytes, size) != MODARCHIVE_OK) {
-            free(bytes);
-            ok = false;
-            break;
-        }
-        free(bytes);
-    }
-    modArchiveClose(arc);
+    const bool ok = !ferror(f) && out.size() <= limit && !out.empty();
+    fclose(f);
     return ok;
 }
 
+/* A clean weapon archive is its template plus edits. What the creator can
+ * edit today is the name, the dual-wield setting, the behavior graph and the
+ * mesh (from a typed .pdmesh the player made). Every other asset travels
+ * with the template, so a different choice in one of those fields is refused
+ * here rather than quietly left out of the saved mod. */
+static const char *weaponSaveUnsupportedChange(void)
+{
+    if (strcmp(s_WeaponEditModelRef, s_WeaponTemplateModelRef) != 0) {
+        return "a different catalog model";
+    }
+    if (s_WeaponImportModelPath[0] &&
+            !weaponPathHasSuffix(s_WeaponImportModelPath, ".pdmesh")) {
+        return "a model file that is not a .pdmesh archive";
+    }
+    if (s_WeaponImportModelPath[0] && !s_WeaponEditTemplateModelFile[0]) {
+        return "a model for a template that has no model of its own";
+    }
+    if (s_WeaponImportTexturePath[0] ||
+            strcmp(s_WeaponEditTextureRef, s_WeaponTemplateTextureRef) != 0) {
+        return "a different texture";
+    }
+    if (s_WeaponImportAnimationPath[0] ||
+            strcmp(s_WeaponEditAnimationRef, s_WeaponTemplateAnimationRef) != 0) {
+        return "a different animation";
+    }
+    if (s_WeaponImportAudioPath[0] ||
+            strcmp(s_WeaponEditAudioRef, s_WeaponTemplateAudioRef) != 0) {
+        return "a different sound";
+    }
+    if (s_WeaponImportProjectilePath[0] ||
+            strcmp(s_WeaponEditProjectileRef, s_WeaponTemplateProjectileRef) != 0) {
+        return "a different projectile";
+    }
+    if (s_WeaponImportEntityPath[0] ||
+            strcmp(s_WeaponEditEntityRef, s_WeaponTemplateEntityRef) != 0) {
+        return "a different entity";
+    }
+    return NULL;
+}
+
+/* Save: the template archive plus the creator's edits, written, validated,
+ * enabled and applied by the mod author. Nothing here writes an archive. */
 static bool weaponToolSaveCustom(void)
 {
     if (!s_WeaponEditActive) {
@@ -2906,413 +2769,163 @@ static bool weaponToolSaveCustom(void)
         return weaponSaveFail("BAD_DISPLAY_NAME",
                               "Use a valid display name for the catalog name");
     }
-    snprintf(s_WeaponEditDisplayName, sizeof(s_WeaponEditDisplayName), "%s",
-             displayName);
+    if (displayName != s_WeaponEditDisplayName) {
+        snprintf(s_WeaponEditDisplayName, sizeof(s_WeaponEditDisplayName), "%s",
+                 displayName);
+    }
     snprintf(s_WeaponEditCatalogId, sizeof(s_WeaponEditCatalogId),
              "mod:%s", s_WeaponEditSlug);
-    char modDir[FS_MAXPATH];
-    snprintf(modDir, sizeof(modDir), "mods/Weapons/%s", s_WeaponEditSlug);
-    char archivePath[FS_MAXPATH];
-    snprintf(archivePath, sizeof(archivePath), "%s/%s.pdweapon",
-             modDir, s_WeaponEditSlug);
-    char newModId[128];
-    snprintf(newModId, sizeof(newModId), "mod.%s", s_WeaponEditSlug);
     sysLogPrintf(LOG_NOTE,
-                 "WEAPONMOD.SAVE.BEGIN catalog=%s mod_id=%s template=%s display='%s' creator='%s' dual=%d archive='%s'",
+                 "WEAPONMOD.SAVE.BEGIN catalog=%s template=%s display='%s' creator='%s' dual=%d template_archive='%s'",
                  s_WeaponEditCatalogId,
-                 newModId,
                  s_WeaponEditTemplateId[0] ? s_WeaponEditTemplateId : "(none)",
                  s_WeaponEditDisplayName,
                  creator,
                  s_WeaponEditDualWieldable ? 1 : 0,
-                 archivePath);
+                 s_WeaponEditTemplateArchive);
+
+    if (!s_WeaponEditTemplateArchive[0] || !hubPathExists(s_WeaponEditTemplateArchive)) {
+        return weaponSaveFail("TEMPLATE_MISSING",
+                              "The template archive is not available any more");
+    }
+    const char *unsupported = weaponSaveUnsupportedChange();
+    if (unsupported) {
+        char msg[256];
+        snprintf(msg, sizeof(msg),
+                 "Not available yet: %s. Save keeps the template's own assets; "
+                 "the name, dual wield, the graph and a .pdmesh import can change.",
+                 unsupported);
+        return weaponSaveFail("DEPENDENCY_CHANGE_UNSUPPORTED", msg);
+    }
+
+    /* The graph: one editor document in, the three clean files out, checked
+     * with the compiler the game loads weapon sources with. */
+    char reason[256];
+    char msg[384];
     weaponReplaceJsonStringField(s_WeaponEditGraph, sizeof(s_WeaponEditGraph),
                                  "asset_id", s_WeaponEditCatalogId);
     if (!s_WeaponEditGraph[0]) {
         weaponDefaultGraph(s_WeaponEditCatalogId, s_WeaponEditGraph,
                            sizeof(s_WeaponEditGraph));
     }
+    if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
+            (u32)strlen(s_WeaponEditGraph), reason, sizeof(reason)) != 0) {
+        snprintf(msg, sizeof(msg), "Graph validation failed: %s", reason);
+        return weaponSaveFail("GRAPH_FAIL", msg);
+    }
+    weapon_graph_editor_split_t files;
+    if (!weaponGraphEditorSplit(s_WeaponEditGraph, s_WeaponEditCatalogId, &files,
+            reason, sizeof(reason))) {
+        snprintf(msg, sizeof(msg), "Graph could not be saved: %s", reason);
+        return weaponSaveFail("GRAPH_FAIL", msg);
+    }
     {
-        char graphErr[192];
-        if (weaponGraphValidateJson(ASSET_WEAPON, s_WeaponEditGraph,
-                (u32)strlen(s_WeaponEditGraph), graphErr, sizeof(graphErr)) != 0) {
-            char msg[240];
-            snprintf(msg, sizeof(msg), "Graph validation failed: %s", graphErr);
+        s32 compiled = -1;
+        weapon_graph_ir_t *ir = (weapon_graph_ir_t *)calloc(1, sizeof(*ir));
+        if (ir) {
+            compiled = weaponGraphCompileWeaponSourceJson(s_WeaponEditCatalogId,
+                files.primary, (u32)strlen(files.primary),
+                files.secondary, (u32)strlen(files.secondary),
+                files.shared_context,
+                files.shared_context ? (u32)strlen(files.shared_context) : 0,
+                ir, reason, sizeof(reason));
+            weaponGraphIrFree(ir);
+            free(ir);
+        } else {
+            snprintf(reason, sizeof(reason), "out of memory");
+        }
+        if (compiled != 0) {
+            weaponGraphEditorSplitFree(&files);
+            snprintf(msg, sizeof(msg), "Graph validation failed: %s", reason);
             return weaponSaveFail("GRAPH_FAIL", msg);
         }
     }
 
-    if (!fsCreateDir("mods") || !fsCreateDir("mods/Weapons")) {
-        return weaponSaveFail("MKDIR_ROOT_FAIL", "Could not create mods/Weapons/");
-    }
-    if (!fsCreateDir(modDir)) {
-        return weaponSaveFail("MKDIR_MOD_FAIL", "Could not create weapon mod folder");
-    }
-
-    mod_archive_writer_t *w = modArchiveBegin(archivePath);
-    if (!w) {
-        return weaponSaveFail("ARCHIVE_BEGIN_FAIL", "Could not create .pdweapon archive");
-    }
-
-    char modelEntry[FS_MAXPATH] = "";
-    char textureEntry[FS_MAXPATH] = "";
-    char animEntry[FS_MAXPATH] = "";
-    char audioEntry[FS_MAXPATH] = "";
-    char projectileEntry[FS_MAXPATH] = "";
-    char entityEntry[FS_MAXPATH] = "";
-    char modelCatalogEntry[FS_MAXPATH] = "";
-    char modelTemplateEntry[FS_MAXPATH] = "";
-    char textureCatalogEntry[FS_MAXPATH] = "";
-    char animCatalogEntry[FS_MAXPATH] = "";
-    char animTemplateEntry[FS_MAXPATH] = "";
-    char audioCatalogEntry[FS_MAXPATH] = "";
-    char projectileCatalogEntry[FS_MAXPATH] = "";
-    char entityCatalogEntry[FS_MAXPATH] = "";
-    bool ok = true;
-    if (ok && !weaponAddImportFile(w, "models", s_WeaponImportModelPath,
-            modelEntry, sizeof(modelEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=model_import path='%s'",
-                     s_WeaponImportModelPath);
-        ok = false;
-    }
-    if (ok && !weaponAddImportFile(w, "textures", s_WeaponImportTexturePath,
-            textureEntry, sizeof(textureEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=texture_import path='%s'",
-                     s_WeaponImportTexturePath);
-        ok = false;
-    }
-    if (ok && !weaponAddImportFile(w, "animations", s_WeaponImportAnimationPath,
-            animEntry, sizeof(animEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=animation_import path='%s'",
-                     s_WeaponImportAnimationPath);
-        ok = false;
-    }
-    if (ok && !weaponAddImportFile(w, "audio", s_WeaponImportAudioPath,
-            audioEntry, sizeof(audioEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=audio_import path='%s'",
-                     s_WeaponImportAudioPath);
-        ok = false;
-    }
-    if (ok && !weaponAddImportFile(w, "projectiles", s_WeaponImportProjectilePath,
-            projectileEntry, sizeof(projectileEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=projectile_import path='%s'",
-                     s_WeaponImportProjectilePath);
-        ok = false;
-    }
-    if (ok && !weaponAddImportFile(w, "entities", s_WeaponImportEntityPath,
-            entityEntry, sizeof(entityEntry))) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=entity_import path='%s'",
-                     s_WeaponImportEntityPath);
-        ok = false;
-    }
-    if (ok && !weaponCopyTemplatePayloads(w, s_WeaponEditTemplateArchive,
-            modelEntry, textureEntry, animEntry, audioEntry,
-            projectileEntry, entityEntry)) {
-        sysLogPrintf(LOG_WARNING,
-                     "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=template archive='%s'",
-                     s_WeaponEditTemplateArchive);
-        ok = false;
-    }
-    if (ok && !modelEntry[0]) {
-        if (s_WeaponEditTemplateModelFile[0]) {
-            strncpy(modelTemplateEntry, s_WeaponEditTemplateModelFile,
-                    sizeof(modelTemplateEntry) - 1);
-            modelTemplateEntry[sizeof(modelTemplateEntry) - 1] = '\0';
-        }
-    }
-    if (ok && !modelEntry[0] && !modelTemplateEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_MODEL, s_WeaponEditModelRef,
-                "models", modelCatalogEntry, sizeof(modelCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=model_ref ref='%s'",
-                         s_WeaponEditModelRef);
-            ok = false;
-        }
-    }
-    if (ok && !textureEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_TEXTURE, s_WeaponEditTextureRef,
-                "textures", textureCatalogEntry, sizeof(textureCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=texture_ref ref='%s'",
-                         s_WeaponEditTextureRef);
-            ok = false;
-        }
-    }
-    if (ok && !animEntry[0]) {
-        if (s_WeaponEditTemplateAnimationFile[0]) {
-            strncpy(animTemplateEntry, s_WeaponEditTemplateAnimationFile,
-                    sizeof(animTemplateEntry) - 1);
-            animTemplateEntry[sizeof(animTemplateEntry) - 1] = '\0';
-        }
-    }
-    if (ok && !animEntry[0] && !animTemplateEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_ANIMATION,
-                s_WeaponEditAnimationRef, "animations", animCatalogEntry,
-                sizeof(animCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=animation_ref ref='%s'",
-                         s_WeaponEditAnimationRef);
-            ok = false;
-        }
-    }
-    if (ok && !audioEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_AUDIO, s_WeaponEditAudioRef,
-                "audio", audioCatalogEntry, sizeof(audioCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=audio_ref ref='%s'",
-                         s_WeaponEditAudioRef);
-            ok = false;
-        }
-    }
-    if (ok && !projectileEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_PROJECTILE,
-                s_WeaponEditProjectileRef, "projectiles", projectileCatalogEntry,
-                sizeof(projectileCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=projectile_ref ref='%s'",
-                         s_WeaponEditProjectileRef);
-            ok = false;
-        }
-    }
-    if (ok && !entityEntry[0]) {
-        if (!weaponAddCatalogAssetArchive(w, ASSET_ENTITY, s_WeaponEditEntityRef,
-                "entities", entityCatalogEntry, sizeof(entityCatalogEntry))) {
-            sysLogPrintf(LOG_WARNING,
-                         "WEAPONMOD.SAVE.PAYLOAD_FAIL slot=entity_ref ref='%s'",
-                         s_WeaponEditEntityRef);
-            ok = false;
-        }
-    }
-    if (!ok) {
-        modArchiveAbort(w);
-        return weaponSaveFail("PAYLOAD_EMBED_FAIL",
-                              "Could not embed all selected weapon payloads");
+    asset_archive_clone_override_t overrides[4];
+    u32 overrideCount = 0;
+    memset(overrides, 0, sizeof(overrides));
+    overrides[overrideCount].entry = "behavior/primary.graph.json";
+    overrides[overrideCount].data = files.primary;
+    overrides[overrideCount++].len = (u32)strlen(files.primary);
+    overrides[overrideCount].entry = "behavior/secondary.graph.json";
+    overrides[overrideCount].data = files.secondary;
+    overrides[overrideCount++].len = (u32)strlen(files.secondary);
+    if (files.shared_context) {
+        overrides[overrideCount].entry = "behavior/shared-context.json";
+        overrides[overrideCount].data = files.shared_context;
+        overrides[overrideCount++].len = (u32)strlen(files.shared_context);
     }
 
-    const char *modelFile = modelEntry[0] ? modelEntry :
-        (modelTemplateEntry[0] ? modelTemplateEntry :
-            (modelCatalogEntry[0] ? modelCatalogEntry : s_WeaponEditModelRef));
-    const char *textureFile = textureEntry[0] ? textureEntry :
-        (textureCatalogEntry[0] ? textureCatalogEntry : "");
-    const char *animFile = animEntry[0] ? animEntry :
-        (animTemplateEntry[0] ? animTemplateEntry :
-            (animCatalogEntry[0] ? animCatalogEntry : ""));
-    const char *audioFile = audioEntry[0] ? audioEntry :
-        (audioCatalogEntry[0] ? audioCatalogEntry : "");
-    const char *projectileFile = projectileEntry[0] ? projectileEntry :
-        (projectileCatalogEntry[0] ? projectileCatalogEntry : "");
-    const char *entityFile = entityEntry[0] ? entityEntry :
-        (entityCatalogEntry[0] ? entityCatalogEntry : "");
-    char weaponIni[4096];
-    int weaponIniLen = snprintf(weaponIni, sizeof(weaponIni),
-        "[weapon]\n"
-        "schema = pd.weapon.v1\n"
-        "dependency_closure = embedded.v2\n"
-        "catalog_id = %s\n"
-        "name = %s\n"
-        "manifest = _meta/manifest.json\n"
-        "behavior_graph = behavior.graph.json\n"
-        "nested_payloads = nested_payloads.json\n"
-        "model_file = %s\n"
-        "dual_wieldable = %d\n"
-        "\n"
-        "[references]\n"
-        "template = %s\n"
-        "model_ref = %s\n"
-        "texture_ref = %s\n"
-        "animation_ref = %s\n"
-        "audio_ref = %s\n"
-        "projectile_ref = %s\n"
-        "entity_ref = %s\n"
-        "model_archive = %s\n"
-        "texture_archive = %s\n"
-        "animation_archive = %s\n"
-        "audio_archive = %s\n"
-        "projectile_archive = %s\n"
-        "entity_archive = %s\n",
-        s_WeaponEditCatalogId,
-        s_WeaponEditDisplayName,
-        modelFile ? modelFile : "",
-        s_WeaponEditDualWieldable ? 1 : 0,
-        s_WeaponEditTemplateId,
-        s_WeaponEditModelRef,
-        s_WeaponEditTextureRef,
-        s_WeaponEditAnimationRef,
-        s_WeaponEditAudioRef,
-        s_WeaponEditProjectileRef,
-        s_WeaponEditEntityRef,
-        modelFile ? modelFile : "",
-        textureFile ? textureFile : "",
-        animFile ? animFile : "",
-        audioFile ? audioFile : "",
-        projectileFile ? projectileFile : "",
-        entityFile ? entityFile : "");
-    if (weaponIniLen <= 0 || (size_t)weaponIniLen >= sizeof(weaponIni)) {
-        modArchiveAbort(w);
-        return weaponSaveFail("WEAPON_INI_TOO_LARGE", "weapon.ini is too large");
-    }
-
-    char escName[192];
-    char escCreator[128];
-    char escTemplate[128];
-    weaponJsonEscape(s_WeaponEditDisplayName, escName, sizeof(escName));
-    weaponJsonEscape(creator, escCreator, sizeof(escCreator));
-    weaponJsonEscape(s_WeaponEditTemplateId, escTemplate, sizeof(escTemplate));
-
-    char manifest[4096];
-    int manifestLen = snprintf(manifest, sizeof(manifest),
-        "{\n"
-        "  \"schema\": \"pd.weapon.manifest.v1\",\n"
-        "  \"catalog_id\": \"%s\",\n"
-        "  \"name\": \"%s\",\n"
-        "  \"creator\": \"%s\",\n"
-        "  \"template\": \"%s\",\n"
-        "  \"dependency_closure\": \"embedded.v2\",\n"
-        "  \"refs\": {\n"
-        "    \"model\": \"%s\",\n"
-        "    \"texture\": \"%s\",\n"
-        "    \"animation\": \"%s\",\n"
-        "    \"audio\": \"%s\",\n"
-        "    \"projectile\": \"%s\",\n"
-        "    \"entity\": \"%s\"\n"
-        "  },\n"
-        "  \"embedded\": {\n"
-        "    \"model\": \"%s\",\n"
-        "    \"texture\": \"%s\",\n"
-        "    \"animation\": \"%s\",\n"
-        "    \"audio\": \"%s\",\n"
-        "    \"projectile\": \"%s\",\n"
-        "    \"entity\": \"%s\"\n"
-        "  }\n"
-        "}\n",
-        s_WeaponEditCatalogId, escName, escCreator, escTemplate,
-        s_WeaponEditModelRef, s_WeaponEditTextureRef,
-        s_WeaponEditAnimationRef, s_WeaponEditAudioRef,
-        s_WeaponEditProjectileRef, s_WeaponEditEntityRef,
-        modelFile ? modelFile : "",
-        textureFile ? textureFile : "",
-        animFile ? animFile : "",
-        audioFile ? audioFile : "",
-        projectileFile ? projectileFile : "",
-        entityFile ? entityFile : "");
-    if (manifestLen <= 0 || (size_t)manifestLen >= sizeof(manifest)) {
-        modArchiveAbort(w);
-        return weaponSaveFail("MANIFEST_TOO_LARGE", "manifest.json is too large");
-    }
-
-    if (modArchiveAddFileMem(w, "weapon.ini", weaponIni, (u32)weaponIniLen) != MODARCHIVE_OK ||
-            modArchiveAddFileMem(w, "_meta/manifest.json", manifest, (u32)manifestLen) != MODARCHIVE_OK ||
-            modArchiveAddFileMem(w, "behavior.graph.json", s_WeaponEditGraph,
-                                 (u32)strlen(s_WeaponEditGraph)) != MODARCHIVE_OK ||
-            modArchiveAddFileMem(w, "nested_payloads.json", s_WeaponEditNested,
-                                 (u32)strlen(s_WeaponEditNested)) != MODARCHIVE_OK) {
-        modArchiveAbort(w);
-        return weaponSaveFail("ARCHIVE_ROOTS_FAIL",
-                              "Could not write weapon archive roots");
-    }
-
-    if (modArchiveFinish(w) != MODARCHIVE_OK) {
-        return weaponSaveFail("ARCHIVE_FINISH_FAIL",
-                              "Could not finalize .pdweapon archive");
-    }
-    sysLogPrintf(LOG_NOTE,
-                 "WEAPONMOD.SAVE.ARCHIVE_OK catalog=%s archive='%s'",
-                 s_WeaponEditCatalogId, archivePath);
-
-    char modJsonPath[FS_MAXPATH];
-    snprintf(modJsonPath, sizeof(modJsonPath), "%s/mod.json", modDir);
-    FILE *mf = fsFileOpenWrite(modJsonPath);
-    if (!mf) {
-        return weaponSaveFail("MODJSON_OPEN_FAIL",
-                              "Saved .pdweapon but could not write mod.json");
-    }
-    fprintf(mf,
-        "{\n"
-        "  \"id\": \"%s\",\n"
-        "  \"name\": \"%s\",\n"
-        "  \"version\": \"1.0.0\",\n"
-        "  \"description\": \"Weapon mod created with the Weapons tool.\",\n"
-        "  \"author\": \"%s\",\n"
-        "  \"tags\": [\"weapon\", \"pdweapon\", \"user\"],\n"
-        "  \"enabled\": true\n"
-        "}\n",
-        newModId, escName, escCreator);
-    bool writeOk = !ferror(mf);
-    fclose(mf);
-    if (!writeOk) {
-        return weaponSaveFail("MODJSON_WRITE_FAIL",
-                              "Saved .pdweapon but mod.json write failed");
-    }
-    sysLogPrintf(LOG_NOTE,
-                 "WEAPONMOD.SAVE.MODJSON_OK catalog=%s mod_id=%s path='%s'",
-                 s_WeaponEditCatalogId, newModId, modJsonPath);
-
-    modmgrRescanDirectory();
-    s32 modCount = modmgrGetCount();
-    bool foundMod = false;
-    bool enabledMod = false;
-    for (s32 i = 0; i < modCount; i++) {
-        const char *id = modmgrGetModId(i);
-        if (id && strcmp(id, newModId) == 0) {
-            foundMod = true;
-            if (!modmgrGetModValid(i)) {
-                const char *err = modmgrGetModValidationError(i);
-                char msg[192];
-                snprintf(msg, sizeof(msg),
-                         "Saved .pdweapon, but Mod Manager rejected it: %s",
-                         err && err[0] ? err : "invalid mod manifest");
-                return weaponSaveFail("MODINVALID", msg);
-            }
-            modmgrSetEnabled(i, 1);
-            enabledMod = modmgrGetModEnabled(i) != 0;
-            break;
+    /* A mesh the player made replaces the template's own, as a whole typed
+     * archive in the template's model slot. */
+    std::vector<char> mesh;
+    if (s_WeaponImportModelPath[0]) {
+        if (!weaponReadWholeFile(s_WeaponImportModelPath, mesh)) {
+            weaponGraphEditorSplitFree(&files);
+            return weaponSaveFail("MODEL_IMPORT_FAIL",
+                                  "The imported .pdmesh could not be read");
         }
+        overrides[overrideCount].entry = s_WeaponEditTemplateModelFile;
+        overrides[overrideCount].data = mesh.data();
+        overrides[overrideCount++].len = (u32)mesh.size();
     }
-    if (!foundMod) {
-        return weaponSaveFail("MODDISCOVER_FAIL",
-                              "Saved .pdweapon, but Mod Manager did not discover it");
+
+    mod_author_descriptor_value_t descriptor[1];
+    descriptor[0].key = "dual_wieldable";
+    descriptor[0].value = s_WeaponEditDualWieldable ? "1" : "0";
+
+    mod_author_request_t request;
+    memset(&request, 0, sizeof(request));
+    request.template_path = s_WeaponEditTemplateArchive;
+    request.display_name = s_WeaponEditDisplayName;
+    request.author = creator;
+    request.description = "Weapon mod created with the Weapons tool.";
+    request.tool = "weapons-tool";
+    request.overrides = overrides;
+    request.override_count = overrideCount;
+    request.descriptor_values = descriptor;
+    request.descriptor_value_count = 1;
+
+    static mod_author_result_t result;
+    memset(&result, 0, sizeof(result));
+    s32 restartCount = 0;
+    char err[512];
+    const s32 code = modAuthorRuntimeSave(&request, &result, &restartCount,
+                                          err, sizeof(err));
+    weaponGraphEditorSplitFree(&files);
+    if (code != MOD_AUTHOR_OK) {
+        const char *stage = "AUTHOR_FAIL";
+        if (code == MOD_AUTHOR_ERR_EXISTS) stage = "NAME_TAKEN";
+        else if (code == MOD_AUTHOR_ERR_TEMPLATE) stage = "TEMPLATE_FAIL";
+        else if (code == MOD_AUTHOR_ERR_ARCHIVE) stage = "ARCHIVE_FAIL";
+        else if (code == MOD_AUTHOR_ERR_WRITE && result.archive_path[0]) stage = "ENABLE_FAIL";
+        else if (code == MOD_AUTHOR_ERR_WRITE) stage = "WRITE_FAIL";
+        snprintf(msg, sizeof(msg), "%s%s",
+                 result.archive_path[0] ? "Saved, but not active yet: " : "Not saved: ",
+                 err[0] ? err : "the mod author gave no reason");
+        return weaponSaveFail(stage, msg);
     }
-    if (!enabledMod) {
-        return weaponSaveFail("MODENABLE_FAIL",
-                              "Saved .pdweapon, but Mod Manager could not enable it");
-    }
-    sysLogPrintf(LOG_NOTE,
-                 "WEAPONMOD.SAVE.APPLY_BEGIN catalog=%s mod_id=%s",
-                 s_WeaponEditCatalogId, newModId);
-    modmgr_apply_result_t applyResult;
-    if (!modmgrApplyChangesChecked(1, &applyResult)) {
-        char message[384];
-        snprintf(message, sizeof(message),
-                 "Source files saved, but activation is incomplete: %s Earlier saves or runtime changes may remain.",
-                 applyResult.error[0] ? applyResult.error : "Apply failed");
-        return weaponSaveFail("APPLY_FAIL", message);
-    }
+
     pdguiModManagerRefreshSnapshot();
     weaponToolRefresh();
-    strncpy(s_WeaponSelectedId, s_WeaponEditCatalogId,
-            sizeof(s_WeaponSelectedId) - 1);
+    strncpy(s_WeaponSelectedId, result.catalog_id, sizeof(s_WeaponSelectedId) - 1);
     s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
 
     char status[192];
-    if (applyResult.restart_count) {
+    if (restartCount) {
         snprintf(status, sizeof(status),
                  "Saved. Restart required to finish applying %d package change(s).",
-                 applyResult.restart_count);
+                 restartCount);
     } else {
         snprintf(status, sizeof(status),
-                 "Saved, enabled, and catalog updated: %s", s_WeaponEditCatalogId);
+                 "Saved, enabled, and catalog updated: %s", result.catalog_id);
     }
     weaponSetStatus(true, status);
     s_WeaponSaveComplete = true;
     sysLogPrintf(LOG_NOTE,
-                 "WEAPONMOD.SAVE.OK catalog=%s mod_id=%s archive='%s'",
-                 s_WeaponEditCatalogId, newModId, archivePath);
+                 "WEAPONMOD.SAVE.OK catalog=%s mod_id=%s archive='%s' updated=%d",
+                 result.catalog_id, result.mod_id, result.archive_path,
+                 result.updated);
     return true;
 }
 
@@ -3903,12 +3516,13 @@ static void weaponRenderTemplateEditor(float scale)
         }
 
         if (ImGui::BeginTabItem("Payloads")) {
-            ImGui::Text("Nested Payloads");
+            ImGui::Text("Embedded archives");
+            ImGui::TextDisabled("These travel with the template and are saved into the mod as they are.");
             ImGui::InputTextMultiline("##weapon_edit_nested",
                                       s_WeaponEditNested,
                                       sizeof(s_WeaponEditNested),
                                       ImVec2(-1.0f, 220.0f * scale),
-                                      ImGuiInputTextFlags_AllowTabInput);
+                                      ImGuiInputTextFlags_ReadOnly);
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -4696,7 +4310,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
                 switch (ret) {
                     case MODPACK_PDMOD_ERR_OPEN:    reason = "could not open destination"; break;
                     case MODPACK_PDMOD_ERR_NO_MFST: reason = "mod.json not found in folder"; break;
-                    case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json failed to parse"; break;
+                    case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json is not a valid mod manifest"; break;
                     case MODPACK_PDMOD_ERR_IO:      reason = "read/write failure"; break;
                     case MODPACK_PDMOD_ERR_TOO_BIG: reason = "source exceeds 4 GiB"; break;
                     case MODPACK_PDMOD_ERR_LAYOUT:  reason = "external layout validation failed"; break;
@@ -6496,6 +6110,52 @@ void pdguiModdingHubShowTool(s32 tool)
     s_WeaponMeshPickerOpen = false;
     if (refresh) moddingHubActivateTool(tool);
     sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
+}
+
+/* --debug-weapon-tool-create: the Weapons creator without the mouse. It
+ * makes the two calls the Create and Save buttons make, on the same state,
+ * so a scripted launch proves what a player gets. Returns 1 when the mod
+ * was saved and is active. */
+s32 pdguiModdingHubDebugWeaponCreate(const char *templateId, const char *displayName)
+{
+    sysLogPrintf(LOG_NOTE, "WEAPONMOD.DEBUG.CREATE.BEGIN template=%s display='%s'",
+                 templateId ? templateId : "(none)", displayName ? displayName : "");
+    const asset_entry_t *e = templateId ? assetCatalogResolve(templateId) : NULL;
+    if (!e || e->type != ASSET_WEAPON) {
+        sysLogPrintf(LOG_WARNING,
+                     "WEAPONMOD.DEBUG.CREATE.RESULT result=FAIL reason='not a weapon in the catalog'");
+        return 0;
+    }
+    snprintf(s_WeaponSelectedId, sizeof(s_WeaponSelectedId), "%s", e->id);
+    s_WeaponEditActive = false;
+    weaponToolStartTemplate(e);
+    if (!s_WeaponEditActive) {
+        sysLogPrintf(LOG_WARNING,
+                     "WEAPONMOD.DEBUG.CREATE.RESULT result=FAIL reason='template: %s'",
+                     s_WeaponStatus);
+        return 0;
+    }
+    sysLogPrintf(LOG_NOTE,
+                 "WEAPONMOD.DEBUG.CREATE.GRAPH nodes=%d links=%d primary=%s secondary=%s graph_bytes=%u",
+                 s_WeaponGraphNodeCount, s_WeaponGraphEdgeCount,
+                 (s_WeaponGraphPrimaryExport >= 0 &&
+                  s_WeaponGraphPrimaryExport < s_WeaponGraphNodeCount)
+                     ? s_WeaponGraphNodes[s_WeaponGraphPrimaryExport].id : "(none)",
+                 (s_WeaponGraphSecondaryExport >= 0 &&
+                  s_WeaponGraphSecondaryExport < s_WeaponGraphNodeCount)
+                     ? s_WeaponGraphNodes[s_WeaponGraphSecondaryExport].id : "(none)",
+                 (unsigned)strlen(s_WeaponEditGraph));
+    if (displayName && displayName[0]) {
+        snprintf(s_WeaponEditDisplayName, sizeof(s_WeaponEditDisplayName), "%s",
+                 displayName);
+        snprintf(s_WeaponSaveDisplayName, sizeof(s_WeaponSaveDisplayName), "%s",
+                 displayName);
+    }
+    const bool saved = weaponToolSaveCustom();
+    sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING,
+                 "WEAPONMOD.DEBUG.CREATE.RESULT result=%s catalog=%s status='%s'",
+                 saved ? "OK" : "FAIL", s_WeaponEditCatalogId, s_WeaponStatus);
+    return saved ? 1 : 0;
 }
 
 void pdguiModdingHubHide(void)
