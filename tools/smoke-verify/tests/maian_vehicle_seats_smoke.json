@@ -174,14 +174,14 @@
     {
       "at_ms": 16500,
       "type": "action",
-      "name": "ACTION_VEHICLE_LOOK_X",
+      "name": "ACTION_AXIS_AIM_X",
       "action": "press",
-      "comment": "The gunner looks right: the turret context's look action. The eye has had 4 s to ease to the pod."
+      "comment": "The gunner looks right: the shared aim axis, which the mouse and the right stick drive and the turret layer lets through (the on-foot turn path; the look actions do not turn the view in the PC control mode). The eye has had 4 s to ease to the pod."
     },
     {
       "at_ms": 17700,
       "type": "action",
-      "name": "ACTION_VEHICLE_LOOK_X",
+      "name": "ACTION_AXIS_AIM_X",
       "action": "release"
     },
     {
@@ -238,12 +238,12 @@
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
       "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=26 exec_edges=21 pending=\\d+ parts=1 boost_heat=1",
-      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
-      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
-      "SMOKE: result=scripted_exit",
       "BOOT: --debug-mount-seat driver armed",
       "VEHICLE\\.SEAT: mount asks for the driver seat \\(--debug-mount-seat\\)",
       "VEHICLE\\.SEAT: modelnum=\\d+ driver eye from model part 160 at \\(0, 420, 450\\) model units",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "SMOKE: result=scripted_exit",
       "VEHICLE\\.SEAT: player=0 switched from the driver seat to the gunner seat",
       "ACTIONMAP: vehicle turret IMC mounted",
       "VEHICLE\\.SEAT: modelnum=\\d+ gunner eye from model part 161 at \\(0, 960, -300\\) model units",
