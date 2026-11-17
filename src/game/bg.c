@@ -4,6 +4,7 @@
 #include "memsizes.h"
 #include "game/debug.h"
 #include "game/dlights.h"
+#include "game/mplayer/scenarios.h"
 #include "game/game_006900.h"
 #include "game/portal.h"
 #include "game/room.h"
@@ -57,6 +58,7 @@
 #include "lib/meshcollision.h"
 #include "model_rodata_guard.h"
 #include "scenario_scene_renderer.h"
+#include "game/chraction.h"
 #include "scenario_source_runtime.h"
 
 extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
@@ -1013,6 +1015,9 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 	return gdl;
 }
 
+/* B-1172: the room lighting the scene renderer applies (defined below). */
+static void bgSetScenarioSceneRoomLights(void);
+
 Gfx *bgRenderScene(Gfx *gdl)
 {
 	s32 stagenum = g_Vars.stagenum;
@@ -1063,14 +1068,26 @@ Gfx *bgRenderScene(Gfx *gdl)
 				aspect = 4.0f / 3.0f;
 			}
 
+			/* B-1172: with the game's draw space, the BG scale and the
+			 * camera room's offset playerAllocateMatrices built this frame's
+			 * matrices with (scenario_scene_camera.h). */
 			scenarioSceneRendererSetCameraFrame(
 				g_Vars.currentplayer->cam_pos.f,
 				g_Vars.currentplayer->cam_look.f,
 				g_Vars.currentplayer->cam_up.f,
-				fovy, aspect, zrange.near, zrange.far);
+				fovy, aspect, zrange.near, zrange.far,
+				bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);
+			bgSetScenarioSceneRoomLights();
+			/* Animated surfaces (dyntex.c presets): the interval and the
+			 * two stage flags the conditional presets read, as
+			 * dyntexTickRoom reads them. */
+			scenarioSceneRendererSetDyntexFrame(g_Lv80SecIntervalFrac,
+				chrHasStageFlag(NULL, 0x00000100)
+					&& !chrHasStageFlag(NULL, 0x00010000),
+				chrHasStageFlag(NULL, 0x00010000));
 		} else {
 			scenarioSceneRendererSetCameraFrame(NULL, NULL, NULL,
-				0.0f, 0.0f, 0.0f, 0.0f);
+				0.0f, 0.0f, 0.0f, 0.0f, 0.0f, NULL);
 		}
 	}
 
@@ -1113,9 +1130,10 @@ Gfx *bgRenderScene(Gfx *gdl)
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
 	// A stage built from scenario source names them with render_always on its
 	// rooms.json rows (the same rooms roomInitLights flags); the stage checks
-	// stay for a stage built from the ROM background.
-	if (!sourcebg
-			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
+	// stay for a stage built from the ROM background. B-1172: with the scene
+	// renderer the stars draw here too (the scene follows in display-list
+	// order); its sky rooms are still drawn by the scene at their world place.
+	if (!USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
 			&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :
 				(stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
@@ -1176,7 +1194,10 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = vi0000ab78(gdl);
 		}
 
-		if (g_BgUsingScenarioSource) {
+		if (sourcebg) {
+			// The scene draws these rooms, its sky rooms relative to the
+			// camera's room (B-1172, scenarioSceneRendererSetSkyRooms).
+		} else if (g_BgUsingScenarioSource) {
 			for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;
 					roomnum = bgNextScenarioRenderAlwaysRoom(roomnum + 1)) {
 				if (!g_Rooms[roomnum].loaded240) {
@@ -1197,6 +1218,17 @@ Gfx *bgRenderScene(Gfx *gdl)
 	}
 
 	gdl = skyRenderSuns(gdl, false);
+
+	/* B-1172: the scenario scene's opaque pass draws here in display-list
+	 * order, after the sky, the stars and the sun and before the props, with
+	 * this player's camera and the BG projection the rooms drew with
+	 * (gfx_pc.cpp, G_SCENE_RENDER_EXT). Its depth stays for the props. */
+	if (sourcebg) {
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gdl = envStartFog(gdl, false);
+		gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);
+		gdl = envStopFog(gdl);
+	}
 
 	// Build an array of room numbers per onscreen prop.
 	// For each onscreen prop there is exactly one entry in the roomnumsbyprop array.
@@ -1296,6 +1328,15 @@ Gfx *bgRenderScene(Gfx *gdl)
 	}
 
 	if (1);
+
+	/* B-1172: the scene's translucent materials draw here, after the props'
+	 * opaque pass, where the BG's translucent room parts drew. */
+	if (sourcebg) {
+		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gdl = envStartFog(gdl, true);
+		gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);
+		gdl = envStopFog(gdl);
+	}
 
 	for (i = g_BgNumDrawSlots - 1; i >= 0; i--) {
 		roomnum = roomnums[i];
@@ -1410,6 +1451,64 @@ void bgLoadFile(void *memaddr, u32 offset, u32 len)
 	}
 
 	memcpy(memaddr, src + offset, len);
+}
+
+/**
+ * B-1172: hand the scene renderer the room lighting this player sees, as
+ * roomHighlight (dlights.c) applies it to the BG's vertex colours: the settled
+ * regional brightness, the flash, the scenario's room highlight and the night
+ * vision greyscale. roomHighlight also asks for the brightness of a room it
+ * draws that has none yet; the scene draws every room.
+ */
+static void bgSetScenarioSceneRoomLights(void)
+{
+	static scenario_scene_room_light_t lights[1024];
+	const s32 greyscale = USINGDEVICE(DEVICE_NIGHTVISION) || USINGDEVICE(DEVICE_IRSCANNER);
+	/* A room past the table is drawn with its source colours. */
+	const s32 count = g_Vars.roomcount < ARRAYCOUNT(lights) ? g_Vars.roomcount : ARRAYCOUNT(lights);
+	s32 i;
+
+	if (count <= 0) {
+		return;
+	}
+
+	for (i = 0; i < count; i++) {
+		scenario_scene_room_light_t *light = &lights[i];
+
+		light->tint[0] = light->tint[1] = light->tint[2] = 1.0f;
+		light->greyscale = greyscale;
+
+		if (i == 0) {
+			light->brightness = 255.0f;
+			light->flash = 0.0f;
+			light->unlit = 1;
+			light->flash_black = 0;
+			continue;
+		}
+
+		if ((g_Rooms[i].flags & ROOMFLAG_BRIGHTNESS_CALCED) == 0) {
+			g_Rooms[i].flags |= ROOMFLAG_BRIGHTNESS_DIRTY_PERM;
+		}
+
+		light->brightness = roomGetSettledRegionalBrightnessForPlayer(i);
+		light->flash = g_Rooms[i].br_flash;
+		light->unlit = (g_Rooms[i].flags & ROOMFLAG_RENDERALWAYS) != 0;
+		light->flash_black = g_Rooms[i].lightop_cur_frac == 0.0f
+			|| (g_Rooms[i].flags & ROOMFLAG_LIGHTSOFF) != 0;
+
+		if (g_Rooms[i].lightop == LIGHTOP_HIGHLIGHT) {
+			s32 r = 255;
+			s32 g = 255;
+			s32 b = 255;
+
+			scenarioHighlightRoom(i, &r, &g, &b);
+			light->tint[0] = r * (1.0f / 255.0f);
+			light->tint[1] = g * (1.0f / 255.0f);
+			light->tint[2] = b * (1.0f / 255.0f);
+		}
+	}
+
+	scenarioSceneRendererSetRoomLights(lights, count);
 }
 
 static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *stage, s32 prefer_mp)
@@ -1776,6 +1875,21 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 
 	mtx00016748(1);
 	bgBuildScenarioSourcePortalTables(&stage, g_Vars.roomcount);
+
+	/* B-1172: the scene draws the stage's sky rooms (rooms.json sky) relative
+	 * to the camera's room, as roomPopulateMtx places them. */
+	{
+		int skyrooms[64];
+		s32 skycount = 0;
+
+		for (i = 1; i < g_Vars.roomcount && skycount < ARRAYCOUNT(skyrooms); i++) {
+			if (scenarioSourceRoomSky(i)) {
+				skyrooms[skycount++] = i;
+			}
+		}
+
+		scenarioSceneRendererSetSkyRooms(skyrooms, skycount);
+	}
 
 	/* B-943 (gap #1 part-2): rebuild the per-room dynamic-light table from the
 	 * room_lights.json sidecar. The flat struct light[] array is room-ordered

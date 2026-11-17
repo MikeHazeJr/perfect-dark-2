@@ -15,18 +15,23 @@
 #include "fs.h"
 #include "asset_source_debug.h"
 #include "assetcatalog.h"
+#include "scenario_object_rules.h"
 #include "assetcatalog_load.h"
 #include "voice_locale_source.h"
 #include "mission_graph_runner.h"
 #include "mission_graph_modules.h"
 #include "scenario_stage_rules.h"
 #include "scenario_intro.h"
+#include "ai_command_schema.h"
+#include "ai_catalog_refs.h"
+#include "ai_edge_shadow.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
 #include "game/atan2f.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"
+#include "game/bot.h"
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/chrai.h"
@@ -86,6 +91,7 @@
 		|| (soundnum) == SFX_F_STAND_STILL)
 
 #define SCENARIO_SOURCE_SPAWNED_CHR_MAX 512
+#define SCENARIO_SOURCE_RENUMBERED_CHR_MAX 64
 #define SCENARIO_SOURCE_SETUP_CHR_REF_MAX 2048
 #define SCENARIO_SOURCE_SETUP_RECORD_REF_MAX 4096
 
@@ -196,6 +202,7 @@ typedef struct scenario_source_setup_record {
 	s32 order;
 	u8 *bytes;
 	u32 len;
+	scenario_object_rules_t rules; /* object-rules.md */
 } scenario_source_setup_record_t;
 
 typedef struct scenario_source_setup_table {
@@ -249,6 +256,7 @@ typedef struct scenario_source_objective_node {
 	s32 criteria_start;
 	s32 criteria_count;
 	s32 inserted;
+	s32 optional; /* mission-flow.md: the row's "required": false */
 } scenario_source_objective_node_t;
 
 typedef struct scenario_source_objective_criteria {
@@ -319,6 +327,15 @@ typedef struct scenario_nav_source_hashes {
 	char paths[SHA256_HEX_SIZE];
 } scenario_nav_source_hashes_t;
 
+/* trigger-volume-events.md: a box a program's event.volume.* nodes name,
+ * bound at activation, and which players are inside it (a bit per player). */
+typedef struct scenario_source_bound_volume {
+	const char *id; /* the program's string */
+	f32 min[3];
+	f32 max[3];
+	u32 inside;
+} scenario_source_bound_volume_t;
+
 typedef struct scenario_source_graph_state {
 	char scenario_id[CATALOG_ID_LEN];
 	char level_graph_path[FS_MAXPATH + 1];
@@ -355,6 +372,9 @@ typedef struct scenario_source_graph_state {
 	s32 source_setup_record_refs[SCENARIO_SOURCE_SETUP_RECORD_REF_MAX];
 	struct chrdata *source_spawned_chrs[SCENARIO_SOURCE_SPAWNED_CHR_MAX];
 	s32 source_spawned_chr_count;
+	/* B-1166: numbers set_chr_num gave to source-derived chrs. */
+	s32 source_renumbered_chrnums[SCENARIO_SOURCE_RENUMBERED_CHR_MAX];
+	s32 source_renumbered_chr_count;
 	s32 level_volume_node_count;
 	s32 level_pad_node_count;
 	s32 level_navigation_generate_node_count;
@@ -781,6 +801,8 @@ typedef struct scenario_source_graph_state {
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	char level_global_settings_scenario[CATALOG_ID_LEN];
 	char level_global_settings_kind[32];
 	scenario_source_objective_node_t *mission_objectives;
@@ -1221,6 +1243,8 @@ typedef struct scenario_source_graph_state {
 	s32 ai_action_say_ci_staff_quip_logged;
 	s32 ai_action_shuffle_ruins_pillars_logged;
 	s32 ai_action_shuffle_pelagic_switches_logged;
+	s32 ai_condition_if_bot_respawning_logged; /* bit per branch outcome */
+	s32 ai_action_mp_init_simulants_logged; /* bit per wave result */
 	s32 level_volume_eval_logged;
 	s32 level_volume_missing_logged;
 	s32 level_graph_tick_logged;
@@ -1230,6 +1254,27 @@ typedef struct scenario_source_graph_state {
 	s32 mission_objective_range_warning_logged;
 	s32 mission_phase_node_count;
 	char mission_phase_state[32];
+	s32 mission_phase_delivered; /* MISSION_GRAPH_PHASE_* last delivered as an event */
+	/* trigger-volume-events.md: the boxes event.volume.* names, bound at
+	 * activation, and which players are inside each (a bit per player). */
+	s32 mission_volume_count;
+	scenario_source_bound_volume_t mission_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 1: the executable part of level.graph.json
+	 * (its event.*, gate.* and og.* nodes), compiled for every stage, and
+	 * the boxes its event.volume.* nodes name. */
+	mission_graph_program_t *level_program;
+	char level_program_error[160];
+	s32 level_program_volume_count;
+	scenario_source_bound_volume_t level_program_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 2: object events delivered on this stage, by
+	 * kind (pickup.collected, door.opened, door.closed, object.used), and
+	 * whether their totals were logged. */
+	s32 object_event_counts[4];
+	s32 object_events_reported;
+	/* object-events.md slice 3: queries refused on this stage (pickup, door). */
+	s32 object_query_refusals[2];
+	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
+	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
 
 typedef struct scenario_source_mission_match {
@@ -1264,13 +1309,32 @@ static s32 s_objectiveCriterionUsesObjectState(u8 type)
 		type == OBJECTIVETYPE_HOLOGRAPH;
 }
 
+/* object-events.md slice 2: a stage's object event totals, logged once:
+ * at the stage's end, or when the next stage replaces it. */
+static void s_reportObjectEvents(const char *reason)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || s_ActiveScenarioGraphs.object_events_reported) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_events_reported = 1;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.refused=%d door.refused=%d reason=%s backend=graph.level.runner",
+		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
+		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
+		s_ActiveScenarioGraphs.object_event_counts[3],
+		s_ActiveScenarioGraphs.object_query_refusals[0],
+		s_ActiveScenarioGraphs.object_query_refusals[1], reason);
+}
+
 static void s_resetActiveScenarioGraphs(void)
 {
+	s_reportObjectEvents("next_stage");
 	free(s_ActiveScenarioGraphs.setup_links);
 	free(s_ActiveScenarioGraphs.level_volumes);
 	free(s_ActiveScenarioGraphs.mission_objectives);
 	free(s_ActiveScenarioGraphs.mission_objective_criteria);
 	missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.level_program);
 	memset(&s_ActiveScenarioGraphs, 0, sizeof(s_ActiveScenarioGraphs));
 }
 
@@ -1500,83 +1564,97 @@ static s32 s_parseU32Value(const char *value, u32 *out)
 	return 1;
 }
 
+/* objects.json's record kinds and their object types (the setup loader's,
+ * and object-events.md slice 2's event payloads, both ways). */
+typedef struct scenario_source_kind_map {
+	const char *kind;
+	u8 type;
+} scenario_source_kind_map_t;
+
+static const scenario_source_kind_map_t s_SetupKindMaps[] = {
+	{ "door", OBJTYPE_DOOR },
+	{ "door_scale", OBJTYPE_DOORSCALE },
+	{ "prop", OBJTYPE_BASIC },
+	{ "key", OBJTYPE_KEY },
+	{ "alarm", OBJTYPE_ALARM },
+	{ "cctv", OBJTYPE_CCTV },
+	{ "ammo_crate", OBJTYPE_AMMOCRATE },
+	{ "weapon_pickup", OBJTYPE_WEAPON },
+	{ "character_spawn", OBJTYPE_CHR },
+	{ "single_monitor", OBJTYPE_SINGLEMONITOR },
+	{ "multi_monitor", OBJTYPE_MULTIMONITOR },
+	{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
+	{ "autogun", OBJTYPE_AUTOGUN },
+	{ "linked_guns", OBJTYPE_LINKGUNS },
+	{ "debris", OBJTYPE_DEBRIS },
+	{ "hat", OBJTYPE_HAT },
+	{ "grenade_probability", OBJTYPE_GRENADEPROB },
+	{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
+	{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
+	{ "shield", OBJTYPE_SHIELD },
+	{ "tag", OBJTYPE_TAG },
+	{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
+	{ "objective_end", OBJTYPE_ENDOBJECTIVE },
+	{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
+	{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
+	{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
+	{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
+	{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
+	{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
+	{ "objective_marker", OBJECTIVETYPE_1F },
+	{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
+	{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
+	{ "objective_marker_22", OBJTYPE_22 },
+	{ "briefing", OBJTYPE_BRIEFING },
+	{ "gas_bottle", OBJTYPE_GASBOTTLE },
+	{ "rename_object", OBJTYPE_RENAMEOBJ },
+	{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
+	{ "truck", OBJTYPE_TRUCK },
+	{ "heli", OBJTYPE_HELI },
+	{ "tank", OBJTYPE_TANK },
+	{ "camera_position", OBJTYPE_CAMERAPOS },
+	{ "glass", OBJTYPE_GLASS },
+	{ "safe", OBJTYPE_SAFE },
+	{ "safe_item", OBJTYPE_SAFEITEM },
+	{ "tinted_glass", OBJTYPE_TINTEDGLASS },
+	{ "lift", OBJTYPE_LIFT },
+	{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
+	{ "blocked_path", OBJTYPE_BLOCKEDPATH },
+	{ "hoverbike", OBJTYPE_HOVERBIKE },
+	{ "hover_prop", OBJTYPE_HOVERPROP },
+	{ "fan", OBJTYPE_FAN },
+	{ "hover_car", OBJTYPE_HOVERCAR },
+	{ "pad_effect", OBJTYPE_PADEFFECT },
+	{ "chopper", OBJTYPE_CHOPPER },
+	{ "mine", OBJTYPE_MINE },
+	{ "escalator_step", OBJTYPE_ESCASTEP },
+};
+
 static s32 s_setupKindToObjType(const char *kind, u8 *out_type)
 {
-	struct kind_map {
-		const char *kind;
-		u8 type;
-	};
-	static const struct kind_map maps[] = {
-		{ "door", OBJTYPE_DOOR },
-		{ "door_scale", OBJTYPE_DOORSCALE },
-		{ "prop", OBJTYPE_BASIC },
-		{ "key", OBJTYPE_KEY },
-		{ "alarm", OBJTYPE_ALARM },
-		{ "cctv", OBJTYPE_CCTV },
-		{ "ammo_crate", OBJTYPE_AMMOCRATE },
-		{ "weapon_pickup", OBJTYPE_WEAPON },
-		{ "character_spawn", OBJTYPE_CHR },
-		{ "single_monitor", OBJTYPE_SINGLEMONITOR },
-		{ "multi_monitor", OBJTYPE_MULTIMONITOR },
-		{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
-		{ "autogun", OBJTYPE_AUTOGUN },
-		{ "linked_guns", OBJTYPE_LINKGUNS },
-		{ "debris", OBJTYPE_DEBRIS },
-		{ "hat", OBJTYPE_HAT },
-		{ "grenade_probability", OBJTYPE_GRENADEPROB },
-		{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
-		{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
-		{ "shield", OBJTYPE_SHIELD },
-		{ "tag", OBJTYPE_TAG },
-		{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
-		{ "objective_end", OBJTYPE_ENDOBJECTIVE },
-		{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
-		{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
-		{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
-		{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
-		{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
-		{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
-		{ "objective_marker", OBJECTIVETYPE_1F },
-		{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
-		{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
-		{ "objective_marker_22", OBJTYPE_22 },
-		{ "briefing", OBJTYPE_BRIEFING },
-		{ "gas_bottle", OBJTYPE_GASBOTTLE },
-		{ "rename_object", OBJTYPE_RENAMEOBJ },
-		{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
-		{ "truck", OBJTYPE_TRUCK },
-		{ "heli", OBJTYPE_HELI },
-		{ "tank", OBJTYPE_TANK },
-		{ "camera_position", OBJTYPE_CAMERAPOS },
-		{ "glass", OBJTYPE_GLASS },
-		{ "safe", OBJTYPE_SAFE },
-		{ "safe_item", OBJTYPE_SAFEITEM },
-		{ "tinted_glass", OBJTYPE_TINTEDGLASS },
-		{ "lift", OBJTYPE_LIFT },
-		{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
-		{ "blocked_path", OBJTYPE_BLOCKEDPATH },
-		{ "hoverbike", OBJTYPE_HOVERBIKE },
-		{ "hover_prop", OBJTYPE_HOVERPROP },
-		{ "fan", OBJTYPE_FAN },
-		{ "hover_car", OBJTYPE_HOVERCAR },
-		{ "pad_effect", OBJTYPE_PADEFFECT },
-		{ "chopper", OBJTYPE_CHOPPER },
-		{ "mine", OBJTYPE_MINE },
-		{ "escalator_step", OBJTYPE_ESCASTEP },
-	};
-
 	if (!kind || !out_type) {
 		return 0;
 	}
 
-	for (u32 i = 0; i < ARRAYCOUNT(maps); i++) {
-		if (strcmp(kind, maps[i].kind) == 0) {
-			*out_type = maps[i].type;
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (strcmp(kind, s_SetupKindMaps[i].kind) == 0) {
+			*out_type = s_SetupKindMaps[i].type;
 			return 1;
 		}
 	}
 
 	return 0;
+}
+
+/* The objects.json kind of an object type, or NULL. */
+static const char *s_setupObjTypeToKind(u8 type)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (s_SetupKindMaps[i].type == type) {
+			return s_SetupKindMaps[i].kind;
+		}
+	}
+	return NULL;
 }
 
 static s32 s_setupObjTypeHasDefaultBase(u8 type)
@@ -2475,6 +2553,97 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	return 1;
 }
 
+/* ai-typed-operands.md slices 3-3b: a model, weapon, body, head, animation
+ * or sound argument names a catalog id; it resolves exactly as the
+ * extractor checked it when it wrote the row (ai_catalog_refs.c). user
+ * counts the references a row's args resolved. */
+static int s_aiArgsResolveRef(ai_operand_kind_t kind, const char *id, int64_t *out_value,
+	void *user)
+{
+	if (!aiCatalogRefResolve(kind, id, out_value)) {
+		return 0;
+	}
+	if (user) {
+		(*(s32 *)user)++;
+	}
+	return 1;
+}
+
+/* context/designs/modding/ai-typed-operands.md, slice 2: a row gives its
+ * operand bytes as "operands" (the v1 form), as "args" (named, typed,
+ * encoded through the command schema), or both, which must agree exactly
+ * (checked before catalog ids patch the bytes). A row with neither, or
+ * whose args the schema refuses, refuses the list. */
+static s32 s_aiRowOperands(scenario_source_ai_table_t *table,
+	const char *ailist_ref, u32 command_index, char *row_start, char *row_end,
+	scenario_source_ai_command_t *cmd)
+{
+	const char *args = s_jsonValueAfterKey(row_start, row_end, "args");
+	const s32 has_operands = s_jsonValueAfterKey(row_start, row_end, "operands") != NULL;
+	const ai_command_schema_t *schema;
+	char *args_end;
+	u8 bytes[512];
+	char error[160];
+	char where[64];
+	s32 count;
+	s32 refs = 0;
+
+	snprintf(where, sizeof(where), "%s command %u", ailist_ref, (unsigned)command_index);
+	if (has_operands && !s_aiParseOperandsJsonArray(row_start, row_end, "operands",
+			&cmd->operands, &cmd->operand_count)) {
+		s_aiTableSetError(table, "AI row '%s' has unreadable operands%s", where, "");
+		return 0;
+	}
+	if (!args) {
+		if (!has_operands) {
+			s_aiTableSetError(table, "AI row '%s' has neither operands nor args%s",
+				where, "");
+			return 0;
+		}
+		return 1;
+	}
+	schema = aiCommandSchemaFind(cmd->opcode);
+	args_end = *args == '{' ? s_jsonFindObjectEnd((char *)args, row_end) : NULL;
+	if (!schema || !args_end) {
+		s_aiTableSetError(table, "AI row '%s' has args the command schema cannot read",
+			where, "");
+		return 0;
+	}
+	count = aiCommandArgsEncodeRefs(schema, args, (u32)(args_end - args + 1), bytes,
+		sizeof(bytes), s_aiArgsResolveRef, &refs, error, sizeof(error));
+	if (count < 0) {
+		s_aiTableSetError(table, "AI row '%s' args: %s", where, error);
+		return 0;
+	}
+	/* Slice 3: catalog ids resolve to this game's numbers, which raw
+	 * operands cannot follow; such a row gives args alone. */
+	if (refs > 0 && has_operands) {
+		s_aiTableSetError(table, "AI row '%s' names catalog ids in its args and also gives operands%s",
+			where, "");
+		return 0;
+	}
+	if (has_operands) {
+		if ((u32)count != cmd->operand_count
+				|| (count > 0 && memcmp(bytes, cmd->operands, (size_t)count) != 0)) {
+			s_aiTableSetError(table, "AI row '%s' args do not give its operands%s",
+				where, "");
+			return 0;
+		}
+		return 1;
+	}
+	/* Args alone: they are the row's bytes. */
+	if (count > 0) {
+		cmd->operands = (u8 *)malloc((size_t)count);
+		if (!cmd->operands) {
+			s_aiTableSetError(table, "AI row '%s' is out of memory%s", where, "");
+			return 0;
+		}
+		memcpy(cmd->operands, bytes, (size_t)count);
+	}
+	cmd->operand_count = (u32)count;
+	return 1;
+}
+
 static s32 s_loadAiListSourceJson(char *text,
 	scenario_source_ai_table_t *table)
 {
@@ -2577,8 +2746,8 @@ static s32 s_loadAiListSourceJson(char *text,
 			"body_catalog_id", body_id, sizeof(body_id));
 		(void)s_jsonReadStringValue(cursor, object_end + 1,
 			"head_catalog_id", head_id, sizeof(head_id));
-		if (!s_aiParseOperandsJsonArray(cursor, object_end + 1,
-				"operands", &cmd.operands, &cmd.operand_count) ||
+		if (!s_aiRowOperands(table, ailist_ref, command_index,
+				cursor, object_end + 1, &cmd) ||
 				!s_aiApplyCatalogOperands(table, &cmd, model_id,
 				weapon_id, body_id, head_id) ||
 				!s_aiAppendCommand(table, list, &cmd)) {
@@ -2589,6 +2758,163 @@ static s32 s_loadAiListSourceJson(char *text,
 	}
 
 	return table->error[0] == '\0';
+}
+
+/* AI lists as graphs, slice 2 (ai-list-graphs.md): the edge table of one
+ * compiled list, built from the commands its bytes were written from, for
+ * the shadow walk (ai_edge_shadow.h). NULL with the reason in error when the
+ * commands give no edges: the list then runs without a table (untracked). */
+static ai_edge_table_t *s_aiBuildEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, char *error, u32 error_size)
+{
+	ai_list_command_t *commands;
+	ai_edge_table_t *edge_table;
+
+	if (!list || list->count <= 0 || !bytes) {
+		snprintf(error, error_size, "%s", "the list has no commands");
+		return NULL;
+	}
+	commands = (ai_list_command_t *)malloc((size_t)list->count *
+		sizeof(*commands));
+	if (!commands) {
+		snprintf(error, error_size, "%s", "out of memory");
+		return NULL;
+	}
+	for (s32 j = 0; j < list->count; j++) {
+		commands[j].opcode = list->commands[j].opcode;
+		commands[j].operands = list->commands[j].operands;
+		commands[j].operand_len = list->commands[j].operand_count;
+	}
+	edge_table = aiEdgeTableBuild(list->id, bytes, commands,
+		(uint32_t)list->count, error, error_size);
+	free(commands);
+	return edge_table;
+}
+
+/* A stage list's table, registered under its bytes in the stage's setup
+ * block. Those bytes live in the stage pool until the main loop resets it
+ * for the next stage, and it clears the stage's tables first. Returns 1 when
+ * the list has a table. */
+static s32 s_aiRegisterStageEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, const char *scenario_id)
+{
+	char error[128];
+	ai_edge_table_t *edge_table = s_aiBuildEdgeTable(list, bytes, error,
+		sizeof(error));
+	const s32 built = edge_table != NULL;
+
+	if (built && aiEdgeShadowRegister(AI_EDGE_SHADOW_OWNER_STAGE, edge_table)) {
+		return 1;
+	}
+	aiEdgeShadowForget(bytes);
+	sysLogPrintf(LOG_WARNING,
+		"AI.EDGES: list 0x%04x of '%s' has no edge table (%s); its commands run untracked",
+		list ? (unsigned)list->id : 0u, scenario_id ? scenario_id : "?",
+		built ? "out of memory" : error);
+	return 0;
+}
+
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count)
+{
+	if (!lists) {
+		return;
+	}
+	for (s32 i = 0; i < count; i++) {
+		free(lists[i].bytes);
+		aiEdgeTableFree(lists[i].edges);
+	}
+	free(lists);
+}
+
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size)
+{
+	scenario_source_ai_table_t table;
+	scenario_ai_compiled_list_t *lists = NULL;
+	char *text;
+	size_t len;
+
+	if (out_lists) *out_lists = NULL;
+	if (out_count) *out_count = 0;
+	if (error && error_size) error[0] = '\0';
+	if (!json_text || !out_lists || !out_count) {
+		return 0;
+	}
+	len = strlen(json_text);
+	text = (char *)malloc(len + 1);
+	if (!text) {
+		return 0;
+	}
+	memcpy(text, json_text, len + 1);
+	memset(&table, 0, sizeof(table));
+	if (!s_loadAiListSourceJson(text, &table)) {
+		if (error && error_size) {
+			snprintf(error, error_size, "%s",
+				table.error[0] ? table.error : "AI list rows could not be read");
+		}
+		s_aiFreeTable(&table);
+		free(text);
+		return 0;
+	}
+	if (table.count > 0) {
+		lists = (scenario_ai_compiled_list_t *)calloc((size_t)table.count,
+			sizeof(*lists));
+		if (!lists) {
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+	}
+	for (s32 i = 0; i < table.count; i++) {
+		const scenario_source_ai_list_t *list = &table.lists[i];
+		u32 size = 0;
+		u32 cursor = 0;
+
+		for (s32 j = 0; j < list->count; j++) {
+			size += 2u + list->commands[j].operand_count;
+		}
+		lists[i].id = list->id;
+		lists[i].commands = (u32)list->count;
+		lists[i].size = size;
+		lists[i].bytes = (u8 *)malloc(size ? size : 1u);
+		if (!lists[i].bytes) {
+			scenarioSourceAiListsFree(lists, table.count);
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+		/* As the stage setup compiler lays a list out: each command's
+		 * big-endian opcode, then its operand bytes. */
+		for (s32 j = 0; j < list->count; j++) {
+			const scenario_source_ai_command_t *cmd = &list->commands[j];
+			lists[i].bytes[cursor++] = (u8)((cmd->opcode >> 8) & 0xff);
+			lists[i].bytes[cursor++] = (u8)(cmd->opcode & 0xff);
+			if (cmd->operand_count) {
+				memcpy(lists[i].bytes + cursor, cmd->operands,
+					cmd->operand_count);
+				cursor += cmd->operand_count;
+			}
+		}
+		/* Slice 2 (ai-list-graphs.md): the list's edge table, from the same
+		 * commands; the owner of lists that run registers it. */
+		{
+			char edge_error[128];
+
+			lists[i].edges = s_aiBuildEdgeTable(list, lists[i].bytes,
+				edge_error, sizeof(edge_error));
+			if (!lists[i].edges) {
+				sysLogPrintf(LOG_WARNING,
+					"AI.EDGES: compiled list 0x%04x has no edge table (%s)",
+					(unsigned)list->id, edge_error);
+			}
+		}
+	}
+	*out_lists = lists;
+	*out_count = table.count;
+	s_aiFreeTable(&table);
+	free(text);
+	return 1;
 }
 
 static s32 s_parseSpawnTeam(const char *value)
@@ -4610,6 +4936,211 @@ static void s_jsonReadOptionalStringValue(const char *start, const char *end,
 	(void)s_jsonReadStringValue(start, end, key, out, out_n);
 }
 
+/* Object rules (context/designs/modding/object-rules.md): optional fields on
+ * an objects.json row. Each is allowed only on the kind of row whose code
+ * reads it, so a field the game would ignore is refused instead. */
+static const char *const s_ObjectRuleDifficulties[] = {
+	"agent", "special_agent", "perfect_agent", "perfect_dark",
+};
+
+const char *scenarioObjectRuleDifficultyName(s32 diff)
+{
+	if (diff < 0 || diff >= (s32)(sizeof(s_ObjectRuleDifficulties) /
+			sizeof(s_ObjectRuleDifficulties[0]))) {
+		return NULL;
+	}
+	return s_ObjectRuleDifficulties[diff];
+}
+
+/* "enemy_rockets_exempt": a list of difficulty names, at least one. */
+static s32 s_setupReadDifficultyMask(const char *start, const char *end,
+	const char *key, u32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 count = 0;
+
+	*out = 0;
+	if (!cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (;;) {
+		char name[32];
+		size_t len = 0;
+		s32 diff;
+		s32 found = -1;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) || *cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		if (*cursor == ']') {
+			break;
+		}
+		if (*cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		while (cursor < end && *cursor != '"' && len + 1 < sizeof(name)) {
+			name[len++] = *cursor++;
+		}
+		if (cursor >= end || *cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		name[len] = '\0';
+		for (diff = 0; scenarioObjectRuleDifficultyName(diff); diff++) {
+			if (strcmp(name, scenarioObjectRuleDifficultyName(diff)) == 0) {
+				found = diff;
+			}
+		}
+		if (found < 0 || (*out & (1u << found))) {
+			return 0;
+		}
+		*out |= 1u << found;
+		count++;
+	}
+	return count > 0;
+}
+
+/* A hum's sound effect catalog id, as a playable sound number. B-1251: the
+ * game's sound numbers are packed 16-bit values, and a configured sound sets
+ * the top bit (SFX_SHIP_HUM is 0x810c), so the bound is 0xffff and the value
+ * is kept as the packed s16 the sound code takes, as effect_gameplay_runtime.c
+ * does. */
+static s32 s_setupResolveHumSound(const char *id, s16 *out)
+{
+	catalog_audio_result_t audio;
+	union soundnumhack ref;
+
+	memset(&audio, 0, sizeof(audio));
+	if (!id[0] || !catalogResolveAudio(id, &audio) || audio.sound_id <= 0 ||
+			audio.sound_id > 0xffff) {
+		return 0;
+	}
+	ref.packed = (s16)audio.sound_id;
+	if (audio.category != AUDIO_CAT_SFX &&
+			!(audio.category == AUDIO_CAT_VOICE && ref.hasconfig)) {
+		return 0;
+	}
+	*out = (s16)audio.sound_id;
+	return 1;
+}
+
+static s32 s_setupReadObjectRules(const char *start, const char *end,
+	scenario_source_setup_record_t *record,
+	scenario_source_setup_table_t *table)
+{
+	scenario_object_rules_t *rules = &record->rules;
+	char text[CATALOG_ID_LEN];
+	s32 b;
+
+	memset(rules, 0, sizeof(*rules));
+	if (s_jsonFindKeyInRange(start, end, "coop")) {
+		if (record->type != OBJTYPE_HOVERCAR ||
+				!s_jsonReadBoolValue(start, end, "coop", &b)) {
+			s_setupTableSetError(table,
+				"object rule coop needs a hover_car row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->coop_excluded = !b;
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "multiplayer")) {
+		if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||
+				!s_jsonReadBoolValue(start, end, "multiplayer", &b)) {
+			s_setupTableSetError(table,
+				"object rule multiplayer needs a lift or escalator_step row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->multiplayer_kept = b != 0;
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "enemy_rockets_exempt")) {
+		if (record->type != OBJTYPE_WEAPON ||
+				!s_setupReadDifficultyMask(start, end, "enemy_rockets_exempt",
+					&rules->enemy_rockets_exempt_mask)) {
+			s_setupTableSetError(table,
+				"object rule enemy_rockets_exempt needs a weapon row and a list of difficulties on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "engine_hum") ||
+			s_jsonFindKeyInRange(start, end, "thrust_hum") ||
+			s_jsonFindKeyInRange(start, end, "fall")) {
+		if (record->type != OBJTYPE_CHOPPER) {
+			s_setupTableSetError(table,
+				"object rules engine_hum, thrust_hum and fall need a chopper row ('%s')",
+				record->id, "");
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "engine_hum") &&
+				(!s_jsonReadStringValue(start, end, "engine_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(text, &rules->engine_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule engine_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "thrust_hum") &&
+				(!s_jsonReadStringValue(start, end, "thrust_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(text, &rules->thrust_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule thrust_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "fall")) {
+			if (!s_jsonReadStringValue(start, end, "fall", text, sizeof(text)) ||
+					(strcmp(text, "crash") != 0 && strcmp(text, "drop") != 0)) {
+				s_setupTableSetError(table,
+					"object rule fall must be crash or drop ('%s' on '%s')",
+					text, record->id);
+				return 0;
+			}
+			rules->fall_drop = strcmp(text, "drop") == 0;
+		}
+		rules->present = 1;
+	}
+	return 1;
+}
+
+/* The object rules of the setup built last, by setup command index (the
+ * record's place after sorting; s_setupBuildStageBlock writes the props in
+ * that order). Only the rows that carry one. */
+typedef struct scenario_object_rule_row {
+	s32 index;
+	scenario_object_rules_t rules;
+} scenario_object_rule_row_t;
+
+static scenario_object_rule_row_t s_ObjectRuleRows[SCENARIO_OBJECT_RULE_ROWS_MAX];
+static s32 s_ObjectRuleRowCount;
+
+s32 scenarioSourceSetupRecordRules(s32 index, scenario_object_rules_t *out)
+{
+	if (out) {
+		memset(out, 0, sizeof(*out));
+	}
+	for (s32 i = 0; i < s_ObjectRuleRowCount; i++) {
+		if (s_ObjectRuleRows[i].index == index) {
+			if (out) {
+				*out = s_ObjectRuleRows[i].rules;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static s32 s_setupApplyObjectsJson(char *text,
 	scenario_source_setup_table_t *table)
 {
@@ -4706,6 +5237,9 @@ static s32 s_setupApplyObjectsJson(char *text,
 		record = s_setupFindOrAddRecord(table, record_id, kind,
 			s_setupRecordOrderFromId(record_id, order));
 		if (!record) {
+			return 0;
+		}
+		if (!s_setupReadObjectRules(cursor, object_end + 1, record, table)) {
 			return 0;
 		}
 
@@ -4999,7 +5533,11 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	struct ailist *runtime_ailists = (struct ailist *)(data + ailists_offset);
 	u32 list_cursor = ailist_bytes_offset;
 	if (ai_table) {
+		s32 edge_tables = 0;
+
 		for (s32 i = 0; i < ai_table->count; i++) {
+			const u32 list_start = list_cursor;
+
 			runtime_ailists[i].id = ai_table->lists[i].id;
 			runtime_ailists[i].list = (u8 *)(uintptr_t)list_cursor;
 			for (s32 j = 0; j < ai_table->lists[i].count; j++) {
@@ -5013,7 +5551,14 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 					list_cursor += cmd->operand_count;
 				}
 			}
+			/* Slice 2 (ai-list-graphs.md): the shadow walk's table for the
+			 * bytes the interpreter runs, from the same commands. */
+			edge_tables += s_aiRegisterStageEdgeTable(&ai_table->lists[i],
+				data + list_start, scenario_id);
 		}
+		sysLogPrintf(LOG_NOTE,
+			"AI.EDGES: %d of %d AI lists of '%s' have edge tables",
+			edge_tables, ai_table->count, scenario_id ? scenario_id : "?");
 	}
 
 	if (out_size) {
@@ -5954,7 +6499,13 @@ static u32 s_scenarioPadFlags(u32 flags)
 		| PADFLAG_UPALIGNINVERT
 		| PADFLAG_LOOKALIGNTOX | PADFLAG_LOOKALIGNTOY | PADFLAG_LOOKALIGNTOZ
 		| PADFLAG_LOOKALIGNINVERT);
-	flags |= PADFLAG_HASBBOXDATA;
+	/* B-1204: PADFLAG_HASBBOXDATA stays the pad's own (the ROM's flags in
+	 * pads.json). Every record carries the six box floats, and pads are found
+	 * by offset, so padUnpack leaves them unread without the bit and gives
+	 * the -100..100 default it always gave. Forcing the bit on every pad made
+	 * that default a real box: setup.c dropped each object from 100 under its
+	 * pad (into the floor slab or onto the floor below) and scaled the
+	 * objects that fit their pad's bounds to it. */
 	return flags;
 }
 
@@ -6126,14 +6677,22 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	wide_offsets = use_wide_offsets ? (u32 *)(buf + header_size) : NULL;
 	records = buf + header_size + offset_size;
 
-	for (i = 0; i < row_count; i++) {
-		if (wide_offsets) {
-			wide_offsets[i] = (u32)(records - buf);
-		} else {
-			offsets[i] = (u16)(records - buf);
+	{
+		s32 boxed = 0;
+
+		for (i = 0; i < row_count; i++) {
+			if (wide_offsets) {
+				wide_offsets[i] = (u32)(records - buf);
+			} else {
+				offsets[i] = (u16)(records - buf);
+			}
+			s_writePadRecord(records, &rows[i]);
+			boxed += (rows[i].flags & PADFLAG_HASBBOXDATA) != 0;
+			records += record_size;
 		}
-		s_writePadRecord(records, &rows[i]);
-		records += record_size;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: pads.json %d pads, %d with a box of their own (B-1204)",
+			row_count, boxed);
 	}
 
 	if (wide_offsets) {
@@ -8346,6 +8905,32 @@ static s32 s_addMissionObjectiveSourceRow(
 	return 0;
 }
 
+/* mission-flow.md: a row of kind objective in the mission's objectives.json
+ * may carry "required": false, which leaves the objective out of the mission's
+ * outcome (a bonus objective: shown and checked, but its status neither
+ * completes nor fails the mission). Absent means required, the original rule.
+ * Refused on any other kind of row, or as anything but true or false. */
+static s32 s_missionObjectiveReadRequired(const char *object_text,
+	const char *objective_id, const char *kind,
+	scenario_source_objective_node_t *objectives, s32 objective_count)
+{
+	const char *end = object_text + strlen(object_text);
+	s32 required = 1;
+
+	if (!s_jsonFindKeyInRange(object_text, end, "required")) {
+		return 1;
+	}
+	if (strcmp(kind, "objective") != 0 || objective_count <= 0 ||
+			!s_jsonReadBoolValue(object_text, end, "required", &required)) {
+		sysLogPrintf(LOG_ERROR,
+			"MISSION.GRAPH: objectives.json row '%s' (kind %s): required needs an objective row and true or false",
+			objective_id, kind);
+		return 0;
+	}
+	objectives[objective_count - 1].optional = !required;
+	return 1;
+}
+
 static s32 s_loadMissionObjectiveSourceRows(const char *path,
 	const char *graph_text,
 	scenario_source_objective_node_t **out_objectives,
@@ -8436,6 +9021,13 @@ static s32 s_loadMissionObjectiveSourceRows(const char *path,
 					graph_text, &objectives, &objective_count,
 					&objective_capacity, &criteria, &criteria_count,
 					&criteria_capacity, &current_objective)) {
+				free(object_text);
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			if (!s_missionObjectiveReadRequired(object_text, objective_id,
+					kind, objectives, objective_count)) {
 				free(object_text);
 				free(text);
 				s_freeMissionObjectiveSourceRows(objectives, criteria);
@@ -8895,6 +9487,57 @@ static const asset_entry_t *s_findMissionForScenario(
 	return match.archive_match;
 }
 
+/* trigger-volume-events.md: binds every volume a program's event.volume.*
+ * nodes name to its box in the stage's volumes.json: the mission program's,
+ * and (object-events.md slice 1) the level program's. Returns 0 with the
+ * reason when one is missing or not an aabb. */
+static s32 s_graphBindVolumes(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 *bound_count, char *error, size_t error_size)
+{
+	const s32 count = missionGraphProgramVolumeCount(program);
+
+	*bound_count = 0;
+	for (s32 i = 0; i < count && i < MISSION_GRAPH_MAX_VOLUMES; i++) {
+		const char *id = missionGraphProgramVolumeAt(program, i);
+		const scenario_source_volume_row_t *row = NULL;
+
+		for (s32 v = 0; id && s_ActiveScenarioGraphs.level_volumes
+				&& v < s_ActiveScenarioGraphs.level_volume_count; v++) {
+			if (strcmp(s_ActiveScenarioGraphs.level_volumes[v].id, id) == 0) {
+				row = &s_ActiveScenarioGraphs.level_volumes[v];
+				break;
+			}
+		}
+		if (!row || strcmp(row->shape, "aabb") != 0) {
+			snprintf(error, error_size,
+				"event.volume.* names volume '%s', which is not a box of the stage's volumes.json",
+				id ? id : "?");
+			return 0;
+		}
+		bound[i].id = id;
+		memcpy(bound[i].min, row->min, sizeof(row->min));
+		memcpy(bound[i].max, row->max, sizeof(row->max));
+		bound[i].inside = 0;
+		*bound_count = i + 1;
+	}
+	return 1;
+}
+
+static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
+{
+	if (!s_graphBindVolumes(s_ActiveScenarioGraphs.mission_program,
+			s_ActiveScenarioGraphs.mission_volumes, &s_ActiveScenarioGraphs.mission_volume_count,
+			error, error_size)) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_volume_count > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: bound %d trigger volume(s) of '%s' backend=graph.mission.volume+volumes.json",
+			s_ActiveScenarioGraphs.mission_volume_count, s_ActiveScenarioGraphs.mission_id);
+	}
+	return 1;
+}
+
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp)
 {
@@ -9336,6 +9979,8 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	scenario_source_volume_row_t *level_volume_rows;
 	scenario_source_objective_node_t *mission_objective_rows;
 	scenario_source_objective_criteria_t *mission_criteria_rows;
@@ -10372,6 +11017,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"\"kind\": \"scenario.ai.action.shuffle_ruins_pillars\"");
 	level_ai_shuffle_pelagic_switches_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.ai.action.shuffle_pelagic_switches\"");
+	level_ai_if_bot_respawning_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.condition.if_bot_respawning\"");
+	level_ai_mp_init_simulants_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.mp_init_simulants\"");
 	if (level_global_settings_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable global settings source node");
@@ -11134,6 +11783,14 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 			level_ai_shuffle_pelagic_switches_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable AI quip/setup shuffle action source nodes");
+		free(text);
+		return 0;
+	}
+	/* ai-list-graphs.md: the two simulant commands (host only). */
+	if (level_ai_if_bot_respawning_node_count != 1 ||
+			level_ai_mp_init_simulants_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI simulant source nodes");
 		free(text);
 		return 0;
 	}
@@ -12091,6 +12748,39 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_ai_shuffle_ruins_pillars_node_count;
 	s_ActiveScenarioGraphs.level_ai_shuffle_pelagic_switches_node_count =
 		level_ai_shuffle_pelagic_switches_node_count;
+	s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count =
+		level_ai_if_bot_respawning_node_count;
+	s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count =
+		level_ai_mp_init_simulants_node_count;
+	/* object-events.md slice 1: the level graph's own program (its event.*,
+	 * gate.* and og.* nodes), for every stage. One that does not compile,
+	 * or names a volume that is no box of volumes.json, refuses the level
+	 * graph. A base level graph has none: an empty program. */
+	s_ActiveScenarioGraphs.level_program = missionGraphProgramCompileLevel(text, text_size,
+		missionGraphModuleKnown, s_ActiveScenarioGraphs.level_program_error,
+		sizeof(s_ActiveScenarioGraphs.level_program_error));
+	if (!s_ActiveScenarioGraphs.level_program
+			|| !s_graphBindVolumes(s_ActiveScenarioGraphs.level_program,
+				s_ActiveScenarioGraphs.level_program_volumes,
+				&s_ActiveScenarioGraphs.level_program_volume_count,
+				s_ActiveScenarioGraphs.level_program_error,
+				sizeof(s_ActiveScenarioGraphs.level_program_error))) {
+		char reason[200];
+
+		snprintf(reason, sizeof(reason), "level program refused: %s",
+			s_ActiveScenarioGraphs.level_program_error);
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path, reason);
+		s_resetActiveScenarioGraphs();
+		free(text);
+		return 0;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: level program '%s' nodes=%d exec_edges=%d modules=%d volumes=%d backend=graph.level.runner",
+		scenario->id,
+		missionGraphProgramNodeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.level_program),
+		s_ActiveScenarioGraphs.level_program_volume_count);
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -12490,6 +13180,11 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_shuffle_ruins_pillars_node_count,
 		s_ActiveScenarioGraphs
 			.level_ai_shuffle_pelagic_switches_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI simulant commands '%s' if_bot_respawning=%d mp_init_simulants=%d backend=graph.ai.simulant+ai/ailists.json",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count,
+		s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count);
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: AI team maintenance actions '%s' set_chr_preset_to_unalerted_teammate=%d rebuild_teams=%d rebuild_squadrons=%d backend=graph.ai.action.team+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
@@ -12897,6 +13592,18 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s_ActiveScenarioGraphs.mission_objective_runtime_active = 1;
 	s_ActiveScenarioGraphs.mission_stage_flags = 0;
 	s_ActiveScenarioGraphs.mission_stage_flags_valid = 1;
+	{
+		s32 optional = 0;
+
+		for (s32 oi = 0; oi < mission_objectives; oi++) {
+			optional += mission_objective_rows[oi].optional != 0;
+		}
+		if (optional) {
+			sysLogPrintf(LOG_NOTE,
+				"MISSION.GRAPH: %d of %d objectives of '%s' are optional (required false); the outcome leaves them out",
+				optional, mission_objectives, mission->id);
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE,
 		"MISSION.GRAPH: activated mission graph '%s' scenario='%s' path=%s bytes=%u backend=%s",
@@ -12914,6 +13621,34 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		text_size, missionGraphModuleKnown,
 		s_ActiveScenarioGraphs.mission_program_error,
 		sizeof(s_ActiveScenarioGraphs.mission_program_error));
+	/* mission-flow.md: og.mission.end_* ends the mission while it is played;
+	 * after the end (event.mission.completed, event.mission.continue) it has
+	 * nothing to end, so such a program is refused. */
+	if (s_ActiveScenarioGraphs.mission_program) {
+		static const s32 after_end[] = { MISSION_GRAPH_EVENT_MISSION_COMPLETED,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE };
+		for (s32 ei = 0; ei < 2; ei++) {
+			if (missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_failed")
+					|| missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_completed")) {
+				snprintf(s_ActiveScenarioGraphs.mission_program_error,
+					sizeof(s_ActiveScenarioGraphs.mission_program_error), "%s",
+					"og.mission.end_* runs on an objective or phase event, not after the mission ended");
+				missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+				s_ActiveScenarioGraphs.mission_program = NULL;
+				break;
+			}
+		}
+	}
+	/* trigger-volume-events.md: every volume an event names must be a box
+	 * of the stage's volumes.json. */
+	if (s_ActiveScenarioGraphs.mission_program && !s_missionGraphBindVolumes(
+			s_ActiveScenarioGraphs.mission_program_error,
+			sizeof(s_ActiveScenarioGraphs.mission_program_error))) {
+		missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+		s_ActiveScenarioGraphs.mission_program = NULL;
+	}
 	if (s_ActiveScenarioGraphs.mission_program) {
 		sysLogPrintf(LOG_NOTE,
 			"MISSION.GRAPH: compiled executable program '%s' nodes=%d exec_edges=%d objective_status_events=%d modules=%d backend=graph.mission.runner",
@@ -13236,8 +13971,9 @@ static s32 s_countSourceBackedMpParticipantChrs(void);
 static s32 s_aiGraphRequireRuntimeSetupCharacterSource(const char *action)
 {
 	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing setup.fields.json or spawns.json source");
+		return 0;
 	}
 
 	return 1;
@@ -13266,10 +14002,47 @@ static s32 s_aiGraphTryCountRuntimeSetupChrRowsFromSource(s32 *out_chr_count)
 	return 1;
 }
 
+/* B-1166: set_chr_num gives a source-derived chr a new number (Pelagic II
+ * renumbers one of three setup guards to 0x60, and another chr waits for 0x60
+ * to be dead before it goes on). The new number stays source-derived, so a
+ * reference to it resolves the way native chrFindById does. */
+static s32 s_aiGraphChrnumIsSourceAssigned(s32 chrnum)
+{
+	s32 i;
+
+	if (chrnum < 0) {
+		return 0;
+	}
+	for (i = 0; i < s_ActiveScenarioGraphs.source_renumbered_chr_count; i++) {
+		if (s_ActiveScenarioGraphs.source_renumbered_chrnums[i] == chrnum) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_aiGraphRecordSourceAssignedChrnum(const char *action,
+	s32 chrnum)
+{
+	if (chrnum < 0 || s_aiGraphChrnumIsSourceAssigned(chrnum)) {
+		return 1;
+	}
+	if (s_ActiveScenarioGraphs.source_renumbered_chr_count >=
+			SCENARIO_SOURCE_RENUMBERED_CHR_MAX) {
+		s_aiGraphRuntimeFailure(action,
+			"source-assigned character number table is full");
+		return 0;
+	}
+	s_ActiveScenarioGraphs.source_renumbered_chrnums[
+		s_ActiveScenarioGraphs.source_renumbered_chr_count++] = chrnum;
+	return 1;
+}
+
 static s32 s_aiGraphSetupSourceContainsChrnum(s32 chrnum)
 {
 	return s_sourceSetupContainsChrnum(chrnum) ||
-		s_runtimeSetupContainsChrnum(chrnum);
+		s_runtimeSetupContainsChrnum(chrnum) ||
+		s_aiGraphChrnumIsSourceAssigned(chrnum);
 }
 
 static s32 s_aiGraphCountRuntimeSetupChrRowsFromSource(const char *action,
@@ -13304,8 +14077,12 @@ static s32 s_aiGraphRegisterSourceSpawnedChr(const char *action,
 
 	if (s_ActiveScenarioGraphs.source_spawned_chr_count >=
 			SCENARIO_SOURCE_SPAWNED_CHR_MAX) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"source-spawned character provenance table is full");
+		/* The chr is already spawned: answering 0 would make the twin fall
+		 * to native, which would spawn it a second time. It stays
+		 * unregistered, which the character check tolerates (SP-79). */
+		return 1;
 	}
 
 	s_ActiveScenarioGraphs.source_spawned_chrs[
@@ -13432,6 +14209,10 @@ static s32 s_countRuntimeWaygroups(void)
 
 static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 	s32 *out_pad_count);
+static s32 s_aiGraphRequireRuntimePadTable(const char *action,
+	s32 *out_pad_count);
+static s32 s_aiGraphResolveRoomOrPad(const char *action,
+	struct chrdata *chr, s32 value, s32 *out_room, s32 *out_pad_count);
 
 static struct path *s_aiGraphFindRuntimePath(const char *action,
 	s32 path_id, s32 *out_path_count)
@@ -13535,11 +14316,13 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 
 	path_count = s_countRuntimePaths();
@@ -13548,8 +14331,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (path_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime path table");
+		return 0;
 	}
 
 	for (i = 0; i < path_count; i++) {
@@ -13558,8 +14342,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 		}
 	}
 
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime path pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireRuntimePathPads(const char *action,
@@ -13570,17 +14355,20 @@ static s32 s_aiGraphRequireRuntimePathPads(const char *action,
 	char reason[128];
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json source for navigation path pads");
+		return 0;
 	}
 	if (!path->pads || path->len == 0) {
 		snprintf(reason, sizeof(reason),
 			"navigation path id %d has no source pad sequence",
 			path->id);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	for (i = 0; i < path->len; i++) {
@@ -13634,6 +14422,40 @@ static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 		return 0;
 	}
 
+	return 1;
+}
+
+/* B-1164: a pad argument the native command resolves itself, where 9000
+ * (PAD_PRESET) names chr's preset pad (chrResolvePadId). Checks the pad the
+ * native call will actually use. A preset that resolves below zero (no
+ * preset) is the native call's own case, so only the pad table is required
+ * then. Returns the resolved pad in *out_pad (or -1) and 1, or 0 after
+ * logging a refusal. */
+static s32 s_aiGraphRequireResolvedRuntimePad(const char *action,
+	struct chrdata *chr, s32 pad_id, s32 *out_pad, s32 *out_pad_count)
+{
+	s32 resolved = pad_id;
+
+	if (out_pad) {
+		*out_pad = -1;
+	}
+	if (pad_id == PAD_PRESET) {
+		if (!chr) {
+			s_aiGraphRuntimeFailure(action,
+				"preset pad 9000 needs a character to resolve");
+			return 0;
+		}
+		resolved = chrResolvePadId(chr, pad_id);
+		if (resolved < 0) {
+			return s_aiGraphRequireRuntimePadTable(action, out_pad_count);
+		}
+	}
+	if (!s_aiGraphRequireRuntimePad(action, resolved, out_pad_count)) {
+		return 0;
+	}
+	if (out_pad) {
+		*out_pad = resolved;
+	}
 	return 1;
 }
 
@@ -13852,7 +14674,11 @@ static s32 s_aiGraphRequireRuntimeCharacterRefFromBase(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -13951,7 +14777,11 @@ static s32 s_aiGraphResolveRuntimeCharacterRefOrSelector(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -14167,7 +14997,8 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr || !chr->prop) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14183,13 +15014,18 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chr_count = chr_count;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
 	if (chr->prop->type != PROPTYPE_CHR ||
 			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime character pointer is not source-derived");
+		/* SP-79: still passes on purpose. Co-op AI buddies and tiny-mode
+		 * extras are spawned natively and carry no provenance yet, so
+		 * refusing them here would change base play. Log, then go on. */
+		return 1;
 	}
 	return 1;
 }
@@ -14240,7 +15076,8 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14265,11 +15102,13 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		return 0;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime character state pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
@@ -14297,12 +15136,14 @@ static s32 s_aiGraphRequireRuntimePlayerPointer(const char *action,
 	if (!player) {
 		snprintf(reason, sizeof(reason),
 			"missing %s player state", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (player->prop && player->prop->type != PROPTYPE_PLAYER) {
 		snprintf(reason, sizeof(reason),
 			"%s player prop is not a player actor", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	return 1;
 }
@@ -14319,7 +15160,8 @@ static s32 s_aiGraphRequireRuntimePlayerSlot(const char *action,
 	if (playernum < 0 || playernum >= MAX_PLAYERS) {
 		snprintf(reason, sizeof(reason),
 			"player slot %d is outside runtime player table", playernum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	player = g_Vars.players[playernum];
 	if (!s_aiGraphRequireRuntimePlayerPointer(action, player,
@@ -14776,6 +15618,36 @@ static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
 	return NULL;
 }
 
+/* B-1161: a base animation slot the ROM leaves unused (animIsEmptyBaseSlot)
+ * has nothing to publish: the extractor skips it (257 of the 1,207 character
+ * slots, ANIM_IDLE among them), so its catalog row has no .pdanim. It is
+ * still a valid animation number, and the one chr->naturalanim starts at, so
+ * a condition that only compares animation numbers takes it as it is instead
+ * of refusing (which answered "not equal" without comparing). A slot a mod
+ * fills is not empty and resolves through its public source as before. */
+static const char *s_aiGraphResolveComparableAnimationCatalogId(
+	const char *action, s32 anim_id, const char *role,
+	const char **out_source_path, u32 *out_clip_size)
+{
+	if (animIsEmptyBaseSlot(anim_id)) {
+		CatalogResolveResult result = catalogResolveAnim(anim_id);
+		const asset_entry_t *entry = result.catalog_id >= 0
+			? assetCatalogGetByIndex(result.catalog_id) : NULL;
+
+		if (entry && entry->id[0]) {
+			if (out_source_path) {
+				*out_source_path = "(empty base slot)";
+			}
+			if (out_clip_size) {
+				*out_clip_size = 0;
+			}
+			return entry->id;
+		}
+	}
+	return s_aiGraphResolveAnimationCatalogId(action, anim_id, role,
+		out_source_path, out_clip_size);
+}
+
 static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	const char *action, s32 specialdie, const char **out_anim_id,
 	const char **out_alt_anim_id, const char **out_chair_fallback_anim_id)
@@ -14801,7 +15673,8 @@ static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	if (specialdie < SPECIALDIE_FALLBACK || specialdie > SPECIALDIE_ONCHAIR) {
 		snprintf(reason, sizeof(reason),
 			"invalid special death animation mode %d", specialdie);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	if (specialdie == SPECIALDIE_ONCHAIR) {
@@ -14965,11 +15838,13 @@ static s32 s_aiGraphRequireRandomControlNode(const char *kind,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, name);
-		return s_aiGraphRuntimeFailure(name, reason);
+		s_aiGraphRuntimeFailure(name, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(name,
+		s_aiGraphRuntimeFailure(name,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -14985,11 +15860,13 @@ static s32 s_aiGraphRequireDebugNoOpNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15006,9 +15883,10 @@ s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("stop",
-			s_ActiveScenarioGraphs.level_ai_stop_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("stop",
+			s_ActiveScenarioGraphs.level_ai_stop_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("stop", chr,
 			&chr_count, &source_chr)) {
@@ -15049,9 +15927,10 @@ s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("kneel",
-			s_ActiveScenarioGraphs.level_ai_kneel_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("kneel",
+			s_ActiveScenarioGraphs.level_ai_kneel_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("kneel", chr,
 			&chr_count, &source_chr)) {
@@ -15082,11 +15961,13 @@ static s32 s_aiGraphRequireCharacterLifecycleNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15187,11 +16068,13 @@ static s32 s_aiGraphRequireCombatNode(const char *kind, const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15711,11 +16594,13 @@ static s32 s_aiGraphRequireTargetMovementNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return -1;
 	}
 	return 1;
 }
@@ -16683,13 +17568,15 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 	}
 
 	if (!prop) {
-		return s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		return 0;
 	}
 	if (prop->type != PROPTYPE_WEAPON || !prop->weapon) {
 		snprintf(reason, sizeof(reason),
 			"current gun prop is type %d without weapon payload",
 			prop->type);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	weapon = prop->weapon;
@@ -16697,7 +17584,8 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 		snprintf(reason, sizeof(reason),
 			"current gun prop has invalid runtime weapon %d",
 			weapon->weaponnum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	model_id = s_aiGraphResolveModelCatalogId(action,
@@ -16934,13 +17822,13 @@ s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_room_is_on_screen", pad,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_room_is_on_screen", chr, pad,
+			&room_id, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
 
-	room_id = chr ? chrGetPadRoom(chr, pad) : -1;
 	branch = room_id >= 0 && bgRoomIsOnscreen(room_id);
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged) {
@@ -17495,12 +18383,20 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 		return 1;
 	}
 	if (room_type != 1) {
-		if (!s_aiGraphRequireRuntimePad("if_chr_in_room", padnum,
+		/* B-1163: type 0 takes a room-or-pad value (chrGetPadRoom's
+		 * encoding). Type 2 takes a pad that each eyespy resolves itself
+		 * (B-1164, checked in the loop below); other types take none. */
+		if (room_type == 0) {
+			if (!s_aiGraphResolveRoomOrPad("if_chr_in_room", basechr,
+					padnum, &room, &pad_count)) {
+				s_aiGraphApplyBranch(0, label, 7);
+				return 1;
+			}
+		} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 				&pad_count)) {
 			s_aiGraphApplyBranch(0, label, 7);
 			return 1;
 		}
-		room = chrGetPadRoom(basechr, padnum);
 	} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 			&pad_count)) {
 		s_aiGraphApplyBranch(0, label, 7);
@@ -17523,12 +18419,21 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 			}
 			checked_players++;
 			if (player->eyespy && player->eyespy->prop &&
-					player->eyespy->prop->chr &&
-					chrGetDistanceToPad(
-						player->eyespy->prop->chr, padnum) <
-					150.0f) {
-				branch = 1;
-				break;
+					player->eyespy->prop->chr) {
+				struct chrdata *eyespychr = player->eyespy->prop->chr;
+				s32 resolved = 0;
+
+				/* B-1164: the eyespy resolves 9000 to its own preset,
+				 * as chrGetDistanceToPad does. */
+				if (!s_aiGraphRequireResolvedRuntimePad("if_chr_in_room",
+						eyespychr, padnum, &resolved, &pad_count)) {
+					s_aiGraphApplyBranch(0, label, 7);
+					return 1;
+				}
+				if (chrGetDistanceToPad(eyespychr, padnum) < 150.0f) {
+					branch = 1;
+					break;
+				}
 			}
 		}
 	}
@@ -17559,12 +18464,12 @@ s32 scenarioSourceAiGraphExecuteIfTargetInRoom(struct chrdata *chr,
 	if (prepared <= 0) {
 		return prepared < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_target_in_room", padnum,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_target_in_room", chr, padnum,
+			&room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	room = chrGetPadRoom(chr, padnum);
 	branch = room >= 0 && prop && room == prop->rooms[0];
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged) {
@@ -17848,15 +18753,17 @@ static s32 s_aiGraphRequireObjectInteractionNode(const char *action,
 			snprintf(reason, sizeof(reason),
 				"missing scenario.ai.condition.%s node", action);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			require_pads
 				? "missing ai/ailists.json, objects.json, or pads.json source"
 				: "missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -18387,9 +19294,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_one_hand",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_one_hand",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_one_hand", chr, &chr_count, &source_chr)) {
@@ -18414,9 +19322,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_look_around",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_look_around",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_look_around", chr, &chr_count, &source_chr)) {
@@ -18441,9 +19350,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_surrender",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_surrender",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_surrender", chr, &chr_count, &source_chr)) {
@@ -18611,9 +19521,10 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 	struct chrdata *chr = NULL;
 	s32 chr_count = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_list",
-			s_ActiveScenarioGraphs.level_ai_set_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_list",
+			s_ActiveScenarioGraphs.level_ai_set_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	ailist = ailistFindById(list_id);
@@ -18658,9 +19569,10 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 	s32 source_vehicle_type = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_return_list",
-			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_return_list",
+			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	if (active_chr) {
@@ -18738,9 +19650,10 @@ s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_shot_list",
-			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_shot_list",
+			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_shot_list",
@@ -18774,9 +19687,10 @@ s32 scenarioSourceAiGraphExecuteReturnList(void)
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireListControlNode("return_list",
-			s_ActiveScenarioGraphs.level_ai_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("return_list",
+			s_ActiveScenarioGraphs.level_ai_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("return_list",
@@ -18830,8 +19744,9 @@ static s32 s_aiGraphExecuteSetChrListField(const char *action,
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode(action, node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode(action, node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		s16 *field;
@@ -18913,8 +19828,9 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("try_start_alarm",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("try_start_alarm", pad_id,
-			&pad_count)) {
+	/* B-1164: chrTryStartAlarm resolves 9000 to chr's preset pad itself. */
+	if (!s_aiGraphRequireResolvedRuntimePad("try_start_alarm", chr, pad_id,
+			NULL, &pad_count)) {
 		g_Vars.aioffset += 5;
 		return 1;
 	}
@@ -18994,6 +19910,7 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	s32 chr_count = 0;
 	s32 pad_count = 0;
 	s32 source_chr = -1;
+	s32 resolved_pad;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -19004,7 +19921,13 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action, "missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {
+	/* B-1119: pad 9000 (PAD_PRESET) names the character's preset pad, and
+	 * chrGoToPad resolves it itself (chrResolvePadId). Check the pad the
+	 * character will actually go to: 9000 is not a pad row, and refusing it
+	 * left the character standing, because a refusal also skips the native
+	 * handler. */
+	resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;
+	if (!s_aiGraphRequireRuntimePad(action, resolved_pad, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
@@ -19014,9 +19937,9 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	chrGoToPad(chr, pad, goposflags);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s",
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s resolved_pad=%d",
 			action, chr_count, source_chr, pad, pad_count,
-			s_ActiveScenarioGraphs.pads_path, backend);
+			s_ActiveScenarioGraphs.pads_path, backend, resolved_pad);
 		*logged = 1;
 	}
 	return 1;
@@ -19218,7 +20141,9 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 		return s_aiGraphRuntimeFailure("set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_pad_preset", pad, &pad_count)) {
+	/* B-1164: chrSetPadPreset resolves 9000 (chr keeps its own preset). */
+	if (!s_aiGraphRequireResolvedRuntimePad("set_pad_preset", chr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("set_pad_preset", chr,
@@ -19254,8 +20179,10 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("chr_set_pad_preset", pad,
-			&pad_count)) {
+	/* B-1164: chrSetPadPresetByChrnum resolves 9000 against basechr, so
+	 * the target takes the caller's preset. */
+	if (!s_aiGraphRequireResolvedRuntimePad("chr_set_pad_preset", basechr,
+			pad, NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
@@ -20220,6 +21147,76 @@ s32 scenarioSourceAiGraphExecuteRebuildTeams(void)
 	return 1;
 }
 
+/* AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two
+ * simulant commands, which run only in multiplayer. Semantics from
+ * MULTIPLAYER (week note, 2026-11-16 12:44 UTC) as the game plays today.
+ * if_bot_respawning (0x0176): the current chr is a simulant whose respawn
+ * is pending -> jump to the label and clear the flag; otherwise go on (no
+ * chr, or a chr without an aibot, is false: the original read aibot
+ * regardless and crashed). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label)
+{
+	s32 branch_taken;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count != 1) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing scenario.ai.condition.if_bot_respawning node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing ai/ailists.json source");
+	}
+	branch_taken = chr && chr->aibot && chr->aibot->respawning == true;
+	if (branch_taken) {
+		chr->aibot->respawning = false;
+	}
+	s_aiGraphApplyBranch(branch_taken, label, 3);
+	if (!(s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged & (1 << branch_taken))) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_bot_respawning chr=%d simulant=%d label=%d branch=%d source=%s backend=graph.ai.condition.simulant+ai/ailists.json",
+			chr ? (s32)chr->chrnum : -1, chr && chr->aibot ? 1 : 0, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged |= 1 << branch_taken;
+	}
+	return 1;
+}
+
+/* mp_init_simulants (0x0185): spawns the simulant wave. Returns 1 once the
+ * wave is complete (the caller goes on) and 2 while it is not (the caller
+ * ends the tick without moving, so the next pass retries the retained wave
+ * cursor; a command that returned false without moving would be skipped by
+ * the B-949 guard, B-1255). */
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void)
+{
+	enum bot_spawn_wave_result wave;
+	s32 bit;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count != 1) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing scenario.ai.action.mp_init_simulants node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing ai/ailists.json source");
+	}
+	wave = botSpawnAll();
+	bit = wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : wave == BOT_SPAWN_WAVE_RETRY_PENDING ? 2 : 4;
+	if (!(s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged & bit)) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action mp_init_simulants wave=%s source=%s backend=graph.ai.action.simulant+ai/ailists.json",
+			bit == 1 ? "complete" : bit == 2 ? "pending" : "invalid",
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged |= bit;
+	}
+	return wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : 2;
+}
+
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void)
 {
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -21103,8 +22100,10 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("set_chr_preset_to_chr_near_pad",
-			padnum, &pad_count)) {
+	/* B-1164: the native near-pad helper resolves 9000 against chr. */
+	if (!s_aiGraphRequireResolvedRuntimePad(
+			"set_chr_preset_to_chr_near_pad", chr, padnum, NULL,
+			&pad_count)) {
 		return 1;
 	}
 	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
@@ -21181,26 +22180,30 @@ static s32 s_aiGraphRequireRuntimeChopperPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle weapon state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime chopper pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != OBJTYPE_CHOPPER) {
 		snprintf(reason, sizeof(reason),
 			"runtime vehicle pointer is source type %u, expected source type %u for chopper weapon state",
 			(unsigned)obj->type, (unsigned)OBJTYPE_CHOPPER);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21228,20 +22231,23 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime vehicle pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != expected_type_a &&
 			(expected_type_b < 0 || obj->type != expected_type_b)) {
@@ -21255,7 +22261,8 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 				"runtime vehicle pointer is source type %u, expected source vehicle type %d",
 				(unsigned)obj->type, expected_type_a);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21357,24 +22364,28 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 				&vehicle_count, &source_vehicle_type)) {
 			return 1;
 		}
-		if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
-				hovercar->path, &path_count) ||
-				!s_aiGraphRequireRuntimePathPads(
-					"if_hoverbot_next_step",
-					hovercar->path, &pad_count)) {
-			return 1;
+		/* Native compares nextstep and needs no path (B-1167): check the
+		 * path only when the hoverbot has one. */
+		if (hovercar->path) {
+			if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
+					hovercar->path, &path_count) ||
+					!s_aiGraphRequireRuntimePathPads(
+						"if_hoverbot_next_step",
+						hovercar->path, &pad_count)) {
+				return 1;
+			}
+			if (hovercar->nextstep < 0 ||
+					hovercar->nextstep >= hovercar->path->len) {
+				snprintf(reason, sizeof(reason),
+					"hoverbot nextstep %d outside path id %d length %u",
+					hovercar->nextstep, hovercar->path->id,
+					(unsigned)hovercar->path->len);
+				return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
+					reason);
+			}
+			path_id = hovercar->path->id;
+			path_pads = hovercar->path->len;
 		}
-		if (hovercar->nextstep < 0 ||
-				hovercar->nextstep >= hovercar->path->len) {
-			snprintf(reason, sizeof(reason),
-				"hoverbot nextstep %d outside path id %d length %u",
-				hovercar->nextstep, hovercar->path->id,
-				(unsigned)hovercar->path->len);
-			return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
-				reason);
-		}
-		path_id = hovercar->path->id;
-		path_pads = hovercar->path->len;
 		nextstep = hovercar->nextstep;
 	}
 	branch_taken = hovercar &&
@@ -22357,8 +23368,11 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("if_natural_anim",
-		anim, "natural", &anim_source_path, &anim_clip_size);
+	/* Both animations are only compared by number, so an empty base slot
+	 * (ANIM_IDLE, where every chr's natural animation starts) is valid. */
+	anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
+		"if_natural_anim", anim, "natural", &anim_source_path,
+		&anim_clip_size);
 	if (!anim_catalog_id) {
 		s_aiGraphApplyBranch(0, label, 4);
 		return 1;
@@ -22368,7 +23382,7 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 		return 1;
 	}
 	if (chr && chr->naturalanim >= 0) {
-		current_anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+		current_anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
 			"if_natural_anim", chr->naturalanim, "current_natural",
 			&current_anim_source_path, &current_anim_clip_size);
 		if (!current_anim_catalog_id) {
@@ -24105,8 +25119,18 @@ s32 scenarioSourceAiGraphExecuteSetChrNum(struct chrdata *chr, s32 chrnum)
 		return required < 0 ? 1 : 0;
 	}
 	if (chr && chr->prop) {
+		/* B-1166: a source-derived chr keeps its provenance under its new
+		 * number. */
+		const s32 was_source = s_aiGraphRuntimeChrIsSourceSpawned(chr) ||
+			(chr->prop->type == PROPTYPE_CHR &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum));
+
 		chrSetChrnum(chr, chrnum);
 		chr->chrnum = (s16)chrnum;
+		if (was_source &&
+				!s_aiGraphRecordSourceAssignedChrnum("set_chr_num", chrnum)) {
+			return 1;
+		}
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_num_logged) {
 		sysLogPrintf(LOG_NOTE,
@@ -25165,12 +26189,14 @@ static s32 s_aiGraphRequireDoorNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25420,13 +26446,15 @@ static s32 s_aiGraphRequireLiftNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json, objects.json, or pads.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25719,12 +26747,14 @@ static s32 s_aiGraphRequireWeatherNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.level_global_settings_node_count) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or scenario.ini source");
+		return 0;
 	}
 	return 1;
 }
@@ -25772,11 +26802,13 @@ static s32 s_aiGraphRequireSkyNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25833,14 +26865,20 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 		return s_aiGraphRuntimeFailure("set_lights",
 			"missing ai/ailists.json or pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_lights", padnum, &pad_count)) {
-		return 1;
-	}
 	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("set_lights",
 			chr, &chr_count, &source_chr)) {
 		return 1;
 	}
-	roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1;
+	/* B-1162: background scripts run on a blank chr with no prop, and they
+	 * make 569 of the 590 light changes in base content. The room used to be
+	 * computed only for a chr with a prop, so on the graph path those lights
+	 * never changed. Like native, any chr (or none, unless the value names
+	 * the preset pad) decodes the room. B-1163: the value is chrGetPadRoom's
+	 * room-or-pad encoding, checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("set_lights", chr, padnum, &roomnum,
+			&pad_count)) {
+		return 1;
+	}
 	if (roomnum >= 0) {
 		switch (operation) {
 		case LIGHTOP_TURNOFF:
@@ -25873,8 +26911,9 @@ static s32 s_aiGraphRequireRuntimeSceneRooms(const char *action,
 		*out_room_count = 0;
 	}
 	if (!g_Rooms || g_Vars.roomcount <= 1) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built scene room table");
+		return 0;
 	}
 	if (out_room_count) {
 		*out_room_count = g_Vars.roomcount;
@@ -25899,6 +26938,62 @@ static s32 s_aiGraphResolveRuntimeSceneRoom(const char *action,
 	return 1;
 }
 
+/* B-1163: the room argument of the room commands (if_chr_in_room type 0,
+ * if_target_in_room, if_room_is_on_screen, if_obj_in_room, set_lights) is
+ * chrGetPadRoom's encoding: below 10000 it is a room number, from 10000 it is
+ * the room of pad (value - 10000), and 19000 is the room of chr's preset pad.
+ * The graph used to check the raw value against the pad table, which passed a
+ * room number only while it happened to be below the stage's pad count and
+ * refused every pad form. This decodes the value, checks what native will
+ * index (a runtime room, or the pad behind it), and returns the room exactly
+ * as chrGetPadRoom(chr, value) does. chr may be NULL (a background script's
+ * blank chr is not NULL, but a missing chr is) unless the value names the
+ * preset pad. Returns 1 with *out_room set, or 0 after logging a refusal. */
+static s32 s_aiGraphResolveRoomOrPad(const char *action, struct chrdata *chr,
+	s32 value, s32 *out_room, s32 *out_pad_count)
+{
+	char reason[112];
+
+	if (out_room) {
+		*out_room = -1;
+	}
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (value >= 10000) {
+		s32 pad = 0;
+
+		if (!s_aiGraphRequireResolvedRuntimePad(action, chr, value - 10000,
+				&pad, out_pad_count)) {
+			return 0;
+		}
+		if (out_room) {
+			*out_room = pad >= 0 ? chrGetPadRoom(chr, value) : -1;
+		}
+		return 1;
+	}
+	{
+		s32 room_count = 0;
+		s32 room_available = 0;
+
+		if (!s_aiGraphResolveRuntimeSceneRoom(action, value, &room_count,
+				&room_available)) {
+			return 0;
+		}
+		if (!room_available) {
+			snprintf(reason, sizeof(reason),
+				"room %d is not a runtime room (rooms=%d)", value,
+				room_count);
+			s_aiGraphRuntimeFailure(action, reason);
+			return 0;
+		}
+	}
+	if (out_room) {
+		*out_room = value;
+	}
+	return 1;
+}
+
 static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 	s32 *out_portal_count, s32 *out_portal_available)
 {
@@ -25909,12 +27004,14 @@ static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 		*out_portal_available = 0;
 	}
 	if (!s_ActiveScenarioGraphs.portals_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing portals.json source");
+		return 0;
 	}
 	if (!g_BgPortals) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built portal table");
+		return 0;
 	}
 	if (out_portal_count) {
 		*out_portal_count = g_BgNumPortalCameraCacheItems > 0
@@ -26237,11 +27334,13 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -26828,11 +27927,13 @@ static s32 s_aiMusicTrackGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27029,11 +28130,13 @@ static s32 s_aiPlayerWeaponStateGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27432,11 +28535,13 @@ static s32 s_aiPlayerCutsceneGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27988,11 +29093,13 @@ static s32 s_aiSetupSpawnGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -28017,7 +29124,9 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("spawn_chr_at_pad",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("spawn_chr_at_pad", pad, &pad_count)) {
+	/* B-1164: chrSpawnAtPad resolves 9000 against basechr. */
+	if (!s_aiGraphRequireResolvedRuntimePad("spawn_chr_at_pad", basechr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	body_id = s_aiGraphResolveBodyCatalogId("spawn_chr_at_pad",
@@ -28486,11 +29595,13 @@ static s32 s_aiEntityLifecycleGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -28646,6 +29757,14 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 			rebuildSquadrons();
 			pass = 1;
 		}
+	}
+	/* B-1165: a clone is created from graph source like the spawn_chr_at_*
+	 * characters, so it is registered the same way. Without it every later
+	 * AI command for the clone (Defense's shock troopers) refused it as
+	 * "not source-derived". */
+	if (pass && !s_aiGraphRegisterSourceSpawnedChr("duplicate_chr",
+			cloneprop)) {
+		return 0;
 	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -29177,19 +30296,23 @@ static s32 s_aiGunInteractionGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.level_graph_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing level.graph.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -29570,13 +30693,13 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_obj_in_room", room_id,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_obj_in_room", basechr, room_id,
+			&resolved_room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
 	obj = objFindByTagId(tag_id);
-	resolved_room = chrGetPadRoom(basechr, room_id);
 	pass = resolved_room >= 0 && obj && obj->prop &&
 		resolved_room == obj->prop->rooms[0];
 	if (pass) {
@@ -29609,15 +30732,18 @@ static s32 s_aiGraphRequirePerceptionNode(const char *action, s32 node_count,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (needs_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30138,11 +31264,13 @@ static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30179,11 +31307,13 @@ static s32 s_aiGraphRequireMissionGlobalConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -31220,17 +32350,20 @@ static s32 s_aiGraphRequireQuadrantPresetNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
 			!s_ActiveScenarioGraphs.waypoints_path[0] ||
 			!s_ActiveScenarioGraphs.waygroups_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json or navigation waypoint/waygroup source");
+		return 0;
 	}
 	return 1;
 }
@@ -31646,6 +32779,9 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 		}
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31712,6 +32848,9 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 		return 1;
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31874,11 +33013,13 @@ static s32 s_aiGraphRequireCutscenePresentationNode(const char *action,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32226,12 +33367,14 @@ static s32 s_aiGraphRequireModelPartNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32301,12 +33444,14 @@ static s32 s_aiGraphRequireObjectHealthNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32403,7 +33548,9 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 			&anim_id, &alt_anim_id, &chair_fallback_anim_id)) {
 		return 1;
 	}
-	chr->specialdie = animation;
+	if (chr) {
+		chr->specialdie = animation;
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
 			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.json",
@@ -33159,11 +34306,13 @@ static s32 s_aiGraphRequireHudNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -33363,15 +34512,18 @@ static s32 s_aiGraphRequireVehicleNode(const char *action, s32 node_count,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (require_paths && !s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -33618,6 +34770,17 @@ s32 scenarioSourceObjectiveGraphReportRuntimeMismatch(s32 index,
 	return s_missionObjectiveGraphRuntimeFailure(action, index, reason);
 }
 
+s32 scenarioSourceMissionObjectiveRequired(s32 index)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_objectives
+			|| index < 0
+			|| index >= s_ActiveScenarioGraphs.mission_objective_nodes) {
+		return 1;
+	}
+	return !s_ActiveScenarioGraphs.mission_objectives[index].optional;
+}
+
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason)
 {
@@ -33632,6 +34795,11 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		return s_missionObjectiveGraphRuntimeFailure("phase", -1,
 			"missing mission phase source nodes");
 	}
+	/* Once a graph ended the mission (og.mission.end_*), its outcome is the
+	 * phase until the stage ends. */
+	if (s_ActiveScenarioGraphs.mission_forced_outcome && strcmp(phase, "end") != 0) {
+		phase = s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "complete" : "failed";
+	}
 	if (strcmp(s_ActiveScenarioGraphs.mission_phase_state, phase) == 0) {
 		return 1;
 	}
@@ -33643,6 +34811,326 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		s_ActiveScenarioGraphs.mission_graph_path,
 		phase,
 		reason && reason[0] ? reason : "runtime");
+	return 1;
+}
+
+/* mission-flow.md: the phase the objectives check just recorded reaches the
+ * mission graph as event.mission.phase_changed, once per change, after the
+ * objectives' own events and never inside another event's walk (only
+ * objectivesCheckAll calls this). load and end are not delivered. */
+/* trigger-volume-events.md: from the objectives check, after the phase
+ * event: each player who went into or out of a bound volume since the last
+ * check fires event.volume.entered or event.volume.left. The caller passes
+ * the players' positions (present[p] 0 for a player with no prop) and
+ * delivers nothing on a networked client (the host's graph decides).
+ * Returns the modules run. */
+/* One program's volume events: each player who went into or out of one of
+ * its bound volumes since the last call fires event.volume.entered or
+ * event.volume.left on it. Returns the modules run. */
+static s32 s_graphDeliverVolumeEvents(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 bound_count, const char *channel,
+	const char *owner, const char *backend, const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	s32 total = 0;
+
+	for (s32 v = 0; v < bound_count; v++) {
+		for (s32 p = 0; p < count && p < 32; p++) {
+			const u32 bit = 1u << p;
+			mission_graph_event_t event;
+			s32 inside = 0;
+			s32 ran;
+
+			if (present[p]) {
+				const struct coord *pos = &positions[p];
+				const f32 *min = bound[v].min;
+				const f32 *max = bound[v].max;
+
+				inside = pos->x >= min[0] && pos->x <= max[0] && pos->y >= min[1]
+					&& pos->y <= max[1] && pos->z >= min[2] && pos->z <= max[2];
+			}
+			if (inside == ((bound[v].inside & bit) != 0)) {
+				continue;
+			}
+			if (inside) {
+				bound[v].inside |= bit;
+			} else {
+				bound[v].inside &= ~bit;
+			}
+			memset(&event, 0, sizeof(event));
+			event.kind = inside ? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
+			event.objective_index = -1;
+			event.volume = bound[v].id;
+			event.player = p;
+			ran = missionGraphProgramFire(program, &event, missionGraphModuleRun, NULL);
+			sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+				"%s: %s '%s' volume=%s player=%d modules=%d backend=%s",
+				channel, inside ? "event.volume.entered" : "event.volume.left",
+				owner, event.volume, p, ran, backend);
+			if (ran > 0) {
+				total += ran;
+			}
+		}
+	}
+	return total;
+}
+
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program
+			|| s_ActiveScenarioGraphs.mission_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.mission_program,
+		s_ActiveScenarioGraphs.mission_volumes, s_ActiveScenarioGraphs.mission_volume_count,
+		"MISSION.GRAPH", s_ActiveScenarioGraphs.mission_id, "graph.mission.runner",
+		positions, present, count);
+}
+
+/* object-events.md slice 1: the level program's volume events, on every
+ * stage (lvTick, after scenarioTick); the caller passes the players'
+ * positions and delivers nothing on a networked client. */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || !s_ActiveScenarioGraphs.level_program
+			|| s_ActiveScenarioGraphs.level_program_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.level_program,
+		s_ActiveScenarioGraphs.level_program_volumes,
+		s_ActiveScenarioGraphs.level_program_volume_count, "SCENARIO.GRAPH",
+		s_ActiveScenarioGraphs.scenario_id, "graph.level.runner", positions, present, count);
+}
+
+/* object-events.md slice 2: an object event from a native seam, after the
+ * native decision and effect (the caller builds the payload and fires
+ * nothing on a networked client). It goes to the level program on every
+ * stage and to the mission program on a mission. The base game's graphs
+ * wire none, so for them it is recorded only: the first event of each kind
+ * on a stage is logged with its payload, every one that ran a module or
+ * failed is logged, and the totals are logged once per stage. Returns the
+ * modules run. */
+/* How deep object events and queries may nest (a module causing another). */
+#define SCENARIO_OBJECT_EVENT_MAX_DEPTH 4
+static s32 s_ObjectEventDepth;
+
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	static const char *const names[] = { "pickup.collected", "door.opened", "door.closed",
+		"object.used" };
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_COLLECTED;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	mission_graph_event_t event;
+	s32 level_ran = 0;
+	s32 mission_ran = 0;
+
+	if (index < 0 || index >= 4 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	/* slice 3: a module may cause another object event (og.pickup.give
+	 * collects an object); a chain deeper than this is cut. */
+	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s not delivered: object events nested %d deep",
+			names[index], s_ActiveScenarioGraphs.scenario_id, object && object[0] ? object : "-",
+			s_ObjectEventDepth);
+		return 0;
+	}
+	s_ObjectEventDepth++;
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	if (s_ActiveScenarioGraphs.level_program) {
+		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	if (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program) {
+		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	s_ObjectEventDepth--;
+	s_ActiveScenarioGraphs.object_event_counts[index]++;
+	if (s_ActiveScenarioGraphs.object_event_counts[index] == 1 || level_ran != 0 || mission_ran != 0) {
+		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s catalog_id=%s player=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
+			names[index], s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-",
+			tag, object_kind ? object_kind : "-", catalog_id && catalog_id[0] ? catalog_id : "-",
+			player, level_ran, mission_ran);
+	}
+	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
+}
+
+/* object-events.md slice 3: a query from a native seam, before the native
+ * rule (event.pickup.requested, event.door.open_requested). Returns 1 when
+ * the level program or, on a mission, the mission program refused it
+ * (og.pickup.refuse, og.door.refuse), 0 to let the native rule decide. A
+ * program without a handler for the kind is not asked, so the base game's
+ * rules decide exactly as before. The first refusal of each kind on a stage
+ * is logged, and the refusals are counted in the stage totals. */
+s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	const s32 index = kind == MISSION_GRAPH_EVENT_PICKUP_REQUESTED ? 0
+		: kind == MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED ? 1 : -1;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	s32 ask_level;
+	s32 ask_mission;
+	mission_graph_event_t event;
+	s32 level_ran = 0;
+	s32 mission_ran = 0;
+	s32 outer;
+	s32 refused;
+
+	if (index < 0 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	ask_level = s_ActiveScenarioGraphs.level_program
+		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);
+	ask_mission = s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
+		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind);
+	if ((!ask_level && !ask_mission) || s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	s_ObjectEventDepth++;
+	outer = missionGraphModulesQueryBegin();
+	if (ask_level) {
+		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	if (ask_mission) {
+		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	refused = missionGraphModulesQueryEnd(outer);
+	s_ObjectEventDepth--;
+	if (refused) {
+		s_ActiveScenarioGraphs.object_query_refusals[index]++;
+	}
+	if ((refused && s_ActiveScenarioGraphs.object_query_refusals[index] == 1)
+			|| level_ran < 0 || mission_ran < 0) {
+		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s player=%d refused=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
+			index == 0 ? "pickup.requested" : "door.open_requested",
+			s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-", tag,
+			object_kind ? object_kind : "-", player, refused, level_ran, mission_ran);
+	}
+	return refused ? 1 : 0;
+}
+
+s32 scenarioSourceGraphHandlesObjectQuery(s32 kind)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	return (s_ActiveScenarioGraphs.level_program
+			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind))
+		|| (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
+			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind));
+}
+
+void scenarioSourceGraphObjectEventsReport(const char *reason)
+{
+	s_reportObjectEvents(reason && reason[0] ? reason : "stage_end");
+}
+
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
+{
+	mission_graph_event_t event;
+	s32 phase;
+	s32 ran;
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program) {
+		return 0;
+	}
+	phase = missionGraphPhaseFromText(s_ActiveScenarioGraphs.mission_phase_state);
+	if (phase < 0 || phase == s_ActiveScenarioGraphs.mission_phase_delivered) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_phase_delivered = phase;
+	if (!missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED)) {
+		/* Logged without a handler too: the campaign logs show every base
+		 * mission's phases arrive (active, then complete). */
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=0 (no handler) backend=graph.mission.runner",
+			s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state);
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
+	event.objective_index = -1;
+	event.phase = phase;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state, ran);
+	return ran;
+}
+
+/* og.mission.end_failed / og.mission.end_completed (mission_graph_modules.c,
+ * which refuses them on a network client and a forced completion in co-op
+ * and counter-op): from now on the outcome is the graph's, and the stage ends
+ * through the AI's end_level path once the objectives check that ran the
+ * module has returned (scenarioSourceMissionGraphTakePendingEnd). The first
+ * request wins. */
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed)
+{
+	const char *what = completed ? "completed" : "failed";
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_forced_outcome) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: og.mission.end_%s ignored: '%s' is already ending %s",
+			what, s_ActiveScenarioGraphs.mission_id,
+			s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "completed" : "failed");
+		return 1;
+	}
+	s_ActiveScenarioGraphs.mission_forced_outcome = completed ? 2 : 1;
+	s_ActiveScenarioGraphs.mission_end_pending = 1;
+	scenarioSourceMissionGraphRecordPhase(completed ? "complete" : "failed", "og.mission.end");
+	sysLogPrintf(LOG_NOTE,
+		"MISSION.GRAPH: og.mission.end_%s: '%s' ends %s from its mission graph",
+		what, s_ActiveScenarioGraphs.mission_id, what);
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_forced_outcome) {
+		return 0;
+	}
+	if (out_complete) {
+		*out_complete = s_ActiveScenarioGraphs.mission_forced_outcome == 2;
+	}
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphTakePendingEnd(void)
+{
+	if (!s_ActiveScenarioGraphs.mission_end_pending) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_end_pending = 0;
 	return 1;
 }
 
@@ -34672,6 +36160,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		*out_size = 0;
 	}
 
+	s_ObjectRuleRowCount = 0;
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !s_scenarioSetupFieldsPath(scenario, setup_path,
 			sizeof(setup_path))) {
@@ -34842,6 +36331,47 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	if (table.count > 1) {
 		qsort(table.records, (size_t)table.count, sizeof(table.records[0]),
 			s_setupCompareRecords);
+	}
+	{
+		s32 ruled = 0;
+		s32 coop = 0;
+		s32 rockets = 0;
+		s32 choppers = 0;
+		s32 multiplayer = 0;
+
+		for (s32 i = 0; i < table.count; i++) {
+			ruled += table.records[i].rules.present != 0;
+		}
+		if (ruled > SCENARIO_OBJECT_RULE_ROWS_MAX) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: objects.json of '%s' carries object rules on %d rows; at most %d are allowed",
+				scenario->id, ruled, SCENARIO_OBJECT_RULE_ROWS_MAX);
+			s_setupFreeTable(&table);
+			s_spawnFreeTable(&spawn_table);
+			s_freePathTable(&path_table);
+			s_aiFreeTable(&ai_table);
+			scenarioIntroFree(&intro);
+			return NULL;
+		}
+		for (s32 i = 0; i < table.count; i++) {
+			const scenario_object_rules_t *rules = &table.records[i].rules;
+
+			if (!rules->present) {
+				continue;
+			}
+			s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;
+			s_ObjectRuleRows[s_ObjectRuleRowCount].rules = *rules;
+			s_ObjectRuleRowCount++;
+			coop += rules->coop_excluded != 0;
+			rockets += rules->enemy_rockets_exempt_mask != 0;
+			choppers += table.records[i].type == OBJTYPE_CHOPPER;
+			multiplayer += rules->multiplayer_kept != 0;
+		}
+		if (ruled) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: object rules for '%s': %d rows (coop %d, enemy_rockets_exempt %d, chopper %d, multiplayer %d) source=objects.json",
+				scenario->id, ruled, coop, rockets, choppers, multiplayer);
+		}
 	}
 	if (!s_setupCollectBehaviorLinkSource(scenario, setup_path, &table)) {
 		s_setupFreeTable(&table);
@@ -35264,8 +36794,22 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			scenario->id, error);
 		return -1;
 	}
+	/* The weapons named by player.unlimited_ammo_excludes must be in the
+	 * catalog, or the rule could not say which ammo it keeps. */
+	for (s32 i = 0; i < s_StageWideRules.player.unlimited_ammo_exclude_count; i++) {
+		catalog_weapon_result_t weapon;
+
+		if (!catalogResolveWeapon(s_StageWideRules.player.unlimited_ammo_excludes[i], &weapon)
+				|| weapon.weapon_num <= 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.SOURCE: stage.json of '%s' refused: player.unlimited_ammo_excludes names %s, which is not a weapon; the stage runs without stage-wide rules",
+				scenario->id, s_StageWideRules.player.unlimited_ammo_excludes[i]);
+			memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+			return -1;
+		}
+	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f unlimited_ammo_excludes=%d no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d sparks_no_light_flash=%d gas_rooms=%d gas_sphere=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
@@ -35278,10 +36822,14 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
 		s_StageWideRules.player.disguise_untargetable,
 		(double)s_StageWideRules.player.coop_spawn_distance,
+		s_StageWideRules.player.unlimited_ammo_exclude_count,
 		s_StageWideRules.ai.no_dark_room_lists,
 		s_StageWideRules.ending.outcome_unknown,
 		s_StageWideRules.hub.present && s_StageWideRules.hub.hub,
-		s_StageWideRules.stars.present ? s_StageWideRules.stars.count : 0);
+		s_StageWideRules.stars.present ? s_StageWideRules.stars.count : 0,
+		s_StageWideRules.sparks.no_light_flash,
+		s_StageWideRules.gas.present ? s_StageWideRules.gas.room_count : 0,
+		s_StageWideRules.gas.has_sphere);
 	return 1;
 }
 
@@ -35330,6 +36878,28 @@ s32 scenarioSourceStageStars(struct scenario_stage_stars *out)
 	}
 	if (out) {
 		*out = s_StageWideRules.stars;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageGas(struct scenario_stage_gas *out)
+{
+	if (!s_StageWideRules.gas.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.gas;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageSparks(struct scenario_stage_sparks *out)
+{
+	if (!s_StageWideRules.sparks.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.sparks;
 	}
 	return 1;
 }

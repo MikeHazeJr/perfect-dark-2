@@ -441,7 +441,7 @@ static s32 s_emitOneLang(s32 bank, const char *bank_name, const char *locale_tag
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"modArchiveBegin failed for \"%s\"", dst_full);

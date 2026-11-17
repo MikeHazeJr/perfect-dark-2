@@ -14,6 +14,23 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+
+/* A stage built from scenario source says in stage.json whether its
+ * environmental sparks flash the room lights ("sparks": {"flash_lights":
+ * false}); a ROM stage keeps the original's Crash Site check. */
+static bool sparksEnvironmentFlashesLights(void)
+{
+	if (bgUsesScenarioSource()) {
+		scenario_stage_sparks_t rule;
+
+		return !(scenarioSourceStageSparks(&rule) && rule.no_light_flash);
+	}
+
+	return g_Vars.stagenum != STAGE_CRASHSITE;
+}
 
 struct spark g_Sparks[100];
 s32 g_NextSparkIndex;
@@ -289,17 +306,17 @@ void sparksCreate(s32 room, struct prop *prop, struct coord *pos, struct coord *
 		roomFlashLighting(group->room, 24, 32);
 		break;
 	case SPARKTYPE_ENVIRONMENTAL1:
-		if (g_Vars.stagenum != STAGE_CRASHSITE) {
+		if (sparksEnvironmentFlashesLights()) {
 			roomFlashLighting(group->room, 32, 128);
 		}
 		break;
 	case SPARKTYPE_ENVIRONMENTAL2:
-		if (g_Vars.stagenum != STAGE_CRASHSITE) {
+		if (sparksEnvironmentFlashesLights()) {
 			roomFlashLighting(group->room, 64, 128);
 		}
 		break;
 	case SPARKTYPE_ENVIRONMENTAL3:
-		if (g_Vars.stagenum != STAGE_CRASHSITE) {
+		if (sparksEnvironmentFlashesLights()) {
 			roomFlashLighting(group->room, 200, 255);
 		}
 		break;

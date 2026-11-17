@@ -1,5 +1,6 @@
 // Mission graph runner (decision 2, CORE, 2026-11-15). See
 // port/include/mission_graph_runner.h for the contract.
+#include <algorithm>
 #include "mission_graph_runner.h"
 
 #include "modasset_gltf_document.h"
@@ -15,6 +16,15 @@
 namespace {
 
 enum NodeType { NODE_DATA, NODE_EVENT, NODE_EVENT_INERT, NODE_GATE, NODE_MODULE };
+
+} // namespace
+
+// object-events.md slice 3: a node's scalar fields as text.
+struct mission_graph_params {
+	std::vector<std::pair<std::string, std::string>> values;
+};
+
+namespace {
 enum Port { PORT_OUT, PORT_PASS, PORT_FAIL };
 
 struct Edge {
@@ -29,6 +39,11 @@ struct Node {
 	int event_kind = 0;
 	std::string objective; // "" means any objective
 	int gate_status = -1;
+	int gate_phase = -1; // gate.mission.phase; -1 for an objective gate
+	std::string volume; // event.volume.*: the volumes.json volume_id
+	std::string object; // object events: the record_id filter; "" for any
+	bool native_gate = false; // a gate.* the module table evaluates
+	mission_graph_params params;
 	std::vector<Edge> out;
 };
 
@@ -36,6 +51,47 @@ const char *const kObjectiveStatusEvent = "event.objective.status_changed";
 const char *const kMissionCompletedEvent = "event.mission.completed";
 const char *const kMissionContinueEvent = "event.mission.continue";
 const char *const kObjectiveStatusGate = "gate.objective.status";
+const char *const kMissionPhaseEvent = "event.mission.phase_changed";
+const char *const kMissionPhaseGate = "gate.mission.phase";
+const char *const kVolumeEnteredEvent = "event.volume.entered";
+const char *const kVolumeLeftEvent = "event.volume.left";
+const char *const kPickupCollectedEvent = "event.pickup.collected";
+const char *const kDoorOpenedEvent = "event.door.opened";
+const char *const kDoorClosedEvent = "event.door.closed";
+const char *const kObjectUsedEvent = "event.object.used";
+const char *const kPickupRequestedEvent = "event.pickup.requested";
+const char *const kDoorOpenRequestedEvent = "event.door.open_requested";
+
+// Object events and the object queries carry an object and may filter one.
+bool isObjectEventKind(s32 kind)
+{
+	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
+}
+
+// A node's scalar fields other than id and kind, as text.
+void readParams(const crude_json::value &node, mission_graph_params &out)
+{
+	if (!node.is_object()) return;
+	for (const auto &field : node.get<crude_json::object>()) {
+		const std::string &key = field.first;
+		const crude_json::value &value = field.second;
+		if (key == "id" || key == "kind") continue;
+		if (value.is_string()) {
+			out.values.emplace_back(key, value.get<crude_json::string>());
+		} else if (value.is_number()) {
+			const double number = value.get<crude_json::number>();
+			char text[48];
+			if (number == static_cast<double>(static_cast<long long>(number))) {
+				std::snprintf(text, sizeof(text), "%lld", static_cast<long long>(number));
+			} else {
+				std::snprintf(text, sizeof(text), "%.17g", number);
+			}
+			out.values.emplace_back(key, text);
+		} else if (value.is_boolean()) {
+			out.values.emplace_back(key, value.get<crude_json::boolean>() ? "true" : "false");
+		}
+	}
+}
 
 void setError(char *err, size_t err_cap, const std::string &text)
 {
@@ -65,30 +121,44 @@ int statusFromText(const std::string &text)
 
 struct mission_graph_program {
 	std::vector<Node> nodes;
+	std::vector<std::string> volumes; // distinct event.volume.* volumes
 	int exec_edges = 0;
 	int modules = 0;
 };
 
-extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
-	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+namespace {
+
+bool isProgramKind(const std::string &kind)
 {
+	return kind.rfind("event.", 0) == 0 || kind.rfind("gate.", 0) == 0 || kind.rfind("og.", 0) == 0;
+}
+
+// level (object-events.md slice 1): the graph is a level graph, whose
+// program is only its event.*, gate.* and og.* nodes; every other node is
+// level data, skipped and not counted, and an edge that is not an
+// execution edge may name it.
+mission_graph_program_t *compileProgram(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap, bool level)
+{
+	const std::string file = level ? "level.graph.json" : "mission.graph.json";
+
 	setError(err, err_cap, "");
 	if (!json || !json_size) {
-		setError(err, err_cap, "empty mission graph");
+		setError(err, err_cap, level ? "empty level graph" : "empty mission graph");
 		return nullptr;
 	}
 	try {
 		crude_json::value root;
 		if (!modAssetJsonReadValue(json, json_size, root) || !root.is_object()) {
-			setError(err, err_cap, "mission.graph.json is not one JSON object");
+			setError(err, err_cap, file + " is not one JSON object");
 			return nullptr;
 		}
 		if (!root.contains("nodes") || !root["nodes"].is_array()) {
-			setError(err, err_cap, "mission.graph.json has no nodes array");
+			setError(err, err_cap, file + " has no nodes array");
 			return nullptr;
 		}
 		const crude_json::array &nodes = root["nodes"].get<crude_json::array>();
-		if (nodes.size() > MISSION_GRAPH_MAX_NODES) {
+		if (!level && nodes.size() > MISSION_GRAPH_MAX_NODES) {
 			setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) + " nodes");
 			return nullptr;
 		}
@@ -98,6 +168,17 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 		for (size_t i = 0; i < nodes.size(); i++) {
 			const crude_json::value &node = nodes[i];
 			Node compiled;
+			if (level) {
+				std::string kind;
+				if (!node.is_object() || !stringField(node, "kind", kind) || !isProgramKind(kind)) {
+					continue; // level data, not the program
+				}
+				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
+					setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) +
+						" program nodes");
+					return nullptr;
+				}
+			}
 			if (!node.is_object() || !stringField(node, "id", compiled.id) || compiled.id.empty() ||
 					!stringField(node, "kind", compiled.kind) || compiled.kind.empty()) {
 				setError(err, err_cap, "node " + std::to_string(i) + " needs a non-empty id and kind");
@@ -119,14 +200,67 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 				compiled.objective = objective;
-			} else if (compiled.kind == kMissionCompletedEvent || compiled.kind == kMissionContinueEvent) {
+			} else if (compiled.kind == kMissionCompletedEvent || compiled.kind == kMissionContinueEvent ||
+					compiled.kind == kMissionPhaseEvent) {
 				if (has_objective) {
 					setError(err, err_cap, "mission event '" + compiled.id + "' has no objective to filter");
 					return nullptr;
 				}
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = compiled.kind == kMissionCompletedEvent
-					? MISSION_GRAPH_EVENT_MISSION_COMPLETED : MISSION_GRAPH_EVENT_MISSION_CONTINUE;
+					? MISSION_GRAPH_EVENT_MISSION_COMPLETED
+					: compiled.kind == kMissionContinueEvent
+						? MISSION_GRAPH_EVENT_MISSION_CONTINUE : MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
+			} else if (compiled.kind == kVolumeEnteredEvent || compiled.kind == kVolumeLeftEvent) {
+				// trigger-volume-events.md: one named volume per node.
+				if (has_objective) {
+					setError(err, err_cap, "volume event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				if (!stringField(node, "volume", compiled.volume) || compiled.volume.empty() ||
+						compiled.volume == "any") {
+					setError(err, err_cap, "volume event '" + compiled.id +
+						"' needs \"volume\": the volume_id of a volumes.json row");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = compiled.kind == kVolumeEnteredEvent
+					? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
+				if (std::find(program->volumes.begin(), program->volumes.end(), compiled.volume) ==
+						program->volumes.end()) {
+					if (program->volumes.size() >= MISSION_GRAPH_MAX_VOLUMES) {
+						setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_VOLUMES) +
+							" volumes in volume events");
+						return nullptr;
+					}
+					program->volumes.push_back(compiled.volume);
+				}
+			} else if (compiled.kind == kPickupCollectedEvent || compiled.kind == kDoorOpenedEvent ||
+					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent ||
+					compiled.kind == kPickupRequestedEvent || compiled.kind == kDoorOpenRequestedEvent) {
+				// object-events.md slice 2: one object (its record_id) or any.
+				if (has_objective) {
+					setError(err, err_cap, "object event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				if (node.contains("object") && !stringField(node, "object", compiled.object)) {
+					setError(err, err_cap, "object event '" + compiled.id +
+						"' object must be a string: a record_id of objects.json, or \"any\"");
+					return nullptr;
+				}
+				if (compiled.object == "any") compiled.object.clear();
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = compiled.kind == kPickupCollectedEvent
+					? MISSION_GRAPH_EVENT_PICKUP_COLLECTED
+					: compiled.kind == kDoorOpenedEvent
+						? MISSION_GRAPH_EVENT_DOOR_OPENED
+						: compiled.kind == kDoorClosedEvent
+							? MISSION_GRAPH_EVENT_DOOR_CLOSED
+							: compiled.kind == kObjectUsedEvent
+								? MISSION_GRAPH_EVENT_OBJECT_USED
+								: compiled.kind == kPickupRequestedEvent
+									? MISSION_GRAPH_EVENT_PICKUP_REQUESTED
+									: MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -139,9 +273,27 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				compiled.type = NODE_GATE;
 				compiled.gate_status = statusFromText(status);
 				compiled.objective = objective;
+			} else if (compiled.kind == kMissionPhaseGate) {
+				std::string phase;
+				if (has_objective) {
+					setError(err, err_cap, "gate '" + compiled.id + "' is a phase gate; it has no objective to filter");
+					return nullptr;
+				}
+				if (!stringField(node, "phase", phase) || missionGraphPhaseFromText(phase.c_str()) < 0) {
+					setError(err, err_cap, "gate '" + compiled.id +
+						"' needs phase \"active\", \"complete\" or \"failed\"");
+					return nullptr;
+				}
+				compiled.type = NODE_GATE;
+				compiled.gate_phase = missionGraphPhaseFromText(phase.c_str());
 			} else if (compiled.kind.rfind("gate.", 0) == 0) {
-				setError(err, err_cap, "gate kind '" + compiled.kind + "' is not executable");
-				return nullptr;
+				// object-events.md slice 3: a gate the module table evaluates.
+				if (!module_known || !module_known(compiled.kind.c_str())) {
+					setError(err, err_cap, "gate kind '" + compiled.kind + "' is not executable");
+					return nullptr;
+				}
+				compiled.type = NODE_GATE;
+				compiled.native_gate = true;
 			} else if (compiled.kind.rfind("og.", 0) == 0) {
 				if (!module_known || !module_known(compiled.kind.c_str())) {
 					setError(err, err_cap, "native module '" + compiled.kind + "' does not exist");
@@ -149,6 +301,9 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				}
 				compiled.type = NODE_MODULE;
 				program->modules++;
+			}
+			if (compiled.type != NODE_DATA) {
+				readParams(node, compiled.params);
 			}
 			index[compiled.id] = static_cast<int>(program->nodes.size());
 			program->nodes.push_back(std::move(compiled));
@@ -174,6 +329,10 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				}
 				auto source = index.find(from);
 				auto target = index.find(to);
+				if (level && !edge.contains("input") &&
+						(source == index.end() || target == index.end())) {
+					continue; // structural edge of the level data
+				}
 				if (source == index.end() || target == index.end()) {
 					setError(err, err_cap, where + " names a missing node ('" +
 						(source == index.end() ? from : to) + "')");
@@ -227,9 +386,41 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 		}
 		return program.release();
 	} catch (...) {
-		setError(err, err_cap, "mission graph could not be read");
+		setError(err, err_cap, level ? "level graph could not be read" : "mission graph could not be read");
 		return nullptr;
 	}
+}
+
+} // namespace
+
+extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, false);
+}
+
+extern "C" mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, true);
+}
+
+extern "C" const char *missionGraphParamText(const mission_graph_params_t *params, const char *key)
+{
+	if (!params || !key) return nullptr;
+	for (const auto &value : params->values) {
+		if (value.first == key) return value.second.c_str();
+	}
+	return nullptr;
+}
+
+extern "C" s32 missionGraphPhaseFromText(const char *text)
+{
+	if (!text) return -1;
+	if (std::strcmp(text, "active") == 0) return MISSION_GRAPH_PHASE_ACTIVE;
+	if (std::strcmp(text, "complete") == 0) return MISSION_GRAPH_PHASE_COMPLETE;
+	if (std::strcmp(text, "failed") == 0) return MISSION_GRAPH_PHASE_FAILED;
+	return -1;
 }
 
 extern "C" void missionGraphProgramFree(mission_graph_program_t *program)
@@ -260,6 +451,19 @@ extern "C" s32 missionGraphProgramEventNodeCount(const mission_graph_program_t *
 extern "C" s32 missionGraphProgramModuleNodeCount(const mission_graph_program_t *program)
 {
 	return program ? program->modules : 0;
+}
+
+extern "C" s32 missionGraphProgramVolumeCount(const mission_graph_program_t *program)
+{
+	return program ? static_cast<s32>(program->volumes.size()) : 0;
+}
+
+extern "C" const char *missionGraphProgramVolumeAt(const mission_graph_program_t *program, s32 index)
+{
+	if (!program || index < 0 || static_cast<size_t>(index) >= program->volumes.size()) {
+		return nullptr;
+	}
+	return program->volumes[static_cast<size_t>(index)].c_str();
 }
 
 extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind)
@@ -320,10 +524,28 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		if (event->seam != MISSION_GRAPH_SEAM_ENDSCREEN && event->seam != MISSION_GRAPH_SEAM_COOP_STAGE_END) {
 			return -1;
 		}
+	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || event->phase < MISSION_GRAPH_PHASE_ACTIVE ||
+				event->phase > MISSION_GRAPH_PHASE_FAILED) {
+			return -1;
+		}
+	} else if (event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
+			event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->volume || !event->volume[0] ||
+				event->player < 0) {
+			return -1;
+		}
+	} else if (isObjectEventKind(event->kind)) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->object) {
+			return -1;
+		}
 	} else {
 		return -1;
 	}
 	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	const bool volume_event = event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
+		event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT;
+	const bool object_event = isObjectEventKind(event->kind);
 	try {
 		std::vector<char> reached(program->nodes.size(), 0);
 		std::vector<int> queue;
@@ -331,7 +553,9 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		bool refused = false;
 		for (const Node &root : program->nodes) {
 			if (root.type != NODE_EVENT || root.event_kind != event->kind ||
-					(objective_event && !objectiveMatches(root.objective, event))) {
+					(objective_event && !objectiveMatches(root.objective, event)) ||
+					(volume_event && root.volume != event->volume) ||
+					(object_event && !root.object.empty() && root.object != event->object)) {
 				continue;
 			}
 			for (const Edge &edge : root.out) queue.push_back(edge.target);
@@ -343,15 +567,19 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
 			if (node.type == NODE_GATE) {
-				const bool pass = objective_event && node.gate_status == event->status &&
-					objectiveMatches(node.objective, event);
+				const bool pass = node.native_gate
+					? run(node.kind.c_str(), node.id.c_str(), &node.params, event, user) > 0
+					: node.gate_phase >= 0
+					? event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED && node.gate_phase == event->phase
+					: objective_event && node.gate_status == event->status &&
+						objectiveMatches(node.objective, event);
 				for (const Edge &edge : node.out) {
 					if ((pass && edge.port == PORT_PASS) || (!pass && edge.port == PORT_FAIL)) {
 						queue.push_back(edge.target);
 					}
 				}
 			} else if (node.type == NODE_MODULE) {
-				if (!run(node.kind.c_str(), node.id.c_str(), event, user)) {
+				if (!run(node.kind.c_str(), node.id.c_str(), &node.params, event, user)) {
 					refused = true;
 					continue;
 				}

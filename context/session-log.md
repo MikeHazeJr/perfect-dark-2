@@ -9833,3 +9833,1804 @@ host migration, two-match and hardware/visual/audio acceptance remain open.
 On resume, recheck Workbench/coordination ownership and source freeze, then
 continue the 18-finding repair ledger without treating this direct-localhost
 smoke as final multiplayer acceptance.
+
+## 2026-11-14 - Week PD kickoff, CORE session: Step 0 baseline, planning sweep, disk move
+
+Focus: Step 0 of the week of Nov 15 to 21 (three parallel Claude sessions: CORE,
+MULTIPLAYER, MODS). CORE owns asset extraction, the behavior-graph runtime and
+schema, and single player. Live coordination is in
+`context/week-pd-coordination.md` in the canonical checkout (untracked, one shared
+copy) and in the PD2 Finish Tracker (a Claude Doc, not a repo file).
+
+What was found:
+- dev == origin/dev == a8ab67f3. The October networking commits (3505ca48,
+  ac43b227, T-NETWORKING-011) landed and are pushed. No index lock.
+- The canonical checkout was not clean: 65 modified tracked files and 45
+  untracked source, test, tooling and context files from the paused
+  T-MODDING-011 "all gameplay conversion" lane (last touched 2026-10-26), never
+  compiled. It was not stashed, reset or committed to dev. It is protected on
+  branch `week-pd/inflight-20261114` (1c1cb1d2), written with a temporary index
+  so the checkout, its index and dev stayed unchanged.
+- A stale `.git/objects/maintenance.lock` from 2026-04-17 has kept git
+  auto-maintenance off (156,068 loose objects). Left in place on purpose:
+  removing it would let the next commit prune 4,299 unreachable objects,
+  including 533 dangling commits. That deletion is Mike's decision.
+- Hosted CI is green for every dev commit since 2026-10-10, including a8ab67f3
+  (run 39809150838, 1,853 cases). An early statement in this session that
+  nothing had been built since Oct 10 was wrong and was corrected everywhere.
+- The storage preflight refused every build on C: (138 GiB free against a
+  300 GiB committed floor, 200 uncommitted). Mike decided: week worktrees and
+  builds on D:, prune C:, floor unchanged.
+
+What was done:
+- Records-only branch `week-pd/records` (8b6c0bda = a8ab67f3 plus `context/`
+  and `tools/Workbench/data/` as they stand uncommitted), so week branches can
+  use current Workbench ids in commit messages.
+- CORE worktree `D:\PD2-wt\core` on `week-pd/core`. Baseline build green
+  (client and updater about 4 min, pd-tests about 2 min, empty error log),
+  unit tests 1,853 cases / 335,773 assertions pass.
+- Boot smoke: 7/14 on a clean install (no crash; first-launch extraction on D:,
+  a 7200 rpm hard disk, was still running at the fixture's 90 s exit), then
+  14/14 using the pre-extracted shared base `D:\PD2-wt\shared-base` as the
+  install template (`results-20261114T200341Z.json`). Recorded as B-1110.
+- Shared base extracted once: 5,562 of 5,562 archives, 13,116 files, 19 min 33 s.
+- C: prune of canonical `.claude\smoke-verify-runs` and `.claude\session-builds`:
+  535 entries, 62.46 GiB, 1,506,504 files moved to the Recycle Bin, each
+  verified there; list posted in the note first; manifest and receipt under
+  `.claude\cleanup-manifests\20261114-week-pd-prune\`. Kept: `pd1010`,
+  `asset0923freshfinal`, the 1,945 `results-*.json` receipts and `artifacts`.
+- Planning sweep rerun with seven read-only front readers; the Finish Tracker
+  now holds all seven fronts, six decisions for Mike with defaults, and the
+  ordered work queue. The behavior family checklist and the per-mission table
+  start there and in the coordination note.
+- B-1109 fixed in source: the gun loader's queue targets were `uintptr_t *`
+  over 4-byte counters. Regression test `tests/test_gun_load_target_storage.cpp`.
+- Smoke runner: `-Install <template>` now honors `-SourceBinary`, so one shared
+  extraction serves any session's build (`storage.py`, `Storage-Harness.ps1`,
+  `run.ps1`, new case in `test-storage.py`, 21/21).
+
+Mistake on record: a hand-written launcher passed the client's flags through
+`powershell -File` as an array, which arrives as one token. The client ignored
+all of them and ran a normal windowed session against the real profile folder
+under AppData for 50 minutes (until the launcher's timeout). No save or settings
+file changed; eight cache files it wrote under `mod-cache` were removed through
+the Recycle Bin. The launcher now refuses to start without `--portable` or
+`--savedir` and takes the arguments as one string.
+
+Decisions waiting on Mike (Finish Tracker, "Decisions needed from Mike"): what
+"converted to behavior graphs" means this week (recommended: D-006 option A as
+recorded), what to do with the paused lane's work (recommended: park and salvage
+its three fixes and the v2 world-hit work), what counts as "plays to completion",
+v1 or v2 graphs for mod weapons, the custom level against D-004, and where smoke
+runs live now that D: is a hard disk.
+
+Next for CORE: build and boot the B-1109 fix through the new runner option, then
+the headless extraction baseline and conformance, the campaign auto-runner at
+three difficulties, and the model conversion sweep (B-1106, B-1086).
+
+## 2026-11-14 (later) - CORE: campaign runs, objective operand bug B-1111, shared fixes
+
+Focus: prove the single-player campaign on the Step 0 base, then chase what the
+proof hides.
+
+What was done
+- Campaign auto-runner (`auto_campaign_release`) PASS 23/23 twice on CORE builds
+  from the shared base: all 17 missions load, are force-completed, save, show the
+  end screen and unlock the next; a second process reloads 17 best times. Agent
+  only, about 76 frames of live play per mission.
+- Reading that log found B-1111: objective tags and stage flags were byte-swapped
+  in public scenario source (`setup.fields.json`, `objectives.json`). The setup
+  rebuild swapped its copy back, so the native path was right; the mission graph
+  path used `objectives.json` as written, so in the 14 missions with a
+  `.pdmission` flag criteria tested the wrong flag and object criteria looked up
+  tags that do not exist. Chicago and Defense flipped to "failed" one second into
+  play. Fixed in the extractor and the runtime, with a tag and flag parity check
+  in `objectiveCheck`, a scenario cache kind bump and static tests. Shared commit
+  c18dce71 on `week-pd/extract-1`.
+- B-1145 (found by MODS): `collision.obj` named a material library the scenario
+  layout forbids. Line removed in the same commit. B-1112 recorded: the archive
+  validator skips reference checks on text members over 4 MiB.
+- Mission archives for the 7 campaign stages without an arena row (Extraction,
+  Rescue, Escape, four special assignments), so all 21 run from mission graph
+  source. Deliberately after B-1111.
+- Campaign runner: objective flag probe before every forced end (flag-only
+  objectives must answer incomplete, complete and failed to their own flags
+  through the production check), a soak option (`--auto-campaign-soak`), a
+  60 second soak fixture, Special Agent and Perfect Agent fixtures.
+- Two warnings that fired for correct base content are gone (head number 0 in the
+  manifest scan, the default guard head count on base stages): 72 of the 127
+  warning lines in one campaign run.
+- Shared tooling: the write-route guard bound its review pins to lines 2 to 151
+  above the reviewed call (a69188cd on `week-pd/guard-fix`); the smoke runner
+  commit is published as `week-pd/runner` so each session uses its own storage.
+- Second-generation shared base `D:\PD2-wt\shared-base-2`, re-extracted by the
+  fixed client (2 min 10 s on the hard disk), conformance 0 errors.
+
+Decisions made by CORE (tactical, reported)
+- The public source carries real tag ids and flag masks; both readers take them
+  as written. No compatibility path for the swapped numbers: no content outside
+  the base extraction used them.
+- Extraction-output changes land as one shared commit plus a new shared base
+  folder, so sessions switch when they merge.
+- The retired `objective_step.argument` field keeps its old handling.
+
+Not done, and why
+- CORE's smoke storage refuses new installs: three interrupted workspaces from
+  MULTIPLAYER's attempts reserve 6 of its 8 GiB budget. The retention rules say
+  interrupted work needs a deliberate review and the registry is not to be edited,
+  so they are untouched and the question is with Mike. CORE verified with direct
+  client runs (`--basedir`, private `--savedir`) meanwhile.
+
+Next for CORE: campaign at Special Agent and Perfect Agent, the 60 second soak,
+special assignments in the runner, model conversion sweep, v2 weapon ingress
+ruling, then the behavior checklist in order.
+
+## 2026-11-14 (night) - CORE: authored room table (B-1113, B-1114, B-1115), runner isolation guard
+
+Focus: find why Defense's "retrieve the RC-P120" objective read as failed at
+mission start, and fix the class behind it.
+
+What was done
+- B-1113 root cause: not objectives. Extracted stages bounded every room by its
+  collision triangles instead of the authored room boxes of the background file.
+  A pad outside the tighter box gets no room, and a prop is only created when
+  its pad has a room. One Agent campaign run: 44 props never created, among them
+  the RC-P120 and the 10 hover cars around the dataDyne tower. Proven offline
+  first (authored boxes read from the background files house the pads; no pad
+  loses its room), then in the game.
+- Propagation check found two siblings. B-1114: no room light could be shot out.
+  The light loader never read the quads (nested array, flat reader), and the
+  quads are relative to room origins this path does not have. B-1115: every room
+  had brightness range 255/255 instead of the authored 128/255.
+- One new scenario member carries all three: `rooms.json`
+  (`pd2.scenario.rooms.v1`), one row per room with `origin`, `min`, `max`,
+  `brightness`. Extractor: `s_buildBgRoomTableJson`. Stage load:
+  `scenarioSourceApplyRoomTableForStage` (boxes, brightness) and the light
+  loader (quads moved to world coordinates). Room origins deliberately stay zero
+  on the scenario-source path; that is documented at the `memset` in `bg.c` and
+  pinned by the test.
+- New stage-load reporting: pads without a room, each prop not created, lights
+  without a readable quad, lights outside their room's box. The last one found
+  the unread quads on its first run.
+- Published as shared commit c78c0510 on `week-pd/extract-2` with a third base,
+  `D:\PD2-wt\shared-base-3`. CORE branch: 237e6c1b (same change), fixture gates
+  2032f602, merge 703a04cc.
+- Tooling: `devtools/keygen.ps1` no longer garbles the tracked public key header
+  (B-1122, 69b79729). The smoke runner refuses a multi-process test whose
+  processes could reach the real profile folder (B-1124, ff7b0040, shared as
+  71b9de82 on `week-pd/runner`).
+- Recorded, not fixed: B-1116 (the input action name table is shorter than the
+  action list, so `pd.ini` gets a `(null)=E` line the loader rejects).
+- Patterns recorded: SP-76 (a present but unreadable field read as absent) and
+  SP-77 (a derived value standing in for an authored table).
+
+Verification
+- 1,869 unit cases pass. Re-extraction: 87 scenarios, 47 arenas, 21 missions,
+  none failed. All 132 scenario archives carry the member; 9,393 rows equal the
+  background files; conformance 9,025 archives (10,033 with nested), 0 errors.
+- Campaign fixture 34 of 34 over both processes (direct runs on base 3): pads
+  without a room equal the offline prediction at all 18 stage loads, props not
+  created 44 to 21, `tag=5 present=1` in Defense, 3,398 lights placed and
+  `outside_room=0` everywhere, 54 warnings (one gone, none new), no error in the
+  live process.
+- Receipts: `D:\PD2-wt\core\.claude\week-pd-receipts\room-bounds-b1113-20261114`,
+  `conformance-shared-base-3-20261114.json`,
+  `shared-base-3-reextraction-20261114.log`.
+
+Decisions
+- The member is named `rooms.json`, not `room_bounds.json`: it holds more than
+  boxes and mod authors will write it.
+- Light quads are converted to world coordinates at load; room origins are not
+  set on this path, because the draw offset, wall hits, smoke and explosions all
+  read them.
+- A prop on a pad with no room is a note, not a warning: base stages carry 21
+  such props and the original game does not create them either.
+
+Next
+- The 60 second soak fixture and the Special Agent and Perfect Agent campaign
+  runs (the hover cars and working lights are new code paths in live play).
+- By hand: collect the RC-P120 in Defense, shoot out a light in Defection, look
+  at the hover cars.
+- B-1116. Then the open SP-77 items (background commands, light glares, sky
+  rooms) and the behavior conversion order in the week note.
+- Still waiting on Mike: the seven decisions in the Finish Tracker.
+
+## 2026-11-15 (after midnight) - CORE: all 21 solo stages in the runner, three difficulties, input, presence and graph pad fixes
+
+Focus: prove single player beyond Agent, bring the four special assignments
+into the automated runner, and fix what those runs showed.
+
+What was done
+- Campaign fixtures at Special Agent (33/33) and Perfect Agent (33/33) pass on
+  `D:\PD2-wt\shared-base-3` (direct runs; receipts `campaign-sa-20261114`,
+  `campaign-pa-20261114` under `D:\PD2-wt\core\.claude\week-pd-receipts\`).
+- The campaign runner runs the special assignments (7f328fd8). A plan that
+  starts after Skedar Ruins leaves each end screen through its Main Menu
+  choice, waits for the menu it started from, and starts the next assignment
+  through the same production entry. It only starts an assignment the game's
+  own unlock rule offers the agent. New fixture `auto_campaign_specials`
+  (seeded agent `agent_specials.json`): 33/33 on its first run.
+- B-1116 fixed (d30fc83a): the input action name table named 105 of 121
+  actions, so the saved bindings file was cut off at the first unnamed action
+  and every start ran on default keys, and `pd.ini` got `(null)=E` lines.
+  Verified at runtime: bindings file complete (1,455 lines), no config error
+  at restart.
+- B-1118 fixed (7d67c99a): presence read in-match at the main menu for any
+  loaded agent (unsigned index compared with >= 0). Verified: presence online
+  at every menu return in the specials run.
+- B-1119 fixed (2b9fb9c9): on the graph path a character told to walk or jog
+  to its preset pad (9000) stood still, because the graph refused the raw
+  value and a refusal skips the native handler. Verified in Defense
+  (`resolved_pad=321`). Propagation: base content is covered; eight graph
+  sites still refuse 9000 for mod content (listed in the bug).
+- B-1117 recorded for Mike (decision 8 in the Finish Tracker): the PC menu
+  offers all four special assignments to every agent; the original unlocks
+  them.
+- Runner tooling for MULTIPLAYER: per-process installs are seeded from the
+  template on a `-Install` run (02bb5ec3, shared as 34848d15 on
+  `week-pd/runner`). Not run by CORE (storage still refuses new installs).
+- Corrected an earlier claim in the week note: the two graph gaps
+  (`jog_to_pad`, `if_natural_anim`) did skip the native handler.
+
+Incident
+- After the user's interruption, the stopped background task's child script
+  kept running. I resumed its remaining steps in a second script, so two
+  restart-verify clients shared one save folder and log, the first script's
+  cleanup deleted the folder under the second client, and that client wrote
+  `mod-cache` into base 3 for about three minutes. Both were mine; the folder
+  went to the Recycle Bin, the void run was redone cleanly. Lesson saved to
+  memory: list processes by command line before resuming a stopped task.
+
+Verification
+- 1,877 unit cases pass. Agent 34/34 on the final client (fda13b96), Special
+  Agent and Perfect Agent 33/33, special assignments 33/33.
+
+Next
+- The 60 second soak of all 17 missions (queued), then Natural play-through
+  by hand (Mike's decision 3 decides how much).
+- `if_natural_anim` graph gap (public source for `base:animation_idle`, or a
+  number-only comparison) and the eight mod-only preset pad sites.
+- Behavior conversion in the order of the week note's checklist.
+- Waiting on Mike: decisions 1 to 8 in the Finish Tracker, the three
+  interrupted smoke workspaces, and whether his real profile (written by the
+  network fixtures before B-1124) needs a look.
+
+## 2026-11-15 (night, 00:30-02:00 UTC) - CORE: client writes outside its folders (B-1160), objective parity probe, soak, graph AI argument fixes
+
+Focus: stray files in the shared base after CORE's own runs, the parity probe
+for every objective, and two small asks from MODS.
+
+What was done
+- B-1160 fixed (90b9acda): thirteen menu saves called `configSave("pd.ini")`,
+  which resolves like a read and wrote the base folder (the game reads
+  `$S/pd.ini`); a `--moddir` that did not exist yet was dropped, so mod
+  discovery mounted `$E/../mods` (from a shared base, the MODS checkout:
+  scanned, 4 mods found, none enabled); a fresh `--savedir` copied a stray
+  `pd.ini` from the working folder (seen once, CORE's B-1119 Agent run); fonts,
+  themes and the migration bench kept their own discovery lists that ignored
+  `--moddir`. Now: every save names `CONFIG_PATH` and `configSave` refuses a
+  bare name; the explicit `--moddir` is kept and created; one root list
+  (`fsModRoots`); no save migration into an explicit `--savedir`. Pattern
+  recorded as SP-78 (one copy of a path rule fixed, its siblings not).
+- CORE's stray `pd.ini` in `shared-base-3` recycled (copy in receipts). The
+  two migration markers (`shared-base-3\mods`, `D:\PD2-wt\mods`) stay until
+  both other clients have the fix: they stop a pre-fix client from packaging
+  folders there.
+- Objective parity probe (92c162fa): before the forced end the runner
+  evaluates every active objective from the mission graph and natively and
+  fails on a difference. Five campaign fixtures require one probe line per
+  mission.
+- For MODS: custom graph projectile spawn and landing logs
+  (`week-pd/projlog`, a6c6d905) and a weapon source compile entry with the
+  variables text (`week-pd/varcompile`, b999ef39). Both are one-commit
+  branches on dev, merged back into core with the tree unchanged.
+- B-1161 fixed: graph `if_natural_anim` refused the empty ROM animation slot
+  ANIM_IDLE (257 of 1,207 character slots are empty, so they have no
+  `.pdanim`); a number-only comparison now takes an empty slot as it is.
+- Audit of all 30 graph pad checks against their native handlers (read-only
+  subagent; each finding re-checked in code and logs) and the soak's minute
+  of live play gave four more: B-1162 (shipped content: lights changed by
+  background scripts never changed on the graph path, 569 of 590 calls),
+  B-1163 (five room commands checked a room-or-pad value as a pad), B-1164
+  (five sites refused the preset pad 9000 their natives resolve), B-1165
+  (Defense's shock trooper clones were not registered as source-spawned).
+  Fixed together with B-1161; SP-79 records the open class behind B-1165
+  (73 helper returns that report success after a failure).
+- Campaign fixtures now forbid those refusals and a light change with
+  `room=-1`; checked against the old client's soak log, which they fail.
+
+Verification
+- pd-tests 1,882/1,882 (ddac997a), settings-save 15/15.
+- Special assignments on the 92c162fa client: 35/35, parity `compared=1
+  not_graph=0` in all four; after four end-screen Main Menu exits the base has
+  no `pd.ini`; the missing `--moddir` was created and was the only mods folder
+  scanned.
+- Soak (`auto_campaign_soak`, 17 missions x 60 game seconds): 37/37, 0
+  errors, parity in every mission (1 to 3 objectives each, `not_graph=0`).
+- Verification soak on ddac997a (receipt `campaign-soak-ddac997a-20261115`):
+  40/40, 0 errors, warnings 62 -> 54. The first light change of the seven
+  stages now names its room (B-1162); no "not source-derived" warning in
+  Defense (B-1165); the idle animation compares as an empty base slot
+  (B-1161); the only graph refusals left are two `chr_copy_properties` on a
+  chr that is gone, which native skips too.
+
+Next
+- SP-79, helper by helper (B-1165 had to come first).
+- Behavior conversion: every one of the 21 stages evaluates every active
+  objective from the graph (`not_graph=0` everywhere), so removing the native
+  fallback is ready; it waits on Mike's decision 1 (what converted means).
+  Mission flow next.
+
+## 2026-11-15 (02:40-04:20 UTC) - CORE: reviewed release (7A), storage location (6B), extraction flush (B-1110)
+
+Focus
+- Carry out Mike's decisions 7A, 6B and 6C, in that order.
+
+What was done
+- 7A (8d90a7ab): `storage.py release-interrupted` releases an interrupted
+  smoke workspace only when its owner process is gone and every file is an
+  unchanged seed copy; it writes a receipt and a recipe and deletes nothing.
+  Used on MULTIPLAYER's three installs in CORE's storage.
+- 6B (4e7e2216): a checkout keeps `.claude/smoke-storage` unless an untracked
+  `.claude/smoke-storage-location.json` names another absolute root. Python
+  (`storage_root`) and PowerShell (`Get-SmokeStorageRoot`) read it by one
+  rule; seeds, receipts and the owned-process check follow it, and the floor
+  is measured on that drive. Not switched on: the worktrees use the committed
+  300 GiB floor (the 200 GiB D-011 value is a local edit in the main checkout
+  only, and I quoted it to Mike by mistake), and C: has 206 GiB free, so every
+  run there would be refused. Asked Mike: A, stay on D: for now (recommended),
+  or B, use 200 in the worktrees too (about 2 GiB of margin).
+- The two PowerShell retention suites that "failed" had run under PS 5.1,
+  which their own commits (d36ad855, 887c5d91) record as unqualified. Under
+  PS 7: build retention 81/81; runner retention 47/47 once its baseline is
+  the pre-retention runner (887c5d91^ with the later reviewed
+  `Invoke-SmokeTestMultiProcess`), which is what the suite compares against.
+- B-1110 (15679a9a, 5049046c), profiled first: every extracted archive went
+  through `modArchiveFinish`, which forced it to disk and renamed it with
+  write-through; 99 ms per file on D: against 1 ms without. ROM extractors
+  now publish with `modArchiveBeginDerived`; each folder's cache stamp first
+  flushes that folder's new archives (`modArchiveDerivedBarrierWith`, side by
+  side on the boot pool) and is not written if that fails, so a stamp never
+  vouches for data that is not on disk. Player edits and authored archives
+  keep the durable writer. SP-89 (first SP-80) records the pattern; the mod-transfer
+  extraction (`pdcaExtractArchiveBegin`, MULTIPLAYER's area) has it too.
+
+Verification
+- Python storage 25/25, reuse 17/17, retention 22/22; PowerShell 7 storage
+  17, native consumer 27, owned process 22, build retention 81, runner
+  retention 47.
+- pd-tests 1,892/1,892 (340,197 assertions), 10 new `[b1110]` cases; client
+  and pd-tests build with no warnings.
+- Clean `--extract-assets-only` run on D: in a fresh folder: 3 min 33 s to
+  the loader summary with the flush pass one file at a time, 2 min 47 s with
+  it on the boot pool, against 19 min 33 s before. Both runs: 5,569 of 5,569
+  registered, 0 envelope failures, 0 LOUDFAIL, all 23 stamps written. Logs in
+  `.claude/week-pd-receipts/b1110-clean-extraction-20261115/`; the two
+  extraction folders and the bench files went to the Recycle Bin.
+
+Decisions
+- (pending Mike) where test installs live, given the 300 GiB floor.
+- (pending Mike) push `week-pd/core` (three commits are local; the push was
+  refused by the permission system).
+
+Next
+- 2A: only the v2 world-hit delivery is left to carry over (the three bug
+  fixes are already on core: ffbaebc1, fea10dc0, e9acdf9b). It is a delivery
+  receipt protocol through the hit path, the v2 runtime and the gun code on
+  `week-pd/inflight-20261114`, never compiled, about 2,000 lines.
+- SP-79 flips; removal of the objective fallback (decision 1 allows it).
+
+## 2026-11-15 (04:20-05:30 UTC) - CORE: SP-79 closed (B-1167), objectives graph-only, player setup check (B-1168, B-1169)
+
+Focus
+- SP-79 flips, the objective fallback removal decision 1 allows, and the
+  decision 3 player setup check before Mike's stable-build play-through.
+
+What was done
+- SP-79 / B-1167 (4178cbca): the 90 `return s_aiGraphRuntimeFailure(...)`
+  in 40 requirement helpers now log and return 0 (-1 for the three-way
+  target-movement node); the ten `if (!x)` callers of the three -1 node
+  helpers read -1 as a refusal; two branches keep going on purpose and say
+  why (character provenance for co-op buddies and tiny-mode extras; the
+  spawn registry's full table, since native would spawn the chr twice).
+  B-1167: the hoverbot step checks a path only when there is one, both
+  teleport twins start from the current player, the special-death twin
+  checks chr, all as native does. New `[sp79]`/`[b1167]` source pins.
+- Decision 1 (085d1bc8): objectives evaluate only from the mission graph;
+  one that cannot be evaluated stays incomplete and logs once per stage.
+  The original evaluation is kept only as the runner's parity oracle.
+- Decision 3 setup check:
+  - Release package: B-1168 (critical). `release.ps1` shipped `Build/data`
+    wholesale; that folder holds a full ROM extraction. v0.1.102's zip is
+    233.6 MB against 32 MB for v0.1.16 (contents not confirmed). The script
+    now leaves ROM-derived files out and refuses a dist that still has any
+    (5e433b50, 12-check test). The published asset is Mike's decision.
+  - First launch and extraction: the two B-1110 runs (clean folder, ROM by
+    path, 5,569 of 5,569 archives, 0 failures).
+  - Saves and settings: a normal launch saves to AppData through
+    `SDL_GetPrefPath("", "perfectdark")`; `--portable` and `--savedir`
+    override; B-1160 keeps every menu save in the save folder.
+  - Mods folder: B-1169 (high). With no `--moddir` the first existing of
+    `$E/../mods`, `./mods`, `$E/mods` is migrated and mounted, so a player
+    install beside another game's mods folder would rename that game's
+    mods. Needs Mike's call on the developer root.
+- The hub script fails under Windows PowerShell 5.1 when one queue item is
+  ahead (strict mode, `.Count`); PowerShell 7 works; everyone told.
+
+Verification
+- pd-tests 1,896/1,896; SP-79 pins 4 cases, 309 assertions.
+- Soak on the SP-79 client (4178cbca, receipt `campaign-soak-4178cbca-20261115`):
+  40/40, all 17 missions, 0 errors, 54 warnings (unchanged), graph refusals
+  only the two known Defense `chr_copy_properties` on chrs that are gone,
+  restart-verify passed, nothing written outside the run folder.
+- Special assignments on 085d1bc8 (receipt `campaign-specials-085d1bc8-20261115`):
+  38/38, all four completed with the seeded agent (Skedar Ruins done on
+  every difficulty, a medal on every firing-range weapon), so B-1117 offers
+  them in live play; parity `compared=1 not_graph=0` in each, no graph
+  refusal, no objective warning.
+- Release campaign (17 missions) on 085d1bc8 and the setup smoke pack
+  (boot, settings and keyboard, agent load and migration, mod loading, main
+  menu boot): queued behind MODS at 05:12 UTC; results in the next entry.
+
+Decisions pending Mike
+- 6B floor (stay on D:, or 200 GiB in the worktrees); push `week-pd/core`;
+  the v0.1.102 asset (B-1168); the developer mods root (B-1169).
+
+Next
+- 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (05:20-06:15 UTC) - CORE: release campaign and the setup smoke pack on 085d1bc8
+
+- Release campaign (receipt `campaign-release-085d1bc8-20261115`): 39/39,
+  all 17 missions, 0 errors, parity `not_graph=0` in every mission (1 to 3
+  objectives compared each), no graph refusal, no objective warning. With
+  the special assignments (38/38) all 21 solo stages evaluate objectives
+  from the graph with no fallback in live play. The week note's Objectives
+  row stays unticked only for completion events (no graph event fires when
+  an objective's status changes yet).
+- Decision 3 smoke pack against shared-base-3 with the 085d1bc8 client:
+  boot 14/14, agent select from JSON 20/20, agent profile migration and
+  restart 24/24, mod loading 19/19, main menu boot 3/3.
+- `menu_settings_keyboard` could not run at all: B-1170 (the harness key
+  table lacked PageUp/PageDown, which the fixture uses since 6044d0fa).
+  Fixed in f4c52c75 with a test over every fixture's key names. On the
+  fixed client the fixture parses, but its window never got focus, also
+  with `-MaintainForeground` (desktop most likely locked overnight); it
+  needs a rerun while the desktop is unlocked.
+- Pushing is still pending Mike; `week-pd/core` is 12 commits ahead of
+  origin.
+
+## 2026-11-15 (07:00-08:05 UTC) - CORE: Mike's answers on the release, mods folder, test storage and pushing
+
+Mike's answers and what was done
+- v0.1.102: "go ahead and just remove it". The zip and its `.sha256` and
+  `.sig` were deleted from the GitHub release; the page, tag and the two
+  executables stay. Every other release zip (v0.0.34 to v0.1.16) is 27 to
+  35 MB, so only v0.1.102 shipped the extracted tree (B-1168).
+- B-1169: option A, fitted alongside the LocalAppData user mods folder MODS
+  shipped (91198952). One rule, `modsInstallRoots`, on the one-commit branch
+  `week-pd/installmods` (546263fe on a8ab67f3): the repository-root `mods`
+  only when the executable's parent holds `CMakeLists.txt` and `.git`, then
+  `<base>/mods`. Wired on core (07a69bca): `fsModRoots`, the mod manager's
+  folder creation, install-from-file and map import; MODS wires it into its
+  candidate list. `[b1169]` 3 cases; the B-1160 scan now refuses `./mods`.
+- Test installs: "on C:, but only one or two at a time, not wasting space".
+  The location file may carry its root's limits; a build's preflight is now
+  measured on the checkout's own drive (d28a28e7). CORE's untracked location
+  file puts storage at `C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/core` with a
+  200 GiB floor, at most two installs (1.5 GiB) and a 2 GiB archive. C: has
+  about 204 GiB free, right at the floor plus the 4 GiB a run needs.
+- Push: "Commit and push all our work, consistently, from now on." Every
+  commit since is pushed; the memory note was updated.
+- `week-pd/runner` cfb308f6 carries 7A, 6B and the limits for the others.
+
+Verification
+- pd-tests 1,900/1,900; Python storage 26/26, reuse 17/17, retention OK;
+  PowerShell 7 storage 17, native consumer 27, owned process 22, runner
+  retention 47, build retention 81.
+
+Next
+- The first smoke from C: (boot_smoke) waits behind MULTIPLAYER's batch.
+- 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (08:05-08:40 UTC) - CORE: first C: smoke refused, storage location limits fixed (B-1171), hung recycle
+
+What happened
+- The first smoke with installs on C: got its turn at 08:12 UTC and the disk
+  preflight refused it at a 300 GiB floor. The scripts send the whole
+  checked-in `storage-policy.json` with every storage call, and the location
+  limits from d28a28e7 let a sent policy win, so the location file's 200 GiB
+  floor and its two-install, 1.5 GiB limits were undone on every harnessed
+  run (B-1171). Fixed: the location file's limits govern its root whatever is
+  sent; unset ones follow the sent policy; builds keep the checkout's policy.
+  ec2ba001 on core, 7a26faf4 on `week-pd/runner` (one commit on cfb308f6),
+  merged back into core as 1f4699b7 (tree unchanged), all pushed.
+  Propagation: every sender (Storage-Harness, Runner-Retention, the explicit
+  `-StoragePolicy` of run-asset-inspection, build-session) goes through
+  `Storage.__init__`, so the one fix covers them; no other session had a C:
+  location yet.
+- Under the corrected rule the C: run is still refused: C: has 203.7 GiB free,
+  D-011's floor is 200 GiB, and a run needs 4 GiB more. C:'s Recycle Bin
+  holds 0.75 GiB. Question to Mike. Dev's `storage-policy.json` already has
+  D-011's 200 GiB (ca595c40); `week-pd/core` keeps 300 until it takes dev.
+- Two recycle runs hung for hours on hidden "delete permanently?" prompts
+  (`Delete Folder` windows): three test evidence folders held paths of 300 to
+  305 characters, too long for the Recycle Bin. Both processes were mine and
+  were stopped; the scratchpad recycle helper now measures paths first,
+  refuses over-long folders and can shorten child names before recycling.
+  Everything from these rounds is in the Recycle Bin. The updater's own
+  `recyclePath` (c138) has no nuke-warning flag and falls back to permanent
+  removal by design, so it cannot hang this way.
+- CRYSTAL PISTOL asked whether CORE is in its runtime files; answered in the
+  week note (seven CORE commits not on dev touch `bondgun.c`, `propobj.c`,
+  `weapon_graph_runtime.c` and the v2 weapon sources; CORE is not editing them
+  now; the parked world-hit snapshot also touches `bondgun.c` and `prop.c`).
+
+Verification
+- Python storage 26/26, retention 22/22, reuse 17/17; PowerShell storage 19
+  checks (5.1 and 7), retention and reuse (5.1), runner retention 47 (7). The
+  new checks in `test-storage.py` and `test-storage.ps1` fail on the old rule.
+
+Next
+- Mike: the floor for test installs on C:.
+- 2A, the v2 world-hit salvage; objectives completion events; the
+  `menu_settings_keyboard` rerun while the desktop is unlocked.
+
+## 2026-11-15 (08:40-10:10 UTC) - CORE: room and light rules in scenario source, B-1112, campaign check
+
+What was done
+- Decision 1, checklist row "Room and light rules" (ee08d1f6). The per-stage
+  exceptions in `dlights.c` that named stages, rooms and portals in code now
+  come from the stage's scenario source when the stage loads from it: on
+  `rooms.json` rows, optional `render_always`, `base_brightness`,
+  `lights_unshootable` and `unshootable_lights`; on `portals.json` rows,
+  optional `light_flood_blocked` and `open_to_light`. The extractor writes
+  them from the same table the code used, each file's note documents them,
+  conformance checks them, and a stage built the old way from the ROM keeps
+  the code. Scenario cache kind `..._lightrules`, so a client with it
+  re-extracts arenas and scenarios once (about 19 s of the first boot on D:).
+- B-1112 (e1bc0490): the archive validator skipped the reference checks of
+  text members over 4 MiB. They are now checked whole up to 128 MiB, and a
+  larger one refuses the archive. The in-memory manifest check no longer lets
+  its second read hide an oversized first manifest. Measured on base 3 before
+  choosing the limit: 83,268 text members, 19 over 4 MiB (17 `collision.obj`
+  with no `mtllib`, 2 JSON), the largest 5.03 MiB.
+
+Verification
+- pd-tests 1,903 after the light rules, 1,905 after B-1112 (340,726
+  assertions). `[lightrules]` checks that the extractor's stages, rooms and
+  portals are exactly the ones the code names. Conformance OK.
+- Opt-in sweep `[b1112-sweep]`: all 9,025 typed archives of base 3 in the
+  boot catalog's RELEASE mode, 0 refused.
+- In game, on private copies of base 3 with the session client at ee08d1f6
+  (without B-1112): `auto_campaign_release` 39/39 and
+  `auto_campaign_specials` 38/38 (`results-20261115T095225Z.json`,
+  `results-20261115T100132Z.json`). The first boot re-extracted 47 arenas and
+  87 scenarios, 0 failed. Every stage with a rule logged it from
+  `rooms.json`/`portals.json` with refused=0: one always-drawn room each on
+  Infiltration, Rescue, Escape, Maian SOS, Defection, Extraction, Mr. Blonde's
+  Revenge, Skedar Ruins, WAR! and Attack Ship; the dark room and the two
+  unshootable lights on Defection and Extraction; a room with every light
+  unshootable in the training stage and Defense; two flood-blocked portals on
+  Defection and Extraction; one open portal on Investigation.
+
+Next
+- Publish ee08d1f6 and e1bc0490 as `week-pd/extract-3` with base 4; recycle
+  bases 1 and 2, which nobody uses any more.
+- Review CRYSTAL PISTOL's format row; its B-1184 duplicates B-1116.
+- MULTIPLAYER's B-1133 (collision Test queries) against the campaign smokes.
+
+## 2026-11-15 (10:10-10:55 UTC) - CORE: week-pd/extract-3, sky rooms, base 4, bases 1 and 2 recycled
+
+What was done
+- `week-pd/extract-3` (pushed, not yet announced): the light rules (22ed8073),
+  B-1112 (f56b82d9) and the sky rooms (4436e073), each the CORE change
+  replayed onto c78c0510 with a private index, without CORE's other commits.
+  Every identifier the replayed lines use exists in that tree or comes with
+  the change; the static checks of the room table, light and sky rules and
+  B-1112 pass on that tree's own sources (13 cases, 241 assertions).
+  merge-tree takes it onto the pushed tips of mods, multiplayer and
+  crystal-pistol without a conflict; core merged it twice with its tree
+  unchanged (91557457, af255eb0).
+- Sky rooms (b63b8407): the propagation check of the light rules found the
+  same rooms special-cased in `roomPopulateMtx` (src/game/room.c, drawn
+  relative to the player so they never get closer; the checklist row named
+  it) and in bgTickPortals' pass for a stage without portals (src/game/bg.c,
+  left out of the screen test). New optional `sky` on `rooms.json` rows,
+  written for room.c's rooms (render_always without the old test stage);
+  both places read it on the scenario-source path and keep the stage checks
+  for the ROM path. bg.c's list is narrower (no Maian SOS, WAR!, Mr. Blonde's
+  Revenge), but those stages have portals, so that pass never runs for them.
+  Cache kind `..._lightrules_sky`.
+- B-1133 taken into core (6a5377b4): MULTIPLAYER's 940ef76f (cdTestVolume
+  records the geometry it hit) without its bugs.md row, for the campaign
+  check MULTIPLAYER asked for.
+- Base 4, `D:\PD2-wt\shared-base-4`: a copy of base 3 (13,127 files, 348 MB),
+  then the client at af255eb0 in `--extract-assets-only` re-extracted 47
+  arenas, 87 scenarios and 21 missions in 2 min (0 failed); a second run
+  wrote nothing. Before the sky rule, its arenas, scenarios and missions were
+  byte-identical to the private install that passed the campaigns in game.
+- Bases 1 and 2 to the Recycle Bin (688 MB): every session had moved to
+  base 3.
+- CRYSTAL PISTOL's format row reviewed in the week note: keep the flat
+  `ammoN_*` keys as the one magazine schema; name every native reserve pool;
+  `magazine` should play the bound reload animation for base weapons; the
+  self-loading type 0x1b is never unlimited in the original. Their B-1184 is
+  B-1116 with identical names, so bindings files are compatible.
+
+Verification
+- pd-tests 1,909 cases / 340,785 assertions at af255eb0.
+- Base 4: conformance 9,025 archives (10,033 with nested, 27 families), 0
+  errors; `[b1112-sweep]` 9,025 validated, 0 refused; light-rules census 132
+  scenario archives, 46 rules (32 light and portal rules plus 14 sky rooms),
+  all equal to the original checks. Receipts in `.claude/week-pd-receipts/`
+  (`conformance-shared-base-4-sky-20261115.json`,
+  `shared-base-4-reextraction-20261115.log`, `shared-base-4-second-run-*`).
+
+Next
+- In game on base 4 (queued behind MULTIPLAYER, q_20261115103149682_e5fafaa0):
+  release campaign and special assignments with B-1133, then the
+  `menu_settings_keyboard` rerun if the desktop is unlocked. Then announce
+  extract-3 and base 4, tick the checklist row, add the schema table row.
+- Inventory of the remaining stage-specific checks in game code (running).
+
+## 2026-11-15 (10:55-11:30 UTC) - CORE: stage-check survey, always-drawn pre-pass, B-1172
+
+What was done
+- Survey (read-only helper, checked by CORE where acted on): every
+  stage-specific check left in game code, classed as level content, engine,
+  table or converted. The content families are now rows of the conversion
+  checklist in the week note: stage sky and stars, weather, room effects
+  (animated textures, sparks, the Escape gas), object rules, player and
+  setup rules, stage endings, the training hub (about 25 checks), stage text
+  banks. Most need a stage-level home in scenario source (question for Mike).
+- A fourth copy of the always-drawn room list: the pre-pass of bgRenderScene
+  (src/game/bg.c) draws the stage's sky room first with fog off. It is the
+  render_always set (old test stage included). A scenario-source stage now
+  draws every render_always room of its rows there (bebb8739), shared as the
+  fourth commit of `week-pd/extract-3` (03471bb8), merged into core with the
+  tree unchanged (249388ba). No extraction change, so base 4 stands.
+- B-1172 recorded (suspected from code): while the scenario scene renderer
+  is active, which the release campaign log shows for all 18 stages, lv.c
+  skips skyRender (B-936's gate), bgRenderScene skips the sky-room pre-pass
+  and the starfield, and the scene renderer draws none of them. Two new
+  smoke definitions, `stage_sky_visual_villa` and
+  `stage_sky_visual_defection`, take screenshots in the intro and in play;
+  they run with the queued base 4 check (c60bf2bf).
+- CRYSTAL PISTOL: node params reviewed (defaults keep base behaviour); asked
+  them to list the new params in `weapon-graph-module-parameters.md` and to
+  refuse unusable values (SP-76) instead of treating them as absent.
+- Week note: the mission table gained the 10:05 UTC campaign line and the
+  B-1172 note.
+
+Verification
+- pd-tests 1,910 cases / 340,798 assertions at bebb8739; the shared tree's
+  own sources pass the static room, light, sky and B-1112 checks (14 cases,
+  252 assertions); merge-tree puts extract-3 onto mods, multiplayer and
+  crystal-pistol without a conflict.
+
+Next
+- The queued base 4 run (about 3 hours out): campaigns with B-1133, the two
+  visual checks, the keyboard settings rerun. Then announce extract-3 and
+  base 4, or file B-1172 as confirmed with the screenshots.
+
+## 2026-11-15 (11:30-12:55 UTC) - CORE: Mike's three answers, test installs deleted after each run, mission graph runner
+
+Mike's answers (verbatim in the week note, 11:55 UTC)
+- C: test installs: floor 100 GB, at most one or two, delete each one (and
+  caches, temp exports, stale builds) as soon as it is not needed, and report
+  space used and freed each time. Saved as a feedback memory.
+- Decision 2: build the mission-graph runner now.
+- Decision 3: stage-wide rules may go anywhere packed in the level's archive;
+  CORE uses a new `stage.json` member of each `.pdscenario`.
+
+What was done
+- Storage (b37538d0, shared as `week-pd/runner` 786b0aeb, merged back with
+  the tree unchanged): `discard_completed` in a location policy deletes each
+  install as soon as its run is recorded (receipts and logs stay, restore
+  still works); `compact` deletes named finished installs now. Found on the
+  way: a kept (`-Keep`) install is never evicted, so with two installs on C:
+  the queued base 4 run would have been refused at its third test; its
+  script now keeps nothing and reads logs from the receipts. CORE's C:
+  location file: 100 GiB floor, 2 installs, discard on.
+- Space: `compact` freed 1.51 GiB of four finished CORE installs on D:; 11 MB
+  of scratch exports deleted; a 378 MB temporary base copy made and deleted
+  for the runner sweep. CORE's C: footprint: 17 MB of scratch files.
+- Mission graph runner (ac532efe, 1ff46d4f): `mission_graph_runner.cpp`
+  compiles a mission graph's execution edges (`"input": "exec"`) when it
+  activates; `event.objective.status_changed` from `objectivesCheckAll`
+  walks them; `og.hud.objective_status_message` (module table
+  `mission_graph_modules.c`) shows the original message
+  (`objectivesShowStatusMessage`). Refused graphs run nothing (no fallback).
+  The extractor wires the event to the module in every base mission graph
+  (pdmeta kind `_objective_status_event`); conformance applies the runner's
+  rules. The forced completion now runs the objective check first, so the
+  campaign exercises the event; its fixtures require a compiled program per
+  mission and the event in each. Design note
+  `context/designs/modding/mission-graph-runner.md`.
+
+Verification
+- pd-tests 1,915 cases / 340,947 assertions; storage suites (Python 28, 17,
+  22; PowerShell storage 19, runner retention 47) pass.
+- `[runner-sweep]` on a re-extracted copy of base 4: 21 of 21 mission graphs
+  compile and run the message; base 4's own graphs (before the runner) run
+  nothing, as expected. Conformance OK on both.
+
+Next
+- `stage.json` (decision 3) for the stage-wide rules of the survey.
+- The queued base 4 run now also proves the runner in game.
+- MULTIPLAYER: route the co-op client's copy of the message through the
+  runner (asked in the week note).
+
+## 2026-11-15 (12:55-13:45 UTC) - CORE: stage.json (decision 3), weather first
+
+What was done
+- The queued base 4 run now uses a frozen client at 2679a1c8
+  (`.claude/week-pd-client/base4-check/`, 92 MB on D:; delete after the run):
+  its scenario kind is extract-3's, so base 4's stages are checked as the
+  other sessions will use them, while it carries the mission graph runner.
+- `stage.json` (c7bd8075): one member per `.pdscenario`, schema
+  `pd2.scenario.stage.v1`, strict reader `scenario_stage_rules.cpp` (unknown
+  key or unusable value refuses the whole file), loaded in `bg.c` with the
+  scenario tables. First family `weather`, written from `g_WeatherConfig`;
+  `weatherReset` and `weatherTick` read it on the scenario-source path (the
+  Air Base and G5 stage checks become `z_max` and `cutscene_only`). Scenario
+  cache kind `_lightrules_sky_stagejson`. Conformance `validate_stage_json`.
+  Design note `context/designs/modding/stage-rules.md`.
+
+Verification
+- pd-tests 1,918 cases / 341,071 assertions.
+- Copy of base 4 re-extracted with this client (deleted afterwards, 378 MB on
+  D:): `[stagerules-sweep]` 132 of 132 readable, weather on exactly Air Base,
+  Chicago, Crash Site, G5 Building (Air Base: 19 weather rooms and the fixed
+  wind); conformance 9,025 archives 0 errors; light-rules census 46 of 46;
+  `[runner-sweep]` 21 of 21.
+
+Next
+- The queued base 4 run (CORE is second in line, behind one MULTIPLAYER item).
+- Further stage.json families from the survey: ending, hub, stars (after
+  B-1172 is confirmed or not), Escape's gas, animated textures and sparks.
+
+## 2026-11-15 (13:45-14:25 UTC) - CORE: B-1172 widened, stage.json player rule
+
+What was done
+- B-1172 widened (05e849c8, from code): the scene renderer reads no room
+  state (brightness, light state, animated textures, flashes), so shot-out
+  lights, flashes and animated water would not show on the stages it draws.
+  Animated-texture and spark conversions are held for that reason; endings
+  are mission flow and go to the mission graph runner instead of stage.json.
+- `player` family of stage.json (64e30348): `perfect_agent_outfit` and
+  `disguise` {`outfit`, `untargetable`} from the stage checks in player.c and
+  bondgun.c (Villa, Rescue, Air Base). Outfit names follow `OUTFIT_*`; a test
+  keeps reader, checker and constants.h equal. Kind `_stagejson_player`.
+- `temp-base-check.sh` (scratchpad): copy base 4, re-extract with the session
+  client, run the stage, mission and light-rule sweeps and conformance, delete
+  the copy and report the space.
+
+Verification
+- pd-tests 1,919 cases / 341,160 assertions. Temporary copy of base 4: 132 of
+  132 stage.json readable, weather on the four stages, player rules on
+  exactly Villa, Rescue and Air Base, conformance 0 errors, light rules 46 of
+  46, mission graphs 21 of 21; 378 MB deleted afterwards.
+
+Next
+- Mission endings through the runner (mission flow row): Deep Sea straight
+  on, Skedar Ruins to the credits, Defense's end screen.
+- The queued base 4 run (second in line).
+
+## 2026-11-15 (14:25-14:55 UTC) - CORE: stage.json co-op spawn distance and dark room rule
+
+What was done
+- 0190728d: `player.coop_spawn_distance` (chraction.c; Defection 80, else
+  60) and the `ai` family with `dark_room_lists` (chrai.c; Crash Site
+  false). Kind `_stagejson_player_ai`. Limited mine ammo stays a stage check
+  until the crystal pistol work in `bgunAmmotypeAllowsUnlimitedAmmo` lands
+  (told CRYSTAL PISTOL in the week note).
+- Mission endings looked at and not started: the PC end screen
+  (`pdgui_menu_endscreen.cpp`, an intent layer over the original dialogs),
+  co-op continue and the Deep Sea co-op auto-advance (`menutick.c`) all take
+  part, so it is a larger step for the mission graph runner, not a stage
+  rule. Put to Mike as an option.
+
+Verification
+- pd-tests 1,920 cases / 341,188 assertions. Temporary copy of base 4
+  (deleted, 378 MB): 132 of 132 readable; player on Villa, Rescue, Air Base,
+  Defection; ai on Crash Site; weather on its four; conformance 0 errors;
+  light rules 46 of 46; mission graphs 21 of 21.
+
+Next
+- The queued base 4 run (next in line).
+
+## 2026-11-15 (14:55-15:30 UTC) - CORE: base 4 run lost to B-1173, re-queued
+
+What happened
+- The queued base 4 game run got its turn at 14:07 UTC and every test was
+  refused by the storage tool in 4 minutes; nothing ran. Cause (B-1173): each
+  new install reserves the larger of its size and `peak_run_gib` (2 GiB), and
+  CORE's C: location had `max_full_install_gib` 1.5, so no install could fit;
+  the tool said "blocked by active/pinned evidence" in an empty storage. The
+  same 1.5 GiB example had gone to the other sessions at 11:55 UTC.
+- Fixed (4c3b4e02, shared as `week-pd/runner` d0fd6056, merged back with the
+  tree unchanged as 829159c4): a budget that cannot fit one copy is refused at
+  once with a message that names it (normal mode; retained housekeeping keeps
+  its own refusal). CORE's location now uses 3 GiB; week note corrected.
+- Re-queued (q_20261115141555726_0b0e1c65, fifth in line, about 2.5 hours).
+  The campaigns use one install each, so they fit two installs on C:.
+- Space: the failed run wrote 346 MB of seed content on C: (`pd2-smoke/core/blobs`),
+  kept for the re-run; no install was left.
+- Deletion slip: CORE removed its four temporary 378 MB copies of base 4 on D:
+  and 11 MB of scratch exports with `rm -r`, not through the Recycle Bin as
+  the week brief asks (another session's memory note made it explicit at
+  14:03 UTC). They were CORE's own reproducible files; the check script now
+  uses the Recycle Bin. The storage tool's discard and compact delete test
+  installs permanently, as its eviction always did; reported to Mike.
+
+Verification
+- Storage: Python 29/29, reuse 17/17, retention 22/22; PowerShell storage
+  19, retention, runner retention 47.
+
+## 2026-11-15 (16:45-17:35 UTC) - CORE: base 4 proven in game and published, runner proven, B-1172 confirmed
+
+What happened
+- Re-run of the base 4 game check on C: (frozen client 2679a1c8, extract-3's
+  scenario kind, with the mission graph runner): release campaign 43/43 and
+  special assignments 42/42 with base 4's stages used as they are (no
+  re-extraction); every stage with a room or portal rule logged it.
+- Runner in game: 17 + 4 mission programs compiled, 48 + 4 objective status
+  events each ran `og.hud.objective_status_message`, no refusal; the campaign
+  fixtures' new runner assertions pass. Objectives row ticked.
+- Published: the week note's Shared resources now has base 4 with how to move
+  (merge 03471bb8, switch with it); schema row for the room and portal rule
+  fields; Room and light rules row ticked with the B-1172 caveat.
+- B-1172 confirmed for the sky: Villa's intro frame shows black above the
+  terrain. Defection too dark to judge; the fixtures' first two screenshots
+  fell in the 90 s boot (timings to move later).
+- B-1174 (new, menus): `menu_settings_keyboard` reaches the main menu with
+  focus, but Tab does not move focus to Settings. B-1170's focus part is
+  resolved.
+- C: space: each install deleted after its run (350 MB each); the C:
+  storage holds 478 MB of receipts, logs and seed content; C: 202.6 GiB free.
+
+Next
+- Recycle the frozen client copy (92 MB on D:) through the Recycle Bin.
+- Mike: placement of B-1172 (renderer), and the deletion question (test
+  installs permanent vs Recycle Bin).
+
+## 2026-11-15 (17:35-19:05 UTC) - CORE: intro.json and arena setups (B-1175, B-1176), Recycle Bin installs, mission endings
+
+What happened
+- Mike's answers: B-1172 (sky and dynamic lighting) is CORE's; test installs
+  go to the Recycle Bin, he empties it; next step mission endings, then the
+  training-hub checks, with B-1172 on CORE's track. Forge mode authoring comes
+  before any custom level work (constraints.md, week note).
+- Sky fixtures (ca9c1cf9): both now wait for offline_gameplay_ready and take
+  in-sequence screenshots looking ahead and up (boot takes about 90 s).
+- B-1175 and B-1176 found by reading the intro path, fixed in 83642b1f: every
+  scenario-source stage started the player without the mission's intro
+  weapons, ammo and outfit (the runtime rebuilt the intro from spawns.json
+  alone), and multiplayer scenarios were built from the solo setup file, so
+  16 of 18 arenas had no pickups, spawns, cases or hills. New member
+  intro.json (pd2.scenario.intro.v1); kind mp scenarios read mpsetupfileid.
+  Census of the 121 ROM setup files recorded in the bugs and the design note
+  (context/designs/modding/stage-intro.md).
+- Recycle Bin (92c27f2b, week-pd/runner d3993455, merged as 0056eae6): every
+  removal of a test install verifies its files, then sends the folder to the
+  Recycle Bin, or refuses and keeps it when Windows would delete it for good.
+- Base 5 candidate D:\PD2-wt\shared-base-5 (copy of base 4, extracted by the
+  intro client): pass 1 47 arenas, 87 scenarios, 134 meta written, 0 failed;
+  pass 2 wrote nothing; intro, stage-rules and runner sweeps pass; light rules
+  unchanged; conformance 0 errors (10,033 archives); every arena with a real
+  multiplayer setup has its pickups, spawns, 4 cases, 24 respawns and hills.
+- Mission endings (built, unit tests pending): event.mission.continue and
+  event.mission.completed with og.mission.start_next_stage,
+  og.mission.start_credits and og.progress.unlock_alt_title (Deep Sea, Skedar
+  Ruins); Defense's unknown outcome is the stage.json ending rule; the PC end
+  screen bridge asks the graph for its Credits action.
+- Stale-slot sweep after the PC crash (Mike): nothing from before the crash
+  runs; hub queue healthy; no git index.lock; CRYSTAL PISTOL's storage has two
+  interrupted installs (owners dead), reported to it; ten months-old build
+  locks in the canonical checkout are dead and harmless, left in place.
+
+Next
+- Unit tests for the endings build; refresh base 5 in place; the queued
+  game-runtime turn (campaigns, specials, sky screenshots, Complex match).
+- Then the training-hub rule, then B-1172.
+
+## 2026-11-15 (19:05-20:40 UTC) - CORE: training hub rule, B-1172 steps 1 and 2, extract-4 checked, GGV call, keygen fix
+
+What happened
+- Training hub (5feca745): `"hub": true` in the CI's stage.json, read by
+  lvStageIsHub() on scenario-source stages; 11 checks ask it (cheats, HUD
+  messages, corpse cap, damage outside training, AI buddies, death and
+  respawn, end screen). The other STAGE_CITRAINING checks (about 45) are
+  not hub rules (stage-rules.md): the Institute's training content (its
+  objects and AI), the PC main menu running on it, and destinations.
+- B-1172 step 1 (9e3bd75c): the scene draws at a display-list command,
+  G_SCENE_RENDER_EXT, after the sky, the stars and the sun; skyRender runs on
+  every stage again.
+- B-1172 step 2 (bc450717): the B-936 depth mismatch was the stage's BG
+  scale (0.5 on Villa): the game's camera space is world units times
+  bgGetScaleBg2Gfx relative to the camera room, and near and far are in it.
+  World draws now use the game's BG matrix and keep their depth (props hidden
+  behind the scene's walls); translucent materials draw after the props'
+  opaque pass; held menu and lock screen are backdrops that clear depth; sky
+  rooms move with the camera's room; roomHighlight's lighting in the shader,
+  per player view. scenario_scene_camera.c unit-tested against the game's
+  lookat and perspective. pd-tests 1,931 cases. Frozen client
+  .claude/week-pd-client/b1172-step2; the queued base 5 turn runs the two new
+  depth smokes (probe under 1e-3 NDC) instead of the step 1 screenshots.
+- extract-4 standalone check (worktree D:/PD2-wt/x4-check): client and
+  pd-tests build, pd-tests 1,885 cases pass. Publishing base 5 waits for the
+  game run.
+- GGV lane (MULTIPLAYER relayed Mike: CORE's call): not onto dev now (never
+  compiled or run); stays on week-pd/inflight-20261114; triage after the
+  week's merges. Main checkout untouched: 17 of its 19 modified tracked files
+  equal the snapshot; CMakeLists.txt and dev-mods.json changed after it.
+- B-1122 follow-up (16a593ea; one-commit week-pd/keygen 7cbf5f1c): builds no
+  longer make a signing key, so they never rewrite the tracked
+  updater_pubkey.h. Checked with dev-keys moved aside: header byte-identical.
+- Week note: checklist rows for stage endings, training hub, sky and stars.
+
+Next
+- The game turn (queued behind CRYSTAL and MULTIPLAYER): release campaign,
+  specials, sky screenshots, Complex match, the step 2 depth smokes. If it
+  passes: push extract-4, publish base 5, merge extract-4 into core, recycle
+  the x4-check worktree.
+- Then the remaining hub checks, stars as a stage rule, stage text banks.
+
+## 2026-11-15 (20:40-21:20 UTC) - CORE: stars rule, scene fog, base 6 queued
+
+What happened
+- Stars as a stage.json rule (50db8302): `stars` {count, grid,
+  below_horizon} replaces the lvReset stage list, starsReset's table and
+  bgRenderScene's stage-id list on scenario-source stages; the extractor
+  writes it from the same table (Defection, Extraction, Infiltration, Escape
+  200 on grid 2; Attack Ship 1,200 and Test Old 1,600 on grid 3, below the
+  horizon). Kind _ending_hub_stars. pd-tests 1,932.
+- Scene fog (a56adf2a): bgRenderScene starts the stage fog around each scene
+  pass; the handler hands fast3d's fog state to the renderer; the shader uses
+  gfx_sp_vertex's formula on the game-space clip position. Sky and
+  render-always rooms unfogged. pd-tests 1,932.
+- Depth smokes: 330 s / 420 s limits (a newer client re-extracts base 5's
+  scenarios at boot) and they forbid scene shader and GPU upload failures.
+  The turn's step 2 slot now holds the fog client (step 2, stars, fog).
+- Week note: schema notice row for the newer stage.json families, intro.json
+  and the mission events; text banks recorded as a design question for
+  custom levels (banks are numeric; AI and objectives address text as bank
+  and index); training hub row corrected.
+- Base 6 queued (game-runtime, position 3 behind CORE's turn and MODS):
+  copy of base 5 re-extracted with the frozen stars client, then sweeps,
+  conformance and a stage-rules census.
+- Animated textures (dyntex) recorded as the remaining B-1172 visual gap,
+  with what they need (rendering pillar note).
+
+Next
+- The base 5 turn: release campaign, specials, sky screenshots, Complex
+  match, the two depth smokes. Then base 6; publish extract-4 and base 5 if
+  the turn passes.
+
+## 2026-11-15 (21:20-23:10 UTC) - CORE: other sessions' bug notes, base 5 in game, B-1177, base 6, extract-5
+
+What happened
+- Mike asked whether CORE saw other sessions' bug notes (a mod ammo collision
+  bug): CORE had missed rows on other branches and one To CORE request.
+  Swept them (memory feedback_sweep_other_sessions_bugs): B-1156 hub fix
+  (800cf9b6, one commit on dev: week-pd/hubfix c660986a, Mike's merge),
+  B-1153 quiet optional model metadata (f06cab7e), B-1150/B-1151 already fixed
+  by CRYSTAL (6e43ca22), CRYSTAL's B-1187/B-1189/B-1212 are scenario-source
+  engine bugs (shots through walls, sticky projectiles through floors,
+  generated models unhittable) fixed on their branch and entangled with the
+  pistol code; CORE recommends that branch merge early. Answered MULTIPLAYER's
+  20:55 co-op stage-end question. Also B-1157 custom slot world scale
+  (482c7e00) and the global AI lists design note (1462b92a).
+- Base 5 turn (22:05-22:33 UTC, frozen clients): release campaign 54/54,
+  specials 42/42, sky screenshots 9/9 each with the base 5 client;
+  mp_arena_setup_source failed: B-1177, every multiplayer arena's crates have
+  empty slots and the setup reader refused the empty model id (fixed,
+  f3dea116; also on week-pd/extract-4 as fb883fe7). Depth smokes 15/16: sky
+  and stars visible, scene placed by the game's matrix, the probe sampled only
+  the intro cutscene (fixed). Screenshots came back from the Recycle Bin: the
+  runner keeps input-sequence captures only in multi-process runs (follow-up).
+- Base 6 made (D:\PD2-wt\shared-base-6, copy of base 5, frozen stars
+  client): extraction 122 s then nothing, sweeps and conformance pass, hub on
+  the CI only, stars on the six stages.
+- week-pd/extract-4 now = cb5e2e11 + records merge 5063e385 + B-1177 fb883fe7
+  (the records merge lets the commit hook find T-MODDING-011 there; a plumbing
+  commit to skip the hook was refused by the auto-mode classifier, rightly);
+  week-pd/extract-5 = extract-4 + hub + stars (a222beef, 79cb94e3), standalone
+  pd-tests 1,887 cases. Both pushed, not announced yet.
+
+Next
+- Base 6 turn (queued, position 2): release, specials, Complex with the
+  extract-5 client; depth smokes with CORE's client. If it passes: publish
+  base 6 with extract-5 (and base 5 with extract-4) in the week note.
+- Follow-up: the runner's single-process retain_artifacts (a reviewed change).
+
+## 2026-11-16 (23:10-01:25 UTC) - CORE: base 6 proven and published, B-1210, B-1159 answered
+
+What happened
+- Base 6 turn 1 (00:09-00:30 UTC): with the extract-5 client the Complex
+  match passed 12/12 (B-1177 fixed in play); release 49/54 and specials
+  18/42 from CORE-only pieces the extract chain does not carry (three graph
+  shadow warnings the native game covers: preset pad 9000, if_natural_anim
+  on Infiltration, set_lights room -1 on the CI; the campaign runner's
+  objective probes and special-assignment plans). Depth smokes 16/16 with
+  CORE's client. Screenshots checked: Villa's sky blue with clouds,
+  Defection's stars, the Complex match running.
+- Base 6 turn 2 (00:45-00:55 UTC, CORE's client): release 54/54, specials
+  42/42; hub=1 on the CI only, stars on the six stages, Defense
+  outcome_unknown=1, Skedar Ruins ran its completed and Continue modules.
+  Published in the week note with week-pd/extract-5 (base 5 with
+  week-pd/extract-4); the 23:10 merge hold is lifted. Checklist rows for
+  sky and stars, the training hub and stage endings marked done (Deep Sea's
+  Continue is unit-tested only: the campaign runner loads the next mission).
+- Other sessions' notes swept again: CRYSTAL's B-1210 (on their branch's
+  bugs.md, "proper fix for CORE") is real in play: Crash Site and Deep Sea
+  fill the 128x128 world mesh grid, so meshFindFloor's fallback found
+  nothing on their far parts. Fixed (c20677da): meshGridCell clamps every
+  grid index into the grid at both ends; cap and cell size unchanged so
+  CRYSTAL's meshGridRayCast and its capped-grid test still hold. pd-tests
+  1,936. MODS's B-1159 (no walk mode after the Escape intro) is not a bug:
+  Escape's AI list grabs the hover bed (tag 0, setup_0110) right after the
+  intro, as the native command does; the smoke's wait needs to accept grab
+  mode. MODS's B-1154 (striped Falcon 2 on their clone): the base Falcon 2
+  is striped the same way in CORE's Defection screenshots, so the clone is
+  not the cause.
+- C: 1.25 GiB used by turn 2 (214.23 to 212.98 GiB free), installs in the
+  Recycle Bin.
+
+Next
+- B-1154: compare the held Falcon 2's textures and texgen data with the ROM.
+- Animated surfaces (dyntex.c) on scenario-source stages: per-material
+  `animation` preset and `uv_scale` in scene.glb extras plus a per-vertex
+  `_PD_DYNTEX` (N64 s, t and texture scale); the renderer updates those UVs
+  each frame from the game's 80-second interval and two stage flags. Needs a
+  schema notice, a cache-kind bump and base 7. scenario_dyntex.h drafted.
+
+## 2026-11-16 (01:25-02:05 UTC) - CORE: B-1154 found and fixed, base 7 queued, animated surfaces built
+
+What happened
+- B-1154 (MODS: striped held Falcon 2 copy) is every reflection-mapped
+  model: the ROM gun list sets the RSP texture scale (G_TEXTURE 0x0800 next
+  to eight G_TEXTURE_GEN | G_LIGHTING materials on the Falcon 2), tex.c keeps
+  it for the load, but the mesh exporter skipped G_TEXTURE and the compiler
+  emitted 0xffff, so the reflection repeated 32 times. 144 of 733 base meshes
+  use texgen. Fixed in dcee4202: model.render.json schema v4 "texture" rows
+  (scale_s, scale_t), replayed by the compiler; "v3 or later" checks now say
+  SCHEMA_VERTEX_CACHE so v3 meshes still load. week-pd/extract-6 = extract-5 +
+  that commit (8af7c1a4, pushed, standalone pd-tests 1,887).
+- Base 7 (base 6 + re-exported meshes, frozen client dcee4202) queued as
+  q_20261116011531710_91423061 with the Defection screenshot of the held
+  Falcon 2, release, specials, a Complex match, and a Complex match with an
+  extract-6 client (no re-extraction expected).
+- Animated surfaces (B-1172's animated textures) built in 23a55418: dyntex.c
+  presets as scene data (pd2_material.animation, uv_scale, _PD_DYNTEX per
+  vertex) written by the extractor with the stage rules applied, moved each
+  frame by the scene renderer; scenario_dyntex.c unit-tested against oracles
+  from dyntex.c (ocean's unsigned modulo, the game's own sinf/cosf) and the
+  extractor's UV conversion; conformance checks; kind gains _dyntex. The
+  cherry-pick onto extract-6 conflicts (it builds on CORE-only B-1172 renderer
+  work), so it is not in a shared base: it reaches others with CORE's merge.
+  A private check (copy of base 6 re-extracted by CORE's client) is queued as
+  q_20261116014023887_5f896c2b. Schema notice posted.
+- B-1172 is left with one gap: roomHighlight's per-colour flag (a colour whose
+  same-index room vertex has flags & 1 keeps its rgb and scales its alpha by
+  the room brightness). The exporter sees per-block vertex and colour bases,
+  so it needs the room's bases to compute the room-level colour index; not
+  rushed into the queued check.
+
+Next
+- Base 7 turn result: publish base 7 with extract-6.
+- Animated surfaces check result.
+- B-1172's per-colour light flag; then the global AI lists (a new typed
+  asset, about ten touch points: archive policy, mod contract, loader walker,
+  boot extraction, mod manager, catalog type, conformance, runtime).
+
+## 2026-11-16 (02:05-03:25 UTC) - CORE: base 7 first try held old meshes (SP-86; SP-85 was MULTIPLAYER's), animated surfaces seen in game, B-1172 closed, global AI lists slice 1
+
+What happened
+- Base 7 turn 1 (02:17-02:41 UTC) passed everything (Defection depth 16/16,
+  release 54/54, specials 42/42, Complex 12/12 with CORE's client and with an
+  extract-6 client) but its mesh census showed all 733 meshes still at render
+  schema v3: dcee4202 moved the mesh export version, not
+  ROMEXTRACT_PDMESH_FAST_CACHE_KIND, and the whole-folder skip runs first.
+  Fixed in 5a90a28c (the kind is built from the export version label) and on
+  week-pd/extract-6 (3223c21b, standalone pd-tests 1,887). New pattern SP-86 (first written as SP-85, which MULTIPLAYER had claimed).
+  Propagation: arenas/scenarios share a two-kind skip; bodies, heads,
+  characters and weapons compare nested mesh copies, so only meshes. Week
+  note: do not use shared-base-7 yet; redo queued
+  (q_20261116025212980_91829b9d) with the extract-6 client.
+- Animated surfaces check (02:41-02:58 UTC, private copy of base 6
+  re-extracted by CORE's client): census 16 scenes with animated materials,
+  none mismatched; conformance 10,033 archives; release 54/54, Complex 12/12,
+  Villa 16/16; every visited stage logged its animated vertices (no unusable
+  primitive) and the first frame that moved them; Deep Sea's teleport held
+  while its teleports were off. The light-flag census found 0 flagged colours
+  in all 87 scenes, so roomHighlight's per-colour case never applies to base
+  data. B-1172 marked fixed (ed0bcc49); Room effects row updated.
+- Global AI lists, slice 1 (design step 5) on a new worktree and branch,
+  D:\PD2-wt\core-gai, week-pd/core-gai (bb7cad51, 7862fd79, pushed):
+  romExtractGlobalAiListsJson writes g_GlobalAilists as
+  pd2.scenario.ai.lists.v1 rows; scenario_source_runtime.c exports
+  scenarioSourceAiListsCompile; scenario_global_ailists.c compiles the rows
+  and compares every list with the binary's bytes under
+  --check-global-ailists. pd-tests 1,947. The in-client check rides on the
+  base 7 redo turn (on CORE's private copy, never a shared base). Slice 2
+  (the .pdai type) reaches the mod manager UI, network mod distribution,
+  modpacks and the Theater format, with two product questions; left for a
+  focused session (design note updated).
+
+Next
+- Base 7 redo result: publish base 7 with extract-6 when the census shows v4
+  meshes with texture rows and the Complex screenshot shows the gun fixed.
+- Global AI lists round-trip result: merge week-pd/core-gai into
+  week-pd/core if every list is exact.
+- Recycle the private check copy D:\PD2-wt\core-check-dyntex and unused
+  frozen clients when done.
+
+## 2026-11-16 (03:25-06:00 UTC) - CORE: base 7 published, global AI lists slice 1 merged, B-1199 handed back, B-1178, B-1179, dev merged
+
+What happened
+- Base 7 redo (q_20261116025212980_91829b9d, 04:55-05:16 UTC, extract-6
+  client 3223c21b): extraction 274 s on D:, second pass wrote nothing; mesh
+  census 733 of 733 at render schema 4 with texture rows (falcon2_hi: six
+  G_TEXTURE 0x0800 rows); conformance 0 errors with extract-6's own tool
+  (9,025 archives, 10,033 with nested; run from week-pd/core the tool calls
+  every arena's scenario_graph_cache stale, because CORE already expects the
+  _dyntex scene kind); intro, stage rules and runner sweeps pass. In game:
+  Complex 12/12, release 49/54 (the five CORE-only misses, the same as
+  extract-5 on base 6), Defection depth 13/16 (the three CORE renderer probe
+  lines), no re-extraction at boot, no refused render streams. The held
+  Falcon 2 is no longer striped (screens under
+  week-pd-receipts\base7-redo-20261116-0455). Published in the week note at
+  05:50 UTC, with a Current shared base bullet listing the base/branch pairs.
+- Global AI lists, slice 1: in the same turn the client logged "AI.GLOBAL:
+  round trip 46/46 lists exact, 4268 commands, 19949 bytes". week-pd/core-gai
+  merged into week-pd/core (5c0cef4d; line counts checked; pd-tests 1,948).
+- B-1199: MULTIPLAYER fixed it on week-pd/multiplayer (5a1dfcda: player 2's
+  controls come from slot 5 in a networked mission). Both fixes insert a
+  function at the same place in port/src/savefile.c, so CORE's two commits
+  are reverted (ed1756cf). Correction to the 03:20 week note:
+  netPlayersAllocate gives the local client slot 0 on a client too, so the
+  partner is slot 1 on both machines.
+- MODS's vehicle graph draft (vehicle-graph-v1.md on week-pd/mods) answered:
+  one instance record per vehicle with per-node state slots (the D-006A
+  shape), a compile-time bound for module-raised events, the per-update tick
+  walk compiled to a flat list at the hoverbikeUpdateMovement call site,
+  physics v3 without boost keys and no fallback, v2 refused after the base
+  re-extract, names accepted. Correction: the base boost is 5.0 over
+  {2400, ticks240} (10 s; the original's TICKS(2400) and 5000/2400000), not
+  the 7.0 and 1800 of MODS's template.
+- B-1178 (2b8b7de1): entity.autogun's beam_interval is a shot count, but the
+  compiler's keyNeedsUnit substring rule refused it, so only
+  beam_interval_ticks60 compiled. Exempted like timer_starts; the field is
+  autogun_beam_every_shots; the compiler and the IR validator refuse the old
+  name. Every other _ticks60 field and every other key the rule catches was
+  checked. SP-88 (a key's name states a unit its reader does not use; with
+  MODS's B-1230).
+- B-1179 (f5207103): chrTick's surface-normal blend and floor sample now run
+  only on the frame's full tick (MULTIPLAYER's note, the SP-87 class).
+- SP-89 (37b20936): CORE's SP-80 (the bulk writer) renumbered, because
+  MULTIPLAYER claimed SP-80 first and dev now carries theirs.
+- dev at 361abab8 (the crystal pistol) merged into week-pd/core (aac86a67),
+  as CRYSTAL asked: five conflicts resolved hunk by hunk (CMakeLists both
+  test entries, build-headless keeps core's no-keygen block, actionmap takes
+  dev's name table with one assert, systemic-bugs and the static tests keep
+  both). Checked file by file against both parents. Follow-up: the capped
+  ray grid brute-force fallback in meshraygrid.c is gone, since B-1210 lists
+  every triangle past the cap in the last cell; the test's grid builder now
+  uses meshGridCell. Built and checked: client and pd-tests build, 1,996 cases pass (core's B-1116 name test now pins the gun roll pair), and the native write policy guard passes (810 units). Pushed 302a8929. Week note: the Weather row is ticked (its rules load in game on every campaign stage), and MULTIPLAYER's SP-87 scheduler question is answered on the hub (agreed with option (b), networked play only, on their branch).
+
+Next
+- Object rules row (the Extraction chopper hum and its siblings) and the
+  global AI lists slice 2 (the .pdai type), each in a focused stretch.
+- Rerun CORE's base checks on the merged client when the queue allows.
+
+## 2026-11-16 (06:00-06:27 UTC) - CORE: limited mine ammo and three object rules are data; merged-client turn queued
+
+What happened
+- 9efc0696: stage.json's player rule gains unlimited_ammo_excludes (weapon
+  catalog ids whose primary ammo the unlimited ammo cheats do not refill;
+  Chicago base:remotemine, Air Force One base:timedmine, from
+  bgunAmmotypeAllowsUnlimitedAmmo). Every stage check of the Player and
+  setup rules row is now a rule (ticked after the in-game check).
+- bf414e3d, 3accc882: object rules as optional objects.json row fields
+  (context/designs/modding/object-rules.md): "coop": false on Defection's
+  hover cars, enemy_rockets_exempt on Investigation's K7 Avenger, the
+  Extraction chopper's engine_hum, thrust_hum and fall. The runtime allows
+  each field only on its kind, resolves the hum sounds through the catalog
+  and keeps the rule rows by setup command index; setup.c asks
+  scenarioSourceSetupRecordRules where it creates or arms the object; the
+  chopper's rules sit in a small table beside the object. Not converted:
+  B-228's single-player lifts in multiplayer. The first build failed on a
+  second #include "sfx.h" (no include guard) in romextract_pdarena.c.
+- Scenario kind now ..._stars_dyntex_ammo_objrules; pins and
+  tri_arena.pdarena moved twice. pd-tests 1,998.
+- Recycled (own, this week): D:\PD2-wt\core-check-dyntex, the core-gai
+  worktree (pruned), frozen clients base7-make, core-dyntex, core-gai.
+
+In flight
+- Queue item q_20261116060755455_2b33c611 (waiter bc33wtaq2, script
+  scratchpad tools/core-merged-turn.sh, gate core-merged.ready): frozen
+  client .claude/week-pd-client/core-merged (code 3accc882; its version
+  string says bf414e3d, the head at configure time), conformance tool
+  frozen in core-merged/frozen-3accc882, private copy
+  D:\PD2-wt\core-check-merged. It re-extracts twice, then checks the
+  stage.json player rules (6 expected), the object rule rows, sweeps,
+  conformance, and runs Complex, release, specials and Defection depth.
+
+Next
+- Read the turn: expect unlimited_ammo_excludes=1 on Chicago and Air Force
+  One, the object rules lines for Defection, Investigation and Extraction
+  (and SETUP: chopper object rules), release 54/54 and specials 42/42.
+  Then tick Player and setup rules and update the Object rules row.
+- Then: the lifts rule (with MULTIPLAYER, B-228), Room effects (sparks,
+  Escape gas), mission flow.
+
+## 2026-11-16 (06:27-07:31 UTC) - CORE: sparks and the Escape gas are data; the merged-client turn found two regressions (B-1250, B-1251)
+
+What happened
+- 09828557: stage.json "sparks": {"flash_lights": false} (Crash Site; the
+  environmental sparks do not flash the room lights).
+- 576d86ec: stage.json "gas" (rooms, a sphere {center, radius, door_tag},
+  door_rooms, cutscene_fade). gasRender reads one rule struct on both paths;
+  a ROM stage uses g_EscapeGasRule (the original's constants) and the
+  extractor writes that same struct for Escape. Every stage check of the
+  Room effects row is now data. pd-tests 2,000.
+- Turn q_20261116060755455_2b33c611 (06:56-07:21 UTC, client 576d86ec, CORE's
+  private copy D:\PD2-wt\core-check-merged): Complex 12/12, specials 42/42,
+  Defection depth 16/16, conformance 0 errors (tool frozen at 576d86ec); the
+  data carries all new rules (6 player rules, 12 object rule rows) and
+  Defection's and Investigation's object rules loaded in game. Two
+  regressions: B-1250 (the scenario kind reached 525 chars, the stamp
+  readers read 511, every launch re-extracted all scenarios and arenas) and
+  B-1251 (the Extraction chopper hum is a packed 0x810c and a 0x7fff bound
+  refused it, so Extraction's objects.json was refused and the release
+  campaign stopped there, 25/54). Both fixed in 14f8d527 (readers hold 2047
+  chars, the writer refuses a longer kind loudly; the hum bound is 0xffff,
+  kept as the packed s16). SP-86 gained the round-trip rule.
+- Answers: MODS's chrMoveToPos change (d21bf9f0) approved; MULTIPLAYER's
+  co-op Deep Sea question: the menuTick root -6 co-op branch (and the
+  coop_stage_end seam) is never reached, in the original either, because
+  mainEndStage pushes the co-op end screens directly (note corrected,
+  8949efe1).
+- Week note times are read from the clock now (two earlier stamps were
+  corrected).
+
+In flight
+- Recheck turn q_20261116072829623_cf241f34 (waiter bb3wrquuk, script
+  tools/core-merged-turn2.sh, gate core-merged2.ready, client
+  .claude/week-pd-client/core-merged2 = 14f8d527): two extraction passes on
+  the private copy (expect written=0), Complex and the release campaign;
+  expect 54/54, the chopper rules line, and the stage rule lines of Chicago
+  and Air Force One (limited ammo), Crash Site (sparks) and Escape (gas).
+
+Next
+- With the recheck: tick Player and setup rules, Room effects, and mark
+  Object rules three of four in game; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after the merge, for the
+  scenario kind).
+
+## 2026-11-16 (09:21-10:00 UTC) - CORE: the recheck passed, B-1203 taken, the lifts rule and B-1253, B-1252 fixed, the vehicle graph review
+
+What happened
+- Recheck turn q_20261116072829623_cf241f34 (09:00-09:20 UTC, client 14f8d527
+  on the private copy of base 7): two extraction passes and every test
+  install's boot re-extracted nothing (B-1250 fixed in play), release 54/54
+  (B-1251 fixed in play), Complex 12/12, conformance 0 errors, the three
+  sweeps green. Loaded in game: the limited mine ammo rule (Chicago, Air Force
+  One), Crash Site's sparks rule, Escape's gas rule (12 rooms and the sphere)
+  and the object rules of Defection, Investigation and Extraction. Room
+  effects and Player and setup rules are ticked in the week note. The
+  Extraction chopper is left out on Agent (flags2 0x110 = EXCLUDE_A | NOFALL),
+  so its hum and fall wait for a Perfect Agent run.
+- bc3f87fe (09:27): MULTIPLAYER's B-1203 runner fix (fdfd1b5a) cherry-picked
+  (CORE owns the runner): a single-process smoke that names neither
+  --portable nor --savedir gets --portable. The two context conflicts kept
+  both sides; the numstat equals the original's. The 07:18 UTC
+  stage_sky_depth_defection of CORE's turn 1 was the last run against Mike's
+  real profile (nothing there was restored; Mike's call).
+- 191fa10f, 65bc904c: B-1252 (the version line named the configure-time
+  commit: the 14f8d527 client logged 576d86ec8) recorded and fixed:
+  pd_versioninfo runs cmake/versioninfo.cmake every build and writes
+  versioninfo.h from git only when it changed; every compiling target depends
+  on it. Proof: a rebuild after the commit, with no CMake re-run (34 s), named
+  65bc904ce. pd-tests 2,002.
+- e9fbf089: dev 841650c7 merged (two context lines; line counts unchanged).
+- 47e3897d: B-228's lift list is the objects.json row rule "multiplayer":
+  true on lift and escalator_step rows (6 base rows: CI Training 2,
+  Infiltration 4; Chicago, Villa, G5 Building and Pelagic have no lifts).
+  B-1253 fixed: an arena on a campaign stage loads that stage's own scenario
+  (kind solo), so the main pass already made its lifts and the SP-in-MP
+  overlay made them again (Infiltration 4 -> 8); the overlay is a ROM stage's
+  only. New smoke combat_sim_infiltration_lifts. Scenario kind _mplifts.
+  SP-80 instance (the other direction). The object rules row is converted.
+- MODS' vehicle graph steps B to D reviewed (a read-only subagent; F1, F2, F3
+  and F5 re-checked in code): merge after fixes. A crash (two
+  og.vehicle.dismount_seat nodes on one event: the second dereferences a NULL
+  player->hoverbike on the host), records never released in propFree, the
+  part check at the first instance instead of registration, the v2 retirement
+  task to record; for MULTIPLAYER, a remote rider's boost never reaches the
+  host (no boost on the wire). Week note 09:58, hub chats to both.
+- Week note: the AI commands row's "audit in progress" corrected (finished
+  2026-11-15: B-1161 to B-1165, then B-1167).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (waiter bs7omrzh0, script
+  tools/core-merged3-turn.sh, gate core-merged3.ready, client
+  .claude/week-pd-client/core-merged3 = 47e3897d): the old client's
+  Infiltration arena match (before), re-extraction (kind moved), a second pass
+  (written=0), conformance, then combat_sim_infiltration_lifts,
+  auto_campaign_release_pa (the chopper rule applied) and
+  mp_arena_setup_source.
+
+Next
+- With the turn: tick Object rules; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after landing, for the
+  scenario kind).
+- Mission flow: the design of the fail-closed mission end module.
+
+## 2026-11-16 (10:00-10:33 UTC) - CORE: mission flow designed and slices 1 and 2 built; B-1204 fixed
+
+What happened
+- b7cb41ff (10:03): context/designs/modding/mission-flow.md. One objective's
+  status was already the mission graph's alone (decision 1); the outcome
+  rule (objectiveIsAllComplete, 23 callers), the phase and the end were
+  native. Week note row and log updated.
+- b5ea6dba (10:11), slice 1: "required": false on a row of kind objective
+  in the mission's objectives.json (bonus objective, out of the outcome;
+  one source: conformance refuses it on graph nodes and on the scenario's
+  table); scenarioSourceMissionObjectiveRequired; both aggregates in
+  objectives.c leave optional objectives out; the campaign runner's outcome
+  parity probe ("outcome parity probe stage_id=... outcome=...").
+  tests/test_mission_outcome_static.cpp.
+- ea93a083 (10:23), slice 2: event.mission.phase_changed and
+  gate.mission.phase in the runner (tests/test_mission_graph_phase.cpp,
+  behavioral), delivered once per change from objectivesCheckAll (logged
+  with or without a handler); og.mission.end_failed and
+  og.mission.end_completed (two modules: the table takes no params) force
+  the outcome and set a pending end that player.c takes after the check
+  (func0000e990, the end_level path); refused on a network client and a
+  forced completion in co-op/counter-op; refused at activation and by
+  conformance after the end. The runner/checker sync pins moved with the
+  kinds (test_mission_graph_runner.cpp). pd-tests 2,006.
+- 9a9cfc9f (10:30), B-1204 (MULTIPLAYER's root cause): every scenario pad
+  was forced PADFLAG_HASBBOXDATA, so the extractor's -100..100 default box
+  for boxless pads (19,349 of 26,109) became real and setup.c dropped
+  objects from 100 under their pads. Pads keep their own bit now; no
+  re-extraction (every boxless base pad has exactly padUnpack's default).
+  The pad build logs "pads.json N pads, M with a box of their own".
+  MULTIPLAYER keeps the B-1204 row (asked to mark it fixed).
+- Frozen clients: core-mf2 (ea93a083, superseded) and core-mf3 (9a9cfc9f;
+  B-1252's build-time version line named it correctly after the commit).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (lifts; waiter bs7omrzh0), third in the
+  game-runtime queue at 10:28 (MULTIPLAYER's local smokes since 10:06, then
+  a MODS boost smoke).
+
+Next
+- After the lifts turn: apply scratchpad patch_missionflow_fixtures.py (the
+  five campaign fixtures require one outcome line per mission, and a pin),
+  commit, then queue tools/core-mf3-turn.sh (gate core-mf3.ready): the
+  release and special-assignment campaigns (outcome probe, phase
+  deliveries), the Infiltration lifts and Complex (B-1204's pad line).
+- Tick Object rules when the lifts turn shows the lifts and the chopper;
+  post week-pd/core as ready for Mike's merge call.
+- Pin the phase-delivery counts in the campaign fixtures once a log shows
+  them.
+
+## 2026-11-16 (10:33-12:08 UTC) - CORE: the lifts turn, global AI lists slice 2 steps 1-3, MODS' fixes approved
+
+What happened
+- 10:35: MODS' vehicle graph review fixes (afd8739b, eb8eb943) approved in
+  the week note (checked in the diff: a second seat module per seat per event
+  refused at compile time, seat_done guards, records released in propFree).
+- e3a5190d (10:36): global-ai-lists.md product answers (CORE's
+  recommendations; Mike may override): .pdai is its own component type in
+  the mod manager; AI lists never travel with a host's mods.
+- Lifts turn q_20261116095308930_5e4b7388 (10:44-11:07 UTC, client 47e3897d,
+  private copy): Perfect Agent campaign 38/38 with the Extraction chopper's
+  rule applied in play; Complex 12/12; re-extraction for the new kind once,
+  then nothing. combat_sim_infiltration_lifts never reached its match (a test
+  install boots for 67 s, the smoke exited at 70 s): fixture fixed in
+  dce541bc (exit 150 s). The frozen conformance tool lacked its sibling
+  modules (asset_gltf_source and three more); every freeze now copies them.
+- dce541bc (11:11): the five campaign fixtures require one outcome parity
+  line per mission (17; specials 4) and forbid its failure; pd-tests 2,007.
+- 9a5bc8db (11:53), slice 2 step 1: the .pdai type (ASSET_AI_LISTS after
+  ASSET_THEME) registered end to end by a subagent, reviewed; loose ai.ini
+  layouts dropped (as .pdtheme); the debug catalog type filter's missing
+  names fixed (static_assert). Open for MULTIPLAYER: an AI-lists-only mod is
+  still one a client must hold (mods travel whole by hash).
+- 81a47d96 (12:00), step 2: romextract_pdai.c writes base:ai_global
+  (ai/base_ai_global.pdai) from romExtractGlobalAiListsJson, kind
+  pdai_global_ailists_rows_v1, boot phase "pdai"; --check-global-ailists
+  also compiles the extracted bank's rows back to the binary's bytes.
+- de2b6323 (12:05), step 3: setupLoadFiles binds g_GlobalAilists to the
+  bank's compiled lists after the sort (scenarioGlobalAiListsBindBank); a
+  bank that cannot supply exactly the game's lists refuses the stage.
+  pd-tests 2,012.
+- Frozen clients: core-mf4 (81a47d96: mission flow, B-1204, the bank
+  written and round-tripped, nothing reads it) replaced core-mf3 for the
+  queued turn (step 3 was set aside with an explicit-path stash while it was
+  built, then restored; numstat equal); core-gai3 (de2b6323, step 3).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, script
+  tools/core-mf3-turn.sh, gate core-mf3.ready, client core-mf4): extraction
+  with --check-global-ailists (expect romextract pdai written=1 and both
+  AI.GLOBAL round trips exact), conformance, the release and special-
+  assignment campaigns (outcome probe, phase deliveries), the Infiltration
+  lifts, Complex (B-1204's pad line).
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, script
+  tools/core-gai3-turn.sh, gate core-gai3.ready, client core-gai3): the same
+  campaigns and Complex with every stage's global lists from the bank. If
+  the first turn shows the bank unregistered, close its gate before it starts.
+
+Next
+- With both turns: tick Object rules (the lifts), record mission flow and the
+  bank in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (a new shared
+  base after landing: the scenario kind and the new ai/ bank).
+- Global AI lists steps 4 (per-level overrides in a scenario's
+  ai/ailists.json) and 5 (a mod's .pdai over the base bank).
+
+## 2026-11-16 (12:08-13:25 UTC) - CORE: global AI lists steps 4-5, AI lists as graphs designed and slice 1 built
+
+What happened
+- e0850c0c (12:14), global AI lists step 4: a stage's own list with a global
+  id replaces that global list for the stage (after the bank bind and the
+  count); an id that is not one of the game's refuses the stage.
+- aa88a2ba (12:14), step 5: enabled mod banks (non-bundled .pdai) layer over
+  the complete base bank by list id, the smaller catalog id winning (the
+  .pdlang order); compile cached on a signature of the banks. pd-tests 2,014.
+- 21444caf (12:34): context/designs/modding/ai-list-graphs.md from a
+  read-only survey: the data had every AI command as a level-graph node but
+  no control flow; plan in four slices (edges in the data, a shadow walk,
+  the interpreter takes edges, authoring from edges). Handler counts
+  corrected: 434 of 441 have a twin; the 7 without are the 5 control-flow
+  handlers and if_bot_respawning, mp_init_simulants.
+- 276ca402 (13:14), slice 1 (a subagent, reviewed: the edge rules against
+  chraiGoToLabel and the handlers, the JSON writers): port/src/ai_list_edges.c
+  computes next/branch/goto/restart edges and node flags; the extractor
+  writes them into every level.graph.json and the bank's
+  ai/global_ailists.graph.json; conformance recomputes every edge from the
+  rows; a pd-tests case re-derives the 215 branching opcodes from the
+  sources. Base: 79,408 edges (4 restarts). Scenario kind _aiedges; bank kind
+  v2. pd-tests 2,024.
+- cd90f090 (13:24): MULTIPLAYER's semantics for the two missing twins
+  recorded in the design (host only; mp_init_simulants stays by ending the
+  tick without moving).
+- MULTIPLAYER confirmed B-1204 in play (12:58: networked Hold the Briefcase
+  84/84, Combat score limit 24/24) and takes the AI-lists-only mod rule in
+  netmanifest.c after CORE lands.
+- The second queued turn now runs client core-ae (276ca402: steps 3-5 and the
+  edges) with two extraction passes and conformance (the edge proof); the
+  frozen clients core-gai3, core-merged2 and core-merged3 went to the Recycle
+  Bin (superseded).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, tools/core-mf3-turn.sh,
+  client core-mf4 = 81a47d96): mission flow, B-1204, the lifts, the bank
+  written and round-tripped.
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, tools/core-gai3-turn.sh,
+  client core-ae = 276ca402): re-extraction, conformance, the campaigns with
+  the bank in play, Complex.
+
+Next
+- With both turns: tick Object rules, record mission flow, the bank and the
+  edges in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (one shared
+  base refresh after landing for today's kind moves and the new ai/ bank).
+- AI lists as graphs slice 2 (the shadow walk); the two simulant twins;
+  a test mod with a .pdai for the mod bank proof.
+
+## 2026-11-16 (13:25-14:21 UTC) - CORE: both turns passed; Object rules ticked; week-pd/core posted ready for Mike's merge call
+
+What happened
+- Turn q_20261116111144955_af9935d1 (13:34-13:56 UTC, client 81a47d96, private
+  copy): release 56/56, special assignments 44/44 (outcome parity on all 21
+  missions; each delivers phase active then complete once),
+  combat_sim_infiltration_lifts 15/15 (4 lifts once by the multiplayer rule,
+  no overlay: B-1253 fixed in play), Complex 12/12 with B-1204's pad line
+  (226 pads, 5 with a box of their own), the bank written once and both
+  round trips 46/46 exact, conformance 0 errors. Object rules ticked.
+- Turn q_20261116120723346_a56d5b4c (13:56-14:15 UTC, client 276ca402):
+  re-extraction for _aiedges once (87 scenarios, 47 arenas, 21 missions, the
+  bank with 5,321 edges), then nothing; conformance 0 errors with the tool
+  that recomputes every AI edge from the rows (Defection: 2,014 next, 394
+  branch, 224 goto); release 56/56, specials 44/44, Complex 12/12 with every
+  stage running the 46 global lists from base:ai_global (31 stage loads, no
+  refusal).
+- 02df3f3f: the release and special-assignment fixtures pin one active and
+  one complete phase per mission (17 and 4, exactly; each aggregated log
+  holds one copy, the receipts two) and the bank in play; pd-tests 2,025.
+- Week note: the Global AI lists and Mission flow rows carry the in-game
+  evidence; the per-mission table's Loads, Forced and Save/load columns are
+  11-16 for all 21 (Soak and Natural unchanged), with an evidence line under
+  the table; 14:20: week-pd/core posted as ready for Mike's merge call (head
+  02df3f3f, 184 commits ahead of dev 841650c7; one shared base refresh after
+  landing).
+
+Next
+- AI lists as graphs slice 2: the shadow walk (a (list, offset) -> node table
+  per compiled list, the edge each executed command takes compared with the
+  interpreter's next offset, and the campaign parity line); then the two
+  simulant twins (MULTIPLAYER's semantics, ai-list-graphs.md).
+- A test mod with a .pdai for the mod bank proof.
+- Mission flow slice 3 once the outcome probe has held on the PA, SA and soak
+  campaigns too.
+
+## 2026-11-16 (14:21-15:36 UTC) - CORE: the mod AI list bank fixture, the simulant graph twins, B-1254 and B-1255
+
+What happened
+- 5c7d1ef6: tests/fixtures/modpipe/ai-lists-bank, a mod whose .pdai carries
+  global list 0x0000 (a byte copy of the base list), and the smoke
+  ai_lists_mod_bank_smoke (packs and enables it in a Complex match; requires
+  "1 of them from 1 mod bank(s)").
+- 6067830d: graph twins for the two simulant commands that had none
+  (if_bot_respawning 0x0176, mp_init_simulants 0x0185): module nodes in every
+  level graph (extractor, conformance, typed examples), a "simulant" family
+  in the scenario runtime that refuses a level graph without them, the native
+  handlers call the twins; scenario kind _simtwins (pins in six tests);
+  tests/test_ai_simulant_twins_static.cpp. 436 of 441 handlers have a twin;
+  the five left are the control flow the edges carry.
+- B-1254 (low, fixed): if_bot_respawning read aibot through a null pointer on
+  a chr that is not a simulant (the original's missing return).
+- B-1255 (low, fixed in 0d2022b8): mp_init_simulants never retried an
+  incomplete wave from the AI list; B-174 made it return false without
+  moving, which the B-949 guard always skips. 6067830d first kept "go on";
+  pd-tests (test_combat_sim_defect_cohort.cpp, the B-174 pins) and
+  MULTIPLAYER's semantics both said "stay", so the handler and the twin end
+  the tick with the cursor on the command while the wave is incomplete, and
+  the shadow walk accepts that stop. A networked Combat Simulator client runs
+  list 0x1000 too (noted for MULTIPLAYER in the week note).
+- c7db8ba5: combat_sim_simulant_twins (Car Park, 12 simulants, 90 s): the
+  family line, one wave=complete, a simulant kill, if_bot_respawning branch=0
+  and branch=1.
+- pd-tests 2,039 on 0d2022b8; client core-st frozen at 0d2022b8; the queued
+  turn q_20261116150249689_2d221fc9 (waiter bq2vokz32,
+  tools/core-sw-turn.sh) now runs core-st: two extraction passes for
+  _simtwins, conformance, the two smokes, then the soak, release and specials
+  with the shadow walk.
+
+Next
+- With the turn: pin the ai edge parity lines in the campaign fixtures (17
+  and 4) and forbid "ai edge parity: "; record the mod bank proof (Global AI
+  lists row) and the twins in play (AI commands row).
+- Then slice 3 of AI lists as graphs (twins report outcomes, the interpreter
+  takes edges) or slice 4 (authoring from edges); mission flow slice 3.
+
+## 2026-11-16 (15:36-17:02 UTC) - CORE: typed AI operands slices 1-3, trigger-volume events, the shadow walk in play (B-1256)
+
+What happened
+- Turn q_20261116150249689_2d221fc9 (15:57-17:00 UTC, client core-st =
+  0d2022b8, private copy): re-extraction for _simtwins (87 scenarios, 47
+  arenas, 21 missions written, a second pass nothing), conformance 0 errors
+  (9,026 archives), the mod AI list bank smoke 10/10 (a mod's .pdai replaces
+  a global list in play), the simulant twin smoke 12/15 on Car Park (family
+  and wave=complete; no simulant died in 90 s, so if_bot_respawning was not
+  reached: moved to Complex 150 s, e9a41a04), and with the shadow walk:
+  soak 42/42 (19.7 million AI commands compared with their edges, differ 0,
+  refused_fallthrough 0, untracked 0 on all 17 missions), release 59/59,
+  specials 47/47, Special Agent 40/40, Perfect Agent 40/40, all with differ 0 and
+  untracked 0; the outcome probe agrees on all 55 campaign missions, each
+  delivering active then complete; no refusal or FATAL line.
+- e6bd6b9a, typed operands slice 3: catalog ids in args for models,
+  weapons, bodies and heads; the extractor writes rows as args alone and
+  checks each back to its bytes; scenario kind _catalogargs, bank v4.
+- e051fda0: the five campaign fixtures pin one AI edge parity line per
+  mission (differ 0, untracked 0) and forbid the failure line.
+- Week note 17:01: Global AI lists and Mission flow ticked; the AI
+  commands row updated (to tick after the typed args turn); Soak 11-16 for
+  the 17 campaign missions.
+- Typed AI operands (context/designs/modding/ai-typed-operands.md, b2458fd7):
+  slice 1 b18b562f (the schema: 441 commands, 819 fields, from the handlers
+  plus two reviewing agents; every base row round-trips; conformance row
+  check), slice 2 61adaf37 (args on rows and nodes, the compiler checks them
+  against the bytes; scenario kind _typedargs, bank v3), 3d92264d (a row may
+  give args alone; the mod bank fixture is args only).
+- Trigger-volume events (context/designs/modding/trigger-volume-events.md,
+  6709c495): event.volume.entered/left in the mission graph runner, bound to
+  volumes.json boxes at activation, delivered from the objectives check;
+  pd-tests 2,050; in game after Forge.
+- B-1256 (low, fixed 537e3022): the AI edge parity counters were reset only
+  for a campaign's first mission (later ones are queued from the end screen).
+- Week note: 16:31 notice on typed args; frozen clients core-ae, core-mf4,
+  core-sw, core-ta, core-tb, core-tc, core-td to the Recycle Bin; core-te
+  (e051fda0) for the queued turn q_20261116162649494_8c375cad (waiter
+  bcim75k45, tools/core-ta-turn.sh: re-extraction for _catalogargs and v4,
+  conformance, the simulant smoke on Complex, the Complex arena, the mod bank
+  smoke with args-only rows, release, specials).
+
+Next
+- With the queued turn: tick the AI commands row (typed args in play) and
+  record the simulant twins' respawn branch.
+- Then the Pickups or Doors rows of the checklist.
+
+## 2026-11-16 (19:43-21:25 UTC) - CORE: typed AI args slice 3b (B-1257, B-1258), kill_simulant, object identity, level programs started
+
+What happened
+- Turn q_20261116162649494_8c375cad (19:12-19:43 UTC, client core-te =
+  e051fda0): release 61/61, specials 49/49, Complex arena 12/12, mod bank
+  10/10 with args-only rows; but conformance failed with 23,762 errors, all
+  in AI args (B-1257: animations and sounds as numbers, 15 solo weapons and
+  two "none" values unnamed, the entity fields carrying an asset key's
+  name), and the simulant smoke was 12/15 again (in 150 s on Complex the
+  simulants only shot the idle player; no death, no respawn branch).
+- 5af33056, typed operands slice 3b (ai-typed-operands.md "Slice 3b as
+  built"): anim and sound are catalog kinds; every asset argument is a
+  catalog id or null (the field's "none"); a sound's MP3 priority and
+  response are arguments of their own; entity is target or source; one
+  naming rule for the extractor and the compiler (port/src/ai_catalog_refs.c:
+  weapons from g_WeaponDataCatalogIds first, animations by the catalog's id
+  for the slot, sounds as configured alias, sample or MP3 voice file, the
+  last by the voice extractor's rule because the loader registers voice
+  archives after extraction); conformance mirrors it and derives the base
+  animation table's slot ids (the empty ANIM_CUT_CAVE_BETA_* slots one Air
+  Base list names), checked against every authored animation archive, which
+  found B-1258 (380 placeholder slots had two catalog ids; the base
+  registration now uses the archives' "character" rule). Kind _assetargs,
+  bank v5.
+- da7cd094: the smoke harness's kill_simulant (chrDamageByMisc on the first
+  live simulant); combat_sim_simulant_twins kills twice on Complex.
+- pd-tests 2,053 cases pass; client core-tf frozen at da7cd094 (the freeze
+  now copies the sources conformance reads for catalog ids).
+- Turn q_20261116203323322_e9d475f5 (21:14-21:19 UTC, core-tf):
+  re-extraction once then nothing; no AI row gives an asset by number
+  (2,839 sounds, 1,181 animations, 639 weapons by id, 117 nulls, 514 MP3
+  lines with their priority); conformance 0 errors over 9,026 archives. The
+  five smokes did not start: CORE's C: smoke storage refused to seed
+  ("Archive budget refused", its 2 GiB archive cap is full). The permission
+  check stopped CORE from raising the cap in its location file; Mike chooses
+  (week note 21:22): raise it to 4 GiB (recommended), recycle the older
+  evidence already copied to D:, or a D: storage root.
+- object-events.md: object identity decided (record_id = the setup command
+  index, plus tag, kind and catalog id in payloads); slice 1 planned and
+  started (uncommitted at 21:25): missionGraphProgramCompileLevel (only
+  event/gate/og nodes; level data skipped), the runtime compiles the level
+  program for every stage (refusal when it does not compile), shared volume
+  binding and delivery, level volume events from lvTick after scenarioTick
+  on the host, conformance's level mode, tests/test_level_graph_program.cpp.
+
+Next
+- Mike's storage choice, then the smokes of slice 3b (core-tf): the simulant
+  respawn branch, the Complex arena, the mod bank, release, specials; then
+  tick AI commands and AI actions and simulants.
+- Build and test object-events slice 1 once MULTIPLAYER's smoke ends; then
+  slice 2 (record-only pickup, door and use events).
+
+## 2026-11-16 (21:25 UTC) to 2026-11-17 (01:10 UTC) - CORE: slice 3b in play, object events slices 1-3 built and in play, B-1259
+
+Mike (22:00 UTC): raise CORE's C: smoke archive cap from 2 to 4 GiB, run
+slice 3b's smokes, carry on with object-events slices 1 and 2; keep C: above
+the 100 GB floor; commit and push as you go; no merges into dev or main
+without his OK.
+
+Done
+- The cap is 4 GiB in CORE's untracked `.claude/smoke-storage-location.json`.
+- Turn q_20261116220351738_26b6bced (22:21-22:49 UTC, core-tf = da7cd094):
+  all pass: simulant twins 17/17 (both branches of if_bot_respawning, the
+  harness killing a simulant twice), Complex 12/12, mod bank 10/10, release
+  61/61, specials 49/49. The AI commands and AI actions rows are ticked.
+- Object events (context/designs/modding/object-events.md): slice 1
+  f63e4248 (every stage compiles its level graph's own program), slice 2
+  5233cbb7 (record-only pickup.collected, door.opened, door.closed,
+  object.used at the native seams, totals per stage), slice 3 4881fc32
+  (node parameters, native gates, the pickup and door queries, og.door.*,
+  og.pickup.give, gate.object.kind, gate.player.has_item), ae3ba2a8 (the
+  design's "as written"), caf00d7c (conformance's kind sets checked against
+  the runner and module table by pd-tests).
+- Turn q_20261117000144009_bab5471d (00:15-00:45 UTC; caf00d7c built inside
+  the turn, pd-tests 2,061 cases; client core-tg): all pass (17/17, 12/12,
+  10/10, 61/61, 49/49). 35 level program activations, nodes=1
+  exec_edges=0, no refusal; doors opened in 7 missions (G5 Building 16),
+  pickups in 13; nothing failed. Every payload had object=-.
+- 97f4d167: slice 4 planned (the native pickup and door rules as wired
+  modules, the queries folded in, fail closed, a parity probe).
+- 4cbcd3da: B-1259 fixed. setupGetCmdIndexByProp read the prop pointer from
+  the command's word 5 (the N64 offset; padding on 64-bit), so it never
+  matched: empty record ids, and multiplayer's regeneration of an object
+  inside another looked up the wrong parent. It now reads the object's prop
+  field through setupCmdObj (shared with setupGetObjByCmdIndex). SP-94; its
+  searches found no other instance. Same commit: a literal NUL byte in
+  propobj.c (objGraphEventCapture's '\0', since 5233cbb7; same value, but
+  grep saw a binary file) is the escape again; no other tracked source has
+  a NUL byte.
+- door.closed=0 is not a bug: each campaign smoke mission lasts 3-6 s and
+  the doors open near its end.
+- Week note: log entry 01:08 UTC; the Doors and Pickups rows say what is
+  built (not ticked). C: 197.48 GiB free at the tg turn's start, 193.89 at
+  its end (installs recycled); 192 GiB at 01:03 UTC.
+- Pushed week-pd/core through 4cbcd3da.
+
+Next
+- Turn q_20261117010613172_f7fbd316 (core-th, queued behind MULTIPLAYER,
+  about 55 min): build 4cbcd3da inside the turn, pd-tests, simulant twins,
+  Complex, release, specials and the campaign soak (60 s per mission, for
+  door.closed); the report checks each logged payload against its stage's
+  objects.json row (record id, kind, catalog id).
+- Then object-events slice 4 (Pickups and Doors rows).
+- Recycle the frozen clients core-te and core-tf once core-th is frozen.
+
+## 2026-11-17 (01:10 UTC) to (05:07 UTC) - CORE: B-1259 proven, slices 4 and 5 written, dev merged, vehicles on graphs only, Forge F1 answered
+
+Mike (relayed 02:00 UTC): "Mike approves merging all branches into dev. For
+CORE: once your proof turn passes, merge week-pd/core into dev. Then do the
+same with slice 4 (week-pd/core-s4) once its turn passes. Go after MODS lands
+its vehicle branch. Each time, merge dev into your branch first, rebuild and
+test, then merge, push, and post it in the week note. If a proof is red, fix
+it before you merge. main stays untouched. After that, carry on with the
+unfinished work: the lifts and glass slice next, then the remaining
+behavior-graph rows." Later: "Continue your work while you wait. You can run
+tests after larger batches / full chunks".
+
+Done
+- Turn q_20261117010613172_f7fbd316 (01:43-02:34 UTC, core-th = 1ccc2c4e):
+  all pass (simulant twins 17/17, Complex 12/12, release 61/61, specials
+  49/49, campaign soak 44/44, AI edge parity 19.6 million commands, nothing
+  differs). B-1259 fixed in play: every payload names its objects.json
+  record; 31 of the first 37 match kind and catalog id, the other 6 found
+  B-1260 (objects.json left device and item pickups' weapon empty). Doors
+  close in the soak (door.closed on 13 missions).
+- Slice 4 on week-pd/core-s4 (ca42b3af, 7326bbe8, bc590b1d): the native
+  pickup and door rules as wired modules (event.pickup.touched,
+  event.door.use, event.door.approach; gate.pickup.native_rules,
+  og.pickup.collect, gate.door.native_unlocked, og.door.activate,
+  og.door.locked_message, og.door.activate_automatic), wired in every base
+  level graph by the extractor (scenario kind _ruleevents), level programs
+  must handle them and mission graphs may not, a parity probe per mission;
+  B-1260 fixed (ae0cf825). Harness use_door, fixture mp_arena_door_rules.
+- Slice 5 on week-pd/core-s5 (5b34fc8d): lifts and glass (event.lift.called,
+  event.lift.idle, event.lift.arrived, event.glass.damaged, record event
+  glass.broken; their native gates and modules; kind _liftglass). Harness
+  use_lift_door and damage_glass, fixture mission_lift_glass_rules.
+- Vehicles on core-s5: 3419fa96 gives the base hoverbike its
+  pd.vehicle_graph.v1 graph and physics v3 (meta kind _vehiclegraph),
+  refuses v2 behavior and physics (B-1230 fixed, vehicle-graph-v1.md Rule 5
+  done); 4a0a2a84 removes the dead v2 fallbacks (mount, both dismounts,
+  movement, the binding's two boost fields) and fixes the B-959 adapter case
+  that still hydrated a v2 vehicle (pd-tests would have failed on it).
+- week-pd/core: merged dev 8f41913f (9f38d6dd; resolutions in modmgr.c,
+  fs.c, fs.h, test_save_paths_static.cpp). Turn
+  q_20261117013932337_19ccdc1b failed pd-tests 2,149/2,150: the action name
+  pin still expected ACTION_GUN_ROLL_RIGHT last; dev added
+  ACTION_VEHICLE_BOOST. Fixed in 7f7871f9 (hosted CI green on PR #5, run
+  44011419982) and merged into core-s4 (605aefa8) and core-s5 (a51e12bc).
+- Turn q_20261117033645172_617e7a0e (04:09-05:00 UTC, core-tj = 7f7871f9,
+  base 8 candidate): pd-tests 2,150 cases / 478,152 assertions; the candidate
+  extracted twice (the second pass wrote nothing); conformance ok over 9,026
+  archives; MODS's vehicle drives 32/32 and 34/34, crystal pistol ammo 31/31,
+  simulant twins 17/17, Complex 12/12, mod bank 10/10, release 61/61,
+  specials 49/49. Red: mods_user_folder_smoke 20/23, B-1262: the dev merge
+  9f38d6dd dropped the two resets at the top of modmgrScanDirectory, so a
+  rescan appended every mod again ("Duplicate installed package identity").
+  Fixed in 2308f036 and merged into slices 4 (1a165116), 5 (c132d949) and 6
+  (95a18d52); a scan of every file the merge changed for lines both parents
+  had and the result lost found nothing else.
+- B-1261 (week-pd/core-s6, 78072e83): projectile records' function flags
+  were copied into projectile flags (the Slayer's fly-by-wire rocket SLIDING,
+  the N-bomb FALLING, the homing rocket LIGHTWEIGHT); SP-96. The Projectiles
+  row's design (projectile-events.md) and slice 1 (772f0497: record-only
+  events at the native seams, give_weapon, projectile_events_smoke); hosted
+  CI green on PR #12 (60ba64a4).
+- Forge F1 (MODS's questions of 23:30 UTC): a stage a mod minted resolves
+  through the scenario or arena row that owns it, with no minted map row;
+  the nested scenario's members resolve in the innermost archive. Written on
+  week-pd/core-forge (c3fc7068, from dev 8f41913f; draft PR #10, CI only)
+  for MODS to merge into mods-v4. Reviewed MODS's B-1234 span change to
+  CORE's hit test (c2050b8d): no objection.
+- Draft PRs #10 and #11 opened for hosted CI only (do not merge).
+
+Next
+- The B-1262 rerun (q_20261117040743721_6f1493c4, core-tj3: build, pd-tests,
+  the user folder smoke and four others on the base 8 candidate); if green,
+  land week-pd/core on dev (land-on-dev.py, the in-flight types.h keeps its
+  wording) and publish base 8 from the candidate.
+- The slice 4 proof follows in the next slot only if the rerun passed
+  (q_20261117040744651_e9633827, client core-tk); then land slice 4 and
+  publish base 9; then the slice 5 proof (q_20261117050710243_821994ae).
+- Projectiles row: run projectile_events_smoke in a turn; then slice 2
+  (timers and detonation as rule events on v2 programs).
+- Held weapons waits for Mike (the parked week-pd/inflight-20261114 lane).

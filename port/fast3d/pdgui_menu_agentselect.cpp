@@ -23,6 +23,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
@@ -165,7 +166,7 @@ static void toggleDefaultAgent(const char *name)
     memcpy(previous, s_DefaultAgentName, sizeof(previous));
     if (strcmp(s_DefaultAgentName, name) == 0) s_DefaultAgentName[0] = '\0';
     else snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", name);
-    if (!configSave("pd.ini")) {
+    if (!configSave(CONFIG_PATH)) {
         memcpy(s_DefaultAgentName, previous, sizeof(s_DefaultAgentName));
         snprintf(s_StatusMessage, sizeof(s_StatusMessage),
                  "Could not save the default Agent. Previous selection retained; try again.");
@@ -386,7 +387,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::TextWrapped("Agent deleted, but its default preference could not be saved.");
         ImGui::BeginDisabled(pdguiMenuCancelPressed());
         if (ImGui::Button("Retry saving default preference")) {
-            s_DefaultCleanupPending = !configSave("pd.ini");
+            s_DefaultCleanupPending = !configSave(CONFIG_PATH);
             pdguiPlaySound(s_DefaultCleanupPending ? PDGUI_SND_ERROR : PDGUI_SND_SELECT);
             pdguiNavSuppressActivation();
         }
@@ -874,7 +875,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     if (agentSessionDelete(deletedName) == 0) {
                         if (strcmp(s_DefaultAgentName, deletedName) == 0) {
                             s_DefaultAgentName[0] = '\0';
-                            s_DefaultCleanupPending = !configSave("pd.ini");
+                            s_DefaultCleanupPending = !configSave(CONFIG_PATH);
                         }
                         snprintf(s_StatusMessage, sizeof(s_StatusMessage),
                                  "Deleted agent '%s'.", deletedName);

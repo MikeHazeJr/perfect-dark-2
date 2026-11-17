@@ -1,0 +1,136 @@
+{
+  "scenario_name": "auto_campaign_specials",
+  "description": "T-TESTS-002 special assignments run. One ordinary PerfectDark.exe process loads a PC-native agent that the game's own unlock rule offers all four special assignments to (Skedar Ruins completed on every difficulty, every firing range weapon at bronze), starts Mr. Blonde's Revenge through the production mission-start entry, completes each assignment through the scoped objective helper and the authoritative endscreen and save path, leaves each end screen through its Main Menu choice, and starts the next assignment from the menu it started from. A second ordinary client reloads the same agent and verifies all four best times persisted.",
+  "tags": ["campaign", "specials", "t-tests-002", "multi-process", "save"],
+  "paths_of_interest": [
+    "port/src/autocampaign.c",
+    "port/src/campaign_run.c",
+    "port/src/campaign_evidence.c",
+    "port/src/savefile.c",
+    "port/fast3d/pdgui_bridge.c",
+    "src/game/objectives.c",
+    "src/game/endscreen.c",
+    "src/game/mainmenu.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 1680,
+  "install_state": "clean",
+  "remove_paths": [
+    "campaign_release_run.json",
+    "campaign_release_verify.json",
+    "agent_smoke.json"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_specials.json", "dst": "agent_smoke.json" }
+  ],
+  "processes": [
+    {
+      "name": "campaign-live-run",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_run_process.json",
+      "snapshot_log_file": "pd-campaign-live-run.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign",
+        "17",
+        "--auto-campaign-fast",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_complete .* code=0",
+      "wait_timeout_seconds": 1500
+    },
+    {
+      "name": "campaign-restart-verify",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_verify_process.json",
+      "snapshot_log_file": "pd-campaign-restart-verify.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign-verify",
+        "17",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_verified .* code=0",
+      "wait_timeout_seconds": 120
+    }
+  ],
+  "retain_artifacts": [
+    { "src": "campaign_release_run.json" },
+    { "src": "campaign_release_verify.json" },
+    { "src": "agent_smoke.json", "name": "agent_smoke_after_campaign.json" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=17 final=20 missions=4 terminal=menu",
+      "CAMPAIGN\\.AUTO: loaded plan=0 idx=17 stage_id='base:mbr'",
+      "CAMPAIGN\\.AUTO: completed plan=3 idx=20 stage_id='base:duel'",
+      "CAMPAIGN\\.AUTO: routed plan=3 idx=20 stage_id='base:duel' route_to='system:menu'",
+      "CAMPAIGN\\.AUTO: menu verified live profile='smoke' missions=4 difficulty=0",
+      "CAMPAIGN\\.AUTO: persisted verification complete profile='smoke' missions=4",
+      "SMOKE: result=campaign_complete .* code=0",
+      "SMOKE: result=campaign_verified .* code=0"
+    ],
+    "forbidden_patterns": [
+      "CAMPAIGN\\.AUTO: failed reason=",
+      "SMOKE: result=campaign_failed",
+      "SMOKE: result=timeout",
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "catalog miss.*fallback",
+      "numeric fallback",
+      "MISSION\\.GRAPH: cannot ",
+      "SCENARIO\\.GRAPH: cannot [a-z_0-9]+ AI action .*(missing runtime pad id|is not a runtime room|preset pad 9000 needs|not source-derived)",
+      "SCENARIO\\.GRAPH: cannot if_natural_anim ",
+      "SCENARIO\\.GRAPH: AI action set_lights .* room=-1 ",
+      "objective flag probe: ",
+      "objective parity probe: ",
+      "outcome parity probe: ",
+      "ai edge parity: ",
+      "SCENARIO\\.SOURCE: B-1113 no usable rooms\\.json",
+      "SCENARIO\\.SOURCE: B-1114 ",
+      "does not fit 16-bit world coordinates",
+      "have no readable quad",
+      "MISSION\\.GRAPH: refused the executable program",
+      "MISSION\\.GRAPH: event\\.objective\\.status_changed .*(ran nothing|modules=-1)"
+    ],
+    "required_counts": [
+      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_[^']+' nodes=[0-9]+ exec_edges=1 objective_status_events=1 modules=1 ", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.objective\\.status_changed 'base:mission_[^']+' objective=[0-9]+ number=[0-9]+ node=[^ ]+ status=complete modules=1 ", "min": 4, "max": 100 },
+      { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: routed plan=.* route_to='system:menu'", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: menu reached plan=", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 4, "max": 4 },
+      { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 2, "max": 2 },
+      { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: objective parity probe stage_id='base:", "min": 4, "max": 4 },
+      { "pattern": "CAMPAIGN\\.AUTO: outcome parity probe stage_id='base:", "min": 4, "max": 4 },
+      { "pattern": "ai edge parity stage_id='base:[^']+' compared=[1-9][0-9]* differ=0 refused_fallthrough=[0-9]+ untracked=0", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.mission\\.phase_changed 'base:mission_[a-z0-9_]+' phase=active", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.mission\\.phase_changed 'base:mission_[a-z0-9_]+' phase=complete", "min": 4, "max": 4 },
+      { "pattern": "AI\\.GLOBAL: stage 0x[0-9a-f]+ runs the 46 global lists of 'base:ai_global'", "min": 4 },
+      { "pattern": "SCENARIO\\.SOURCE: B-1113 room table 'base:scenario_", "min": 4, "max": 40 },
+      { "pattern": "outside_room=0 source=room_lights\\.json", "min": 4, "max": 40 }
+    ]
+  }
+}

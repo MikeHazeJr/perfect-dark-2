@@ -156,7 +156,7 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	const std::string tick =
 		function_block_debug_hotkey(runner, "void autocampaignTick");
 	const std::string first =
-		function_block_debug_hotkey(runner, "static s32 queueFirstMission");
+		function_block_debug_hotkey(runner, "static s32 queuePlannedMission");
 	const std::string save =
 		read_text_file_debug_hotkey("port/src/savefile.c");
 	const std::string save_header =
@@ -177,8 +177,112 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	REQUIRE(first.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)") !=
 		std::string::npos);
 	REQUIRE(first.find("mainChangeToStage") == std::string::npos);
+	// Special assignments (solo indices after Skedar Ruins) have no next
+	// mission: each one leaves its end screen through the Main Menu choice, the
+	// runner waits for the menu the plan started from, and starts the next one
+	// through the same production entry. A special assignment the game does
+	// not offer to this agent at this difficulty is refused, never unlocked.
+	REQUIRE(runner.find("static s32 specialAssignmentOffered(s32 solo_index)") !=
+		std::string::npos);
+	// B-1117 (decision 8, Mike 2026-11-15: unlock as in the original): one
+	// rule, soloStageIsOffered in mainmenu.c, used by the runner and by the
+	// PC mission menu, so they cannot disagree.
+	REQUIRE(runner.find("return soloStageIsOffered(solo_index) ? 1 : 0;") !=
+		std::string::npos);
+	{
+		const std::string mainmenu =
+			read_text_file_debug_hotkey("src/game/mainmenu.c");
+		const std::string offered =
+			function_block_debug_hotkey(mainmenu, "bool soloStageIsOffered");
+		REQUIRE(offered.find("count = getNumUnlockedSpecialStages();") !=
+			std::string::npos);
+		REQUIRE(offered.find("if (func0f104720(slot) == stageindex) {") !=
+			std::string::npos);
+		REQUIRE(offered.find("return isStageDifficultyUnlocked(stageindex, DIFF_A);") <
+			offered.find("count = getNumUnlockedSpecialStages();"));
+		const std::string solomenu =
+			read_text_file_debug_hotkey("port/fast3d/pdgui_menu_solomission.cpp");
+		const std::string accessible =
+			function_block_debug_hotkey(solomenu, "static bool missionIsAccessible");
+		REQUIRE(accessible.find("return soloStageIsOffered(stageIdx) != 0;") !=
+			std::string::npos);
+		REQUIRE(accessible.find("isStageDifficultyUnlocked") == std::string::npos);
+		REQUIRE(solomenu.find("s32          soloStageIsOffered(s32 stageindex);") !=
+			std::string::npos);
+	}
+	REQUIRE(first.find("!specialAssignmentOffered(solo_index)") != std::string::npos);
+	REQUIRE(first.find("!isStageDifficultyUnlocked(solo_index, s_run.difficulty)") !=
+		std::string::npos);
+	REQUIRE(first.find("!specialAssignmentOffered(solo_index)") <
+		first.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)"));
+	REQUIRE(runner.find("|| (special && s_stop_after_final_load)") != std::string::npos);
+	REQUIRE(runner.find("if (special && !campaignRunSetTerminalMenu(&s_run)) {") !=
+		std::string::npos);
+	REQUIRE(tick.find("pdguiEndscreenExitToMainMenu();") != std::string::npos);
+	REQUIRE(tick.find("mission->stage_id, \"system:menu\", 0, 0)") != std::string::npos);
+	REQUIRE(tick.find("case AC_STATE_WAIT_MENU:") != std::string::npos);
+	REQUIRE(tick.find("&& g_Vars.stagenum == STAGE_CITRAINING") != std::string::npos);
+	REQUIRE(tick.find("campaignRunRecordMenu(&s_run, 1, presence == s_menu_presence)") !=
+		std::string::npos);
+	REQUIRE(tick.find("if (queuePlannedMission(s_run.completed_count)) {") !=
+		std::string::npos);
+	REQUIRE(runner.find("g_GameFile.autostageindex != s_run.final_solo_index") !=
+		std::string::npos);
 	REQUIRE(tick.find("objectivesDebugCompleteCurrentMission()") !=
 		std::string::npos);
+	// B-1111: flag objectives are proven through the production check, with
+	// their real flags, before forced completion makes every check pass.
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") !=
+		std::string::npos);
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") <
+		tick.find("objectivesDebugCompleteCurrentMission()"));
+	REQUIRE(runner.find("chrSetStageFlag(NULL, want)") != std::string::npos);
+	REQUIRE(runner.find("clear_status != OBJECTIVE_INCOMPLETE") != std::string::npos);
+	REQUIRE(runner.find("set_status != OBJECTIVE_COMPLETE") != std::string::npos);
+	REQUIRE(runner.find("fail_status != OBJECTIVE_FAILED") != std::string::npos);
+	REQUIRE(runner.find("g_StageFlags != saved") != std::string::npos);
+	// Every graph-evaluated objective must give the native answer before the
+	// forced end, whatever its criteria (objects, rooms, holographs, flags).
+	REQUIRE(tick.find("probeObjectiveParity(mission->stage_id) < 0") != std::string::npos);
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") <
+		tick.find("probeObjectiveParity(mission->stage_id) < 0"));
+	REQUIRE(tick.find("probeObjectiveParity(mission->stage_id) < 0") <
+		tick.find("objectivesDebugCompleteCurrentMission()"));
+	REQUIRE(runner.find("if (!objectiveGraphParity(i, &graph, &native)) {") != std::string::npos);
+	REQUIRE(runner.find("objective parity probe: '%s' objective %d graph=%s native=%s") !=
+		std::string::npos);
+	{
+		const std::string objectives =
+			read_text_file_debug_hotkey("src/game/objectives.c");
+		const std::string check =
+			function_block_debug_hotkey(objectives, "s32 objectiveCheck");
+		const std::string parity =
+			function_block_debug_hotkey(objectives, "bool objectiveGraphParity");
+		REQUIRE(objectives.find("static s32 objectiveCheckNative(s32 index)") != std::string::npos);
+		// Decision 1: no native fallback in play. An objective the graph
+		// cannot evaluate stays incomplete and is logged; the original
+		// evaluation is left only as the parity oracle below.
+		REQUIRE(check.find("objectiveCheckNative(") == std::string::npos);
+		REQUIRE(check.find("objstatus = OBJECTIVE_INCOMPLETE;\n\t\t\tobjectiveLogNoGraphOnce(index);") !=
+			std::string::npos);
+		REQUIRE(objectives.find("\ts_ObjectiveNoGraphLogged = 0;\n\tobjectiveSeedGraphObjectStates();") !=
+			std::string::npos);
+		REQUIRE(parity.find("if (!objectiveCheckGraphSource(index, &graph)) {") != std::string::npos);
+		REQUIRE(parity.find("*out_native = objectiveCheckNative(index);") != std::string::npos);
+		REQUIRE(parity.find("scenarioSourceObjectiveGraphRecordCheck") == std::string::npos);
+	}
+	// Soak: live play for a set number of game seconds before the forced
+	// end. It protects the idle player and fails on a mission that ends by
+	// itself, a death anyway, or game time that stops.
+	REQUIRE(runner.find("sysArgGetInt(\"--auto-campaign-soak\", 0)") != std::string::npos);
+	REQUIRE(tick.find("if (soakTick()) {") != std::string::npos);
+	REQUIRE(tick.find("if (soakTick()) {") <
+		tick.find("probeFlagObjectives(mission->stage_id) < 0"));
+	REQUIRE(runner.find("g_PlayerInvincible = true;") != std::string::npos);
+	REQUIRE(runner.find("g_PlayerInvincible = false;") != std::string::npos);
+	REQUIRE(runner.find("soak: mission '%s' ended by itself") != std::string::npos);
+	REQUIRE(runner.find("soak: the player died") != std::string::npos);
+	REQUIRE(runner.find("soak: game time stopped advancing") != std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&before)") !=
 		std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&after)") !=
@@ -257,6 +361,47 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(release.find("agent_smoke_after_campaign.json") != std::string::npos);
 	REQUIRE(release.find("campaign_complete") != std::string::npos);
 	REQUIRE(release.find("campaign_verified") != std::string::npos);
+	// Every campaign mission runs from its mission graph and passes the
+	// objective flag probe; a graph objective mismatch fails the run.
+	REQUIRE(release.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"MISSION\\\\.GRAPH: cannot \"") != std::string::npos);
+	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective parity probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"objective parity probe: \"") != std::string::npos);
+	// Every stage takes its room boxes from the authored table and has every
+	// room light inside its room (B-1113, B-1114), and the RC-P120 a Defense
+	// objective asks for exists when the mission starts.
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1113 room table 'base:scenario_\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(release.find("\"outside_room=0 source=room_lights\\\\.json\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1113 no usable rooms\\\\.json\"") !=
+		std::string::npos);
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1114 \"") != std::string::npos);
+	REQUIRE(release.find("base_mission_defense\\\\.pdmission::objectives\\\\.json' .*tag=5 present=1") !=
+		std::string::npos);
+
+	// The soak fixture keeps every mission alive for a minute and holds the
+	// same graph and probe requirements as the release fixture.
+	const std::string soak =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_soak.json");
+	REQUIRE(soak.find("\"--auto-campaign-soak\",\n        \"60\"") != std::string::npos);
+	REQUIRE(soak.find("\"CAMPAIGN\\\\.AUTO: soak done plan=\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"soak: \"") != std::string::npos);
+	REQUIRE(soak.find("\"SCENARIO\\\\.SOURCE: B-1113 room table 'base:scenario_\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"outside_room=0 source=room_lights\\\\.json\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"SCENARIO\\\\.SOURCE: B-1114 \"") != std::string::npos);
+	REQUIRE(soak.find("campaign_soak_run_process.json") != std::string::npos);
 
 	REQUIRE(skedar.find("start=16 final=16 missions=1") != std::string::npos);
 	REQUIRE(skedar.find("system:credits") != std::string::npos);
@@ -277,5 +422,47 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(invalid_cli.find("\"expected_exit_code\": 2") !=
 		std::string::npos);
 	REQUIRE(invalid_cli.find("CAMPAIGN\\\\.AUTO: plan profile=") !=
+		std::string::npos);
+}
+
+// B-1118: presence is "in-match" only while a solo stage is entered. The old
+// test (g_MissionConfig.stageindex >= 0) was always true for the unsigned
+// index, so the Carrington Institute menu backdrop showed in-match to friends
+// for any loaded agent. The special-assignment runner compares presence at the
+// menu with the menu it started from, so it holds either way.
+TEST_CASE("presence reads in-match only while a solo stage is entered",
+	"[presence][campaign][static][b-1118]")
+{
+	const std::string pdmain = read_text_file_debug_hotkey("port/src/pdmain.c");
+
+	REQUIRE(pdmain.find("#include \"game/stagetable.h\"") != std::string::npos);
+	REQUIRE(pdmain.find("const bool inMission = soloStageGetIndex(stagenum) >= 0;") !=
+		std::string::npos);
+	REQUIRE(pdmain.find("(g_MissionConfig.stageindex >= 0)") == std::string::npos);
+	REQUIRE(pdmain.find("presenceSetLocalState(PRESENCE_IN_MATCH);") != std::string::npos);
+}
+
+TEST_CASE("special assignments fixture runs all four from an agent the game offers them to",
+	"[debug][campaign][specials][static][t-tests-002]")
+{
+	const std::string specials =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_specials.json");
+	const std::string agent =
+		read_text_file_debug_hotkey("tools/smoke-verify/fixtures/agent_specials.json");
+
+	REQUIRE(specials.find("\"src\": \"tools/smoke-verify/fixtures/agent_specials.json\"") !=
+		std::string::npos);
+	REQUIRE(specials.find("\"--auto-campaign\",\n        \"17\",") != std::string::npos);
+	REQUIRE(specials.find("\"--auto-campaign-verify\",\n        \"17\",") != std::string::npos);
+	REQUIRE(specials.find("start=17 final=20 missions=4 terminal=menu") != std::string::npos);
+	REQUIRE(specials.find("\"CAMPAIGN\\\\.AUTO: menu reached plan=\", \"min\": 4, \"max\": 4") !=
+		std::string::npos);
+	REQUIRE(specials.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 4, \"max\": 4") !=
+		std::string::npos);
+
+	// Skedar Ruins on all three difficulties offers Mr. Blonde's Revenge,
+	// Maian SOS and WAR!; a medal on all 32 firing range weapons offers The Duel.
+	REQUIRE(agent.find("[0, 0, 0], [1, 1, 1], [0, 0, 0], [0, 0, 0], [0, 0, 0],") != std::string::npos);
+	REQUIRE(agent.find("\"firingrangescores\": [85, 85, 85, 85, 85, 85, 85, 85, 0]") !=
 		std::string::npos);
 }

@@ -76,7 +76,7 @@ void bgunEnterFlux(void);
 bool bgunChangeGunMem(s32 newowner);
 void bgunTickGunLoad(void);
 bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
-    struct modeldef **modeldef, uintptr_t *memptr, uintptr_t *memremaining);
+    struct modeldef **modeldef, u8 **memptr, u32 *memremaining);
 bool bgunBodyHandSourceIsCurrent(struct player *player, s32 bodynum);
 void bgunTickMasterLoad(void);
 void bgunTickLoad(void);

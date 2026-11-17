@@ -106,6 +106,40 @@ TEST_CASE("Real config candidate open failure preserves unrelated bytes and uncl
     REQUIRE(configSave("") == 0);
 }
 
+// B-1160: thirteen menu saves passed the bare name "pd.ini". A bare name
+// resolves like a read, so with a base folder set the config landed there,
+// where configInit never reads it, and a fresh profile started from that
+// folder copied it in. A save has to name its folder now.
+TEST_CASE("B-1160: config save refuses a bare file name and writes nothing",
+          "[settings-save][config-save][b1160]")
+{
+    Directory dir;
+    registerValues();
+    struct WorkingFolder {
+        fs::path previous = fs::current_path();
+        explicit WorkingFolder(const fs::path &to) { fs::current_path(to); }
+        ~WorkingFolder() { std::error_code ignored; fs::current_path(previous, ignored); }
+    };
+    s32 bare = -1;
+    s32 nested = -1;
+    bool wroteBare = true;
+    s32 working = -1;
+    {
+        WorkingFolder here(dir.path);
+        bare = configSave(CONFIG_FNAME);
+        nested = configSave("settings/pd.ini");
+        wroteBare = fs::exists(dir.path / CONFIG_FNAME);
+        // ./ names the working folder on purpose, so it is still allowed.
+        working = configSave("./" CONFIG_FNAME);
+    }
+    REQUIRE(bare == 0);
+    REQUIRE(nested == 0);
+    REQUIRE_FALSE(wroteBare);
+    REQUIRE(working == 1);
+    REQUIRE(fs::exists(dir.path / CONFIG_FNAME));
+    REQUIRE(candidates(dir.path) == 0);
+}
+
 TEST_CASE("Real config serializer detects a stream write failure without publishing normalization",
           "[settings-save][config-save]")
 {

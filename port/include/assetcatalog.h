@@ -107,6 +107,7 @@ typedef enum {
     ASSET_FONT,                /* reusable UI/gameplay font face asset */
     ASSET_SCENARIO,            /* level/map content selected by arenas, missions, or modes */
     ASSET_THEME,               /* menu/UI theme bundle asset */
+    ASSET_AI_LISTS,            /* global AI list bank (pd2.scenario.ai.lists.v1 rows; base asset base:ai_global) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -507,6 +508,11 @@ typedef struct asset_entry {
             s32 string_count_declared; /* distinguish absent count from declared zero */
             char strings_file[FS_MAXPATH];
         } lang;
+        struct {
+            /* ai.ini ai_lists_file: the public pd2.scenario.ai.lists.v1 rows
+             * of the global lists (ai/global_ailists.json in a .pdai). */
+            char lists_file[FS_MAXPATH];
+        } ai_lists;
         struct {
             char font_file[FS_MAXPATH];    /* vector font or bitmap glyph atlas */
             char metrics_file[FS_MAXPATH]; /* bitmap glyph metrics/kerning source */

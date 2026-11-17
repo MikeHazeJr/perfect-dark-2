@@ -1481,7 +1481,7 @@ static s32 s_emitOneChrAnim(s32 anim_idx,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		s_textbufFree(&animation_gltf);
 		sysLoudFailf("EXTRACT.PDANIM_CHR",

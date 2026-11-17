@@ -37,6 +37,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -267,6 +268,9 @@ extern struct sm_briefing g_Briefing;
 s32          isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
+/* B-1117: the C definition returns the project bool (s32); spelled s32 here
+ * because this file does not include types.h (SP-75). */
+s32          soloStageIsOffered(s32 stageindex);
 void         lvSetDifficulty(s32 difficulty);
 s32          lvGetDifficulty(void);
 s32          objectiveGetCount(void);
@@ -651,11 +655,15 @@ static void countSpecialCompletions(s32 *doneOut, s32 *totalOut)
  * All in one screen — no dialog chain.
  */
 
-/** Helper: check if a stage index is accessible (unlocked on Agent, or debug override). */
+/** Helper: check if a stage index is offered (or debug override).
+ *  B-1117: special assignments unlock as in the original (one per difficulty
+ *  Skedar Ruins was completed on, The Duel with every firing range medal);
+ *  every other stage once Agent is unlocked. Same rule as the original's
+ *  special-missions list and the campaign runner (soloStageIsOffered). */
 static bool missionIsAccessible(s32 stageIdx)
 {
     if (s_ShowLockedMissions) return true;
-    return (bool)isStageDifficultyUnlocked(stageIdx, DIFF_A);
+    return soloStageIsOffered(stageIdx) != 0;
 }
 
 /** Helper: set the selected mission and load its briefing data. */
@@ -3481,7 +3489,7 @@ static void renderOptionsControls(void)
         bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
         if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
             inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
-            configSave("pd.ini");
+            configSave(CONFIG_PATH);
         }
     }
 
@@ -3559,7 +3567,7 @@ static s32 renderOptions(struct menudialog *dialog,
     /* B / Escape = back + save config */
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
         prefsAgentSave();
         menuGraphFireSwitchSibling(MENU_TYPE_SOLO_OPTIONS, "back",
                                    &g_SoloMissionPauseMenuDialog);

@@ -470,6 +470,8 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     "TurretFire",
     "TurretZoom",
 };
+/* Every action has a name: a missing one is a null config key (B-1116 on
+ * week-pd/core, the same fix as CRYSTAL's B-1184). */
 static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
               "B-1184: every InputAction needs a persisted name");
 

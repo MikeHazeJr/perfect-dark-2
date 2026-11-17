@@ -519,6 +519,7 @@ static const char *iniNameForType(asset_type_e t)
         case ASSET_LANG:        return "lang.ini";
         case ASSET_HUD:         return "hud.ini";
         case ASSET_THEME:       return "theme.ini";
+        case ASSET_AI_LISTS:    return "ai.ini";
         case ASSET_TOOL:        return "tool.ini";
         default:                return "";
     }
@@ -626,7 +627,7 @@ static const asset_type_e s_AllTypes[] = {
     ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
     ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
     ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
-    ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL
+    ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_AI_LISTS, ASSET_TOOL
 };
 static const int s_NumAllTypes = (int)(sizeof(s_AllTypes)/sizeof(s_AllTypes[0]));
 

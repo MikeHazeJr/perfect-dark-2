@@ -98,7 +98,13 @@ the mission graph handles it, else the default next-mission flow; the PC end
 screen (`pdgui_bridge.c`) asks whether the continue event reaches
 `og.mission.start_credits` for its Credits action and otherwise keeps its own
 Next Mission advance, which already starts the next stage; the co-op stage end
-(`menutick.c`) asks whether it reaches `og.mission.start_next_stage`. When the
+(`menutick.c`) asks whether it reaches `og.mission.start_next_stage`. That
+co-op branch sits in menuTick's root -6 ("match is ending") path, which only
+`mpEndMatch` requests (`mplayer.c`); a co-op mission ends through
+`mainEndStage`, which pushes the co-op end screens directly, in the original
+(`src/lib/main.c`) as in this port (`port/src/pdmain.c`). So the branch and its
+`coop_stage_end` seam are never reached, and co-op Deep Sea continues from its
+end screen, as the original does (MULTIPLAYER's question, 2026-11-16). When the
 continue event runs nothing (a module refused), the end screen closes rather
 than leaving the player on it. A mission without these nodes ends as any other.
 Defense's unknown outcome is a presentation rule of the stage, so it is the

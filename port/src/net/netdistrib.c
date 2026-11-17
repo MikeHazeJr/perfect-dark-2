@@ -948,6 +948,16 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 			distribSendEnd(cl, catalog_id, 0);
 			return;
 		}
+		/* The host runs every AI list and clients never do, so an AI list
+		 * never travels with a host's mods; it is not advertised either
+		 * (context/designs/modding/global-ai-lists.md). */
+		if (entry->type == ASSET_AI_LISTS) {
+			sysLogPrintf(LOG_WARNING,
+				"DISTRIB: client requested AI lists '%s' -- refused, AI lists stay on the host",
+				entry->id);
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
 		id = entry->id;
 		category = entry->category;
 		raw = buildComponentArchive(entry, &raw_len);
@@ -1776,7 +1786,10 @@ static void netDistribClientDeclineActiveManifest(const char *reason)
 
 /* H-2: Map an INI filename ("map.ini", "character.ini", ...) to the asset_type_e
  * that the scanner would register locally. Keeps wire-delivered mods type-resolvable
- * on arrival so the typed catalog resolvers work before the next refresh tick. */
+ * on arrival so the typed catalog resolvers work before the next refresh tick.
+ * ai.ini (ASSET_AI_LISTS) is deliberately not mapped, nor in the received INI
+ * list below: AI lists never travel with a host's mods, so a client never
+ * receives one (context/designs/modding/global-ai-lists.md). */
 static asset_type_e iniFilenameToAssetType(const char *ini_name)
 {
     if (!ini_name) return ASSET_NONE;

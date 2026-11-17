@@ -155,6 +155,7 @@
 #include "net/netdistrib.h"
 #include "net/net.h"
 #include "net/net_reconnect.h"
+#include "game/chraction.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
@@ -235,6 +236,7 @@ typedef enum {
     SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT,
     SMOKE_EVENT_NETWORK_RECONNECT,
     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
+    SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -504,6 +506,9 @@ static const SmokeKeyEntry s_KeyTable[] = {
     { "Down",        SDL_SCANCODE_DOWN       },
     { "Left",        SDL_SCANCODE_LEFT       },
     { "Right",       SDL_SCANCODE_RIGHT      },
+    /* B-1170: menu_settings_keyboard pages with these since 6044d0fa. */
+    { "PageUp",      SDL_SCANCODE_PAGEUP     },
+    { "PageDown",    SDL_SCANCODE_PAGEDOWN   },
     { "LShift",      SDL_SCANCODE_LSHIFT     },
     { "RShift",      SDL_SCANCODE_RSHIFT     },
     { "LCtrl",       SDL_SCANCODE_LCTRL      },
@@ -1037,6 +1042,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "kill_player")) {
 		ev->type = SMOKE_EVENT_KILL_PLAYER;
+		return 1;
+	}
+	if (!strcmp(type_str, "kill_simulant")) {
+		ev->type = SMOKE_EVENT_KILL_SIMULANT;
 		return 1;
 	}
     if (!strcmp(type_str, "network_timeout_client")) {
@@ -2996,6 +3005,35 @@ void smokeHarnessTick(void)
 					victim->isdead ? 1 : 0, ev->at_ms);
 			} else {
 				sysLogPrintf(LOG_WARNING, "SMOKE.KILL_PLAYER: player 0 unavailable or already dead at_ms=%d",
+					ev->at_ms);
+			}
+			break;
+		}
+		case SMOKE_EVENT_KILL_SIMULANT:
+		{
+			/* T-MODDING-011 (ai-list-graphs.md): the first live simulant takes
+			 * lethal damage through the ordinary damage path, so it dies,
+			 * runs its dead list and respawns as in play (the simulant twin
+			 * smoke's if_bot_respawning branches). */
+			struct chrdata *victim = NULL;
+			s32 slot;
+
+			for (slot = 0; slot < g_BotCount && slot < MAX_BOTS; slot++) {
+				struct chrdata *chr = g_MpBotChrPtrs[slot];
+
+				if (chr != NULL && chr->prop != NULL && chr->aibot != NULL && !chrIsDead(chr)) {
+					victim = chr;
+					break;
+				}
+			}
+			if (victim != NULL) {
+				struct coord vector = { 0.0f, 0.0f, 1.0f };
+
+				chrDamageByMisc(victim, 1000.0f, &vector, NULL, NULL);
+				sysLogPrintf(LOG_NOTE, "SMOKE.KILL_SIMULANT: slot=%d chr=%d died=%d at_ms=%d",
+					slot, victim->chrnum, chrIsDead(victim) ? 1 : 0, ev->at_ms);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SMOKE.KILL_SIMULANT: no live simulant at_ms=%d",
 					ev->at_ms);
 			}
 			break;

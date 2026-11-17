@@ -24,10 +24,16 @@ const char *campaignRunPhaseName(campaign_run_phase_t phase)
 	case CAMPAIGN_RUN_PHASE_WAIT_COMPLETE: return "wait_complete";
 	case CAMPAIGN_RUN_PHASE_WAIT_ROUTE: return "wait_route";
 	case CAMPAIGN_RUN_PHASE_WAIT_CREDITS: return "wait_credits";
+	case CAMPAIGN_RUN_PHASE_WAIT_MENU: return "wait_menu";
 	case CAMPAIGN_RUN_PHASE_COMPLETE: return "complete";
 	case CAMPAIGN_RUN_PHASE_FAILED: return "failed";
 	default: return "unknown";
 	}
+}
+
+const char *campaignRunTerminalName(campaign_run_terminal_t terminal)
+{
+	return terminal == CAMPAIGN_RUN_TERMINAL_MENU ? "menu" : "credits";
 }
 
 const char *campaignRunFailureName(campaign_run_failure_t failure)
@@ -139,6 +145,19 @@ int campaignRunInit(campaign_run_t *run,
 	run->difficulty = difficulty;
 	run->mission_count = mission_count;
 	run->phase = CAMPAIGN_RUN_PHASE_WAIT_LOAD;
+	return 1;
+}
+
+int campaignRunSetTerminalMenu(campaign_run_t *run)
+{
+	if (!run || run->phase != CAMPAIGN_RUN_PHASE_WAIT_LOAD
+			|| run->completed_count != 0
+			|| run->current_plan_index != -1
+			|| run->missions[0].loaded) {
+		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_EVENT_ORDER,
+			"plan terminal changed after the first mission loaded");
+	}
+	run->terminal = CAMPAIGN_RUN_TERMINAL_MENU;
 	return 1;
 }
 
@@ -294,7 +313,16 @@ int campaignRunRecordRoute(campaign_run_t *run,
 			"route source differs from the completed mission");
 	}
 
-	if (current == run->mission_count - 1) {
+	if (run->terminal == CAMPAIGN_RUN_TERMINAL_MENU) {
+		/* No mission of this plan has a next mission: each one leaves its end
+		 * screen for the main menu, and nothing needs to be unlocked by it. */
+		if (route_is_credits || !route_to || strcmp(route_to, "system:menu") != 0) {
+			return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_ROUTE,
+				"special assignment did not route to the main menu");
+		}
+		mission->route_is_menu = 1;
+		run->phase = CAMPAIGN_RUN_PHASE_WAIT_MENU;
+	} else if (current == run->mission_count - 1) {
 		if (!route_is_credits || !route_to || strcmp(route_to, "system:credits") != 0) {
 			return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_ROUTE,
 				"final campaign mission did not route to Credits");
@@ -320,13 +348,63 @@ int campaignRunRecordRoute(campaign_run_t *run,
 	return 1;
 }
 
+int campaignRunRecordMenu(campaign_run_t *run,
+	s32 menu_live,
+	s32 presence_as_at_start)
+{
+	campaign_run_mission_t *mission;
+	s32 i;
+
+	if (!run || run->terminal != CAMPAIGN_RUN_TERMINAL_MENU
+			|| run->phase != CAMPAIGN_RUN_PHASE_WAIT_MENU
+			|| run->current_plan_index < 0
+			|| run->current_plan_index >= run->mission_count) {
+		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_EVENT_ORDER,
+			"main menu recorded outside wait-menu phase");
+	}
+	if (!menu_live) {
+		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_ROUTE,
+			"main menu was requested but never became live");
+	}
+	if (!presence_as_at_start) {
+		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_SOCIAL_STATE,
+			"presence at the main menu differs from the menu the plan started from");
+	}
+
+	mission = &run->missions[run->current_plan_index];
+	if (!mission->loaded || !mission->completed || !mission->routed
+			|| !mission->route_is_menu || mission->menu_reached) {
+		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_EVENT_ORDER,
+			"main menu recorded for a mission that did not route to it");
+	}
+	mission->menu_reached = 1;
+
+	if (run->completed_count < run->mission_count) {
+		run->phase = CAMPAIGN_RUN_PHASE_WAIT_LOAD;
+		return 1;
+	}
+	for (i = 0; i < run->mission_count; i++) {
+		if (!run->missions[i].loaded
+				|| !run->missions[i].completed
+				|| !run->missions[i].routed
+				|| !run->missions[i].menu_reached) {
+			return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_ROUTE,
+				"special assignment evidence is incomplete at the main menu");
+		}
+	}
+	run->menu_verified = 1;
+	run->phase = CAMPAIGN_RUN_PHASE_COMPLETE;
+	return 1;
+}
+
 int campaignRunRecordCredits(campaign_run_t *run,
 	s32 credits_live,
 	s32 social_idle)
 {
 	s32 i;
 
-	if (!run || run->phase != CAMPAIGN_RUN_PHASE_WAIT_CREDITS) {
+	if (!run || run->terminal != CAMPAIGN_RUN_TERMINAL_CREDITS
+			|| run->phase != CAMPAIGN_RUN_PHASE_WAIT_CREDITS) {
 		return campaignRunFail(run, CAMPAIGN_RUN_FAILURE_EVENT_ORDER,
 			"Credits recorded outside wait-credits phase");
 	}

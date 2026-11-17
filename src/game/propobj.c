@@ -102,6 +102,10 @@ extern void statIncrement(const char *key, u64 amount);
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "scene.h"
+#include "mission_graph_runner.h"
+#include "scenario_source_runtime.h"
+#include "weapondata_authored.h"
+#include <stdio.h>
 
 void rng2SetSeed(u32 seed);
 
@@ -210,7 +214,7 @@ struct thrownlaptoplatch {
 	s32 valid;            /* 0 = no entity graph at deploy; every consumer reverts to OG */
 	s32 fireinterval;     /* weaponGraphAutogunFireInterval(rpm); 1 = OG cadence */
 	s32 alternate;        /* autogun_alternate_muzzles; -1 sentinel = OG modelGetPart gate */
-	s32 beaminterval;     /* authored beam_interval_ticks60 > 0, else OG literal 4 */
+	s32 beaminterval;     /* authored beam_interval (shots) > 0, else OG literal 4 */
 	s32 ffsuppress;       /* autogun_friendly_fire_suppression; -1 sentinel = OG (suppress) */
 	s32 pickuprecover;    /* autogun_pickup_recover; -1 sentinel = OG (recoverable) */
 	s32 recoverweaponnum; /* weapon given on recover; gset->weaponnum fallback */
@@ -5211,10 +5215,76 @@ bool objEmbed(struct prop *prop, struct prop *parent, struct model *model, struc
 	return false;
 }
 
+/* A custom (graph) projectile leaves one line when it lands: what it hit and
+ * whether it attached, was deleted because the prop it hit was off screen
+ * this tick, or rests on the background (MODS ask in the week note,
+ * 2026-11-15). Base weapons never log. Capped per process. */
+#define OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP 64
+static s32 s_ObjCustomProjectileLandLogs = 0;
+
+static const char *objLandTargetName(const struct prop *target)
+{
+	if (target == NULL) {
+		return "background";
+	}
+
+	switch (target->type) {
+	case PROPTYPE_CHR: return "chr";
+	case PROPTYPE_PLAYER: return "player";
+	case PROPTYPE_OBJ: return "object";
+	case PROPTYPE_DOOR: return "door";
+	case PROPTYPE_WEAPON: return "weapon";
+	default: return "prop";
+	}
+}
+
+static void objLogCustomProjectileLanding(struct defaultobj *obj,
+		const struct coord *pos, s32 attached)
+{
+	const weapon_graph_projectile_runtime_t *landgraph;
+	struct weaponobj *weapon;
+	const char *outcome;
+
+	if (obj->type != OBJTYPE_WEAPON
+			|| s_ObjCustomProjectileLandLogs >= OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		return;
+	}
+
+	weapon = (struct weaponobj *)obj;
+	landgraph = weaponGetCustomProjectileGraph(weapon);
+
+	if (landgraph == NULL) {
+		return;
+	}
+
+	if (g_EmbedProp == NULL) {
+		outcome = "rests on the background";
+	} else if (attached) {
+		outcome = "attached";
+	} else if (obj->hidden & OBJHFLAG_DELETING) {
+		outcome = "deleted (the prop it hit was not on screen this tick)";
+	} else {
+		outcome = "not attached (no embedment slot)";
+	}
+
+	s_ObjCustomProjectileLandLogs++;
+	sysLogPrintf(LOG_NOTE,
+		"WEAPON.GRAPH: custom projectile landed weapon=%d asset='%s' on=%s: %s pos=(%.1f, %.1f, %.1f) model_scale=%.4f",
+		weapon->weaponnum, landgraph->asset_id, objLandTargetName(g_EmbedProp), outcome,
+		pos->x, pos->y, pos->z, obj->model ? obj->model->scale : 0.0f);
+
+	if (s_ObjCustomProjectileLandLogs == OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: %d custom projectile landing lines logged; later landings are not logged",
+			OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP);
+	}
+}
+
 void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *embedded)
 {
 	struct defaultobj *obj = prop->obj;
 	struct prop *ownerprop = NULL;
+	s32 attached = false;
 
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
@@ -5294,6 +5364,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
 			if (objEmbed(prop, g_EmbedProp, g_EmbedModel, g_EmbedNode)) {
 				*embedded = true;
+				attached = true;
 			}
 		} else {
 			obj->hidden |= OBJHFLAG_DELETING;
@@ -5303,6 +5374,8 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 		bgunPlayBgHitSound(&weapon->gset, arg1, -1, prop->rooms);
 	}
+
+	objLogCustomProjectileLanding(obj, arg1, attached);
 }
 
 s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
@@ -11154,8 +11227,9 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct coord hitpos;
 				RoomNum hitrooms[8];
 				/* c3849 Wave 5 Unit 7: the OG beam literal 4 routes through
-				 * the deploy latch (autogun_beam_interval_ticks60; deploy
-				 * defaults the latch to 4, bit-identical for base). */
+				 * the deploy latch (autogun_beam_every_shots, a beam every N
+				 * shots; deploy defaults the latch to 4, bit-identical for
+				 * base). */
 				bool makebeam = (autogun->firecount
 						% (latch != NULL && latch->beaminterval > 0 ? latch->beaminterval : 4)) == 0;
 				struct prop *targetprop = autogun->target;
@@ -11922,6 +11996,87 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->fireslotthing->unk00++;
 }
 
+/* Object rules (object-rules.md): a chopper's hums and fall from its
+ * objects.json row on a stage built from scenario source, kept beside the
+ * object (struct chopperobj does not grow; the B-323 stride class). A ROM
+ * stage keeps the original's Extraction checks. */
+#define CHOPPER_RULES_MAX 8
+
+static struct {
+	struct chopperobj *chopper;
+	s16 engine_hum;
+	s16 thrust_hum;
+	bool drop;
+} s_ChopperRules[CHOPPER_RULES_MAX];
+static s32 s_ChopperRuleCount;
+
+void chopperClearRules(void)
+{
+	s_ChopperRuleCount = 0;
+}
+
+void chopperSetRules(struct chopperobj *chopper, s16 engine_hum, s16 thrust_hum, bool drop)
+{
+	if (s_ChopperRuleCount >= CHOPPER_RULES_MAX) {
+		sysLogPrintf(LOG_ERROR, "SETUP: more than %d choppers carry object rules; this one keeps the defaults",
+			CHOPPER_RULES_MAX);
+		return;
+	}
+	s_ChopperRules[s_ChopperRuleCount].chopper = chopper;
+	s_ChopperRules[s_ChopperRuleCount].engine_hum = engine_hum;
+	s_ChopperRules[s_ChopperRuleCount].thrust_hum = thrust_hum;
+	s_ChopperRules[s_ChopperRuleCount].drop = drop;
+	s_ChopperRuleCount++;
+	sysLogPrintf(LOG_NOTE, "SETUP: chopper object rules engine_hum=0x%04x thrust_hum=0x%04x fall=%s",
+		(u16)engine_hum, (u16)thrust_hum, drop ? "drop" : "crash");
+}
+
+static s32 chopperRuleIndex(struct chopperobj *chopper)
+{
+	s32 i;
+
+	for (i = 0; i < s_ChopperRuleCount; i++) {
+		if (s_ChopperRules[i].chopper == chopper) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static s32 chopperEngineHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].engine_hum ? s_ChopperRules[i].engine_hum : SFX_810F;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+}
+
+static s32 chopperThrustHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].thrust_hum ? s_ChopperRules[i].thrust_hum : SFX_8110;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+}
+
+static bool chopperFallsAsDrop(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].drop;
+	}
+
+	return stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION;
+}
+
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing)
 {
 	struct defaultobj *obj = prop->obj;
@@ -12057,7 +12212,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	mtx3Copy(rotmtx3, chopper->base.realrot);
 
 	if (chopper->power > 0.45f && !firing && (chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+		soundnum = chopperThrustHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM2);
 	} else {
@@ -12094,7 +12249,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	chopperIncrementBarrel(prop, firing);
 
 	if ((chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+		soundnum = chopperEngineHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM1);
 	} else {
@@ -12175,7 +12330,7 @@ void chopperTickFall(struct prop *chopperprop)
 
 	goalroty = chopper->roty + *x + *z;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION) {
+	if (chopperFallsAsDrop(chopper)) {
 		// The Extraction chopper falls without any collision checks and is
 		// reaped once it reaches the lower barrier
 		if (chopperprop->pos.y < -30000) {
@@ -18827,11 +18982,82 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	return currentPlayerTryMountHoverbikeNative(prop);
 }
 
+/* object-events.md slice 2: an object event's payload, captured from the
+ * object before a pickup or a free can retire it: its objects.json record_id
+ * (its setup command index; "" for an object the setup did not place), its
+ * tag, its type and its catalog id (a weapon pickup's weapon, else its
+ * model). */
+struct objgraphevent {
+	char object[24];
+	s32 tag;
+	s32 type;
+	const char *catalog_id;
+};
+
+static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out)
+{
+	u32 cmdindex = obj && obj->prop ? setupGetCmdIndexByProp(obj->prop) : 0xffffffff;
+
+	out->object[0] = '\0';
+	out->tag = -1;
+	out->type = -1;
+	out->catalog_id = NULL;
+	if (!obj) {
+		return;
+	}
+	if (cmdindex != 0xffffffff) {
+		snprintf(out->object, sizeof(out->object), "setup_%04u", (unsigned)cmdindex);
+	}
+	out->tag = objGetTagNum(obj);
+	out->type = obj->type;
+	if (obj->type == OBJTYPE_WEAPON) {
+		const s32 weaponnum = ((struct weaponobj *)obj)->weaponnum;
+
+		if (weaponnum >= 0 && weaponnum < g_WeaponDataCount) {
+			out->catalog_id = g_WeaponDataCatalogIds[weaponnum];
+		}
+	} else {
+		out->catalog_id = catalogModelIdByModelnum(obj->modelnum);
+	}
+}
+
+/* Fires the event on the host: a networked client fires none (the host's
+ * graphs decide). */
+static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 playernum)
+{
+	if (g_NetMode == NETMODE_CLIENT || ev->type < 0) {
+		return;
+	}
+	scenarioSourceGraphObjectEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id, playernum);
+}
+
+/* object-events.md slice 3: asks the graphs before the native rule; true
+ * when one refused (og.pickup.refuse, og.door.refuse). Nothing is built or
+ * asked when no graph handles the query, and a networked client asks
+ * nothing (the host decides). */
+static bool objGraphQueryRefuses(s32 kind, struct defaultobj *obj, s32 playernum)
+{
+	struct objgraphevent ev;
+
+	if (g_NetMode == NETMODE_CLIENT || !scenarioSourceGraphHandlesObjectQuery(kind)) {
+		return false;
+	}
+	objGraphEventCapture(obj, &ev);
+	if (ev.type < 0) {
+		return false;
+	}
+	return scenarioSourceGraphObjectQuery(kind, ev.object, ev.tag, ev.type, ev.catalog_id,
+		playernum) != 0;
+}
+
 bool propobjInteract(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
 	bool result = false;
 	u32 tag_id = propobjGetCiTagId(prop);
+	struct objgraphevent used;
+
+	objGraphEventCapture(obj, &used);
 
 	if (tag_id) {
 		// CI object - terminals etc
@@ -18986,6 +19212,8 @@ bool propobjInteract(struct prop *prop)
 	}
 
 	doorCallLift(prop, false);
+	/* object-events.md slice 2: the use button on an object, handled. */
+	objGraphEventFire(MISSION_GRAPH_EVENT_OBJECT_USED, &used, g_Vars.currentplayernum);
 
 	return result;
 }
@@ -20232,8 +20460,17 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		}
 	}
 
+	/* object-events.md slice 2: what was collected, captured before a free
+	 * retires the object, and fired once it is given or freed. */
+	struct objgraphevent collected;
+
+	if (result != TICKOP_NONE) {
+		objGraphEventCapture(obj, &collected);
+	}
+
 	if (result == TICKOP_FREE && (obj->hidden & OBJHFLAG_TAGGED) == 0) {
 		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 		return TICKOP_FREE;
 	}
 
@@ -20241,6 +20478,7 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		if (!given) {
 			invGiveProp(prop);
 		}
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 
 		return TICKOP_GIVETOPLAYER;
 	}
@@ -20502,6 +20740,11 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (pickup) {
+			/* object-events.md slice 3: a graph may refuse the pickup. */
+			if (objGraphQueryRefuses(MISSION_GRAPH_EVENT_PICKUP_REQUESTED, obj,
+					g_Vars.currentplayernum)) {
+				return TICKOP_NONE;
+			}
 			return propPickupByPlayer(prop, true);
 		}
 	}
@@ -21608,8 +21851,8 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 					latch->pickuprecover = entitygraph->has_autogun
 						? entitygraph->autogun_pickup_recover : -1;
 					latch->beaminterval = entitygraph->has_autogun
-						&& entitygraph->autogun_beam_interval_ticks60 > 0
-						? entitygraph->autogun_beam_interval_ticks60 : 4;
+						&& entitygraph->autogun_beam_every_shots > 0
+						? entitygraph->autogun_beam_every_shots : 4;
 
 					/* recover weapon (impact U6, binding spec B4): the
 					 * registration-resolved projectile pickup record wins,
@@ -22167,6 +22410,8 @@ void doorsCheckAutomatic(void)
 
 			if ((door->doorflags & DOORFLAG_AUTOMATIC)
 					&& doorIsUnlocked(g_Vars.currentplayer->prop, doorprop)
+					&& !objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
+						g_Vars.currentplayernum)
 					&& (door->mode == DOORMODE_CLOSING || (door->mode == DOORMODE_IDLE && door->frac <= 0))) {
 				bool canopen = false;
 				struct defaultobj *obj = NULL;
@@ -22846,6 +23091,14 @@ void doorStartOpen(struct doorobj *door)
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 255;
 	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent opened;
+
+		objGraphEventCapture(&door->base, &opened);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_OPENED, &opened, -1);
+	}
 }
 
 /**
@@ -22862,6 +23115,14 @@ void doorStartClose(struct doorobj *door)
 
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 0;
+	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent closed;
+
+		objGraphEventCapture(&door->base, &closed);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_CLOSED, &closed, -1);
 	}
 }
 
@@ -23906,7 +24167,11 @@ bool propdoorInteract(struct prop *doorprop)
 	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
 	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
 
-	if (doorIsUnlocked(playerprop, doorprop)) {
+	/* object-events.md slice 3: a graph may keep the door shut (then it
+	 * behaves as a locked door). */
+	if (!objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
+				g_Vars.currentplayernum)
+			&& doorIsUnlocked(playerprop, doorprop)) {
 		doorsChooseSwingDirection(playerprop, door);
 		doorsActivate(doorprop, true);
 	} else if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {

@@ -172,6 +172,17 @@ bool animHasFrames(s16 animnum)
 	return animnum < animGetTotalCount() && g_Anims[animnum].numframes > 0;
 }
 
+/* B-1161: a base slot the ROM leaves unused (no frames and no header). The
+ * extractor writes nothing for such a slot, so it has no public .pdanim, yet
+ * it is a valid animation number: ANIM_IDLE, where every chr's natural
+ * animation starts, is one. A slot a mod fills is not empty. */
+bool animIsEmptyBaseSlot(s32 animnum)
+{
+	return g_Anims != NULL && animnum >= 0 && animnum < g_NumAnimations
+		&& g_Anims[animnum].numframes == 0
+		&& g_Anims[animnum].headerlen == 0;
+}
+
 s32 animGetNumAnimations(void)
 {
 	return g_NumAnimations;
