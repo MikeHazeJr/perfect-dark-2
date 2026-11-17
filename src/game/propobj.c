@@ -104,6 +104,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "mission_graph_modules.h"
 #include "scenario_source_runtime.h"
 #include "weapondata_authored.h"
+#include "projectile_events.h"
 #include <stdio.h>
 
 /* object-events.md slice 2: an object event's payload, captured from the
@@ -3195,6 +3196,8 @@ void func0f06ab60(struct defaultobj *obj, struct coord *arg1, Mtxf *arg2, RoomNu
 void objFreeProjectile(struct defaultobj *obj)
 {
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
+		/* projectile-events.md slice 1, record-only. */
+		projectileEventRecord(PROJECTILE_EVENT_ENDED, obj);
 		projectileFree(obj->projectile);
 		obj->projectile = NULL;
 
@@ -5323,6 +5326,9 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	struct prop *ownerprop = NULL;
 	s32 attached = false;
 
+	/* projectile-events.md slice 1, record-only: it stuck or came down. */
+	projectileEventRecord(PROJECTILE_EVENT_LANDED, obj);
+
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
 		objFreeProjectile(obj);
@@ -5459,6 +5465,12 @@ bool propExplodeWithSound(struct prop *prop, s32 exptype, s16 soundnum)
 	bool result;
 
 	if (!propResolveExplosionSpatial(prop, &position, rooms)) return false;
+
+	/* projectile-events.md slice 1, record-only: a weapon object exploded
+	 * (its fuse, a contact, a shot, a proximity or remote trigger). */
+	if (prop->type == PROPTYPE_WEAPON) {
+		projectileEventRecord(PROJECTILE_EVENT_DETONATED, obj);
+	}
 
 	if (prop->parent) {
 		result = explosionCreateComplexWithSound(NULL, &position, rooms, exptype,
@@ -8954,6 +8966,9 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							const weapon_graph_projectile_runtime_t *impactgraph =
 								weaponGetContactImpactGraph(weapon);
 
+							/* projectile-events.md slice 1, record-only. */
+							projectileEventRecord(PROJECTILE_EVENT_HIT_TARGET, obj);
+
 							/* c3849 Wave 5: impact_filter gates the CUSTOM
 							 * consume clause only. background mode never
 							 * consumes on prop hits; chr mode consumes on
@@ -9351,6 +9366,8 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						}
 
 						projectile->bouncecount++;
+						/* projectile-events.md slice 1, record-only. */
+						projectileEventRecord(PROJECTILE_EVENT_BOUNCED, obj);
 						projectile->bounceframe = g_Vars.lvframe60;
 
 						if ((obj->hidden & OBJHFLAG_00010000) == 0) {

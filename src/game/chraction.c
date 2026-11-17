@@ -66,6 +66,7 @@
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "projectile_events.h"
 #include "swarm_test.h" /* S594h-Unit-A item 7: swarmTestGetVisMode */
 
 s32 g_RecentQuipsPlayed[5];
@@ -10580,6 +10581,8 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 								projectileobj->base.projectile->unk08c = reflectangle;
 								projectileobj->base.projectile->unk098 = func->unk50 * (1.0f / 0.6f);
 								projectileApplyGraphRuntime(&projectileobj->base, projectilegraph);
+								/* projectile-events.md slice 1, record-only: an AI shot. */
+								projectileEventRecord(PROJECTILE_EVENT_SPAWNED, &projectileobj->base);
 
 								projectileobj->base.projectile->targetprop = chrGetTargetProp(chr);
 

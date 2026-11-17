@@ -52,6 +52,37 @@ TEST_CASE("a projectile record's function flags never become projectile flags",
 	REQUIRE(bgun.find("u32 funcflags = graph ? graph->flags : func->flags;") != std::string::npos);
 }
 
+// projectile-events.md slice 1: every native seam records its event,
+// record-only, after the native decision.
+TEST_CASE("projectile events are recorded at the native seams",
+	"[weapon][graph][projectile][static][projectile-events]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string bgun = readSource("src/game/bondgun.c");
+	const std::string chraction = readSource("src/game/chraction.c");
+	const std::string pdmain = readSource("port/src/pdmain.c");
+	const std::string harness = readSource("port/src/smoke_harness.c");
+	const std::string events = readSource("port/src/projectile_events.c");
+
+	REQUIRE(countOf(propobj, "projectileEventRecord(PROJECTILE_EVENT_ENDED, obj);") == 1);
+	REQUIRE(countOf(propobj, "projectileEventRecord(PROJECTILE_EVENT_LANDED, obj);") == 1);
+	REQUIRE(countOf(propobj, "projectileEventRecord(PROJECTILE_EVENT_DETONATED, obj);") == 1);
+	REQUIRE(countOf(propobj, "projectileEventRecord(PROJECTILE_EVENT_BOUNCED, obj);") == 1);
+	REQUIRE(countOf(propobj, "projectileEventRecord(PROJECTILE_EVENT_HIT_TARGET, obj);") == 1);
+	REQUIRE(countOf(bgun, "projectileEventRecord(PROJECTILE_EVENT_SPAWNED,") == 3);
+	REQUIRE(countOf(chraction, "projectileEventRecord(PROJECTILE_EVENT_SPAWNED,") == 1);
+	// The landing records before objLand frees the projectile state.
+	const size_t land = propobj.find("void objLand(struct prop *prop,");
+	REQUIRE(land != std::string::npos);
+	REQUIRE(propobj.find("projectileEventRecord(PROJECTILE_EVENT_LANDED, obj);", land) <
+		propobj.find("objFreeProjectile(obj);", land));
+	// The host's events only, and the totals at stage end and smoke exit.
+	REQUIRE(events.find("g_NetMode == NETMODE_CLIENT") != std::string::npos);
+	REQUIRE(pdmain.find("projectileEventsReport(\"stage_end\");") != std::string::npos);
+	REQUIRE(harness.find("projectileEventsReport(\"smoke_exit\");") != std::string::npos);
+	REQUIRE(harness.find("case SMOKE_EVENT_GIVE_WEAPON:") != std::string::npos);
+}
+
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")
 {
 	const std::string bgun = readSource("src/game/bondgun.c");

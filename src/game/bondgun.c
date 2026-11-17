@@ -82,6 +82,7 @@
 #include "game/bg.h"
 #include "scenario_source_runtime.h"
 #include "scenario_stage_rules.h"
+#include "projectile_events.h"
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -5763,6 +5764,8 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			obj->projectile->unk08c = 0.1f;
 			obj->projectile->pickuptimer240 = TICKS(240);
 			projectileApplyGraphRuntime(obj, projectilegraph);
+			/* projectile-events.md slice 1, record-only: thrown. */
+			projectileEventRecord(PROJECTILE_EVENT_SPAWNED, obj);
 
 			psCreate(NULL, obj->prop, SFX_THROW, -1,
 					-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
@@ -6336,6 +6339,8 @@ void bgunCreateFiredProjectile(s32 handnum)
 						weapon->base.projectile->unk08c = reflectangle;
 						weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
 						projectileApplyGraphRuntime(&weapon->base, projectilegraph);
+						/* projectile-events.md slice 1, record-only: fired. */
+						projectileEventRecord(PROJECTILE_EVENT_SPAWNED, &weapon->base);
 
 						if (soundnum > 0) {
 							psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
@@ -6431,6 +6436,8 @@ void bgunCreateFiredProjectile(s32 handnum)
 					weapon->base.projectile->unk08c = reflectangle;
 					weapon->base.projectile->unk098 = funcdef->unk50 * 1.6666666f;
 					projectileApplyGraphRuntime(&weapon->base, projectilegraph);
+					/* projectile-events.md slice 1, record-only: fired. */
+					projectileEventRecord(PROJECTILE_EVENT_SPAWNED, &weapon->base);
 
 					if (soundnum > 0) {
 						psCreate(NULL, weapon->base.prop, soundnum, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);

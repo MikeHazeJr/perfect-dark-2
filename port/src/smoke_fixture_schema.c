@@ -324,6 +324,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"network_timeout_client", "network_reconnect",
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
 		"kill_player", "kill_simulant", "use_door", "use_lift_door", "damage_glass",
+		"give_weapon",
 	};
 
 	if (!type) {
@@ -384,7 +385,8 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 	if (!strcmp(type, "screenshot") || !strcmp(type, "receive_pdca_list")
 			|| !strcmp(type, "catalog_recovery_probe")
 			|| !strcmp(type, "catalog_weapon_acquire")
-			|| !strcmp(type, "catalog_weapon_release")) {
+			|| !strcmp(type, "catalog_weapon_release")
+			|| !strcmp(type, "give_weapon")) {
 		return common | SMOKE_FIXTURE_FIELD_PATH;
 	}
 	if (!strcmp(type, "agent_activate") || !strcmp(type, "agent_delete")) {

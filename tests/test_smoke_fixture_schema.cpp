@@ -43,6 +43,12 @@ TEST_CASE("smoke event schema rejects known fields on incompatible event types",
 	smoke_fixture_field_mask_t unsupported = 0;
 
 	REQUIRE(smokeFixtureEventTypeKnown("wait_until"));
+	/* projectile-events.md slice 1: give_weapon takes a path only. */
+	REQUIRE(smokeFixtureEventTypeKnown("give_weapon"));
+	REQUIRE(smokeFixtureEventFieldsValid("give_weapon",
+		common | SMOKE_FIXTURE_FIELD_PATH, &unsupported));
+	REQUIRE_FALSE(smokeFixtureEventFieldsValid("give_weapon",
+		common | SMOKE_FIXTURE_FIELD_PATH | SMOKE_FIXTURE_FIELD_NAME, &unsupported));
 	REQUIRE(smokeFixtureEventFieldsValid("wait_until", assisted_wait,
 		&unsupported));
 	REQUIRE(unsupported == 0);
