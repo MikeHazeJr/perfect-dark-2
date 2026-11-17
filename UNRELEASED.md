@@ -3,6 +3,27 @@
 - Reject unsupported required glTF features and sparse or normalized accessor
   data before conversion, with clear authoring limits and refreshed caches.
 
+- Create weapon mods inside the game: the Modding Hub's Weapons creator saves a
+  complete, validated mod from any weapon and keeps that weapon's own behavior.
+  A behavior graph the game cannot run is refused when a mod is saved or packed
+  instead of failing later at load.
+
+- Fix a hang when a mod's descriptor file had a line that was not `key = value`.
+
+- Keep your mods through updates: mods you make or install live in
+  `%LOCALAPPDATA%\perfectdark\mods` and are no longer erased when the game or
+  its caches are rebuilt. The game's own `mods` folder is still read, and your
+  copy wins when both hold the same mod.
+
+- Vehicles can be mods. A vehicle mod brings its own model and a behavior graph
+  that decides how it is mounted, driven and boosted. Adds a Vehicle Boost
+  control (Shift, or A on a controller, where the vehicle handbrake moves to
+  B); both can be remapped.
+
+- Keep saved key bindings when an update adds a control: a bindings file or
+  input profile from an older version loads, and the new control takes its
+  default.
+
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
 

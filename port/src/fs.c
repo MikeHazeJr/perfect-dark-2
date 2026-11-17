@@ -18,6 +18,7 @@
 #include "versioninfo.h"  /* VERSION_ROMID for fsDataDir / fsDataPathFor */
 #include "modarchive.h"
 #include "mods_install_roots.h"
+#include "mods_roots.h"
 #ifndef PD_SERVER
 #include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
 #endif
@@ -528,16 +529,40 @@ void fsModRoots(fs_mod_roots_t *out)
 		return;
 	}
 
-	/* B-1169 (Mike, 2026-11-15, option A): the install's own mods folders
-	 * only. A player's install reads the folder next to the game
-	 * (<base>/mods); a build inside a source checkout also reads the
-	 * repository-root folder, first (mods_install_roots.h). The folder
-	 * beside the install and the working folder's mods/ are not read: the
-	 * first could belong to another game, the second follows a shortcut's
-	 * start folder. */
-	char *paths[MODS_INSTALL_ROOTS_MAX] = { out->path[0], out->path[1] };
+	/* The user mods folder first (Mike, 2026-11-15, mods_roots.h): the only
+	 * folder the game writes mods to, and on a clash of mod ids its copy
+	 * wins. Only named here; the mod manager creates it. --portable and
+	 * --savedir put it under the save folder. */
+	s32 user = 0;
+	{
+		char saveDir[FS_MAXPATH + 1];
+		char homeDir[FS_MAXPATH + 1];
+
+		fsFullPath("$S", saveDir, sizeof(saveDir));
+		fsFullPath("$H", homeDir, sizeof(homeDir));
+		if (modsRootsUserDir(sysArgCheck("--portable"), sysArgGetString("--savedir"), saveDir,
+				getenv("LOCALAPPDATA"), homeDir, out->path[0], sizeof(out->path[0]))) {
+			user = 1;
+			out->user_dir = 1;
+		} else {
+			out->path[0][0] = '\0';
+		}
+	}
+
+	/* B-1169 (Mike, 2026-11-15, option A): then the install's own mods
+	 * folders only, which are read and never written. A player's install
+	 * reads the folder next to the game (<base>/mods); a build inside a
+	 * source checkout also reads the repository-root folder, first
+	 * (mods_install_roots.h). The folder beside the install and the working
+	 * folder's mods/ are not read: the first could belong to another game,
+	 * the second follows a shortcut's start folder. */
+	char *paths[MODS_INSTALL_ROOTS_MAX] = { out->path[user], out->path[user + 1] };
 	out->count = modsInstallRoots(exeDir, baseDir, paths, sizeof(out->path[0]),
 		MODS_INSTALL_ROOTS_MAX);
+	if (out->count < 0) {
+		out->count = 0;
+	}
+	out->count += user;
 }
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)

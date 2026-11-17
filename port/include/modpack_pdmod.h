@@ -19,6 +19,10 @@
  * Both helpers:
  *   - Atomic: streams to <out_path>.tmp via modarchive's writer, renames
  *     on success, removes the temp on any failure.
+ *   - Refuse an invalid root mod.json before anything is written: it must
+ *     be a JSON object whose `id`, `name` and `version` are non-empty
+ *     strings (mod_manifest_validate.h, the in-game form of the offline
+ *     T-MODDING-012 rule).
  *   - Reject authored `.bin` and public `.tsv` payloads at the transport
  *     boundary. Typed `.pdxxx` entries are also release-validated before
  *     they are accepted.
@@ -39,7 +43,7 @@ extern "C" {
 #define MODPACK_PDMOD_OK              0
 #define MODPACK_PDMOD_ERR_OPEN       -1   /* could not open destination */
 #define MODPACK_PDMOD_ERR_NO_MFST    -2   /* mod.json not found in source */
-#define MODPACK_PDMOD_ERR_BAD_MFST   -3   /* mod.json failed to parse */
+#define MODPACK_PDMOD_ERR_BAD_MFST   -3   /* mod.json is not a valid mod manifest */
 #define MODPACK_PDMOD_ERR_IO         -4   /* read/write failure during pack */
 #define MODPACK_PDMOD_ERR_TOO_BIG    -5   /* source exceeds 4 GiB total */
 #define MODPACK_PDMOD_ERR_LAYOUT     -6   /* invalid external layout */

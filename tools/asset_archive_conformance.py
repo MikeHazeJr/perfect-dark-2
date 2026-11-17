@@ -857,7 +857,9 @@ SCHEMAS: dict[str, Schema] = {
     ".pdvehicle": schema(
         required=["vehicle.ini", "physics.json"],
         require_any=[["behavior.graph.json", "model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh"]],
-        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh"],
+        # behavior/variables.json: optional boost and heat values (Maian
+        # vehicle V3, pd.vehicle_variables.v1; validate_vehicle_variables).
+        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh", "behavior/variables.json"],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
             "dependencies/assets/materials/*.pdmaterial",
@@ -1158,6 +1160,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.glb": slot("vehicle GLB model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "model.obj": slot("vehicle OBJ model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "behavior.graph.json": slot("vehicle behavior graph", "vehicle importer", "loads vehicle behavior source", "vehicle uses descriptor/default behavior"),
+        "behavior/variables.json": slot("named values for a pd.vehicle_graph.v1 behavior graph (pd.vehicle_variables.v1)", "vehicle importer", "compiled with behavior.graph.json: a \"$name\" graph param takes the variable's value whole", "the graph has literal params only; a \"$name\" param then refuses the graph"),
         "mesh.pdmesh": slot("inline vehicle mesh dependency", "vehicle importer", DEPENDENCY_LOADER, "model source or dependencies/assets/models path must be present"),
         "dependencies/assets/models/*.pdmesh": slot("vehicle model dependencies", "vehicle importer", DEPENDENCY_LOADER, "model source or mesh.pdmesh must be present"),
         "dependencies/assets/materials/*.pdmaterial": slot("vehicle material dependencies", "vehicle importer", DEPENDENCY_LOADER, DEPENDENCY_ABSENT),
@@ -2329,6 +2332,387 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
         return
 
 
+# pd.vehicle_graph.v1, a vehicle's behavior graph (MODS; accepted by CORE
+# 2026-11-16, context/designs/modding/vehicle-graph-v1.md). The same rules the
+# runner applies when it compiles the graph; keep in step with
+# port/src/vehicle_graph_runner.cpp. tests/test_vehicle_graph_runner.cpp checks
+# these kinds against the runner's own list (vehicleGraphKnownKind).
+VEHICLE_GRAPH_SCHEMA = "pd.vehicle_graph.v1"
+VEHICLE_VARIABLES_SCHEMA = "pd.vehicle_variables.v1"
+VEHICLE_GRAPH_MAX_NODES = 4096
+VEHICLE_GRAPH_MAX_EDGES = 16384
+VEHICLE_GRAPH_MAX_LOCKOUT_REASONS = 32
+VEHICLE_GRAPH_MAX_PENDING = 64
+VEHICLE_GRAPH_EVENTS = {"event.vehicle.mount_requested", "event.vehicle.dismount_requested",
+                        "event.vehicle.tick", "event.vehicle.heat_changed"}
+VEHICLE_GRAPH_GATES = {"gate.vehicle.seat", "gate.vehicle.seat_free", "gate.vehicle.heat_phase"}
+VEHICLE_GRAPH_MODULES = {"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                         "og.vehicle.hover_drive", "og.vehicle.throttle_boost",
+                         "og.vehicle.boost_heat", "og.vehicle.part_visible",
+                         "og.vehicle.turret_lockout"}
+# The events a native seam fires; heat_changed is raised by og.vehicle.boost_heat.
+VEHICLE_GRAPH_FIRED_EVENTS = ("event.vehicle.mount_requested",
+                              "event.vehicle.dismount_requested", "event.vehicle.tick")
+VEHICLE_GRAPH_MODULE_EVENTS = {
+    "og.vehicle.mount_seat": {"event.vehicle.mount_requested"},
+    "og.vehicle.dismount_seat": {"event.vehicle.dismount_requested"},
+    "og.vehicle.hover_drive": {"event.vehicle.tick"},
+    "og.vehicle.throttle_boost": {"event.vehicle.tick"},
+    "og.vehicle.boost_heat": {"event.vehicle.tick"},
+    "og.vehicle.part_visible": set(VEHICLE_GRAPH_EVENTS),
+    "og.vehicle.turret_lockout": set(VEHICLE_GRAPH_EVENTS),
+}
+VEHICLE_GRAPH_RAISES = {"og.vehicle.boost_heat": "event.vehicle.heat_changed"}
+VEHICLE_HEAT_PHASES = ("cool", "ramping", "full", "overheated", "recovering")
+# Param types: seat, phases, bool (bool? is optional), speed (0..1000),
+# fraction (0..1), scale (above 0, at most 100), time (at least 0), time+
+# (above 0), part (0..32767, whole), reason (1 to 31 of a-z, 0-9 and _).
+VEHICLE_GRAPH_PARAMS = {
+    "gate.vehicle.seat": {"seat": "seat"},
+    "gate.vehicle.seat_free": {"seat": "seat"},
+    "gate.vehicle.heat_phase": {"phases": "phases"},
+    "og.vehicle.mount_seat": {"seat": "seat"},
+    "og.vehicle.dismount_seat": {"seat": "seat"},
+    "og.vehicle.hover_drive": {"drive": "bool?"},
+    "og.vehicle.throttle_boost": {"boost_speed": "speed", "ramp_time": "time+"},
+    "og.vehicle.boost_heat": {
+        "boost_speed": "speed", "ramp_time": "time+", "overheat_after": "time+",
+        "overheated_boost": "fraction", "steer_limit": "fraction",
+        "steer_limit_time": "time", "recover_time_stopped": "time+",
+        "recover_speed_scale": "scale"},
+    "og.vehicle.part_visible": {"part": "part", "visible": "bool"},
+    "og.vehicle.turret_lockout": {"reason": "reason", "locked": "bool"},
+}
+VEHICLE_VARIABLES_TIME_UNITS = ("ticks60", "ticks240", "centiseconds")
+_VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
+_VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
+_VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
+_VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
+# The modules that mount or dismount a seat: one per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat"})
+
+
+def vehicle_time_ticks240(value: object):
+    """A {"value": N, "unit": ...} time in 240 Hz ticks, or None (the runner's
+    readTimeObject: exactly those two keys, a known unit, N from 0 to an hour)."""
+    if not isinstance(value, dict) or set(value) != {"value", "unit"}:
+        return None
+    number, unit = value["value"], value["unit"]
+    if not is_finite_json_number(number) or unit not in _VEHICLE_TIME_SCALE:
+        return None
+    if not 0.0 <= float(number) <= _VEHICLE_MAX_TICKS240:
+        return None
+    ticks = float(number) * _VEHICLE_TIME_SCALE[unit]
+    return ticks if ticks <= _VEHICLE_MAX_TICKS240 else None
+
+
+def validate_vehicle_variables(label: str, variables: object,
+                               errors: list[str], catalog_id: str | None = None):
+    """behavior/variables.json (pd.vehicle_variables.v1): names a-z, 0-9 and _
+    (1 to 63), values a number, a bool, a string or a {value, unit} time;
+    schema and catalog_id reserved, and a catalog_id must be the vehicle's
+    (catalog_id, when given), as the runner refuses. Returns the variables,
+    or None when the file is not usable."""
+    where = f"{label} behavior/variables.json"
+    if not isinstance(variables, dict):
+        errors.append(f"{where} must be a JSON object")
+        return None
+    if variables.get("schema") != VEHICLE_VARIABLES_SCHEMA:
+        errors.append(f"{where} schema must be {VEHICLE_VARIABLES_SCHEMA!r}")
+        return None
+    out = {}
+    for name, value in variables.items():
+        if name == "schema":
+            continue
+        if name == "comment":  # free text, not a variable
+            if not isinstance(value, str):
+                errors.append(f"{where} comment must be a string")
+            continue
+        if name == "catalog_id":
+            if not isinstance(value, str):
+                errors.append(f"{where} catalog_id must be a string")
+            elif catalog_id is not None and value != catalog_id:
+                errors.append(f"{where} is for {value!r}, not {catalog_id!r}")
+            continue
+        if not _VEHICLE_NAME.match(name):
+            errors.append(f"{where} variable name {name!r} must be 1 to 63 of a-z, 0-9 and _")
+            continue
+        if isinstance(value, (bool, str)):
+            pass
+        elif isinstance(value, (int, float)):
+            if not is_finite_json_number(value):
+                errors.append(f"{where} variable {name!r} is not a finite number")
+                continue
+        elif isinstance(value, dict):
+            if vehicle_time_ticks240(value) is None:
+                errors.append(
+                    f"{where} variable {name!r} must be {{\"value\": N, \"unit\": "
+                    f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}} with N from 0 to an hour")
+                continue
+        else:
+            errors.append(f"{where} variable {name!r} must be a number, a bool, a string "
+                          "or {value, unit}")
+            continue
+        out[name] = value
+    return out
+
+
+def _vehicle_graph_param(where: str, node_id: str, kind: str, key: str, typ: str,
+                         value: object, reasons: list[str], errors: list[str]) -> None:
+    at = f"{where} node {node_id!r} ({kind}) param {key!r}"
+
+    def number(lo: float, hi: float) -> bool:
+        if not is_finite_json_number(value):
+            errors.append(f"{at} must be a number")
+            return False
+        if not lo <= float(value) <= hi:
+            errors.append(f"{at} must be from {lo:g} to {hi:g}")
+            return False
+        return True
+
+    if typ == "seat":
+        if value not in ("driver", "gunner"):
+            errors.append(f"{at} must be \"driver\" or \"gunner\"")
+    elif typ == "phases":
+        if not isinstance(value, list) or not value:
+            errors.append(f"{at} must be a list of heat phases")
+        elif not all(isinstance(p, str) and p in VEHICLE_HEAT_PHASES for p in value):
+            errors.append(f"{at} may name only {', '.join(VEHICLE_HEAT_PHASES)}")
+        elif len(set(value)) != len(value):
+            errors.append(f"{at} names a phase twice")
+    elif typ == "bool":
+        if not isinstance(value, bool):
+            errors.append(f"{at} must be true or false")
+    elif typ == "speed":
+        number(0.0, 1000.0)
+    elif typ == "fraction":
+        number(0.0, 1.0)
+    elif typ == "scale":
+        if number(0.0, 100.0) and float(value) <= 0.0:
+            errors.append(f"{at} must be above 0")
+    elif typ in ("time", "time+"):
+        ticks = vehicle_time_ticks240(value)
+        if ticks is None:
+            errors.append(f"{at} must be {{\"value\": N, \"unit\": "
+                          f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}}")
+        elif typ == "time+" and ticks <= 0.0:
+            errors.append(f"{at} must be longer than 0")
+    elif typ == "part":
+        if number(0.0, 32767.0) and not float(value).is_integer():
+            errors.append(f"{at} must be a whole number")
+    elif typ == "reason":
+        if not isinstance(value, str) or not _VEHICLE_REASON.match(value):
+            errors.append(f"{at} must be 1 to 31 of a-z, 0-9 and _")
+        elif value not in reasons:
+            reasons.append(value)
+
+
+def validate_vehicle_graph_execution(label: str, graph: object, variables,
+                                     catalog_id: str) -> list[str]:
+    """The runner's compile rules for pd.vehicle_graph.v1: the mission graph
+    runner's edge rules, every executable kind one of v1's with only its own
+    params ("$name" takes a variable whole), modules only on their own events,
+    one hover_drive and one boost_heat, at most 32 lockout reasons, and the
+    raised-event bound (a raised event already being delivered is refused).
+    A graph, a node and an edge may each carry a "comment" string."""
+    where = f"{label} behavior.graph.json"
+    if not isinstance(graph, dict):
+        return [f"{where} must be a JSON object"]
+    errors: list[str] = []
+    if graph.get("schema") != VEHICLE_GRAPH_SCHEMA:
+        errors.append(f"{where} must declare schema {VEHICLE_GRAPH_SCHEMA}")
+    if not isinstance(graph.get("catalog_id"), str) or graph.get("catalog_id") != catalog_id:
+        errors.append(f"{where} catalog_id must match the public descriptor catalog_id "
+                      f"{catalog_id!r}")
+    if "comment" in graph and not isinstance(graph["comment"], str):
+        errors.append(f"{where} comment must be a string")
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return errors + [f"{where} has no nodes array"]
+    if len(nodes) > VEHICLE_GRAPH_MAX_NODES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_NODES} nodes"]
+
+    kinds: dict[str, str] = {}
+    seats: dict[str, object] = {}
+    order: list[str] = []
+    reasons: list[str] = []
+    counts = {"og.vehicle.hover_drive": 0, "og.vehicle.boost_heat": 0}
+    for idx, node in enumerate(nodes):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        if "comment" in node and not isinstance(node["comment"], str):
+            errors.append(f"{where} node {node_id!r} comment must be a string")
+        kinds[node_id] = kind
+        order.append(node_id)
+        params = node.get("params")
+        if kind.startswith("event."):
+            if kind not in VEHICLE_GRAPH_EVENTS:
+                errors.append(f"{where} event kind {kind!r} is not a vehicle event")
+            elif params not in (None, {}):
+                errors.append(f"{where} event {node_id!r} takes no params")
+            continue
+        if kind.startswith("gate.") and kind not in VEHICLE_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+            continue
+        if kind.startswith("og.") and kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+            continue
+        if kind not in VEHICLE_GRAPH_PARAMS:
+            continue  # data: checked, never walked
+        if kind in counts:
+            counts[kind] += 1
+            if counts[kind] > 1:
+                errors.append(f"{where} a vehicle graph has one {kind} ({node_id!r} is a second)")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            errors.append(f"{where} node {node_id!r} ({kind}) params must be an object")
+            continue
+        spec = VEHICLE_GRAPH_PARAMS[kind]
+        for key in params:
+            if key not in spec:
+                errors.append(f"{where} node {node_id!r} ({kind}) has no param {key!r}")
+        for key, typ in spec.items():
+            optional = typ.endswith("?")
+            typ = typ.rstrip("?")
+            if key not in params:
+                if not optional:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} is missing")
+                continue
+            value = params[key]
+            if isinstance(value, str) and value.startswith("$"):
+                if not isinstance(variables, dict) or value[1:] not in variables:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} uses "
+                                  f"unknown variable {value!r}")
+                    continue
+                value = variables[value[1:]]
+            if key == "seat" and kind in VEHICLE_GRAPH_SEAT_MODULES:
+                seats[node_id] = value
+            _vehicle_graph_param(where, node_id, kind, key, typ, value, reasons, errors)
+    if len(reasons) > VEHICLE_GRAPH_MAX_LOCKOUT_REASONS:
+        errors.append(f"{where} has more than {VEHICLE_GRAPH_MAX_LOCKOUT_REASONS} "
+                      "turret lockout reasons")
+
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > VEHICLE_GRAPH_MAX_EDGES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_EDGES} edges"]
+
+    def executable(kind: str) -> bool:
+        return kind in VEHICLE_GRAPH_EVENTS or kind in VEHICLE_GRAPH_GATES or \
+            kind in VEHICLE_GRAPH_MODULES
+
+    out: dict[str, list[str]] = {node_id: [] for node_id in order}
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        if "comment" in edge and not isinstance(edge["comment"], str):
+            errors.append(f"{where} edge {idx} comment must be a string")
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not executable(src_kind):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+            continue
+        if dst_kind not in VEHICLE_GRAPH_GATES and dst_kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+            continue
+        output = edge.get("output")
+        if src_kind in VEHICLE_GRAPH_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+                continue
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+            continue
+        out[src].append(dst)
+    if errors:
+        return errors
+
+    # Which modules each event's walk can reach (both branches of every gate).
+    reach: dict[str, list[str]] = {}
+    for event in sorted(VEHICLE_GRAPH_EVENTS):
+        queue = [dst for node_id in order if kinds[node_id] == event for dst in out[node_id]]
+        seen: set[str] = set()
+        while queue:
+            at = queue.pop(0)
+            if at in seen:
+                continue
+            seen.add(at)
+            queue.extend(out[at])
+        reach[event] = [node_id for node_id in order if node_id in seen]
+        # One event mounts or dismounts a seat at most once (the runner's rule).
+        seat_modules: dict[tuple[str, str], int] = {}
+        for node_id in reach[event]:
+            kind = kinds[node_id]
+            if kind in VEHICLE_GRAPH_MODULE_EVENTS and event not in VEHICLE_GRAPH_MODULE_EVENTS[kind]:
+                errors.append(f"{where} {kind} {node_id!r} cannot run on {event}, which reaches it")
+            if kind in VEHICLE_GRAPH_SEAT_MODULES and isinstance(seats.get(node_id), str):
+                key = (kind, seats[node_id])
+                seat_modules[key] = seat_modules.get(key, 0) + 1
+                if seat_modules[key] == 2:
+                    errors.append(f"{where} {event} reaches a second {kind} for the "
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts or "
+                                  "dismounts a seat once")
+    if errors:
+        return errors
+
+    # The raised-event bound: each raising module an event reaches raises once,
+    # and its event leads to its own; one already being delivered is refused.
+    state: dict[str, int] = {}
+    memo: dict[str, int] = {}
+
+    def bound(event: str) -> int | None:
+        if state.get(event) == 2:
+            return memo[event]
+        if state.get(event) == 1:
+            errors.append(f"{where} {event} can raise itself again while it is being delivered")
+            return None
+        state[event] = 1
+        total = 0
+        for node_id in reach[event]:
+            raised = VEHICLE_GRAPH_RAISES.get(kinds[node_id])
+            if raised is None:
+                continue
+            nested = bound(raised)
+            if nested is None:
+                return None
+            total = min(total + 1 + nested, VEHICLE_GRAPH_MAX_PENDING + 1)
+        state[event] = 2
+        memo[event] = total
+        return total
+
+    worst = 0
+    for event in VEHICLE_GRAPH_FIRED_EVENTS:
+        count = bound(event)
+        if count is None:
+            return errors
+        worst = max(worst, count)
+    if worst > VEHICLE_GRAPH_MAX_PENDING:
+        errors.append(f"{where} one event can lead to more than {VEHICLE_GRAPH_MAX_PENDING} "
+                      "raised events")
+    return errors
+
+
 def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                                      name_set: set[str],
                                      errors: list[str]) -> None:
@@ -2356,8 +2740,13 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
 
     catalog_id = descriptor_values.get("catalog_id", "")
     physics = read_json_member(zf, "physics.json")
+    behavior = read_json_member(zf, "behavior.graph.json")
+    # A v1 graph pairs with physics v3 (no boost keys: the graph's
+    # og.vehicle.throttle_boost holds them); a v2 behavior with physics v2.
+    graph_v1 = isinstance(behavior, dict) and behavior.get("schema") == VEHICLE_GRAPH_SCHEMA
+    physics_schema = "pd2.vehicle.physics.v3" if graph_v1 else "pd2.vehicle.physics.v2"
     if validate_catalog_bound_json(
-            label, "physics.json", physics, "pd2.vehicle.physics.v2",
+            label, "physics.json", physics, physics_schema,
             catalog_id, errors):
         if physics.get("archetype") != "hoverbike":
             errors.append(
@@ -2386,9 +2775,16 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             "tilt_response_pal",
             "yaw_response_ntsc",
             "yaw_response_pal",
-            "boost_speed",
-            "boost_time_ticks60",
         )
+        if graph_v1:
+            for field_name in ("boost_speed", "boost_time_ticks60"):
+                if field_name in physics:
+                    errors.append(
+                        f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
+                        "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
+                    )
+        else:
+            numeric_fields += ("boost_speed", "boost_time_ticks60")
         for field_name in numeric_fields:
             value = physics.get(field_name)
             if not is_finite_json_number(value) or float(value) < 0.0:
@@ -2406,8 +2802,26 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} physics.json hover must contain exactly 13 finite numbers"
             )
 
-    behavior = read_json_member(zf, "behavior.graph.json")
-    if validate_catalog_bound_json(
+    variables = None
+    if "behavior/variables.json" in name_set:
+        try:
+            parsed = json.loads(
+                zf.read("behavior/variables.json").decode("utf-8")
+            )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+            parsed = None
+        if not graph_v1:
+            errors.append(
+                f"{label} behavior/variables.json is read only with a "
+                f"{VEHICLE_GRAPH_SCHEMA} behavior graph"
+            )
+        else:
+            variables = validate_vehicle_variables(label, parsed, errors, catalog_id)
+
+    if graph_v1:
+        errors.extend(validate_vehicle_graph_execution(
+            label, behavior, variables, catalog_id))
+    elif validate_catalog_bound_json(
             label, "behavior.graph.json", behavior,
             "pd2.vehicle.behavior.v2", catalog_id, errors):
         for field_name in ("allow_mount", "allow_drive", "allow_dismount"):

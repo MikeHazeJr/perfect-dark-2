@@ -159,11 +159,18 @@ TEST_CASE("B-1160: one list of mod roots, and an explicit --moddir is kept", "[b
 	REQUIRE(fsSource.find("fsFullPath(strFmt(\"./%s\", path), modDir, sizeof(modDir));") != std::string::npos);
 	REQUIRE(fsSource.find("does not exist yet; it is created as the mod folder") != std::string::npos);
 
-	// modmgr creates that folder; without --moddir it creates the install's
-	// own folder (B-1169), never ./mods.
+	// modmgr creates that folder; without --moddir it creates the user mods
+	// folder (mods_roots.h), never ./mods and never the install's folders,
+	// which are only read (B-1169).
 	const std::string modmgr = readSource("port/src/modmgr.c");
-	REQUIRE(modmgr.find("fsCreateDir(roots.path[roots.count - 1]);")
+	REQUIRE(modmgr.find("if (roots.explicit_dir && !nativeWritePolicyActive()) {\n\t\tfsCreateDir(roots.path[0]);")
 	        < modmgr.find("dir = opendir(candidates[i]);"));
+	REQUIRE(modmgr.find("\tif (roots.user_dir) {\n\t\tif (modsRootsEnsureDir(roots.path[0])) {")
+	        < modmgr.find("dir = opendir(candidates[i]);"));
+	REQUIRE(modmgr.find("fsCreateDir(roots.path[roots.count - 1]);") == std::string::npos);
+	// fsModRoots names the user mods folder before the install's folders.
+	REQUIRE(fsSource.find("\tchar *paths[MODS_INSTALL_ROOTS_MAX] = { out->path[user], out->path[user + 1] };")
+	        > fsSource.find("\t\t\tuser = 1;\n\t\t\tout->user_dir = 1;"));
 	REQUIRE(stripComments(modmgr).find("fsCreateDir(\"./\" MODMGR_MODS_DIR)") == std::string::npos);
 	REQUIRE(stripComments(modmgr).find("\"./\" MODMGR_MODS_DIR") == std::string::npos);
 

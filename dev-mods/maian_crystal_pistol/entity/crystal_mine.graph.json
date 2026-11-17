@@ -1,0 +1,12 @@
+{
+  "schema": "pd.entity_graph.v1",
+  "asset_id": "example:tri_entity",
+  "graph_id": "crystal_mine",
+  "nodes": [
+    { "id": "armed", "kind": "entity.armed_explosive", "params": { "archetype": "deployed_triangle", "activation_time60": 30, "recovery_time60": 15, "delete_on_detonate": true } },
+    { "id": "proxy", "kind": "entity.proxy_trigger", "params": { "radius": 250, "target_filter": "hostile_chr", "team_filter": "enemy_only", "owner_filter": "exclude_owner", "on_trigger": "detonate" } },
+    { "id": "cleanup", "kind": "entity.owner_cleanup", "params": { "max_active_per_owner": 6 } }
+  ],
+  "edges": [],
+  "exports": [ { "name": "main", "node": "armed" } ]
+}
