@@ -8,6 +8,7 @@
 #include <PR/ultratypes.h>
 
 #include "constants.h"
+#include "asset_path_contract.h"
 #include "types.h"
 #include "platform.h"
 #include "system.h"
@@ -7223,36 +7224,15 @@ static s32 s_parseCoversJson(char *text, scenario_source_navigation_t *nav)
 	return 1;
 }
 
+/* The path of fallback_member beside archive_member_path, in the innermost
+ * archive of its chain: a scenario nested in a mod level's .pdarena
+ * (dependencies/assets/scenarios/<x>.pdscenario) reads its own members, not
+ * the outer archive's (Forge F1). Empty when there is none. */
 static void s_copyMemberPath(char *out, size_t out_n,
 	const char *archive_member_path, const char *fallback_member)
 {
-	const char *sep;
-	size_t archive_len;
-
-	if (!out || out_n == 0) {
-		return;
-	}
-	out[0] = '\0';
-
-	if (!archive_member_path || !archive_member_path[0]
-			|| !fallback_member || !fallback_member[0]) {
-		return;
-	}
-
-	sep = strstr(archive_member_path, "::");
-	if (!sep) {
-		return;
-	}
-
-	archive_len = (size_t)(sep - archive_member_path);
-	if (archive_len + 2 + strlen(fallback_member) >= out_n) {
-		return;
-	}
-
-	memcpy(out, archive_member_path, archive_len);
-	out[archive_len] = '\0';
-	strcat(out, "::");
-	strcat(out, fallback_member);
+	(void)assetPathSiblingMemberChecked(out, out_n, archive_member_path,
+		fallback_member);
 }
 
 static void s_matchScenarioEntry(const asset_entry_t *entry, void *userdata)
