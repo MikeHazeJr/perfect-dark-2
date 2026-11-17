@@ -663,10 +663,17 @@ when a match makes a weapon pickup that is not one of its weapon places
 (`SETUP: fixed weapon pickup cmd=35 ... prop=1`). It is a smoke of its own so
 that a fault in it cannot hide the plain edit proof.
 
-Not written yet: the editor's widgets for it (a list of the catalog's weapons
-and prop models to choose from), a new object of a kind the level has none
-of, and any run. A level with a pinned pickup of the crystal pistol in it is
-the proof to aim for after this one.
+In the editor (written, seen by nobody yet): with a weapon pickup selected in
+the Level File section's object list, "What It Gives" says whether it is a
+weapon place of the match or always gives one weapon, and offers two changes:
+a list of every weapon the catalog has enabled (by catalog id, a mod's
+included) with Always Give This Weapon, and a place number with Make It This
+Weapon Place.
+
+Not written yet: the same for a prop's model (the catalog's list of models is
+long and wants a filter), a new object of a kind the level has none of, and
+any run. A level with a pinned pickup of the crystal pistol in it is the proof
+to aim for after this one.
 
 ## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
 

@@ -1895,6 +1895,19 @@ static char s_LevelFileObject[32]                = "";   /* selected object, by 
 static int  s_LevelFileObjectIndex               = -1;   /* its row; objects are only added, so rows do not move */
 static int  s_LevelFileEdits                     = 0;    /* edits since the level was opened or last saved */
 static bool s_LevelFileCloseArmed                = false;
+static char s_LevelFileWeapon[CATALOG_ID_LEN]    = "";   /* the weapon chosen for a pickup, by catalog id */
+static int  s_LevelFilePlace                     = 1;    /* the weapon place chosen for a pickup, 1 to 16 */
+
+/* One line of the weapon list: every weapon the catalog has enabled, a mod's
+ * included, by its catalog id. */
+static void forgeLevelFileWeaponRow(const asset_entry_t *entry, void *userdata)
+{
+	(void)userdata;
+	if (!entry || !entry->id[0]) return;
+	if (ImGui::Selectable(entry->id, strcmp(entry->id, s_LevelFileWeapon) == 0)) {
+		snprintf(s_LevelFileWeapon, sizeof(s_LevelFileWeapon), "%s", entry->id);
+	}
+}
 
 static void forgeLevelFileStatus(bool bad, const char *fmt, ...)
 {
@@ -2127,6 +2140,55 @@ static void forgeDrawLevelFileSection(void)
 		"of a weapon is another spot for that slot. Removing an object leaves it out "
 		"of the level and keeps its line in the list, so anything that refers to it "
 		"still finds it. Lifts, escalator steps and characters cannot be removed yet.");
+
+	/* What a selected weapon pickup gives: one of the match's weapon places,
+	 * which the match's weapon set fills, or one weapon of the catalog. */
+	if (haveSelected && strcmp(selected.kind, "weapon_pickup") == 0) {
+		ImGui::SeparatorText("What It Gives");
+		if (selected.weapon_slot >= 0) {
+			ImGui::TextWrapped("%s is weapon place %d of the match: it gives whatever the match's "
+				"weapon set has in that place.", selected.record_id, (int)selected.weapon_slot + 1);
+		} else if (selected.weapon_catalog_id[0]) {
+			ImGui::TextWrapped("%s always gives %s.", selected.record_id, selected.weapon_catalog_id);
+		}
+		if (!selected.weapon_settable) {
+			ImGui::TextDisabled("The level's two object files do not agree about this pickup, "
+				"so what it gives cannot be changed here.");
+		}
+		ImGui::BeginDisabled(!selected.weapon_settable);
+		ImGui::SetNextItemWidth(260 * pdguiScale(1.0f));
+		if (ImGui::BeginCombo("##LevelFileWeapon", s_LevelFileWeapon[0] ? s_LevelFileWeapon
+				: "choose a weapon")) {
+			assetCatalogIterateByType(ASSET_WEAPON, forgeLevelFileWeaponRow, NULL);
+			ImGui::EndCombo();
+		}
+		ImGui::SameLine();
+		ImGui::BeginDisabled(s_LevelFileWeapon[0] == '\0');
+		if (ImGui::Button("Always Give This Weapon")) {
+			if (forgeLevelSessionGivePickup(s_LevelFileObject, s_LevelFileWeapon, err, sizeof(err))) {
+				s_LevelFileEdits++;
+				forgeLevelFileStatus(false, "%s now always gives %s.", s_LevelFileObject, s_LevelFileWeapon);
+			} else {
+				forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::SetNextItemWidth(110 * pdguiScale(1.0f));
+		ImGui::InputInt("##LevelFilePlace", &s_LevelFilePlace);
+		if (s_LevelFilePlace < 1) s_LevelFilePlace = 1;
+		if (s_LevelFilePlace > 16) s_LevelFilePlace = 16;
+		ImGui::SameLine();
+		if (ImGui::Button("Make It This Weapon Place")) {
+			if (forgeLevelDocSetPickupSlot(doc, s_LevelFileObject, (s32)s_LevelFilePlace - 1, err, sizeof(err))) {
+				s_LevelFileEdits++;
+				forgeLevelFileStatus(false, "%s is now weapon place %d of the match.", s_LevelFileObject,
+					s_LevelFilePlace);
+			} else {
+				forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
+			}
+		}
+		ImGui::EndDisabled();
+	}
 
 	ImGui::BeginChild("LevelFileObjects", ImVec2(-1, 190 * pdguiScale(1.0f)), true);
 	{
