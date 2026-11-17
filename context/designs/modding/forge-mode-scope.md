@@ -265,10 +265,11 @@ header's comment is the reference for its rules. Not wired to the editor yet.
 
 What it does:
 
-- Reads four members of a level's scenario by schema name: `pads.json`
+- Reads five members of a level's scenario by schema name: `pads.json`
   (`pd2.scenario.pads.v1`), `spawns.json` (`pd2.scenario.spawns.v1`),
-  `objects.json` (`pd2.scenario.objects.v1`) and `volumes.json`
-  (`pd2.scenario.volumes.v1`, each pad's bounds in the world). A wrong schema,
+  `objects.json` (`pd2.scenario.objects.v1`), `volumes.json`
+  (`pd2.scenario.volumes.v1`, each pad's bounds in the world) and
+  `setup.fields.json` (`pd2.scenario.setup.fields.v1`). A wrong schema,
   a row with no id, a repeated id, a pad out of sequence, or a spawn, object or
   bounds row naming a pad the level does not have is refused with the reason.
   Nothing is repaired.
@@ -388,6 +389,42 @@ Not done:
   team` per row, then the commands of `intro.json`. So `intro.json` does not
   have to name a new spawn. F2's smoke proves it once a level loads (F1).
 - The editor: opening a level fills Forge from this document, and Save calls
-  the mod author with its overrides.
+  the mod author with its overrides. The two calls exist (next section); the
+  editor's own lists and buttons are not connected to them yet.
 - The local sweep over every base level (`[forge-level-doc]` with
   `PD2_BASE_TEMPLATE_DIR` set) runs in a game turn, not in hosted CI.
+
+## F2 game side: open a level, save a level (WRITTEN 2026-11-17, not run)
+
+`port/src/forge_level_io.c`, interface `port/include/forge_level_io.h`. This is
+the part that knows the game; the document above does not.
+
+- `forgeLevelOpen(arena id)` finds the archive the arena in the catalog came
+  from (`modAuthorRuntimeTemplatePath`, the lookup the other creators use),
+  takes the scenario member's name from the arena's `scenario_archive` (the
+  text after the last `::`), reads the five members out of the scenario inside
+  the archive and hands them to the document. It refuses an arena that is not
+  in the catalog, one whose archive is not a file on disk (a level inside a
+  packed `.pdmod` cannot be a template yet, as for every other family), and
+  files the document refuses.
+- `forgeLevelSaveAs(document, name)` saves a level mod made from the archive
+  the level was opened from plus one override per changed member, through
+  `modAuthorRuntimeSave`: save, rescan, enable, apply. The level is in the
+  catalog when it returns.
+- `--debug-forge-level <arena id>` with `--debug-forge-level-name <name>`
+  (`main.c`, right after the character tool's flags) makes those two calls
+  with a fixed edit between them: a player start 40 units in front of the
+  level's first one, and a copy of its first weapon pickup 60 units in front
+  of that pickup. Every step logs a `FORGE.LEVEL.*` line.
+- `forge_level_edit_smoke` is F2's proof: it edits base Complex (226 pads, 19
+  starts, 35 objects, read from base 7) that way, saves it as `Forge_Edit`,
+  starts a match on `mod:arena_forge_edit` in the same launch, and requires
+  the game's own lines for the level it loaded: a navigation record of 228
+  pads and 228 volumes, and a setup of 36 records and 20 spawns. It does not
+  look at the world, so it does not show that the copied pickup is drawn where
+  it was put or that anyone started on the new spot.
+
+Not known until a run: whether a pad the document added (no room, no flags)
+gets its room the way a base pad does, and whether a save over a level that is
+its own template (editing a Forge level and keeping its name) is safe; the
+smoke's template is a base arena.

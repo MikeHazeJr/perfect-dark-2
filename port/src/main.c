@@ -85,6 +85,7 @@
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
 #include "mod_author_runtime.h"
+#include "forge_level_io.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -211,6 +212,16 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       through the functions the Use as Template and Create + Enable
  *       buttons call. Runs right after the weapon tool's flags. Logged as
  *       CHARMOD.* lines.
+ *
+ *   --debug-forge-level <arena catalog id>
+ *   --debug-forge-level-name <display name>
+ *       Edits a level without the Forge editor: opens the named arena's
+ *       placements (forge_level_io.h), adds a player start a short step in
+ *       front of its first one and another spot for its first weapon pickup,
+ *       and saves the result as a level mod under the display name, through
+ *       the open and save calls the Forge editor makes. Runs right after the
+ *       character tool's flags, so one launch can make the level and then
+ *       start a match on it. Logged as FORGE.LEVEL.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -1111,6 +1122,23 @@ static void bootApplyDebugCharacterToolCreate(void)
 		pdguiCharacterToolDebugCreate(template_id, name,
 			gender && gender[0] ? gender : NULL, build && build[0] ? build : NULL,
 			height) ? "OK" : "FAIL");
+}
+
+/* --debug-forge-level <arena id> [--debug-forge-level-name <name>]: Forge's
+ * own open, edit and save of a level's placements, without the editor. */
+static void bootApplyDebugForgeLevel(void)
+{
+	const char *arena_id = sysArgGetString("--debug-forge-level");
+	const char *name = sysArgGetString("--debug-forge-level-name");
+
+	if (!arena_id || !arena_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Level";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' result=%s",
+		arena_id, name, forgeLevelDebugEdit(arena_id, name) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -2894,6 +2922,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
 	bootApplyDebugWeaponToolCreate();
 	bootApplyDebugCharacterToolCreate();
+	bootApplyDebugForgeLevel();
 
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =
