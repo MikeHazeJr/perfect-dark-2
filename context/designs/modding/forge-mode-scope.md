@@ -202,6 +202,26 @@ INFERRED, to check in the first run:
    `rooms.json` and `room_lights.json` of a scenario nested in an arena would be
    looked for in the outer `.pdarena`. `fs.c` itself reads nested chains.
 
+First run, 2026-11-17 03:28 UTC (`forge_mod_level_load_smoke`, 11/16, on
+`week-pd/mods-v4` 15837054 and base 7; RUN, the lines are from the client
+log). Everything up to the stage load works: the mod author saves Complex as
+`mod:arena_forge_test` (two archives, two ids), the catalog registers it
+(`type=14 enabled=1 bundled=0 category='Classic'`, the template's category),
+the match start's preflight passes (`stage='mod:arena_forge_test'
+scenario='base:combat'`), and the arena's stage number is minted and
+activated (`CATALOG RESOLVE: activated stage 0x60`). Then items 1 and 2 stop
+it, in this order:
+
+```
+WARNING: [CATALOG-ERROR] catalogResolveStageForType: 'mod:arena_forge_test' not found or wrong type (expected=1)
+LOAD: lv.c entering stage load sequence for stagenum=0x60
+ERROR: [CATALOG-FATAL] catalogGetStageResultByIndex: stageindex=87 not in catalog
+ERROR: FATAL: ASSET.FALLBACK: Scenario stage '?' cannot use legacy tiles id=0 after public .pdscenario source activation failed for '(missing scenario source)' (tile source compile failed)
+```
+
+Item 6 was not reached. The smoke stays red until CORE's two decisions are
+built; it is the proof for F1 when it passes.
+
 Built since the survey, on `week-pd/mods-v4` (2026-11-17; compiled and unit
 tested in hosted CI, not yet seen in the game because the level cannot load
 until items 1 and 2 are done):
