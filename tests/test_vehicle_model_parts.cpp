@@ -79,6 +79,43 @@ TEST_CASE("The Maian vehicle's crystal parts are toggles and its other parts are
 	CHECK(vehicleModelPartsCount(nullptr) == 0);
 }
 
+TEST_CASE("A compiled part longer than the native command cap keeps its whole collision mesh",
+          "[vehicle-model-parts][b1236]")
+{
+	// The model compiler writes a vertex load and a triangle for every face,
+	// so a part's display list is two commands per triangle. The Maian hull
+	// is one part of 2,681 triangles: more than twice the 2,044 that fit
+	// under the collision mesh extraction's 4,096-command cap, which used to
+	// apply to every list and cut the hull off without a log line (the game
+	// said `MESHCOL: extracted 5192` for this 5,829-triangle model).
+	const std::string render =
+		partsReadFile("dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json");
+	REQUIRE(!render.empty());
+	size_t hull = 0;
+	const std::string hullRow = "\"group\": \"hull\"";
+	for (size_t at = render.find(hullRow); at != std::string::npos;
+			at = render.find(hullRow, at + 1)) {
+		++hull;
+	}
+	CHECK(hull * 2 > 4096);
+
+	const std::string source = partsReadFile("src/lib/meshcollision.c");
+	REQUIRE(!source.empty());
+	// The extraction reads a compiled list to the length the compiler
+	// recorded for it ...
+	CHECK(source.find("modAssetCompilerGeneratedGdlBytesRemaining(gdl, &generatedbytes)") !=
+		std::string::npos);
+	CHECK(source.find("maxcmds = (s32)(generatedbytes / sizeof(Gfx));") != std::string::npos);
+	// ... keeps the cap, by name, for native lists, which have no recorded
+	// length ...
+	CHECK(source.find("#define MESH_EXTRACT_NATIVE_COMMAND_CAP 4096") != std::string::npos);
+	CHECK(source.find("s32 maxcmds = MESH_EXTRACT_NATIVE_COMMAND_CAP;") != std::string::npos);
+	CHECK(source.find("cmdidx < 4096") == std::string::npos);
+	// ... and says so when a list does not end within what it may read.
+	CHECK(source.find("\"generated-list-without-enddl\"") != std::string::npos);
+	CHECK(source.find("\"native-command-cap\"") != std::string::npos);
+}
+
 TEST_CASE("A mesh's part tables are read the way the model compiler reads them",
           "[vehicle-model-parts]")
 {

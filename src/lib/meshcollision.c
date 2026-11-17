@@ -21,6 +21,7 @@
 #include "game/bg.h"
 #include "game/prop.h"
 #include "model_rodata_guard.h"
+#include "modasset_compiler.h"
 #include "system.h"
 #include "bss.h"
 
@@ -248,6 +249,19 @@ static void meshExtractLogMiss(const char *site, const struct model *model,
 	modelRodataLogMiss(site, model, node, ptr, bytes, reason);
 }
 
+/*
+ * The most commands the extraction reads from a NATIVE display list. A native
+ * list has no recorded length, so this cap is what stops a walk that never
+ * meets its G_ENDDL.
+ *
+ * A list the mod asset compiler generated has a recorded length and is read
+ * to that length instead. The compiler writes two commands per triangle (a
+ * vertex load and a triangle), so this cap cut every generated part off at
+ * its 2,044th triangle without a word: the Maian vehicle's 2,681-triangle
+ * hull had no collision for its last 637 triangles (B-1236).
+ */
+#define MESH_EXTRACT_NATIVE_COMMAND_CAP 4096
+
 static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 		struct colmesh *mesh, f32 scale, const struct model *model,
 		const struct modelnode *node, s32 *skipcount)
@@ -276,7 +290,28 @@ static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 	struct coord slots[64];
 	s32 numslots = 0;
 
-	for (s32 cmdidx = 0; cmdidx < 4096; cmdidx++) {
+	/* How many commands this list may hold: its recorded length when the
+	 * mod asset compiler generated it, the native cap otherwise. */
+	s32 maxcmds = MESH_EXTRACT_NATIVE_COMMAND_CAP;
+	u32 generatedbytes = 0;
+	bool generated = modAssetCompilerGeneratedGdlBytesRemaining(gdl, &generatedbytes) != 0;
+
+	if (generated) {
+		maxcmds = (s32)(generatedbytes / sizeof(Gfx));
+	}
+
+	for (s32 cmdidx = 0; ; cmdidx++) {
+		if (cmdidx >= maxcmds) {
+			/* The list did not end within the commands this walk may
+			 * read. Say so: any triangles past this point are missing
+			 * from the collision mesh, and nothing else would show it. */
+			meshExtractLogMiss("MeshExtract.GfxEnd", model, node, gdl,
+					(size_t)maxcmds * sizeof(Gfx),
+					generated ? "generated-list-without-enddl"
+						: "native-command-cap", skipcount);
+			break;
+		}
+
 		if (!modelRodataIsReadable(&gdl[cmdidx], sizeof(Gfx))) {
 			meshExtractLogMiss("MeshExtract.GfxCmd", model, node, &gdl[cmdidx],
 					sizeof(Gfx), "page-unmapped", skipcount);
