@@ -3,8 +3,9 @@
 Status: CORE, 2026-11-17. Draft for the week note's "Projectiles, mines,
 autoguns" row ("the graph selects the projectile and entity modules for base
 weapons too"), under decision 1 ("Players should be able to recreate any
-existing game behavior with the nodes"). Nothing below is built yet except
-B-1261. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
+existing game behavior with the nodes"). B-1261 and slice 1 are written on
+`week-pd/core-s6` (78072e83, 772f0497; see "Slice 1 as written"), not yet
+run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
 `pc` is `src/game/propobj.c`, `bg` is `src/game/bondgun.c`.
 
 ## Where it stands
@@ -124,6 +125,53 @@ B-1261. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
    modules.
 6. **One contract:** the base guards go, the v1 path is refused, the row
    ticks.
+
+## Slice 1 as written (CORE, 2026-11-17)
+
+- `port/src/projectile_events.c`: `projectileEventRecord(kind, obj)` counts
+  the host's events per stage and logs the first of each kind for a weapon
+  and function; `projectileEventsReport(why)` logs the totals at stage end
+  (`mainEndStage`) and at a smoke's scripted exit, then starts again.
+- Seams, each after the native decision: `spawned` after
+  `projectileApplyGraphRuntime` at the player's throw
+  (`bgunCreateThrownProjectile2`), both fired paths
+  (`bgunCreateFiredProjectile`) and an AI shot (`chrTickShoot`); `bounced`
+  at the bounce count; `hit_target` where a weapon projectile struck a prop
+  (`g_EmbedProp`); `landed` at the top of `objLand`; `ended` in
+  `objFreeProjectile`; `detonated` in `propExplodeWithSound` for a weapon
+  prop. Not covered yet: the AI's thrown grenades (`chrTickThrowGrenade`
+  through `objDrop`) and the simulants' throws and Slayer rockets
+  (`botact.c`); slice 2 moves `spawned` to one place that every spawn
+  passes.
+- The smoke harness's `give_weapon` (player 0 gets a weapon with full
+  ammunition for both functions and draws it) and `projectile_events_smoke`
+  (every base projectile weapon on Felicity; the Slayer's fly-by-wire rocket
+  without SLIDING, B-1261).
+
+## Slice 2 plan: timers and detonation (CORE, 2026-11-17)
+
+- **Programs.** `weaponGraphCompileJson`'s callers also compile the archive's
+  text with the mission graph runner in a projectile domain:
+  `projectile.*` and `entity.*` nodes are data (skipped, as level data is),
+  `event.projectile.*`, `gate.projectile.*` and `og.projectile.*` are the
+  program, and a mission or level event in a projectile program is refused
+  (and the other way round). The program lives in the projectile or entity
+  runtime record and is freed with it.
+- **Schema.** The extractor writes `pd.projectile_graph.v2` and
+  `pd.entity_graph.v2`: the v1 data nodes unchanged, plus the program. The
+  weapon export version moves, so every install re-extracts its weapon
+  archives once.
+- **The rule event.** `event.projectile.timer_expired` at each fuse in
+  `weaponTick` (grenade, N-bomb, Devastator round, rocket, timed mine,
+  N-bomb storm), fired instead of the native branch when the record's
+  program handles it; the branch becomes `og.projectile.fuse_expired`, the
+  original code for that weapon, so every base program wires
+  `timer_expired` to it. A v2 archive whose program does not handle the
+  event refuses at registration (fail closed); a v1 custom archive keeps the
+  custom arm it has today.
+- **Parity.** The probe counts each expiry the native rule would have acted on
+  and what the program ran; the campaigns, `projectile_events_smoke` and the
+  soak require differ=0, as the object rule probe does.
 
 ## Not in scope
 
