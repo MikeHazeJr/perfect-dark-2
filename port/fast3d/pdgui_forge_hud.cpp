@@ -485,13 +485,17 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 			{ ACTION_FORGE_BOOST, "boost" },
 			{ ACTION_FORGE_PRECISION, "precision" },
 		});
+		/* B-1242: the editor's own actions (g_ImcForge). The menu's tab keys
+		 * are not live in FREEFLY, and use / cancel-use are blocked there
+		 * (actionIsBlockedInFreefly), so naming those showed "Unbound". */
 		float row2W = measureRow({
-			{ ACTION_MENU_TAB_PREV, "prev tab" },
-			{ ACTION_MENU_TAB_NEXT, "next tab" },
+			{ ACTION_FORGE_TAB_PREV, "prev tab" },
+			{ ACTION_FORGE_TAB_NEXT, "next tab" },
 		});
 		float row3W = measureRow({
-			{ ACTION_USE, "select / place" },
-			{ ACTION_CANCEL_USE, "cancel" },
+			{ ACTION_FORGE_SIDEBAR_TOGGLE, "editor" },
+			{ ACTION_FORGE_SIDEBAR_ACTIVATE, "select / place" },
+			{ ACTION_FORGE_PLACE_CANCEL, "cancel" },
 		});
 
 		float contentW = row0W;
@@ -525,12 +529,13 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 			{ ACTION_FORGE_PRECISION, "precision" },
 		});
 		drawRow(y + 4.0f * scale + rowH * 2.0f, {
-			{ ACTION_MENU_TAB_PREV, "prev tab" },
-			{ ACTION_MENU_TAB_NEXT, "next tab" },
+			{ ACTION_FORGE_TAB_PREV, "prev tab" },
+			{ ACTION_FORGE_TAB_NEXT, "next tab" },
 		});
 		drawRow(y + 4.0f * scale + rowH * 3.0f, {
-			{ ACTION_USE, "select / place" },
-			{ ACTION_CANCEL_USE, "cancel" },
+			{ ACTION_FORGE_SIDEBAR_TOGGLE, "editor" },
+			{ ACTION_FORGE_SIDEBAR_ACTIVATE, "select / place" },
+			{ ACTION_FORGE_PLACE_CANCEL, "cancel" },
 		});
 	}
 }
