@@ -2091,10 +2091,12 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     /* network_stage_live describes every shipping network game mode. Normal
      * Combat Simulator uses normmplayerisrunning; co-op and Counter-Op retain
      * their role globals instead. Requiring only the former made the typed
-     * readiness barrier permanently unreachable for network missions. */
+     * readiness barrier permanently unreachable for network missions. A co-op
+     * host alone (AI buddies) has no partner role: its mission's iscoop
+     * counts. */
     facts.multiplayer_running = g_Vars.normmplayerisrunning != 0
         || (facts.network_active && (g_Vars.coopplayernum >= 0
-            || g_Vars.antiplayernum >= 0));
+            || g_Vars.antiplayernum >= 0 || g_MissionConfig.iscoop));
     /* Local gameplay readiness is shared by ordinary offline and network
      * fixtures. Network mode still requires the authenticated endpoint to
      * own the resolved local player; offline mode has no netclient object. */

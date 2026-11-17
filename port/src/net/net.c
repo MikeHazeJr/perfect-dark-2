@@ -1963,6 +1963,14 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 			roster_count == 1 ? 1 : 0, (s32)g_Vars.numaibuddies,
 			(unsigned)g_NetCoopAiBuddies, getMaxAiBuddies(), (unsigned)difficulty);
 	}
+	/* A co-op host alone plays the original's one-player co-op (AI buddies):
+	 * with no partner role the stage load runs no mpReset, so clear what a
+	 * Combat Simulator match before it left set, as the original's mission
+	 * list does when a mission is picked (B-1274). */
+	if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {
+		g_Vars.mplayerisrunning = false;
+		g_Vars.normmplayerisrunning = false;
+	}
 
 	g_NotLoadMod = true;
 	romdataFileFreeForSolo();

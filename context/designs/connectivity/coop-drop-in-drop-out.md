@@ -73,6 +73,36 @@ Mike's 2026-11-16 call (the co-op AI-buddy entry comes back) and the 2026-11-17 
   into the offline Room, `--debug-room-tab campaign`, the Room's own Start Match). Static pins: `[aibuddies]` in
   `tests/test_net_mission_end_static.cpp`.
 
+## S1 research (2026-11-17, read-only; line numbers at 5454c4fb)
+
+- **B-1274 first:** two-player networked co-op ran with `normmplayerisrunning` set (fixed on this branch). Several
+  answers below assume the fixed flag.
+- **What `playerDie(true)` does to the partner on the host** (net.c `netServerEvDisconnect`, player.c 7264-7402):
+  the live-death event (menus closed, HUD messages removed, an MP death recorded, uncloak); with `mplayerisrunning`
+  set it drops every droppable weapon as a world prop (`currentPlayerDropAllItems`, SVC_PROP_SPAWN); dead flags,
+  death camera, off a vehicle, guns thrown; later frames play the death sequence and the co-op restart rule (half
+  the host's health), and after `netClientReset` the partner's respawn input is read from local slot 1.
+- **Already covered by `isdead`:** damage, pickups, collision (with `mplayerisrunning`), auto-aim, `chrIsDead`, the
+  guards' p1p2 player choice, autoguns, radar. **Not covered:** automatic doors (`doorIsRangeEmpty` counts any player
+  prop in the rooms), CCTV cameras (they alternate between the players and turn the target's collision back on),
+  level scripts that target CHR_COOP directly or clear its hidden flag in cutscenes, explosions and bullets (room
+  lists), and the results loop (`mainEndStage` pushes results for every non-remote player; after a drop the
+  partner is no longer remote, so the host would get a second dialog).
+- **Taking the prop out and back:** the original's chr pair is the template: `aiDisableChr` (propDeregisterRooms,
+  propDelist, propDisable) and `aiEnableChr` (propActivate, propEnable, room rebuild). A delisted prop is neither
+  ticked nor drawn. The PC cutscene layer's `cutscene_protect` already makes a player unseen and undamageable.
+- **Plan for S1:** at the disconnect, for the co-op partner, park instead of `playerDie`: off any vehicle, hands
+  idle, dead flags plus a new parked flag (so a host death ends the mission as both-dead does, and the restart rule
+  cannot take health), hidden, rooms deregistered, delisted, disabled, guards' references cleared; no drops, no
+  stats. Skip the parked player in the player loops (pdmain 1031-1042, lv.c's render loop: tick accounting only),
+  in the results loop, and for CCTV and autoguns; keep `cutscene_protect` on while parked; chat "<name> dropped
+  out". Items the partner holds stay with it (a throw or plant objective waits for its return: ask Mike whether the
+  host should get them).
+- **Un-park in S2:** inside `netServerCompleteReconnect`, before the reconnect snapshot: the parked spot if clear
+  (`spawnPoolFindClearPosition`), else next to the host; activate, enable, rooms, hidden flag back, dead and parked
+  cleared. The snapshot already carries co-op's NPC resync, stage flags and objective statuses; it lacks chrs made
+  after the stage start (SVC_NPC_SPAWN replay), the alarm and the mission timers.
+
 ## Steps
 
 - **S1 Park, don't kill (co-op).** In the disconnect path, a co-op partner is parked instead of killed; the

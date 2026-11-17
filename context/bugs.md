@@ -1,5 +1,30 @@
 # Bug Tracker
 
+## 2026-11-17 B-1274 Networked co-op and counter-op run as a Combat Simulator match: no objective checks during the mission, no co-op AI branches (T-NETWORKING-007, fixed in code on week-pd/multiplayer-coop, not yet run)
+
+Severity high for networked co-op and counter-op since 2026-04-09: the missions do not play as the original.
+Found while researching co-op drop-out (S1) on 2026-11-17: the host log of `network_coop_mission_end_smoke`
+(2026-11-16) shows `MATCH: mpReset normmplay=1 mplay=1 ... netmode=1` for a two-player co-op mission.
+
+Root cause: the stage load calls `mpReset` for the co-op and counter-op roles (`port/src/pdmain.c`, coopplayernum or
+antiplayernum set). The original `mpReset` then cleared `normmplayerisrunning` for those roles; commit 87e5347f0
+(2026-04-09, "remove dead coop/anti config swap (Phase 2)") collapsed that to always true, saying "with coop/anti
+gone, normmplayerisrunning is always true in mpReset()". Networked co-op and counter-op use the same roles, so every
+networked mission has run as a match since. What that turns off (all gated on `normmplayerisrunning == false`):
+the per-frame objective checks (`playerRenderHud`, `objectivesCheckAll`; objectives are checked once, at the mission
+end, so no "objective complete" during play and no mid-mission SVC_OBJ_STATUS), the AI's co-op branches
+(`if_coop_mode`, `scenario_source_runtime.c`), the guards' AI-versus-AI flag, and the mission death rules; the
+match's tune switching ran instead. The smokes did not see it: they end the mission with `--debug-end-mission`.
+The same commit also dropped the co-op and counter-op radar display option (`coopradaron`, `antiradaron`;
+`g_NetCoopRadar` is carried in the lobby plan but never applied): not fixed here.
+
+Fix (week-pd/multiplayer-coop): `mpReset` clears the flag again for the co-op and counter-op roles; a co-op host
+alone (AI buddies) and the offline Room's co-op start clear `mplayerisrunning` and `normmplayerisrunning` before the
+stage, as the original's mission list does, so a Combat Simulator match played before cannot leave them set; the
+smoke harness counts a co-op host alone as a network mission. Pinned by `[b1274]` in
+`tests/test_net_mission_end_static.cpp`. To run: every co-op and counter-op net smoke, plus the two AI-buddy smokes.
+SP-94.
+
 ## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
 
 Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.

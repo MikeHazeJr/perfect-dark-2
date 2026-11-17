@@ -767,3 +767,50 @@ TEST_CASE("co-op AI buddies: a host alone, or the offline Room, takes the Partne
 	const std::string player = code_only(read_text_file("src/game/player.c"));
 	REQUIRE(player.find("\"COOP.AIBUDDIES: spawned %d of %d at lvframe %d\"") != npos);
 }
+
+TEST_CASE("B-1274: co-op and counter-op run as missions, not as a Combat Simulator match",
+          "[net][coop][counterop][b1274]") {
+	const size_t npos = std::string::npos;
+
+	// mpReset clears normmplayerisrunning for the co-op and counter-op roles,
+	// as the original does, and nothing later in it sets the flag again
+	const std::string mplayer = code_only(read_text_file("src/game/mplayer/mplayer.c"));
+	const std::string reset = function_body(mplayer, "void mpReset(void)\n{");
+	const std::string roles = "\tif (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {\n"
+		"\t\tg_Vars.normmplayerisrunning = false;\n"
+		"\t} else {\n"
+		"\t\tg_Vars.normmplayerisrunning = true;\n"
+		"\t}\n";
+	const size_t at = reset.find(roles);
+	REQUIRE(at != npos);
+	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ", at + roles.size()) == npos);
+	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ") > reset.find("g_Vars.mplayerisrunning = true;"));
+
+	// What the flag keeps for a mission: the per-frame objective checks
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	REQUIRE(player.find("\tif (g_Vars.normmplayerisrunning == false) {\n\t\tobjectivesCheckAll();") != npos);
+
+	// A co-op host alone, and the offline Room, start the mission with the
+	// match flags clear, as the original's mission list does
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string start = function_body(net, "s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)\n{");
+	const size_t clear = start.find("if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {\n"
+		"\t\tg_Vars.mplayerisrunning = false;\n"
+		"\t\tg_Vars.normmplayerisrunning = false;\n");
+	const size_t last_rollback = start.rfind("PLAYER.INIT.ROLLBACK coop-stage");
+	REQUIRE(clear != npos);
+	REQUIRE(last_rollback != npos);
+	REQUIRE(last_rollback < clear);
+	REQUIRE(clear < start.find("mainChangeToStage(stagenum);"));
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string offline = function_body(bridge,
+		"s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)\n{");
+	const size_t accept = offline.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);");
+	REQUIRE(offline.find("g_Vars.mplayerisrunning = false;") < accept);
+	REQUIRE(offline.find("g_Vars.normmplayerisrunning = false;") < accept);
+	REQUIRE(accept != npos);
+
+	// The smoke harness counts a co-op host alone as a network mission
+	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
+	REQUIRE(harness.find("|| g_Vars.antiplayernum >= 0 || g_MissionConfig.iscoop));") != npos);
+}

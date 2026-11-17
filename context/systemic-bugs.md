@@ -4133,6 +4133,34 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
 
 ---
 
+## SP-94: A refactor collapses a branch for a mode it believes is gone
+
+**Pattern:** a cleanup removes or collapses code for a mode that looked dead at the time (split-screen co-op and
+counter-op after S188), and the mode comes back through the same globals (networked co-op and counter-op use the
+same `coopplayernum`/`antiplayernum` roles). The collapsed branch then silently gives the other mode's behavior.
+
+**Known instance (B-1274, 2026-11-17):** 87e5347f0 made `normmplayerisrunning` always true in `mpReset`, so
+networked co-op and counter-op ran as a match (no per-frame objective checks, no co-op AI branches) for seven months.
+The same commit dropped the co-op and counter-op radar display option.
+
+**Search:**
+```
+git log --format='%h %s' -i --grep='dead coop\|coop/anti\|unreachable\|no splitscreen' -- src port
+grep -rn "coop.*dead\|anti.*dead\|unreachable\|is always true" src/game port/src --include=*.c
+```
+
+**Rules:**
+- Before collapsing a mode branch, list who sets the mode's globals today (network code included), not only the
+  menus that used to.
+- A comment that calls a mode dead is a claim to re-check when the mode comes back.
+
+**Audit checklist:**
+- [x] `mpReset` normmplayerisrunning (B-1274).
+- [ ] The co-op and counter-op radar option (`g_NetCoopRadar` never reaches the display options).
+- [ ] Other S188 removals ("no splitscreen"): check each still holds with two networked players.
+
+---
+
 ## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
 
 **Severity: HIGH — a decoder silently gets zeros or the wrong fields from every

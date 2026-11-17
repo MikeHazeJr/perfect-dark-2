@@ -1291,6 +1291,11 @@ s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)
     g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
     g_MissionConfig.stagenum = (u8)stage.stagenum;
     g_Vars.numaibuddies = buddies;
+    /* As the original's mission list does when a mission is picked: a
+     * Combat Simulator match played from this Room before must not leave
+     * the mission running as a match (B-1274). */
+    g_Vars.mplayerisrunning = false;
+    g_Vars.normmplayerisrunning = false;
 
     sysLogPrintf(LOG_NOTE,
         "COOP.AIBUDDIES: offline start stage=%s stageindex=%d difficulty=%u buddies=%d requested=%u max=%d",
