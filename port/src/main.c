@@ -3912,10 +3912,21 @@ s32 bootDebugMountBikeTick(void)
 			setCurrentPlayerNum(0);
 			struct coord target = prop->pos;
 			f32 turn = hoverpropGetTurnAngle(prop->obj);
+			struct chrdata *chr = g_Vars.players[0]->prop->chr;
+			const u32 oldhidden = chr->hidden;
+			bool placed;
 			target.x += sinf(turn + M_BADPI * 0.5f) * 150.0f;
 			target.z += cosf(turn + M_BADPI * 0.5f) * 150.0f;
-			if (!chrMoveToPos(g_Vars.players[0]->prop->chr, &target, prop->rooms,
-					turn, false)) {
+			/* The placement may be where the camera sees it, as the game's own
+			 * chrSetPos allows: without this, chrAdjustPosForSpawn refuses
+			 * every place in view, which on a level of one open room is every
+			 * place beside the vehicle (the room vehicle smokes, B-1241). */
+			chr->hidden |= CHRHFLAG_WARPONSCREEN;
+			placed = chrMoveToPos(chr, &target, prop->rooms, turn, false);
+			if ((oldhidden & CHRHFLAG_WARPONSCREEN) == 0) {
+				chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
+			}
+			if (!placed) {
 				setCurrentPlayerNum(previousPlayerNum);
 				sysLogPrintf(LOG_WARNING,
 					"BOOT: --debug-mount-bike placement failed for Player 0");
