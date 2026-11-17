@@ -191,6 +191,17 @@ s32 forgeLevelDocGetObject(const forge_level_doc_t *doc, s32 index, forge_level_
  * or 256 when its record does not say or there is no such object. */
 s32 forgeLevelDocObjectExtraScale(const forge_level_doc_t *doc, s32 index);
 
+/*
+ * Gives object `record_id` the size `extra_scale` (1 to 32767; 256 is life
+ * size): its `base.extra_scale` row in setup.fields.json, the only file that
+ * holds it, from which setup sizes the object. Refused, with the document
+ * unchanged, for an object whose record has no such row and for one of the
+ * match's weapon places, which the match's weapon set sizes whatever the
+ * level says (setupPlaceWeapon).
+ */
+s32 forgeLevelDocSetObjectScale(forge_level_doc_t *doc, const char *record_id, s32 extra_scale,
+	char *err, size_t err_cap);
+
 /* A pad by its name ("pad_0012"). 1 when the level has it. */
 s32 forgeLevelDocFindPad(const forge_level_doc_t *doc, const char *pad_ref, forge_level_pad_t *out);
 

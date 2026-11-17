@@ -2002,6 +2002,45 @@ static void commitObjectRows(forge_level_doc_t *doc, int index, const std::strin
 	if (!fieldRows.empty()) fields.touch();
 }
 
+s32 forgeLevelDocSetObjectScale(forge_level_doc_t *doc, const char *record_id, s32 extra_scale,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	const int index = doc ? findObject(*doc, record_id) : -1;
+	if (index < 0) {
+		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
+		return 0;
+	}
+	const forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
+	if (object.weapon_slot >= 0) {
+		setError(err, err_cap, "%s is one of the match's weapon places, which the match's weapon set sizes",
+			object.record_id);
+		return 0;
+	}
+	const forge_level_doc::ObjectCatalog what = doc->objectCatalog[static_cast<size_t>(index)];
+	if (what.scaleRow < 0) {
+		setError(err, err_cap, "%s has no field that says its size, so it cannot be changed here",
+			object.record_id);
+		return 0;
+	}
+	if (extra_scale < 1 || extra_scale > kMaxExtraScale) {
+		setError(err, err_cap, "a size is 1 to %ld (256 is life size), not %d", kMaxExtraScale,
+			static_cast<int>(extra_scale));
+		return 0;
+	}
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	std::string scaleRow = fields.rows[static_cast<size_t>(what.scaleRow)];
+	const std::string scale = std::to_string(static_cast<long>(extra_scale));
+	if (!replaceValue(scaleRow, "value", quoted(scale))) {
+		setError(err, err_cap, "%s's size row could not be rewritten", object.record_id);
+		return 0;
+	}
+	fields.rows[static_cast<size_t>(what.scaleRow)] = scaleRow;
+	fields.touch();
+	doc->fields[static_cast<size_t>(what.scaleRow)].value = scale;
+	return 1;
+}
+
 s32 forgeLevelDocSetPickupWeapon(forge_level_doc_t *doc, const char *record_id,
 	const char *weapon_catalog_id, const char *model_catalog_id, s32 extra_scale,
 	char *err, size_t err_cap)

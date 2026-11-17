@@ -2914,3 +2914,60 @@ TEST_CASE("A file that is not the level as opened is refused, and the world show
 	CHECK(std::string(err) == "no level is open");
 	CHECK(forgeLevelLivePlan(live.opened, level.doc, nullptr, err, sizeof(err)) == 0);
 }
+
+TEST_CASE("An object is given a size, which the world draws its stand-in at", "[forge-level-doc][forge-level-live]")
+{
+	const std::string fields = levelFields("pad_0001",
+		",\n" + fieldRow("setup_0001", "prop", "base.extra_scale", "s32", "256"));
+	Level level(kPads, kSpawns, kObjects, kVolumes, fields);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK(forgeLevelDocObjectExtraScale(level.doc, 1) == 256);
+	CHECK(forgeLevelDocObjectExtraScale(level.doc, 0) == 256);   /* no row: life size */
+	CHECK(forgeLevelDocObjectExtraScale(level.doc, 9) == 256);   /* no such object */
+	Live live(level.doc);
+	REQUIRE(forgeLevelDocSetObjectScale(level.doc, "setup_0001", 512, live.err, sizeof(live.err)) == 1);
+	CHECK(forgeLevelDocObjectExtraScale(level.doc, 1) == 512);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields("pad_0001",
+		",\n" + fieldRow("setup_0001", "prop", "base.extra_scale", "s32", "512")));
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS) == 0);
+
+	/* Redrawn: the stage's object is hidden and the stand-in is drawn at the new size. */
+	REQUIRE(live.planFor(level.doc) == 1);
+	REQUIRE(live.plan->hide_count == 1);
+	CHECK(std::string(live.plan->hide[0].record_id) == "setup_0001");
+	REQUIRE(live.plan->draw_count == 1);
+	CHECK(live.plan->draw[0].extra_scale == 512);
+	CHECK(live.plan->draw[0].looks_like_command == -1);
+	CHECK(std::string(live.plan->draw[0].model_catalog_id) == "base:model_crate");
+
+	/* Back to life size, it is the file that was read and the stage's again. */
+	REQUIRE(forgeLevelDocSetObjectScale(level.doc, "setup_0001", 256, live.err, sizeof(live.err)) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	REQUIRE(live.planFor(level.doc) == 1);
+	CHECK(live.plan->hide_count == 0);
+	CHECK(live.plan->draw_count == 0);
+
+	/* What cannot be sized, and why; nothing changes. (This fixture's weapon
+	 * spot has no size row either: its two files disagree about its weapon.) */
+	CHECK(forgeLevelDocSetObjectScale(level.doc, "setup_0000", 512, live.err, sizeof(live.err)) == 0);
+	CHECK(std::string(live.err) == "setup_0000 has no field that says its size, so it cannot be changed here");
+	CHECK(forgeLevelDocSetObjectScale(level.doc, "setup_0002", 512, live.err, sizeof(live.err)) == 0);
+	CHECK(std::string(live.err) == "setup_0002 has no field that says its size, so it cannot be changed here");
+	CHECK(forgeLevelDocSetObjectScale(level.doc, "setup_0001", 0, live.err, sizeof(live.err)) == 0);
+	CHECK(std::string(live.err) == "a size is 1 to 32767 (256 is life size), not 0");
+	CHECK(forgeLevelDocSetObjectScale(level.doc, "setup_0009", 512, live.err, sizeof(live.err)) == 0);
+	CHECK(std::string(live.err) == "the level has no object \"setup_0009\"");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+
+	/* One of the match's weapon places is sized by the match; a pickup pinned
+	 * to one weapon has a size of its own. */
+	Level armoury(kPads, kSpawns, armouryObjects(), kVolumes, armouryFields());
+	INFO(armoury.error);
+	REQUIRE(armoury.doc != nullptr);
+	CHECK(forgeLevelDocSetObjectScale(armoury.doc, "setup_0000", 512, live.err, sizeof(live.err)) == 0);
+	CHECK(std::string(live.err) ==
+		"setup_0000 is one of the match's weapon places, which the match's weapon set sizes");
+	CHECK(forgeLevelDocSetObjectScale(armoury.doc, "setup_0001", 512, live.err, sizeof(live.err)) == 1);
+	CHECK(forgeLevelDocObjectExtraScale(armoury.doc, 1) == 512);
+}

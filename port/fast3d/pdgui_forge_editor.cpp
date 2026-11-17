@@ -1894,6 +1894,7 @@ static bool s_LevelFileStatusBad                 = false;
 static char s_LevelFileStart[32]                 = "";   /* selected player start, by id */
 static char s_LevelFileObject[32]                = "";   /* selected object, by id */
 static int  s_LevelFileObjectIndex               = -1;   /* its row; objects are only added, so rows do not move */
+static int  s_LevelFileSizePercent               = 100;  /* the Size section's slider */
 static int  s_LevelFileEdits                     = 0;    /* edits since the level was opened or last saved */
 static bool s_LevelFileCloseArmed                = false;
 static char s_LevelFileWeapon[CATALOG_ID_LEN]    = "";   /* the weapon chosen for a pickup, by catalog id */
@@ -2392,6 +2393,35 @@ static void forgeDrawLevelFileSection(void)
 			}
 		}
 		ImGui::EndDisabled();
+	}
+
+	/* The size a selected object is drawn at (`base.extra_scale`, 256 is life
+	 * size). One of the match's weapon places is sized by the match's weapon
+	 * set instead, so it has no size here. */
+	if (haveSelected && selected.weapon_slot < 0) {
+		const s32 size = forgeLevelDocObjectExtraScale(doc, s_LevelFileObjectIndex);
+		ImGui::SeparatorText("Size");
+		ImGui::Text("%s is drawn at %d%% of its model's size.", selected.record_id, (int)((size * 100 + 128) / 256));
+		ImGui::SetNextItemWidth(180 * pdguiScale(1.0f));
+		ImGui::SliderInt("##LevelFileSizePercent", &s_LevelFileSizePercent, 25, 400, "%d%%");
+		ImGui::SameLine();
+		if (ImGui::Button("Set Size###LevelFileSetSize")) {
+			const s32 scale = (s32)((s_LevelFileSizePercent * 256 + 50) / 100);
+			if (scale == size) {
+				forgeLevelFileStatus(false, "%s is already that size.", s_LevelFileObject);
+			} else {
+				forgeLevelSessionEditBegin();
+				const s32 levelEdit = forgeLevelDocSetObjectScale(doc, s_LevelFileObject, scale, err, sizeof(err));
+				forgeLevelSessionEditEnd(levelEdit);
+				if (levelEdit) {
+					s_LevelFileEdits++;
+					forgeLevelFileStatus(false, "%s is now drawn at %d%% of its model's size.", s_LevelFileObject,
+						s_LevelFileSizePercent);
+				} else {
+					forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
+				}
+			}
+		}
 	}
 
 	/* What a selected weapon pickup gives: one of the match's weapon places,
