@@ -62,7 +62,7 @@ function Assert-SmokeNativeConsumerSeed {
     if ($Manifest.Values.archive_origin.Contains('::')) { throw 'This initial smoke handoff supports one direct public model archive; nested owner proof is pending.' }
     $seed = [string]$InstallInfo.StorageSeed
     if ($seed -cnotmatch '^[0-9a-f]{64}$') { throw 'Native consumer needs this run frozen seed.' }
-    $path = Join-Path $ProjectRoot ('.claude/smoke-storage/seeds/' + $seed + '.json.gz')
+    $path = Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) ('seeds/' + $seed + '.json.gz')
     Assert-SmokePlainTree -Path $path
     $planner = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'asset-inspection-plan.py'
     $code = @'

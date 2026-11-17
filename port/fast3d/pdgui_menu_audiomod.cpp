@@ -49,6 +49,7 @@ extern "C" {
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 void sysLogPrintf(s32 level, const char *fmt, ...);
 const char *fsFullPath(const char *relPath, char *out, size_t outSize);
+const char *modmgrGetModsDir(void);
 #ifndef FS_MAXPATH
 #define FS_MAXPATH 1024
 #endif
@@ -408,12 +409,15 @@ static bool importVoiceArchive(const char *filePath, const char *displayName)
     char audioDir[FS_MAXPATH];
     char voiceDir[FS_MAXPATH];
     char archiveRelPath[FS_MAXPATH];
-    snprintf(modDir, sizeof(modDir), "mods/%s", modId);
+    /* New mods go into the user mods folder (mods_roots.h). */
+    const char *modsRoot = modmgrGetModsDir();
+    if (!modsRoot || !modsRoot[0]) modsRoot = "mods";
+    snprintf(modDir, sizeof(modDir), "%s/%s", modsRoot, modId);
     snprintf(audioDir, sizeof(audioDir), "%s/audio", modDir);
     snprintf(voiceDir, sizeof(voiceDir), "%s/voice", audioDir);
     snprintf(archiveRelPath, sizeof(archiveRelPath), "%s/%s.pdvoice",
              voiceDir, slug);
-    if (!fsCreateDir("mods") || !fsCreateDir(modDir)
+    if (!fsCreateDir(modsRoot) || !fsCreateDir(modDir)
             || !fsCreateDir(audioDir) || !fsCreateDir(voiceDir)) {
         snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
                  "Voice import failed: could not create the mod archive folder");
@@ -547,9 +551,11 @@ static bool importAudioFile(const char *filePath, const char *displayName,
     char slug[64];
     sanitizeDirName(displayName, slug, sizeof(slug));
 
-    /* Build mod directory path: mods/<slug>/ */
+    /* Build mod directory path: <user mods folder>/<slug>/ */
+    const char *modsRoot = modmgrGetModsDir();
+    if (!modsRoot || !modsRoot[0]) modsRoot = "mods";
     char modDir[FS_MAXPATH];
-    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+    snprintf(modDir, sizeof(modDir), "%s/%s", modsRoot, slug);
 
     /* Create directory (idempotent: returns 1 if already exists) */
     if (!fsCreateDir(modDir)) {
@@ -700,13 +706,15 @@ static bool createSoundtrackPack(const char *packName, const char *version)
     char slug[64];
     sanitizeDirName(packName, slug, sizeof(slug));
 
-    /* Create directory structure: mods/<slug>/tracks/ */
+    /* Create directory structure: <user mods folder>/<slug>/tracks/ */
+    const char *modsRoot = modmgrGetModsDir();
+    if (!modsRoot || !modsRoot[0]) modsRoot = "mods";
     char modDir[FS_MAXPATH];
-    snprintf(modDir, sizeof(modDir), "mods/%s", slug);
+    snprintf(modDir, sizeof(modDir), "%s/%s", modsRoot, slug);
     fsCreateDir(modDir);
 
     char tracksDir[FS_MAXPATH];
-    snprintf(tracksDir, sizeof(tracksDir), "mods/%s/tracks", slug);
+    snprintf(tracksDir, sizeof(tracksDir), "%s/%s/tracks", modsRoot, slug);
     fsCreateDir(tracksDir);
 
     /* Build mod.json */

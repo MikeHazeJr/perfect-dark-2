@@ -39,8 +39,9 @@ static s32 meshBridgeHasConflictingOwner(const char *id, s32 filenum)
     return 0;
 }
 
-s32 bodyHeadSourcePrepareMesh(const char *archive_path, const char *expected_id,
-    s32 source_by_catalog_id, body_head_mesh_binding_t *out, char *error, size_t error_capacity)
+static s32 bodyHeadSourcePrepareMeshImpl(const char *archive_path, const char *expected_id,
+    s32 source_by_catalog_id, s32 force_private, body_head_mesh_binding_t *out,
+    char *error, size_t error_capacity)
 {
     body_head_mesh_binding_t candidate = {0};
     ini_section_t *ini = NULL;
@@ -98,8 +99,19 @@ s32 bodyHeadSourcePrepareMesh(const char *archive_path, const char *expected_id,
     metadata = modArchiveExtractMemAlloc(bytes, size, ASSET_ARCHIVE_META_MANIFEST_PATH, &metadata_size);
     if (!loaderWalkerMeshSourcePlanManifest(metadata ? metadata : "{}",
             metadata ? metadata_size : 2, id, archive_path, geometry,
-            existing ? existing->source_filenum : -1, &candidate.plan,
+            force_private ? -1 : (existing ? existing->source_filenum : -1), &candidate.plan,
             error, error_capacity)) goto done;
+    if (force_private) {
+        /* The native file the manifest names is provenance only here. */
+        s32 held = existing && existing->runtime_index >= MODEL_CUSTOM_START &&
+            existing->runtime_index < MODEL_CUSTOM_END ? existing->runtime_index : -1;
+        if (existing && existing->runtime_index >= 0 && held < 0) {
+            reject(error, error_capacity, "mesh already has a native model number", id);
+            goto done;
+        }
+        candidate.plan.source_filenum = held >= 0 ? assetCatalogModelPrivateSourceFilenum(held) : -1;
+        candidate.plan.source_symbol_present = 0;
+    }
     if (fsFileSize(candidate.plan.source_path) <= 0) {
         reject(error, error_capacity, "selected public mesh geometry is missing", id);
         goto done;
@@ -128,6 +140,19 @@ done:
     free(ini);
     if (bytes) sysMemFree(bytes);
     return ok;
+}
+
+s32 bodyHeadSourcePrepareMesh(const char *archive_path, const char *expected_id,
+    s32 source_by_catalog_id, body_head_mesh_binding_t *out, char *error, size_t error_capacity)
+{
+    return bodyHeadSourcePrepareMeshImpl(archive_path, expected_id, source_by_catalog_id, 0, out,
+        error, error_capacity);
+}
+
+s32 meshSourcePreparePrivate(const char *archive_path, const char *expected_id,
+    body_head_mesh_binding_t *out, char *error, size_t error_capacity)
+{
+    return bodyHeadSourcePrepareMeshImpl(archive_path, expected_id, 0, 1, out, error, error_capacity);
 }
 
 s32 bodyHeadSourceBindMesh(body_head_mesh_binding_t *binding, s32 bundled,

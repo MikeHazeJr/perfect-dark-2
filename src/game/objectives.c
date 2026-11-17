@@ -27,6 +27,13 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "scenario_source_runtime.h"
+#include "mission_graph_runner.h"
+
+/* The mission graph runner's status values are the native ones. */
+_Static_assert(MISSION_GRAPH_STATUS_INCOMPLETE == OBJECTIVE_INCOMPLETE &&
+	MISSION_GRAPH_STATUS_COMPLETE == OBJECTIVE_COMPLETE &&
+	MISSION_GRAPH_STATUS_FAILED == OBJECTIVE_FAILED,
+	"mission graph objective statuses must equal OBJECTIVE_*");
 
 struct objective *g_Objectives[MAX_OBJECTIVES];
 u32 g_ObjectiveStatuses[MAX_OBJECTIVES];
@@ -713,14 +720,17 @@ s32 objectivesDebugCompleteCurrentMission(void)
 
 	g_DebugForceCompleteCurrentMissionObjectives = true;
 
+	/* The check first, so each objective changes status the way it does in
+	 * play: the status event (and its message) runs from the mission graph.
+	 * The loop then covers a stage whose objective checks are disabled. */
+	objectivesCheckAll();
+
 	for (i = 0; i < objectiveGetCount(); i++) {
 		if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
 			g_ObjectiveStatuses[i] = OBJECTIVE_COMPLETE;
 			completed++;
 		}
 	}
-
-	objectivesCheckAll();
 
 	return completed;
 }
@@ -785,6 +795,50 @@ void objectivesShowHudmsg(char *buffer, s32 hudmsgtype)
 }
 #endif
 
+/* The original "Objective N: Completed", "Incomplete" or "Failed" message for
+ * the objective numbered `number` (1-based among the objectives that apply at
+ * this difficulty). The mission graph module og.hud.objective_status_message
+ * runs it; a stage without a mission graph shows it directly. */
+void objectivesShowStatusMessage(s32 number, s32 status)
+{
+	char buffer[50] = "";
+
+#if VERSION >= VERSION_JPN_FINAL
+	u8 jpnstr[] = {0, 0, 0};
+	jpnstr[0] = 0x80;
+	jpnstr[1] = 0x80 | (0x11 + (number - 1));
+	snprintf(buffer, sizeof(buffer), "%s %s: ", langGet(L_MISC_044), jpnstr); // "Objective"
+#else
+	snprintf(buffer, sizeof(buffer), "%s %d: ", langGet(L_MISC_044), number); // "Objective"
+#endif
+
+#if VERSION >= VERSION_NTSC_1_0
+	// NTSC 1.0 and above shows objective messages to everyone,
+	// while beta only shows them to the current player.
+	if (status == OBJECTIVE_COMPLETE) {
+		strcat(buffer, langGet(L_MISC_045)); // "Completed"
+		objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE);
+	} else if (status == OBJECTIVE_INCOMPLETE) {
+		strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
+		objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE);
+	} else if (status == OBJECTIVE_FAILED) {
+		strcat(buffer, langGet(L_MISC_047)); // "Failed"
+		objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVEFAILED);
+	}
+#else
+	if (status == OBJECTIVE_COMPLETE) {
+		strcat(buffer, langGet(L_MISC_045)); // "Completed"
+		hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
+	} else if (status == OBJECTIVE_INCOMPLETE) {
+		strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
+		hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
+	} else if (status == OBJECTIVE_FAILED) {
+		strcat(buffer, langGet(L_MISC_047)); // "Failed"
+		hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVEFAILED, HUDMSGFLAG_ALLOWDUPES);
+	}
+#endif
+}
+
 void objectivesCheckAll(void)
 {
 	s32 availableindex = 0;
@@ -792,7 +846,6 @@ void objectivesCheckAll(void)
 	s32 any_failed_objective = 0;
 	s32 all_active_objectives_complete = 1;
 	s32 i;
-	char buffer[50] = "";
 
 	// In network co-op, objective evaluation is server-authoritative.
 	// Clients receive status updates via SVC_OBJ_STATUS messages.
@@ -809,6 +862,7 @@ void objectivesCheckAll(void)
 			s32 status = objectiveCheck(i);
 
 			if (g_ObjectiveStatuses[i] != status) {
+				const s32 previous = (s32)g_ObjectiveStatuses[i];
 				g_ObjectiveStatuses[i] = status;
 
 				// In co-op mode, broadcast objective status changes to clients
@@ -818,40 +872,17 @@ void objectivesCheckAll(void)
 				}
 
 				if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
-#if VERSION >= VERSION_JPN_FINAL
-					u8 jpnstr[] = {0, 0, 0};
-					jpnstr[0] = 0x80;
-					jpnstr[1] = 0x80 | (0x11 + availableindex);
-					snprintf(buffer, sizeof(buffer), "%s %s: ", langGet(L_MISC_044), jpnstr); // "Objective"
-#else
-					snprintf(buffer, sizeof(buffer), "%s %d: ", langGet(L_MISC_044), availableindex + 1); // "Objective"
-#endif
-
-#if VERSION >= VERSION_NTSC_1_0
-					// NTSC 1.0 and above shows objective messages to everyone,
-					// while beta only shows them to the current player.
-					if (status == OBJECTIVE_COMPLETE) {
-						strcat(buffer, langGet(L_MISC_045)); // "Completed"
-						objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE);
-					} else if (status == OBJECTIVE_INCOMPLETE) {
-						strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
-						objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE);
-					} else if (status == OBJECTIVE_FAILED) {
-						strcat(buffer, langGet(L_MISC_047)); // "Failed"
-						objectivesShowHudmsg(buffer, HUDMSGTYPE_OBJECTIVEFAILED);
+					/* Decision 2: a stage with a mission graph runs the status
+					 * event through it, and the graph decides what follows (the
+					 * base graphs wire the original message as the native module
+					 * og.hud.objective_status_message). A stage built the old
+					 * way shows the message directly. */
+					if (scenarioSourceMissionGraphOwnsObjectiveEvents()) {
+						scenarioSourceMissionGraphObjectiveStatusChanged(i,
+							availableindex + 1, status, previous);
+					} else {
+						objectivesShowStatusMessage(availableindex + 1, status);
 					}
-#else
-					if (status == OBJECTIVE_COMPLETE) {
-						strcat(buffer, langGet(L_MISC_045)); // "Completed"
-						hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
-					} else if (status == OBJECTIVE_INCOMPLETE) {
-						strcat(buffer, langGet(L_MISC_046)); // "Incomplete"
-						hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVECOMPLETE, HUDMSGFLAG_ALLOWDUPES);
-					} else if (status == OBJECTIVE_FAILED) {
-						strcat(buffer, langGet(L_MISC_047)); // "Failed"
-						hudmsgCreateWithFlags(buffer, HUDMSGTYPE_OBJECTIVEFAILED, HUDMSGFLAG_ALLOWDUPES);
-					}
-#endif
 				}
 			}
 

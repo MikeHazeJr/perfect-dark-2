@@ -1,0 +1,8 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template": "base:vehicle_hoverbike",
+  "name": "Smoke Hover",
+  "author": "PD2 smoke",
+  "version": "0.1.0",
+  "description": "The base hoverbike saved as a mod by the mod author, for the mod vehicle drive smoke. Local only: it embeds the base model."
+}

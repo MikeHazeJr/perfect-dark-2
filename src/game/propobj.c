@@ -6,6 +6,7 @@
 #include "game/bondmove.h"
 #include "game/bondbike.h"
 #include "game/bondwalk.h"
+#include "game/vehiclegraph.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
@@ -7455,6 +7456,9 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	s32 i;
 	u32 stack[6];
 	f32 tmp;
+	vehicle_graph_instance_t *graph = NULL;
+	vehicle_graph_drive_t drive;
+	f32 steerscale = 1.0f;
 
 	if (!bike) {
 		return;
@@ -7466,11 +7470,32 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->base.modelnum);
 		return;
 	}
-	if (!source->vehicle_allow_drive) {
+	if (source->vehicle_graph) {
+		/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here,
+		 * where the original movement runs, and its modules say what the
+		 * movement does: hover or not, take the driver's inputs or not, the
+		 * extra forward speed (replacing the original bonus below) and the
+		 * steering scale. A vehicle with no instance (refused, logged) does
+		 * not move. */
+		graph = hoverbikeGraphInstance(bike, source);
+		if (!graph) {
+			return;
+		}
+		hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
+		if (!drive.hover) {
+			return;
+		}
+		if (!drive.drive) {
+			speedforwards = 0;
+			speedsideways = 0;
+			speedtheta = 0;
+		}
+		steerscale = drive.steer_scale;
+	} else if (!source->vehicle_allow_drive) {
 		return;
 	}
 
-	tmp = speedtheta * source->vehicle_turn_input_scale;
+	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
 
 	if (speedforwards < 0) {
 		tmp *= 1.0f - speedforwards * source->vehicle_reverse_turn_gain;
@@ -7587,7 +7612,10 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (speedforwards >= 0.99f) {
+	if (graph) {
+		/* The graph's og.vehicle.throttle_boost keeps its own timer. */
+		bike->maxspeedtime240 = 0;
+	} else if (speedforwards >= 0.99f) {
 		bike->maxspeedtime240 += g_Vars.lvupdate240;
 
 		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
@@ -7607,9 +7635,13 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		}
 	}
 
-	bike->speedrel[1] = bike->maxspeedtime240 *
-		source->vehicle_boost_speed /
-		TICKS(source->vehicle_boost_time_ticks60);
+	if (graph) {
+		bike->speedrel[1] = drive.extra_speed;
+	} else {
+		bike->speedrel[1] = bike->maxspeedtime240 *
+			source->vehicle_boost_speed /
+			TICKS(source->vehicle_boost_time_ticks60);
+	}
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;
@@ -7646,6 +7678,10 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->leanspeed = 0;
 			bike->leandiff = 0;
 			bike->maxspeedtime240 = 0;
+			if (graph) {
+				/* The original rest reset, for the graph's timers. */
+				vehicleGraphInstanceRest(graph);
+			}
 			bike->speedabs[0] = 0;
 			bike->speedabs[1] = 0;
 			bike->speedrel[0] = 0;
@@ -12821,6 +12857,8 @@ void hoverbikeTick(struct prop *prop, bool arg1)
 
 		if (obj->base.flags & OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY) {
 			hoverbikeUpdateMovement(obj, 0, 0, 0);
+		} else {
+			hoverbikeGraphIdleTick(obj);
 		}
 	}
 }
@@ -18487,7 +18525,7 @@ bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted)
 	return true;
 }
 
-bool currentPlayerTryMountHoverbike(struct prop *prop)
+static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct defaultobj *obj;
@@ -18596,6 +18634,27 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	}
 
 	return false;
+}
+
+/* What og.vehicle.mount_seat does for the driver seat: the native candidate
+ * and commit above. */
+static s32 hoverbikeMountDriverAction(void *context)
+{
+	return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;
+}
+
+/* A vehicle with a pd.vehicle_graph.v1 graph mounts through it (vehiclegraph.c):
+ * the request is event.vehicle.mount_requested, and og.vehicle.mount_seat runs
+ * the native mount. A v2 vehicle takes the native path directly. */
+bool currentPlayerTryMountHoverbike(struct prop *prop)
+{
+	const s32 result = hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);
+
+	if (result >= 0) {
+		return result == 1;
+	}
+	return currentPlayerTryMountHoverbikeNative(prop);
 }
 
 bool propobjInteract(struct prop *prop)

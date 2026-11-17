@@ -379,6 +379,28 @@ not prove runtime utilization. Repository contributors also run
 `python tools/asset_native_source_guard.py` under the project's coordinated
 verification procedure.
 
+### `mod.json` before packing
+
+A mod folder or `.pdmod` needs a root `mod.json` that is a JSON object with
+`id`, `name` and `version` as non-empty strings:
+
+```json
+{ "id": "author.sample_mod", "name": "Sample Mod", "version": "1.0.0" }
+```
+
+The in-game packers (Mods > Mod Pack, and every tool that saves a `.pdmod`)
+and the offline workflow verifier apply this same rule, and refuse before they
+write anything. Save the file as UTF-8 without a byte order mark. Numbers,
+booleans and blank text are not accepted for the three fields, and accepted
+values are never trimmed or rewritten.
+
+The game is stricter than the Python verifier in a few cases that a mod
+manifest has no use for: duplicate keys, `NaN` or `Infinity`, a `\u0000`
+escape, unpaired surrogate escapes, numbers outside double range, nesting
+deeper than 64 levels, and files over 8 MiB. Anything the game accepts, the
+offline verifier accepts. The mod loader keeps its older defaults for mods
+that already exist on disk; this rule applies when a package is produced.
+
 
 Animation generation lifetime (2026-09-08): native graph adapters can acquire an
 owned generation of a selected glTF/GLB clip. The generation hash covers the

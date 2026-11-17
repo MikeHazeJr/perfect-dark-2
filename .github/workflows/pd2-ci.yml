@@ -54,7 +54,9 @@ jobs:
           python -B tools/tests/test_native_write_policy_guard.py
 
       - name: Check modder workflow regressions
-        run: python -B tools/tests/test_pdxxx_modder_workflow.py -v
+        run: |
+          python -B tools/tests/test_pdxxx_modder_workflow.py -v
+          python -B tools/tests/test_mod_manifest_parity.py -v
 
       # B-1124: a multi-process smoke fixture that shares one install and passes
       # neither --portable nor --savedir runs against the real user profile.
@@ -107,7 +109,19 @@ jobs:
           exe="$(find Build -maxdepth 3 -name 'pd-tests.exe' | head -n1)"
           if [ -z "$exe" ]; then echo "pd-tests.exe not found under Build/"; exit 1; fi
           echo "Running $exe"
-          "$exe" --reporter compact
+          # Tests that author typed archives keep copies here for the next step.
+          PD2_TEST_ARTIFACT_DIR="$(cygpath -m "$PWD/Build/pd2-test-artifacts")" "$exe" --reporter compact
+
+      # The in-game authoring code and the offline validator must agree: every
+      # typed archive the unit tests produced has to pass conformance. The
+      # example archives sit beside them so references to example ids resolve.
+      - name: Validate archives authored by the game code
+        run: |
+          art=Build/pd2-test-artifacts
+          if [ ! -d "$art/clones" ]; then echo "no authored archives under $art/clones"; exit 1; fi
+          mkdir -p "$art/examples"
+          cp -r examples/modding/typed-pdxxx-basic/. "$art/examples/"
+          python -B tools/asset_archive_conformance.py --root "$art/clones"
 
       - name: Upload client artifact
         if: success()

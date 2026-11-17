@@ -1153,14 +1153,18 @@ Gfx *bgRenderScene(Gfx *gdl)
 			roomnum = 0x71;
 		}
 
-		/* M0.1a: catalog-first stage identity comparison */
+		/* M0.1a: catalog-first stage identity comparison. Decision 1: a stage
+		 * built from scenario source draws its stars when its stage.json has
+		 * a stars rule. */
 		if (PLAYERCOUNT() == 1
-				&& (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0)) {
+				&& (bgUsesScenarioSource()
+					? scenarioSourceStageStars(NULL) != 0
+					: (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0))) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -1700,6 +1704,10 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 			if (verts[j]->z > g_Rooms[room].bbmax[2]) g_Rooms[room].bbmax[2] = verts[j]->z;
 		}
 	}
+
+	/* Decision 3: the stage-wide rules of the stage's stage.json (weather
+	 * first), read before the stage's weather and sky are set up. */
+	scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);
 
 	/* B-1113: the authored room boxes decide which room a pad is in, and so
 	 * whether the props placed on it exist at all. A box derived from a room's

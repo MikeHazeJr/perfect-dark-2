@@ -52,6 +52,8 @@ static const InputAction s_VehicleDriverActionSet[] = {
     ACTION_VEHICLE_LOOK_Y,
     ACTION_VEHICLE_HANDBRAKE,
     ACTION_VEHICLE_USE,
+    /* Maian vehicle V3 (Mike 2026-11-16): held boost. */
+    ACTION_VEHICLE_BOOST,
     /* Reuse the shared aim axis pair so the right stick / mouse drives
      * yaw + pitch while mounted. */
     ACTION_AXIS_AIM_X,

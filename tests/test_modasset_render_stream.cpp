@@ -10,8 +10,9 @@ TEST_CASE("render-stream schema gates typed geometry commands",
 	REQUIRE(modAssetRenderStreamSchemaSupported(1) == 1);
 	REQUIRE(modAssetRenderStreamSchemaSupported(2) == 1);
 	REQUIRE(modAssetRenderStreamSchemaSupported(3) == 1);
+	REQUIRE(modAssetRenderStreamSchemaSupported(4) == 1);
 	REQUIRE(modAssetRenderStreamSchemaSupported(0) == 0);
-	REQUIRE(modAssetRenderStreamSchemaSupported(4) == 0);
+	REQUIRE(modAssetRenderStreamSchemaSupported(5) == 0);
 	REQUIRE(modAssetRenderStreamResolveSchema(0, 0,
 		"pd2.mesh.render.v1") == MODASSET_RENDER_STREAM_SCHEMA_LEGACY);
 	REQUIRE(modAssetRenderStreamResolveSchema(0, 0, NULL) == 0);
@@ -20,8 +21,12 @@ TEST_CASE("render-stream schema gates typed geometry commands",
 	REQUIRE(modAssetRenderStreamResolveSchema(1, 2,
 		"pd2.mesh.render.v1") == MODASSET_RENDER_STREAM_SCHEMA_GEOMETRY);
 	REQUIRE(modAssetRenderStreamResolveSchema(1, 3,
-		"pd2.mesh.render.v1") == MODASSET_RENDER_STREAM_SCHEMA_CURRENT);
+		"pd2.mesh.render.v1") == MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE);
 	REQUIRE(modAssetRenderStreamResolveSchema(1, 4,
+		"pd2.mesh.render.v1") == MODASSET_RENDER_STREAM_SCHEMA_TEXTURE);
+	REQUIRE(MODASSET_RENDER_STREAM_SCHEMA_CURRENT ==
+		MODASSET_RENDER_STREAM_SCHEMA_TEXTURE);
+	REQUIRE(modAssetRenderStreamResolveSchema(1, 5,
 		"pd2.mesh.render.v1") == 0);
 
 	REQUIRE(modAssetRenderStreamOpFromText(1, "mtx") ==
@@ -54,6 +59,23 @@ TEST_CASE("render-stream schema gates typed geometry commands",
 	REQUIRE(modAssetRenderStreamOpIsGeometry(MODASSET_RENDER_OP_TRI) == 0);
 	REQUIRE(modAssetRenderStreamOpIsGeometry(
 		MODASSET_RENDER_OP_VERTEX_SCOPE) == 0);
+
+	/* B-1154: v4 adds the source list's texture scale. */
+	REQUIRE(modAssetRenderStreamOpFromText(4, "texture") ==
+		MODASSET_RENDER_OP_TEXTURE);
+	REQUIRE(modAssetRenderStreamOpFromText(3, "texture") ==
+		MODASSET_RENDER_OP_INVALID);
+	REQUIRE(modAssetRenderStreamOpFromText(4, "vertex_cache_reset") ==
+		MODASSET_RENDER_OP_VERTEX_CACHE_RESET);
+	REQUIRE(modAssetRenderStreamOpIsGeometry(MODASSET_RENDER_OP_TEXTURE) == 0);
+	/* v3 sources (bases extracted before v4) keep their vertex-cache rules. */
+	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(3, 1) == 1);
+	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(4, 1) == 1);
+	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(2, 1) == 0);
+	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(5, 1) == 0);
+	REQUIRE(modAssetRenderStreamVertexScopeAllowed(4, 3) ==
+		modAssetRenderStreamVertexScopeAllowed(3, 3));
+	REQUIRE(modAssetRenderStreamVertexScopeAllowed(5, 3) == 0);
 }
 
 TEST_CASE("authoritative geometry source preserves the node combine",
@@ -63,7 +85,8 @@ TEST_CASE("authoritative geometry source preserves the node combine",
 	REQUIRE(modAssetRenderStreamPreservesNodeCombine(3) == 1);
 	REQUIRE(modAssetRenderStreamPreservesNodeCombine(2) == 1);
 	REQUIRE(modAssetRenderStreamPreservesNodeCombine(1) == 0);
-	REQUIRE(modAssetRenderStreamPreservesNodeCombine(4) == 0);
+	REQUIRE(modAssetRenderStreamPreservesNodeCombine(4) == 1);
+	REQUIRE(modAssetRenderStreamPreservesNodeCombine(5) == 0);
 }
 
 TEST_CASE("vertex load state is complete without inventing inherited bits",
@@ -139,7 +162,8 @@ TEST_CASE("Type-3 vertex scope owns one explicit compiler baseline",
 	REQUIRE(modAssetRenderStreamVertexScopeAllowed(3, 3) == 1);
 	REQUIRE(modAssetRenderStreamVertexScopeAllowed(2, 3) == 0);
 	REQUIRE(modAssetRenderStreamVertexScopeAllowed(3, 4) == 0);
-	REQUIRE(modAssetRenderStreamVertexScopeAllowed(4, 3) == 0);
+	REQUIRE(modAssetRenderStreamVertexScopeAllowed(4, 3) == 1);
+	REQUIRE(modAssetRenderStreamVertexScopeAllowed(5, 3) == 0);
 	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(3, 4) == 1);
 	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(3, 1) == 1);
 	REQUIRE(modAssetRenderStreamVertexCacheResetAllowed(3, 3) == 0);

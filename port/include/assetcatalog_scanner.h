@@ -278,6 +278,14 @@ s32 iniParse(const char *filepath, ini_section_t *out);
 s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *out);
 
 /**
+ * The parser behind iniParseBuffer, with no log and no catalog (ini_parse.c).
+ * Returns 1 with `out` filled. Returns 0 otherwise: with a reason in `err`
+ * (optional) when the text is malformed or over a limit, and with `err`
+ * empty when the text simply has no section header.
+ */
+s32 iniParseText(const char *data, u32 len, ini_section_t *out, char *err, size_t err_cap);
+
+/**
  * Write a parsed INI section back to a caller-provided UTF-8 buffer.
  * `out_len` receives the byte count excluding the trailing NUL when non-NULL.
  */

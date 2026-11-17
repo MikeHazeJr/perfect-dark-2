@@ -1,0 +1,4 @@
+{
+  "schema": "pd.weapon_settings.v1",
+  "fire_cadence": { "value": 20, "unit": "centiseconds" }
+}

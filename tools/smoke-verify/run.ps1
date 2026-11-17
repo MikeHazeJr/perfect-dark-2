@@ -2854,6 +2854,13 @@ function Invoke-SmokeTest {
         }
     }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
+    if ($storageReceipt -and $storageReceipt.PSObject.Properties.Match('DiscardedBytes').Count -gt 0) {
+        if ($storageReceipt.PSObject.Properties.Match('Recycled').Count -gt 0 -and $storageReceipt.Recycled) {
+            Write-Info ("  install sent to the Recycle Bin after the run (storage location policy): {0:N1} MB, on the drive until the bin is emptied" -f ($storageReceipt.DiscardedBytes / 1MB))
+        } else {
+            Write-Info ("  install discarded after the run (storage location policy): freed {0:N1} MB" -f ($storageReceipt.DiscardedBytes / 1MB))
+        }
+    }
 
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
@@ -2969,12 +2976,12 @@ foreach ($t in $selected) {
 # ----------------------------------------------------------------
 
 if ($useSharedInstall) {
-    Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
+    Write-Info ("Install mode: exclusive reusable workspace ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'shared'))
 } elseif ($Install) {
     Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
     if ($SourceBinary) { Write-Info ("  binary under test replaces the template's own: {0}" -f $SourceBinary) }
 } else {
-    Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
+    Write-Info ("Install mode: private managed install ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'installs'))
 }
 
 $results = @()

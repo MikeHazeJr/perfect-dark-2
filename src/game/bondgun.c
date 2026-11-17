@@ -79,6 +79,9 @@
 #include "fs.h"
 #include "loader_pool.h"
 #include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -6969,7 +6972,16 @@ void bgunTickSwitch2(void)
 
 				chr->hidden |= CHRHFLAG_DISGUISED;
 
-				if (g_Vars.stagenum == STAGE_RESCUE) {
+				/* Decision 3: a stage built from scenario source says in its
+				 * stage.json player rule whether a disguised player can be
+				 * targeted; the stage check stays for a ROM stage. */
+				if (bgUsesScenarioSource()) {
+					scenario_stage_player_t rule;
+
+					if (scenarioSourceStagePlayer(&rule) && rule.disguise_untargetable) {
+						chr->hidden |= CHRHFLAG_UNTARGETABLE;
+					}
+				} else if (g_Vars.stagenum == STAGE_RESCUE) {
 					chr->hidden |= CHRHFLAG_UNTARGETABLE;
 				}
 

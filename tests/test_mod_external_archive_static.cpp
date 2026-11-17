@@ -1699,7 +1699,12 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("iniParseBuffer") != std::string::npos);
 	REQUIRE(scanner.find("iniWriteBuffer") != std::string::npos);
-	REQUIRE(scanner.find("if (out->type[0] == '\\0')") != std::string::npos);
+	/* The parse loop is ini_parse.c (no log, no catalog; linked into the tests);
+	 * the scanner keeps the logging wrapper. The first section names the type. */
+	REQUIRE(scanner.find("iniParseText(data, len, out, why, sizeof(why))") != std::string::npos);
+	std::string iniParser = readFile("port/src/ini_parse.c");
+	REQUIRE(iniParser.find("if (out->type[0] == '\\0')") != std::string::npos);
+	REQUIRE(iniParser.find("is not a comment, a section or key = value") != std::string::npos);
 	REQUIRE(scanner.find("modArchiveExtractAlloc") != std::string::npos);
 	REQUIRE(scanner.find("archiveIniIsDescriptor") != std::string::npos);
 	REQUIRE(scanner.find("archiveEntryIsDescriptor") != std::string::npos);
@@ -7232,7 +7237,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	        std::string::npos);
 	REQUIRE(render_stream_contract.find("SCHEMA_GEOMETRY = 2") !=
 	        std::string::npos);
-	REQUIRE(render_stream_contract.find("SCHEMA_CURRENT = 3") !=
+	REQUIRE(render_stream_contract.find("SCHEMA_VERTEX_CACHE = 3") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("SCHEMA_CURRENT = 4") !=
 	        std::string::npos);
 	REQUIRE(render_stream_contract.find("Type-3 render owner") !=
 	        std::string::npos);
@@ -8962,18 +8969,27 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("weaponCatalogIdForDisplayName") != std::string::npos);
 	REQUIRE(hub.find("Catalog Name: mod:%s") != std::string::npos);
 	REQUIRE(hub.find("WEAPONMOD.SAVE.BEGIN") != std::string::npos);
-	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL slot=model_ref") !=
+	/* What the creator cannot put into a clean archive yet is refused by
+	 * name instead of being left out of the saved mod. */
+	REQUIRE(hub.find("weaponSaveFail(\"DEPENDENCY_CHANGE_UNSUPPORTED\"") !=
 	        std::string::npos);
-	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL slot=animation_ref") !=
-	        std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.SAVE.PAYLOAD_FAIL") == std::string::npos);
 	REQUIRE(hub.find("weaponSaveFail(\"GRAPH_FAIL\"") != std::string::npos);
-	REQUIRE(hub.find("weaponSaveFail(\"MODINVALID\"") != std::string::npos);
-	REQUIRE(hub.find("weaponSaveFail(\"MODDISCOVER_FAIL\"") != std::string::npos);
+	/* Discovery, the manifest verdict, enabling and applying belong to the
+	 * mod author's runtime half, shared with the --mod-author boot flag. */
+	const std::string authorRuntime = readFile("port/src/mod_author_runtime.c");
+	REQUIRE(!authorRuntime.empty());
+	REQUIRE(authorRuntime.find("the mod manager did not find %s") != std::string::npos);
+	REQUIRE(authorRuntime.find("the mod manager rejected %s: %s") != std::string::npos);
+	REQUIRE(authorRuntime.find("modmgrApplyChangesChecked(1, &apply)") != std::string::npos);
+	REQUIRE(hub.find("weaponSaveFail(\"MODINVALID\"") == std::string::npos);
+	REQUIRE(hub.find("weaponSaveFail(\"MODDISCOVER_FAIL\"") == std::string::npos);
 	REQUIRE(hub.find("WEAPONMOD.SAVE.OK") != std::string::npos);
 	REQUIRE(hub.find("Create + Enable") != std::string::npos);
 	REQUIRE(hub.find("identityGetActiveProfile") != std::string::npos);
 	REQUIRE(hub.find("modmgrGetModValid") != std::string::npos);
-	REQUIRE(hub.find("modmgrApplyChangesChecked(1, &applyResult)") != std::string::npos);
+	REQUIRE(hub.find("modAuthorRuntimeSave(&request, &result, &restartCount") !=
+	        std::string::npos);
 	REQUIRE(hub.find("Saved, enabled, and catalog updated") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponEditWeaponId") == std::string::npos);
 	REQUIRE(hub.find("InputInt(\"Weapon ID\"") == std::string::npos);
@@ -8999,23 +9015,34 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("pdguiModelPreviewDrawEx") != std::string::npos);
 	REQUIRE(hub.find("PDGUI_MP_WEAPON") != std::string::npos);
 	REQUIRE(hub.find("ASSET_MODEL") != std::string::npos);
-	REQUIRE(hub.find("modArchiveBegin(archivePath)") != std::string::npos);
-	REQUIRE(hub.find("weaponCopyTemplatePayloads") != std::string::npos);
-	REQUIRE(hub.find("modelTemplateEntry") != std::string::npos);
-	REQUIRE(hub.find("animTemplateEntry") != std::string::npos);
-	REQUIRE(hub.find("modArchiveAddFileDisk") != std::string::npos);
-	REQUIRE(hub.find("weaponAddCatalogAssetArchive") != std::string::npos);
-	REQUIRE(hub.find("weaponAddArchiveRefPayload") != std::string::npos);
+	/* Save hands the template and the edits to the mod author, which writes
+	 * the clean layout; the creator writes no archive of its own. */
+	REQUIRE(hub.find("modArchiveBegin(archivePath)") == std::string::npos);
+	REQUIRE(hub.find("weaponCopyTemplatePayloads") == std::string::npos);
+	REQUIRE(hub.find("weaponAddCatalogAssetArchive") == std::string::npos);
+	REQUIRE(hub.find("weaponGraphEditorSplit(s_WeaponEditGraph") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphEditorCompose(") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphCompileWeaponSourceJson(") != std::string::npos);
+	REQUIRE(hub.find("\"behavior/primary.graph.json\"") != std::string::npos);
+	REQUIRE(hub.find("\"behavior/secondary.graph.json\"") != std::string::npos);
+	REQUIRE(hub.find("\"behavior/shared-context.json\"") != std::string::npos);
+	REQUIRE(hub.find("overrides[overrideCount].entry = s_WeaponEditTemplateModelFile") !=
+	        std::string::npos);
+	/* A template is never opened, or saved, with made-up behavior in place
+	 * of its own. */
+	REQUIRE(hub.find("WEAPONMOD.TEMPLATE.GRAPH_FAIL") != std::string::npos);
+	REQUIRE(hub.find("WEAPONMOD.TEMPLATE.EDITOR_FAIL") != std::string::npos);
 	REQUIRE(hub.find("WEAPON_IMPORT_PROJECTILE") != std::string::npos);
 	REQUIRE(hub.find("WEAPON_IMPORT_ENTITY") != std::string::npos);
 	REQUIRE(hub.find("Import Projectile") != std::string::npos);
 	REQUIRE(hub.find("Import Entity") != std::string::npos);
-	REQUIRE(hub.find("dependency_closure = embedded.v2") != std::string::npos);
-	REQUIRE(hub.find("projectile_archive = %s") != std::string::npos);
-	REQUIRE(hub.find("entity_archive = %s") != std::string::npos);
+	REQUIRE(hub.find("behavior_graph = behavior.graph.json") == std::string::npos);
+	REQUIRE(hub.find("nested_payloads = nested_payloads.json") == std::string::npos);
+	REQUIRE(hub.find("[references]") == std::string::npos);
+	REQUIRE(hub.find("descriptor[0].key = \"dual_wieldable\"") != std::string::npos);
 	REQUIRE(hub.find("weaponGraphValidateJson") != std::string::npos);
-	REQUIRE(hub.find("snprintf(newModId, sizeof(newModId), \"mod.%s\"") !=
-	        std::string::npos);
+	/* The catalog name shown before saving is the mod author's own answer. */
+	REQUIRE(hub.find("modAuthorNames(&request, &names") != std::string::npos);
 	REQUIRE(hub.find("\"user.%s.weapon\"") == std::string::npos);
 	REQUIRE(hub.find("\"user:%s\"") == std::string::npos);
 	REQUIRE(hub.find("mods/Weapons/%s") != std::string::npos);
@@ -9058,6 +9085,15 @@ TEST_CASE("Modding Hub weapon tool builds visual graph modules without raw JSON 
 	REQUIRE(hub.find("Seed Mine Link") != std::string::npos);
 	REQUIRE(hub.find("Seed Laptop Control") != std::string::npos);
 	REQUIRE(editor.find("Shared Context") != std::string::npos);
+	/* Settings that do not fit are an error; cut-off text would be saved as
+	 * a broken weapon. The largest base weapon function needs about 850
+	 * bytes. */
+	REQUIRE(editor.find("has more settings text than the editor holds") !=
+	        std::string::npos);
+	REQUIRE(editor.find("the graph has more than %d nodes") != std::string::npos);
+	REQUIRE(editor.find(".dump(0)") == std::string::npos);
+	REQUIRE(header.find("#define PDGUI_WEAPON_GRAPH_PARAM_LEN  2048") !=
+	        std::string::npos);
 	REQUIRE(hub.find("\"event.trigger_pressed\"") != std::string::npos);
 	REQUIRE(hub.find("\"event.trigger_held\"") != std::string::npos);
 	REQUIRE(hub.find("\"event.trigger_released\"") != std::string::npos);
@@ -10450,9 +10486,9 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19_texscale_b1154\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_fastcache_v29_allmodels_menuhud_\" \\\n\tROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("cmd == (u8)G_SETGEOMETRYMODE") != std::string::npos);
 	REQUIRE(mesh.find("cmd == (u8)G_CLEARGEOMETRYMODE") != std::string::npos);

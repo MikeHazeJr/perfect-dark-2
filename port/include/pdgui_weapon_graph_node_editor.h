@@ -15,7 +15,9 @@
 
 #define PDGUI_WEAPON_GRAPH_MAX_NODES  48
 #define PDGUI_WEAPON_GRAPH_MAX_EDGES  96
-#define PDGUI_WEAPON_GRAPH_PARAM_LEN  512
+/* A node's settings as text. The largest base weapon function needs about
+ * 850 bytes; text that does not fit is an error, never cut short. */
+#define PDGUI_WEAPON_GRAPH_PARAM_LEN  2048
 #define PDGUI_WEAPON_GRAPH_SCOPE_LEN  16
 #define PDGUI_WEAPON_GRAPH_FILTER_LEN 64
 #define PDGUI_WEAPON_GRAPH_STATUS_LEN 192

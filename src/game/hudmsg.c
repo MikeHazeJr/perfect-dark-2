@@ -1650,7 +1650,7 @@ Gfx *hudmsgsRender(Gfx *gdl)
 		if (optionsGetShowMissionTime(g_Vars.currentplayerstats->mpindex)
 				&& var80075d60 == 2
 				&& g_Vars.normmplayerisrunning == false
-				&& g_Vars.stagenum != STAGE_CITRAINING
+				&& !lvStageIsHub()
 				&& g_Vars.currentplayer->cameramode != CAMERAMODE_EYESPY
 				&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON) {
 			gdl = hudmsgRenderMissionTimer(gdl, timerthing);

@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -724,6 +724,8 @@ SCHEMAS: dict[str, Schema] = {
             "collision.flags.json",  # decoded collision GEOFLAG/floortype sidecar (c3844 B-943)
             "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "rooms.json",      # authored BG room table sidecar (B-1113)
+            "stage.json",      # stage-wide rules (decision 3)
+            "intro.json",      # the setup intro other than spawn pads
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -840,7 +842,9 @@ SCHEMAS: dict[str, Schema] = {
     ".pdvehicle": schema(
         required=["vehicle.ini", "physics.json"],
         require_any=[["behavior.graph.json", "model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh"]],
-        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh"],
+        # behavior/variables.json: optional boost and heat values (Maian
+        # vehicle V3, pd.vehicle_variables.v1; validate_vehicle_variables).
+        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh", "behavior/variables.json"],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
             "dependencies/assets/materials/*.pdmaterial",
@@ -1042,6 +1046,8 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance), ai (no dark room lists), ending (an unknown outcome), hub (the between-missions stage rules) and stars (the starfield: count, grid, below the horizon)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
+        "intro.json": slot("the setup intro other than its spawn pads (pd2.scenario.intro.v1): starting weapons, ammo and outfit, watch time, multiplayer cases, case respawns and hills, and the unread legacy commands", "scenario setup compiler", "rebuilds the intro script after the spawn pads, so the player starts with the mission's loadout and the objective modes find their pads", "the stage has only its spawn pads: no starting loadout, no authored cases or hills"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -1132,6 +1138,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.glb": slot("vehicle GLB model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "model.obj": slot("vehicle OBJ model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "behavior.graph.json": slot("vehicle behavior graph", "vehicle importer", "loads vehicle behavior source", "vehicle uses descriptor/default behavior"),
+        "behavior/variables.json": slot("named values for a pd.vehicle_graph.v1 behavior graph (pd.vehicle_variables.v1)", "vehicle importer", "compiled with behavior.graph.json: a \"$name\" graph param takes the variable's value whole", "the graph has literal params only; a \"$name\" param then refuses the graph"),
         "mesh.pdmesh": slot("inline vehicle mesh dependency", "vehicle importer", DEPENDENCY_LOADER, "model source or dependencies/assets/models path must be present"),
         "dependencies/assets/models/*.pdmesh": slot("vehicle model dependencies", "vehicle importer", DEPENDENCY_LOADER, "model source or mesh.pdmesh must be present"),
         "dependencies/assets/materials/*.pdmaterial": slot("vehicle material dependencies", "vehicle importer", DEPENDENCY_LOADER, DEPENDENCY_ABSENT),
@@ -2235,6 +2242,387 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
         return
 
 
+# pd.vehicle_graph.v1, a vehicle's behavior graph (MODS; accepted by CORE
+# 2026-11-16, context/designs/modding/vehicle-graph-v1.md). The same rules the
+# runner applies when it compiles the graph; keep in step with
+# port/src/vehicle_graph_runner.cpp. tests/test_vehicle_graph_runner.cpp checks
+# these kinds against the runner's own list (vehicleGraphKnownKind).
+VEHICLE_GRAPH_SCHEMA = "pd.vehicle_graph.v1"
+VEHICLE_VARIABLES_SCHEMA = "pd.vehicle_variables.v1"
+VEHICLE_GRAPH_MAX_NODES = 4096
+VEHICLE_GRAPH_MAX_EDGES = 16384
+VEHICLE_GRAPH_MAX_LOCKOUT_REASONS = 32
+VEHICLE_GRAPH_MAX_PENDING = 64
+VEHICLE_GRAPH_EVENTS = {"event.vehicle.mount_requested", "event.vehicle.dismount_requested",
+                        "event.vehicle.tick", "event.vehicle.heat_changed"}
+VEHICLE_GRAPH_GATES = {"gate.vehicle.seat", "gate.vehicle.seat_free", "gate.vehicle.heat_phase"}
+VEHICLE_GRAPH_MODULES = {"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                         "og.vehicle.hover_drive", "og.vehicle.throttle_boost",
+                         "og.vehicle.boost_heat", "og.vehicle.part_visible",
+                         "og.vehicle.turret_lockout"}
+# The events a native seam fires; heat_changed is raised by og.vehicle.boost_heat.
+VEHICLE_GRAPH_FIRED_EVENTS = ("event.vehicle.mount_requested",
+                              "event.vehicle.dismount_requested", "event.vehicle.tick")
+VEHICLE_GRAPH_MODULE_EVENTS = {
+    "og.vehicle.mount_seat": {"event.vehicle.mount_requested"},
+    "og.vehicle.dismount_seat": {"event.vehicle.dismount_requested"},
+    "og.vehicle.hover_drive": {"event.vehicle.tick"},
+    "og.vehicle.throttle_boost": {"event.vehicle.tick"},
+    "og.vehicle.boost_heat": {"event.vehicle.tick"},
+    "og.vehicle.part_visible": set(VEHICLE_GRAPH_EVENTS),
+    "og.vehicle.turret_lockout": set(VEHICLE_GRAPH_EVENTS),
+}
+VEHICLE_GRAPH_RAISES = {"og.vehicle.boost_heat": "event.vehicle.heat_changed"}
+VEHICLE_HEAT_PHASES = ("cool", "ramping", "full", "overheated", "recovering")
+# Param types: seat, phases, bool (bool? is optional), speed (0..1000),
+# fraction (0..1), scale (above 0, at most 100), time (at least 0), time+
+# (above 0), part (0..32767, whole), reason (1 to 31 of a-z, 0-9 and _).
+VEHICLE_GRAPH_PARAMS = {
+    "gate.vehicle.seat": {"seat": "seat"},
+    "gate.vehicle.seat_free": {"seat": "seat"},
+    "gate.vehicle.heat_phase": {"phases": "phases"},
+    "og.vehicle.mount_seat": {"seat": "seat"},
+    "og.vehicle.dismount_seat": {"seat": "seat"},
+    "og.vehicle.hover_drive": {"drive": "bool?"},
+    "og.vehicle.throttle_boost": {"boost_speed": "speed", "ramp_time": "time+"},
+    "og.vehicle.boost_heat": {
+        "boost_speed": "speed", "ramp_time": "time+", "overheat_after": "time+",
+        "overheated_boost": "fraction", "steer_limit": "fraction",
+        "steer_limit_time": "time", "recover_time_stopped": "time+",
+        "recover_speed_scale": "scale"},
+    "og.vehicle.part_visible": {"part": "part", "visible": "bool"},
+    "og.vehicle.turret_lockout": {"reason": "reason", "locked": "bool"},
+}
+VEHICLE_VARIABLES_TIME_UNITS = ("ticks60", "ticks240", "centiseconds")
+_VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
+_VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
+_VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
+_VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
+# The modules that mount or dismount a seat: one per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat"})
+
+
+def vehicle_time_ticks240(value: object):
+    """A {"value": N, "unit": ...} time in 240 Hz ticks, or None (the runner's
+    readTimeObject: exactly those two keys, a known unit, N from 0 to an hour)."""
+    if not isinstance(value, dict) or set(value) != {"value", "unit"}:
+        return None
+    number, unit = value["value"], value["unit"]
+    if not is_finite_json_number(number) or unit not in _VEHICLE_TIME_SCALE:
+        return None
+    if not 0.0 <= float(number) <= _VEHICLE_MAX_TICKS240:
+        return None
+    ticks = float(number) * _VEHICLE_TIME_SCALE[unit]
+    return ticks if ticks <= _VEHICLE_MAX_TICKS240 else None
+
+
+def validate_vehicle_variables(label: str, variables: object,
+                               errors: list[str], catalog_id: str | None = None):
+    """behavior/variables.json (pd.vehicle_variables.v1): names a-z, 0-9 and _
+    (1 to 63), values a number, a bool, a string or a {value, unit} time;
+    schema and catalog_id reserved, and a catalog_id must be the vehicle's
+    (catalog_id, when given), as the runner refuses. Returns the variables,
+    or None when the file is not usable."""
+    where = f"{label} behavior/variables.json"
+    if not isinstance(variables, dict):
+        errors.append(f"{where} must be a JSON object")
+        return None
+    if variables.get("schema") != VEHICLE_VARIABLES_SCHEMA:
+        errors.append(f"{where} schema must be {VEHICLE_VARIABLES_SCHEMA!r}")
+        return None
+    out = {}
+    for name, value in variables.items():
+        if name == "schema":
+            continue
+        if name == "comment":  # free text, not a variable
+            if not isinstance(value, str):
+                errors.append(f"{where} comment must be a string")
+            continue
+        if name == "catalog_id":
+            if not isinstance(value, str):
+                errors.append(f"{where} catalog_id must be a string")
+            elif catalog_id is not None and value != catalog_id:
+                errors.append(f"{where} is for {value!r}, not {catalog_id!r}")
+            continue
+        if not _VEHICLE_NAME.match(name):
+            errors.append(f"{where} variable name {name!r} must be 1 to 63 of a-z, 0-9 and _")
+            continue
+        if isinstance(value, (bool, str)):
+            pass
+        elif isinstance(value, (int, float)):
+            if not is_finite_json_number(value):
+                errors.append(f"{where} variable {name!r} is not a finite number")
+                continue
+        elif isinstance(value, dict):
+            if vehicle_time_ticks240(value) is None:
+                errors.append(
+                    f"{where} variable {name!r} must be {{\"value\": N, \"unit\": "
+                    f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}} with N from 0 to an hour")
+                continue
+        else:
+            errors.append(f"{where} variable {name!r} must be a number, a bool, a string "
+                          "or {value, unit}")
+            continue
+        out[name] = value
+    return out
+
+
+def _vehicle_graph_param(where: str, node_id: str, kind: str, key: str, typ: str,
+                         value: object, reasons: list[str], errors: list[str]) -> None:
+    at = f"{where} node {node_id!r} ({kind}) param {key!r}"
+
+    def number(lo: float, hi: float) -> bool:
+        if not is_finite_json_number(value):
+            errors.append(f"{at} must be a number")
+            return False
+        if not lo <= float(value) <= hi:
+            errors.append(f"{at} must be from {lo:g} to {hi:g}")
+            return False
+        return True
+
+    if typ == "seat":
+        if value not in ("driver", "gunner"):
+            errors.append(f"{at} must be \"driver\" or \"gunner\"")
+    elif typ == "phases":
+        if not isinstance(value, list) or not value:
+            errors.append(f"{at} must be a list of heat phases")
+        elif not all(isinstance(p, str) and p in VEHICLE_HEAT_PHASES for p in value):
+            errors.append(f"{at} may name only {', '.join(VEHICLE_HEAT_PHASES)}")
+        elif len(set(value)) != len(value):
+            errors.append(f"{at} names a phase twice")
+    elif typ == "bool":
+        if not isinstance(value, bool):
+            errors.append(f"{at} must be true or false")
+    elif typ == "speed":
+        number(0.0, 1000.0)
+    elif typ == "fraction":
+        number(0.0, 1.0)
+    elif typ == "scale":
+        if number(0.0, 100.0) and float(value) <= 0.0:
+            errors.append(f"{at} must be above 0")
+    elif typ in ("time", "time+"):
+        ticks = vehicle_time_ticks240(value)
+        if ticks is None:
+            errors.append(f"{at} must be {{\"value\": N, \"unit\": "
+                          f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}}")
+        elif typ == "time+" and ticks <= 0.0:
+            errors.append(f"{at} must be longer than 0")
+    elif typ == "part":
+        if number(0.0, 32767.0) and not float(value).is_integer():
+            errors.append(f"{at} must be a whole number")
+    elif typ == "reason":
+        if not isinstance(value, str) or not _VEHICLE_REASON.match(value):
+            errors.append(f"{at} must be 1 to 31 of a-z, 0-9 and _")
+        elif value not in reasons:
+            reasons.append(value)
+
+
+def validate_vehicle_graph_execution(label: str, graph: object, variables,
+                                     catalog_id: str) -> list[str]:
+    """The runner's compile rules for pd.vehicle_graph.v1: the mission graph
+    runner's edge rules, every executable kind one of v1's with only its own
+    params ("$name" takes a variable whole), modules only on their own events,
+    one hover_drive and one boost_heat, at most 32 lockout reasons, and the
+    raised-event bound (a raised event already being delivered is refused).
+    A graph, a node and an edge may each carry a "comment" string."""
+    where = f"{label} behavior.graph.json"
+    if not isinstance(graph, dict):
+        return [f"{where} must be a JSON object"]
+    errors: list[str] = []
+    if graph.get("schema") != VEHICLE_GRAPH_SCHEMA:
+        errors.append(f"{where} must declare schema {VEHICLE_GRAPH_SCHEMA}")
+    if not isinstance(graph.get("catalog_id"), str) or graph.get("catalog_id") != catalog_id:
+        errors.append(f"{where} catalog_id must match the public descriptor catalog_id "
+                      f"{catalog_id!r}")
+    if "comment" in graph and not isinstance(graph["comment"], str):
+        errors.append(f"{where} comment must be a string")
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return errors + [f"{where} has no nodes array"]
+    if len(nodes) > VEHICLE_GRAPH_MAX_NODES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_NODES} nodes"]
+
+    kinds: dict[str, str] = {}
+    seats: dict[str, object] = {}
+    order: list[str] = []
+    reasons: list[str] = []
+    counts = {"og.vehicle.hover_drive": 0, "og.vehicle.boost_heat": 0}
+    for idx, node in enumerate(nodes):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        if "comment" in node and not isinstance(node["comment"], str):
+            errors.append(f"{where} node {node_id!r} comment must be a string")
+        kinds[node_id] = kind
+        order.append(node_id)
+        params = node.get("params")
+        if kind.startswith("event."):
+            if kind not in VEHICLE_GRAPH_EVENTS:
+                errors.append(f"{where} event kind {kind!r} is not a vehicle event")
+            elif params not in (None, {}):
+                errors.append(f"{where} event {node_id!r} takes no params")
+            continue
+        if kind.startswith("gate.") and kind not in VEHICLE_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+            continue
+        if kind.startswith("og.") and kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+            continue
+        if kind not in VEHICLE_GRAPH_PARAMS:
+            continue  # data: checked, never walked
+        if kind in counts:
+            counts[kind] += 1
+            if counts[kind] > 1:
+                errors.append(f"{where} a vehicle graph has one {kind} ({node_id!r} is a second)")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            errors.append(f"{where} node {node_id!r} ({kind}) params must be an object")
+            continue
+        spec = VEHICLE_GRAPH_PARAMS[kind]
+        for key in params:
+            if key not in spec:
+                errors.append(f"{where} node {node_id!r} ({kind}) has no param {key!r}")
+        for key, typ in spec.items():
+            optional = typ.endswith("?")
+            typ = typ.rstrip("?")
+            if key not in params:
+                if not optional:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} is missing")
+                continue
+            value = params[key]
+            if isinstance(value, str) and value.startswith("$"):
+                if not isinstance(variables, dict) or value[1:] not in variables:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} uses "
+                                  f"unknown variable {value!r}")
+                    continue
+                value = variables[value[1:]]
+            if key == "seat" and kind in VEHICLE_GRAPH_SEAT_MODULES:
+                seats[node_id] = value
+            _vehicle_graph_param(where, node_id, kind, key, typ, value, reasons, errors)
+    if len(reasons) > VEHICLE_GRAPH_MAX_LOCKOUT_REASONS:
+        errors.append(f"{where} has more than {VEHICLE_GRAPH_MAX_LOCKOUT_REASONS} "
+                      "turret lockout reasons")
+
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > VEHICLE_GRAPH_MAX_EDGES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_EDGES} edges"]
+
+    def executable(kind: str) -> bool:
+        return kind in VEHICLE_GRAPH_EVENTS or kind in VEHICLE_GRAPH_GATES or \
+            kind in VEHICLE_GRAPH_MODULES
+
+    out: dict[str, list[str]] = {node_id: [] for node_id in order}
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        if "comment" in edge and not isinstance(edge["comment"], str):
+            errors.append(f"{where} edge {idx} comment must be a string")
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not executable(src_kind):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+            continue
+        if dst_kind not in VEHICLE_GRAPH_GATES and dst_kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+            continue
+        output = edge.get("output")
+        if src_kind in VEHICLE_GRAPH_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+                continue
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+            continue
+        out[src].append(dst)
+    if errors:
+        return errors
+
+    # Which modules each event's walk can reach (both branches of every gate).
+    reach: dict[str, list[str]] = {}
+    for event in sorted(VEHICLE_GRAPH_EVENTS):
+        queue = [dst for node_id in order if kinds[node_id] == event for dst in out[node_id]]
+        seen: set[str] = set()
+        while queue:
+            at = queue.pop(0)
+            if at in seen:
+                continue
+            seen.add(at)
+            queue.extend(out[at])
+        reach[event] = [node_id for node_id in order if node_id in seen]
+        # One event mounts or dismounts a seat at most once (the runner's rule).
+        seat_modules: dict[tuple[str, str], int] = {}
+        for node_id in reach[event]:
+            kind = kinds[node_id]
+            if kind in VEHICLE_GRAPH_MODULE_EVENTS and event not in VEHICLE_GRAPH_MODULE_EVENTS[kind]:
+                errors.append(f"{where} {kind} {node_id!r} cannot run on {event}, which reaches it")
+            if kind in VEHICLE_GRAPH_SEAT_MODULES and isinstance(seats.get(node_id), str):
+                key = (kind, seats[node_id])
+                seat_modules[key] = seat_modules.get(key, 0) + 1
+                if seat_modules[key] == 2:
+                    errors.append(f"{where} {event} reaches a second {kind} for the "
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts or "
+                                  "dismounts a seat once")
+    if errors:
+        return errors
+
+    # The raised-event bound: each raising module an event reaches raises once,
+    # and its event leads to its own; one already being delivered is refused.
+    state: dict[str, int] = {}
+    memo: dict[str, int] = {}
+
+    def bound(event: str) -> int | None:
+        if state.get(event) == 2:
+            return memo[event]
+        if state.get(event) == 1:
+            errors.append(f"{where} {event} can raise itself again while it is being delivered")
+            return None
+        state[event] = 1
+        total = 0
+        for node_id in reach[event]:
+            raised = VEHICLE_GRAPH_RAISES.get(kinds[node_id])
+            if raised is None:
+                continue
+            nested = bound(raised)
+            if nested is None:
+                return None
+            total = min(total + 1 + nested, VEHICLE_GRAPH_MAX_PENDING + 1)
+        state[event] = 2
+        memo[event] = total
+        return total
+
+    worst = 0
+    for event in VEHICLE_GRAPH_FIRED_EVENTS:
+        count = bound(event)
+        if count is None:
+            return errors
+        worst = max(worst, count)
+    if worst > VEHICLE_GRAPH_MAX_PENDING:
+        errors.append(f"{where} one event can lead to more than {VEHICLE_GRAPH_MAX_PENDING} "
+                      "raised events")
+    return errors
+
+
 def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                                      name_set: set[str],
                                      errors: list[str]) -> None:
@@ -2262,8 +2650,13 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
 
     catalog_id = descriptor_values.get("catalog_id", "")
     physics = read_json_member(zf, "physics.json")
+    behavior = read_json_member(zf, "behavior.graph.json")
+    # A v1 graph pairs with physics v3 (no boost keys: the graph's
+    # og.vehicle.throttle_boost holds them); a v2 behavior with physics v2.
+    graph_v1 = isinstance(behavior, dict) and behavior.get("schema") == VEHICLE_GRAPH_SCHEMA
+    physics_schema = "pd2.vehicle.physics.v3" if graph_v1 else "pd2.vehicle.physics.v2"
     if validate_catalog_bound_json(
-            label, "physics.json", physics, "pd2.vehicle.physics.v2",
+            label, "physics.json", physics, physics_schema,
             catalog_id, errors):
         if physics.get("archetype") != "hoverbike":
             errors.append(
@@ -2292,9 +2685,16 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             "tilt_response_pal",
             "yaw_response_ntsc",
             "yaw_response_pal",
-            "boost_speed",
-            "boost_time_ticks60",
         )
+        if graph_v1:
+            for field_name in ("boost_speed", "boost_time_ticks60"):
+                if field_name in physics:
+                    errors.append(
+                        f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
+                        "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
+                    )
+        else:
+            numeric_fields += ("boost_speed", "boost_time_ticks60")
         for field_name in numeric_fields:
             value = physics.get(field_name)
             if not is_finite_json_number(value) or float(value) < 0.0:
@@ -2312,8 +2712,26 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} physics.json hover must contain exactly 13 finite numbers"
             )
 
-    behavior = read_json_member(zf, "behavior.graph.json")
-    if validate_catalog_bound_json(
+    variables = None
+    if "behavior/variables.json" in name_set:
+        try:
+            parsed = json.loads(
+                zf.read("behavior/variables.json").decode("utf-8")
+            )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+            parsed = None
+        if not graph_v1:
+            errors.append(
+                f"{label} behavior/variables.json is read only with a "
+                f"{VEHICLE_GRAPH_SCHEMA} behavior graph"
+            )
+        else:
+            variables = validate_vehicle_variables(label, parsed, errors, catalog_id)
+
+    if graph_v1:
+        errors.extend(validate_vehicle_graph_execution(
+            label, behavior, variables, catalog_id))
+    elif validate_catalog_bound_json(
             label, "behavior.graph.json", behavior,
             "pd2.vehicle.behavior.v2", catalog_id, errors):
         for field_name in ("allow_mount", "allow_drive", "allow_dismount"):
@@ -2504,6 +2922,8 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must bind mission.objectives.source to objectives.json"
                 )
+            if isinstance(nodes, list) and nodes:
+                errors.extend(validate_mission_graph_execution(label, graph))
 
     if "objectives.json" in name_set:
         objectives_text = zf.read("objectives.json").decode(
@@ -2517,6 +2937,321 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
+
+
+# Mission graph runner (decision 2, CORE, 2026-11-15): the executable part of
+# pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
+# the module table in port/src/mission_graph_modules.c.
+MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
+                             "event.mission.continue"}
+MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status"}
+MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
+                                "og.mission.start_credits", "og.progress.unlock_alt_title"}
+MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
+
+
+def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
+    """The same rules the runner applies when it compiles a mission graph:
+    unique ids, known og.* modules and gate kinds, every edge between existing
+    nodes, and execution edges ("input": "exec") only from an executable
+    event, gate or module to a gate or module, with the right output port."""
+    errors: list[str] = []
+    where = f"{label} mission.graph.json"
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(graph.get("nodes") or []):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("og.") and kind not in MISSION_GRAPH_NATIVE_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+        if kind.startswith("gate.") and kind not in MISSION_GRAPH_EXEC_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+        if kind == "gate.objective.status" and node.get("status") not in MISSION_GRAPH_STATUSES:
+            errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+        if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
+            errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not (src_kind in MISSION_GRAPH_EXEC_EVENTS or src_kind in MISSION_GRAPH_EXEC_GATES
+                or src_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+        if not (dst_kind in MISSION_GRAPH_EXEC_GATES or dst_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind in MISSION_GRAPH_EXEC_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    return errors
+
+
+# Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
+# port/src/scenario_stage_rules.cpp.
+STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars"}
+STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance"}
+STAGE_AI_KEYS = {"dark_room_lists"}
+STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
+                 "deepsea", "wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian",
+                 "negotiator"]
+STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
+                      "weather_rooms", "dry_rooms", "wind_direction"}
+STAGE_WEATHER_MAX_ROOMS = 127
+
+
+def validate_stage_json(label: str, text: str) -> list[str]:
+    """The reader's rules for stage.json: the schema, known keys only, and a
+    usable weather rule (numbers, y_min below y_max, exactly one room list of
+    room numbers 1..32767, at most 127 of them)."""
+    where = f"{label} stage.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not valid JSON: {exc.msg}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    errors: list[str] = []
+    if doc.get("schema") != STAGE_RULES_SCHEMA:
+        errors.append(f"{where} must declare schema {STAGE_RULES_SCHEMA}")
+    for key in sorted(set(doc) - STAGE_RULES_KEYS):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    player = doc.get("player")
+    if player is not None:
+        if not isinstance(player, dict):
+            errors.append(f"{where} player must be an object")
+        else:
+            for key in sorted(set(player) - STAGE_PLAYER_KEYS):
+                errors.append(f"{where} player has an unknown key {key!r}")
+            if "perfect_agent_outfit" in player and player["perfect_agent_outfit"] not in STAGE_OUTFITS:
+                errors.append(f"{where} player.perfect_agent_outfit is not an outfit")
+            disguise = player.get("disguise")
+            if disguise is not None:
+                if not isinstance(disguise, dict):
+                    errors.append(f"{where} player.disguise must be an object")
+                else:
+                    for key in sorted(set(disguise) - {"outfit", "untargetable"}):
+                        errors.append(f"{where} player.disguise has an unknown key {key!r}")
+                    if "outfit" in disguise and disguise["outfit"] not in STAGE_OUTFITS:
+                        errors.append(f"{where} player.disguise.outfit is not an outfit")
+                    if "untargetable" in disguise and not isinstance(disguise["untargetable"], bool):
+                        errors.append(f"{where} player.disguise.untargetable must be true or false")
+            if "coop_spawn_distance" in player:
+                distance = player["coop_spawn_distance"]
+                if isinstance(distance, bool) or not isinstance(distance, (int, float)) \
+                        or not 1 <= distance <= 1000:
+                    errors.append(f"{where} player.coop_spawn_distance must be 1..1000")
+    if "hub" in doc and not isinstance(doc["hub"], bool):
+        errors.append(f"{where} hub must be true or false")
+    if "stars" in doc:
+        stars = doc["stars"]
+        if not isinstance(stars, dict):
+            errors.append(f"{where} stars must be an object")
+        else:
+            for key in sorted(set(stars) - {"count", "grid", "below_horizon"}):
+                errors.append(f"{where} stars has an unknown key {key!r}")
+            for key, lo, hi in (("count", 1, 8192), ("grid", 1, 8)):
+                value = stars.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                    errors.append(f"{where} stars.{key} must be a whole number from {lo} to {hi}")
+            if "below_horizon" in stars and not isinstance(stars["below_horizon"], bool):
+                errors.append(f"{where} stars.below_horizon must be true or false")
+    ending = doc.get("ending")
+    if ending is not None:
+        if not isinstance(ending, dict):
+            errors.append(f"{where} ending must be an object")
+        else:
+            for key in sorted(set(ending) - {"outcome"}):
+                errors.append(f"{where} ending has an unknown key {key!r}")
+            if "outcome" in ending and ending["outcome"] not in ("known", "unknown"):
+                errors.append(f"{where} ending.outcome must be known or unknown")
+    ai = doc.get("ai")
+    if ai is not None:
+        if not isinstance(ai, dict):
+            errors.append(f"{where} ai must be an object")
+        else:
+            for key in sorted(set(ai) - STAGE_AI_KEYS):
+                errors.append(f"{where} ai has an unknown key {key!r}")
+            if "dark_room_lists" in ai and not isinstance(ai["dark_room_lists"], bool):
+                errors.append(f"{where} ai.dark_room_lists must be true or false")
+    weather = doc.get("weather")
+    if weather is None:
+        return errors
+    if not isinstance(weather, dict):
+        return errors + [f"{where} weather must be an object"]
+
+    def number(obj: dict, key: str, path: str) -> float | None:
+        value = obj.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or abs(value) > 1.0e7:
+            errors.append(f"{where} {path}.{key} must be a number")
+            return None
+        return float(value)
+
+    for key in sorted(set(weather) - STAGE_WEATHER_KEYS):
+        errors.append(f"{where} weather has an unknown key {key!r}")
+    number(weather, "wind_speed", "weather")
+    y_min = number(weather, "y_min", "weather")
+    y_max = number(weather, "y_max", "weather")
+    if "z_max" in weather:
+        number(weather, "z_max", "weather")
+    if y_min is not None and y_max is not None and not y_min < y_max:
+        errors.append(f"{where} weather.y_min must be below weather.y_max")
+    if "cutscene_only" in weather and not isinstance(weather["cutscene_only"], bool):
+        errors.append(f"{where} weather.cutscene_only must be true or false")
+    lists = [key for key in ("weather_rooms", "dry_rooms") if key in weather]
+    if len(lists) != 1:
+        errors.append(f"{where} weather needs exactly one of weather_rooms and dry_rooms")
+    else:
+        rooms = weather[lists[0]]
+        if not isinstance(rooms, list) or len(rooms) > STAGE_WEATHER_MAX_ROOMS or not all(
+                isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= 32767 for r in rooms):
+            errors.append(f"{where} weather.{lists[0]} must list at most {STAGE_WEATHER_MAX_ROOMS} "
+                          "room numbers 1..32767")
+    wind = weather.get("wind_direction")
+    if wind is not None:
+        if not isinstance(wind, dict):
+            errors.append(f"{where} weather.wind_direction must be an object")
+        else:
+            for key in sorted(set(wind) - {"angle", "speed_x", "speed_z"}):
+                errors.append(f"{where} weather.wind_direction has an unknown key {key!r}")
+            for key in ("angle", "speed_x", "speed_z"):
+                number(wind, key, "weather.wind_direction")
+    return errors
+
+
+# The stage intro (CORE, 2026-11-15): the reader's rules for intro.json, from
+# port/src/scenario_intro.cpp (port/include/scenario_intro.h).
+INTRO_SCHEMA = "pd2.scenario.intro.v1"
+INTRO_MAX_ROWS = 1024
+INTRO_ROW_KEYS = {
+    "weapon": {"cmd", "weapon_catalog_id", "weapon_selector", "left_weapon_catalog_id", "player"},
+    "ammo": {"cmd", "ammo_type", "quantity", "player"},
+    "outfit": {"cmd", "outfit"},
+    "watch_time": {"cmd", "hours", "minutes"},
+    "case": {"cmd", "team", "pad_ref"},
+    "case_respawn": {"cmd", "team", "pad_ref"},
+    "hill": {"cmd", "pad_ref"},
+    "legacy_3": {"cmd", "words"},
+    "legacy_4": {"cmd", "words"},
+    "legacy_6": {"cmd", "words"},
+}
+INTRO_LEGACY_WORDS = {"legacy_3": 7, "legacy_4": 1, "legacy_6": 9}
+
+
+def validate_intro_json(label: str, text: str) -> list[str]:
+    """The reader's rules for intro.json: the schema, known commands and keys
+    only, whole numbers in range, pad_NNNN pads and named outfits. Catalog ids
+    are resolved by the game, so only their shape is checked here."""
+    errors: list[str] = []
+    where = f"{label} intro.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not JSON: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    if doc.get("schema") != INTRO_SCHEMA:
+        errors.append(f"{where} must declare schema {INTRO_SCHEMA}")
+    for key in sorted(set(doc) - {"schema", "note", "rows"}):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    rows = doc.get("rows")
+    if not isinstance(rows, list):
+        return errors + [f"{where} rows must be a list"]
+    if len(rows) > INTRO_MAX_ROWS:
+        errors.append(f"{where} has more than {INTRO_MAX_ROWS} rows")
+
+    def whole(row: dict, key: str, lo: int, hi: int, at: str) -> None:
+        value = row.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or value != int(value) or not lo <= value <= hi:
+            errors.append(f"{at}.{key} must be a whole number {lo}..{hi}")
+
+    def catalog_id(row: dict, key: str, at: str) -> None:
+        value = row.get(key)
+        if not isinstance(value, str) or ":" not in value or value.startswith(":") or value.endswith(":"):
+            errors.append(f"{at}.{key} must be a catalog weapon id")
+
+    def pad_ref(row: dict, at: str) -> None:
+        value = row.get("pad_ref")
+        if not isinstance(value, str) or not value.startswith("pad_") or not value[4:].isdigit() \
+                or len(value) > 9 or int(value[4:]) > 0x7FFF:
+            errors.append(f"{at}.pad_ref must be pad_NNNN with a pad 0..32767")
+
+    for index, row in enumerate(rows):
+        at = f"{where} rows[{index}]"
+        if not isinstance(row, dict):
+            errors.append(f"{at} must be an object")
+            continue
+        cmd = row.get("cmd")
+        if cmd not in INTRO_ROW_KEYS:
+            errors.append(f"{at}.cmd {cmd!r} is not an intro command")
+            continue
+        for key in sorted(set(row) - INTRO_ROW_KEYS[cmd]):
+            errors.append(f"{at} has an unknown key {key!r}")
+        if cmd == "weapon":
+            has_id, has_selector = "weapon_catalog_id" in row, "weapon_selector" in row
+            if has_id == has_selector:
+                errors.append(f"{at} needs exactly one of weapon_catalog_id and weapon_selector")
+            elif has_id:
+                catalog_id(row, "weapon_catalog_id", at)
+            elif row.get("weapon_selector") != "none":
+                errors.append(f"{at}.weapon_selector must be \"none\"")
+            if "left_weapon_catalog_id" in row:
+                catalog_id(row, "left_weapon_catalog_id", at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "ammo":
+            whole(row, "ammo_type", 0, 32, at)
+            whole(row, "quantity", 0, 1000000, at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "outfit":
+            if row.get("outfit") not in STAGE_OUTFITS:
+                errors.append(f"{at}.outfit is not an outfit ({row.get('outfit')!r})")
+        elif cmd == "watch_time":
+            whole(row, "hours", 0, 23, at)
+            whole(row, "minutes", 0, 59, at)
+        elif cmd in ("case", "case_respawn"):
+            whole(row, "team", 0, 3, at)
+            pad_ref(row, at)
+        elif cmd == "hill":
+            pad_ref(row, at)
+        else:
+            words = row.get("words")
+            if not isinstance(words, list) or len(words) != INTRO_LEGACY_WORDS[cmd] or not all(
+                    not isinstance(w, bool) and isinstance(w, int) and -2**31 <= w < 2**31 for w in words):
+                errors.append(f"{at}.words must hold exactly {INTRO_LEGACY_WORDS[cmd]} whole 32-bit numbers")
+    return errors
 
 
 SCENARIO_ROOM_COUNT_MIN = 2
@@ -6562,6 +7297,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         source_room_count=source_room_count,
                     )
                     result.errors.extend(portal_errors)
+                if "stage.json" in name_set:
+                    result.errors.extend(validate_stage_json(
+                        label, zf.read("stage.json").decode("utf-8", errors="replace")))
+                if "intro.json" in name_set:
+                    result.errors.extend(validate_intro_json(
+                        label, zf.read("intro.json").decode("utf-8", errors="replace")))
                 if "objectives_file = objectives.json" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare objectives_file = objectives.json"

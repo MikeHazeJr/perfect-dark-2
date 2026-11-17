@@ -62,6 +62,7 @@
 #include "system.h"
 #include "weapon_graph_runtime.h"
 #include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -4399,7 +4400,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// Don't damage if in CI training outside of training session
 	if (chr->prop == g_Vars.currentplayer->prop
 			&& g_Vars.currentplayer->training == false
-			&& mainGetStageNum() == STAGE_CITRAINING) {
+			&& lvStageIsHub()) {
 		return;
 	}
 
@@ -14122,7 +14123,7 @@ void chraTickBg(void)
 	// the OG caps (netplay parity); CITRAINING keeps them (the firing range
 	// recycles targets). corpsePersistCap < 0 means "OG fading".
 	corpsePersistCap = -1;
-	if (!g_Vars.normmplayerisrunning && g_Vars.stagenum != STAGE_CITRAINING) {
+	if (!g_Vars.normmplayerisrunning && !lvStageIsHub()) {
 		corpsePersistCap = g_NumChrSlots - CHR_CORPSE_PERSIST_HEADROOM;
 		if (corpsePersistCap < 5) {
 			corpsePersistCap = 5;
@@ -15633,8 +15634,19 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
 	}
 
 	// On Defection some floating point precision issues result in P2 being placed in the way of P1's cutscene animation,
-	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that
-	const f32 distance = (g_Vars.stagenum == STAGE_DEFECTION) ? 80.f : 60.f;
+	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that.
+	// A stage built from scenario source sets it with the coop_spawn_distance of
+	// its stage.json player rule (decision 3); the stage check stays for a ROM stage.
+	f32 distance = 60.f;
+	if (bgUsesScenarioSource()) {
+		scenario_stage_player_t rule;
+
+		if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {
+			distance = rule.coop_spawn_distance;
+		}
+	} else if (g_Vars.stagenum == STAGE_DEFECTION) {
+		distance = 80.f;
+	}
 	for (i = 0; i < 8; i++) {
 		testpos.x = pos->x + sinf(curangle) * distance;
 		testpos.y = pos->y;
@@ -16122,17 +16134,27 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 		propDeregisterRooms(chr->prop);
 		roomsCopy(rooms2, chr->prop->rooms);
 		chr0f0220ac(chr);
-		modelSetRootPosition(chr->model, &pos2);
 
-		nodetype = chr->model->definition->rootnode->type;
+		/* B-1158: a solo player outside a cutscene has no body model (the
+		 * normal tick removes it every frame, playerRemoveChrBody), so there
+		 * is no root node to move or turn. Its position is the prop's and its
+		 * facing is vv_theta, both set here. */
+		if (chr->model) {
+			modelSetRootPosition(chr->model, &pos2);
 
-		if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
-			rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
-			rwdata->chrinfo.ground = ground;
+			nodetype = chr->model->definition->rootnode->type;
+
+			if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
+				rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+				rwdata->chrinfo.ground = ground;
+			}
 		}
 
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
-		chrSetLookAngle(chr, angle);
+
+		if (chr->model || chr->aibot) {
+			chrSetLookAngle(chr, angle);
+		}
 
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			player = g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)];

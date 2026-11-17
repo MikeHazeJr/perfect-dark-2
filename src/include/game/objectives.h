@@ -29,6 +29,10 @@ bool objectiveIsAllComplete(void);
 s32 objectivesDebugCompleteCurrentMission(void);
 void objectivesDisableChecking(void);
 void objectivesShowHudmsg(char *buffer, s32 hudmsgtype);
+/** The original "Objective N: <status>" message; `number` is 1-based among the
+ *  objectives that apply at this difficulty. The mission graph module
+ *  og.hud.objective_status_message runs it. */
+void objectivesShowStatusMessage(s32 number, s32 status);
 void objectivesCheckAll(void);
 void objectiveCheckRoomEntered(s32 currentroom);
 void objectiveCheckThrowInRoom(s32 arg0, RoomNum *requiredrooms);

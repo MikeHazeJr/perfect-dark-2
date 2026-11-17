@@ -2,8 +2,10 @@
 #include "constants.h"
 #include "actionmap.h"
 #include "asset_runtime.h"
+#include "vehicle_graph_runtime.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
+#include "game/vehiclegraph.h"
 #include "game/camera.h"
 #include "game/chraction.h"
 #include "game/prop.h"
@@ -369,6 +371,111 @@ void bbikeTryDismountAngle(f32 relativeangle, f32 distance)
 	}
 }
 
+/* The original side dismount (activate or PC hold): the first free side of
+ * eight, then the commit or, on a client, the accepted local intent. It is
+ * og.vehicle.dismount_seat for a vehicle with a pd.vehicle_graph.v1 graph. */
+typedef struct bbike_dismount {
+	bool clientLocalIntent;
+	s32 contrMode;
+	bool localIntentAccepted;
+	bool returnEarly; /* the bike has no bbox: the original returns at once */
+} bbike_dismount_t;
+
+static s32 bbikeDismountToSides(void *context)
+{
+	bbike_dismount_t *d = (bbike_dismount_t *)context;
+	struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
+	struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
+
+	/* B-161 class: bike model may have no bbox node; can't compute
+	 * dismount distances without it — skip activation safely. */
+	if (bbox == NULL) {
+		if (d->clientLocalIntent && d->contrMode == CONTROLMODE_PC) {
+			g_Vars.currentplayer->bondactivateorreload = 0;
+		}
+		d->returnEarly = true;
+		return 0;
+	}
+
+	f32 sidedist = bbox->xmax * bike->base.model->scale;
+	f32 frontdist = bbox->zmax * bike->base.model->scale;
+	f32 diagdist = sqrtf(sidedist * sidedist + frontdist * frontdist);
+
+	g_Vars.currentplayer->walkinitmove = false;
+
+	bbikeTryDismountAngle(1.5705462694168f, sidedist);  // 90  - left
+	bbikeTryDismountAngle(4.7116389274597f, sidedist);  // 270 - right
+	bbikeTryDismountAngle(0.7852731347084f, diagdist);  // 45  - front left
+	bbikeTryDismountAngle(5.4969120025635f, diagdist);  // 315 - front right
+	bbikeTryDismountAngle(2.3558194637299f, diagdist);  // 135 - back left
+	bbikeTryDismountAngle(3.9263656139374f, diagdist);  // 225 - back right
+	bbikeTryDismountAngle(0, frontdist);                // 0   - front
+	bbikeTryDismountAngle(3.1410925388336f, frontdist); // 180 - back
+
+	if (g_Vars.currentplayer->walkinitmove) {
+		if (d->clientLocalIntent) {
+			/* Local clients send only an accepted intent; the committed mode and
+			 * vehicle pointer remain unchanged until SVC_PROP_VEHICLE_STATE. */
+			if (g_Vars.currentplayernum >= 0
+					&& g_Vars.currentplayernum < MAX_PLAYERS) {
+				s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
+			}
+			d->localIntentAccepted = true;
+		} else if (!bbikeTryDismount()) {
+			g_Vars.currentplayer->walkinitmove = false;
+		}
+	}
+	return g_Vars.currentplayer->walkinitmove ? 1 : 0;
+}
+
+/* The PC exit key's directional dismount: the same cdTestVolume probe ladder
+ * as the side dismount, with the chosen side first, so the player lands where
+ * they asked when the geometry allows. og.vehicle.dismount_seat for a vehicle
+ * with a pd.vehicle_graph.v1 graph. */
+typedef struct bbike_exit {
+	struct hoverbikeobj *bike;
+	bool wantRight;
+} bbike_exit_t;
+
+static s32 bbikeExitToChosenSide(void *context)
+{
+	bbike_exit_t *vexit = (bbike_exit_t *)context;
+	struct hoverbikeobj *bike = vexit->bike;
+	struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
+
+	g_Vars.currentplayer->walkinitmove = false;
+	if (bbox != NULL) {
+		f32 sidedist  = bbox->xmax * bike->base.model->scale;
+		f32 frontdist = bbox->zmax * bike->base.model->scale;
+		f32 diagdist  = sqrtf(sidedist * sidedist + frontdist * frontdist);
+
+		if (vexit->wantRight) {
+			bbikeTryDismountAngle(4.7116389274597f, sidedist);
+			bbikeTryDismountAngle(5.4969120025635f, diagdist);
+			bbikeTryDismountAngle(3.9263656139374f, diagdist);
+			bbikeTryDismountAngle(1.5705462694168f, sidedist);
+		} else {
+			bbikeTryDismountAngle(1.5705462694168f, sidedist);
+			bbikeTryDismountAngle(0.7852731347084f, diagdist);
+			bbikeTryDismountAngle(2.3558194637299f, diagdist);
+			bbikeTryDismountAngle(4.7116389274597f, sidedist);
+		}
+		bbikeTryDismountAngle(0,                  frontdist);
+		bbikeTryDismountAngle(3.1410925388336f,  frontdist);
+	}
+	if (g_Vars.currentplayer->walkinitmove) {
+		if (g_NetMode == NETMODE_CLIENT) {
+			if (g_Vars.currentplayernum >= 0
+					&& g_Vars.currentplayernum < MAX_PLAYERS) {
+				s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
+			}
+		} else if (!bbikeTryDismount()) {
+			g_Vars.currentplayer->walkinitmove = false;
+		}
+	}
+	return g_Vars.currentplayer->walkinitmove ? 1 : 0;
+}
+
 void bbikeHandleActivate(bool transportedintent)
 {
 	const bool clientLocalIntent = g_NetMode == NETMODE_CLIENT
@@ -396,46 +503,24 @@ void bbikeHandleActivate(bool transportedintent)
 			&& (authoritativeTransportedExit
 				|| _bbContrMode == CONTROLMODE_PC
 				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(25))) {
-		struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
-		struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
+		bbike_dismount_t d;
 
-		/* B-161 class: bike model may have no bbox node; can't compute
-		 * dismount distances without it — skip activation safely. */
-		if (bbox == NULL) {
-			if (clientLocalIntent && _bbContrMode == CONTROLMODE_PC) {
-				g_Vars.currentplayer->bondactivateorreload = 0;
-			}
+		d.clientLocalIntent = clientLocalIntent;
+		d.contrMode = _bbContrMode;
+		d.localIntentAccepted = false;
+		d.returnEarly = false;
+		/* pd.vehicle_graph.v1: the request is event.vehicle.dismount_requested,
+		 * and og.vehicle.dismount_seat runs the side dismount; a v2 vehicle
+		 * runs it directly. */
+		if (hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike,
+				VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER,
+				bbikeDismountToSides, &d) < 0) {
+			bbikeDismountToSides(&d);
+		}
+		if (d.returnEarly) {
 			return;
 		}
-
-		f32 sidedist = bbox->xmax * bike->base.model->scale;
-		f32 frontdist = bbox->zmax * bike->base.model->scale;
-		f32 diagdist = sqrtf(sidedist * sidedist + frontdist * frontdist);
-
-		g_Vars.currentplayer->walkinitmove = false;
-
-		bbikeTryDismountAngle(1.5705462694168f, sidedist);  // 90  - left
-		bbikeTryDismountAngle(4.7116389274597f, sidedist);  // 270 - right
-		bbikeTryDismountAngle(0.7852731347084f, diagdist);  // 45  - front left
-		bbikeTryDismountAngle(5.4969120025635f, diagdist);  // 315 - front right
-		bbikeTryDismountAngle(2.3558194637299f, diagdist);  // 135 - back left
-		bbikeTryDismountAngle(3.9263656139374f, diagdist);  // 225 - back right
-		bbikeTryDismountAngle(0, frontdist);                // 0   - front
-		bbikeTryDismountAngle(3.1410925388336f, frontdist); // 180 - back
-
-		if (g_Vars.currentplayer->walkinitmove) {
-			if (clientLocalIntent) {
-				/* Local clients send only an accepted intent; the committed mode and
-				 * vehicle pointer remain unchanged until SVC_PROP_VEHICLE_STATE. */
-				if (g_Vars.currentplayernum >= 0
-						&& g_Vars.currentplayernum < MAX_PLAYERS) {
-					s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
-				}
-				localIntentAccepted = true;
-			} else if (!bbikeTryDismount()) {
-				g_Vars.currentplayer->walkinitmove = false;
-			}
-		}
+		localIntentAccepted = d.localIntentAccepted;
 
 		g_Vars.currentplayer->bondactivateorreload = 0;
 	}
@@ -504,42 +589,19 @@ void bbikeApplyMoveData(struct movedata *data)
 			}
 			/* Mike directive 2026-05-17: directional dismount. The
 			 * left stick at dismount time picks the side the player
-			 * lands on; default LEFT if no input. We run the same
-			 * cdTestVolume probe ladder bbikeHandleActivate uses,
-			 * but with the user-chosen side at the front of the
-			 * priority list so the player lands where they asked
-			 * to land when geometry allows. */
-			struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
-			g_Vars.currentplayer->walkinitmove = false;
-			if (bbox != NULL) {
-				f32 sidedist  = bbox->xmax * bike->base.model->scale;
-				f32 frontdist = bbox->zmax * bike->base.model->scale;
-				f32 diagdist  = sqrtf(sidedist * sidedist + frontdist * frontdist);
+			 * lands on; default LEFT if no input (bbikeExitToChosenSide).
+			 * pd.vehicle_graph.v1: the request is
+			 * event.vehicle.dismount_requested and og.vehicle.dismount_seat
+			 * runs it; a v2 vehicle runs it when its behavior allows a
+			 * dismount (B-1231: this path used to skip that check). */
+			bbike_exit_t vexit;
 
-				const bool wantRight = (vRight - vLeft) > 0.25f;
-				if (wantRight) {
-					bbikeTryDismountAngle(4.7116389274597f, sidedist);
-					bbikeTryDismountAngle(5.4969120025635f, diagdist);
-					bbikeTryDismountAngle(3.9263656139374f, diagdist);
-					bbikeTryDismountAngle(1.5705462694168f, sidedist);
-				} else {
-					bbikeTryDismountAngle(1.5705462694168f, sidedist);
-					bbikeTryDismountAngle(0.7852731347084f, diagdist);
-					bbikeTryDismountAngle(2.3558194637299f, diagdist);
-					bbikeTryDismountAngle(4.7116389274597f, sidedist);
-				}
-				bbikeTryDismountAngle(0,                  frontdist);
-				bbikeTryDismountAngle(3.1410925388336f,  frontdist);
-			}
-			if (g_Vars.currentplayer->walkinitmove) {
-				if (g_NetMode == NETMODE_CLIENT) {
-					if (g_Vars.currentplayernum >= 0
-							&& g_Vars.currentplayernum < MAX_PLAYERS) {
-						s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
-					}
-				} else if (!bbikeTryDismount()) {
-					g_Vars.currentplayer->walkinitmove = false;
-				}
+			vexit.bike = bike;
+			vexit.wantRight = (vRight - vLeft) > 0.25f;
+			if (hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
+					VEHICLE_GRAPH_SEAT_DRIVER, bbikeExitToChosenSide, &vexit) < 0
+					&& assetRuntimeVehicleAllows(bike->base.modelnum, "dismount")) {
+				bbikeExitToChosenSide(&vexit);
 			}
 			return;
 		}
@@ -547,6 +609,18 @@ void bbikeApplyMoveData(struct movedata *data)
 		f32 vAccel  = actionValue(actionPlayer, ACTION_VEHICLE_ACCELERATE);
 		f32 vBrake  = actionValue(actionPlayer, ACTION_VEHICLE_BRAKE);
 		f32 vHandbrake = actionValue(actionPlayer, ACTION_VEHICLE_HANDBRAKE);
+		/* Held boost, for a vehicle whose pd.vehicle_graph.v1 graph has
+		 * og.vehicle.boost_heat (its tick takes it). Only a vehicle with a
+		 * graph gets a record: a v2 bike never takes one (CORE's review). */
+		f32 vBoost = actionValue(actionPlayer, ACTION_VEHICLE_BOOST);
+		{
+			const asset_runtime_binding_t *vsource =
+				assetRuntimeVehicleForModelnum(bike->base.modelnum);
+			if (vsource && vsource->vehicle_graph) {
+				vehicleGraphRuntimeSetBoostHeld(bikeprop, bikeprop->lifecycle_generation,
+					vBoost > 0.5f);
+			}
+		}
 		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
 				|| vLeft > 0.0f || vRight > 0.0f || vHandbrake > 0.0f);
 		if (vehicleInputs) {
@@ -590,8 +664,8 @@ void bbikeApplyMoveData(struct movedata *data)
 					&& (s32)g_Vars.lvframenum
 						- s_LastVehicleInputLogFrame[g_Vars.currentplayernum] >= 30) {
 				sysLogPrintf(LOG_NOTE,
-					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f",
-					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake);
+					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f boost=%.2f",
+					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake, vBoost);
 				s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = (s32)g_Vars.lvframenum;
 			}
 		}
