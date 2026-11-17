@@ -323,7 +323,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"network_assert_retired_prop_absent",
 		"network_timeout_client", "network_reconnect",
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
-		"kill_player", "kill_token_holder", "kill_simulant",
+		"kill_player", "kill_simulant", "kill_token_holder",
 	};
 
 	if (!type) {
