@@ -137,15 +137,24 @@ s32 setupGetCmdIndexByTag(struct tag *tag)
 	return -1;
 }
 
+static struct defaultobj *setupCmdObj(u32 *cmd);
+
 u32 setupGetCmdIndexByProp(struct prop *prop)
 {
 	u32 *cmd = g_StageSetup.props;
 
-	if (cmd) {
+	if (cmd && prop) {
 		s32 cmdindex = 0;
 
 		while ((u8)PD_BE32(cmd[0]) != OBJTYPE_END) {
-			if ((struct prop *)cmd[5] == prop) {
+			/* B-1259: the N64 read the prop pointer as the word at cmd[5]
+			 * (struct defaultobj's 32-bit prop field there). On the 64-bit
+			 * port that word is the padding before the 8-byte pointer, so
+			 * the lookup never matched. Read the field, on object commands
+			 * only. */
+			struct defaultobj *obj = setupCmdObj(cmd);
+
+			if (obj && obj->prop == prop) {
 				return cmdindex;
 			}
 
@@ -404,10 +413,10 @@ void setup0f0923d4(struct defaultobj *obj)
 	propRegisterRooms(obj->prop);
 }
 
-struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
+/* The object a setup command is, or NULL when the command is not an object
+ * (a chr, a tag, an objective, ...). */
+static struct defaultobj *setupCmdObj(u32 *cmd)
 {
-	u32 *cmd = setupGetCmdByIndex(cmdindex);
-
 	if (cmd) {
 		switch ((u8)PD_BE32(cmd[0])) {
 		case OBJTYPE_DOOR:
@@ -472,6 +481,11 @@ struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
 	}
 
 	return (struct defaultobj *)cmd;
+}
+
+struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
+{
+	return setupCmdObj(setupGetCmdByIndex(cmdindex));
 }
 
 /**

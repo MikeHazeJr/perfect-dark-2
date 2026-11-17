@@ -282,6 +282,21 @@ TEST_CASE("Level graph program: the native seams fire the object events, recorde
 	REQUIRE(propobj.find("out->tag = objGetTagNum(obj);") != std::string::npos);
 	REQUIRE(propobj.find("out->catalog_id = g_WeaponDataCatalogIds[weaponnum];") != std::string::npos);
 	REQUIRE(propobj.find("\tif (g_NetMode == NETMODE_CLIENT || ev->type < 0) {") != std::string::npos);
+	// The empty record id is the character '\0', not a literal NUL byte (a
+	// collapsed escape made propobj.c a binary file to grep).
+	REQUIRE(propobj.find("\tout->object[0] = '\\0';") != std::string::npos);
+	REQUIRE(propobj.find('\0') == std::string::npos);
+
+	// B-1259: the setup index comes from the object's own prop field. The
+	// N64 read the prop pointer as the word cmd[5]; on the 64-bit port that
+	// word is the padding before the 8-byte pointer, so it never matched.
+	// Only object commands are compared.
+	const std::string setuputils = readSource("src/game/setuputils.c");
+	REQUIRE(setuputils.find("(struct prop *)cmd[5]") == std::string::npos);
+	REQUIRE(setuputils.find("\t\t\tstruct defaultobj *obj = setupCmdObj(cmd);\n\n"
+		"\t\t\tif (obj && obj->prop == prop) {\n\t\t\t\treturn cmdindex;") != std::string::npos);
+	REQUIRE(setuputils.find("struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)\n{\n"
+		"\treturn setupCmdObj(setupGetCmdByIndex(cmdindex));\n}") != std::string::npos);
 
 	// Pickups after the give or the free; doors at every start; the use
 	// button once handled.

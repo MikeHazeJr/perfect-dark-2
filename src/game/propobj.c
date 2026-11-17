@@ -18769,7 +18769,7 @@ static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *o
 {
 	u32 cmdindex = obj && obj->prop ? setupGetCmdIndexByProp(obj->prop) : 0xffffffff;
 
-	out->object[0] = ' ';
+	out->object[0] = '\0';
 	out->tag = -1;
 	out->type = -1;
 	out->catalog_id = NULL;

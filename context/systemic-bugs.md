@@ -3917,3 +3917,31 @@ and build on the machine.
   and check that every game launch reaches `--portable` or `--savedir`.
 - In a run's game log, `save dir:` must name the run's install or profile
   folder, never `AppData/Roaming/perfectdark`.
+
+## SP-94: A struct read by its N64 word offset finds padding on 64-bit
+
+**Severity: MEDIUM. The read gets padding or a neighbouring field, never the
+value it wants, and nothing fails: a lookup returns "not found" every time.**
+
+Code written for the N64 sometimes reads a struct's field as a fixed 32-bit
+word of the raw record (`cmd[5]`, `((u32 *)p)[n]`) instead of through the
+struct. On the N64 a pointer is one word, so the offsets agree. On this
+64-bit port every pointer field is 8 bytes and 8-aligned, so it and every
+field after it move: the fixed word lands on padding or on another field.
+A cast like `(struct prop *)cmd[5]` also drops the pointer's upper half.
+
+**Known instance (B-1259, 2026-11-17):** `setupGetCmdIndexByProp` compared
+`cmd[5]` (padding on 64-bit) with the prop pointer, so it never matched: the
+object events' record ids were empty and multiplayer's regeneration of an
+object inside another looked up the wrong parent.
+
+**Rules:**
+- Read a native struct through its type (`((struct defaultobj *)cmd)->prop`),
+  never by an N64 word offset.
+- A raw ROM record (N64 layout, big-endian) is read with the N64 offsets on
+  purpose: those readers name the N64 layout and byte-swap. Do not mix the two.
+
+**Search:**
+- `rg -n "\(struct [a-z_]+ \*\)\s*(PD_BE32\()?[a-z_]+\[[0-9]+\]" src port`
+  then check each array is pointer-sized (`uintptr_t *`, `struct x *[]`), not `u32 *`.
+- `rg -n "\(u32 \*\)[^;]*\)\[[0-9]+\]" src/game src/lib` for word reads of native structs.
