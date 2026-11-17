@@ -38,7 +38,7 @@ a player can also join a co-op mission already in progress, and leave it, withou
 4. **Leaving on purpose** (Quit from the pause menu): as drop-out, but the slot is free at once (no reconnect
    hold), so another player can drop in.
 
-## Open questions (put to Mike 2026-11-17)
+## Questions, answered by Mike 2026-11-17: both as recommended
 
 - **Player count.** The game's co-op has exactly one partner slot, as in the original. Recommended: drop-in/
   drop-out for two-player co-op. Three or four players would be a separate, much bigger project (co-op rules,
