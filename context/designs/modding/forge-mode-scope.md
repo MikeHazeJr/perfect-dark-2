@@ -1112,3 +1112,18 @@ Undo Level Edit (n) and Redo (n). `--debug-forge-session-undo` undoes and
 redoes the start the session debug flag adds, before it saves, and
 `forge_blank_room_session_smoke` requires both steps (`FORGE.LEVEL.UNDO`,
 `FORGE.LEVEL.REDO`) and the same saved level as before.
+
+## F3: turning, and picking in the view (WRITTEN 2026-11-17, not run)
+
+- Turn Left 45 and Turn Right 45 turn a selected player start or object
+  where it stands (`forgeLevelTurnLook`, unit-tested: positive is to the
+  right, the way the camera's yaw grows), as an edit that can be undone.
+- The world markers can be clicked: a left click on the world, off the
+  editor's windows, within a few pixels of a marker selects that start or
+  object. The marker turns yellow at once and the Level File section takes
+  the pick into its lists when it next draws
+  (`pdguiForgeLevelMarkersTakePick`). The left button is not used over the
+  world for anything else while the camera flies.
+
+Still to come in F3: a move gizmo (dragging an object instead of flying the
+camera to where it goes), drawing a selected object's outline, and size.
