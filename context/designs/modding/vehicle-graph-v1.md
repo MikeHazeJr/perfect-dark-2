@@ -4,9 +4,10 @@ Status: IMPLEMENTED and proven in game on `week-pd/mods` (2026-11-16). CORE
 accepted the design at 05:50 UTC ("CORE's answers" at the end; they override the
 draft text where they differ), reviewed the code at 09:58 UTC and approved the
 fixes at 10:35 UTC ("CORE's review"). The Maian hover vehicle runs its mount,
-dismount, drive, boost and heat through its graph; the base hoverbike keeps its
-v2 files until the extractor writes its graph (a recorded task). Sections
-marked (history) describe a step that is over.
+dismount, drive, boost and heat through its graph; since Rule 5 (CORE,
+`week-pd/core-s5`, 2026-11-17) the base hoverbike runs its own graph too, and
+every vehicle mounts, dismounts and drives only through a graph (no v2 path is
+left in the code). Sections marked (history) describe a step that is over.
 
 How it came about: CORE asked for the draft on 2026-11-15 (19:15 UTC, week note
 schema table, row "MAIAN VEHICLE 1": "please draft it for CORE's review:
@@ -458,6 +459,11 @@ Follow-up tasks (to become Workbench items at the merge, as agreed for the week)
   a v1 graph (the message names `pd.vehicle_graph.v1` and the retired v2 schemas); conformance
   reports v2 as an error and its self-test checks a v1 vehicle; the typed example vehicle is v1
   (boost 7.0 over 1800 ticks240). The Maian recipe already replaced its template's v2 files.
+  The v2 branches of the mount, dismount and movement code went with it
+  (`currentPlayerTryMountHoverbike`, `bbikeHandleActivate`, the PC exit in
+  `bbikeApplyMoveData`, `hoverbikeUpdateMovement`) and the two physics v2 boost
+  fields of the runtime binding: a vehicle without a graph cannot be mounted,
+  left or driven, so there is no native fallback.
 - B-1232 (MULTIPLAYER's wire, MODS's choice offered): a remote rider's boost never reaches the
   host. MODS's preference: a boost bit in the move message, so the host runs `boost_heat` with the
   client's input as for its own rider, and the phase (with the toggled parts) in the vehicle state

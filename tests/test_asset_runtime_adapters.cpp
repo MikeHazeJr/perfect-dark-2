@@ -381,7 +381,7 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
 	std::string vehiclePath = dir.write("model.gltf", "{}");
 	dir.write("physics.json",
-		"{\"schema\":\"pd2.vehicle.physics.v2\","
+		"{\"schema\":\"pd2.vehicle.physics.v3\","
 		"\"catalog_id\":\"mod:vehicle_tuned_bike\","
 		"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
 		"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
@@ -394,21 +394,33 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 		"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
 		"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
 		"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
-		"\"boost_speed\":7,\"boost_time_ticks60\":1800,"
 		"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
 		"0.01,0.02,0.00002,0.0006]}");
+	/* A v1 graph with no dismount (v2 is retired): the vehicle can be
+	 * mounted and driven, never left. */
 	dir.write("behavior.graph.json",
-		"{\"schema\":\"pd2.vehicle.behavior.v2\","
+		"{\"schema\":\"pd.vehicle_graph.v1\","
 		"\"catalog_id\":\"mod:vehicle_tuned_bike\","
-		"\"allow_mount\":true,\"allow_drive\":true,"
-		"\"allow_dismount\":false}");
+		"\"nodes\":["
+		"{\"id\":\"mount\",\"kind\":\"event.vehicle.mount_requested\"},"
+		"{\"id\":\"tick\",\"kind\":\"event.vehicle.tick\"},"
+		"{\"id\":\"driver_free\",\"kind\":\"gate.vehicle.seat_free\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"mount_driver\",\"kind\":\"og.vehicle.mount_seat\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"drive\",\"kind\":\"og.vehicle.hover_drive\"},"
+		"{\"id\":\"throttle_boost\",\"kind\":\"og.vehicle.throttle_boost\","
+		"\"params\":{\"boost_speed\":7.0,\"ramp_time\":{\"value\":1800,\"unit\":\"ticks240\"}}}],"
+		"\"edges\":["
+		"{\"from\":\"mount\",\"output\":\"out\",\"to\":\"driver_free\",\"input\":\"exec\"},"
+		"{\"from\":\"driver_free\",\"output\":\"pass\",\"to\":\"mount_driver\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"drive\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"throttle_boost\",\"input\":\"exec\"}]}");
 	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, vehiclePath.c_str()) == 1);
 	REQUIRE(assetRuntimeHydrateCatalogEntry(&vehicle) == 1);
 	const asset_runtime_binding_t *vehicleBinding =
 		assetRuntimeVehicleForModelnum(58);
 	REQUIRE(vehicleBinding != nullptr);
 	REQUIRE(vehicleBinding->vehicle_forward_thrust == Approx(1.2f));
-	REQUIRE(vehicleBinding->vehicle_boost_speed == Approx(7.0f));
+	REQUIRE(vehicleBinding->vehicle_graph != nullptr);
 	REQUIRE(assetRuntimeVehicleAllows(58, "mount") == 1);
 	REQUIRE(assetRuntimeVehicleAllows(58, "dismount") == 0);
 	REQUIRE(assetRuntimeVehicleAllows(59, "mount") == 0);
@@ -1988,7 +2000,6 @@ TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrat
 		REQUIRE(heat->recover_speed_scale == Approx(2.0f));
 		REQUIRE(vehicleGraphProgramPartCount(b->vehicle_graph) == 1);
 		REQUIRE(vehicleGraphProgramPart(b->vehicle_graph, 0) == 140);
-		REQUIRE(b->vehicle_boost_time_ticks60 == 0);
 
 		/* Releasing the vehicle's catalog entry frees its program now, and the
 		 * instances made from it first (CORE's review, 2026-11-16); a vehicle

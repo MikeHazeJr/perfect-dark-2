@@ -114,15 +114,11 @@ typedef struct asset_runtime_binding {
     f32 vehicle_tilt_response_pal;
     f32 vehicle_yaw_response_ntsc;
     f32 vehicle_yaw_response_pal;
-    /* The original full-throttle bonus, from physics v2 only (a v1 graph's
-     * og.vehicle.throttle_boost holds its own values). */
-    f32 vehicle_boost_speed;
-    s32 vehicle_boost_time_ticks60;
-    /* v2 behavior: the file's booleans. v1 graph: derived from it (mount =
-     * the mount event reaches og.vehicle.mount_seat, drive = the tick reaches
-     * og.vehicle.hover_drive, dismount = the dismount event reaches
-     * og.vehicle.dismount_seat), so every caller of assetRuntimeVehicleAllows
-     * keeps one answer for both. */
+    /* Derived from the vehicle's graph (mount = the mount event reaches
+     * og.vehicle.mount_seat, drive = the tick reaches og.vehicle.hover_drive,
+     * dismount = the dismount event reaches og.vehicle.dismount_seat), so
+     * assetRuntimeVehicleAllows answers what the graph can do. The original
+     * full-throttle bonus is the graph's og.vehicle.throttle_boost. */
     s32 vehicle_allow_mount;
     s32 vehicle_allow_drive;
     s32 vehicle_allow_dismount;
@@ -130,7 +126,8 @@ typedef struct asset_runtime_binding {
     /* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): the
      * compiled behavior graph with its behavior/variables.json when the
      * vehicle's behavior.graph.json is v1, owned by this binding and freed by
-     * assetRuntimeReset; NULL for a v2 behavior file. */
+     * assetRuntimeReset. Every hydrated vehicle has one: a v2 behavior file is
+     * refused (vehicle-graph-v1.md, "Migration"). */
     vehicle_graph_program_t *vehicle_graph;
 } asset_runtime_binding_t;
 

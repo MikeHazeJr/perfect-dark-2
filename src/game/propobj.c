@@ -7571,36 +7571,33 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		return;
 	}
 	source = assetRuntimeVehicleForModelnum(bike->base.modelnum);
-	if (!source) {
+	if (!source || !source->vehicle_graph) {
 		sysLoudFailf("VEHICLE.SOURCE",
 			"hoverbike modelnum=%d has no hydrated .pdvehicle physics source",
 			bike->base.modelnum);
 		return;
 	}
-	if (source->vehicle_graph) {
-		/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here,
-		 * where the original movement runs, and its modules say what the
-		 * movement does: hover or not, take the driver's inputs or not, the
-		 * extra forward speed (replacing the original bonus below) and the
-		 * steering scale. A vehicle with no instance (refused, logged) does
-		 * not move. */
-		graph = hoverbikeGraphInstance(bike, source);
-		if (!graph) {
-			return;
-		}
-		hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
-		if (!drive.hover) {
-			return;
-		}
-		if (!drive.drive) {
-			speedforwards = 0;
-			speedsideways = 0;
-			speedtheta = 0;
-		}
-		steerscale = drive.steer_scale;
-	} else if (!source->vehicle_allow_drive) {
+	/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here, where
+	 * the original movement runs, and its modules say what the movement
+	 * does: hover or not, take the driver's inputs or not, the extra forward
+	 * speed (the original full-throttle bonus is og.vehicle.throttle_boost)
+	 * and the steering scale. Every vehicle moves through its graph (a v2
+	 * behavior is refused when the catalog hydrates it); one with no
+	 * instance (refused, logged) does not move. */
+	graph = hoverbikeGraphInstance(bike, source);
+	if (!graph) {
 		return;
 	}
+	hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
+	if (!drive.hover) {
+		return;
+	}
+	if (!drive.drive) {
+		speedforwards = 0;
+		speedsideways = 0;
+		speedtheta = 0;
+	}
+	steerscale = drive.steer_scale;
 
 	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
 
@@ -7719,36 +7716,11 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (graph) {
-		/* The graph's og.vehicle.throttle_boost keeps its own timer. */
-		bike->maxspeedtime240 = 0;
-	} else if (speedforwards >= 0.99f) {
-		bike->maxspeedtime240 += g_Vars.lvupdate240;
-
-		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
-			bike->maxspeedtime240 = TICKS(source->vehicle_boost_time_ticks60);
-		}
-	} else if (bike->maxspeedtime240 > 0) {
-		if (speedforwards >= 0.8f) {
-			// empty
-		} else if (speedforwards >= -0.1f) {
-			bike->maxspeedtime240 -= g_Vars.lvupdate240;
-
-			if (bike->maxspeedtime240 < 0) {
-				bike->maxspeedtime240 = 0;
-			}
-		} else {
-			bike->maxspeedtime240 = 0;
-		}
-	}
-
-	if (graph) {
-		bike->speedrel[1] = drive.extra_speed;
-	} else {
-		bike->speedrel[1] = bike->maxspeedtime240 *
-			source->vehicle_boost_speed /
-			TICKS(source->vehicle_boost_time_ticks60);
-	}
+	/* The original full-throttle bonus (maxspeedtime240 rising at full
+	 * throttle and falling below 0.8 of it) is og.vehicle.throttle_boost,
+	 * which keeps its own timer: drive.extra_speed is its bonus. */
+	bike->maxspeedtime240 = 0;
+	bike->speedrel[1] = drive.extra_speed;
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;
@@ -7785,10 +7757,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->leanspeed = 0;
 			bike->leandiff = 0;
 			bike->maxspeedtime240 = 0;
-			if (graph) {
-				/* The original rest reset, for the graph's timers. */
-				vehicleGraphInstanceRest(graph);
-			}
+			/* The original rest reset, for the graph's timers. */
+			vehicleGraphInstanceRest(graph);
 			bike->speedabs[0] = 0;
 			bike->speedabs[1] = 0;
 			bike->speedrel[0] = 0;
@@ -18944,18 +18914,15 @@ static s32 hoverbikeMountDriverAction(void *context)
 	return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;
 }
 
-/* A vehicle with a pd.vehicle_graph.v1 graph mounts through it (vehiclegraph.c):
+/* Every vehicle mounts through its pd.vehicle_graph.v1 graph (vehiclegraph.c):
  * the request is event.vehicle.mount_requested, and og.vehicle.mount_seat runs
- * the native mount. A v2 vehicle takes the native path directly. */
+ * the native mount. There is no other way on: a prop that is not a vehicle
+ * with a graph (a v2 behavior is refused when the catalog hydrates it) cannot
+ * be mounted. */
 bool currentPlayerTryMountHoverbike(struct prop *prop)
 {
-	const s32 result = hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
-		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);
-
-	if (result >= 0) {
-		return result == 1;
-	}
-	return currentPlayerTryMountHoverbikeNative(prop);
+	return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop) == 1;
 }
 
 static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out)

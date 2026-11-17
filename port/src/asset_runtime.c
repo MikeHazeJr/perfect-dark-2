@@ -1532,23 +1532,6 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
             &binding->vehicle_yaw_response_pal) &&
         s_jsonReadFloatArray(physics, physics_size, "hover",
             binding->vehicle_hover, 13);
-    if (ok && !graph_v1) {
-        ok = s_jsonReadFloat(physics, physics_size, "boost_speed",
-                &binding->vehicle_boost_speed) &&
-            s_jsonReadInt(physics, physics_size, "boost_time_ticks60",
-                &binding->vehicle_boost_time_ticks60) &&
-            s_jsonReadBool(behavior, behavior_size, "allow_mount",
-                &binding->vehicle_allow_mount) &&
-            s_jsonReadBool(behavior, behavior_size, "allow_drive",
-                &binding->vehicle_allow_drive) &&
-            s_jsonReadBool(behavior, behavior_size, "allow_dismount",
-                &binding->vehicle_allow_dismount) &&
-            binding->vehicle_boost_speed >= 0.0f &&
-            binding->vehicle_boost_time_ticks60 > 0;
-    } else if (ok) {
-        binding->vehicle_boost_speed = 0.0f;
-        binding->vehicle_boost_time_ticks60 = 0;
-    }
     if (ok) {
         if (binding->vehicle_turn_input_scale < 0.0f ||
                 binding->vehicle_reverse_turn_gain < 0.0f ||
