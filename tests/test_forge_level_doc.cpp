@@ -2210,6 +2210,136 @@ TEST_CASE("A level with no objects gains a weapon place and an ammo crate made f
 	CHECK(armouryFind(level.doc, "setup_0003").order == 3);
 }
 
+TEST_CASE("The Blank Room, a level that holds nothing of the original game, is edited and saved as a level",
+          "[forge-level-doc]")
+{
+	/* dev-mods/blank_room: one room, eight starts, no objects, every byte made
+	 * by its builder. It is the template a level that can be shared starts
+	 * from, so the level document has to read it as it is, and the mod author
+	 * has to make a level from it. */
+	const fs::path templatePath = fs::path(PD_SOURCE_DIR) / "dev-mods/blank_room/blank_room.pdarena";
+	const char *const scenarioMember = "dependencies/assets/scenarios/scenario_blank_room.pdscenario";
+	const std::string templateText = templatePath.string();
+	const SavedLevel room = readSavedLevel(templateText.c_str(), scenarioMember);
+	CHECK(room.arenaId == "mod_blank_room:arena_blank_room");
+	CHECK(room.arenaName == "Blank Room");
+	CHECK(room.arenaScenario == "mod_blank_room:scenario_blank_room");
+	CHECK(room.scenarioId == room.arenaScenario);
+
+	Level level(levelMember(room.scenario, "pads.json"), levelMember(room.scenario, "spawns.json"),
+		levelMember(room.scenario, "objects.json"), levelMember(room.scenario, "volumes.json"),
+		levelMember(room.scenario, "setup.fields.json"), levelMember(room.scenario, "level.graph.json"));
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK(forgeLevelDocPadCount(level.doc) == 8);
+	CHECK(forgeLevelDocSpawnCount(level.doc) == 8);
+	CHECK(forgeLevelDocObjectCount(level.doc) == 0);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 8);
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 0);
+	CHECK(occurrences(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), kVolumeNode) == 8);
+	/* The graph carries the pickup and door rules a level must have. */
+	CHECK(occurrences(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), "\"kind\": \"event.pickup.touched\"") == 1);
+	CHECK(occurrences(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), "\"edges\": [") == 1);
+	/* Every start stands inside the room and faces its middle. */
+	for (s32 i = 0; i < forgeLevelDocPadCount(level.doc); i++) {
+		forge_level_pad_t pad = {};
+		REQUIRE(forgeLevelDocGetPad(level.doc, i, &pad) == 1);
+		CAPTURE(i);
+		CHECK(std::fabs(pad.position[0]) < 1200.0f);
+		CHECK(std::fabs(pad.position[2]) < 1200.0f);
+		CHECK(pad.position[1] == 50.0f);
+		CHECK(pad.position[0] * pad.look[0] + pad.position[2] * pad.look[2] < 0.0f);
+	}
+
+	/* A start is added and the level is saved under a name: only the Blank
+	 * Room's own data and the new rows are in it. */
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+	const f32 place[3] = { 300.0f, 50.0f, -700.0f };
+	const f32 facing[3] = { 0.0f, 0.0f, 1.0f };
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, place, facing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "spawn_0008");
+	forge_level_overrides_t overrides;
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
+	REQUIRE(overrides.count == 4);   /* pads, spawns, bounds, graph */
+
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-blank-" + std::to_string(stamp));
+	fs::create_directories(root);
+	const std::string rootText = root.string();
+	mod_author_request_t request = {};
+	request.template_path = templateText.c_str();
+	request.mods_root = rootText.c_str();
+	request.display_name = "Blank Copy";
+	request.tool = "pd-tests";
+	request.overrides = overrides.entries;
+	request.override_count = overrides.count;
+	mod_author_result_t result = {};
+	const s32 code = modAuthorSave(&request, &result, err, sizeof(err));
+	INFO("save error: " << err);
+	REQUIRE(code == MOD_AUTHOR_OK);
+	CHECK(std::string(result.catalog_id) == "mod:arena_blank_copy");
+
+	const SavedLevel saved = readSavedLevel(result.archive_path, scenarioMember);
+	CHECK(saved.arenaId == "mod:arena_blank_copy");
+	CHECK(saved.arenaName == "Blank Copy");
+	CHECK(saved.scenarioId.rfind("mod:arena_blank_copy__", 0) == 0);
+	CHECK(saved.arenaScenario == saved.scenarioId);
+	CHECK(saved.record.find("\"source_counts\": { \"pads\": 9, \"volumes\": 9, \"waypoints\": 0, "
+		"\"waygroups\": 0, \"covers\": 0, \"paths\": 1 }") != std::string::npos);
+	/* Nothing of the template's own id is left in the level's graph. */
+	const std::string savedGraph = levelMember(saved.scenario, "level.graph.json");
+	CHECK(occurrences(savedGraph, "mod_blank_room:") == 0);
+	CHECK(occurrences(savedGraph, kVolumeNode) == 9);
+	/* The geometry is the template's, byte for byte. */
+	CHECK(levelSha(levelMember(saved.scenario, "scene.glb")) == levelSha(levelMember(room.scenario, "scene.glb")));
+	CHECK(levelSha(levelMember(saved.scenario, "collision.obj")) ==
+		levelSha(levelMember(room.scenario, "collision.obj")));
+	{
+		Level again(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
+			levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
+			levelMember(saved.scenario, "setup.fields.json"), savedGraph);
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		CHECK(forgeLevelDocPadCount(again.doc) == 9);
+		CHECK(forgeLevelDocSpawnCount(again.doc) == 9);
+	}
+
+	/* The saved level goes to the archive validator in CI: it names no asset
+	 * the validator cannot know. */
+	const char *artifacts = std::getenv("PD2_TEST_ARTIFACT_DIR");
+	if (artifacts && artifacts[0]) {
+		std::error_code copyError;
+		const fs::path dir = fs::path(artifacts) / "clones";
+		fs::create_directories(dir, copyError);
+		fs::copy_file(result.archive_path, dir / fs::path(result.archive_path).filename(),
+			fs::copy_options::overwrite_existing, copyError);
+	}
+
+	/* And the empty level takes objects made from nothing (not handed to the
+	 * validator: they name the game's own stand-in models, which it only
+	 * knows beside a base install). */
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, place, facing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0000");
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, place, facing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0001");
+	CHECK(forgeLevelDocObjectCount(level.doc) == 2);
+	CHECK(forgeLevelDocPadCount(level.doc) == 11);
+	CHECK(occurrences(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), kVolumeNode) == 11);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH).find("\"objects\": 2") != std::string::npos);
+	Level edited(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(edited.error);
+	REQUIRE(edited.doc != nullptr);
+	CHECK(forgeLevelDocObjectCount(edited.doc) == 2);
+
+	std::error_code ec;
+	fs::remove_all(root, ec);
+}
+
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",
           "[forge-level-doc][.local]")
 {

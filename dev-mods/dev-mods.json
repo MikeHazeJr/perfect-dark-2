@@ -15,6 +15,13 @@
       "dev": false,
       "release": false,
       "summary": "Maian crystal pistol test weapon: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Include with -DevMods crystal_pistol."
+    },
+    {
+      "id": "blank_room",
+      "path": "blank_room",
+      "dev": false,
+      "release": false,
+      "summary": "Blank Room: a small original level (one room, four pillars, eight player starts) that holds nothing of the original game. The template Forge starts a shareable level from. Built by dev-mods/blank_room/build_blank_room.py. Include with -DevMods blank_room."
     }
   ]
 }

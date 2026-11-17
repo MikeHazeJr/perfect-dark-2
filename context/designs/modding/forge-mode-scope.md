@@ -774,3 +774,172 @@ Skedar stage row, scale fields included), whether rooms and portals still hide
 props and characters when the scene is drawn whole, whether a portal's vertex
 order matters, and whether a pad's room is taken from `room_ref` or from the
 room boxes.
+
+## Proven in the game (2026-11-17, turn q_20261117041043360_545fad61)
+
+Client 13dd514d on shared base 8, smoke storage on D:. Receipts and client
+logs are under `D:\PD2-wt\pd2-smoke-mods\receipts\`.
+
+- **F1, a mod level loads: PROVEN** (`forge_mod_level_load_smoke`, 17/17).
+  The level saved from Complex got stage number 0x60, its embedded scenario
+  was registered (`PDARENA.SCENARIO: owner=mod:arena_forge_test
+  id=mod:arena_forge_test__scenario_scenario_mp_complex stagenum=0x60`),
+  collision was built from its own archive, 45 rooms and 2,247 tiles were
+  compiled, and the player spawned in a Combat Simulator match.
+- **F2, an edited level plays: PROVEN** (`forge_level_edit_smoke`, 29/29).
+  The game's own lines for the level Forge's document saved: `trigger volume
+  nodes ... nodes=228 rows=228` (the rule the first survey caught), `SETUP.PADS:
+  stage 0x60 pads=228 without_room=0` (the two pads Forge added, which name no
+  room, were each found a room), 36 setup records and 20 spawns.
+- **F3 back end, a pinned pickup: PROVEN** (`forge_level_weapon_smoke`,
+  27/27). `FORGE.LEVEL.EDIT: setup_0035 now gives base:dragon (model
+  base:model_chrdragon, size 256)`, then `SETUP: fixed weapon pickup cmd=35
+  weapon=15 model=255 prop=1` in the match.
+- **F2, a save from inside a Forge session: works; the smoke is red on one
+  line** (`forge_session_save_smoke`, 33/34). The session came up from the
+  command line, the mod author's save, rescan, enable and apply ran while the
+  level was loaded with the editor up, the new level's scenario was
+  registered, and the game ran on. The one missing line is the projection
+  probe, which measured B-1240: the editor camera's yaw and pitch did not
+  reach the view. The screenshot shows the Forge HUD and the level file's
+  markers while the camera flies (B-1237 proven) and the markers where the
+  objects are for the view the game actually drew.
+- The base-level sweep of the level document read all 132 archives of base 8
+  for the first time and failed one check on the 46 with no player start
+  (B-1239, fixed).
+- Not run: the four vehicle smokes. The MODS smoke archive on C: was at its
+  2 GiB cap and every one was refused before launch.
+
+Not proven by any of this: that a marker sits on its object to the pixel,
+that the panel's widgets work under a hand, that a copied pickup is drawn and
+can be collected, and anything about the camera fix (B-1240), the mouse look,
+the new weapon place and ammo crate, and the Blank Room. Those are in the next
+queued turn.
+
+## F5: the smallest level the game accepts (READ 2026-11-17 by a second survey)
+
+A second read-only survey went through the scanner, the release rules, the
+graph activation, the scene compiler and renderer and the stage load, at
+e62d5fd0, and wrote the rules below with the file and line of each (MODS did
+not re-read them; the builder's checks mirror them, and a run decides). SSR is
+`port/src/scenario_source_runtime.c`, SCAN `port/src/assetcatalog_scanner.c`,
+POL `port/src/asset_archive_policy.c`, MAC `port/src/modasset_compiler.c`,
+REN `port/fast3d/scenario_scene_renderer.cpp`.
+
+Corrections to the first survey: `collision.obj` is needed even when
+`scenario.ini` names no collision file (the navigation record hashes it,
+SSR 8450); **every** collision triangle must be in a room above 0, not just
+one (a room-0 triangle overruns the tile buffer, SSR 36624-36697); `scene.glb`
+is parsed by the compiler at activation whatever the collision source
+(MAC 4765); and with any row in `navigation/paths.json` a pad on no path gets
+no links (SSR 7347).
+
+The archive:
+
+- **Mod folder.** One rejected archive rolls back the whole folder's scan
+  (`CATALOG.SCAN.TRANSACTION.ROLLBACK`, SCAN 6086), so a level lives in a
+  folder of its own.
+- **`arena.ini`**: `[arena]`, `catalog_id`, `display_name` (an arena with no
+  name is not listed), `load_mode = ARENA_LOADMODE_PLAYABLE`, `scenario`,
+  `scenario_archive`. The scenario is silently not registered when either of
+  the last two is missing, when the arena id begins `base:`, or when the two
+  ids do not share the text before the first `:` (SCAN 5432). The scenario's
+  own `catalog_id` must equal the arena's `scenario`.
+- **`scenario.ini`**: fifteen file keys must be non-empty at activation
+  (`scene_file`, `level_graph_file`, the tables, `navigation_file`,
+  `asset_runtime.c` 864). `source_room_count` is 2 for one room numbered 1.
+  Every `*_file` a descriptor names must be a member (POL 797), comment lines
+  included, so no commented-out file key.
+- **Members that must exist**, with `{ "schema": ..., "rows": [] }` being
+  valid for each table: `scene.glb`, `collision.obj`, `portals.json`,
+  `pads.json`, `spawns.json`, `volumes.json`, the four `navigation/*.json`,
+  `objects.json`, `setup.fields.json`, `ai/ailists.json`, `objectives.json`,
+  `navigation.ini`, `level.graph.json`, `_meta/generated-navmesh.json`.
+  Optional: `collision.flags.json`, `rooms.json`, `room_lights.json`,
+  `stage.json`, `intro.json`. The base blank arena `mp_grid2` has no pads, no
+  starts, no AI list and no objects, and plays.
+- **Tables are read as flat text**: a key is the first textual match in the
+  row, integers are parsed base 0 (a leading zero is octal), vectors are
+  `[a, b, c]`.
+- **`level.graph.json`** is counted as text. `"kind": "x"` with one space; 427
+  kinds exactly once each (five structural ones, 277 AI actions, 145 AI
+  conditions), `scenario.trigger.volume.source` once per `volumes.json` row;
+  the first `"scenario"` in the text is the id; the twelve table keys first
+  occur inside `tables`, which therefore comes before `nodes` and `counts`;
+  four exact navigation strings; and since dev fd4c1f03 the ten
+  `object.rules` nodes and seven `edges` for pickups and doors. A minified
+  graph passes the Python validator and fails the game.
+- **`navigation.ini`** nine exact lines, and **the navigation record**'s
+  counts and hashes lines character for character (SSR 8480-8574).
+- **`scene.glb`**: one embedded buffer, no `extensionsRequired`, no
+  `normalized` or sparse accessor, every accessor with a buffer view.
+  `POSITION` float VEC3; `TEXCOORD_0` float VEC2; `COLOR_0` only as float
+  VEC4; `_PD_ROOM` as an unsigned integer scalar for the renderer (a float
+  one is ignored there). Node transforms are honoured; the renderer draws
+  both sides; images must be embedded (PNG is the safe choice).
+  **Blender's exporter cannot write `_PD_ROOM` as an unsigned integer, and
+  its vertex colours are in forms the game refuses**, so a level from Blender
+  is exported plain and the builder adds the room attribute and writes the
+  collision.
+- **`collision.obj`**: `o room_N` (N at least 1) before the first vertex; a
+  floor counts only when wound so its normal points up (`meshFindFloor`
+  wants normal.y of 0.5 or more); no `mtllib`. `collision.flags.json` has one
+  flat row per triangle in file order (base floors `0x001b`, walls `0x001c`);
+  without it floors and walls get no sight or shot blocking.
+- **Pads**: `pad_ref` numbers equal the row's place; `room_ref` empty means
+  "find the room from the room boxes" and `room_1` means that room; never
+  `room_0`. Flags 0 for a start. A pad sits above its floor, not on it (base
+  starts are about 52 above). `volumes.json` rows are world boxes.
+- **Starts**: none are needed in code, 8 to 16 is sensible; the stage load
+  aborts if a human cannot be placed, and points within 85 units of the
+  origin are marked down.
+- **Simulants** move along waypoint links only. With the waypoint tables
+  empty every pad becomes a waypoint, linked along each path row in order.
+  The list every base arena has (id `0x1000`: `mp_init_simulants`,
+  `rebuild_teams`, `rebuild_squadrons`, `set_list`, `end`) starts them; a
+  list id below `0x401` replaces one of the game's global lists.
+- **Scale**: one unit is a centimetre. A player is 172 tall with radius 30
+  and steps up 30; a simulant is 185 with radius 20.
+- **What the Python validator does not check**: scene geometry, collision
+  content, pad references across files, the navigation node, the exact text
+  forms, the record's exact text, the trigger node count.
+
+## F5 first piece: the Blank Room (BUILT 2026-11-17, not run)
+
+`dev-mods/blank_room/`: an original level with nothing of the original game
+in it, and the template a level that can be shared starts from.
+
+- `build_blank_room.py` makes all of it: a room 24 by 24 metres and 4 high
+  with four pillars (96 collision triangles in room 1, the ceiling drawn and
+  not collided with, as base arenas do), a tile texture it draws itself,
+  eight starts on a ring of radius 850 facing the middle, their bounds rows,
+  one closed path round the ring, the `0x1000` list, `rooms.json` with the
+  room's box, empty object tables, the graph and the navigation record.
+- The graph's structure is taken from this repository's own example level
+  (`tri_arena.pdarena`, which CORE's builder keeps in step with the game): its
+  422 AI kind nodes and fixed links, the pickup and door rule nodes and edges,
+  and the cache kind for `arena.ini`. The builder adds the three structural
+  nodes the example lacks. When the level formats move: rebuild the example,
+  then run this builder (`--check` says whether the built file is current).
+- The builder checks its output against the rules above (the node kinds are
+  read from the game's own source at build time: 428 of them) and then hands
+  the archive to `tools/asset_archive_conformance.py`, which accepts it.
+- It is a dev mod, off by default (`dev-mods.json`: `-DevMods blank_room`),
+  in a folder of its own so that a fault in it cannot roll back another mod's
+  scan. Ids `mod_blank_room:arena_blank_room` and
+  `mod_blank_room:scenario_blank_room`.
+- Unit case (hosted CI): the level document reads it, a start is added, the
+  mod author saves it as a level, and that level goes to the archive
+  validator; then a weapon place and a crate are made on the empty level.
+- Smokes written for the next turn: `forge_blank_room_smoke` (a match on the
+  Blank Room itself, with the game's own lines for collision, scene, rooms,
+  graph, pads and spawn, and a screenshot) and `forge_blank_room_edit_smoke`
+  (the scripted Forge edit on it: a start, a weapon place made from nothing
+  and pinned to `base:dragon`, an ammo crate made from nothing, saved as a
+  level and played; it requires the three pads Forge adds to be found a room).
+
+Only a run settles: how the room looks, whether the spawn pool takes the
+starts, whether simulants walk the ring, whether a match with no pickups is
+acceptable, the minted stage's music, sky and fog, and wall winding in play.
+After that: the same builder fed a Blender model (plain GLB in, room
+attribute and collision added), which is what the Maian arena needs.

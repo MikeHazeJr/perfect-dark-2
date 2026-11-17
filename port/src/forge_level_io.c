@@ -471,25 +471,36 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const ch
 		spawn_id, place[0], place[1], place[2], spawn.spawn_id, spawn.pad_ref);
 
 	/* Another spot for the level's first weapon pickup, a short step in
-	 * front of it. */
+	 * front of it. A level with no weapon pickup to copy (an empty level,
+	 * such as the Blank Room) gets a weapon place made from nothing instead,
+	 * a longer step in front of its first start. */
 	for (s32 i = 0; i < forgeLevelDocObjectCount(doc) && picked < 0; i++) {
 		if (forgeLevelDocGetObject(doc, i, &object) && object.movable &&
 				strcmp(object.kind, "weapon_pickup") == 0) {
 			picked = i;
 		}
 	}
-	if (picked < 0 || !forgeLevelDocGetObject(doc, picked, &object) ||
-			!forgeLevelDocFindPad(doc, object.pad_ref, &pad)) {
-		snprintf(err, sizeof(err), "the level has no weapon pickup to copy");
-		goto done;
+	if (picked >= 0) {
+		if (!forgeLevelDocGetObject(doc, picked, &object) || !forgeLevelDocFindPad(doc, object.pad_ref, &pad)) {
+			snprintf(err, sizeof(err), "the level's first weapon pickup stands on no pad");
+			goto done;
+		}
+		levelStepFrom(&pad, 60.0f, place);
+		if (!forgeLevelDocDuplicateObject(doc, object.record_id, place, pad.look, copy_id, sizeof(copy_id),
+				err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: copied %s %s to %s at (%.0f, %.0f, %.0f)", object.kind,
+			object.record_id, copy_id, place[0], place[1], place[2]);
+	} else {
+		levelStepFrom(&pad, 160.0f, place);
+		if (!forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, place, pad.look, copy_id,
+				sizeof(copy_id), err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made weapon place %s at (%.0f, %.0f, %.0f): the level had no weapon pickup to copy",
+			copy_id, place[0], place[1], place[2]);
 	}
-	levelStepFrom(&pad, 60.0f, place);
-	if (!forgeLevelDocDuplicateObject(doc, object.record_id, place, pad.look, copy_id, sizeof(copy_id),
-			err, sizeof(err))) {
-		goto done;
-	}
-	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: copied %s %s to %s at (%.0f, %.0f, %.0f)", object.kind,
-		object.record_id, copy_id, place[0], place[1], place[2]);
 
 	/* The copy is given a weapon of the catalog, when one was asked for: the
 	 * original stays one of the match's weapon places. */
@@ -498,8 +509,8 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const ch
 		goto done;
 	}
 
-	/* The level's first ammo crate is left out. A level with none keeps
-	 * everything; that is not a failure of this run. */
+	/* The level's first ammo crate is left out. A level with none gets one
+	 * made from nothing instead, further in front of its first start. */
 	picked = -1;
 	for (s32 i = 0; i < forgeLevelDocObjectCount(doc) && picked < 0; i++) {
 		if (forgeLevelDocGetObject(doc, i, &object) && object.removable && !object.removed &&
@@ -514,7 +525,20 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const ch
 		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: left out %s %s on %s", object.kind, object.record_id,
 			object.pad_ref[0] ? object.pad_ref : "no pad");
 	} else {
-		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level has no ammo crate to leave out");
+		char crate_id[32];
+
+		crate_id[0] = '\0';
+		if (!forgeLevelDocGetSpawn(doc, 0, &spawn) || !forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) {
+			snprintf(err, sizeof(err), "the level has no player start to step from");
+			goto done;
+		}
+		levelStepFrom(&pad, 280.0f, place);
+		if (!forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, place, pad.look, crate_id,
+				sizeof(crate_id), err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made ammo crate %s at (%.0f, %.0f, %.0f): the level had none to leave out",
+			crate_id, place[0], place[1], place[2]);
 	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level now has pads=%d spawns=%d objects=%d",
 		forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
