@@ -10259,7 +10259,9 @@ void cctvTick(struct prop *camprop)
 	bool canseeplayer = true;
 
 	// If playing in coop mode, cycle between players in alternating frames
-	if (g_Vars.coopplayernum >= 0) {
+	// (PC, T-NETWORKING-007 S1: not to a parked partner, which is out of the
+	// world until it rejoins)
+	if (g_Vars.coopplayernum >= 0 && !(g_Vars.coop && g_Vars.coop->parked)) {
 		if (g_Vars.lvframenum & 1) {
 			playerprop = g_Vars.bond->prop;
 		} else {

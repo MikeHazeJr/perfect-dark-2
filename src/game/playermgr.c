@@ -818,6 +818,9 @@ static void playermgrInitializePlayer(struct player *player, s32 index)
 	player->dostartnewlife = false;
 
 	player->pcinteractusekind = 0;
+	/* mempAlloc does not zero-fill (see above): T-NETWORKING-007 S1. */
+	player->parked = 0;
+	player->parkedwashidden = 0;
 
 	player->client = NULL;
 	player->ucmd = (g_NetMode == NETMODE_SERVER) ? UCMD_FL_FORCEMASK : 0;

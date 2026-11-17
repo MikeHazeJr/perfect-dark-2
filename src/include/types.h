@@ -2889,6 +2889,11 @@ struct player {
 	/* PC twin-stick: 1 = ACTION_USE tap/short press (mount vehicle), 2 = long-hold (pickup). Cleared each frame in bondmove. */
 	u8 pcinteractusekind;
 	struct playercutscenestate cutscene;
+	/* PC (T-NETWORKING-007 S1): a networked co-op partner who dropped out,
+	 * out of the world but kept for a rejoin (playerParkForNetwork); u8,
+	 * not bool, so C and C++ files lay it out alike (SP-75). */
+	u8 parked;
+	u8 parkedwashidden;
 };
 
 struct ailist {

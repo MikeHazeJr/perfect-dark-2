@@ -3478,6 +3478,7 @@ static void netServerEvDisconnect(struct netclient *cl,
 	const bool retryable = netReconnectReasonIsRetryable(reason,
 		DISCONNECT_TIMEOUT) != 0;
 	bool reconnect_preserved = false;
+	bool coop_partner_parked = false;
 
 	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
 		"NET: disconnect event from client %u reason=%u transport_reason=%u server_intent=%d retryable=%d",
@@ -3498,6 +3499,17 @@ static void netServerEvDisconnect(struct netclient *cl,
 				netServerFindPreservedByClientId((u8)cl->id) != NULL;
 		}
 
+		if (g_NetGameMode == NETGAMEMODE_COOP && cl->player
+				&& !cl->player->isdead && cl->playernum < MAX_PLAYERS
+				&& (s32)cl->playernum == g_Vars.coopplayernum) {
+			/* T-NETWORKING-007 S1 (Mike, 2026-11-16): a co-op partner who
+			 * drops out is parked, not killed: the mission carries on for the
+			 * host and the character keeps its state for a rejoin. */
+			playerParkForNetwork(cl->playernum);
+			coop_partner_parked = true;
+			sysLogPrintf(LOG_NOTE, "NET: parked dropped co-op partner %s (player %u) retryable=%d",
+				cl->settings.name, (unsigned)cl->playernum, retryable ? 1 : 0);
+		} else
 		// kill the disconnected player's character (client is still linked,
 		// so playerDie will broadcast SVC_PLAYER_STATS to all clients)
 		if (cl->player && !cl->player->isdead && cl->playernum < MAX_PLAYERS) {
@@ -3560,7 +3572,11 @@ static void netServerEvDisconnect(struct netclient *cl,
 
 	if (cl->settings.name[0]) {
 		sysLogPrintf(LOG_NOTE, "NET: client %u (%s) disconnected", cl->id, cl->settings.name);
-		netChatPrintf(NULL, "%s disconnected", cl->settings.name);
+		if (coop_partner_parked) {
+			netChatPrintf(NULL, "%s dropped out; the mission carries on", cl->settings.name);
+		} else {
+			netChatPrintf(NULL, "%s disconnected", cl->settings.name);
+		}
 	} else {
 		sysLogPrintf(LOG_CHAT, "NET: client %u disconnected", cl->id);
 	}

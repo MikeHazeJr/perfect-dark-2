@@ -821,3 +821,66 @@ TEST_CASE("B-1274: co-op and counter-op run as missions, not as a Combat Simulat
 	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
 	REQUIRE(harness.find("|| g_Vars.antiplayernum >= 0 || g_MissionConfig.iscoop));") != npos);
 }
+
+TEST_CASE("co-op drop-out (S1): a dropped partner is parked, not killed, and the host plays on",
+          "[net][coop][dropinout][s1]") {
+	const size_t npos = std::string::npos;
+
+	// The host's disconnect path parks the co-op partner before the kill
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string dis = function_body(net, "static void netServerEvDisconnect(struct netclient *cl,");
+	const size_t role = dis.find("if (g_NetGameMode == NETGAMEMODE_COOP && cl->player");
+	const size_t park = dis.find("playerParkForNetwork(cl->playernum);");
+	const size_t kill = dis.find("playerDie(true);");
+	REQUIRE(role != npos);
+	REQUIRE(park != npos);
+	REQUIRE(kill != npos);
+	REQUIRE(role < park);
+	REQUIRE(park < kill);
+	REQUIRE(dis.find("(s32)cl->playernum == g_Vars.coopplayernum", role) < park);
+	REQUIRE(dis.find("\"%s dropped out; the mission carries on\"") != npos);
+
+	// The park: out of the world, hidden, counted dead, no drops or death
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	const std::string parkfn = function_body(player, "void playerParkForNetwork(s32 playernum)\n{");
+	for (const char *step : { "player->parked = 1;", "player->redbloodfinished = true;",
+			"player->deathanimfinished = true;", "chr->chrflags |= CHRCFLAG_HIDDEN;",
+			"propDeregisterRooms(prop);", "propDelist(prop);", "propDisable(prop);",
+			"chrsClearRefsToPlayer(playernum);" }) {
+		INFO(step);
+		REQUIRE(parkfn.find(step) != npos);
+	}
+	for (const char *never : { "playerDie", "currentPlayerDropAllItems", "bgunHandlePlayerDead",
+			"netmsgSvcPlayerStatsWrite" }) {
+		INFO(never);
+		REQUIRE(parkfn.find(never) == npos);
+	}
+
+	// While parked: its own tick only keeps it out; no death sequence or
+	// restart in the HUD; cutscene protection stays on
+	const std::string tick = function_body(player, "void playerTick(bool arg0)\n{");
+	const size_t parked = tick.find("if (g_Vars.currentplayer->parked) {");
+	const size_t cutscene = tick.find("} else if (g_Vars.tickmode == (u32)TICKMODE_CUTSCENE) {");
+	REQUIRE(parked != npos);
+	REQUIRE(cutscene != npos);
+	REQUIRE(parked < cutscene);
+	REQUIRE(tick.find("playerTickParked();", parked) < cutscene);
+	const std::string hud = function_body(player, "Gfx *playerRenderHud(Gfx *gdl)\n{");
+	REQUIRE(hud.find("if (g_Vars.currentplayer->isdead && !g_Vars.currentplayer->parked) {") != npos);
+	const std::string protect = function_body(player, "static void playerRefreshCutsceneProtect(void)\n{");
+	REQUIRE(protect.find("playerInCutscene(i) || player->parked") != npos);
+
+	// CCTV looks at Bond only while the partner is parked; the results skip it
+	const std::string propobj = code_only(read_text_file("src/game/propobj.c"));
+	const std::string cctv = function_body(propobj, "void cctvTick(struct prop *camprop)\n{");
+	REQUIRE(cctv.find("if (g_Vars.coopplayernum >= 0 && !(g_Vars.coop && g_Vars.coop->parked)) {") != npos);
+	const std::string pdmain = code_only(read_text_file("port/src/pdmain.c"));
+	const std::string end = function_body(pdmain, "void mainEndStage(void)\n{");
+	REQUIRE(end.find("(g_Vars.players[i]->isremote || g_Vars.players[i]->parked)") != npos);
+
+	// The fields are u8 (SP-75) and a new player starts unparked
+	const std::string types = read_text_file("src/include/types.h");
+	REQUIRE(types.find("\tu8 parked;\n\tu8 parkedwashidden;\n};") != npos);
+	const std::string mgr = code_only(read_text_file("src/game/playermgr.c"));
+	REQUIRE(mgr.find("player->parked = 0;") != npos);
+}
