@@ -493,6 +493,23 @@ debug seat; (6) the press machine and the switch action; (7) the Maian graph's
 gunner nodes (the smokes' `nodes=15 exec_edges=11` lines change); (8) the
 readiness condition and the V4c smoke.
 
+Status on `week-pd/mods-v4` (2026-11-17):
+
+- Step 1 WRITTEN and compiled in hosted CI (b1b53fe2, 17c12dd4): the seat
+  choice and the exit press machine, `port/src/vehicle_seats.c`,
+  `[vehicle-seats]`.
+- Step 2 WRITTEN, not compiled locally: `ACTION_TURRET_FIRE` (124) and
+  `ACTION_TURRET_ZOOM` (125), saved names `TurretFire` and `TurretZoom`; the
+  context `g_ImcVehicleTurret` ("vehicle_turret", priority 5, last in
+  `s_AllImcs`) with its defaults (left mouse button or right trigger fires,
+  right mouse button or left trigger zooms and locks, F or X exits, the right
+  stick and the arrow keys look, the mouse aims through the shared aim axes);
+  `imcVehicleTurretMount` and `imcVehicleTurretDismount`; the turret layer's
+  action set and its push, pop and abort hooks (`inputlayer.c`), so every
+  other gameplay action is closed in the gunner's seat; a "Vehicle Turret"
+  group of seven rows under the Controls menu's Vehicle tab, reset with it.
+  Nothing pushes the turret layer yet (step 4 does), so play is unchanged.
+
 Risks the survey found, to settle before or in step 5:
 
 - The two mount points nearly coincide on the Maian model: pod part 1 is 11.6

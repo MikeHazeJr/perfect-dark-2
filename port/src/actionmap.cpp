@@ -466,6 +466,9 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     "GunRollRight",
     /* 123: vehicle boost (Maian vehicle V3) */
     "VehicleBoost",
+    /* 124-125: vehicle turret, the gunner seat (Maian vehicle V4) */
+    "TurretFire",
+    "TurretZoom",
 };
 static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
               "B-1184: every InputAction needs a persisted name");
@@ -920,7 +923,8 @@ static void actionmapCaptureBindingContexts(ActionBindingContext *contexts)
         InputMappingContext *ctx = s_Active[ci];
         contexts[ci].context = ctx;
         contexts[ci].eligible = !(suppress_gameplay &&
-            (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle || ctx == &g_ImcObserver));
+            (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle || ctx == &g_ImcVehicleTurret ||
+             ctx == &g_ImcObserver));
     }
 }
 
@@ -1255,6 +1259,10 @@ void imcSceneClearGameplay(void)
          * does, the vehicle IMC must not survive into the next scene. */
         imcDeactivate(&g_ImcVehicle);
     }
+    if (g_ImcVehicleTurret.active) {
+        /* The same for a player in a gunner seat. */
+        imcDeactivate(&g_ImcVehicleTurret);
+    }
     sysLogPrintf(LOG_NOTE, "ACTIONMAP: scene -> cleared");
 }
 
@@ -1271,6 +1279,24 @@ void imcVehicleDismount(void)
     if (g_ImcVehicle.active) {
         imcDeactivate(&g_ImcVehicle);
         sysLogPrintf(LOG_NOTE, "ACTIONMAP: vehicle IMC dismounted");
+    }
+}
+
+/* The gunner seat's context (Maian vehicle V4). Called from the
+ * LAYER_VEHICLE_TURRET hooks in inputlayer.c. Idempotent. */
+void imcVehicleTurretMount(void)
+{
+    if (!g_ImcVehicleTurret.active) {
+        imcActivate(&g_ImcVehicleTurret);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: vehicle turret IMC mounted");
+    }
+}
+
+void imcVehicleTurretDismount(void)
+{
+    if (g_ImcVehicleTurret.active) {
+        imcDeactivate(&g_ImcVehicleTurret);
+        sysLogPrintf(LOG_NOTE, "ACTIONMAP: vehicle turret IMC dismounted");
     }
 }
 
@@ -1947,6 +1973,8 @@ s32 actionIsBlockedInFreefly(InputAction a)
     case ACTION_VEHICLE_STEER_RIGHT:
     case ACTION_VEHICLE_EXIT:
     case ACTION_VEHICLE_BOOST:
+    case ACTION_TURRET_FIRE:
+    case ACTION_TURRET_ZOOM:
     /* Crouch / jump / sprint on the frozen player-chr: block */
     case ACTION_CROUCH:
     case ACTION_JUMP:
@@ -2320,6 +2348,8 @@ static InputMappingContext * const s_AllImcs[] = {
     &g_ImcPauseMenu,
     &g_ImcDebugOverlay,
     &g_ImcTextInput,
+    /* Added 2026-11-17 (Maian vehicle V4), at the end: see the rule above. */
+    &g_ImcVehicleTurret,
 };
 static const s32 s_NumAllImcs = (s32)(sizeof(s_AllImcs) / sizeof(s_AllImcs[0]));
 
@@ -2941,6 +2971,16 @@ InputMappingContext g_ImcVehicle = {
     .active   = 0,
 };
 
+/* Maian vehicle V4 (2026-11-17): the gunner seat's context. The same
+ * priority as the driver's: a player sits in one seat, so the two are never
+ * active together, and a cutscene (4) or the gameplay baseline (0) must not
+ * take the seat's buttons. Activated by inputlayer.c's turret layer hooks. */
+InputMappingContext g_ImcVehicleTurret = {
+    .name     = "vehicle_turret",
+    .priority = 5,
+    .active   = 0,
+};
+
 /* Cohort 4 (2026-04-27, K.2): Cutscene-scoped IMC. Priority 4 sits below
  * vehicle (5) so a cutscene fired while the player is mounted still lets
  * the vehicle layer keep its bindings, while still routing dedicated
@@ -3252,6 +3292,38 @@ static void setupVehicleDefaults(s32 player)
     /* Boost (Maian vehicle V3, Mike 2026-11-16): Shift and A, mappable. */
     addBind(imc, ACTION_VEHICLE_BOOST,       VK_LSHIFT);
     addBind(imc, ACTION_VEHICLE_BOOST,       JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
+    addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
+    addBind(imc, ACTION_VOICE_PTT,           VKL_V);
+}
+
+/* Maian vehicle V4 (Mike 2026-11-16: "Pick sensible turret control defaults
+ * yourself and keep them mappable"). The gunner's seat: the mouse or the
+ * right stick aims (the shared aim axes, plus the vehicle look actions for
+ * the arrow keys and stick directions), the left mouse button or the right
+ * trigger fires, the right mouse button or the left trigger zooms and locks,
+ * and F or X leaves the seat, as on the driver's side (pressed twice it
+ * switches seat when the other one is free). Fire and zoom sit where the
+ * on-foot gun's are, so the hand that fires does not move. */
+static void setupVehicleTurretDefaults(s32 player)
+{
+    InputMappingContext *imc = &g_ImcVehicleTurret;
+
+    if (player != 0) return; /* Player 0 only - no local MP */
+    addBind(imc, ACTION_TURRET_FIRE,         VK_MOUSE_LEFT);
+    addBind(imc, ACTION_TURRET_FIRE,         JOY_AXIS(0, JOFS_RTRIG));
+    addBind(imc, ACTION_TURRET_ZOOM,         VK_MOUSE_RIGHT);
+    addBind(imc, ACTION_TURRET_ZOOM,         JOY_AXIS(0, JOFS_LTRIG));
+    addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
+    addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_X));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_RIGHT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_LEFT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_RIGHT);
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_LEFT);
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_AXIS(0, JOFS_RSTICK_UP));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_AXIS(0, JOFS_RSTICK_DOWN));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_UP);
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_DOWN);
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
     addBind(imc, ACTION_VOICE_PTT,           VKL_V);
@@ -3571,6 +3643,8 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
         setupCombatSimDefaults(player);
     } else if (imc == &g_ImcVehicle) {
         setupVehicleDefaults(player);
+    } else if (imc == &g_ImcVehicleTurret) {
+        setupVehicleTurretDefaults(player);
     } else if (imc == &g_ImcCutscene) {
         setupCutsceneDefaults(player);
     } else if (imc == &g_ImcForgeSession) {
@@ -3623,6 +3697,7 @@ void actionmapInit(void)
     memset(&g_ImcPauseMenu,    0, sizeof(g_ImcPauseMenu));
     memset(&g_ImcDebugOverlay, 0, sizeof(g_ImcDebugOverlay));
     memset(&g_ImcTextInput,    0, sizeof(g_ImcTextInput));
+    memset(&g_ImcVehicleTurret, 0, sizeof(g_ImcVehicleTurret));
 
     /* Restore names and priorities (memset wiped them) */
     g_ImcGameplay.name     = "gameplay";      g_ImcGameplay.priority     = 0;
@@ -3637,6 +3712,7 @@ void actionmapInit(void)
     g_ImcPauseMenu.name    = "pause_menu";    g_ImcPauseMenu.priority    = 11;
     g_ImcDebugOverlay.name = "debug_overlay"; g_ImcDebugOverlay.priority = 20;
     g_ImcTextInput.name    = "text_input";    g_ImcTextInput.priority    = 30;
+    g_ImcVehicleTurret.name = "vehicle_turret"; g_ImcVehicleTurret.priority = 5;
 
     /* Populate default bindings — Player 0 only. No local MP in this port. */
     setupGameplayDefaults(0);
@@ -3651,6 +3727,7 @@ void actionmapInit(void)
     setupPauseMenuDefaults();
     setupDebugOverlayDefaults();
     setupTextInputDefaults();
+    setupVehicleTurretDefaults(0);
 
     /* Capture defaults without mutating live contexts during profile imports. */
     s_ProfileStore = actionmap_profile::Store{};
@@ -3874,6 +3951,9 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_GUN_ROLL_RIGHT",       ACTION_GUN_ROLL_RIGHT },
     /* 123: vehicle boost (Maian vehicle V3) */
     { "ACTION_VEHICLE_BOOST",        ACTION_VEHICLE_BOOST },
+    /* 124-125: vehicle turret, the gunner seat (Maian vehicle V4) */
+    { "ACTION_TURRET_FIRE",          ACTION_TURRET_FIRE },
+    { "ACTION_TURRET_ZOOM",          ACTION_TURRET_ZOOM },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

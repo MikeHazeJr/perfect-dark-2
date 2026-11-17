@@ -1743,6 +1743,7 @@ enum BindableGroup {
     BG_HUD,            /* PAUSE, SCORECARD (tap)                                        */
     BG_HUD_CS,         /* SCORECARD_HOLD                                                */
     BG_VEHICLE,
+    BG_VEHICLE_TURRET, /* the gunner seat: TURRET_FIRE, TURRET_ZOOM, look, exit         */
     BG_CBUTTONS,
     BG_DPAD,
     BG_FORGE_SESSION,  /* FORGE_TOGGLE                                                  */
@@ -1771,6 +1772,7 @@ static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
     { BG_HUD,            "HUD",             "Pause and scoreboard peek (shared baseline)." },
     { BG_HUD_CS,         "Scoreboard hold", "Combat Simulator hold-to-show scoreboard." },
     { BG_VEHICLE,        "Vehicle",         "Drive + exit bindings for pilotable props." },
+    { BG_VEHICLE_TURRET, "Vehicle Turret",  "The gunner's seat of a two-seat vehicle: aim, fire, zoom, exit." },
     { BG_CBUTTONS,       "C-Buttons",       "Legacy C-stick directions (GEX / Dark Noon)." },
     { BG_DPAD,           "D-Pad",           "Directional pad. Doubles as radial." },
     { BG_FORGE_SESSION,  "Forge Session",   "Active for the entire Grid session." },
@@ -1871,6 +1873,15 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_VEHICLE_BOOST,       "Boost",              BG_VEHICLE,       "Hold to boost a vehicle that has one. The Maian vehicle's crystals overheat after a few seconds.",    &g_ImcVehicle },
     { ACTION_PAUSE,               "Pause",              BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
     { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+
+    /* --- Vehicle Turret (turret IMC, the gunner's seat only) --- */
+    { ACTION_TURRET_FIRE,         "Fire Turret",        BG_VEHICLE_TURRET, "Hold to fire the vehicle's turret from the gunner's seat.",                                           &g_ImcVehicleTurret },
+    { ACTION_TURRET_ZOOM,         "Zoom / Lock Turret", BG_VEHICLE_TURRET, "Hold to zoom the gunner's view and lock the turret on what it points at.",                            &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_EXIT,        "Exit / Switch Seat", BG_VEHICLE_TURRET, "Press once to leave the vehicle. Press twice quickly to move to the other seat when it is free.",     &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_X,      "Turret Look X",      BG_VEHICLE_TURRET, "Gunner's view yaw axis/direction (the mouse always aims).",                                           &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_Y,      "Turret Look Y",      BG_VEHICLE_TURRET, "Gunner's view pitch axis/direction (the mouse always aims).",                                         &g_ImcVehicleTurret },
+    { ACTION_PAUSE,               "Pause",              BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
 
     /* --- Forge Session (entire Grid session) --- */
     { ACTION_FORGE_TOGGLE,        "Mode Toggle (Forge / Playtest)", BG_FORGE_SESSION, "Enter or leave Freefly. Active for the entire Grid session.",                              &g_ImcForgeSession },
@@ -2006,7 +2017,7 @@ struct ImcTabDesc {
 
 static InputMappingContext *s_ResetImcsMission[]   = { &g_ImcGameplay, &g_ImcMission };
 static InputMappingContext *s_ResetImcsCombatSim[] = { &g_ImcGameplay, &g_ImcCombatSim };
-static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle };
+static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle, &g_ImcVehicleTurret };
 static InputMappingContext *s_ResetImcsGrid[]      = { &g_ImcForgeSession, &g_ImcForge };
 static InputMappingContext *s_ResetImcsObserver[]  = { &g_ImcObserver };
 static InputMappingContext *s_ResetImcsMenu[]      = { &g_ImcMenu, &g_ImcPauseMenu };
@@ -2029,9 +2040,9 @@ static const ImcTabDesc s_ImcTabs[] = {
     },
     {
         "Vehicle",
-        "Hoverbike controls. Active only while mounted.",
-        (1u << BG_VEHICLE),
-        s_ResetImcsVehicle, 1,
+        "Vehicle controls: the driver's seat and, on a two-seat vehicle, the gunner's turret. Active only while mounted.",
+        (1u << BG_VEHICLE) | (1u << BG_VEHICLE_TURRET),
+        s_ResetImcsVehicle, 2,
     },
     {
         "The Grid",
