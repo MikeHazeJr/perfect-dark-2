@@ -218,6 +218,7 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 enum {
 	FORGE_LEVEL_NEW_WEAPON_PLACE = 0,   /* one of the match's weapon places */
 	FORGE_LEVEL_NEW_AMMO_CRATE,         /* the crate a match fills with ammunition for its weapons */
+	FORGE_LEVEL_NEW_HOVERBIKE,          /* a hoverbike a player can ride */
 	FORGE_LEVEL_NEW_KIND_COUNT
 };
 
@@ -226,20 +227,24 @@ enum {
  * of that kind to copy: an empty level has none of any kind. It gets a pad of
  * its own and the next id at the end of the command list, as a copy does.
  *
- * Its record is the one every such object of the multiplayer arenas has: the
- * same list of fields (37 for a weapon place, 68 for an ammo crate; each kind
- * has exactly one list across all the base levels) with the values those
- * objects share. A weapon place is weapon place `weapon_slot` (0 to 15) of the
- * match, with the stand-in model the arenas give a place until the match's
- * weapon set gives it a weapon (`base:model_roofgun`). An ammo crate is
- * `base:model_multi_ammo_crate` with its nineteen slots empty, as in every
- * arena: the match fills it. Both fall to the floor under them (flags
- * 0x00000001), are life size (256) and can be moved, copied, left out and,
- * for the place, given a weapon afterwards. `weapon_slot` is ignored for a
- * crate.
+ * Its record is the one every such object of the base levels has: the same
+ * list of fields (37 for a weapon place, 68 for an ammo crate, 63 for a
+ * hoverbike; each kind has exactly one list across all the base levels) with
+ * the values those objects share. A weapon place is weapon place
+ * `weapon_slot` (0 to 15) of the match, with the stand-in model the arenas
+ * give a place until the match's weapon set gives it a weapon
+ * (`base:model_roofgun`). An ammo crate is `base:model_multi_ammo_crate` with
+ * its nineteen slots empty, as in every arena: the match fills it. Both fall
+ * to the floor under them (flags 0x00000001). A hoverbike is
+ * `base:model_hovbike` with the three flag words all five base hoverbikes
+ * have (it falls to rest without turning over and takes no damage from shots
+ * or explosions), its hover state at rest. All are life size (256) and can be
+ * moved, copied and left out; a place can be given a weapon afterwards.
+ * `weapon_slot` is ignored for a crate and a hoverbike. A hoverbike faces
+ * along `look`, so a rider who mounts it drives that way.
  *
- * The two model ids are the game's own, so the level names assets every
- * install has; nothing of them is in the level.
+ * The model ids are the game's own, so the level names assets every install
+ * has; nothing of them is in the level.
  */
 s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,

@@ -2127,6 +2127,19 @@ static void forgeDrawLevelFileSection(void)
 			forgeLevelFileStatus(true, "Could not add an ammo crate: %s", err);
 		}
 	}
+	ImGui::SameLine();
+	if (ImGui::Button("New Hoverbike Here")) {
+		char id[32];
+		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, position, look, id, sizeof(id),
+				err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Added the hoverbike %s where the camera is, facing the way it looks.", id);
+			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+		} else {
+			forgeLevelFileStatus(true, "Could not add a hoverbike: %s", err);
+		}
+	}
 
 	ImGui::BeginDisabled(!haveSelected || !selected.movable);
 	if (ImGui::Button("Move Object Here")) {

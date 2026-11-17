@@ -619,22 +619,32 @@ they broke: the last full passes are 2026-11-16 (46/46 and 34/34, base 7).
 
 Where the vehicle smokes go: off the mission. An original level is now a
 proven thing (the Blank Room loads, plays and is edited in Forge), and the
-Maian arena needs a level that places a vehicle anyway. The work, in order:
+Maian arena needs a level that places a vehicle anyway.
 
-1. A level can place a vehicle: the level document makes a vehicle record
-   (the record's field list is the base levels' `hoverbike` rows; which
-   vehicle it is comes from the vehicle's catalog id), and Forge's editor
-   gets a New Vehicle Here.
-2. A proving ground: the Blank Room's builder with a long room and no
-   pillars, and a vehicle placed at one end. Long enough for the ten seconds
-   of boost the smoke holds.
-3. The four vehicle smokes run there, in a Combat Simulator match or a Forge
-   play session (whichever of the two mounts and drives; neither has carried
-   a vehicle in a run yet), and `--debug-swap-vehicle` is no longer needed:
-   the level names the vehicle.
+WRITTEN 2026-11-17 (not run):
 
-Until then the Escape smokes still prove the mount, the two seats, the frame
-rate and the collision mesh.
+- A level can place a hoverbike. The level document makes the record every
+  base hoverbike has (`FORGE_LEVEL_NEW_HOVERBIKE`: 63 field rows, the same in
+  all five; `base:model_hovbike`; flag words 0x05120101, 0x00304300,
+  0x02000003; facing its pad's look), and Forge's editor has New Hoverbike
+  Here beside New Ammo Crate Here. Unit case in `[forge-level-doc]`.
+- `--debug-forge-level-vehicle` makes one in the scripted level edit, 600
+  units in front of the first start. On the Blank Room that is (250, 50, 0)
+  facing the room's middle, with about 13 m of clear floor ahead of it
+  between the pillars.
+- `maian_vehicle_room_drive_smoke` and `maian_vehicle_room_boost_smoke`: the
+  two Escape smokes' inputs and checks of the vehicle, on that level in a
+  Combat Simulator match with no simulants, the hoverbike swapped for the
+  Maian vehicle as on Escape. Any dismount fails them.
+
+Not yet: a level that names the vehicle itself (a mod vehicle's own model in
+the record, so `--debug-swap-vehicle` is not needed), a longer room for the
+boost's full ten seconds in motion (the far wall stops the vehicle a second
+or so into the boost, as Escape's hangar did when the smoke passed there),
+and the seats smoke on the room.
+
+Until the room smokes pass, the Escape smokes still prove the mount, the two
+seats, the frame rate and the collision mesh.
 
 ### Veteran
 

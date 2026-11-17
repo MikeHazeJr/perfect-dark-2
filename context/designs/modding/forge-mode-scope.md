@@ -1055,3 +1055,23 @@ Seen in the pictures, not yet acted on:
 
 Not proven: the Levels tool (F4, written after this turn was armed), and
 anything under a hand: the panel's buttons, the mouse look, picking.
+
+## F3: a level places a hoverbike (WRITTEN 2026-11-17, unit-tested, not run)
+
+The level document makes a third kind from nothing,
+`FORGE_LEVEL_NEW_HOVERBIKE`: the record all five hoverbikes of the base
+levels share (63 field rows; `base:model_hovbike`; flag words 0x05120101,
+0x00304300 and 0x02000003, so it falls to rest without turning over and
+shots and explosions do not harm it; its hover state at rest). It faces its
+pad's look, as every placed object does. The editor's Level File section has
+New Hoverbike Here, which places one where the camera is, facing the way it
+looks.
+
+The first use is the vehicle smokes' own place to drive (B-1241): Escape's
+script now ends a ride a second in. `--debug-forge-level-vehicle` adds a
+hoverbike to the scripted level edit, and `maian_vehicle_room_drive_smoke`
+and `maian_vehicle_room_boost_smoke` ride the Maian vehicle on the Blank Room
+in a Combat Simulator match (the hoverbike is swapped for the mod vehicle at
+setup, as on Escape). Which vehicle a record names is still the base
+hoverbike: a record that names a mod vehicle's model is the next step, and
+then a level needs no swap flag.

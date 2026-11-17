@@ -427,7 +427,8 @@ done:
 	return ok;
 }
 
-s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id)
+s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id,
+		s32 make_vehicle)
 {
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
@@ -539,6 +540,26 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const ch
 		}
 		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made ammo crate %s at (%.0f, %.0f, %.0f): the level had none to leave out",
 			crate_id, place[0], place[1], place[2]);
+	}
+
+	/* A hoverbike well in front of the first start, past the start, the
+	 * weapon place and the crate made above (40, 160 and 280 units), facing
+	 * the way the start faces, so a rider drives away from them. */
+	if (make_vehicle) {
+		char bike_id[32];
+
+		bike_id[0] = '\0';
+		if (!forgeLevelDocGetSpawn(doc, 0, &spawn) || !forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) {
+			snprintf(err, sizeof(err), "the level has no player start to step from");
+			goto done;
+		}
+		levelStepFrom(&pad, 600.0f, place);
+		if (!forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, place, pad.look, bike_id,
+				sizeof(bike_id), err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: made hoverbike %s at (%.0f, %.0f, %.0f) facing (%.2f, %.2f, %.2f)",
+			bike_id, place[0], place[1], place[2], pad.look[0], pad.look[1], pad.look[2]);
 	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level now has pads=%d spawns=%d objects=%d",
 		forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));

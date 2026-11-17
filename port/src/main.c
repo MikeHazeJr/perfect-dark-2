@@ -236,6 +236,9 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       under the display name, through the open and save calls the Forge
  *       editor makes. With a weapon id, the copied pickup gives that weapon
  *       of the catalog instead of being one of the match's weapon places.
+ *       With --debug-forge-level-vehicle it also makes a hoverbike 600 units
+ *       in front of the level's first start, facing the way it faces: the
+ *       vehicle smokes' own place to drive (B-1241).
  *       Runs right after the level tool's flags, so one launch can make
  *       the level and then start a match on it. Logged as FORGE.LEVEL.*
  *       lines.
@@ -1267,7 +1270,8 @@ static void bootApplyDebugForgeLevel(void)
 	}
 	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' weapon=%s result=%s",
 		arena_id, name, (weapon_id && weapon_id[0]) ? weapon_id : "(none)",
-		forgeLevelDebugEdit(arena_id, name, weapon_id) ? "OK" : "FAIL");
+		forgeLevelDebugEdit(arena_id, name, weapon_id,
+			sysArgCheck("--debug-forge-level-vehicle") ? 1 : 0) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.

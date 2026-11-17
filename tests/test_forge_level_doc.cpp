@@ -2210,6 +2210,107 @@ TEST_CASE("A level with no objects gains a weapon place and an ammo crate made f
 	CHECK(armouryFind(level.doc, "setup_0003").order == 3);
 }
 
+TEST_CASE("A level gains a hoverbike made from nothing, with the record every base hoverbike has",
+          "[forge-level-doc]")
+{
+	/* An empty level: the vehicle smokes' own place to drive is made this way
+	 * (B-1241), and so is a vehicle a player places in Forge. */
+	const char *const noObjects = "{\n  \"schema\": \"pd2.scenario.objects.v1\",\n  \"rows\": [\n  ]\n}\n";
+	Level level(kPads, kSpawns, noObjects, kVolumes, kNoFields);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	/* A hoverbike ignores the weapon place it is handed. */
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_HOVERBIKE, 99, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0000");
+	CHECK(forgeLevelDocObjectCount(level.doc) == 1);
+	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 4);
+	/* 63 rows, as each of the five hoverbikes of the base levels has. */
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 63);
+
+	const forge_level_object_t bike = armouryFind(level.doc, "setup_0000");
+	CHECK(std::string(bike.kind) == "hoverbike");
+	CHECK(std::string(bike.pad_ref) == "pad_0003");
+	CHECK(std::string(bike.model_catalog_id) == "base:model_hovbike");
+	CHECK(std::string(bike.weapon_catalog_id).empty());
+	CHECK(bike.order == 0);
+	CHECK(bike.weapon_slot == -1);
+	CHECK(bike.movable == 1);
+	CHECK(bike.removable == 1);
+	CHECK(bike.removed == 0);
+	CHECK(bike.model_settable == 1);
+	CHECK(bike.weapon_settable == 0);
+
+	/* The rows are the extractor's, with the hoverbike's own flag words. */
+	const std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(objects.find("      \"kind\": \"hoverbike\",\n      \"pad_ref\": \"pad_0003\",\n"
+		"      \"model_catalog_id\": \"base:model_hovbike\",\n") != std::string::npos);
+	CHECK(objects.find("      \"flags\": \"0x05120101\",\n      \"flags2\": \"0x00304300\",\n"
+		"      \"flags3\": \"0x02000003\"\n    }") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "hoverbike", "command.order", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.extra_scale", "s32", "256") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.hidden2", "s32", "0") + ",\n" +
+		catalogRow("setup_0000", "hoverbike", "base.model", "model_catalog_id", "base:model_hovbike") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.pad", "pad_ref", "pad_0003") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.flags", "u32_hex", "0x05120101") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.flags2", "u32_hex", "0x00304300") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "base.flags3", "u32_hex", "0x02000003") + ",\n") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "hoverbike", "base.geo_count", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hover.type", "s32", "1") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hover.flags", "s32", "1") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hover.bobycur", "f32", "0") + ",\n") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "hoverbike", "hover.prevgroundframe60", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hoverbike.speed[0]", "f32", "0") + ",\n") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "hoverbike", "hoverbike.lean_diff", "f32", "0") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hoverbike.max_speed_time240", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "hoverbike", "hoverbike.relative[0]", "f32", "0") + ",\n") != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "hoverbike", "hoverbike.relative_speed[1]", "f32", "0") +
+		"\n  ]\n}\n") != std::string::npos);
+	CHECK(occurrences(fields, "\"field\": \"hover.") == 17);
+	CHECK(occurrences(fields, "\"field\": \"hoverbike.") == 16);
+
+	/* Left out on every difficulty, and put back with the exact words it had. */
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0000", 1, err, sizeof(err)) == 1);
+	CHECK(armouryFind(level.doc, "setup_0000").removed == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS).find("\"flags2\": \"0x003043f0\"") != std::string::npos);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS).find(fieldRow("setup_0000", "hoverbike", "base.flags2",
+		"u32_hex", "0x003043f0")) != std::string::npos);
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0000", 0, err, sizeof(err)) == 1);
+	CHECK(armouryFind(level.doc, "setup_0000").removed == 0);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+
+	/* What was written reads back as the same hoverbike. */
+	{
+		Level again(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, objects, level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+			fields, level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		const forge_level_object_t read = armouryFind(again.doc, "setup_0000");
+		CHECK(std::string(read.kind) == "hoverbike");
+		CHECK(std::string(read.model_catalog_id) == "base:model_hovbike");
+		CHECK(read.movable == 1);
+		CHECK(read.removable == 1);
+		CHECK(read.removed == 0);
+		CHECK(read.model_settable == 1);
+		CHECK(read.weapon_settable == 0);
+		CHECK(read.weapon_slot == -1);
+	}
+
+	/* A copy is another hoverbike: the next command, on a pad of its own. */
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0001");
+	CHECK(std::string(armouryFind(level.doc, "setup_0001").kind) == "hoverbike");
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 63 + 63);
+	CHECK(forgeLevelDocPadCount(level.doc) == 5);
+}
+
 TEST_CASE("The Blank Room, a level that holds nothing of the original game, is edited and saved as a level",
           "[forge-level-doc]")
 {

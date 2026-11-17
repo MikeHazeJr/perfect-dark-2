@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <memory>
@@ -62,6 +63,14 @@ constexpr const char *kCrateKind = "multi_ammo_crate";
  * set gives it a weapon. */
 constexpr const char *kPlaceModel = "base:model_roofgun";
 constexpr const char *kCrateModel = "base:model_multi_ammo_crate";
+/* A new hoverbike: the kind, the model and the three flag words that all five
+ * hoverbikes of the base levels have (it falls to rest without turning over
+ * and takes no damage from gunfire or explosions). */
+constexpr const char *kBikeKind = "hoverbike";
+constexpr const char *kBikeModel = "base:model_hovbike";
+constexpr const char *kBikeFlags = "0x05120101";
+constexpr const char *kBikeFlags2 = "0x00304300";
+constexpr const char *kBikeFlags3 = "0x02000003";
 constexpr int kCrateSlots = 19;          /* multi_ammo_crate.slots[0] to [18] */
 constexpr long kWeaponSlots = 16;        /* mp_location_00 to mp_location_15 */
 /* An object's size is an unsigned 16-bit number in the game and a weapon
@@ -1668,6 +1677,7 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 		return 0;
 	}
 	const bool isPlace = kind == FORGE_LEVEL_NEW_WEAPON_PLACE;
+	const bool isBike = kind == FORGE_LEVEL_NEW_HOVERBIKE;
 	if (isPlace && (weapon_slot < 0 || weapon_slot >= kWeaponSlots)) {
 		setError(err, err_cap, "a match has weapon places 0 to %ld, not %d", kWeaponSlots - 1,
 			static_cast<int>(weapon_slot));
@@ -1687,8 +1697,13 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 		setError(err, err_cap, "the level already has a %s", id.c_str());
 		return 0;
 	}
-	const char *const kindName = isPlace ? kPickupKind : kCrateKind;
-	const char *const model = isPlace ? kPlaceModel : kCrateModel;
+	const char *const kindName = isPlace ? kPickupKind : isBike ? kBikeKind : kCrateKind;
+	const char *const model = isPlace ? kPlaceModel : isBike ? kBikeModel : kCrateModel;
+	/* A weapon place and a crate fall to the floor under them and have no
+	 * other flag; a hoverbike has its own three words. */
+	const char *const flagsWord = isBike ? kBikeFlags : "0x00000001";
+	const char *const flags2Word = isBike ? kBikeFlags2 : "0x00000000";
+	const char *const flags3Word = isBike ? kBikeFlags3 : "0x00000000";
 
 	/* Every row of the record, in the extractor's order and layout, before
 	 * anything is changed. The rows that the document keeps track of are
@@ -1718,9 +1733,9 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	add("base.hidden2", "s32", "0");
 	modelAt = add(kModelField, "model_catalog_id", "", model);
 	add("base.pad", "pad_ref", ref);
-	add("base.flags", "u32_hex", "0x00000001");
-	flagsAt = add(kFlagsField, "u32_hex", "0x00000000");
-	add("base.flags3", "u32_hex", "0x00000000");
+	add("base.flags", "u32_hex", flagsWord);
+	flagsAt = add(kFlagsField, "u32_hex", flags2Word);
+	add("base.flags3", "u32_hex", flags3Word);
 	for (int row = 0; row < 3; row++) {
 		for (int column = 0; column < 3; column++) {
 			add("base.rotation[" + std::to_string(row) + "][" + std::to_string(column) + "]", "f32", "0");
@@ -1741,6 +1756,27 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 		add("pickup.fadeout_timer60", "s32", "0");
 		add("pickup.dual_weapon", "weapon_selector", "none");
 		add("pickup.team_or_timer240", "s32", "-1");
+	} else if (isBike) {
+		/* The hover state and the bike's own motion, all at rest: the game
+		 * fills them in once the bike is placed (the five base hoverbikes
+		 * write the same values). */
+		add("hover.type", "s32", "1");
+		add("hover.flags", "s32", "1");
+		for (const char *name : { "bobycur", "bobytarget", "bobyspeed", "yrot", "bobpitchcur", "bobpitchtarget",
+				"bobpitchspeed", "bobrollcur", "bobrolltarget", "bobrollspeed", "groundpitch", "y", "ground" }) {
+			add(std::string("hover.") + name, "f32", "0");
+		}
+		add("hover.prevframe60", "s32", "0");
+		add("hover.prevgroundframe60", "s32", "0");
+		for (const char *name : { "speed[0]", "speed[1]", "previous_position[0]", "previous_position[1]", "ex_real",
+				"ez_real", "ez_real2", "lean_speed", "lean_diff" }) {
+			add(std::string("hoverbike.") + name, "f32", "0");
+		}
+		add("hoverbike.max_speed_time240", "s32", "0");
+		for (const char *name : { "relative[0]", "relative[1]", "absolute_speed[0]", "absolute_speed[1]",
+				"relative_speed[0]", "relative_speed[1]" }) {
+			add(std::string("hoverbike.") + name, "f32", "0");
+		}
 	} else {
 		for (int i = 0; i < kCrateSlots; i++) {
 			const std::string slot = "multi_ammo_crate.slots[" + std::to_string(i) + "]";
@@ -1752,7 +1788,8 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 		"\",\n      \"pad_ref\": \"" + ref + "\",\n      \"model_catalog_id\": \"" + model +
 		"\",\n      \"weapon_catalog_id\": \"\",\n      \"secondary_weapon_catalog_id\": \"\",\n"
 		"      \"body_catalog_id\": \"\",\n      \"head_catalog_id\": \"\",\n      \"ailist_ref\": \"\",\n"
-		"      \"flags\": \"0x00000001\",\n      \"flags2\": \"0x00000000\",\n      \"flags3\": \"0x00000000\"\n    }";
+		"      \"flags\": \"" + flagsWord + "\",\n      \"flags2\": \"" + flags2Word + "\",\n      \"flags3\": \"" +
+		flags3Word + "\"\n    }";
 
 	std::string error;
 	if (addPad(*doc, position, look, error) < 0) {
@@ -1786,8 +1823,10 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	flags.inObjects = true;
 	flags.known = true;
 	flags.fieldRow = static_cast<size_t>(firstRow + flagsAt);
-	flags.objectsText = "0x00000000";
-	flags.fieldText = "0x00000000";
+	flags.objectsText = flags2Word;
+	flags.fieldText = flags2Word;
+	flags.value = strtoul(flags2Word, nullptr, 16);
+	flags.original = flags.value;
 	forge_level_doc::ObjectCatalog what;
 	what.modelRow = firstRow + modelAt;
 	what.scaleRow = firstRow + scaleAt;
