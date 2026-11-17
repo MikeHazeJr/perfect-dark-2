@@ -144,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -2630,24 +2630,30 @@ MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.co
                              "event.volume.entered", "event.volume.left",
                              "event.pickup.collected", "event.door.opened",
                              "event.door.closed", "event.object.used",
-                             "event.pickup.requested", "event.door.open_requested"}
-# object-events.md slices 2 and 3: each may filter one object by its
-# record_id; the last two are the queries before the native rule.
+                             "event.pickup.touched", "event.door.use", "event.door.approach"}
+# object-events.md slices 2 and 4: each may filter one object by its
+# record_id; the last three are the rule events.
 MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
                                "event.door.closed", "event.object.used",
-                               "event.pickup.requested", "event.door.open_requested"}
+                               "event.pickup.touched", "event.door.use", "event.door.approach"}
+# object-events.md slice 4: the level's own pickup and door rules. A level
+# graph must handle each (or its stage would have no pickups and no doors);
+# a mission graph may not name one.
+MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach")
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
                                 "event.mission.phase_changed"}
 MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase",
-                            "gate.object.kind", "gate.player.has_item"}
+                            "gate.object.kind", "gate.player.has_item",
+                            "gate.pickup.native_rules", "gate.door.native_unlocked"}
 MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
                                 "og.mission.start_credits", "og.progress.unlock_alt_title",
                                 "og.mission.end_failed", "og.mission.end_completed",
-                                "og.pickup.refuse", "og.door.refuse", "og.door.open",
-                                "og.door.close", "og.door.lock", "og.door.unlock",
-                                "og.pickup.give"}
+                                "og.door.open", "og.door.close", "og.door.lock",
+                                "og.door.unlock", "og.pickup.give", "og.pickup.collect",
+                                "og.door.activate", "og.door.locked_message",
+                                "og.door.activate_automatic"}
 # object-events.md slice 3: the modules that act on an object name it by its
 # objects.json record_id ("setup_0123"); lock and unlock take the key flags.
 MISSION_GRAPH_OBJECT_MODULES = {"og.door.open", "og.door.close", "og.door.lock",
@@ -2717,6 +2723,9 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
         if kind == "gate.player.has_item" and not (isinstance(node.get("item"), str)
                                                    and CATALOG_ID_RE.fullmatch(node["item"])):
             errors.append(f"{where} gate {node_id!r} needs \"item\": a weapon or item catalog id")
+        if kind in MISSION_GRAPH_RULE_EVENTS and not level:
+            errors.append(f"{where} rule event {node_id!r} ({kind}) belongs to the level graph, "
+                          "not the mission graph")
         if kind in MISSION_GRAPH_OBJECT_EVENTS:
             if "objective" in node:
                 errors.append(f"{where} object event {node_id!r} has no objective to filter")
@@ -2771,6 +2780,13 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
         if isinstance(edge, dict) and edge.get("input") == "exec" \
                 and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
             exec_out.setdefault(edge["from"], []).append(edge["to"])
+    # object-events.md slice 4: a level program handles every rule event (an
+    # event node of the kind with an execution edge), as the runtime requires.
+    if level:
+        for rule in MISSION_GRAPH_RULE_EVENTS:
+            if not any(kind == rule and exec_out.get(node_id) for node_id, kind in kinds.items()):
+                errors.append(f"{where} handles no {rule}: the level's pickup and door rules "
+                              "are not wired (object-events.md slice 4)")
     seen: set[str] = set()
     queue = [dst for src, kind in kinds.items() if kind in MISSION_GRAPH_AFTER_END_EVENTS
              for dst in exec_out.get(src, [])]

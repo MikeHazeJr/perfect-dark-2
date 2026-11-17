@@ -93,7 +93,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4885,6 +4885,16 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"  },\n"
 			"  \"nodes\": [\n"
 			"    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
+			"    { \"id\": \"object.rules.pickup.touched\", \"kind\": \"event.pickup.touched\" },\n"
+			"    { \"id\": \"object.rules.pickup.native_rules\", \"kind\": \"gate.pickup.native_rules\" },\n"
+			"    { \"id\": \"object.rules.pickup.collect\", \"kind\": \"og.pickup.collect\" },\n"
+			"    { \"id\": \"object.rules.door.use\", \"kind\": \"event.door.use\" },\n"
+			"    { \"id\": \"object.rules.door.use_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate\", \"kind\": \"og.door.activate\" },\n"
+			"    { \"id\": \"object.rules.door.locked_message\", \"kind\": \"og.door.locked_message\" },\n"
+			"    { \"id\": \"object.rules.door.approach\", \"kind\": \"event.door.approach\" },\n"
+			"    { \"id\": \"object.rules.door.approach_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate_automatic\", \"kind\": \"og.door.activate_automatic\" },\n"
 			"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
 			"    { \"id\": \"collision.generate\", \"kind\": \"scenario.collision.generate\", \"source\": \"collision.obj\", \"cache\": \"_meta/generated-collision.json\" },\n"
 			"    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": %u },\n"
@@ -5910,6 +5920,15 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 	}
 
 	if (s_textbufAppendf(level_graph_json,
+			"  ],\n"
+			"  \"edges\": [\n"
+			"    { \"from\": \"object.rules.pickup.touched\", \"to\": \"object.rules.pickup.native_rules\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.pickup.native_rules\", \"to\": \"object.rules.pickup.collect\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use\", \"to\": \"object.rules.door.use_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.activate\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.locked_message\", \"input\": \"exec\", \"output\": \"fail\" },\n"
+			"    { \"from\": \"object.rules.door.approach\", \"to\": \"object.rules.door.approach_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" }\n"
 			"  ],\n"
 			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"ai_lists\": %u, \"ai_commands\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u }\n"
 			"}\n",
@@ -9243,6 +9262,9 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"\"COLOR_0\"") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.global.settings.source") &&
+		/* object-events.md slice 4: the pickup and door rule wiring. */
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"\"object.rules.door.activate_automatic\"") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.portals.source") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",

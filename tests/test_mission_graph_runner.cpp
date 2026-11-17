@@ -547,12 +547,16 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 	// The mission runner's own kinds are among them.
 	for (const char *kind : { "event.objective.status_changed", "event.mission.completed",
 			"event.mission.continue", "event.mission.phase_changed", "event.volume.entered",
-			"event.volume.left", "event.pickup.collected", "event.door.open_requested" }) {
+			"event.volume.left", "event.pickup.collected", "event.pickup.touched", "event.door.use",
+			"event.door.approach" }) {
 		INFO(kind);
 		CHECK(events.count(kind) == 1);
 	}
+	CHECK(events.count("event.pickup.requested") == 0);
+	CHECK(events.count("event.door.open_requested") == 0);
 	CHECK(gates == std::set<std::string>{ "gate.objective.status", "gate.mission.phase",
-		"gate.object.kind", "gate.player.has_item" });
+		"gate.object.kind", "gate.player.has_item", "gate.pickup.native_rules",
+		"gate.door.native_unlocked" });
 	CHECK(table_modules.count("og.hud.objective_status_message") == 1);
 	CHECK(table_modules.count("og.mission.end_completed") == 1);
 	CHECK(table_modules.count("og.door.open") == 1);

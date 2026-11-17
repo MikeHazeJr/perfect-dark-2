@@ -110,15 +110,27 @@ s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
 s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
 	const char *catalog_id, s32 player);
 void scenarioSourceGraphObjectEventsReport(const char *reason);
-/* object-events.md slice 3: a query from a native seam before the native
- * rule (MISSION_GRAPH_EVENT_PICKUP_REQUESTED, _DOOR_OPEN_REQUESTED), with the
- * same payload. Returns 1 when a graph refused it (og.pickup.refuse,
- * og.door.refuse), 0 to let the native rule decide. Asked on the host only. */
-s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+/* object-events.md slice 4: whether the pickup and door rules are the level
+ * program's on this stage (a scenario-source stage, whose level program must
+ * handle every rule event or it is refused at activation). When they are,
+ * the native seams fire the rule events and decide nothing themselves. */
+s32 scenarioSourceGraphObjectRulesActive(void);
+/* A rule event from a native seam (MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
+ * _DOOR_USE, _DOOR_APPROACH) with the object events' payload, into the level
+ * program only, inside the seam's mission_graph_object_rule_t
+ * (missionGraphModulesRuleBegin). Returns the modules run, -1 when one
+ * refused. The first of each kind on a stage is logged, and all are counted
+ * in the stage totals. On the host only. */
+s32 scenarioSourceGraphObjectRuleEvent(s32 kind, const char *object, s32 tag, s32 objtype,
 	const char *catalog_id, s32 player);
-/* Whether any active graph handles that query kind (cheap; a seam asks
- * first, so the base game builds no payload). */
-s32 scenarioSourceGraphHandlesObjectQuery(s32 kind);
+/* The parity probe: the seam compared the original rule's decision (native)
+ * with the graph's (graph); differ when they are not the same. Counted per
+ * stage; the first differences are logged. */
+void scenarioSourceGraphObjectRuleCompared(s32 kind, const char *object, const char *native,
+	const char *graph, s32 differ);
+/* This stage's comparisons and differences so far (the campaign runner reads
+ * them at each mission's end). */
+void scenarioSourceGraphObjectRuleParity(s32 *compared, s32 *differ);
 s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
 s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
 s32 scenarioSourceMissionGraphTakePendingEnd(void);

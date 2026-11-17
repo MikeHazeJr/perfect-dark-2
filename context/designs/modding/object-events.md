@@ -202,12 +202,70 @@ Pickups and Doors rows tick (decision 1).
 - **Fails closed.** A scenario-source level graph without the wiring (no
   handler for `event.pickup.touched` or `event.door.use`) refuses at
   activation, as the mission graph does; the extractor writes the wiring,
-  so the scenario kind moves (`_objevents`).
+  so the scenario kind moves (`_ruleevents`; `objrules` already names the object rules row).
 - **Proof.** A parity probe in the campaign runner computes the native
   decision beside the graph's at every pickup and door use and counts
   differences per mission; the campaign fixtures pin `differ=0`, as the
   outcome and AI edge probes do. Then the Pickups and Doors rows tick
   (lifts and glass stay their own events, after).
+
+## Slice 4 design (CORE, 2026-11-17)
+
+The plan above, made exact. On a stage built from scenario source the
+seams below decide nothing: the level program does, through a gate and
+modules that are the original routines. A ROM stage keeps the native code.
+
+**Rule events.** Delivered to the level program only (a mission graph that
+names one is refused). Each carries the object payload of the object events
+(record id, tag, kind, catalog id, player) and may filter one object.
+
+| Event | Kind | Fired by | When |
+|---|---|---|---|
+| `event.pickup.touched` | 11 | `objTestForPickup` | the player touches a pickup: an object its flags make collectable (`func0f085194` objects unless `OBJFLAG_UNCOLLECTABLE`, others with `OBJFLAG_COLLECTABLE`) is in pickup range (the magnet's and the Elvis shelf's included) and in line of sight; every tick it holds |
+| `event.door.use` | 12 | `propdoorInteract` | the player (or the eyespy) presses use on a door |
+| `event.door.approach` | 13 | `doorsCheckAutomatic` | the player is in range of an automatic door, in front of it, while the door is closed or closing |
+
+**Gates and modules.** Each runs only inside its own rule events and
+refuses anywhere else.
+
+| Node | Does |
+|---|---|
+| `gate.pickup.native_rules` | the original pickup rules (`objPickupRulesAllow`): thrown laptops, projectile pickup timers, safes, armed throwables and mines, projectiles in flight, a weapon carried full and the dual-wield rules, full ammo crates, the shield amount, the briefcase in Hold the Briefcase, looking down without the magnet |
+| `og.pickup.collect` | collects the object (`propPickupByPlayer`, with its HUD message); the seam returns its tick operation; once per touch |
+| `gate.door.native_unlocked` | `doorIsUnlocked` for the player (or the eyespy): key flags, locked front or back, padlocks |
+| `og.door.activate` | the door opens or closes for the user (swing direction, `doorsActivate`) |
+| `og.door.locked_message` | the original refusal (`doorShowLocked`): the locked message when the door is shut (an override's text, the training message or "This door is locked."), who tried, the pending activation flag |
+| `og.door.activate_automatic` | an automatic door opens (`doorsRequestMode`, the doors-opened statistic) |
+
+**Wiring.** The extractor writes it into every level graph (scenario kind
+`_ruleevents`), and the mod packer's level graph template carries it; node
+ids `object.rules.*`:
+
+```
+event.pickup.touched -> gate.pickup.native_rules -pass-> og.pickup.collect
+event.door.use -> gate.door.native_unlocked -pass-> og.door.activate
+                                            -fail-> og.door.locked_message
+event.door.approach -> gate.door.native_unlocked -pass-> og.door.activate_automatic
+```
+
+An author changes a rule by changing the wiring: a gate of their own on
+the path (`gate.object.kind`, `gate.player.has_item`), another module, or
+an event filtered to one object beside the general one.
+
+**Fails closed.** A scenario-source level program that handles none of a
+rule event (no event node of that kind with an execution edge) is refused
+at activation, and conformance refuses the archive.
+
+**The queries fold in.** `event.pickup.requested`, `event.door.open_requested`,
+`og.pickup.refuse` and `og.door.refuse` (slice 3) are removed.
+
+**Parity probe.** At each rule event the seam also computes the native
+decision first (`objPickupRulesAllow`, `doorIsUnlocked`) and compares it
+with what the graph did (collected or not; activated or the locked
+message). The runtime counts `compared` and `differ` per stage; the
+campaign runner logs `object rule parity stage_id='...' compared=N
+differ=M` at each mission's end and fails the run on a difference; the
+campaign fixtures pin it.
 
 ## Slices 1-3 as written (CORE, 2026-11-16)
 
