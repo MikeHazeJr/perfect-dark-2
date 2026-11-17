@@ -63,15 +63,17 @@ TEST_CASE("The Maian vehicle's crystal parts are toggles and its other parts are
 	CHECK(vehicleModelPartsIsToggle(maian.parts, 141) == 1);
 	CHECK(vehicleModelPartsToggleCount(maian.parts) == 2);
 	// Parts the model has that are not toggles: turret yaw, cannon pitch, the
-	// muzzle and a ring seat.
-	for (int part : { 0, 1, 2, 50, 110, 127, 128 }) {
+	// muzzle, a ring seat, and the two riders' eye points (160 the driver's,
+	// 161 the gunner's).
+	for (int part : { 0, 1, 2, 50, 110, 127, 128, 160, 161 }) {
 		INFO("part " << part);
 		CHECK(vehicleModelPartsIsToggle(maian.parts, part) == 0);
 	}
 	// A part the model does not have.
 	CHECK(vehicleModelPartsIsToggle(maian.parts, 999) == 0);
 	CHECK(vehicleModelPartsIsToggle(maian.parts, -1) == 0);
-	CHECK(vehicleModelPartsCount(maian.parts) == 25);
+	// 25 parts of the hull, turret and crystals, and the two seat parts.
+	CHECK(vehicleModelPartsCount(maian.parts) == 27);
 	// No tables, no parts.
 	CHECK(vehicleModelPartsIsToggle(nullptr, 140) == 0);
 	CHECK(vehicleModelPartsCount(nullptr) == 0);
