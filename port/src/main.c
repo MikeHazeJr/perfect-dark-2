@@ -3922,7 +3922,7 @@ s32 bootDebugMountBikeTick(void)
 			 * every place in view, which on a level of one open room is every
 			 * place beside the vehicle (the room vehicle smokes, B-1241). */
 			chr->hidden |= CHRHFLAG_WARPONSCREEN;
-			placed = chrMoveToPos(chr, &target, prop->rooms, turn, false);
+			placed = chrMoveToPos(g_Vars.players[0]->prop->chr, &target, prop->rooms, turn, false);
 			if ((oldhidden & CHRHFLAG_WARPONSCREEN) == 0) {
 				chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
 			}
