@@ -187,6 +187,10 @@ s32 forgeLevelDocGetPad(const forge_level_doc_t *doc, s32 index, forge_level_pad
 s32 forgeLevelDocGetSpawn(const forge_level_doc_t *doc, s32 index, forge_level_spawn_t *out);
 s32 forgeLevelDocGetObject(const forge_level_doc_t *doc, s32 index, forge_level_object_t *out);
 
+/* The size object `index` is drawn at (`base.extra_scale`; 256 is life size),
+ * or 256 when its record does not say or there is no such object. */
+s32 forgeLevelDocObjectExtraScale(const forge_level_doc_t *doc, s32 index);
+
 /* A pad by its name ("pad_0012"). 1 when the level has it. */
 s32 forgeLevelDocFindPad(const forge_level_doc_t *doc, const char *pad_ref, forge_level_pad_t *out);
 

@@ -1217,6 +1217,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
   # A level's pads, spawns and objects as Forge edits them (Forge F2).
   ${CMAKE_SOURCE_DIR}/port/src/forge_level_doc.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_level_live.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc.cpp
   # The rules of the Modding Hub's Levels tool (Forge F4).
   ${CMAKE_SOURCE_DIR}/port/src/level_tool.c

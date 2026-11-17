@@ -264,7 +264,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       waits on forge_level_file_open and times those itself. Logged as
  *       FORGE.LEVEL.* lines. With --debug-forge-session-undo the added start
  *       is undone and redone before the save, through the session's undo,
- *       as the editor's Undo and Redo buttons do.
+ *       as the editor's Undo and Redo buttons do. With
+ *       --debug-forge-session-live it then copies and moves the level's
+ *       first crate or prop (or makes an ammo crate in a level with none)
+ *       ahead of the probe view, for the world to show while the camera
+ *       flies (FORGE.LEVEL.LIVE lines).
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -3415,6 +3419,7 @@ s32 bootForgeLevelTick(void)
 		struct coord cam;
 		f32 position[3];
 		f32 look[3];
+		f32 live_look[3];
 		f32 yaw;
 		s32 saved;
 
@@ -3436,8 +3441,14 @@ s32 bootForgeLevelTick(void)
 		look[0] = -sinf(yaw);
 		look[1] = 0.0f;
 		look[2] = cosf(yaw);
+		/* --debug-forge-session-live: edits for the world to show, along the
+		 * flat look of the probe view the screenshots are taken in. */
+		live_look[0] = -sinf(BOOT_FORGE_PROBE_YAW_DEG * 0.017453292f);
+		live_look[1] = 0.0f;
+		live_look[2] = cosf(BOOT_FORGE_PROBE_YAW_DEG * 0.017453292f);
 		saved = forgeLevelDebugSessionEdit(s_name, position, look,
-			sysArgCheck("--debug-forge-session-undo") ? 1 : 0);
+			sysArgCheck("--debug-forge-session-undo") ? 1 : 0,
+			sysArgCheck("--debug-forge-session-live") ? live_look : NULL);
 		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
 			s_name, saved ? "OK" : "FAIL");
 		s_saved_frame = g_Vars.lvframenum;

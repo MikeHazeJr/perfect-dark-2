@@ -1,6 +1,6 @@
 {
   "scenario_name": "forge_session_save_smoke",
-  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. The flag then turns the camera to a yaw of 217 degrees, away from every axis, and 20 degrees down, and logs where the world markers' projection puts known points: a point along the camera's look must be the middle of the picture, one beside it along the camera's right must be right of it, one along its up must be above it, and one behind must be out of view. The first run of this check (2026-11-17) found that the editor camera's yaw and pitch did not reach the view at all (B-1240); the view is now the editor's own while it flies. The script waits for the editor, then for the level file to be open, holds the forward action for a little over a second once the camera has been turned (the flag then logs how far the camera flew and how much of that was along its look, which must be nearly all of it), takes one screenshot with the markers on and ends the launch eight seconds after the file opened. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running for seconds afterwards, and the markers' projection, and the editor's yaw and pitch being the view's (a camera at turn angle t faces (-sin t, 0, cos t), tipped by its pitch), are right at angles where a wrong sign or an angle that is not applied would show. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
+  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. The flag then turns the camera to a yaw of 217 degrees, away from every axis, and 20 degrees down, and logs where the world markers' projection puts known points: a point along the camera's look must be the middle of the picture, one beside it along the camera's right must be right of it, one along its up must be above it, and one behind must be out of view. The first run of this check (2026-11-17) found that the editor camera's yaw and pitch did not reach the view at all (B-1240); the view is now the editor's own while it flies. The script waits for the editor, then for the level file to be open, holds the forward action for a little over a second once the camera has been turned (the flag then logs how far the camera flew and how much of that was along its look, which must be nearly all of it), takes one screenshot with the markers on and ends the launch eight seconds after the file opened. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running for seconds afterwards, and the markers' projection, and the editor's yaw and pitch being the view's (a camera at turn angle t faces (-sin t, 0, cos t), tipped by its pitch), are right at angles where a wrong sign or an angle that is not applied would show. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only. Forge F3, the world following the level file (forge_level_live.h): with --debug-forge-session-live the flag then copies the level's first crate or prop 250 units ahead of the probe view and moves the original 150 units to the right of the copy, after the save. The world must hide the stage's own object, draw a stand-in for the copy with its catalog model and one for the moved original with its look on the stage, and fail nothing; the picture from before the flight should show both stand-ins and not the original.",
   "tags": [
     "modding",
     "forge",
@@ -20,7 +20,9 @@
     "src/game/forgemode.c",
     "port/src/mod_author_runtime.c",
     "port/src/smoke_readiness.c",
-    "context/designs/modding/forge-mode-scope.md"
+    "context/designs/modding/forge-mode-scope.md",
+    "port/src/forge_level_live_world.c",
+    "port/src/forge_level_live.cpp"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
@@ -43,7 +45,8 @@
     "--launch-forge-level",
     "base:arena_mp_complex",
     "--debug-forge-session-save",
-    "Forge_Session"
+    "Forge_Session",
+    "--debug-forge-session-live"
   ],
   "screenshots": [
     {
@@ -115,7 +118,13 @@
       "FORGE\\.FLY\\.PROBE: moved=\\(-?\\d+, -?\\d+, -?\\d+\\) distance=[1-9]\\d{2,} along_look=(0\\.9[5-9]\\d|1\\.000) along_right=-?0\\.[01]\\d\\d yaw=217\\.0 pitch=-20\\.0",
       "SMOKE: screenshot at_ms=3000 -> .*forge-session-view\\.bmp",
       "SMOKE: screenshot at_ms=6000 -> .*forge-session-markers\\.bmp",
-      "SMOKE: result=scripted_exit"
+      "SMOKE: result=scripted_exit",
+      "FORGE\\.LEVEL\\.EDIT: live: copied setup_\\d{4} \\((?:multi_ammo_crate|ammo_crate|prop)\\) as setup_\\d{4} at \\(",
+      "FORGE\\.LEVEL\\.EDIT: live: moved setup_\\d{4} to \\(",
+      "FORGE\\.LEVEL\\.LIVE: hid setup_\\d{4} \\(command \\d+\\)",
+      "FORGE\\.LEVEL\\.LIVE: drew setup_\\d{4} with base:model_\\w+ \\(model \\d+\\) at \\(",
+      "FORGE\\.LEVEL\\.LIVE: drew setup_\\d{4} with its look on the stage \\(model \\d+\\) at \\(",
+      "FORGE\\.LEVEL\\.LIVE: arena=base:arena_mp_complex hidden=1 drawn=2 shown_again=0 newly_hidden=1 not_shown=0 failed=0 stand_ins=2"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",
@@ -130,7 +139,8 @@
       "GRID: start ABORT",
       "GRID: stagenum diverged",
       "ENDSCREEN\\.STATE:",
-      "MATCH: endscreen shown"
+      "MATCH: endscreen shown",
+      "FORGE\\.LEVEL\\.LIVE: off:"
     ]
   }
 }

@@ -1,6 +1,6 @@
 {
   "scenario_name": "forge_blank_room_session_smoke",
-  "description": "Forge steps F2 and F5 together: a Forge session on a level that holds nothing of the original game, and a save from inside it. The Blank Room (dev-mods/blank_room) is staged as a mod; one ordinary client launch starts a Forge session on it through --launch-forge-level, and two seconds into the level --debug-forge-session-save opens its placements, adds a player start where the editor camera is and saves the result as the mod level 'Room_Session', the calls the editor's Level File section makes. The flag then turns the camera to yaw 217 and 20 degrees down and logs where known points land in the picture, the script holds the forward action for a little over a second and the flag logs how far the camera flew along its look, and one screenshot is taken. What this proves beyond forge_session_save_smoke, which does the same on the base Complex arena: the stage change into Forge works on a mod level with a minted stage number, the level document opens an original level with no objects, and the mod author's save, rescan, enable and apply work while that level is loaded. The screenshot is the first look at the Blank Room through the editor camera. What it does not prove: that the saved level plays (forge_blank_room_edit_smoke loads one in a match) or that the panel's widgets work under a hand.",
+  "description": "Forge steps F2 and F5 together: a Forge session on a level that holds nothing of the original game, and a save from inside it. The Blank Room (dev-mods/blank_room) is staged as a mod; one ordinary client launch starts a Forge session on it through --launch-forge-level, and two seconds into the level --debug-forge-session-save opens its placements, adds a player start where the editor camera is and saves the result as the mod level 'Room_Session', the calls the editor's Level File section makes. The flag then turns the camera to yaw 217 and 20 degrees down and logs where known points land in the picture, the script holds the forward action for a little over a second and the flag logs how far the camera flew along its look, and one screenshot is taken. What this proves beyond forge_session_save_smoke, which does the same on the base Complex arena: the stage change into Forge works on a mod level with a minted stage number, the level document opens an original level with no objects, and the mod author's save, rescan, enable and apply work while that level is loaded. The screenshot is the first look at the Blank Room through the editor camera. What it does not prove: that the saved level plays (forge_blank_room_edit_smoke loads one in a match) or that the panel's widgets work under a hand. Forge F3, the world following the level file (forge_level_live.h): the Blank Room has no object to move, so --debug-forge-session-live makes an ammo crate from nothing 250 units ahead of the probe view after the save, and the world must draw its stand-in; the picture from before the flight should show it.",
   "tags": [
     "modding",
     "forge",
@@ -21,7 +21,9 @@
     "src/game/forgemode.c",
     "port/src/mod_author_runtime.c",
     "port/src/smoke_readiness.c",
-    "context/designs/modding/forge-mode-scope.md"
+    "context/designs/modding/forge-mode-scope.md",
+    "port/src/forge_level_live_world.c",
+    "port/src/forge_level_live.cpp"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
@@ -54,7 +56,8 @@
     "mod_blank_room:arena_blank_room",
     "--debug-forge-session-save",
     "Room_Session",
-    "--debug-forge-session-undo"
+    "--debug-forge-session-undo",
+    "--debug-forge-session-live"
   ],
   "screenshots": [
     {
@@ -130,7 +133,10 @@
       "FORGE\\.FLY\\.PROBE: moved=\\(-?\\d+, -?\\d+, -?\\d+\\) distance=[1-9]\\d{2,} along_look=(0\\.9[5-9]\\d|1\\.000) along_right=-?0\\.[01]\\d\\d yaw=217\\.0 pitch=-20\\.0",
       "SMOKE: screenshot at_ms=3000 -> .*blank-room-view\\.bmp",
       "SMOKE: screenshot at_ms=6000 -> .*blank-room-session\\.bmp",
-      "SMOKE: result=scripted_exit"
+      "SMOKE: result=scripted_exit",
+      "FORGE\\.LEVEL\\.EDIT: live: made ammo crate setup_\\d{4} at \\(",
+      "FORGE\\.LEVEL\\.LIVE: drew setup_\\d{4} with base:model_multi_ammo_crate \\(model \\d+\\) at \\(",
+      "FORGE\\.LEVEL\\.LIVE: arena=mod_blank_room:arena_blank_room hidden=0 drawn=1 shown_again=0 newly_hidden=0 not_shown=0 failed=0 stand_ins=1"
     ],
     "forbidden_patterns": [
       "EXCEPTION_ACCESS_VIOLATION",
@@ -147,7 +153,8 @@
       "ENDSCREEN\\.STATE:",
       "MATCH: endscreen shown",
       "PDARENA\\.SCENARIO\\.REJECT",
-      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK"
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "FORGE\\.LEVEL\\.LIVE: off:"
     ]
   }
 }

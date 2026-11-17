@@ -33,6 +33,7 @@
 #include "pdgui.h"   /* B-195 / Fix 2+3 (2026-05-01): pdguiClearImGuiFocusAndNav */
 #include "system.h"  /* Issue 9 placeholder TODO log lines */
 #include "forge_level_io.h"   /* Forge F2: the level's own placements */
+#include "forge_level_live.h" /* Forge F3: the world follows the level file */
 
 extern "C" {
 #include "game/forgemode.h"
@@ -2895,6 +2896,11 @@ void pdguiForgeEditorTick(void)
 	 * save from inside it. A no-op unless one was passed. Before the
 	 * session checks, because the first of them is what starts a session. */
 	(void)bootForgeLevelTick();
+
+	/* Forge F3: while the camera flies, the world shows the open level file
+	 * (moved and new objects drawn where the file puts them); otherwise the
+	 * level as it was loaded. Every frame, so a stage change is noticed. */
+	forgeLevelLiveTick(forgeSessionIsActive() && forgeIsFreefly() ? 1 : 0);
 
 	if (!forgeSessionIsActive()) return;
 	if (!forgeIsFreefly())       return;

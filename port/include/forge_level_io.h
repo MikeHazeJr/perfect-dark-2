@@ -85,6 +85,14 @@ s32 forgeLevelSessionOpen(const char *arena_id, char *err, size_t err_cap);
 forge_level_doc_t *forgeLevelSessionDoc(void);
 const forge_level_source_t *forgeLevelSessionSource(void);
 
+/* A copy of the open document as it was when it was opened (what the stage
+ * loaded, when the session is on that level), or NULL when none is open; and
+ * a number that changes whenever the open document does: opened, edited,
+ * undone, redone or closed. The world follows both while the editor camera
+ * flies (forge_level_live.h). */
+const forge_level_doc_t *forgeLevelSessionOpenedDoc(void);
+u32 forgeLevelSessionGeneration(void);
+
 /* 1 when the open document differs from the level it was opened from. */
 s32 forgeLevelSessionChanged(void);
 
@@ -180,11 +188,17 @@ s32 forgeLevelSessionGivePickup(const char *record_id, const char *weapon_catalo
  * the editor is up. It is what the editor's Add Start Here and Save As Level
  * buttons do, and it leaves the document open as they do. With `undo_redo`
  * (--debug-forge-session-undo) it undoes the start and redoes it before the
- * save, as the editor's Undo and Redo buttons do. Returns 1 when the level
- * was saved and is in the catalog.
+ * save, as the editor's Undo and Redo buttons do. With `live_look`
+ * (--debug-forge-session-live, the flat facing of the camera the smoke will
+ * look through) it then edits the open document so the world has something
+ * to show (forge_level_live.h): the level's first crate or prop is copied 250
+ * units along `live_look` from `position` and moved 150 units to the right of
+ * the copy, or, in a level with none, an ammo crate is made from nothing 250
+ * units along it. Returns 1 when the level was saved and is in the catalog
+ * (and the edits, if asked for, were made).
  */
 s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3],
-		s32 undo_redo);
+		s32 undo_redo, const f32 *live_look);
 
 #ifdef __cplusplus
 }

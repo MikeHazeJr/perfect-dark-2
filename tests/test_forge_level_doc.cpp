@@ -22,6 +22,7 @@
 
 #include "asset_archive_policy.h"
 #include "forge_level_doc.h"
+#include "forge_level_live.h"
 #include "mod_author.h"
 #include "modarchive.h"
 #include "sha256.h"
@@ -2720,4 +2721,196 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 		<< alreadyOut << " already left out on every difficulty, " << graphBytes
 		<< " bytes of level graph, each graph given one more trigger volume node)");
 	CHECK(levels > 0);
+}
+
+/* ------------------------------------------------------------------------ */
+/* What the world shows of the open level while the editor camera flies     */
+/* (forge_level_live.h)                                                      */
+/* ------------------------------------------------------------------------ */
+
+namespace {
+
+/* A plan, and the document as it was opened, kept apart from the one edited. */
+struct Live {
+	forge_level_live_plan_t *plan = static_cast<forge_level_live_plan_t *>(calloc(1, sizeof(forge_level_live_plan_t)));
+	forge_level_doc_t *opened = nullptr;
+	char err[200] = { 0 };
+
+	explicit Live(const forge_level_doc_t *doc) : opened(forgeLevelDocClone(doc)) {}
+	~Live()
+	{
+		free(plan);
+		forgeLevelDocFree(opened);
+	}
+	Live(const Live &) = delete;
+	Live &operator=(const Live &) = delete;
+
+	s32 planFor(const forge_level_doc_t *now) { return forgeLevelLivePlan(opened, now, plan, err, sizeof(err)); }
+};
+
+} // namespace
+
+TEST_CASE("The world shows a level as it was loaded until its file changes", "[forge-level-doc][forge-level-live]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	Live live(level.doc);
+	REQUIRE(live.plan != nullptr);
+	REQUIRE(live.opened != nullptr);
+	REQUIRE(live.planFor(level.doc) == 1);
+	CHECK(live.plan->hide_count == 0);
+	CHECK(live.plan->draw_count == 0);
+	CHECK(live.plan->not_shown == 0);
+
+	/* The kinds the world draws stand-ins for, and some it leaves to the markers. */
+	CHECK(forgeLevelLiveKindShown("prop") == 1);
+	CHECK(forgeLevelLiveKindShown("weapon_pickup") == 1);
+	CHECK(forgeLevelLiveKindShown("multi_ammo_crate") == 1);
+	CHECK(forgeLevelLiveKindShown("hoverbike") == 1);
+	CHECK(forgeLevelLiveKindShown("door") == 0);
+	CHECK(forgeLevelLiveKindShown("character_spawn") == 0);
+	CHECK(forgeLevelLiveKindShown("tag") == 0);
+	CHECK(forgeLevelLiveKindShown(nullptr) == 0);
+}
+
+TEST_CASE("A moved object is hidden where the stage has it and drawn where its file puts it",
+          "[forge-level-doc][forge-level-live]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	Live live(level.doc);
+	const f32 place[3] = { 7.0f, 0.0f, 9.0f };
+	const f32 facing[3] = { 0.0f, 0.0f, 2.0f };
+	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0001", place, facing, live.err, sizeof(live.err)) == 1);
+	REQUIRE(live.planFor(level.doc) == 1);
+	INFO(live.err);
+	REQUIRE(live.plan->hide_count == 1);
+	CHECK(std::string(live.plan->hide[0].record_id) == "setup_0001");
+	CHECK(std::string(live.plan->hide[0].kind) == "prop");
+	CHECK(live.plan->hide[0].command == 1);
+	REQUIRE(live.plan->draw_count == 1);
+	const forge_level_live_draw_t &crate = live.plan->draw[0];
+	CHECK(std::string(crate.record_id) == "setup_0001");
+	CHECK(std::string(crate.model_catalog_id) == "base:model_crate");
+	CHECK(crate.position[0] == 7.0f);
+	CHECK(crate.position[2] == 9.0f);
+	CHECK(crate.look[2] > 0.0f);
+	CHECK(crate.up[1] > 0.0f);
+	CHECK(crate.extra_scale == 256);
+	/* Only moved, so it is drawn as the stage drew it. */
+	CHECK(crate.looks_like_command == 1);
+	CHECK(live.plan->not_shown == 0);
+
+	/* The weapon spot names no model (the match gives it one), so moved it is
+	 * drawn with what the stage shows at its place in the command list. */
+	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0000", kPlace, kFacing, live.err, sizeof(live.err)) == 1);
+	REQUIRE(live.planFor(level.doc) == 1);
+	REQUIRE(live.plan->hide_count == 2);
+	CHECK(std::string(live.plan->hide[0].record_id) == "setup_0000");
+	CHECK(live.plan->hide[0].command == 0);
+	REQUIRE(live.plan->draw_count == 2);
+	CHECK(std::string(live.plan->draw[0].record_id) == "setup_0000");
+	CHECK(std::string(live.plan->draw[0].model_catalog_id).empty());
+	CHECK(live.plan->draw[0].looks_like_command == 0);
+	CHECK(live.plan->draw[0].position[2] == kPlace[2]);
+
+	/* Taken back (the document as opened again), the world is the stage's. */
+	forge_level_doc_t *back = forgeLevelDocClone(live.opened);
+	REQUIRE(back != nullptr);
+	REQUIRE(live.planFor(back) == 1);
+	CHECK(live.plan->hide_count == 0);
+	CHECK(live.plan->draw_count == 0);
+	forgeLevelDocFree(back);
+}
+
+TEST_CASE("A new object is drawn, and one with nothing to draw it with is only counted",
+          "[forge-level-doc][forge-level-live]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	Live live(level.doc);
+	char id[32] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0001", kPlace, kFacing, id, sizeof(id), live.err,
+		sizeof(live.err)) == 1);
+	CHECK(std::string(id) == "setup_0003");
+	REQUIRE(live.planFor(level.doc) == 1);
+	CHECK(live.plan->hide_count == 0);
+	REQUIRE(live.plan->draw_count == 1);
+	CHECK(std::string(live.plan->draw[0].record_id) == "setup_0003");
+	CHECK(std::string(live.plan->draw[0].model_catalog_id) == "base:model_crate");
+	CHECK(live.plan->draw[0].looks_like_command == -1);
+	CHECK(live.plan->draw[0].position[0] == kPlace[0]);
+	CHECK(live.plan->not_shown == 0);
+
+	/* A copy of the weapon spot has no model of its own and nothing on the
+	 * stage to look like: it keeps its marker only. */
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id), live.err,
+		sizeof(live.err)) == 1);
+	CHECK(std::string(id) == "setup_0004");
+	REQUIRE(live.planFor(level.doc) == 1);
+	CHECK(live.plan->hide_count == 0);
+	CHECK(live.plan->draw_count == 1);
+	CHECK(live.plan->not_shown == 1);
+}
+
+TEST_CASE("An object left out is hidden, and one put back that the stage never made is drawn",
+          "[forge-level-doc][forge-level-live]")
+{
+	const std::string objects = objectsWithFlags();
+	const std::string fields = fieldsWithFlags();
+	{
+		Level level(kPads, kSpawns, objects, kVolumes, fields);
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		Live live(level.doc);
+		REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, live.err, sizeof(live.err)) == 1);
+		REQUIRE(live.planFor(level.doc) == 1);
+		REQUIRE(live.plan->hide_count == 1);
+		CHECK(std::string(live.plan->hide[0].record_id) == "setup_0001");
+		CHECK(live.plan->hide[0].command == 1);
+		CHECK(live.plan->draw_count == 0);
+		/* Put back, it is the stage's again. */
+		REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, live.err, sizeof(live.err)) == 1);
+		REQUIRE(live.planFor(level.doc) == 1);
+		CHECK(live.plan->hide_count == 0);
+		CHECK(live.plan->draw_count == 0);
+	}
+	{
+		/* A level that already left the crate out: the stage never made it,
+		 * so put back it needs a stand-in and there is nothing to hide. */
+		const std::string objectsOut = replaced(objects, "\"flags2\": \"0x00000020\"", "\"flags2\": \"0x000000f0\"");
+		const std::string fieldsOut = replaced(fields, "\"value\": \"0x00000020\"", "\"value\": \"0x000000f0\"");
+		Level level(kPads, kSpawns, objectsOut, kVolumes, fieldsOut);
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		Live live(level.doc);
+		REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, live.err, sizeof(live.err)) == 1);
+		REQUIRE(live.planFor(level.doc) == 1);
+		CHECK(live.plan->hide_count == 0);
+		REQUIRE(live.plan->draw_count == 1);
+		CHECK(std::string(live.plan->draw[0].record_id) == "setup_0001");
+		CHECK(std::string(live.plan->draw[0].model_catalog_id) == "base:model_crate");
+		CHECK(live.plan->draw[0].looks_like_command == -1);
+	}
+}
+
+TEST_CASE("A file that is not the level as opened is refused, and the world shows none of it",
+          "[forge-level-doc][forge-level-live]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	char id[32] = { 0 };
+	char err[200] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0001", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 1);
+	/* "Opened" with four objects, now three: rows went missing. */
+	Live live(level.doc);
+	Level fewer;
+	REQUIRE(fewer.doc != nullptr);
+	CHECK(live.planFor(fewer.doc) == 0);
+	CHECK(std::string(live.err) == "the level has 3 objects and had 4 when it was opened");
+	CHECK(live.plan->hide_count == 0);
+	CHECK(live.plan->draw_count == 0);
+	CHECK(forgeLevelLivePlan(nullptr, level.doc, live.plan, err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "no level is open");
+	CHECK(forgeLevelLivePlan(live.opened, level.doc, nullptr, err, sizeof(err)) == 0);
 }

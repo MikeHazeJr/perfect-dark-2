@@ -1429,6 +1429,15 @@ s32 forgeLevelDocGetObject(const forge_level_doc_t *doc, s32 index, forge_level_
 	return 1;
 }
 
+s32 forgeLevelDocObjectExtraScale(const forge_level_doc_t *doc, s32 index)
+{
+	if (!doc || index < 0 || static_cast<size_t>(index) >= doc->objects.size()) return 256;
+	const long row = doc->objectCatalog[static_cast<size_t>(index)].scaleRow;
+	if (row < 0 || static_cast<size_t>(row) >= doc->fields.size()) return 256;
+	const long scale = wholeNumber(doc->fields[static_cast<size_t>(row)].value);
+	return scale > 0 && scale <= 0xffff ? static_cast<s32>(scale) : 256;
+}
+
 s32 forgeLevelDocFindPad(const forge_level_doc_t *doc, const char *pad_ref, forge_level_pad_t *out)
 {
 	const int index = doc && pad_ref ? findPad(*doc, pad_ref) : -1;

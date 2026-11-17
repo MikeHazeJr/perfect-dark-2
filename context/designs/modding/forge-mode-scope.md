@@ -944,7 +944,7 @@ acceptable, the minted stage's music, sky and fog, and wall winding in play.
 After that: the same builder fed a Blender model (plain GLB in, room
 attribute and collision added), which is what the Maian arena needs.
 
-## F4 first slice: the Modding Hub's Levels tool (WRITTEN 2026-11-17, not compiled, not run)
+## F4 first slice: the Modding Hub's Levels tool (WRITTEN 2026-11-17; PROVEN in the game the same day, turn q_..ef485e13)
 
 Level authoring joins the other in-game mod tools: a Levels tab in the
 Modding Hub, after Characters.
@@ -1127,3 +1127,75 @@ redoes the start the session debug flag adds, before it saves, and
 
 Still to come in F3: a move gizmo (dragging an object instead of flying the
 camera to where it goes), drawing a selected object's outline, and size.
+
+## Proven in the game (2026-11-17, turn q_20261117134802790_ef485e13)
+
+14:49 to 15:30 UTC, client c88a828f, shared base 9, receipts under
+`D:\PD2-wt\pd2-smoke-mods\receipts\20261117T15*`. pd-tests pass, the
+base-level sweep included.
+
+- The Levels tool (F4). `forge_level_tool_smoke` 43/43: a new level
+  'Tool_Room' made from the Blank Room by the tool's own function, a Forge
+  session started on it by the Open in Forge call, and a start added and the
+  level saved over itself while it is the level that is loaded
+  (`own_template=1`, `updated=1`).
+- The Blank Room and Complex again, now with a picture from before the
+  flight: `forge_blank_room_smoke` 25/25 (the corrected fixture),
+  `forge_blank_room_session_smoke` 39/39 and `forge_session_save_smoke` 36/36.
+  The pictures show the editor camera at yaw 217 and 20 degrees down, the
+  HUD's readout, and on Complex the markers of starts and objects with their
+  labels.
+- A level places a hoverbike (F3). The scripted edit made one from nothing on
+  the Blank Room (`made hoverbike setup_0002 at (250, 50, 0) facing (-1.00,
+  0.00, 0.00)`), the edited level loaded with `pads=12 spawns=9 objects=3`,
+  setup made the hoverbike, and the Maian vehicle mod took its model
+  (`VEHICLE.SWAP: hoverbike modelnum 58 -> 441`). The two vehicle smokes that
+  ride it failed after that and before the ride: the debug mount hook could not
+  place the rider where the camera sees (B-1243, fixed in e4532d24; rerun in
+  the next turn).
+
+Seen in the pictures, not yet acted on (cosmetic): on Complex the markers'
+labels show through the editor's translucent panel, and through walls.
+
+## F3: the world follows the level file (WRITTEN 2026-11-17, unit-tested, not compiled)
+
+Until now an edit showed only as the HUD's marker: a moved object stayed where
+the stage had it, a new one was not there and a removed one did not go. The
+world now follows the open level file while the camera flies
+(`port/include/forge_level_live.h`):
+
+- An object of the loaded level that the file moved, redrew (another model,
+  size or weapon) or left out is hidden: not drawn, not ticked, no collision
+  (`propDisable`; shown again with `propEnable` when the file no longer asks).
+- An object the file added, and one it moved or redrew, is drawn by a
+  stand-in: a plain object with the same model and size, set down the way
+  setup sets down an object on a pad (the pad's look and up, then
+  `func0f06a730`, which rests it on the floor under the pad), that anything
+  passes through. An object only moved is drawn as the stage drew it, which
+  for one of the match's weapon places is the weapon the match put there.
+  Stand-ins live in the stage's memory (64 at most), are never freed while the
+  stage lasts, and a stand-in no longer wanted is hidden and reused.
+- The world never hides an object it cannot draw again: such an object stays
+  where the stage has it, with the marker where the file puts it.
+- Rows match the stage's objects by record id (setup_0012 is the thirteenth
+  command, which the document checks when it reads a level), and each match is
+  checked against the object's type before anything is hidden.
+- Playtest plays the stage as loaded: the stage's objects come back and the
+  stand-ins go when the camera stops flying, when the file closes and when the
+  session ends. Playing the edits means saving the level and choosing it.
+- It follows the file only when the file is the level the session is on, and
+  catches up once per change of the file (the session's generation number:
+  opened, edited, undone, redone, closed). A stage change forgets everything.
+
+Choice for Mike to overrule: stand-ins rather than moving the stage's own
+objects or reloading the stage. Moving a live object of any kind (weapons the
+match placed, hoverbikes with physics, doors with portals) is engine surgery
+per kind; reloading on every edit takes seconds and loses the session's
+state. A stand-in is one plain object of one kind, and the stage's own objects
+are only switched off and on.
+
+The planning half is unit-tested (`[forge-level-live]`, five cases in
+`tests/test_forge_level_doc.cpp`); the world half needs a game turn.
+Kinds drawn: props, weapon pickups, ammo crates, hoverbikes, hover props,
+keys, hats, shields, gas bottles, monitors, alarms, cameras, autoguns, safes
+and glass. Doors, lifts and characters keep their markers only.

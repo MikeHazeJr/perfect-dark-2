@@ -15,6 +15,7 @@
 #include "data.h"
 #include "forge_level_doc.h"
 #include "forge_level_io.h"
+#include "forge_level_live.h"
 #include "fs.h"
 #include "game/playermgr.h"
 #include "mod_author.h"
@@ -26,11 +27,16 @@
 #include "system.h"
 #include "types.h"
 
-/* The level Forge has open, and the arena its session was started on. */
+/* The level Forge has open, and the arena its session was started on. `opened`
+ * is a copy of the document as it was opened, which is what the stage shows
+ * when the session is on that level; `generation` changes whenever the open
+ * document does (forge_level_live.h follows both). */
 static struct {
 	char arena_id[CATALOG_ID_LEN];
 	forge_level_doc_t *doc;
+	forge_level_doc_t *opened;
 	forge_level_source_t source;
+	u32 generation;
 } s_Session;
 
 /* Undo and redo for the open document: copies of it from before each edit
@@ -259,6 +265,7 @@ void forgeLevelSessionEditEnd(s32 changed)
 	}
 	undoPush(s_Undo.undo, &s_Undo.undo_count, before);
 	undoForgetRedo();
+	s_Session.generation++;
 }
 
 s32 forgeLevelSessionUndo(void)
@@ -269,6 +276,7 @@ s32 forgeLevelSessionUndo(void)
 	before = s_Undo.undo[--s_Undo.undo_count];
 	undoPush(s_Undo.redo, &s_Undo.redo_count, s_Session.doc);
 	s_Session.doc = before;
+	s_Session.generation++;
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.UNDO: arena=%s pads=%d spawns=%d objects=%d undo_left=%d redo=%d",
 		s_Session.source.arena_id, forgeLevelDocPadCount(before), forgeLevelDocSpawnCount(before),
 		forgeLevelDocObjectCount(before), s_Undo.undo_count, s_Undo.redo_count);
@@ -283,6 +291,7 @@ s32 forgeLevelSessionRedo(void)
 	after = s_Undo.redo[--s_Undo.redo_count];
 	undoPush(s_Undo.undo, &s_Undo.undo_count, s_Session.doc);
 	s_Session.doc = after;
+	s_Session.generation++;
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.REDO: arena=%s pads=%d spawns=%d objects=%d undo=%d redo_left=%d",
 		s_Session.source.arena_id, forgeLevelDocPadCount(after), forgeLevelDocSpawnCount(after),
 		forgeLevelDocObjectCount(after), s_Undo.undo_count, s_Undo.redo_count);
@@ -307,7 +316,10 @@ void forgeLevelSessionClose(void)
 		forgeLevelSessionChanged());
 	forgeLevelDocFree(s_Session.doc);
 	s_Session.doc = NULL;
+	forgeLevelDocFree(s_Session.opened);
+	s_Session.opened = NULL;
 	memset(&s_Session.source, 0, sizeof(s_Session.source));
+	s_Session.generation++;
 }
 
 void forgeLevelSessionBegin(const char *arena_id)
@@ -344,7 +356,12 @@ s32 forgeLevelSessionOpen(const char *arena_id, char *err, size_t err_cap)
 	}
 	forgeLevelSessionClose();
 	s_Session.doc = doc;
+	/* The world shows the level as it was opened until the live view
+	 * (forge_level_live.h) learns what changed; without the copy it shows
+	 * nothing of the document, and the document works as before. */
+	s_Session.opened = forgeLevelDocClone(doc);
 	s_Session.source = *source;
+	s_Session.generation++;
 	free(source);
 	return 1;
 }
@@ -352,6 +369,16 @@ s32 forgeLevelSessionOpen(const char *arena_id, char *err, size_t err_cap)
 forge_level_doc_t *forgeLevelSessionDoc(void)
 {
 	return s_Session.doc;
+}
+
+const forge_level_doc_t *forgeLevelSessionOpenedDoc(void)
+{
+	return s_Session.doc ? s_Session.opened : NULL;
+}
+
+u32 forgeLevelSessionGeneration(void)
+{
+	return s_Session.generation;
 }
 
 const forge_level_source_t *forgeLevelSessionSource(void)
@@ -477,8 +504,65 @@ static void levelStepFrom(const forge_level_pad_t *pad, f32 distance, f32 out[3]
 	for (s32 i = 0; i < 3; i++) out[i] = pad->position[i] + pad->look[i] * distance;
 }
 
+/* --debug-forge-session-live: edits the world must show (forge_level_live.h),
+ * made after the save so the saved level is what the session smokes have
+ * always checked. Along `look` from `position`: the first crate or prop of the
+ * level is copied 250 units ahead and then moved 150 units to the right of
+ * that, so the stage's own object must be hidden and two stand-ins drawn; a
+ * level with none gets an ammo crate made from nothing 250 units ahead. */
+static s32 debugLiveEdits(const f32 position[3], const f32 look[3], char *err, size_t err_cap)
+{
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	forge_level_object_t object;
+	char made[32];
+	f32 ahead[3];
+	f32 aside[3];
+	s32 found = -1;
+	s32 done;
+
+	made[0] = '\0';
+	ahead[0] = position[0] + look[0] * 250.0f;
+	ahead[1] = position[1];
+	ahead[2] = position[2] + look[2] * 250.0f;
+	/* The camera's right, for a flat look (lx, 0, lz), is (-lz, 0, lx). */
+	aside[0] = ahead[0] - look[2] * 150.0f;
+	aside[1] = ahead[1];
+	aside[2] = ahead[2] + look[0] * 150.0f;
+	for (s32 i = 0; doc && i < forgeLevelDocObjectCount(doc) && found < 0; i++) {
+		if (!forgeLevelDocGetObject(doc, i, &object)) continue;
+		if (object.movable && !object.removed && object.model_catalog_id[0] &&
+				(strcmp(object.kind, "multi_ammo_crate") == 0 || strcmp(object.kind, "ammo_crate") == 0 ||
+				strcmp(object.kind, "prop") == 0)) {
+			found = i;
+		}
+	}
+	if (found < 0) {
+		forgeLevelSessionEditBegin();
+		done = forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, ahead, look, made, sizeof(made),
+			err, err_cap);
+		forgeLevelSessionEditEnd(done);
+		if (!done) return 0;
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: live: made ammo crate %s at (%.0f, %.0f, %.0f)", made,
+			ahead[0], ahead[1], ahead[2]);
+		return 1;
+	}
+	forgeLevelSessionEditBegin();
+	done = forgeLevelDocDuplicateObject(doc, object.record_id, ahead, look, made, sizeof(made), err, err_cap);
+	forgeLevelSessionEditEnd(done);
+	if (!done) return 0;
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: live: copied %s (%s) as %s at (%.0f, %.0f, %.0f)", object.record_id,
+		object.kind, made, ahead[0], ahead[1], ahead[2]);
+	forgeLevelSessionEditBegin();
+	done = forgeLevelDocMoveObject(forgeLevelSessionDoc(), object.record_id, aside, look, err, err_cap);
+	forgeLevelSessionEditEnd(done);
+	if (!done) return 0;
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: live: moved %s to (%.0f, %.0f, %.0f)", object.record_id, aside[0],
+		aside[1], aside[2]);
+	return 1;
+}
+
 s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3],
-		s32 undo_redo)
+		s32 undo_redo, const f32 *live_look)
 {
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
@@ -533,6 +617,7 @@ s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], 
 		snprintf(err, sizeof(err), "%s was saved but is not in the catalog", result->catalog_id);
 		goto done;
 	}
+	if (live_look && !debugLiveEdits(position, live_look, err, sizeof(err))) goto done;
 	ok = 1;
 
 done:
