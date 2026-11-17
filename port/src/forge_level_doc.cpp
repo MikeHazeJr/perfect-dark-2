@@ -46,6 +46,19 @@ constexpr f32 kPadReach = 100.0f;
 constexpr unsigned long kExcludeEverywhere = 0x000000f0ul;
 /* The field of setup.fields.json that repeats objects.json's `flags2`. */
 constexpr const char *kFlagsField = "base.flags2";
+/* The fields that say what an object is drawn with (repeated by objects.json's
+ * `model_catalog_id`), at what size (256 is life size), and what a weapon
+ * pickup gives (a catalog weapon repeated by objects.json's
+ * `weapon_catalog_id`, or one of the match's weapon places). */
+constexpr const char *kModelField = "base.model";
+constexpr const char *kScaleField = "base.extra_scale";
+constexpr const char *kWeaponField = "pickup.weapon";
+constexpr const char *kPickupKind = "weapon_pickup";
+constexpr const char *kPropKind = "prop";
+constexpr long kWeaponSlots = 16;        /* mp_location_00 to mp_location_15 */
+/* An object's size is an unsigned 16-bit number in the game and a weapon
+ * set's a signed one (types.h: defaultobj and mpweapon); this fits both. */
+constexpr long kMaxExtraScale = 32767;
 
 /* ------------------------------------------------------------------------ */
 /* Where values start and end                                               */
@@ -280,6 +293,46 @@ bool isPlaceField(const std::string &field)
 	return field == "base.pad" || field == "character.pad";
 }
 
+/* "mp_location_03" as 3: one of the match's weapon places, the way the
+ * extractor writes it (two digits). -1 for anything else. */
+long weaponSlot(const std::string &value)
+{
+	static const char prefix[] = "mp_location_";
+	if (value.size() != sizeof(prefix) - 1 + 2) return -1;
+	const long slot = trailingNumber(value, prefix);
+	return slot >= 0 && slot < kWeaponSlots ? slot : -1;
+}
+
+std::string weaponSlotText(long slot)
+{
+	char text[32];
+	snprintf(text, sizeof(text), "mp_location_%02ld", slot);
+	return text;
+}
+
+/* A catalog id, safe to write between quotes: "base:dragon",
+ * "mod:weapon_crystal_pistol". Lower-case letters, digits, '_', '-', '.' and
+ * one ':' with something on both sides; short enough for the 64 bytes an
+ * object's ids are kept in. */
+bool catalogIdOk(const char *id)
+{
+	if (!id) return false;
+	const size_t length = strlen(id);
+	if (length < 3 || length > 63) return false;
+	size_t colons = 0;
+	for (size_t i = 0; i < length; i++) {
+		const char c = id[i];
+		if (c == ':') {
+			colons++;
+			if (i == 0 || i + 1 == length) return false;
+			continue;
+		}
+		const bool ok = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.';
+		if (!ok) return false;
+	}
+	return colons == 1;
+}
+
 std::string numbered(const char *prefix, long number)
 {
 	char text[48];
@@ -496,9 +549,20 @@ struct forge_level_doc {
 		std::string record;
 		std::string field;
 		std::string value;
+		std::string type;
+		std::string catalog;   /* its catalog_id */
 	};
 	std::vector<FieldRow> fields;
 	std::map<std::string, std::vector<size_t>> recordRows;
+	/* Each object's rows that say what it is drawn with and, for a weapon
+	 * pickup, what it gives: -1 unless setup.fields.json has the row and it
+	 * agrees with objects.json. One entry per object. */
+	struct ObjectCatalog {
+		long modelRow = -1;    /* base.model */
+		long scaleRow = -1;    /* base.extra_scale */
+		long weaponRow = -1;   /* pickup.weapon */
+	};
+	std::vector<ObjectCatalog> objectCatalog;
 	/* Each object's second flags word, one entry per object. */
 	struct ObjectFlags {
 		bool inObjects = false;     /* objects.json gives the word */
@@ -647,12 +711,14 @@ bool readObjects(forge_level_doc &doc, const Json &root, std::string &error)
 		copyText(object.pad_ref, ref);
 		copyText(object.model_catalog_id, stringOf(row, "model_catalog_id"));
 		copyText(object.weapon_catalog_id, stringOf(row, "weapon_catalog_id"));
+		object.weapon_slot = -1;
 		forge_level_doc::ObjectFlags flags;
 		flags.objectsText = stringOf(row, "flags2");
 		flags.inObjects = hexWord(flags.objectsText, flags.value);
 		flags.original = flags.value;
 		doc.objects.push_back(object);
 		doc.objectFlags.push_back(flags);
+		doc.objectCatalog.push_back(forge_level_doc::ObjectCatalog());
 	}
 	return true;
 }
@@ -709,6 +775,8 @@ bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
 		info.record = stringOf(row, "record_id");
 		info.field = stringOf(row, "field");
 		info.value = stringOf(row, "value");
+		info.type = stringOf(row, "type");
+		info.catalog = stringOf(row, "catalog_id");
 		if (info.record.empty() || info.field.empty() || !hasString(row, "kind") ||
 				!hasString(row, "type")) {
 			error = "setup.fields.json row " + std::to_string(i) + " needs record_id, kind, field and type";
@@ -729,16 +797,42 @@ bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
 	for (size_t objectIndex = 0; objectIndex < doc.objects.size(); objectIndex++) {
 		forge_level_object_t &object = doc.objects[objectIndex];
 		forge_level_doc::ObjectFlags &flags = doc.objectFlags[objectIndex];
+		forge_level_doc::ObjectCatalog &what = doc.objectCatalog[objectIndex];
 		const long number = trailingNumber(object.record_id, "setup_");
 		object.order = -1;
 		object.movable = 0;
 		object.removable = 0;
 		object.removed = 0;
+		object.weapon_slot = -1;
+		object.model_settable = 0;
+		object.weapon_settable = 0;
 		if (number >= doc.nextOrder) doc.nextOrder = number + 1;
 		const auto found = doc.recordRows.find(object.record_id);
 		if (found == doc.recordRows.end()) continue;
 		for (const size_t index : found->second) {
 			const forge_level_doc::FieldRow &field = doc.fields[index];
+			/* What it is drawn with and what it gives. As with the flags word,
+			 * a row that does not agree with objects.json is still read; the
+			 * object just cannot be changed here. The first row of each field
+			 * is the one that counts. */
+			if (field.field == kModelField && what.modelRow < 0 && field.type == "model_catalog_id" &&
+					field.catalog == object.model_catalog_id) {
+				what.modelRow = static_cast<long>(index);
+			}
+			if (field.field == kScaleField && what.scaleRow < 0 && wholeNumber(field.value) > 0) {
+				what.scaleRow = static_cast<long>(index);
+			}
+			if (field.field == kWeaponField && what.weaponRow < 0 && strcmp(object.kind, kPickupKind) == 0) {
+				const long slot = weaponSlot(field.value);
+				if (field.type == "weapon_catalog_id" && !field.catalog.empty() &&
+						field.catalog == object.weapon_catalog_id) {
+					what.weaponRow = static_cast<long>(index);
+				} else if (field.type == "weapon_selector" && slot >= 0 && field.catalog.empty() &&
+						!object.weapon_catalog_id[0]) {
+					what.weaponRow = static_cast<long>(index);
+					object.weapon_slot = static_cast<s32>(slot);
+				}
+			}
 			if (field.field == kFlagsField) {
 				/* The two files agree about this word in every base level. One
 				 * that does not is still read; its object just cannot be left
@@ -775,6 +869,10 @@ bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
 			 * or none when the level it came from already leaves it out. */
 			flags.restore = object.removed ? 0 : (flags.value & kExcludeEverywhere);
 		}
+		object.model_settable = what.modelRow >= 0 ? 1 : 0;
+		/* A pickup of a catalog weapon is drawn with its own record's model at
+		 * its own record's size, so all three rows are needed to change it. */
+		object.weapon_settable = what.weaponRow >= 0 && what.modelRow >= 0 && what.scaleRow >= 0 ? 1 : 0;
 	}
 	return true;
 }
@@ -1507,6 +1605,8 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	forge_level_object_t copy = original;
 	forge_level_doc::ObjectFlags copyFlags = doc->objectFlags[static_cast<size_t>(index)];
 	const size_t sourceFlagsRow = copyFlags.fieldRow;
+	const forge_level_doc::ObjectCatalog sourceWhat = doc->objectCatalog[static_cast<size_t>(index)];
+	forge_level_doc::ObjectCatalog copyWhat = sourceWhat;
 	copyOut(copy.record_id, id.c_str());
 	copyOut(copy.pad_ref, ref.c_str());
 	copy.order = static_cast<s32>(place);
@@ -1515,13 +1615,20 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 		fields.append(texts[i]);
 		doc->fields.push_back(infos[i]);
 		doc->recordRows[id].push_back(doc->fields.size() - 1);
-		/* The copy's flags word is the row copied from the original's. */
+		/* The copy's flags word is the row copied from the original's, and so
+		 * are the rows that say what it is drawn with and what it gives. */
+		const long sourceRow = static_cast<long>(sourceRows[i]);
+		const long copyRow = static_cast<long>(doc->fields.size() - 1);
 		if (copyFlags.known && sourceRows[i] == sourceFlagsRow) {
 			copyFlags.fieldRow = doc->fields.size() - 1;
 		}
+		if (sourceRow == sourceWhat.modelRow) copyWhat.modelRow = copyRow;
+		if (sourceRow == sourceWhat.scaleRow) copyWhat.scaleRow = copyRow;
+		if (sourceRow == sourceWhat.weaponRow) copyWhat.weaponRow = copyRow;
 	}
 	doc->objects.push_back(copy);
 	doc->objectFlags.push_back(copyFlags);
+	doc->objectCatalog.push_back(copyWhat);
 	doc->nextOrder = place + 1;
 	graphSyncCounts(*doc);
 	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
@@ -1575,6 +1682,175 @@ s32 forgeLevelDocSetObjectRemoved(forge_level_doc_t *doc, const char *record_id,
 	if (want) flags.restore = before & kExcludeEverywhere;
 	flags.value = after;
 	object.removed = want ? 1 : 0;
+	return 1;
+}
+
+/* The weapon pickup `record_id` with every row a change of weapon needs, or
+ * NULL with the reason. */
+static forge_level_object_t *settablePickup(forge_level_doc_t *doc, const char *record_id,
+	int *out_index, char *err, size_t err_cap)
+{
+	const int index = doc ? findObject(*doc, record_id) : -1;
+	if (index < 0) {
+		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
+		return nullptr;
+	}
+	forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
+	if (strcmp(object.kind, kPickupKind) != 0) {
+		setError(err, err_cap, "%s is a %s, not a weapon pickup", object.record_id, object.kind);
+		return nullptr;
+	}
+	if (!object.weapon_settable) {
+		setError(err, err_cap, "%s has no weapon, model and size that both of the level's object files give, "
+			"so what it gives cannot be changed", object.record_id);
+		return nullptr;
+	}
+	*out_index = index;
+	return &object;
+}
+
+/* Writes changed rows back: the object's row in objects.json and any of its
+ * rows in setup.fields.json, with what the document remembers of each. */
+static void commitObjectRows(forge_level_doc_t *doc, int index, const std::string &objectRow,
+	const std::vector<std::pair<long, std::string>> &fieldRows)
+{
+	Table &objects = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	objects.rows[static_cast<size_t>(index)] = objectRow;
+	objects.touch();
+	for (const auto &changed : fieldRows) {
+		fields.rows[static_cast<size_t>(changed.first)] = changed.second;
+	}
+	if (!fieldRows.empty()) fields.touch();
+}
+
+s32 forgeLevelDocSetPickupWeapon(forge_level_doc_t *doc, const char *record_id,
+	const char *weapon_catalog_id, const char *model_catalog_id, s32 extra_scale,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	int index = -1;
+	forge_level_object_t *object = settablePickup(doc, record_id, &index, err, err_cap);
+	if (!object) return 0;
+	if (!catalogIdOk(weapon_catalog_id)) {
+		setError(err, err_cap, "\"%s\" is not a weapon's catalog id", weapon_catalog_id ? weapon_catalog_id : "");
+		return 0;
+	}
+	if (!catalogIdOk(model_catalog_id)) {
+		setError(err, err_cap, "\"%s\" is not a model's catalog id", model_catalog_id ? model_catalog_id : "");
+		return 0;
+	}
+	if (extra_scale < 1 || extra_scale > kMaxExtraScale) {
+		setError(err, err_cap, "a pickup's size is 1 to %ld (256 is life size), not %d", kMaxExtraScale,
+			static_cast<int>(extra_scale));
+		return 0;
+	}
+
+	/* Every row, before anything is changed. */
+	const forge_level_doc::ObjectCatalog what = doc->objectCatalog[static_cast<size_t>(index)];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	std::string objectRow = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS].rows[static_cast<size_t>(index)];
+	std::string weaponRow = fields.rows[static_cast<size_t>(what.weaponRow)];
+	std::string modelRow = fields.rows[static_cast<size_t>(what.modelRow)];
+	std::string scaleRow = fields.rows[static_cast<size_t>(what.scaleRow)];
+	const std::string scale = std::to_string(static_cast<long>(extra_scale));
+	if (!replaceValue(objectRow, "weapon_catalog_id", quoted(weapon_catalog_id)) ||
+			!replaceValue(objectRow, "model_catalog_id", quoted(model_catalog_id)) ||
+			!replaceValue(weaponRow, "type", quoted("weapon_catalog_id")) ||
+			!replaceValue(weaponRow, "value", quoted("")) ||
+			!replaceValue(weaponRow, "catalog_id", quoted(weapon_catalog_id)) ||
+			!replaceValue(modelRow, "catalog_id", quoted(model_catalog_id)) ||
+			!replaceValue(scaleRow, "value", quoted(scale))) {
+		setError(err, err_cap, "%s's rows could not be rewritten", object->record_id);
+		return 0;
+	}
+
+	commitObjectRows(doc, index, objectRow,
+		{ { what.weaponRow, weaponRow }, { what.modelRow, modelRow }, { what.scaleRow, scaleRow } });
+	forge_level_doc::FieldRow &weaponInfo = doc->fields[static_cast<size_t>(what.weaponRow)];
+	weaponInfo.type = "weapon_catalog_id";
+	weaponInfo.value.clear();
+	weaponInfo.catalog = weapon_catalog_id;
+	doc->fields[static_cast<size_t>(what.modelRow)].catalog = model_catalog_id;
+	doc->fields[static_cast<size_t>(what.scaleRow)].value = scale;
+	copyOut(object->weapon_catalog_id, weapon_catalog_id);
+	copyOut(object->model_catalog_id, model_catalog_id);
+	object->weapon_slot = -1;
+	return 1;
+}
+
+s32 forgeLevelDocSetPickupSlot(forge_level_doc_t *doc, const char *record_id, s32 slot,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	int index = -1;
+	forge_level_object_t *object = settablePickup(doc, record_id, &index, err, err_cap);
+	if (!object) return 0;
+	if (slot < 0 || slot >= kWeaponSlots) {
+		setError(err, err_cap, "a match has weapon places 0 to %ld, not %d", kWeaponSlots - 1,
+			static_cast<int>(slot));
+		return 0;
+	}
+
+	const forge_level_doc::ObjectCatalog what = doc->objectCatalog[static_cast<size_t>(index)];
+	std::string objectRow = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS].rows[static_cast<size_t>(index)];
+	std::string weaponRow = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS].rows[static_cast<size_t>(what.weaponRow)];
+	const std::string place = weaponSlotText(slot);
+	if (!replaceValue(objectRow, "weapon_catalog_id", quoted("")) ||
+			!replaceValue(weaponRow, "type", quoted("weapon_selector")) ||
+			!replaceValue(weaponRow, "value", quoted(place)) ||
+			!replaceValue(weaponRow, "catalog_id", quoted(""))) {
+		setError(err, err_cap, "%s's rows could not be rewritten", object->record_id);
+		return 0;
+	}
+
+	commitObjectRows(doc, index, objectRow, { { what.weaponRow, weaponRow } });
+	forge_level_doc::FieldRow &weaponInfo = doc->fields[static_cast<size_t>(what.weaponRow)];
+	weaponInfo.type = "weapon_selector";
+	weaponInfo.value = place;
+	weaponInfo.catalog.clear();
+	object->weapon_catalog_id[0] = '\0';
+	object->weapon_slot = slot;
+	return 1;
+}
+
+s32 forgeLevelDocSetObjectModel(forge_level_doc_t *doc, const char *record_id,
+	const char *model_catalog_id, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	const int index = doc ? findObject(*doc, record_id) : -1;
+	if (index < 0) {
+		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
+		return 0;
+	}
+	forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
+	if (strcmp(object.kind, kPropKind) != 0) {
+		setError(err, err_cap, "%s is a %s; only a plain prop can be given another model here",
+			object.record_id, object.kind);
+		return 0;
+	}
+	if (!object.model_settable) {
+		setError(err, err_cap, "%s has no model that both of the level's object files give, "
+			"so it cannot be changed", object.record_id);
+		return 0;
+	}
+	if (!catalogIdOk(model_catalog_id)) {
+		setError(err, err_cap, "\"%s\" is not a model's catalog id", model_catalog_id ? model_catalog_id : "");
+		return 0;
+	}
+
+	const forge_level_doc::ObjectCatalog what = doc->objectCatalog[static_cast<size_t>(index)];
+	std::string objectRow = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS].rows[static_cast<size_t>(index)];
+	std::string modelRow = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS].rows[static_cast<size_t>(what.modelRow)];
+	if (!replaceValue(objectRow, "model_catalog_id", quoted(model_catalog_id)) ||
+			!replaceValue(modelRow, "catalog_id", quoted(model_catalog_id))) {
+		setError(err, err_cap, "%s's rows could not be rewritten", object.record_id);
+		return 0;
+	}
+
+	commitObjectRows(doc, index, objectRow, { { what.modelRow, modelRow } });
+	doc->fields[static_cast<size_t>(what.modelRow)].catalog = model_catalog_id;
+	copyOut(object.model_catalog_id, model_catalog_id);
 	return 1;
 }
 

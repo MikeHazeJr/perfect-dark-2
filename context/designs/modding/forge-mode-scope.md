@@ -595,6 +595,62 @@ The same reading says the editor's older fly and placement math uses the
 mirrored angle too. That is recorded as B-1238 and left alone until the probe
 has measured it.
 
+Also read on the way (not a fault of this work, recorded with B-1237): the
+mouse does not turn the editor camera. Its deltas are zeroed while the
+editor's input context is on top (`input.c`), and the aim axis the camera
+reads is the right stick or the aim keys (`actionmap.cpp`). An editor wants a
+mouse look, held on a button; that belongs to F3.
+
+## F3 back end, first piece: what a pickup gives, what a prop looks like (WRITTEN 2026-11-17, unit-tested, not run)
+
+F3 says the things to place come from the catalog. Copying an object (F2)
+gives a level another weapon spot or prop of a kind it already has; these
+three edits of the level document make the copy something else. They are text
+edits, tested without the game.
+
+How base levels write it (base 8, all 66 arena and mission archives, READ):
+
+- What an object is drawn with is the `base.model` row of `setup.fields.json`
+  (`type` `model_catalog_id`, the id in `catalog_id`), repeated in
+  `objects.json` as `model_catalog_id`. Its size is `base.extra_scale`; 256 is
+  life size (`setup.c`: scale = extrascale / 256).
+- What a weapon pickup gives is the `pickup.weapon` row, written one of two
+  ways. A weapon of the catalog: `type` `weapon_catalog_id`, the id in
+  `catalog_id`, and the same id in `objects.json`'s `weapon_catalog_id`
+  (1,627 pickups). Or one of the match's sixteen weapon places: `type`
+  `weapon_selector`, `value` `mp_location_00` to `mp_location_15`, and no id
+  in either file (260 pickups; every multiplayer arena's weapon spots).
+- When a match starts the game gives a weapon place the weapon, the model and
+  the size of that place in the match's weapon set (`setupPlaceWeapon`). A
+  pickup of a catalog weapon keeps its own record's model and size, and its
+  weapon is looked up in the catalog by id (`s_setupResolveWeaponnum`,
+  `catalogResolveWeapon`), so a mod's weapon can be named.
+- 64 of the 1,905 `pickup.weapon` rows disagree with `objects.json` about the
+  weapon. Such a pickup is read and kept, and cannot be changed here.
+
+The edits (`forge_level_doc.h`):
+
+- `forgeLevelDocSetPickupWeapon(record, weapon id, model id, size)`: the
+  pickup gives that catalog weapon. Three field rows and two values of the
+  object's row change. The caller supplies the model and the size that go
+  with the weapon; the document does not know them.
+- `forgeLevelDocSetPickupSlot(record, 0 to 15)`: the pickup is a weapon place
+  of the match. Its model and size are left, since a place does not use them.
+- `forgeLevelDocSetObjectModel(record, model id)`: another model for a plain
+  prop (kind `prop`). Other kinds are refused: a door, a lift or a monitor
+  needs a model built for it.
+
+An id must have the shape of a catalog id (lower-case letters, digits, `_`,
+`-`, `.` and one `:`); every id in the base levels has. Whether the catalog
+has the asset is the caller's to check, and the game refuses a level that
+names one it does not have.
+
+Not written yet: the editor's side (a list of the catalog's weapons and prop
+models to choose from, and the model and size that go with a weapon, which
+the game holds per weapon in the weapon set table), a new object of a kind
+the level has none of, and a run. A level that has a pinned pickup of the
+crystal pistol in it is the proof to aim for.
+
 ## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
 
 A read-only survey of `week-pd/mods-v4` at f88ff301 (file and line as it

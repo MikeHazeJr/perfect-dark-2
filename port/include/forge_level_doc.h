@@ -19,8 +19,9 @@
  *                                                    bounds row, and counts
  *
  * This module reads those six texts, lets a caller add, move and remove
- * spawns and move, duplicate and leave out objects, and gives the texts back
- * for saving.
+ * spawns, move, duplicate and leave out objects, change what a weapon pickup
+ * gives and which model a prop is drawn with, and gives the texts back for
+ * saving.
  * It holds no game state and touches no file: text in, text out. Forge's
  * editor fills it from the level's archive and hands the changed members to
  * the mod author (context/designs/modding/forge-mode-scope.md, step F2).
@@ -72,6 +73,12 @@
  *   setup.fields.json); putting it back restores the bits it had. No base
  *   level leaves an object out on all four, so this is a state the game's
  *   code allows for but its levels have not used.
+ * - What an object is drawn with and what a pickup gives are written twice
+ *   too (objects.json's `model_catalog_id` and `weapon_catalog_id`, and the
+ *   `base.model` and `pickup.weapon` rows of setup.fields.json, from which
+ *   the game builds the object). They are changed only where the two files
+ *   agreed when read (64 of the 1,905 `pickup.weapon` rows of the base
+ *   levels do not), and always in both.
  *
  * Saving goes through the archive rebuild, which brings the scenario's
  * navigation record (its count of pads and volumes and its hash of each of
@@ -145,6 +152,10 @@ typedef struct forge_level_object {
 	s32 movable;          /* 1 when it stands on a pad and its pad field is known */
 	s32 removable;        /* 1 when the level can leave it out (forgeLevelDocSetObjectRemoved) */
 	s32 removed;          /* 1 when the level leaves it out on every difficulty */
+	s32 weapon_slot;      /* 0 to 15 when it is one of the match's weapon places, else -1 */
+	s32 model_settable;   /* 1 when both object files give its model and agree */
+	s32 weapon_settable;  /* 1 for a weapon pickup whose weapon both files give and agree about,
+	                       * and whose model and size can follow (forgeLevelDocSetPickupWeapon) */
 } forge_level_object_t;
 
 /*
@@ -214,6 +225,48 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
  */
 s32 forgeLevelDocSetObjectRemoved(forge_level_doc_t *doc, const char *record_id, s32 removed,
 	char *err, size_t err_cap);
+
+/*
+ * What a weapon pickup gives.
+ *
+ * A base level writes it one of two ways, in the `pickup.weapon` row of
+ * setup.fields.json. A weapon of the catalog: `type` "weapon_catalog_id" with
+ * the id in `catalog_id`, and the same id in objects.json's
+ * `weapon_catalog_id`. Or one of the match's sixteen weapon places: `type`
+ * "weapon_selector" with `value` "mp_location_00" to "mp_location_15" and no
+ * id in either file. When a match starts, the game gives a weapon place the
+ * weapon, the model and the size of that place in the match's weapon set
+ * (setup.c, setupPlaceWeapon); a pickup of a catalog weapon keeps the model
+ * and the size its own record names.
+ *
+ * forgeLevelDocSetPickupWeapon makes the pickup a weapon of the catalog and
+ * so writes all three: the weapon, the model that shows it (`base.model`,
+ * repeated in objects.json's `model_catalog_id`) and its size
+ * (`base.extra_scale`, 256 is life size). The caller knows which model and
+ * size go with a weapon; this module does not. forgeLevelDocSetPickupSlot
+ * makes it a weapon place (0 to 15); the model and size in its record no
+ * longer matter to the game then and are left as they are.
+ *
+ * Only a `weapon_settable` object. The ids must be catalog ids
+ * ("base:dragon", "mod:weapon_crystal_pistol"): lower-case letters, digits,
+ * '_', '-', '.' and one ':' with something on both sides. Whether the catalog
+ * has them is for the caller; the game refuses a level that names a weapon or
+ * a model it does not have.
+ */
+s32 forgeLevelDocSetPickupWeapon(forge_level_doc_t *doc, const char *record_id,
+	const char *weapon_catalog_id, const char *model_catalog_id, s32 extra_scale,
+	char *err, size_t err_cap);
+s32 forgeLevelDocSetPickupSlot(forge_level_doc_t *doc, const char *record_id, s32 slot,
+	char *err, size_t err_cap);
+
+/*
+ * Gives a plain prop (kind "prop") another model of the catalog, in both
+ * files that name it. Only a `model_settable` object. Other kinds are refused:
+ * a door, a lift or a monitor needs a model built for it, and a weapon
+ * pickup's model goes with its weapon (above).
+ */
+s32 forgeLevelDocSetObjectModel(forge_level_doc_t *doc, const char *record_id,
+	const char *model_catalog_id, char *err, size_t err_cap);
 
 /* 1 when the member's text is no longer what was read. */
 s32 forgeLevelDocMemberChanged(const forge_level_doc_t *doc, s32 member);

@@ -1697,6 +1697,307 @@ TEST_CASE("A level saved over itself is written whole, so an edit taken back sin
 	fs::remove_all(root, ec);
 }
 
+namespace {
+
+/* One row of objects.json, on one line. */
+std::string armouryObject(const char *record, const char *kind, const char *pad, const char *model,
+	const char *weapon)
+{
+	return std::string("    { \"record_id\": \"") + record + "\", \"kind\": \"" + kind + "\", \"pad_ref\": \"" + pad +
+		"\", \"model_catalog_id\": \"" + model + "\", \"weapon_catalog_id\": \"" + weapon +
+		"\", \"secondary_weapon_catalog_id\": \"\", \"flags\": \"0x00000001\", \"flags2\": \"0x00000000\" }";
+}
+
+/* One row of setup.fields.json that names a catalog asset, as the extractor writes it. */
+std::string catalogRow(const char *record, const char *kind, const char *field, const char *type,
+	const char *catalog)
+{
+	return std::string("    {\n      \"record_id\": \"") + record + "\",\n      \"kind\": \"" + kind +
+		"\",\n      \"field\": \"" + field + "\",\n      \"type\": \"" + type +
+		"\",\n      \"value\": \"\",\n      \"catalog_id\": \"" + catalog + "\",\n      \"ref_record_id\": \"\"\n    }";
+}
+
+/*
+ * Five objects on kPads' three pads, written the two ways base levels write
+ * what a pickup gives:
+ *   setup_0000  a weapon place of the match (mp_location_03), drawn as the stand-in model
+ *   setup_0001  a pickup of a catalog weapon, with that weapon's own model
+ *   setup_0002  a plain prop
+ *   setup_0003  a door, which stands on no pad
+ *   setup_0004  a pickup whose two files disagree about its weapon
+ */
+std::string armouryObjects()
+{
+	return std::string("{\n  \"schema\": \"pd2.scenario.objects.v1\",\n  \"rows\": [\n") +
+		armouryObject("setup_0000", "weapon_pickup", "pad_0002", "base:model_roofgun", "") + ",\n" +
+		armouryObject("setup_0001", "weapon_pickup", "pad_0001", "base:model_chrdragon", "base:dragon") + ",\n" +
+		armouryObject("setup_0002", "prop", "pad_0000", "base:model_crate", "") + ",\n" +
+		armouryObject("setup_0003", "door", "", "base:model_door", "") + ",\n" +
+		armouryObject("setup_0004", "weapon_pickup", "pad_0000", "base:model_roofgun", "base:falcon2") +
+		"\n  ]\n}\n";
+}
+
+std::string armouryFields()
+{
+	std::string rows;
+	const auto record = [&](const char *id, const char *kind, const char *order, const char *scale,
+			const char *model, const char *pad) {
+		if (!rows.empty()) rows += ",\n";
+		rows += fieldRow(id, kind, "command.order", "s32", order) + ",\n" +
+			fieldRow(id, kind, "base.extra_scale", "s32", scale) + ",\n" +
+			catalogRow(id, kind, "base.model", "model_catalog_id", model);
+		if (pad[0]) rows += ",\n" + fieldRow(id, kind, "base.pad", "pad_ref", pad);
+	};
+	record("setup_0000", "weapon_pickup", "0", "512", "base:model_roofgun", "pad_0002");
+	rows += ",\n" + fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector", "mp_location_03");
+	record("setup_0001", "weapon_pickup", "1", "256", "base:model_chrdragon", "pad_0001");
+	rows += ",\n" + catalogRow("setup_0001", "weapon_pickup", "pickup.weapon", "weapon_catalog_id", "base:dragon");
+	record("setup_0002", "prop", "2", "256", "base:model_crate", "pad_0000");
+	record("setup_0003", "door", "3", "256", "base:model_door", "");
+	record("setup_0004", "weapon_pickup", "4", "512", "base:model_roofgun", "pad_0000");
+	rows += ",\n" + fieldRow("setup_0004", "weapon_pickup", "pickup.weapon", "weapon_selector", "mp_location_00");
+	return "{\n  \"schema\": \"pd2.scenario.setup.fields.v1\",\n  \"rows\": [\n" + rows + "\n  ]\n}\n";
+}
+
+/* The object `id` as the document reports it. */
+forge_level_object_t armouryFind(const forge_level_doc_t *doc, const char *id)
+{
+	forge_level_object_t object = {};
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc); i++) {
+		REQUIRE(forgeLevelDocGetObject(doc, i, &object) == 1);
+		if (std::string(object.record_id) == id) return object;
+	}
+	FAIL("the level has no " << id);
+	return object;
+}
+
+}
+
+TEST_CASE("A weapon pickup is given a weapon of the catalog, or made one of the match's weapon places",
+          "[forge-level-doc]")
+{
+	const std::string objectsText = armouryObjects();
+	const std::string fieldsText = armouryFields();
+	Level level(kPads, kSpawns, objectsText, kVolumes, fieldsText);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+
+	/* What was read. */
+	forge_level_object_t place = armouryFind(level.doc, "setup_0000");
+	CHECK(place.weapon_slot == 3);
+	CHECK(place.weapon_settable == 1);
+	CHECK(place.model_settable == 1);
+	CHECK(std::string(place.weapon_catalog_id).empty());
+	forge_level_object_t dragon = armouryFind(level.doc, "setup_0001");
+	CHECK(dragon.weapon_slot == -1);
+	CHECK(dragon.weapon_settable == 1);
+	CHECK(std::string(dragon.weapon_catalog_id) == "base:dragon");
+	CHECK(armouryFind(level.doc, "setup_0002").weapon_settable == 0);
+	CHECK(armouryFind(level.doc, "setup_0002").model_settable == 1);
+	/* Its two files disagree, so there is no telling which to change. */
+	CHECK(armouryFind(level.doc, "setup_0004").weapon_settable == 0);
+	CHECK(armouryFind(level.doc, "setup_0004").weapon_slot == -1);
+
+	/* The weapon place becomes a pickup of a mod's weapon, with the model that
+	 * shows it at life size: three field rows and two values of its object row. */
+	REQUIRE(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", "mod:weapon_crystal_pistol",
+		"mod:model_crystal_pistol", 256, err, sizeof(err)) == 1);
+	place = armouryFind(level.doc, "setup_0000");
+	CHECK(place.weapon_slot == -1);
+	CHECK(std::string(place.weapon_catalog_id) == "mod:weapon_crystal_pistol");
+	CHECK(std::string(place.model_catalog_id) == "mod:model_crystal_pistol");
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SETUP_FIELDS) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 0);
+	std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	std::string fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(objects.find(armouryObject("setup_0000", "weapon_pickup", "pad_0002", "mod:model_crystal_pistol",
+		"mod:weapon_crystal_pistol")) != std::string::npos);
+	CHECK(fields.find(catalogRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_catalog_id",
+		"mod:weapon_crystal_pistol")) != std::string::npos);
+	CHECK(fields.find(catalogRow("setup_0000", "weapon_pickup", "base.model", "model_catalog_id",
+		"mod:model_crystal_pistol")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "base.extra_scale", "s32", "256")) != std::string::npos);
+	/* Every other object keeps its rows byte for byte. */
+	CHECK(objects.find(armouryObject("setup_0001", "weapon_pickup", "pad_0001", "base:model_chrdragon",
+		"base:dragon")) != std::string::npos);
+	CHECK(fields.find(catalogRow("setup_0004", "weapon_pickup", "base.model", "model_catalog_id",
+		"base:model_roofgun")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0004", "weapon_pickup", "base.extra_scale", "s32", "512")) != std::string::npos);
+	CHECK(objects.size() == objectsText.size() + strlen("mod:weapon_crystal_pistol") +
+		strlen("mod:model_crystal_pistol") - strlen("base:model_roofgun"));
+
+	/* What was written is a level the document reads the same way: the two
+	 * files agree about the new weapon and the new model. */
+	{
+		Level again(kPads, kSpawns, objects, kVolumes, fields);
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		const forge_level_object_t read = armouryFind(again.doc, "setup_0000");
+		CHECK(read.weapon_settable == 1);
+		CHECK(read.weapon_slot == -1);
+		CHECK(std::string(read.weapon_catalog_id) == "mod:weapon_crystal_pistol");
+		CHECK(std::string(read.model_catalog_id) == "mod:model_crystal_pistol");
+	}
+
+	/* The catalog pickup becomes weapon place 7. Its model and size stay: the
+	 * match's weapon set gives a place both. */
+	REQUIRE(forgeLevelDocSetPickupSlot(level.doc, "setup_0001", 7, err, sizeof(err)) == 1);
+	dragon = armouryFind(level.doc, "setup_0001");
+	CHECK(dragon.weapon_slot == 7);
+	CHECK(std::string(dragon.weapon_catalog_id).empty());
+	CHECK(std::string(dragon.model_catalog_id) == "base:model_chrdragon");
+	objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(objects.find(armouryObject("setup_0001", "weapon_pickup", "pad_0001", "base:model_chrdragon", "")) !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0001", "weapon_pickup", "pickup.weapon", "weapon_selector",
+		"mp_location_07")) != std::string::npos);
+
+	/* And the first one back to the place it was: its weapon row and its
+	 * object row's weapon are the bytes that were read (its model and size
+	 * stay what they were made, which a place does not use). */
+	REQUIRE(forgeLevelDocSetPickupSlot(level.doc, "setup_0000", 3, err, sizeof(err)) == 1);
+	fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector",
+		"mp_location_03")) != std::string::npos);
+	CHECK(armouryFind(level.doc, "setup_0000").weapon_slot == 3);
+	{
+		Level again(kPads, kSpawns, level.text(FORGE_LEVEL_MEMBER_OBJECTS), kVolumes, fields);
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		CHECK(armouryFind(again.doc, "setup_0000").weapon_slot == 3);
+		CHECK(armouryFind(again.doc, "setup_0000").weapon_settable == 1);
+		CHECK(armouryFind(again.doc, "setup_0001").weapon_slot == 7);
+		CHECK(armouryFind(again.doc, "setup_0001").weapon_settable == 1);
+	}
+}
+
+TEST_CASE("A change of weapon or model that cannot be written is refused and changes nothing",
+          "[forge-level-doc]")
+{
+	Level level(kPads, kSpawns, armouryObjects(), kVolumes, armouryFields());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	const auto untouched = [&]() {
+		return forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 0 &&
+			forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SETUP_FIELDS) == 0;
+	};
+
+	CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0099", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "the level has no object \"setup_0099\"");
+	CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0002", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0002 is a prop, not a weapon pickup");
+	CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0004", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0004 has no weapon, model and size that both of the level's object files "
+		"give, so what it gives cannot be changed");
+	CHECK(forgeLevelDocSetPickupSlot(level.doc, "setup_0004", 2, err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetPickupSlot(level.doc, "setup_0003", 2, err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0003 is a door, not a weapon pickup");
+
+	/* Ids that are not catalog ids, and so are never written between quotes. */
+	for (const char *bad : { "", "dragon", "base:", ":dragon", "base:dra:gon", "Base:Dragon", "base:dra gon",
+			"base:dra\"gon", "base:0123456789012345678901234567890123456789012345678901234567890123456789" }) {
+		CAPTURE(bad);
+		CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", bad, "base:model_chrdragon", 256,
+			err, sizeof(err)) == 0);
+		CHECK(std::string(err) == std::string("\"") + bad + "\" is not a weapon's catalog id");
+		CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", "base:dragon", bad, 256,
+			err, sizeof(err)) == 0);
+		CHECK(std::string(err) == std::string("\"") + bad + "\" is not a model's catalog id");
+		CHECK(forgeLevelDocSetObjectModel(level.doc, "setup_0002", bad, err, sizeof(err)) == 0);
+	}
+	CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", nullptr, "base:model_chrdragon", 256,
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", "base:dragon", nullptr, 256,
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetObjectModel(level.doc, "setup_0002", nullptr, err, sizeof(err)) == 0);
+
+	for (const s32 size : { 0, -256, 32768, 70000 }) {
+		CAPTURE(size);
+		CHECK(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", "base:dragon", "base:model_chrdragon", size,
+			err, sizeof(err)) == 0);
+	}
+	CHECK(std::string(err) == "a pickup's size is 1 to 32767 (256 is life size), not 70000");
+	for (const s32 slot : { -1, 16, 99 }) {
+		CAPTURE(slot);
+		CHECK(forgeLevelDocSetPickupSlot(level.doc, "setup_0000", slot, err, sizeof(err)) == 0);
+	}
+	CHECK(std::string(err) == "a match has weapon places 0 to 15, not 99");
+
+	/* A model only for a plain prop: a door needs a model built for one, and
+	 * a pickup's model goes with its weapon. */
+	CHECK(forgeLevelDocSetObjectModel(level.doc, "setup_0003", "base:model_crate", err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0003 is a door; only a plain prop can be given another model here");
+	CHECK(forgeLevelDocSetObjectModel(level.doc, "setup_0000", "base:model_crate", err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetObjectModel(level.doc, "setup_0099", "base:model_crate", err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetPickupWeapon(nullptr, "setup_0000", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetPickupSlot(nullptr, "setup_0000", 1, err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetObjectModel(nullptr, "setup_0002", "base:model_crate", err, sizeof(err)) == 0);
+
+	CHECK(untouched());
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == armouryObjects());
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == armouryFields());
+}
+
+TEST_CASE("A prop is given another model, and a copied pickup is changed without touching the one it came from",
+          "[forge-level-doc]")
+{
+	Level level(kPads, kSpawns, armouryObjects(), kVolumes, armouryFields());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	REQUIRE(forgeLevelDocSetObjectModel(level.doc, "setup_0002", "mod:prop_maian_crate", err, sizeof(err)) == 1);
+	CHECK(std::string(armouryFind(level.doc, "setup_0002").model_catalog_id) == "mod:prop_maian_crate");
+	std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	std::string fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(objects.find(armouryObject("setup_0002", "prop", "pad_0000", "mod:prop_maian_crate", "")) !=
+		std::string::npos);
+	CHECK(fields.find(catalogRow("setup_0002", "prop", "base.model", "model_catalog_id", "mod:prop_maian_crate")) !=
+		std::string::npos);
+	CHECK(occurrences(fields, "base:model_crate") == 0);
+
+	/* A copy of the weapon place, then the copy alone is given a weapon. */
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0005");
+	forge_level_object_t copy = armouryFind(level.doc, "setup_0005");
+	CHECK(copy.weapon_slot == 3);
+	CHECK(copy.weapon_settable == 1);
+	REQUIRE(forgeLevelDocSetPickupWeapon(level.doc, "setup_0005", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 1);
+	CHECK(armouryFind(level.doc, "setup_0005").weapon_slot == -1);
+	CHECK(std::string(armouryFind(level.doc, "setup_0005").weapon_catalog_id) == "base:dragon");
+	CHECK(armouryFind(level.doc, "setup_0000").weapon_slot == 3);
+	CHECK(std::string(armouryFind(level.doc, "setup_0000").model_catalog_id) == "base:model_roofgun");
+	fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector",
+		"mp_location_03")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "base.extra_scale", "s32", "512")) != std::string::npos);
+	CHECK(fields.find(catalogRow("setup_0005", "weapon_pickup", "pickup.weapon", "weapon_catalog_id",
+		"base:dragon")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0005", "weapon_pickup", "base.extra_scale", "s32", "256")) != std::string::npos);
+
+	/* Read back, the level says the same of all three. */
+	Level again(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, level.text(FORGE_LEVEL_MEMBER_OBJECTS),
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES), fields, level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(again.error);
+	REQUIRE(again.doc != nullptr);
+	CHECK(armouryFind(again.doc, "setup_0000").weapon_slot == 3);
+	CHECK(std::string(armouryFind(again.doc, "setup_0005").weapon_catalog_id) == "base:dragon");
+	CHECK(armouryFind(again.doc, "setup_0005").weapon_settable == 1);
+	CHECK(std::string(armouryFind(again.doc, "setup_0002").model_catalog_id) == "mod:prop_maian_crate");
+}
+
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",
           "[forge-level-doc][.local]")
 {
