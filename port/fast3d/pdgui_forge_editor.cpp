@@ -20,7 +20,9 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -30,6 +32,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui.h"   /* B-195 / Fix 2+3 (2026-05-01): pdguiClearImGuiFocusAndNav */
 #include "system.h"  /* Issue 9 placeholder TODO log lines */
+#include "forge_level_io.h"   /* Forge F2: the level's own placements */
 
 extern "C" {
 #include "game/forgemode.h"
@@ -49,6 +52,10 @@ int  gfxDebugWireframeGet(void);
 void gfxDebugWireframeSet(int on);
 int  gfxDebugCullModeGet(void);
 void gfxDebugCullModeSet(int mode);
+
+/* main.c: the --launch-forge-level and --debug-forge-session-save one-shots,
+ * driven from pdguiForgeEditorTick. */
+s32 bootForgeLevelTick(void);
 }
 
 /* Issue 8b (2026-04-24): tab ids moved here from their later declaration
@@ -1388,6 +1395,8 @@ static void forgeDrawSettingsTab(void)
 	}
 	ImGui::TextDisabled("Saves to mods/Forge Maps/<slug>/ (The Grid map format; "
 			"writes mod.json + map.json).");
+	ImGui::TextDisabled("Only this editor reads that format. To make a level that "
+			"shows in The Grid and in match setup, use Level File at the top of this tab.");
 
 	/* Save confirmation modal -- lists mod dependencies so the author
 	 * knows the full bundle before pressing Save. */
@@ -1535,6 +1544,7 @@ static const ForgeSidebarEntry s_SbGameplay[] = {
 };
 
 static const ForgeSidebarEntry s_SbSetup[] = {
+	{ "Level File",   3 },
 	{ "Map Metadata", 0 },
 	{ "Variant",      1 },
 	{ "Players",      2 },
@@ -1862,6 +1872,298 @@ static void forgeDrawLevelExtras(void)
 	}
 }
 
+/* ============================================================
+ * Level File (Forge F2): the level's own placements
+ *
+ * The rest of this editor still works on its own object list and saves
+ * map.json. This section edits the level the session was started on as its
+ * archive stores it: player starts and objects, each standing on a pad
+ * (forge_level_io.h, forge_level_doc.h). Save makes a level mod through the
+ * mod author, the save the other in-game creators use.
+ *
+ * Everything is placed where the editor camera is, facing the way it
+ * faces. Nothing here is drawn in the world yet; the lists show where each
+ * thing stands.
+ * ============================================================ */
+
+static char s_LevelFileName[MOD_AUTHOR_NAME_MAX] = "";
+static char s_LevelFileStatus[400]               = "";
+static bool s_LevelFileStatusBad                 = false;
+static char s_LevelFileStart[32]                 = "";   /* selected player start, by id */
+static char s_LevelFileObject[32]                = "";   /* selected object, by id */
+static int  s_LevelFileObjectIndex               = -1;   /* its row; objects are only added, so rows do not move */
+static int  s_LevelFileEdits                     = 0;    /* edits since the level was opened or last saved */
+static bool s_LevelFileCloseArmed                = false;
+
+static void forgeLevelFileStatus(bool bad, const char *fmt, ...)
+{
+	va_list ap;
+	va_start(ap, fmt);
+	vsnprintf(s_LevelFileStatus, sizeof(s_LevelFileStatus), fmt, ap);
+	va_end(ap);
+	s_LevelFileStatus[sizeof(s_LevelFileStatus) - 1] = '\0';
+	s_LevelFileStatusBad = bad;
+	s_LevelFileCloseArmed = false;
+}
+
+static void forgeLevelFileDrawStatus(void)
+{
+	if (!s_LevelFileStatus[0]) return;
+	ImGui::PushStyleColor(ImGuiCol_Text, s_LevelFileStatusBad
+		? ImVec4(1.0f, 0.55f, 0.5f, 1.0f) : ImVec4(0.6f, 0.95f, 0.6f, 1.0f));
+	ImGui::TextWrapped("%s", s_LevelFileStatus);
+	ImGui::PopStyleColor();
+}
+
+static void forgeLevelFileForget(void)
+{
+	s_LevelFileStart[0] = '\0';
+	s_LevelFileObject[0] = '\0';
+	s_LevelFileObjectIndex = -1;
+	s_LevelFileEdits = 0;
+	s_LevelFileCloseArmed = false;
+}
+
+/* Where the editor camera is and the way it faces, flat: a pad's look is
+ * read back into a player's turn angle as atan2f(look.x, look.z). */
+static void forgeLevelFileCamera(f32 position[3], f32 look[3])
+{
+	struct forge_editor_coord { f32 x, y, z; } cpos = { 0.0f, 0.0f, 0.0f };
+	forgeGetCameraPos((struct coord *)&cpos);
+	const f32 yaw = forgeGetCameraYawDeg() * 0.017453292f;
+	position[0] = cpos.x;
+	position[1] = cpos.y;
+	position[2] = cpos.z;
+	look[0] = sinf(yaw);
+	look[1] = 0.0f;
+	look[2] = cosf(yaw);
+}
+
+static void forgeDrawLevelFileSection(void)
+{
+	forgeScrollAnchorMaybe(FGT_SETUP, 3);   /* sidebar "Level File" */
+	ImGui::SeparatorText("Level File");
+
+	const char *arena = forgeLevelSessionArena();
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	const forge_level_source_t *source = forgeLevelSessionSource();
+	char err[256];
+	err[0] = '\0';
+
+	if (!doc || !source) {
+		if (!arena || !arena[0]) {
+			ImGui::TextWrapped(
+				"This session was not started on a level from The Grid's list, "
+				"so it has no level file to edit.");
+		} else {
+			ImGui::Text("Level: %s", arena);
+			if (ImGui::Button("Open Level File")) {
+				forgeLevelFileForget();
+				if (forgeLevelSessionOpen(arena, err, sizeof(err))) {
+					forgeLevelFileStatus(false, "Opened %s.", arena);
+				} else {
+					forgeLevelFileStatus(true, "Could not open %s: %s", arena, err);
+				}
+			}
+			ImGui::TextWrapped(
+				"Reads this level's player starts and objects from its archive. "
+				"Saving makes a new level; the level you opened stays as it is.");
+		}
+		forgeLevelFileDrawStatus();
+		return;
+	}
+
+	ImGui::Text("Level: %s", source->arena_id);
+	ImGui::Text("%d player starts, %d objects, %d pads",
+		(int)forgeLevelDocSpawnCount(doc), (int)forgeLevelDocObjectCount(doc),
+		(int)forgeLevelDocPadCount(doc));
+	if (s_LevelFileEdits > 0) {
+		ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%d change%s not saved",
+			s_LevelFileEdits, s_LevelFileEdits == 1 ? "" : "s");
+	}
+
+	f32 position[3];
+	f32 look[3];
+	forgeLevelFileCamera(position, look);
+
+	/* -------------------------------------------------------------
+	 * Player starts
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Player Starts");
+	if (ImGui::Button("Add Start Here")) {
+		char id[32];
+		if (forgeLevelDocAddSpawn(doc, position, look, nullptr, id, sizeof(id), err, sizeof(err))) {
+			s_LevelFileEdits++;
+			snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", id);
+			forgeLevelFileStatus(false, "Added %s where the camera is.", id);
+		} else {
+			forgeLevelFileStatus(true, "Could not add a start: %s", err);
+		}
+	}
+	ImGui::SameLine();
+	ImGui::BeginDisabled(s_LevelFileStart[0] == '\0');
+	if (ImGui::Button("Move Start Here")) {
+		if (forgeLevelDocMoveSpawn(doc, s_LevelFileStart, position, look, err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileStart);
+		} else {
+			forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileStart, err);
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Remove Start")) {
+		if (forgeLevelDocRemoveSpawn(doc, s_LevelFileStart, err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Removed %s.", s_LevelFileStart);
+			s_LevelFileStart[0] = '\0';
+		} else {
+			forgeLevelFileStatus(true, "Could not remove %s: %s", s_LevelFileStart, err);
+		}
+	}
+	ImGui::EndDisabled();
+	ImGui::TextDisabled("A start goes where the camera is, facing the way it faces. "
+		"The game finds the floor under it.");
+
+	ImGui::BeginChild("LevelFileStarts", ImVec2(-1, 130 * pdguiScale(1.0f)), true);
+	{
+		ImGuiListClipper clipper;
+		clipper.Begin((int)forgeLevelDocSpawnCount(doc));
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+				forge_level_spawn_t spawn;
+				forge_level_pad_t pad;
+				char label[192];
+				if (!forgeLevelDocGetSpawn(doc, i, &spawn)) continue;
+				if (forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) {
+					snprintf(label, sizeof(label), "%s   team %s   at (%.0f, %.0f, %.0f)%s",
+						spawn.spawn_id, spawn.team, pad.position[0], pad.position[1],
+						pad.position[2], pad.added ? "   new place" : "");
+				} else {
+					snprintf(label, sizeof(label), "%s   team %s", spawn.spawn_id, spawn.team);
+				}
+				ImGui::PushID(i);
+				if (ImGui::Selectable(label, strcmp(s_LevelFileStart, spawn.spawn_id) == 0)) {
+					snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", spawn.spawn_id);
+				}
+				ImGui::PopID();
+			}
+		}
+	}
+	ImGui::EndChild();
+
+	/* -------------------------------------------------------------
+	 * Objects
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Objects");
+	forge_level_object_t selected = {};
+	const bool haveSelected = s_LevelFileObjectIndex >= 0
+		&& forgeLevelDocGetObject(doc, s_LevelFileObjectIndex, &selected)
+		&& strcmp(selected.record_id, s_LevelFileObject) == 0;
+	ImGui::BeginDisabled(!haveSelected || !selected.movable);
+	if (ImGui::Button("Move Object Here")) {
+		if (forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileObject);
+		} else {
+			forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileObject, err);
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Copy Object Here")) {
+		char id[32];
+		if (forgeLevelDocDuplicateObject(doc, s_LevelFileObject, position, look, id, sizeof(id),
+				err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Copied %s to %s where the camera is.", s_LevelFileObject, id);
+			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+		} else {
+			forgeLevelFileStatus(true, "Could not copy %s: %s", s_LevelFileObject, err);
+		}
+	}
+	ImGui::EndDisabled();
+	if (haveSelected && !selected.movable) {
+		ImGui::TextDisabled("%s stands on no pad, so it cannot be moved or copied here.",
+			selected.record_id);
+	}
+	ImGui::TextWrapped(
+		"A copy is a new object of the same kind with the same settings. In a "
+		"multiplayer level a weapon is a slot of the match's weapon set, so a copy "
+		"of a weapon is another spot for that slot. Objects cannot be removed yet.");
+
+	ImGui::BeginChild("LevelFileObjects", ImVec2(-1, 190 * pdguiScale(1.0f)), true);
+	{
+		ImGuiListClipper clipper;
+		clipper.Begin((int)forgeLevelDocObjectCount(doc));
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+				forge_level_object_t object;
+				char label[256];
+				if (!forgeLevelDocGetObject(doc, i, &object)) continue;
+				const char *what = object.weapon_catalog_id[0] ? object.weapon_catalog_id
+					: object.model_catalog_id;
+				snprintf(label, sizeof(label), "%s   %s   %s   %s", object.record_id, object.kind,
+					what[0] ? what : "-", object.pad_ref[0] ? object.pad_ref : "no pad");
+				ImGui::PushID(i);
+				if (ImGui::Selectable(label, i == s_LevelFileObjectIndex)) {
+					s_LevelFileObjectIndex = i;
+					snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", object.record_id);
+				}
+				ImGui::PopID();
+			}
+		}
+	}
+	ImGui::EndChild();
+
+	/* -------------------------------------------------------------
+	 * Save
+	 * ------------------------------------------------------------- */
+	ImGui::SeparatorText("Save Level");
+	ImGui::InputText("Level Name", s_LevelFileName, sizeof(s_LevelFileName));
+	ImGui::BeginDisabled(s_LevelFileName[0] == '\0');
+	if (ImGui::Button("Save As Level")) {
+		mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
+		if (!result) {
+			forgeLevelFileStatus(true, "Could not save: out of memory.");
+		} else {
+			if (forgeLevelSessionSaveAs(s_LevelFileName, result, err, sizeof(err)) == MOD_AUTHOR_OK) {
+				s_LevelFileEdits = 0;
+				forgeLevelFileStatus(false,
+					"%s the level \"%s\" (%s). Choose it in The Grid or in match setup to play it.",
+					result->updated ? "Updated" : "Saved", s_LevelFileName, result->catalog_id);
+			} else {
+				forgeLevelFileStatus(true, "Could not save: %s", err);
+			}
+			free(result);
+		}
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button(s_LevelFileCloseArmed ? "Really Close?###LevelFileClose"
+			: "Close Without Saving###LevelFileClose")) {
+		if (s_LevelFileEdits > 0 && !s_LevelFileCloseArmed) {
+			const int edits = s_LevelFileEdits;
+			forgeLevelFileStatus(true, "%d change%s would be lost. Press the button again to close.",
+				edits, edits == 1 ? "" : "s");
+			s_LevelFileCloseArmed = true;
+		} else {
+			/* `doc` and `source` are gone after this: nothing below may use them. */
+			forgeLevelSessionClose();
+			forgeLevelFileForget();
+			forgeLevelFileStatus(false, "Closed the level file. Nothing was saved.");
+			forgeLevelFileDrawStatus();
+			return;
+		}
+	}
+	ImGui::TextWrapped(
+		"Saving makes a level mod with this name from %s and your changes, and saving "
+		"again under the same name updates it. A level made from one of the game's own "
+		"levels uses your game files, so it stays on this machine. Changes that are not "
+		"saved are lost when you leave the level.",
+		source->arena_id);
+	forgeLevelFileDrawStatus();
+}
+
 static void forgeDrawActiveTab(int idx)
 {
 	switch (idx) {
@@ -1906,8 +2208,11 @@ static void forgeDrawActiveTab(int idx)
 		forgeDrawBotsTab();
 		break;
 	case FGT_SETUP:
-		/* Setup = Settings. Anchors live inside forgeDrawSettingsTab
-		 * at the Map Metadata / Variant / Players section headers. */
+		/* Setup = Level File + Settings. Anchor 3 = Level File; the
+		 * others live inside forgeDrawSettingsTab at the Map Metadata /
+		 * Variant / Players section headers. */
+		forgeDrawLevelFileSection();
+		ImGui::Separator();
 		forgeDrawSettingsTab();
 		break;
 	default:
@@ -2191,6 +2496,11 @@ void pdguiForgeEditorTick(void)
 	 * exclusive on the catalog flow, but kept independent here so a
 	 * future tool-mode that re-engages ghost placement on top of a
 	 * held object still works. */
+	/* Forge F2: the boot flags that start a session on a named level and
+	 * save from inside it. A no-op unless one was passed. Before the
+	 * session checks, because the first of them is what starts a session. */
+	(void)bootForgeLevelTick();
+
 	if (!forgeSessionIsActive()) return;
 	if (!forgeIsFreefly())       return;
 

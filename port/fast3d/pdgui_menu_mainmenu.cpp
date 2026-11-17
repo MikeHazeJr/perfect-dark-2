@@ -5823,6 +5823,9 @@ static void gridScenarioListEnsure(void)
     }
 }
 
+/* forge_level_io.h: names the arena a Forge session was started on. */
+extern "C" void forgeLevelSessionBegin(const char *arena_id);
+
 /* Apply the submenu state to g_MatchConfig and call
  * pdguiForgeStartSessionOn(stagenum).  Returns true on success. */
 static bool gridCommitEnter(void)
@@ -5928,10 +5931,16 @@ static bool gridCommitEnter(void)
      * load_mode == ARENA_LOADMODE_CANVAS route to the canvas variant so
      * setup-time chr / AI / script paths suppress mission state.
      * Default (PLAYABLE) is unchanged. */
-    if (a->load_mode == ARENA_LOADMODE_CANVAS) {
-        return pdguiForgeStartSessionOnCanvas(a->stagenum) != 0;
+    const bool started = (a->load_mode == ARENA_LOADMODE_CANVAS)
+        ? pdguiForgeStartSessionOnCanvas(a->stagenum) != 0
+        : pdguiForgeStartSessionOn(a->stagenum) != 0;
+    /* Forge F2: tell the editor which level this session is on, so its
+     * Level File section can open that level's own placements. The blank
+     * map and a random pick have no arena to name. */
+    if (started) {
+        forgeLevelSessionBegin((a->is_blank || !commit_id[0]) ? "" : commit_id);
     }
-    return pdguiForgeStartSessionOn(a->stagenum) != 0;
+    return started;
 }
 
 static s32 pdguiMainMenuGraphEnterGrid(void *userdata)

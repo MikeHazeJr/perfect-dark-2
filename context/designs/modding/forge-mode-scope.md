@@ -425,6 +425,51 @@ the part that knows the game; the document above does not.
   it was put or that anyone started on the new spot.
 
 Not known until a run: whether a pad the document added (no room, no flags)
-gets its room the way a base pad does, and whether a save over a level that is
-its own template (editing a Forge level and keeping its name) is safe; the
-smoke's template is a base arena.
+gets its room the way a base pad does (READ: a player start with no room has
+its room found from its position, `player.c` near "Final room validation"),
+and whether a save over a level that is its own template (editing a Forge
+level and keeping its name) is safe; the smoke's template is a base arena.
+
+## F2 in the editor: the Level File section (WRITTEN 2026-11-17, not run)
+
+The open level is a session owned by `forge_level_io.c`, one document at a
+time, so the editor, the debug flags and later the Modding Hub's Levels tool
+work on the same one: `forgeLevelSessionBegin` (a Forge session started on
+this arena; any open document is closed), `forgeLevelSessionOpen`,
+`forgeLevelSessionDoc`, `forgeLevelSessionSaveAs`, `forgeLevelSessionClose`.
+
+- **Which level.** The Grid's Enter names the arena after a start succeeds
+  (`gridCommitEnter` in `pdgui_menu_mainmenu.cpp`); every session start first
+  clears the name (`pdgui_menu_forge.cpp`), so a session started any other way
+  (the blank map, a random pick, the CI Training default) has no level file.
+- **The section** is at the top of the editor's Setup tab
+  (`forgeDrawLevelFileSection` in `pdgui_forge_editor.cpp`, sidebar row "Level
+  File"): Open Level File; Add Start Here, Move Start Here, Remove Start; Move
+  Object Here, Copy Object Here; a name and Save As Level; Close Without
+  Saving (asks twice when there are changes). Everything is placed where the
+  editor camera is, facing the way it faces, flat (a pad's look becomes a
+  player's turn angle as `atan2f(look.x, look.z)`, the camera's own
+  convention). The two lists show each start's team and place and each
+  object's kind, model or weapon, and pad.
+- **What it is not yet.** Nothing in the document is drawn in the world, so
+  the lists are the only view of where things stand. The editor's older parts
+  (its own object list, `map.json`) are untouched and still separate; the old
+  save now says that only the editor reads it.
+- **Starting a session from the command line.** `--launch-forge-level <arena
+  id>` starts a Forge session on a level as The Grid does
+  (`forgeLevelStartForge`: a clean match setup on the level, then the stage
+  change). `--debug-forge-session-save <name>` then waits two seconds into the
+  level, adds a start where the camera is, saves the level under the name,
+  lets the game run three more seconds and ends a smoke run. Both are driven
+  from `pdguiForgeEditorTick` (`bootForgeLevelTick` in `main.c`).
+- `forge_session_save_smoke` is the proof of the part no run has done: the
+  mod author's save, rescan, enable and apply while the level it was made
+  from is loaded and the editor is up. It requires the save's lines, the new
+  level's scenario registered (`PDARENA.SCENARIO`), and the game still running
+  afterwards. It does not use the mouse, so the section's widgets themselves
+  are unproven until someone opens the editor.
+
+Not known until a run: whether a level loaded for Forge straight from the boot
+stage (no agent chosen, no match started) has a player for the session to
+attach to, which is what `--launch-scenario empty_map` relies on for CI
+Training; and whether applying mods with a level loaded disturbs it.

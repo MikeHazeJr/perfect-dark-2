@@ -17,7 +17,16 @@
 #include "mod_author.h"
 #include "mod_author_runtime.h"
 #include "modarchive.h"
+#include "net/matchsetup.h"
+#include "pdgui_forge.h"
 #include "system.h"
+
+/* The level Forge has open, and the arena its session was started on. */
+static struct {
+	char arena_id[CATALOG_ID_LEN];
+	forge_level_doc_t *doc;
+	forge_level_source_t source;
+} s_Session;
 
 static void levelFail(char *err, size_t err_cap, const char *reason, const char *detail)
 {
@@ -161,15 +170,172 @@ s32 forgeLevelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
 	return code;
 }
 
+s32 forgeLevelSessionChanged(void)
+{
+	if (!s_Session.doc) return 0;
+	for (s32 i = 0; i < FORGE_LEVEL_MEMBER_COUNT; i++) {
+		if (forgeLevelDocMemberChanged(s_Session.doc, i)) return 1;
+	}
+	return 0;
+}
+
+void forgeLevelSessionClose(void)
+{
+	if (!s_Session.doc) return;
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.CLOSE: arena=%s edited=%d", s_Session.source.arena_id,
+		forgeLevelSessionChanged());
+	forgeLevelDocFree(s_Session.doc);
+	s_Session.doc = NULL;
+	memset(&s_Session.source, 0, sizeof(s_Session.source));
+}
+
+void forgeLevelSessionBegin(const char *arena_id)
+{
+	forgeLevelSessionClose();
+	snprintf(s_Session.arena_id, sizeof(s_Session.arena_id), "%s",
+		(arena_id && strlen(arena_id) < sizeof(s_Session.arena_id)) ? arena_id : "");
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.SESSION: arena=%s", s_Session.arena_id[0] ? s_Session.arena_id : "(none)");
+}
+
+const char *forgeLevelSessionArena(void)
+{
+	return s_Session.arena_id;
+}
+
+s32 forgeLevelSessionOpen(const char *arena_id, char *err, size_t err_cap)
+{
+	forge_level_source_t *source = (forge_level_source_t *)calloc(1, sizeof(*source));
+	forge_level_doc_t *doc;
+
+	if (err && err_cap) err[0] = '\0';
+	if (!source) {
+		levelFail(err, err_cap, "out of memory", "");
+		return 0;
+	}
+	/* Open first: a level that cannot be opened leaves the one already open
+	 * as it was. */
+	doc = forgeLevelOpen(arena_id, source, err, err_cap);
+	if (!doc) {
+		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.OPEN.FAIL: arena=%s reason='%s'", arena_id ? arena_id : "",
+			err ? err : "");
+		free(source);
+		return 0;
+	}
+	forgeLevelSessionClose();
+	s_Session.doc = doc;
+	s_Session.source = *source;
+	free(source);
+	return 1;
+}
+
+forge_level_doc_t *forgeLevelSessionDoc(void)
+{
+	return s_Session.doc;
+}
+
+const forge_level_source_t *forgeLevelSessionSource(void)
+{
+	return s_Session.doc ? &s_Session.source : NULL;
+}
+
+s32 forgeLevelSessionSaveAs(const char *display_name, mod_author_result_t *result,
+		char *err, size_t err_cap)
+{
+	if (!s_Session.doc) {
+		if (result) memset(result, 0, sizeof(*result));
+		levelFail(err, err_cap, "no level is open", "");
+		return MOD_AUTHOR_ERR_ARGS;
+	}
+	return forgeLevelSaveAs(s_Session.doc, &s_Session.source, display_name, result, err, err_cap);
+}
+
+s32 forgeLevelStartForge(const char *arena_id)
+{
+	const asset_entry_t *arena = (arena_id && arena_id[0]) ? assetCatalogResolve(arena_id) : NULL;
+	char id[CATALOG_ID_LEN];
+	s32 stagenum;
+	s32 canvas;
+	s32 started;
+
+	if (!arena || arena->type != ASSET_ARENA || strlen(arena->id) >= sizeof(g_MatchConfig.stage_id)) {
+		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.START.FAIL: '%s' is not a level in the catalog",
+			arena_id ? arena_id : "");
+		return 0;
+	}
+	/* The catalog owns the row; keep what is needed past the calls below. */
+	snprintf(id, sizeof(id), "%s", arena->id);
+	stagenum = arena->ext.arena.stagenum;
+	canvas = arena->ext.arena.load_mode == ARENA_LOADMODE_CANVAS;
+
+	/* A clean match setup on this level, as The Grid's Enter makes one. */
+	matchConfigInit();
+	snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", id);
+	g_MatchConfig.stagenum = (u8)stagenum;
+	snprintf(g_MatchConfig.scenario_id, sizeof(g_MatchConfig.scenario_id), "%s", "base:combat");
+	g_MatchConfig.timelimit = 0;
+	g_MatchConfig.scorelimit = 0;
+
+	started = canvas ? pdguiForgeStartSessionOnCanvas(stagenum) : pdguiForgeStartSessionOn(stagenum);
+	sysLogPrintf(started ? LOG_NOTE : LOG_WARNING, "FORGE.LEVEL.START%s: arena=%s stagenum=0x%02x canvas=%d",
+		started ? "" : ".FAIL", id, (u32)stagenum, canvas);
+	if (started) forgeLevelSessionBegin(id);
+	return started ? 1 : 0;
+}
+
 /* `distance` units from a pad along the way it faces. */
 static void levelStepFrom(const forge_level_pad_t *pad, f32 distance, f32 out[3])
 {
 	for (s32 i = 0; i < 3; i++) out[i] = pad->position[i] + pad->look[i] * distance;
 }
 
+s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3])
+{
+	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
+	forge_level_doc_t *doc = NULL;
+	char arena_id[CATALOG_ID_LEN];
+	char err[256];
+	char spawn_id[32];
+	s32 ok = 0;
+
+	err[0] = '\0';
+	spawn_id[0] = '\0';
+	snprintf(arena_id, sizeof(arena_id), "%s", forgeLevelSessionArena());
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.DEBUG.SESSION.BEGIN: arena=%s name='%s'", arena_id,
+		display_name ? display_name : "");
+	if (!result) {
+		snprintf(err, sizeof(err), "out of memory");
+		goto done;
+	}
+	if (!arena_id[0]) {
+		snprintf(err, sizeof(err), "the Forge session is not on a level from the catalog");
+		goto done;
+	}
+	if (!forgeLevelSessionOpen(arena_id, err, sizeof(err))) goto done;
+	doc = forgeLevelSessionDoc();
+	if (!forgeLevelDocAddSpawn(doc, position, look, NULL, spawn_id, sizeof(spawn_id), err, sizeof(err))) {
+		goto done;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"FORGE.LEVEL.EDIT: added spawn %s at the camera (%.0f, %.0f, %.0f); the level now has pads=%d spawns=%d objects=%d",
+		spawn_id, position[0], position[1], position[2], forgeLevelDocPadCount(doc),
+		forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
+	if (forgeLevelSessionSaveAs(display_name, result, err, sizeof(err)) != MOD_AUTHOR_OK) goto done;
+	if (!assetCatalogResolve(result->catalog_id)) {
+		snprintf(err, sizeof(err), "%s was saved but is not in the catalog", result->catalog_id);
+		goto done;
+	}
+	ok = 1;
+
+done:
+	sysLogPrintf(ok ? LOG_NOTE : LOG_WARNING,
+		"FORGE.LEVEL.DEBUG.SESSION.RESULT: result=%s catalog=%s reason='%s'",
+		ok ? "OK" : "FAIL", (ok && result) ? result->catalog_id : "", err);
+	free(result);
+	return ok;
+}
+
 s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 {
-	forge_level_source_t *source = (forge_level_source_t *)calloc(1, sizeof(*source));
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
 	forge_level_spawn_t spawn;
@@ -190,12 +356,12 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 	memset(&pad, 0, sizeof(pad));
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.DEBUG.BEGIN: arena=%s name='%s'", arena_id ? arena_id : "",
 		display_name ? display_name : "");
-	if (!source || !result) {
+	if (!result) {
 		snprintf(err, sizeof(err), "out of memory");
 		goto done;
 	}
-	doc = forgeLevelOpen(arena_id, source, err, sizeof(err));
-	if (!doc) goto done;
+	if (!forgeLevelSessionOpen(arena_id, err, sizeof(err))) goto done;
+	doc = forgeLevelSessionDoc();
 
 	/* Another player start, a short step in front of the level's first one
 	 * and facing the same way. */
@@ -234,7 +400,7 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level now has pads=%d spawns=%d objects=%d",
 		forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
 
-	if (forgeLevelSaveAs(doc, source, display_name, result, err, sizeof(err)) != MOD_AUTHOR_OK) {
+	if (forgeLevelSessionSaveAs(display_name, result, err, sizeof(err)) != MOD_AUTHOR_OK) {
 		goto done;
 	}
 	if (!assetCatalogResolve(result->catalog_id)) {
@@ -246,8 +412,8 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 done:
 	sysLogPrintf(ok ? LOG_NOTE : LOG_WARNING, "FORGE.LEVEL.DEBUG.RESULT: result=%s catalog=%s reason='%s'",
 		ok ? "OK" : "FAIL", (ok && result) ? result->catalog_id : "", err);
-	forgeLevelDocFree(doc);
+	/* Nothing is left open: this ran before any Forge session. */
+	forgeLevelSessionClose();
 	free(result);
-	free(source);
 	return ok;
 }

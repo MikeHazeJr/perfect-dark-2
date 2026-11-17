@@ -86,6 +86,7 @@
 #include "modasset_compiler.h"
 #include "mod_author_runtime.h"
 #include "forge_level_io.h"
+#include "game/forgemode.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -222,6 +223,20 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       the open and save calls the Forge editor makes. Runs right after the
  *       character tool's flags, so one launch can make the level and then
  *       start a match on it. Logged as FORGE.LEVEL.* lines.
+ *
+ *   --launch-forge-level <arena catalog id>
+ *       Starts a Forge session on the named level once the boot stage has
+ *       placed the player: a clean match setup on that level and the stage
+ *       change, as choosing it in The Grid does (forgeLevelStartForge). The
+ *       editor's Level File section then knows which level it is on.
+ *
+ *   --debug-forge-session-save <display name>
+ *       With --launch-forge-level: two seconds into that level, with the
+ *       editor camera flying, opens the level's placements, adds a player
+ *       start where the camera is and saves the result as a level mod under
+ *       the display name, through the calls the Level File section's buttons
+ *       make. The game runs on for three seconds, then a smoke run ends.
+ *       Logged as FORGE.LEVEL.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -3070,6 +3085,99 @@ s32 bootLaunchScenarioTick(void)
 			"BOOT: --launch-scenario deferred dispatch failed; falling back to default boot stage");
 	}
 	g_BootLaunchScenarioPending = 0;
+	return 1;
+}
+
+/* --launch-forge-level <arena id> and --debug-forge-session-save <name>.
+ * Called every gameplay frame from the Forge editor's tick
+ * (pdguiForgeEditorTick). Three one-shot steps:
+ *
+ *   1. Once the boot stage has placed the player (lvframenum >= 4, the gate
+ *      --launch-scenario uses), start a Forge session on the arena.
+ *   2. With --debug-forge-session-save: two seconds into that level, with the
+ *      editor camera flying, add a player start where the camera is and save
+ *      the level under the name (forgeLevelDebugSessionEdit).
+ *   3. Three more seconds of the game running on the level it just saved a
+ *      copy of, then end a smoke run.
+ *
+ * Returns 1 on a frame where a step ran. */
+s32 bootForgeLevelTick(void)
+{
+	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 run on, 4 done */
+	static const char *s_arena = NULL;
+	static const char *s_name = NULL;
+	static s32 s_saved_frame = 0;
+
+	if (s_step == 4) {
+		return 0;
+	}
+	if (s_step == 0) {
+		s_arena = sysArgGetString("--launch-forge-level");
+		s_name = sysArgGetString("--debug-forge-session-save");
+		if (!s_arena || !s_arena[0]) {
+			if (s_name && s_name[0]) {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-forge-session-save name='%s' result=FAIL (it needs --launch-forge-level <arena id>)",
+					s_name);
+			}
+			s_step = 4;
+			return 0;
+		}
+		sysLogPrintf(LOG_NOTE, "BOOT: --launch-forge-level arena=%s armed", s_arena);
+		s_step = 1;
+	}
+	if (s_step == 1) {
+		s32 started;
+
+		if (g_Vars.lvframenum < 4) {
+			return 0;
+		}
+		started = forgeLevelStartForge(s_arena);
+		sysLogPrintf(started ? LOG_NOTE : LOG_WARNING, "BOOT: --launch-forge-level arena=%s result=%s",
+			s_arena, started ? "OK" : "FAIL");
+		s_step = (started && s_name && s_name[0]) ? 2 : 4;
+		return 1;
+	}
+	if (s_step == 2) {
+		struct coord cam;
+		f32 position[3];
+		f32 look[3];
+		f32 yaw;
+		s32 saved;
+
+		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) {
+			return 0;
+		}
+		/* The camera's facing, flat: the way a pad's look is read back into a
+		 * player's turn angle (atan2f(look.x, look.z)). */
+		cam.x = 0.0f;
+		cam.y = 0.0f;
+		cam.z = 0.0f;
+		forgeGetCameraPos(&cam);
+		yaw = forgeGetCameraYawDeg() * 0.017453292f;
+		position[0] = cam.x;
+		position[1] = cam.y;
+		position[2] = cam.z;
+		look[0] = sinf(yaw);
+		look[1] = 0.0f;
+		look[2] = cosf(yaw);
+		saved = forgeLevelDebugSessionEdit(s_name, position, look);
+		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
+			s_name, saved ? "OK" : "FAIL");
+		s_saved_frame = g_Vars.lvframenum;
+		s_step = 3;
+		return 1;
+	}
+	/* A stage that was loaded again counts its frames from zero. */
+	if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 180) {
+		return 0;
+	}
+	s_step = 4;
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-session-save ran on for %d frames after the save (lvframenum=%d)",
+		(s32)(g_Vars.lvframenum - s_saved_frame), (s32)g_Vars.lvframenum);
+	if (smokeHarnessIsActive()) {
+		smokeHarnessExit(0, "scripted_exit");
+	}
 	return 1;
 }
 

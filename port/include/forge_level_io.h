@@ -51,6 +51,53 @@ forge_level_doc_t *forgeLevelOpen(const char *arena_id, forge_level_source_t *so
 s32 forgeLevelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
 		const char *display_name, mod_author_result_t *result, char *err, size_t err_cap);
 
+/*
+ * The level Forge has open. One at a time, owned here so the editor's panel,
+ * the debug flags and later the Modding Hub's Levels tool all work on the
+ * same document.
+ */
+
+/**
+ * A Forge session started on this arena ("" or NULL when the session is not
+ * on a level from the catalog). Any document still open is closed: unsaved
+ * placements do not follow the player into another session.
+ */
+void forgeLevelSessionBegin(const char *arena_id);
+
+/* The arena the current Forge session was started on, or "". */
+const char *forgeLevelSessionArena(void);
+
+/**
+ * Opens the placements of `arena_id` as the session's document, replacing
+ * one that is open. 1 on success; 0 with the reason, and no document open.
+ */
+s32 forgeLevelSessionOpen(const char *arena_id, char *err, size_t err_cap);
+
+/* The open document and where it came from, or NULL when none is open. */
+forge_level_doc_t *forgeLevelSessionDoc(void);
+const forge_level_source_t *forgeLevelSessionSource(void);
+
+/* 1 when the open document differs from the level it was opened from. */
+s32 forgeLevelSessionChanged(void);
+
+/**
+ * Saves the open document as the level mod `display_name` (see
+ * forgeLevelSaveAs). The document stays open, still as its template plus the
+ * edits, so saving again under the same name updates that level.
+ */
+s32 forgeLevelSessionSaveAs(const char *display_name, mod_author_result_t *result,
+		char *err, size_t err_cap);
+
+/* Closes the open document and drops its edits. */
+void forgeLevelSessionClose(void);
+
+/**
+ * Starts a Forge session on the arena `arena_id`, the way choosing it in The
+ * Grid does: a clean match setup on that level in the standard game mode,
+ * then the stage change. Returns 1 when the session was requested.
+ */
+s32 forgeLevelStartForge(const char *arena_id);
+
 /**
  * --debug-forge-level <arena id> with --debug-forge-level-name <name>: opens
  * that level, adds a player start a short step in front of its first one and
@@ -61,6 +108,17 @@ s32 forgeLevelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
  * catalog.
  */
 s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name);
+
+/**
+ * --debug-forge-session-save <name>, inside a Forge session started on a
+ * level (--launch-forge-level <arena id>): opens that level's placements,
+ * adds a player start at `position` facing `look` (the editor camera's), and
+ * saves the result as the level `display_name` while the level is loaded and
+ * the editor is up. It is what the editor's Add Start Here and Save As Level
+ * buttons do, and it leaves the document open as they do. Returns 1 when the
+ * level was saved and is in the catalog.
+ */
+s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3]);
 
 #ifdef __cplusplus
 }
