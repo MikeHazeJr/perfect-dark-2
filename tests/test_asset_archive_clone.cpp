@@ -770,9 +770,11 @@ TEST_CASE("typed archive rebuild edits an archive under its own id",
 	/* Edit the clone under the id it already has: tune one physics value. */
 	const std::string firstBytes = cloneReadFileBytes(first);
 	std::string physics = cloneEntryBytes(firstBytes, "physics.json");
-	const size_t boostAt = physics.find("\"boost_speed\": 7.0");
-	REQUIRE(boostAt != std::string::npos);
-	physics.replace(boostAt, std::strlen("\"boost_speed\": 7.0"), "\"boost_speed\": 9.5");
+	/* physics v3 holds the handling numbers; the boost is the vehicle
+	 * graph's (B-1230). */
+	const size_t thrustAt = physics.find("\"forward_thrust\": 1.2");
+	REQUIRE(thrustAt != std::string::npos);
+	physics.replace(thrustAt, std::strlen("\"forward_thrust\": 1.2"), "\"forward_thrust\": 1.5");
 	const asset_archive_clone_override_t overrides[] = {
 		cloneReplace("physics.json", physics),
 	};
@@ -789,7 +791,7 @@ TEST_CASE("typed archive rebuild edits an archive under its own id",
 
 	const std::string secondBytes = cloneReadFileBytes(second);
 	const std::string newPhysics = cloneEntryBytes(secondBytes, "physics.json");
-	CHECK(newPhysics.find("\"boost_speed\": 9.5") != std::string::npos);
+	CHECK(newPhysics.find("\"forward_thrust\": 1.5") != std::string::npos);
 	CHECK(newPhysics.find("\"catalog_id\": \"mod_clonetest:tug_edit\"") != std::string::npos);
 	CHECK(cloneEntryBytes(secondBytes, "vehicle.ini") == cloneEntryBytes(firstBytes, "vehicle.ini"));
 	CHECK(cloneEntryBytes(secondBytes, "model.gltf") == cloneEntryBytes(sourceBytes, "model.gltf"));
