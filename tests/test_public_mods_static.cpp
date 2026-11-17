@@ -163,20 +163,27 @@ TEST_CASE("received Public Mods validate strict archive payloads before install"
 	REQUIRE(arena_scenario < arena_scenario_archive);
 	REQUIRE(arena_scenario_archive < arena_archive);
 	REQUIRE(scanner.find("geometry_file", arena_case) > arena_end);
-	/* B-1235: arena.ini carries the load mode's name; the scanner reads it
-	 * by name (a number still reads). Read as a number, every name was 0,
-	 * so a canvas arena from a mod loaded as a playable one. */
-	const size_t arena_mode_canvas = scanner.find(
-		"strcmp(mode, \"ARENA_LOADMODE_CANVAS\") == 0", arena_case);
-	const size_t arena_mode_playable = scanner.find(
-		"strcmp(mode, \"ARENA_LOADMODE_PLAYABLE\") == 0", arena_case);
-	REQUIRE(arena_mode_canvas != std::string::npos);
-	REQUIRE(arena_mode_playable != std::string::npos);
-	REQUIRE(arena_mode_canvas < arena_end);
-	REQUIRE(arena_mode_playable < arena_end);
-	REQUIRE(scanner.find(
-		"e->ext.arena.load_mode = iniGetInt(ini, \"load_mode\", ARENA_LOADMODE_PLAYABLE);") ==
+	/* B-1235: arena.ini carries the load mode's name; both readers of
+	 * arena.ini (the scanner and the mod distribution's registrar) take it
+	 * from one helper that knows the names and still reads a number. Read
+	 * as a number, every name was 0, so a canvas arena from a mod loaded as
+	 * a playable one. */
+	const std::string distribArena = readTextFile("port/src/net/netdistrib.c");
+	REQUIRE_FALSE(distribArena.empty());
+	const size_t mode_helper = scanner.find("u8 catalogArenaLoadModeFromIni(const ini_section_t *ini)");
+	REQUIRE(mode_helper != std::string::npos);
+	REQUIRE(scanner.find("strcmp(mode, \"ARENA_LOADMODE_CANVAS\") == 0", mode_helper) != std::string::npos);
+	REQUIRE(scanner.find("strcmp(mode, \"ARENA_LOADMODE_PLAYABLE\") == 0", mode_helper) != std::string::npos);
+	const size_t arena_mode_read = scanner.find(
+		"e->ext.arena.load_mode = catalogArenaLoadModeFromIni(ini);", arena_case);
+	REQUIRE(arena_mode_read != std::string::npos);
+	REQUIRE(arena_mode_read < arena_end);
+	REQUIRE(distribArena.find("e->ext.arena.load_mode = catalogArenaLoadModeFromIni(ini);") !=
 		std::string::npos);
+	const char *const numberOnly =
+		"e->ext.arena.load_mode = iniGetInt(ini, \"load_mode\", ARENA_LOADMODE_PLAYABLE);";
+	REQUIRE(scanner.find(numberOnly) == std::string::npos);
+	REQUIRE(distribArena.find(numberOnly) == std::string::npos);
 
 	const size_t shared = scanner.find("static s32 registerBodyHeadPublicIni(");
 	const size_t head_mesh = scanner.find("bodyHeadSourcePrepareMesh(source.mesh_archive", shared);

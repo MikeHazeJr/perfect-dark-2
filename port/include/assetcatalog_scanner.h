@@ -322,6 +322,14 @@ s32 iniGetInt(const ini_section_t *ini, const char *key, s32 defval);
  */
 f32 iniGetFloat(const ini_section_t *ini, const char *key, f32 defval);
 
+/**
+ * An arena's load mode from its arena.ini section (ARENA_LOADMODE_*,
+ * assetcatalog.h). The file carries the mode's name; a number is read too,
+ * and a missing key is the playable mode. Every reader of arena.ini uses
+ * this (the scanner and the mod distribution's registrar), B-1235.
+ */
+u8 catalogArenaLoadModeFromIni(const ini_section_t *ini);
+
 #ifdef __cplusplus
 }
 #endif

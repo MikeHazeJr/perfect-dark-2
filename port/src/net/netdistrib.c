@@ -2345,7 +2345,7 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
                 sizeof(e->ext.arena.scenario_archive) - 1);
         e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
-        e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+        e->ext.arena.load_mode = catalogArenaLoadModeFromIni(ini); /* B-1235: by name */
         if (e->ext.arena.scenario_archive[0]) {
             distribSetPrimaryFromFile(e, dirpath,
                                       e->ext.arena.scenario_archive);
