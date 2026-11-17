@@ -19,11 +19,15 @@ namespace {
 using Json = crude_json::value;
 
 constexpr const char *kMemberNames[FORGE_LEVEL_MEMBER_COUNT] = {
-	"pads.json", "spawns.json", "objects.json"
+	"pads.json", "spawns.json", "objects.json", "volumes.json"
 };
 constexpr const char *kSchemas[FORGE_LEVEL_MEMBER_COUNT] = {
-	"pd2.scenario.pads.v1", "pd2.scenario.spawns.v1", "pd2.scenario.objects.v1"
+	"pd2.scenario.pads.v1", "pd2.scenario.spawns.v1", "pd2.scenario.objects.v1",
+	"pd2.scenario.volumes.v1"
 };
+/* A pad's bounds reach this far from it on every axis when it has no box of
+ * its own; the extractor writes the same box for such a pad. */
+constexpr f32 kPadReach = 100.0f;
 
 /* ------------------------------------------------------------------------ */
 /* Where values start and end                                               */
@@ -400,6 +404,8 @@ struct forge_level_doc {
 	std::vector<forge_level_pad_t> pads;
 	std::vector<forge_level_spawn_t> spawns;
 	std::vector<forge_level_object_t> objects;
+	std::vector<int> padVolume;         /* each pad's row in volumes.json, or -1 */
+	std::set<std::string> volumeIds;    /* every volume_id the file has held */
 	long nextSpawn = 0;      /* above every spawn number this document has held */
 	std::string spawnProfile = "intro";
 };
@@ -421,19 +427,11 @@ int findSpawn(const forge_level_doc &doc, const char *id)
 	return -1;
 }
 
-int findObject(const forge_level_doc &doc, const char *id)
-{
-	for (size_t i = 0; id && i < doc.objects.size(); i++) {
-		if (strcmp(doc.objects[i].record_id, id) == 0) return static_cast<int>(i);
-	}
-	return -1;
-}
-
 bool readPads(forge_level_doc &doc, const Json &root, std::string &error)
 {
 	const crude_json::array &rows = root["rows"].get<crude_json::array>();
 	if (rows.size() > FORGE_LEVEL_MAX_PADS) {
-		error = "pads.json has more pads than a level can hold";
+		error = "pads.json has more pads than a level made here can hold";
 		return false;
 	}
 	for (size_t i = 0; i < rows.size(); i++) {
@@ -459,6 +457,7 @@ bool readPads(forge_level_doc &doc, const Json &root, std::string &error)
 		copyText(pad.pad_ref, ref);
 		copyText(pad.room_ref, stringOf(row, "room_ref"));
 		doc.pads.push_back(pad);
+		doc.padVolume.push_back(-1);
 	}
 	return true;
 }
@@ -541,6 +540,45 @@ bool readObjects(forge_level_doc &doc, const Json &root, std::string &error)
 	return true;
 }
 
+/* volumes.json: each pad's bounds. A row names its pad; the first row that
+ * names a pad is the one that moves with it. */
+bool readVolumes(forge_level_doc &doc, const Json &root, std::string &error)
+{
+	const crude_json::array &rows = root["rows"].get<crude_json::array>();
+	for (size_t i = 0; i < rows.size(); i++) {
+		const Json &row = rows[i];
+		const std::string id = stringOf(row, "volume_id");
+		if (id.empty()) {
+			error = "volumes.json row " + std::to_string(i) + " has no volume_id";
+			return false;
+		}
+		if (!doc.volumeIds.insert(id).second) {
+			error = "volumes.json lists " + id + " twice";
+			return false;
+		}
+		if (!hasString(row, "pad_ref") ||
+				!padRefOk(doc, "volumes.json", id, stringOf(row, "pad_ref"), false, error)) {
+			if (error.empty()) error = "volumes.json " + id + " has no pad_ref";
+			return false;
+		}
+		const size_t pad = static_cast<size_t>(findPad(doc, stringOf(row, "pad_ref")));
+		if (doc.padVolume[pad] < 0) {
+			doc.padVolume[pad] = static_cast<int>(i);
+			doc.pads[pad].has_volume = 1;
+		}
+	}
+	return true;
+}
+
+/* The bounds of a pad at `position` that has no box of its own. */
+void padReach(const f32 position[3], f32 lo[3], f32 hi[3])
+{
+	for (int i = 0; i < 3; i++) {
+		lo[i] = position[i] - kPadReach;
+		hi[i] = position[i] + kPadReach;
+	}
+}
+
 /* A new pad at the end of the list, facing along look. Its number, or -1. */
 int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::string &error)
 {
@@ -555,12 +593,17 @@ int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::
 		return -1;
 	}
 	if (doc.pads.size() >= FORGE_LEVEL_MAX_PADS) {
-		error = "the level already has as many pads as it can hold";
+		error = "the level already has as many pads as a level made here can hold";
 		return -1;
 	}
 
 	forge_level_pad_t pad = {};
 	const long number = static_cast<long>(doc.pads.size());
+	const std::string volumeId = numbered("volume_pad_", number);
+	if (doc.volumeIds.count(volumeId)) {
+		error = "volumes.json already has a " + volumeId + ", the name the new pad's bounds would take";
+		return -1;
+	}
 	copyText(pad.pad_ref, numbered("pad_", number));
 	for (int i = 0; i < 3; i++) {
 		pad.position[i] = position[i];
@@ -568,6 +611,7 @@ int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::
 	}
 	pad.up[1] = 1.0f;
 	pad.added = 1;
+	pad.has_volume = 1;
 
 	/* The row the extractor would write for a pad with a free facing: no
 	 * axis-alignment flags, and the box it gives a pad that has none of its
@@ -579,6 +623,18 @@ int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::
 		"\"max\": [100.000000, 100.000000, 100.000000] } }";
 	doc.tables[FORGE_LEVEL_MEMBER_PADS].append(row);
 	doc.pads.push_back(pad);
+
+	/* Its bounds row, as every pad of a base level has one. */
+	f32 lo[3];
+	f32 hi[3];
+	padReach(pad.position, lo, hi);
+	const std::string volume = std::string("{ \"volume_id\": \"") + volumeId +
+		"\", \"pad_ref\": \"" + pad.pad_ref + "\", \"kind\": \"pad_bounds\", \"room_ref\": \"\", "
+		"\"shape\": \"aabb\", \"min\": " + vectorText(lo) + ", \"max\": " + vectorText(hi) + " }";
+	Table &volumes = doc.tables[FORGE_LEVEL_MEMBER_VOLUMES];
+	volumes.append(volume);
+	doc.padVolume.push_back(static_cast<int>(volumes.rows.size()) - 1);
+	doc.volumeIds.insert(volumeId);
 	return static_cast<int>(number);
 }
 
@@ -614,8 +670,25 @@ int movePad(forge_level_doc &doc, int padIndex, const f32 position[3], const f32
 		error = std::string(pad.pad_ref) + " could not be rewritten";
 		return -1;
 	}
+	const int volumeIndex = doc.padVolume[static_cast<size_t>(padIndex)];
+	std::string volume;
+	if (volumeIndex >= 0) {
+		f32 lo[3];
+		f32 hi[3];
+		padReach(position, lo, hi);
+		volume = doc.tables[FORGE_LEVEL_MEMBER_VOLUMES].rows[static_cast<size_t>(volumeIndex)];
+		if (!replaceValue(volume, "min", vectorText(lo)) || !replaceValue(volume, "max", vectorText(hi))) {
+			error = std::string(pad.pad_ref) + "'s bounds could not be rewritten";
+			return -1;
+		}
+	}
 	table.rows[static_cast<size_t>(padIndex)] = row;
 	table.touch();
+	if (volumeIndex >= 0) {
+		Table &volumes = doc.tables[FORGE_LEVEL_MEMBER_VOLUMES];
+		volumes.rows[static_cast<size_t>(volumeIndex)] = volume;
+		volumes.touch();
+	}
 	for (int i = 0; i < 3; i++) {
 		pad.position[i] = position[i];
 		pad.look[i] = unit[i];
@@ -636,6 +709,7 @@ extern "C" {
 forge_level_doc_t *forgeLevelDocRead(const char *pads_json, size_t pads_size,
 	const char *spawns_json, size_t spawns_size,
 	const char *objects_json, size_t objects_size,
+	const char *volumes_json, size_t volumes_size,
 	char *err, size_t err_cap)
 {
 	if (err && err_cap) err[0] = '\0';
@@ -644,8 +718,8 @@ forge_level_doc_t *forgeLevelDocRead(const char *pads_json, size_t pads_size,
 		setError(err, err_cap, "out of memory");
 		return nullptr;
 	}
-	const char *texts[FORGE_LEVEL_MEMBER_COUNT] = { pads_json, spawns_json, objects_json };
-	const size_t sizes[FORGE_LEVEL_MEMBER_COUNT] = { pads_size, spawns_size, objects_size };
+	const char *texts[FORGE_LEVEL_MEMBER_COUNT] = { pads_json, spawns_json, objects_json, volumes_json };
+	const size_t sizes[FORGE_LEVEL_MEMBER_COUNT] = { pads_size, spawns_size, objects_size, volumes_size };
 	std::string error;
 	for (int member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
 		Json root;
@@ -653,6 +727,7 @@ forge_level_doc_t *forgeLevelDocRead(const char *pads_json, size_t pads_size,
 		if (ok && member == FORGE_LEVEL_MEMBER_PADS) ok = readPads(*doc, root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_SPAWNS) ok = readSpawns(*doc, root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_OBJECTS) ok = readObjects(*doc, root, error);
+		if (ok && member == FORGE_LEVEL_MEMBER_VOLUMES) ok = readVolumes(*doc, root, error);
 		if (!ok) {
 			setError(err, err_cap, "%s", error.c_str());
 			return nullptr;
@@ -679,6 +754,11 @@ s32 forgeLevelDocSpawnCount(const forge_level_doc_t *doc)
 s32 forgeLevelDocObjectCount(const forge_level_doc_t *doc)
 {
 	return doc ? static_cast<s32>(doc->objects.size()) : 0;
+}
+
+s32 forgeLevelDocVolumeCount(const forge_level_doc_t *doc)
+{
+	return doc ? static_cast<s32>(doc->tables[FORGE_LEVEL_MEMBER_VOLUMES].rows.size()) : 0;
 }
 
 s32 forgeLevelDocGetPad(const forge_level_doc_t *doc, s32 index, forge_level_pad_t *out)
@@ -723,6 +803,11 @@ s32 forgeLevelDocAddSpawn(forge_level_doc_t *doc, const f32 position[3], const f
 	if (!teamOk(teamName)) {
 		setError(err, err_cap, "a spawn's team is any, default or team_N; \"%s\" is none of them",
 			teamName.c_str());
+		return 0;
+	}
+	if (doc->nextSpawn > FORGE_LEVEL_MAX_SPAWN_NUMBER) {
+		setError(err, err_cap, "the level has used every spawn number up to spawn_%04d",
+			FORGE_LEVEL_MAX_SPAWN_NUMBER);
 		return 0;
 	}
 	std::string error;
@@ -779,41 +864,6 @@ s32 forgeLevelDocMoveSpawn(forge_level_doc_t *doc, const char *spawn_id,
 		table.rows[static_cast<size_t>(index)] = row;
 		table.touch();
 		copyOut(spawn.pad_ref, ref);
-	}
-	return 1;
-}
-
-s32 forgeLevelDocMoveObject(forge_level_doc_t *doc, const char *record_id,
-	const f32 position[3], const f32 look[3], char *err, size_t err_cap)
-{
-	if (err && err_cap) err[0] = '\0';
-	const int index = doc ? findObject(*doc, record_id) : -1;
-	if (index < 0) {
-		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
-		return 0;
-	}
-	forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
-	if (!object.pad_ref[0]) {
-		setError(err, err_cap, "%s stands on no pad, so it has no place to move", object.record_id);
-		return 0;
-	}
-	std::string error;
-	const int pad = movePad(*doc, findPad(*doc, object.pad_ref), position, look, error);
-	if (pad < 0) {
-		setError(err, err_cap, "%s", error.c_str());
-		return 0;
-	}
-	const char *ref = doc->pads[static_cast<size_t>(pad)].pad_ref;
-	if (strcmp(ref, object.pad_ref) != 0) {
-		Table &table = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
-		std::string row = table.rows[static_cast<size_t>(index)];
-		if (!replaceValue(row, "pad_ref", std::string("\"") + ref + "\"")) {
-			setError(err, err_cap, "%s could not be rewritten", object.record_id);
-			return 0;
-		}
-		table.rows[static_cast<size_t>(index)] = row;
-		table.touch();
-		copyOut(object.pad_ref, ref);
 	}
 	return 1;
 }

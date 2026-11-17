@@ -3,13 +3,18 @@
  * (port/include/forge_level_doc.h; step F2 of
  * context/designs/modding/forge-mode-scope.md).
  *
- * The document reads a level's pads, spawns and objects, changes them, and
- * gives the three texts back. The cases check the rules it promises: a row
- * nobody touched keeps its bytes, nothing is repaired, pads are only added,
- * and an id is never handed out twice.
+ * The document reads a level's pads, spawns, objects and pad bounds, changes
+ * them, and gives the four texts back. The cases check the rules it promises:
+ * a row nobody touched keeps its bytes, nothing is repaired, pads are only
+ * added and each comes with its bounds row, and an id is never handed out
+ * twice. One case saves an edited level through the mod author and checks
+ * what the game checks before it loads one: the navigation record's counts
+ * and hashes match the saved files.
  *
  * With PD2_BASE_TEMPLATE_DIR set (a folder of extracted base levels, local
  * only) the last case reads every base level and writes it back unchanged.
+ * When PD2_TEST_ARTIFACT_DIR is set, the saved level is copied to
+ * <dir>/clones for tools/asset_archive_conformance.py.
  */
 #include "catch.hpp"
 
@@ -17,6 +22,7 @@
 #include "forge_level_doc.h"
 #include "mod_author.h"
 #include "modarchive.h"
+#include "sha256.h"
 
 #include <chrono>
 #include <cmath>
@@ -49,9 +55,19 @@ std::string levelMember(const std::string &archive, const char *entry)
 	return out;
 }
 
-/* Three pads, two spawns and three objects, in the extractor's layout. The
- * second spawn and the second object share pad_0001; the third object stands
- * on no pad; every row carries a key the module does not know. */
+std::string levelSha(const std::string &bytes)
+{
+	u8 digest[SHA256_DIGEST_SIZE];
+	char hex[SHA256_HEX_SIZE];
+	sha256Hash(bytes.data(), bytes.size(), digest);
+	sha256ToHex(digest, hex);
+	return hex;
+}
+
+/* Three pads, two spawns, three objects and three bounds rows, in the
+ * extractor's layout. The second spawn and the second object share pad_0001;
+ * the third object stands on no pad; rows carry keys the module does not
+ * know. */
 const char *const kPads =
 	"{\n"
 	"  \"schema\": \"pd2.scenario.pads.v1\",\n"
@@ -77,7 +93,7 @@ const char *const kObjects =
 	"  \"rows\": [\n"
 	"    {\n"
 	"      \"record_id\": \"setup_0000\",\n"
-	"      \"kind\": \"weapon\",\n"
+	"      \"kind\": \"weapon_pickup\",\n"
 	"      \"pad_ref\": \"pad_0002\",\n"
 	"      \"model_catalog_id\": \"\",\n"
 	"      \"weapon_catalog_id\": \"base:falcon2\",\n"
@@ -102,18 +118,29 @@ const char *const kObjects =
 	"  ]\n"
 	"}\n";
 
+const char *const kVolumes =
+	"{\n"
+	"  \"schema\": \"pd2.scenario.volumes.v1\",\n"
+	"  \"rows\": [\n"
+	"    { \"volume_id\": \"volume_pad_0000\", \"pad_ref\": \"pad_0000\", \"kind\": \"pad_bounds\", \"room_ref\": \"\", \"shape\": \"aabb\", \"min\": [-90.000000, -100.000000, -80.000000], \"max\": [110.000000, 100.000000, 120.000000] },\n"
+	"    { \"volume_id\": \"volume_pad_0001\", \"pad_ref\": \"pad_0001\", \"kind\": \"pad_bounds\", \"room_ref\": \"\", \"shape\": \"aabb\", \"min\": [-70.000000, -100.000000, -60.000000], \"max\": [130.000000, 100.000000, 140.000000] },\n"
+	"    { \"volume_id\": \"volume_pad_0002\", \"pad_ref\": \"pad_0002\", \"kind\": \"pad_bounds\", \"room_ref\": \"\", \"shape\": \"aabb\", \"min\": [-50.000000, -92.000000, -40.000000], \"max\": [150.000000, 108.000000, 160.000000] }\n"
+	"  ]\n"
+	"}\n";
+
 struct Level {
 	forge_level_doc_t *doc = nullptr;
 	std::string error;
 
-	Level(const std::string &pads, const std::string &spawns, const std::string &objects)
+	Level(const std::string &pads, const std::string &spawns, const std::string &objects,
+		const std::string &volumes)
 	{
 		char err[256] = { 0 };
 		doc = forgeLevelDocRead(pads.data(), pads.size(), spawns.data(), spawns.size(),
-			objects.data(), objects.size(), err, sizeof(err));
+			objects.data(), objects.size(), volumes.data(), volumes.size(), err, sizeof(err));
 		error = err;
 	}
-	Level() : Level(kPads, kSpawns, kObjects) {}
+	Level() : Level(kPads, kSpawns, kObjects, kVolumes) {}
 	~Level() { forgeLevelDocFree(doc); }
 	Level(const Level &) = delete;
 	Level &operator=(const Level &) = delete;
@@ -126,7 +153,7 @@ struct Level {
 	}
 };
 
-/* The lines of a text; rows of the extractor's pads and spawns are one each. */
+/* The lines of a text; rows of the extractor's pads, spawns and volumes are one each. */
 std::vector<std::string> linesOf(const std::string &text)
 {
 	std::vector<std::string> lines;
@@ -164,6 +191,7 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(forgeLevelDocPadCount(level.doc) == 3);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 2);
 	CHECK(forgeLevelDocObjectCount(level.doc) == 3);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 3);
 
 	forge_level_pad_t pad = {};
 	REQUIRE(forgeLevelDocGetPad(level.doc, 2, &pad) == 1);
@@ -173,6 +201,7 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(pad.position[1] == 8.0f);
 	CHECK(pad.look[2] == 1.0f);
 	CHECK(pad.added == 0);
+	CHECK(pad.has_volume == 1);
 	CHECK(forgeLevelDocGetPad(level.doc, 3, &pad) == 0);
 	CHECK(forgeLevelDocFindPad(level.doc, "pad_0001", &pad) == 1);
 	CHECK(pad.position[0] == 30.0f);
@@ -188,7 +217,7 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	forge_level_object_t object = {};
 	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &object) == 1);
 	CHECK(std::string(object.record_id) == "setup_0000");
-	CHECK(std::string(object.kind) == "weapon");
+	CHECK(std::string(object.kind) == "weapon_pickup");
 	CHECK(std::string(object.weapon_catalog_id) == "base:falcon2");
 	REQUIRE(forgeLevelDocGetObject(level.doc, 2, &object) == 1);
 	CHECK(std::string(object.pad_ref).empty());
@@ -199,14 +228,16 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == kPads);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == kSpawns);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == kObjects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_PADS)) == "pads.json");
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_SPAWNS)) == "spawns.json");
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_OBJECTS)) == "objects.json");
+	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_VOLUMES)) == "volumes.json");
 	CHECK(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_COUNT) == nullptr);
 	CHECK(forgeLevelDocMemberText(level.doc, -1, nullptr) == nullptr);
 }
 
-TEST_CASE("A new spawn gets a pad of its own and the next id; every other row keeps its bytes",
+TEST_CASE("A new spawn gets a pad of its own, the pad's bounds and the next id; other rows keep their bytes",
           "[forge-level-doc]")
 {
 	Level level;
@@ -218,11 +249,13 @@ TEST_CASE("A new spawn gets a pad of its own and the next id; every other row ke
 	CHECK(std::string(id) == "spawn_0005");
 	CHECK(forgeLevelDocPadCount(level.doc) == 4);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 3);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 4);
 
 	forge_level_pad_t pad = {};
 	REQUIRE(forgeLevelDocGetPad(level.doc, 3, &pad) == 1);
 	CHECK(std::string(pad.pad_ref) == "pad_0003");
 	CHECK(pad.added == 1);
+	CHECK(pad.has_volume == 1);
 	CHECK(pad.position[2] == -250.5f);
 	/* The facing is kept as a direction of length one. */
 	CHECK(pad.look[2] == -1.0f);
@@ -251,17 +284,31 @@ TEST_CASE("A new spawn gets a pad of its own and the next id; every other row ke
 		"    { \"spawn_id\": \"spawn_0005\", \"pad_ref\": \"pad_0003\", \"room_ref\": \"\", "
 		"\"team\": \"any\", \"profile\": \"intro\", \"position\": null, \"look\": null }");
 
+	/* The new pad's bounds: the pad's place, a hundred units each way. */
+	const std::vector<std::string> volumesBefore = linesOf(kVolumes);
+	const std::vector<std::string> volumesAfter = linesOf(level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+	REQUIRE(volumesAfter.size() == volumesBefore.size() + 1);
+	CHECK(volumesAfter[3] == volumesBefore[3]);
+	CHECK(volumesAfter[4] == volumesBefore[4]);
+	CHECK(volumesAfter[5] == volumesBefore[5] + ",");
+	CHECK(volumesAfter[6] ==
+		"    { \"volume_id\": \"volume_pad_0003\", \"pad_ref\": \"pad_0003\", \"kind\": \"pad_bounds\", "
+		"\"room_ref\": \"\", \"shape\": \"aabb\", \"min\": [0.000000, -100.000000, -350.500000], "
+		"\"max\": [200.000000, 100.000000, -150.500000] }");
+
 	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS) == 1);
 	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_VOLUMES) == 1);
 	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 0);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == kObjects);
 
 	/* What was written is a level the module reads again, the same level. */
 	Level again(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
-		level.text(FORGE_LEVEL_MEMBER_OBJECTS));
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES));
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 4);
+	CHECK(forgeLevelDocVolumeCount(again.doc) == 4);
 	forge_level_spawn_t spawn = {};
 	REQUIRE(forgeLevelDocGetSpawn(again.doc, 2, &spawn) == 1);
 	CHECK(std::string(spawn.spawn_id) == "spawn_0005");
@@ -270,6 +317,7 @@ TEST_CASE("A new spawn gets a pad of its own and the next id; every other row ke
 	/* Read back, the pad is the level's own and no longer this document's. */
 	REQUIRE(forgeLevelDocGetPad(again.doc, 3, &pad) == 1);
 	CHECK(pad.added == 0);
+	CHECK(pad.has_volume == 1);
 }
 
 TEST_CASE("An id is not handed out twice, and a removed spawn leaves its pad", "[forge-level-doc]")
@@ -282,8 +330,10 @@ TEST_CASE("An id is not handed out twice, and a removed spawn leaves its pad", "
 	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "team_2", first, sizeof(first), err, sizeof(err)) == 1);
 	REQUIRE(forgeLevelDocRemoveSpawn(level.doc, first, err, sizeof(err)) == 1);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 2);
-	/* The pad the removed spawn stood on stays: pads are only ever added. */
+	/* The pad the removed spawn stood on stays, with its bounds: pads are
+	 * only ever added. */
 	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 4);
 	/* Added and removed again, the spawns are the bytes they were. */
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == kSpawns);
 	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 0);
@@ -297,7 +347,7 @@ TEST_CASE("An id is not handed out twice, and a removed spawn leaves its pad", "
 	CHECK(std::string(spawn.team) == "team_2");
 	CHECK(std::string(spawn.pad_ref) == "pad_0004");
 
-	/* Removing a spawn from the template, in the middle of the file. */
+	/* Removing a spawn from the template, at the start of the file. */
 	REQUIRE(forgeLevelDocRemoveSpawn(level.doc, "spawn_0000", err, sizeof(err)) == 1);
 	const std::vector<std::string> lines = linesOf(level.text(FORGE_LEVEL_MEMBER_SPAWNS));
 	const std::vector<std::string> original = linesOf(kSpawns);
@@ -308,7 +358,7 @@ TEST_CASE("An id is not handed out twice, and a removed spawn leaves its pad", "
 	CHECK(std::string(err) == "the level has no spawn \"spawn_0000\"");
 }
 
-TEST_CASE("Moving something off a template pad gives it a new pad and leaves the old one",
+TEST_CASE("Moving a spawn off a template pad gives it a new pad and leaves the old one",
           "[forge-level-doc]")
 {
 	Level level;
@@ -327,6 +377,7 @@ TEST_CASE("Moving something off a template pad gives it a new pad and leaves the
 	forge_level_object_t crate = {};
 	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
 	CHECK(std::string(crate.pad_ref) == "pad_0001");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == kObjects);
 
 	const std::vector<std::string> pads = linesOf(level.text(FORGE_LEVEL_MEMBER_PADS));
 	const std::vector<std::string> padsBefore = linesOf(kPads);
@@ -334,6 +385,13 @@ TEST_CASE("Moving something off a template pad gives it a new pad and leaves the
 	CHECK(pads[4] == padsBefore[4]);
 	CHECK(pads[6].find("\"position\": [-5.000000, 12.000000, 7.250000]") != std::string::npos);
 	CHECK(pads[6].find("\"look\": [1.000000, 0.000000, 0.000000]") != std::string::npos);
+	const std::vector<std::string> volumes = linesOf(level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+	const std::vector<std::string> volumesBefore = linesOf(kVolumes);
+	/* The template pad's bounds are where they were. */
+	CHECK(volumes[4] == volumesBefore[4]);
+	CHECK(volumes[6].find("\"pad_ref\": \"pad_0003\"") != std::string::npos);
+	CHECK(volumes[6].find("\"min\": [-105.000000, -88.000000, -92.750000]") != std::string::npos);
+	CHECK(volumes[6].find("\"max\": [95.000000, 112.000000, 107.250000]") != std::string::npos);
 
 	/* Only the spawn's pad name changed in its row; its unknown key is kept. */
 	const std::vector<std::string> spawns = linesOf(level.text(FORGE_LEVEL_MEMBER_SPAWNS));
@@ -342,10 +400,12 @@ TEST_CASE("Moving something off a template pad gives it a new pad and leaves the
 	CHECK(spawns[4] == replaced(spawnsBefore[4], "\"pad_0001\"", "\"pad_0003\""));
 	CHECK(spawns[4].find("\"weight\": 2") != std::string::npos);
 
-	/* A second move finds a pad this document added and moves that one. */
+	/* A second move finds a pad this document added and moves that one, and
+	 * the pad's bounds go with it. */
 	const f32 further[3] = { -6.0f, 12.0f, 9.0f };
 	REQUIRE(forgeLevelDocMoveSpawn(level.doc, "spawn_0004", further, facing, err, sizeof(err)) == 1);
 	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 4);
 	forge_level_pad_t pad = {};
 	REQUIRE(forgeLevelDocFindPad(level.doc, "pad_0003", &pad) == 1);
 	CHECK(pad.position[0] == -6.0f);
@@ -353,20 +413,11 @@ TEST_CASE("Moving something off a template pad gives it a new pad and leaves the
 	const std::vector<std::string> padsMoved = linesOf(level.text(FORGE_LEVEL_MEMBER_PADS));
 	CHECK(padsMoved[6].find("\"position\": [-6.000000, 12.000000, 9.000000]") != std::string::npos);
 	CHECK(padsMoved[6].find("\"pad_ref\": \"pad_0003\"") != std::string::npos);
-
-	/* An object moves the same way: a new pad, and only its pad name changes. */
-	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0000", place, facing, err, sizeof(err)) == 1);
-	forge_level_object_t gun = {};
-	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &gun) == 1);
-	CHECK(std::string(gun.pad_ref) == "pad_0004");
-	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) ==
-		replaced(kObjects, "\"pad_ref\": \"pad_0002\"", "\"pad_ref\": \"pad_0004\""));
-
-	/* An object that stands on no pad has no place to move. */
-	CHECK(forgeLevelDocMoveObject(level.doc, "setup_0002", place, facing, err, sizeof(err)) == 0);
-	CHECK(std::string(err) == "setup_0002 stands on no pad, so it has no place to move");
-	CHECK(forgeLevelDocMoveObject(level.doc, "setup_0009", place, facing, err, sizeof(err)) == 0);
-	CHECK(std::string(err) == "the level has no object \"setup_0009\"");
+	const std::vector<std::string> volumesMoved = linesOf(level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+	CHECK(volumesMoved[6].find("\"volume_id\": \"volume_pad_0003\"") != std::string::npos);
+	CHECK(volumesMoved[6].find("\"min\": [-106.000000, -88.000000, -91.000000]") != std::string::npos);
+	CHECK(volumesMoved[6].find("\"max\": [94.000000, 112.000000, 109.000000]") != std::string::npos);
+	CHECK(volumesMoved[4] == volumesBefore[4]);
 }
 
 TEST_CASE("An edit that cannot be made is refused and changes nothing", "[forge-level-doc]")
@@ -392,46 +443,74 @@ TEST_CASE("An edit that cannot be made is refused and changes nothing", "[forge-
 
 	CHECK(forgeLevelDocPadCount(level.doc) == 3);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 2);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 3);
 	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
 		CHECK(forgeLevelDocMemberChanged(level.doc, member) == 0);
 	}
 	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == kPads);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == kSpawns);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
+
+	/* Spawn numbers stop at four digits, the form the archive rules want. */
+	Level full(kPads, replaced(kSpawns, "spawn_0004", "spawn_9999"), kObjects, kVolumes);
+	REQUIRE(full.doc != nullptr);
+	CHECK(forgeLevelDocAddSpawn(full.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "the level has used every spawn number up to spawn_9999");
+	CHECK(forgeLevelDocPadCount(full.doc) == 3);
+
+	/* A bounds row already named like the new pad's would be: refused. */
+	Level taken(kPads, kSpawns, kObjects, replaced(kVolumes, "volume_pad_0002", "volume_pad_0003"));
+	REQUIRE(taken.doc != nullptr);
+	CHECK(forgeLevelDocAddSpawn(taken.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(std::string(err) ==
+		"volumes.json already has a volume_pad_0003, the name the new pad's bounds would take");
+	CHECK(forgeLevelDocPadCount(taken.doc) == 3);
+	CHECK(forgeLevelDocMemberChanged(taken.doc, FORGE_LEVEL_MEMBER_PADS) == 0);
 }
 
 TEST_CASE("A level that breaks a rule is refused with the reason, never repaired",
           "[forge-level-doc]")
 {
-	const auto refused = [](const std::string &pads, const std::string &spawns, const std::string &objects) {
-		Level level(pads, spawns, objects);
+	const auto refused = [](const std::string &pads, const std::string &spawns, const std::string &objects,
+			const std::string &volumes) {
+		Level level(pads, spawns, objects, volumes);
 		CHECK(level.doc == nullptr);
 		return level.error;
 	};
-	CHECK(refused("[]", kSpawns, kObjects) == "pads.json is not one JSON object");
-	CHECK(refused(kPads, "", kObjects) == "spawns.json is not one JSON object");
-	CHECK(refused(kPads, kSpawns, "{ \"schema\": \"pd2.scenario.objects.v1\" }") ==
+	CHECK(refused("[]", kSpawns, kObjects, kVolumes) == "pads.json is not one JSON object");
+	CHECK(refused(kPads, "", kObjects, kVolumes) == "spawns.json is not one JSON object");
+	CHECK(refused(kPads, kSpawns, "{ \"schema\": \"pd2.scenario.objects.v1\" }", kVolumes) ==
 		"objects.json has no rows array");
-	CHECK(refused(replaced(kPads, "pads.v1", "pads.v2"), kSpawns, kObjects) ==
+	CHECK(refused(replaced(kPads, "pads.v1", "pads.v2"), kSpawns, kObjects, kVolumes) ==
 		"pads.json needs \"schema\": \"pd2.scenario.pads.v1\"");
 	/* The files are not interchangeable. */
-	CHECK(refused(kSpawns, kSpawns, kObjects) == "pads.json needs \"schema\": \"pd2.scenario.pads.v1\"");
+	CHECK(refused(kSpawns, kSpawns, kObjects, kVolumes) ==
+		"pads.json needs \"schema\": \"pd2.scenario.pads.v1\"");
+	CHECK(refused(kPads, kSpawns, kObjects, kPads) ==
+		"volumes.json needs \"schema\": \"pd2.scenario.volumes.v1\"");
 	/* A pad's name is its place in the file. */
-	CHECK(refused(replaced(kPads, "pad_0001", "pad_0007"), kSpawns, kObjects) ==
+	CHECK(refused(replaced(kPads, "pad_0001", "pad_0007"), kSpawns, kObjects, kVolumes) ==
 		"pads.json row 1 is named \"pad_0007\"; a pad's name is its place in the file (pad_0001)");
 	CHECK(refused(replaced(kPads, "\"up\": [0.000000, 1.000000, 0.000000]", "\"up\": [0.000000, 1.000000]"),
-		kSpawns, kObjects) == "pads.json pad_0000 needs position, up and look, three numbers each");
-	CHECK(refused(kPads, replaced(kSpawns, "spawn_0004", "spawn_0000"), kObjects) ==
+		kSpawns, kObjects, kVolumes) == "pads.json pad_0000 needs position, up and look, three numbers each");
+	CHECK(refused(kPads, replaced(kSpawns, "spawn_0004", "spawn_0000"), kObjects, kVolumes) ==
 		"spawns.json lists spawn_0000 twice");
-	CHECK(refused(kPads, replaced(kSpawns, "\"spawn_id\": \"spawn_0000\", ", ""), kObjects) ==
+	CHECK(refused(kPads, replaced(kSpawns, "\"spawn_id\": \"spawn_0000\", ", ""), kObjects, kVolumes) ==
 		"spawns.json row 0 has no spawn_id");
-	CHECK(refused(kPads, replaced(kSpawns, "\"pad_ref\": \"pad_0001\"", "\"pad_ref\": \"pad_0009\""), kObjects) ==
-		"spawns.json spawn_0004 names pad \"pad_0009\", which the level does not have");
-	CHECK(refused(kPads, kSpawns, replaced(kObjects, "setup_0001", "setup_0000")) ==
+	CHECK(refused(kPads, replaced(kSpawns, "\"pad_ref\": \"pad_0001\"", "\"pad_ref\": \"pad_0009\""), kObjects,
+		kVolumes) == "spawns.json spawn_0004 names pad \"pad_0009\", which the level does not have");
+	CHECK(refused(kPads, kSpawns, replaced(kObjects, "setup_0001", "setup_0000"), kVolumes) ==
 		"objects.json lists setup_0000 twice");
-	CHECK(refused(kPads, kSpawns, replaced(kObjects, "\"pad_ref\": \"pad_0002\"", "\"pad_ref\": \"pad_0200\"")) ==
-		"objects.json setup_0000 names pad \"pad_0200\", which the level does not have");
+	CHECK(refused(kPads, kSpawns, replaced(kObjects, "\"pad_ref\": \"pad_0002\"", "\"pad_ref\": \"pad_0200\""),
+		kVolumes) == "objects.json setup_0000 names pad \"pad_0200\", which the level does not have");
+	CHECK(refused(kPads, kSpawns, kObjects, replaced(kVolumes, "volume_pad_0001", "volume_pad_0000")) ==
+		"volumes.json lists volume_pad_0000 twice");
+	CHECK(refused(kPads, kSpawns, kObjects, replaced(kVolumes, "\"pad_ref\": \"pad_0002\"", "\"pad_ref\": \"pad_0005\"")) ==
+		"volumes.json volume_pad_0002 names pad \"pad_0005\", which the level does not have");
+	CHECK(refused(kPads, kSpawns, kObjects, replaced(kVolumes, "\"volume_id\": \"volume_pad_0000\", ", "")) ==
+		"volumes.json row 0 has no volume_id");
 	/* Text after the object is not JSON, and is not dropped quietly. */
-	CHECK(refused(std::string(kPads) + "x", kSpawns, kObjects) == "pads.json is not one JSON object");
+	CHECK(refused(std::string(kPads) + "x", kSpawns, kObjects, kVolumes) == "pads.json is not one JSON object");
 }
 
 TEST_CASE("Rows are found in any layout, and an empty list takes its first row", "[forge-level-doc]")
@@ -443,15 +522,22 @@ TEST_CASE("Rows are found in any layout, and an empty list takes its first row",
 		"\"text\":\"a } and a ] and a \\\" inside a string\"}],\"schema\":\"pd2.scenario.pads.v1\"}";
 	const std::string spawns = "{ \"schema\": \"pd2.scenario.spawns.v1\", \"rows\": [] }";
 	const std::string objects = "{\n  \"schema\": \"pd2.scenario.objects.v1\",\n  \"rows\": [\n  ]\n}\n";
-	Level level(pads, spawns, objects);
+	/* A level whose one pad has no bounds row. */
+	const std::string volumes = "{ \"schema\": \"pd2.scenario.volumes.v1\", \"rows\": [ ] }\n";
+	Level level(pads, spawns, objects, volumes);
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(level.doc) == 1);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 0);
 	CHECK(forgeLevelDocObjectCount(level.doc) == 0);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 0);
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocGetPad(level.doc, 0, &pad) == 1);
+	CHECK(pad.has_volume == 0);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
 
 	char id[32] = { 0 };
 	char err[200] = { 0 };
@@ -463,16 +549,24 @@ TEST_CASE("Rows are found in any layout, and an empty list takes its first row",
 		"    { \"spawn_id\": \"spawn_0000\", \"pad_ref\": \"pad_0001\", \"room_ref\": \"\", "
 		"\"team\": \"default\", \"profile\": \"intro\", \"position\": null, \"look\": null }\n"
 		"  ] }");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) ==
+		"{ \"schema\": \"pd2.scenario.volumes.v1\", \"rows\": [\n"
+		"    { \"volume_id\": \"volume_pad_0001\", \"pad_ref\": \"pad_0001\", \"kind\": \"pad_bounds\", "
+		"\"room_ref\": \"\", \"shape\": \"aabb\", \"min\": [0.000000, -100.000000, -350.500000], "
+		"\"max\": [200.000000, 100.000000, -150.500000] }\n"
+		"  ] }\n");
 	/* The one-line pads file keeps its first row's bytes and gains a second. */
 	const std::string padsAfter = level.text(FORGE_LEVEL_MEMBER_PADS);
 	const std::string firstRow = pads.substr(pads.find("{\"pad_ref\""), pads.find("}]") + 1 - pads.find("{\"pad_ref\""));
 	CHECK(padsAfter.find(firstRow + ", { \"pad_ref\": \"pad_0001\"") != std::string::npos);
 
-	Level again(padsAfter, level.text(FORGE_LEVEL_MEMBER_SPAWNS), level.text(FORGE_LEVEL_MEMBER_OBJECTS));
+	Level again(padsAfter, level.text(FORGE_LEVEL_MEMBER_SPAWNS), level.text(FORGE_LEVEL_MEMBER_OBJECTS),
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES));
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
 	CHECK(forgeLevelDocSpawnCount(again.doc) == 1);
+	CHECK(forgeLevelDocVolumeCount(again.doc) == 1);
 }
 
 TEST_CASE("The example level is read and written back unchanged, then edited", "[forge-level-doc]")
@@ -485,19 +579,23 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	const std::string pads = levelMember(scenario, "pads.json");
 	const std::string spawns = levelMember(scenario, "spawns.json");
 	const std::string objects = levelMember(scenario, "objects.json");
+	const std::string volumes = levelMember(scenario, "volumes.json");
 	REQUIRE(!pads.empty());
 	REQUIRE(!spawns.empty());
 	REQUIRE(!objects.empty());
+	REQUIRE(!volumes.empty());
 
-	Level level(pads, spawns, objects);
+	Level level(pads, spawns, objects, volumes);
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(level.doc) == 1);
 	CHECK(forgeLevelDocSpawnCount(level.doc) == 1);
 	CHECK(forgeLevelDocObjectCount(level.doc) == 1);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 1);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
 
 	/* Its spawn and its prop share the one pad. Moving the spawn leaves the
 	 * prop where it was. This file repeats the place in the spawn's row, so
@@ -505,22 +603,27 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	char err[200] = { 0 };
 	REQUIRE(forgeLevelDocMoveSpawn(level.doc, "spawn_0000", kPlace, kFacing, err, sizeof(err)) == 1);
 	CHECK(forgeLevelDocPadCount(level.doc) == 2);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 2);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 	const std::string moved = level.text(FORGE_LEVEL_MEMBER_SPAWNS);
 	CHECK(moved.find("\"pad_ref\": \"pad_0001\"") != std::string::npos);
 	CHECK(moved.find("\"position\": null") != std::string::npos);
 	CHECK(moved.find("\"look\": null") != std::string::npos);
 	CHECK(moved.find("\"profile\": \"default\"") != std::string::npos);
+	/* Everything up to the end of the template's one pad row is unchanged. */
 	const std::string padsMoved = level.text(FORGE_LEVEL_MEMBER_PADS);
-	CHECK(padsMoved.compare(0, pads.rfind('}', pads.rfind(']')) + 1, pads, 0, pads.rfind('}', pads.rfind(']')) + 1) == 0);
+	const size_t rowEnd = pads.rfind('}', pads.rfind(']')) + 1;
+	CHECK(padsMoved.compare(0, rowEnd, pads, 0, rowEnd) == 0);
 
-	Level again(padsMoved, moved, level.text(FORGE_LEVEL_MEMBER_OBJECTS));
+	Level again(padsMoved, moved, level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES));
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
+	CHECK(forgeLevelDocVolumeCount(again.doc) == 2);
 }
 
-TEST_CASE("A changed level is saved by the mod author as a level mod of its own", "[forge-level-doc]")
+TEST_CASE("A changed level is saved by the mod author, and its navigation record matches its files",
+          "[forge-level-doc]")
 {
 	/* F2's save path: the level's template archive, plus one override per
 	 * member the document changed, through the same mod author every in-game
@@ -532,8 +635,8 @@ TEST_CASE("A changed level is saved by the mod author as a level mod of its own"
 	REQUIRE(!arena.empty());
 	const std::string scenario = levelMember(arena, scenarioMember);
 	REQUIRE(!scenario.empty());
-	const std::string templateObjects = levelMember(scenario, "objects.json");
-	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"), templateObjects);
+	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
+		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"));
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 
@@ -546,17 +649,18 @@ TEST_CASE("A changed level is saved by the mod author as a level mod of its own"
 	char id[32] = { 0 };
 	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "team_1", id, sizeof(id), err, sizeof(err)) == 1);
 	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
-	/* The pads and the spawns changed; the objects did not. */
-	REQUIRE(overrides.count == 2);
+	/* The pads, the spawns and the bounds changed; the objects did not. */
+	REQUIRE(overrides.count == 3);
 	CHECK(std::string(overrides.entries[0].entry) == std::string(scenarioMember) + "::pads.json");
 	CHECK(std::string(overrides.entries[1].entry) == std::string(scenarioMember) + "::spawns.json");
+	CHECK(std::string(overrides.entries[2].entry) == std::string(scenarioMember) + "::volumes.json");
 	CHECK(std::string(static_cast<const char *>(overrides.entries[1].data), overrides.entries[1].len) ==
 		level.text(FORGE_LEVEL_MEMBER_SPAWNS));
 	CHECK(overrides.entries[0].remove == 0);
 	/* A scenario saved on its own names its members directly. */
 	forge_level_overrides_t direct;
 	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &direct, err, sizeof(err)) == 1);
-	REQUIRE(direct.count == 2);
+	REQUIRE(direct.count == 3);
 	CHECK(std::string(direct.entries[0].entry) == "pads.json");
 	CHECK(forgeLevelDocOverrides(nullptr, scenarioMember, &direct, err, sizeof(err)) == 0);
 	CHECK(direct.count == 0);
@@ -584,19 +688,22 @@ TEST_CASE("A changed level is saved by the mod author as a level mod of its own"
 	INFO("release validation: " << policy);
 	CHECK(valid == 0);
 
-	/* What the saved level holds: the template's scenario with the new pad
-	 * and the new spawn, read by this module as a level again. */
+	/* What the saved level holds: the template's scenario with the new pad,
+	 * its bounds and the new spawn, read by this module as a level again. */
 	const std::string saved = levelReadFile(result.archive_path);
 	REQUIRE(!saved.empty());
 	const std::string savedScenario = levelMember(saved, scenarioMember);
 	REQUIRE(!savedScenario.empty());
-	Level again(levelMember(savedScenario, "pads.json"), levelMember(savedScenario, "spawns.json"),
-		levelMember(savedScenario, "objects.json"));
+	const std::string savedPads = levelMember(savedScenario, "pads.json");
+	const std::string savedSpawns = levelMember(savedScenario, "spawns.json");
+	const std::string savedVolumes = levelMember(savedScenario, "volumes.json");
+	Level again(savedPads, savedSpawns, levelMember(savedScenario, "objects.json"), savedVolumes);
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
 	CHECK(forgeLevelDocSpawnCount(again.doc) == 2);
 	CHECK(forgeLevelDocObjectCount(again.doc) == 1);
+	CHECK(forgeLevelDocVolumeCount(again.doc) == 2);
 	forge_level_spawn_t spawn = {};
 	REQUIRE(forgeLevelDocGetSpawn(again.doc, 1, &spawn) == 1);
 	CHECK(std::string(spawn.spawn_id) == id);
@@ -607,6 +714,43 @@ TEST_CASE("A changed level is saved by the mod author as a level mod of its own"
 	CHECK(pad.position[0] == kPlace[0]);
 	CHECK(pad.position[2] == kPlace[2]);
 	CHECK(pad.look[2] == -1.0f);
+
+	/* The game compares the scenario's navigation record with its files
+	 * before it uses the level's navigation, and refuses the level when the
+	 * counts or the hashes differ. The rebuild brings the record up to date,
+	 * in the exact text the game looks for. */
+	const std::string record = levelMember(savedScenario, "_meta/generated-navmesh.json");
+	REQUIRE(!record.empty());
+	INFO(record);
+	CHECK(record.find("\"source_counts\": { \"pads\": 2, \"volumes\": 2, \"waypoints\": 0, "
+		"\"waygroups\": 0, \"covers\": 0, \"paths\": 1 }") != std::string::npos);
+	const std::string hashes = std::string("\"source_hashes\": { \"scene.glb\": \"") +
+		levelSha(levelMember(savedScenario, "scene.glb")) + "\", \"collision.obj\": \"" +
+		levelSha(levelMember(savedScenario, "collision.obj")) + "\", \"navigation.ini\": \"" +
+		levelSha(levelMember(savedScenario, "navigation.ini")) + "\", \"portals.json\": \"" +
+		levelSha(levelMember(savedScenario, "portals.json")) + "\", \"pads.json\": \"" +
+		levelSha(savedPads) + "\", \"spawns.json\": \"" + levelSha(savedSpawns) +
+		"\", \"volumes.json\": \"" + levelSha(savedVolumes) + "\", \"navigation/waypoints.json\": \"" +
+		levelSha(levelMember(savedScenario, "navigation/waypoints.json")) +
+		"\", \"navigation/waygroups.json\": \"" +
+		levelSha(levelMember(savedScenario, "navigation/waygroups.json")) +
+		"\", \"navigation/covers.json\": \"" +
+		levelSha(levelMember(savedScenario, "navigation/covers.json")) +
+		"\", \"navigation/paths.json\": \"" +
+		levelSha(levelMember(savedScenario, "navigation/paths.json")) + "\" }";
+	CHECK(record.find(hashes) != std::string::npos);
+	/* The rest of the record is the template's, with the scenario's new id. */
+	CHECK(record.find("deterministic.surface_graph.v1") != std::string::npos);
+	CHECK(record.find("mod:arena_forge_yard__") != std::string::npos);
+
+	const char *artifacts = std::getenv("PD2_TEST_ARTIFACT_DIR");
+	if (artifacts && artifacts[0]) {
+		std::error_code copyError;
+		const fs::path dir = fs::path(artifacts) / "clones";
+		fs::create_directories(dir, copyError);
+		fs::copy_file(result.archive_path, dir / fs::path(result.archive_path).filename(),
+			fs::copy_options::overwrite_existing, copyError);
+	}
 
 	std::error_code ec;
 	fs::remove_all(root, ec);
@@ -641,13 +785,17 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			const std::string pads = levelMember(scenario, "pads.json");
 			const std::string spawns = levelMember(scenario, "spawns.json");
 			const std::string objects = levelMember(scenario, "objects.json");
-			if (pads.empty() || spawns.empty() || objects.empty()) continue;
-			Level level(pads, spawns, objects);
+			const std::string volumes = levelMember(scenario, "volumes.json");
+			if (pads.empty() || spawns.empty() || objects.empty() || volumes.empty()) continue;
+			Level level(pads, spawns, objects, volumes);
 			INFO(entry.path().string() << ": " << level.error);
 			REQUIRE(level.doc != nullptr);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+			CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+			/* Every pad of a base level has its bounds row. */
+			CHECK(forgeLevelDocVolumeCount(level.doc) == forgeLevelDocPadCount(level.doc));
 
 			/* Adding a spawn and removing it again leaves the spawns as they
 			 * were, which exercises the rebuilt text on real files. */

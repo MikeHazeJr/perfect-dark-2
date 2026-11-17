@@ -265,21 +265,50 @@ header's comment is the reference for its rules. Not wired to the editor yet.
 
 What it does:
 
-- Reads three members of a level's scenario by schema name: `pads.json`
-  (`pd2.scenario.pads.v1`), `spawns.json` (`pd2.scenario.spawns.v1`) and
-  `objects.json` (`pd2.scenario.objects.v1`). A wrong schema, a row with no
-  id, a repeated id, a pad out of sequence, or a spawn or object naming a pad
-  the level does not have is refused with the reason. Nothing is repaired.
+- Reads four members of a level's scenario by schema name: `pads.json`
+  (`pd2.scenario.pads.v1`), `spawns.json` (`pd2.scenario.spawns.v1`),
+  `objects.json` (`pd2.scenario.objects.v1`) and `volumes.json`
+  (`pd2.scenario.volumes.v1`, each pad's bounds in the world). A wrong schema,
+  a row with no id, a repeated id, a pad out of sequence, or a spawn, object or
+  bounds row naming a pad the level does not have is refused with the reason.
+  Nothing is repaired.
 - Rows keep their bytes. A row nobody touched is written back exactly as it
   was read, with every key the module does not know; a document with no edit
   gives back the texts it was given. One value inside a row is replaced in
   place (a spawn's `pad_ref`), so the rest of that row keeps its order and
   layout too.
-- Adds a spawn, moves a spawn or an object that stands on a pad, removes a
-  spawn, and hands the mod author one override per changed member
-  (`forgeLevelDocOverrides`: `<scenario member>::pads.json` and so on). A unit
-  case saves the example arena with a new spawn through `modAuthorSave` and
-  reads the saved level back.
+- Adds a spawn, moves a spawn, removes a spawn, and hands the mod author one
+  override per changed member (`forgeLevelDocOverrides`: `<scenario
+  member>::pads.json` and so on). A new pad comes with its bounds row, and a
+  pad moved in place takes its bounds with it. A unit case saves the example
+  arena with a new spawn through `modAuthorSave`, reads the saved level back,
+  and checks its navigation record against its files.
+- Objects are read and kept byte for byte, not edited (see "Not done").
+
+What a save must keep true, found on 2026-11-17 by running the archive
+conformance tool on a level with one pad added and by reading the runtime
+(`scenario_source_runtime.c`, near "source counts mismatch"):
+
+- **The scenario's navigation record must match its files.**
+  `_meta/generated-navmesh.json` repeats the row count of six tables (pads,
+  volumes, waypoints, waygroups, covers, paths) and a hash of eleven members
+  (`scene.glb`, `collision.obj`, `navigation.ini`, `portals.json`, `pads.json`,
+  `spawns.json`, `volumes.json` and the four navigation tables). Before it uses
+  a level's navigation the game looks for both lists as exact one-line text
+  and refuses the level when either differs. A `_meta` member cannot be
+  overridden, so the archive rebuild derives it: `cloneNavRefresh` in
+  `asset_archive_clone.c` rewrites the two lists from the members the rebuilt
+  scenario holds, in the extractor's form, whenever they are no longer true.
+  A plain clone changes none of those members (none holds a catalog id), so
+  its record stays as it was.
+- **Every pad has a bounds row.** In every base level `volumes.json` has one
+  `volume_pad_NNNN` row per pad (the pad's place, a hundred units each way
+  when the pad has no box of its own), and the extractor writes the two counts
+  as the same number.
+- **Four digits.** The conformance tool wants a spawn's id and a spawn's pad
+  written `spawn_NNNN` and `pad_NNNN` with exactly four digits, so the document
+  stops at 10,000 pads and at spawn number 9,999. The largest base level has
+  under 2,000 pads.
 
 What the base levels taught (a read-only survey of all 132 extracted levels of
 base 7: 41,102 pads, 704 spawns, 15,940 objects; `survey_placements.py` in the
@@ -310,10 +339,15 @@ near line 2910):
 
 Not done:
 
-- Adding and removing objects. An object's kind and fields are rows of
-  `setup.fields.json`, and `level.graph.json` events name objects by
-  `record_id`; the module reads neither yet. This is the next piece, and it
-  is what "add a weapon" in F2's proof needs.
+- Moving, adding and removing objects. An object's kind and fields are rows
+  of `setup.fields.json` (37 rows for one weapon pickup of Complex), which also
+  repeats the object's pad as `base.pad`, and `level.graph.json` events name
+  objects by `record_id`; the module reads neither yet. The game applies
+  `objects.json` after `setup.fields.json`, so the pad named in `objects.json`
+  is the one used, but an edit that changed only that file would leave the two
+  disagreeing; a first version of the module moved objects that way and it was
+  taken out for that reason. This is the next piece, and it is what "add a
+  weapon" in F2's proof needs.
 - A run that shows a new spawn used in a match. READ in the runtime, it is
   enough to add the row: `s_setupBuildStageBlock` (`scenario_source_runtime.c`)
   builds the stage's intro script from `spawns.json`, one `INTROCMD_SPAWN pad
