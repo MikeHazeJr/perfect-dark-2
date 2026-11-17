@@ -2103,6 +2103,22 @@ void endscreenPushAnti(void)
 
 	g_Menus[g_MpPlayerNum].playernum = g_Vars.currentplayernum;
 
+	/* PC (T-NETWORKING-011): say which results this machine shows, by the
+	 * rule below (the agent fails when dead, aborted or short of an
+	 * objective; the counter-operative then wins), so a smoke can tell a
+	 * failed mission from a completed one on each machine. */
+	{
+		const bool agentfailed = !ANTI_ABORTED()
+			&& (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete());
+		const bool isagent = g_Vars.currentplayer == g_Vars.bond;
+
+		sysLogPrintf(LOG_NOTE,
+			"GAMELOOP.COUNTEROP: results role=%s outcome=%s agent_dead=%d agent_aborted=%d anti_aborted=%d",
+			isagent ? "bond" : "anti",
+			isagent ? (agentfailed ? "failed" : "completed") : (agentfailed ? "completed" : "failed"),
+			g_Vars.bond->isdead ? 1 : 0, g_Vars.bond->aborted ? 1 : 0, ANTI_ABORTED() ? 1 : 0);
+	}
+
 	if (g_Vars.currentplayer == g_Vars.bond) {
 #if VERSION >= VERSION_NTSC_1_0 && defined(DEBUG)
 		if (!ANTI_ABORTED() && (g_Vars.bond->isdead || g_Vars.bond->aborted || !objectiveIsAllComplete()) && !debugIsSetCompleteEnabled())

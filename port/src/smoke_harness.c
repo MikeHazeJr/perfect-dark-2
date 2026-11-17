@@ -27,7 +27,10 @@
  *     - log "SMOKE: result=<reason> elapsed_ms=<N> events_fired=<M>"
  *     - exit(code)
  *
- * Event schema (input_sequence[] in the JSON test file):
+ * Event schema (input_sequence[] in the JSON test file). Entries run in at_ms
+ * order (ties in written order), and at_ms is script time, which stands still
+ * during a wait_until; write the entries in that order, since the harness
+ * refuses a sequence that goes back in time.
  *
  *   { "at_ms": N, "type": "wait" }
  *     -- inert marker; useful for sequencing comments / dwell.
@@ -38,8 +41,10 @@
  *        condition is true. Supported conditions are title_sequence_ready,
  *        network_listen_ready, network_stage_live, network_reconnect_available,
  *        cutscene_skip_ready, gameplay_ready, offline_gameplay_ready, and
- *        vehicle_driver_ready, endscreen_visible, agent_select_ready and
- *        agent_create_ready. The real-time harness
+ *        vehicle_driver_ready, endscreen_visible, agent_select_ready,
+ *        agent_create_ready and scenario_token_held (the scenario authority,
+ *        offline or the listen host, sees a living simulant carry the
+ *        uplink, a briefcase or a case). The real-time harness
  *        watchdog continues while the script is paused, and every wait
  *        requires a bounded timeout.
  *
@@ -64,6 +69,13 @@
  *        the complete held-weapon attachment, then invoke the production
  *        weaponDeleteFromChr lifecycle. It does not alter reconnect packets,
  *        exact-set counters, or receiver state.
+ *
+ *   { "at_ms": N, "type": "kill_token_holder" }
+ *     -- on the scenario authority, the simulant that carries the scenario's
+ *        token (wait for scenario_token_held first) dies through the
+ *        production damage path (chrDamageByMisc, as poison kills), which the
+ *        host replicates. Ends the smoke as a failure when no simulant holds
+ *        one, and on a networked client.
  *
  *   { "at_ms": N, "type": "network_timeout_client", "client_id": 1 }
  *   { "at_ms": N, "type": "network_reconnect" }
@@ -236,6 +248,7 @@ typedef enum {
     SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT,
     SMOKE_EVENT_NETWORK_RECONNECT,
     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
+    SMOKE_EVENT_KILL_TOKEN_HOLDER,  /* B-1209: the simulant carrying the scenario token dies */
     SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
@@ -1045,6 +1058,10 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 		ev->type = SMOKE_EVENT_KILL_PLAYER;
 		return 1;
 	}
+	if (!strcmp(type_str, "kill_token_holder")) {
+		ev->type = SMOKE_EVENT_KILL_TOKEN_HOLDER;
+		return 1;
+	}
 	if (!strcmp(type_str, "kill_simulant")) {
 		ev->type = SMOKE_EVENT_KILL_SIMULANT;
 		return 1;
@@ -1523,6 +1540,12 @@ static s32 smokeParseJson(const char *src)
             s_State.timeout_ms = (s32)(secs * 1000);
         } else if (!strcmp(field, "input_sequence")) {
             if (t.type == JT_LBRACKET) {
+                /* The events run in at_ms order (stable sort below), so an
+                 * entry authored after a later-timed one would silently run
+                 * before it: a wait written after an action would run first.
+                 * Refuse a sequence that goes back in time. */
+                s32 seq_index = 0;
+                s32 prev_at_ms = 0;
                 t = j_next(&p);
                 while (t.type != JT_RBRACKET && t.type != JT_EOF) {
                     if (t.type == JT_LBRACE) {
@@ -1535,6 +1558,14 @@ static s32 smokeParseJson(const char *src)
                             if (!smokeParseEvent(&p, ev)) {
                                 return 0;
                             }
+                            if (seq_index > 0 && ev->at_ms < prev_at_ms) {
+                                sysLogPrintf(LOG_ERROR,
+                                    "SMOKE: input_sequence entry %d has at_ms=%d, before the entry above it (at_ms=%d); events run in at_ms order, so author them in that order",
+                                    seq_index, ev->at_ms, prev_at_ms);
+                                return 0;
+                            }
+                            prev_at_ms = ev->at_ms;
+                            seq_index++;
                             s_State.event_count++;
                         }
 					} else {
@@ -1995,6 +2026,42 @@ static void smokeObserveStageReadyEpoch(void)
         s_State.ready_stage_generation, s_State.ready_stage_num, ready_count);
 }
 
+/* B-1209: the match slot of the living simulant that carries the scenario's
+ * token (Hacker Central's uplink, Hold the Briefcase's briefcase, Capture the
+ * Case's case), or -1. Only the scenario authority runs the scenario, so a
+ * networked client answers -1. */
+static s32 smokeScenarioTokenHolder(const char **token)
+{
+    if (token) {
+        *token = "none";
+    }
+    if (!g_Vars.normmplayerisrunning || g_NetMode == NETMODE_CLIENT) {
+        return -1;
+    }
+    for (s32 i = PLAYERCOUNT(); i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+        struct chrdata *chr = g_MpAllChrPtrs[i];
+        const char *held = NULL;
+
+        if (chr == NULL || chr->aibot == NULL || chr->prop == NULL || chrIsDead(chr)) {
+            continue;
+        }
+        if (chr->aibot->hasuplink) {
+            held = "uplink";
+        } else if (chr->aibot->hasbriefcase) {
+            held = "briefcase";
+        } else if (chr->aibot->hascase) {
+            held = "case";
+        }
+        if (held) {
+            if (token) {
+                *token = held;
+            }
+            return i;
+        }
+    }
+    return -1;
+}
+
 static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
 {
     smoke_readiness_facts_t facts;
@@ -2053,6 +2120,7 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.local_player_spawned = local_player && local_player->prop;
     facts.stage_tick_active = g_Vars.tickmode == TICKMODE_CUTSCENE
         || g_Vars.tickmode == TICKMODE_NORMAL;
+    facts.scenario_token_held = smokeScenarioTokenHolder(NULL) >= 0;
     facts.scene_cutscene_layer = scene_layer == LAYER_CUTSCENE;
     facts.scene_gameplay_layer = scene_layer == LAYER_GAMEPLAY;
 	facts.cutscene_in_progress = local_player_num >= 0
@@ -2084,7 +2152,10 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.vehicle_driver_layer_active = inputLayerTopType()
         == LAYER_VEHICLE_DRIVER;
     facts.endscreen = g_MainIsEndscreen != 0;
-	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP);
+	/* B-1193: a mission's results (solo, and networked co-op or counter-op,
+	 * one per machine) are the solo end screen type. */
+	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)
+		|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO);
 	facts.menu_input_active = inputCtxIsActive(&g_CtxImGuiMenu);
     /* SDL keyboard input belongs to player 0. A buried/sibling dialog, stale
      * pool claim, or focused popup cannot admit ordinary menu key events. */
@@ -3002,6 +3073,30 @@ void smokeHarnessTick(void)
 			} else {
 				sysLogPrintf(LOG_WARNING, "SMOKE.KILL_PLAYER: player 0 unavailable or already dead at_ms=%d",
 					ev->at_ms);
+			}
+			break;
+		}
+		case SMOKE_EVENT_KILL_TOKEN_HOLDER:
+		{
+			/* B-1209: the token's carrier dies through the production damage
+			 * path (as poison kills), which the host replicates; the scenario
+			 * then makes a new token and announces it to clients. */
+			const char *token = "none";
+			const s32 slot = smokeScenarioTokenHolder(&token);
+
+			if (slot < 0) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.KILL_TOKEN_HOLDER: no living simulant carries a scenario token here (netmode=%d running=%d) at_ms=%d",
+					(s32)g_NetMode, (s32)g_Vars.normmplayerisrunning, ev->at_ms);
+				smokeHarnessExit(1, "kill_token_holder_no_holder");
+				return;
+			} else {
+				struct chrdata *chr = g_MpAllChrPtrs[slot];
+				struct coord dir = {0, 0, 0};
+
+				chrDamageByMisc(chr, 1000.0f, &dir, NULL, NULL);
+				sysLogPrintf(LOG_NOTE, "SMOKE.KILL_TOKEN_HOLDER: simulant player=%d token=%s died=%d at_ms=%d",
+					slot, token, chrIsDead(chr) ? 1 : 0, ev->at_ms);
 			}
 			break;
 		}

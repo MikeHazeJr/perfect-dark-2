@@ -10,7 +10,8 @@ enum class PdguiEndscreenIntent {
     Quit,
     ConfirmMainMenu,
     ConfirmDisconnect,
-    ConfirmQuit
+    ConfirmQuit,
+    ReturnToRoom /* B-1193: a networked mission's host returns both players */
 };
 
 // Each results renderer seeds owner-filtered Back before submitting its

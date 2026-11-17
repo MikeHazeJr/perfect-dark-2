@@ -55,6 +55,9 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	if (strcmp(name, "agent_create_ready") == 0) {
 		return SMOKE_READINESS_AGENT_CREATE_READY;
 	}
+	if (strcmp(name, "scenario_token_held") == 0) {
+		return SMOKE_READINESS_SCENARIO_TOKEN_HELD;
+	}
 	for (unsigned int i = 0; i < sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]); ++i) {
 		if (strcmp(name, mainMenuConditions[i]) == 0)
 			return (smoke_readiness_condition_t)(SMOKE_READINESS_MAIN_MENU_PLAY_READY + i);
@@ -96,6 +99,8 @@ const char *smokeReadinessConditionName(
 		return "agent_select_ready";
 	case SMOKE_READINESS_AGENT_CREATE_READY:
 		return "agent_create_ready";
+	case SMOKE_READINESS_SCENARIO_TOKEN_HELD:
+		return "scenario_token_held";
 	default:
 		return "invalid";
 	}
@@ -224,6 +229,12 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		return facts->boot_complete && facts->agent_create_current
 			&& facts->agent_create_pool_active && facts->menu_input_top
 			&& facts->menu_keyboard_ready && facts->agent_create_imgui_owner;
+	case SMOKE_READINESS_SCENARIO_TOKEN_HELD:
+		/* A simulant carries the scenario's token in a running match (the
+		 * scenario authority only: offline, or the listen host). */
+		return facts->multiplayer_running && facts->gameplay_stage
+			&& facts->stage_tick_active && !facts->endscreen
+			&& facts->scenario_token_held;
 	default:
 		return 0;
 	}

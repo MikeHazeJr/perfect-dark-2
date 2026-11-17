@@ -1,0 +1,54 @@
+{
+  "scenario_name": "network_coop_mission_return_host",
+  "description": "Host schedule for network_coop_mission_return_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "input_sequence": [
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "The ordinary ready gate, typed stage publication, load, allocation and spawn are live.",
+      "at_ms": 0
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable co-op control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "at_ms": 0,
+      "comment": "The host's own results, after --debug-end-mission fails the mission at 40 s."
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_MENU_RIGHT",
+      "action": "tap",
+      "comment": "From the default Retry Mission to Return to Room."
+    },
+    {
+      "at_ms": 5000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Return to Room: SVC_MISSION_RETURN takes the client back to the Room too."
+    },
+    {
+      "at_ms": 20000,
+      "type": "exit",
+      "comment": "Scripted clean exit from the Room."
+    }
+  ]
+}

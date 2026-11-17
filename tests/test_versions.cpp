@@ -18,8 +18,10 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-11-15 to NET_PROTOCOL_VER 63 for UCMD_GUNROLL_LEFT/RIGHT
- * (T-MODDING-008; v62 is MULTIPLAYER's on week-pd/multiplayer).
+ * Bumped 2026-11-16 to NET_PROTOCOL_VER 64 for host-authoritative scenario
+ * state (SVC_SCENARIO_STATE, SVC_BOT_PICKUP; MULTIPLAYER's v62, renumbered
+ * after dev's v63). Bumped 2026-11-15 to NET_PROTOCOL_VER 63 for
+ * UCMD_GUNROLL_LEFT/RIGHT (T-MODDING-008).
  * Bumped 2026-09-08 to NET_PROTOCOL_VER 61 for authenticated lobby rosters.
  * Version 60 added room initial snapshots,
  * operation results and access-aware room lists. MPSETUP_VERSION remains 3.
@@ -45,7 +47,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 63;
+const u32 g_TestExpectedNetProtocolVer  = 64;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -56,9 +58,10 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-09-08 the live value is 60. Room messages now carry initial
-     * settings, access and results. The v59 hoverbike and v58 stage epoch
-     * invariants remain required. */
+     * As of 2026-11-15 the live value is 62: SVC_SCENARIO_STATE carries the
+     * host's objective scenario state. v61 authenticated the lobby roster;
+     * room messages carry initial settings, access and results (v60). The
+     * v59 hoverbike and v58 stage epoch invariants remain required. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 

@@ -1,5 +1,63 @@
 # Unreleased Changes
 
+- Networked objective modes now follow the host: King of the Hill hills and
+  hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
+  the Case holders, uplink downloads and bases. Final scores and rankings are
+  the same for every player.
+
+- After a networked match the Room no longer opens on top of the host's
+  results screen.
+
+- Every player of a networked Combat Simulator match now sees the results,
+  and the Room shows who is still reviewing match stats. The host's Return
+  to Room no longer crashes or reloads the training stage, and its next
+  match in the same Room starts and takes along anyone still on their
+  results.
+
+- In networked co-op and counter-op, each player now sees only their own
+  mission results, and co-op results show both players' stats. The host
+  chooses what comes next: its Next Mission takes the other player along
+  into the next mission, its Retry Mission restarts the mission for both,
+  and in counter-op that player stays the enemy agent.
+
+- Networked co-op and counter-op missions now save your agent's progress at
+  the end; the save used to be refused.
+
+- A networked co-op partner no longer crashes when the host quits after
+  both have gone back to the Room from a mission.
+
+- A networked co-op partner now sees the guards that appear during a
+  mission, such as a guard calling in a copy of itself.
+
+- Networked clients now see the simulants: they are drawn, animated and stay
+  on the ground instead of disappearing.
+
+- Simulants that pick up the briefcase or the uplink now do so on every
+  player's screen in networked matches.
+
+- A gun knocked out of a simulant's hands in a networked match now lies in
+  the same place for every player, and disappears for everyone when someone
+  picks it up.
+
+- A player who drops out of a networked King of the Hill, Hold the
+  Briefcase, Hacker Central, Pop a Cap or Capture the Case match and rejoins
+  gets the match's current state back from the host: the hill, the
+  briefcase, the uplink, the victim, the bases and who holds what.
+
+- Simulants now score their Pop a Cap points (surviving as the victim, and
+  killing the victim) and their Hacker Central download points. Players 5 to
+  8 no longer receive a simulant's points in those modes.
+
+- Fix a host crash a few seconds into some networked matches.
+
+- Capture the Case teams start the match at their own base again.
+
+- Hacker Central no longer crashes on arenas without case pads, and arenas
+  that lack hill, briefcase or case positions get walkable ones.
+
+- Networked clients no longer drop or misread the rest of a packet after
+  declining one message.
+
 - Reject unsupported required glTF features and sparse or normalized accessor
   data before conversion, with clear authoring limits and refreshed caches.
 

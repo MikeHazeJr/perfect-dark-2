@@ -10,7 +10,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 170,
+  "timeout_seconds": 260,
   "install_state": "clean",
   "processes": [
     {
@@ -95,7 +95,7 @@
   ],
   "input_sequence": [
     { "at_ms": 0, "type": "wait", "comment": "The client hook waits internally for the exact PREPARING state and sends one real validated CLC_SETTINGS update." },
-    { "at_ms": 105000, "type": "exit", "comment": "Bounded dwell covers clean install, join, prepared launch, settings race, rollback, cancellation delivery, and restored lobby observation." }
+    { "at_ms": 200000, "type": "exit", "comment": "Bounded dwell covers clean install, join, prepared launch, settings race, rollback, cancellation delivery, and restored lobby observation. 200 s, not 105: the host exits on its own clock, and on a cold install it took 79 s to open the server and the client 54 s more to connect, so a 105 s host was gone before the client arrived (2026-11-16)." }
   ],
   "assertions": {
     "required_lines": [

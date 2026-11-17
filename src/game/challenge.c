@@ -254,6 +254,12 @@ void challengePerformSanityChecks(void)
 			}
 		}
 
+		// PC (finding 10): the table has one difficulty per player count from 1;
+		// a start before any player joined must not read the entry before it
+		if (numplayers < 1) {
+			numplayers = 1;
+		}
+
 		// Turn off all simulants (and players 5-8 if supported) and turn them on if enabled
 		// for this number of players
 		for (i = 0; i < MAX_BOTS; i++) {

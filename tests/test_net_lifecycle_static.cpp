@@ -937,7 +937,11 @@ TEST_CASE("NPC replication shares one complete-owner and transactional resync bo
 	REQUIRE(apply_record < applied_digest);
 	REQUIRE(applied_digest < pending_snapshot);
 	REQUIRE(pending_snapshot < reset_desync);
-	REQUIRE(resync_read.find("local_count == npccount") != std::string::npos);
+	// The counts must match; B-1206 counts again after removing what the
+	// snapshot does not name, before the incomplete check
+	const size_t count_check = resync_read.find("if (local_count != npccount) {");
+	REQUIRE(count_check != std::string::npos);
+	REQUIRE(count_check < incomplete_reject);
 	REQUIRE(resync_read.find("!srccl->stage_ready") != std::string::npos);
 	REQUIRE(resync_read.find("g_NetStageEpoch == 0") != std::string::npos);
 	REQUIRE(resync_read.find(
@@ -1931,7 +1935,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
         std::string::npos);
     REQUIRE(enabled_json.find("if (!registry[i].enabled || registry[i].session_only) continue;") !=
         std::string::npos);
-	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 63") != std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 64") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",

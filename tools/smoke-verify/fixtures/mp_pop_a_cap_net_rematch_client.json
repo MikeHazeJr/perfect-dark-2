@@ -1,0 +1,30 @@
+{
+  "scenario_name": "mp_pop_a_cap_net_rematch_client",
+  "description": "Client schedule for mp_pop_a_cap_net_rematch_smoke. The client shows its results at each stage end (B-1190) and never presses Continue, so the host's second match has to take it along; it waits for each match to go live.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 800,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 480000,
+      "stable_ms": 2000,
+      "comment": "First match live."
+    },
+    {
+      "at_ms": 60000,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 180000,
+      "stable_ms": 2000,
+      "comment": "60 s after the first match went live it has ended (35 s limit) and the client is on its results; this waits for the host's second match, which takes it along."
+    },
+    {
+      "at_ms": 110000,
+      "type": "exit",
+      "comment": "50 s after the second match went live: past its 35 s limit, its stage end and the result lines."
+    }
+  ]
+}

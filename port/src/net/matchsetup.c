@@ -1644,6 +1644,20 @@ s32 matchStartFromChallenge(s32 slot)
 	/* Apply challenge config → sets g_MpSetup (scenario, stage, bots, etc.) */
 	challengeSetCurrentBySlot(slot);
 
+	/* PC (finding 10): the Room's match start (matchStartCommit) is what adds
+	 * the local player as a participant, and this launch bypasses it, so in a
+	 * fresh session a challenge started with its simulants and no player (the
+	 * player spawned but was not in the match or its results). A challenge here
+	 * is offline with one local player: start from an empty table with that
+	 * player in slot 0 on team 0, as challengeApply sets every player's team. */
+	mpClearAllParticipants();
+	mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
+
+	/* PC (finding 10): the legacy menu tick (menutick.c) is what turned the
+	 * challenge's simulants into participants for the number of players; this
+	 * launch never passed through it, so challenges started with no simulants. */
+	challengePerformSanityChecks();
+
 	/* Sync back the challenge's stage into g_MatchConfig so our port-side
 	 * tracking stays consistent (arena picker, etc.).
 	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */

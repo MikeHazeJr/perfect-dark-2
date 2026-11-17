@@ -1,0 +1,139 @@
+{
+  "scenario_name": "mp_combat_local_scorelimit_smoke",
+  "description": "T-NETWORKING-011: offline Combat on Felicity, one human plus three simulants, started through the direct debug match path with a score limit of 1 (--match-scorelimit 1, a real setup value that shows in the Room) and a 240 second time limit as a backstop. The first kill must end the match by the score limit: the stage end line names the score limit, no time-limit end is logged, the result witness lists all four participants and the leader has a nonzero score. The human stands still; the simulants fight with their spawn weapons. Exits once the end screen is up.",
+  "tags": [
+    "combatsim",
+    "match-start",
+    "match-lifecycle",
+    "multiplayer-modes",
+    "scoring"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "src/game/lv.c",
+    "src/game/mplayer/mplayer.c",
+    "src/game/mplayer/setup.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match",
+    "--match-scorelimit",
+    "1",
+    "--match-timelimit-sec",
+    "240"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot, seed the Combat Simulator config with the score limit, and fire the direct debug match start."
+    },
+    {
+      "at_ms": 45000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 46000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 55000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 56000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 65000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 66000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 67000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 320000,
+      "stable_ms": 1000,
+      "comment": "The match ends at the first kill (score limit 1), or at the 240 s backstop, which fails the run."
+    },
+    {
+      "at_ms": 68000,
+      "type": "exit",
+      "comment": "Scripted clean exit once the end screen is up."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_combat_local_scorelimit_smoke",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=3",
+      "BOOT: --match-scorelimit applied: score=1",
+      "BOOT: --debug-auto-start-match consumed",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "MATCH: player spawned slot=",
+      "MATCH: timelimit override applied seconds=240",
+      "MATCH: stage end reason=scorelimit scorelimit=1 teamscorelimit=0",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=4 netmode=0",
+      "MATCH\\.RESULT\\.CHR: rank=0 chr=[0-9]+ team=[0-9]+ score=[1-9]",
+      "MATCH: endscreen shown",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject",
+      "MATCH: stage end reason=timelimit",
+      "BOOT: --match-scorelimit expects"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MATCH: stage end reason=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 4,
+        "max": 4
+      },
+      {
+        "pattern": "MATCH: endscreen shown",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

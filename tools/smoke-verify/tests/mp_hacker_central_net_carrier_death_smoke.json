@@ -1,0 +1,288 @@
+{
+  "scenario_name": "mp_hacker_central_net_carrier_death_smoke",
+  "description": "B-1209 / T-NETWORKING-011, networked Hacker Central when the uplink's carrier dies. A listen host and one client start Hacker Central on Complex with three simulants as mp_hacker_central_net_smoke does (150 s time limit). Once a simulant has carried the uplink for 1 s, the host kills it through the production damage path (kill_token_holder, chrDamageByMisc). The original drops no uplink at a carrier's death: htmTick makes a new one at a crate, and the host must announce it (scenarioNetAnnounceProp, SVC_PROP_SPAWN then SVC_PROP_MOVE), or a client never sees it and skips every pickup of it (B-1209). Passes when the client replays a simulant's pickup of the new uplink and shows that simulant as its holder, with no skipped pickup. Each process runs its own schedule; both exit from their results. Written 2026-11-16; port 27259.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "multiplayer-modes",
+    "scenario",
+    "b-1209",
+    "t-networking-011"
+  ],
+  "paths_of_interest": [
+    "src/game/mplayer/scenarios/hackthatmac.inc",
+    "src/game/mplayer/scenarios.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c",
+    "src/game/bot.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27259",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:hacker_central",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "150"
+      ],
+      "wait_for": "NET: created server on port 27259",
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_hacker_central_net_carrier_death_host.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+          "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=uplink died=1",
+          "SCENARIO\\.NET: host announced the new uplink syncid=[0-9]+ pos=\\([^)]*\\) rc=0"
+        ],
+        "required_sequences": [
+          {
+            "name": "replacement-uplink-announced-and-taken",
+            "patterns": [
+              "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+              "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=uplink died=1",
+              "HTM: uplink placed pad=[1-9][0-9]* source=(crate|bank) prop=ok",
+              "SCENARIO\\.NET: host announced the new uplink syncid=[0-9]+ pos=\\([^)]*\\) rc=0",
+              "BOT\\.PICKUP: host sent simulant [2-4] item [0-9]+ weapon=46 ",
+              "HTM: uplink holder -1 -> [2-4] "
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "SMOKE\\.KILL_TOKEN_HOLDER: no living simulant",
+          "SCENARIO\\.NET: host announced the new uplink .* rc=[1-9]",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27259"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_hacker_central_net_carrier_death_client.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=46 "
+        ],
+        "required_sequences": [
+          {
+            "name": "client-takes-the-replacement-uplink",
+            "patterns": [
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=46 ",
+              "HTM: client uplink from host holder=[2-4] present=1",
+              "HTM: client uplink from host holder=-1 present=1",
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=46 ",
+              "HTM: client uplink from host holder=[2-4] present=1"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "BOT\\.PICKUP: client skipped",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 840000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_hacker_central_net_carrier_death_host",
+      "SMOKE: scenario=mp_hacker_central_net_carrier_death_client",
+      "BOOT: --listen-bind armed: port=27259",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27259'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:hacker_central' bots=3",
+      "BOOT: --listen-bind consumed: port=27259 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27259' result=OK rc=0",
+      "NET: created server on port 27259",
+      "NET: connecting to 127\\.0\\.0\\.1:27259",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=(timelimit|scorelimit)",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "HTM: terminal 0 placed pad=[1-9][0-9]* prop=ok",
+      "SCENARIO\\.STATE: sent scenario=2 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=2 rev=[0-9]+",
+      "HTM: client uplink from host holder=-?[0-9]+ present=1 rev=[0-9]+",
+      "MANIFEST-HOST: scenario 2 token weapon 46 as '[^']+'"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27259 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27259' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "HTM: no pad for terminal",
+      "HTM: bank holds",
+      "HTM: uplink placed pad=0 ",
+      "SCENARIO\\.MISS:",
+      "SCENARIO: object model=",
+      "SCENARIO\\.STATE: rejected malformed state",
+      "SCENARIO\\.STATE: dropped scenario=",
+      "SCENARIO\\.STATE: send failed",
+      "HTM: client uplink holder from host chr=-?[0-9]+ is not a character of this match",
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27259",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=2",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "SMOKE: scenario=mp_hacker_central_net_carrier_death_(host|client)",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SCENARIO\\.NET: host announced the new uplink",
+        "min": 1
+      },
+      {
+        "pattern": "HTM: uplink placed pad=[1-9][0-9]* source=(crate|bank) prop=ok",
+        "min": 3
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}

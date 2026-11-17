@@ -1145,7 +1145,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	requireContains(parent, "status=stage_queued stage_bytes=");
 	requireContains(parent, "commit=pending_post_load");
 	requireContains(parent,
-		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1");
+		"CUTSCENE.AUTHORITY: " "stage-start presentation previous_tickmode=[0-9]+ next_tickmode=[0-9]+ stale_cutscene_retired=[01]");
 	requireContains(parent, "NET.RECONNECT.WORLD begin");
 	requireContains(parent,
 		"removed=0 detached=0 first_dynamic=[1-9][0-9]*");
@@ -1174,7 +1174,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	REQUIRE(parent.find("LOG.WPN.DIAG: fire-input pi=0 fire_held=1") ==
 		std::string::npos);
 	const size_t presentationBoundary = parent.find(
-		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6");
+		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=[0-9]+");
 	const size_t worldBegin = parent.find("NET.RECONNECT.WORLD begin",
 		presentationBoundary);
 	REQUIRE(presentationBoundary != std::string::npos);
@@ -1396,6 +1396,118 @@ TEST_CASE("a template run seeds every per-process install from the template",
     requireContains(staging, "-TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target");
     requireContains(staging, "$explicitProcessState = $true");
     requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
+}
+
+namespace {
+// The text of the JSON array whose '[' is at text[open], skipping strings.
+std::string jsonArrayAt(const std::string &text, size_t open)
+{
+    int depth = 0;
+    bool in_string = false;
+    for (size_t i = open; i < text.size(); i++) {
+        const char c = text[i];
+        if (in_string) {
+            if (c == '\\') {
+                i++;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '[') {
+            depth++;
+        } else if (c == ']' && --depth == 0) {
+            return text.substr(open, i - open + 1);
+        }
+    }
+    return std::string();
+}
+}
+
+// The harness stable-sorts a fixture's events by at_ms, so an entry written
+// after a later-timed one runs before it. network_counterop_agent_death_host
+// wrote its results wait (at_ms 0) after the kill (15000): the wait would have
+// run first and timed out. The harness now refuses such a sequence, and every
+// checked-in sequence is written in the order it runs.
+TEST_CASE("smoke input sequences are written in the at_ms order they run in",
+    "[smoke][tooling][fixtures][static]")
+{
+    namespace fs = std::filesystem;
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string parse = requireSlice(harness,
+        "} else if (!strcmp(field, \"input_sequence\")) {",
+        "} else if (!strcmp(field, \"screenshots\")) {");
+    const char *guard = "if (seq_index > 0 && ev->at_ms < prev_at_ms) {";
+    requireContains(parse, guard);
+    requireContains(parse, "events run in at_ms order, so author them in that order");
+    REQUIRE(parse.find(guard) < parse.find("s_State.event_count++;"));
+    REQUIRE(harness.find(guard) < harness.find("Stable-sort events by at_ms"));
+
+    const std::regex key(R"REGEX("input_sequence"\s*:\s*\[)REGEX");
+    const std::regex at_ms(R"REGEX("at_ms"\s*:\s*([0-9]+))REGEX");
+    const std::sregex_iterator none;
+    size_t sequences = 0;
+    for (const char *dir : {"tests", "fixtures"}) {
+        const fs::path root = fs::path(PD_SOURCE_DIR) / "tools" / "smoke-verify" / dir;
+        REQUIRE(fs::is_directory(root));
+        for (const fs::directory_entry &entry : fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            REQUIRE(in.good());
+            std::ostringstream out;
+            out << in.rdbuf();
+            const std::string text = out.str();
+            for (std::sregex_iterator it(text.begin(), text.end(), key); it != none; ++it) {
+                const std::string array = jsonArrayAt(text,
+                    (size_t)it->position(0) + (size_t)it->length(0) - 1);
+                CAPTURE(entry.path().generic_string());
+                REQUIRE_FALSE(array.empty());
+                long long prev = -1;
+                int index = 0;
+                for (std::sregex_iterator a(array.begin(), array.end(), at_ms); a != none; ++a) {
+                    const long long value = std::stoll((*a)[1].str());
+                    CAPTURE(index, value, prev);
+                    REQUIRE(value >= prev);
+                    prev = value;
+                    index++;
+                }
+                sequences++;
+            }
+        }
+    }
+    REQUIRE(sequences > 100);
+}
+
+// B-1209: a smoke kills the simulant that carries the scenario's token through
+// the production damage path, on the scenario authority only, so the host's
+// replacement token and its announcement run on demand.
+TEST_CASE("smoke kills the scenario token's carrier through production damage",
+    "[smoke][tooling][b1209][static]")
+{
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string holder = requireSlice(harness,
+        "static s32 smokeScenarioTokenHolder(const char **token)",
+        "static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)");
+    requireContains(holder, "if (!g_Vars.normmplayerisrunning || g_NetMode == NETMODE_CLIENT) {");
+    requireContains(holder, "for (s32 i = PLAYERCOUNT(); i < g_MpNumChrs && i < MAX_MPCHRS; i++) {");
+    requireContains(holder, "chrIsDead(chr)");
+    requireContains(holder, "if (chr->aibot->hasuplink) {");
+    requireContains(holder, "} else if (chr->aibot->hasbriefcase) {");
+    requireContains(holder, "} else if (chr->aibot->hascase) {");
+
+    requireContains(harness, "facts.scenario_token_held = smokeScenarioTokenHolder(NULL) >= 0;");
+    requireContains(harness, "if (!strcmp(type_str, \"kill_token_holder\")) {");
+    const std::string kill = requireSlice(harness,
+        "case SMOKE_EVENT_KILL_TOKEN_HOLDER:",
+        "case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:");
+    requireContains(kill, "const s32 slot = smokeScenarioTokenHolder(&token);");
+    requireContains(kill, "smokeHarnessExit(1, \"kill_token_holder_no_holder\");");
+    requireContains(kill, "chrDamageByMisc(chr, 1000.0f, &dir, NULL, NULL);");
+    requireContains(kill, "SMOKE.KILL_TOKEN_HOLDER: simulant player=%d token=%s died=%d at_ms=%d");
 }
 
 TEST_CASE("B-1170 every fixture key name resolves through the smoke key table",

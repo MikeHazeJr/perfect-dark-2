@@ -42,6 +42,8 @@
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "room.h"
+#include "menupool.h"
 #include "net/netdistrib.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
@@ -239,6 +241,15 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       Simulator is the default. Co-op and Counter-Op interpret the stage ID
  *       supplied to --launch-mp-room as a typed mission map and use
  *       --difficulty; Counter-Op assigns the one remote room member as Anti.
+ *   --launch-challenge <slot>
+ *       Starts the challenge in that slot (0-based among the challenges this
+ *       profile can play) through matchStartFromChallenge, the ImGui
+ *       challenge launch, once the CI boot stage has a player.
+ *
+ *       --host-autostart-matches <n> (1..8) starts n matches in the same
+ *       room: after each match the start re-arms once the host has left its
+ *       end screen into the room and the room is back in LOBBY, then waits
+ *       about 10 s for the clients before the next start.
  *
  *   --debug-fail-stage-player-init <reset|spawn>:<player>
  *       Smoke-only one-shot fault at the lvReset multi-player transaction
@@ -250,6 +261,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       exact CLSTATE_PREPARING boundary, changes a valid local handicap, and
  *       sends it through netClientSettingsChanged/CLC_SETTINGS. This proves a
  *       prepared launch rolls back before the validated candidate publishes.
+ *
+ *   --debug-ready-gate-settings-repeat
+ *       Smoke-only one-shot. The same send at the same boundary with nothing
+ *       changed, as a Room opening or a settings menu closing sends it
+ *       (B-1208): the prepared launch must keep its roster and start.
  *
  *   --debug-spawn-weapon <catalog_id>
  *       After --launch-mp-room seeds g_MatchConfig, forces the spawn weapon
@@ -417,6 +433,13 @@ static s32         g_BootMatchTeamScoreLimit = 0;
  * surface exists. */
 static bool        g_BootDebugAutoStartMatch = false;
 static s32         g_BootLaunchMpMatchPending = 0;
+/* T-NETWORKING-011 (finding 10): --launch-challenge <slot> starts the
+ * challenge in that slot (0-based, counting only the challenges this profile
+ * can play, as challengeSetCurrentBySlot does) through the ImGui challenge
+ * launch, matchStartFromChallenge, once the CI boot stage has a player. The
+ * Room has no challenge entry yet; this lets a smoke run the fixed table. */
+static s32         g_BootLaunchChallengeSlot = -1;
+static s32         g_BootLaunchChallengePending = 0;
 /* c3845 (2026-06-23): two-process listen-host match smoke infra.
  * --host-autostart fires the SAME high-level lobby-leader start path the
  * Room "Start Match" button uses (netLobbyRequestStartWithSims), but on
@@ -433,7 +456,7 @@ static s32         g_BootHostAutostartPeers = 1;
 static u8          g_BootHostAutostartGameMode = NETGAMEMODE_MP;
 static s32         g_BootHostAutostartFired = 0;
 static s32         g_BootHostAutostartSettleFrames = 0;
-static s32         g_BootReadyGateSettingsChangeArmed = 0;
+static s32         g_BootReadyGateSettingsChangeArmed = 0; /* 1 change, 2 repeat (B-1208) */
 static s32         g_BootReadyGateSettingsChangeFired = 0;
 /* c3845: auto-start sequencing state machine.
  *   0 = waiting for remote-in-lobby + settle (handled by SettleFrames above)
@@ -442,6 +465,15 @@ static s32         g_BootReadyGateSettingsChangeFired = 0;
 static s32         g_BootHostAutostartPhase = 0;
 static s32         g_BootHostAutostartRoomId = 0xFF;
 static s32         g_BootHostAutostartPostJoinFrames = 0;
+/* T-NETWORKING-011 (finding 4): --host-autostart-matches <n> (1..8, default
+ * 1) starts n matches in the same room. After a match the start re-arms once
+ * the host is back in the room (end screen Continue, as a player would press
+ * it), the match room is released and the room is in LOBBY again, plus a
+ * settle window that lets the clients return too; the re-fire reuses the
+ * room, skipping room creation. */
+static s32         g_BootHostAutostartMatches = 1;
+static s32         g_BootHostAutostartStarted = 0;
+static s32         g_BootHostAutostartRematchFrames = 0;
 static s32         g_BootMatchTimeLimitSec = 0; /* 0 = unset; >0 = forced seconds */
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
@@ -449,9 +481,45 @@ static const char *g_BootDebugInstallReceivedMod = NULL;
 static const char *g_BootDebugReceivePdcaList = NULL;
 static const char *g_BootDebugRejectCatalogIngressList = NULL;
 static const char *g_BootDebugSpawnWeapon = NULL;
+/* T-NETWORKING-011: --debug-bot-spec "type:difficulty,..." gives the
+ * --launch-mp-room simulants these types and difficulties in order (BOTTYPE_*
+ * 0..12, BOTDIFF_* 0..5); simulants past the list stay general/normal. */
+#define BOOT_DEBUG_BOT_SPEC_MAX 32
+static s32         g_BootDebugBotSpecCount = 0;
+static u8          g_BootDebugBotSpecType[BOOT_DEBUG_BOT_SPEC_MAX];
+static u8          g_BootDebugBotSpecDiff[BOOT_DEBUG_BOT_SPEC_MAX];
 static const char *g_BootDebugBotBody = NULL;
 static const char *g_BootDebugBotHead = NULL;
 static bool        g_BootDebugPlaceBotNearPlayer = false;
+/* T-NETWORKING-011: --debug-place-bot-near-player-num <n> (default 0) puts
+ * the bot in front of player n instead of player 0. On a listen host, player 1
+ * is the client's player, so a client screenshot can show a simulant. */
+static s32         g_BootDebugPlaceBotNearPlayerNum = 0;
+/* T-NETWORKING-011 (finding 3): --debug-place-bot-near-player-visible searches
+ * around the target player instead of only straight ahead and takes a spot
+ * only with a clear line of sight from that player (the forward-only search
+ * can put the bot behind the wall the player faces). --debug-face-nearest-bot
+ * turns this peer's local player toward the nearest simulant each frame and
+ * points the BOT.RENDER.AUDIT traces at it, so a client can show whether it
+ * draws a simulant the host owns. */
+static s32         g_BootDebugPlaceBotNearPlayerVisible = 0;
+static s32         g_BootDebugFaceNearestBot = 0;
+/* B-1193: --debug-end-mission "<seconds>:complete|fail" ends a mission on the
+ * host (or offline) after that much play, through the level script's own end
+ * (func0000e990). Nothing else ends a networked co-op or counter-op mission
+ * in a smoke. */
+static s32         g_BootDebugEndMissionSec = -1;
+static s32         g_BootDebugEndMissionComplete = 0;
+static s32         g_BootDebugEndMissionFired = 0;
+/* B-1196: --debug-clone-guard <seconds> clones a guard on the host (or
+ * offline) after that much mission play, as an unalerted guard's
+ * try_spawn_clone2 does, so a smoke can prove a co-op client gets the clone
+ * (SVC_NPC_SPAWN) instead of waiting for the AI to make one. */
+static s32         g_BootDebugCloneGuardSec = -1;
+static s32         g_BootDebugCloneGuardFired = 0;
+static struct prop *g_BootDebugFaceBotProp = NULL;
+static u32         g_BootDebugFaceBotLastLogMs = 0;
+static s32         g_BootDebugFaceBotLogs = 0;
 static s32         g_BootDebugPlaceBotNearPlayerPending = 0;
 static s32         g_BootDebugPlaceBotNearPlayerFrames = 0;
 static s32         g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
@@ -909,6 +977,11 @@ extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
 extern f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
 extern void bgFindRoomsByPos(struct coord *pos, RoomNum *inrooms,
 		RoomNum *aboverooms, s32 max, RoomNum *bestroom);
+/* T-NETWORKING-011 (finding 3): src/lib/collision.c and src/game/atan2f.c,
+ * as declared in lib/collision.h and game/atan2f.h. */
+extern bool cdTestLos06(struct coord *arg0, RoomNum *rooms1, struct coord *arg2,
+		RoomNum *rooms2, u32 types);
+extern f32 atan2f(f32 x, f32 z);
 
 /* c3844 (2026-06-23): --launch-credits credits-entry shims. These live in
  * src/game/{credits,title,lv}.c; declare extern shims rather than #include
@@ -1328,8 +1401,27 @@ static void bootApplyLaunchMpRoom(void)
 			"BOOT: --debug-bot-appearance requested but --launch-mp-room bot_count=0");
 	}
 	for (s32 i = 0; i < g_BootLaunchMpBotCount; ++i) {
-		s32 botidx = matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL,
-			debug_body_id, debug_head_id, NULL);
+		const u8 bottype = i < g_BootDebugBotSpecCount
+			? g_BootDebugBotSpecType[i] : BOTTYPE_GENERAL;
+		const u8 botdiff = i < g_BootDebugBotSpecCount
+			? g_BootDebugBotSpecDiff[i] : BOTDIFF_NORMAL;
+		/* The default stays the literal general/normal call that the custom
+		 * body render fixtures rely on (test_mod_external_archive_static). */
+		s32 botidx = i < g_BootDebugBotSpecCount
+			? matchConfigAddBot(bottype, botdiff, debug_body_id, debug_head_id, NULL)
+			: matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL,
+				debug_body_id, debug_head_id, NULL);
+		if (i < g_BootDebugBotSpecCount) {
+			if (botidx >= 0) {
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --debug-bot-spec added slot=%d type=%d difficulty=%d",
+					botidx, (s32)bottype, (s32)botdiff);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-bot-spec could not add type=%d difficulty=%d (no unlocked profile or no slot)",
+					(s32)bottype, (s32)botdiff);
+			}
+		}
 		if (botidx >= 0 && (debug_body_id || debug_head_id)) {
 			struct matchslot *slot = &g_MatchConfig.slots[botidx];
 			sysLogPrintf(LOG_NOTE,
@@ -1386,6 +1478,24 @@ static void bootApplyLaunchMpRoom(void)
 		g_BootLaunchMpMatchPending = 1;
 		g_PostExitMainMenuView = -1;
 	}
+}
+
+/* --launch-challenge: drop into CI like the Room entry points and arm the
+ * one-shot start (bootLaunchChallengeTick). */
+static void bootApplyLaunchChallenge(void)
+{
+	if (g_BootLaunchChallengeSlot < 0) {
+		return;
+	}
+
+	g_PostExitMainMenuView = -1;
+
+	if (g_StageNum == STAGE_TITLE) {
+		g_StageNum = STAGE_CITRAINING;
+	}
+
+	g_BootLaunchChallengePending = 1;
+	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge armed: slot=%d", g_BootLaunchChallengeSlot);
 }
 
 /* Mike directive 2026-05-18: --debug-mp-options seed. Applied after
@@ -1711,9 +1821,10 @@ static void bootApplyDebugPlaceBotNearPlayer(void)
 
 s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)
 {
-	return g_BootDebugPlaceBotNearPlayerPending
-		&& g_BootDebugPlaceBotNearPlayerProp
-		&& prop == g_BootDebugPlaceBotNearPlayerProp;
+	return (g_BootDebugPlaceBotNearPlayerPending
+			&& g_BootDebugPlaceBotNearPlayerProp
+			&& prop == g_BootDebugPlaceBotNearPlayerProp)
+		|| (g_BootDebugFaceBotProp && prop == g_BootDebugFaceBotProp);
 }
 
 void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
@@ -1722,13 +1833,17 @@ void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop
 	if (!modAssetCompilerGeneratedModeldefRenderAuditEnabled()) {
 		return;
 	}
-	if (!g_BootDebugPlaceBotNearPlayerPending) {
+	/* The placed bot on the peer that placed it, or the simulant this peer's
+	 * --debug-face-nearest-bot is facing (finding 3). */
+	const struct prop *placed = g_BootDebugPlaceBotNearPlayerPending
+		? g_BootDebugPlaceBotNearPlayerProp : NULL;
+	if (!placed && !g_BootDebugFaceBotProp) {
 		return;
 	}
 	if (!prop) {
-		prop = g_BootDebugPlaceBotNearPlayerProp;
+		prop = placed ? placed : g_BootDebugFaceBotProp;
 	}
-	if (!prop || prop != g_BootDebugPlaceBotNearPlayerProp) {
+	if (!prop || (prop != placed && prop != g_BootDebugFaceBotProp)) {
 		return;
 	}
 	if (once_bit >= 0 && once_bit < 32) {
@@ -2862,6 +2977,16 @@ static void bootApplyCliFastPaths(void)
 				"BOOT: --debug-ready-gate-settings-change armed smoke=1 one_shot=1");
 		}
 	}
+	if (sysArgCheck("--debug-ready-gate-settings-repeat")) {
+		if (!smokeHarnessIsActive()) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-ready-gate-settings-repeat is smoke-only; request ignored");
+		} else {
+			g_BootReadyGateSettingsChangeArmed = 2;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-ready-gate-settings-repeat armed smoke=1 one_shot=1");
+		}
+	}
 	if (sysArgCheck("--debug-generated-mesh-render-audit")) {
 		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
 	}
@@ -2911,6 +3036,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
+	bootApplyLaunchChallenge();
 	bootApplyDebugMpOptions();
 	if (sysArgCheck("--debug-v006-scenario-transaction")) {
 		s32 result = v006ScenarioTransactionRun();
@@ -3041,6 +3167,253 @@ s32 bootLaunchMpMatchTick(void)
 			"BOOT: --launch-mp-room direct match start failed");
 	} else {
 		combatSimVerifyOnMatchStart("direct");
+	}
+	return 1;
+}
+
+/* Called once per frame from pdmain.c's mainTick while --launch-challenge is
+ * armed: once the CI boot stage has created the player, start the challenge
+ * through the same call the ImGui challenge screen makes. */
+s32 bootLaunchChallengeTick(void)
+{
+	if (!g_BootLaunchChallengePending) {
+		return 0;
+	}
+	if (g_Vars.stagenum != STAGE_CITRAINING) {
+		return 0;
+	}
+	if (!g_Vars.players[0]
+			|| !g_Vars.players[0]->prop
+			|| !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+
+	g_BootLaunchChallengePending = 0;
+	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge firing: slot=%d", g_BootLaunchChallengeSlot);
+	matchStartFromChallenge(g_BootLaunchChallengeSlot);
+	return 1;
+}
+
+/* T-NETWORKING-011 (finding 3): --debug-face-nearest-bot. Every frame of an
+ * ordinary match this turns the local player, level, toward the nearest
+ * simulant and points the BOT.RENDER.AUDIT traces at it, so a screenshot and
+ * the audit show how this peer draws a simulant it may not own. The yaw uses
+ * the engine's convention for players (chrGetAngleToPos): a player faces
+ * (360 - vv_theta) degrees, measured like atan2f(dx, dz). */
+/* B-1193: end the running mission once, on the host or offline. A client
+ * never ends a networked mission itself; the host's end reaches it. */
+s32 bootDebugEndMissionTick(void)
+{
+	extern s32 objectivesDebugCompleteCurrentMission(void); /* game/objectives.h */
+	s32 forced = 0;
+
+	if (g_BootDebugEndMissionSec < 0 || g_BootDebugEndMissionFired) {
+		return 0;
+	}
+	if (g_NetMode == NETMODE_CLIENT || g_MainIsEndscreen
+			|| g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.stagenum == STAGE_TITLE || g_Vars.stagenum == STAGE_CITRAINING) {
+		return 0;
+	}
+	/* Missions only: solo, co-op or counter-op, not a Combat Simulator match. */
+	if (g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0
+			&& (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning)) {
+		return 0;
+	}
+	if (g_Vars.lvframe60 < g_BootDebugEndMissionSec * 60) {
+		return 0;
+	}
+
+	g_BootDebugEndMissionFired = 1;
+	if (g_BootDebugEndMissionComplete) {
+		forced = objectivesDebugCompleteCurrentMission();
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-end-mission ending stage=0x%02x result=%s objectives_completed=%d lvframe60=%d netmode=%d",
+		(u32)g_Vars.stagenum, g_BootDebugEndMissionComplete ? "complete" : "fail",
+		forced, (s32)g_Vars.lvframe60, (s32)g_NetMode);
+	func0000e990();
+	return 1;
+}
+
+/* B-1196: clone one guard once, on the host or offline, in a solo, co-op or
+ * counter-op mission. A cloneable guard (CHRCFLAG_CLONEABLE) is preferred,
+ * then any living guard; the clone gets the guard's held weapons, team and
+ * flags as aiDuplicateChr gives them, and may appear on screen. It stands
+ * idle (see below). */
+s32 bootDebugCloneGuardTick(void)
+{
+	extern struct prop *chrSpawnAtChr(struct chrdata *basechr, s32 body, s32 head, u32 chrnum, u8 *ailist, u32 spawnflags);
+	extern u8 *ailistFindById(s32 ailistid);
+	struct chrdata *base = NULL;
+	struct prop *cloneprop;
+	struct chrdata *clone;
+	struct prop *wprops[2] = { NULL, NULL };
+
+	if (g_BootDebugCloneGuardSec < 0 || g_BootDebugCloneGuardFired) {
+		return 0;
+	}
+	if (g_NetMode == NETMODE_CLIENT || g_MainIsEndscreen
+			|| g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.stagenum == STAGE_TITLE || g_Vars.stagenum == STAGE_CITRAINING) {
+		return 0;
+	}
+	if (g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0
+			&& (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning)) {
+		return 0;
+	}
+	if (g_Vars.lvframe60 < g_BootDebugCloneGuardSec * 60) {
+		return 0;
+	}
+
+	g_BootDebugCloneGuardFired = 1;
+
+	/* Each candidate in turn (cloneable guards first) until one has room
+	 * beside it for the clone. */
+	cloneprop = NULL;
+
+	for (s32 pass = 0; pass < 2 && cloneprop == NULL; pass++) {
+		for (s32 i = 0; i < g_NumChrSlots && cloneprop == NULL; i++) {
+			struct chrdata *chr = &g_ChrSlots[i];
+
+			/* Not chrIsDead through a local extern: bool's size depends on
+			 * include order (SP-75), so read the action directly. */
+			if (!chr->prop || chr->prop->type != PROPTYPE_CHR || chr->prop->chr != chr
+					|| chr->aibot || !chr->model
+					|| chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD
+					|| (chr->chrflags & CHRCFLAG_HIDDEN)) {
+				continue;
+			}
+			if ((pass == 0) != ((chr->chrflags & CHRCFLAG_CLONEABLE) != 0)) {
+				continue;
+			}
+
+			/* The idle list, not the AI's search list: a clone hunting the
+			 * players could end a smoke's mission before its scripted end.
+			 * What reaches a client (SVC_NPC_SPAWN) is the same either way. */
+			cloneprop = chrSpawnAtChr(chr, chr->bodynum, -1, chr->chrnum,
+				ailistFindById(GAILIST_IDLE), SPAWNFLAG_ALLOWONSCREEN);
+
+			if (cloneprop && cloneprop->chr) {
+				base = chr;
+			} else {
+				cloneprop = NULL;
+			}
+		}
+	}
+
+	if (base == NULL || cloneprop == NULL) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard found no living guard with room for a clone");
+		return 0;
+	}
+
+	clone = cloneprop->chr;
+	chrSetChrnum(clone, chrsGetNextUnusedChrnum());
+	base->chrdup = clone->chrnum;
+	clone->team = base->team;
+
+	for (s32 h = 0; h < 2; h++) {
+		if (base->weapons_held[h] && base->weapons_held[h]->weapon) {
+			struct weaponobj *w = base->weapons_held[h]->weapon;
+
+			wprops[h] = chrGiveWeapon(clone, w->base.modelnum, w->weaponnum,
+				h == 1 ? OBJFLAG_WEAPON_LEFTHANDED : 0);
+		}
+	}
+
+	clone->flags = base->flags;
+	clone->flags2 = base->flags2;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-clone-guard cloned chr %d as chr %d syncid=%u cloneable=%d weapons=%u,%u netmode=%d",
+		(s32)base->chrnum, (s32)clone->chrnum, (unsigned)cloneprop->syncid,
+		(base->chrflags & CHRCFLAG_CLONEABLE) ? 1 : 0,
+		wprops[0] ? (unsigned)wprops[0]->syncid : 0u, wprops[1] ? (unsigned)wprops[1]->syncid : 0u,
+		(s32)g_NetMode);
+	return 1;
+}
+
+s32 bootDebugFaceNearestBotTick(void)
+{
+	struct player *pl;
+	struct chrdata *best = NULL;
+	f32 bestdist2 = 0.0f;
+
+	if (!g_BootDebugFaceNearestBot) {
+		return 0;
+	}
+	if (!g_Vars.normmplayerisrunning || g_Vars.tickmode != TICKMODE_NORMAL) {
+		return 0;
+	}
+	pl = (g_NetMode == NETMODE_CLIENT && g_NetLocalClient && g_NetLocalClient->player)
+		? g_NetLocalClient->player : g_Vars.players[0];
+	if (!pl || !pl->prop || pl->isdead) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < g_BotCount && i < MAX_BOTS; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		f32 dx;
+		f32 dz;
+		f32 dist2;
+
+		if (!chr || !chr->prop) {
+			continue;
+		}
+		dx = chr->prop->pos.x - pl->prop->pos.x;
+		dz = chr->prop->pos.z - pl->prop->pos.z;
+		dist2 = dx * dx + dz * dz;
+		if (!best || dist2 < bestdist2) {
+			best = chr;
+			bestdist2 = dist2;
+		}
+	}
+	if (!best || bestdist2 < 1.0f) {
+		return 0;
+	}
+
+	{
+		const f32 dx = best->prop->pos.x - pl->prop->pos.x;
+		const f32 dz = best->prop->pos.z - pl->prop->pos.z;
+		f32 theta = 360.0f - atan2f(dx, dz) * (180.0f / 3.14159265f);
+
+		while (theta >= 360.0f) {
+			theta -= 360.0f;
+		}
+		while (theta < 0.0f) {
+			theta += 360.0f;
+		}
+		pl->vv_theta = theta;
+		pl->vv_verta = 0.0f;
+	}
+	g_BootDebugFaceBotProp = best->prop;
+
+	{
+		const u32 now = SDL_GetTicks();
+
+		if (g_BootDebugFaceBotLogs < 30
+				&& (g_BootDebugFaceBotLogs == 0 || now - g_BootDebugFaceBotLastLogMs >= 1000)) {
+			const struct model *model = best->model;
+			const struct anim *anim = model ? model->anim : NULL;
+			const f32 dist = sqrtf(bestdist2);
+			const f32 dx = best->prop->pos.x - pl->prop->pos.x;
+			const f32 dz = best->prop->pos.z - pl->prop->pos.z;
+			const f32 lx = pl->cam_look.x;
+			const f32 lz = pl->cam_look.z;
+			const f32 ll = sqrtf(lx * lx + lz * lz);
+			/* 1.0 when the camera from the last frame looks straight at it */
+			const f32 lookdot = ll > 0.001f ? (lx * dx + lz * dz) / (ll * dist) : 0.0f;
+
+			g_BootDebugFaceBotLastLogMs = now;
+			g_BootDebugFaceBotLogs++;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-face-nearest-bot facing chrnum=%d dist=%.0f theta=%.1f look_dot=%.3f prop_flags=0x%x hidden=0x%x actiontype=%d model=%p anim=%d frame=%.2f pos=(%.0f,%.0f,%.0f)",
+				(s32)best->chrnum, dist, pl->vv_theta, lookdot,
+				(u32)best->prop->flags, (u32)best->hidden, (s32)best->actiontype,
+				(const void *)model,
+				anim ? (s32)anim->animnum : -1, anim ? anim->frame : -1.0f,
+				best->prop->pos.x, best->prop->pos.y, best->prop->pos.z);
+		}
 	}
 	return 1;
 }
@@ -3211,8 +3584,22 @@ s32 bootDebugSpawnAtTick(void)
 	return 1;
 }
 
+/* The player this hook switched away from when it targets a player other than
+ * 0; bootDebugPlaceBotNearPlayerRestorePlayer, called right after the hook,
+ * switches back so the rest of the frame keeps its own current player. */
+static s32 s_BootDebugPlaceBotNearPlayerPrevPlayer = -1;
+
+void bootDebugPlaceBotNearPlayerRestorePlayer(void)
+{
+	if (s_BootDebugPlaceBotNearPlayerPrevPlayer >= 0) {
+		setCurrentPlayerNum(s_BootDebugPlaceBotNearPlayerPrevPlayer);
+		s_BootDebugPlaceBotNearPlayerPrevPlayer = -1;
+	}
+}
+
 s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 {
+	const s32 targetplayer = g_BootDebugPlaceBotNearPlayerNum;
 	struct chrdata *bot = NULL;
 	struct prop *playerprop = NULL;
 	struct coord target;
@@ -3233,11 +3620,15 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	if (g_Vars.lvframenum < 4) {
 		return 0;
 	}
-	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
+	if (!g_Vars.players[targetplayer] || !g_Vars.players[targetplayer]->prop
+			|| !g_Vars.players[targetplayer]->prop->chr) {
 		return 0;
 	}
 
-	setCurrentPlayerNum(0);
+	if (targetplayer != 0 && g_Vars.currentplayernum != targetplayer) {
+		s_BootDebugPlaceBotNearPlayerPrevPlayer = g_Vars.currentplayernum;
+	}
+	setCurrentPlayerNum(targetplayer);
 	if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
 		return 0;
 	}
@@ -3309,6 +3700,21 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 		forward_x /= forwardlen;
 		forward_z /= forwardlen;
 	}
+	/* Finding 3: in visible mode the hold keeps the direction of the first
+	 * placement. A peer facing the bot (--debug-face-nearest-bot) turns the
+	 * player, and following that turn would move the bot again. */
+	if (g_BootDebugPlaceBotNearPlayerVisible) {
+		static f32 s_VisibleForwardX = 0.0f;
+		static f32 s_VisibleForwardZ = 1.0f;
+
+		if (g_BootDebugPlaceBotNearPlayerLogged) {
+			forward_x = s_VisibleForwardX;
+			forward_z = s_VisibleForwardZ;
+		} else {
+			s_VisibleForwardX = forward_x;
+			s_VisibleForwardZ = forward_z;
+		}
+	}
 	rooms[0] = room;
 	rooms[1] = -1;
 
@@ -3329,8 +3735,13 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	{
 		static const f32 distances[] = {240.0f, 200.0f, 160.0f, 120.0f, 100.0f, 80.0f};
 		static const f32 lateralfracs[] = {0.0f, -0.20f, 0.20f};
-		const f32 right_x = -forward_z;
-		const f32 right_z = forward_x;
+		/* Finding 3: with --debug-place-bot-near-player-visible, turn the search
+		 * around the player; without it, straight ahead only, as before. */
+		static const f32 visibleturns[] = {0.0f, 45.0f, -45.0f, 90.0f, -90.0f,
+			135.0f, -135.0f, 180.0f};
+		const s32 numturns = g_BootDebugPlaceBotNearPlayerVisible
+			? (s32)(sizeof(visibleturns) / sizeof(visibleturns[0])) : 1;
+		f32 chosenturn = 0.0f;
 		const bool logcandidates = !g_BootDebugPlaceBotNearPlayerLogged;
 
 		if (logcandidates) {
@@ -3346,6 +3757,12 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 				bot->radius, forward_x, forward_z);
 		}
 
+		for (s32 turnindex = 0; turnindex < numturns && !foundtarget; turnindex++) {
+		const f32 turn = visibleturns[turnindex] * (3.14159265f / 180.0f);
+		const f32 dir_x = forward_x * cosf(turn) + forward_z * sinf(turn);
+		const f32 dir_z = forward_z * cosf(turn) - forward_x * sinf(turn);
+		const f32 right_x = -dir_z;
+		const f32 right_z = dir_x;
 		for (s32 lateralindex = 0;
 				lateralindex < (s32)(sizeof(lateralfracs) / sizeof(lateralfracs[0])) && !foundtarget;
 				lateralindex++) {
@@ -3364,9 +3781,9 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 				RoomNum resolvedrooms[2];
 				f32 resolvedground = -30000.0f;
 
-				candidate.x += forward_x * distance + right_x * lateral;
+				candidate.x += dir_x * distance + right_x * lateral;
 				candidate.y = playerprop->pos.y + 100.0f;
-				candidate.z += forward_z * distance + right_z * lateral;
+				candidate.z += dir_z * distance + right_z * lateral;
 				candidaterooms[0] = (RoomNum)-1;
 				candidateaboverooms[0] = (RoomNum)-1;
 				bgFindRoomsByPos(&candidate, candidaterooms,
@@ -3413,8 +3830,30 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 						resolvedground, playerprop->pos.y, playerground);
 				}
 
+				/* Finding 3: in visible mode the player must see the spot. The
+				 * player's prop position is at eye height; aim at the bot's chest. */
+				s32 losclear = 1;
+				if (g_BootDebugPlaceBotNearPlayerVisible) {
+					struct coord losfrom = playerprop->pos;
+					struct coord losto = candidate;
+					losto.y = selectedground + 120.0f;
+					losclear = resolvedrooms[0] >= 0
+						&& selectedground > -30000.0f
+						&& cdTestLos06(&losfrom, playerprop->rooms, &losto,
+							resolvedrooms, CDTYPE_BG | CDTYPE_DOORS);
+					if (logcandidates && lateralindex == 0) {
+						sysLogPrintf(LOG_NOTE,
+							"BOOT.PLACE.VISIBLE: turn=%.0f distance=%.0f lateral=%.0f ground_ok=%d los=%d room=%d",
+							visibleturns[turnindex], distance, lateral,
+							(selectedground > -30000.0f
+								&& fabsf(selectedground - playerground) <= 80.0f) ? 1 : 0,
+							losclear, (s32)resolvedrooms[0]);
+					}
+				}
+
 				if (selectedground > -30000.0f
-						&& fabsf(selectedground - playerground) <= 80.0f) {
+						&& fabsf(selectedground - playerground) <= 80.0f
+						&& losclear) {
 					target = candidate;
 					/* The candidate is a floor-domain coordinate. The relocation
 					 * boundary converts it to the explicitly requested floor-relative
@@ -3426,10 +3865,17 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 					floorcol = candidatefloorcol;
 					floortype = candidatefloortype;
 					floorroom = candidatefloorroom;
+					chosenturn = visibleturns[turnindex];
 					foundtarget = true;
 					break;
 				}
 			}
+		}
+		}
+		if (foundtarget && g_BootDebugPlaceBotNearPlayerVisible && logcandidates) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-place-bot-near-player-visible chose turn=%.0f distance=%.0f lateral=%.0f",
+				chosenturn, targetdistance, targetlateral);
 		}
 	}
 
@@ -3806,8 +4252,54 @@ static void bootHostAutostartLogWaiting(const char *reason, s32 remote_in_lobby)
 	}
 }
 
+/*
+ * T-NETWORKING-011 (finding 4): --host-autostart-matches. After a match,
+ * re-arm the start for the next one in the same room once the host has left
+ * its end screen into the room (Continue, as a player presses it), the match
+ * room is released and the room is in LOBBY again, then a settle window of
+ * about 10 s for the clients to press Continue too. The re-fire reuses the
+ * room: phase 1 spacing, then the start.
+ */
+static void bootHostAutostartRearmTick(void)
+{
+	extern s32 pdguiIsInRoom(void);
+	hub_room_t *room;
+
+	if (g_NetMode != NETMODE_SERVER || g_NetMatchRoomId != 0xFF
+			|| g_BootHostAutostartRoomId == 0xFF
+			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)
+			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO) || !pdguiIsInRoom()) {
+		g_BootHostAutostartRematchFrames = 0;
+		return;
+	}
+
+	room = roomGetById((u8)g_BootHostAutostartRoomId);
+
+	if (room == NULL || room->state != ROOM_STATE_LOBBY) {
+		g_BootHostAutostartRematchFrames = 0;
+		return;
+	}
+
+	if (++g_BootHostAutostartRematchFrames < 600) {
+		return;
+	}
+
+	g_BootHostAutostartRematchFrames = 0;
+	g_BootHostAutostartFired = 0;
+	g_BootHostAutostartPhase = 1;
+	g_BootHostAutostartPostJoinFrames = 0;
+	g_BootHostAutostartSettleFrames = 120;
+	sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart re-armed: match %d of %d in room %d",
+		g_BootHostAutostartStarted + 1, g_BootHostAutostartMatches, g_BootHostAutostartRoomId);
+}
+
 s32 bootHostAutostartTick(void)
 {
+	if (g_BootHostAutostartArmed && g_BootHostAutostartFired && g_BootHostAutostartMatches > 1
+			&& g_BootHostAutostartStarted < g_BootHostAutostartMatches) {
+		bootHostAutostartRearmTick();
+	}
+
 	if (!g_BootHostAutostartArmed || g_BootHostAutostartFired) {
 		return 0;
 	}
@@ -3919,6 +4411,9 @@ s32 bootHostAutostartTick(void)
 	}
 
 	g_BootHostAutostartFired = 1;
+	/* Every attempt counts, so a start that fails below is not retried
+	 * past --host-autostart-matches. */
+	g_BootHostAutostartStarted++;
 
 	const u8 mode = g_BootHostAutostartGameMode;
 	/* Room creation publishes Combat Simulator defaults. Campaign autostart
@@ -4010,6 +4505,10 @@ s32 bootHostAutostartTick(void)
 	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
 		"BOOT: --host-autostart consumed: result=%s rc=%d",
 		rc == 0 ? "OK" : "FAILED", (int)rc);
+	if (g_BootHostAutostartMatches > 1) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart started match %d of %d rc=%d",
+			g_BootHostAutostartStarted, g_BootHostAutostartMatches, (int)rc);
+	}
 	return 1;
 }
 
@@ -4038,6 +4537,19 @@ s32 bootReadyGateSettingsChangeTick(void)
 	if (g_NetMode != NETMODE_CLIENT || g_NetLocalClient == NULL
 			|| g_NetLocalClient->state != CLSTATE_PREPARING) {
 		return 0;
+	}
+
+	if (g_BootReadyGateSettingsChangeArmed == 2) {
+		/* B-1208: the same ordinary send with nothing changed. The authority
+		 * must keep its prepared roster and start the match. */
+		g_BootReadyGateSettingsChangeFired = 1;
+		g_BootReadyGateSettingsChangeArmed = 0;
+		rc = netClientSettingsChanged();
+		sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+			"SMOKE.NET.SETTINGS_REPEAT sent state=%u handicap=%u rc=%d ordinary_clc_settings=1 one_shot=1",
+			(unsigned)g_NetLocalClient->state,
+			(unsigned)g_NetLocalClient->settings.handicap, rc);
+		return 1;
 	}
 
 	prior_handicap = g_PlayerConfigsArray[0].handicap;
@@ -4287,12 +4799,29 @@ int main(int argc, const char **argv)
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
+	if (sysArgCheck("--launch-challenge")) {
+		const s32 slot = sysArgGetInt("--launch-challenge", -1);
+
+		if (slot >= 0 && slot < 30) {
+			g_BootLaunchChallengeSlot = slot;
+		} else {
+			sysLogPrintf(LOG_WARNING, "BOOT: --launch-challenge expects a slot 0..29; ignored");
+		}
+	}
 	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
 	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
 	g_BootHostAutostartPeers = sysArgGetInt("--host-autostart-peers", 1);
 	if (g_BootHostAutostartPeers < 1 || g_BootHostAutostartPeers >= MAX_PLAYERS) {
 		sysLogPrintf(LOG_WARNING, "BOOT: invalid --host-autostart-peers; autostart disabled");
 		g_BootHostAutostartArmed = false;
+	}
+	g_BootHostAutostartMatches = sysArgGetInt("--host-autostart-matches", 1);
+	if (g_BootHostAutostartMatches < 1 || g_BootHostAutostartMatches > 8) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --host-autostart-matches expects 1..8; using 1");
+		g_BootHostAutostartMatches = 1;
+	} else if (g_BootHostAutostartArmed && g_BootHostAutostartMatches > 1) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart-matches armed: matches=%d",
+			g_BootHostAutostartMatches);
 	}
 	if (g_BootHostAutostartArmed) {
 		const char *mode = sysArgGetString("--host-autostart-mode");
@@ -4360,6 +4889,50 @@ int main(int argc, const char **argv)
 	g_BootDebugSpawnWeapon    = sysArgGetString("--debug-spawn-weapon");
 	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
+	{
+		/* "type:difficulty,..." with BOTTYPE_* 0..12 and BOTDIFF_* 0..5. A bad
+		 * entry rejects the whole flag, so a smoke never runs a different mix. */
+		const char *spec = sysArgGetString("--debug-bot-spec");
+
+		if (spec && spec[0]) {
+			const char *p = spec;
+			s32 count = 0;
+			s32 ok = 1;
+
+			while (*p && ok) {
+				char *end = NULL;
+				const long type = strtol(p, &end, 10);
+				long diff;
+
+				if (end == p || *end != ':' || type < BOTTYPE_GENERAL || type > BOTTYPE_VENGE) {
+					ok = 0;
+					break;
+				}
+				p = end + 1;
+				diff = strtol(p, &end, 10);
+				if (end == p || diff < BOTDIFF_MEAT || diff > BOTDIFF_DARK
+						|| count >= BOOT_DEBUG_BOT_SPEC_MAX) {
+					ok = 0;
+					break;
+				}
+				g_BootDebugBotSpecType[count] = (u8)type;
+				g_BootDebugBotSpecDiff[count] = (u8)diff;
+				count++;
+				p = end;
+				if (*p == ',') {
+					p++;
+				} else if (*p) {
+					ok = 0;
+				}
+			}
+			if (ok && count > 0) {
+				g_BootDebugBotSpecCount = count;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-bot-spec armed: %d simulant(s) '%s'", count, spec);
+			} else {
+				sysLogPrintf(LOG_WARNING, "BOOT: --debug-bot-spec rejected '%s' (expects type:difficulty,...)", spec);
+			}
+		}
+	}
 	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
 	if (sysArgCheck("--debug-bots-hold-fire")) {
 		g_DebugBotsHoldFire = true;
@@ -4383,6 +4956,66 @@ int main(int argc, const char **argv)
 					(u32)seconds * 1000u;
 			}
 		}
+	}
+	if (sysArgCheck("--debug-place-bot-near-player-num")) {
+		const s32 num = sysArgGetInt("--debug-place-bot-near-player-num", -1);
+
+		if (!g_BootDebugPlaceBotNearPlayer) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-num requires --debug-place-bot-near-player; ignored");
+		} else if (num < 0 || num >= MAX_PLAYERS) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-num expects 0..%d; ignored", MAX_PLAYERS - 1);
+		} else {
+			g_BootDebugPlaceBotNearPlayerNum = num;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-num armed: player=%d", num);
+		}
+	}
+	if (sysArgCheck("--debug-place-bot-near-player-visible")) {
+		if (!g_BootDebugPlaceBotNearPlayer) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-visible requires --debug-place-bot-near-player; ignored");
+		} else {
+			g_BootDebugPlaceBotNearPlayerVisible = 1;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-visible armed");
+		}
+	}
+	{
+		const char *endmission = sysArgGetString("--debug-end-mission");
+		if (endmission && endmission[0]) {
+			s32 seconds = -1;
+			char result[16] = "";
+			if (sscanf(endmission, "%d:%15s", &seconds, result) == 2 && seconds >= 0
+					&& (strcmp(result, "complete") == 0 || strcmp(result, "fail") == 0)) {
+				g_BootDebugEndMissionSec = seconds;
+				g_BootDebugEndMissionComplete = strcmp(result, "complete") == 0;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-end-mission armed: seconds=%d result=%s",
+					seconds, result);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-end-mission rejected '%s' (want <seconds>:complete or <seconds>:fail)",
+					endmission);
+			}
+		}
+	}
+	{
+		const char *cloneguard = sysArgGetString("--debug-clone-guard");
+		if (cloneguard && cloneguard[0]) {
+			s32 seconds = -1;
+			if (sscanf(cloneguard, "%d", &seconds) == 1 && seconds >= 0) {
+				g_BootDebugCloneGuardSec = seconds;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-clone-guard armed: seconds=%d", seconds);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-clone-guard rejected '%s' (want <seconds>)", cloneguard);
+			}
+		}
+	}
+	if (sysArgCheck("--debug-face-nearest-bot")) {
+		g_BootDebugFaceNearestBot = 1;
+		g_BootDebugPlaceBotNearPlayerTraceMask = 0;
+		g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-face-nearest-bot armed");
 	}
 	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");

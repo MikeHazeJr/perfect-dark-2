@@ -29,6 +29,9 @@ s32 botGuessCrouchPos(struct chrdata *chr);
 bool botApplyMovement(struct chrdata *chr);
 bool botIsAboutToAttack(struct chrdata *chr, bool arg1);
 s32 botTick(struct prop *prop);
+/* T-NETWORKING-011 (finding 3): nonzero while a non-authority client runs
+ * chrTick for a simulant the host owns; chraTick then skips its AI. */
+s32 botIsPuppetTick(void);
 f32 botCalculateMaxSpeed(struct chrdata *chr);
 
 #if VERSION >= VERSION_NTSC_1_0

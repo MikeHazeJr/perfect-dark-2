@@ -1,0 +1,46 @@
+{
+  "scenario_name": "mp_combat_net_bot_render_client",
+  "description": "Client schedule for mp_combat_net_bot_render_smoke: once gameplay is ready, four screenshots 2 s apart while the host keeps the simulant in front of this client's player. The paths are relative to the working directory, the shared install.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 400000
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000
+    },
+    {
+      "at_ms": 4000,
+      "type": "screenshot",
+      "path": "bot_render_client_1.bmp"
+    },
+    {
+      "at_ms": 6000,
+      "type": "screenshot",
+      "path": "bot_render_client_2.bmp"
+    },
+    {
+      "at_ms": 8000,
+      "type": "screenshot",
+      "path": "bot_render_client_3.bmp"
+    },
+    {
+      "at_ms": 10000,
+      "type": "screenshot",
+      "path": "bot_render_client_4.bmp"
+    },
+    {
+      "at_ms": 16000,
+      "type": "exit"
+    }
+  ]
+}
