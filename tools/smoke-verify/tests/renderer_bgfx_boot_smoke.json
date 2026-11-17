@@ -1,6 +1,6 @@
 {
   "scenario_name": "renderer_bgfx_boot_smoke",
-  "description": "2.0 renderer phase 2a (D5): --renderer bgfx presents through bgfx's OpenGL backend on its own, not only beside the classic renderer. Boots to Agent Select and the Main Menu and captures the window, which in bgfx mode is the back buffer bgfx drew. Screenshots sit on the virtual timeline after each readiness wait.",
+  "description": "2.0 renderer phase 2a (D5): --renderer bgfx presents through bgfx's OpenGL backend on its own, not only beside the classic renderer. Boots to Agent Select and captures the window twice, which in bgfx mode is the back buffer bgfx drew. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get.",
   "tags": ["render", "bgfx", "visual", "menu", "smoke"],
   "paths_of_interest": [
     "port/fast3d/gfx_bgfx.cpp",
@@ -10,7 +10,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 360,
+  "timeout_seconds": 420,
   "install_state": "current",
   "remove_paths": ["bgfx-home"],
   "fixtures": [
@@ -19,25 +19,24 @@
   "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./bgfx-home",
                 "--main-menu", "--renderer", "bgfx"],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 300000, "stable_ms": 3000 },
-    { "at_ms": 2500, "type": "screenshot", "path": "bgfx-agent-select.bmp" },
-    { "at_ms": 4000, "type": "key", "key": "Return", "action": "tap" },
-    { "at_ms": 4250, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
-    { "at_ms": 7500, "type": "screenshot", "path": "bgfx-main-menu.bmp" },
-    { "at_ms": 9000, "type": "exit" }
+    { "at_ms": 0, "type": "wait_until", "condition": "core_boot_ready", "timeout_ms": 300000 },
+    { "at_ms": 45000, "type": "screenshot", "path": "bgfx-agent-select.bmp",
+      "comment": "Agent Select is up about 20 s after boot completes (the menu background stage loads first)." },
+    { "at_ms": 52000, "type": "screenshot", "path": "bgfx-agent-select-later.bmp" },
+    { "at_ms": 55000, "type": "exit" }
   ],
   "retain_artifacts": [
     { "src": "bgfx-agent-select.bmp" },
-    { "src": "bgfx-main-menu.bmp" }
+    { "src": "bgfx-agent-select-later.bmp" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=renderer_bgfx_boot_smoke",
       "bgfx: using the bgfx renderer \\(OpenGL backend\\)",
       "bgfx: renderer OpenGL",
-      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "MENUPOOL: acquired agent_select",
       "SMOKE\\.GLSHOT: captured .*bgfx-agent-select\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*bgfx-main-menu\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*bgfx-agent-select-later\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

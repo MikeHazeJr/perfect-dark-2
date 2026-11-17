@@ -133,20 +133,28 @@ struct UnitBinding {
 bool s_active = false;
 bool s_initialised = false;
 
-/* Renderer parity mode (gfx_tee.cpp): bgfx renders on its own context into
- * an offscreen final target that a capture reads back. */
+/* The finished frame (the game image plus ImGui) is composed offscreen, in
+ * this window-sized target, and then copied to the window. It plays the GL
+ * window's front buffer: a framebuffer copy that reads GL_FRONT (the last
+ * presented frame) runs, in view order, before this frame's present, so it
+ * finds the previous frame here. In parity mode the target is also what a
+ * capture reads back, and nothing is copied to the window, which belongs to
+ * the classic renderer. */
+bgfx::FrameBufferHandle s_finalFb = BGFX_INVALID_HANDLE;
+bgfx::TextureHandle s_finalColor = BGFX_INVALID_HANDLE;
+uint32_t s_finalWidth = 0;
+uint32_t s_finalHeight = 0;
+bool s_finalComposed = false;   /* gfxBgfxResetForOverlay ran this frame */
+
+/* Renderer parity mode (gfx_tee.cpp): bgfx renders on its own context. */
 bool s_tee = false;
 SDL_Window *s_teeWindow = nullptr;
 SDL_GLContext s_teeMainContext = nullptr;
 SDL_GLContext s_teeBgfxContext = nullptr;
-bgfx::FrameBufferHandle s_teeFinal = BGFX_INVALID_HANDLE;
-bgfx::TextureHandle s_teeFinalColor = BGFX_INVALID_HANDLE;
 /* bgfx cannot read a render target back directly (BGFX_TEXTURE_READ_BACK
  * is refused on one): a capture blits the final image into this
  * BLIT_DST | READ_BACK copy and reads that. */
 bgfx::TextureHandle s_teeReadback = BGFX_INVALID_HANDLE;
-uint32_t s_teeFinalWidth = 0;
-uint32_t s_teeFinalHeight = 0;
 bool s_parityRequested = false;
 bool s_parityReady = false;
 uint32_t s_parityWidth = 0;
@@ -1208,14 +1216,20 @@ static void gfx_bgfx_copy_framebuffer(int fb_dst, int fb_src, int left, int top,
             return;
         }
     }
-    if (fb_src == 0 && !use_back && !s_loggedFrontRead) {
-        /* The GL backend reads GL_FRONT, the last presented frame. The game
-         * always passes use_back; if not, this copies the frame in progress. */
-        s_loggedFrontRead = true;
-        sysLogPrintf(LOG_WARNING, "bgfx: front-buffer framebuffer copy requested; copying the current frame");
-    }
     ensureFb((size_t)fb_src);
-    copyRect((size_t)fb_dst, src.color, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1);
+    bgfx::TextureHandle srcTex = src.color;
+    if (fb_src == 0 && !use_back) {
+        /* The GL backend reads GL_FRONT: the frame presented last, with its
+         * ImGui. That is the final target (s_finalFb), which this frame's
+         * present has not yet overwritten at this point in view order. */
+        if (bgfx::isValid(s_finalColor)) {
+            srcTex = s_finalColor;
+        } else if (!s_loggedFrontRead) {
+            s_loggedFrontRead = true;
+            sysLogPrintf(LOG_WARNING, "bgfx: front-buffer copy before any frame was presented; copying the current frame");
+        }
+    }
+    copyRect((size_t)fb_dst, srcTex, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1);
 }
 
 static void gfx_bgfx_set_texture_filter(FilteringMode mode)
@@ -1442,61 +1456,70 @@ extern "C" int gfxBgfxTakeParityPixels(const uint8_t **rgba, int *width, int *he
     return 1;
 }
 
+/* Opens a view on `target` (BGFX_INVALID_HANDLE: the window) covering
+ * width x height and copies texture `src` into it pixel for pixel. */
+static void submitFullCopy(bgfx::FrameBufferHandle target, bgfx::TextureHandle src, uint32_t width, uint32_t height)
+{
+    bgfx::ViewId view = allocView();
+    bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+    bgfx::setViewFrameBuffer(view, target);
+    bgfx::setViewRect(view, 0, 0, (uint16_t)width, (uint16_t)height);
+    bgfx::setViewScissor(view, 0, 0, 0, 0);
+    bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+    bgfx::setViewTransform(view, nullptr, nullptr);
+    if (!bgfx::isValid(src) || bgfx::getAvailTransientVertexBuffer(6, s_copyLayout) < 6) {
+        bgfx::touch(view);
+        return;
+    }
+    bgfx::TransientVertexBuffer tvb;
+    bgfx::allocTransientVertexBuffer(&tvb, 6, s_copyLayout);
+    const float quad[6][4] = {
+        { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f },
+        { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f }, { -1.0f, 1.0f, 0.0f, 1.0f },
+    };
+    memcpy(tvb.data, quad, sizeof(quad));
+    const float map[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    const float dst[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    bgfx::setUniform(s_uCopyMap, map);
+    bgfx::setUniform(s_uCopyDst, dst);
+    bgfx::setTexture(0, s_sCopySrc, src, BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
+    bgfx::setVertexBuffer(0, &tvb);
+    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA);
+    bgfx::submit(view, s_copyProgram);
+}
+
 extern "C" void gfxBgfxResetForOverlay(int width, int height)
 {
     if (!s_active) return;
     /* gfx_opengl_reset_for_overlay binds the window and resets state; here
-     * the game image is copied from framebuffer 0 into the window first. In
-     * parity mode "the window" is an offscreen target a capture reads back. */
-    bgfx::FrameBufferHandle window = BGFX_INVALID_HANDLE;
-    if (s_tee) {
-        if (!bgfx::isValid(s_teeFinal) || s_teeFinalWidth != (uint32_t)width || s_teeFinalHeight != (uint32_t)height) {
-            if (bgfx::isValid(s_teeFinal)) bgfx::destroy(s_teeFinal); /* and its colour texture */
-            if (bgfx::isValid(s_teeReadback)) bgfx::destroy(s_teeReadback);
-            s_teeFinalColor = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
-                bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+     * the game image is copied from framebuffer 0 into the offscreen final
+     * target, where ImGui then draws (see s_finalFb). */
+    if (!bgfx::isValid(s_finalFb) || s_finalWidth != (uint32_t)width || s_finalHeight != (uint32_t)height) {
+        if (bgfx::isValid(s_finalFb)) bgfx::destroy(s_finalFb); /* and its colour texture */
+        if (bgfx::isValid(s_teeReadback)) bgfx::destroy(s_teeReadback);
+        s_teeReadback = BGFX_INVALID_HANDLE;
+        s_finalColor = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
+            bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+        if (s_tee) {
             s_teeReadback = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
                 bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
-            s_teeFinal = BGFX_INVALID_HANDLE;
-            if (bgfx::isValid(s_teeFinalColor)) {
-                s_teeFinal = bgfx::createFrameBuffer(1, &s_teeFinalColor, true);
-            }
-            if (!bgfx::isValid(s_teeFinal) || !bgfx::isValid(s_teeReadback)) {
-                /* Never fall back to the window: in parity mode it is the
-                 * window the classic renderer presents. */
-                sysFatalError("bgfx: parity mode could not create its %dx%d offscreen target", width, height);
-            }
-            s_teeFinalWidth = (uint32_t)width;
-            s_teeFinalHeight = (uint32_t)height;
         }
-        window = s_teeFinal;
+        s_finalFb = BGFX_INVALID_HANDLE;
+        if (bgfx::isValid(s_finalColor)) {
+            s_finalFb = bgfx::createFrameBuffer(1, &s_finalColor, true);
+        }
+        if (!bgfx::isValid(s_finalFb) || (s_tee && !bgfx::isValid(s_teeReadback))) {
+            /* Never fall back to the window: in parity mode it is the window
+             * the classic renderer presents. */
+            sysFatalError("bgfx: could not create the %dx%d offscreen frame target", width, height);
+        }
+        s_finalWidth = (uint32_t)width;
+        s_finalHeight = (uint32_t)height;
     }
+    const bgfx::FrameBufferHandle window = s_finalFb;
     ensureFb(0);
-    bgfx::ViewId present = allocView();
-    bgfx::setViewMode(present, bgfx::ViewMode::Sequential);
-    bgfx::setViewFrameBuffer(present, window);
-    bgfx::setViewRect(present, 0, 0, (uint16_t)width, (uint16_t)height);
-    bgfx::setViewScissor(present, 0, 0, 0, 0);
-    bgfx::setViewClear(present, BGFX_CLEAR_NONE);
-    bgfx::setViewTransform(present, nullptr, nullptr);
-
-    if (bgfx::getAvailTransientVertexBuffer(6, s_copyLayout) >= 6) {
-        bgfx::TransientVertexBuffer tvb;
-        bgfx::allocTransientVertexBuffer(&tvb, 6, s_copyLayout);
-        const float quad[6][4] = {
-            { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f },
-            { -1.0f, -1.0f, 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f }, { -1.0f, 1.0f, 0.0f, 1.0f },
-        };
-        memcpy(tvb.data, quad, sizeof(quad));
-        const float map[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
-        const float dst[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-        bgfx::setUniform(s_uCopyMap, map);
-        bgfx::setUniform(s_uCopyDst, dst);
-        bgfx::setTexture(0, s_sCopySrc, s_fbs[0].color, BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP);
-        bgfx::setVertexBuffer(0, &tvb);
-        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA);
-        bgfx::submit(present, s_copyProgram);
-    }
+    submitFullCopy(window, s_fbs[0].color, (uint32_t)width, (uint32_t)height);
+    s_finalComposed = true;
 
     /* gfx_opengl_reset_for_overlay: glScissor(0, 0, w, h) and the test off,
      * and that is the state fast3d's next frame starts in. */
@@ -1518,7 +1541,11 @@ extern "C" void gfxBgfxResetForOverlay(int width, int height)
 extern "C" void gfxBgfxSubmitFrame(void)
 {
     if (!s_active) return;
-    const bool capture = s_tee && s_parityRequested && bgfx::isValid(s_teeFinalColor)
+    if (!s_tee && s_finalComposed) {
+        /* The finished frame (game image and ImGui) goes to the window last. */
+        submitFullCopy(BGFX_INVALID_HANDLE, s_finalColor, s_finalWidth, s_finalHeight);
+    }
+    const bool capture = s_tee && s_parityRequested && bgfx::isValid(s_finalColor)
         && bgfx::isValid(s_teeReadback);
     if (capture) {
         /* After the frame's last view: copy the final image into the
@@ -1526,13 +1553,13 @@ extern "C" void gfxBgfxSubmitFrame(void)
          * renders, blits and then runs the read before it returns. */
         const bgfx::ViewId view = allocView();
         bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-        bgfx::setViewFrameBuffer(view, s_teeFinal);
-        bgfx::setViewRect(view, 0, 0, (uint16_t)s_teeFinalWidth, (uint16_t)s_teeFinalHeight);
-        bgfx::blit(view, s_teeReadback, 0, 0, s_teeFinalColor, 0, 0, (uint16_t)s_teeFinalWidth,
-                   (uint16_t)s_teeFinalHeight);
+        bgfx::setViewFrameBuffer(view, s_finalFb);
+        bgfx::setViewRect(view, 0, 0, (uint16_t)s_finalWidth, (uint16_t)s_finalHeight);
+        bgfx::blit(view, s_teeReadback, 0, 0, s_finalColor, 0, 0, (uint16_t)s_finalWidth,
+                   (uint16_t)s_finalHeight);
         bgfx::touch(view);
-        s_parityWidth = s_teeFinalWidth;
-        s_parityHeight = s_teeFinalHeight;
+        s_parityWidth = s_finalWidth;
+        s_parityHeight = s_finalHeight;
         s_parityPixels.assign((size_t)s_parityWidth * s_parityHeight * 4, 0);
         bgfx::readTexture(s_teeReadback, s_parityPixels.data());
     }
@@ -1544,6 +1571,7 @@ extern "C" void gfxBgfxSubmitFrame(void)
     s_viewOpen = false;
     s_cachedScissorValid = false;
     s_overlayAllocated = false;
+    s_finalComposed = false;
     if (capture) {
         s_parityRequested = false;
         s_parityReady = true;

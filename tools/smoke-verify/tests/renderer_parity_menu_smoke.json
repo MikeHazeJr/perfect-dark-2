@@ -1,6 +1,6 @@
 {
   "scenario_name": "renderer_parity_menu_smoke",
-  "description": "2.0 renderer phase 2a (D5): with --renderer-parity the classic GL renderer presents and the bgfx backend renders the same frames offscreen from the same fast3d, scene-renderer and ImGui commands. Each screenshot event compares the two finished frames pixel for pixel (port/fast3d/gfx_parity.cpp): <shot> is the GL frame, <shot>.bgfx.bmp the bgfx frame, <shot>.diff.bmp the difference (x64) and <shot>.parity.json the counts. Front-end menus: Agent Select and the Main Menu, ImGui over the 3D menu background. Screenshots sit on the virtual timeline after each readiness wait (README: screenshots relative to a readiness barrier).",
+  "description": "2.0 renderer phase 2a (D5): with --renderer-parity the classic GL renderer presents and the bgfx backend renders the same frames offscreen from the same fast3d, scene-renderer and ImGui commands. Each screenshot event compares the two finished frames pixel for pixel (port/fast3d/gfx_parity.cpp): <shot> is the GL frame, <shot>.bgfx.bmp the bgfx frame, <shot>.diff.bmp the difference (x64) and <shot>.parity.json the counts. Front-end menu: Agent Select, ImGui over the 3D Carrington Institute background with the character preview. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get; for the same reason the Main Menu (a keypress away) is not captured.",
   "tags": ["render", "bgfx", "parity", "visual", "menu", "smoke"],
   "paths_of_interest": [
     "port/fast3d/gfx_bgfx.cpp",
@@ -13,7 +13,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 360,
+  "timeout_seconds": 420,
   "install_state": "current",
   "remove_paths": ["parity-home"],
   "fixtures": [
@@ -22,39 +22,30 @@
   "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./parity-home",
                 "--main-menu", "--renderer-parity"],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 300000, "stable_ms": 3000,
-      "comment": "A fresh install copy may extract first; then the menu boots to Agent Select with the seeded agent." },
-    { "at_ms": 2500, "type": "screenshot", "path": "parity-agent-select.bmp" },
-    { "at_ms": 4000, "type": "key", "key": "Return", "action": "tap" },
-    { "at_ms": 4250, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
-    { "at_ms": 7500, "type": "screenshot", "path": "parity-main-menu.bmp" },
-    { "at_ms": 9000, "type": "screenshot", "path": "parity-main-menu-later.bmp" },
-    { "at_ms": 10500, "type": "exit" }
+    { "at_ms": 0, "type": "wait_until", "condition": "core_boot_ready", "timeout_ms": 300000 },
+    { "at_ms": 45000, "type": "screenshot", "path": "parity-agent-select.bmp",
+      "comment": "Agent Select is up about 20 s after boot completes (the menu background stage loads first)." },
+    { "at_ms": 52000, "type": "screenshot", "path": "parity-agent-select-later.bmp" },
+    { "at_ms": 55000, "type": "exit" }
   ],
   "retain_artifacts": [
     { "src": "parity-agent-select.bmp" },
     { "src": "parity-agent-select.bmp.bgfx.bmp" },
     { "src": "parity-agent-select.bmp.diff.bmp" },
     { "src": "parity-agent-select.bmp.parity.json" },
-    { "src": "parity-main-menu.bmp" },
-    { "src": "parity-main-menu.bmp.bgfx.bmp" },
-    { "src": "parity-main-menu.bmp.diff.bmp" },
-    { "src": "parity-main-menu.bmp.parity.json" },
-    { "src": "parity-main-menu-later.bmp" },
-    { "src": "parity-main-menu-later.bmp.bgfx.bmp" },
-    { "src": "parity-main-menu-later.bmp.diff.bmp" },
-    { "src": "parity-main-menu-later.bmp.parity.json" }
+    { "src": "parity-agent-select-later.bmp" },
+    { "src": "parity-agent-select-later.bmp.bgfx.bmp" },
+    { "src": "parity-agent-select-later.bmp.diff.bmp" },
+    { "src": "parity-agent-select-later.bmp.parity.json" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=renderer_parity_menu_smoke",
       "bgfx: renderer parity mode",
-      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "MENUPOOL: acquired agent_select",
       "SMOKE\\.GLSHOT: captured .*parity-agent-select\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*parity-main-menu\\.bmp",
       "PARITY: .*parity-agent-select\\.bmp size=\\d+x\\d+ differing=",
-      "PARITY: .*parity-main-menu\\.bmp size=\\d+x\\d+ differing=",
-      "PARITY: .*parity-main-menu-later\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-agent-select-later\\.bmp size=\\d+x\\d+ differing=",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

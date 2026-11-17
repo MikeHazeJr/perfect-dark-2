@@ -1,6 +1,6 @@
 {
   "scenario_name": "renderer_classic_default_smoke",
-  "description": "2.0 renderer phase 2a (D5): with no renderer flag the client runs the classic GL renderer exactly as before: gfx_init keeps gfx_opengl_api, bgfx is never initialised, and no bgfx code path logs anything. Boots to Agent Select and the Main Menu and captures both.",
+  "description": "2.0 renderer phase 2a (D5): with no renderer flag the client runs the classic GL renderer exactly as before: gfx_init keeps gfx_opengl_api, bgfx is never initialised, and no bgfx code path logs anything. Boots to Agent Select and captures it twice. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get.",
   "tags": ["render", "classic", "menu", "smoke"],
   "paths_of_interest": [
     "port/src/video.c",
@@ -10,7 +10,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 360,
+  "timeout_seconds": 420,
   "install_state": "current",
   "remove_paths": ["classic-home"],
   "fixtures": [
@@ -19,23 +19,22 @@
   "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./classic-home",
                 "--main-menu"],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 300000, "stable_ms": 3000 },
-    { "at_ms": 2500, "type": "screenshot", "path": "classic-agent-select.bmp" },
-    { "at_ms": 4000, "type": "key", "key": "Return", "action": "tap" },
-    { "at_ms": 4250, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
-    { "at_ms": 7500, "type": "screenshot", "path": "classic-main-menu.bmp" },
-    { "at_ms": 9000, "type": "exit" }
+    { "at_ms": 0, "type": "wait_until", "condition": "core_boot_ready", "timeout_ms": 300000 },
+    { "at_ms": 45000, "type": "screenshot", "path": "classic-agent-select.bmp",
+      "comment": "Agent Select is up about 20 s after boot completes (the menu background stage loads first)." },
+    { "at_ms": 52000, "type": "screenshot", "path": "classic-agent-select-later.bmp" },
+    { "at_ms": 55000, "type": "exit" }
   ],
   "retain_artifacts": [
     { "src": "classic-agent-select.bmp" },
-    { "src": "classic-main-menu.bmp" }
+    { "src": "classic-agent-select-later.bmp" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=renderer_classic_default_smoke",
-      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "MENUPOOL: acquired agent_select",
       "SMOKE\\.GLSHOT: captured .*classic-agent-select\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*classic-main-menu\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*classic-agent-select-later\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
