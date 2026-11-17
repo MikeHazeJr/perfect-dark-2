@@ -7365,6 +7365,71 @@ void playerParkForNetwork(s32 playernum)
 	setCurrentPlayerNum(prevplayernum);
 }
 
+/**
+ * PC (T-NETWORKING-007 S2): a parked co-op partner rejoins. Its character
+ * comes back where it was parked, with the health, weapons and ammo it kept,
+ * before the host writes the reconnect snapshot (so the client restores a
+ * live player there, not a dead one sent to a spawn pad). Whether that spot
+ * is still clear is logged; moving it next to the host when it is not is
+ * still to do. Host only. Returns false when the player was not parked.
+ */
+bool playerUnparkForNetwork(s32 playernum)
+{
+	struct player *player;
+	struct prop *prop;
+	struct chrdata *chr;
+	struct coord pos;
+	RoomNum rooms[8];
+	bool clear = false;
+	s32 i;
+
+	if (g_NetMode == NETMODE_CLIENT || playernum < 0 || playernum >= MAX_PLAYERS
+			|| g_Vars.players[playernum] == NULL || !g_Vars.players[playernum]->parked
+			|| g_Vars.players[playernum]->prop == NULL) {
+		return false;
+	}
+
+	player = g_Vars.players[playernum];
+	prop = player->prop;
+	chr = prop->chr;
+
+	pos = prop->pos;
+	for (i = 0; i < (s32)ARRAYCOUNT(rooms); i++) {
+		rooms[i] = i < (s32)ARRAYCOUNT(prop->rooms) ? prop->rooms[i] : -1;
+	}
+	rooms[ARRAYCOUNT(rooms) - 1] = -1;
+	if (chr) {
+		const f32 height = spawnPoolGetChrCapsuleHeight(chr);
+		const f32 radius = chr->radius > 0.0f ? chr->radius : 30.0f;
+
+		clear = spawnPoolFindClearPosition(&pos, rooms, radius, height, prop) ? true : false;
+	}
+
+	player->parked = 0;
+	player->isdead = false;
+	player->redbloodfinished = false;
+	player->deathanimfinished = false;
+	player->coopcanrestart = false;
+	player->dostartnewlife = false;
+
+	if (chr) {
+		if (!player->parkedwashidden) {
+			chr->chrflags &= ~CHRCFLAG_HIDDEN;
+		}
+		chr->cutscene_protect = playerInCutscene(playernum);
+	}
+
+	propActivate(prop);
+	propEnable(prop);
+	propRegisterRooms(prop);
+
+	sysLogPrintf(LOG_NOTE,
+		"COOP.PARK: unparked player %d health=%.2f pos=(%.0f,%.0f,%.0f) room=%d spot_clear=%d",
+		playernum, player->bondhealth, prop->pos.x, prop->pos.y, prop->pos.z,
+		(s32)prop->rooms[0], clear ? 1 : 0);
+	return true;
+}
+
 /* T-NETWORKING-007 S1: each frame a parked player's own tick only keeps it
  * out of the world, in case a level script moved it or retargeted it. */
 static void playerTickParked(void)

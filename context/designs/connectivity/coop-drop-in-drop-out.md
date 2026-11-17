@@ -109,7 +109,8 @@ Mike's 2026-11-16 call (the co-op AI-buddy entry comes back) and the 2026-11-17 
   Original text: In the disconnect path, a co-op partner is parked instead of killed; the
   host's game ignores a parked partner (guards, objectives that count players, the mission-failed rule when both
   players are dead). Static pins; a smoke where the partner times out and the host plays on to the mission end.
-- **S2 Rejoin into a co-op mission.** Reuse the reconnect path; add what co-op needs (NPC snapshot, objective
+- **S2 Rejoin into a co-op mission. Host side built 2026-11-17 (week-pd/multiplayer-coop), not run yet:** `netServerCompleteReconnect` un-parks the partner (`playerUnparkForNetwork`) before the dead-player respawn check and the snapshot, and parks it again if the send fails; it comes back where it was parked (the spot's clearance is only logged so far). Smoke `network_coop_reconnect_smoke`; pins `[s2]`. Still open: the client's side of a co-op reconnect has never run, the next-to-the-host fallback, chrs made after the stage start, the alarm and the mission timers.
+  Original text: Reuse the reconnect path; add what co-op needs (NPC snapshot, objective
   statuses, cutscene state, timers) and the un-park. New `network_coop_reconnect_smoke`: the client times out
   mid-mission (`network_timeout_client`), reconnects (`network_reconnect`), and both reach the mission end with
   the partner's character back.

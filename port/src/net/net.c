@@ -3201,6 +3201,7 @@ enum net_restore_result netServerCompleteReconnect(struct netclient *cl)
 	char reconnect_name[NET_MAX_NAME];
 	s32 state_send_result;
 	enum net_restore_result result;
+	bool unparked = false;
 
 	if (!cl || !cl->reconnect_resync_pending
 			|| cl->reconnect_preserved_index >= NET_MAX_CLIENTS) {
@@ -3245,6 +3246,10 @@ enum net_restore_result netServerCompleteReconnect(struct netclient *cl)
 	cl->player = candidate.player;
 	candidate.player->client = cl;
 	candidate.player->isremote = true;
+	/* T-NETWORKING-007 S2: a co-op partner parked when it dropped comes back
+	 * where it was, alive, before the snapshot is written; re-parked below
+	 * if the send fails. */
+	unparked = playerUnparkForNetwork(pp->playernum);
 	if (candidate.player->isdead) {
 		candidate.player->dostartnewlife = true;
 	}
@@ -3272,6 +3277,9 @@ enum net_restore_result netServerCompleteReconnect(struct netclient *cl)
 		candidate.player->client = player_client_before;
 		candidate.player->isremote = player_remote_before;
 		candidate.player->dostartnewlife = player_newlife_before;
+		if (unparked) {
+			playerParkForNetwork(pp->playernum);
+		}
 		return netServerRestoreReject(
 			state_send_result == -1 || state_send_result == -3
 				? NET_RESTORE_STATE_WRITE_FAILED

@@ -884,3 +884,37 @@ TEST_CASE("co-op drop-out (S1): a dropped partner is parked, not killed, and the
 	const std::string mgr = code_only(read_text_file("src/game/playermgr.c"));
 	REQUIRE(mgr.find("player->parked = 0;") != npos);
 }
+
+TEST_CASE("co-op rejoin (S2): a parked partner comes back alive where it was, before the snapshot",
+          "[net][coop][dropinout][s2]") {
+	const size_t npos = std::string::npos;
+
+	// The reconnect commit un-parks before the dead-player respawn check and
+	// before the snapshot, and parks again if the send fails
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string done = function_body(net, "enum net_restore_result netServerCompleteReconnect(struct netclient *cl)\n{");
+	const size_t unpark = done.find("unparked = playerUnparkForNetwork(pp->playernum);");
+	const size_t newlife = done.find("if (candidate.player->isdead) {\n\t\tcandidate.player->dostartnewlife = true;");
+	const size_t send = done.find("state_send_result = netServerSendReconnectState(cl);");
+	const size_t repark = done.find("if (unparked) {\n\t\t\tplayerParkForNetwork(pp->playernum);");
+	REQUIRE(unpark != npos);
+	REQUIRE(newlife != npos);
+	REQUIRE(send != npos);
+	REQUIRE(repark != npos);
+	REQUIRE(unpark < newlife);
+	REQUIRE(newlife < send);
+	REQUIRE(send < repark);
+	REQUIRE(repark < done.find("return netServerRestoreReject(", send));
+
+	// The un-park: back in the prop and room lists, enabled, alive
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	const std::string fn = function_body(player, "bool playerUnparkForNetwork(s32 playernum)\n{");
+	for (const char *step : { "player->parked = 0;", "player->isdead = false;",
+			"player->redbloodfinished = false;", "player->deathanimfinished = false;",
+			"propActivate(prop);", "propEnable(prop);", "propRegisterRooms(prop);",
+			"\"COOP.PARK: unparked player %d health=%.2f pos=(%.0f,%.0f,%.0f) room=%d spot_clear=%d\"" }) {
+		INFO(step);
+		REQUIRE(fn.find(step) != npos);
+	}
+	REQUIRE(fn.find("if (!player->parkedwashidden) {") != npos);
+}
