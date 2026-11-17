@@ -21,6 +21,9 @@
 #include "data.h"
 #include "types.h"
 #include "weapon_graph_v2_runtime.h"
+#include "system.h"
+#include "net/net.h"
+#include "net/netmsg.h"
 
 /* S484 F13: g_AibotWeaponPreferences[] retired 2026-04-30. Bot AI
  * preference data per weapon now lives in the per-asset envelope
@@ -1057,15 +1060,35 @@ void botinvDrop(struct chrdata *chr, s32 weaponnum, u8 dropall)
 						&& item->type_weap.weapon1 == WEAPON_DATAUPLINK)) {
 				s32 modelnum = playermgrGetModelOfWeapon(item->type_weap.weapon1);
 
-				if (modelnum > 0) {
+				// PC (T-NETWORKING-011, finding 3): the host makes what a
+				// simulant drops and announces it, as weaponCreateForPlayerDrop
+				// does for a player. A networked client takes it from that
+				// message; a copy of its own would carry no sync id, so no host
+				// pickup of the real one could reach it.
+				if (modelnum > 0 && g_NetMode != NETMODE_CLIENT) {
 					struct prop *prop = weaponCreateForChr(chr, modelnum, item->type_weap.weapon1, OBJFLAG_WEAPON_AICANNOTUSE, NULL, NULL);
 
 					if (prop) {
 						objSetDropped(prop, DROPTYPE_DEFAULT);
-						objDrop(prop, true);
+
+						if (!objDrop(prop, true)) {
+							// Retire the half-dropped prop unannounced, as the
+							// player drop does
+							sysLogPrintf(LOG_WARNING, "DROP.TRANSACTION.FAIL simulant=%d weapon=%d syncid=%u retired=1",
+								mpPlayerGetIndex(chr), item->type_weap.weapon1, (unsigned)prop->syncid);
+							objFreePermanently(prop->obj, true);
+							continue;
+						}
 
 						if (item->type_weap.weapon1 == WEAPON_BRIEFCASE2) {
 							scenarioHandleDroppedToken(chr, prop);
+						}
+
+						if (g_NetMode == NETMODE_SERVER) {
+							netmsgSvcPropSpawnWrite(&g_NetMsgRel, prop);
+							netmsgSvcPropMoveWrite(&g_NetMsgRel, prop, NULL);
+							sysLogPrintf(LOG_NOTE, "BOT.DROP: host announced simulant %d weapon=%d syncid=%u",
+								mpPlayerGetIndex(chr), item->type_weap.weapon1, (unsigned)prop->syncid);
 						}
 					}
 				}

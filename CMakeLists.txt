@@ -903,8 +903,22 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_anim_bits.cpp
   ${CMAKE_SOURCE_DIR}/src/lib/anim_bits.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
+  # Simulant pickups and drops in networked play (v62, finding 3).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
+  # In-match team switches stay within the scenario's teams (B-1132).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_team_limit_static.cpp
   # The collision obstacle's geometry for the capsule sweep (B-1133).
   ${CMAKE_SOURCE_DIR}/tests/test_collision_obstacle_static.cpp
+  # A second match in the same room on a listen host (finding 4).
+  ${CMAKE_SOURCE_DIR}/tests/test_host_autostart_rematch_static.cpp
+  # Client read handlers read their whole message before deciding (B-1131).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_reader_consumes_static.cpp
+  # Every smoke schedule fits inside its own timeout (B-1135).
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_schedule_bounds_static.cpp
+  # An mpchrnum resolves with the port's player count, not the N64's (B-1136).
+  ${CMAKE_SOURCE_DIR}/tests/test_mp_chrnum_static.cpp
+  # The host decides what follows a networked co-op or counter-op mission (B-1193).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_mission_end_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp
@@ -1021,6 +1035,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
   # B-1125: spaced fallback placement pads for multiplayer scenarios (pure).
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_pad_fallback.cpp
+  # Challenge and preset table lands each value in its own field (finding 10).
+  ${CMAKE_SOURCE_DIR}/tests/test_mpconfig_table.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/mpconfig_table_probe.c
+  ${CMAKE_SOURCE_DIR}/src/game/mpconfigs.c
   ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp

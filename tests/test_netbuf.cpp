@@ -315,6 +315,15 @@ TEST_CASE("net move: client weapon select is server inventory-gated",
     REQUIRE(parse_error < weapon_gate);
     REQUIRE(parse_error < ack_commit);
     REQUIRE(weapon_gate < ack_commit);
+
+    // A dead player's select of no weapon is dropped before the gate, without
+    // the rejection warning (49 warnings in one death, 2026-11-16)
+    const size_t none_drop = netmsg.find("(newmove.ucmd & UCMD_SELECT) && newmove.weaponnum == WEAPON_NONE", parse_error);
+    const size_t gated = netmsg.find("} else if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum >= 0) {", none_drop);
+    REQUIRE(none_drop != std::string::npos);
+    REQUIRE(gated != std::string::npos);
+    REQUIRE(none_drop < weapon_gate);
+    REQUIRE(netmsg.find("sysLogPrintf", none_drop) > gated);
 }
 
 TEST_CASE("netbuf: mixed-type sequence preserves order", "[netbuf]") {

@@ -106,6 +106,9 @@ static const MenuGraphEdge s_EndscreenSoloEdges[] = {
     EDGE_SCENE("continue", ACTION_MENU_ACCEPT, "Continue", SCENE_EVENT_GAMEPLAY_START),
     EDGE_SCENE("retry", ACTION_MENU_ACCEPT, "Retry", SCENE_EVENT_GAMEPLAY_START),
     EDGE_SCENE("main_menu", ACTION_MENU_CANCEL, "Main Menu", SCENE_EVENT_STAGE_TEARDOWN),
+    /* B-1193: a networked co-op or counter-op mission's results */
+    EDGE_SCENE("room", ACTION_MENU_ACCEPT, "Return to Room", SCENE_EVENT_STAGE_TEARDOWN),
+    EDGE_NETWORK("disconnect", ACTION_MENU_CANCEL, "Disconnect", "disconnect"),
 };
 
 static const MenuGraphEdge s_EndscreenMpEdges[] = {

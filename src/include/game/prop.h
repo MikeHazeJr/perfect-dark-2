@@ -94,6 +94,7 @@ void propRegisterRoom(struct prop *prop, RoomNum room);
 void propDeregisterRoom(struct prop *prop, RoomNum room);
 void propDeregisterRooms(struct prop *prop);
 void propRegisterRooms(struct prop *prop);
+void propSetRooms(struct prop *prop, const RoomNum *rooms);
 void func0f065d1c(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms, RoomNum *morerooms, u32 arg5);
 void func0f065dd8(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms);
 void func0f065dfc(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms, RoomNum *morerooms, u32 arg5);

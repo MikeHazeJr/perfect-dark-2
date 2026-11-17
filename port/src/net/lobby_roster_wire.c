@@ -21,6 +21,7 @@ s32 lobbyRosterValid(const lobby_roster_snapshot_t *snapshot)
                 || !boundedString(p->name, sizeof(p->name)) || !p->name[0]
                 || !boundedString(p->body_id, sizeof(p->body_id))
                 || !boundedString(p->head_id, sizeof(p->head_id))
+                || p->reviewing > 1
                 || (seen & (1u << p->clientId))) return 0;
         seen |= 1u << p->clientId;
     }
@@ -41,7 +42,7 @@ s32 lobbyRosterPayloadWrite(struct netbuf *dst, const lobby_roster_snapshot_t *s
     size_t required = 2;
     for (u8 i = 0; i < snapshot->count; ++i) {
         const struct lobbyplayer *p = &snapshot->players[i];
-        required += 4 + wireStringSize(p->name) + wireStringSize(p->body_id)
+        required += 5 + wireStringSize(p->name) + wireStringSize(p->body_id)
             + wireStringSize(p->head_id);
     }
     if (netbufWriteLeft(dst) < 0 || required > (size_t)netbufWriteLeft(dst)) {
@@ -59,6 +60,7 @@ s32 lobbyRosterPayloadWrite(struct netbuf *dst, const lobby_roster_snapshot_t *s
         netbufWriteStr(dst, p->name);
         netbufWriteStr(dst, p->body_id);
         netbufWriteStr(dst, p->head_id);
+        netbufWriteU8(dst, p->reviewing ? 1 : 0);
     }
     return !dst->error;
 }
@@ -92,6 +94,9 @@ s32 lobbyRosterPayloadRead(struct netbuf *src, lobby_roster_snapshot_t *snapshot
         if (src->error || !readString(src, p->name, sizeof(p->name))
                 || !readString(src, p->body_id, sizeof(p->body_id))
                 || !readString(src, p->head_id, sizeof(p->head_id))) goto invalid;
+        const u8 flags = netbufReadU8(src);
+        if (src->error || (flags & ~1u)) goto invalid;
+        p->reviewing = flags & 1u;
         p->isReady = p->state == CLSTATE_GAME;
         p->isLeader = p->clientId == candidate.leaderClientId;
     }

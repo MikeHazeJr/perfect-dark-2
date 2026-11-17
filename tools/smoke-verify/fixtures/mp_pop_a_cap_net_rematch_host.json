@@ -1,0 +1,45 @@
+{
+  "scenario_name": "mp_pop_a_cap_net_rematch_host",
+  "description": "Host schedule for mp_pop_a_cap_net_rematch_smoke: two Pop a Cap matches in one room on a listen host.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 760,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 480000,
+      "stable_ms": 1000,
+      "comment": "First match end screen. The match starts as in mp_pop_a_cap_net_smoke (host autostart after the client joins and settles) and ends at the forced 35 s time limit."
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Press the end screen's default button, Return to Room when networked (B-1139: the host's end screen now has only its own player's dialog)."
+    },
+    {
+      "at_ms": 5000,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 120000,
+      "stable_ms": 2000,
+      "comment": "Second match live: the host re-arms about 10 s after it is back in the room, then the countdown and the arena load."
+    },
+    {
+      "at_ms": 6000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "Second match end screen."
+    },
+    {
+      "at_ms": 9000,
+      "type": "exit",
+      "comment": "Scripted clean exit 3 s after the second end screen."
+    }
+  ]
+}

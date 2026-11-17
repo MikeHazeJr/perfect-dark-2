@@ -28,6 +28,7 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_NETWORK_LOBBY_READY,
 	SMOKE_READINESS_CORE_BOOT_READY,
 	SMOKE_READINESS_NETWORK_DECLINED_LOBBY,
+	SMOKE_READINESS_SCENARIO_TOKEN_HELD,
 	/* An offline stage is live and the Forge editor camera is flying over
 	 * it: the state a Forge session starts in. */
 	SMOKE_READINESS_FORGE_EDITOR_READY,
@@ -56,6 +57,10 @@ typedef struct smoke_readiness_facts {
 	int local_player_present;
 	int local_player_spawned;
 	int stage_tick_active;
+	/* A living simulant carries the scenario's token (Hacker Central's uplink,
+	 * a briefcase or a case). Only the scenario authority knows it: a
+	 * networked client always reads 0. */
+	int scenario_token_held;
 	int scene_cutscene_layer;
 	int scene_gameplay_layer;
 	int cutscene_in_progress;

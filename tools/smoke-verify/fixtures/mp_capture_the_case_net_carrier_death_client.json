@@ -1,0 +1,29 @@
+{
+  "scenario_name": "mp_capture_the_case_net_carrier_death_client",
+  "description": "Client schedule for mp_capture_the_case_net_carrier_death_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 700,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 360000,
+      "comment": "Connected, ready gate passed, the match is live here."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 300000,
+      "stable_ms": 1000,
+      "comment": "The host's time limit ends the match for both."
+    },
+    {
+      "at_ms": 4000,
+      "type": "exit",
+      "comment": "Scripted clean exit 4 s (script time) after the results."
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "scenario_name": "network_counterop_mission_end_host",
+  "description": "Host schedule for network_counterop_mission_end_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "input_sequence": [
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "The ordinary ready gate, typed stage publication, load, allocation and spawn are live.",
+      "at_ms": 0
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "at_ms": 0,
+      "comment": "The host's own results, after --debug-end-mission ends the mission at 40 s."
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "The host's default choice on a completed mission with a next one: Next Mission."
+    },
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 360000,
+      "stable_ms": 2000,
+      "at_ms": 5000,
+      "comment": "The next mission live: lobby start, ready gate, countdown and load."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Scripted clean exit once the next mission is live."
+    }
+  ]
+}

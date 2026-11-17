@@ -169,6 +169,7 @@ extern s32 g_MpWeaponSetNum;
 #define MPOPTION_SLOWMOTION_ON         0x00000040
 #define MPOPTION_FASTMOVEMENT          0x00000100
 #define MPOPTION_DISPLAYTEAM           0x00000200
+#define MPOPTION_KILLSSCORE            0x00000400
 #define MPOPTION_HTB_HIGHLIGHTBRIEFCASE 0x00000800
 #define MPOPTION_HTB_SHOWONRADAR       0x00001000
 #define MPOPTION_CTC_SHOWONRADAR       0x00002000
@@ -1588,6 +1589,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         u8    isLeader;
         u8    isLocal;
         s32   state;       /* CLSTATE_* for humans, -1 for bots */
+        u8    reviewing;   /* B-1190: still on the last match's results */
         u8    botDiff;     /* bots only */
         char  name[48];
     };
@@ -1622,6 +1624,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             r.isLeader = pv.isLeader;
             r.isLocal = pv.isLocal ? 1 : 0;
             r.state = pv.state;
+            r.reviewing = pv.reviewing ? 1 : 0;
             snprintf(r.name, sizeof(r.name), "%s", pv.name);
         }
     }
@@ -2013,8 +2016,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         stateCol = IM_COL32(255, 200, 50, (int)(alpha * 200));
                         break;
                     case CLSTATE_LOBBY:
-                        stateStr = "ready";
-                        stateCol = IM_COL32(80, 220, 80, (int)(alpha * 200));
+                        if (r.reviewing) {
+                            /* B-1190: still on the last match's results */
+                            stateStr = "reviewing match stats";
+                            stateCol = IM_COL32(120, 200, 255, (int)(alpha * 200));
+                        } else {
+                            stateStr = "ready";
+                            stateCol = IM_COL32(80, 220, 80, (int)(alpha * 200));
+                        }
                         break;
                     case CLSTATE_GAME:
                         stateStr = "in game";
@@ -2969,6 +2978,29 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         if (!leader) ImGui::EndDisabled();
     }
 
+    /* Team score limit (T-NETWORKING-011, finding 9): the original Team Score
+     * slider (menuhandlerMpTeamScoreLimitSlider) stores 0..400 with 400 =
+     * no limit and shows the value + 1. The Room fixed it at 400. Shown with
+     * teams on; same 1-based display and 0-based store as the sliders above. */
+    if (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED) {
+        if (!leader) ImGui::BeginDisabled();
+        int tsl = (int)g_MatchConfig.teamscorelimit + 1;
+        if (tsl > 401) tsl = 401;
+        ImGui::SetNextItemWidth(comboW * 0.6f);
+        if (pdguiSliderInt("Team Score", &tsl, 1, 401)) {
+            g_MatchConfig.teamscorelimit = (u16)(tsl - 1);
+            s_RoomSettingsDirty = true;
+        }
+        roomCsSectionTrackLastItem(ROOM_CS_LIMITS);
+        ImGui::SameLine();
+        if (g_MatchConfig.teamscorelimit >= 400) {
+            ImGui::TextColored(ImVec4(0.5f, 0.7f, 0.5f, 1.0f), "No limit");
+        } else {
+            ImGui::Text("%d points", tsl);
+        }
+        if (!leader) ImGui::EndDisabled();
+    }
+
     ImGui::Spacing();
 
     /* --- Weapon Set (alphabetized; group headers are non-focusable text) --- */
@@ -3067,6 +3099,12 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     optToggleInverted("Auto-Aim",        MPOPTION_NOAUTOAIM,         leader);
     optToggleInverted("Radar",           MPOPTION_NORADAR,           leader);
     optToggle        ("Teams",           MPOPTION_TEAMSENABLED,      leader);
+    /* Finding 9: the original options menus offer Display Team in every
+     * scenario (team colours on other players); it only means something with
+     * teams on. */
+    if (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED) {
+        optToggle    ("Display Team",    MPOPTION_DISPLAYTEAM,       leader);
+    }
     optToggle        ("One-Hit Kills",   MPOPTION_ONEHITKILLS,       leader);
     optToggle        ("Friendly Fire",   MPOPTION_FRIENDLYFIRE,      leader);
     optToggle        ("Fast Movement",   MPOPTION_FASTMOVEMENT,      leader);
@@ -3183,27 +3221,33 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
         roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
     }
 
-    /* Scenario-specific options */
+    /* Scenario-specific options. Finding 9: Kills Score (kills add to the
+     * score) is in the original options of Hold the Briefcase, Hacker
+     * Central, King of the Hill and Capture the Case, not Pop a Cap. */
     int sc = (int)g_MatchConfig.scenario;
     if (sc == MPSCENARIO_HOLDTHEBRIEFCASE) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Hold the Briefcase");
         optToggle("Highlight Briefcase", MPOPTION_HTB_HIGHLIGHTBRIEFCASE, leader);
         optToggle("Show on Radar",       MPOPTION_HTB_SHOWONRADAR,        leader);
+        optToggle("Kills Score",         MPOPTION_KILLSSCORE,             leader);
     } else if (sc == MPSCENARIO_CAPTURETHECASE) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Capture the Case");
         optToggle("Show on Radar", MPOPTION_CTC_SHOWONRADAR, leader);
+        optToggle("Kills Score",   MPOPTION_KILLSSCORE,      leader);
     } else if (sc == MPSCENARIO_KINGOFTHEHILL) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "King of the Hill");
         optToggle("Hill on Radar",  MPOPTION_KOH_HILLONRADAR, leader);
         optToggle("Mobile Hill",    MPOPTION_KOH_MOBILEHILL,  leader);
+        optToggle("Kills Score",    MPOPTION_KILLSSCORE,      leader);
     } else if (sc == MPSCENARIO_HACKERCENTRAL) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Hacker Central");
         optToggle("Highlight Terminal", MPOPTION_HTM_HIGHLIGHTTERMINAL, leader);
         optToggle("Show on Radar",      MPOPTION_HTM_SHOWONRADAR,       leader);
+        optToggle("Kills Score",        MPOPTION_KILLSSCORE,            leader);
     } else if (sc == MPSCENARIO_POPACAP) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.8f, 0.9f), "Pop a Cap");

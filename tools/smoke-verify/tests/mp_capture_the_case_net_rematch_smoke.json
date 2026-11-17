@@ -1,0 +1,265 @@
+{
+  "scenario_name": "mp_capture_the_case_net_rematch_smoke",
+  "description": "T-NETWORKING-011: two Capture the Case matches in the same room on a listen host (--host-autostart-matches 2), as mp_combat_net_rematch_smoke does for Combat. Port 27264, Complex, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), re-arms and starts the second match through the same Room start path; the client stays on its results and the host's second match takes it along. Beyond the Combat checks, the second match must set the scenario up again: the host sends a new baseline and the client takes its first state from the host once per match.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "match-lifecycle",
+    "multiplayer-modes",
+    "scenario",
+    "rematch"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/fast3d/pdgui_menu_endscreen.cpp",
+    "src/game/mplayer/mplayer.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 840,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27264",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:capture_the_case",
+        "3",
+        "--host-autostart",
+        "--host-autostart-matches",
+        "2",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27264",
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_capture_the_case_net_rematch_host.json"
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27264"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_capture_the_case_net_rematch_client.json"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 820000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_capture_the_case_net_rematch_host",
+      "SMOKE: scenario=mp_capture_the_case_net_rematch_client",
+      "BOOT: --listen-bind armed: port=27264",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27264'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=35",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:capture_the_case' bots=3",
+      "BOOT: --listen-bind consumed: port=27264 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27264' result=OK rc=0",
+      "NET: created server on port 27264",
+      "NET: connecting to 127\\.0\\.0\\.1:27264",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=timelimit",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "BOOT: --host-autostart-matches armed: matches=2",
+      "BOOT: --host-autostart re-armed: match 2 of 2 in room [0-9]+",
+      "BOOT: --host-autostart started match 1 of 2 rc=0",
+      "BOOT: --host-autostart started match 2 of 2 rc=0",
+      "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=1 reason=stage-end",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=continue",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=match-start",
+      "BOT: match chr table retired; simulants are inert until the next stage",
+      "MENU\\.MPENDSCREEN: networked results closed; no local stage change",
+      "NET: match end forgets the rolled spawn weapon",
+      "CTC: team [0-3] case on base [0-3] pad=[0-9]+ room=[1-9][0-9]* respawnpads=[1-6] prop=ok",
+      "CTC: client bases from host rev=[0-9]+ team0 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+ team1 base=[0-3] room=[1-9][0-9]* holder=-?[0-9]+",
+      "SCENARIO\\.STATE: sent scenario=5 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=5 rev=[0-9]+"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27264 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27264' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "CLC_LOBBY_START rejected",
+      "BOOT: --host-autostart started match [0-9]+ of 2 rc=[1-9-]",
+      "LOBBY: results screen did not open within",
+      "MPENDSCREEN .*CITRAINING lobby return",
+      "PLAYER\\.INIT\\.ROLLBACK"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27264",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 4
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 4
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=5 teams=1 chrs=5 netmode=",
+        "min": 4,
+        "max": 4
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 20,
+        "max": 20
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "MATCH: client stage start received",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH: stage end reason=timelimit",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH: endscreen shown",
+        "min": 4
+      },
+      {
+        "pattern": "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "ENDSCREEN_DIAG: mpPushEndscreenDialog ",
+        "min": 3,
+        "max": 4
+      },
+      {
+        "pattern": "BOOT: --host-autostart firing",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=5",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: sent scenario=5 rev=[0-9]+ reason=baseline",
+        "min": 2
+      }
+    ]
+  }
+}
