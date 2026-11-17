@@ -1,0 +1,27 @@
+# maian_hover.pdmesh model.mtl - vertex-coloured, opaque. pd_render_class 3 resets
+# the opaque Z-buffered render mode at the start of each list.
+
+newmtl hull
+Kd 1.000000 1.000000 1.000000
+d 1.000000
+pd_render_class = 3
+
+newmtl pod
+Kd 1.000000 1.000000 1.000000
+d 1.000000
+pd_render_class = 3
+
+newmtl cannon
+Kd 1.000000 1.000000 1.000000
+d 1.000000
+pd_render_class = 3
+
+newmtl crystals
+Kd 1.000000 1.000000 1.000000
+d 1.000000
+pd_render_class = 3
+
+newmtl crystals_black
+Kd 1.000000 1.000000 1.000000
+d 1.000000
+pd_render_class = 3

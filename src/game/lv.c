@@ -126,6 +126,7 @@
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
 #include "smoke_harness.h"
+#include "vehicle_graph_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -809,6 +810,8 @@ bool lvReset(s32 stagenum)
 	varsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");
 	propsReset();
+	/* pd.vehicle_graph.v1: no vehicle's graph instance outlives its stage. */
+	vehicleGraphRuntimeReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
 	/* PC (c132): re-acquire the frozen corpse store from the fresh stage pool so

@@ -6,5 +6,6 @@
   "max_archive_gib": 8,
   "peak_run_gib": 2,
   "extra_growth_gib": 2,
-  "peak_build_gib": 4
+  "peak_build_gib": 4,
+  "discard_completed": false
 }

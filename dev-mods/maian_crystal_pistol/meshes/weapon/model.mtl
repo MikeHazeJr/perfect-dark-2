@@ -1,0 +1,103 @@
+# stand-in material sidecar
+newmtl CrystalPistol_blue_0
+Kd 0.0222 0.1428 0.7299
+d 1.0
+newmtl CrystalPistol_blue_1
+Kd 0.0263 0.1692 0.8648
+d 1.0
+newmtl CrystalPistol_blue_2
+Kd 0.0304 0.1956 0.9997
+d 1.0
+newmtl CrystalPistol_blue_3
+Kd 0.0345 0.2220 1.0000
+d 1.0
+newmtl CrystalPistol_blue_4
+Kd 0.0386 0.2484 1.0000
+d 1.0
+newmtl CrystalPistol_blue_5
+Kd 0.0427 0.2748 1.0000
+d 1.0
+newmtl CrystalPistol_bright_0
+Kd 0.2539 0.7933 0.5712
+d 1.0
+newmtl CrystalPistol_bright_1
+Kd 0.3008 0.9400 0.6768
+d 1.0
+newmtl CrystalPistol_bright_2
+Kd 0.3477 1.0000 0.7824
+d 1.0
+newmtl CrystalPistol_bright_3
+Kd 0.3947 1.0000 0.8880
+d 1.0
+newmtl CrystalPistol_bright_5
+Kd 0.4885 1.0000 1.0000
+d 1.0
+newmtl CrystalPistol_mint_0
+Kd 0.1031 0.6823 0.4125
+d 1.0
+newmtl CrystalPistol_mint_1
+Kd 0.1222 0.8084 0.4888
+d 1.0
+newmtl CrystalPistol_mint_2
+Kd 0.1413 0.9345 0.5651
+d 1.0
+newmtl CrystalPistol_mint_3
+Kd 0.1603 1.0000 0.6413
+d 1.0
+newmtl CrystalPistol_mint_4
+Kd 0.1794 1.0000 0.7176
+d 1.0
+newmtl CrystalPistol_mint_5
+Kd 0.1985 1.0000 0.7939
+d 1.0
+newmtl CrystalPistol_navy_0
+Kd 0.0095 0.0222 0.0516
+d 1.0
+newmtl CrystalPistol_navy_1
+Kd 0.0113 0.0263 0.0611
+d 1.0
+newmtl CrystalPistol_navy_2
+Kd 0.0130 0.0304 0.0706
+d 1.0
+newmtl CrystalPistol_navy_3
+Kd 0.0148 0.0345 0.0802
+d 1.0
+newmtl CrystalPistol_navy_4
+Kd 0.0166 0.0386 0.0897
+d 1.0
+newmtl CrystalPistol_navy_5
+Kd 0.0183 0.0427 0.0992
+d 1.0
+newmtl CrystalPistol_shade_0
+Kd 0.0357 0.4046 0.2380
+d 1.0
+newmtl CrystalPistol_shade_1
+Kd 0.0423 0.4794 0.2820
+d 1.0
+newmtl CrystalPistol_shade_2
+Kd 0.0489 0.5542 0.3260
+d 1.0
+newmtl CrystalPistol_shade_3
+Kd 0.0555 0.6290 0.3700
+d 1.0
+newmtl CrystalPistol_shade_5
+Kd 0.0687 0.7786 0.4580
+d 1.0
+newmtl CrystalPistol_teal_0
+Kd 0.1111 0.3887 0.3332
+d 1.0
+newmtl CrystalPistol_teal_1
+Kd 0.1316 0.4606 0.3948
+d 1.0
+newmtl CrystalPistol_teal_2
+Kd 0.1521 0.5325 0.4564
+d 1.0
+newmtl CrystalPistol_teal_3
+Kd 0.1727 0.6043 0.5180
+d 1.0
+newmtl CrystalPistol_teal_4
+Kd 0.1932 0.6762 0.5796
+d 1.0
+newmtl CrystalPistol_teal_5
+Kd 0.2137 0.7481 0.6412
+d 1.0

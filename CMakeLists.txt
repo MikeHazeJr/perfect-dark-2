@@ -1076,6 +1076,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/scene_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_scene_dispatch.cpp
 
+  # B-1169: the install's own mods folders (Mike 2026-11-15, option A).
+  ${CMAKE_SOURCE_DIR}/port/src/mods_install_roots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mods_install_roots.cpp
+
   # Cohort 4 (input universality and transitions, 2026-04-27): cutscene
   # flash fix invariants (K.2 + K.6). Mission 1 obj 2 bug repro.
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
@@ -1123,17 +1127,22 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_loader_walker_mesh_source_plan.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  # Typed archive clone to a new catalog id, shared by the in-game creators.
+  ${CMAKE_SOURCE_DIR}/port/src/asset_archive_clone.c
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_clone.cpp
   ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/character_head_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/body_head_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/body_blood.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_properties.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_stage_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_body_blood.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
@@ -1142,6 +1151,46 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/modpack_pdmod.c
+  # In-game root mod.json admission used by both .pdmod packers.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_manifest_validate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_manifest_validate.cpp
+  # Template archive plus edits to a complete mod folder: the creators' Save.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author.cpp
+  # A mod described in a file: the same request, read strictly from JSON.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author_recipe.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author_recipe.cpp
+  # One in-game Validate: release validation plus the content of every member.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_asset_validate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_asset_validate.cpp
+  # The descriptor INI parser the game uses (the scanner's own loop).
+  ${CMAKE_SOURCE_DIR}/port/src/ini_parse.c
+  ${CMAKE_SOURCE_DIR}/tests/test_ini_parse.cpp
+  # The Weapons creator's graph document to and from the clean behavior files.
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_editor_io.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_editor_io.cpp
+  # Where the game keeps mods: the user mods folder and the install's.
+  ${CMAKE_SOURCE_DIR}/port/src/mods_roots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mods_roots.cpp
+  # A mod vehicle's own model number and --debug-swap-vehicle (Maian vehicle V1).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_debug.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_slot.cpp
+  # The Maian vehicle's boost and heat state machine (V3), the
+  # og.vehicle.boost_heat module of the vehicle graph.
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
+  # pd.vehicle_graph.v1: the vehicle behavior graph runner and its one instance
+  # per vehicle (accepted by CORE 2026-11-16,
+  # context/designs/modding/vehicle-graph-v1.md).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_model_parts.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_parts.cpp
+  # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
+  ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp
+  # The Maian crystal pistol recipe, built the way --mod-author builds it.
+  ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp

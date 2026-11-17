@@ -3,6 +3,7 @@
 
 #include "assetcatalog.h"
 #include "character_head_policy.h"
+#include "vehicle_graph_runner.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,12 +114,24 @@ typedef struct asset_runtime_binding {
     f32 vehicle_tilt_response_pal;
     f32 vehicle_yaw_response_ntsc;
     f32 vehicle_yaw_response_pal;
+    /* The original full-throttle bonus, from physics v2 only (a v1 graph's
+     * og.vehicle.throttle_boost holds its own values). */
     f32 vehicle_boost_speed;
     s32 vehicle_boost_time_ticks60;
+    /* v2 behavior: the file's booleans. v1 graph: derived from it (mount =
+     * the mount event reaches og.vehicle.mount_seat, drive = the tick reaches
+     * og.vehicle.hover_drive, dismount = the dismount event reaches
+     * og.vehicle.dismount_seat), so every caller of assetRuntimeVehicleAllows
+     * keeps one answer for both. */
     s32 vehicle_allow_mount;
     s32 vehicle_allow_drive;
     s32 vehicle_allow_dismount;
     f32 vehicle_hover[13];
+    /* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): the
+     * compiled behavior graph with its behavior/variables.json when the
+     * vehicle's behavior.graph.json is v1, owned by this binding and freed by
+     * assetRuntimeReset; NULL for a v2 behavior file. */
+    vehicle_graph_program_t *vehicle_graph;
 } asset_runtime_binding_t;
 
 void assetRuntimeReset(void);
@@ -141,6 +154,19 @@ const asset_runtime_binding_t *assetRuntimeVehicleForModelnum(s32 modelnum);
 s32 assetRuntimeHudElementEnabled(s32 element_type);
 s32 assetRuntimeVehicleAllows(s32 modelnum, const char *action);
 s32 assetRuntimeVehicleHover(s32 modelnum, f32 out_values[13]);
+/* Why the last vehicle hydration refused its sources ("" when it did not). */
+const char *assetRuntimeVehicleGraphError(void);
+/*
+ * Catalog registration's check of a vehicle's behavior graph: a
+ * pd.vehicle_graph.v1 graph is compiled with its variables and its parts are
+ * checked against the model's part tables, so a vehicle with a broken graph is
+ * refused when it registers, not when it is first used. model_path is the
+ * vehicle's model as the catalog holds it and behavior_member its behavior
+ * file. Returns 1 when the vehicle has no v1 graph or its graph compiles, 0
+ * with the reason in err.
+ */
+s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_member,
+                                   const char *catalog_id, char *err, size_t err_cap);
 s32 assetRuntimeSkinAppearance(const char *target_id, f32 out_rgba[4],
                                f32 *out_roughness, f32 *out_metallic,
                                s32 *out_emissive);

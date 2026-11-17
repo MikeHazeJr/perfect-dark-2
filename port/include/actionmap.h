@@ -296,12 +296,13 @@ typedef enum InputAction {
 
     /* ---- Vehicle controls expansion (Mike directive 2026-05-17) ----
      * Camera look (yaw/pitch) on RSTICK + mouse-delta so the driver can aim
-     * around while mounted. Handbrake on Space / A-button. Vehicle USE is
-     * the on-foot interact trigger that boards the nearest hoverbike (so the
-     * legacy --debug-mount-bike CLI flag is no longer the only way in). */
+     * around while mounted. Handbrake on Space / B-button (A until Mike moved
+     * it for boost, 2026-11-16). Vehicle USE is the on-foot interact trigger
+     * that boards the nearest hoverbike (so the legacy --debug-mount-bike CLI
+     * flag is no longer the only way in). */
     ACTION_VEHICLE_LOOK_X,           /* = 117 mouse-delta-x / RSTICK_X (yaw) */
     ACTION_VEHICLE_LOOK_Y,           /* = 118 mouse-delta-y / RSTICK_Y (pitch) */
-    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / A-button */
+    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / B-button */
     ACTION_VEHICLE_USE,              /* = 120 E / A-button on-foot mount trigger */
 
     /* ---- Gun roll (T-MODDING-008, Mike 2026-11-15) ----
@@ -312,7 +313,14 @@ typedef enum InputAction {
     ACTION_GUN_ROLL_LEFT,            /* = 121 Z */
     ACTION_GUN_ROLL_RIGHT,           /* = 122 X */
 
-    ACTION_COUNT                /* = 123, sentinel - keep last */
+    /* ---- Vehicle boost (Maian vehicle V3, Mike 2026-11-16) ----
+     * Held: boosts a vehicle whose behavior graph has og.vehicle.boost_heat
+     * (vehicle_boost_heat.h); does nothing on other vehicles. Mappable;
+     * defaults Shift and the controller's A. After the gun roll actions,
+     * which landed on dev first. */
+    ACTION_VEHICLE_BOOST,            /* = 123 Left Shift / A-button */
+
+    ACTION_COUNT                /* = 124, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

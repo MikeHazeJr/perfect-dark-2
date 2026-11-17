@@ -1,0 +1,15 @@
+{
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "example:tri_weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "trigger_secondary", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary" } },
+    { "id": "launch_mine", "kind": "spawn.thrown_physical", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "throw", "entity_ref": "example:tri_entity", "payload_ref": "example:tri_entity", "ammo_slot": -1 } }
+  ],
+  "edges": [
+    { "from": "trigger_secondary", "to": "launch_mine" }
+  ],
+  "exports": [
+    { "name": "secondary", "node": "launch_mine" }
+  ]
+}

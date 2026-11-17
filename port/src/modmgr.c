@@ -30,6 +30,8 @@
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
+#include "mods_install_roots.h"
+#include "mods_roots.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -84,6 +86,28 @@ static char g_ModPathBuf[FS_MAXPATH + 1];
 
 // Resolved mods directory path (set by modmgrScanDirectory)
 static char g_ModsDirPath[FS_MAXPATH + 1] = "";
+
+/* Every mods folder the last scan read (mods_roots.h): [0] is the folder
+ * the game writes mods to (g_ModsDirPath), normally the user mods folder
+ * in LocalAppData; the install's own folders follow and are read only. */
+static char g_ModsRoots[MODS_ROOTS_MAX][FS_MAXPATH + 1];
+static s32 g_ModsRootCount = 0;
+
+static s32 modmgrModsRootKnown(const char *path)
+{
+	for (s32 i = 0; i < g_ModsRootCount; i++) {
+		if (modsRootsSameDir(g_ModsRoots[i], path)) return 1;
+	}
+	return 0;
+}
+
+static void modmgrAddModsRoot(const char *path)
+{
+	if (g_ModsRootCount >= MODS_ROOTS_MAX || !path || !path[0]) return;
+	strncpy(g_ModsRoots[g_ModsRootCount], path, FS_MAXPATH);
+	g_ModsRoots[g_ModsRootCount][FS_MAXPATH] = '\0';
+	g_ModsRootCount++;
+}
 
 // ---------------------------------------------------------------------------
 // Catalog-backed accessor caches (D3R-5 rewire)
@@ -1085,7 +1109,11 @@ static s32 modmgrTryRegisterModEntry(const char *fullpath, const char *display_i
 		for (s32 k = 0; k < g_ModRegistryCount; k++) {
 			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
 				/* Duplicate — rewind slot and skip. memset above means we
-				 * haven't leaked anything. */
+				 * haven't leaked anything. The earlier folder wins: the
+				 * user mods folder is read first (mods_roots.h). */
+				sysLogPrintf(LOG_NOTE,
+					"modmgr: '%s' at '%s' is already installed from an earlier mods folder; this copy is not used",
+					mod->id, fullpath);
 				memset(mod, 0, sizeof(*mod));
 				return 0;
 			}
@@ -1573,7 +1601,11 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	 * scanned mods root (e.g. mods/shared/, mods/inbox/). The scan walker
 	 * already skips these names; this is the second line so any future
 	 * code path that calls this function directly cannot bypass the rule. */
-	if (g_ModsDirPath[0] && !modmgrArchivePathIsTrusted(archivePath, g_ModsDirPath)) {
+	s32 trusted = !(g_ModsDirPath[0] && !modmgrArchivePathIsTrusted(archivePath, g_ModsDirPath));
+	for (s32 root = 0; trusted && root < g_ModsRootCount; root++) {
+		trusted = modmgrArchivePathIsTrusted(archivePath, g_ModsRoots[root]);
+	}
+	if (!trusted) {
 		sysLogPrintf(LOG_ERROR,
 			"modmgr: REFUSING to register archive '%s' -- under reserved trust-gate directory; manual install required",
 			archivePath);
@@ -1648,6 +1680,9 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	if (dedupe_by_id) {
 		for (s32 k = 0; k < g_ModRegistryCount; k++) {
 			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
+				sysLogPrintf(LOG_NOTE,
+					"modmgr: '%s' at '%s' is already installed from an earlier mods folder; this copy is not used",
+					mod->id, archivePath);
 				memset(mod, 0, sizeof(*mod));
 				return 0;
 			}
@@ -1732,22 +1767,49 @@ static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
 	closedir(d);
 }
 
+/* The user mods folder for this launch, created when missing (mods_roots.h).
+ * Left empty when it cannot be named or created: the install's folders are
+ * then the only ones, as before. */
+static void modmgrResolveUserModsDir(char *out, size_t cap)
+{
+	char saveDir[FS_MAXPATH + 1];
+	char homeDir[FS_MAXPATH + 1];
+
+	out[0] = '\0';
+	fsFullPath("$S", saveDir, sizeof(saveDir));
+	fsFullPath("$H", homeDir, sizeof(homeDir));
+	if (!modsRootsUserDir(sysArgCheck("--portable"), sysArgGetString("--savedir"),
+			saveDir, getenv("LOCALAPPDATA"), homeDir, out, cap)) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: no user mods folder could be named; only the install's mods folders are used");
+		out[0] = '\0';
+		return;
+	}
+	if (!modsRootsEnsureDir(out)) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: could not create the user mods folder '%s'; only the install's mods folders are used",
+			out);
+		out[0] = '\0';
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "modmgr: user mods folder '%s'", out);
+}
+
 static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
+	g_ModsRootCount = 0;
 
-	// Ensure mods directory exists on fresh install
-	if (!nativeWritePolicyActive()) fsCreateDir("./" MODMGR_MODS_DIR);
-
-	// PC: multiple roots are valid depending on launch dir:
-	// - $E/../mods (repo root when exe is in Build/)
-	// - ./mods (current working directory)
-	// - $E/mods (mods alongside exe)
-	// - base-dir fallback (often data/mods)
+	/* Read order without --moddir: the user mods folder (created when
+	 * missing; the only folder the game writes mods to), then the install's
+	 * own folders from modsInstallRoots (B-1169). No folder is created under
+	 * the working folder. */
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	char candidateBufs[4][512];
-	const char *candidates[4];
+	char candidateBufs[MODS_ROOTS_MAX][FS_MAXPATH + 1];
+	const char *candidates[MODS_ROOTS_MAX];
+
+	memset(candidateBufs, 0, sizeof(candidateBufs));
 
 	const char *explicitModsDir = fsGetModDir();
 
@@ -1769,18 +1831,34 @@ static void modmgrScanDirectory(void)
 		candidateBufs[2][0] = '\0';
 		candidateBufs[3][0] = '\0';
 	} else {
-		fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
-		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
-		fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
-		fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
+		/* The user mods folder first (Mike, 2026-11-15): the only folder the
+		 * game writes mods to, and on a clash of mod ids its copy wins. The
+		 * install's own folders follow and are only read (mods_roots.h). */
+		modmgrResolveUserModsDir(candidateBufs[0], sizeof(candidateBufs[0]));
+		/* B-1169 (Mike, 2026-11-15, option A): then the install's own
+		 * folders only (mods_install_roots.h): the repository-root folder for
+		 * a build inside a source checkout, then <base>/mods next to the game.
+		 * A folder beside the install could belong to another game, and the
+		 * working folder's mods/ follows a shortcut's start folder; neither
+		 * is read. */
+		char exeDir[FS_MAXPATH + 1];
+		char baseDir[FS_MAXPATH + 1];
+		char *installRoots[MODS_INSTALL_ROOTS_MAX] = { candidateBufs[1], candidateBufs[2] };
+		fsFullPath("$E", exeDir, sizeof(exeDir));
+		fsFullPath("$B", baseDir, sizeof(baseDir));
+		/* fsFullPath hands back the placeholder itself when it has no path. */
+		if (exeDir[0] == '$') exeDir[0] = '\0';
+		if (baseDir[0] == '$') baseDir[0] = '\0';
+		if (modsInstallRoots(exeDir, baseDir, installRoots, sizeof(candidateBufs[1]),
+				MODS_INSTALL_ROOTS_MAX) <= 0) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: the install's mods folders could not be named (exe '%s', base '%s')",
+				exeDir, baseDir);
+		}
 	}
-	candidates[0] = candidateBufs[0];
-	candidates[1] = candidateBufs[1];
-	candidates[2] = candidateBufs[2];
-	candidates[3] = candidateBufs[3];
+	for (s32 i = 0; i < MODS_ROOTS_MAX; i++) candidates[i] = candidateBufs[i];
 
-	for (s32 i = 0; i < 4; i++) {
+	for (s32 i = 0; i < MODS_ROOTS_MAX; i++) {
 		if (!candidates[i][0]) continue;
 		dir = opendir(candidates[i]);
 		if (dir) {
@@ -1794,8 +1872,8 @@ static void modmgrScanDirectory(void)
 			sysLogPrintf(LOG_WARNING,
 				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
 		} else {
-			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
-				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not open a mods folder (tried the user mods folder and the install's mods folders)");
 		}
 		return;
 	}
@@ -1803,6 +1881,7 @@ static void modmgrScanDirectory(void)
 	// Store resolved path for assetCatalogScanComponents() to use later
 	strncpy(g_ModsDirPath, modsdir, sizeof(g_ModsDirPath) - 1);
 	g_ModsDirPath[sizeof(g_ModsDirPath) - 1] = '\0';
+	modmgrAddModsRoot(modsdir);
 
 	/* Priority M / B-238 / M-4.1: one-shot folder->.pdmod migration. Runs
 	 * before the iteration loop below so the scan picks up freshly-created
@@ -1878,15 +1957,18 @@ static void modmgrScanDirectory(void)
 
 	closedir(dir);
 
-	/* Scan remaining candidate directories for mods not in the primary dir.
-	 * This catches mods placed in data/mods/ when ./mods/ was the primary,
-	 * or vice versa. Duplicate mod IDs are skipped. */
-	for (s32 ci = 0; ci < 4 && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
+	/* Scan the remaining folders (the install's, after the user mods folder)
+	 * for mods not in the primary one. Duplicate mod IDs are skipped, so the
+	 * user copy of a mod wins. */
+	for (s32 ci = 0; ci < MODS_ROOTS_MAX && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
 		if (!candidates[ci][0]) continue;
-		if (strcmp(candidates[ci], modsdir) == 0) continue; /* skip primary */
+		/* The primary, or a folder already read under another spelling
+		 * (the user folder is the install's own with --portable). */
+		if (modmgrModsRootKnown(candidates[ci])) continue;
 
 		DIR *altdir = opendir(candidates[ci]);
 		if (!altdir) continue;
+		modmgrAddModsRoot(candidates[ci]);
 
 		sysLogPrintf(LOG_NOTE, "modmgr: also scanning '%s'", candidates[ci]);
 
@@ -2442,8 +2524,10 @@ static int modmgrRebuildCatalogChecked(modmgr_apply_result_t *result)
             "Catalog retirement failed; runtime changes may remain.");
         goto rebuild_caches;
     }
-    const char *modsdir = modmgrGetModsDir();
-    if (modsdir && modsdir[0]) {
+    /* Every mods folder, the user folder last: the catalog keeps the last
+     * registration of an id, so on a clash the user's copy wins. */
+    for (s32 root = modmgrGetModsRootCount() - 1; root >= 0; --root) {
+        const char *modsdir = modmgrGetModsRoot(root);
         if (assetCatalogScanComponents(modsdir) < 0) {
             modmgrApplyFailure(result, MODMGR_APPLY_COMPONENT_SCAN, NULL,
                 "Some components could not be admitted; runtime changes may remain.");
@@ -3453,6 +3537,17 @@ void modmgrCatalogChanged(void)
 const char *modmgrGetModsDir(void)
 {
 	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
+}
+
+s32 modmgrGetModsRootCount(void)
+{
+	return g_ModsRootCount;
+}
+
+const char *modmgrGetModsRoot(s32 index)
+{
+	if (index < 0 || index >= g_ModsRootCount) return NULL;
+	return g_ModsRoots[index];
 }
 
 s32 modmgrInstallArchiveFile(const char *archive_path,
