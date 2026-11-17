@@ -1999,6 +1999,58 @@ TEST_CASE("A prop is given another model, and a copied pickup is changed without
 	CHECK(std::string(armouryFind(again.doc, "setup_0002").model_catalog_id) == "mod:prop_maian_crate");
 }
 
+TEST_CASE("A start added to a level that had none and taken out again leaves the file as it was read",
+          "[forge-level-doc]")
+{
+	/* Found by the sweep of the base levels in a game turn (2026-11-17): three
+	 * arenas have no player start at all, and for them an added start that
+	 * was removed again left "rows": [ with a line of spaces in it, not the
+	 * bytes that were read. The first row re-lays an empty list out, and
+	 * taking the row away did not undo that. */
+	const std::string noSpawns = "{\n  \"schema\": \"pd2.scenario.spawns.v1\",\n  \"rows\": [\n  ]\n}\n";
+	Level level(kPads, noSpawns, kObjects, kVolumes, levelFields());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	REQUIRE(forgeLevelDocSpawnCount(level.doc) == 0);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 1);
+	const std::string one = level.text(FORGE_LEVEL_MEMBER_SPAWNS);
+	CHECK(one.find("  \"rows\": [\n    {") != std::string::npos);
+	CHECK(one.rfind("}\n  ]\n}\n") == one.size() - strlen("}\n  ]\n}\n"));
+
+	REQUIRE(forgeLevelDocRemoveSpawn(level.doc, id, err, sizeof(err)) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == noSpawns);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 0);
+	CHECK(forgeLevelDocSpawnCount(level.doc) == 0);
+
+	/* A start added after that is laid out as the first was, and reads back. */
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+	const std::string again = level.text(FORGE_LEVEL_MEMBER_SPAWNS);
+	CHECK(again.find("  \"rows\": [\n    {") != std::string::npos);
+	CHECK(again.rfind("}\n  ]\n}\n") == again.size() - strlen("}\n  ]\n}\n"));
+	CHECK(again.size() == one.size());
+	Level read(level.text(FORGE_LEVEL_MEMBER_PADS), again, kObjects, level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		levelFields(), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(read.error);
+	REQUIRE(read.doc != nullptr);
+	CHECK(forgeLevelDocSpawnCount(read.doc) == 1);
+
+	/* A list that was read with rows and loses them all is not that case:
+	 * it keeps the layout its rows had. */
+	Level full(kPads, kSpawns, kObjects, kVolumes, levelFields());
+	REQUIRE(full.doc != nullptr);
+	REQUIRE(forgeLevelDocRemoveSpawn(full.doc, "spawn_0000", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocRemoveSpawn(full.doc, "spawn_0004", err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocSpawnCount(full.doc) == 0);
+	Level emptied(kPads, full.text(FORGE_LEVEL_MEMBER_SPAWNS), kObjects, kVolumes, levelFields());
+	INFO(emptied.error);
+	REQUIRE(emptied.doc != nullptr);
+	CHECK(forgeLevelDocSpawnCount(emptied.doc) == 0);
+}
+
 TEST_CASE("A level with no objects gains a weapon place and an ammo crate made from nothing",
           "[forge-level-doc]")
 {

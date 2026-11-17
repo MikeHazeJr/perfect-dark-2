@@ -411,7 +411,8 @@ struct Table {
 	std::string built;               /* the text to save, when changed */
 	bool changed = false;            /* a row was added, removed or rewritten */
 	bool stale = false;              /* `built` is older than the rows */
-	bool wasEmpty = false;
+	bool wasEmpty = false;           /* no row yet, and the list is still laid out as it was read */
+	bool startedEmpty = false;       /* the text that was read had no rows */
 
 	/* Every edit goes through here, so `built` is rebuilt once per edit and
 	 * the text a caller holds stays valid until the next one. */
@@ -454,12 +455,20 @@ struct Table {
 	{
 		if (!changed) return original;
 		if (stale) {
-			built = head;
-			for (size_t i = 0; i < rows.size(); i++) {
-				if (i > 0) built += before[i];
-				built += rows[i];
+			if (rows.empty() && startedEmpty) {
+				/* Back to no rows in a list that was read with none (a start
+				 * added and taken out again): the bytes that were read. The
+				 * first row re-laid the empty list out, so head and tail no
+				 * longer add up to them. */
+				built = original;
+			} else {
+				built = head;
+				for (size_t i = 0; i < rows.size(); i++) {
+					if (i > 0) built += before[i];
+					built += rows[i];
+				}
+				built += tail;
 			}
-			built += tail;
 			stale = false;
 		}
 		return built;
@@ -512,6 +521,7 @@ bool readTable(int member, const char *json, size_t size, Table &table, Json &ro
 
 	if (spans.empty()) {
 		table.wasEmpty = true;
+		table.startedEmpty = true;
 		table.head = text.substr(0, rowsMember->value.begin + 1);
 		table.tail = text.substr(rowsMember->value.end - 1);
 		table.separator = ",\n    ";
