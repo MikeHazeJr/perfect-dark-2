@@ -301,6 +301,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       (with --debug-mount-bike) before levels can place vehicles.
  *       See port/include/vehicle_debug.h.
  *
+ *   --debug-mount-seat <driver|gunner>
+ *       Every mount of a vehicle whose behavior graph has a gunner seat
+ *       asks for that seat, instead of the seat the player's place and
+ *       view choose. A one-seat vehicle is not affected.
+ *
  *   --debug-spawn-at x,y,z,room
  *       Post-setupCreateProps hook: teleports player 0 to the given
  *       world coordinate + room id on the first frame after stage
@@ -2971,6 +2976,24 @@ static void bootApplyCliFastPaths(void)
 		vehicleDebugSetSwap(sysArgGetString("--debug-swap-vehicle"));
 		sysLogPrintf(LOG_NOTE, "BOOT: --debug-swap-vehicle %s armed (replaces each hoverbike a stage creates)",
 			vehicleDebugSwapId());
+	}
+	if (sysArgGetString("--debug-mount-seat")) {
+		const char *seat = sysArgGetString("--debug-mount-seat");
+		if (strcmp(seat, "driver") == 0) {
+			hoverbikeDebugSetMountSeat(VEHICLE_DEBUG_MOUNT_SEAT_DRIVER);
+		} else if (strcmp(seat, "gunner") == 0) {
+			hoverbikeDebugSetMountSeat(VEHICLE_DEBUG_MOUNT_SEAT_GUNNER);
+		} else {
+			sysLogPrintf(LOG_ERROR,
+				"BOOT: --debug-mount-seat '%s' is not driver or gunner; the player's place and view choose the seat",
+				seat);
+			seat = NULL;
+		}
+		if (seat) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-mount-seat %s armed (every mount of a two-seat vehicle asks for that seat)",
+				seat);
+		}
 	}
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();

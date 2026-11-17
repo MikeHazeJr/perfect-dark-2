@@ -28,6 +28,11 @@
  */
 s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos);
 
+/* The same point in the world, where the vehicle stands now (its position
+ * and rotation, as the ride places the rider). Returns 0 when the model has
+ * no seat part for this seat. */
+s32 hoverbikeSeatWorldPos(struct defaultobj *obj, s32 seat, struct coord *pos);
+
 /* What og.vehicle.mount_seat, og.vehicle.dismount_seat or
  * og.vehicle.switch_seat does for the seat the module names
  * (VEHICLE_GRAPH_SEAT_*): the request's own mount, dismount or change of

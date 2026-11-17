@@ -30,6 +30,7 @@
 #include "game/vehiclegraph.h"
 #include "bss.h"
 #include "lib/model.h"
+#include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
 
@@ -166,6 +167,22 @@ s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos)
 	/* The sum of the node's own position and its parents' (the gunner's eye
 	 * hangs off the turret's yaw node), in model units. */
 	modelNodeGetModelRelativePosition(model, node, pos);
+	return 1;
+}
+
+s32 hoverbikeSeatWorldPos(struct defaultobj *obj, s32 seat, struct coord *pos)
+{
+	struct coord local;
+	Mtxf mtx;
+
+	if (!obj || !obj->prop || !pos || !hoverbikeSeatModelPos(obj, seat, &local)) {
+		return 0;
+	}
+	/* The ride's own transform (bbikeTick): the vehicle's rotation, which
+	 * carries the model scale, and its position. */
+	mtx3ToMtx4(obj->realrot, &mtx);
+	mtx4SetTranslation(&obj->prop->pos, &mtx);
+	mtx4TransformVec(&mtx, &local, pos);
 	return 1;
 }
 
