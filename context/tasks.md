@@ -2211,6 +2211,12 @@ resource receipt overlapped.
 - T-INPUT-002 and deferred D-001: Queue Match.
 - T-BENCHMARKING-006: GPU swarm benchmark and scalability program.
 - T-NETWORKING-008: authority migration and richer friend-play continuity.
+- 2.0 renderer (decisions D1 to D7 under D-004; no Workbench item yet, so
+  commits use `Refs: D-004`): plan in
+  `context/designs/rendering/renderer-2.0-scope.md`. Phase 2a step 1 (classic
+  on bgfx's OpenGL backend, `--renderer bgfx`, parity mode) is on branch
+  `week-pd/bgfx-classic`, not merged; state and next steps in
+  `context/designs/rendering/bgfx-classic-gl.md`.
 
 Items marked `historical-cut` retain their permanent IDs and evidence but are
 not live routing targets. They were consolidated into the milestone gates above

@@ -1372,6 +1372,21 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
 `src/game` against the renderer in `port/fast3d`), so they can run in parallel.
 [I]
 
+### 11.1 Progress
+
+- **Phase 2a step 1 (2026-11-17, branch `week-pd/bgfx-classic`, not merged).**
+  Classic runs on bgfx's OpenGL 4.3 backend behind `--renderer bgfx`; the 1.0
+  GL renderer stays the default and runs unchanged without the flag. bgfx,
+  bx and bimg build from pinned source as static libraries in our CMake and
+  MinGW build, with shaders compiled ahead of time; no DLL is added, and the
+  release build contains no AMD AGS, NVAPI or RenderDoc loader (D6). The
+  combiner is one precompiled uber-shader. The scene renderer, ImGui and the
+  pdgui textures draw through bgfx; the GPU swarm is compute only and
+  unchanged; the mesh debug view reports that it is unavailable.
+  `--renderer-parity` draws one frame's commands through both renderers and
+  compares the frames (the R9 role for this step). Design, D6 review and
+  parity results: [bgfx-classic-gl.md](bgfx-classic-gl.md).
+
 ---
 
 ## 12. Risks
