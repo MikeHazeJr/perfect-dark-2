@@ -43,6 +43,13 @@ the steering is limited for 0.75 s; cooling takes 2 s when stopped and up to
 | 128 | The muzzle crystal's seat |
 | 140 | Seafoam crystals (a toggle part) |
 | 141 | Black crystals, inside the seafoam ones (a toggle part) |
+| 160 | The driver's eye: in the well ahead of the turret deck (no geometry) |
+| 161 | The gunner's eye: above the cannon, turning with the turret (no geometry) |
+
+Parts 160 and 161 are the seat parts any vehicle model may carry: the game puts
+the rider's camera there. A model without part 160 gets the base hoverbike's
+driver position (80 units up, 50 back), which on this vehicle is inside the
+cannon.
 
 ## Proof
 

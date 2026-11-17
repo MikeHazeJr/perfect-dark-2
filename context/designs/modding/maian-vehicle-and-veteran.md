@@ -518,6 +518,17 @@ Status on `week-pd/mods-v4` (2026-11-17):
   (`bbikeDismountToSidesSeat`, `bbikeExitToChosenSideSeat`) that serve the
   driver seat. No pin moved. The mount points (`hoverbikeSeatWorldPos`) come
   with step 5, where they are first used.
+- Seat points WRITTEN, not compiled locally and not seen in the game: the
+  model carries the riders' eye points as parts 160 (driver: in the well ahead
+  of the turret deck, model units (0, 420, 450)) and 161 (gunner: above the
+  cannon, (0, 960, -300), a child of the turret's yaw node), added by
+  `build_vehicle_mesh.py` (the other mesh files regenerate byte for byte);
+  `hoverbikeSeatModelPos` reads them and `bbikeUpdateVehicleOffset` uses the
+  driver's, logging `VEHICLE.SEAT: ... driver eye from model part 160`. This
+  settles the first risk below for the eye positions (the two seats are now
+  about 0.9 m apart on the model, 54 world units up and 75 along) and moves
+  the driver out of the cannon. The first game run must check the view: the
+  next `maian_vehicle_drive_smoke` screenshots.
 
 Risks the survey found, to settle before or in step 5:
 

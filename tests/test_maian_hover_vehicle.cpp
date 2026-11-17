@@ -228,9 +228,11 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(manifest.find("\"catalog_id\": \"" + meshId + "\"") != std::string::npos);
 
 	/* The parts later steps drive: turret yaw and pitch, the muzzle, the 18 ring
-	 * seats (110-127) and the muzzle crystal's seat (128), the crystal toggles. */
+	 * seats (110-127) and the muzzle crystal's seat (128), the crystal toggles,
+	 * and the two riders' eye points (160 the driver's, 161 the gunner's; the
+	 * game reads them through hoverbikeSeatModelPos). */
 	const std::string parts = hoverEntry(mesh, "model.parts.json");
-	for (int part : {0, 1, 2, 50, 110, 127, 128, 140, 141}) {
+	for (int part : {0, 1, 2, 50, 110, 127, 128, 140, 141, 160, 161}) {
 		INFO("part " << part);
 		CHECK(parts.find("\"partnum\": " + std::to_string(part) + ",") != std::string::npos);
 	}

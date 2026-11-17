@@ -140,6 +140,36 @@ static void hoverbikeGraphHostInit(vehicle_graph_host_t *table, hoverbike_graph_
 }
 
 /* ---------------------------------------------------------------------------
+ * Seat parts: where a rider's eye is on the model
+ * ------------------------------------------------------------------------- */
+
+s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos)
+{
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *node;
+	s32 part;
+
+	if (!model || !model->definition || !pos) {
+		return 0;
+	}
+	if (seat == VEHICLE_GRAPH_SEAT_DRIVER) {
+		part = VEHICLE_MODEL_PART_DRIVER_SEAT;
+	} else if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		part = VEHICLE_MODEL_PART_GUNNER_SEAT;
+	} else {
+		return 0;
+	}
+	node = modelGetPart(model->definition, part);
+	if (!node || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+		return 0;
+	}
+	/* The sum of the node's own position and its parents' (the gunner's eye
+	 * hangs off the turret's yaw node), in model units. */
+	modelNodeGetModelRelativePosition(model, node, pos);
+	return 1;
+}
+
+/* ---------------------------------------------------------------------------
  * The vehicle's instance
  * ------------------------------------------------------------------------- */
 

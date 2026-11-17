@@ -132,6 +132,17 @@ The seats belong to the vehicle, so a program that is freed and compiled again
 leaves the riders where they sit. The driver seat also keeps the original
 `OBJHFLAG_MOUNTED`, which the physics, the doors and the network read.
 
+Where a rider's eye is comes from the vehicle's model, not from its graph: a
+model may carry two seat parts, position nodes with no geometry, part 160 for
+the driver's eye and part 161 for the gunner's (model units;
+`VEHICLE_MODEL_PART_DRIVER_SEAT`, `VEHICLE_MODEL_PART_GUNNER_SEAT`,
+`hoverbikeSeatModelPos` in `src/game/vehiclegraph.c`). A model without part 160
+gets the original hoverbike's driver position, 80 world units up and 50 back.
+The Maian vehicle has both (WRITTEN 2026-11-17 on `week-pd/mods-v4`, the driver's
+used by the ride, the gunner's waiting for the gunner's ride; not seen in the
+game yet): on that model the hoverbike's driver position is inside the cannon,
+which is why its driver's view was full of hull.
+
 A two-seat graph, in outline (the unit cases' `kTwoSeatGraph`):
 
 ```

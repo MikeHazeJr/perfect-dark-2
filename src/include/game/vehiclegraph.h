@@ -12,6 +12,22 @@
  * (a v2 behavior file) is left to the original code by each of them.
  */
 
+/* Seat parts a vehicle model may carry: position nodes with these part
+ * numbers say where a rider's eye is, in model units. No base model has
+ * them. */
+#define VEHICLE_MODEL_PART_DRIVER_SEAT 160
+#define VEHICLE_MODEL_PART_GUNNER_SEAT 161
+
+/*
+ * Where the rider of this seat (VEHICLE_GRAPH_SEAT_*) has their eye on this
+ * vehicle's model, in model units: the model's seat part for that seat.
+ * Returns 1 and fills *pos, or 0 when the model has no such part (the caller
+ * then uses the original hoverbike's driver position). It reads the model's
+ * node positions, not its render matrices, so it works for a vehicle that was
+ * not drawn this frame.
+ */
+s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos);
+
 /* What og.vehicle.mount_seat, og.vehicle.dismount_seat or
  * og.vehicle.switch_seat does for the seat the module names
  * (VEHICLE_GRAPH_SEAT_*): the request's own mount, dismount or change of

@@ -297,6 +297,23 @@ bool bbikeTakeVehicleExitIntent(void)
 void bbikeUpdateVehicleOffset(void)
 {
 	struct defaultobj *hoverbike = g_Vars.currentplayer->hoverbike->obj;
+	struct coord seat;
+
+	/* A vehicle model may say where its driver's eye is (its seat part,
+	 * vehiclegraph.h). The offset is in model units either way: the ride
+	 * transforms it by the vehicle's rotation, which carries the model
+	 * scale. Without the part it is the original hoverbike's driver
+	 * position, 80 world units up and 50 back, which is right for the
+	 * hoverbike and wrong for a vehicle of another shape. */
+	if (hoverbikeSeatModelPos(hoverbike, VEHICLE_GRAPH_SEAT_DRIVER, &seat)) {
+		g_Vars.currentplayer->bondvehicleoffset.x = seat.x;
+		g_Vars.currentplayer->bondvehicleoffset.y = seat.y;
+		g_Vars.currentplayer->bondvehicleoffset.z = seat.z;
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.SEAT: modelnum=%d driver eye from model part %d at (%.0f, %.0f, %.0f) model units",
+			hoverbike->modelnum, VEHICLE_MODEL_PART_DRIVER_SEAT, seat.x, seat.y, seat.z);
+		return;
+	}
 
 	g_Vars.currentplayer->bondvehicleoffset.x = 0.0f / hoverbike->model->scale;
 	g_Vars.currentplayer->bondvehicleoffset.y = 80.0f / hoverbike->model->scale;
