@@ -1,5 +1,7 @@
 # Session Log (Active)
 
+2026-11-16 (19:17 ET) MULTIPLAYER, continued. Built 52197eb2 inside turn q_20261116232336243_f0ee78d6 (pd-tests 2,043 pass) and co-op mission end passes 130/130 again: with 496ab25e the intro-skip assist was accepted at 650 ms and released one frame past its 900 ms hold. Branch pushed at 52197eb2. Open for Mike: B-1271's fix, co-op player drop, AI-buddy entry, Challenges and presets entry. MODS has not pushed UCMD_VEHICLE_BOOST yet.
+
 2026-11-16 (18:24 ET) MULTIPLAYER, continued. Turn on b2a2a720 (base 7): Capture the Case carrier death 102/102
 (new smoke, port 27268; B-1272 now checked for all three token modes), counter-op agent death 132/132 (spec count
 fixed), co-op mission end 22/130 for no game reason: a machine-wide stall during the host's intro-skip hold meant no
