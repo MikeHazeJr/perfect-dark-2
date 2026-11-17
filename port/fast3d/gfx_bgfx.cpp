@@ -1196,11 +1196,24 @@ extern "C" struct GfxRenderingAPI *gfxBgfxSelectRenderingApi(struct GfxRendering
         return &gfx_opengl_api;
     }
     const char *version = (const char *)glGetString(GL_VERSION);
-    if (GLVersion.major < 4 || (GLVersion.major == 4 && GLVersion.minor < 3)) {
+    int major = GLVersion.major;
+    int minor = GLVersion.minor;
+    /* --debug-bgfx-assume-gl <major.minor> treats the context as that
+     * version, so the fallback below can be tested on a newer driver
+     * (tools/smoke-verify/tests/renderer_bgfx_gl_fallback_smoke.json). */
+    const char *assume = sysArgGetString("--debug-bgfx-assume-gl");
+    int assumeMajor = 0, assumeMinor = 0;
+    if (assume && sscanf(assume, "%d.%d", &assumeMajor, &assumeMinor) == 2) {
+        sysLogPrintf(LOG_NOTE, "bgfx: --debug-bgfx-assume-gl: treating OpenGL %d.%d as OpenGL %d.%d",
+                     major, minor, assumeMajor, assumeMinor);
+        major = assumeMajor;
+        minor = assumeMinor;
+    }
+    if (major < 4 || (major == 4 && minor < 3)) {
         sysLogPrintf(LOG_WARNING,
             "bgfx: the bgfx renderer needs OpenGL 4.3, but this context is OpenGL %d.%d (%s); "
             "using the classic OpenGL renderer",
-            GLVersion.major, GLVersion.minor, version ? version : "unknown");
+            major, minor, version ? version : "unknown");
         return &gfx_opengl_api;
     }
     int w = 0, h = 0;

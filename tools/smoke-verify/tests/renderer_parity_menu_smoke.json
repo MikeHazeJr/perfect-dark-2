@@ -1,6 +1,6 @@
 {
   "scenario_name": "renderer_parity_menu_smoke",
-  "description": "2.0 renderer phase 2a (D5): with --renderer-parity the classic GL renderer presents and the bgfx backend renders the same frames offscreen from the same fast3d, scene-renderer and ImGui commands. Each screenshot compares the two finished frames pixel for pixel (port/fast3d/gfx_parity.cpp) and writes <shot>.bgfx.bmp, <shot>.diff.bmp and <shot>.parity.json beside the GL capture. Front-end menus: Agent Select and the Main Menu, ImGui over the 3D menu background.",
+  "description": "2.0 renderer phase 2a (D5): with --renderer-parity the classic GL renderer presents and the bgfx backend renders the same frames offscreen from the same fast3d, scene-renderer and ImGui commands. Each screenshot event compares the two finished frames pixel for pixel (port/fast3d/gfx_parity.cpp): <shot> is the GL frame, <shot>.bgfx.bmp the bgfx frame, <shot>.diff.bmp the difference (x64) and <shot>.parity.json the counts. Front-end menus: Agent Select and the Main Menu, ImGui over the 3D menu background. Screenshots sit on the virtual timeline after each readiness wait (README: screenshots relative to a readiness barrier).",
   "tags": ["render", "bgfx", "parity", "visual", "menu", "smoke"],
   "paths_of_interest": [
     "port/fast3d/gfx_bgfx.cpp",
@@ -15,25 +15,46 @@
   "verbose": 0,
   "timeout_seconds": 360,
   "install_state": "current",
-  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--main-menu", "--renderer-parity"],
+  "remove_paths": ["parity-home"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "parity-home/agent_smoke.json" }
+  ],
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./parity-home",
+                "--main-menu", "--renderer-parity"],
   "input_sequence": [
     { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 300000, "stable_ms": 3000,
-      "comment": "A fresh install extracts first; then the menu boots to Agent Select." },
+      "comment": "A fresh install copy may extract first; then the menu boots to Agent Select with the seeded agent." },
+    { "at_ms": 2500, "type": "screenshot", "path": "parity-agent-select.bmp" },
     { "at_ms": 4000, "type": "key", "key": "Return", "action": "tap" },
-    { "at_ms": 4500, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
-    { "at_ms": 12000, "type": "exit" }
+    { "at_ms": 4250, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
+    { "at_ms": 7500, "type": "screenshot", "path": "parity-main-menu.bmp" },
+    { "at_ms": 9000, "type": "screenshot", "path": "parity-main-menu-later.bmp" },
+    { "at_ms": 10500, "type": "exit" }
   ],
-  "screenshots": [
-    { "at_ms": 2500, "name": "parity-agent-select" },
-    { "at_ms": 9000, "name": "parity-main-menu" },
-    { "at_ms": 10500, "name": "parity-main-menu-later" }
+  "retain_artifacts": [
+    { "src": "parity-agent-select.bmp" },
+    { "src": "parity-agent-select.bmp.bgfx.bmp" },
+    { "src": "parity-agent-select.bmp.diff.bmp" },
+    { "src": "parity-agent-select.bmp.parity.json" },
+    { "src": "parity-main-menu.bmp" },
+    { "src": "parity-main-menu.bmp.bgfx.bmp" },
+    { "src": "parity-main-menu.bmp.diff.bmp" },
+    { "src": "parity-main-menu.bmp.parity.json" },
+    { "src": "parity-main-menu-later.bmp" },
+    { "src": "parity-main-menu-later.bmp.bgfx.bmp" },
+    { "src": "parity-main-menu-later.bmp.diff.bmp" },
+    { "src": "parity-main-menu-later.bmp.parity.json" }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=renderer_parity_menu_smoke",
       "bgfx: renderer parity mode",
-      "PARITY: .*parity-agent-select.* differing=",
-      "PARITY: .*parity-main-menu\\.bmp differing=",
+      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "SMOKE\\.GLSHOT: captured .*parity-agent-select\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*parity-main-menu\\.bmp",
+      "PARITY: .*parity-agent-select\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-main-menu\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-main-menu-later\\.bmp size=\\d+x\\d+ differing=",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -41,7 +62,8 @@
       "FATAL: ",
       "bgfx: fatal",
       "SMOKE: result=timeout",
-      "PARITY: .* size mismatch"
+      "PARITY: .* size mismatch",
+      "PARITY: could not write"
     ],
     "required_counts": []
   }

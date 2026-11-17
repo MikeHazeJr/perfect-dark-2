@@ -97,6 +97,12 @@ jobs:
       - name: Build client + tests
         run: cmake --build Build --target pd pd-tests -j
 
+      # The wrap list above covers bgfx's objects at link time; this reviews
+      # the library loads it cannot, and the linked client's imports and DLL
+      # names (D6: never AMD AGS, NVAPI or RenderDoc).
+      - name: Review the bgfx dependency
+        run: python -B tools/bgfx_dependency_audit.py --compile-commands Build/compile_commands.json --exe Build/PerfectDark.exe
+
       # SP-75 (context/systemic-bugs.md): `bool` is `#define bool s32` in C but
       # one byte after <stdbool.h> and in C++. Preprocess every file of both
       # targets and fail on a declaration seen with two widths, a C file whose

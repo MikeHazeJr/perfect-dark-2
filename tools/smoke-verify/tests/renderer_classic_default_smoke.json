@@ -1,0 +1,50 @@
+{
+  "scenario_name": "renderer_classic_default_smoke",
+  "description": "2.0 renderer phase 2a (D5): with no renderer flag the client runs the classic GL renderer exactly as before: gfx_init keeps gfx_opengl_api, bgfx is never initialised, and no bgfx code path logs anything. Boots to Agent Select and the Main Menu and captures both.",
+  "tags": ["render", "classic", "menu", "smoke"],
+  "paths_of_interest": [
+    "port/src/video.c",
+    "port/fast3d/gfx_pc.cpp",
+    "port/fast3d/gfx_bgfx.cpp",
+    "port/fast3d/pdgui_render_backend.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "remove_paths": ["classic-home"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "classic-home/agent_smoke.json" }
+  ],
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./classic-home",
+                "--main-menu"],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 300000, "stable_ms": 3000 },
+    { "at_ms": 2500, "type": "screenshot", "path": "classic-agent-select.bmp" },
+    { "at_ms": 4000, "type": "key", "key": "Return", "action": "tap" },
+    { "at_ms": 4250, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 30000, "stable_ms": 3000 },
+    { "at_ms": 7500, "type": "screenshot", "path": "classic-main-menu.bmp" },
+    { "at_ms": 9000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "classic-agent-select.bmp" },
+    { "src": "classic-main-menu.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=renderer_classic_default_smoke",
+      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "SMOKE\\.GLSHOT: captured .*classic-agent-select\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*classic-main-menu\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "bgfx: ",
+      "PARITY: "
+    ],
+    "required_counts": []
+  }
+}
