@@ -35,3 +35,15 @@ The first writes the model and builds, checks and writes the level. The
 second builds in memory and says whether the files on disk are current.
 
 It is a dev mod, off by default: include it with `-DevMods model_room`.
+
+## Drawing a level in Blender
+
+`blender_arena_example.py` draws a small arena in Blender (Z up, metres) and
+exports it with Blender's own glTF exporter, in a background Blender so no
+open file is touched; its docstring has the two commands. It shows the
+conventions the builder reads: name a mesh `collision...` or `nocollide...`
+to keep it out of the picture or out of the collision, make the faces you
+walk on face up, use materials with a packed or saved image (exported as
+PNG), and add empties named `start...` turned so their -Y axis (the way an
+object faces in the front view) points where the player should look. An
+object scaled -1 on an axis is fine: the builder turns its faces back.

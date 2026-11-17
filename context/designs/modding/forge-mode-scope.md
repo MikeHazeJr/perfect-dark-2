@@ -1250,5 +1250,14 @@ collided with, eight starts) and builds it: 90 collision triangles, 14 of
 them floors, starts at 50 and 170 high, accepted by the archive validator.
 `forge_model_room_smoke` plays a match on it.
 
-Next for F5: the same with a model made in Blender, and then the Maian arena
-when Forge's authoring is finished (Mike, 2026-11-15).
+A model made in Blender itself (2026-11-17, Blender 5.2.2 in the background,
+`dev-mods/model_room/blender_arena_example.py`, exported with Blender's glTF
+exporter, Y up): the builder made 24 collision triangles, 8 of them floors
+(the floor, a platform that is a scaled cube, a ramp and a copy of it scaled
+-1 on X), left out the ceiling and a `nocollide_banner`, kept the textured
+and the plain material, set the start on the platform at 150 (its top is at
+100), and every start faced the middle: an empty's -Y in Blender is its
+facing, through the exporter's axis change. Not played yet.
+
+Next for F5: play a Blender-made level in a game turn, and then the Maian
+arena when Forge's authoring is finished (Mike, 2026-11-15).
