@@ -1,0 +1,8 @@
+{
+  "scenario_name": "campaign_soak_run_process",
+  "description": "Child harness for the campaign soak live-run process. The campaign runner owns successful termination; this harness only supplies a hard timeout sized for 17 missions of 60 game seconds each.",
+  "timeout_seconds": 2700,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Wait for the campaign runner to soak every mission, publish live Credits evidence and exit." }
+  ]
+}

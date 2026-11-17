@@ -72,6 +72,7 @@ static const char *iniFilenameForType(asset_type_e type)
         case ASSET_BOT_PROFILE:  return "botprofile.ini";
         case ASSET_SCENARIO:     return "scenario.ini";
         case ASSET_THEME:        return "theme.ini";
+        case ASSET_AI_LISTS:     return "ai.ini";
         case ASSET_TOOL:         return "tool.ini";
         default:                 return NULL;
     }
@@ -87,7 +88,7 @@ static const char *s_KnownIniNames[] = {
     "audio.ini", "sound.ini", "voice.ini",
     "prop.ini", "vehicle.ini", "mission.ini", "gamemode.ini",
     "botprofile.ini", "scenario.ini", "hud.ini", "ui.ini", "font.ini",
-    "lang.ini", "theme.ini", "tool.ini",
+    "lang.ini", "theme.ini", "ai.ini", "tool.ini",
     NULL
 };
 
@@ -119,7 +120,7 @@ static const asset_entry_t *catalogFindByIdAny(const char *id)
         ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
         ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
         ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
-        ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL,
+        ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_AI_LISTS, ASSET_TOOL,
         ASSET_NONE
     };
     find_ctx_t ctx;

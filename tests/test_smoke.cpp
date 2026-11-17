@@ -53,3 +53,26 @@ TEST_CASE("smoke: pd-tests vendors the winpthread runtime on Windows", "[smoke][
     REQUIRE(cmake.find("copy_if_different") != std::string::npos);
     REQUIRE(cmake.find("libwinpthread-1.dll") != std::string::npos);
 }
+
+TEST_CASE("smoke: versioninfo.h names the commit being built", "[smoke][build][static][b1252]") {
+    // B-1252: the commit was read at configure time only, so an incremental
+    // build after a commit kept the old one in the version line.
+    const std::string cmake = read_text_file("CMakeLists.txt");
+    const std::string script = read_text_file("cmake/versioninfo.cmake");
+
+    REQUIRE(cmake.find("add_custom_target(pd_versioninfo ALL") != std::string::npos);
+    REQUIRE(cmake.find("-P \"${CMAKE_SOURCE_DIR}/cmake/versioninfo.cmake\"") != std::string::npos);
+    REQUIRE(cmake.find("BYPRODUCTS \"${CMAKE_BINARY_DIR}/port/include/versioninfo.h\"") != std::string::npos);
+    // Every target that compiles depends on it, and the loop runs after the
+    // last target is defined.
+    const size_t loop = cmake.find("get_property(_pd_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)");
+    REQUIRE(loop != std::string::npos);
+    REQUIRE(cmake.find("add_dependencies(${_pd_target} pd_versioninfo)", loop) != std::string::npos);
+    REQUIRE(cmake.rfind("add_executable(") < loop);
+    REQUIRE(cmake.rfind("add_library(") < loop);
+
+    REQUIRE(script.find("COMMAND git rev-parse --short HEAD") != std::string::npos);
+    REQUIRE(script.find("COMMAND git rev-parse --abbrev-ref HEAD") != std::string::npos);
+    REQUIRE(script.find("configure_file(\"${SRC_DIR}/port/include/versioninfo.h.in\" \"${OUT_FILE}\" @ONLY)") !=
+            std::string::npos);
+}

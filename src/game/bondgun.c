@@ -1910,6 +1910,45 @@ static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
 	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
 }
 
+/* A custom (graph) projectile leaves one line when it is spawned or fails to
+ * spawn, so "spawned but too small to see" and "never spawned" can be told
+ * apart (MODS ask in the week note, 2026-11-15). Base weapons never log.
+ * Capped per process so an automatic weapon cannot flood the log. */
+#define BGUN_CUSTOM_PROJECTILE_LOG_CAP 64
+static s32 s_BgunCustomProjectileSpawnLogs = 0;
+
+static void bgunLogCustomProjectileSpawn(const char *kind, s32 weaponnum,
+		const weapon_graph_projectile_runtime_t *projectilegraph,
+		s32 modelnum, struct defaultobj *obj, const char *failure)
+{
+	if (weaponnum < WEAPON_CUSTOM_START || projectilegraph == NULL
+			|| s_BgunCustomProjectileSpawnLogs >= BGUN_CUSTOM_PROJECTILE_LOG_CAP) {
+		return;
+	}
+
+	s_BgunCustomProjectileSpawnLogs++;
+
+	if (obj != NULL && obj->prop != NULL) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: custom projectile spawned (%s) weapon=%d asset='%s' graph='%s' modelnum=%d model_scale=%.4f pos=(%.1f, %.1f, %.1f) room=%d",
+			kind, weaponnum, projectilegraph->asset_id, projectilegraph->graph_id,
+			modelnum, obj->model ? obj->model->scale : 0.0f,
+			obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z,
+			(s32)obj->prop->rooms[0]);
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"WEAPON.GRAPH: custom projectile not spawned (%s) weapon=%d asset='%s' graph='%s' modelnum=%d: %s",
+			kind, weaponnum, projectilegraph->asset_id, projectilegraph->graph_id,
+			modelnum, failure ? failure : "unknown");
+	}
+
+	if (s_BgunCustomProjectileSpawnLogs == BGUN_CUSTOM_PROJECTILE_LOG_CAP) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: %d custom projectile spawn lines logged; later spawns are not logged",
+			BGUN_CUSTOM_PROJECTILE_LOG_CAP);
+	}
+}
+
 static const weapon_graph_entity_runtime_t *bgunGetEntityGraph(
 		const weapon_graph_held_function_t *graph)
 {
@@ -4543,7 +4582,7 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 }
 
 static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeldef **modeldef,
-		uintptr_t *memptr, uintptr_t *memremaining)
+		u8 **memptr, u32 *memremaining)
 {
 	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.loadfilenum = filenum;
@@ -4599,7 +4638,7 @@ bool bgunBodyHandSourceIsCurrent(struct player *player, s32 bodynum)
 }
 
 bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
-		struct modeldef **modeldef, uintptr_t *memptr, uintptr_t *memremaining)
+		struct modeldef **modeldef, u8 **memptr, u32 *memremaining)
 {
 	char id[64];
 	asset_data_handle_t handle;
@@ -4909,7 +4948,7 @@ void bgunTickGunLoad(void)
 			return;
 		}
 
-		ptr = *player->gunctrl.loadmemptr;
+		ptr = (uintptr_t)*player->gunctrl.loadmemptr;
 		remaining = *player->gunctrl.loadmemremaining;
 
 		// Align ptr to the next 16 byte boundary
@@ -4919,15 +4958,19 @@ void bgunTickGunLoad(void)
 			remaining -= padding;
 		}
 
-		*player->gunctrl.loadmemptr = ptr;
-		*player->gunctrl.loadmemremaining = remaining;
+		*player->gunctrl.loadmemptr = (u8 *)ptr;
+		*player->gunctrl.loadmemremaining = (u32)remaining;
 
 		loadsize = ALIGN64(bgunQueuedGetInflatedSize(player)) + GUN_MODEL_LOAD_SCRATCH;
 
 		osSyncPrintf("BriGun:  Loading - %s, pMem 0x%08x Size %d\n");
 
 		if (loadsize > remaining) {
-			osSyncPrintf("BriGun:  Warning: LoadSize > MemSize, clamping decomp. buffer from %d to %d (%d Bytes)\n", allocsize, remaining, remaining);
+			/* Before the 32-bit target fix this clamp could never fire on 64-bit: the
+			 * 8-byte read put the neighbouring load-state bytes in the high half of
+			 * remaining. Log it, so a gun whose model does not fit is visible. */
+			sysLogPrintf(LOG_WARNING, "BGUN.LOAD.CLAMP: model '%s' wants %llu bytes, gun memory has %llu left; clamping",
+				player->gunctrl.loadcatalogid, (unsigned long long)loadsize, (unsigned long long)remaining);
 			loadsize = remaining;
 		}
 
@@ -5000,14 +5043,16 @@ void bgunTickGunLoad(void)
 
 			numthistick++;
 
+			// The cursor advances before the three-per-tick return. The original
+			// advanced it after, so every later tick revisited the third entry and
+			// spent one of its three slots on a texture that was already loaded.
+			// When the count is an exact multiple of three the move to the DLS
+			// state still happens on the following tick, as before.
+			player->gunctrl.nexttexturetoload++;
+
 			if (numthistick == 3) {
 				return;
 			}
-
-			// @bug: This should be incremented prior to the return, otherwise
-			// subsequent ticks will waste time loading a texture that's already
-			// been loaded.
-			player->gunctrl.nexttexturetoload++;
 		}
 
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_DLS\n");
@@ -5043,10 +5088,10 @@ void bgunTickGunLoad(void)
 
 		newvalue = ALIGN64(texGetPoolLeftPos(&player->gunctrl.texpool));
 		remaining = *player->gunctrl.loadmemremaining;
-		remaining -= (intptr_t)(newvalue - *player->gunctrl.loadmemptr);
+		remaining -= (intptr_t)(newvalue - (uintptr_t)*player->gunctrl.loadmemptr);
 
-		*player->gunctrl.loadmemptr = newvalue;
-		*player->gunctrl.loadmemremaining = remaining;
+		*player->gunctrl.loadmemptr = (u8 *)newvalue;
+		*player->gunctrl.loadmemremaining = (u32)remaining;
 
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_LOADED\n");
 		player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
@@ -5253,8 +5298,8 @@ void bgunTickMasterLoad(void)
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 									if (!bgunQueueBodyHandModelLoad(player, bodynum,
 										&player->gunctrl.handmodeldef,
-										(uintptr_t *) &player->gunctrl.handmemloadptr,
-										(uintptr_t *) &player->gunctrl.handmemloadremaining)) return;
+										&player->gunctrl.handmemloadptr,
+										(u32 *) &player->gunctrl.handmemloadremaining)) return;
 								}
 
 								bgunTickGunLoad();
@@ -5292,14 +5337,14 @@ void bgunTickMasterLoad(void)
 							if (newweaponnum == WEAPON_UNARMED) {
 								if (!bgunQueueBodyHandModelLoad(player, bodynum,
 									&player->gunctrl.gunmodeldef,
-									(uintptr_t *) &player->gunctrl.memloadptr,
-									(uintptr_t *) &player->gunctrl.memloadremaining)) return;
+									&player->gunctrl.memloadptr,
+									&player->gunctrl.memloadremaining)) return;
 							} else if (wgV2RuntimeIsWeapon(newweaponnum)) {
 								if (!bgunQueueRetainedModelLoad(player, wgV2RuntimeModel(newweaponnum), &player->gunctrl.gunmodeldef)) return;
 							} else bgunQueueModelLoad(player, filenum,
 								&player->gunctrl.gunmodeldef,
-								(uintptr_t *) &player->gunctrl.memloadptr,
-								(uintptr_t *) &player->gunctrl.memloadremaining);
+								&player->gunctrl.memloadptr,
+								&player->gunctrl.memloadremaining);
 						}
 
 						bgunTickGunLoad();
@@ -5348,8 +5393,8 @@ void bgunTickMasterLoad(void)
 											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 											bgunQueueModelLoad(player, filenum,
 												&player->gunctrl.cartmodeldef,
-												(uintptr_t *) &player->gunctrl.memloadptr,
-												(uintptr_t *) &player->gunctrl.memloadremaining);
+												&player->gunctrl.memloadptr,
+												&player->gunctrl.memloadremaining);
 											break;
 										}
 
@@ -5723,6 +5768,9 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 					-1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 		}
 	}
+
+	bgunLogCustomProjectileSpawn("thrown", gset->weaponnum, projectilegraph,
+		projectilemodelnum, obj, "no projectile object could be created");
 
 	return obj;
 }
@@ -6334,6 +6382,11 @@ void bgunCreateFiredProjectile(s32 handnum)
 					netmsgSvcPropSpawnWrite(&g_NetMsgRel, weapon->base.prop);
 					netmsgSvcPropMoveWrite(&g_NetMsgRel, weapon->base.prop, NULL);
 				}
+
+				bgunLogCustomProjectileSpawn("fired", hand->gset.weaponnum,
+					projectilegraph, projectilemodelnum,
+					failed ? NULL : &weapon->base,
+					"the projectile object has no model or no projectile state");
 #else
 				// NTSC beta doesn't have any of the failure checks
 				Mtxf sp78;
@@ -6392,6 +6445,10 @@ void bgunCreateFiredProjectile(s32 handnum)
 					}
 				}
 #endif
+			} else {
+				bgunLogCustomProjectileSpawn("fired", hand->gset.weaponnum,
+					projectilegraph, projectilemodelnum, NULL,
+					"no projectile object could be created");
 			}
 		}
 	}
@@ -14161,19 +14218,44 @@ s32 bgunGetCapacityByAmmotype(s32 ammotype)
 	return g_AmmoTypes[ammotype].capacity;
 }
 
+/* A stage built from scenario source names the weapons whose primary ammo the
+ * unlimited ammo cheats leave alone (stage.json
+ * player.unlimited_ammo_excludes); a ROM stage keeps the original's two stage
+ * checks (remote mines on Chicago, timed mines on Air Force One). */
+static bool bgunStageExcludesUnlimitedAmmo(u32 ammotype)
+{
+	scenario_stage_player_t rule;
+	s32 i;
+
+	if (!scenarioSourceStagePlayer(&rule)) {
+		return false;
+	}
+
+	for (i = 0; i < rule.unlimited_ammo_exclude_count; i++) {
+		catalog_weapon_result_t weapon;
+
+		if (catalogResolveWeapon(rule.unlimited_ammo_excludes[i], &weapon)
+				&& weapon.weapon_num > 0
+				&& bgunGetAmmoTypeForWeapon(weapon.weapon_num, FUNC_PRIMARY) == ammotype) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 {
+	if (bgUsesScenarioSource()) {
+		if (bgunStageExcludesUnlimitedAmmo(ammotype)) {
+			return false;
+		}
+	} else if ((ammotype == AMMOTYPE_REMOTE_MINE && g_Vars.stagenum == STAGE_CHICAGO)
+			|| (ammotype == AMMOTYPE_TIMED_MINE && g_Vars.stagenum == STAGE_AIRFORCEONE)) {
+		return false;
+	}
+
 	switch (ammotype) {
-	case AMMOTYPE_REMOTE_MINE:
-		if (g_Vars.stagenum == STAGE_CHICAGO) {
-			return false;
-		}
-		break;
-	case AMMOTYPE_TIMED_MINE:
-		if (g_Vars.stagenum == STAGE_AIRFORCEONE) {
-			return false;
-		}
-		break;
 	case AMMOTYPE_PSYCHOSIS:
 	case AMMOTYPE_17:
 	case AMMOTYPE_BUG:

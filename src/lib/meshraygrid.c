@@ -151,12 +151,11 @@ f32 meshGridRayCast(const struct meshgrid *grid, const struct coord *from,
 	}
 
 	/* A grid capped at MESHGRID_MAX_DIM cells (a stage wider than 32768
-	 * units) does not list the triangles that lie wholly past the cap:
-	 * meshWorldFinalize clamps only the far end of their cell range
-	 * (B-1210). Test every triangle there instead. */
-	if (grid->cellsx >= MESHGRID_MAX_DIM || grid->cellsz >= MESHGRID_MAX_DIM) {
-		return meshTrisRayCast(grid->tris, grid->numtris, from, to, mask, out_normal, out_tri);
-	}
+	 * units, such as Crash Site) lists every triangle past the cap in its
+	 * last row or column: meshWorldFinalize clamps both ends of a
+	 * triangle's cell range (meshGridCell, B-1210), and the walk below
+	 * clamps cells past the last index to it. So capped grids are walked
+	 * too, with no pass over every triangle. */
 
 	/* Grid space: one unit per cell, origin at the mesh minimum. */
 	fx = (from->x - grid->originx) / size;

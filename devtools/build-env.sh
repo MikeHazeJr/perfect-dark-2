@@ -31,5 +31,6 @@ export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_fil
 export CCACHE_BASEDIR="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
 echo "Build env: TEMP=$TEMP | mingw64 on PATH | ccache sloppy | CCACHE_BASEDIR=$CCACHE_BASEDIR | USERPROFILE=$USERPROFILE"
 
-# Auto-generate Ed25519 keypair if not present (idempotent — exits immediately if key exists)
-"${BASH_SOURCE[0]%/*}/ensure-keypair.sh" || true
+# B-1122 follow-up: a build no longer makes an updater signing key, so it never
+# rewrites the tracked port/include/updater_pubkey.h. devtools/release.ps1
+# makes one when it has to sign; devtools/ensure-keypair.sh does it by hand.

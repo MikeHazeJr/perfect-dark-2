@@ -137,15 +137,24 @@ s32 setupGetCmdIndexByTag(struct tag *tag)
 	return -1;
 }
 
+static struct defaultobj *setupCmdObj(u32 *cmd);
+
 u32 setupGetCmdIndexByProp(struct prop *prop)
 {
 	u32 *cmd = g_StageSetup.props;
 
-	if (cmd) {
+	if (cmd && prop) {
 		s32 cmdindex = 0;
 
 		while ((u8)PD_BE32(cmd[0]) != OBJTYPE_END) {
-			if ((struct prop *)cmd[5] == prop) {
+			/* B-1259: the N64 read the prop pointer as the word at cmd[5]
+			 * (struct defaultobj's 32-bit prop field there). On the 64-bit
+			 * port that word is the padding before the 8-byte pointer, so
+			 * the lookup never matched. Read the field, on object commands
+			 * only. */
+			struct defaultobj *obj = setupCmdObj(cmd);
+
+			if (obj && obj->prop == prop) {
 				return cmdindex;
 			}
 
@@ -328,6 +337,21 @@ bool setupLoadModeldef(s32 modelnum)
 
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
 
+		/* B-1157: a custom slot has no row in the static model table, so its
+		 * world scale stayed 0 and objInit sized every object made from it to
+		 * nothing (not drawn, no collision size). It takes its catalog entry's
+		 * model scale (1.0 unless the asset declares one), in the table's
+		 * 1/4096 units. */
+		if (modelnum >= MODEL_CUSTOM_START && modelnum < MODEL_CUSTOM_END) {
+			const f32 declared = model_result.entry && model_result.entry->model_scale > 0.0f
+				? model_result.entry->model_scale : 1.0f;
+			const s32 units = (s32)(declared * 4096.0f + 0.5f);
+
+			g_ModelStates[modelnum].scale = units < 1 ? 1 : (units > 0xffff ? 0xffff : (u16)units);
+			sysLogPrintf(LOG_NOTE, "MODEL.SLOT: custom slot %d '%s' world scale %.3f (%d/4096)",
+				modelnum, model_id ? model_id : "?", (double)declared, (s32)g_ModelStates[modelnum].scale);
+		}
+
 		/* S483b (2026-04-27): probe the freshly-loaded model's rodata tree
 		 * once and warn if any node is unreadable.  See
 		 * setupValidateModeldefRodata above. */
@@ -389,10 +413,10 @@ void setup0f0923d4(struct defaultobj *obj)
 	propRegisterRooms(obj->prop);
 }
 
-struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
+/* The object a setup command is, or NULL when the command is not an object
+ * (a chr, a tag, an objective, ...). */
+static struct defaultobj *setupCmdObj(u32 *cmd)
 {
-	u32 *cmd = setupGetCmdByIndex(cmdindex);
-
 	if (cmd) {
 		switch ((u8)PD_BE32(cmd[0])) {
 		case OBJTYPE_DOOR:
@@ -457,6 +481,11 @@ struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
 	}
 
 	return (struct defaultobj *)cmd;
+}
+
+struct defaultobj *setupGetObjByCmdIndex(u32 cmdindex)
+{
+	return setupCmdObj(setupGetCmdByIndex(cmdindex));
 }
 
 /**

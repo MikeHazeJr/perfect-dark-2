@@ -50,3 +50,18 @@ TEST_CASE("generic manifest entries require an exact asset-type slot",
 		MANIFEST_TYPE_ASSET, (u8)ASSET_TYPE_COUNT,
 		(asset_type_e)ASSET_TYPE_COUNT));
 }
+
+TEST_CASE("manifest token agreement covers the newest catalog type",
+		"[net][manifest][catalog][global_ailists]")
+{
+	/* Token/type agreement spans every concrete type up to the last one.
+	 * Whether a client may fetch an AI list is distribution policy: the host
+	 * never advertises or serves one (global-ai-lists.md). */
+	REQUIRE(netManifestTypeForCatalogAsset(ASSET_AI_LISTS) == MANIFEST_TYPE_ASSET);
+	REQUIRE(netManifestTypeAcceptsCatalogAsset(
+		MANIFEST_TYPE_ASSET, (u8)ASSET_AI_LISTS, ASSET_AI_LISTS));
+	REQUIRE_FALSE(netManifestTypeAcceptsCatalogAsset(
+		MANIFEST_TYPE_ASSET, (u8)ASSET_THEME, ASSET_AI_LISTS));
+	REQUIRE_FALSE(netManifestTypeAcceptsCatalogAsset(
+		MANIFEST_TYPE_ASSET, (u8)ASSET_AI_LISTS, ASSET_THEME));
+}

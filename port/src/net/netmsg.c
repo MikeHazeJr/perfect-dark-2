@@ -11550,6 +11550,10 @@ u32 netmsgSvcLobbyStateRead(struct netbuf *src, struct netclient *srccl)
 
 /* ---- Catalog entry collector (shared by SvcCatalogInfoWrite) ---- */
 
+/* The types a host advertises for clients to fetch. ASSET_AI_LISTS is left
+ * out on purpose: the host runs every AI list and clients never do, so an AI
+ * list mod never travels with a host's mods
+ * (context/designs/modding/global-ai-lists.md, product answers for slice 2). */
 static const asset_type_e s_CatalogInfoTypes[] = {
 	ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
 	ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,

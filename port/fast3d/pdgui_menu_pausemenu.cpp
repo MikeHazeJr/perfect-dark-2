@@ -17,6 +17,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_pausemenu.h"
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_layout.h" /* M-6: pdguiPopupDarkenBehind; M-7: action bar */
@@ -620,7 +621,7 @@ static void renderSettingsTab(void)
     /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
     if (pdguiCheckbox("Invert Y-Axis", &invertRStick)) {
         inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
     }
 }
 

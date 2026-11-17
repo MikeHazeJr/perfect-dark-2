@@ -50,15 +50,17 @@ draw code already did.
 
 ## `player`
 
-What the stage dresses the player in. The game kept these as stage checks in
-`src/game/player.c` (outfit choice) and `src/game/bondgun.c` (putting on the
-disguise); the extractor writes the same conditions.
+What the stage dresses the player in and leaves them. The game kept these as
+stage checks in `src/game/player.c` (outfit choice) and `src/game/bondgun.c`
+(putting on the disguise, the ammo the unlimited ammo cheats refill); the
+extractor writes the same conditions.
 
 | Field | Meaning |
 |---|---|
 | `perfect_agent_outfit` | the outfit worn at Perfect Agent and up (Villa: `negotiator`) |
 | `disguise` | `{outfit, untargetable}`: the outfit worn while disguised (Rescue: `lab`, Air Base: `stewardess`), and whether a disguised player cannot be targeted (Rescue) |
 | `coop_spawn_distance` | how far the co-op buddy starts from the player, 1..1000 (60 when absent; Defection: 80, a port fix so the buddy does not block the intro) |
+| `unlimited_ammo_excludes` | the weapons (catalog ids, 1 to 8) whose primary ammo the unlimited ammo cheats do not refill on the stage (Chicago: `base:remotemine`, Air Force One: `base:timedmine`, the original's `bgunAmmotypeAllowsUnlimitedAmmo`); every name must be a weapon in the catalog or the file is refused. The game's own list of ammo the cheats never refill (Psychosis darts, bugs, cameras, plastique, ECM mines and others) is not a stage rule and stays in that function |
 
 ## `ai`
 
@@ -117,14 +119,35 @@ Escape get 200 stars on a grid of 2; Attack Ship 1,200 and Test Old 1,600 on a
 grid of 3, below the horizon too. Not carried: `starsRender`'s Defection and
 Extraction tint, which computes a blend and discards it, so it has no effect.
 
+## `sparks`
+
+`"sparks": { "flash_lights": false }` keeps the stage's environmental sparks
+(`sparks.c`'s `SPARKTYPE_ENVIRONMENTAL` types) from flashing the room lights;
+`flash_lights` is required, and a stage without the key flashes them, as the
+original does everywhere but Crash Site. The extractor writes it for Crash Site;
+a ROM stage keeps the original check.
+
+## `gas`
+
+A gas cloud drawn over the screen (`nbomb.c` `gasRender`; Escape's gas):
+`rooms` (room numbers where it shows), a `sphere` `{center, radius, door_tag}`
+outside those rooms where it thins toward the edge and follows how far the
+`door_tag` door is open, `door_rooms` `[{room, door_tags, add}]` (inside a gas
+room that is also `room`, the gas follows the most open of `door_tags`, plus
+`add`) and a `cutscene_fade` `{start_frame, full_frame}`. At least one of
+`rooms` and `sphere`. The game keeps one rule struct for both paths: a ROM stage
+uses `g_EscapeGasRule` (the original's constants) and the extractor writes the
+same struct into Escape's `stage.json`, so the two cannot differ.
+
 ## Next families (from CORE's stage-check survey, week note checklist)
 
 Each becomes a key here unless it belongs to a room or an object:
 
-- Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
-- Animated textures and sparks (`dyntex.c`, `sparks.c`).
+- Escape's gas went into `gas` above (its rooms listed there, as weather's are).
+- Animated textures went into `scene.glb` materials (`animated-surfaces.md`)
+  and sparks into `sparks` above.
 - The stage's text bank (`lang.c`), if it is needed before the scenario is read.
 
 Room-level and object-level rules (Escape's gas rooms, the Extraction chopper
 hum, objects left out of co-op) go on `rooms.json` and `objects.json` rows
-instead, like the light rules.
+instead, like the light rules; the object rules are in `object-rules.md`.

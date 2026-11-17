@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -298,6 +298,246 @@ TEST_CASE("the co-op spawn distance and the dark room rule come from stage.json"
 	REQUIRE(chraction.find("if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {") != std::string::npos);
 	REQUIRE(chrai.find("&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()\n\t\t\t\t\t: g_Vars.stagenum != STAGE_CRASHSITE)) {") !=
 		std::string::npos);
+}
+
+TEST_CASE("the stage.json player rule names the weapons the unlimited ammo cheats leave alone",
+          "[stage][scenario][stagerules]")
+{
+	Parsed chicago(stage(R"("player": { "unlimited_ammo_excludes": ["base:remotemine"] })"));
+	INFO(chicago.error);
+	REQUIRE(chicago.ok);
+	CHECK(chicago.rules.player.present == 1);
+	REQUIRE(chicago.rules.player.unlimited_ammo_exclude_count == 1);
+	CHECK(std::string(chicago.rules.player.unlimited_ammo_excludes[0]) == "base:remotemine");
+	CHECK(chicago.rules.player.perfect_agent_outfit == -1);
+
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.player.unlimited_ammo_exclude_count == 0);
+
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": "base:remotemine" })"))
+		.find("must be a list of weapon catalog ids") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": [] })")).find("names 1 to 8 weapons") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": ["remotemine"] })"))
+		.find("not a weapon catalog id") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": [1] })")).find("not a weapon catalog id") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("player": { "unlimited_ammo_excludes": ["base:remotemine", "base:remotemine"] })"))
+		.find("names base:remotemine twice") != std::string::npos);
+
+	// The extractor writes the original's two stage checks as the weapon whose
+	// primary ammo it is; the game asks the rule on a scenario-source stage and
+	// keeps the checks for a ROM stage; the runtime refuses a name that is not a
+	// weapon; the checker knows the key.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	REQUIRE(extractor.find("case STAGE_CHICAGO:     return AMMOTYPE_REMOTE_MINE;") != std::string::npos);
+	REQUIRE(extractor.find("case STAGE_AIRFORCEONE: return AMMOTYPE_TIMED_MINE;") != std::string::npos);
+	REQUIRE(extractor.find("wpn->ammos[FUNC_PRIMARY]->type == ammotype") != std::string::npos);
+	REQUIRE(bondgun.find("if (bgunStageExcludesUnlimitedAmmo(ammotype)) {") != std::string::npos);
+	REQUIRE(bondgun.find("bgunGetAmmoTypeForWeapon(weapon.weapon_num, FUNC_PRIMARY) == ammotype") !=
+		std::string::npos);
+	REQUIRE(bondgun.find("(ammotype == AMMOTYPE_REMOTE_MINE && g_Vars.stagenum == STAGE_CHICAGO)") !=
+		std::string::npos);
+	REQUIRE(bondgun.find("(ammotype == AMMOTYPE_TIMED_MINE && g_Vars.stagenum == STAGE_AIRFORCEONE)") !=
+		std::string::npos);
+	REQUIRE(runtime.find("player.unlimited_ammo_excludes names %s, which is not a weapon") != std::string::npos);
+	REQUIRE(conformance.find("\"unlimited_ammo_excludes\"") != std::string::npos);
+}
+
+TEST_CASE("object rules travel on objects.json rows and replace the original's object checks",
+          "[stage][scenario][objectrules]")
+{
+	// object-rules.md: hover cars left out of co-op and counter-op, the Enemy
+	// Rockets exemption, the Extraction chopper's hums and fall.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string setup = readSource("src/game/setup.c");
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The extractor writes the original's conditions on the rows.
+	REQUIRE(extractor.find("(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)) {\n\t\tsnprintf(out, out_n, \",\\n      \\\"coop\\\": false\");") !=
+		std::string::npos);
+	REQUIRE(extractor.find("((const struct weaponobj *)ptr)->weaponnum == WEAPON_K7AVENGER &&\n\t\t\tstagenum == STAGE_INVESTIGATION) {") !=
+		std::string::npos);
+	REQUIRE(extractor.find("catalogReadableSoundRefId(SFX_SHIP_HUM, engine, sizeof(engine));") != std::string::npos);
+	REQUIRE(extractor.find("catalogReadableSoundRefId(SFX_810D, thrust, sizeof(thrust));") != std::string::npos);
+	REQUIRE(extractor.find("use_mp_setup ? -1 : (s32)spec->stagenum") != std::string::npos);
+	REQUIRE(extractor.find("if ((type == OBJTYPE_LIFT || type == OBJTYPE_ESCASTEP) &&\n\t\t\t(stagenum == STAGE_CITRAINING || stagenum == STAGE_CHICAGO ||\n\t\t\tstagenum == STAGE_VILLA || stagenum == STAGE_INFILTRATION ||\n\t\t\tstagenum == STAGE_G5BUILDING || stagenum == STAGE_PELAGIC)) {\n\t\tsnprintf(out, out_n, \",\\n      \\\"multiplayer\\\": true\");") !=
+		std::string::npos);
+
+	// The runtime allows each field only on its kind and keeps the rows by
+	// setup command index.
+	REQUIRE(runtime.find("if (record->type != OBJTYPE_HOVERCAR ||") != std::string::npos);
+	REQUIRE(runtime.find("if (record->type != OBJTYPE_WEAPON ||") != std::string::npos);
+	REQUIRE(runtime.find("if (record->type != OBJTYPE_CHOPPER) {") != std::string::npos);
+	REQUIRE(runtime.find("if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||") != std::string::npos);
+	REQUIRE(runtime.find("rules->multiplayer_kept = b != 0;") != std::string::npos);
+	REQUIRE(runtime.find("s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;") != std::string::npos);
+	REQUIRE(runtime.find("audio.category != AUDIO_CAT_SFX") != std::string::npos);
+
+	// The game asks the rule on a stage built from scenario source and keeps
+	// the original checks for a ROM stage.
+	REQUIRE(setup.find("if (setupHovercarWanted(index, withhovercars) && withobjs") != std::string::npos);
+	REQUIRE(setup.find("if (!bgUsesScenarioSource()) {\n\t\treturn withhovercars;") != std::string::npos);
+	REQUIRE(setup.find("&& !setupWeaponKeptUnderEnemyRockets(cmdindex)) {") != std::string::npos);
+	REQUIRE(setup.find("|| g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {") != std::string::npos);
+	REQUIRE(setup.find("chopperSetRules(chopper, rules.engine_hum_sound,") != std::string::npos);
+	// B-228's list: the row rule decides on a scenario-source stage in both
+	// transport cases, the list and the SP-in-MP overlay stay a ROM stage's
+	// (B-1253: on scenario source the overlay made every lift twice).
+	REQUIRE(setup.find("by_rule = scenarioSourceSetupRecordRules(index, &rules) && rules.multiplayer_kept;\n\t\tfilter = by_rule ? 0 : diffflag;") !=
+		std::string::npos);
+	{
+		size_t uses = 0;
+		for (size_t at = setup.find("if (withobjs && setupTransportWanted(obj, index, diffflag,");
+				at != std::string::npos;
+				at = setup.find("if (withobjs && setupTransportWanted(obj, index, diffflag,", at + 1)) {
+			uses++;
+		}
+		CHECK(uses == 2);
+	}
+	REQUIRE(setup.find("(obj->flags2 & mptransport_diffflag) == 0") == std::string::npos);
+	REQUIRE(setup.find("if (g_Vars.mplayerisrunning && !bgUsesScenarioSource()) {\n\t\t\t\tswitch (g_Vars.stagenum) {") !=
+		std::string::npos);
+	REQUIRE(setup.find("if (g_Vars.mplayerisrunning && !bgUsesScenarioSource() && (\n\t\t\t\t\tstagenum == STAGE_CITRAINING ||") !=
+		std::string::npos);
+	REQUIRE(propobj.find("soundnum = chopperThrustHum(chopper);") != std::string::npos);
+	REQUIRE(propobj.find("soundnum = chopperEngineHum(chopper);") != std::string::npos);
+	REQUIRE(propobj.find("if (chopperFallsAsDrop(chopper)) {") != std::string::npos);
+	REQUIRE(propobj.find("return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;") != std::string::npos);
+	REQUIRE(propobj.find("return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;") != std::string::npos);
+	REQUIRE(propobj.find("return stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION;") != std::string::npos);
+	// No stage check is left where the hums are chosen.
+	REQUIRE(propobj.find("soundnum = g_Vars.stagenum == STAGE_EXTRACTION") == std::string::npos);
+
+	// The checker knows the fields.
+	REQUIRE(conformance.find("def validate_object_rule_fields(") != std::string::npos);
+	REQUIRE(conformance.find("multiplayer needs a lift or escalator_step row and true or false") != std::string::npos);
+	REQUIRE(conformance.find("OBJECT_RULE_DIFFICULTIES = [\"agent\", \"special_agent\", \"perfect_agent\", \"perfect_dark\"]") !=
+		std::string::npos);
+}
+
+TEST_CASE("the stage.json sparks rule decides whether environmental sparks flash the lights",
+          "[stage][scenario][stagerules]")
+{
+	Parsed crashsite(stage(R"("sparks": { "flash_lights": false })"));
+	INFO(crashsite.error);
+	REQUIRE(crashsite.ok);
+	CHECK(crashsite.rules.sparks.present == 1);
+	CHECK(crashsite.rules.sparks.no_light_flash == 1);
+
+	Parsed flashing(stage(R"("sparks": { "flash_lights": true })"));
+	REQUIRE(flashing.ok);
+	CHECK(flashing.rules.sparks.no_light_flash == 0);
+
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.sparks.present == 0);
+
+	CHECK(refusal(stage(R"("sparks": {})")).find("sparks.flash_lights must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": { "flash_lights": "no" })")).find("must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": { "colour": 1 })")).find("unknown key 'colour'") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": true)")).find("sparks must be an object") != std::string::npos);
+
+	// The extractor writes the original's Crash Site check, the game asks the
+	// rule on a scenario-source stage and keeps the check for a ROM stage.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string sparks = readSource("src/game/sparks.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	REQUIRE(extractor.find("static s32 s_stageSparksNoLightFlash(s32 stagenum)\n{\n\treturn stagenum == STAGE_CRASHSITE;") !=
+		std::string::npos);
+	REQUIRE(sparks.find("return !(scenarioSourceStageSparks(&rule) && rule.no_light_flash);") != std::string::npos);
+	REQUIRE(sparks.find("return g_Vars.stagenum != STAGE_CRASHSITE;") != std::string::npos);
+	REQUIRE(sparks.find("if (g_Vars.stagenum != STAGE_CRASHSITE) {") == std::string::npos);
+	REQUIRE(conformance.find("sparks.flash_lights must be true or false") != std::string::npos);
+}
+
+TEST_CASE("the stage.json gas rule places a gas cloud and the ROM path uses the same rule",
+          "[stage][scenario][stagerules]")
+{
+	Parsed escape(stage(R"("gas": { "rooms": [146, 147, 145], "sphere": { "center": [-1473, -308, -13660],
+		"radius": 1328, "door_tag": 50 }, "door_rooms": [ { "room": 145, "door_tags": [48, 49], "add": 0.2 } ],
+		"cutscene_fade": { "start_frame": 2180, "full_frame": 2600 } })"));
+	INFO(escape.error);
+	REQUIRE(escape.ok);
+	const scenario_stage_gas_t &gas = escape.rules.gas;
+	CHECK(gas.present == 1);
+	REQUIRE(gas.room_count == 3);
+	CHECK(gas.rooms[2] == 145);
+	CHECK(gas.has_sphere == 1);
+	CHECK(gas.sphere_center[2] == -13660.0f);
+	CHECK(gas.sphere_radius == 1328.0f);
+	CHECK(gas.sphere_door_tag == 50);
+	REQUIRE(gas.door_room_count == 1);
+	CHECK(gas.door_rooms[0].room == 145);
+	REQUIRE(gas.door_rooms[0].tag_count == 2);
+	CHECK(gas.door_rooms[0].tags[1] == 49);
+	CHECK(gas.door_rooms[0].add == Approx(0.2f));
+	CHECK(gas.has_cutscene_fade == 1);
+	CHECK(gas.fade_start == 2180);
+	CHECK(gas.fade_full == 2600);
+
+	Parsed sphere_only(stage(R"("gas": { "sphere": { "center": [0, 0, 0], "radius": 10 } })"));
+	REQUIRE(sphere_only.ok);
+	CHECK(sphere_only.rules.gas.sphere_door_tag == -1);
+	CHECK(sphere_only.rules.gas.room_count == 0);
+
+	CHECK(refusal(stage(R"("gas": {})")).find("gas needs rooms or a sphere") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [0] })")).find("not a room number") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "sphere": { "center": [0, 0], "radius": 1 } })")).find("center must be [x, y, z]") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "sphere": { "center": [0, 0, 0], "radius": 0 } })")).find("radius must be more than 0") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "door_rooms": [ { "room": 1, "door_tags": [] } ] })"))
+		.find("door_tags names 1 to 4 doors") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "cutscene_fade": { "start_frame": 10, "full_frame": 5 } })"))
+		.find("full_frame must come after start_frame") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "smell": 1 })")).find("unknown key 'smell'") != std::string::npos);
+
+	// One rule struct: a ROM stage uses g_EscapeGasRule, the extractor writes it,
+	// and the game draws the gas wherever the stage has a rule.
+	const std::string nbomb = readSource("src/game/nbomb.c");
+	const std::string player = readSource("src/game/player.c");
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	REQUIRE(nbomb.find(".sphere_center = { -1473.0f, -308.0f, -13660.0f },") != std::string::npos);
+	REQUIRE(nbomb.find(".door_rooms = { { .room = 0x91, .tag_count = 2, .tags = { 0x30, 0x31 }, .add = 0.2f } },") !=
+		std::string::npos);
+	REQUIRE(nbomb.find(".fade_start = 2180,") != std::string::npos);
+	REQUIRE(nbomb.find("if (g_Vars.stagenum == STAGE_ESCAPE) {\n\t\t*out = g_EscapeGasRule;") != std::string::npos);
+	REQUIRE(nbomb.find("cutsceneframe60 < 2180") == std::string::npos);
+	REQUIRE(player.find("if (gasStageHasGas()) {\n\t\t\tgdl = gasRender(gdl);") != std::string::npos);
+	REQUIRE(player.find("if (g_Vars.stagenum == STAGE_ESCAPE) {\n\t\t\tgdl = gasRender(gdl);") == std::string::npos);
+	REQUIRE(extractor.find("stagenum == STAGE_ESCAPE ? &g_EscapeGasRule : NULL;") != std::string::npos);
+}
+
+TEST_CASE("B-1250 and B-1251: cache kinds fit their stamps and packed hum sounds resolve",
+          "[stage][scenario][objectrules][b1250][b1251]")
+{
+	// B-1250: the stamp readers take PDEXTRACT_CACHE_KIND_MAX - 1 chars; the
+	// writer refuses a longer kind, and the scenario and arena kinds fit.
+	const std::string cache = readSource("port/src/romextract_pd_cache.c");
+	REQUIRE(cache.find("#define PDEXTRACT_CACHE_KIND_MAX 2048") != std::string::npos);
+	REQUIRE(cache.find("#define PDEXTRACT_CACHE_KIND_SCANF \"2047\"") != std::string::npos);
+	REQUIRE(cache.find("if (strlen(kind) >= PDEXTRACT_CACHE_KIND_MAX) {") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	for (const char *name : { "ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND", "ROMEXTRACT_PDARENA_FAST_CACHE_KIND" }) {
+		std::smatch m;
+		const std::regex define(std::string("#define ") + name + " \"([^\"]+)\"");
+		INFO(name);
+		REQUIRE(std::regex_search(extractor, m, define));
+		CHECK(m[1].str().size() < 2048);
+	}
+
+	// B-1251: a configured sound's packed number (top bit set) is accepted.
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	REQUIRE(runtime.find("audio.sound_id > 0xffff) {") != std::string::npos);
+	REQUIRE(runtime.find("audio.sound_id > 0x7fff") == std::string::npos);
+	REQUIRE(runtime.find("!(audio.category == AUDIO_CAT_VOICE && ref.hasconfig)") != std::string::npos);
 }
 
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")

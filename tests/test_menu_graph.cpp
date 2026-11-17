@@ -591,7 +591,8 @@ TEST_CASE("menu graph: MP endscreen is not hidden by legacy save-player prompt",
     REQUIRE(mpingame.find("pdguiGameOverRender() (in pdgui_menu_pausemenu.cpp) owns the full tabbed") != std::string::npos);
     REQUIRE(mpingame.find("pdguiHotswapRegister(&g_MpEndscreenSavePlayerMenuDialog") != std::string::npos);
     REQUIRE(endscreen.find("pdguiEndscreenExitToRoom") != std::string::npos);
-    REQUIRE(bridge.find("configSave(\"pd.ini\")") != std::string::npos);
+    // B-1160: the end screen saves the config the game reads ($S/pd.ini).
+    REQUIRE(bridge.find("configSave(CONFIG_PATH)") != std::string::npos);
 }
 
 TEST_CASE("menu graph: main-menu Modding hub uses graph push op", "[input][menu_graph][mainmenu][static]")
@@ -1436,7 +1437,7 @@ TEST_CASE("Agent preference mutations persist through the unified JSON writer",
 
     REQUIRE(mainmenu.find("strcmp(active, expectedAgent) == 0 && prefsAgentSave() == 0") != std::string::npos);
     REQUIRE(mainmenu.find("s_SettingsSaveStatus.poll(prefsAgentGetActive(), settingsSaveCallbacks())") != std::string::npos);
-    REQUIRE(solo.find("configSave(\"pd.ini\");\n        prefsAgentSave();") !=
+    REQUIRE(solo.find("configSave(CONFIG_PATH);\n        prefsAgentSave();") !=
         std::string::npos);
     REQUIRE(tunes.find("audioSetModShuffle(shuffle ? 1 : 0);\n            prefsAgentSave();") !=
         std::string::npos);

@@ -8,7 +8,7 @@
 >
 > **All 11 architectural decisions in Section E resolved 2026-04-27** (Mike approved 5 directly, 6 by delegated authority). See E.0 for the resolution table.
 >
-> **D-004 scope override, 2026-08-12**: 1.0 requires complete base-game production parity, complete consumption of every accepted base-game graph surface, usable Campaign and Combat Simulator Theater recording/playback, and one minimal graph-backed sample weapon in Match Setup custom slots. Forge maps/map variants, Studio, broad modding-pipeline tooling, and Needler-specific polish are post-1.0. D-004 supersedes older v1.0 Forge/Studio/federation/tooling requirements in this document.
+> **D-004 scope override, 2026-08-12**: 1.0 requires complete base-game production parity, complete consumption of every accepted base-game graph surface, usable Campaign and Combat Simulator Theater recording/playback, and one minimal graph-backed sample weapon in Match Setup custom slots. Forge maps/map variants, Studio, broad modding-pipeline tooling, and Needler-specific polish are post-1.0. D-004 supersedes older v1.0 Forge/Studio/federation/tooling requirements in this document. **Amended 2026-11-15 (Mike): Forge map creation, a level made with the in-game tools, is part of 1.0; map variants and the rest stay post-1.0.**
 >
 > No em-dashes anywhere (PowerShell hygiene). Status markers: SHIPPED / IN-FLIGHT / QUEUED / PLANNED / DEFERRED / OPEN-DECISION / RESOLVED.
 
@@ -139,7 +139,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | C5 | **Co-op polish (D12)** | PLANNED-V0.6.0 | Drop-in/drop-out (L-6), telefrag prevention, server-side coop manifest rebuild. Some pieces shipped opportunistically (S264 endscreen team). |
 | C6 | **Spectator Mode (D10)** | DESIGN-DRAFT-V0.6.0 | Connectivity doc Section 5 unifies Spectator (live) + Theater (saved replay) under one subsystem. Wire scaffolding present at v42 (`CLC_SPECTATE_REQUEST 0x16`, `SVC_SPECTATE_ACK 0x6a`, `SVC_STATE_FRAME 0x6b`). Implementation pending. |
 | C7 | **Theater (saved-match playback)** | PARTIAL / RELEASE-BLOCKER | A v1 participant-snapshot recorder/list/player exists, but does not reconstruct Campaign or Combat Simulator sessions. T-THEATER-001 and V-011 own authoritative capture, restart-safe load, world reconstruction, pause/seek, failure handling, and ordinary-client proof. |
-| C8 | **The Grid (Forge level editor)** | FOUNDATION-SHIPPED / POST-1.0 | Existing free-fly/editor foundations remain, but map creation, map variants, and F1-F8 extended authoring are explicitly post-1.0 under D-004. |
+| C8 | **The Grid (Forge level editor)** | FOUNDATION-SHIPPED / MAP CREATION IN 1.0 | Existing free-fly/editor foundations remain. Map creation is part of 1.0 since the 2026-11-15 amendment of D-004 (Mike); map variants and F1-F8 extended authoring stay post-1.0. |
 | C9 | **Listening Rooms** | PLANNED-V0.4.0 | Connectivity Phase 4 - shared-music sessions over Phase 2 social channel. Wire decided (PDSHR port 27109). |
 
 ### B.3 Online Connectivity

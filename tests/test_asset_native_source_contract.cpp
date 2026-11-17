@@ -1398,8 +1398,96 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(bg_runtime.find("aspect = 4.0f / 3.0f") !=
 	        std::string::npos);
-	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") !=
+	// B-1172: the scene draws at its display-list command, after the sky, the
+	// stars and the sun, into the current view with its player's camera; it
+	// no longer draws before the display list.
+	REQUIRE(gfx_pc.find("case G_SCENE_RENDER_EXT:") != std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderPasses(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,") !=
 	        std::string::npos);
+	// B-1172 step 2: a world draw uses the game's BG matrix and keeps its
+	// depth; only a backdrop draw clears depth after it.
+	REQUIRE(gfx_pc.find("scenarioSceneMatrixMultiply(out, camera.world, rsp.P_matrix);") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("if (scene_passes & SCENARIO_SCENE_PASS_BACKDROP) {\n                        gfx_rapi->clear_framebuffer(false, true);") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderSlot(") == std::string::npos);
+	// B-1172: sky rooms draw relative to the camera's room, as
+	// roomPopulateMtx places them.
+	REQUIRE(scene_renderer.find("vec4 clip = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("out.room = readRoom(idx);") != std::string::npos);
+	REQUIRE(scene_renderer.find("findAttr(\"_PD_ROOM\")") != std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSceneRendererSetSkyRooms(skyrooms, skycount);") !=
+	        std::string::npos);
+	requireTokenOrder(bg_runtime, "scenarioSourceApplyRoomTableForStage(&stage,",
+		"scenarioSceneRendererSetSkyRooms(skyrooms, skycount);");
+	// B-1172: the scene applies roomHighlight's lighting per view.
+	REQUIRE(bg_runtime.find("bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);\n\t\t\tbgSetScenarioSceneRoomLights();") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("light->brightness = roomGetSettledRegionalBrightnessForPlayer(i);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioHighlightRoom(i, &r, &g, &b);") != std::string::npos);
+	REQUIRE(scene_renderer.find("\"  v_Color = pdRoomLit(a_Color);\\n\"") != std::string::npos);
+	REQUIRE(scene_renderer.find("float extra = l1.w > 0.5 ? 0.0 : min(l0.y, 285.0 - m);") !=
+	        std::string::npos);
+	{
+		// B-1157: a custom model slot takes its catalog model scale when its
+		// model loads, and the stage reset clears it with the modeldef.
+		const std::string setuputils = readTextFile("src/game/setuputils.c");
+		const std::string setup = readTextFile("src/game/setup.c");
+		REQUIRE(setuputils.find("if (modelnum >= MODEL_CUSTOM_START && modelnum < MODEL_CUSTOM_END) {\n\t\t\tconst f32 declared = model_result.entry && model_result.entry->model_scale > 0.0f") !=
+		        std::string::npos);
+		requireTokenOrder(setuputils, "modelAllocateRwData(g_ModelStates[modelnum].modeldef);",
+			"g_ModelStates[modelnum].scale = units < 1 ? 1");
+		REQUIRE(setup.find("for (i = MODEL_CUSTOM_START; i < MODEL_CUSTOM_END; i++) {\n\t\tg_ModelStates[i].scale = 0;") !=
+		        std::string::npos);
+	}
+	{
+		// The multiplayer crate slots of base content are empty (model 0).
+		const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
+		REQUIRE(runtime.find("if (!catalog_id || !catalog_id[0]) {\n\t\t\t\tivalue = 0;\n\t\t\t} else if (!s_setupResolveModelnum(catalog_id, &ivalue)) {") !=
+		        std::string::npos);
+		REQUIRE(gfx_pc.find("no on-screen scene vertex this frame (frames without: %d)") != std::string::npos);
+	}
+	{
+		// B-1153: optional model metadata members are looked up quietly.
+		const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+		REQUIRE(compiler.find("if (!(inputs && inputs->read) && fsFileSize(path) < 0) {") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, mtl_path, &size);") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, hierarchy_path, &size);") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, render_path, &size);") != std::string::npos);
+	}
+	// B-1172: the stage fog, started for each scene pass as for the BG rooms
+	// and applied with gfx_sp_vertex's formula.
+	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, false);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);\n\t\tgdl = envStopFog(gdl);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, true);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);\n\t\tgdl = envStopFog(gdl);") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("v_Fog = clamp(clip.z * winv * u_Fog.y + u_Fog.z, 0.0, 255.0) / 255.0;") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererSetFog((rsp.geometry_mode & G_FOG) != 0") != std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererEndFrame();") != std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") ==
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);") !=
+	        std::string::npos);
+	requireTokenOrder(bg_runtime, "SCENARIO_SCENE_PASS_OPAQUE);", "RENDERPASS_OPA_PREBG");
+	requireTokenOrder(bg_runtime, "RENDERPASS_OPA_POSTBG", "SCENARIO_SCENE_PASS_BLEND);");
+	requireTokenOrder(bg_runtime, "SCENARIO_SCENE_PASS_BLEND);",
+		"\n\t\t\t\tgdl = propsRender(gdl, 0, RENDERPASS_XLU, roomnumsbyprop);");
+	{
+		const std::string lv_runtime = readTextFile("src/game/lv.c");
+		REQUIRE(lv_runtime.find("if (!scenarioSceneRendererIsActive()) {\n\t\t\t\t\t\tgdl = skyRender(gdl);") ==
+		        std::string::npos);
+		REQUIRE(lv_runtime.find("no longer covers it and renders on every stage again. */\n\t\t\t\tgdl = skyRender(gdl);") !=
+		        std::string::npos);
+		REQUIRE(lv_runtime.find("SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);") !=
+		        std::string::npos);
+	}
 	REQUIRE(scene_renderer.find("fsFileLoad(path") != std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_1\")") !=
 	        std::string::npos);
@@ -1468,11 +1556,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(probe_block.find("freeScene(probe)") != std::string::npos);
 	REQUIRE(probe_block.find("g_scene") == std::string::npos);
-	REQUIRE(scene_renderer.find("buildViewMatrix(view, position, look, up)") !=
+	// B-1172: the scene camera is built in the game's draw space
+	// (scenario_scene_camera.c, unit-tested in test_scenario_scene_camera.cpp).
+	REQUIRE(scene_renderer.find("scenarioSceneCameraBuild(&camera, position, look, up, fovy_degrees,") !=
 	        std::string::npos);
-	REQUIRE(scene_renderer.find("buildProjectionMatrix(projection, fovy_degrees, aspect") !=
-	        std::string::npos);
-	REQUIRE(scene_renderer.find("multiplyMatrix(g_scene.view_projection, view, projection)") !=
+	REQUIRE(scene_renderer.find("memcpy(g_scene.view_projection, camera.view_projection") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("camera_ever_valid") != std::string::npos);
 	REQUIRE(scene_renderer.find("if (!g_scene.camera_ever_valid)") !=
@@ -1738,6 +1826,12 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scenario_runtime.find("struct waypoint") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("PADFLAG_HASBBOXDATA") !=
+	        std::string::npos);
+	// B-1204: a pad keeps its own box bit; forcing it on every pad made the
+	// -100..100 default a real box and dropped objects 100 under their pad.
+	REQUIRE(scenario_runtime.find("flags |= PADFLAG_HASBBOXDATA;") ==
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("boxed += (rows[i].flags & PADFLAG_HASBBOXDATA) != 0;") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourcePadsGetWideOffsets") !=
 	        std::string::npos);
@@ -2345,18 +2439,27 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfRoomIsOnScreen");
 		REQUIRE(!block.empty());
+		// B-1163: the room argument is chrGetPadRoom's room-or-pad value,
+		// decoded and checked as native indexes it, not checked as a pad.
 		REQUIRE(block.find(
-			        "s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"") !=
+			        "s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\", chr, pad,") !=
+		        std::string::npos);
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"",
-			"chrGetPadRoom(chr, pad)");
+			"s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\"",
+			"bgRoomIsOnscreen(room_id)");
 	}
 	{
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfChrInRoom");
 		REQUIRE(!block.empty());
-		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_chr_in_room\"") !=
+		// B-1163 (type 0 room-or-pad) and B-1164 (type 2: each eyespy
+		// resolves the preset pad itself, as chrGetDistanceToPad does).
+		REQUIRE(block.find("s_aiGraphResolveRoomOrPad(\"if_chr_in_room\", basechr,") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_chr_in_room\"") ==
 		        std::string::npos);
 		REQUIRE(block.find("g_Vars.players[i]->eyespy") ==
 		        std::string::npos);
@@ -2366,11 +2469,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(block.find("stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING") !=
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
-			"chrGetPadRoom(basechr, padnum)");
+			"s_aiGraphResolveRoomOrPad(\"if_chr_in_room\"",
+			"chr->prop->rooms[0] == room");
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
+			"s_aiGraphResolveRoomOrPad(\"if_chr_in_room\"",
 			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING");
+		requireTokenOrder(block,
+			"s_aiGraphRequireResolvedRuntimePad(\"if_chr_in_room\"",
+			"chrGetDistanceToPad(eyespychr, padnum)");
 		requireTokenOrder(block,
 			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING",
 			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_in_room\"");
@@ -2386,11 +2492,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"scenarioSourceAiGraphExecuteIfTargetInRoom");
 		REQUIRE(!block.empty());
 		REQUIRE(block.find(
-			        "s_aiGraphRequireRuntimePad(\"if_target_in_room\"") !=
+			        "s_aiGraphResolveRoomOrPad(\"if_target_in_room\", chr, padnum,") !=
+		        std::string::npos);
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_target_in_room\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_target_in_room\"",
-			"chrGetPadRoom(chr, padnum)");
+			"s_aiGraphResolveRoomOrPad(\"if_target_in_room\"",
+			"room == prop->rooms[0]");
 	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json") !=
 	        std::string::npos);
@@ -2968,8 +3077,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
 		REQUIRE(!block.empty());
+		// B-1164: the pad is checked as the native helper resolves it.
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphRequireResolvedRuntimePad(",
 			"s_aiGraphRequireRuntimeCharacterPointer(");
 		requireTokenOrder(block,
 			"s_aiGraphRequireRuntimeCharacterPointer(",
@@ -3235,6 +3345,45 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
+	// B-1119: walk, jog and run to pad resolve pad 9000 (PAD_PRESET) to the
+	// character's preset pad before checking it, as chrGoToPad does; a refused
+	// pad also skips the native handler, so the character stood still.
+	REQUIRE(scenario_runtime.find("resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("if (!s_aiGraphRequireRuntimePad(action, resolved_pad, &pad_count)) {") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {") ==
+	        std::string::npos);
+	// B-1161: if_natural_anim only compares animation numbers, so an empty
+	// base slot (ANIM_IDLE, where chr->naturalanim starts) is valid there; the
+	// strict resolver still refuses it for actions that play an animation.
+	{
+		// The slot test lives in the animation library, so the runtime reads
+		// no animation table global itself (source-boundary guard).
+		const std::string anim = readTextFile("src/lib/anim.c");
+		const size_t empty = anim.find("bool animIsEmptyBaseSlot(s32 animnum)");
+		REQUIRE(empty != std::string::npos);
+		REQUIRE(anim.find("&& g_Anims[animnum].numframes == 0\n\t\t&& g_Anims[animnum].headerlen == 0;", empty) !=
+		        std::string::npos);
+		REQUIRE(readTextFile("src/include/lib/anim.h").find("bool animIsEmptyBaseSlot(s32 animnum);") !=
+		        std::string::npos);
+		REQUIRE(scenario_runtime.find("if (animIsEmptyBaseSlot(anim_id)) {") != std::string::npos);
+		REQUIRE(scenario_runtime.find("g_Anims") == std::string::npos);
+		const size_t natural = scenario_runtime.find("s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,");
+		REQUIRE(natural != std::string::npos);
+		const size_t naturalEnd = scenario_runtime.find("s32 scenarioSourceAiGraphExecuteIfY(", natural);
+		REQUIRE(naturalEnd != std::string::npos);
+		const std::string body = scenario_runtime.substr(natural, naturalEnd - natural);
+		size_t comparable = 0;
+		for (size_t at = body.find("s_aiGraphResolveComparableAnimationCatalogId("); at != std::string::npos;
+		     at = body.find("s_aiGraphResolveComparableAnimationCatalogId(", at + 1)) {
+			++comparable;
+		}
+		REQUIRE(comparable == 2);
+		REQUIRE(body.find("s_aiGraphResolveAnimationCatalogId(") == std::string::npos);
+		const size_t play = scenario_runtime.find("anim_catalog_id = s_aiGraphResolveAnimationCatalogId(\"chr_do_animation\",");
+		REQUIRE(play != std::string::npos);
+	}
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: path source") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.navigation.paths+navigation/paths.json") !=
@@ -4267,8 +4416,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	const std::string near_pad_target_block =
 		functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
+	// B-1164: the pad checked is the one the native helper resolves (9000).
 	REQUIRE(near_pad_target_block.find(
-		        "s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"") !=
+		        "s_aiGraphRequireResolvedRuntimePad(\n\t\t\t\"set_chr_preset_to_chr_near_pad\", chr, padnum, NULL,") !=
 	        std::string::npos);
 	REQUIRE(near_pad_target_block.find(
 		        "pad=%d found=1 pad_rows=%d") != std::string::npos);
@@ -4276,7 +4426,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		        "backend=graph.ai.action.prop_target+ai/ailists.json+pads.json") !=
 	        std::string::npos);
 	requireTokenOrder(near_pad_target_block,
-		"s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"",
+		"\"set_chr_preset_to_chr_near_pad\", chr, padnum, NULL,",
 		"chrSetChrPresetToChrNearPad(preset, chr, distance, padnum)");
 	const std::string speak_block =
 		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteSpeak");
@@ -4725,7 +4875,8 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"preset=%d applied=%d source=%s") == std::string::npos);
 	const std::string natural_anim_block =
 		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteIfNaturalAnim");
-	REQUIRE(natural_anim_block.find("s_aiGraphResolveAnimationCatalogId") !=
+	// B-1161: the comparison takes an empty base slot as it is.
+	REQUIRE(natural_anim_block.find("s_aiGraphResolveComparableAnimationCatalogId") !=
 	        std::string::npos);
 	REQUIRE(natural_anim_block.find("anim_id=%s anim_source=%s clip_bytes=%u current_anim_id=%s current_anim_source=%s current_clip_bytes=%u") !=
 	        std::string::npos);
@@ -5313,6 +5464,31 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!duplicate_chr.empty());
 		REQUIRE(duplicate_chr.find("ailistFindById(ailistid)") !=
 		        std::string::npos);
+		// B-1165: the clone is registered as source-spawned, like the
+		// spawn_chr_at_* characters, before the branch is taken.
+		requireTokenOrder(duplicate_chr,
+			"cloneprop = chrSpawnAtChr(basechr, chr->bodynum, -1,",
+			"s_aiGraphRegisterSourceSpawnedChr(\"duplicate_chr\",\n\t\t\tcloneprop)");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRegisterSourceSpawnedChr(\"duplicate_chr\",",
+			"g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,");
+		// B-1166: a number set_chr_num gives a source-derived chr stays
+		// source-derived, alive (the chrnum check) or gone (both resolvers).
+		const std::string set_chr_num = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrNum");
+		REQUIRE(!set_chr_num.empty());
+		requireTokenOrder(set_chr_num,
+			"const s32 was_source = s_aiGraphRuntimeChrIsSourceSpawned(chr) ||",
+			"chrSetChrnum(chr, chrnum);");
+		requireTokenOrder(set_chr_num,
+			"chrSetChrnum(chr, chrnum);",
+			"s_aiGraphRecordSourceAssignedChrnum(\"set_chr_num\", chrnum)");
+		const std::string source_chrnum = functionBlock(scenario_runtime,
+			"s_aiGraphSetupSourceContainsChrnum");
+		REQUIRE(source_chrnum.find("s_aiGraphChrnumIsSourceAssigned(chrnum)") !=
+		        std::string::npos);
+		REQUIRE(countOccurrences(scenario_runtime,
+			"if (s_sourceSetupContainsChrnum(chr_id) ||\n\t\t\t\t\ts_aiGraphChrnumIsSourceAssigned(chr_id)) {") == 2);
 		REQUIRE(duplicate_chr.find(
 			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"") !=
 		        std::string::npos);
@@ -5841,7 +6017,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		{ "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen", "chr->chrflags" },
 		{ "scenarioSourceAiGraphExecuteIfOnScreen", "chr->prop->flags" },
 		{ "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom", "s_aiGraphChrInOnScreenRoom(chr)" },
-		{ "scenarioSourceAiGraphExecuteIfRoomIsOnScreen", "chrGetPadRoom(chr, pad)" },
+		{ "scenarioSourceAiGraphExecuteIfRoomIsOnScreen", "s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\", chr, pad," },
 		{ "scenarioSourceAiGraphExecuteIfTargetAimingAtMe", "chrIsTargetAimingAtMe(chr)" },
 		{ "scenarioSourceAiGraphExecuteIfNearMiss", "chrResetNearMiss(chr)" },
 		{ "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem", "s_aiGraphChrSeesSuspiciousItem(chr)" },
@@ -6512,11 +6688,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfObjInRoom");
 		REQUIRE(!block.empty());
-		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_obj_in_room\"") !=
+		// B-1163: room-or-pad value, decoded and checked as native does.
+		REQUIRE(block.find("s_aiGraphResolveRoomOrPad(\"if_obj_in_room\", basechr, room_id,") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_obj_in_room\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_obj_in_room\"",
-			"chrGetPadRoom(basechr, room_id)");
+			"s_aiGraphResolveRoomOrPad(\"if_obj_in_room\"",
+			"resolved_room == obj->prop->rooms[0]");
 	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.perception+ai/ailists.json+objects.json+scene.glb") !=
 	        std::string::npos);
@@ -6786,7 +6965,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetLights") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"set_lights\"") !=
+	REQUIRE(scenario_runtime.find("s_aiGraphResolveRoomOrPad(\"set_lights\", chr, padnum, &roomnum,") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action set_lights pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
@@ -6798,12 +6977,16 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!block.empty());
 		REQUIRE(block.find("AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d") !=
 		        std::string::npos);
-		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"set_lights\"",
-			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"");
+		// B-1162: background scripts (a blank chr with no prop) change
+		// lights too: the room no longer requires chr->prop.
 		requireTokenOrder(block,
 			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"",
-			"roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1");
+			"s_aiGraphResolveRoomOrPad(\"set_lights\"");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRoomOrPad(\"set_lights\"",
+			"roomSetLightsOn(roomnum, false)");
+		REQUIRE(block.find("chr->prop ? chrGetPadRoom") == std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"set_lights\"") == std::string::npos);
 	}
 	{
 		const std::string block = functionBlock(scenario_runtime,
@@ -7979,7 +8162,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_pad_preset+pads.json") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"try_start_alarm\"") !=
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireResolvedRuntimePad(\"try_start_alarm\", chr, pad_id,") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
@@ -8012,14 +8195,22 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!set_pad_preset.empty());
 		REQUIRE(!chr_set_pad_preset.empty());
 		REQUIRE(!copy_preset.empty());
+		// B-1164: these natives resolve 9000 themselves, so the graph
+		// checks the pad they will use (s_aiGraphRequireResolvedRuntimePad)
+		// and still hands them the raw pad.
 		requireTokenOrder(try_alarm,
-			"s_aiGraphRequireRuntimePad(\"try_start_alarm\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"try_start_alarm\"",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"");
 		requireTokenOrder(try_alarm,
 			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"",
 			"chrTryStartAlarm(chr, pad_id)");
+		// B-1119: the pad checked is the resolved one (pad 9000 is the
+		// character's preset pad), still before the character pointer.
 		requireTokenOrder(go_to_pad,
-			"s_aiGraphRequireRuntimePad(action, pad",
+			"resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;",
+			"s_aiGraphRequireRuntimePad(action, resolved_pad");
+		requireTokenOrder(go_to_pad,
+			"s_aiGraphRequireRuntimePad(action, resolved_pad",
 			"s_aiGraphRequireRuntimeCharacterPointer(action, chr");
 		requireTokenOrder(go_to_pad,
 			"s_aiGraphRequireRuntimeCharacterPointer(action, chr",
@@ -8028,7 +8219,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"go_to_pad_preset\"",
 			"chr->padpreset1");
 		requireTokenOrder(set_pad_preset,
-			"s_aiGraphRequireRuntimePad(\"set_pad_preset\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"set_pad_preset\"",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"");
 		requireTokenOrder(set_pad_preset,
 			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"",
@@ -8036,7 +8227,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(chr_set_pad_preset.find("chrSetPadPresetByChrnum(") ==
 		        std::string::npos);
 		requireTokenOrder(chr_set_pad_preset,
-			"s_aiGraphRequireRuntimePad(\"chr_set_pad_preset\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"chr_set_pad_preset\", basechr,",
 			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
 		requireTokenOrder(chr_set_pad_preset,
 			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
@@ -12851,7 +13042,7 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 		listed_families++;
 		listed_pos += 8;
 	}
-	REQUIRE(listed_families == 25);
+	REQUIRE(listed_families == 26);
 
 	auto requireFamily = [&](const char *type, const char *label) {
 		REQUIRE(families.find(type) != std::string::npos);
@@ -12883,6 +13074,7 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	requireFamily("ASSET_BOT_PROFILE", "Bot Profile (.pdbotprofile)");
 	requireFamily("ASSET_HUD", "HUD (.pdhud)");
 	requireFamily("ASSET_THEME", "Theme (.pdtheme)");
+	requireFamily("ASSET_AI_LISTS", "AI Lists (.pdai)");
 
 	REQUIRE(families.find("ASSET_TOOL") == std::string::npos);
 	REQUIRE(families.find("ASSET_MAP") == std::string::npos);
@@ -12923,6 +13115,7 @@ TEST_CASE("public source families have explicit runtime load surfaces",
 		"ASSET_BOT_PROFILE",
 		"ASSET_HUD",
 		"ASSET_THEME",
+		"ASSET_AI_LISTS",
 	};
 
 	REQUIRE(!supports.empty());
@@ -13107,7 +13300,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const char *metadataExts[] = {
 		".pdarena", ".pdcharacter", ".pdskin", ".pdprop", ".pdvehicle", ".pdmission",
 		".pdgamemode", ".pdbotprofile", ".pdhud", ".pdeffect", ".pdmaterial",
-		".pdtheme",
+		".pdtheme", ".pdai",
 	};
 	for (const char *ext : metadataExts) {
 		INFO(ext);
@@ -15047,7 +15240,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
 	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_aiOpcodeSemanticKind") != std::string::npos);
 	REQUIRE(arena.find("ai_command_nodes_json") != std::string::npos);
@@ -15092,7 +15285,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(conformance.find("level.graph.json must bind portals table to portals.json") !=
 	        std::string::npos);
-	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945\"") !=
+	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION \"bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_rgbaHasNonOpaqueAlpha") !=
 	        std::string::npos);

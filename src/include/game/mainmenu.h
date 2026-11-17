@@ -23,6 +23,9 @@ char *soloMenuTextBestTime(struct menuitem *item);
 s32 getMaxAiBuddies(void);
 s32 getNumUnlockedSpecialStages(void);
 s32 func0f104720(s32 value);
+/* B-1117: whether the mission list offers this solo stage (special
+ * assignments follow the original unlock). */
+bool soloStageIsOffered(s32 stageindex);
 char *func0f105664(struct menuitem *item);
 char *func0f1056a0(struct menuitem *item);
 char *invMenuTextPrimaryFunction(struct menuitem *item);

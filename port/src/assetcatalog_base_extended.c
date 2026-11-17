@@ -670,7 +670,11 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	{
 		s32 n = 0;
 		for (s32 i = 0; i < NUM_BASE_ANIM_ENTRIES; i++) {
-			catalogReadableAnimationId(i, "unlabeled", idbuf, sizeof(idbuf));
+			/* B-1258: the character animation extractor's rule
+			 * (romextract_pdanim_chr.c), so a slot whose symbol is only a
+			 * placeholder (ANIM_001B) has one id, the one its archive
+			 * declares, not a second "unlabeled" one. */
+			catalogReadableAnimationId(i, "character", idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegisterAnimation(
 				idbuf, i, "", 0, "");
 			if (!e) {

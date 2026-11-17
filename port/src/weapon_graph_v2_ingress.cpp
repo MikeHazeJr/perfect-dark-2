@@ -44,6 +44,61 @@ std::string text(const Json &json, const char *key) {
     if (value.empty() || value.find('\0') != std::string::npos) reject("invalid graph/settings string");
     return value;
 }
+struct StandardContext { const char *name, *scope, *source, *type, *lifetime; };
+// The contexts every base .pdweapon declares. They describe what the runtime
+// already knows about any equipped weapon, so declaring them asks for nothing.
+const StandardContext kStandardContexts[] = {
+    {"owner_player", "player", "equipped_player", "player_ref", "weapon_instance"},
+    {"owner_team", "player", "equipped_player_team", "team_ref", "weapon_instance"},
+    {"weapon_instance", "weapon", "equipped_weapon", "weapon_instance_ref", "weapon_instance"},
+    {"damage_credit_player", "projectile", "owner_player", "player_ref", "projectile_life"},
+};
+void requireNoVariables(const Json &root, const char *asset_id) {
+    const char *why = "held_single_shot.v1 accepts a variables member only with an empty list";
+    if (root.get<crude_json::object>().size() != 3 || text(root, "schema") != "pd.weapon_variables.v1"
+            || text(root, "asset_id") != asset_id || !root.contains("variables")
+            || !root["variables"].is_array() || !root["variables"].get<crude_json::array>().empty())
+        reject(why);
+}
+void requireStandardContexts(const Json &root, const char *asset_id) {
+    const char *why = "held_single_shot.v1 accepts a shared-context member only with the four standard contexts";
+    if (root.get<crude_json::object>().size() != 3 || text(root, "schema") != "pd.weapon_shared_context.v1"
+            || text(root, "asset_id") != asset_id || !root.contains("contexts") || !root["contexts"].is_array())
+        reject(why);
+    const auto &contexts = root["contexts"].get<crude_json::array>();
+    const size_t count = sizeof(kStandardContexts) / sizeof(kStandardContexts[0]);
+    if (contexts.size() != count) reject(why);
+    bool seen[sizeof(kStandardContexts) / sizeof(kStandardContexts[0])]{};
+    for (const auto &context : contexts) {
+        if (!context.is_object() || context.get<crude_json::object>().size() != 5) reject(why);
+        const auto name = text(context, "name");
+        size_t i = 0;
+        while (i < count && name != kStandardContexts[i].name) ++i;
+        if (i == count || seen[i]
+                || text(context, "scope") != kStandardContexts[i].scope
+                || text(context, "source") != kStandardContexts[i].source
+                || text(context, "type") != kStandardContexts[i].type
+                || text(context, "lifetime") != kStandardContexts[i].lifetime)
+            reject(why);
+        seen[i] = true;
+    }
+}
+}
+extern "C" int wgV2ArchiveUnusedBindingsAccepted(const void *bytes, uint32_t size,
+        const weapon_graph_archive_descriptor_t *descriptor, char *error, size_t cap) {
+    if (error && cap) error[0] = 0;
+    try {
+        if (!bytes || !size || !descriptor) reject("unused binding check requires a captured archive and its descriptor");
+        if (descriptor->presentation[0])
+            reject("held_single_shot.v1 does not implement presentation bindings");
+        if (descriptor->variables[0])
+            requireNoVariables(parse(member(bytes, size, descriptor->variables)), descriptor->catalog_id);
+        if (descriptor->shared_context[0])
+            requireStandardContexts(parse(member(bytes, size, descriptor->shared_context)), descriptor->catalog_id);
+        return 1;
+    } catch (const std::exception &e) { if (error && cap) std::snprintf(error, cap, "%s", e.what()); }
+    catch (...) { if (error && cap) std::snprintf(error, cap, "weapon binding inspection allocation failed"); }
+    return 0;
 }
 extern "C" int wgV2ArchiveInspect(const void *bytes, uint32_t size,
         weapon_graph_archive_descriptor_t *out, char *error, size_t cap) {
@@ -58,8 +113,7 @@ extern "C" int wgV2ArchiveInspect(const void *bytes, uint32_t size,
         const auto schema = text(root, "schema");
         if (schema == "pd.weapon_graph.v1") { if (out) *out = descriptor; return 0; }
         if (schema != "pd.weapon_graph.v2") reject("unsupported public weapon graph schema");
-        if (descriptor.variables[0] || descriptor.shared_context[0] || descriptor.presentation[0])
-            reject("held_single_shot.v1 does not implement variables/shared-context/presentation bindings");
+        if (!wgV2ArchiveUnusedBindingsAccepted(bytes, size, &descriptor, error, cap)) return -1;
         if (descriptor.primary_graph[0] && descriptor.behavior_graph[0] && std::strcmp(primary, descriptor.behavior_graph))
             reject("v2 weapon has conflicting primary and behavior graph bindings");
         std::string model = descriptor.model_file;

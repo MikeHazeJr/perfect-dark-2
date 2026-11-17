@@ -4436,6 +4436,7 @@ static const DebugAssetSourceFamily s_DebugAssetSourceFamilies[] = {
     { ASSET_BOT_PROFILE, "Bot Profile (.pdbotprofile)" },
     { ASSET_HUD,         "HUD (.pdhud)" },
     { ASSET_THEME,       "Theme (.pdtheme)" },
+    { ASSET_AI_LISTS,    "AI Lists (.pdai)" },
 };
 
 static void renderSettingsDebug(float scale)
@@ -4901,7 +4902,9 @@ static void renderSettingsDebug(float scale)
  * Catalog tab helpers
  * ----------------------------------------------------------------------- */
 
-static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
+/* One name per asset_type_e value, in enum order. Unsized so the assert below
+ * catches a new type: a missing row was a NULL label for the combo. */
+static const char *s_AssetTypeNames[] = {
     "None",          /* ASSET_NONE */
     "Map",           /* ASSET_MAP */
     "Character",     /* ASSET_CHARACTER */
@@ -4930,7 +4933,14 @@ static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
     "Bot Profile",   /* ASSET_BOT_PROFILE */
     "Projectile",    /* ASSET_PROJECTILE */
     "Entity",        /* ASSET_ENTITY */
+    "Material",      /* ASSET_MATERIAL */
+    "Font",          /* ASSET_FONT */
+    "Scenario",      /* ASSET_SCENARIO */
+    "Theme",         /* ASSET_THEME */
+    "AI Lists",      /* ASSET_AI_LISTS: global AI list bank */
 };
+static_assert(sizeof(s_AssetTypeNames) / sizeof(s_AssetTypeNames[0]) == ASSET_TYPE_COUNT,
+    "s_AssetTypeNames needs one name per asset_type_e value");
 
 static const char *s_LoadStateNames[] = {
     "Registered", "Enabled", "Loaded", "Active"

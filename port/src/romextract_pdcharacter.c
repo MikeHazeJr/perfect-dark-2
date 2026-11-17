@@ -295,7 +295,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDCHARACTER",
 			"modArchiveBegin failed for \"%s\"", dst_full);

@@ -587,6 +587,7 @@ static const char *s_catalogPayloadKind(asset_type_e type)
     case ASSET_FONT:      return "font";
     case ASSET_SCENARIO:  return "scenario";
     case ASSET_THEME:     return "theme";
+    case ASSET_AI_LISTS:  return "ai_lists";
     default:              return "generic";
     }
 }
@@ -783,7 +784,8 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_MATERIAL
         || type == ASSET_FONT
         || type == ASSET_SCENARIO
-        || type == ASSET_THEME;
+        || type == ASSET_THEME
+        || type == ASSET_AI_LISTS;
 }
 
 static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type)

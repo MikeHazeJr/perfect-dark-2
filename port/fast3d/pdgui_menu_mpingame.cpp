@@ -12,7 +12,7 @@
  *      pdguiGameOverRender() (in pdgui_menu_pausemenu.cpp) owns the full tabbed
  *      end-screen and fires independently of hotswap state.
  *      g_MpEndscreenSavePlayerMenuDialog suppressed (B-115 fix) — auto-save via
- *      configSave("pd.ini") handles PC saving; legacy dialog stole input.
+ *      configSave(CONFIG_PATH) handles PC saving; legacy dialog stole input.
  *
  * IMPORTANT: C++ translation unit — must NOT include types.h (#define bool s32 breaks
  * C++ bool).  All game data access goes through pdgui_bridge.c functions.
@@ -382,7 +382,7 @@ extern "C" void pdguiMpIngameRegister(void)
      * Endscreen SUB dialogs (PlayerRanking, TeamRanking, PlayerStats) are
      * also registered by endscreen.cpp as noops — content folded into root.
      *
-     * B-115 fix: suppress Save Player — auto-save via configSave("pd.ini")
+     * B-115 fix: suppress Save Player; auto-save via configSave(CONFIG_PATH)
      * in pdguiEndscreenExitToMainMenu() handles PC saving. Legacy N64 dialog
      * was for Controller Pak writes; keeping it native stole input from ImGui.
      * This dialog is NOT registered by endscreen.cpp, so we keep it here. */

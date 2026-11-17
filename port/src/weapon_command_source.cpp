@@ -140,6 +140,10 @@ Command read(const Json &v) {
         n.trigger = static_cast<uint16_t>(integer(field(v, "slot"), UINT16_MAX));
         n.value = (static_cast<intptr_t>(integer(field(v, "dont_loop"), UINT16_MAX)) << 16)
             | integer(field(v, "goto_trigger"), UINT16_MAX);
+        // Runtime consumes the whole packed value. A nonzero high word is
+        // therefore a forward target, not a flag that may be ignored.
+        if (n.value >= n.trigger)
+            bad("repeat_until_full requires dont_loop=0 and goto_trigger before slot");
     } else if (name == "play_character_animation") {
         keys(v, {"command", "animation", "direction", "speed"}); n.type = GUNCMD_PLAYANIMATION;
         reference(c, field(v, "animation"), WEAPON_COMMAND_CLIP);

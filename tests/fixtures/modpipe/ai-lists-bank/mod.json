@@ -1,0 +1,7 @@
+{
+  "id": "fixture_ai_lists_bank",
+  "name": "AI List Bank Fixture",
+  "version": "1.0.0",
+  "author": "PD2 tests",
+  "description": "Fixture for global AI lists slice 2 step 5: a mod's .pdai carrying one global list (0x0000, a byte-identical copy of the base list) layered over base:ai_global."
+}

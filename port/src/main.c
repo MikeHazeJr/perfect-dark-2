@@ -24,6 +24,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "scenario_global_ailists.h"
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
@@ -798,6 +799,8 @@ static void bootRunCatalogWork(void *arg)
 		"pdeffect-pdprop-pdvehicle",
 		romExtractAllPdmeta(0));
 	bootRecordAssetPhase("pdtheme", romExtractAllPdtheme(0));
+	/* Global AI lists slice 2: the binary's lists as base:ai_global. */
+	bootRecordAssetPhase("pdai", romExtractAllPdai(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_WALKER);
@@ -1937,6 +1940,7 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_BOT_PROFILE: return "botprofile";
 	case ASSET_SCENARIO:  return "scenario";
 	case ASSET_THEME:     return "theme";
+	case ASSET_AI_LISTS:  return "ai_lists";
 	default:              return "unknown";
 	}
 }
@@ -1974,6 +1978,7 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "botprofile") == 0 || strcmp(s, "bot_profile") == 0) return ASSET_BOT_PROFILE;
 	if (strcmp(s, "scenario") == 0) return ASSET_SCENARIO;
 	if (strcmp(s, "theme") == 0) return ASSET_THEME;
+	if (strcmp(s, "ai_lists") == 0 || strcmp(s, "ai") == 0) return ASSET_AI_LISTS;
 	return ASSET_NONE;
 }
 
@@ -4569,6 +4574,14 @@ int main(int argc, const char **argv)
 			atexit(cleanup);
 		}
 		return 2;
+	}
+
+	/* Global AI lists, design step 5: the public rows must compile back to
+	 * the exact bytes of g_GlobalAilists (scenario_global_ailists.c). */
+	if (sysArgCheck("--check-global-ailists") &&
+			scenarioGlobalAiListsRoundTrip() != 0) {
+		sysLoudFailf("AI.GLOBAL",
+			"global AI lists do not round-trip through their public rows; see the AI.GLOBAL lines");
 	}
 
 	if (g_BootExtractAssetsOnly) {

@@ -1,0 +1,52 @@
+{
+  "scenario_name": "combat_sim_infiltration_lifts",
+  "description": "B-228 as an object rule, B-1253: a Combat match on the Infiltration arena (a campaign stage hosted as an arena loads the stage's own scenario) creates the stage's 4 lifts once, in the main pass, through the objects.json row rule \"multiplayer\": true, and the ROM-era SP-in-MP overlay does not run (it created them a second time).",
+  "tags": ["combatsim", "match-start", "setup", "object-rules", "b-228", "b-1253"],
+  "paths_of_interest": [
+    "src/game/setup.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/romextract_pdarena.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_infiltration",
+    "base:combat",
+    "2",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot, seed the Combat Simulator config and start the match through the debug launch path" },
+    { "at_ms": 150000, "type": "exit", "comment": "a test install boots for about 67 s before the launch is taken (2026-11-16); then the stage load, setupCreateProps and some gameplay frames" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=combat_sim_infiltration_lifts",
+      "BOOT: --launch-mp-room arena='base:arena_infiltration'",
+      "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=2 stage='base:arena_infiltration' scenario='base:combat'",
+      "SCENARIO\\.SOURCE: object rules for 'base:scenario_infiltration': 4 rows \\(coop 0, enemy_rockets_exempt 0, chopper 0, multiplayer 4\\)",
+      "SETUP: prop iteration done",
+      "SETUP\\.LIFT: multiplayer setup created 4 lifts and 0 escalator steps \\(4 kept by the objects\\.json multiplayer rule\\)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SETUP\\.LIFT: SP-in-MP stagenum",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject"
+    ],
+    "required_counts": [
+      { "pattern": "SETUP\\.LIFT: multiplayer setup created", "min": 1, "max": 1 }
+    ]
+  }
+}

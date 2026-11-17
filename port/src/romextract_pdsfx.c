@@ -958,7 +958,7 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);
 		free(wav_data);
@@ -1150,7 +1150,7 @@ static s32 s_emitOneMp3VoiceSource(s32 source_filenum, s32 source_index,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysMemFree(mp3_bytes);
 		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);

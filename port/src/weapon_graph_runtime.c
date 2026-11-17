@@ -915,6 +915,10 @@ static s32 keyNeedsUnit(const char *key)
 	 * heuristic below made the documented projectile.timer key
 	 * uncompilable. */
 	if (strcmp(key, "timer_starts") == 0) return 0;
+	/* B-1178: entity.autogun's beam_interval counts shots (a tracer beam
+	 * every N shots), not time; the substring rule below made that public
+	 * name uncompilable. */
+	if (strcmp(key, "beam_interval") == 0) return 0;
 	if (strstr(key, "timer") || strstr(key, "duration") ||
 			strstr(key, "cooldown") || strstr(key, "interval") ||
 			strstr(key, "_time") || strstr(key, "recoverytime")) {
@@ -930,6 +934,20 @@ static s32 keyHasUnit(const char *key)
 		strstr(key, "time60") || endsWith(key, "_ms") ||
 		endsWith(key, "_rpm") || strcmp(key, "initial_rpm") == 0 ||
 		strcmp(key, "max_rpm") == 0;
+}
+
+/* B-1178: while the unit rule refused beam_interval, authors could only write
+ * beam_interval_ticks60, a name that says 60 Hz ticks, and the runtime read it
+ * as a shot count (a beam every 60 shots for "one second"). The old name is
+ * refused wherever a graph compiles or an IR is registered. */
+static s32 paramKeyRefused(const char *key, char *err, size_t err_cap)
+{
+	if (key && strcmp(key, "beam_interval_ticks60") == 0) {
+		setErr(err, err_cap, "param beam_interval_ticks60 is not a time; "
+			"use beam_interval (a beam every N shots)");
+		return 1;
+	}
+	return 0;
 }
 
 static s32 paramIsModelRefKey(const char *key)
@@ -1228,6 +1246,7 @@ static s32 compileParams(json_span_t node_obj, weapon_graph_ir_t *ir,
 			setErr(err, err_cap, "too many graph params");
 			return -1;
 		}
+		if (paramKeyRefused(key, err, err_cap)) return -1;
 		if (keyNeedsUnit(key) && !keyHasUnit(key)) {
 			setErr(err, err_cap, "time-like param %s needs explicit units", key);
 			return -1;
@@ -2787,6 +2806,44 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 	return result;
 }
 
+/* The member-text twin of the variables scope above, so a validator that
+ * holds a weapon's source texts (an in-memory .pdmod packer, for one) compiles
+ * a weapon whose graph uses $variables the way the game does (MODS ask, week
+ * note 2026-11-14). A present variables text, even one with an empty table, is
+ * an active substitution scope; NULL or empty text means no scope, as in the
+ * loose register path. The scope never outlives the call. */
+s32 weaponGraphCompileWeaponSourceJsonWithVariables(const char *asset_id,
+                                                    const char *primary_json,
+                                                    u32 primary_size,
+                                                    const char *secondary_json,
+                                                    u32 secondary_size,
+                                                    const char *shared_json,
+                                                    u32 shared_size,
+                                                    const char *variables_json,
+                                                    u32 variables_size,
+                                                    weapon_graph_ir_t *out,
+                                                    char *err, size_t err_cap)
+{
+	weapon_graph_weapon_settings_t vartable;
+	s32 result;
+
+	if (variables_json && variables_size > 0) {
+		memset(&vartable, 0, sizeof(vartable));
+		if (weaponGraphParseTunablesJson(variables_json, variables_size, 1,
+				vartable.variables, WEAPON_GRAPH_SETTINGS_MAX,
+				&vartable.variable_count, err, err_cap) != 0) {
+			return -1;
+		}
+		vartable.valid = 1;
+		s_compile_variables = &vartable;
+	}
+	result = weaponGraphCompileWeaponSourceJson(asset_id, primary_json,
+		primary_size, secondary_json, secondary_size, shared_json,
+		shared_size, out, err, err_cap);
+	s_compile_variables = NULL;
+	return result;
+}
+
 static s32 weaponGraphCompileArchiveBytes(const void *archive_bytes,
                                           u32 archive_size,
                                           asset_type_e graph_type,
@@ -3081,6 +3138,7 @@ static s32 weaponGraphValidateRuntimeIr(const weapon_graph_ir_t *ir,
 		for (s32 j = 0; j < node->param_count; j++) {
 			const weapon_graph_ir_param_t *p = &ir->params[node->param_start + j];
 			s32 resolved = 0;
+			if (paramKeyRefused(p->key, err, err_cap)) return -1; /* B-1178 */
 			/* The native adapters below consume these fields as signed integers.
 			 * Validate authored conversions before any record is published. */
 			static const char *integer_keys[] = {
@@ -3090,7 +3148,7 @@ static s32 weaponGraphValidateRuntimeIr(const weapon_graph_ir_t *ir,
 				"post_fall_timer60", "post_fall_timer_ticks60", "bounce_limit", "timer",
 				"interval", "interval_ticks60", "pickup_timer", "pickup_timer_ticks60",
 				"arm_delay", "arm_delay_ticks60", "alternate_muzzles", "beam_interval",
-				"beam_interval_ticks60", "ammo_reserve", "max_active_per_owner", "ammo_slot",
+				"ammo_reserve", "max_active_per_owner", "ammo_slot",
 				"burst_count", "recoil_anim_unk24", "recoil_anim_unk25", "recoil_anim_unk26",
 				"recoil_anim_unk27", "duration_ticks60", "penetration", "turret_accel",
 				"turret_decel", "recoverytime_ticks60", "specialfunc", "sight"
@@ -3730,8 +3788,7 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 		}
 		heldParamInt(ir, node, "alternate_muzzles",
 			&out->autogun_alternate_muzzles);
-		heldParamIntAlias(ir, node, "beam_interval",
-			"beam_interval_ticks60", &out->autogun_beam_interval_ticks60);
+		heldParamInt(ir, node, "beam_interval", &out->autogun_beam_every_shots);
 		heldParamInt(ir, node, "ammo_reserve", &out->autogun_ammo_reserve);
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_STICKY_DEVICE:
