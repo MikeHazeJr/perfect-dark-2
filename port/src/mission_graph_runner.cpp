@@ -62,11 +62,44 @@ const char *const kObjectUsedEvent = "event.object.used";
 const char *const kPickupTouchedEvent = "event.pickup.touched";
 const char *const kDoorUseEvent = "event.door.use";
 const char *const kDoorApproachEvent = "event.door.approach";
+const char *const kLiftCalledEvent = "event.lift.called";
+const char *const kLiftIdleEvent = "event.lift.idle";
+const char *const kLiftArrivedEvent = "event.lift.arrived";
+const char *const kGlassDamagedEvent = "event.glass.damaged";
+const char *const kGlassBrokenEvent = "event.glass.broken";
 
 // Object events and the rule events carry an object and may filter one.
 bool isObjectEventKind(s32 kind)
 {
-	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_DOOR_APPROACH;
+	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_GLASS_BROKEN;
+}
+
+// The object event kinds by name, in kind order (slices 2, 4 and 5).
+const struct {
+	const char *name;
+	s32 kind;
+} kObjectEventKinds[] = {
+	{ kPickupCollectedEvent, MISSION_GRAPH_EVENT_PICKUP_COLLECTED },
+	{ kDoorOpenedEvent, MISSION_GRAPH_EVENT_DOOR_OPENED },
+	{ kDoorClosedEvent, MISSION_GRAPH_EVENT_DOOR_CLOSED },
+	{ kObjectUsedEvent, MISSION_GRAPH_EVENT_OBJECT_USED },
+	{ kPickupTouchedEvent, MISSION_GRAPH_EVENT_PICKUP_TOUCHED },
+	{ kDoorUseEvent, MISSION_GRAPH_EVENT_DOOR_USE },
+	{ kDoorApproachEvent, MISSION_GRAPH_EVENT_DOOR_APPROACH },
+	{ kLiftCalledEvent, MISSION_GRAPH_EVENT_LIFT_CALLED },
+	{ kLiftIdleEvent, MISSION_GRAPH_EVENT_LIFT_IDLE },
+	{ kLiftArrivedEvent, MISSION_GRAPH_EVENT_LIFT_ARRIVED },
+	{ kGlassDamagedEvent, MISSION_GRAPH_EVENT_GLASS_DAMAGED },
+	{ kGlassBrokenEvent, MISSION_GRAPH_EVENT_GLASS_BROKEN },
+};
+
+// The object event kind of a node kind, or 0 for none.
+s32 objectEventKindOf(const std::string &kind)
+{
+	for (const auto &entry : kObjectEventKinds) {
+		if (kind == entry.name) return entry.kind;
+	}
+	return 0;
 }
 
 // A node's scalar fields other than id and kind, as text.
@@ -236,11 +269,8 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 					}
 					program->volumes.push_back(compiled.volume);
 				}
-			} else if (compiled.kind == kPickupCollectedEvent || compiled.kind == kDoorOpenedEvent ||
-					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent ||
-					compiled.kind == kPickupTouchedEvent || compiled.kind == kDoorUseEvent ||
-					compiled.kind == kDoorApproachEvent) {
-				// object-events.md slices 2 and 4: one object (its record_id) or any.
+			} else if (objectEventKindOf(compiled.kind) != 0) {
+				// object-events.md slices 2, 4 and 5: one object (its record_id) or any.
 				if (has_objective) {
 					setError(err, err_cap, "object event '" + compiled.id + "' has no objective to filter");
 					return nullptr;
@@ -252,19 +282,7 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				}
 				if (compiled.object == "any") compiled.object.clear();
 				compiled.type = NODE_EVENT;
-				compiled.event_kind = compiled.kind == kPickupCollectedEvent
-					? MISSION_GRAPH_EVENT_PICKUP_COLLECTED
-					: compiled.kind == kDoorOpenedEvent
-						? MISSION_GRAPH_EVENT_DOOR_OPENED
-						: compiled.kind == kDoorClosedEvent
-							? MISSION_GRAPH_EVENT_DOOR_CLOSED
-							: compiled.kind == kObjectUsedEvent
-								? MISSION_GRAPH_EVENT_OBJECT_USED
-								: compiled.kind == kPickupTouchedEvent
-									? MISSION_GRAPH_EVENT_PICKUP_TOUCHED
-									: compiled.kind == kDoorUseEvent
-										? MISSION_GRAPH_EVENT_DOOR_USE
-										: MISSION_GRAPH_EVENT_DOOR_APPROACH;
+				compiled.event_kind = objectEventKindOf(compiled.kind);
 				// slice 4: the level's own rules; a mission graph does not take them.
 				if (!level && missionGraphEventIsObjectRule(compiled.event_kind)) {
 					setError(err, err_cap, "rule event '" + compiled.id + "' (" + compiled.kind +
@@ -488,7 +506,9 @@ extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *pr
 extern "C" s32 missionGraphEventIsObjectRule(s32 event_kind)
 {
 	return event_kind == MISSION_GRAPH_EVENT_PICKUP_TOUCHED || event_kind == MISSION_GRAPH_EVENT_DOOR_USE ||
-		event_kind == MISSION_GRAPH_EVENT_DOOR_APPROACH;
+		event_kind == MISSION_GRAPH_EVENT_DOOR_APPROACH || event_kind == MISSION_GRAPH_EVENT_LIFT_CALLED ||
+		event_kind == MISSION_GRAPH_EVENT_LIFT_IDLE || event_kind == MISSION_GRAPH_EVENT_LIFT_ARRIVED ||
+		event_kind == MISSION_GRAPH_EVENT_GLASS_DAMAGED;
 }
 
 extern "C" s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,

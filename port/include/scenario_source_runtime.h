@@ -100,9 +100,9 @@ s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
  * scenarioTick on the host (present[p] 0 when a player has no prop). */
 s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
 	const s32 *present, s32 count);
-/* object-events.md slice 2: an object event from a native seam
+/* object-events.md slices 2 and 5: an object event from a native seam
  * (MISSION_GRAPH_EVENT_PICKUP_COLLECTED, _DOOR_OPENED, _DOOR_CLOSED,
- * _OBJECT_USED), after the native decision and effect: the object's
+ * _OBJECT_USED, _GLASS_BROKEN), after the native decision and effect: the object's
  * objects.json record_id ("" when it has none), its tag (-1 when none), its
  * object type, its catalog id (a pickup's weapon, else its model; may be
  * NULL) and the player who caused it (-1 when none). Fired on the host only.
@@ -116,7 +116,8 @@ void scenarioSourceGraphObjectEventsReport(const char *reason);
  * the native seams fire the rule events and decide nothing themselves. */
 s32 scenarioSourceGraphObjectRulesActive(void);
 /* A rule event from a native seam (MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
- * _DOOR_USE, _DOOR_APPROACH) with the object events' payload, into the level
+ * _DOOR_USE, _DOOR_APPROACH; slice 5: _LIFT_CALLED, _LIFT_IDLE,
+ * _LIFT_ARRIVED, _GLASS_DAMAGED) with the object events' payload, into the level
  * program only, inside the seam's mission_graph_object_rule_t
  * (missionGraphModulesRuleBegin). Returns the modules run, -1 when one
  * refused. The first of each kind on a stage is logged, and all are counted

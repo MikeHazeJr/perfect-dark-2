@@ -548,7 +548,8 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 	for (const char *kind : { "event.objective.status_changed", "event.mission.completed",
 			"event.mission.continue", "event.mission.phase_changed", "event.volume.entered",
 			"event.volume.left", "event.pickup.collected", "event.pickup.touched", "event.door.use",
-			"event.door.approach" }) {
+			"event.door.approach", "event.lift.called", "event.lift.idle", "event.lift.arrived",
+			"event.glass.damaged", "event.glass.broken" }) {
 		INFO(kind);
 		CHECK(events.count(kind) == 1);
 	}
@@ -556,7 +557,8 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 	CHECK(events.count("event.door.open_requested") == 0);
 	CHECK(gates == std::set<std::string>{ "gate.objective.status", "gate.mission.phase",
 		"gate.object.kind", "gate.player.has_item", "gate.pickup.native_rules",
-		"gate.door.native_unlocked" });
+		"gate.door.native_unlocked", "gate.lift.native_vacant", "gate.lift.native_ready",
+		"gate.lift.native_door_unlocked", "gate.glass.native_broken" });
 	CHECK(table_modules.count("og.hud.objective_status_message") == 1);
 	CHECK(table_modules.count("og.mission.end_completed") == 1);
 	CHECK(table_modules.count("og.door.open") == 1);

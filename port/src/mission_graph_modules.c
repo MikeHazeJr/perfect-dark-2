@@ -412,6 +412,159 @@ static s32 s_runDoorActivateAutomatic(const mission_graph_params_t *params,
 	return 1;
 }
 
+/* ---- object-events.md slice 5: the native lift and glass rules ---- */
+
+static struct liftobj *s_ruleLift(mission_graph_object_rule_t *rule)
+{
+	struct defaultobj *obj = rule && rule->prop ? rule->prop->obj : NULL;
+
+	return obj && obj->type == OBJTYPE_LIFT ? (struct liftobj *)obj : NULL;
+}
+
+static struct defaultobj *s_ruleGlass(mission_graph_object_rule_t *rule)
+{
+	struct defaultobj *obj = rule && rule->prop ? rule->prop->obj : NULL;
+
+	return obj && (obj->type == OBJTYPE_GLASS || obj->type == OBJTYPE_TINTEDGLASS) ? obj : NULL;
+}
+
+/* gate.lift.native_vacant: no player and no chr rides the called lift. */
+static s32 s_gateLiftNativeVacant(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	struct liftobj *lift = s_ruleLift(s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_CALLED,
+		MISSION_GRAPH_EVENT_LIFT_CALLED));
+
+	(void)params;
+	return lift && liftIsVacant(lift) ? 1 : 0;
+}
+
+/* og.lift.go_to_stop: inside event.lift.called the called lift goes to the
+ * calling door's stop, once; anywhere else "object" (a lift's record id) and
+ * "stop" (0 to 3, a stop the lift has) name the lift and the stop. */
+static s32 s_runLiftGoToStop(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_CALLED,
+		MISSION_GRAPH_EVENT_LIFT_CALLED);
+	struct liftobj *lift;
+	s32 stop;
+
+	if (rule) {
+		lift = s_ruleLift(rule);
+		stop = rule->stop;
+	} else {
+		struct defaultobj *obj = s_paramObject(params);
+		const char *text = missionGraphParamText(params, "stop");
+
+		lift = obj && obj->type == OBJTYPE_LIFT ? (struct liftobj *)obj : NULL;
+		stop = text ? (s32)strtol(text, NULL, 10) : -1;
+	}
+	if (!lift || stop < 0 || stop > 3 || lift->pads[stop] < 0 || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule || !rule->acted) {
+		if (rule) {
+			rule->acted = 1;
+		}
+		liftGoToStop(lift, stop);
+	}
+	return 1;
+}
+
+/* gate.lift.native_ready: the idle lift's stop has no door, or its door is
+ * closed and unlocked. */
+static s32 s_gateLiftNativeReady(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	struct liftobj *lift = s_ruleLift(s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_IDLE,
+		MISSION_GRAPH_EVENT_LIFT_IDLE));
+
+	(void)params;
+	return lift && liftStopIsReady(lift) ? 1 : 0;
+}
+
+/* og.lift.go_to_next_stop: the idle lift moves on to its next stop, once. */
+static s32 s_runLiftGoToNextStop(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_IDLE,
+		MISSION_GRAPH_EVENT_LIFT_IDLE);
+	struct liftobj *lift = s_ruleLift(rule);
+
+	(void)params;
+	if (!lift || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->acted) {
+		rule->acted = 1;
+		liftGoToNextStop(lift);
+	}
+	return 1;
+}
+
+/* gate.lift.native_door_unlocked: the stop the lift arrived at has a door
+ * with no key flags. */
+static s32 s_gateLiftNativeDoorUnlocked(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	struct liftobj *lift = s_ruleLift(s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_ARRIVED,
+		MISSION_GRAPH_EVENT_LIFT_ARRIVED));
+
+	(void)params;
+	return lift && liftArrivalDoorUnlocked(lift) ? 1 : 0;
+}
+
+/* og.lift.open_door: the door of the stop the lift arrived at opens, once. */
+static s32 s_runLiftOpenDoor(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_LIFT_ARRIVED,
+		MISSION_GRAPH_EVENT_LIFT_ARRIVED);
+	struct liftobj *lift = s_ruleLift(rule);
+
+	(void)params;
+	if (!lift || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->acted) {
+		rule->acted = 1;
+		liftOpenArrivalDoor(lift);
+	}
+	return 1;
+}
+
+/* gate.glass.native_broken: the damaged glass has taken its limit. */
+static s32 s_gateGlassNativeBroken(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	struct defaultobj *glass = s_ruleGlass(s_ruleFor(event, MISSION_GRAPH_EVENT_GLASS_DAMAGED,
+		MISSION_GRAPH_EVENT_GLASS_DAMAGED));
+
+	(void)params;
+	return glass && glassIsBroken(glass) ? 1 : 0;
+}
+
+/* og.glass.break: the damaged glass breaks (glassDestroy: its shards, and
+ * it is gone), once. */
+static s32 s_runGlassBreak(const mission_graph_params_t *params,
+	const mission_graph_event_t *event)
+{
+	mission_graph_object_rule_t *rule = s_ruleFor(event, MISSION_GRAPH_EVENT_GLASS_DAMAGED,
+		MISSION_GRAPH_EVENT_GLASS_DAMAGED);
+	struct defaultobj *glass = s_ruleGlass(rule);
+
+	(void)params;
+	if (!glass || g_NetMode == NETMODE_CLIENT) {
+		return 0;
+	}
+	if (!rule->acted) {
+		rule->acted = 1;
+		glassDestroy(glass);
+	}
+	return 1;
+}
+
 static const struct {
 	const char *kind;
 	s32 (*run)(const mission_graph_params_t *params, const mission_graph_event_t *event);
@@ -437,6 +590,15 @@ static const struct {
 	{ "og.door.activate", s_runDoorActivate },
 	{ "og.door.locked_message", s_runDoorLockedMessage },
 	{ "og.door.activate_automatic", s_runDoorActivateAutomatic },
+	/* object-events.md slice 5: the native lift and glass rules */
+	{ "gate.lift.native_vacant", s_gateLiftNativeVacant },
+	{ "og.lift.go_to_stop", s_runLiftGoToStop },
+	{ "gate.lift.native_ready", s_gateLiftNativeReady },
+	{ "og.lift.go_to_next_stop", s_runLiftGoToNextStop },
+	{ "gate.lift.native_door_unlocked", s_gateLiftNativeDoorUnlocked },
+	{ "og.lift.open_door", s_runLiftOpenDoor },
+	{ "gate.glass.native_broken", s_gateGlassNativeBroken },
+	{ "og.glass.break", s_runGlassBreak },
 };
 
 s32 missionGraphModuleKnown(const char *kind)

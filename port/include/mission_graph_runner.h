@@ -51,10 +51,12 @@ extern "C" {
  *       og.hud.objective_status_message (the original "Objective N: Completed"
  *       message). An og.* kind the table does not know refuses the program.
  *   event.pickup.collected, event.door.opened, event.door.closed,
- *       event.object.used (object-events.md slice 2) and the rule events
- *       event.pickup.touched, event.door.use, event.door.approach (slice 4,
- *       level programs only): an object's event; optional "object": "any"
- *       (the default) or an objects.json record_id.
+ *       event.object.used, event.glass.broken (object-events.md slices 2 and
+ *       5) and the rule events event.pickup.touched, event.door.use,
+ *       event.door.approach, event.lift.called, event.lift.idle,
+ *       event.lift.arrived, event.glass.damaged (slices 4 and 5, level
+ *       programs only): an object's event; optional "object": "any" (the
+ *       default) or an objects.json record_id.
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
@@ -85,6 +87,14 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_PICKUP_TOUCHED 11
 #define MISSION_GRAPH_EVENT_DOOR_USE 12
 #define MISSION_GRAPH_EVENT_DOOR_APPROACH 13
+/* object-events.md slice 5: the lift and glass rule events (gate.lift.*,
+ * og.lift.*, gate.glass.native_broken, og.glass.break), level programs
+ * only, and the record event after a glass object breaks. */
+#define MISSION_GRAPH_EVENT_LIFT_CALLED 14
+#define MISSION_GRAPH_EVENT_LIFT_IDLE 15
+#define MISSION_GRAPH_EVENT_LIFT_ARRIVED 16
+#define MISSION_GRAPH_EVENT_GLASS_DAMAGED 17
+#define MISSION_GRAPH_EVENT_GLASS_BROKEN 18
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -166,8 +176,9 @@ const char *missionGraphProgramVolumeAt(const mission_graph_program_t *program, 
  * the kind has an execution edge. */
 s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind);
 
-/* object-events.md slice 4: whether the kind is a rule event
- * (MISSION_GRAPH_EVENT_PICKUP_TOUCHED, _DOOR_USE, _DOOR_APPROACH). */
+/* object-events.md slices 4 and 5: whether the kind is a rule event
+ * (MISSION_GRAPH_EVENT_PICKUP_TOUCHED, _DOOR_USE, _DOOR_APPROACH,
+ * _LIFT_CALLED, _LIFT_IDLE, _LIFT_ARRIVED, _GLASS_DAMAGED). */
 s32 missionGraphEventIsObjectRule(s32 event_kind);
 
 /* Whether an event of this kind can reach a native module of this og.* kind

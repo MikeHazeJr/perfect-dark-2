@@ -1265,15 +1265,16 @@ typedef struct scenario_source_graph_state {
 	char level_program_error[160];
 	s32 level_program_volume_count;
 	scenario_source_bound_volume_t level_program_volumes[MISSION_GRAPH_MAX_VOLUMES];
-	/* object-events.md slice 2: object events delivered on this stage, by
-	 * kind (pickup.collected, door.opened, door.closed, object.used), and
-	 * whether their totals were logged. */
-	s32 object_event_counts[4];
+	/* object-events.md slices 2 and 5: object events delivered on this
+	 * stage, by kind (pickup.collected, door.opened, door.closed,
+	 * object.used, glass.broken), and whether their totals were logged. */
+	s32 object_event_counts[5];
 	s32 object_events_reported;
-	/* object-events.md slice 4: rule events fired on this stage
-	 * (pickup.touched, door.use, door.approach), and the parity probe's
-	 * comparisons and differences. */
-	s32 object_rule_counts[3];
+	/* object-events.md slices 4 and 5: rule events fired on this stage
+	 * (pickup.touched, door.use, door.approach, lift.called, lift.idle,
+	 * lift.arrived, glass.damaged), and the parity probe's comparisons and
+	 * differences. */
+	s32 object_rule_counts[7];
 	s32 object_rule_compared;
 	s32 object_rule_differ;
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
@@ -1321,13 +1322,17 @@ static void s_reportObjectEvents(const char *reason)
 	}
 	s_ActiveScenarioGraphs.object_events_reported = 1;
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.touched=%d door.use=%d door.approach=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner",
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d glass.broken=%d pickup.touched=%d door.use=%d door.approach=%d lift.called=%d lift.idle=%d lift.arrived=%d glass.damaged=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner",
 		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
 		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
-		s_ActiveScenarioGraphs.object_event_counts[3],
+		s_ActiveScenarioGraphs.object_event_counts[3], s_ActiveScenarioGraphs.object_event_counts[4],
 		s_ActiveScenarioGraphs.object_rule_counts[0],
 		s_ActiveScenarioGraphs.object_rule_counts[1],
 		s_ActiveScenarioGraphs.object_rule_counts[2],
+		s_ActiveScenarioGraphs.object_rule_counts[3],
+		s_ActiveScenarioGraphs.object_rule_counts[4],
+		s_ActiveScenarioGraphs.object_rule_counts[5],
+		s_ActiveScenarioGraphs.object_rule_counts[6],
 		s_ActiveScenarioGraphs.object_rule_compared,
 		s_ActiveScenarioGraphs.object_rule_differ, reason);
 }
@@ -9578,6 +9583,11 @@ static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, ch
 		{ MISSION_GRAPH_EVENT_PICKUP_TOUCHED, "event.pickup.touched" },
 		{ MISSION_GRAPH_EVENT_DOOR_USE, "event.door.use" },
 		{ MISSION_GRAPH_EVENT_DOOR_APPROACH, "event.door.approach" },
+		/* object-events.md slice 5 */
+		{ MISSION_GRAPH_EVENT_LIFT_CALLED, "event.lift.called" },
+		{ MISSION_GRAPH_EVENT_LIFT_IDLE, "event.lift.idle" },
+		{ MISSION_GRAPH_EVENT_LIFT_ARRIVED, "event.lift.arrived" },
+		{ MISSION_GRAPH_EVENT_GLASS_DAMAGED, "event.glass.damaged" },
 	};
 	size_t i;
 
@@ -34977,14 +34987,16 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 	const char *catalog_id, s32 player)
 {
 	static const char *const names[] = { "pickup.collected", "door.opened", "door.closed",
-		"object.used" };
-	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_COLLECTED;
+		"object.used", "glass.broken" };
+	const s32 index = kind == MISSION_GRAPH_EVENT_GLASS_BROKEN ? 4
+		: kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_OBJECT_USED
+			? kind - MISSION_GRAPH_EVENT_PICKUP_COLLECTED : -1;
 	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
 	mission_graph_event_t event;
 	s32 level_ran = 0;
 	s32 mission_ran = 0;
 
-	if (index < 0 || index >= 4 || !s_ActiveScenarioGraphs.level_graph_active) {
+	if (index < 0 || !s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
 	/* slice 3: a module may cause another object event (og.pickup.give
@@ -35025,7 +35037,9 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
 }
 
-static const char *const s_ObjectRuleEventNames[] = { "pickup.touched", "door.use", "door.approach" };
+static const char *const s_ObjectRuleEventNames[] = { "pickup.touched", "door.use", "door.approach",
+	"lift.called", "lift.idle", "lift.arrived", "glass.damaged" };
+#define SCENARIO_OBJECT_RULE_EVENTS 7
 
 s32 scenarioSourceGraphObjectRulesActive(void)
 {
@@ -35043,7 +35057,7 @@ s32 scenarioSourceGraphObjectRuleEvent(s32 kind, const char *object, s32 tag, s3
 	mission_graph_event_t event;
 	s32 ran;
 
-	if (index < 0 || index >= 3 || !scenarioSourceGraphObjectRulesActive()) {
+	if (index < 0 || index >= SCENARIO_OBJECT_RULE_EVENTS || !scenarioSourceGraphObjectRulesActive()) {
 		return 0;
 	}
 	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
@@ -35081,7 +35095,7 @@ void scenarioSourceGraphObjectRuleCompared(s32 kind, const char *object, const c
 {
 	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_TOUCHED;
 
-	if (index < 0 || index >= 3 || !s_ActiveScenarioGraphs.level_graph_active) {
+	if (index < 0 || index >= SCENARIO_OBJECT_RULE_EVENTS || !s_ActiveScenarioGraphs.level_graph_active) {
 		return;
 	}
 	s_ActiveScenarioGraphs.object_rule_compared++;

@@ -238,6 +238,8 @@ typedef enum {
     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
     SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
+    SMOKE_EVENT_USE_LIFT_DOOR,      /* T-MODDING-011: player 0 uses the nearest lift door */
+    SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -1051,6 +1053,14 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "use_door")) {
 		ev->type = SMOKE_EVENT_USE_DOOR;
+		return 1;
+	}
+	if (!strcmp(type_str, "use_lift_door")) {
+		ev->type = SMOKE_EVENT_USE_LIFT_DOOR;
+		return 1;
+	}
+	if (!strcmp(type_str, "damage_glass")) {
+		ev->type = SMOKE_EVENT_DAMAGE_GLASS;
 		return 1;
 	}
     if (!strcmp(type_str, "network_timeout_client")) {
@@ -3035,6 +3045,7 @@ void smokeHarnessTick(void)
 			break;
 		}
 		case SMOKE_EVENT_USE_DOOR:
+		case SMOKE_EVENT_USE_LIFT_DOOR:
 		{
 			/* T-MODDING-011 (object-events.md slice 4): player 0 uses the
 			 * nearest door the setup placed, through propdoorInteract as the
@@ -3052,7 +3063,10 @@ void smokeHarnessTick(void)
 					struct defaultobj *obj = setupGetObjByCmdIndex(index);
 
 					if (obj && obj->type == OBJTYPE_DOOR && obj->prop
-							&& obj->prop->type == PROPTYPE_DOOR) {
+							&& obj->prop->type == PROPTYPE_DOOR
+							&& (ev->type != SMOKE_EVENT_USE_LIFT_DOOR
+								|| ((obj->hidden & OBJHFLAG_LIFTDOOR)
+									&& doorIsClosed((struct doorobj *)obj)))) {
 						const f32 dx = obj->prop->pos.x - at->x;
 						const f32 dy = obj->prop->pos.y - at->y;
 						const f32 dz = obj->prop->pos.z - at->z;
@@ -3075,10 +3089,61 @@ void smokeHarnessTick(void)
 				propdoorInteract(door->base.prop);
 				setCurrentPlayerNum(prevplayernum);
 				sysLogPrintf(LOG_NOTE,
-					"SMOKE.USE_DOOR: object=setup_%04d distance=%.0f mode=%d->%d frac=%.2f at_ms=%d",
+					"SMOKE.%s: object=setup_%04d distance=%.0f mode=%d->%d frac=%.2f at_ms=%d",
+					ev->type == SMOKE_EVENT_USE_LIFT_DOOR ? "USE_LIFT_DOOR" : "USE_DOOR",
 					doorindex, sqrtf(best), mode, door->mode, frac, ev->at_ms);
 			} else {
-				sysLogPrintf(LOG_WARNING, "SMOKE.USE_DOOR: no door at_ms=%d", ev->at_ms);
+				sysLogPrintf(LOG_WARNING, "SMOKE.%s: no door at_ms=%d",
+					ev->type == SMOKE_EVENT_USE_LIFT_DOOR ? "USE_LIFT_DOOR" : "USE_DOOR", ev->at_ms);
+			}
+			break;
+		}
+		case SMOKE_EVENT_DAMAGE_GLASS:
+		{
+			/* T-MODDING-011 (object-events.md slice 5): player 0's shot
+			 * breaks the nearest unbroken glass the setup placed, through
+			 * objDamage as a shot does, so the level program's glass rule
+			 * runs in play. */
+			struct defaultobj *glass = NULL;
+			s32 glassindex = -1;
+			f32 best = 0.0f;
+			s32 index;
+
+			if (g_Vars.players[0] && g_Vars.players[0]->prop) {
+				const struct coord *at = &g_Vars.players[0]->prop->pos;
+
+				for (index = 0; setupGetCmdByIndex(index) != NULL; index++) {
+					struct defaultobj *obj = setupGetObjByCmdIndex(index);
+
+					if (obj && (obj->type == OBJTYPE_GLASS || obj->type == OBJTYPE_TINTEDGLASS)
+							&& obj->prop && (obj->flags & OBJFLAG_INVINCIBLE) == 0
+							&& (obj->hidden & OBJHFLAG_DELETING) == 0
+							&& (obj->hidden2 & OBJH2FLAG_DESTROYED) == 0) {
+						const f32 dx = obj->prop->pos.x - at->x;
+						const f32 dy = obj->prop->pos.y - at->y;
+						const f32 dz = obj->prop->pos.z - at->z;
+						const f32 d2 = dx * dx + dy * dy + dz * dz;
+
+						if (!glass || d2 < best) {
+							glass = obj;
+							glassindex = index;
+							best = d2;
+						}
+					}
+				}
+			}
+			if (glass) {
+				const s32 prevplayernum = g_Vars.currentplayernum;
+				struct coord pos = glass->prop->pos;
+
+				setCurrentPlayerNum(0);
+				objDamage(glass, 1000.0f, &pos, WEAPON_FALCON2, 0);
+				setCurrentPlayerNum(prevplayernum);
+				sysLogPrintf(LOG_NOTE,
+					"SMOKE.DAMAGE_GLASS: object=setup_%04d distance=%.0f broken=%d at_ms=%d",
+					glassindex, sqrtf(best), (glass->hidden2 & OBJH2FLAG_DESTROYED) ? 1 : 0, ev->at_ms);
+			} else {
+				sysLogPrintf(LOG_WARNING, "SMOKE.DAMAGE_GLASS: no glass at_ms=%d", ev->at_ms);
 			}
 			break;
 		}

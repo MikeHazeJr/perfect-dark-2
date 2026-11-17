@@ -318,7 +318,42 @@ campaign fixtures pin it.
   MULTIPLAYER's) and a network client's door prediction (the host
   decides).
 
+## Slice 5: lifts and glass (CORE, 2026-11-17)
+
+The rest of the Doors, lifts and glass row, in slice 4's pattern: on a
+scenario-source stage the seams fire rule events into the level program and
+decide nothing; the original routines are the gates and modules; every
+level graph wires them (fails closed); the parity probe compares the
+original decision, computed first, with the graph's.
+
+| Event | Kind | Fired by | Wiring |
+|---|---|---|---|
+| `event.lift.called` | 14 | `doorCallLift`: a linked lift door is activated (the use rule's `og.door.activate`, an AI, a script) and is not an open door that should just close | -> `gate.lift.native_vacant` (no player and no chr rides it) -pass-> `og.lift.go_to_stop` (the door's stop) |
+| `event.lift.idle` | 15 | `liftTick` at the lift's aim stop, every tick it waits | -> `gate.lift.native_ready` (no door, or its door closed and unlocked) -pass-> `og.lift.go_to_next_stop` |
+| `event.lift.arrived` | 16 | `liftTick` when the lift reaches its aim stop | -> `gate.lift.native_door_unlocked` (the stop's door has no key flags) -pass-> `og.lift.open_door` |
+| `event.glass.damaged` | 17 | `objDamage` on glass or tinted glass, after the damage | -> `gate.glass.native_broken` (damage at its limit) -pass-> `og.glass.break` (`glassDestroy`) |
+| `event.glass.broken` | 18 | `glassDestroy`, after the glass breaks | record only, for authors |
+
+The rule events are the level graph's (a mission graph naming one is
+refused) and carry the object payload; a lift event's stop travels in the
+rule context. `og.lift.go_to_stop` also works outside its rule event for
+authors: then `"object"` (a lift's record id) and `"stop"` (0 to 3) name
+the lift and the stop. A network client keeps the native rules for its own
+prediction and for the damage the host sends it (the host decides).
+
+Node ids `object.rules.lift.*` and `object.rules.glass.*`; the scenario
+kind moves to `_liftglass`; the level program is 23 nodes, 15 execution
+edges and 8 modules. Proof: `mission_lift_glass_rules` (Defection: the
+harness's `use_lift_door` calls a lift through a closed lift door,
+`damage_glass` breaks the two nearest glass objects; the lifts' own waits
+and arrivals run meanwhile), and the campaign fixtures' parity lines.
+
+Left native, on purpose: a lift's door closing before it leaves (it cannot
+move with the door open), the lift trigger that disables a lift after one
+trip (`OBJFLAG_LIFT_TRIGGERDISABLE`), the glass in a windowed door (part of
+the door's damage) and the AI's lift command (`liftGoToStop` behind its
+graph twin).
+
 ## Not in scope
 
-- Lifts' own stops and glass breaking (their own events after slice 4).
 - Multiplayer's pickup replication (MULTIPLAYER): events fire on the host.
