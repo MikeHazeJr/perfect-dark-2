@@ -30,9 +30,18 @@
 extern "C" {
 #endif
 
-/* Two view angles this close (radians, about 3 degrees) count as the same,
- * and the nearer seat wins. */
-#define VEHICLE_SEAT_TIE_ANGLE 0.05f
+/* Two view angles this close (radians, about 9 degrees) count as the same:
+ * the player is looking at the vehicle, not at one of its seats, and where
+ * they stand decides. A player who looks at the vehicle's middle from beside
+ * it sees both seats within a few degrees of each other. */
+#define VEHICLE_SEAT_TIE_ANGLE 0.15f
+
+/* When the view does not decide, the driver's seat is the one a player gets,
+ * unless the gunner's is nearer by more than this (world units): beside the
+ * middle of the vehicle the two seats are almost equally far, and a player
+ * there wants to drive. Beside the pod, or behind the vehicle, the gunner's
+ * seat is clearly nearer. */
+#define VEHICLE_SEAT_DRIVER_MARGIN 20.0f
 
 /* The exit button's second press must come within this many 60 Hz frames of
  * the first (0.3 s) to switch seats. */
@@ -62,13 +71,13 @@ f32 vehicleSeatViewAngle(f32 dx, f32 dz, f32 view_theta_deg);
  *
  * Among the seats that exist and are in range, the player prefers the one
  * they look at most directly; when the two view angles are within tie_angle
- * of each other, the nearer one; when that is equal too, the driver's. A
- * preferred seat that is taken gives way to the other seat when that one is
- * free (and exists and is in range). With no free seat in range the answer is
- * NONE and the mount fails as it does today.
+ * of each other, the driver's, unless the gunner's is nearer by more than
+ * driver_margin. A preferred seat that is taken gives way to the other seat
+ * when that one is free (and exists and is in range). With no free seat in
+ * range the answer is NONE and the mount fails as it does today.
  */
 s32 vehicleSeatChoose(const vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_COUNT],
-	f32 tie_angle);
+	f32 tie_angle, f32 driver_margin);
 
 /* What a step of the exit button asks the game to do now. */
 #define VEHICLE_EXIT_PRESS_NONE     0 /* nothing */

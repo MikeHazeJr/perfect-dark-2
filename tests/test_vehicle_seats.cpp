@@ -17,6 +17,7 @@ const s32 kDriver = VEHICLE_GRAPH_SEAT_DRIVER;
 const s32 kGunner = VEHICLE_GRAPH_SEAT_GUNNER;
 const s32 kNone = VEHICLE_GRAPH_SEAT_NONE;
 const float kTie = VEHICLE_SEAT_TIE_ANGLE;
+const float kMargin = VEHICLE_SEAT_DRIVER_MARGIN;
 
 vehicle_seat_candidate_t seat(bool exists, bool free, bool in_range, float view_angle, float dist)
 {
@@ -32,7 +33,7 @@ vehicle_seat_candidate_t seat(bool exists, bool free, bool in_range, float view_
 s32 choose(const vehicle_seat_candidate_t &driver, const vehicle_seat_candidate_t &gunner)
 {
 	const vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_COUNT] = { driver, gunner };
-	return vehicleSeatChoose(seats, kTie);
+	return vehicleSeatChoose(seats, kTie, kMargin);
 }
 
 /* Degrees to the helper's radians, near enough for these cases. */
@@ -85,9 +86,22 @@ TEST_CASE("A mount asks for the seat the player looks at", "[vehicle-seats]")
 	CHECK(choose(seat(true, true, true, 0.10f, 150.0f), seat(true, true, true, 0.40f, 120.0f)) == kDriver);
 	CHECK(choose(seat(true, true, true, 0.40f, 120.0f), seat(true, true, true, 0.10f, 150.0f)) == kGunner);
 
-	// Looking between them (within the tie angle): the nearer seat.
+	// Looking at the vehicle, not at a seat (within the tie angle): the
+	// driver's seat, unless the gunner's is nearer by more than the margin.
 	CHECK(choose(seat(true, true, true, 0.20f, 150.0f), seat(true, true, true, 0.22f, 120.0f)) == kGunner);
 	CHECK(choose(seat(true, true, true, 0.22f, 120.0f), seat(true, true, true, 0.20f, 150.0f)) == kDriver);
+	CHECK(choose(seat(true, true, true, 0.20f, 150.0f), seat(true, true, true, 0.22f, 140.0f)) == kDriver);
+	CHECK(choose(seat(true, true, true, 0.20f, 150.0f),
+		seat(true, true, true, 0.22f, 150.0f - kMargin - 1.0f)) == kGunner);
+	CHECK(choose(seat(true, true, true, 0.20f, 150.0f),
+		seat(true, true, true, 0.22f, 150.0f - kMargin + 1.0f)) == kDriver);
+	// Beside the middle of the Maian vehicle, 150 units out, looking at its
+	// origin: the seats are 17 and 11 degrees off the view and 157 and 153
+	// units away. The driver's.
+	CHECK(choose(seat(true, true, true, rad(16.7f), 156.6f), seat(true, true, true, rad(11.3f), 153.0f)) == kDriver);
+	// Beside its pod, looking at its origin: 13 and 10 degrees, 183 and 153
+	// units. The gunner's.
+	CHECK(choose(seat(true, true, true, rad(13.2f), 183.1f), seat(true, true, true, rad(10.5f), 153.0f)) == kGunner);
 	// Just past the tie angle the view decides again, whatever the distance.
 	CHECK(choose(seat(true, true, true, 0.20f, 150.0f), seat(true, true, true, 0.20f + kTie + 0.01f, 10.0f)) == kDriver);
 	CHECK(choose(seat(true, true, true, 0.20f + kTie + 0.01f, 10.0f), seat(true, true, true, 0.20f, 150.0f)) == kGunner);
@@ -116,7 +130,7 @@ TEST_CASE("Only seats the vehicle has and the player can reach are chosen", "[ve
 	// Nothing in range, and no seats at all.
 	CHECK(choose(seat(true, true, false, 0.0f, 400.0f), seat(true, true, false, 0.0f, 400.0f)) == kNone);
 	CHECK(choose(seat(false, true, true, 0.0f, 1.0f), seat(false, true, true, 0.0f, 1.0f)) == kNone);
-	CHECK(vehicleSeatChoose(nullptr, kTie) == kNone);
+	CHECK(vehicleSeatChoose(nullptr, kTie, kMargin) == kNone);
 }
 
 TEST_CASE("One press of the exit button leaves; two in quick succession switch seats", "[vehicle-seats]")

@@ -18792,7 +18792,7 @@ static s32 hoverbikeChooseMountSeat(struct prop *prop)
 	seats[VEHICLE_GRAPH_SEAT_GUNNER].free = vehicleGraphRuntimeSeatOccupant(prop,
 		prop->lifecycle_generation, VEHICLE_GRAPH_SEAT_GUNNER) < 0;
 
-	choice = vehicleSeatChoose(seats, VEHICLE_SEAT_TIE_ANGLE);
+	choice = vehicleSeatChoose(seats, VEHICLE_SEAT_TIE_ANGLE, VEHICLE_SEAT_DRIVER_MARGIN);
 	sysLogPrintf(LOG_NOTE,
 		"VEHICLE.SEAT: mount choice=%s driver(dist=%.0f angle=%.2f free=%d range=%d) gunner(dist=%.0f angle=%.2f free=%d range=%d)",
 		choice == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner"

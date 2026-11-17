@@ -43,7 +43,7 @@ static s32 seatReachable(const vehicle_seat_candidate_t *seat)
 }
 
 s32 vehicleSeatChoose(const vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_COUNT],
-	f32 tie_angle)
+	f32 tie_angle, f32 driver_margin)
 {
 	const vehicle_seat_candidate_t *driver;
 	const vehicle_seat_candidate_t *gunner;
@@ -70,8 +70,9 @@ s32 vehicleSeatChoose(const vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_CO
 		} else if (diff > tie_angle) {
 			preferred = VEHICLE_GRAPH_SEAT_DRIVER;
 		} else {
-			/* Looking between them: the nearer seat, the driver's on a tie. */
-			preferred = gunner->dist < driver->dist
+			/* Looking at the vehicle rather than at a seat: the driver's
+			 * seat, unless the gunner's is clearly the nearer one. */
+			preferred = gunner->dist + driver_margin < driver->dist
 				? VEHICLE_GRAPH_SEAT_GUNNER : VEHICLE_GRAPH_SEAT_DRIVER;
 		}
 	}
