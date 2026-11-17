@@ -3615,3 +3615,45 @@ read `words.w1` and shift). A unit test should decode a macro-built command
 through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
 
 `rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`
+
+## SP-95: An operating system probe sits inside a loop that runs every frame
+
+**Severity: MEDIUM — nothing breaks. The frame rate falls with the size of the
+data, so a small base model hides the cost and a large mod model shows it.**
+
+`modelRodataIsReadable` asks the operating system (`VirtualQuery`) whether a
+range of memory can be read. It was written for about a hundred calls a tick,
+one per model node, and its header estimated 100 ns a call. In this client a
+call costs several microseconds. Inside a loop over display list commands or
+vertex batches it becomes thousands of system calls per walk.
+
+**Known instance (B-1234, 2026-11-17):** the shot hit test (`bgTestHitOnObj`,
+`bgTestHitOnChr` in `src/game/bg.c`) probed every vertex batch, and on the
+native path every command. The game runs that test every frame to find what
+the player is looking at. A compiled mod model has one vertex batch per
+triangle: 5,829 system calls for one test of the Maian vehicle, 30 to 48 ms of
+every frame while its rider's view passed through it. The base hoverbike paid
+about 3 ms a frame the same way and held 60 only because it is small.
+
+**Fix shape:** keep the check and drop the repeated question. A walk carries a
+`model_rodata_span_t` on its stack and calls `modelRodataIsReadableInSpan`,
+which asks once per run of readable memory and answers the rest with two
+compares. The span never outlives its walk: memory can be freed or
+re-protected between walks, and a kept span would go on answering "readable".
+Where the owner of the data knows its extent (the mod asset compiler's
+generated display list spans), a bound check against that extent is better
+still than a page probe.
+
+**Left alone, not per frame:** `extractGfxTris` in `src/lib/meshcollision.c`
+probes once per command while a prop's collision mesh is built (once per
+prop). The model relation updates in `src/lib/model.c` probe once per node,
+2% to 3% of the main thread's samples.
+
+**Audit checklist:** for every probe call, read the loop it sits in and how
+often that loop runs: per node is fine, per command, per vertex or per
+triangle of a per-frame walk is this pattern. Measure before trusting a cost
+estimate in a comment: a sampler on the running client found this in one run
+(`rip_sampler.py`, `rip_report.py`, `rip_chain.py`, described in B-1234), after
+reading the code had produced a wrong guess.
+
+`rg -n "modelRodataIsReadable(InSpan)?\(" src port`
