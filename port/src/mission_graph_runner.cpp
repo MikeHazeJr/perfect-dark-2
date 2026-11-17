@@ -59,13 +59,14 @@ const char *const kPickupCollectedEvent = "event.pickup.collected";
 const char *const kDoorOpenedEvent = "event.door.opened";
 const char *const kDoorClosedEvent = "event.door.closed";
 const char *const kObjectUsedEvent = "event.object.used";
-const char *const kPickupRequestedEvent = "event.pickup.requested";
-const char *const kDoorOpenRequestedEvent = "event.door.open_requested";
+const char *const kPickupTouchedEvent = "event.pickup.touched";
+const char *const kDoorUseEvent = "event.door.use";
+const char *const kDoorApproachEvent = "event.door.approach";
 
-// Object events and the object queries carry an object and may filter one.
+// Object events and the rule events carry an object and may filter one.
 bool isObjectEventKind(s32 kind)
 {
-	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
+	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_DOOR_APPROACH;
 }
 
 // A node's scalar fields other than id and kind, as text.
@@ -237,8 +238,9 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				}
 			} else if (compiled.kind == kPickupCollectedEvent || compiled.kind == kDoorOpenedEvent ||
 					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent ||
-					compiled.kind == kPickupRequestedEvent || compiled.kind == kDoorOpenRequestedEvent) {
-				// object-events.md slice 2: one object (its record_id) or any.
+					compiled.kind == kPickupTouchedEvent || compiled.kind == kDoorUseEvent ||
+					compiled.kind == kDoorApproachEvent) {
+				// object-events.md slices 2 and 4: one object (its record_id) or any.
 				if (has_objective) {
 					setError(err, err_cap, "object event '" + compiled.id + "' has no objective to filter");
 					return nullptr;
@@ -258,9 +260,17 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 							? MISSION_GRAPH_EVENT_DOOR_CLOSED
 							: compiled.kind == kObjectUsedEvent
 								? MISSION_GRAPH_EVENT_OBJECT_USED
-								: compiled.kind == kPickupRequestedEvent
-									? MISSION_GRAPH_EVENT_PICKUP_REQUESTED
-									: MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
+								: compiled.kind == kPickupTouchedEvent
+									? MISSION_GRAPH_EVENT_PICKUP_TOUCHED
+									: compiled.kind == kDoorUseEvent
+										? MISSION_GRAPH_EVENT_DOOR_USE
+										: MISSION_GRAPH_EVENT_DOOR_APPROACH;
+				// slice 4: the level's own rules; a mission graph does not take them.
+				if (!level && missionGraphEventIsObjectRule(compiled.event_kind)) {
+					setError(err, err_cap, "rule event '" + compiled.id + "' (" + compiled.kind +
+						") belongs to the level graph, not the mission graph");
+					return nullptr;
+				}
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -473,6 +483,12 @@ extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *pr
 		if (node.type == NODE_EVENT && node.event_kind == event_kind && !node.out.empty()) return 1;
 	}
 	return 0;
+}
+
+extern "C" s32 missionGraphEventIsObjectRule(s32 event_kind)
+{
+	return event_kind == MISSION_GRAPH_EVENT_PICKUP_TOUCHED || event_kind == MISSION_GRAPH_EVENT_DOOR_USE ||
+		event_kind == MISSION_GRAPH_EVENT_DOOR_APPROACH;
 }
 
 extern "C" s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,

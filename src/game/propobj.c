@@ -101,6 +101,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "net/netmsg.h"
 #include "scene.h"
 #include "mission_graph_runner.h"
+#include "mission_graph_modules.h"
 #include "scenario_source_runtime.h"
 #include "weapondata_authored.h"
 #include <stdio.h>
@@ -18861,23 +18862,27 @@ static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 play
 	scenarioSourceGraphObjectEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id, playernum);
 }
 
-/* object-events.md slice 3: asks the graphs before the native rule; true
- * when one refused (og.pickup.refuse, og.door.refuse). Nothing is built or
- * asked when no graph handles the query, and a networked client asks
- * nothing (the host decides). */
-static bool objGraphQueryRefuses(s32 kind, struct defaultobj *obj, s32 playernum)
+/* object-events.md slice 4: fires a rule event about prop for user (the
+ * player, or the eyespy) into the level program, which decides through the
+ * rule gates and modules; rule holds what they did. Only on a stage whose
+ * rules are the level program's (scenarioSourceGraphObjectRulesActive). */
+static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user,
+	mission_graph_object_rule_t *rule, struct objgraphevent *ev)
 {
-	struct objgraphevent ev;
+	mission_graph_object_rule_t *outer;
 
-	if (g_NetMode == NETMODE_CLIENT || !scenarioSourceGraphHandlesObjectQuery(kind)) {
-		return false;
+	memset(rule, 0, sizeof(*rule));
+	rule->prop = prop;
+	rule->user = user;
+	rule->tickop = TICKOP_NONE;
+	objGraphEventCapture(prop->obj, ev);
+	if (ev->type < 0) {
+		return;
 	}
-	objGraphEventCapture(obj, &ev);
-	if (ev.type < 0) {
-		return false;
-	}
-	return scenarioSourceGraphObjectQuery(kind, ev.object, ev.tag, ev.type, ev.catalog_id,
-		playernum) != 0;
+	outer = missionGraphModulesRuleBegin(rule);
+	scenarioSourceGraphObjectRuleEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id,
+		g_Vars.currentplayernum);
+	missionGraphModulesRuleEnd(outer);
 }
 
 bool propobjInteract(struct prop *prop)
@@ -20316,6 +20321,34 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 	return TICKOP_NONE;
 }
 
+/* Whether the object's flags make it a pickup at all: the first of the
+ * original pickup tests. */
+static bool objPickupIsCandidate(struct defaultobj *obj)
+{
+	if (func0f085194(obj) && obj->type != OBJTYPE_HAT) {
+		return (obj->flags & OBJFLAG_UNCOLLECTABLE) == 0;
+	}
+	return (obj->flags & OBJFLAG_COLLECTABLE) != 0;
+}
+
+static bool objPickupIsTouching(struct prop *prop);
+
+/* object-events.md slice 4: the player touches a pickup; the level program
+ * decides (gate.pickup.native_rules, og.pickup.collect). The parity probe
+ * compares the original rules, computed first, with what the graph did. */
+static s32 objPickupTouched(struct prop *prop)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = objPickupRulesAllow(prop);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, prop, g_Vars.currentplayer->prop, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, ev.object,
+		native ? "collect" : "refuse", rule.collected ? "collect" : "refuse",
+		(rule.collected != 0) != native);
+	return rule.tickop;
+}
+
 s32 objTestForPickup(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -20329,18 +20362,30 @@ s32 objTestForPickup(struct prop *prop)
 		return TICKOP_NONE;
 	}
 
-	if (func0f085194(obj) && obj->type != OBJTYPE_HAT) {
-		if (obj->flags & OBJFLAG_UNCOLLECTABLE) {
-			return TICKOP_NONE;
-		}
-	} else {
-		if ((obj->flags & OBJFLAG_COLLECTABLE) == 0) {
-			return TICKOP_NONE;
-		}
+	if (!objPickupIsCandidate(obj)) {
+		return TICKOP_NONE;
 	}
 
-	if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+	/* object-events.md slice 4: on a scenario-source stage the level program
+	 * decides once the player touches the object. */
+	if (scenarioSourceGraphObjectRulesActive()) {
+		return objPickupIsTouching(prop) ? objPickupTouched(prop) : TICKOP_NONE;
+	}
+
+	if (!objPickupRulesAllow(prop) || !objPickupIsTouching(prop)) {
 		return TICKOP_NONE;
+	}
+	return propPickupByPlayer(prop, true);
+}
+
+/* The original pickup rules for the current player, after the candidate
+ * test and before the touch (gate.pickup.native_rules). */
+bool objPickupRulesAllow(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+		return false;
 	}
 
 	// For disarmed weapons that are falling, picktimer timer is 1 second and
@@ -20352,17 +20397,17 @@ s32 objTestForPickup(struct prop *prop)
 	if ((obj->hidden & OBJHFLAG_PROJECTILE) && obj->projectile->pickuptimer240 > 0) {
 		if (obj->projectile->pickupby == NULL) {
 			if (obj->projectile->bouncecount == 0) {
-				return TICKOP_NONE;
+				return false;
 			}
 		} else {
 			if (obj->projectile->pickupby != g_Vars.currentplayer->prop) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 	}
 
 	if (!objCanPickupFromSafe(obj)) {
-		return TICKOP_NONE;
+		return false;
 	}
 
 	if (obj->type == OBJTYPE_WEAPON) {
@@ -20376,7 +20421,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_NBOMB
 				|| weapon->weaponnum == WEAPON_SKROCKET) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20389,7 +20434,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_COMMSRIDER
 				|| weapon->weaponnum == WEAPON_ECMMINE) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20403,7 +20448,7 @@ s32 objTestForPickup(struct prop *prop)
 
 			if (stickydevice != NULL && stickydevice->sticky_pickup_none) {
 				if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-					return TICKOP_NONE;
+					return false;
 				}
 			}
 		}
@@ -20413,7 +20458,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_BOLT
 				|| weapon->weaponnum == WEAPON_COMBATKNIFE) {
 			if (obj->hidden & OBJHFLAG_PROJECTILE) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20445,7 +20490,7 @@ s32 objTestForPickup(struct prop *prop)
 					}
 
 					if (invHasDoubleWeaponExcAllGuns(leftweaponnum, rightweaponnum)) {
-						return TICKOP_NONE;
+						return false;
 					}
 				} else {
 					if (g_Vars.normmplayerisrunning
@@ -20454,10 +20499,10 @@ s32 objTestForPickup(struct prop *prop)
 						struct invitem *item = invFindSingleWeapon(weapon->weaponnum);
 
 						if ((item && item->type_weap.pickuppad == weapon->base.pad) || weapon->base.pad < 0) {
-							return TICKOP_NONE;
+							return false;
 						}
 					} else {
-						return TICKOP_NONE;
+						return false;
 					}
 				}
 			}
@@ -20474,7 +20519,7 @@ s32 objTestForPickup(struct prop *prop)
 					&& (crate->ammotype != AMMOTYPE_PROXY_MINE || invHasSingleWeaponExcAllGuns(WEAPON_PROXIMITYMINE))
 					&& (crate->ammotype != AMMOTYPE_TIMED_MINE || invHasSingleWeaponExcAllGuns(WEAPON_TIMEDMINE))
 					&& (crate->ammotype != AMMOTYPE_KNIFE || invHasSingleWeaponExcAllGuns(WEAPON_COMBATKNIFE))) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 	} else if (obj->type == OBJTYPE_MULTIAMMOCRATE) {
@@ -20483,7 +20528,7 @@ s32 objTestForPickup(struct prop *prop)
 		s32 i;
 
 		if (objGetDestroyedLevel(obj)) {
-			return TICKOP_NONE;
+			return false;
 		}
 
 		for (i = 0; i <= AMMOTYPE_NBOMB; i++) {
@@ -20510,7 +20555,7 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (ignore) {
-			return TICKOP_NONE;
+			return false;
 		}
 	} else if (obj->type == OBJTYPE_SHIELD) {
 		struct shieldobj *shield = (struct shieldobj *) prop->obj;
@@ -20525,15 +20570,24 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (ignore) {
-			return TICKOP_NONE;
+			return false;
 		}
 	}
 
 	if (g_Vars.currentplayer->vv_verta * M_BADTAU / 360.0f < -60.0f * M_BADTAU / 360.0f) {
 		if (g_Vars.currentplayer->magnetattracttime < 0) {
-			return TICKOP_NONE;
+			return false;
 		}
 	}
+
+	return true;
+}
+
+/* Whether the current player is in pickup range of the object (the magnet's
+ * and the Elvis shelf's ranges included) and sees it: the touch. */
+static bool objPickupIsTouching(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
 
 	{
 		struct prop *playerprop = g_Vars.currentplayer->prop;
@@ -20569,17 +20623,8 @@ s32 objTestForPickup(struct prop *prop)
 			pickup = false;
 		}
 
-		if (pickup) {
-			/* object-events.md slice 3: a graph may refuse the pickup. */
-			if (objGraphQueryRefuses(MISSION_GRAPH_EVENT_PICKUP_REQUESTED, obj,
-					g_Vars.currentplayernum)) {
-				return TICKOP_NONE;
-			}
-			return propPickupByPlayer(prop, true);
-		}
+		return pickup;
 	}
-
-	return TICKOP_NONE;
 }
 
 bool func0f0899dc(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3)
@@ -22218,16 +22263,47 @@ bool doorIsRangeEmpty(struct doorobj *door)
 /**
  * Find automatic doors and open them if the player is close to them.
  */
+/* An automatic door opens for the player (og.door.activate_automatic). */
+void doorOpenAutomatic(struct doorobj *door)
+{
+	doorsRequestMode(door, DOORMODE_OPENING);
+	/* PC: persistent door stat — fires only when transitioning from
+	 * a closed/closing state (the caller's player-range + unlock checks
+	 * filtered it). Gated on local player. */
+	if (g_Vars.currentplayernum < PLAYERCOUNT()) {
+		statIncrement("doors.opened", 1);
+	}
+}
+
+/* object-events.md slice 4: the player approaches an automatic door; the
+ * level program decides (gate.door.native_unlocked,
+ * og.door.activate_automatic), compared with the original rule. */
+static void doorApproached(struct prop *doorprop)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = doorIsUnlocked(g_Vars.currentplayer->prop, doorprop);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_APPROACH, doorprop, g_Vars.currentplayer->prop, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_APPROACH, ev.object,
+		native ? "open" : "stay", rule.activated ? "open" : "stay", (rule.activated != 0) != native);
+}
+
 void doorsCheckAutomatic(void)
 {
 	struct prop *doorprop;
 	s16 *propnumptr;
 	s16 propnums[256];
+	bool graphrules;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		// don't do anything if we're not the authority
 		return;
 	}
+
+	/* object-events.md slice 4: on a scenario-source stage the level
+	 * program decides whether an approached door opens. */
+	graphrules = scenarioSourceGraphObjectRulesActive();
 
 	roomGetProps(g_Vars.currentplayer->prop->rooms, propnums, 256);
 	propnumptr = propnums;
@@ -22239,9 +22315,7 @@ void doorsCheckAutomatic(void)
 			struct doorobj *door = doorprop->door;
 
 			if ((door->doorflags & DOORFLAG_AUTOMATIC)
-					&& doorIsUnlocked(g_Vars.currentplayer->prop, doorprop)
-					&& !objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
-						g_Vars.currentplayernum)
+					&& (graphrules || doorIsUnlocked(g_Vars.currentplayer->prop, doorprop))
 					&& (door->mode == DOORMODE_CLOSING || (door->mode == DOORMODE_IDLE && door->frac <= 0))) {
 				bool canopen = false;
 				struct defaultobj *obj = NULL;
@@ -22278,12 +22352,10 @@ void doorsCheckAutomatic(void)
 				}
 
 				if (canopen) {
-					doorsRequestMode(door, DOORMODE_OPENING);
-					/* PC: persistent door stat — fires only when transitioning from
-					 * a closed/closing state (canopen gate above already filtered
-					 * the player-range + unlock checks).  Gated on local player. */
-					if (g_Vars.currentplayernum < PLAYERCOUNT()) {
-						statIncrement("doors.opened", 1);
+					if (graphrules) {
+						doorApproached(doorprop);
+					} else {
+						doorOpenAutomatic(door);
 					}
 				}
 			}
@@ -23991,20 +24063,11 @@ void doorsChooseSwingDirection(struct prop *chrprop, struct doorobj *door)
 	}
 }
 
-bool propdoorInteract(struct prop *doorprop)
+/* The original refusal of a used door that is locked (og.door.locked_message):
+ * the locked message while it is shut, who tried, the pending activation. */
+void doorShowLocked(struct doorobj *door)
 {
-	struct doorobj *door = doorprop->door;
-	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
-	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
-
-	/* object-events.md slice 3: a graph may keep the door shut (then it
-	 * behaves as a locked door). */
-	if (!objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
-				g_Vars.currentplayernum)
-			&& doorIsUnlocked(playerprop, doorprop)) {
-		doorsChooseSwingDirection(playerprop, door);
-		doorsActivate(doorprop, true);
-	} else if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {
+	if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {
 		if ((door->base.flags2 & OBJFLAG2_SKIPDOORLOCKEDMSG) == 0) {
 			struct textoverride *override = invGetTextOverrideForObj(&door->base);
 			u8 intraining = false;
@@ -24034,6 +24097,35 @@ bool propdoorInteract(struct prop *doorprop)
 		}
 
 		door->base.flags2 |= OBJFLAG2_DOOR_PENDINGACTIVATION;
+	}
+}
+
+bool propdoorInteract(struct prop *doorprop)
+{
+	struct doorobj *door = doorprop->door;
+	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
+	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
+
+	/* object-events.md slice 4: on a scenario-source stage the level program
+	 * decides (gate.door.native_unlocked, og.door.activate,
+	 * og.door.locked_message), compared with the original rule. A network
+	 * client keeps its local prediction (the host corrects it). */
+	if (g_NetMode != NETMODE_CLIENT && scenarioSourceGraphObjectRulesActive()) {
+		mission_graph_object_rule_t rule;
+		struct objgraphevent ev;
+		const bool native = doorIsUnlocked(playerprop, doorprop);
+
+		objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_USE, doorprop, playerprop, &rule, &ev);
+		scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_USE, ev.object,
+			native ? "activate" : "locked",
+			rule.activated ? (rule.locked_message ? "both" : "activate")
+				: (rule.locked_message ? "locked" : "nothing"),
+			native ? (!rule.activated || rule.locked_message) : (rule.activated || !rule.locked_message));
+	} else if (doorIsUnlocked(playerprop, doorprop)) {
+		doorsChooseSwingDirection(playerprop, door);
+		doorsActivate(doorprop, true);
+	} else {
+		doorShowLocked(door);
 	}
 
 	return TICKOP_NONE;
