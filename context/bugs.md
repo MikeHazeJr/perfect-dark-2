@@ -1,6 +1,6 @@
 # Bug Tracker
 
-## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed in code, not yet run)
+## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
 
 Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.
 Found by SP-93's new model warning on 4789effa (base 7): in `mp_hacker_central_net_smoke` (`results-20261117T014259Z.json`)
@@ -20,6 +20,14 @@ models listed=N`), and the scenario token's own model (`scenarioTokenModelNum`: 
 `MODEL_CHRDATATHIEF`, which is not the weapon's mapped model; `MANIFEST-HOST: scenario N token model M`). The token-mode,
 carrier-death and Combat-with-simulants net smokes forbid the model warning. Pinned by `[b1273]` in
 `tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+Checked in play 2026-11-17 on 326df90c (built in hub turn q_20261117014917169_52e3ea4a, pd-tests 2045/2045, base 7):
+`mp_hacker_central_net_carrier_death_smoke` PASS 107/107 (`results-20261117T035213Z.json`) and `mp_combat_net_bots_smoke`
+PASS 71/71 (`results-20261117T040515Z.json`). The host lists the uplink's model (`MANIFEST-HOST: scenario 2 token model 19
+as 'base:model_chrdatathief'`) and 13 weapon world models (`listed=13 for 28 entries`; 26 in Combat); in the carrier-death
+run five dropped guns are announced (weapons 8, 2, 8, 8, 5) and the replacement uplink is placed, with no `has no session
+catalog id` line on either side, and the client replays simulants taking the dropped guns as the right weapons (items 44,
+45, 49 as weapons 8, 2, 8).
 
 ## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; checked in play for the uplink and the briefcase)
 

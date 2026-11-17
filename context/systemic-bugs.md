@@ -4105,7 +4105,7 @@ Fixed by `scenarioTokenWeaponNum` and the lobby start's token closure.
 **Second instance (B-1273, 2026-11-17), found by the new model warning:** the manifest listed weapons but not
 the models their props are drawn with, so a dropped gun, the replacement uplink and a dropped briefcase
 reached clients as model 0 (`MODEL_ROOFGUN`). Fixed by listing every manifest weapon's world model and the
-token's own model.
+token's own model; checked in play 2026-11-17 (five dropped guns and a replacement uplink, no warning).
 
 **Search:**
 ```
