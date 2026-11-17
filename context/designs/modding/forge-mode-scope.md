@@ -1271,3 +1271,37 @@ volumes, graph nodes and the navigation record into step (the level document
 and the archive rebuild). What it would add: the scene's conversion to the
 game's form (unindexed, float colours, `_PD_ROOM`), `collision.obj` and its
 flags, the room box, and the starts from the model's empties.
+
+## One editor: the level file first (WRITTEN 2026-11-17, not compiled)
+
+Mike, 2026-11-17 16:14 UTC: "Focus on Forge mode, we will return to the other
+stuff afterward." Until now the editor had two systems side by side: the
+Level File section, which edits the level itself, sat under the Setup tab,
+while the tabs around it (The Grid's own 141-entry object catalog, lighting,
+logic, zones, game type and an "old Grid map" save to `mods/Forge Maps/`)
+edit data that no level holds and that only this editor reads back, losing
+some of it on every load. A player could build a whole map in the Objects
+tab and have nothing in the level.
+
+The editor now opens on a first tab, **Level File**: the level's starts and
+objects (made, moved, nudged, turned, sized, given models and weapons, left
+out), drawn in the world, undone and saved as a level mod. Its sidebar has
+Starts, Objects and Save, and the bar above the tabs shows the level open, its
+counts and its unsaved edits there. The other tabs stay and are honest about
+it: Look (lighting, mission, sky, music; was "Level"), Grid Objects (was
+"Objects"), Control, Gameplay and Grid Map (was "Setup") each open with a line
+saying what they do not save into the level, and the Grid Map save is behind
+a switch ("Show the old Grid map save").
+
+Choices for Mike to overrule: the old tools are kept and labelled rather than
+removed (bots and the game type are still useful for trying a level, and
+logic, zones and a level's look are later work that needs CORE's schemas);
+the old Grid map save is hidden, not deleted, since the scope already retires
+it.
+
+What a level does not hold yet, and what it needs: its look (lighting, sky,
+fog, music: no scenario member carries them; `stage.json` holds stage rules
+such as weather, which is CORE's, so this is a question for CORE), and the
+game modes' markers (hills, bases, the case's places), which the placements
+list in F3 names and which the scenario tables do not have a row kind for yet
+(also CORE's and MULTIPLAYER's to settle).

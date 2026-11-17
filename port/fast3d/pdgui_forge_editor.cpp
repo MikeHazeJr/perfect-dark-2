@@ -65,11 +65,12 @@ s32 bootForgeLevelTick(void);
  * values match the original enum -- ordering is load-bearing because
  * forgeTabLabel switches on them. */
 enum {
-	FGT_LEVEL = 0,
-	FGT_OBJECTS,
+	FGT_FILE = 0,   /* the level being made: its starts and objects, saved in its archive */
+	FGT_LEVEL,      /* "Look": lighting, mission, sky, music (an old Grid map's) */
+	FGT_OBJECTS,    /* "Grid Objects": The Grid's own catalog (an old Grid map's) */
 	FGT_CONTROL,
 	FGT_GAMEPLAY,
-	FGT_SETUP,
+	FGT_SETUP,      /* "Grid Map": an old Grid map's settings and its save */
 	FGT_COUNT
 };
 
@@ -1378,7 +1379,14 @@ static void forgeDrawSettingsTab(void)
 	}
 
 	ImGui::SeparatorText("Save / Load");
+	static bool s_ShowOldGridSave = false;
+	ImGui::Checkbox("Show the old Grid map save (mods/Forge Maps)", &s_ShowOldGridSave);
+	if (!s_ShowOldGridSave) {
+		ImGui::TextDisabled("A level is saved in Level File, as a level mod that shows in The Grid and "
+			"in match setup.");
+	}
 	static char save_slug[FORGE_NAME_LEN] = "";
+	if (s_ShowOldGridSave) {
 	if (save_slug[0] == '\0') f_slug_from_name(s->map_name, save_slug, sizeof(save_slug));
 	ImGui::InputText("Mod Slug", save_slug, FORGE_NAME_LEN);
 	if (ImGui::Button("Save As Mod")) {
@@ -1397,7 +1405,8 @@ static void forgeDrawSettingsTab(void)
 	ImGui::TextDisabled("Saves to mods/Forge Maps/<slug>/ (The Grid map format; "
 			"writes mod.json + map.json).");
 	ImGui::TextDisabled("Only this editor reads that format. To make a level that "
-			"shows in The Grid and in match setup, use Level File at the top of this tab.");
+			"shows in The Grid and in match setup, use the Level File tab.");
+	}
 
 	/* Save confirmation modal -- lists mod dependencies so the author
 	 * knows the full bundle before pressing Save. */
@@ -1472,17 +1481,18 @@ static void forgeDrawSettingsTab(void)
  * forward-decl block after the includes) so the earlier tab draw
  * functions can reference tab ids when registering scroll anchors. */
 
-static int s_forge_active_tab = FGT_OBJECTS;
+static int s_forge_active_tab = FGT_FILE;
 static int s_forge_tab_set_request = -1; /* -1 = free, else force-set to this tab this frame */
 
 static const char *forgeTabLabel(int idx)
 {
 	switch (idx) {
-	case FGT_LEVEL:    return "Level";
-	case FGT_OBJECTS:  return "Objects";
+	case FGT_FILE:     return "Level File";
+	case FGT_LEVEL:    return "Look";
+	case FGT_OBJECTS:  return "Grid Objects";
 	case FGT_CONTROL:  return "Control";
 	case FGT_GAMEPLAY: return "Gameplay";
-	case FGT_SETUP:    return "Setup";
+	case FGT_SETUP:    return "Grid Map";
 	default:           return "?";
 	}
 }
@@ -1499,6 +1509,13 @@ static const char *forgeTabLabel(int idx)
 struct ForgeSidebarEntry {
 	const char *label;
 	int         payload;
+};
+
+/* Level File: anchors inside forgeDrawLevelFileSection. */
+static const ForgeSidebarEntry s_SbFile[] = {
+	{ "Starts",  0 },
+	{ "Objects", 1 },
+	{ "Save",    2 },
 };
 
 static const ForgeSidebarEntry s_SbLevel[] = {
@@ -1545,7 +1562,6 @@ static const ForgeSidebarEntry s_SbGameplay[] = {
 };
 
 static const ForgeSidebarEntry s_SbSetup[] = {
-	{ "Level File",   3 },
 	{ "Map Metadata", 0 },
 	{ "Variant",      1 },
 	{ "Players",      2 },
@@ -1560,6 +1576,10 @@ static ForgeSidebarList forgeSidebarForTab(int tab)
 {
 	ForgeSidebarList out;
 	switch (tab) {
+	case FGT_FILE:
+		out.items = s_SbFile;
+		out.count = (int)(sizeof(s_SbFile) / sizeof(s_SbFile[0]));
+		break;
 	case FGT_LEVEL:
 		out.items = s_SbLevel;
 		out.count = (int)(sizeof(s_SbLevel) / sizeof(s_SbLevel[0]));
@@ -2043,7 +2063,7 @@ static bool forgeLevelFileNudgeRow(const char *id, const f32 camera_look[3], f32
 
 static void forgeDrawLevelFileSection(void)
 {
-	forgeScrollAnchorMaybe(FGT_SETUP, 3);   /* sidebar "Level File" */
+	forgeScrollAnchorMaybe(FGT_FILE, 0);   /* sidebar "Starts" (the top) */
 	ImGui::SeparatorText("Level File");
 
 	const char *arena = forgeLevelSessionArena();
@@ -2266,6 +2286,7 @@ static void forgeDrawLevelFileSection(void)
 	/* -------------------------------------------------------------
 	 * Objects
 	 * ------------------------------------------------------------- */
+	forgeScrollAnchorMaybe(FGT_FILE, 1);   /* sidebar "Objects" */
 	ImGui::SeparatorText("Objects");
 	forge_level_object_t selected = {};
 	const bool haveSelected = s_LevelFileObjectIndex >= 0
@@ -2605,6 +2626,7 @@ static void forgeDrawLevelFileSection(void)
 	/* -------------------------------------------------------------
 	 * Save
 	 * ------------------------------------------------------------- */
+	forgeScrollAnchorMaybe(FGT_FILE, 2);   /* sidebar "Save" */
 	ImGui::SeparatorText("Save Level");
 	ImGui::InputText("Level Name", s_LevelFileName, sizeof(s_LevelFileName));
 	ImGui::BeginDisabled(s_LevelFileName[0] == '\0');
@@ -2653,10 +2675,28 @@ static void forgeDrawLevelFileSection(void)
 	forgeLevelFileDrawStatus();
 }
 
+/* The old Grid tools edit The Grid's own data, which a level does not hold
+ * (forge-mode-scope.md: the placements come first; logic, zones and game
+ * types become part of a level later). Each such tab says so at its top. */
+static void forgeNotInLevelNote(const char *what)
+{
+	ImGui::PushTextWrapPos(0.0f);
+	ImGui::TextColored(ImVec4(1.0f, 0.82f, 0.45f, 1.0f), "Not saved in the level: %s", what);
+	ImGui::PopTextWrapPos();
+	ImGui::Separator();
+}
+
 static void forgeDrawActiveTab(int idx)
 {
 	switch (idx) {
+	case FGT_FILE:
+		/* The level itself: its starts and objects, drawn in the world while
+		 * the camera flies, saved as a level mod. */
+		forgeDrawLevelFileSection();
+		break;
 	case FGT_LEVEL:
+		forgeNotInLevelNote("the lighting, sky, music and mission settings here are previewed live "
+			"and kept only in an old Grid map. A level's look is not part of its file yet.");
 		/* Level = Lighting + Mission + ambience (skybox / skylight / music).
 		 * Sidebar anchors: 0 = Lighting sub-tab start, 1 = Mission sub-tab
 		 * start. Anchors 2-4 (Skybox / Skylight / Background Music) live
@@ -2673,6 +2713,8 @@ static void forgeDrawActiveTab(int idx)
 		/* Objects = Catalog + Properties. The Objects sidebar's payload
 		 * is the catalog category filter and is applied via
 		 * forgeSidebarActivate, not a scroll-to anchor. */
+		forgeNotInLevelNote("these are The Grid's own objects, kept only in an old Grid map. "
+			"Place a level's starts, weapons, crates, vehicles and props in Level File.");
 		forgeDrawCatalogTab();
 		ImGui::Separator();
 		forgeDrawPropertiesTab();
@@ -2680,6 +2722,8 @@ static void forgeDrawActiveTab(int idx)
 	case FGT_CONTROL:
 		/* Control = Logic + Zones. Anchors: 0 = Logic start, 1 = Wires,
 		 * 2 = Zones start, 3 = Channels (inside Logic). */
+		forgeNotInLevelNote("logic and zones run here and are kept only in an old Grid map. "
+			"They become part of a level's own graph later.");
 		forgeScrollAnchorMaybe(FGT_CONTROL, 0);
 		forgeDrawLogicTab();
 		ImGui::Separator();
@@ -2690,6 +2734,8 @@ static void forgeDrawActiveTab(int idx)
 		/* Gameplay = Game Type + Bots. Anchor 0 = Game Type start,
 		 * anchor 7 = Bots start. Other anchors (1-6) live inside
 		 * forgeDrawGameTypeTab next to their section headers. */
+		forgeNotInLevelNote("the game type and the bots are for trying the level out here. "
+			"A match on a saved level takes its rules from match setup.");
 		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 0);
 		forgeDrawGameTypeTab();
 		ImGui::Separator();
@@ -2697,11 +2743,11 @@ static void forgeDrawActiveTab(int idx)
 		forgeDrawBotsTab();
 		break;
 	case FGT_SETUP:
-		/* Setup = Level File + Settings. Anchor 3 = Level File; the
-		 * others live inside forgeDrawSettingsTab at the Map Metadata /
-		 * Variant / Players section headers. */
-		forgeDrawLevelFileSection();
-		ImGui::Separator();
+		/* Grid Map = an old Grid map's settings and save. Anchors live
+		 * inside forgeDrawSettingsTab at the Map Metadata / Variant /
+		 * Players section headers. */
+		forgeNotInLevelNote("this is an old Grid map's settings and save (mods/Forge Maps), which only "
+			"this editor reads and which loses data on every load. Save a level in Level File.");
 		forgeDrawSettingsTab();
 		break;
 	default:
@@ -2753,7 +2799,7 @@ static void forgeSidebarHandleInput(void)
 			 * is what scopes Properties' fields. Use SelectOnly so the
 			 * pane reflects exactly the held object regardless of any
 			 * prior multi-select state. */
-			s_forge_active_tab      = FGT_OBJECTS;
+			s_forge_active_tab      = FGT_FILE;
 			s_forge_tab_set_request = FGT_OBJECTS;
 			forgeSelectionSelectOnly(held_uid);
 		} else {
@@ -2935,17 +2981,31 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 		s_EditorPanelMin.y + ImGui::GetWindowHeight());
 	s_EditorPanelShown = true;
 
-	/* Undo / redo bar always visible. */
-	if (ImGui::Button("Undo")) forgeUndoApplyUndo();
-	ImGui::SameLine();
-	if (ImGui::Button("Redo")) forgeUndoApplyRedo();
-	ImGui::SameLine();
-	ImGui::TextDisabled("|");
-	ImGui::SameLine();
-	s32 sel = forgeSelectionCount();
-	ImGui::Text("Selected: %d", sel);
-	ImGui::SameLine();
-	ImGui::TextDisabled(" | Objects: %d / %d", forgeObjectCount(), FORGE_MAX_OBJECTS);
+	if (s_forge_active_tab == FGT_FILE) {
+		/* The level being made. Its own Undo and Redo are in the tab. */
+		forge_level_doc_t *topDoc = forgeLevelSessionDoc();
+		const forge_level_source_t *topSource = forgeLevelSessionSource();
+		if (topDoc && topSource) {
+			ImGui::Text("Level: %s", topSource->arena_id);
+			ImGui::SameLine();
+			ImGui::TextDisabled(" | starts %d | objects %d | unsaved edits %d", (int)forgeLevelDocSpawnCount(topDoc),
+				(int)forgeLevelDocObjectCount(topDoc), s_LevelFileEdits);
+		} else {
+			ImGui::TextDisabled("No level file is open. Open the level below to edit its starts and objects.");
+		}
+	} else {
+		/* The old Grid tools' own undo and counts. */
+		if (ImGui::Button("Undo")) forgeUndoApplyUndo();
+		ImGui::SameLine();
+		if (ImGui::Button("Redo")) forgeUndoApplyRedo();
+		ImGui::SameLine();
+		ImGui::TextDisabled("|");
+		ImGui::SameLine();
+		s32 sel = forgeSelectionCount();
+		ImGui::Text("Selected: %d", sel);
+		ImGui::SameLine();
+		ImGui::TextDisabled(" | Grid objects: %d / %d", forgeObjectCount(), FORGE_MAX_OBJECTS);
+	}
 	ImGui::SameLine();
 	ImGui::TextDisabled(" | Tab: %s", forgeTabLabel(s_forge_active_tab));
 
