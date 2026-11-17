@@ -773,6 +773,8 @@ static s32 bbikeSwitchSeatAction(void *context, s32 seat)
 	s_GunnerYaw[playernum] = 0.0f;
 	vehicleExitPressReset(&s_ExitPress[playernum]);
 	s_VehicleExitIntentPending[playernum] = false;
+	s_LastVehicleInputProp[playernum] = bikeprop;
+	s_LastVehicleInputLogFrame[playernum] = -30;
 
 	sysLogPrintf(LOG_NOTE, "VEHICLE.SEAT: player=%d switched from the %s seat to the %s seat",
 		playernum, from == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver",
@@ -1706,6 +1708,14 @@ static void bbikeTickGunner(void)
 			}
 		}
 		yaw = *held;
+
+		/* One bounded witness per half second of riding as the gunner,
+		 * the gunner's counterpart of the driver's input line. */
+		if ((s32)g_Vars.lvframenum - s_LastVehicleInputLogFrame[g_Vars.currentplayernum] >= 30) {
+			sysLogPrintf(LOG_NOTE, "VEHICLE: gunner player=%d yaw=%.2f pitch=%.1f turn=%.2f",
+				g_Vars.currentplayernum, yaw, player->vv_verta, player->speedtheta);
+			s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = (s32)g_Vars.lvframenum;
+		}
 	}
 
 	if (g_Vars.lvupdate240 > 0) {
