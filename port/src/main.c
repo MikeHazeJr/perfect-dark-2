@@ -235,8 +235,10 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       editor camera flying, opens the level's placements, adds a player
  *       start where the camera is and saves the result as a level mod under
  *       the display name, through the calls the Level File section's buttons
- *       make. The game runs on for three seconds, then a smoke run ends.
- *       Logged as FORGE.LEVEL.* lines.
+ *       make. A second and a half later it logs where the editor's world
+ *       markers put four known points (FORGE.MARKERS.PROBE) and, in a smoke
+ *       run that asked for a screenshot, takes it. Three seconds after the
+ *       save a smoke run ends. Logged as FORGE.LEVEL.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -3088,27 +3090,88 @@ s32 bootLaunchScenarioTick(void)
 	return 1;
 }
 
+/* port/fast3d/gfx_sdl.h: a grab of the picture at the next swap, the capture
+ * the smoke harness's own screenshot events use. */
+extern void gfxRequestSmokeScreenshot(const char *path);
+
+/* Where the editor's world markers put four known points, logged so a run
+ * can check the projection without anyone looking at a picture: a point
+ * straight ahead of the editor camera must be at the middle of the picture
+ * (0.5, 0.5), one ahead and to the right must be right of the middle, one
+ * ahead and above must be above it, and one behind must be out of view.
+ * Fractions of the renderer's native size, the units forgeProjectWorldPos
+ * answers in and the Forge HUD scales to the window. */
+static void bootForgeMarkerProbe(void)
+{
+	struct coord cam;
+	const f32 native_w = (f32)videoGetNativeWidth();
+	const f32 native_h = (f32)videoGetNativeHeight();
+	f32 yaw;
+	f32 pitch;
+	f32 fwd[3];
+	f32 right[3];
+	f32 point[3];
+	char text[4][48];
+
+	cam.x = 0.0f;
+	cam.y = 0.0f;
+	cam.z = 0.0f;
+	forgeGetCameraPos(&cam);
+	yaw = forgeGetCameraYawDeg() * 0.017453292f;
+	pitch = forgeGetCameraPitchDeg() * 0.017453292f;
+	/* The camera's own forward and right (forgeUpdateFreefly). */
+	fwd[0] = sinf(yaw) * cosf(pitch);
+	fwd[1] = sinf(pitch);
+	fwd[2] = cosf(yaw) * cosf(pitch);
+	right[0] = cosf(yaw);
+	right[1] = 0.0f;
+	right[2] = -sinf(yaw);
+
+	for (s32 i = 0; i < 4; i++) {
+		const f32 along = (i == 3) ? -300.0f : 300.0f;
+		f32 x = 0.0f;
+		f32 y = 0.0f;
+
+		point[0] = cam.x + fwd[0] * along + (i == 1 ? right[0] * 100.0f : 0.0f);
+		point[1] = cam.y + fwd[1] * along + (i == 2 ? 100.0f : 0.0f);
+		point[2] = cam.z + fwd[2] * along + (i == 1 ? right[2] * 100.0f : 0.0f);
+		if (native_w > 0.0f && native_h > 0.0f && forgeProjectWorldPos(point, &x, &y, NULL)) {
+			snprintf(text[i], sizeof(text[i]), "(%.3f, %.3f)", x / native_w, y / native_h);
+		} else {
+			snprintf(text[i], sizeof(text[i]), "hidden");
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f",
+		text[0], text[1], text[2], text[3], (s32)native_w, (s32)native_h, cam.x, cam.y, cam.z,
+		forgeGetCameraYawDeg(), forgeGetCameraPitchDeg());
+}
+
 /* --launch-forge-level <arena id> and --debug-forge-session-save <name>.
  * Called every gameplay frame from the Forge editor's tick
- * (pdguiForgeEditorTick). Three one-shot steps:
+ * (pdguiForgeEditorTick). One-shot steps:
  *
  *   1. Once the boot stage has placed the player (lvframenum >= 4, the gate
  *      --launch-scenario uses), start a Forge session on the arena.
  *   2. With --debug-forge-session-save: two seconds into that level, with the
  *      editor camera flying, add a player start where the camera is and save
- *      the level under the name (forgeLevelDebugSessionEdit).
- *   3. Three more seconds of the game running on the level it just saved a
- *      copy of, then end a smoke run.
+ *      the level under the name (forgeLevelDebugSessionEdit). The level file
+ *      stays open, so the HUD marks its starts and objects in the world.
+ *   3. A second and a half later: log where the markers' projection puts four
+ *      known points (bootForgeMarkerProbe) and, in a smoke run that asked for
+ *      a screenshot, take one with the markers on.
+ *   4. Three seconds after the save, with the game still running on the level
+ *      it just saved a copy of, end a smoke run.
  *
  * Returns 1 on a frame where a step ran. */
 s32 bootForgeLevelTick(void)
 {
-	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 run on, 4 done */
+	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 probe, 4 run on, 5 done */
 	static const char *s_arena = NULL;
 	static const char *s_name = NULL;
 	static s32 s_saved_frame = 0;
 
-	if (s_step == 4) {
+	if (s_step == 5) {
 		return 0;
 	}
 	if (s_step == 0) {
@@ -3120,7 +3183,7 @@ s32 bootForgeLevelTick(void)
 					"BOOT: --debug-forge-session-save name='%s' result=FAIL (it needs --launch-forge-level <arena id>)",
 					s_name);
 			}
-			s_step = 4;
+			s_step = 5;
 			return 0;
 		}
 		sysLogPrintf(LOG_NOTE, "BOOT: --launch-forge-level arena=%s armed", s_arena);
@@ -3135,7 +3198,7 @@ s32 bootForgeLevelTick(void)
 		started = forgeLevelStartForge(s_arena);
 		sysLogPrintf(started ? LOG_NOTE : LOG_WARNING, "BOOT: --launch-forge-level arena=%s result=%s",
 			s_arena, started ? "OK" : "FAIL");
-		s_step = (started && s_name && s_name[0]) ? 2 : 4;
+		s_step = (started && s_name && s_name[0]) ? 2 : 5;
 		return 1;
 	}
 	if (s_step == 2) {
@@ -3168,11 +3231,33 @@ s32 bootForgeLevelTick(void)
 		s_step = 3;
 		return 1;
 	}
-	/* A stage that was loaded again counts its frames from zero. */
+	if (s_step == 3) {
+		const char *shot_dir = sysArgGetString("--smoke-screenshot-dir");
+
+		/* A stage that was loaded again counts its frames from zero. */
+		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 90) {
+			return 0;
+		}
+		bootForgeMarkerProbe();
+		if (smokeHarnessIsActive() && shot_dir && shot_dir[0]) {
+			/* The file the runner plans for the smoke's first screenshot
+			 * (smokeBuildScreenshotEvent: "<dir>/<ordinal>-<name>.bmp", and
+			 * the first is number 1). The scenario lists it far too late to be
+			 * taken by the harness's own clock, because only this flag knows
+			 * when the save is over. */
+			static char path[1024];
+
+			snprintf(path, sizeof(path), "%s/001-forge-session-markers.bmp", shot_dir);
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-session-save screenshot -> %s", path);
+			gfxRequestSmokeScreenshot(path);
+		}
+		s_step = 4;
+		return 1;
+	}
 	if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 180) {
 		return 0;
 	}
-	s_step = 4;
+	s_step = 5;
 	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-session-save ran on for %d frames after the save (lvframenum=%d)",
 		(s32)(g_Vars.lvframenum - s_saved_frame), (s32)g_Vars.lvframenum);
 	if (smokeHarnessIsActive()) {

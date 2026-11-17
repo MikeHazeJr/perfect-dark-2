@@ -27,7 +27,10 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_SETTINGS_GAME_READY,
 	SMOKE_READINESS_NETWORK_LOBBY_READY,
 	SMOKE_READINESS_CORE_BOOT_READY,
-	SMOKE_READINESS_NETWORK_DECLINED_LOBBY
+	SMOKE_READINESS_NETWORK_DECLINED_LOBBY,
+	/* An offline stage is live and the Forge editor camera is flying over
+	 * it: the state a Forge session starts in. */
+	SMOKE_READINESS_FORGE_EDITOR_READY
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -66,6 +69,7 @@ typedef struct smoke_readiness_facts {
 	int player_bike_mode;
 	int player_hoverbike;
 	int vehicle_driver_layer_active;
+	int forge_freefly;
 	int endscreen;
 	int endscreen_menu_active;
 	int menu_input_active;

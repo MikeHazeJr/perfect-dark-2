@@ -35,6 +35,15 @@ s32 pdguiForgeStartSessionOnCanvas(s32 stagenum);
 /** HUD overlay (F0 shell + F1+ live readouts). */
 void pdguiForgeHudRender(s32 winW, s32 winH);
 
+/** The open level file's player starts and objects, marked in the world by
+ *  the HUD while the editor camera flies (Forge F3, first piece). On by
+ *  default; the editor's Level File section has the switch and tells the HUD
+ *  which start and which object are selected so it can pick them out ("" or
+ *  NULL for none). */
+s32  pdguiForgeLevelMarkersGet(void);
+void pdguiForgeLevelMarkersSet(s32 on);
+void pdguiForgeLevelMarkersSelect(const char *start_id, const char *object_id);
+
 /** Full editor overlay -- drawn on top of the HUD when in-session. The
  *  editor is visible regardless of NORMAL vs FREEFLY sub-mode, but the
  *  catalog/placement panels only respond to input in FREEFLY. */

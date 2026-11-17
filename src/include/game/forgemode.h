@@ -98,6 +98,17 @@ s32 forgeIsCanvasMode(void);
  * ============================================================ */
 
 void forgeGetCameraPos(struct coord *out_pos);
+
+/** Where a world position is in the picture, through the current player's
+ *  view: the game's own projection (the view matrix, then cam0f0b4d04, as
+ *  its target boxes use). out_x and out_y are in the game's framebuffer
+ *  units, the units of the renderer's native size (videoGetNativeWidth by
+ *  videoGetNativeHeight), so a caller that draws on the window scales them
+ *  by window size over native size. out_distance (optional) is how far in
+ *  front of the camera the point is. Returns 0, and writes nothing, for a
+ *  point at the camera or behind it, or when there is no view yet. */
+s32  forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_distance);
+
 f32  forgeGetCameraYawDeg(void);
 f32  forgeGetCameraPitchDeg(void);
 f32  forgeGetCurrentSpeedScale(void); /* 1.0 default, 3.0 boost, 0.25 precision */

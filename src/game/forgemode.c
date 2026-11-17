@@ -37,6 +37,8 @@
 #include "pdgui.h"  /* B-195 / Fix 2+3: pdguiClearImGuiFocusAndNav on transitions */
 #include "scene.h"
 #include "game/body.h"  /* Fix 5: bodyAllocateModel for chr-body hot-reload at transitions */
+#include "game/camera.h"  /* forgeProjectWorldPos: cam0f0b4d04 */
+#include "lib/mtx.h"      /* forgeProjectWorldPos: mtx4TransformVec */
 #include "game/env.h"
 #include "game/music.h"
 #include "game/sky.h"
@@ -893,6 +895,40 @@ void forgeGetCameraPos(struct coord *out_pos)
 		return;
 	}
 	*out_pos = s_forge.fly.pos;
+}
+
+s32 forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_distance)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct coord pos;
+	struct coord cam;
+	f32 out[2];
+
+	if (!world || !out_x || !out_y || !player || !player->worldtoscreenmtx) {
+		return 0;
+	}
+
+	pos.x = world[0];
+	pos.y = world[1];
+	pos.z = world[2];
+	mtx4TransformVec(player->worldtoscreenmtx, &pos, &cam);
+
+	/* In the camera's own space the view looks down -Z (cam0f0b4c3c builds
+	 * every screen ray with z = -1). A point at the camera or behind it has
+	 * no place in the picture. */
+	if (!(cam.z < -1.0f)) {
+		return 0;
+	}
+
+	/* The game's own projection, the one its target boxes and menu markers
+	 * use (prop.c, menu.c): the same matrix, then cam0f0b4d04. */
+	cam0f0b4d04(&cam, out);
+	*out_x = out[0];
+	*out_y = out[1];
+	if (out_distance) {
+		*out_distance = -cam.z;
+	}
+	return 1;
 }
 
 f32 forgeGetCameraYawDeg(void)

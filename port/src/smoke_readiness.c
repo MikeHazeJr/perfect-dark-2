@@ -55,6 +55,9 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	if (strcmp(name, "agent_create_ready") == 0) {
 		return SMOKE_READINESS_AGENT_CREATE_READY;
 	}
+	if (strcmp(name, "forge_editor_ready") == 0) {
+		return SMOKE_READINESS_FORGE_EDITOR_READY;
+	}
 	for (unsigned int i = 0; i < sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]); ++i) {
 		if (strcmp(name, mainMenuConditions[i]) == 0)
 			return (smoke_readiness_condition_t)(SMOKE_READINESS_MAIN_MENU_PLAY_READY + i);
@@ -96,6 +99,8 @@ const char *smokeReadinessConditionName(
 		return "agent_select_ready";
 	case SMOKE_READINESS_AGENT_CREATE_READY:
 		return "agent_create_ready";
+	case SMOKE_READINESS_FORGE_EDITOR_READY:
+		return "forge_editor_ready";
 	default:
 		return "invalid";
 	}
@@ -224,6 +229,11 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		return facts->boot_complete && facts->agent_create_current
 			&& facts->agent_create_pool_active && facts->menu_input_top
 			&& facts->menu_keyboard_ready && facts->agent_create_imgui_owner;
+	case SMOKE_READINESS_FORGE_EDITOR_READY:
+		/* The editor camera holds the player in a cutscene move mode and
+		 * owns the top input layer, so none of the walking-player facts
+		 * apply: a live offline stage and the camera flying are the state. */
+		return offline_stage_live && facts->forge_freefly;
 	default:
 		return 0;
 	}

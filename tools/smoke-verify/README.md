@@ -337,7 +337,13 @@ latest virtual event plus the sum of all wait timeouts.
 Exact conditions are `title_sequence_ready`, `network_listen_ready`, `network_stage_live`,
 `network_reconnect_available`, `cutscene_skip_ready`, `gameplay_ready`,
 `offline_gameplay_ready`, `vehicle_driver_ready`, `endscreen_visible`,
-`agent_select_ready`, and `agent_create_ready`.
+`agent_select_ready`, `agent_create_ready`, and `forge_editor_ready`.
+
+`forge_editor_ready` is the state a Forge session starts in: the offline
+stage-live boundary (current stage epoch, local player allocated and spawned,
+stage ticking, no results screen) and the Forge editor camera flying. The
+editor camera holds the player in a cutscene move mode with its own input layer
+on top, so none of the walking-player facts apply and none is asked for.
 
 Reconnect exact-set fixtures may use
 `{"type":"network_retire_held_weapon","client_id":1,"hand":"right"}`.

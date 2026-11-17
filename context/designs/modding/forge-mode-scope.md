@@ -480,10 +480,25 @@ this arena; any open document is closed), `forgeLevelSessionOpen`,
   player's turn angle as `atan2f(look.x, look.z)`, the camera's own
   convention). The two lists show each start's team and place and each
   object's kind, model or weapon, and pad.
-- **What it is not yet.** Nothing in the document is drawn in the world, so
-  the lists are the only view of where things stand. The editor's older parts
-  (its own object list, `map.json`) are untouched and still separate; the old
-  save now says that only the editor reads it.
+- **Markers in the world (the first piece of F3).** While the editor camera
+  flies, the HUD marks each player start (a diamond) and each object that
+  stands on a pad (a square) on the picture, named when within 2,500 units,
+  the selected one in yellow, a removed one grey
+  (`forgehudDrawLevelFile` in `pdgui_forge_hud.cpp`; a switch in the section).
+  They are drawn over the game's picture and under every window, and they
+  show through walls. The place comes from the game's own projection:
+  `forgeProjectWorldPos` (`forgemode.c`) applies the current player's view
+  matrix and `cam0f0b4d04`, exactly as the game's target boxes do (`prop.c`,
+  `menu.c`), and answers in the game's framebuffer units; the HUD scales by
+  window size over the renderer's native size (`videoGetNativeWidth` by
+  `videoGetNativeHeight`), the same scale the renderer gives the 3D viewport
+  (READ: `gfx_adjust_viewport_or_scissor` in `gfx_pc.cpp` multiplies the
+  viewport by output size over the native size, with no aspect squeeze for
+  the 3D view).
+- **What it is not yet.** No picking in the view, no gizmo, and a marker is a
+  flat sign, not the object's model. The editor's older parts (its own object
+  list, `map.json`) are untouched and still separate; the old save now says
+  that only the editor reads it.
 - **Starting a session from the command line.** `--launch-forge-level <arena
   id>` starts a Forge session on a level as The Grid does
   (`forgeLevelStartForge`: a clean match setup on the level, then the stage
@@ -493,10 +508,21 @@ this arena; any open document is closed), `forgeLevelSessionOpen`,
   from `pdguiForgeEditorTick` (`bootForgeLevelTick` in `main.c`).
 - `forge_session_save_smoke` is the proof of the part no run has done: the
   mod author's save, rescan, enable and apply while the level it was made
-  from is loaded and the editor is up. It requires the save's lines, the new
-  level's scenario registered (`PDARENA.SCENARIO`), and the game still running
-  afterwards. It does not use the mouse, so the section's widgets themselves
-  are unproven until someone opens the editor.
+  from is loaded and the editor is up. It waits for `forge_editor_ready` (a
+  new wait condition of the smoke harness: a live offline stage with the
+  editor camera flying; `smoke_readiness.c`, unit-tested), and requires the
+  save's lines, the new level's scenario registered (`PDARENA.SCENARIO`), and
+  the game still running afterwards. It does not use the mouse, so the
+  section's widgets themselves are unproven until someone opens the editor.
+- The same smoke checks the markers' projection by numbers, with nobody
+  looking: a second and a half after the save the flag logs where four known
+  points land (`FORGE.MARKERS.PROBE`), and the smoke requires the point
+  straight ahead of the camera within 5% of the middle of the picture, the
+  one ahead and to the right at least 6% right of the middle, the one ahead
+  and above at least 5% above it, and the one behind out of view. A mirrored
+  or upside-down projection fails that line. It also takes one screenshot
+  with the markers on, for a person to look at; whether each marker sits on
+  its object is not something the numbers show.
 
 Not known until a run: whether a level loaded for Forge straight from the boot
 stage (no agent chosen, no match started) has a player for the session to

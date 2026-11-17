@@ -29,10 +29,17 @@
 #include "pdgui_scaling.h"
 #include "pdgui_glyphs.h"
 
+#include "forge_level_doc.h"   /* the open level's starts and objects (world markers) */
+
 extern "C" {
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
 #include "actionmap.h"
+/* forge_level_io.h: the level file Forge has open, or NULL. */
+forge_level_doc_t *forgeLevelSessionDoc(void);
+/* video.h: the size the renderer maps the game's framebuffer units from. */
+s32 videoGetNativeWidth(void);
+s32 videoGetNativeHeight(void);
 }
 
 /* Local mirror of struct coord for the readout.  Same memory layout as the
@@ -75,6 +82,120 @@ static void forgehudDrawReticle(ImDrawList *dl, float cx, float cy, float scale)
 	dl->AddLine(ImVec2(cx, cy - arm), ImVec2(cx, cy - gap), col, th);
 	dl->AddLine(ImVec2(cx, cy + gap), ImVec2(cx, cy + arm), col, th);
 	dl->AddCircleFilled(ImVec2(cx, cy), 1.5f * scale, col, 8);
+}
+
+/* ============================================================
+ * The open level's player starts and objects, marked in the world
+ * (Forge F3, first piece). Each stands on a pad; the pad's position is
+ * projected by the game's own projection (forgeProjectWorldPos) and scaled
+ * from the renderer's native size to the window. Markers are drawn on the
+ * background list: over the game's picture, under every window. They are
+ * not hidden by walls.
+ * ============================================================ */
+
+static bool s_LevelMarkers          = true;
+static char s_LevelMarkerStart[32]  = "";
+static char s_LevelMarkerObject[32] = "";
+
+s32 pdguiForgeLevelMarkersGet(void)
+{
+	return s_LevelMarkers ? 1 : 0;
+}
+
+void pdguiForgeLevelMarkersSet(s32 on)
+{
+	s_LevelMarkers = on != 0;
+}
+
+void pdguiForgeLevelMarkersSelect(const char *start_id, const char *object_id)
+{
+	snprintf(s_LevelMarkerStart, sizeof(s_LevelMarkerStart), "%s", start_id ? start_id : "");
+	snprintf(s_LevelMarkerObject, sizeof(s_LevelMarkerObject), "%s", object_id ? object_id : "");
+}
+
+/* A world position as a point on the window. False when it is behind the
+ * camera or well outside the picture. */
+static bool forgehudProject(const f32 world[3], float winW, float winH, ImVec2 *out, f32 *distance)
+{
+	const f32 nativeW = (f32)videoGetNativeWidth();
+	const f32 nativeH = (f32)videoGetNativeHeight();
+	f32 x = 0.0f;
+	f32 y = 0.0f;
+
+	if (nativeW <= 0.0f || nativeH <= 0.0f) return false;
+	if (!forgeProjectWorldPos(world, &x, &y, distance)) return false;
+	out->x = x / nativeW * winW;
+	out->y = y / nativeH * winH;
+	const float margin = 48.0f;
+	return out->x > -margin && out->x < winW + margin && out->y > -margin && out->y < winH + margin;
+}
+
+static void forgehudMarkerLabel(ImDrawList *dl, ImVec2 at, ImU32 col, const char *text)
+{
+	dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+	dl->AddText(at, col, text);
+}
+
+static void forgehudDrawLevelFile(float winW, float winH, float scale)
+{
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	if (!doc || !s_LevelMarkers) return;
+
+	ImDrawList *dl = ImGui::GetBackgroundDrawList();
+	/* World units. A marker further than markerRange is left out, and one
+	 * further than labelRange is drawn without its name, so a big level
+	 * does not fill the picture with text. The selected one always has it. */
+	const f32 markerRange = 15000.0f;
+	const f32 labelRange  = 2500.0f;
+
+	const s32 objects = forgeLevelDocObjectCount(doc);
+	for (s32 i = 0; i < objects; i++) {
+		forge_level_object_t object;
+		forge_level_pad_t pad;
+		ImVec2 at;
+		f32 distance = 0.0f;
+
+		if (!forgeLevelDocGetObject(doc, i, &object) || !object.pad_ref[0]) continue;
+		if (!forgeLevelDocFindPad(doc, object.pad_ref, &pad)) continue;
+		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+
+		const bool selected = s_LevelMarkerObject[0] && strcmp(object.record_id, s_LevelMarkerObject) == 0;
+		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255)
+			: object.removed ? IM_COL32(160, 160, 160, 150) : IM_COL32(120, 220, 255, 220);
+		const float half = (selected ? 6.0f : 4.0f) * scale;
+		dl->AddRect(ImVec2(at.x - half, at.y - half), ImVec2(at.x + half, at.y + half), col, 0.0f, 0,
+			(selected ? 2.5f : 1.5f) * scale);
+		if (selected || distance < labelRange) {
+			char label[112];
+			snprintf(label, sizeof(label), "%s %s%s", object.kind, object.record_id,
+				object.removed ? " (removed)" : "");
+			forgehudMarkerLabel(dl, ImVec2(at.x + half + 4.0f * scale, at.y - half), col, label);
+		}
+	}
+
+	const s32 spawns = forgeLevelDocSpawnCount(doc);
+	for (s32 i = 0; i < spawns; i++) {
+		forge_level_spawn_t spawn;
+		forge_level_pad_t pad;
+		ImVec2 at;
+		f32 distance = 0.0f;
+
+		if (!forgeLevelDocGetSpawn(doc, i, &spawn)) continue;
+		if (!forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) continue;
+		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+
+		const bool selected = s_LevelMarkerStart[0] && strcmp(spawn.spawn_id, s_LevelMarkerStart) == 0;
+		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255) : IM_COL32(140, 240, 150, 230);
+		const float half = (selected ? 7.0f : 5.0f) * scale;
+		/* A diamond, so a start is not taken for an object. */
+		dl->AddQuad(ImVec2(at.x, at.y - half), ImVec2(at.x + half, at.y), ImVec2(at.x, at.y + half),
+			ImVec2(at.x - half, at.y), col, (selected ? 2.5f : 1.5f) * scale);
+		if (selected || distance < labelRange) {
+			char label[96];
+			snprintf(label, sizeof(label), "start %s%s", spawn.spawn_id, pad.added ? " (new)" : "");
+			forgehudMarkerLabel(dl, ImVec2(at.x + half + 4.0f * scale, at.y - half), col, label);
+		}
+	}
 }
 
 /* ============================================================
@@ -211,6 +332,9 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		}
 		return;
 	}
+
+	/* ---- World: the open level file's starts and objects ---- */
+	forgehudDrawLevelFile((float)winW, (float)winH, scale);
 
 	/* ---- Center: freefly placement reticle ---- */
 	forgehudDrawReticle(fg, (float)winW * 0.5f, (float)winH * 0.5f, scale);

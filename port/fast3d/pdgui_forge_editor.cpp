@@ -1882,8 +1882,9 @@ static void forgeDrawLevelExtras(void)
  * mod author, the save the other in-game creators use.
  *
  * Everything is placed where the editor camera is, facing the way it
- * faces. Nothing here is drawn in the world yet; the lists show where each
- * thing stands.
+ * faces. The HUD marks each start and each object in the world
+ * (pdgui_forge_hud.cpp, forgehudDrawLevelFile); the lists here say where
+ * each stands and pick out one for the HUD to show in yellow.
  * ============================================================ */
 
 static char s_LevelFileName[MOD_AUTHOR_NAME_MAX] = "";
@@ -1967,7 +1968,9 @@ static void forgeDrawLevelFileSection(void)
 			}
 			ImGui::TextWrapped(
 				"Reads this level's player starts and objects from its archive. "
-				"Saving makes a new level; the level you opened stays as it is.");
+				"Nothing changes until you save, and you save under a name: a level "
+				"of your own saved under its own name is updated, and one of the "
+				"game's own levels always stays as it is.");
 		}
 		forgeLevelFileDrawStatus();
 		return;
@@ -1980,6 +1983,14 @@ static void forgeDrawLevelFileSection(void)
 	if (s_LevelFileEdits > 0) {
 		ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%d change%s not saved",
 			s_LevelFileEdits, s_LevelFileEdits == 1 ? "" : "s");
+	}
+	{
+		bool markers = pdguiForgeLevelMarkersGet() != 0;
+		if (ImGui::Checkbox("Show starts and objects in the world", &markers)) {
+			pdguiForgeLevelMarkersSet(markers ? 1 : 0);
+		}
+		ImGui::TextDisabled("Diamonds are player starts, squares are objects. They show through walls; "
+			"the one selected in a list below is yellow.");
 	}
 
 	f32 position[3];
@@ -2177,6 +2188,8 @@ static void forgeDrawLevelFileSection(void)
 			return;
 		}
 	}
+	/* The HUD picks out what is selected here. */
+	pdguiForgeLevelMarkersSelect(s_LevelFileStart, s_LevelFileObject);
 	ImGui::TextWrapped(
 		"Saving makes a level mod with this name from %s and your changes, and saving "
 		"again under the same name updates it. A level made from one of the game's own "
