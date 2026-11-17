@@ -568,6 +568,14 @@ TEST_CASE("bot pickup net: the match manifest lists the scenario's token weapon"
 		"\t\t\t&& sessionCatalogIsActive()) {") != std::string::npos);
 	REQUIRE(writer.find("has no session catalog id; clients read it as unarmed") != std::string::npos);
 	REQUIRE(writer.find("catalogWriteAssetRef(dst, session);") != std::string::npos);
+
+	// and a model with no session id (a reader turns it into model 0)
+	const std::string model_writer = function_body(netmsg,
+		"static void netWriteModelRef(struct netbuf *dst, s32 modelnum)\n{");
+	REQUIRE(model_writer.find("if (session == 0 && modelnum > 0 && modelnum < MODEL_CUSTOM_END\n"
+		"\t\t\t&& sessionCatalogIsActive()) {") != std::string::npos);
+	REQUIRE(model_writer.find("has no session catalog id; clients read it as model 0") != std::string::npos);
+	REQUIRE(model_writer.find("catalogWriteAssetRef(dst, session);") != std::string::npos);
 }
 
 TEST_CASE("bot stuck watchdog: a simulant downloading at a Hacker Central terminal is not stuck",

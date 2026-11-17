@@ -4122,7 +4122,8 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
   weapon loops skip it, and the reconnect snapshot's reader writes each weapon prop's number from its session id
   (`netmsgSvcReconnectPropStateRead`), but it is covered: `matchConfigPrepareExactWeaponIds` gives every slot
   but `MPWEAPON_NONE` a catalog id, the shield included, and the lobby start adds each `weapon_ids` closure.
-- [ ] Model refs (`netWriteModelRef`) have no such warning yet.
+- [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
+  for SVC_PROP_SPAWN's weapon and object models; first run pending.
 
 ---
 

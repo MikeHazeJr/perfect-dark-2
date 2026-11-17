@@ -4195,7 +4195,23 @@ static s32 netReadWeaponRef(struct netbuf *src)
 static void netWriteModelRef(struct netbuf *dst, s32 modelnum)
 {
 	const char *id = catalogModelIdByModelnum(modelnum);
-	catalogWriteAssetRef(dst, id ? sessionCatalogGetId(id) : 0);
+	const u16 session = id ? sessionCatalogGetId(id) : 0;
+
+	/* SP-93: a reader turns id 0 into model 0, so a model the match manifest
+	 * left out reaches clients as another model. Say so once per model while
+	 * a match's session catalog is live. */
+	if (session == 0 && modelnum > 0 && modelnum < MODEL_CUSTOM_END
+			&& sessionCatalogIsActive()) {
+		static u8 s_warned[MODEL_CUSTOM_END];
+
+		if (!s_warned[modelnum]) {
+			s_warned[modelnum] = 1;
+			sysLogPrintf(LOG_WARNING,
+				"NET: model %d ('%s') has no session catalog id; clients read it as model 0",
+				modelnum, id ? id : "not in the catalog");
+		}
+	}
+	catalogWriteAssetRef(dst, session);
 }
 
 /* Read a session catalog u16 ref and resolve back to a model number.
