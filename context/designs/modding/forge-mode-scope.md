@@ -1091,7 +1091,8 @@ first start, after checking the catalog has that model), and
 Blank Room and requires the level to compile it as a third setup record.
 
 Survey (structure only, shared base 9): of the 2,226 plain props, 1,837 are
-life size, 1,388 are fitted to their pad's box (flag bits 0x000000e0) and 616
-only fall to the floor; 244 distinct models, all `base:model_*`. A prop made
-here is never fitted to a pad's box: Forge's pads are 200 units each way, and
-a fitted prop would take that size.
+life size, 1,595 are fitted to their pad's box in some way (flag bits
+0x000000f0) and 616 only fall to the floor; the arenas use 117 distinct
+models and the missions 127, all `base:model_*`. A prop made here is never
+fitted to a pad's box: Forge's pads are 200 units each way, and a fitted prop
+would take that size.
