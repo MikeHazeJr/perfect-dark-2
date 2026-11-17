@@ -1,0 +1,135 @@
+# Projectiles, mines and autoguns as behavior graphs
+
+Status: CORE, 2026-11-17. Draft for the week note's "Projectiles, mines,
+autoguns" row ("the graph selects the projectile and entity modules for base
+weapons too"), under decision 1 ("Players should be able to recreate any
+existing game behavior with the nodes"). Nothing below is built yet except
+B-1261. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
+`pc` is `src/game/propobj.c`, `bg` is `src/game/bondgun.c`.
+
+## Where it stands
+
+- **Records, not programs.** Each base weapon function that throws or fires
+  something has a `pd.projectile_graph.v1` archive (28 on shared base 7)
+  and, for mines, the Laptop gun and devices, a `pd.entity_graph.v1`
+  archive. The runtime folds every node into one record of numbers and
+  `has_*` booleans (`weapon_graph_runtime.c`); no event, gate or edge
+  decides anything.
+- **Custom weapons read the records; base weapons mostly do not.**
+  `weaponGetCustomProjectileGraph` and `weaponGetEntityGraphForGameplay`
+  (pc:1571, 1588) return nothing for a base weapon, so the base timers,
+  contacts, mines and autoguns run native branches keyed by weapon number
+  (about 67 weapon-specific behaviors: spawn 17, airborne 8, wall and floor
+  contact 9, chr and prop contact 5, timer and arming 7, proximity 3, remote
+  2, damage taken 4, deploy and autogun 5, pickup 3, free 4).
+- **But some base paths read records already:** the spawn getters (bg:1976
+  to 2178: model, speed, scale, timer, activation, reflect, sound),
+  `projectileApplyGraphRuntime` at every spawn site (bg:5765, 6068, 6338,
+  6433; chraction.c:10582), the proximity radius in `weaponTick` and the
+  Laptop's entity record in `laptopDeploy`. Those values come from the same
+  weapon function, so they agree with the original, except B-1261 (the
+  record's function flags were copied into the projectile's flags; fixed
+  on `week-pd/core-s6`).
+- **Authority.** Spawning is the host's (bg:6127, 5819; SVC_PROP_SPAWN); damage
+  is the host's (pc:17859); `weaponTick`, the airborne tick, contacts,
+  proximity and remote mines run on host and client alike, with no gate.
+  The autogun is the host's only.
+- **Parsed but unused fields** in the v1 records (homing targets, fly-by-wire
+  routing, sticky filters, timed pause, detonation policy, owner filters)
+  and **behaviors with no field at all** (the bolt beam and wobble, knife
+  poison, the grenade's prime carry-over, the rocket's speed cap and power
+  limit, landing-stall detonation, the Dragon's double range, damage-class
+  immunity, the mine flags) are listed in the survey; a v1 record cannot say
+  them, which is the reason for programs.
+
+## Proposal
+
+1. **Programs per archive, as vehicles have them.** A projectile or entity
+   archive's graph becomes a program compiled by a runner built on the
+   mission graph runner's rules (events, gates, `og.*` native modules, each
+   node at most once per event, bounded follow-up events), the way MODS
+   built the vehicle runner. The schema moves to `pd.projectile_graph.v2`
+   and `pd.entity_graph.v2`, D-006A's "new executable version, never a
+   silent reinterpretation of v1": the launch numbers stay one
+   `projectile.spawn_state` node, and the lifecycle is events wired to
+   modules. The extractor writes v2 for every base archive behind a weapon
+   export version; mods made after the re-extract copy v2 templates; then a
+   v1 archive is refused with a message naming v2 (the vehicle migration's
+   order, vehicle-graph-v1.md Rule 5).
+2. **Events at the native seams**, each carrying the projectile or entity
+   instance (its prop, the weapon object, the owner player or chr, the
+   weapon function), fired where the native branch decides today:
+   `event.projectile.spawned`, `event.projectile.timer_expired`,
+   `event.projectile.hit_surface` (wall or floor, with the surface normal),
+   `event.projectile.hit_target` (a chr or prop), `event.projectile.stopped`
+   (came to rest), `event.projectile.damaged`, `event.projectile.freed`,
+   `event.mine.proximity` (the prop that set it off), `event.mine.remote`,
+   `event.entity.deployed`, `event.autogun.target_seen`.
+3. **The native branches become named modules**, one per behavior family,
+   each running exactly today's code for the instance it is given:
+   `og.projectile.explode` (the weapon's explosion type), `og.projectile.stick`,
+   `og.projectile.bounce`, `og.projectile.slide`, `og.projectile.land`
+   (knife and bolt landing), `og.projectile.damage_target`,
+   `og.projectile.nbomb_storm`, `og.projectile.wall_hug`,
+   `og.mine.arm`, `og.mine.detonate`, `og.entity.deploy_autogun`,
+   `og.autogun.fire`, plus the gates the native code asks
+   (`gate.projectile.fuse_armed`, `gate.projectile.target_kind`,
+   `gate.mine.owner_filter`, `gate.mine.trigger_kind`). Module parameters
+   carry what the original keys by weapon number (explosion type, radius,
+   damage class), so a mod sets them instead of picking a weapon number.
+4. **Base weapons wired by the extractor.** Every base archive's program wires
+   its original behavior (the grenade: `timer_expired` to `explode`; the
+   rocket: `hit_surface` and `hit_target` to `explode`; the throwing knife:
+   `hit_target` to `damage_target`, `hit_surface` to `land`; the proximity
+   mine: `hit_surface` to `stick`, `mine.proximity` through
+   `gate.mine.trigger_kind` to `mine.detonate`), so rewiring one changes the
+   game.
+5. **Fail closed and prove it.** A base or v2 archive whose program does not
+   compile refuses at registration, so its weapon cannot fire (as a vehicle
+   with a refused graph cannot be mounted). A parity probe in the game counts,
+   per seam, what the original branch would have done and what the program
+   did (as the object rule probe does); the smokes require differ=0.
+6. **Authority.** Rule events fire where the outcome is decided today. On a
+   networked client, the native branches that run for presentation keep
+   running (the host's explosions, damage and frees arrive by replication),
+   so a base program and the client agree by parity; what a mod's rewired
+   program changes is decided by the host and replicated. To confirm with
+   MULTIPLAYER before slice 3: which client branches are presentation only.
+7. **The guards go last.** When every seam of a family runs through the
+   program, `weaponGetCustomProjectileGraph` and its siblings stop excluding
+   base weapons, and base and custom weapons meet one contract (D-006A,
+   migration step 5). The row is ticked then.
+
+## Slices
+
+1. **Proof tooling and record-only events.** B-1261 (done). The v2 schema,
+   the projectile runner (compile rules, refusals, `[projectile-graph]` unit
+   cases), the extractor writing v2 programs whose events are wired to
+   nothing yet, and the record-only events `spawned`, `hit_surface`,
+   `hit_target`, `stopped`, `timer_expired` and `freed` with per-stage
+   totals. A smoke, `projectile_events_smoke`, on Felicity with
+   `--debug-spawn-weapon` and the fire actions: the grenade, the N-bomb,
+   the rocket launcher (both modes), the Slayer's fly-by-wire rocket, the
+   Devastator (both modes), the crossbow, the throwing knife, the three mines
+   and the Laptop gun; it checks one spawn and one landing or detonation line
+   each, and the Slayer rocket flying (B-1261 in play).
+2. **Timers and detonation** as rule events with the parity probe
+   (`og.projectile.explode`, `og.projectile.nbomb_storm`,
+   `gate.projectile.fuse_armed`).
+3. **Contacts:** surface and target (stick, bounce, slide, land, damage,
+   wall hug, explode on contact).
+4. **Mines and damage taken:** proximity, remote and timed, a projectile set
+   off by a shot.
+5. **Deployment and autoguns:** the Laptop sentry and `autogunTick` as
+   modules.
+6. **One contract:** the base guards go, the v1 path is refused, the row
+   ticks.
+
+## Not in scope
+
+- Held weapons (the fire types in `bondgun.c`): the week note's Held weapons
+  row, which waits for Mike's answer about the parked
+  `week-pd/inflight-20261114` lane.
+- Effects (`pd.effect_graph.v1` and v2 profiles): already programs.
+- Vehicle weapons (V5): MODS's `og.vehicle.fire_weapon` uses these programs
+  when they exist.
