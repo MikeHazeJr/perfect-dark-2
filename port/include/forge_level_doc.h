@@ -42,6 +42,7 @@
 
 #include <PR/ultratypes.h>
 #include <stddef.h>
+#include "asset_archive_clone.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,6 +135,34 @@ const char *forgeLevelDocMemberText(forge_level_doc_t *doc, s32 member, size_t *
 
 /* The member's file name inside the scenario ("pads.json"), or NULL. */
 const char *forgeLevelDocMemberName(s32 member);
+
+/*
+ * Saving. The mod author makes a level mod from a template archive plus
+ * overrides (mod_author.h); these are the overrides for what this document
+ * changed, one per changed member.
+ */
+#define FORGE_LEVEL_OVERRIDE_NAME_MAX 512
+
+typedef struct forge_level_overrides {
+	asset_archive_clone_override_t entries[FORGE_LEVEL_MEMBER_COUNT];
+	char names[FORGE_LEVEL_MEMBER_COUNT][FORGE_LEVEL_OVERRIDE_NAME_MAX];
+	u32 count;            /* how many entries are filled; 0 when nothing changed */
+} forge_level_overrides_t;
+
+/*
+ * Fills `out` for a level archive that keeps its scenario at
+ * `scenario_member`: an arena's scenario_archive, such as
+ * "dependencies/assets/scenarios/base_scenario_mp_complex.pdscenario". NULL
+ * or "" when the archive being saved is the scenario itself. Each entry names
+ * a member the way the archive rebuild addresses one inside an embedded
+ * archive ("<scenario_member>::pads.json").
+ *
+ * The entries point into `out->names` and into the document's own texts, so
+ * `out` must stay where it is and the document must not be edited until the
+ * save is done. 1 on success; 0 with the reason.
+ */
+s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
+	forge_level_overrides_t *out, char *err, size_t err_cap);
 
 #ifdef __cplusplus
 }

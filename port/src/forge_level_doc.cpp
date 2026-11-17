@@ -268,8 +268,17 @@ struct Table {
 	std::vector<std::string> rows;   /* each row's text */
 	std::vector<std::string> before; /* what stood before each row (unused for the first) */
 	std::string built;               /* the text to save, when changed */
-	bool changed = false;
+	bool changed = false;            /* a row was added, removed or rewritten */
+	bool stale = false;              /* `built` is older than the rows */
 	bool wasEmpty = false;
+
+	/* Every edit goes through here, so `built` is rebuilt once per edit and
+	 * the text a caller holds stays valid until the next one. */
+	void touch()
+	{
+		changed = true;
+		stale = true;
+	}
 
 	void append(const std::string &row)
 	{
@@ -281,25 +290,28 @@ struct Table {
 		}
 		before.push_back(separator);
 		rows.push_back(row);
-		changed = true;
+		touch();
 	}
 
 	void remove(size_t index)
 	{
 		rows.erase(rows.begin() + static_cast<long>(index));
 		before.erase(before.begin() + static_cast<long>(index));
-		changed = true;
+		touch();
 	}
 
 	const std::string &text()
 	{
 		if (!changed) return original;
-		built = head;
-		for (size_t i = 0; i < rows.size(); i++) {
-			if (i > 0) built += before[i];
-			built += rows[i];
+		if (stale) {
+			built = head;
+			for (size_t i = 0; i < rows.size(); i++) {
+				if (i > 0) built += before[i];
+				built += rows[i];
+			}
+			built += tail;
+			stale = false;
 		}
-		built += tail;
 		return built;
 	}
 };
@@ -603,7 +615,7 @@ int movePad(forge_level_doc &doc, int padIndex, const f32 position[3], const f32
 		return -1;
 	}
 	table.rows[static_cast<size_t>(padIndex)] = row;
-	table.changed = true;
+	table.touch();
 	for (int i = 0; i < 3; i++) {
 		pad.position[i] = position[i];
 		pad.look[i] = unit[i];
@@ -765,7 +777,7 @@ s32 forgeLevelDocMoveSpawn(forge_level_doc_t *doc, const char *spawn_id,
 		replaceValue(row, "position", "null");
 		replaceValue(row, "look", "null");
 		table.rows[static_cast<size_t>(index)] = row;
-		table.changed = true;
+		table.touch();
 		copyOut(spawn.pad_ref, ref);
 	}
 	return 1;
@@ -800,7 +812,7 @@ s32 forgeLevelDocMoveObject(forge_level_doc_t *doc, const char *record_id,
 			return 0;
 		}
 		table.rows[static_cast<size_t>(index)] = row;
-		table.changed = true;
+		table.touch();
 		copyOut(object.pad_ref, ref);
 	}
 	return 1;
@@ -840,6 +852,38 @@ const char *forgeLevelDocMemberText(forge_level_doc_t *doc, s32 member, size_t *
 const char *forgeLevelDocMemberName(s32 member)
 {
 	return member >= 0 && member < FORGE_LEVEL_MEMBER_COUNT ? kMemberNames[member] : nullptr;
+}
+
+s32 forgeLevelDocOverrides(forge_level_doc_t *doc, const char *scenario_member,
+	forge_level_overrides_t *out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (out) memset(out, 0, sizeof(*out));
+	if (!doc || !out) {
+		setError(err, err_cap, "no level is open");
+		return 0;
+	}
+	const std::string prefix = scenario_member && scenario_member[0]
+		? std::string(scenario_member) + "::" : std::string();
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		if (!forgeLevelDocMemberChanged(doc, member)) continue;
+		const std::string name = prefix + kMemberNames[member];
+		const std::string &text = doc->tables[member].text();
+		if (name.size() >= FORGE_LEVEL_OVERRIDE_NAME_MAX || text.size() > 0xffffffffu) {
+			memset(out, 0, sizeof(*out));
+			setError(err, err_cap, "%s is too long a name or too large a file to save",
+				kMemberNames[member]);
+			return 0;
+		}
+		char *slot = out->names[out->count];
+		snprintf(slot, FORGE_LEVEL_OVERRIDE_NAME_MAX, "%s", name.c_str());
+		out->entries[out->count].entry = slot;
+		out->entries[out->count].data = text.data();
+		out->entries[out->count].len = static_cast<u32>(text.size());
+		out->entries[out->count].remove = 0;
+		out->count++;
+	}
+	return 1;
 }
 
 } // extern "C"

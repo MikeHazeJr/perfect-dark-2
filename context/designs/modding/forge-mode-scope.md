@@ -254,44 +254,72 @@ nested scenario's members. MODS writes the smoke: a recipe saves Complex as
 --debug-auto-start-match`, requiring the scenario's intro line and the player's
 spawn.
 
-## F2 back end: the level placements document (PLANNED 2026-11-17, not written)
+## F2 back end: the level placements document (WRITTEN 2026-11-17)
 
 F1 waits for CORE's two decisions. The part of F2 that needs neither the game
-nor CORE is the data Forge edits, as a module of its own with unit tests. This
-is the plan for it; nothing below exists yet.
+nor CORE is the data Forge edits, as a module of its own with unit tests:
+`port/src/forge_level_doc.cpp`, interface `port/include/forge_level_doc.h`,
+cases `[forge-level-doc]` in `tests/test_forge_level_doc.cpp`. Text in, text
+out: no game state, no file access. First compiled and run by hosted CI; the
+header's comment is the reference for its rules. Not wired to the editor yet.
 
-- Module: `port/src/forge_level_doc.cpp` with a C interface in
-  `port/include/forge_level_doc.h`. Text in, text out: no game state, no file
-  access, so pd-tests can drive all of it.
-- It reads three members of a level's scenario, by schema name: `pads.json`
+What it does:
+
+- Reads three members of a level's scenario by schema name: `pads.json`
   (`pd2.scenario.pads.v1`), `spawns.json` (`pd2.scenario.spawns.v1`) and
-  `objects.json` (`pd2.scenario.objects.v1`). Any other schema string, a row
-  with no id, a repeated id, or a spawn or object that names a pad the level
-  does not have is refused with the reason. Nothing is repaired.
-- Rows keep their bytes. The document remembers where each row starts and
-  ends in the text it read. A row the author did not touch is written back
-  byte for byte, with every key the module does not know. A document with no
-  edit writes its three members back unchanged. That is the round-trip proof,
-  and it holds for the extractor's formatting and the example builder's alike.
-- Ids are stable: pads `pad_NNNN`, spawns `spawn_NNNN`, objects `setup_NNNN`
-  (the `record_id` CORE's object events name). A new row takes the number
-  above the highest ever seen in its file, so a removed row's id is not handed
-  out again in the same document, and an event never ends up pointing at a
-  different object.
-- First edits: add a spawn (a new pad and a spawn row), add an object (a new
-  pad and an object row: a prop or a weapon, by catalog id), move (the pad's
-  position, facing and room, and the same three on a spawn row, which repeats
-  them), remove a spawn or an object. A removed row's pad stays: a pad nobody
-  uses is harmless, and `volumes.json` and `setup.fields.json` name pads too,
-  so deciding that a pad is unused needs more than these three files.
-- A new pad's room is given by the caller (`room_NNNN`; the editor looks it
-  up in the loaded stage). The document checks the name's form.
-- Saving: the changed members go to the mod author as overrides of members
-  inside the level's embedded scenario, which the author already supports.
-- Tests, `[forge-level-doc]`: the example scenario read and written back
-  unchanged; each edit, with every untouched row's bytes compared; read after
-  write gives the same document; every refusal; and, locally, the unchanged
-  round trip over every base scenario (`PD2_BASE_TEMPLATE_DIR`).
-- Before writing: read the runtime's readers of the three files
-  (`scenario_source_runtime.c`; the spawns reader is at line 2872) for the
-  keys they require, so that a row this module writes is one they accept.
+  `objects.json` (`pd2.scenario.objects.v1`). A wrong schema, a row with no
+  id, a repeated id, a pad out of sequence, or a spawn or object naming a pad
+  the level does not have is refused with the reason. Nothing is repaired.
+- Rows keep their bytes. A row nobody touched is written back exactly as it
+  was read, with every key the module does not know; a document with no edit
+  gives back the texts it was given. One value inside a row is replaced in
+  place (a spawn's `pad_ref`), so the rest of that row keeps its order and
+  layout too.
+- Adds a spawn, moves a spawn or an object that stands on a pad, removes a
+  spawn, and hands the mod author one override per changed member
+  (`forgeLevelDocOverrides`: `<scenario member>::pads.json` and so on). A unit
+  case saves the example arena with a new spawn through `modAuthorSave` and
+  reads the saved level back.
+
+What the base levels taught (a read-only survey of all 132 extracted levels of
+base 7: 41,102 pads, 704 spawns, 15,940 objects; `survey_placements.py` in the
+session scratchpad), and what the game's readers require
+(`scenario_source_runtime.c`, the pad rows near line 6283 and the spawn rows
+near line 2910):
+
+- Every file has one key order and the extractor's layout: pads and spawns one
+  row per line, objects one key per line, line feeds, a final newline.
+- **A pad's number is its place in the file.** The reader refuses a file whose
+  n-th row is not `pad_n`. So pads are only ever added at the end and never
+  removed; a removed spawn's pad stays.
+- A pad row needs `pad_ref`, `room_ref`, `liftnum`, `flags`, `position`, `up`,
+  `look` and a box (`min`, `max`). `room_ref` is empty in every base row, so a
+  new pad's is empty too and the caller does not supply a room. The flags of
+  base pads are the old axis-alignment bits; a new pad is written with no
+  flags (`0x00000`) and its facing as a free direction.
+- A spawn row needs `spawn_id` and `pad_ref`; `team` is `any`, `default` or
+  `team_N`. Base rows carry `"position": null, "look": null`: the pad holds the
+  place.
+- 299 pads are shared by more than one spawn or object. Moving something that
+  stands on a template pad therefore gives it a new pad and leaves the old one;
+  only a pad the document added is moved in place.
+- 4,470 objects stand on no pad (an empty `pad_ref`). They are kept and cannot
+  be moved.
+- Spawn ids are `spawn_NNNN` and object ids `setup_NNNN` with no repeats. A new
+  spawn takes the number above the highest the document has ever held.
+
+Not done:
+
+- Adding and removing objects. An object's kind and fields are rows of
+  `setup.fields.json`, and `level.graph.json` events name objects by
+  `record_id`; the module reads neither yet. This is the next piece, and it
+  is what "add a weapon" in F2's proof needs.
+- A run that shows a new spawn used in a match. READ in the runtime, it is
+  enough to add the row: `s_setupBuildStageBlock` (`scenario_source_runtime.c`)
+  builds the stage's intro script from `spawns.json`, one `INTROCMD_SPAWN pad
+  team` per row, then the commands of `intro.json`. So `intro.json` does not
+  have to name a new spawn. F2's smoke proves it once a level loads (F1).
+- The editor: opening a level fills Forge from this document, and Save calls
+  the mod author with its overrides.
+- The local sweep over every base level (`[forge-level-doc]` with
+  `PD2_BASE_TEMPLATE_DIR` set) runs in a game turn, not in hosted CI.

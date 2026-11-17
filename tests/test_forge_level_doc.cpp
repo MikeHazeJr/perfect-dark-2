@@ -13,9 +13,12 @@
  */
 #include "catch.hpp"
 
+#include "asset_archive_policy.h"
 #include "forge_level_doc.h"
+#include "mod_author.h"
 #include "modarchive.h"
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -515,6 +518,98 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
+}
+
+TEST_CASE("A changed level is saved by the mod author as a level mod of its own", "[forge-level-doc]")
+{
+	/* F2's save path: the level's template archive, plus one override per
+	 * member the document changed, through the same mod author every in-game
+	 * creator saves with. Nothing here needs the game. */
+	const fs::path templatePath = fs::path(PD_SOURCE_DIR) /
+		"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
+	const char *const scenarioMember = "dependencies/assets/scenarios/tri_scenario.pdscenario";
+	const std::string arena = levelReadFile(templatePath);
+	REQUIRE(!arena.empty());
+	const std::string scenario = levelMember(arena, scenarioMember);
+	REQUIRE(!scenario.empty());
+	const std::string templateObjects = levelMember(scenario, "objects.json");
+	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"), templateObjects);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+
+	char err[256] = { 0 };
+	forge_level_overrides_t overrides;
+	/* Nothing changed: nothing to override. */
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
+	CHECK(overrides.count == 0);
+
+	char id[32] = { 0 };
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "team_1", id, sizeof(id), err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
+	/* The pads and the spawns changed; the objects did not. */
+	REQUIRE(overrides.count == 2);
+	CHECK(std::string(overrides.entries[0].entry) == std::string(scenarioMember) + "::pads.json");
+	CHECK(std::string(overrides.entries[1].entry) == std::string(scenarioMember) + "::spawns.json");
+	CHECK(std::string(static_cast<const char *>(overrides.entries[1].data), overrides.entries[1].len) ==
+		level.text(FORGE_LEVEL_MEMBER_SPAWNS));
+	CHECK(overrides.entries[0].remove == 0);
+	/* A scenario saved on its own names its members directly. */
+	forge_level_overrides_t direct;
+	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &direct, err, sizeof(err)) == 1);
+	REQUIRE(direct.count == 2);
+	CHECK(std::string(direct.entries[0].entry) == "pads.json");
+	CHECK(forgeLevelDocOverrides(nullptr, scenarioMember, &direct, err, sizeof(err)) == 0);
+	CHECK(direct.count == 0);
+
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-level-" + std::to_string(stamp));
+	fs::create_directories(root);
+	const std::string templateText = templatePath.string();
+	const std::string rootText = root.string();
+	mod_author_request_t request = {};
+	request.template_path = templateText.c_str();
+	request.mods_root = rootText.c_str();
+	request.display_name = "Forge Yard";
+	request.tool = "pd-tests";
+	request.overrides = overrides.entries;
+	request.override_count = overrides.count;
+	mod_author_result_t result = {};
+	const s32 code = modAuthorSave(&request, &result, err, sizeof(err));
+	INFO("save error: " << err);
+	REQUIRE(code == MOD_AUTHOR_OK);
+	CHECK(std::string(result.catalog_id) == "mod:arena_forge_yard");
+	char policy[256] = { 0 };
+	const s32 valid = assetArchiveValidateFile(result.archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
+		policy, sizeof(policy));
+	INFO("release validation: " << policy);
+	CHECK(valid == 0);
+
+	/* What the saved level holds: the template's scenario with the new pad
+	 * and the new spawn, read by this module as a level again. */
+	const std::string saved = levelReadFile(result.archive_path);
+	REQUIRE(!saved.empty());
+	const std::string savedScenario = levelMember(saved, scenarioMember);
+	REQUIRE(!savedScenario.empty());
+	Level again(levelMember(savedScenario, "pads.json"), levelMember(savedScenario, "spawns.json"),
+		levelMember(savedScenario, "objects.json"));
+	INFO(again.error);
+	REQUIRE(again.doc != nullptr);
+	CHECK(forgeLevelDocPadCount(again.doc) == 2);
+	CHECK(forgeLevelDocSpawnCount(again.doc) == 2);
+	CHECK(forgeLevelDocObjectCount(again.doc) == 1);
+	forge_level_spawn_t spawn = {};
+	REQUIRE(forgeLevelDocGetSpawn(again.doc, 1, &spawn) == 1);
+	CHECK(std::string(spawn.spawn_id) == id);
+	CHECK(std::string(spawn.pad_ref) == "pad_0001");
+	CHECK(std::string(spawn.team) == "team_1");
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocGetPad(again.doc, 1, &pad) == 1);
+	CHECK(pad.position[0] == kPlace[0]);
+	CHECK(pad.position[2] == kPlace[2]);
+	CHECK(pad.look[2] == -1.0f);
+
+	std::error_code ec;
+	fs::remove_all(root, ec);
 }
 
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",
