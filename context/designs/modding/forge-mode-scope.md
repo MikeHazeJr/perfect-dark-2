@@ -202,6 +202,22 @@ INFERRED, to check in the first run:
    `rooms.json` and `room_lights.json` of a scenario nested in an arena would be
    looked for in the outer `.pdarena`. `fs.c` itself reads nested chains.
 
+Built since the survey, on `week-pd/mods-v4` (2026-11-17; compiled and unit
+tested in hosted CI, not yet seen in the game because the level cannot load
+until items 1 and 2 are done):
+
+- Item 3 (B-1235): both readers of `arena.ini` read `load_mode` by name
+  through `catalogArenaLoadModeFromIni`; a number is still read.
+- Item 4: a level has its own name. The mod author's arena family writes
+  `display_name` into `arena.ini` (its `name_key`), both readers of
+  `arena.ini` copy it into `ext.arena.display_name`
+  (`catalogArenaDisplayNameFromIni`), and the four arena lists show it in
+  place of the template's language string: the Room (`catalogArenaCollect`),
+  the match setup (`mpsetupArenaCollect`), and the Grid's two lists in
+  `pdgui_menu_mainmenu.cpp`, all through `arenaEntryName` or the same test.
+  Not done for the name: text shown during a match that is looked up by
+  stage number and not from the catalog entry (to check once a level loads).
+
 What already works: a save rescans, enables and rebuilds the catalog with no
 restart (`modAuthorRuntimeSave`; the author never writes `requires_restart`),
 and the Grid's list is invalidated; the pickers put non-bundled arenas in a Mod

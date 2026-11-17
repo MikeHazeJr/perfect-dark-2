@@ -845,6 +845,17 @@ u8 catalogArenaLoadModeFromIni(const ini_section_t *ini)
 	return (u8)iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
 }
 
+void catalogArenaDisplayNameFromIni(const ini_section_t *ini, char *out, size_t out_size)
+{
+	/* Forge F1: a mod level's own name. Base arenas carry no display_name
+	 * and stay named by name_langid; a level saved by the mod author
+	 * carries the name its author typed. */
+	if (!out || out_size == 0) {
+		return;
+	}
+	snprintf(out, out_size, "%s", iniGet(ini, "display_name", ""));
+}
+
 /* ========================================================================
  * Map Mode Parser
  * ======================================================================== */
@@ -2358,6 +2369,8 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 		e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
 		e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
 		e->ext.arena.load_mode = catalogArenaLoadModeFromIni(ini); /* B-1235: by name */
+		catalogArenaDisplayNameFromIni(ini, e->ext.arena.display_name,
+			sizeof(e->ext.arena.display_name));
 		if (e->ext.arena.scenario_archive[0]) {
 			catalogSetPrimaryFile(e, e->ext.arena.scenario_archive);
 		}

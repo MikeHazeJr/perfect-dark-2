@@ -330,6 +330,16 @@ f32 iniGetFloat(const ini_section_t *ini, const char *key, f32 defval);
  */
 u8 catalogArenaLoadModeFromIni(const ini_section_t *ini);
 
+/**
+ * An arena's own name from its arena.ini section (`display_name`), copied
+ * into `out` and always terminated. Empty when the file gives none, which
+ * is every base arena: those are named by `name_langid`. A mod level has no
+ * entry in the game's language files, so its name travels here (the mod
+ * author writes the key). Every reader of arena.ini uses this, like the
+ * load mode above.
+ */
+void catalogArenaDisplayNameFromIni(const ini_section_t *ini, char *out, size_t out_size);
+
 #ifdef __cplusplus
 }
 #endif

@@ -185,6 +185,56 @@ TEST_CASE("received Public Mods validate strict archive payloads before install"
 	REQUIRE(scanner.find(numberOnly) == std::string::npos);
 	REQUIRE(distribArena.find(numberOnly) == std::string::npos);
 
+	/* Forge F1: a mod level has no string in the game's language files, so
+	 * its name is arena.ini's display_name. Both readers of arena.ini take it
+	 * from one helper, the catalog entry carries it, and every arena list
+	 * shows it in place of the template's language string (a level saved
+	 * from Complex used to list as a second "Complex"). */
+	const std::string catalogHeader = readTextFile("port/include/assetcatalog.h");
+	const size_t arena_ext = catalogHeader.find("u8  load_mode;");
+	REQUIRE(arena_ext != std::string::npos);
+	const size_t arena_ext_end = catalogHeader.find("} arena;", arena_ext);
+	REQUIRE(arena_ext_end != std::string::npos);
+	const size_t arena_ext_name = catalogHeader.find("char display_name[64];", arena_ext);
+	REQUIRE(arena_ext_name != std::string::npos);
+	REQUIRE(arena_ext_name < arena_ext_end);
+	const size_t name_helper = scanner.find(
+		"void catalogArenaDisplayNameFromIni(const ini_section_t *ini, char *out, size_t out_size)");
+	REQUIRE(name_helper != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"display_name\", \"\")", name_helper) != std::string::npos);
+	const size_t arena_name_read = scanner.find(
+		"catalogArenaDisplayNameFromIni(ini, e->ext.arena.display_name,", arena_case);
+	REQUIRE(arena_name_read != std::string::npos);
+	REQUIRE(arena_name_read < arena_end);
+	REQUIRE(distribArena.find("catalogArenaDisplayNameFromIni(ini, e->ext.arena.display_name,") !=
+		std::string::npos);
+
+	const std::string roomMenu = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+	const std::string setupMenu = readTextFile("port/fast3d/pdgui_menu_mpsetup.cpp");
+	const std::string mainMenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+	const size_t entry_name = roomMenu.find("const char *arenaEntryName(const asset_entry_t *e)");
+	REQUIRE(entry_name != std::string::npos);
+	const size_t entry_name_own = roomMenu.find("if (e->ext.arena.display_name[0]) {", entry_name);
+	const size_t entry_name_lang = roomMenu.find(
+		"return arenaGetName((u16)e->ext.arena.name_langid);", entry_name);
+	REQUIRE(entry_name_own != std::string::npos);
+	REQUIRE(entry_name_lang != std::string::npos);
+	REQUIRE(entry_name_own < entry_name_lang);
+	/* The Room's list, the match setup's list, and the Grid's two lists. */
+	REQUIRE(roomMenu.find("const char *name = arenaEntryName(e);") != std::string::npos);
+	REQUIRE(setupMenu.find("const char *name = arenaEntryName(e);") != std::string::npos);
+	REQUIRE(mainMenu.find("const char *name = arenaEntryName(e);") != std::string::npos);
+	const size_t grid_collect = mainMenu.find("static void gridArenaCollect(");
+	REQUIRE(grid_collect != std::string::npos);
+	REQUIRE(mainMenu.find("const char *langText = e->ext.arena.display_name[0]", grid_collect) !=
+		std::string::npos);
+	/* No list goes straight to the language id any more. */
+	const char *const langOnly = "arenaGetName((u16)e->ext.arena.name_langid)";
+	REQUIRE(setupMenu.find(langOnly) == std::string::npos);
+	REQUIRE(mainMenu.find(langOnly) == std::string::npos);
+	REQUIRE(roomMenu.find(langOnly) == entry_name_lang + std::string("return ").size());
+	REQUIRE(roomMenu.find(langOnly, entry_name_lang + 8) == std::string::npos);
+
 	const size_t shared = scanner.find("static s32 registerBodyHeadPublicIni(");
 	const size_t head_mesh = scanner.find("bodyHeadSourcePrepareMesh(source.mesh_archive", shared);
 	const size_t head_bind = scanner.find("bodyHeadSourceBindMesh(&mesh", shared);

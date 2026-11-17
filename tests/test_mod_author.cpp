@@ -51,6 +51,8 @@ const char *const kHeadTemplate =
 	"examples/modding/typed-pdxxx-basic/heads/tri_head.pdhead";
 const char *const kVehicleTemplate =
 	"examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle";
+const char *const kArenaTemplate =
+	"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
 
 struct AuthorTempDir {
 	fs::path path;
@@ -482,6 +484,42 @@ TEST_CASE("mod author names characters, bodies, heads and vehicles the way their
 		const std::string manifest = authorReadFile(result.manifest_path);
 		CHECK(manifest.find("\"tags\": [\"vehicle\", \"pdvehicle\", \"user\"]")
 			!= std::string::npos);
+
+		authorKeepArtifact(result.archive_path);
+	}
+
+	SECTION("arena: a level gains a name of its own, which no template has") {
+		/* A base arena is named by a language id. A mod level has no string
+		 * in the game's language files, so the author writes display_name
+		 * and the arena lists read it (Forge F1). */
+		AuthorRequest req(authorExample(kArenaTemplate), root.path, "Dock Yard");
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		const mod_author_result_t &result = *saved.result;
+		CHECK(std::string(result.catalog_id) == "mod:arena_dock_yard");
+		CHECK(fs::equivalent(result.archive_path,
+			root.path / "MP Maps" / "arena_dock_yard" / "arena_dock_yard.pdarena"));
+		authorRequireReleaseValid(result.archive_path);
+
+		const std::string archive = authorReadFile(result.archive_path);
+		const std::string descriptor = authorEntry(archive, "arena.ini");
+		const std::string templateDescriptor =
+			authorEntry(authorReadFile(req.tmpl), "arena.ini");
+		CHECK(authorIniValues(templateDescriptor, "display_name").empty());
+		CHECK(authorIniValue(descriptor, "catalog_id") == "mod:arena_dock_yard");
+		CHECK(authorIniValue(descriptor, "display_name") == "Dock Yard");
+		CHECK(std::count(descriptor.begin(), descriptor.end(), '\n')
+			== std::count(templateDescriptor.begin(), templateDescriptor.end(), '\n') + 1);
+		/* What the level loads is its template's: the load mode by name, and
+		 * the scenario inside the archive, now in the mod's namespace. */
+		CHECK(authorIniValue(descriptor, "load_mode") == "ARENA_LOADMODE_PLAYABLE");
+		CHECK(authorIniValue(descriptor, "scenario_archive")
+			== authorIniValue(templateDescriptor, "scenario_archive"));
+		CHECK(authorIniValue(descriptor, "scenario").rfind("mod:arena_dock_yard__", 0) == 0);
+		const std::string manifest = authorReadFile(result.manifest_path);
+		CHECK(authorManifestField(manifest, "name") == "Dock Yard");
+		CHECK(manifest.find("\"contents\": [\"arena\"]") != std::string::npos);
 
 		authorKeepArtifact(result.archive_path);
 	}

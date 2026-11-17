@@ -269,6 +269,13 @@ typedef struct asset_entry {
              *      arenas so the user can fly around without anything
              *      triggering / dying / cutscenes playing. */
             u8  load_mode;
+            /* The arena's own name, from arena.ini's `display_name`. A
+             * base arena has none and is named by name_langid. A mod level
+             * has no entry in the game's language files, so without this
+             * a level saved from Complex showed as a second "Complex"
+             * (Forge F1). The mod author writes it. Empty means "use
+             * name_langid"; the pickers read it through arenaEntryName. */
+            char display_name[64];
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */

@@ -45,6 +45,11 @@ typedef struct author_family {
  * `bundled` says the asset ships with the game, a weapon's `category` names
  * its owner (the catalog falls back to the mod's own id), and
  * `requirefeature` locks the asset behind base-game progress.
+ *
+ * An arena's name key is `display_name` (Forge F1): a base arena is named by
+ * a language id and has no such key, so the author adds it, and the arena
+ * lists show a saved level under the name its author gave it and not as a
+ * second copy of its template's name.
  */
 static const author_family_t s_Families[] = {
 	{ ".pdweapon",    "weapon",    "Weapons",    "name",         NULL,   "bundled category" },
@@ -52,7 +57,7 @@ static const author_family_t s_Families[] = {
 	{ ".pdbody",      "body",      "Characters", "display_name", "name", "bundled requirefeature" },
 	{ ".pdhead",      "head",      "Characters", "display_name", "name", "bundled requirefeature" },
 	{ ".pdvehicle",   "vehicle",   "Vehicles",   "name",         NULL,   "bundled" },
-	{ ".pdarena",     "arena",     "MP Maps",    NULL,           NULL,   "bundled requirefeature" },
+	{ ".pdarena",     "arena",     "MP Maps",    "display_name", NULL,   "bundled requirefeature" },
 };
 
 typedef struct author_buf {

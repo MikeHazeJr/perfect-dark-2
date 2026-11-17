@@ -179,8 +179,10 @@ uintptr_t menuhandlerMpHillTime       (s32, struct s203_menuitem *, union s203_h
 
 } /* extern "C" */
 
-/* ---- Arena name override (defined in pdgui_menu_room.cpp; C++ linkage). */
-const char *arenaGetName(u16 textId);
+/* ---- An arena entry's name (defined in pdgui_menu_room.cpp; C++ linkage):
+ * its own display name when it is a mod level, else the language string
+ * through that file's arenaGetName (override table + langbank). */
+const char *arenaEntryName(const asset_entry_t *e);
 
 /* =========================================================================
  * Module state
@@ -556,10 +558,11 @@ static void mpsetupArenaCollect(const asset_entry_t *e, void *userdata)
         s_MpArenaCapacity = newCap;
     }
 
-    /* Display name: route through arenaGetName (override table + langbank
-     * fallback) so the AllInOne-era langid override map applies here too.
+    /* Display name: a mod level's own name, else through arenaGetName
+     * (override table + langbank fallback) so the AllInOne-era langid
+     * override map applies here too.
      * A registered-but-nameless arena is a catalog data bug; skip it. */
-    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+    const char *name = arenaEntryName(e);
     if (!name || !name[0] || strcmp(name, "???") == 0) {
         sysLogPrintf(LOG_WARNING,
             "MPSETUP.ARENA: id=\"%s\" stagenum=0x%02x langid=0x%04x has no name, skipping",

@@ -324,6 +324,23 @@ const char *arenaGetName(u16 textId)
     }
 }
 
+/* An arena's name for a list. A mod level carries its own name in the
+ * catalog entry (arena.ini `display_name`, written by the mod author; Forge
+ * F1): it has no string in the game's language files, and its template's
+ * language id would show it as a second "Complex". Every other arena is
+ * named by its language id, through arenaGetName above.
+ * Non-static: the match setup list and both Grid lists use it too. */
+const char *arenaEntryName(const asset_entry_t *e)
+{
+    if (!e) {
+        return "???";
+    }
+    if (e->ext.arena.display_name[0]) {
+        return e->ext.arena.display_name;
+    }
+    return arenaGetName((u16)e->ext.arena.name_langid);
+}
+
 /* ========================================================================
  * Arena list — built from the asset catalog at room init.
  * Replaces the old hardcoded table: catalog is the single source of truth.
@@ -368,7 +385,7 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
         s_ArenasCapacity = newCap;
     }
 
-    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+    const char *name = arenaEntryName(e);
     if (!name || !name[0]) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG: arena stagenum=0x%02x langid=0x%04x has no name, skipping",

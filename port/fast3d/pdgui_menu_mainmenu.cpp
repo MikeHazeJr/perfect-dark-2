@@ -4646,8 +4646,9 @@ static void renderSettingsDebug(float scale)
     ImGui::Spacing();
 
     /* Forward declaration -- defined non-static in pdgui_menu_room.cpp,
-     * used here for the arena selector localized names. */
-    extern const char *arenaGetName(u16 textId);
+     * used here for the arena selector names (a mod level's own name, else
+     * the localized one). */
+    extern const char *arenaEntryName(const asset_entry_t *e);
 
     {
         /* Mode picker -- 3 radios */
@@ -4714,12 +4715,12 @@ static void renderSettingsDebug(float scale)
                      * entry (defensive against broken catalog state). */
                     const char *stage_id = catalogStageIdByStagenum((s32)e->ext.arena.stagenum);
                     if (!stage_id || !stage_id[0]) return;
-                    /* Arena name: prefer the localised display name from
-                     * arenaGetName(); fall back to the catalog id when
-                     * the langid isn't resolvable. Append "(solo)" to
-                     * canvas-loadmode arenas so the user sees they're
-                     * not swarm-compatible. */
-                    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+                    /* Arena name: a mod level's own name, else the
+                     * localised display name (arenaEntryName); fall back
+                     * to the catalog id when neither resolves. Append
+                     * "(solo)" to canvas-loadmode arenas so the user sees
+                     * they're not swarm-compatible. */
+                    const char *name = arenaEntryName(e);
                     if (!name || !name[0]) name = e->id;
                     const u8 is_canvas =
                         (e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) ? 1 : 0;
@@ -5659,10 +5660,15 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
         return;
     }
 
-    char *langText = langSafe((s32)e->ext.arena.name_langid);
+    /* A mod level carries its own name (arena.ini display_name, Forge F1);
+     * every other arena is named by its langbank string. */
+    const char *langText = e->ext.arena.display_name[0]
+        ? e->ext.arena.display_name
+        : langSafe((s32)e->ext.arena.name_langid);
     if (!langText || !langText[0]) {
         /* Catalog registration contract: every registered arena must have
-         * a resolvable langbank name. Hit = data bug, not a soft reject. */
+         * a name of its own or a resolvable langbank name. Hit = data bug,
+         * not a soft reject. */
         sysLogPrintf(LOG_ERROR,
             "GRID.MENU: arena id=\"%s\" stagenum=0x%02x langid=0x%04x has no "
             "langbank name -- catalog registration bug, entry skipped",
