@@ -39,11 +39,23 @@ about 70 degrees.
 
 Maian veteran: no traits; normal hitbox, speed and health. An older Skedar-war
 veteran: weathered grey skin, scars, a worn harness with crystal inlays, a
-holstered crystal pistol, three crystal chevrons on one pauldron. Male and
-female variants on the Maian rig. Reuse the Maian animations; add driver and
-gunner seats and get in/out; a calmer idle if easy. The simulant prefers Maian
-weapons, holds cover and engages at range. A single-player ally can drive or
-gun.
+holstered crystal pistol, three crystal chevrons on one pauldron. On the Maian
+rig. Reuse the Maian animations; add driver and gunner seats and get in/out; a
+calmer idle if easy. The simulant prefers Maian weapons, holds cover and
+engages at range. A single-player ally can drive or gun.
+
+Changed by Mike on 2026-11-17, after the first concept sheets (this replaces
+"male and female variants" in the brief of 2026-11-15):
+
+1. One veteran, not two: Maians are not gendered.
+2. Maians are tridactyl (three fingers).
+3. Crystal colour: similar to the crystal pistol's, ever so slightly less
+   vibrant.
+4. The crystal pistol is the style reference, more or less.
+
+The next sheet is shown to Mike before any model is made. Round 2 was shown on
+2026-11-17 (`D:\Game Dev\PD2-Assets\maian-veteran\concept\concept-v3.png`; the
+folder's README has what is right and wrong in it); his answer is awaited.
 
 ### Level
 
@@ -164,7 +176,7 @@ reported them; not re-read line by line).
 
 | Requirement | State | Where the work goes |
 |---|---|---|
-| Male and female veteran on the Maian rig | partial (pipeline and male templates) | new `.pdbody`/`.pdhead`: an original mesh bound to the 14 body parts, `HEADBODYTYPE_MAIAN`, `ismale` 1 and 0 |
+| One veteran on the Maian rig (Mike 2026-11-17: Maians are not gendered; the row read "male and female") | partial (pipeline and male templates) | new `.pdbody`/`.pdhead`: an original mesh bound to the 14 body parts, `HEADBODYTYPE_MAIAN`; `ismale` stays as the base Maian body has it, since the game has no third value |
 | Looks (grey skin, scars, harness, holster, chevrons) | partial | `.pdtexture` dependencies named by the mesh materials |
 | Maian animations | exists (human clips, Maian scale) | green blood for Maian-type mod bodies |
 | Seats and get in/out | missing | new clips and seat code |
@@ -657,10 +669,18 @@ Risks the survey found, to settle before or in step 5:
     - Not in this slice: a character's own gender (it lives in its embedded body; the
       back end is tested), head policy, a 3D preview, the Room and random-head-pool
       fixes, simulant profiles (C4).
-- C2. Models: original male and female Maian meshes bound to the 14 body
-  parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
-  is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not
-  be shared).
+- C2. Model: one original Maian veteran mesh (Mike 2026-11-17: one veteran,
+  Maians are not gendered; this step read "male and female" before) bound to
+  the 14 body parts, `HEADBODYTYPE_MAIAN`; three-fingered hands; looks as
+  textures or vertex colours, with the crystals the pistol's colour a little
+  less saturated. A clone of a base Maian mesh is only a local stand-in (BYOR:
+  it embeds ROM-derived geometry and must not be shared).
+  - CONCEPT, 2026-11-17: round 2 of the concept sheet (one veteran, gear in the
+    crystal pistol's look, seafoam crystals) was shown to Mike; no model is
+    made until he approves a sheet. Round 2 cost 20 Tripo credits (balance
+    1,175). Still wrong in the sheet: one view's hand has more than three
+    fingers, the toes are not clearly three, and the holster is missing from
+    two views. Records: `D:\Game Dev\PD2-Assets\maian-veteran\README.md`.
 - C3. Green blood for Maian-type mod bodies.
   - WRITTEN 2026-11-16: `chrGetBloodColour` (`src/game/chr.c`) keeps the original's
     per-body list (Elvis, The King and Elvis in a waistcoat green; the robots, Mr Blonde
@@ -705,7 +725,9 @@ unlikely to finish this week; they stay in this plan.
    meshes, since the October veteran is a human sergeant).
    Vehicle answered 2026-11-15: MODS makes it with Tripo (the `pd-game-model`
    skill). Veterans answered by Mike 2026-11-16: MODS makes both (male and
-   female) with Tripo, the same way as the vehicle.
+   female) with Tripo, the same way as the vehicle. Changed by Mike
+   2026-11-17: one veteran only, since Maians are not gendered (see the
+   Character brief above).
 3. CORE: a vehicle behavior graph schema for the node variables (asked in the
    week note). Answered: MODS drafts it; the draft is `vehicle-graph-v1.md`,
    waiting for CORE's review.
