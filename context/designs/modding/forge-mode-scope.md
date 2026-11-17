@@ -904,7 +904,7 @@ The archive:
   content, pad references across files, the navigation node, the exact text
   forms, the record's exact text, the trigger node count.
 
-## F5 first piece: the Blank Room (BUILT 2026-11-17, not run)
+## F5 first piece: the Blank Room (BUILT 2026-11-17, PROVEN in the game the same day: see the last section)
 
 `dev-mods/blank_room/`: an original level with nothing of the original game
 in it, and the template a level that can be shared starts from.
@@ -1005,3 +1005,53 @@ the scene and the collision; a Check Level button would run them without a
 load); deleting a level (the Mod Manager turns one off); the author's name on
 Forge's own Save (it is still the mod author's default, "Player"); a picture
 of each level in the list.
+
+## Proven in the game (2026-11-17, turn q_20261117080550197_5ee34c8d)
+
+11:41 to 12:40 UTC, client 0f329f66, shared base 9, receipts under
+`D:\PD2-wt\pd2-smoke-mods\receipts\20261117T12*`. pd-tests: 2,204 cases pass,
+the base-level sweep included (B-1239 is closed by it), and the game's release
+validator accepts the Blank Room.
+
+- The editor camera (B-1240, B-1238). `forge_session_save_smoke` 35/35 and
+  `forge_blank_room_session_smoke` 38/38. With the camera turned to yaw 217
+  and 20 degrees down: `ahead=(0.500, 0.500) right=(0.646, 0.500) up=(0.500,
+  0.240) behind=hidden`, `player_theta=217.0 player_verta=-20.0`. Flying
+  forward for 1.2 s: `moved=(407, -246, -540) distance=720 along_look=1.000
+  along_right=0.000`. The same numbers on Complex and on the Blank Room. The
+  forward action a script injects is read while the camera flies, with the
+  window unfocused.
+- The Blank Room is a level. `forge_blank_room_smoke`: a Combat Simulator
+  match loads it (collision 96 triangles with the flags sidecar, 2 rooms and
+  96 tiles, 8 pads all with a room, 8 starts, the level program `nodes=11
+  exec_edges=7 modules=4`), the player spawns and the scoreboard lists a
+  simulant. 24 of 25 checks; the one miss was the fixture's (it expected
+  `volumes=8` in the level program line, where every level says `volumes=0`;
+  corrected). The screenshot shows the tiled floor, walls, ceiling and a
+  pillar as built.
+- The Blank Room edited through Forge plays. `forge_blank_room_edit_smoke`
+  32/32: a start added at (810, 50, 0), a weapon place made from nothing at
+  (690, 50, 0) and pinned to `base:dragon`, an ammo crate made from nothing at
+  (570, 50, 0), `pads=11 spawns=9 objects=2`, saved as a level, and a match on
+  it: all eleven pads find a room, setup makes the fixed weapon, and the
+  screenshot shows the player holding the Dragon it gives and a simulant in
+  the room, diving sideways.
+- A Forge session on a mod level with a minted stage number, and a save from
+  inside it (`forge_blank_room_session_smoke`).
+- Again on base 9: `forge_mod_level_load_smoke` 17/17, `forge_level_edit_smoke`
+  29/29, `forge_level_weapon_smoke` 27/27.
+
+Seen in the pictures, not yet acted on:
+
+- The two session screenshots were taken after the flight, which at 20
+  degrees down ends under the floor, so they show the level from below (the
+  markers and their labels are there). Both session smokes now take a picture
+  before the flight as well.
+- Every key in the editor's legend reads "Unbound" in these runs. Whether a
+  player sees that too, or only a run whose window has no focus, is not known
+  yet: the label comes from the bindings that are active at that moment
+  (`actionmapGetActiveBindingVk`), which depends on the input layer on top and
+  on the device last used.
+
+Not proven: the Levels tool (F4, written after this turn was armed), and
+anything under a hand: the panel's buttons, the mouse look, picking.

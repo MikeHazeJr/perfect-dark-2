@@ -594,6 +594,48 @@ Risks the survey found, to settle before or in step 5:
 - Whether the gunner mount should keep the driver mount's side gate
   (`propobj.c:18594`) is not decided.
 
+#### Game turn 2026-11-17, 11:41 to 12:40 UTC (q_20261117080550197_5ee34c8d, client 0f329f66, base 9)
+
+- Two seats again: `maian_vehicle_seats_smoke` 56/56 (driver, gunner by a
+  double press, back to the driver).
+- B-1234 PROVEN: the Maian vehicle rides at 60 frames a second in all three of
+  its runs, as the driver and as the gunner (it was 17 to 41 in most runs
+  before the fix). The main thread sleeps in the frame limiter for 87% of the
+  mounted time; the hit test that cost 30 to 48 ms a frame is 0.8% of it.
+- B-1236 PROVEN: the vehicle's collision mesh has all 5,829 triangles (it was
+  5,192).
+- `mod_vehicle_drive_smoke` 32/32 (the base bike saved as a mod).
+- B-1241, NEW: `maian_vehicle_boost_smoke` (38/48) and
+  `maian_vehicle_drive_smoke` (37/38) fail, and not because of the vehicle.
+  Escape's own script now runs as written (dev's mission and AI graphs): about
+  0.4 s after the vehicle starts to move, the mission's objective 2 completes,
+  and 0.8 to 0.9 s later a cutscene starts and takes the player out of the
+  vehicle. Boost was 0.6 s old, so there was no overheat to see; the steering
+  input came after the dismount. The seats smoke passes only because its seat
+  checks come before its last drive.
+
+So boost, heat and steering have no proof on this build, though nothing says
+they broke: the last full passes are 2026-11-16 (46/46 and 34/34, base 7).
+
+Where the vehicle smokes go: off the mission. An original level is now a
+proven thing (the Blank Room loads, plays and is edited in Forge), and the
+Maian arena needs a level that places a vehicle anyway. The work, in order:
+
+1. A level can place a vehicle: the level document makes a vehicle record
+   (the record's field list is the base levels' `hoverbike` rows; which
+   vehicle it is comes from the vehicle's catalog id), and Forge's editor
+   gets a New Vehicle Here.
+2. A proving ground: the Blank Room's builder with a long room and no
+   pillars, and a vehicle placed at one end. Long enough for the ten seconds
+   of boost the smoke holds.
+3. The four vehicle smokes run there, in a Combat Simulator match or a Forge
+   play session (whichever of the two mounts and drives; neither has carried
+   a vehicle in a run yet), and `--debug-swap-vehicle` is no longer needed:
+   the level names the vehicle.
+
+Until then the Escape smokes still prove the mount, the two seats, the frame
+rate and the collision mesh.
+
 ### Veteran
 
 - C1. The Characters tab: character, body and head mods from templates with

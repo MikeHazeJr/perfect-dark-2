@@ -57,6 +57,10 @@
   ],
   "screenshots": [
     {
+      "at_ms": 3000,
+      "name": "blank-room-view"
+    },
+    {
       "at_ms": 6000,
       "name": "blank-room-session"
     }
@@ -120,6 +124,7 @@
       "GRID: debug camera angles yaw=217\\.0 pitch=-20\\.0",
       "FORGE\\.MARKERS\\.PROBE: ahead=\\(0\\.(4[5-9]|5[0-5])\\d, 0\\.(4[5-9]|5[0-5])\\d\\) right=\\(0\\.(5[6-9]|[6-9]\\d)\\d, 0\\.\\d{3}\\) up=\\(0\\.\\d{3}, 0\\.([0-3]\\d|4[0-4])\\d\\) behind=hidden other_reading=(hidden|\\(-?\\d+\\.\\d{3}, -?\\d+\\.\\d{3}\\)) native=\\d+x\\d+ camera=\\(-?\\d+, -?\\d+, -?\\d+\\) yaw=217\\.0 pitch=-20\\.0 player_theta=-?\\d+\\.\\d player_verta=-?\\d+\\.\\d",
       "FORGE\\.FLY\\.PROBE: moved=\\(-?\\d+, -?\\d+, -?\\d+\\) distance=[1-9]\\d{2,} along_look=(0\\.9[5-9]\\d|1\\.000) along_right=-?0\\.[01]\\d\\d yaw=217\\.0 pitch=-20\\.0",
+      "SMOKE: screenshot at_ms=3000 -> .*blank-room-view\\.bmp",
       "SMOKE: screenshot at_ms=6000 -> .*blank-room-session\\.bmp",
       "SMOKE: result=scripted_exit"
     ],

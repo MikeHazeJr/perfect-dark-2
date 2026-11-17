@@ -84,7 +84,7 @@
       "SCENARIO\\.SOURCE: resolved room domain 'mod_blank_room:scenario_blank_room' rooms=2 declared=2 mesh_max=1 ",
       "SCENARIO\\.SOURCE: compiled scene tiles 'mod_blank_room:scenario_blank_room' for stage '[^']*' as 2 rooms, 96 tiles ",
       "SCENARIO\\.GRAPH: trigger volume nodes '[^']*blank_room[^']*' nodes=8 rows=8 ",
-      "SCENARIO\\.GRAPH: level program 'mod_blank_room:scenario_blank_room' nodes=\\d+ exec_edges=7 modules=\\d+ volumes=8 ",
+      "SCENARIO\\.GRAPH: level program 'mod_blank_room:scenario_blank_room' nodes=11 exec_edges=7 modules=4 volumes=\\d+ backend=graph\\.level\\.runner",
       "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*blank_room[^']*'.* as 0 setup records, 8 spawns,",
       "SCENARIO\\.SOURCE: compiled pads\\.json '[^']*blank_room[^']*' for stage '[^']*' as 8 pads, 8 waypoints, \\d+ waygroups, 8 covers ",
       "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=8 without_room=0",
