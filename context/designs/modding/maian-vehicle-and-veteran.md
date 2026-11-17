@@ -529,6 +529,30 @@ Status on `week-pd/mods-v4` (2026-11-17):
   about 0.9 m apart on the model, 54 world units up and 75 along) and moves
   the driver out of the cannon. The first game run must check the view: the
   next `maian_vehicle_drive_smoke` screenshots.
+- Steps 4 to 7 WRITTEN, not compiled locally and not run in the game
+  (99fa4ed7, af7e9a95, 8e9ccd4d and the graph commit after them):
+  - Step 4, `bondbike.c`: `bbikeCurrentSeat` (the gunner is the player the
+    vehicle's record names); gunner branches in `bbikeInit` (the turret layer,
+    no mounted flag), the local exit, `bbikeCanDismount` and
+    `bbikeTryDismount` (ahead of the mounted flag's early returns);
+    `bbikeTickGunner` (the seat follows the vehicle, the view turns freely at
+    the walk's rate on top of the vehicle's heading, no physics, collision or
+    sound); the gunner has the exit and the look inputs only.
+  - Step 5, `propobj.c`: `hoverbikeChooseMountSeat` measures each seat from
+    its eye point (distance and view angle) and `vehicleSeatChoose` decides;
+    `currentPlayerTryMountHoverbikeGunner` (solo play only);
+    `--debug-mount-seat <driver|gunner>`.
+  - Step 6, `bondbike.c`: the exit read runs `vehicleExitPressStep` every
+    update; `bbikeSeatToSwitchTo`; `bbikeSwitchSeatAction` swaps the seat's
+    input layer, runs the driver's half of the exit or init, sets or clears
+    the gunner's record and eases the eye to the new seat.
+  - Step 7: the Maian graph has both seats (26 nodes, 21 execution edges; the
+    mount, dismount and switch sections in the shape of `kTwoSeatGraph`); the
+    two vehicle smokes ask for the driver seat (`--debug-mount-seat driver`)
+    and expect the new counts.
+  - Left: step 8, the readiness condition for the gunner and the V4c smoke;
+    then the first game run, where the gunner's view and the switch are
+    expected to need corrections.
 
 Risks the survey found, to settle before or in step 5:
 

@@ -100,6 +100,8 @@
     "base:escape",
     "--debug-swap-vehicle",
     "mod:vehicle_maian_hover",
+    "--debug-mount-seat",
+    "driver",
     "--debug-mount-bike"
   ],
   "screenshots": [
@@ -206,7 +208,7 @@
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
       "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
       "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
-      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=15 exec_edges=11 pending=1 parts=1 boost_heat=1",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=26 exec_edges=21 pending=\\d+ parts=1 boost_heat=1",
       "VEHICLE: input .*boost=1\\.00",
       "VEHICLE\\.BOOST: modelnum=\\d+ boost and heat on: boost_speed=7\\.00 ramp=240 overheat=960 overheated_boost=0\\.50 recover=480 ticks240",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase cool -> ramping",

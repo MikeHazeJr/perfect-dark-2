@@ -180,6 +180,16 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(heat->overheat_ticks240 == 960.0f);
 	CHECK(vehicleGraphProgramEventReachesModule(program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
 		"og.vehicle.mount_seat") == 1);
+	/* Two seats (V4): a mount, a dismount and a switch each reach both the
+	 * driver's and the gunner's seat module, which is how the game knows the
+	 * vehicle has a gunner seat and that a rider may switch. */
+	const u32 bothSeats = (1u << VEHICLE_GRAPH_SEAT_DRIVER) | (1u << VEHICLE_GRAPH_SEAT_GUNNER);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_TICK) == 0u);
+	CHECK(vehicleGraphProgramNodeCount(program) == 26);
+	CHECK(vehicleGraphProgramExecEdgeCount(program) == 21);
 	vehicleGraphProgramFree(program);
 
 	/* The embedded model, in the mod's namespace. */
