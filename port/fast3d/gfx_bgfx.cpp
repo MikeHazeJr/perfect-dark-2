@@ -86,6 +86,12 @@ struct BgfxProgram {
     float sel[4][4];
     float shape[4];
     uint32_t flags;
+    /* frame_count, noise_scale and the two three-point "linear" flags as the
+     * GL backend last set them on this program. GL sets these uniforms only
+     * when fast3d loads the program (gfx_opengl_set_uniforms from
+     * gfx_opengl_load_shader), and a GL program keeps its uniform values, so
+     * draws keep the values from the last load, not the live ones. */
+    float frameU[4];
 };
 
 /* A sampleable texture: fast3d textures and framebuffer colour targets. */
@@ -109,6 +115,7 @@ struct BgfxFb {
     uint32_t made_height = 0;
     uint32_t made_msaa = 0;
     bool made_depth = false;
+    bool failed = false;            /* bgfx refused these parameters; not retried */
     bgfx::FrameBufferHandle fb = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle depth = BGFX_INVALID_HANDLE;
@@ -134,6 +141,10 @@ SDL_GLContext s_teeMainContext = nullptr;
 SDL_GLContext s_teeBgfxContext = nullptr;
 bgfx::FrameBufferHandle s_teeFinal = BGFX_INVALID_HANDLE;
 bgfx::TextureHandle s_teeFinalColor = BGFX_INVALID_HANDLE;
+/* bgfx cannot read a render target back directly (BGFX_TEXTURE_READ_BACK
+ * is refused on one): a capture blits the final image into this
+ * BLIT_DST | READ_BACK copy and reads that. */
+bgfx::TextureHandle s_teeReadback = BGFX_INVALID_HANDLE;
 uint32_t s_teeFinalWidth = 0;
 uint32_t s_teeFinalHeight = 0;
 bool s_parityRequested = false;
@@ -157,8 +168,22 @@ BgfxProgram *s_program = nullptr;
 std::unordered_map<uint32_t, BgfxTex> s_textures;
 uint32_t s_nextTexture = 1;
 
+/* pdgui textures (gfxBgfxPdguiTex*): what pdgui makes with glGenTextures in
+ * the GL path. fast3d can bind one too (the skin editor's canvas override in
+ * gfx_pc.cpp), so texture units resolve these ids as well. */
+struct PdguiTex {
+    bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint32_t sampler = 0;
+};
+std::unordered_map<uint32_t, PdguiTex> s_pdguiTextures;
+uint32_t s_nextPdguiTexture = 1;
+
 std::vector<BgfxFb> s_fbs;
 size_t s_currentFb = 0;
+/* 1x1 colour and depth target for views whose frame buffer bgfx refused. */
+bgfx::FrameBufferHandle s_sinkFb = BGFX_INVALID_HANDLE;
 
 UnitBinding s_units[2];
 int s_activeUnit = 0;
@@ -173,16 +198,32 @@ float s_noiseScale = 0.0f;
 uint64_t s_depthState = 0;
 uint64_t s_blendState = 0;
 int s_viewport[4] = { 0, 0, 1, 1 };
+/* GL scissor state as the GL backend leaves it: set_scissor only moves the
+ * box; the test is off after reset_for_overlay (and at start) and back on
+ * after every clear, MSAA resolve and framebuffer copy. */
 int s_scissor[4] = { 0, 0, 1, 1 };
 bool s_scissorSet = false;
 
-/* View sequencing for the current frame. */
+/* View sequencing for the current bgfx frame. Ids restart after each
+ * bgfx::frame(), which is bgfx's frame boundary (not fast3d's start_frame:
+ * pdgui can issue work between the two). */
 uint16_t s_nextView = 0;
 bool s_viewOpen = false;
 bgfx::ViewId s_view = 0;
 bool s_viewsExhaustedLogged = false;
+/* The ImGui view is allocated on first use in the frame, so a pdgui bake
+ * made while ImGui builds its frame runs before ImGui samples it, as the
+ * GL backend's immediate bake does. */
 uint16_t s_overlayView = 0;
+bool s_overlayAllocated = false;
+bgfx::FrameBufferHandle s_overlayTarget = BGFX_INVALID_HANDLE;
+uint32_t s_overlayWidth = 1;
 uint32_t s_overlayHeight = 1;
+/* bgfx keeps a frame's scissor rects in a fixed cache; consecutive draws
+ * with the same rect reuse its entry. Valid until bgfx::frame(). */
+int s_cachedScissor[4] = { 0, 0, 0, 0 };
+uint16_t s_cachedScissorIdx = 0;
+bool s_cachedScissorValid = false;
 uint32_t s_windowWidth = 1;
 uint32_t s_windowHeight = 1;
 uint32_t s_resetWidth = 0;
@@ -211,6 +252,8 @@ bool s_loggedFrontRead = false;
 bool s_loggedMsaaBlit = false;
 bool s_loggedViewport = false;
 bool s_loggedTransient = false;
+bool s_loggedLayout = false;
+bool s_loggedFbFailed = false;
 
 constexpr uint32_t kMaxViews = 4096;
 
@@ -269,8 +312,11 @@ uint32_t msaaTextureFlags(uint32_t msaa)
     return BGFX_TEXTURE_RT_MSAA_X16;
 }
 
-/* Allocates the next view of this frame. Views past the bgfx limit reuse the
- * last one (logged once): the frame still renders, in a merged order. */
+/* Allocates the next view of this frame, reset to bgfx's defaults: bgfx keeps
+ * a view's frame buffer, rect, scissor and clear from frame to frame, and a
+ * view that sets only some of them (a blit-only view, say) must not pick up
+ * last frame's clear. Views past the bgfx limit reuse the last one (logged
+ * once): the frame still renders, in a merged order. */
 bgfx::ViewId allocView(void)
 {
     if (s_nextView >= kMaxViews) {
@@ -280,8 +326,17 @@ bgfx::ViewId allocView(void)
         }
         return (bgfx::ViewId)(kMaxViews - 1);
     }
-    return (bgfx::ViewId)s_nextView++;
+    const bgfx::ViewId view = (bgfx::ViewId)s_nextView++;
+    bgfx::resetView(view);
+    return view;
 }
+
+} // namespace
+
+/* Parity mode: a GL texture name imported as a bgfx texture (defined below). */
+static int teeResolveGlTexture(uint32_t glName, uint16_t *handleIdx, uint32_t *samplerFlags);
+
+namespace {
 
 /* The bgfx frame buffer behind fast3d framebuffer `fbId`, created or resized
  * to match its parameters. In tee mode framebuffer 0 is offscreen as well. */
@@ -318,7 +373,18 @@ bgfx::ViewId openView(size_t fbId, int x, int y, int w, int h, uint16_t clearFla
     }
 
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
-    bgfx::setViewFrameBuffer(view, fbHandle(fbId));
+    const bgfx::FrameBufferHandle target = fbHandle(fbId);
+    if (!bgfx::isValid(target)) {
+        /* A frame buffer bgfx refused (logged in ensureFb). An invalid handle
+         * would mean the window, which in parity mode is the window the GL
+         * renderer presents, so the view draws into a 1x1 target nobody
+         * reads instead (bgfx keeps view rects at least 1x1). */
+        bgfx::setViewFrameBuffer(view, s_sinkFb);
+        bgfx::setViewRect(view, 0, 0, 1, 1);
+        bgfx::setViewClear(view, BGFX_CLEAR_NONE);
+        return view;
+    }
+    bgfx::setViewFrameBuffer(view, target);
     bgfx::setViewRect(view, (uint16_t)x, (uint16_t)top, (uint16_t)w, (uint16_t)h);
     bgfx::setViewScissor(view, 0, 0, 0, 0);
     bgfx::setViewClear(view, clearFlags, 0x000000ff, 1.0f, 0);
@@ -344,9 +410,33 @@ BgfxTex *unitTexture(int unit, uint32_t *samplerOut, bgfx::TextureHandle *handle
         *handleOut = s_fbs[b.id].color;
         return nullptr;
     }
+    *handleOut = BGFX_INVALID_HANDLE;
+    switch (b.id & 7u) {
+        case GFX_BGFX_TEXID_KIND_PDGUI: {
+            /* A pdgui texture bound through fast3d (the skin canvas). */
+            auto pit = s_pdguiTextures.find(b.id);
+            if (pit != s_pdguiTextures.end()) {
+                *samplerOut = pit->second.sampler;
+                *handleOut = pit->second.handle;
+            }
+            return nullptr;
+        }
+        case GFX_BGFX_TEXID_KIND_GL_NAME: {
+            /* Parity mode: a GL texture the GL backend binds that is not one
+             * of fast3d's (gfx_tee.cpp), imported with its GL parameters. */
+            uint16_t idx = 0;
+            uint32_t sampler = 0;
+            if (teeResolveGlTexture(b.id >> 3, &idx, &sampler)) {
+                *samplerOut = sampler;
+                *handleOut = bgfx::TextureHandle{ idx };
+            }
+            return nullptr;
+        }
+        default:
+            break;
+    }
     auto it = s_textures.find(b.id);
     if (it == s_textures.end()) {
-        *handleOut = BGFX_INVALID_HANDLE;
         return nullptr;
     }
     *samplerOut = it->second.sampler;
@@ -355,12 +445,18 @@ BgfxTex *unitTexture(int unit, uint32_t *samplerOut, bgfx::TextureHandle *handle
 }
 
 /* Sampler parameters land on whatever is bound to `unit`, exactly like
- * glTexParameteri on the active texture unit. */
+ * glTexParameteri on the active texture unit. (A parity-mode GL name keeps
+ * the parameters the GL backend gives it; they are read when imported.) */
 void setUnitSampler(int unit, uint32_t sampler)
 {
     const UnitBinding &b = s_units[unit];
     if (b.is_fb) {
         if (b.id < s_fbs.size()) s_fbs[b.id].sampler = sampler;
+        return;
+    }
+    if ((b.id & 7u) == GFX_BGFX_TEXID_KIND_PDGUI) {
+        auto pit = s_pdguiTextures.find(b.id);
+        if (pit != s_pdguiTextures.end()) pit->second.sampler = sampler;
         return;
     }
     auto it = s_textures.find(b.id);
@@ -432,34 +528,63 @@ void ensureFb(size_t fbId)
     BgfxFb &fb = s_fbs[fbId];
     const uint32_t w = std::max<uint32_t>(fb.width, 1);
     const uint32_t h = std::max<uint32_t>(fb.height, 1);
-    if (bgfx::isValid(fb.fb) && fb.made_width == w && fb.made_height == h && fb.made_msaa == fb.msaa
-            && fb.made_depth == fb.has_depth) {
+    const bool same = fb.made_width == w && fb.made_height == h && fb.made_msaa == fb.msaa
+        && fb.made_depth == fb.has_depth;
+    if (same && (bgfx::isValid(fb.fb) || fb.failed)) {
         return;
     }
     if (bgfx::isValid(fb.fb)) {
         /* Destroys run after this frame's draws, like a GL resize. */
         bgfx::destroy(fb.fb);
-        fb.fb = BGFX_INVALID_HANDLE;
-        fb.color = BGFX_INVALID_HANDLE;
-        fb.depth = BGFX_INVALID_HANDLE;
     }
-    const uint64_t msaa = msaaTextureFlags(fb.msaa);
-    bgfx::Attachment att[2];
-    fb.color = bgfx::createTexture2D((uint16_t)w, (uint16_t)h, false, 1, bgfx::TextureFormat::RGBA8,
-                                     BGFX_TEXTURE_RT | msaa);
-    att[0].init(fb.color);
-    uint8_t num = 1;
-    if (fb.has_depth) {
-        fb.depth = bgfx::createTexture2D((uint16_t)w, (uint16_t)h, false, 1, bgfx::TextureFormat::D24S8,
-                                         BGFX_TEXTURE_RT_WRITE_ONLY | msaa);
-        att[1].init(fb.depth);
-        num = 2;
-    }
-    fb.fb = bgfx::createFrameBuffer(num, att, true);
+    fb.fb = BGFX_INVALID_HANDLE;
+    fb.color = BGFX_INVALID_HANDLE;
+    fb.depth = BGFX_INVALID_HANDLE;
     fb.made_width = w;
     fb.made_height = h;
     fb.made_msaa = fb.msaa;
     fb.made_depth = fb.has_depth;
+    fb.failed = false;
+
+    /* The render-target bits are one 3-bit field: BGFX_TEXTURE_RT is value 1
+     * and BGFX_TEXTURE_RT_MSAA_Xn the rest, so they are never ORed together.
+     * The depth target must carry them too: write-only without them makes
+     * bgfx's GL renderer create neither a texture nor a renderbuffer, which
+     * leaves the frame buffer without depth. */
+    const uint64_t msaa = msaaTextureFlags(fb.msaa);
+    const uint64_t rt = msaa != 0 ? msaa : BGFX_TEXTURE_RT;
+    bgfx::Attachment att[2];
+    fb.color = bgfx::createTexture2D((uint16_t)w, (uint16_t)h, false, 1, bgfx::TextureFormat::RGBA8, rt);
+    uint8_t num = 0;
+    if (bgfx::isValid(fb.color)) {
+        att[num++].init(fb.color);
+    }
+    if (fb.has_depth) {
+        fb.depth = bgfx::createTexture2D((uint16_t)w, (uint16_t)h, false, 1, bgfx::TextureFormat::D24S8,
+                                         BGFX_TEXTURE_RT_WRITE_ONLY | rt);
+        if (bgfx::isValid(fb.depth)) {
+            att[num++].init(fb.depth);
+        }
+    }
+    const bool complete = bgfx::isValid(fb.color) && (!fb.has_depth || bgfx::isValid(fb.depth));
+    if (complete) {
+        fb.fb = bgfx::createFrameBuffer(num, att, true);
+    }
+    if (!bgfx::isValid(fb.fb)) {
+        /* Not retried until the parameters change: each attempt would
+         * otherwise leave two textures behind every call. A refused
+         * createFrameBuffer does not take ownership of the textures. */
+        if (bgfx::isValid(fb.color)) bgfx::destroy(fb.color);
+        if (bgfx::isValid(fb.depth)) bgfx::destroy(fb.depth);
+        fb.color = BGFX_INVALID_HANDLE;
+        fb.depth = BGFX_INVALID_HANDLE;
+        fb.failed = true;
+        if (!s_loggedFbFailed) {
+            s_loggedFbFailed = true;
+            sysLogPrintf(LOG_ERROR, "bgfx: could not create framebuffer %zu (%ux%u, msaa %u, depth %d); its draws are dropped",
+                         fbId, w, h, fb.msaa, fb.has_depth ? 1 : 0);
+        }
+    }
 }
 
 /* Draws a copy of a source rectangle with glBlitFramebuffer semantics into
@@ -520,9 +645,22 @@ static void gfx_bgfx_unload_shader(struct ShaderProgram *old_prg)
     (void)old_prg;
 }
 
+/* gfx_opengl_set_uniforms: the values a program draws with until it is
+ * loaded again. */
+static void snapshotProgramUniforms(BgfxProgram &prg)
+{
+    prg.frameU[0] = (float)s_frameCount;
+    prg.frameU[1] = s_noiseScale;
+    prg.frameU[2] = s_unitLinear[0] ? 1.0f : 0.0f;
+    prg.frameU[3] = s_unitLinear[1] ? 1.0f : 0.0f;
+}
+
 static void gfx_bgfx_load_shader(struct ShaderProgram *new_prg)
 {
     s_program = reinterpret_cast<BgfxProgram *>(new_prg);
+    if (s_program) {
+        snapshotProgramUniforms(*s_program);
+    }
 }
 
 static struct ShaderProgram *gfx_bgfx_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1)
@@ -577,9 +715,15 @@ static struct ShaderProgram *gfx_bgfx_create_and_load_new_shader(uint64_t shader
     }
     prg.flags = (shader_id1 & 0x3fffu)
               | (cc.used_textures[0] ? (1u << 14) : 0)
-              | (cc.used_textures[1] ? (1u << 15) : 0);
+              | (cc.used_textures[1] ? (1u << 15) : 0)
+              /* The GL backend writes three-point filtering into the program
+               * text when it creates it; a filter change clears all programs
+               * (gfx_set_texture_filter). */
+              | (s_filterMode == FILTER_THREE_POINT ? (1u << 16) : 0);
 
+    /* gfx_opengl_create_and_load_new_shader ends in gfx_opengl_load_shader. */
     s_program = &prg;
+    snapshotProgramUniforms(prg);
     return reinterpret_cast<struct ShaderProgram *>(&prg);
 }
 
@@ -699,11 +843,11 @@ static void gfx_bgfx_set_viewport(int x, int y, int width, int height)
 
 static void gfx_bgfx_set_scissor(int x, int y, int width, int height)
 {
+    /* glScissor: the box only; the test stays as it is. */
     s_scissor[0] = x;
     s_scissor[1] = y;
     s_scissor[2] = width;
     s_scissor[3] = height;
-    s_scissorSet = true;
 }
 
 static void gfx_bgfx_set_use_alpha(bool use_alpha, bool modulate, bool additive)
@@ -741,6 +885,16 @@ static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t 
 
     bgfx::TransientVertexBuffer tvb;
     bgfx::allocTransientVertexBuffer(&tvb, numVerts, prg.layout);
+    if (!bgfx::isValid(tvb.layoutHandle)) {
+        /* Out of vertex layout handles (BGFX_CONFIG_MAX_VERTEX_LAYOUTS): bgfx
+         * keeps one per distinct transient layout. Submitting would make the
+         * renderer index past its layout table. */
+        if (!s_loggedLayout) {
+            s_loggedLayout = true;
+            sysLogPrintf(LOG_ERROR, "bgfx: no vertex layout handle left; combiner draws dropped");
+        }
+        return;
+    }
     memcpy(tvb.data, buf_vbo, sizeof(float) * buf_vbo_len);
 
     uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA | s_depthState | s_blendState;
@@ -762,7 +916,15 @@ static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t 
         x1 = std::min(x1, 0xffff);
         t1 = std::min(t1, 0xffff);
         if (x1 <= x0 || t1 <= t0) return; /* empty scissor: GL draws nothing */
-        bgfx::setScissor((uint16_t)x0, (uint16_t)t0, (uint16_t)(x1 - x0), (uint16_t)(t1 - t0));
+        const int rect[4] = { x0, t0, x1 - x0, t1 - t0 };
+        if (s_cachedScissorValid && memcmp(rect, s_cachedScissor, sizeof(rect)) == 0) {
+            bgfx::setScissor(s_cachedScissorIdx);
+        } else {
+            s_cachedScissorIdx = bgfx::setScissor((uint16_t)rect[0], (uint16_t)rect[1], (uint16_t)rect[2],
+                                                  (uint16_t)rect[3]);
+            memcpy(s_cachedScissor, rect, sizeof(rect));
+            s_cachedScissorValid = true;
+        }
     }
 
     for (int i = 0; i < 2; i++) {
@@ -775,16 +937,11 @@ static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t 
         }
     }
 
-    const float flags[4] = {
-        (float)(prg.flags | (s_filterMode == FILTER_THREE_POINT ? (1u << 16) : 0)), 0.0f, 0.0f, 0.0f
-    };
-    const float frame[4] = {
-        (float)s_frameCount, s_noiseScale, s_unitLinear[0] ? 1.0f : 0.0f, s_unitLinear[1] ? 1.0f : 0.0f
-    };
+    const float flags[4] = { (float)prg.flags, 0.0f, 0.0f, 0.0f };
     bgfx::setUniform(s_uSel, prg.sel, 4);
     bgfx::setUniform(s_uShape, prg.shape);
     bgfx::setUniform(s_uFlags, flags);
-    bgfx::setUniform(s_uFrame, frame);
+    bgfx::setUniform(s_uFrame, prg.frameU);
     bgfx::setVertexBuffer(0, &tvb);
     bgfx::setState(state);
     bgfx::submit(s_view, s_fast3dProgram);
@@ -793,8 +950,12 @@ static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t 
 static void gfx_bgfx_init(void)
 {
     /* Raw GL helpers that stay on the shared context in bgfx mode (the decal
-     * polygon offset hook, the smoke screenshot, the GPU swarm) use glad. */
-    if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
+     * polygon offset hook, the smoke screenshot, the GPU swarm) use glad.
+     * gfxBgfxSelectRenderingApi has loaded it already. Loading it again
+     * would also reset the extension flags gfx_opengl_init_extensions
+     * patches (depth clamp, mirror clamp), which in parity mode would change
+     * what the classic renderer draws. */
+    if (glad_glGetString == NULL && !gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
         sysFatalError("bgfx: could not load OpenGL entry points");
     }
 
@@ -841,13 +1002,11 @@ static void gfx_bgfx_init(void)
                  bgfx::getRendererName(caps->rendererType), caps->vendorId, caps->deviceId,
                  caps->limits.maxTextureSize);
 
-    s_fast3dProgram = bgfx::createProgram(loadShader(vs_fast3d_glsl, sizeof(vs_fast3d_glsl), "vs_fast3d"),
-                                          loadShader(fs_fast3d_glsl, sizeof(fs_fast3d_glsl), "fs_fast3d"), true);
-    s_copyProgram = bgfx::createProgram(loadShader(vs_pdcopy_glsl, sizeof(vs_pdcopy_glsl), "vs_pdcopy"),
-                                        loadShader(fs_pdcopy_glsl, sizeof(fs_pdcopy_glsl), "fs_pdcopy"), true);
-    if (!bgfx::isValid(s_fast3dProgram) || !bgfx::isValid(s_copyProgram)) {
-        sysFatalError("bgfx: could not link the fast3d programs");
-    }
+    /* Uniforms first. For GLSL 4.30 shaderc stores no uniform table in the
+     * shader binary, so createShader registers none, and bgfx's GL renderer
+     * binds a program's uniforms by name only when the program is created
+     * (ProgramGL::init). A uniform created after its program is never set,
+     * and its samplers all read texture unit 0. */
     s_uSel = bgfx::createUniform("u_ccSel", bgfx::UniformType::Vec4, 4);
     s_uShape = bgfx::createUniform("u_ccShape", bgfx::UniformType::Vec4);
     s_uFlags = bgfx::createUniform("u_ccFlags", bgfx::UniformType::Vec4);
@@ -858,6 +1017,24 @@ static void gfx_bgfx_init(void)
     s_uCopyDst = bgfx::createUniform("u_copyDst", bgfx::UniformType::Vec4);
     s_sCopySrc = bgfx::createUniform("s_copySrc", bgfx::UniformType::Sampler);
     s_copyLayout.begin().add(bgfx::Attrib::Position, 4, bgfx::AttribType::Float).end();
+
+    s_fast3dProgram = bgfx::createProgram(loadShader(vs_fast3d_glsl, sizeof(vs_fast3d_glsl), "vs_fast3d"),
+                                          loadShader(fs_fast3d_glsl, sizeof(fs_fast3d_glsl), "fs_fast3d"), true);
+    s_copyProgram = bgfx::createProgram(loadShader(vs_pdcopy_glsl, sizeof(vs_pdcopy_glsl), "vs_pdcopy"),
+                                        loadShader(fs_pdcopy_glsl, sizeof(fs_pdcopy_glsl), "fs_pdcopy"), true);
+    if (!bgfx::isValid(s_fast3dProgram) || !bgfx::isValid(s_copyProgram)) {
+        sysFatalError("bgfx: could not link the fast3d programs");
+    }
+    {
+        bgfx::Attachment sink[2];
+        sink[0].init(bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT));
+        sink[1].init(bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::D24S8,
+                                           BGFX_TEXTURE_RT | BGFX_TEXTURE_RT_WRITE_ONLY));
+        s_sinkFb = bgfx::createFrameBuffer(2, sink, true);
+        if (!bgfx::isValid(s_sinkFb)) {
+            sysFatalError("bgfx: could not create a 1x1 frame buffer");
+        }
+    }
 
     s_fbs.resize(1); /* framebuffer 0: the game's screen */
     s_fbs[0].has_depth = true;
@@ -877,11 +1054,9 @@ static void gfx_bgfx_on_resize(void)
 
 static void gfx_bgfx_start_frame(void)
 {
+    /* gfx_opengl_start_frame. View ids restart after bgfx::frame() instead
+     * (gfxBgfxSubmitFrame), and the scissor test keeps its GL state. */
     s_frameCount++;
-    s_nextView = 0;
-    s_viewOpen = false;
-    s_scissorSet = false;
-    s_overlayView = 0;
     const uint32_t debug = gfxDebugWireframeGet() ? BGFX_DEBUG_WIREFRAME : BGFX_DEBUG_NONE;
     bgfx::setDebug(debug);
 }
@@ -951,6 +1126,9 @@ static bool gfx_bgfx_start_draw_to_framebuffer(int fb_id, float noise_scale)
 
 static void gfx_bgfx_clear_framebuffer(bool clear_color, bool clear_depth)
 {
+    /* gfx_opengl_clear_framebuffer clears with the scissor test off and
+     * always ends by turning it on. */
+    s_scissorSet = true;
     uint16_t flags = 0;
     if (clear_color) flags |= BGFX_CLEAR_COLOR;
     if (clear_depth && s_fbs[s_currentFb].has_depth) flags |= BGFX_CLEAR_DEPTH;
@@ -971,6 +1149,7 @@ static void gfx_bgfx_resolve_msaa_color_buffer(int fb_id_target, int fb_id_sourc
     ensureFb((size_t)fb_id_source);
     copyRect((size_t)fb_id_target, src.color, 0.0f, 0.0f, (float)src.width, (float)src.height,
              0.0f, 0.0f, (float)dst.width, (float)dst.height);
+    s_scissorSet = true; /* the GL resolve ends with glEnable(GL_SCISSOR_TEST) */
 }
 
 static void *gfx_bgfx_get_framebuffer_texture_id(int fb_id)
@@ -1010,6 +1189,9 @@ static void gfx_bgfx_copy_framebuffer(int fb_dst, int fb_src, int left, int top,
     if (flip_y) {
         std::swap(dstY0, dstY1);
     }
+    /* The GL copy ends with glEnable(GL_SCISSOR_TEST), even when its blit
+     * fails below. */
+    s_scissorSet = true;
 
     if (src.msaa > 1) {
         /* glBlitFramebuffer from a multisampled read framebuffer requires
@@ -1085,22 +1267,8 @@ struct GfxRenderingAPI gfx_bgfx_api = {
 };
 
 /* ------------------------------------------------------------------------ */
-/* pdgui textures                                                            */
+/* pdgui textures (the table is with the other state at the top)             */
 /* ------------------------------------------------------------------------ */
-
-namespace {
-
-struct PdguiTex {
-    bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
-    uint16_t width = 0;
-    uint16_t height = 0;
-    uint32_t sampler = 0;
-};
-
-std::unordered_map<uint32_t, PdguiTex> s_pdguiTextures;
-uint32_t s_nextPdguiTexture = 1;
-
-} // namespace
 
 extern "C" uint32_t gfxBgfxPdguiTexCreate(int width, int height, const uint8_t *rgba, int linear, int clampEdge)
 {
@@ -1168,6 +1336,9 @@ extern "C" uint32_t gfxBgfxPdguiTexFromFramebuffer(int fbId, int linear, int cla
     if (!bgfx::isValid(tex.handle)) return 0;
     bgfx::ViewId view = allocView();
     bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+    /* A blit-only view; the 1x1 target keeps it off the window. */
+    bgfx::setViewFrameBuffer(view, s_sinkFb);
+    bgfx::setViewRect(view, 0, 0, 1, 1);
     bgfx::blit(view, tex.handle, 0, 0, fb.color, 0, 0, tex.width, tex.height);
     bgfx::touch(view);
     s_viewOpen = false;
@@ -1280,10 +1451,19 @@ extern "C" void gfxBgfxResetForOverlay(int width, int height)
     bgfx::FrameBufferHandle window = BGFX_INVALID_HANDLE;
     if (s_tee) {
         if (!bgfx::isValid(s_teeFinal) || s_teeFinalWidth != (uint32_t)width || s_teeFinalHeight != (uint32_t)height) {
-            if (bgfx::isValid(s_teeFinal)) bgfx::destroy(s_teeFinal);
+            if (bgfx::isValid(s_teeFinal)) bgfx::destroy(s_teeFinal); /* and its colour texture */
+            if (bgfx::isValid(s_teeReadback)) bgfx::destroy(s_teeReadback);
             s_teeFinalColor = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
-                bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT | BGFX_TEXTURE_READ_BACK);
-            s_teeFinal = bgfx::createFrameBuffer(1, &s_teeFinalColor, true);
+                bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
+            s_teeReadback = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
+                bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
+            s_teeFinal = bgfx::isValid(s_teeFinalColor)
+                ? bgfx::createFrameBuffer(1, &s_teeFinalColor, true) : BGFX_INVALID_HANDLE;
+            if (!bgfx::isValid(s_teeFinal) || !bgfx::isValid(s_teeReadback)) {
+                /* Never fall back to the window: in parity mode it is the
+                 * window the classic renderer presents. */
+                sysFatalError("bgfx: parity mode could not create its %dx%d offscreen target", width, height);
+            }
             s_teeFinalWidth = (uint32_t)width;
             s_teeFinalHeight = (uint32_t)height;
         }
@@ -1316,31 +1496,52 @@ extern "C" void gfxBgfxResetForOverlay(int width, int height)
         bgfx::submit(present, s_copyProgram);
     }
 
-    s_overlayView = allocView();
-    bgfx::setViewMode(s_overlayView, bgfx::ViewMode::Sequential);
-    bgfx::setViewFrameBuffer(s_overlayView, window);
-    bgfx::setViewRect(s_overlayView, 0, 0, (uint16_t)width, (uint16_t)height);
-    bgfx::setViewScissor(s_overlayView, 0, 0, 0, 0);
-    bgfx::setViewClear(s_overlayView, BGFX_CLEAR_NONE);
-    bgfx::setViewTransform(s_overlayView, nullptr, nullptr);
+    /* gfx_opengl_reset_for_overlay: glScissor(0, 0, w, h) and the test off,
+     * and that is the state fast3d's next frame starts in. */
+    s_scissor[0] = 0;
+    s_scissor[1] = 0;
+    s_scissor[2] = width;
+    s_scissor[3] = height;
+    s_scissorSet = false;
+
+    /* The ImGui view opens on first use (gfxBgfxOverlayView), after any
+     * pdgui bake made while ImGui builds this frame. */
+    s_overlayTarget = window;
+    s_overlayWidth = (uint32_t)width;
     s_overlayHeight = (uint32_t)height;
+    s_overlayAllocated = false;
     s_viewOpen = false;
 }
 
 extern "C" void gfxBgfxSubmitFrame(void)
 {
     if (!s_active) return;
-    const bool capture = s_tee && s_parityRequested && bgfx::isValid(s_teeFinalColor);
+    const bool capture = s_tee && s_parityRequested && bgfx::isValid(s_teeFinalColor)
+        && bgfx::isValid(s_teeReadback);
     if (capture) {
-        /* Read back after this frame's draws; bgfx runs reads after rendering. */
+        /* After the frame's last view: copy the final image into the
+         * read-back texture and read that. Single-threaded, bgfx::frame()
+         * renders, blits and then runs the read before it returns. */
+        const bgfx::ViewId view = allocView();
+        bgfx::setViewMode(view, bgfx::ViewMode::Sequential);
+        bgfx::setViewFrameBuffer(view, s_teeFinal);
+        bgfx::setViewRect(view, 0, 0, (uint16_t)s_teeFinalWidth, (uint16_t)s_teeFinalHeight);
+        bgfx::blit(view, s_teeReadback, 0, 0, s_teeFinalColor, 0, 0, (uint16_t)s_teeFinalWidth,
+                   (uint16_t)s_teeFinalHeight);
+        bgfx::touch(view);
         s_parityWidth = s_teeFinalWidth;
         s_parityHeight = s_teeFinalHeight;
         s_parityPixels.assign((size_t)s_parityWidth * s_parityHeight * 4, 0);
-        bgfx::readTexture(s_teeFinalColor, s_parityPixels.data());
+        bgfx::readTexture(s_teeReadback, s_parityPixels.data());
     }
     if (s_tee) SDL_GL_MakeCurrent(s_teeWindow, s_teeBgfxContext);
     bgfx::frame();
     if (s_tee) SDL_GL_MakeCurrent(s_teeWindow, s_teeMainContext);
+    /* bgfx's frame boundary: view ids and scissor cache entries start over. */
+    s_nextView = 0;
+    s_viewOpen = false;
+    s_cachedScissorValid = false;
+    s_overlayAllocated = false;
     if (capture) {
         s_parityRequested = false;
         s_parityReady = true;
@@ -1362,6 +1563,17 @@ extern "C" void gfxBgfxEndPass(void)
 
 extern "C" uint16_t gfxBgfxOverlayView(uint32_t *targetHeight)
 {
+    if (!s_overlayAllocated) {
+        s_overlayView = allocView();
+        bgfx::setViewMode(s_overlayView, bgfx::ViewMode::Sequential);
+        bgfx::setViewFrameBuffer(s_overlayView, s_overlayTarget);
+        bgfx::setViewRect(s_overlayView, 0, 0, (uint16_t)s_overlayWidth, (uint16_t)s_overlayHeight);
+        bgfx::setViewScissor(s_overlayView, 0, 0, 0, 0);
+        bgfx::setViewClear(s_overlayView, BGFX_CLEAR_NONE);
+        bgfx::setViewTransform(s_overlayView, nullptr, nullptr);
+        s_overlayAllocated = true;
+        s_viewOpen = false;
+    }
     if (targetHeight) *targetHeight = s_overlayHeight;
     return s_overlayView;
 }

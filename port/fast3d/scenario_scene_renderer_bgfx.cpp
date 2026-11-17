@@ -45,6 +45,12 @@ bool ensureProgram(void)
     if (bgfx::isValid(s_program)) {
         return true;
     }
+    /* Uniforms before the program: bgfx's GL renderer binds them by name
+     * only when the program is created (see gfx_bgfx_init in gfx_bgfx.cpp). */
+    s_uVP = bgfx::createUniform("u_sceneVP", bgfx::UniformType::Mat4);
+    s_uParams = bgfx::createUniform("u_sceneParams", bgfx::UniformType::Vec4);
+    s_sTex = bgfx::createUniform("s_sceneTex", bgfx::UniformType::Sampler);
+    s_sTex2 = bgfx::createUniform("s_sceneTex2", bgfx::UniformType::Sampler);
     bgfx::ShaderHandle vs = bgfx::createShader(bgfx::makeRef(vs_pdscene_glsl, sizeof(vs_pdscene_glsl)));
     bgfx::ShaderHandle fs = bgfx::createShader(bgfx::makeRef(fs_pdscene_glsl, sizeof(fs_pdscene_glsl)));
     s_program = bgfx::createProgram(vs, fs, true);
@@ -52,10 +58,6 @@ bool ensureProgram(void)
         sysLogPrintf(LOG_ERROR, "SCENARIO.RENDER: bgfx scene program unavailable");
         return false;
     }
-    s_uVP = bgfx::createUniform("u_sceneVP", bgfx::UniformType::Mat4);
-    s_uParams = bgfx::createUniform("u_sceneParams", bgfx::UniformType::Vec4);
-    s_sTex = bgfx::createUniform("s_sceneTex", bgfx::UniformType::Sampler);
-    s_sTex2 = bgfx::createUniform("s_sceneTex2", bgfx::UniformType::Sampler);
     /* The scene renderer's Vertex: position, two UV sets, float colour. */
     s_layout.begin()
         .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -164,10 +166,10 @@ extern "C" void sceneBgfxEndPass(void)
     gfxBgfxEndPass();
 }
 
-extern "C" struct GfxRenderingAPI *gfx_get_current_rendering_api(void);
-
 extern "C" void sceneBgfxClearDepth(void)
 {
-    /* The GL path clears depth with the scissor off: the whole target. */
-    gfx_get_current_rendering_api()->clear_framebuffer(false, true);
+    /* The GL path clears depth with the scissor off: the whole target. This
+     * clears bgfx's depth only; in parity mode the GL path clears its own,
+     * at its own point in the frame. */
+    gfx_bgfx_api.clear_framebuffer(false, true);
 }

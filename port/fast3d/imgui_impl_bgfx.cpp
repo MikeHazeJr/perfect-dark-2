@@ -58,10 +58,12 @@ bool ImGui_ImplBgfx_Init(void)
         io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
     }
 
-    s_program = bgfx::createProgram(loadShader(vs_pdimgui_glsl, sizeof(vs_pdimgui_glsl), "vs_pdimgui"),
-                                    loadShader(fs_pdimgui_glsl, sizeof(fs_pdimgui_glsl), "fs_pdimgui"), true);
+    /* Uniforms before the program: bgfx's GL renderer binds them by name
+     * only when the program is created (see gfx_bgfx_init). */
     s_uProj = bgfx::createUniform("u_imguiProj", bgfx::UniformType::Mat4);
     s_sTex = bgfx::createUniform("s_imguiTex", bgfx::UniformType::Sampler);
+    s_program = bgfx::createProgram(loadShader(vs_pdimgui_glsl, sizeof(vs_pdimgui_glsl), "vs_pdimgui"),
+                                    loadShader(fs_pdimgui_glsl, sizeof(fs_pdimgui_glsl), "fs_pdimgui"), true);
     s_layout.begin()
         .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
@@ -146,6 +148,10 @@ void ImGui_ImplBgfx_RenderDrawData(ImDrawData *draw_data)
 
     const ImVec2 clip_off = draw_data->DisplayPos;
     const ImVec2 clip_scale = draw_data->FramebufferScale;
+    /* bgfx's per-frame scissor cache is finite: consecutive commands with the
+     * same clip rect reuse its entry (valid for this frame only). */
+    int cachedRect[4] = { -1, -1, -1, -1 };
+    uint16_t cachedIdx = 0;
     const uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA
         | BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA,
                                          BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
@@ -212,7 +218,13 @@ void ImGui_ImplBgfx_RenderDrawData(ImDrawData *draw_data)
             }
             bgfx::TextureHandle tex = { handleIdx };
 
-            bgfx::setScissor((uint16_t)x0, (uint16_t)t0, (uint16_t)(x1 - x0), (uint16_t)(t1 - t0));
+            const int rect[4] = { x0, t0, x1 - x0, t1 - t0 };
+            if (memcmp(rect, cachedRect, sizeof(rect)) == 0) {
+                bgfx::setScissor(cachedIdx);
+            } else {
+                cachedIdx = bgfx::setScissor((uint16_t)rect[0], (uint16_t)rect[1], (uint16_t)rect[2], (uint16_t)rect[3]);
+                memcpy(cachedRect, rect, sizeof(rect));
+            }
             bgfx::setUniform(s_uProj, &ortho_projection[0][0]);
             bgfx::setTexture(0, s_sTex, tex, sampler);
             bgfx::setVertexBuffer(0, &tvb, pcmd->VtxOffset, numVertices - pcmd->VtxOffset);

@@ -104,7 +104,13 @@ static uint32_t tee_new_texture(void)
 static void tee_select_texture(int tile, uint32_t id, bool linear)
 {
     G.select_texture(tile, id, linear);
-    B.select_texture(tile, bgfxTex(id), linear);
+    /* A GL name that is not one of fast3d's textures (the skin editor's
+     * canvas override, gfx_pc.cpp) is passed on tagged, and bgfx imports it. */
+    uint32_t b = bgfxTex(id);
+    if (b == 0 && id != 0) {
+        b = (id << 3) | GFX_BGFX_TEXID_KIND_GL_NAME;
+    }
+    B.select_texture(tile, b, linear);
 }
 
 static void tee_upload_texture(const uint8_t *rgba, uint32_t w, uint32_t h)

@@ -92,6 +92,8 @@ uint16_t gfxBgfxOverlayView(uint32_t *targetHeight);
 #define GFX_BGFX_TEXID_KIND_FAST3D_FB   2u  /* fast3d framebuffer colour */
 #define GFX_BGFX_TEXID_KIND_PDGUI       3u  /* pdgui texture (pdgui_texture.h) */
 #define GFX_BGFX_TEXID_KIND_IMGUI_FONT  4u  /* ImGui font atlas */
+#define GFX_BGFX_TEXID_KIND_GL_NAME     5u  /* parity mode: a GL texture name fast3d binds that is not
+                                               one of its own textures (gfx_tee.cpp) */
 
 /* Resolves a tagged ImTextureID to a bgfx texture handle index and its
  * sampler flags. Returns 0 if the id names nothing (the draw is skipped). */

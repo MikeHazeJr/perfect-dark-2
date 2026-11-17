@@ -239,6 +239,11 @@ target_compile_definitions(pd_bgfx PRIVATE
   BGFX_CONFIG_MAX_VIEWS=4096
   BGFX_CONFIG_MAX_TEXTURES=16384
   BGFX_CONFIG_MAX_FRAME_BUFFERS=256
+  # One handle per distinct transient vertex layout, never freed (bgfx_p.h
+  # findOrCreateVertexLayout); fast3d makes one per combiner layout.
+  BGFX_CONFIG_MAX_VERTEX_LAYOUTS=1024
+  # Scissor rects per frame; fast3d and ImGui also reuse an unchanged rect.
+  BGFX_CONFIG_MAX_RECT_CACHE=16384
   # port/src/system.c already exports NvOptimusEnablement and
   # AmdPowerXpressRequestHighPerformance (both 1); bgfx's copies would clash.
   BGFX_CONFIG_PREFER_DISCRETE_GPU=0)
