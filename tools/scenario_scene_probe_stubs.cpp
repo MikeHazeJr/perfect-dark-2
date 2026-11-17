@@ -5,6 +5,7 @@
 #include <PR/ultratypes.h>
 
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -219,3 +220,18 @@ extern "C" void sysFatalError(const char *fmt, ...)
 	va_end(args);
 	std::exit(1);
 }
+
+/* The probe is CPU-only: scenario_scene_renderer.cpp's bgfx draw path
+ * (--renderer bgfx, port/fast3d/scenario_scene_renderer_bgfx.cpp) is never
+ * active here, so these stand in for it. */
+extern "C" int gfxBgfxActive(void) { return 0; }
+extern "C" int gfxBgfxRunning(void) { return 0; }
+extern "C" uint32_t sceneBgfxCreateVertexBuffer(const void *, uint32_t, uint32_t) { return 0; }
+extern "C" void sceneBgfxDestroyVertexBuffer(uint32_t) {}
+extern "C" uint32_t sceneBgfxCreateTexture(int, int, const uint8_t *) { return 0; }
+extern "C" void sceneBgfxDestroyTexture(uint32_t) {}
+extern "C" int sceneBgfxBeginPass(int, int, const float *) { return 0; }
+extern "C" void sceneBgfxDraw(uint32_t, uint32_t, uint32_t, uint32_t, int, int, uint32_t, int, int, int, int, int,
+                              float, int) {}
+extern "C" void sceneBgfxEndPass(void) {}
+extern "C" void sceneBgfxClearDepth(void) {}

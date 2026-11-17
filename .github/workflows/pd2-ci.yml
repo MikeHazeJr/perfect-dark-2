@@ -48,6 +48,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The 2.0 renderer's bgfx, bx and bimg sources: pinned shallow submodules
+      # (context/designs/rendering/bgfx-classic-gl.md). Fetched with the same
+      # Windows git that checked out the repo; tools/recomp is not needed here.
+      - name: Fetch the pinned bgfx sources
+        shell: pwsh
+        run: git submodule update --init --depth 1 -- third_party/bgfx/bx third_party/bgfx/bimg third_party/bgfx/bgfx
+
       - name: Check MinGW dependency resolution
         run: |
           python tools/tests/test_mingw_dependencies.py

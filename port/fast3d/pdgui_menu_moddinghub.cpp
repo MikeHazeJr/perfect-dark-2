@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "glad/glad.h"
+#include "gfx_bgfx.h"
 #include "imgui/imgui.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -5220,11 +5221,19 @@ static bool chromeToolWriteTga(const char *path, const u8 *rgba, s32 w, s32 h)
 static void chromeToolReleaseImage(void)
 {
     if (s_ChromeTex != 0) {
-        glDeleteTextures(1, &s_ChromeTex);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(s_ChromeTex);
+        } else {
+            glDeleteTextures(1, &s_ChromeTex);
+        }
         s_ChromeTex = 0;
     }
     if (s_ChromePreviewTex != 0) {
-        glDeleteTextures(1, &s_ChromePreviewTex);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(s_ChromePreviewTex);
+        } else {
+            glDeleteTextures(1, &s_ChromePreviewTex);
+        }
         s_ChromePreviewTex = 0;
     }
     if (s_ChromePixels) {
@@ -5373,6 +5382,21 @@ static void chromeToolUpdatePreviewTexture(void)
         }
     }
 
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: GL_LINEAR, GL_REPEAT, the same reuse rule. */
+        if (s_ChromePreviewTex != 0 && s_ChromePreviewTexW == s_ChromeOutW && s_ChromePreviewTexH == s_ChromeOutH) {
+            gfxBgfxPdguiTexUpdate(s_ChromePreviewTex, 0, 0, s_ChromeOutW, s_ChromeOutH,
+                                  (const uint8_t *)s_ChromePreviewPixels, 0);
+        } else {
+            if (s_ChromePreviewTex != 0) {
+                gfxBgfxPdguiTexDestroy(s_ChromePreviewTex);
+            }
+            s_ChromePreviewTex = gfxBgfxPdguiTexCreate(s_ChromeOutW, s_ChromeOutH,
+                                                       (const uint8_t *)s_ChromePreviewPixels, 1, 0);
+            s_ChromePreviewTexW = s_ChromeOutW;
+            s_ChromePreviewTexH = s_ChromeOutH;
+        }
+    } else {
     if (s_ChromePreviewTex == 0) {
         glGenTextures(1, &s_ChromePreviewTex);
         s_ChromePreviewTexW = 0;
@@ -5396,6 +5420,7 @@ static void chromeToolUpdatePreviewTexture(void)
         s_ChromePreviewTexH = s_ChromeOutH;
     }
     glBindTexture(GL_TEXTURE_2D, 0);
+    } /* classic GL renderer */
 
     /* Clamp insets into edited output dimensions to keep a valid center area. */
     if (s_ChromeInsetL < 0) s_ChromeInsetL = 0;

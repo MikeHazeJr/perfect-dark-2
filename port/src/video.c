@@ -20,6 +20,8 @@ void videoSetWindowTitle(const char *title);
 #include "../fast3d/gfx_api.h"
 #include "../fast3d/gfx_sdl.h"
 #include "../fast3d/gfx_opengl.h"
+#include "../fast3d/gfx_bgfx.h"
+#include "../fast3d/gfx_tee.h"
 
 #ifdef PLATFORM_NSWITCH
 #define DEFAULT_VID_WIDTH 1280
@@ -78,6 +80,20 @@ s32 videoInit(void)
 {
 	wmAPI = &gfx_sdl;
 	renderingAPI = &gfx_opengl_api;
+	/* 2.0 renderer phase 2a (D5): --renderer bgfx draws classic Perfect Dark
+	 * through bgfx's OpenGL backend. gfx_init falls back to the classic
+	 * renderer, and logs why, when the context is older than OpenGL 4.3. */
+	if (gfxBgfxRequested() || gfxTeeRequested()) {
+		if (g_NetDedicated) {
+			sysLogPrintf(LOG_WARNING, "bgfx: the dedicated server window uses the classic OpenGL renderer");
+		} else if (gfxTeeRequested()) {
+			/* --renderer-parity: the classic renderer presents and bgfx renders
+			 * the same frames offscreen for pixel comparison (gfx_tee.cpp). */
+			renderingAPI = &gfx_tee_api;
+		} else {
+			renderingAPI = &gfx_bgfx_api;
+		}
+	}
 
 	gfx_current_native_viewport.width = 320;
 	gfx_current_native_viewport.height = 220;

@@ -4,6 +4,7 @@
 #include "../external/stb_image.h"
 #include "glad/glad.h"
 #include "modasset_gltf_document.h"
+#include "scenario_scene_renderer_bgfx.h"
 #include "modasset_gltf_scene.h"
 #include "modasset_gltf_source.h"
 #include "sha256.h"
@@ -77,6 +78,7 @@ struct Image {
 	int height = 0;
 	unsigned char *rgba = nullptr;
 	GLuint gl = 0;
+	uint32_t bgfx_tex = 0; /* --renderer bgfx (scenario_scene_renderer_bgfx.cpp) */
 	bool has_nonopaque_alpha = false;
 };
 
@@ -113,6 +115,10 @@ struct Scene {
 	GLuint vbo = 0;
 	GLuint shader = 0;
 	GLuint white_tex = 0;
+	/* --renderer bgfx resources (scenario_scene_renderer_bgfx.cpp). */
+	uint32_t bgfx_vb = 0;
+	uint32_t bgfx_white = 0;
+	bool bgfx_ready = false;
 	bool gpu_ready = false;
 	bool active = false;
 	bool logged_render = false;
@@ -1244,9 +1250,38 @@ static bool ensureShader(Scene &scene)
 	return true;
 }
 
+/* --renderer bgfx: the same vertex buffer and textures as bgfx resources. */
+static void ensureGpuBgfx(Scene &scene)
+{
+	if (!scene.bgfx_white) {
+		const uint8_t white[4] = { 255, 255, 255, 255 };
+		scene.bgfx_white = sceneBgfxCreateTexture(1, 1, white);
+	}
+	for (auto &img : scene.images) {
+		if (!img.rgba || img.width <= 0 || img.height <= 0 || img.bgfx_tex) {
+			continue;
+		}
+		img.bgfx_tex = sceneBgfxCreateTexture(img.width, img.height, img.rgba);
+	}
+	if (!scene.bgfx_vb) {
+		scene.bgfx_vb = sceneBgfxCreateVertexBuffer(scene.vertices.data(),
+			(uint32_t)scene.vertices.size(), (uint32_t)sizeof(Vertex));
+	}
+	scene.bgfx_ready = scene.bgfx_vb != 0 && scene.bgfx_white != 0;
+}
+
 static void ensureGpu(Scene &scene)
 {
-	if (scene.gpu_ready || scene.vertices.empty()) {
+	if (scene.vertices.empty()) {
+		return;
+	}
+
+	/* bgfx resources whenever bgfx renders (--renderer bgfx or parity mode);
+	 * the GL path's own resources unless bgfx presents. */
+	if (gfxBgfxRunning() && !scene.bgfx_ready) {
+		ensureGpuBgfx(scene);
+	}
+	if (gfxBgfxActive() || scene.gpu_ready) {
 		return;
 	}
 
@@ -1319,7 +1354,10 @@ static void freeScene(Scene &scene)
 	if (scene.white_tex) {
 		glDeleteTextures(1, &scene.white_tex);
 	}
+	sceneBgfxDestroyVertexBuffer(scene.bgfx_vb);
+	sceneBgfxDestroyTexture(scene.bgfx_white);
 	for (auto &img : scene.images) {
+		sceneBgfxDestroyTexture(img.bgfx_tex);
 		if (img.gl) {
 			glDeleteTextures(1, &img.gl);
 		}
@@ -1520,6 +1558,77 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 	}
 }
 
+/* --renderer bgfx: the GL path below, draw for draw, through bgfx. The
+ * material choice and pass order are the same; scenario_scene_renderer_bgfx.cpp
+ * applies the same state. */
+static void renderSceneBgfx(int width, int height)
+{
+	if (!sceneBgfxBeginPass(width, height, (const float *)g_scene.view_projection)) {
+		return;
+	}
+	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
+		for (const auto &group : g_scene.groups) {
+			bool group_blend = group.material >= 0
+				&& (size_t)group.material < g_scene.materials.size()
+				&& g_scene.materials[(size_t)group.material].alpha_mode
+					== ALPHA_MODE_BLEND;
+			if ((scene_pass == 0) == group_blend) {
+				continue;
+			}
+			uint32_t tex = g_scene.bgfx_white;
+			uint32_t tex2 = g_scene.bgfx_white;
+			int wrap_s = GL_REPEAT;
+			int wrap_t = GL_REPEAT;
+			int wrap2_s = GL_REPEAT;
+			int wrap2_t = GL_REPEAT;
+			int has_tex2 = 0;
+			int primary_texcoord = 0;
+			int secondary_texcoord = 1;
+			float alpha_cutoff = 0.01f;
+			if (group.material >= 0
+					&& (size_t)group.material < g_scene.materials.size()) {
+				const Material &mat = g_scene.materials[(size_t)group.material];
+				primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
+				secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
+				wrap_s = mat.wrap_s;
+				wrap_t = mat.wrap_t;
+				wrap2_s = mat.secondary_wrap_s;
+				wrap2_t = mat.secondary_wrap_t;
+				if (mat.alpha_mode == ALPHA_MODE_MASK) {
+					alpha_cutoff = mat.alpha_cutoff;
+				}
+				if (mat.image >= 0 && (size_t)mat.image < g_scene.images.size()
+						&& g_scene.images[(size_t)mat.image].bgfx_tex) {
+					tex = g_scene.images[(size_t)mat.image].bgfx_tex;
+				}
+				if (mat.has_secondary && mat.secondary_image >= 0
+						&& (size_t)mat.secondary_image < g_scene.images.size()
+						&& g_scene.images[(size_t)mat.secondary_image].bgfx_tex) {
+					tex2 = g_scene.images[(size_t)mat.secondary_image].bgfx_tex;
+					has_tex2 = 1;
+				}
+			}
+			sceneBgfxDraw(g_scene.bgfx_vb, group.first, group.count,
+				tex, wrap_s, wrap_t, tex2, wrap2_s, wrap2_t,
+				has_tex2, primary_texcoord, secondary_texcoord,
+				alpha_cutoff, scene_pass == 1 ? 1 : 0);
+		}
+	}
+	sceneBgfxEndPass();
+
+	if (sysArgCheck("--debug-clear-depth-after-scene")) {
+		sceneBgfxClearDepth();
+	}
+
+	if (!g_scene.logged_render) {
+		g_scene.logged_render = true;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: rendered native source scene '%s' vertices=%zu groups=%zu textures=%zu (bgfx)",
+			g_scene.scenario_id.c_str(), g_scene.vertices.size(),
+			g_scene.groups.size(), g_scene.images.size());
+	}
+}
+
 extern "C" void scenarioSceneRendererRender(int width, int height)
 {
 	if (!g_scene.active || g_scene.vertices.empty()) {
@@ -1546,7 +1655,9 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	}
 
 	ensureGpu(g_scene);
-	if (!g_scene.gpu_ready || !g_scene.shader) {
+	const bool gl_ready = !gfxBgfxActive() && g_scene.gpu_ready && g_scene.shader;
+	const bool bgfx_ready = gfxBgfxRunning() && g_scene.bgfx_ready;
+	if (!gl_ready && !bgfx_ready) {
 		if (!g_scene.logged_gpu_unavailable) {
 			g_scene.logged_gpu_unavailable = true;
 			sysLogPrintf(LOG_WARNING,
@@ -1558,6 +1669,13 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	}
 
 	logTransformProbe(g_scene);
+
+	if (bgfx_ready) {
+		renderSceneBgfx(width, height);
+	}
+	if (!gl_ready) {
+		return;
+	}
 
 	GLint prev_program = 0;
 	GLint prev_texture = 0;
