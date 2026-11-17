@@ -1,6 +1,6 @@
 {
   "scenario_name": "network_coop_ai_buddies_smoke",
-  "description": "Co-op with AI buddies from a hosted Room (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007). A listen host alone in its Room starts co-op Defection on Agent through the Room's lobby start (--host-autostart, mode coop, --host-autostart-peers 0) with the Partner choice set to 2 simulants (--coop-ai-buddies 2). The co-op stage start has one player, so it takes the buddies, clamped to the original's limit: a fresh profile has no co-op completions, so one buddy on every difficulty (getMaxAiBuddies). The buddy spawns at the player as in the original (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show. Written 2026-11-17; port 27269.",
+  "description": "Co-op with AI buddies from a hosted Room (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007). A listen host alone in its Room starts co-op Defection on Agent through the Room's lobby start (--host-autostart, mode coop, --host-autostart-peers 0) with the Partner choice set to 2 simulants (--coop-ai-buddies 2). The co-op stage start has one player, so it takes the buddies, clamped to the original's limit: a fresh profile has no co-op completions, so one buddy on every difficulty (getMaxAiBuddies). The buddy spawns at the player as in the original (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show. One process (the processes format, so the runner reads its pd-host.log). Written 2026-11-17; port 27269.",
   "tags": [
     "network",
     "campaign",
@@ -21,92 +21,87 @@
   "verbose": 0,
   "timeout_seconds": 600,
   "install_state": "clean",
-  "boot_args": [
-    "--portable",
-    "--no-update-check",
-    "--no-sound",
-    "--skip-intro",
-    "--host",
-    "--listen-bind",
-    "27269",
-    "--launch-mp-room",
-    "base:defection",
-    "base:combat",
-    "0",
-    "--host-autostart",
-    "--host-autostart-mode",
-    "coop",
-    "--host-autostart-peers",
-    "0",
-    "--coop-ai-buddies",
-    "2",
-    "--difficulty",
-    "agent",
-    "--debug-end-mission",
-    "40:complete"
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27269",
+        "--launch-mp-room",
+        "base:defection",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--host-autostart-mode",
+        "coop",
+        "--host-autostart-peers",
+        "0",
+        "--coop-ai-buddies",
+        "2",
+        "--difficulty",
+        "agent",
+        "--debug-end-mission",
+        "40:complete"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/network_coop_ai_buddies_host.json",
+      "assertions": {
+        "required_lines": [
+          "NET: created server on port 27269",
+          "BOOT: --coop-ai-buddies armed: buddies=2",
+          "BOOT: --host-autostart armed mode=1 difficulty=agent",
+          "BOOT: --host-autostart firing: mode=1 stage='base:defection' difficulty=0 anti_client=255 scenario=0 timelimit=0 sims=0",
+          "PLAYER\\.INIT\\.COMMIT lobby-start room=\\d+ mode=1 players=1 bots=0",
+          "NET: starting co-op stage 0x[0-9a-f]+ difficulty 0 with 1 players",
+          "PLAYER\\.INIT\\.COMMIT coop-stage players=1 bond=0 coop=-1 anti=-1",
+          "COOP\\.AIBUDDIES: host alone=1 buddies=1 requested=2 max=1 difficulty=0",
+          "COOP\\.AIBUDDIES: spawned 1 of 1 at lvframe [0-9]+",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "BOOT: --debug-end-mission ending stage=0x[0-9a-f]+ result=complete",
+          "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+          "SMOKE: result=scripted_exit"
+        ],
+        "required_sequences": [
+          {
+            "name": "buddies-chosen-then-spawned-then-results",
+            "patterns": [
+              "COOP\\.AIBUDDIES: host alone=1 buddies=1 ",
+              "COOP\\.AIBUDDIES: spawned 1 of 1 ",
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+              "BOOT: --debug-end-mission ending stage=",
+              "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "SMOKE: result=timeout",
+          "SMOKE: result=wait_timeout",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    }
   ],
   "input_sequence": [
     {
       "at_ms": 0,
-      "type": "wait_until",
-      "condition": "network_stage_live",
-      "timeout_ms": 300000,
-      "comment": "The host's own lobby start, ready gate, stage load and spawn with no client."
+      "type": "wait",
+      "comment": "The host runs its own schedule (smoke_path); this one only bounds the test."
     },
     {
-      "at_ms": 0,
-      "type": "wait_until",
-      "condition": "gameplay_ready",
-      "timeout_ms": 60000,
-      "stable_ms": 3000,
-      "assist_action": "ACTION_SKIP_CUTSCENE",
-      "assist_condition": "cutscene_skip_ready",
-      "assist_hold_ms": 900,
-      "comment": "Usable control, with one bounded Skip if the authored intro owns input."
-    },
-    {
-      "at_ms": 0,
-      "type": "wait_until",
-      "condition": "endscreen_visible",
-      "timeout_ms": 120000,
-      "stable_ms": 1000,
-      "comment": "The host's results, after --debug-end-mission ends the mission at 40 s."
-    },
-    {
-      "at_ms": 4000,
-      "type": "exit",
-      "comment": "Scripted clean exit 4 s (script time) after the results."
+      "at_ms": 540000,
+      "type": "exit"
     }
   ],
   "assertions": {
     "required_lines": [
-      "SMOKE: scenario=network_coop_ai_buddies_smoke",
-      "NET: created server on port 27269",
-      "BOOT: --coop-ai-buddies armed: buddies=2",
-      "BOOT: --host-autostart armed mode=1 difficulty=agent",
-      "BOOT: --host-autostart firing: mode=1 stage='base:defection' difficulty=0 anti_client=255 scenario=0 timelimit=0 sims=0",
-      "PLAYER\\.INIT\\.COMMIT lobby-start room=\\d+ mode=1 players=1 bots=0",
-      "NET: starting co-op stage 0x[0-9a-f]+ difficulty 0 with 1 players",
-      "PLAYER\\.INIT\\.COMMIT coop-stage players=1 bond=0 coop=-1 anti=-1",
-      "COOP\\.AIBUDDIES: host alone=1 buddies=1 requested=2 max=1 difficulty=0",
-      "COOP\\.AIBUDDIES: spawned 1 of 1 at lvframe [0-9]+",
-      "SMOKE\\.WAIT: satisfied condition=network_stage_live",
-      "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
-      "BOOT: --debug-end-mission ending stage=0x[0-9a-f]+ result=complete",
-      "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+      "SMOKE: scenario=network_coop_ai_buddies_host",
       "SMOKE: result=scripted_exit"
-    ],
-    "required_sequences": [
-      {
-        "name": "buddies-chosen-then-spawned-then-results",
-        "patterns": [
-          "COOP\\.AIBUDDIES: host alone=1 buddies=1 ",
-          "COOP\\.AIBUDDIES: spawned 1 of 1 ",
-          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
-          "BOOT: --debug-end-mission ending stage=",
-          "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
-        ]
-      }
     ],
     "forbidden_patterns": [
       "COOP\\.AIBUDDIES: spawned 0 of",
@@ -114,10 +109,7 @@
       "PLAYER\\.INIT\\.PREFLIGHT roster=reject",
       "EXCEPTION_ACCESS_VIOLATION",
       "ACCESS_VIOLATION",
-      "FATAL: ",
-      "SMOKE: result=timeout",
-      "SMOKE: result=wait_timeout",
-      "SMOKE\\.WAIT: (timeout|pending_tap)"
+      "FATAL: "
     ],
     "required_counts": [
       {
@@ -127,6 +119,11 @@
       },
       {
         "pattern": "COOP\\.AIBUDDIES: host alone=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE: scenario=network_coop_ai_buddies_host",
         "min": 1,
         "max": 1
       }

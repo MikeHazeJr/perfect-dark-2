@@ -1,0 +1,40 @@
+{
+  "scenario_name": "network_coop_ai_buddies_host",
+  "description": "Host schedule for network_coop_ai_buddies_smoke (one listen host, no client).",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 560,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "The host's own lobby start, ready gate, stage load and spawn with no client."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "The host's results, after --debug-end-mission ends the mission at 40 s."
+    },
+    {
+      "at_ms": 4000,
+      "type": "exit",
+      "comment": "Scripted clean exit 4 s (script time) after the results."
+    }
+  ]
+}

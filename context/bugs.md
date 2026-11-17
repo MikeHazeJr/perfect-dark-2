@@ -1,5 +1,25 @@
 # Bug Tracker
 
+## 2026-11-17 B-1276 Two network stage-transaction smokes time out before the stage is live on shared base 9 (T-NETWORKING-011, fixed in the fixtures on week-pd/multiplayer-coop, not yet rerun)
+
+Severity low (test only, but it hides the co-op and counter-op start checks). `network_coop_stage_transaction_smoke`
+failed 81/100 in the co-op branch's turn q_20261117051637463_af6eb56c (`results-20261117T110217Z.json`): both
+processes waited for `network_stage_live` from boot with 220 s, and the host started the co-op stage at 217 s. On base
+9 the listen host's server is up about 1:50 after start and the client joins about 1:30 later; the mission-end smokes
+(300 s) went live at 3:29 and 3:44 in the same turns. `network_counterop_stage_transaction_smoke` has the same 220 s
+and passed narrowly. Fix: both first waits 300 s, test timeout 420 s (schedule bound 368 s). Other network fixtures
+with shorter first stage waits wait for `network_listen_ready` first, so the boot is not on their clock.
+
+## 2026-11-17 B-1275 A co-op client's rejoin is refused at the end of the reconnect prop set (T-NETWORKING-007 S2, open; diagnostics added)
+
+Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin). First run of `network_coop_reconnect_smoke`
+(47/52, `results-20261117T103226Z.json`): the host parked the timed-out partner (S1), un-parked it at the same spot
+(spot_clear=1) and committed the reconnect; the client loaded the stage, began the world snapshot (`props=295`,
+matching the host's `prop=295 dynamic_prop=2`) and rejected `SVC_RECONNECT_PROP_END` (0x58) as malformed, terminal,
+so it disconnected with no retry and the host parked it again. `netmsgSvcReconnectPropEndRead` has eleven rejections
+and logged none. No chr was made after the stage start on the host (no `NET.NPC: host announced` line). Each
+rejection now logs `NET.RECONNECT.WORLD end rejected reason=<check> slot= syncid= a= b=`; the next run names it.
+
 ## 2026-11-17 B-1274 Networked co-op and counter-op run as a Combat Simulator match: no objective checks during the mission, no co-op AI branches (T-NETWORKING-007, fixed in code on week-pd/multiplayer-coop, not yet run)
 
 Severity high for networked co-op and counter-op since 2026-04-09: the missions do not play as the original.

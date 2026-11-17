@@ -5243,6 +5243,17 @@ reject:
 	return 1;
 }
 
+/* T-NETWORKING-007 S2: a rejected prop-set end says which check failed (a
+ * co-op client's first rejoin was refused here with no reason). */
+static u32 netmsgReconnectPropEndReject(const char *reason, s32 slot,
+		u32 syncid, u32 a, u32 b)
+{
+	sysLogPrintf(LOG_ERROR,
+		"NET.RECONNECT.WORLD end rejected reason=%s slot=%d syncid=%u a=%u b=%u",
+		reason, slot, syncid, a, b);
+	return 1;
+}
+
 u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct netclient *srccl)
 {
@@ -5251,16 +5262,19 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 	if (!src || !srccl || srccl != g_NetLocalClient
 			|| srccl->state != CLSTATE_GAME || !srccl->stage_ready
 			|| !s_ReconnectPropReceive.active) {
-		return 1;
+		return netmsgReconnectPropEndReject("not_receiving", -1, 0,
+			srccl ? (u32)srccl->state : 0, (u32)s_ReconnectPropReceive.active);
 	}
 	count = netbufReadU16(src);
 	if (src->error || count != s_ReconnectPropReceive.expected_count
 			|| s_ReconnectPropReceive.received_count != count) {
-		return 1;
+		return netmsgReconnectPropEndReject("count", -1, (u32)count,
+			(u32)s_ReconnectPropReceive.expected_count,
+			(u32)s_ReconnectPropReceive.received_count);
 	}
 	for (u16 i = 0; i < count; ++i) {
 		if (!s_ReconnectPropReceive.received[i]) {
-			return 1;
+			return netmsgReconnectPropEndReject("row_missing", -1, 0, (u32)i, (u32)count);
 		}
 	}
 	/* Held-object arrays are a second gameplay-facing view of the prop graph.
@@ -5296,7 +5310,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		parent_id = s_ReconnectPropReceive.parent_ids_by_slot[slot];
 		parent = parent_id ? netSyncIdLookup(parent_id) : NULL;
 		if ((parent_id && !parent) || parent == prop) {
-			return 1;
+			return netmsgReconnectPropEndReject(parent ? "parent_self" : "parent_unknown",
+				slot, prop->syncid, parent_id, (u32)prop->type);
 		}
 		refs = &s_ReconnectPropReceive.refs_by_slot[slot];
 		attachment_mtx_index = refs->attachment_mtx_index;
@@ -5310,7 +5325,12 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 					&& !netSyncIdLookup(refs->detail_target_id))
 				|| (refs->weapon_dual_id
 					&& !netSyncIdLookup(refs->weapon_dual_id))) {
-			return 1;
+			return netmsgReconnectPropEndReject("ref_unknown", slot, prop->syncid,
+				refs->projectile_owner_id ? refs->projectile_owner_id
+				: refs->projectile_target_id ? refs->projectile_target_id
+				: refs->projectile_pickupby_id ? refs->projectile_pickupby_id
+				: refs->detail_target_id ? refs->detail_target_id : refs->weapon_dual_id,
+				(u32)prop->type);
 		}
 		parent_model = netmsgReconnectModelForProp(parent);
 		if (attachment_mtx_index >= 0) {
@@ -5318,15 +5338,18 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 					|| !prop->obj->model
 					|| attachment_mtx_index
 						>= parent_model->definition->nummatrices) {
-				return 1;
+				return netmsgReconnectPropEndReject("attachment_parent", slot,
+					prop->syncid, parent_id, (u32)(s32)attachment_mtx_index);
 			}
 			attachment_node = modelFindNodeByMtxIndex(parent_model,
 				attachment_mtx_index);
 			if (!attachment_node) {
-				return 1;
+				return netmsgReconnectPropEndReject("attachment_node", slot,
+					prop->syncid, parent_id, (u32)(s32)attachment_mtx_index);
 			}
 		} else if (prop->obj->hidden & OBJHFLAG_EMBEDDED) {
-			return 1;
+			return netmsgReconnectPropEndReject("embedded_unattached", slot,
+				prop->syncid, parent_id, (u32)prop->type);
 		}
 
 		was_parented = prop->parent != NULL
@@ -5362,7 +5385,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		if (scheduler_membership < 0
 				|| (parent && scheduler_membership != 0)
 				|| (!parent && scheduler_membership != 1)) {
-			return 1;
+			return netmsgReconnectPropEndReject("scheduler", slot, prop->syncid,
+				parent_id, (u32)scheduler_membership);
 		}
 		if (prop->obj->model) {
 			prop->obj->model->attachedtomodel = attachment_node
@@ -5388,7 +5412,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				if (parent->chr->weapons_held[held_slot]
 						&& parent->chr->weapons_held[held_slot]
 							!= prop) {
-					return 1;
+					return netmsgReconnectPropEndReject("held_slot_taken", slot,
+						prop->syncid, parent_id, (u32)held_slot);
 				}
 				parent->chr->weapons_held[held_slot] = prop;
 			}
@@ -5420,7 +5445,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 						!= dualprop->weapon->weaponnum
 					|| s_ReconnectPropReceive.refs_by_slot[dualslot]
 						.weapon_dual_id != prop->syncid) {
-				return 1;
+				return netmsgReconnectPropEndReject("dual_weapon", slot, prop->syncid,
+					refs->weapon_dual_id, (u32)dualslot);
 			}
 			prop->weapon->dualweapon = dualprop->weapon;
 		}

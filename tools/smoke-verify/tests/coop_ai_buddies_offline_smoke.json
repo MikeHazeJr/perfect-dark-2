@@ -1,6 +1,6 @@
 {
   "scenario_name": "coop_ai_buddies_offline_smoke",
-  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. It loads a staged agent through Agent Select, walks the real Main Menu and Play graph into Combat Simulator (the offline Room), opens on the Campaign tab (--debug-room-tab campaign) and fires the Room's own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). The start goes through the mission start Solo Missions uses (menuhandlerAcceptMission) with one player and the buddies, clamped to the original's limit: the staged agent has no co-op completions, so one buddy. The buddy spawns at the player (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show, with no menu or input watchdog repair. Written 2026-11-17.",
+  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. It waits for the title and for Agent Select (readiness, not fixed times: base 9 boots in about 1:52), loads a staged agent through Agent Select, walks the real Main Menu and Play graph into Combat Simulator (the offline Room), opens on the Campaign tab (--debug-room-tab campaign) and fires the Room's own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). The start goes through the mission start Solo Missions uses (menuhandlerAcceptMission) with one player and the buddies, clamped to the original's limit: the staged agent has no co-op completions, so one buddy. The buddy spawns at the player (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show, with no menu or input watchdog repair. Written 2026-11-17.",
   "tags": [
     "campaign",
     "coop",
@@ -19,7 +19,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 600,
+  "timeout_seconds": 780,
   "install_state": "clean",
   "remove_paths": [
     "coop-ai-buddies-home"
@@ -48,107 +48,124 @@
   "input_sequence": [
     {
       "at_ms": 0,
-      "type": "wait",
-      "comment": "Allow clean extraction and the ordinary title path to settle."
+      "type": "wait_until",
+      "condition": "title_sequence_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 500,
+      "comment": "Boot and extraction done; the title's legal screen is up (script time waits here, so a slow boot does not shift the taps)."
     },
     {
-      "at_ms": 112000,
+      "at_ms": 16000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
-      "comment": "Open Agent Select through the production title accept path."
+      "comment": "On the PD logo (the legal, Rare and Nintendo screens take about 12.6 s): leave the title for Agent Select."
     },
     {
-      "at_ms": 130000,
+      "at_ms": 16000,
+      "type": "wait_until",
+      "condition": "agent_select_ready",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "Agent Select is the current menu and takes input."
+    },
+    {
+      "at_ms": 18000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Activate the only staged JSON profile and enter the live Main Menu."
     },
     {
-      "at_ms": 140000,
+      "at_ms": 28000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap",
       "comment": "Clamp restored Main Menu focus to the first Play row without assuming persisted cursor state."
     },
     {
-      "at_ms": 140500,
+      "at_ms": 28500,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 141000,
+      "at_ms": 29000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 141500,
+      "at_ms": 29500,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 142000,
+      "at_ms": 30000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 142500,
+      "at_ms": 30500,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 143000,
+      "at_ms": 31000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 143500,
+      "at_ms": 31500,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 144000,
+      "at_ms": 32000,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 144500,
+      "at_ms": 32500,
       "type": "action",
       "name": "ACTION_MENU_UP",
       "action": "tap"
     },
     {
-      "at_ms": 146000,
+      "at_ms": 33000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 34000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Main Menu Play accept."
     },
     {
-      "at_ms": 148000,
+      "at_ms": 36000,
       "type": "action",
       "name": "ACTION_MENU_DOWN",
       "action": "tap",
       "comment": "Move from Solo Missions to Combat Simulator in the Play subview."
     },
     {
-      "at_ms": 149000,
+      "at_ms": 37000,
       "type": "action",
       "name": "ACTION_USE",
       "action": "tap",
       "comment": "Open the real offline Room; it opens on the Campaign tab and its one-shot Start Match fires once that tab is shown."
     },
     {
-      "at_ms": 150000,
+      "at_ms": 38000,
       "type": "wait_until",
       "condition": "offline_gameplay_ready",
       "timeout_ms": 180000,
@@ -159,7 +176,7 @@
       "comment": "The co-op mission live and controllable, with one bounded Skip if the authored intro owns input."
     },
     {
-      "at_ms": 151000,
+      "at_ms": 39000,
       "type": "wait_until",
       "condition": "endscreen_visible",
       "timeout_ms": 120000,
@@ -167,7 +184,7 @@
       "comment": "The results, after --debug-end-mission ends the mission at 40 s."
     },
     {
-      "at_ms": 155000,
+      "at_ms": 43000,
       "type": "exit",
       "comment": "Scripted clean exit 4 s (script time) after the results."
     }
@@ -175,6 +192,7 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=coop_ai_buddies_offline_smoke",
+      "SMOKE\\.WAIT: satisfied condition=agent_select_ready",
       "SAVE: initialized .*coop-ai-buddies-home",
       "BOOT: --coop-ai-buddies armed: buddies=2",
       "BOOT: --debug-room-tab armed: tab=1",
