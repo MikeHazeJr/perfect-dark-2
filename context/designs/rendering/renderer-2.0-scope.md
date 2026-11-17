@@ -1384,8 +1384,13 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   pdgui textures draw through bgfx; the GPU swarm is compute only and
   unchanged; the mesh debug view reports that it is unavailable.
   `--renderer-parity` draws one frame's commands through both renderers and
-  compares the frames (the R9 role for this step). Design, D6 review and
-  parity results: [bgfx-classic-gl.md](bgfx-classic-gl.md).
+  compares the frames (the R9 role for this step). First results: gameplay
+  frames on Defection and Felicity differ in under 0.014% of pixels, almost
+  all by one level (working explanation: floating-point rounding of
+  differently written shader source on one driver); Agent Select differed in
+  a thumbnail the game copies from the front buffer, fixed but not yet
+  re-run; split-screen cannot be drawn (one local player). Design, D6 review
+  and results: [bgfx-classic-gl.md](bgfx-classic-gl.md).
 
 ---
 

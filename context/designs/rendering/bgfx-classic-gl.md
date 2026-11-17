@@ -9,7 +9,10 @@ pixel-identical to the 1.0 GL renderer (`port/fast3d/gfx_opengl.cpp`), which
 stays the default. bgfx is chosen at launch with a flag. Nothing about the
 classic look changes.
 
-**Status.** Built and audited. The results of the in-game checks are in
+**Status (2026-11-17).** Built, audited and run in game; the parity check
+works in one process on menus, a solo stage and a Combat Simulator match.
+Gameplay frames differ in under 0.014% of pixels, almost all by one level;
+menus differed in a front-buffer thumbnail, fixed but not yet re-run. See
 [Results](#results).
 
 ## Running it
@@ -144,12 +147,26 @@ once the GL context exists.
   Every view is sequential, so draws keep submission order. A new view opens
   when fast3d changes render target or viewport, and for every clear and
   framebuffer copy, which bgfx can only do at the start of a view. View
-  rectangles convert from GL's bottom-left origin.
+  rectangles convert from GL's bottom-left origin. bgfx keeps a view's
+  settings from frame to frame, so every view is reset when it is allocated,
+  and view ids restart after `bgfx::frame()` (bgfx's frame boundary; pdgui
+  can issue work before fast3d's `start_frame`). The ImGui view opens when
+  ImGui first draws, so a pdgui bake made while ImGui builds its frame runs
+  before ImGui samples it, as the GL backend's immediate bake does.
 - **Framebuffer 0.** The 1.0 renderer draws the game straight into the window.
   Here framebuffer 0 is an offscreen RGBA8 target with a D24S8 depth, so the
   game can still copy from it (motion blur, blurred menu backgrounds).
-  `gfxBgfxResetForOverlay` copies it to the window with a `texelFetch` shader
-  before ImGui draws.
+  `gfxBgfxResetForOverlay` copies it with a `texelFetch` shader into a
+  window-sized final target, ImGui draws there, and the finished frame is
+  copied to the window just before `bgfx::frame()`. The final target plays
+  the window's front buffer: the game copies `GL_FRONT` (the last presented
+  frame) at Agent Select, and that copy runs, in view order, before this
+  frame's present, so it reads the previous finished frame, as GL does.
+  Render-target flags are one 3-bit field
+  (`BGFX_TEXTURE_RT` is value 1, the MSAA modes the rest), so colour and
+  depth use `RT` or the MSAA value, never both; a depth target flagged only
+  `RT_WRITE_ONLY` would get no storage at all in bgfx's GL renderer. A frame
+  buffer bgfx refuses is logged once and its views draw into a 1x1 sink.
 - **Textures.** Every upload creates a new bgfx texture: bgfx creates
   resources before a frame's draws and destroys them after, so a draw keeps
   the pixels it was submitted with even when fast3d reuses the id mid-frame.
@@ -160,7 +177,17 @@ once the GL context exists.
   `(SRC_ALPHA, ONE)`, modulate `(DST_COLOR, ZERO)`, otherwise
   `(SRC_ALPHA, INV_SRC_ALPHA)`. `BGFX_STATE_MSAA` is always set
   (`GL_MULTISAMPLE` is on by default), and `BGFX_RESET_DEPTH_CLAMP` matches
-  the GL backend's depth clamp.
+  the GL backend's depth clamp. Scissor follows the GL backend's state, not
+  just its box: `set_scissor` moves the box, the test is off after
+  `reset_for_overlay` and on again after a clear, MSAA resolve or copy. An
+  unchanged scissor rect reuses its entry in bgfx's per-frame rect cache.
+- **Per-program uniforms.** In GL the frame count, noise scale and the two
+  three-point "linear" flags are uniforms of each program, set only when
+  fast3d loads it (`gfx_opengl_set_uniforms`). The bgfx path takes the same
+  snapshot at the same points and draws with it, not with live values.
+- **Uniform creation order.** For GLSL 4.30 shaderc stores no uniform table,
+  and bgfx's GL renderer binds a program's uniforms by name when the program
+  is created, so every uniform is created before its program.
 - **Colour combiner.** The 1.0 renderer writes one GLSL program per combiner
   state at runtime (`gfx_opengl_create_and_load_new_shader`). bgfx loads only
   precompiled shaders, so `fs_fast3d.sc` is one uber-shader driven by
@@ -227,11 +254,16 @@ Intel hardware would.
 
 Each logs once when it happens, so a parity run shows whether it was reached:
 
-- A viewport or scissor outside bgfx's 16-bit range is clamped.
+- A viewport with a negative origin is clamped to the target. GL keeps the
+  full transform and clips; bgfx's clamped rect rescales the geometry
+  instead. Emulating GL would need a clip-space offset and scale in
+  `vs_fast3d.sc` (identity, so exact, in the normal case). A viewport or
+  scissor past bgfx's 16-bit range is clamped too.
+- The debug wireframe toggle (developer only) is global in bgfx, so it also
+  draws the present quad and ImGui as lines.
 - MSAA sample counts round to a power of two (bgfx's levels).
-- The debug wireframe toggle is global in bgfx, per draw in GL (debug only).
-- A copy from framebuffer 0's front buffer copies the frame in progress; the
-  game always asks for the back buffer.
+- A front-buffer copy before any frame was presented copies the frame in
+  progress (GL's front buffer is undefined then).
 - A copy from a multisampled source with a flip or offset is skipped, as GL
   rejects it (`GL_INVALID_OPERATION`).
 - `set_depth_range` other than 0..1 is ignored; fast3d never calls it.
@@ -239,9 +271,66 @@ Each logs once when it happens, so a parity run shows whether it was reached:
   clamps into the shader, so it is not reached.
 - More than 4096 views in a frame share the last view.
 
-## Results
+## Results (2026-11-17)
 
-Recorded after the game-runtime turn; see the session log entry for the run.
+### Build and checks
+
+- `devtools/build-session.ps1` built `pd` and `pd-tests` at 51acf115 with
+  exit 0; pd-tests passed all 1,918 test cases (384,502 assertions).
+- Hosted CI on draft PR #9 (run 44013926966, GitHub's merge of 5bc1608e with
+  dev 8f41913f) passed every step: the bgfx submodules were fetched at the
+  pins, `pd` and `pd-tests` built, the write-policy guard, the bgfx
+  dependency audit, the SP-75 bool layout check, and 2,028 test cases
+  (404,493 assertions).
+- `tools/native_write_policy_guard.py` passed. `tools/bgfx_dependency_audit.py`
+  with `--exe` and `--baseline-exe` passed: 31 reviewed files and no
+  failures; no RenderDoc, NVAPI, AGS, Aftermath, Superluminal or
+  symbol-server string in the client; the import table is the same 19
+  Windows system DLLs as a classic build's.
+- The bool layout audit cannot spawn the preprocessor from this machine's
+  agent shell (every unit reports a preprocessing error), so CI's run is the
+  evidence for it.
+
+### In-game runs
+
+One game-runtime turn (05:01 to 05:56 UTC), binary 51acf115 frozen into
+`.claude/smoke-ref`, a D: copy of shared base 4, 2560x1440 window:
+
+| Smoke | Result |
+|---|---|
+| `renderer_bgfx_gl_fallback_smoke` | Pass 12/12: the GL 4.3 check logged why and the classic renderer ran. |
+| `renderer_parity_menu_smoke` | Pass 13/13 (pixels below). |
+| `renderer_parity_solo_smoke` | Pass 14/14. |
+| `renderer_parity_mp_smoke` | Pass 14/14. |
+| `renderer_bgfx_swarm_gpu_smoke` | The swarm's compute shader ran on bgfx's context (8, then 16 boids at about 57 ticks a second), the window was captured and the game exited cleanly; it failed only an assertion for a 32-boid level the run's timing did not reach (fixed). |
+| `renderer_classic_default_smoke`, `renderer_bgfx_boot_smoke` | Both reached Agent Select; in bgfx mode the Carrington Institute scene was drawn through bgfx with no backend warning but the front-buffer copy below. Both failed only their wait: `agent_select_ready` needs keyboard focus, which a runner in the background does not get. The fixtures now wait for `core_boot_ready`. With no flag, nothing from the bgfx code path appeared in the log. |
+
+### Parity
+
+Differing pixels out of 3,686,400 per capture:
+
+| Scene | Captures | Differing | Where and why |
+|---|---|---|---|
+| Agent Select | 2 | 68,712; 68,784 | 67,496 are the screen thumbnail at the bottom left, which the game copies from `GL_FRONT` (the last presented frame). The run's binary copied the frame in progress instead; fixed afterwards (the final target now plays the front buffer). About 1,200 more, max delta 4, lie along the thumbnail's filtered edge and in the translucent panel; same source. Not yet re-run. |
+| Defection | 3 | 89; 95; 82 | About 98% differ by 1 in one channel, scattered over textured surfaces; one or two pixels per frame differ by up to 31, at edges. |
+| Felicity Combat Simulator | 3 | 430; 379; 503 | About 97% differ by 1, mostly over the room surfaces drawn by the scene renderer; up to six pixels per frame differ by 4 to 48, on the first-person gun's edges. |
+| Split-screen | 0 | none | Not drawable: one local player only (`context/constraints.md`, no split-screen; the 2P dialogs are dead code). |
+
+Gameplay cause, a working explanation not yet proven: floating-point
+rounding. The two renderers run arithmetically identical shaders, but the
+driver compiles differently written source (the uber-shader against the
+per-combiner generated GLSL; the scene shader as GLSL 4.30 against the
+classic one's GLSL 1.30), and its fused multiply-add choices can differ in
+the last bit. That flips the rare 8-bit rounding (the scattered 1s) and, at
+alpha-tested or triangle edges, a discard or coverage decision (the few large
+deltas). Checked and the same on both sides: driver and GPU, the depth
+format (24-bit with 8-bit stencil), the scene textures' bytes and filtering
+(linear, no mipmaps) and the dither state.
+
+A next experiment can settle it: bgfx's GL renderer compiles shader text
+that starts with `#version` verbatim, so the scene shader can be given the
+classic GLSL 1.30 text (with uniforms bgfx can bind) and the Felicity
+capture compared again.
 
 ## Next steps (phase 2a, from section 11 of the scope doc)
 
