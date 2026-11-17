@@ -1,6 +1,6 @@
 {
   "scenario_name": "forge_session_save_smoke",
-  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. The flag then turns the camera to a yaw of 217 degrees, away from every axis, and 20 degrees down, and logs where the world markers' projection puts known points: a point along the camera's look must be the middle of the picture, one beside it along the camera's right must be right of it, one along its up must be above it, and one behind must be out of view. The first run of this check (2026-11-17) found that the editor camera's yaw and pitch did not reach the view at all (B-1240); the view is now the editor's own while it flies. The script waits for the editor, then for the level file to be open, takes one screenshot with the markers on and ends the launch six seconds after the file opened. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running for seconds afterwards, and the markers' projection, and the editor's yaw and pitch being the view's (a camera at turn angle t faces (-sin t, 0, cos t), tipped by its pitch), are right at angles where a wrong sign or an angle that is not applied would show. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
+  "description": "Forge step F2, and the first piece of F3: a level is saved from inside a running Forge session, and the open level's starts and objects are marked in the world. One ordinary client launch starts a Forge session on the extracted base Complex arena through --launch-forge-level (a clean match setup on the level and the stage change, as choosing it in The Grid does), and two seconds into the level, with the editor camera flying, --debug-forge-session-save opens the level's placements, adds a player start where the camera is, and saves the result as the mod level 'Forge_Session': the calls the editor's Open Level File, Add Start Here and Save As Level buttons make. The save is the mod author's (write, rescan, enable, apply) and runs while the level it was made from is loaded, which no run has done before. The flag then turns the camera to a yaw of 217 degrees, away from every axis, and 20 degrees down, and logs where the world markers' projection puts known points: a point along the camera's look must be the middle of the picture, one beside it along the camera's right must be right of it, one along its up must be above it, and one behind must be out of view. The first run of this check (2026-11-17) found that the editor camera's yaw and pitch did not reach the view at all (B-1240); the view is now the editor's own while it flies. The script waits for the editor, then for the level file to be open, holds the forward action for a little over a second once the camera has been turned (the flag then logs how far the camera flew and how much of that was along its look, which must be nearly all of it), takes one screenshot with the markers on and ends the launch eight seconds after the file opened. What this proves: the session comes up from the command line, the save from inside it finishes, the new level is in the catalog with its scenario registered, the game keeps running for seconds afterwards, and the markers' projection, and the editor's yaw and pitch being the view's (a camera at turn angle t faces (-sin t, 0, cos t), tipped by its pitch), are right at angles where a wrong sign or an angle that is not applied would show. What it does not prove: that the panel's own widgets work (nothing here uses the mouse), that the saved level plays (forge_level_edit_smoke loads an edited level in a match), or that each marker sits exactly on its object (the screenshot is for a person to look at). No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
   "tags": [
     "modding",
     "forge",
@@ -47,7 +47,7 @@
   ],
   "screenshots": [
     {
-      "at_ms": 2500,
+      "at_ms": 6000,
       "name": "forge-session-markers"
     }
   ],
@@ -68,9 +68,23 @@
       "comment": "The save flag opens the level file and saves in one frame, two seconds into the level, and that frame can take seconds. The script clock runs on through it, so the screenshot and the exit are timed from here, after it: timed from before, both could come due in the same tick and the exit would beat the screenshot."
     },
     {
-      "at_ms": 6000,
+      "at_ms": 3500,
+      "type": "action",
+      "name": "ACTION_MOVE_FORWARD",
+      "action": "press",
+      "comment": "Fly forward for a little over a second, after the camera has been turned (20 frames after the save) and the projection logged (60 frames after it). The camera must go where it looks: until 2026-11-17 it went along the mirror image of its yaw (B-1238) while the picture looked a third way (B-1240)."
+    },
+    {
+      "at_ms": 4700,
+      "type": "action",
+      "name": "ACTION_MOVE_FORWARD",
+      "action": "release",
+      "comment": "Stop. Ten still frames later the flag logs how far the camera flew and how much of that was along its look."
+    },
+    {
+      "at_ms": 8000,
       "type": "exit",
-      "comment": "Six seconds after the level file opened: the camera has been turned (20 frames after the save), the projection logged (60 frames after it) and the screenshot taken (2.5 seconds), and the game has kept running on a level it just saved a copy of."
+      "comment": "Eight seconds after the level file opened: turned, measured, flown, measured again, the screenshot taken at six seconds from where the flight ended, and the game has kept running on a level it just saved a copy of."
     }
   ],
   "assertions": {
@@ -94,7 +108,8 @@
       "SMOKE\\.WAIT: satisfied condition=forge_level_file_open ",
       "GRID: debug camera angles yaw=217\\.0 pitch=-20\\.0",
       "FORGE\\.MARKERS\\.PROBE: ahead=\\(0\\.(4[5-9]|5[0-5])\\d, 0\\.(4[5-9]|5[0-5])\\d\\) right=\\(0\\.(5[6-9]|[6-9]\\d)\\d, 0\\.\\d{3}\\) up=\\(0\\.\\d{3}, 0\\.([0-3]\\d|4[0-4])\\d\\) behind=hidden other_reading=(hidden|\\(-?\\d+\\.\\d{3}, -?\\d+\\.\\d{3}\\)) native=\\d+x\\d+ camera=\\(-?\\d+, -?\\d+, -?\\d+\\) yaw=217\\.0 pitch=-20\\.0 player_theta=-?\\d+\\.\\d player_verta=-?\\d+\\.\\d",
-      "SMOKE: screenshot at_ms=2500 -> .*forge-session-markers\\.bmp",
+      "FORGE\\.FLY\\.PROBE: moved=\\(-?\\d+, -?\\d+, -?\\d+\\) distance=[1-9]\\d{2,} along_look=(0\\.9[5-9]\\d|1\\.000) along_right=-?0\\.[01]\\d\\d yaw=217\\.0 pitch=-20\\.0",
+      "SMOKE: screenshot at_ms=6000 -> .*forge-session-markers\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

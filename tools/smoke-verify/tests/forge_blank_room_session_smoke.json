@@ -1,0 +1,144 @@
+{
+  "scenario_name": "forge_blank_room_session_smoke",
+  "description": "Forge steps F2 and F5 together: a Forge session on a level that holds nothing of the original game, and a save from inside it. The Blank Room (dev-mods/blank_room) is staged as a mod; one ordinary client launch starts a Forge session on it through --launch-forge-level, and two seconds into the level --debug-forge-session-save opens its placements, adds a player start where the editor camera is and saves the result as the mod level 'Room_Session', the calls the editor's Level File section makes. The flag then turns the camera to yaw 217 and 20 degrees down and logs where known points land in the picture, the script holds the forward action for a little over a second and the flag logs how far the camera flew along its look, and one screenshot is taken. What this proves beyond forge_session_save_smoke, which does the same on the base Complex arena: the stage change into Forge works on a mod level with a minted stage number, the level document opens an original level with no objects, and the mod author's save, rescan, enable and apply work while that level is loaded. The screenshot is the first look at the Blank Room through the editor camera. What it does not prove: that the saved level plays (forge_blank_room_edit_smoke loads one in a match) or that the panel's widgets work under a hand.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "mod-author",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/blank_room/build_blank_room.py",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/main.c",
+    "port/fast3d/pdgui_forge_editor.cpp",
+    "port/fast3d/pdgui_forge_hud.cpp",
+    "port/fast3d/pdgui_menu_forge.cpp",
+    "src/game/forgemode.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/smoke_readiness.c",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_room_session"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-session-save",
+    "Room_Session"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 6000,
+      "name": "blank-room-session"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_editor_ready",
+      "timeout_ms": 200000,
+      "comment": "The launch flag starts the Forge session once the boot stage has placed the player. A session that never comes up fails here, with the facts that were missing."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_level_file_open",
+      "timeout_ms": 60000,
+      "stable_ms": 500,
+      "comment": "The save flag opens the level file and saves in one frame, two seconds into the level, and that frame can take seconds. The script clock runs on through it, so the screenshot and the exit are timed from here, after it: timed from before, both could come due in the same tick and the exit would beat the screenshot."
+    },
+    {
+      "at_ms": 3500,
+      "type": "action",
+      "name": "ACTION_MOVE_FORWARD",
+      "action": "press",
+      "comment": "Fly forward for a little over a second, after the camera has been turned (20 frames after the save) and the projection logged (60 frames after it). The camera must go where it looks: until 2026-11-17 it went along the mirror image of its yaw (B-1238) while the picture looked a third way (B-1240)."
+    },
+    {
+      "at_ms": 4700,
+      "type": "action",
+      "name": "ACTION_MOVE_FORWARD",
+      "action": "release",
+      "comment": "Stop. Ten still frames later the flag logs how far the camera flew and how much of that was along its look."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Eight seconds after the level file opened: turned, measured, flown, measured again, the screenshot taken at six seconds from where the flight ended, and the game has kept running on a level it just saved a copy of."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_blank_room_session_smoke",
+      "PDARENA\\.SCENARIO: owner=mod_blank_room:arena_blank_room id=mod_blank_room:scenario_blank_room stagenum=0x[0-9a-f]+ source=",
+      "BOOT: --launch-forge-level arena=mod_blank_room:arena_blank_room armed",
+      "FORGE\\.LEVEL\\.START: arena=mod_blank_room:arena_blank_room stagenum=0x[0-9a-f]+ canvas=0",
+      "FORGE\\.LEVEL\\.SESSION: arena=mod_blank_room:arena_blank_room",
+      "BOOT: --launch-forge-level arena=mod_blank_room:arena_blank_room result=OK",
+      "GRID: session active stage=0x[0-9a-f]+ \\(starting in FREEFLY\\)",
+      "SMOKE\\.WAIT: satisfied condition=forge_editor_ready ",
+      "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.BEGIN: arena=mod_blank_room:arena_blank_room name='Room_Session'",
+      "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room pads=8 spawns=8 objects=0 field_rows=0 archive='.*blank_room\\.pdarena'",
+      "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0008 at the camera \\(-?\\d+, -?\\d+, -?\\d+\\); the level now has pads=9 spawns=9 objects=0",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_room_session mod_id=mod\\.arena_room_session updated=0",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_room_session restart_count=\\d+",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_room_session changed_members=4 restart_count=\\d+ archive='.*arena_room_session\\.pdarena' own_template=0",
+      "PDARENA\\.SCENARIO: owner=mod:arena_room_session id=mod:arena_room_session__\\S+ stagenum=0x[0-9a-f]+ source=",
+      "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.RESULT: result=OK catalog=mod:arena_room_session",
+      "BOOT: --debug-forge-session-save name='Room_Session' result=OK",
+      "SMOKE\\.WAIT: satisfied condition=forge_level_file_open ",
+      "GRID: debug camera angles yaw=217\\.0 pitch=-20\\.0",
+      "FORGE\\.MARKERS\\.PROBE: ahead=\\(0\\.(4[5-9]|5[0-5])\\d, 0\\.(4[5-9]|5[0-5])\\d\\) right=\\(0\\.(5[6-9]|[6-9]\\d)\\d, 0\\.\\d{3}\\) up=\\(0\\.\\d{3}, 0\\.([0-3]\\d|4[0-4])\\d\\) behind=hidden other_reading=(hidden|\\(-?\\d+\\.\\d{3}, -?\\d+\\.\\d{3}\\)) native=\\d+x\\d+ camera=\\(-?\\d+, -?\\d+, -?\\d+\\) yaw=217\\.0 pitch=-20\\.0 player_theta=-?\\d+\\.\\d player_verta=-?\\d+\\.\\d",
+      "FORGE\\.FLY\\.PROBE: moved=\\(-?\\d+, -?\\d+, -?\\d+\\) distance=[1-9]\\d{2,} along_look=(0\\.9[5-9]\\d|1\\.000) along_right=-?0\\.[01]\\d\\d yaw=217\\.0 pitch=-20\\.0",
+      "SMOKE: screenshot at_ms=6000 -> .*blank-room-session\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "BOOT: --launch-forge-level .* result=FAIL",
+      "BOOT: --debug-forge-session-save .* result=FAIL",
+      "GRID: start ABORT",
+      "GRID: stagenum diverged",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK"
+    ]
+  }
+}

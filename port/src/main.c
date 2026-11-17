@@ -3198,6 +3198,9 @@ static void bootForgeMarkerProbe(void)
  *   4. Forty frames after that, once frames have been drawn at that angle:
  *      log where the markers' projection puts five known points
  *      (bootForgeMarkerProbe).
+ *   5. From then on, if something holds the forward action: once the
+ *      camera has left that place and stood still again, log how far it
+ *      flew and how much of that was along its look (FORGE.FLY.PROBE).
  *
  * The flag takes no screenshot and ends nothing. A smoke waits for the level
  * file to be open (forge_level_file_open) and times its screenshot and its
@@ -3206,12 +3209,16 @@ static void bootForgeMarkerProbe(void)
  * Returns 1 on a frame where a step ran. */
 s32 bootForgeLevelTick(void)
 {
-	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 turn, 4 probe, 5 done */
+	static s32 s_step = 0;   /* 0 flags unread, 1 launch, 2 edit and save, 3 turn, 4 probe, 5 fly check, 9 done */
 	static const char *s_arena = NULL;
 	static const char *s_name = NULL;
 	static s32 s_saved_frame = 0;
+	static struct coord s_fly_from;
+	static struct coord s_fly_last;
+	static s32 s_fly_moving = 0;
+	static s32 s_fly_still = 0;
 
-	if (s_step == 5) {
+	if (s_step == 9) {
 		return 0;
 	}
 	if (s_step == 0) {
@@ -3223,7 +3230,7 @@ s32 bootForgeLevelTick(void)
 					"BOOT: --debug-forge-session-save name='%s' result=FAIL (it needs --launch-forge-level <arena id>)",
 					s_name);
 			}
-			s_step = 5;
+			s_step = 9;
 			return 0;
 		}
 		sysLogPrintf(LOG_NOTE, "BOOT: --launch-forge-level arena=%s armed", s_arena);
@@ -3238,7 +3245,7 @@ s32 bootForgeLevelTick(void)
 		started = forgeLevelStartForge(s_arena);
 		sysLogPrintf(started ? LOG_NOTE : LOG_WARNING, "BOOT: --launch-forge-level arena=%s result=%s",
 			s_arena, started ? "OK" : "FAIL");
-		s_step = (started && s_name && s_name[0]) ? 2 : 5;
+		s_step = (started && s_name && s_name[0]) ? 2 : 9;
 		return 1;
 	}
 	if (s_step == 2) {
@@ -3270,7 +3277,7 @@ s32 bootForgeLevelTick(void)
 		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
 			s_name, saved ? "OK" : "FAIL");
 		s_saved_frame = g_Vars.lvframenum;
-		s_step = saved ? 3 : 5;
+		s_step = saved ? 3 : 9;
 		return 1;
 	}
 	/* A stage that was loaded again counts its frames from zero; then there is
@@ -3283,12 +3290,72 @@ s32 bootForgeLevelTick(void)
 		s_step = 4;
 		return 1;
 	}
-	if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 60) {
-		return 0;
+	if (s_step == 4) {
+		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 60) {
+			return 0;
+		}
+		bootForgeMarkerProbe();
+		s_fly_from.x = 0.0f;
+		s_fly_from.y = 0.0f;
+		s_fly_from.z = 0.0f;
+		forgeGetCameraPos(&s_fly_from);
+		s_fly_last = s_fly_from;
+		s_fly_moving = 0;
+		s_fly_still = 0;
+		s_step = 5;
+		return 1;
 	}
-	bootForgeMarkerProbe();
-	s_step = 5;
-	return 1;
+
+	/* 5. The fly check: does the camera fly where it looks? It needs a hand,
+	 * or a smoke, holding the forward action after the probe. Once the camera
+	 * has left the place the probe measured from and then stood still for ten
+	 * frames, log how far it went and how much of that was along its look and
+	 * along its right (1.000 along the look is "it flew where it looked").
+	 * Counted in frames of stillness, not in time, so a slow frame rate does
+	 * not cut the flight short. Without input nothing is logged. */
+	{
+		struct coord now;
+		f32 dx;
+		f32 dy;
+		f32 dz;
+		f32 step;
+
+		now = s_fly_last;
+		forgeGetCameraPos(&now);
+		dx = now.x - s_fly_last.x;
+		dy = now.y - s_fly_last.y;
+		dz = now.z - s_fly_last.z;
+		step = sqrtf(dx * dx + dy * dy + dz * dz);
+		s_fly_last = now;
+		dx = now.x - s_fly_from.x;
+		dy = now.y - s_fly_from.y;
+		dz = now.z - s_fly_from.z;
+		if (!s_fly_moving) {
+			if (sqrtf(dx * dx + dy * dy + dz * dz) > 50.0f) {
+				s_fly_moving = 1;
+			}
+			return 0;
+		}
+		s_fly_still = (step < 0.01f) ? s_fly_still + 1 : 0;
+		if (s_fly_still < 10) {
+			return 0;
+		}
+		{
+			const f32 yaw = forgeGetCameraYawDeg() * 0.017453292f;
+			const f32 pitch = forgeGetCameraPitchDeg() * 0.017453292f;
+			const f32 distance = sqrtf(dx * dx + dy * dy + dz * dz);
+			const f32 along_look = (dx * (-sinf(yaw) * cosf(pitch)) + dy * sinf(pitch)
+				+ dz * (cosf(yaw) * cosf(pitch))) / distance;
+			const f32 along_right = (dx * -cosf(yaw) + dz * -sinf(yaw)) / distance;
+
+			sysLogPrintf(LOG_NOTE,
+				"FORGE.FLY.PROBE: moved=(%.0f, %.0f, %.0f) distance=%.0f along_look=%.3f along_right=%.3f yaw=%.1f pitch=%.1f",
+				dx, dy, dz, distance, along_look, along_right,
+				forgeGetCameraYawDeg(), forgeGetCameraPitchDeg());
+		}
+		s_step = 9;
+		return 1;
+	}
 }
 
 s32 bootDebugThemeStageTransitionProofTick(void)
