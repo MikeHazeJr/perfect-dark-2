@@ -819,7 +819,7 @@ TEST_CASE("B-1274: co-op and counter-op run as missions, not as a Combat Simulat
 
 	// The smoke harness counts a co-op host alone as a network mission
 	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
-	REQUIRE(harness.find("|| g_Vars.antiplayernum >= 0 || g_MissionConfig.iscoop));") != npos);
+	REQUIRE(harness.find("|| (facts.network_active && g_MissionConfig.iscoop);") != npos);
 }
 
 TEST_CASE("co-op drop-out (S1): a dropped partner is parked, not killed, and the host plays on",

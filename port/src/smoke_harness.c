@@ -2096,7 +2096,8 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
      * counts. */
     facts.multiplayer_running = g_Vars.normmplayerisrunning != 0
         || (facts.network_active && (g_Vars.coopplayernum >= 0
-            || g_Vars.antiplayernum >= 0 || g_MissionConfig.iscoop));
+            || g_Vars.antiplayernum >= 0))
+        || (facts.network_active && g_MissionConfig.iscoop);
     /* Local gameplay readiness is shared by ordinary offline and network
      * fixtures. Network mode still requires the authenticated endpoint to
      * own the resolved local player; offline mode has no netclient object. */
