@@ -786,9 +786,16 @@ TEST_CASE("B-1274: co-op and counter-op run as missions, not as a Combat Simulat
 	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ", at + roles.size()) == npos);
 	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ") > reset.find("g_Vars.mplayerisrunning = true;"));
 
-	// What the flag keeps for a mission: the per-frame objective checks
+	// What the flag keeps for a mission: the per-frame objective checks. A
+	// co-op or counter-op client then reaches its server-authoritative skip
+	// every frame, so it says so once per stage
 	const std::string player = code_only(read_text_file("src/game/player.c"));
 	REQUIRE(player.find("\tif (g_Vars.normmplayerisrunning == false) {\n\t\tobjectivesCheckAll();") != npos);
+	const std::string objectives = code_only(read_text_file("src/game/objectives.c"));
+	const std::string check = function_body(objectives, "void objectivesCheckAll(void)\n{");
+	const size_t once = check.find("if (s_ClientSkipLoggedStage != g_Vars.stagenum) {");
+	REQUIRE(once != npos);
+	REQUIRE(once < check.find("\"NET: objectivesCheckAll skipped on client (server-authoritative)\""));
 
 	// A co-op host alone, and the offline Room, start the mission with the
 	// match flags clear, as the original's mission list does

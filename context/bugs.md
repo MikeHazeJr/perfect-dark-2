@@ -21,7 +21,8 @@ The same commit also dropped the co-op and counter-op radar display option (`coo
 Fix (week-pd/multiplayer-coop): `mpReset` clears the flag again for the co-op and counter-op roles; a co-op host
 alone (AI buddies) and the offline Room's co-op start clear `mplayerisrunning` and `normmplayerisrunning` before the
 stage, as the original's mission list does, so a Combat Simulator match played before cannot leave them set; the
-smoke harness counts a co-op host alone as a network mission. Pinned by `[b1274]` in
+smoke harness counts a co-op host alone as a network mission; a client's objective-check skip, which now runs
+every frame, logs once per stage. Pinned by `[b1274]` in
 `tests/test_net_mission_end_static.cpp`. To run: every co-op and counter-op net smoke, plus the two AI-buddy smokes.
 SP-94.
 

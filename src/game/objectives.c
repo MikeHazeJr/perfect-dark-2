@@ -851,7 +851,14 @@ void objectivesCheckAll(void)
 	// Clients receive status updates via SVC_OBJ_STATUS messages.
 	if (g_NetMode == NETMODE_CLIENT
 			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		sysLogPrintf(LOG_NOTE, "NET: objectivesCheckAll skipped on client (server-authoritative)");
+		/* B-1274: with the mission flags right this runs every frame on a
+		 * co-op or counter-op client; say it once per stage. */
+		static s32 s_ClientSkipLoggedStage = -1;
+
+		if (s_ClientSkipLoggedStage != g_Vars.stagenum) {
+			s_ClientSkipLoggedStage = g_Vars.stagenum;
+			sysLogPrintf(LOG_NOTE, "NET: objectivesCheckAll skipped on client (server-authoritative)");
+		}
 		return;
 	}
 
