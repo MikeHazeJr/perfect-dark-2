@@ -324,6 +324,49 @@ TEST_CASE("A mod weapon's own mesh never takes the base file slot its manifest n
 	REQUIRE(scanner.find("owner_bundled, err, err_cap);", prepare_end) != std::string::npos);
 }
 
+TEST_CASE("The scenario inside a mod level gets a catalog row of its own",
+          "[social][public_mods][static][forge-f1]")
+{
+	/* Forge F1. A base arena's scenario is also a file of its own; a level
+	 * saved by the mod author keeps its scenario only inside its .pdarena.
+	 * The scanner registers that member as an ASSET_SCENARIO row under the id
+	 * the arena names, for an arena outside the base namespace whose scenario
+	 * id is its own, and leaves a scenario another source registered alone.
+	 * Both ways a typed archive is registered call it: a file in a mod folder
+	 * and a member of a packed mod. */
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	REQUIRE_FALSE(scanner.empty());
+	const size_t fn = scanner.find("static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_id,");
+	REQUIRE(fn != std::string::npos);
+	const size_t fn_end = scanner.find("static s32 registerTypedPdDescriptorFile(", fn);
+	REQUIRE(fn_end != std::string::npos);
+	const size_t own = scanner.find(
+		"strncmp(owner, \"base:\", 5) == 0 || !catalogIdSharesNamespace(owner, scenario_id)", fn);
+	const size_t load = scanner.find("bytes = fsFileLoad(chain, &size);", fn);
+	const size_t type = scanner.find("sectionToType(ini.type) != ASSET_SCENARIO", fn);
+	const size_t same = scanner.find("strcmp(found_id, scenario_id) != 0", fn);
+	const size_t qualify = scanner.find("!qualifyTypedArchiveSourcePaths(&ini, chain)", fn);
+	const size_t reg = scanner.find("!registerComponentWithAnimationBatch(&ini, component_dir, mod_id,", fn);
+	for (const size_t at : { own, load, type, same, qualify, reg }) {
+		REQUIRE(at != std::string::npos);
+		REQUIRE(at < fn_end);
+	}
+	REQUIRE(own < load);
+	REQUIRE(load < type);
+	REQUIRE(type < same);
+	REQUIRE(same < qualify);
+	REQUIRE(qualify < reg);
+	REQUIRE(scanner.find("|| !cut || assetCatalogResolve(scenario_id)) {", fn) < fn_end);
+	REQUIRE(scanner.find("PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s", fn) < fn_end);
+
+	const size_t file_site = scanner.find("if (ini_type == ASSET_ARENA) {", fn_end);
+	const size_t pack_site = scanner.find("if (accepted && typed_archive_entry && ini_type == ASSET_ARENA) {", fn_end);
+	REQUIRE(file_site != std::string::npos);
+	REQUIRE(pack_site != std::string::npos);
+	REQUIRE(scanner.find("registerArenaEmbeddedScenario(arena_id, mod_id, batch,", file_site) < pack_site);
+	REQUIRE(scanner.find("registerArenaEmbeddedScenario(arena_id, mod_id, batch,", pack_site) != std::string::npos);
+}
+
 TEST_CASE("Public Mods registry writes JSON strings through an escaping helper", "[social][public_mods][static]")
 {
 	const std::string share = readTextFile("port/src/social_share.c");

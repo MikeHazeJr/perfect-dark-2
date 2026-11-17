@@ -5363,6 +5363,133 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id, batch);
 }
 
+/*
+ * Forge F1: the scenario inside a mod level.
+ *
+ * A base arena names a scenario that is also a file of its own in the
+ * scenarios folder, and that file is what gets a catalog row. A level saved
+ * by the mod author names a scenario that exists only as a member of its own
+ * .pdarena (arena.ini's scenario_archive). Nothing registered that member, so
+ * the scenario runtime found no source for the level's stage and the load
+ * stopped at "missing scenario source".
+ *
+ * This registers the member as an ASSET_SCENARIO row under the id the arena
+ * names, read from the member's own scenario.ini, with its files named
+ * through the chain "<arena archive>::<scenario member>::<file>". The arena
+ * and the scenario key their stage number to that same id, so the two rows
+ * share one stage (CORE's rule, week note 2026-11-17 04:00 UTC).
+ *
+ * Only for an arena outside the base namespace whose scenario id is in its
+ * own namespace: the id must be the mod's, never its template's. A scenario
+ * some other source already registered (a file of its own beside the arena,
+ * or an earlier scan of this archive) is left as it is.
+ *
+ * Returns 1 when a row was registered, 0 when there was nothing to do, and
+ * -1 with the reason when the member is not a scenario this arena can use.
+ */
+static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_id,
+		loader_animation_source_batch_t *batch, char *err, size_t err_cap)
+{
+	char owner[CATALOG_ID_LEN];
+	char scenario_id[CATALOG_ID_LEN];
+	char chain[FS_MAXPATH];
+	char outer[FS_MAXPATH];
+	char descriptor_ref[FS_MAXPATH];
+	char component_dir[FS_MAXPATH];
+	const asset_entry_t *arena = arena_id ? assetCatalogResolve(arena_id) : NULL;
+	const asset_entry_t *row;
+	const char *descriptor_leaf = NULL;
+	const char *found_id;
+	const char *cut;
+	char *descriptor = NULL;
+	void *bytes = NULL;
+	u32 size = 0;
+	u32 descriptor_size = 0;
+	ini_section_t ini;
+	s32 result = -1;
+
+	if (err && err_cap) err[0] = '\0';
+	if (!arena || arena->type != ASSET_ARENA) {
+		nestedSetErr(err, err_cap, "arena row is missing %s%s", arena_id ? arena_id : "", "");
+		return -1;
+	}
+	if (!arena->ext.arena.scenario_id[0] || !arena->ext.arena.scenario_archive[0]) {
+		return 0;
+	}
+	/* Registration may grow the catalog that owns these strings. */
+	if (!assetPathCopyChecked(owner, sizeof(owner), arena_id)
+			|| !assetPathCopyChecked(scenario_id, sizeof(scenario_id),
+				arena->ext.arena.scenario_id)
+			|| !assetPathCopyChecked(chain, sizeof(chain),
+				arena->ext.arena.scenario_archive)) {
+		nestedSetErr(err, err_cap, "arena %s scenario reference exceeds capacity %s", arena_id, "");
+		return -1;
+	}
+	cut = strstr(chain, "::");
+	if (strncmp(owner, "base:", 5) == 0 || !catalogIdSharesNamespace(owner, scenario_id)
+			|| !cut || assetCatalogResolve(scenario_id)) {
+		return 0;
+	}
+
+	bytes = fsFileLoad(chain, &size);
+	if (!bytes || size == 0) {
+		nestedSetErr(err, err_cap, "could not read the scenario inside %s: %s", owner, chain);
+		goto done;
+	}
+	if (assetArchiveValidateBytes(bytes, size, chain, ASSET_ARCHIVE_VALIDATE_RELEASE,
+			err, err_cap) != 0) {
+		goto done;
+	}
+	descriptor = assetArchiveExtractDescriptorMemAlloc(bytes, size, chain,
+		ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size, &descriptor_leaf);
+	if (!descriptor || !descriptor_leaf
+			|| !iniParseBuffer(descriptor_leaf, descriptor, descriptor_size, &ini)) {
+		nestedSetErr(err, err_cap, "the scenario inside %s has no valid descriptor: %s", owner, chain);
+		goto done;
+	}
+	if (sectionToType(ini.type) != ASSET_SCENARIO) {
+		nestedSetErr(err, err_cap, "the archive %s names as its scenario is not one: %s", owner, chain);
+		goto done;
+	}
+	found_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+	if (strcmp(found_id, scenario_id) != 0) {
+		nestedSetErr(err, err_cap, "the scenario inside the arena is %s, not the %s the arena names",
+			found_id, scenario_id);
+		goto done;
+	}
+	if ((size_t)(cut - chain) >= sizeof(outer)
+			|| !qualifyTypedArchiveSourcePaths(&ini, chain)
+			|| !assetPathJoinChecked(descriptor_ref, sizeof(descriptor_ref), chain, "::",
+				descriptor_leaf)) {
+		nestedSetErr(err, err_cap, "the scenario inside %s has paths that are too long: %s", owner, chain);
+		goto done;
+	}
+	/* The row's folder is the arena archive's, as it is for the arena. */
+	memcpy(outer, chain, (size_t)(cut - chain));
+	outer[cut - chain] = '\0';
+	pathDirnameAnySeparator(outer, component_dir, sizeof(component_dir));
+	if (!component_dir[0]
+			|| !registerComponentWithAnimationBatch(&ini, component_dir, mod_id,
+				descriptor_ref, batch)) {
+		nestedSetErr(err, err_cap, "could not register scenario %s of %s", scenario_id, owner);
+		goto done;
+	}
+	row = assetCatalogResolve(scenario_id);
+	if (!row || row->type != ASSET_SCENARIO) {
+		nestedSetErr(err, err_cap, "scenario %s of %s did not get a catalog row", scenario_id, owner);
+		goto done;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s",
+		owner, scenario_id, row->ext.scenario.stagenum, chain);
+	result = 1;
+
+done:
+	free(descriptor);
+	if (bytes) sysMemFree(bytes);
+	return result;
+}
+
 static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
                                          const char *mod_id,
@@ -5557,6 +5684,27 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 					"PDVEHICLE.MODEL.REJECT: owner=%s source=%s error=%s",
 					vehicle_id[0] ? vehicle_id : "<missing>", descriptor_path,
 					model_err[0] ? model_err : "vehicle model admission failed");
+				return -1;
+			}
+		}
+		if (ini_type == ASSET_ARENA) {
+			const char *arena_id = iniGet(&ini, "catalog_id",
+				iniGet(&ini, "id", ""));
+			char scenario_err[256];
+			scenario_err[0] = '\0';
+			if (!arena_id[0]
+					|| registerArenaEmbeddedScenario(arena_id, mod_id, batch,
+						scenario_err, sizeof(scenario_err)) < 0) {
+				asset_entry_t *arena = arena_id[0]
+					? assetCatalogGetMutable(arena_id) : NULL;
+				if (arena) {
+					arena->enabled = 0;
+					arena->load_state = ASSET_STATE_REGISTERED;
+				}
+				sysLogPrintf(LOG_WARNING,
+					"PDARENA.SCENARIO.REJECT: owner=%s source=%s error=%s",
+					arena_id[0] ? arena_id : "<missing>", descriptor_path,
+					scenario_err[0] ? scenario_err : "scenario registration failed");
 				return -1;
 			}
 		}
@@ -6551,6 +6699,27 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 						"PDVEHICLE.MODEL.REJECT: owner=%s source=%s error=%s",
 						vehicle_id[0] ? vehicle_id : "<missing>", entry_ref,
 						model_err[0] ? model_err : "vehicle model admission failed");
+					accepted = 0;
+				}
+			}
+			if (accepted && typed_archive_entry && ini_type == ASSET_ARENA) {
+				const char *arena_id = iniGet(&ini, "catalog_id",
+					iniGet(&ini, "id", ""));
+				char scenario_err[256];
+				scenario_err[0] = '\0';
+				if (!arena_id[0]
+						|| registerArenaEmbeddedScenario(arena_id, mod_id, batch,
+							scenario_err, sizeof(scenario_err)) < 0) {
+					asset_entry_t *arena = arena_id[0]
+						? assetCatalogGetMutable(arena_id) : NULL;
+					if (arena) {
+						arena->enabled = 0;
+						arena->load_state = ASSET_STATE_REGISTERED;
+					}
+					sysLogPrintf(LOG_WARNING,
+						"PDARENA.SCENARIO.REJECT: owner=%s source=%s error=%s",
+						arena_id[0] ? arena_id : "<missing>", entry_ref,
+						scenario_err[0] ? scenario_err : "scenario registration failed");
 					accepted = 0;
 				}
 			}

@@ -73,6 +73,7 @@
       "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_test mod_id=mod\\.arena_forge_test updated=0",
       "MODAUTHOR\\.CATALOG\\.OK catalog=mod:arena_forge_test type=\\d+ enabled=1 bundled=0",
       "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:arena_forge_test",
+      "PDARENA\\.SCENARIO: owner=mod:arena_forge_test id=mod:arena_forge_test__\\S+ stagenum=0x[0-9a-f]+ source=",
       "BOOT: --launch-mp-room direct match start",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
       "MATCH: player spawned slot=",
