@@ -24,6 +24,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "scenario_global_ailists.h"
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
@@ -86,6 +87,7 @@
 #include "combat_sim_verify.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
+#include "mod_author_runtime.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -110,6 +112,7 @@
  * tools/smoke-verify/tests/*.json + tools/smoke-verify/run.ps1.  Inert
  * unless `--smoke <path>` is on the command line. */
 #include "smoke_harness.h"
+#include "vehicle_debug.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -183,6 +186,21 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       after catalog initialization. This only shortcuts navigation to the
  *       existing UI; toggles, validation, Apply Changes, catalog rebuilds,
  *       and rollback continue through the ordinary Mod Manager path.
+ *
+ *   --mod-author <recipe.json>
+ *       Saves and enables the mod a recipe file describes
+ *       (mod_author_recipe.h) through the same save, rescan, enable and
+ *       apply path the in-game creators use. Runs once the catalog is ready
+ *       and before every other launch or debug flag, so one launch can
+ *       create a mod and then load or spawn what it made. Logged as
+ *       MODAUTHOR.* lines.
+ *
+ *   --debug-weapon-tool-create <weapon catalog id>
+ *   --debug-weapon-tool-name <display name>
+ *       Runs the Modding Hub's Weapons creator without the mouse: starts
+ *       from the named weapon as a template and saves it under the display
+ *       name, through the same two functions the Create and Save buttons
+ *       call. Runs right after --mod-author. Logged as WEAPONMOD.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -280,6 +298,12 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       first frame after stage load and mounts player 0 on the
  *       first OBJTYPE_HOVERBIKE prop found.  One-shot per boot;
  *       no effect on stages without a hoverbike.
+ *
+ *   --debug-swap-vehicle <vehicle catalog id>
+ *       Stage setup hook: every hoverbike a stage creates takes the
+ *       model of the named vehicle, so a mod vehicle can be driven
+ *       (with --debug-mount-bike) before levels can place vehicles.
+ *       See port/include/vehicle_debug.h.
  *
  *   --debug-spawn-at x,y,z,room
  *       Post-setupCreateProps hook: teleports player 0 to the given
@@ -747,8 +771,10 @@ static void bootRunCatalogWork(void *arg)
 	 * .pdmod INIs and loose folder layouts share a valid catalog target. */
 	modmgrInit();
 	{
-		const char *modsdir = modmgrGetModsDir();
-		if (modsdir) {
+		/* Every mods folder the scan read, the user folder last: the
+		 * catalog keeps the last registration of an id. */
+		for (s32 root = modmgrGetModsRootCount() - 1; root >= 0; --root) {
+			const char *modsdir = modmgrGetModsRoot(root);
 			assetCatalogScanComponents(modsdir);
 			assetCatalogScanBotVariants(modsdir);
 		}
@@ -841,6 +867,8 @@ static void bootRunCatalogWork(void *arg)
 		"pdeffect-pdprop-pdvehicle",
 		romExtractAllPdmeta(0));
 	bootRecordAssetPhase("pdtheme", romExtractAllPdtheme(0));
+	/* Global AI lists slice 2: the binary's lists as base:ai_global. */
+	bootRecordAssetPhase("pdai", romExtractAllPdai(0));
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_WALKER);
@@ -973,6 +1001,7 @@ extern void creditsEnterNormalScroll(void);
 /* Production Modding Hub entry point. The boot shortcut only opens tool 0;
  * all state mutation remains owned by the ordinary Mod Manager UI. */
 extern void pdguiModdingHubShowTool(s32 tool);
+extern s32 pdguiModdingHubDebugWeaponCreate(const char *template_id, const char *display_name);
 extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
@@ -1072,6 +1101,35 @@ static void bootApplyMainMenu(void)
 	g_PostExitMainMenuView = 0;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
+}
+
+/* --mod-author <recipe.json>: save and enable the mod a recipe describes,
+ * through the path the in-game creators use. */
+static void bootApplyModAuthorRecipe(const char *recipe_path)
+{
+	if (!recipe_path || !recipe_path[0]) {
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --mod-author recipe='%s' result=%s", recipe_path,
+		modAuthorRuntimeRunRecipe(recipe_path) ? "OK" : "FAIL");
+}
+
+/* --debug-weapon-tool-create <weapon id> [--debug-weapon-tool-name <name>]:
+ * the Weapons creator's own template start and save, without the mouse. */
+static void bootApplyDebugWeaponToolCreate(void)
+{
+	const char *template_id = sysArgGetString("--debug-weapon-tool-create");
+	const char *name = sysArgGetString("--debug-weapon-tool-name");
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Weapon";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-weapon-tool-create template=%s name='%s' result=%s",
+		template_id, name,
+		pdguiModdingHubDebugWeaponCreate(template_id, name) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -1997,6 +2055,7 @@ static const char *bootDebugAssetTypeName(asset_type_e type)
 	case ASSET_BOT_PROFILE: return "botprofile";
 	case ASSET_SCENARIO:  return "scenario";
 	case ASSET_THEME:     return "theme";
+	case ASSET_AI_LISTS:  return "ai_lists";
 	default:              return "unknown";
 	}
 }
@@ -2034,6 +2093,7 @@ static asset_type_e bootDebugParseAssetType(const char *s)
 	if (strcmp(s, "botprofile") == 0 || strcmp(s, "bot_profile") == 0) return ASSET_BOT_PROFILE;
 	if (strcmp(s, "scenario") == 0) return ASSET_SCENARIO;
 	if (strcmp(s, "theme") == 0) return ASSET_THEME;
+	if (strcmp(s, "ai_lists") == 0 || strcmp(s, "ai") == 0) return ASSET_AI_LISTS;
 	return ASSET_NONE;
 }
 
@@ -2892,6 +2952,11 @@ static void bootApplyCliFastPaths(void)
 	const char *player_init_fault =
 		sysArgGetString("--debug-fail-stage-player-init");
 
+	/* First, so every fast path below (spawn weapon, room launch, catalog
+	 * probes) already sees the mod a recipe creates. */
+	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
+	bootApplyDebugWeaponToolCreate();
+
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =
 			playerStageInitFaultConfigure(player_init_fault,
@@ -2980,6 +3045,11 @@ static void bootApplyCliFastPaths(void)
 		}
 	}
 	bootApplyDebugMountBike();
+	if (sysArgGetString("--debug-swap-vehicle")) {
+		vehicleDebugSetSwap(sysArgGetString("--debug-swap-vehicle"));
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-swap-vehicle %s armed (replaces each hoverbike a stage creates)",
+			vehicleDebugSwapId());
+	}
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();
 	bootApplyDebugPlaceBotNearPlayer();
@@ -3373,6 +3443,13 @@ s32 bootDebugMountBikeTick(void)
 			|| !g_Vars.players[0]->prop->chr) {
 		return 0;
 	}
+	/* B-1158: a solo player outside a cutscene has no body model (the normal
+	 * tick removes it every frame), so this must not wait for one: that wait
+	 * never ended in campaign stages. chrMoveToPos now skips the model when
+	 * there is none. Keep the lvframenum >= 4 settle --debug-spawn-at uses. */
+	if (g_Vars.lvframenum < 4) {
+		return 0;
+	}
 	if (sceneCurrentLayer() != LAYER_GAMEPLAY
 			|| g_Vars.tickmode != TICKMODE_NORMAL
 			|| g_Vars.lvupdate240 <= 0
@@ -3390,8 +3467,14 @@ s32 bootDebugMountBikeTick(void)
 		return 1;
 	}
 
+	/* The active list runs on into the paused list (propActivate links the
+	 * new head to g_Vars.pausedprops), so this walks every listed prop, paused
+	 * ones too. */
+	static s32 s_noBikeLogged = 0;
+	s32 walked = 0;
 	struct prop *prop = g_Vars.activeprops;
 	while (prop) {
+		walked++;
 		if (prop->type == PROPTYPE_OBJ
 				&& prop->obj
 				&& prop->obj->type == OBJTYPE_HOVERBIKE
@@ -3429,6 +3512,13 @@ s32 bootDebugMountBikeTick(void)
 			return 1;
 		}
 		prop = prop->next;
+	}
+	if (!s_noBikeLogged) {
+		/* Once, so a smoke that never mounts says why. */
+		s_noBikeLogged = 1;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-mount-bike ready but no free hoverbike among %d listed props on stage 0x%02x; still waiting",
+			walked, (u32)g_Vars.stagenum);
 	}
 	/* Keep the latch pending when the current stage has not exposed a bike yet.
 	 * Stage/player readiness, rather than a process- or frame-start timeout,
@@ -5117,6 +5207,14 @@ int main(int argc, const char **argv)
 			atexit(cleanup);
 		}
 		return 2;
+	}
+
+	/* Global AI lists, design step 5: the public rows must compile back to
+	 * the exact bytes of g_GlobalAilists (scenario_global_ailists.c). */
+	if (sysArgCheck("--check-global-ailists") &&
+			scenarioGlobalAiListsRoundTrip() != 0) {
+		sysLoudFailf("AI.GLOBAL",
+			"global AI lists do not round-trip through their public rows; see the AI.GLOBAL lines");
 	}
 
 	if (g_BootExtractAssetsOnly) {

@@ -322,6 +322,42 @@ done:
 	return ok;
 }
 
+/* global-ai-lists.md: the base bank's public ai.ini names its one rows member,
+ * ai/global_ailists.json. The private manifest never replaces it. */
+static s32 s_applyAiListsPublicDescriptor(asset_entry_t *entry,
+	const char *archive_path)
+{
+	char *ini = NULL;
+	size_t ini_len = 0;
+	char catalog_id[CATALOG_ID_LEN];
+	char lists_member[FS_MAXPATH + 1];
+	s32 ok = 0;
+
+	if (!entry || !loaderWalkerArchiveTextMember(archive_path, "ai.ini",
+			&ini, &ini_len)) {
+		return 0;
+	}
+	catalog_id[0] = '\0';
+	lists_member[0] = '\0';
+	if (!loaderWalkerIniValueCopy(ini, ini_len, "ai_lists", "catalog_id",
+			catalog_id, sizeof(catalog_id))
+			|| strcmp(catalog_id, entry->id) != 0
+			|| !loaderWalkerIniValueCopy(ini, ini_len, "ai_lists",
+				"ai_lists_file", lists_member, sizeof(lists_member))
+			|| strcmp(lists_member, "ai/global_ailists.json") != 0
+			|| !loaderWalkerArchiveMemberPath(archive_path, lists_member,
+				entry->ext.ai_lists.lists_file,
+				sizeof(entry->ext.ai_lists.lists_file))
+			|| fsFileSize(entry->ext.ai_lists.lists_file) <= 0) {
+		goto done;
+	}
+	ok = 1;
+
+done:
+	sysMemFree(ini);
+	return ok;
+}
+
 static s32 s_applyEffectPublicDescriptor(asset_entry_t *entry,
 	const char *archive_path)
 {
@@ -549,6 +585,15 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			entry->ext.theme.theme_file,
 			sizeof(entry->ext.theme.theme_file));
 		break;
+	case ASSET_AI_LISTS:
+		/* Public ai.ini is the authority (s_applyAiListsPublicDescriptor);
+		 * the private manifest never names the rows member. */
+		s_clearPath(entry->ext.ai_lists.lists_file,
+			sizeof(entry->ext.ai_lists.lists_file));
+		loaderWalkerArchiveMemberPath(archive_path, "ai/global_ailists.json",
+			entry->ext.ai_lists.lists_file,
+			sizeof(entry->ext.ai_lists.lists_file));
+		break;
 	case ASSET_HUD:
 		s_clearPath(entry->ext.hud.texture_file,
 			sizeof(entry->ext.hud.texture_file));
@@ -742,6 +787,9 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 	} else if (meta->type == ASSET_MISSION) {
 		strncpy(member, "mission.graph.json", sizeof(member) - 1);
 		member[sizeof(member) - 1] = '\0';
+	} else if (meta->type == ASSET_AI_LISTS) {
+		strncpy(member, "ai/global_ailists.json", sizeof(member) - 1);
+		member[sizeof(member) - 1] = '\0';
 	} else if (!s_firstManifestMember(manifest, manifest_len, meta,
 			member, sizeof(member))) {
 		return -1;
@@ -777,6 +825,15 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 			return -1;
 		}
 	}
+	if (meta->type == ASSET_AI_LISTS &&
+			!s_applyAiListsPublicDescriptor(entry, file_path)) {
+		entry->enabled = 0;
+		entry->load_state = ASSET_STATE_REGISTERED;
+		sysLogPrintf(LOG_ERROR,
+			"LOADER.UNIVERSAL.META: invalid public AI list source '%s'",
+			file_path);
+		return -1;
+	}
 	if (meta->type == ASSET_EFFECT) {
 		char dep_error[256];
 		dep_error[0] = '\0';
@@ -810,6 +867,8 @@ static const meta_walker_desc_t s_MetaFamilies[] = {
 	{ ASSET_EFFECT,      "effect",     "effects",     ".pdeffect",     "effect.graph.json", { "effect_file", "behavior_graph", "timeline_file", "timeline" } },
 	{ ASSET_MATERIAL,    "material",   "materials",   ".pdmaterial",   "material.json", { "material_file", "file_path", "texture_archive", "effect_archive" } },
 	{ ASSET_THEME,       "theme",      "themes",      ".pdtheme",      "theme.json",    { "theme_file", "ui_archive", "font_archive", "audio_archive", "music_archive", NULL } },
+	/* global-ai-lists.md: data/<romid>/ai/ holds base:ai_global. */
+	{ ASSET_AI_LISTS,    "ai_lists",   "ai",          ".pdai",         "ai/global_ailists.json", { "ai_lists_file", NULL, NULL, NULL, NULL, NULL } },
 };
 
 static const meta_walker_desc_t *s_ActiveMeta;

@@ -198,6 +198,8 @@ void chopperFireRocket(struct chopperobj *chopper, bool side);
 void chopperIncrementBarrel(struct prop *prop, bool firing);
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing);
 void chopperTickFall(struct prop *chopper);
+void chopperClearRules(void);
+void chopperSetRules(struct chopperobj *chopper, s16 engine_hum, s16 thrust_hum, bool drop);
 void chopperTickIdle(struct prop *chopper);
 void chopperTickPatrol(struct prop *chopper);
 void chopperTickCombat(struct prop *chopper);

@@ -7,14 +7,19 @@
 #include "modasset_json.h"
 #include "asset_path_contract.h"
 #include "prop_graph_runtime.h"
+#include "vehicle_graph_runtime.h"
+#include "vehicle_model_parts.h"
+#include "asset_archive_policy.h"
 #ifndef PD_TESTS
 #include "fs.h"
+#include "system.h"
 #endif
 
 static asset_runtime_binding_t *s_Bindings = NULL;
 static s32 s_BindingCount = 0;
 static s32 s_BindingCapacity = 0;
 static void *s_primaryFileLoad(const char *path, u32 *out_size);
+static void s_freeVehicleGraph(asset_runtime_binding_t *binding);
 
 static const char *s_jsonSkipWs(const char *p, const char *end)
 {
@@ -348,6 +353,11 @@ static s32 s_finishFileBinding(asset_runtime_binding_t *binding, s32 ok)
 void assetRuntimeReset(void)
 {
 	propGraphRuntimeReset();
+    vehicleGraphRuntimeReset();
+    for (s32 i = 0; s_Bindings && i < s_BindingCapacity; i++) {
+        vehicleGraphProgramFree(s_Bindings[i].vehicle_graph);
+        s_Bindings[i].vehicle_graph = NULL;
+    }
     if (s_Bindings && s_BindingCapacity > 0) {
         memset(s_Bindings, 0,
                (size_t)s_BindingCapacity * sizeof(s_Bindings[0]));
@@ -379,6 +389,7 @@ s32 assetRuntimeSupportsType(asset_type_e type)
     case ASSET_LANG:
     case ASSET_SCENARIO:
     case ASSET_THEME:
+    case ASSET_AI_LISTS:
         return 1;
     default:
         return 0;
@@ -450,6 +461,7 @@ static asset_runtime_binding_t *s_allocBinding(const char *asset_id)
 {
     asset_runtime_binding_t *binding = s_findMutable(asset_id);
     if (binding) {
+        s_freeVehicleGraph(binding);
         memset(binding, 0, sizeof(*binding));
         return binding;
     }
@@ -882,6 +894,14 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         return s_finishFileBinding(binding,
             s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
+    case ASSET_AI_LISTS:
+        /* global-ai-lists.md: the rows member is required; a bank without
+         * one never becomes an active binding (fail closed). */
+        s_copy(binding->authored_file, sizeof(binding->authored_file),
+               entry->ext.ai_lists.lists_file);
+        return s_finishFileBinding(binding,
+            s_hasText(binding->authored_file));
+
     default:
         binding->active = 0;
         return 0;
@@ -1199,23 +1219,276 @@ static s32 s_hydrateBotProfile(asset_runtime_binding_t *binding)
     return ok;
 }
 
+static char s_VehicleGraphError[320];
+
+const char *assetRuntimeVehicleGraphError(void)
+{
+    return s_VehicleGraphError;
+}
+
+/* A refused vehicle source says why, once per hydration, in the game log:
+ * VEHICLE.GRAPH for a graph that does not compile, VEHICLE.SOURCE for sources
+ * that do not pair. */
+static s32 s_refuseVehicleAs(const asset_runtime_binding_t *binding, s32 graph,
+                             const char *why)
+{
+    snprintf(s_VehicleGraphError, sizeof(s_VehicleGraphError), "%s", why ? why : "refused");
+#ifndef PD_TESTS
+    if (graph) {
+        sysLogPrintf(LOG_ERROR, "VEHICLE.GRAPH: refused the executable program for '%s': %s",
+            binding ? binding->id : "?", s_VehicleGraphError);
+    } else {
+        sysLogPrintf(LOG_ERROR, "VEHICLE.SOURCE: refused '%s': %s",
+            binding ? binding->id : "?", s_VehicleGraphError);
+    }
+#else
+    (void)binding;
+    (void)graph;
+#endif
+    return 0;
+}
+
+static s32 s_refuseVehicle(const asset_runtime_binding_t *binding, const char *why)
+{
+    return s_refuseVehicleAs(binding, 0, why);
+}
+
+/*
+ * pd.vehicle_graph.v1: compile the behavior graph with the archive's optional
+ * behavior/variables.json. A refused graph refuses the vehicle (it does not
+ * hydrate, so it cannot be mounted and nothing falls back to native code). The
+ * v2 booleans are then derived from the graph, for assetRuntimeVehicleAllows.
+ */
+/* A member of the vehicle whose model is at model_path, as NUL-terminated
+ * text; NULL when it is not there. */
+static char *s_loadVehicleMember(const char *model_path, const char *member, u32 *out_size)
+{
+    char path[FS_MAXPATH];
+    void *bytes;
+    u32 size = 0;
+    char *text;
+
+    if (out_size) *out_size = 0;
+    if (!s_sourceMemberPath(model_path, member, path, sizeof(path))) {
+        return NULL;
+    }
+    bytes = s_primaryFileLoad(path, &size);
+    if (!bytes) return NULL;
+    text = (char *)malloc((size_t)size + 1u);
+    if (text) {
+        if (size) memcpy(text, bytes, size);
+        text[size] = '\0';
+        if (out_size) *out_size = size;
+    }
+    free(bytes);
+    return text;
+}
+
+/*
+ * The toggle parts of a vehicle's model, from its part table and its node
+ * table: members of its typed mesh (.pdmesh), or files beside a loose model.
+ * NULL with the reason when the model has no readable tables.
+ */
+static vehicle_model_parts_t *s_loadVehicleModelParts(const char *model_path,
+                                                      char *err, size_t err_cap)
+{
+    static const char *const members[2] = { "model.parts.json", "model.nodes.json" };
+    char path[FS_MAXPATH];
+    void *text[2] = { NULL, NULL };
+    u32 size[2] = { 0, 0 };
+    vehicle_model_parts_t *parts = NULL;
+    s32 i;
+
+    if (err && err_cap) err[0] = '\0';
+    for (i = 0; i < 2; i++) {
+        const s32 have_path = assetArchiveTypeForPath(model_path) == ASSET_MODEL
+            ? assetPathJoinChecked(path, sizeof(path), model_path, "::", members[i])
+            : s_sourceMemberPath(model_path, members[i], path, sizeof(path));
+        text[i] = have_path ? s_primaryFileLoad(path, &size[i]) : NULL;
+        if (!text[i]) {
+            if (err && err_cap) snprintf(err, err_cap, "its model has no %s", members[i]);
+            break;
+        }
+    }
+    if (text[0] && text[1]) {
+        parts = vehicleModelPartsRead((const char *)text[0], size[0],
+            (const char *)text[1], size[1], err, err_cap);
+    }
+    free(text[0]);
+    free(text[1]);
+    return parts;
+}
+
+/*
+ * Compiles a vehicle's pd.vehicle_graph.v1 graph with its
+ * behavior/variables.json, and checks the parts it shows and hides against
+ * the model's part tables (CORE's rule: a part the model does not have, or
+ * one that is not a toggle, refuses the graph here, when the catalog registers
+ * the vehicle, not when the vehicle is first used). model_path is the
+ * vehicle's model as the catalog holds it. NULL with the reason when refused.
+ */
+static vehicle_graph_program_t *s_compileVehicleGraph(const char *model_path,
+                                                      const char *catalog_id,
+                                                      const char *graph, u32 graph_size,
+                                                      char *err, size_t err_cap)
+{
+    static const char member[] = "behavior/variables.json";
+    char path[FS_MAXPATH];
+    char parts_err[160];
+    char *variables = NULL;
+    u32 variables_size = 0;
+    vehicle_model_parts_t *parts;
+    vehicle_graph_program_t *program;
+
+    if (err && err_cap) err[0] = '\0';
+    if (s_sourceMemberPath(model_path, member, path, sizeof(path)) &&
+            s_primaryFileSize(path) >= 0) {
+        variables = s_loadVehicleMember(model_path, member, &variables_size);
+        if (!variables) {
+            if (err && err_cap) snprintf(err, err_cap, "behavior/variables.json could not be read");
+            return NULL;
+        }
+    }
+    parts = s_loadVehicleModelParts(model_path, parts_err, sizeof(parts_err));
+    /* With no part tables every part is refused; a graph that names none
+     * compiles either way. */
+    program = vehicleGraphProgramCompile(graph, graph_size, variables, variables_size,
+        catalog_id, vehicleModelPartsIsToggle, parts, err, err_cap);
+    if (!program && !parts && parts_err[0] && err && err_cap
+            && strstr(err, "og.vehicle.part_visible")) {
+        const size_t used = strlen(err);
+        snprintf(err + used, err_cap - used, " (%s)", parts_err);
+    }
+    vehicleModelPartsFree(parts);
+    free(variables);
+    return program;
+}
+
+s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_member,
+                                   const char *catalog_id, char *err, size_t err_cap)
+{
+    u32 graph_size = 0;
+    char *graph;
+    vehicle_graph_program_t *program;
+
+    if (err && err_cap) err[0] = '\0';
+    if (!model_path || !model_path[0] || !behavior_member || !behavior_member[0]) {
+        return 1; /* nothing to check here: hydrating refuses a vehicle with no behavior file */
+    }
+    graph = s_loadVehicleMember(model_path, behavior_member, &graph_size);
+    if (!graph) {
+        return 1;
+    }
+    if (!vehicleGraphIsV1(graph, graph_size)) {
+        free(graph);
+        return 1; /* a v2 behavior file is not a graph */
+    }
+    program = s_compileVehicleGraph(model_path, catalog_id, graph, graph_size, err, err_cap);
+    free(graph);
+    if (!program) {
+        if (err && err_cap && !err[0]) snprintf(err, err_cap, "vehicle graph refused");
+        return 0;
+    }
+    vehicleGraphProgramFree(program);
+    return 1;
+}
+
+static s32 s_hydrateVehicleGraph(asset_runtime_binding_t *binding,
+                                 const char *graph, u32 graph_size)
+{
+    char err[320];
+
+    binding->vehicle_graph = s_compileVehicleGraph(binding->primary_path, binding->id,
+        graph, graph_size, err, sizeof(err));
+    if (!binding->vehicle_graph) {
+        return s_refuseVehicleAs(binding, 1, err[0] ? err : "vehicle graph refused");
+    }
+    binding->vehicle_allow_mount = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED, "og.vehicle.mount_seat");
+    binding->vehicle_allow_drive = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_TICK, "og.vehicle.hover_drive");
+    binding->vehicle_allow_dismount = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
+        "og.vehicle.dismount_seat");
+    return 1;
+}
+
+static void s_freeVehicleGraph(asset_runtime_binding_t *binding)
+{
+    if (binding && binding->vehicle_graph) {
+        /* Instances point at their program: none may outlive it. Only the
+         * vehicles made from this program lose theirs. */
+        vehicleGraphRuntimeForgetProgram(binding->vehicle_graph);
+        vehicleGraphProgramFree(binding->vehicle_graph);
+        binding->vehicle_graph = NULL;
+    }
+}
+
+/*
+ * A vehicle's sources pair one way or the other, never mixed:
+ *   pd.vehicle_graph.v1 behavior + pd2.vehicle.physics.v3 (no boost keys: the
+ *   graph's og.vehicle.throttle_boost holds them, CORE's answer 3), or
+ *   pd2.vehicle.behavior.v2 + pd2.vehicle.physics.v2 (the booleans and the
+ *   original bonus keys), read until the base re-extract writes v1.
+ * behavior/variables.json belongs to a v1 graph only.
+ */
 static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
 {
     u32 physics_size = 0;
     u32 behavior_size = 0;
+    char physics_schema[40];
+    char path[FS_MAXPATH];
     char *physics = s_loadSourceMember(binding, binding->dependency_a,
         &physics_size);
     char *behavior = s_loadSourceMember(binding, binding->dependency_b,
         &behavior_size);
+    s32 graph_v1;
+    s32 physics_v3;
     s32 ok;
 
+    s_freeVehicleGraph(binding);
+    s_VehicleGraphError[0] = '\0';
     if (!physics || !behavior) {
         free(physics);
         free(behavior);
         return 0;
     }
-    ok = s_sourceCatalogIdMatches(binding, physics, physics_size) &&
-        s_sourceCatalogIdMatches(binding, behavior, behavior_size) &&
+    graph_v1 = vehicleGraphIsV1(behavior, behavior_size);
+    physics_v3 = 0;
+    if (!s_jsonReadString(physics, physics_size, "schema", physics_schema,
+                sizeof(physics_schema)) ||
+            (strcmp(physics_schema, "pd2.vehicle.physics.v2") != 0 &&
+             strcmp(physics_schema, "pd2.vehicle.physics.v3") != 0)) {
+        ok = s_refuseVehicle(binding,
+            "physics.json needs \"schema\" pd2.vehicle.physics.v2 or pd2.vehicle.physics.v3");
+    } else {
+        ok = 1;
+        physics_v3 = strcmp(physics_schema, "pd2.vehicle.physics.v3") == 0;
+    }
+    if (ok && graph_v1 != physics_v3) {
+        ok = s_refuseVehicle(binding, graph_v1
+            ? "a pd.vehicle_graph.v1 behavior needs pd2.vehicle.physics.v3 physics"
+            : "pd2.vehicle.physics.v3 physics needs a pd.vehicle_graph.v1 behavior");
+    }
+    if (ok && physics_v3 &&
+            (s_jsonFindValue(physics, physics_size, "boost_speed") ||
+             s_jsonFindValue(physics, physics_size, "boost_time_ticks60"))) {
+        ok = s_refuseVehicle(binding,
+            "pd2.vehicle.physics.v3 has no boost keys (the graph's og.vehicle.throttle_boost holds them)");
+    }
+    if (ok && !graph_v1 &&
+            s_sourceMemberPath(binding->primary_path, "behavior/variables.json", path,
+                sizeof(path)) &&
+            s_primaryFileSize(path) >= 0) {
+        ok = s_refuseVehicle(binding,
+            "behavior/variables.json is read only with a pd.vehicle_graph.v1 behavior graph");
+    }
+    if (ok && (!s_sourceCatalogIdMatches(binding, physics, physics_size) ||
+            !s_sourceCatalogIdMatches(binding, behavior, behavior_size))) {
+        ok = s_refuseVehicle(binding,
+            "physics.json and behavior.graph.json must name this vehicle's catalog_id");
+    }
+    ok = ok &&
         s_jsonReadFloat(physics, physics_size, "turn_input_scale",
             &binding->vehicle_turn_input_scale) &&
         s_jsonReadFloat(physics, physics_size, "reverse_turn_gain",
@@ -1260,18 +1533,25 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
             &binding->vehicle_yaw_response_ntsc) &&
         s_jsonReadFloat(physics, physics_size, "yaw_response_pal",
             &binding->vehicle_yaw_response_pal) &&
-        s_jsonReadFloat(physics, physics_size, "boost_speed",
-            &binding->vehicle_boost_speed) &&
-        s_jsonReadInt(physics, physics_size, "boost_time_ticks60",
-            &binding->vehicle_boost_time_ticks60) &&
         s_jsonReadFloatArray(physics, physics_size, "hover",
-            binding->vehicle_hover, 13) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_mount",
-            &binding->vehicle_allow_mount) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_drive",
-            &binding->vehicle_allow_drive) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_dismount",
-            &binding->vehicle_allow_dismount);
+            binding->vehicle_hover, 13);
+    if (ok && !graph_v1) {
+        ok = s_jsonReadFloat(physics, physics_size, "boost_speed",
+                &binding->vehicle_boost_speed) &&
+            s_jsonReadInt(physics, physics_size, "boost_time_ticks60",
+                &binding->vehicle_boost_time_ticks60) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_mount",
+                &binding->vehicle_allow_mount) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_drive",
+                &binding->vehicle_allow_drive) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_dismount",
+                &binding->vehicle_allow_dismount) &&
+            binding->vehicle_boost_speed >= 0.0f &&
+            binding->vehicle_boost_time_ticks60 > 0;
+    } else if (ok) {
+        binding->vehicle_boost_speed = 0.0f;
+        binding->vehicle_boost_time_ticks60 = 0;
+    }
     if (ok) {
         if (binding->vehicle_turn_input_scale < 0.0f ||
                 binding->vehicle_reverse_turn_gain < 0.0f ||
@@ -1289,11 +1569,12 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
                 binding->vehicle_drag_ntsc < 0.0f ||
                 binding->vehicle_drag_ntsc > 1.0f ||
                 binding->vehicle_drag_pal < 0.0f ||
-                binding->vehicle_drag_pal > 1.0f ||
-                binding->vehicle_boost_speed < 0.0f ||
-                binding->vehicle_boost_time_ticks60 <= 0) {
+                binding->vehicle_drag_pal > 1.0f) {
             ok = 0;
         }
+    }
+    if (ok && graph_v1) {
+        ok = s_hydrateVehicleGraph(binding, behavior, behavior_size);
     }
     if (ok) binding->source_hydrated = 1;
     free(physics);
@@ -1454,6 +1735,10 @@ void assetRuntimeReleaseCatalogEntry(const char *asset_id)
 		if (binding->type == ASSET_PROP) {
 			propGraphRuntimeClearAsset(asset_id);
 		}
+        /* A released vehicle's graph program goes now, not at the next
+         * reset; a binding comes back only through s_allocBinding, which
+         * compiles it again. */
+        s_freeVehicleGraph(binding);
         binding->active = 0;
     }
 }

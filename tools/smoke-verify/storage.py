@@ -56,6 +56,41 @@ def process_identity(pid):
     finally:
         kernel.CloseHandle(handle)
 
+def owner_gone_evidence(install):
+    """The owner of an interrupted workspace must be gone before a reviewed
+    release. Returns the evidence; raises while the owner may still run: alive,
+    unreadable, or no owner recorded. A live process that started after the
+    workspace was created has only reused the id."""
+    pid = install.get("owner_pid")
+    if os.name != "nt": raise StorageError("Reviewed release needs Windows process evidence")
+    if type(pid) is not int or pid <= 0: raise StorageError("No owner process recorded; cannot prove it is gone")
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = [w.HANDLE, *([ctypes.POINTER(w.FILETIME)] * 4)]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: no process has this id
+            return {"owner_pid": pid, "state": "no process has this id"}
+        raise StorageError("Cannot read owner process %d (error %d); it may still run" % (pid, error))
+    try:
+        creation, exit_time, system, user = (w.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, creation, exit_time, system, user):
+            raise StorageError("Cannot read owner process %d times; it may still run" % pid)
+        if exit_time.dwHighDateTime or exit_time.dwLowDateTime:
+            return {"owner_pid": pid, "state": "exited"}
+        ticks = creation.dwHighDateTime << 32 | creation.dwLowDateTime
+        started = dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(microseconds=ticks // 10)
+        created = dt.datetime.fromisoformat(install["created"])
+        if started > created + dt.timedelta(seconds=1):
+            return {"owner_pid": pid, "state": "id reused by a process started " + started.isoformat()}
+        raise StorageError("Owner process %d is still running" % pid)
+    finally:
+        kernel.CloseHandle(handle)
+
 def plain(path):
     path = Path(os.path.abspath(path))
     for ancestor in [*reversed(path.parents), path]:
@@ -64,6 +99,45 @@ def plain(path):
             if stat.S_ISLNK(s.st_mode) or getattr(s, "st_file_attributes", 0) & REPARSE:
                 raise StorageError("Reparse/alias path rejected: " + str(ancestor))
     return path
+
+LOCATION_FILE = ".claude/smoke-storage-location.json"
+
+LOCATION_POLICY_KEYS = {"min_free_gib", "max_full_installs", "max_full_install_gib", "max_archive_gib",
+                        "discard_completed"}
+
+def storage_location(project):
+    """Smoke storage lives in <project>/.claude/smoke-storage unless the
+    project's untracked .claude/smoke-storage-location.json names another
+    root: Mike's decision 6B (2026-11-15) puts test installs on the SSD while
+    worktrees and builds stay on the hard disk. The named root must be an
+    absolute folder below a drive root and a plain path (no reparse points);
+    the disk floor for installs is then measured on its drive. The file may
+    also set that root's own limits ("policy": min_free_gib, max_full_installs,
+    max_full_install_gib, max_archive_gib; Mike, 2026-11-15: on C: "only one
+    or two at a time"); they win over any policy a caller sends. With
+    "discard_completed": true each install is deleted as soon as its run is
+    recorded, keeping its receipts and logs (Mike, 2026-11-15: "delete each
+    one ... as soon as it's no longer needed"). Returns (root, policy overrides).
+    lib/Storage-Harness.ps1 (Get-SmokeStorageRoot) reads the root the same way."""
+    project = plain(project)
+    location = project / LOCATION_FILE
+    if not location.exists():
+        return plain(project / ".claude/smoke-storage"), {}
+    value = json.loads(location.read_text(encoding="utf-8-sig"))
+    if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("root"), str):
+        raise StorageError("Invalid smoke storage location file: " + str(location))
+    if set(value) - {"schema", "root", "policy"}:
+        raise StorageError("Unknown smoke storage location fields: " + str(location))
+    policy = value.get("policy", {})
+    if not isinstance(policy, dict) or set(policy) - LOCATION_POLICY_KEYS:
+        raise StorageError("Smoke storage location policy may set only " + ", ".join(sorted(LOCATION_POLICY_KEYS)))
+    root = Path(value["root"])
+    if not root.is_absolute() or len(root.parts) < 2:
+        raise StorageError("Smoke storage root must be an absolute folder below a drive root")
+    return plain(root), dict(policy)
+
+def storage_root(project):
+    return storage_location(project)[0]
 
 def relative(name):
     p = PurePosixPath(name)
@@ -146,6 +220,9 @@ def policy_from(value):
         defaults[k + "_bytes"] = int(x * 2**30)
     if not defaults["max_full_install_gib_bytes"] or not defaults["max_archive_gib_bytes"]:
         raise StorageError("Archive/full-install byte budgets must be positive")
+    defaults.setdefault("discard_completed", False)
+    if not isinstance(defaults["discard_completed"], bool):
+        raise StorageError("discard_completed must be true or false")
     return defaults
 
 def exclusive_file(path, delete=False, expected=None, metadata=None):
@@ -194,6 +271,79 @@ def exclusive_file(path, delete=False, expected=None, metadata=None):
     finally:
         close(handle)
 
+# Mike, 2026-11-15: test installs are deleted to the Recycle Bin ("I will
+# empty that manually"), never for good. The storage self-tests' own scratch
+# roots are the one exception: they are throwaway folders of a few KB that the
+# self-tests create and remove themselves.
+SELFTEST_ROOT = CHECKOUT / ".claude" / "smoke-storage-selftests"
+BITBUCKET_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
+
+
+def recycle_bin_refusal(directory, size):
+    """Why Windows would not keep this folder in the Recycle Bin, or None.
+    A volume whose Recycle Bin is off, a drive that has none, or a bin smaller
+    than the folder makes Windows delete it for good, so the caller refuses."""
+    import winreg
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetDriveTypeW.argtypes = [w.LPCWSTR]
+    kernel.GetVolumeNameForVolumeMountPointW.argtypes = [w.LPCWSTR, w.LPWSTR, w.DWORD]
+    kernel.GetDiskFreeSpaceExW.argtypes = [w.LPCWSTR, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    drive = os.path.splitdrive(str(directory))[0] + "\\"
+    if kernel.GetDriveTypeW(drive) != 3:  # DRIVE_FIXED: only fixed disks have a Recycle Bin
+        return f"{drive} is not a fixed disk"
+    name = ctypes.create_unicode_buffer(64)
+    if not kernel.GetVolumeNameForVolumeMountPointW(drive, name, len(name)):
+        return f"the volume of {drive} has no volume name"
+    guid = name.value[name.value.find("{"):name.value.find("}") + 1]
+    settings = {}
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, BITBUCKET_KEY + "\\" + guid) as key:
+            for value_name in ("NukeOnDelete", "MaxCapacity"):
+                try:
+                    settings[value_name] = winreg.QueryValueEx(key, value_name)[0]
+                except FileNotFoundError:
+                    pass
+    except FileNotFoundError:
+        pass
+    if settings.get("NukeOnDelete"):
+        return f"the Recycle Bin of {drive} is turned off"
+    if "MaxCapacity" in settings:
+        capacity = int(settings["MaxCapacity"]) * 2**20
+    else:
+        # No per-volume setting yet: Windows sizes the bin from the volume
+        # (at least 5% of it); assume the smallest.
+        total = ctypes.c_ulonglong()
+        if not kernel.GetDiskFreeSpaceExW(drive, None, ctypes.byref(total), None):
+            return f"the size of {drive} cannot be read"
+        capacity = total.value // 20
+    if size > capacity:
+        return f"{size} bytes is more than the Recycle Bin of {drive} holds ({capacity} bytes)"
+    return None
+
+
+def recycle_tree(directory):
+    """Send a folder to the Recycle Bin of its volume in one shell operation
+    (a move on the same volume, so it frees nothing until the bin is emptied).
+    Raises if the folder is still there afterwards."""
+    from ctypes import wintypes as w
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", w.HWND), ("wFunc", w.UINT), ("pFrom", w.LPCWSTR), ("pTo", w.LPCWSTR),
+                    ("fFlags", w.WORD), ("fAnyOperationsAborted", w.BOOL),
+                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", w.LPCWSTR)]
+
+    shell = ctypes.WinDLL("shell32", use_last_error=True)
+    shell.SHFileOperationW.argtypes = [ctypes.POINTER(SHFILEOPSTRUCTW)]
+    source = ctypes.create_unicode_buffer(str(directory) + "\0")  # double-NUL terminated list
+    # FO_DELETE with FOF_ALLOWUNDO (to the Recycle Bin), no prompts, no UI.
+    flags = 0x0040 | 0x0010 | 0x0004 | 0x0400 | 0x0200
+    operation = SHFILEOPSTRUCTW(None, 3, ctypes.cast(source, w.LPCWSTR), None, flags, False, None, None)
+    result = shell.SHFileOperationW(ctypes.byref(operation))
+    if result or operation.fAnyOperationsAborted or os.path.lexists(directory):
+        raise StorageError(f"Recycle Bin move failed for {directory} (result {result:#x}); the install stays")
+
+
 class Storage:
     def __init__(self, project, policy=None, retention=None):
         self.retain_housekeeping = retention_from(retention)
@@ -204,9 +354,19 @@ class Storage:
         allowed = plain(CHECKOUT / ".claude")
         if self.project != CHECKOUT and not self.project.is_relative_to(allowed):
             raise StorageError("Isolated test project must be inside canonical .claude")
-        self.root = plain(self.project / ".claude/smoke-storage")
-        self.policy = policy_from(policy)
+        self.root, location_policy = storage_location(self.project)
+        # The caller's policy (the scripts send the whole checked-in
+        # storage-policy.json on every call, or a -StoragePolicy file) guards
+        # the checkout's own drive, where builds write. The storage root's
+        # limits are the location file's wherever it sets them, so the
+        # always-sent checked-in values cannot undo them (B-1171); limits the
+        # location file leaves unset follow the caller's policy.
+        self.project_policy = policy_from(policy)
+        merged = dict(policy or {})
+        merged.update(location_policy)
+        self.policy = policy_from(merged)
         self.state_path = plain(self.root / "state.json")
+        self.recycle = os.name == "nt" and not self.root.is_relative_to(plain(SELFTEST_ROOT))
         self.state = {"schema": 1, "installs": {}, "blobs": {}}
         self.validated = set()
         self.new_blob_bytes = 0
@@ -317,12 +477,16 @@ class Storage:
             self.archive_used = self.usage()
         self.preflight()
 
-    def preflight(self, pending=0, archive_pending=0):
+    def preflight(self, pending=0, archive_pending=0, build=False):
         if not isinstance(pending, int) or not isinstance(archive_pending, int) or pending < 0 or archive_pending < 0:
             raise StorageError("Pending budgets must be nonnegative integer bytes")
-        floor = self.policy["min_free_gib_bytes"]
-        growth = self.policy["extra_growth_gib_bytes"]
-        free = shutil.disk_usage(self.root).free
+        # A build writes into the checkout, so it is measured on the
+        # checkout's drive with the checkout's floor, wherever the smoke
+        # storage lives (6B: storage on C:, builds on D:).
+        policy = self.project_policy if build else self.policy
+        floor = policy["min_free_gib_bytes"]
+        growth = policy["extra_growth_gib_bytes"]
+        free = shutil.disk_usage(self.project if build else self.root).free
         if free - pending - growth < floor:
             raise StorageError(f"Disk preflight refused: free={free}, pending={pending}, reserve={growth}, floor={floor}; no evidence evicted")
         if self.archive_used is None: self.archive_used = self.usage()
@@ -634,6 +798,28 @@ class Storage:
         # Probe every file first. Recheck the opened canonical path when deleting;
         # a racing lock fails closed with the complete recipe still retained.
         for path in paths: exclusive_file(path)
+        if self.recycle:
+            # Verify every file is the recorded copy, then send the whole
+            # folder to the Recycle Bin (Mike, 2026-11-15). If Windows would
+            # delete it for good instead, refuse and keep it.
+            size = sum(s.st_size for _, s in walk(directory))
+            refusal = recycle_bin_refusal(directory, size)
+            if refusal:
+                raise StorageError("Install not removed, it would not go to the Recycle Bin: " + refusal)
+            try:
+                for path in paths:
+                    name = path.relative_to(directory).as_posix()
+                    exclusive_file(path, expected=expected.get(name), metadata=receipt["metadata"].get(name))
+            except (OSError, StorageError):
+                install.update(status="retention_blocked", pin=True, full_bytes=size)
+                self.save()
+                raise
+            recycle_tree(directory)
+            install["recycled"] = utc()
+            install["recycled_bytes"] = size
+            install["status"] = "compacted"
+            install["full_bytes"] = 0
+            return
         try:
             for path in paths:
                 name = path.relative_to(directory).as_posix()
@@ -652,6 +838,15 @@ class Storage:
     def make_room(self, required):
         limit_count = self.policy["max_full_installs"]
         limit_bytes = self.policy["max_full_install_gib_bytes"]
+        # B-1173: a new copy reserves at least peak_run_gib, so a byte budget
+        # below that can never fit one, whatever is evicted. Say so instead of
+        # blaming evidence that is not there. (Retained housekeeping never
+        # evicts and keeps its own refusal below.)
+        if not self.retain_housekeeping and self.profile_bytes() + required > limit_bytes:
+            raise StorageError(
+                "max_full_install_gib %.2f GiB cannot fit one install: a new copy reserves %.2f GiB "
+                "(its size or peak_run_gib, the larger); raise max_full_install_gib"
+                % (limit_bytes / 2**30, (self.profile_bytes() + required) / 2**30))
         while True:
             full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
             if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes:
@@ -851,8 +1046,110 @@ class Storage:
         install.update(status="completed", passed=bool(request["passed"]), pin=bool(request.get("keep")),
                        full_bytes=sum(e["bytes"] for e in files.values()), completed=utc())
         self.save()
-        return {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
-                "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
+        result = {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
+                  "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
+        # A location that discards completed installs deletes the full copy
+        # now; its receipts and logs stay. A kept (-Keep) install stays.
+        if self.policy["discard_completed"] and not install.get("pin"):
+            freed = install["full_bytes"]
+            self.remove(install); self.save()
+            result.update(FullInstallRetained=False, DiscardedBytes=freed, Recycled=self.recycle)
+        return result
+
+    def compact(self, request):
+        """Delete the full copies of the named completed installs now (their
+        receipts and logs stay), instead of when a later run needs the room.
+        A kept install is deleted only with "unpin": true; an active, shared,
+        held or retained one never. Reports the bytes freed."""
+        ids = request.get("ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise StorageError("compact requires a non-empty list of install ids")
+        if self.retain_housekeeping: raise StorageError("Retained housekeeping refuses compaction")
+        compacted, freed = [], 0
+        for install_id in ids:
+            install = self.state["installs"].get(install_id)
+            if install is None: raise StorageError("Unknown install for compaction: " + install_id)
+            if install["status"] == "compacted": continue
+            if install["status"] != "completed": raise StorageError("Only a completed install can be compacted: " + install_id)
+            if install.get("shared"): raise StorageError("Shared installs are not compacted: " + install_id)
+            if install.get("pin"):
+                if request.get("unpin") is not True:
+                    raise StorageError("Kept install needs \"unpin\": true to be compacted: " + install_id)
+                install["pin"] = False
+            size = install["full_bytes"]
+            self.remove(install); self.save()
+            compacted.append(install_id); freed += size
+        # Recycled bytes stay on the drive until the Recycle Bin is emptied.
+        return {"Compacted": compacted, "FreedBytes": 0 if self.recycle else freed,
+                "RecycledBytes": freed if self.recycle else 0, "DeletionPerformed": bool(compacted)}
+
+    def release_interrupted(self, request):
+        """Reviewed release of an interrupted workspace (Mike's decision 7A,
+        2026-11-15). Only an active private install whose owning process is
+        gone and whose every file is an unchanged copy from its seed (nothing a
+        run produced) can be released. It records who released it and why,
+        writes a reconstruction recipe for exactly what is there, and marks it
+        completed and failed so ordinary retention can reclaim it later. It
+        deletes nothing itself."""
+        reviewer, reason = request.get("reviewer"), request.get("reason")
+        if not isinstance(reviewer, str) or not reviewer.strip() or not isinstance(reason, str) or not reason.strip():
+            raise StorageError("Reviewed release requires a reviewer and a reason")
+        install = self.state["installs"].get(request.get("id"))
+        if install is None: raise StorageError("Unknown workspace for reviewed release")
+        if self.retain_housekeeping or row_retained(install):
+            raise StorageError("Retained housekeeping refuses reviewed release")
+        if install["status"] != "active": raise StorageError("Only an interrupted active workspace can be released")
+        if install.get("shared"): raise StorageError("Reviewed release is restricted to private installs")
+        if self.reuse_held(install["id"]): raise StorageError("Workspace is held by a reuse lease")
+        owner = owner_gone_evidence(install)
+        directory = self.install_path(install)
+        if not directory.is_relative_to(self.root / "installs"):
+            raise StorageError("Reviewed release is restricted to private installs")
+        marker_path = plain(directory / ".pd-storage-owner.json")
+        marker_state = "matches"
+        if marker_path.exists():
+            if json.loads(marker_path.read_text()).get("id") != install["id"]:
+                raise StorageError("Workspace owner marker mismatch")
+        else:
+            # The seed stopped before writing it. Retention needs it to
+            # reclaim the workspace later, so write the tool's own marker.
+            marker_state = "written by the release (the seed was interrupted before it)"
+            with open(marker_path, "x", encoding="utf-8") as f:
+                json.dump({"schema": 1, "id": install["id"], "prospective": True,
+                           "written_by": "reviewed-release"}, f)
+        seed = self.read_seed(install["seed"])
+        actual, metadata = self.inspect(directory)
+        foreign = sorted(n for n, e in actual.items() if seed.get(n) != e)
+        if foreign:
+            raise StorageError("Workspace holds files that are not unchanged seed copies; preserve and review: "
+                               + ", ".join(foreign[:5]))
+        missing = sorted(seed.keys() - actual.keys())
+        receipt_dir = plain(self.root / "receipts" / install["id"])
+        if (receipt_dir / "recipe.json.gz").exists() or (receipt_dir / "release.json.gz").exists():
+            raise StorageError("Reviewed release receipt collision")
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        released = {"by": reviewer.strip(), "reason": reason.strip(), "at": utc(), "owner": owner,
+                    "owner_marker": marker_state, "seed_files_present": len(actual),
+                    "seed_files_missing": len(missing), "bytes": sum(e["bytes"] for e in actual.values())}
+        definition_path = plain(receipt_dir / "release-definition.json")
+        with open(definition_path, "x", encoding="utf-8") as f:
+            json.dump({"name": "reviewed-release", "id": install["id"]}, f)
+        definition_record = self.put(definition_path)
+        recipe = {"schema": 1, "complete": True, "id": install["id"], "seed": install["seed"],
+                  "changed": {}, "deleted": missing, "metadata": metadata,
+                  "definition": definition_record, "outcome": {"passed": False, "released": True},
+                  "provenance": {"reviewed_release": released}, "completed": utc()}
+        serialized = json.dumps(recipe, separators=(",", ":")).encode()
+        self.preflight(len(serialized) + 2048, len(serialized) + 2048)
+        self.write_receipt(receipt_dir / "release.json.gz", released)
+        self.write_receipt(receipt_dir / "recipe.json.gz", recipe)
+        self.archive_used = self.usage()
+        install.update(status="completed", passed=False, pin=False, full_bytes=released["bytes"],
+                       completed=utc(), released=released)
+        self.save()
+        return {"Released": install["id"], "Receipt": str(receipt_dir / "release.json.gz"),
+                "Owner": owner, "SeedFilesPresent": len(actual), "SeedFilesMissing": len(missing),
+                "Bytes": released["bytes"], "DeletionPerformed": False}
 
     def restore(self, identifier, destination):
         install = self.state["installs"][identifier]
@@ -884,7 +1181,7 @@ def re_safe(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release"])
+    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted", "compact"])
     args = parser.parse_args()
     # Storage-Harness sends UTF-8 bytes. Windows' locale text decoder can
     # corrupt Unicode paths and read a PowerShell UTF-8 BOM as mojibake.
@@ -912,7 +1209,9 @@ def main():
                       "StorageCopiedBytes": 0, "RuntimeAdmitted": False}
         elif args.action == "reuse-acquire": result = storage.acquire_reuse(request)
         elif args.action == "reuse-release": result = storage.release_reuse(request)
-        elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0))
+        elif args.action == "release-interrupted": result = storage.release_interrupted(request)
+        elif args.action == "compact": result = storage.compact(request)
+        elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0), request.get("build", False) is True)
         else:
             rows = list(storage.state["installs"].values())
             result = {"ArchiveBytes": storage.usage(), "Installs": rows, "ReuseRuns": list(storage.state.get("reuse_runs", {}).values()), "Policy": storage.policy,

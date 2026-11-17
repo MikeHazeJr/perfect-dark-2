@@ -46,6 +46,7 @@
 #include "asset_audio_public_source_harness.h"
 #include "weapon_nested_runtime_harness.h"
 #include "autocampaign.h"
+#include "ai_edge_shadow.h"
 #include "combat_sim_verify.h"
 #include "game/lv.h"
 #include "game/options.h"
@@ -60,6 +61,7 @@
 #include "game/pak.h"
 #include "game/splat.h"
 #include "game/utils.h"
+#include "game/stagetable.h"
 #include "bss.h"
 #include "lib/audiomgr.h"
 #include "lib/args.h"
@@ -580,6 +582,9 @@ void mainLoop(void)
 		/* Invalidate every stage-owned player handle before the arena that owns
 		 * those player structs and props is released. */
 		playermgrReset();
+		/* AI lists as graphs, slice 2: the shadow walk's tables of the stage's
+		 * AI lists describe bytes in the stage's setup block, in this pool. */
+		aiEdgeShadowClearOwner(AI_EDGE_SHADOW_OWNER_STAGE);
 		mempResetPool(MEMPOOL_7);
 		mempResetPool(MEMPOOL_STAGE);
 		filesStop(4);
@@ -1219,6 +1224,8 @@ static s32 s_MainEndStageWithoutResults = 0;
 void mainEndStage(void)
 {
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
+	/* object-events.md slice 2: the stage's object event totals. */
+	scenarioSourceGraphObjectEventsReport("stage_end");
 	sndStopNosedive();
 	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 
@@ -1331,7 +1338,11 @@ void mainChangeToStage(s32 stagenum)
 		const bool looksLikeMP = (g_NetMode != NETMODE_NONE)
 			|| g_MissionConfig.iscoop || g_MissionConfig.isanti
 			|| g_Vars.normmplayerisrunning;
-		const bool inMission = (g_MissionConfig.stageindex >= 0);
+		/* B-1118: stageindex is an unsigned byte, so the old test
+		 * (stageindex >= 0) was always true and the Carrington Institute
+		 * menu backdrop read as in-match for any loaded agent. A mission
+		 * is in progress when the stage being entered is a solo stage. */
+		const bool inMission = soloStageGetIndex(stagenum) >= 0;
 		if (STAGE_IS_GAMEPLAY(stagenum) && (looksLikeMP || inMission)) {
 			presenceSetLocalState(PRESENCE_IN_MATCH);
 		} else {

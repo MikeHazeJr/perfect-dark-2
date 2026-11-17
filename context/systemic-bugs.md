@@ -3473,6 +3473,182 @@ or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
 
 ---
 
+## SP-76: A reader takes a present but unreadable field for an absent one
+
+**Severity: HIGH - the value silently becomes zero and nothing downstream can
+tell, so a whole mechanic can be dead while every load line looks normal.**
+
+Public source readers treat most fields as optional: `if (read(...)) { use }`,
+with a zeroed default otherwise. That is right for a field that is absent. It
+is wrong when the field is present and the read fails, because then the
+author's data is dropped without a word. The failure mode needs no malformed
+file: it is enough that the writer and the reader disagree about the shape of a
+value they both consider valid.
+
+**Known instance (B-1114, 2026-11-14):** the extractor writes a room light's
+quad as four nested corners, `"bbox": [[x, y, z], [x, y, z], ...]`. The loader
+added for B-943 read it with `s_jsonReadIntArrayInRange`, which expects a flat
+array and returns 0 at the first inner `[`. Every one of the 3,398 campaign
+lights kept an all-zero quad, so no light could be shot out. B-943 was accepted
+on source pins that checked the member was written and a loader existed. The
+defect was found by a cross-check between two independent tables (a light quad
+must lie inside its room's authored box), not by any test of the reader.
+
+**Rules:**
+
+- A reader that makes a field optional must tell "absent" from "present but
+  unreadable", and report the second (see `without_quad` in
+  `scenarioSourceLoadRoomLightsForStage`).
+- When an extractor and a loader are written for the same member, check one
+  real extracted value end to end at runtime. A pin that the writer and the
+  reader both exist proves nothing about their agreement.
+- Prefer a load-time consistency check between independent authored tables over
+  a count of rows read. `outside_room=` is the model: it cannot pass by
+  accident.
+
+**Audit:** for every optional read in a public source loader, ask what the
+consumer does with the zero default and whether a present field can fail to
+parse. Start with nested values and values that changed shape in the extractor.
+
+`rg -n "if \(s_jsonRead\w+\(obj_open, obj_close" port/src/scenario_source_runtime.c`
+
+`rg -n "\[%d, %d, %d\]|\[%\.6f, %\.6f, %\.6f\]" port/src/romextract_pdarena.c`
+
+---
+
+## SP-77: The scenario-source path stands in a derived value for an authored table
+
+**Severity: HIGH - play differs from the original in every extracted stage, in
+ways that look like content quirks rather than defects.**
+
+The legacy stage loader (`bgBuildTables` in `src/game/bg.c`) fills its room
+tables from the background file. The scenario-source loader
+(`bgBuildScenarioSourceTables`) rebuilds the same tables from public source.
+Where public source did not carry a table, the rebuild used something
+derivable (or a constant), and the game ran on with it.
+
+**Known instances (2026-11-14):**
+
+- Room boxes derived from collision triangles instead of the authored boxes
+  (B-1113): pads outside the tighter boxes got no room and 44 campaign props
+  were never created, among them an objective object.
+- Room origins left at zero while light quads are stored relative to them
+  (B-1114): every light sat away from its fixture.
+- Room brightness range set to the constant 255/255 instead of the authored
+  128/255 (B-1115): a darkened room stayed about twice as bright.
+
+All three now come from the scenario member `rooms.json`.
+
+**Still open, same class (found by reading, 2026-11-14, not yet measured):**
+
+- `g_BgCommands = NULL`: the background file's command list is not in public
+  source (what it controls on this path is not yet measured).
+- `g_BgStanThings = NULL`.
+- Light glares and the sparks of a broken light: `src/game/artifact.c` needs
+  the room graphics data (`gfxdata`) this path does not load, and returns
+  early without it.
+- Sky rooms: `roomPopulateMtx` (`src/game/room.c`) draws a handful of rooms
+  relative to the camera using the room origin, which is zero on this path.
+
+**Rule:** when the scenario-source loader has no source for a table the legacy
+loader fills, that is a missing public member, not a default. Add the member to
+the extractor, and until it exists log the stand-in at stage load so the gap is
+visible in every run.
+
+**Audit:** walk `bgBuildTables` table by table and find the line in
+`bgBuildScenarioSourceTables` that fills the same field; anything filled with a
+constant, a zero or a value computed from other source is a candidate. Do the
+same for the setup and pad loaders.
+
+`rg -n "g_Bg[A-Za-z]+ = NULL;|= 0xff;|memset\(g_Bg" src/game/bg.c`
+
+---
+
+## SP-78: One copy of a path rule is fixed, its sibling copies are not
+
+**Severity: HIGH - isolation and save bugs that a fix "already closed" keep
+happening through the copies nobody touched.**
+
+The client spells some path rules in several places: the list of `mods/`
+roots, and the name a config save is written to. When one copy was fixed the
+others kept the old rule, and because the fixed copy is the one that gets
+tested, the bug looks closed.
+
+**Known instances (found 2026-11-14, B-1160):**
+
+- B-1031 made an explicit `--moddir` the only mod root in modmgr. The font
+  loader, both theme scanners and the migration bench kept their own copies
+  of the discovery list and still walked `$E/../mods`, `./mods`, `$E/mods`
+  and the base `mods`. Fixed: one list, `fsModRoots` in `port/src/fs.c`.
+- The main menu's settings save was moved to `configSave(CONFIG_PATH)`, and
+  a test forbids the bare name there; thirteen other menu saves kept
+  `configSave("pd.ini")`, which resolves like a read and wrote the base
+  folder. Fixed: every caller names `CONFIG_PATH`, `configSave` refuses a
+  bare name, and a static test scans all of `port/` and `src/`.
+
+**Rule:** a path rule lives in one function, and a test scans the whole tree
+for a second spelling of it, not only the file that was fixed.
+
+**Search:**
+- `rg -n 'configSave\("[^$]' port src`
+- `rg -n '"\$E/\.\./mods"|"\$E/\.\./" MODMGR_MODS_DIR' port src` (only `port/src/fs.c`)
+- `rg -n 'fsFullPath\("[a-z]' port src`, then check each hit is a read, not a write
+- `rg -n 'fsFileOpenWrite\(' port src`, then check each name has a `$` root or is absolute
+
+---
+
+## SP-79: A graph helper returns the failure logger's "handled" as "satisfied"
+
+**Severity: MEDIUM - refusals that are logged but not honoured; mostly benign
+today, occasionally a NULL or out-of-range value carried forward.**
+
+In `port/src/scenario_source_runtime.c` the AI graph twins answer 1 for
+"handled" (skip the native handler) and 0 for "not mine". The failure logger
+`s_aiGraphRuntimeFailure` therefore returns 1, so a twin can write
+`return s_aiGraphRuntimeFailure(...)` to refuse. The `s_aiGraphRequire*` and
+`s_aiGraphResolve*` helpers use the opposite sense: 1 means "the requirement
+holds, go on". Wherever such a helper writes `return
+s_aiGraphRuntimeFailure(...)`, the warning is logged and then the caller is
+told the requirement holds.
+
+**Known instances (found 2026-11-14 by the pad-check audit, counted the same
+day):** 73 such returns in 32 helpers, among them
+`s_aiGraphRequireRuntimeCharacterPointer` (a NULL chr or a chr with no prop
+"passes"), `s_aiGraphRequireRuntimePathPointer`, the non-loop branches of
+`s_aiGraphRequireRuntimePathPads`, `s_aiGraphRequireRuntimeSceneRooms`, the
+vehicle, chopper, player and gun-prop pointer helpers, and the `*Node`
+helpers (a missing graph node "passes"). `s_aiGraphRequireRuntimePad` and
+`s_aiGraphRequireRuntimePadTable` are correct: they log, then return 0.
+
+**Why it is not fixed in one sweep:** making a helper return 0 changes what
+each caller does next (some fall through to native, some refuse), and some
+callers depend on today's behaviour (a background script's blank chr has no
+prop and "passes" the character check, which matches what native does). Each
+helper needs its callers read before its failure sense changes.
+
+**Status (2026-11-15, B-1167): fixed.** All 90 such returns in 40 helpers
+(the 73 counted above, 16 in the seven `s_ai*GraphReady` helpers and one in
+`s_aiGraphRegisterSourceSpawnedChr`) now log and return 0, or -1 for the
+three-way `s_aiGraphRequireTargetMovementNode`; the ten `if (!x)` callers of
+the three -1 node helpers read -1 as a refusal. Two branches keep going on
+purpose and say why: the character pointer's "not source-derived" (co-op AI
+buddies and tiny-mode extras have no provenance yet) and the spawn registry's
+full table (the chr is already spawned; falling to native would spawn it
+twice). `tests/test_graph_helper_failures_static.cpp` fails on any new
+`return s_aiGraphRuntimeFailure(` inside a requirement helper.
+
+**Rule:** inside a requirement helper, log with `s_aiGraphRuntimeFailure(...)`
+and then `return 0;` on its own line; reserve `return
+s_aiGraphRuntimeFailure(...)` for the twins themselves.
+
+**Search:**
+- `awk` over the file tracking the enclosing function, counting `return
+  s_aiGraphRuntimeFailure(` inside `s_aiGraphRequire*` / `s_aiGraphResolve*`
+  (the count above).
+- `rg -n 'return s_aiGraphRuntimeFailure\(' port/src/scenario_source_runtime.c`
+
+---
+
 ## SP-86: An export version moves but the folder fast cache that skips it does not
 
 **Severity: HIGH when it hits - the new extractor runs, reports success, and
@@ -3496,8 +3672,13 @@ count, sizes and times) and the per-archive check never runs.
   heads, characters and weapons have no folder skip and compare each nested
   mesh copy with the current mesh archive.
 
+- B-1250 (fixed 2026-11-16, `week-pd/core`), the other direction: the
+  pdscenario kind grew to 525 chars while the stamp readers read 511, so the
+  stored kind never matched and every launch re-extracted every scenario. The
+  readers now hold 2047 chars and the writer refuses a longer kind loudly.
+
 **Rule:** a folder fast-cache kind must change whenever anything its skip
-vouches for changes. Build the kind from the version macros it depends on
+vouches for changes, and it must round-trip through its stamp unchanged. Build the kind from the version macros it depends on
 instead of keeping two strings in step by hand, and after any extractor
 change, check the census of what a fresh base actually holds, not just that
 the run passed.
@@ -3561,6 +3742,12 @@ King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
 pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
 (`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
 setup objects.
+- B-1253 (fixed 2026-11-16, `week-pd/core`), the other direction: a bridge for
+  data the old arena setups lacked kept running after the source changed. The
+  SP-in-MP overlay (`setup.c`, B-228) brought a campaign stage's lifts into its
+  arena because the ROM's arena setups had none; on scenario source the arena
+  loads the campaign scenario itself, so the main pass already had them and the
+  overlay created every lift a second time (Infiltration 4 -> 8).
 
 **Rules:**
 - Never `% count` or index a bank without checking the count first; never
@@ -3575,6 +3762,10 @@ setup objects.
   plays on such arenas is Mike's call per mode (approved for Hacker Central).
 - A scenario smoke asserts that its objects were placed on real pads, not only
   that the match started and ended.
+- When what an arena loads changes (ROM setup blob -> scenario source), re-check
+  every bridge that fills in what the old data lacked: once the new data
+  carries it, the bridge duplicates it. A smoke counts the objects the bridge
+  is about.
 
 **Search:**
 - `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`
@@ -3911,6 +4102,90 @@ only while the mark is set: `chrTick` and `objTickPlayer` clear it into their
   the passes; scores or timers that beat the clock (a Hold the Briefcase point
   in under 30 s held) point here.
 
+---
+
+## SP-88: A public key's name states a unit its consumer does not use
+
+**Severity: LOW to MEDIUM - nothing crashes and the data validates, but an
+author who trusts the name gets a value 4 or 60 times off.**
+
+A public key (a graph param, a physics key, a parser alias) carries its unit in
+its name (`_ticks60`, `_ticks240`, `time60`, `timer60`), and the code that reads
+it meets a counter in another unit, or the value is not a time at all. Base
+data carries the original's literal, so the game behaves as the original; only
+a new author is misled.
+
+**Known instances:**
+
+- B-1230 (MODS's row, open, CORE's call): `physics.json` `boost_time_ticks60`
+  caps `maxspeedtime240`, which adds `lvupdate240`, so the value is in 240 Hz
+  ticks (the base hoverbike's 2400 is the original's 10 s ramp, `TICKS(2400)`).
+- B-1178 (fixed 2026-11-16, `week-pd/core`): `entity.autogun`'s
+  `beam_interval` is a shot count (`firecount % beaminterval`), but the graph
+  compiler's name rule (`keyNeedsUnit`: any key containing `interval`,
+  `timer`, `duration`, `cooldown` or `_time` needs a unit suffix) refused it,
+  so authors had to write `beam_interval_ticks60`. The same trap from the
+  other side: a name heuristic that decides a key is a time.
+- Checked, not affected: every other `_ticks60` field in
+  `weapon_graph_runtime.h` reaches a 60 Hz field (`timer60`, `recoverytime60`,
+  `activatetime60`, `duration60`) or `weaponGraphTicks60To240`.
+
+**Rule:** a key that names a unit is read in that unit and converted in one
+place, and its test uses a value whose unit matters. When a name is wrong,
+rename it in a schema version or refuse the old name; do not document the
+trap. A rule that infers a unit from a key's name lists every key it catches
+and each is checked against its reader (`timer_starts` and `beam_interval` are
+the exemptions today). New public time values take `{value, unit}` (the weapon
+module rule).
+
+**Search:**
+- `rg -o 'heldParam[A-Za-z]*\(ir, node, "[a-z0-9_]+"' port/src/weapon_graph_runtime.c`
+  and keep the keys that match `keyNeedsUnit` without a unit suffix: each must
+  be a time or exempt.
+- `rg -n -o '[a-z_]*(ticks60|ticks240|time60|timer60)' port/include/*.h`, then
+  for each public field `git grep -n -E '(->|\.)<field>\b' -- src port/src` and
+  check the counter it meets (`lvupdate60`, `lvupdate240`, a frame or shot
+  count).
+
+---
+
+## SP-89: A bulk writer forces every file to disk one at a time
+
+(First numbered SP-80 by CORE; MULTIPLAYER had claimed SP-80 first, for
+scenario setup that assumes the arena brings its own placement data, so
+this one was renumbered on 2026-11-16 when dev brought theirs in.)
+
+**Severity: MEDIUM - correct but slow; on a 7200 rpm disk a forced flush plus
+a write-through rename costs about 100 ms per file, so a writer that
+publishes thousands of files takes many minutes.**
+
+The durable publish (write a temp file, `_commit` / `fsync` it, then
+`MoveFileEx(... MOVEFILE_WRITE_THROUGH)`) is right for one file a person
+made: a save, a settings file, an authored mod. Inside a loop over thousands
+of files the game can rebuild, it makes the disk seek for every file. On NVMe
+the same pattern costs about 2 ms per file, so it only shows on a hard disk.
+
+**Known instances:**
+
+- B-1110 (fixed 2026-11-15): first-launch extraction published about 5,600
+  archives through `modArchiveFinish`. Now `modArchiveBeginDerived`, and one
+  `modArchiveDerivedBarrier` per directory before its cache stamp.
+- Open, MULTIPLAYER's area: `pdcaExtractArchiveBegin`
+  (`port/src/pdca_extract_transaction.c`, called from `netdistrib.c`) syncs
+  every member of a received mod archive, so a large transfer pays the same
+  cost per member.
+
+**Rule:** for rebuildable output, publish without the per-file flush and make
+the set durable once, right before anything that vouches for it without
+opening it (a cache stamp, an index). That record must never reach the disk
+ahead of the files it describes.
+
+**Search:**
+- `rg -n '_commit\(|fsync\(|FlushFileBuffers|MOVEFILE_WRITE_THROUGH' port src`,
+  then check whether each runs once per user action or once per file in a loop.
+
+---
+
 ## SP-90: A tool launch that names no isolation falls back to the user's real data
 
 **Severity: HIGH - a test run reads and rewrites the player's own settings,
@@ -3947,10 +4222,6 @@ and build on the machine.
   and check that every game launch reaches `--portable` or `--savedir`.
 - In a run's game log, `save dir:` must name the run's install or profile
   folder, never `AppData/Roaming/perfectdark`.
-
-intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
-Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
-open in B-1126.
 
 ---
 
@@ -4130,6 +4401,36 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
 - [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
   for SVC_PROP_SPAWN's weapon and object models; its first run found B-1273.
 - [ ] Object models in SVC_PROP_SPAWN (thrown laptops and other spawned objects): watch the warning.
+
+---
+
+## SP-94: A struct read by its N64 word offset finds padding on 64-bit
+
+**Severity: MEDIUM. The read gets padding or a neighbouring field, never the
+value it wants, and nothing fails: a lookup returns "not found" every time.**
+
+Code written for the N64 sometimes reads a struct's field as a fixed 32-bit
+word of the raw record (`cmd[5]`, `((u32 *)p)[n]`) instead of through the
+struct. On the N64 a pointer is one word, so the offsets agree. On this
+64-bit port every pointer field is 8 bytes and 8-aligned, so it and every
+field after it move: the fixed word lands on padding or on another field.
+A cast like `(struct prop *)cmd[5]` also drops the pointer's upper half.
+
+**Known instance (B-1259, 2026-11-17):** `setupGetCmdIndexByProp` compared
+`cmd[5]` (padding on 64-bit) with the prop pointer, so it never matched: the
+object events' record ids were empty and multiplayer's regeneration of an
+object inside another looked up the wrong parent.
+
+**Rules:**
+- Read a native struct through its type (`((struct defaultobj *)cmd)->prop`),
+  never by an N64 word offset.
+- A raw ROM record (N64 layout, big-endian) is read with the N64 offsets on
+  purpose: those readers name the N64 layout and byte-swap. Do not mix the two.
+
+**Search:**
+- `rg -n "\(struct [a-z_]+ \*\)\s*(PD_BE32\()?[a-z_]+\[[0-9]+\]" src port`
+  then check each array is pointer-sized (`uintptr_t *`, `struct x *[]`), not `u32 *`.
+- `rg -n "\(u32 \*\)[^;]*\)\[[0-9]+\]" src/game src/lib` for word reads of native structs.
 
 ---
 

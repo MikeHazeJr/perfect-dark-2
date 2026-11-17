@@ -6853,7 +6853,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = playerDrawStoredFade(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
@@ -6874,7 +6874,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = nbombRenderOverlay(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
@@ -6940,6 +6940,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 
 	if (g_Vars.normmplayerisrunning == false) {
 		objectivesCheckAll();
+		/* mission-flow.md: a mission graph's og.mission.end_* asked during
+		 * that check to end the mission; end it now, outside the graph's
+		 * walk, through the AI's end_level path. */
+		if (scenarioSourceMissionGraphTakePendingEnd() && debugAllowEndLevel()) {
+			func0000e990();
+		}
 	}
 
 	if (g_Vars.currentplayer->isdead) {

@@ -316,7 +316,7 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 			"fsFullPath failed for \"%s\"", relpath);
 		return -1;
 	}
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDBODY",
 			"modArchiveBegin failed for \"%s\"", full);

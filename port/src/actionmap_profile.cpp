@@ -77,6 +77,13 @@ void normalize(InputMapping &mapping, InputAction action)
 
 bool valid(const Registry &registry, const Snapshot &snapshot, std::string &error)
 {
+    // B-1116: every action needs a name. A null name was streamed and compared as
+    // a C string, which cut the saved file off at the first unnamed action and
+    // made every later start reject it.
+    for (int a = 0; a < ACTION_COUNT; ++a) {
+        if (!registry.actionNames || !registry.actionNames[a] || !registry.actionNames[a][0])
+            return fail(error, "The action name table does not name every action.");
+    }
     if (snapshot.contexts.size() != registry.count
         || snapshot.activeProfile < -1 || snapshot.activeProfile >= 6)
         return fail(error, "The binding snapshot has an invalid shape or profile slot.");
@@ -244,8 +251,9 @@ bool encode(const Registry &registry, const Snapshot &snapshot,
 
 bool decode(const Registry &registry, const Snapshot &defaults,
             const std::string &text, bool allowLegacy,
-            Snapshot &out, std::string &error)
+            Snapshot &out, std::string &error, size_t *olderActions)
 {
+    if (olderActions) *olderActions = 0;
     if (text.size() > kMaxDocumentBytes || text.find('\0') != std::string::npos)
         return fail(error, "The binding file is too large or contains binary data.");
     std::istringstream lines(text);
@@ -321,9 +329,32 @@ bool decode(const Registry &registry, const Snapshot &defaults,
         normalize(mapping, static_cast<InputAction>(a));
         context.mappings[a] = mapping;
     }
-    if (!mappingRows || (versioned && (!sawActive || mappingRows != registry.count * ACTION_COUNT)))
+    if (!mappingRows || (versioned && !sawActive))
         return fail(error, "The complete binding file is missing required rows.");
-    if (!valid(registry, candidate, error)) return false;
+    if (versioned && mappingRows != registry.count * ACTION_COUNT) {
+        // Not every context/action pair is listed. One shape is still a
+        // complete file: the one a build with a shorter action list wrote.
+        // Saved names are positional and new actions are appended, so such a
+        // file lists, for every context, the same leading run of the action
+        // list and nothing after it. Its bindings are kept and the actions it
+        // could not know keep their defaults (candidate started as defaults).
+        // Anything else (a context cut short, a hole in the middle, a missing
+        // context) is damage and is refused as before.
+        int listed = 0;
+        while (listed < ACTION_COUNT && seen[0][listed]) ++listed;
+        bool olderBuild = listed > 0
+            && mappingRows == registry.count * static_cast<size_t>(listed);
+        for (size_t ci = 0; olderBuild && ci < registry.count; ++ci)
+            for (int a = 0; a < ACTION_COUNT; ++a)
+                if (seen[ci][a] != (a < listed)) { olderBuild = false; break; }
+        if (!olderBuild)
+            return fail(error, "The complete binding file is missing required rows.");
+        if (olderActions) *olderActions = static_cast<size_t>(listed);
+    }
+    if (!valid(registry, candidate, error)) {
+        if (olderActions) *olderActions = 0;
+        return false;
+    }
     out = std::move(candidate);
     error.clear();
     return true;
@@ -331,8 +362,9 @@ bool decode(const Registry &registry, const Snapshot &defaults,
 
 ReadResult read(const Registry &registry, const Snapshot &defaults,
                 const char *absolutePath, bool allowLegacy,
-                Snapshot &out, std::string &error)
+                Snapshot &out, std::string &error, size_t *olderActions)
 {
+    if (olderActions) *olderActions = 0;
     if (!absolutePath || !*absolutePath) {
         fail(error, "The binding file path is empty.");
         return ReadResult::Invalid;
@@ -356,7 +388,7 @@ ReadResult read(const Registry &registry, const Snapshot &defaults,
         fail(error, "The binding file could not be read completely.");
         return ReadResult::Invalid;
     }
-    return decode(registry, defaults, text, allowLegacy, out, error)
+    return decode(registry, defaults, text, allowLegacy, out, error, olderActions)
         ? ReadResult::Ok : ReadResult::Invalid;
 }
 
@@ -420,7 +452,9 @@ bool Store::initialize(const Registry &registry, const Snapshot &defaults,
     // profile from Input.ActiveProfile: older UI used that as a selection only.
     accepted_ = capture(registry, -1);
     Snapshot candidate;
-    const auto result = read(registry, defaults, currentPath, false, candidate, error);
+    size_t olderActions = 0;
+    const auto result = read(registry, defaults, currentPath, false, candidate, error,
+                             &olderActions);
     initialized_ = true;
     if (result == ReadResult::Invalid) {
         if (isUnnamedActionTruncation(registry, currentPath)) {
@@ -432,6 +466,15 @@ bool Store::initialize(const Registry &registry, const Snapshot &defaults,
     if (result == ReadResult::Missing) return write(registry, accepted_, currentPath, error);
     apply(registry, candidate);
     accepted_ = std::move(candidate);
+    if (olderActions) {
+        // A complete file from a build with fewer actions: its bindings are
+        // live now, with defaults for the actions added since. Write it out
+        // complete, so the next start reads a current file. If that write
+        // fails the older file stays and reads the same way next time.
+        upgradedFromActions_ = olderActions;
+        std::string writeError;
+        (void)write(registry, accepted_, currentPath, writeError);
+    }
     error.clear();
     return true;
 }

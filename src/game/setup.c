@@ -51,7 +51,10 @@
 #include "assetload.h"
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
+#include "scenario_global_ailists.h"
+#include "scenario_object_rules.h"
 #include "net/matchsetup.h"
+#include "vehicle_debug.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
 void langManifestRecordBank(s32 bank);
@@ -1018,6 +1021,18 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
  * The Marquis of Queensbury Rules (everyone unarmed) and Enemy Rockets cheats
  * are implemented here.
  */
+/* Object rules (object-rules.md): on a stage built from scenario source, a
+ * weapon row may name the difficulties at which the Enemy Rockets cheat
+ * leaves it alone; a ROM stage keeps the original's Investigation check. */
+static bool setupWeaponKeptUnderEnemyRockets(s32 cmdindex)
+{
+	scenario_object_rules_t rules;
+
+	return bgUsesScenarioSource()
+		&& scenarioSourceSetupRecordRules(cmdindex, &rules)
+		&& (rules.enemy_rockets_exempt_mask & (1u << lvGetDifficulty())) != 0;
+}
+
 void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 {
 	if (weapon->base.flags & OBJFLAG_ASSIGNEDTOCHR) {
@@ -1048,7 +1063,8 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				}
 #endif
 			} else {
-				if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
+				if (cheatIsActive(CHEAT_ENEMYROCKETS)
+						&& !setupWeaponKeptUnderEnemyRockets(cmdindex)) {
 					switch (weapon->weaponnum) {
 					case WEAPON_FALCON2:
 					case WEAPON_FALCON2_SILENCER:
@@ -1089,7 +1105,8 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 						// Don't replace the K7 guard's weapon in Investigation
 						// because it would make an objective impossible.
 						// @bug: It's still replaced on PD mode difficulty.
-						if (g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {
+						if (bgUsesScenarioSource()
+								|| g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {
 							weapon->weaponnum = WEAPON_ROCKETLAUNCHER;
 							weapon->base.modelnum = MODEL_CHRDYROCKET;
 							weapon->base.extrascale = 256;
@@ -1764,6 +1781,13 @@ void setupLoadFiles(s32 stagenum)
 		g_ModelStates[i].modeldef = NULL;
 	}
 
+	/* B-1157: a custom slot's world scale belongs to the model loaded into it
+	 * (setupLoadModeldef sets it), so a recycled slot does not keep the last
+	 * model's scale. */
+	for (i = MODEL_CUSTOM_START; i < MODEL_CUSTOM_END; i++) {
+		g_ModelStates[i].scale = 0;
+	}
+
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
 		catalogGetStageResultByIndex(g_StageIndex, &stage);
 
@@ -1935,6 +1959,21 @@ void setupLoadFiles(s32 stagenum)
 			}
 		} while (modified);
 
+		/* Global AI lists slice 2, step 3 (global-ai-lists.md): a stage built
+		 * from scenario source runs the global lists of the AI list bank
+		 * (base:ai_global), compiled from its public rows; ids and order are
+		 * unchanged. A bank that cannot supply every list refuses the stage,
+		 * never a silent fall back to the compiled table. */
+		{
+			char reason[192];
+
+			if (!scenarioGlobalAiListsBindBank(reason, sizeof(reason))) {
+				scenarioSourceFatalRuntimeFallbackForStage(&stage,
+					g_Vars.normmplayerisrunning, "global ai lists", -1, reason);
+				return;
+			}
+		}
+
 		// Sort the stage AI lists by ID asc
 		if (g_StageSetup.ailists && stage_ailist_count > 1) {
 			do {
@@ -1959,6 +1998,19 @@ void setupLoadFiles(s32 stagenum)
 			g_NumLvAilists = stage_ailist_count;
 		} else {
 			g_NumLvAilists = 0;
+		}
+
+		/* Global AI lists step 4 (global-ai-lists.md): the stage's own lists
+		 * with a global id replace those global lists for this stage. */
+		if (g_StageSetup.ailists && g_NumLvAilists > 0) {
+			char reason[192];
+
+			if (!scenarioGlobalAiListsApplyStageOverrides(g_StageSetup.ailists,
+					g_NumLvAilists, reason, sizeof(reason))) {
+				scenarioSourceFatalRuntimeFallbackForStage(&stage,
+					g_Vars.normmplayerisrunning, "global ai list override", -1, reason);
+				return;
+			}
 		}
 
 		// Convert path pad pointers from file-local to proper pointers
@@ -2114,6 +2166,59 @@ void setupLoadFiles(s32 stagenum)
 	g_Vars.maxprops = numobjs + numchrs + extra + 40;
 }
 
+/* Object rules (object-rules.md): on a stage built from scenario source, a
+ * hover car row may say it is left out of co-op and counter-op ("coop":
+ * false); a ROM stage keeps the original's Extraction and Defection check
+ * (withhovercars). */
+static bool setupHovercarWanted(s32 index, s32 withhovercars)
+{
+	scenario_object_rules_t rules;
+
+	if (!bgUsesScenarioSource()) {
+		return withhovercars;
+	}
+	return !(scenarioSourceSetupRecordRules(index, &rules) && rules.coop_excluded
+		&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0));
+}
+
+/* What the main pass created of the lifts and escalator steps in
+ * multiplayer, for the SETUP.LIFT log line. */
+struct setuptransportcount {
+	s32 lifts;
+	s32 steps;
+	s32 by_rule;
+};
+
+/* A lift or escalator step in the main pass (object-rules.md). In
+ * multiplayer on a stage built from scenario source, a row with the object
+ * rule "multiplayer": true is kept whatever its difficulty and player-count
+ * exclusions, and every other row takes the usual filter; a ROM stage keeps
+ * B-228's stage list (mptransport_diffflag). */
+static bool setupTransportWanted(struct defaultobj *obj, s32 index, u32 diffflag,
+		u32 mptransport_diffflag, struct setuptransportcount *count)
+{
+	scenario_object_rules_t rules;
+	u32 filter = mptransport_diffflag;
+	bool by_rule = false;
+
+	if (g_Vars.mplayerisrunning && bgUsesScenarioSource()) {
+		by_rule = scenarioSourceSetupRecordRules(index, &rules) && rules.multiplayer_kept;
+		filter = by_rule ? 0 : diffflag;
+	}
+	if ((obj->flags2 & filter) != 0) {
+		return false;
+	}
+	if (g_Vars.mplayerisrunning) {
+		if (obj->type == OBJTYPE_LIFT) {
+			count->lifts++;
+		} else {
+			count->steps++;
+		}
+		count->by_rule += by_rule;
+	}
+	return true;
+}
+
 void setupCreateProps(s32 stagenum)
 {
 	s32 withchrs = !argFindByPrefix(1, "-nochr") && !argFindByPrefix(1, "-noprop");
@@ -2132,6 +2237,7 @@ void setupCreateProps(s32 stagenum)
 
 	withhovercars = !(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
 		|| !(g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0);
+	chopperClearRules();
 
 	escstepx = 0;
 	escstepy = 0;
@@ -2259,9 +2365,15 @@ void setupCreateProps(s32 stagenum)
 			 * with identical stagenum + identical setup blob, so all clients
 			 * end up with the same live lift set.  The existing server-auth
 			 * lift replication path (liftTick + prop sync) handles position
-			 * updates over the wire.  No new messages, no new fields. */
+			 * updates over the wire.  No new messages, no new fields.
+			 *
+			 * Object rules (2026-11-16): on a stage built from scenario
+			 * source this list is the objects.json rule "multiplayer": true
+			 * on lift and escalator step rows (setupTransportWanted); the
+			 * extractor writes it on the lifts and steps of these stages. */
 			u32 mptransport_diffflag = diffflag;
-			if (g_Vars.mplayerisrunning) {
+			struct setuptransportcount mptransport = { 0, 0, 0 };
+			if (g_Vars.mplayerisrunning && !bgUsesScenarioSource()) {
 				switch (g_Vars.stagenum) {
 				case STAGE_CITRAINING:
 				case STAGE_CHICAGO:
@@ -2405,8 +2517,10 @@ void setupCreateProps(s32 stagenum)
 					/* P5 (2026-04-24): use the SP-in-MP relaxed filter so
 					 * CI / Chicago / Villa lifts load when the stage is
 					 * hosted as an MP arena.  For every other stage this
-					 * behaves identically to the old `diffflag` path. */
-					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
+					 * behaves identically to the old `diffflag` path.  On a
+					 * scenario-source stage the row's rule decides. */
+					if (withobjs && setupTransportWanted(obj, index, diffflag,
+							mptransport_diffflag, &mptransport)) {
 						struct liftobj *lift = (struct liftobj *)obj;
 						struct modelstate *modelstate;
 						s32 modelnum = obj->modelnum;
@@ -2498,7 +2612,26 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_HOVERBIKE:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct hoverbikeobj *bike = (struct hoverbikeobj *)obj;
+						s32 placed_modelnum = obj->modelnum;
 
+						/* --debug-swap-vehicle: a mod vehicle takes this
+						 * hoverbike's place (no-op unless set). */
+						obj->modelnum = vehicleDebugSwapModelnum(obj->modelnum);
+						/* objInit sizes the object by its model slot's
+						 * scale, and a custom slot has none (0). The mod
+						 * vehicle is authored in the units of the hoverbike
+						 * it replaces, so it takes that model's scale. */
+						if (obj->modelnum != placed_modelnum
+								&& obj->modelnum >= MODEL_CUSTOM_START
+								&& obj->modelnum < MODEL_CUSTOM_END
+								&& g_ModelStates[obj->modelnum].scale == 0
+								&& placed_modelnum >= 0 && placed_modelnum < MODEL_CUSTOM_END) {
+							g_ModelStates[obj->modelnum].scale = g_ModelStates[placed_modelnum].scale;
+							sysLogPrintf(LOG_NOTE,
+								"VEHICLE.SWAP: modelnum %d takes the world scale of modelnum %d (%u/4096)",
+								obj->modelnum, placed_modelnum,
+								(unsigned)g_ModelStates[obj->modelnum].scale);
+						}
 						setupCreateObject(obj, index);
 						setupCreateHov(obj, &bike->hov);
 
@@ -2543,7 +2676,8 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_ESCASTEP:
 					/* P5 (2026-04-24): same SP-in-MP relax as OBJTYPE_LIFT so
 					 * escalator / fire-escape-step props survive MP host. */
-					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
+					if (withobjs && setupTransportWanted(obj, index, diffflag,
+							mptransport_diffflag, &mptransport)) {
 						struct escalatorobj *step = (struct escalatorobj *)obj;
 						struct prop *prop;
 
@@ -2656,7 +2790,8 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_HOVERCAR:
-					if (withhovercars && withobjs && (obj->flags2 & diffflag) == 0) {
+					if (setupHovercarWanted(index, withhovercars) && withobjs
+							&& (obj->flags2 & diffflag) == 0) {
 						struct hovercarobj *car = (struct hovercarobj *)obj;
 						struct prop *prop;
 
@@ -2690,8 +2825,15 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_CHOPPER:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct chopperobj *chopper = (struct chopperobj *)obj;
+						scenario_object_rules_t rules;
 
 						setupCreateObject(obj, index);
+
+						if (bgUsesScenarioSource() && obj->prop
+								&& scenarioSourceSetupRecordRules(index, &rules)) {
+							chopperSetRules(chopper, rules.engine_hum_sound,
+								rules.thrust_hum_sound, rules.fall_drop);
+						}
 
 						obj->flags |= OBJFLAG_CHOPPER_INIT;
 						obj->prop->forcetick = true;
@@ -3135,6 +3277,12 @@ void setupCreateProps(s32 stagenum)
 				index++;
 			}
 			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
+			if (g_Vars.mplayerisrunning && bgUsesScenarioSource()
+					&& (mptransport.lifts || mptransport.steps)) {
+				sysLogPrintf(LOG_NOTE,
+					"SETUP.LIFT: multiplayer setup created %d lifts and %d escalator steps (%d kept by the objects.json multiplayer rule)",
+					mptransport.lifts, mptransport.steps, mptransport.by_rule);
+			}
 
 			/* B-228 Option E (2026-04-24): SP-in-MP transport-prop overlay.
 			 *
@@ -3159,8 +3307,14 @@ void setupCreateProps(s32 stagenum)
 			 * tracked separately as B-228b.
 			 *
 			 * Stage list: the SP-in-MP class identified by P5 + the 4-23
-			 * readiness audit. Add more as future audits flag them. */
-			if (g_Vars.mplayerisrunning && (
+			 * readiness audit. Add more as future audits flag them.
+			 *
+			 * B-1253 (2026-11-16): a ROM stage only. An arena match on a
+			 * campaign stage built from scenario source loads that stage's
+			 * own scenario (there is no arena-only scenario for it), so the
+			 * main pass has already created its lifts and steps; this pass
+			 * created them a second time from a second copy of the setup. */
+			if (g_Vars.mplayerisrunning && !bgUsesScenarioSource() && (
 					stagenum == STAGE_CITRAINING ||
 					stagenum == STAGE_CHICAGO ||
 					stagenum == STAGE_VILLA ||

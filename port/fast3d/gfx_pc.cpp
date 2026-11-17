@@ -34,6 +34,7 @@
 #include "gfx_screen_config.h"
 #include "gfx_framebuffer_coords.h"
 #include "pdgui_charpreview.h"
+#include "scenario_scene_renderer.h"
 
 uintptr_t gfxFramebuffer;
 
@@ -146,7 +147,6 @@ static struct RSP {
  * Mode 0 = off, 1 = tint rendered geo, 2 = collision mesh only (suppress game rendering) */
 extern "C" int meshDebugGetMode(void);
 extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height);
-extern "C" void scenarioSceneRendererRender(int width, int height);
 extern "C" int modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 static int s_meshDebugModeCache = 0;
 
@@ -1258,6 +1258,126 @@ static float gfx_adjust_x_for_aspect_ratio(float x, float w = 1.f) {
     } else {
         return (rsp.aspect_ofs * w + x) * rsp.aspect_scale / gfx_current_dimensions.aspect_ratio;
     }
+}
+
+/* B-1172: fast3d's own adjustments of every clip position it sends to GL,
+ * applied to a row-vector view-projection: the aspect-ratio x adjustment
+ * (gfx_adjust_x_for_aspect_ratio is linear in x and w), the y flip of a
+ * flipped framebuffer and the 0..1 depth range (gfx_sp_tri1). */
+static void gfx_scene_clip_adjust(float m[4][4]) {
+    const float k = gfx_adjust_x_for_aspect_ratio(1.0f, 0.0f);
+    const float c = gfx_adjust_x_for_aspect_ratio(0.0f, 1.0f);
+    const struct GfxClipParameters clip = gfx_rapi->get_clip_parameters();
+
+    for (int r = 0; r < 4; r++) {
+        const float x = m[r][0];
+        const float z = m[r][2];
+        const float w = m[r][3];
+        m[r][0] = x * k + w * c;
+        if (clip.invert_y) {
+            m[r][1] = -m[r][1];
+        }
+        if (clip.z_is_from_0_to_1) {
+            m[r][2] = (z + w) * 0.5f;
+        }
+    }
+}
+
+/* B-1172 step 2: the scene's view-projection at its G_SCENE_RENDER_EXT
+ * command, in the clip space fast3d gives the game's own draws. A world draw
+ * (bgRenderScene loads the BG projection just before it) uses the game's own
+ * BG matrix: the draw space (p - draw_offset) * world_scale times the loaded
+ * projection, so the scene's depth is the depth the BG rooms had and the props
+ * that follow test against it. A backdrop draw uses the slot's camera, which
+ * builds the same matrix from the camera (scenario_scene_camera.c). */
+static int gfx_scene_view_projection(int slot, int passes, float out[4][4], float sky_offset[3]) {
+    scenario_scene_camera_t camera;
+
+    if (!scenarioSceneRendererSlotCamera(slot, &camera)) {
+        return 0;
+    }
+    memcpy(sky_offset, camera.draw_offset, sizeof(camera.draw_offset));
+    if (slot >= 0 && !(passes & SCENARIO_SCENE_PASS_BACKDROP)) {
+        scenarioSceneMatrixMultiply(out, camera.world, rsp.P_matrix);
+    } else {
+        memcpy(out, camera.view_projection, sizeof(camera.view_projection));
+    }
+    gfx_scene_clip_adjust(out);
+    return 1;
+}
+
+/* B-1172 step 2 probe (--debug-scene-matrix-probe): on a world draw's opaque
+ * pass, compare where scene vertices land through the game's BG matrix (what
+ * the scene draws with) and through the slot camera built from the camera
+ * (what backdrops draw with). Equal NDC, depth included, means the scene camera
+ * is in the game's depth space. Logs the first few frames. */
+static void gfx_scene_matrix_probe(int slot, int passes, const float used[4][4]) {
+    static int s_enabled = -1;
+    static int s_logged = 0;
+    static int s_empty_frames = 0;
+    scenario_scene_camera_t camera;
+    float own[4][4];
+    float max_dxy = 0.0f;
+    float max_dz = 0.0f;
+    int compared = 0;
+
+    if (s_enabled < 0) {
+        s_enabled = sysArgCheck("--debug-scene-matrix-probe") ? 1 : 0;
+    }
+    if (!s_enabled || s_logged >= 6 || slot < 0 || (passes & SCENARIO_SCENE_PASS_BACKDROP)
+            || !(passes & SCENARIO_SCENE_PASS_OPAQUE)) {
+        return;
+    }
+    const int count = scenarioSceneRendererVertexCount();
+    if (count <= 0 || !scenarioSceneRendererSlotCamera(slot, &camera)) {
+        return;
+    }
+    memcpy(own, camera.view_projection, sizeof(own));
+    gfx_scene_clip_adjust(own);
+    /* On-screen vertices only: off screen, a small w near the eye magnifies
+     * the fixed-point rounding of the game's matrix past any real difference. */
+    for (int k = 0; k < 4096; k++) {
+        float p[3];
+        float a[4];
+        float b[4];
+        if (!scenarioSceneRendererVertexPosition((int)((long long)count * k / 4096), p)) {
+            continue;
+        }
+        scenarioSceneMatrixTransform(used, p, a);
+        scenarioSceneMatrixTransform(own, p, b);
+        if (!(a[3] > 0.001f) || !(b[3] > 0.001f)
+                || std::fabs(a[0]) > a[3] || std::fabs(a[1]) > a[3] || std::fabs(a[2]) > a[3]) {
+            continue;
+        }
+        const float dx = std::fabs(a[0] / a[3] - b[0] / b[3]);
+        const float dy = std::fabs(a[1] / a[3] - b[1] / b[3]);
+        const float dz = std::fabs(a[2] / a[3] - b[2] / b[3]);
+        max_dxy = std::max(max_dxy, std::max(dx, dy));
+        max_dz = std::max(max_dz, dz);
+        if (compared < 2) {
+            sysLogPrintf(LOG_NOTE,
+                "SCENE.PROBE: frame=%d v=%d pos=(%.1f,%.1f,%.1f) game_ndc=(%.4f,%.4f,%.6f) w=%.2f camera_ndc=(%.4f,%.4f,%.6f) w=%.2f",
+                s_logged + 1, k, p[0], p[1], p[2], a[0] / a[3], a[1] / a[3], a[2] / a[3], a[3],
+                b[0] / b[3], b[1] / b[3], b[2] / b[3], b[3]);
+        }
+        compared++;
+    }
+    /* Only a frame with scene vertices on screen counts (the first frames of
+     * a stage are often a fade or a cutscene with nothing to compare); a
+     * frame without is logged at most every 120 frames. */
+    if (compared == 0) {
+        if ((s_empty_frames++ % 120) == 0) {
+            sysLogPrintf(LOG_NOTE,
+                "SCENE.PROBE: no on-screen scene vertex this frame (frames without: %d) slot=%d world_scale=%.3f",
+                s_empty_frames, slot, camera.world_scale);
+        }
+        return;
+    }
+    s_logged++;
+    sysLogPrintf(LOG_NOTE,
+        "SCENE.PROBE: frame=%d slot=%d world_scale=%.3f offset=(%.1f,%.1f,%.1f) compared=%d max_ndc_xy_diff=%.6f max_ndc_z_diff=%.6f",
+        s_logged, slot, camera.world_scale, camera.draw_offset[0], camera.draw_offset[1],
+        camera.draw_offset[2], compared, max_dxy, max_dz);
 }
 
 static void gfx_adjust_width_height_for_scale(uint32_t& width, uint32_t& height) {
@@ -3118,6 +3238,51 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_flush();
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
+            case G_SCENE_RENDER_EXT: {
+                /* B-1172: the scenario scene draws here, in display-list order,
+                 * into the current view with the camera of the player that queued
+                 * it (w1), the passes in w0 bits 0-15. A world draw uses the
+                 * game's own BG matrix and keeps its depth, so the props that
+                 * follow are hidden behind the scene's walls as they were behind
+                 * the BG rooms (the B-936 mismatch was the BG scale missing from
+                 * the scene camera). A backdrop draw clears depth after it: the
+                 * menus' 3D models that follow use cameras of their own. */
+                const int scene_slot = (int)(int32_t)cmd->words.w1;
+                const int scene_passes = (int)(cmd->words.w0 & 0xffff);
+                float scene_vp[4][4];
+                float scene_sky_offset[3];
+                gfx_flush();
+                if (!dbgHideScene()) {
+                    const int have_vp = gfx_scene_view_projection(scene_slot, scene_passes, scene_vp,
+                        scene_sky_offset);
+                    if (have_vp) {
+                        gfx_scene_matrix_probe(scene_slot, scene_passes, scene_vp);
+                    }
+                    gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+                    rendering_state.scissor = rdp.scissor;
+                    {
+                        /* B-1172: the stage fog bgRenderScene starts for the scene
+                         * (envStartFog), as fast3d would apply it to the BG. */
+                        const float fog_color[3] = { rdp.fog_color.r / 255.0f, rdp.fog_color.g / 255.0f,
+                            rdp.fog_color.b / 255.0f };
+                        scenarioSceneRendererSetFog((rsp.geometry_mode & G_FOG) != 0
+                                && !(scene_passes & SCENARIO_SCENE_PASS_BACKDROP),
+                            (float)rsp.fog_mul, (float)rsp.fog_offset, fog_color);
+                    }
+                    scenarioSceneRendererRenderPasses(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,
+                        rdp.viewport.height, have_vp ? &scene_vp[0][0] : NULL,
+                        have_vp ? scene_sky_offset : NULL, scene_slot, scene_passes);
+                    if (scene_passes & SCENARIO_SCENE_PASS_BACKDROP) {
+                        gfx_rapi->clear_framebuffer(false, true);
+                    }
+                    rendering_state.viewport = {};
+                    rdp.viewport_or_scissor_changed = true;
+                    if (sysArgCheck("--debug-firstdraw-glstate")) {
+                        g_dbgWorldDrawLog = 5;
+                    }
+                }
+                break;
+            }
             case G_SETPRIMDEPTH:
                 /* N64 RDP prim-depth register — not used by the PC renderer.
                  * Silently ignore rather than crashing. */
@@ -3294,15 +3459,12 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
-    if (!dbgHideScene()) {
-        scenarioSceneRendererRender(gfx_current_dimensions.width,
-            gfx_current_dimensions.height);
-        if (sysArgCheck("--debug-firstdraw-glstate")) {
-            g_dbgWorldDrawLog = 5;
-        }
-    }
+    /* B-1172: the scenario scene no longer draws here, before the frame's
+     * display list: it draws at its G_SCENE_RENDER_EXT command, after the sky,
+     * the stars and the sun, so the sky shows where the scene has no geometry. */
     gfx_run_dl(commands);
     gfx_flush();
+    scenarioSceneRendererEndFrame();
     gfxFramebuffer = 0;
 
     if (game_renders_to_framebuffer) {

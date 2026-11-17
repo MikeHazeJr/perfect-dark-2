@@ -58,6 +58,9 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "ai_command_schema.h"
+#include "ai_catalog_refs.h"
+#include "ai_list_edges.h"
 #include "assetcatalog.h"
 #include "asset_archive_writer.h"
 #include "modarchive.h"
@@ -67,6 +70,7 @@
 #include "romextract_pd.h"
 #include "romextract_texture_stage.h"
 #include "scenario_stage_rules.h"
+#include "scenario_dyntex.h"
 #include "sha256.h"
 #include "system.h"
 #include "texture_decode_pure.h"
@@ -77,17 +81,19 @@
 #include "game/tex.h"
 #include "arenadata_authored.h"
 #include "weapondata_authored.h"
+#include "catalog_readable_ids.h"
+#include "game/nbomb.h"
 #include "lib/rzip.h"
 
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -244,6 +250,10 @@ typedef struct {
 	f32 u, v;
 	u8 r, g, b, a;
 	u16 roomnum;
+	/* Animated surfaces (bg scene vertices): the vertex's N64 texture
+	 * coordinates before the room's texture scale, and that scale. */
+	s16 dyntex_s, dyntex_t;
+	u16 dyntex_scale_s, dyntex_scale_t;
 } pdscenario_visual_vertex_t;
 
 typedef struct {
@@ -302,6 +312,7 @@ typedef struct {
 	s32 min;
 	s32 flag;
 	s32 alpha_mode; /* PDSCENARIO_ALPHA_*; OPAQUE/MASK/BLEND, set from opa/xlu source */
+	s32 animation; /* SCENARIO_DYNTEX_*: the dyntex.c preset its texture moves by */
 	u32 tri_count;
 	pdscenario_visual_vertex_t *vertices;
 	u32 vertex_count;
@@ -329,6 +340,11 @@ typedef struct {
 	f32 min_x, min_y, min_z;
 	f32 max_x, max_y, max_z;
 	s32 has_bounds;
+	s32 stagenum; /* STAGE_*, for the animated surfaces' stage rules */
+	/* B-1172 census: roomHighlight's per-colour light flag. */
+	u32 light_flag_rooms;
+	u32 light_flag_colours;
+	u32 light_colours_total;
 } pdscenario_bgscene_t;
 
 static void s_textbufFree(pdscenario_textbuf_t *b)
@@ -3106,6 +3122,52 @@ static s32 s_appendScenarioObjectiveJsonRow(pdscenario_textbuf_t *objectives_jso
 	return 0;
 }
 
+/* Object rules (context/designs/modding/object-rules.md): the original's
+ * checks on one object, written on its objects.json row. stagenum is -1 for
+ * a multiplayer setup, which has none of these. */
+static void s_objectRulesJson(s32 stagenum, u8 type, const u8 *ptr, s32 len,
+                              char *out, size_t out_n)
+{
+	out[0] = '\0';
+	/* setup.c (withhovercars): no hover cars on Extraction or Defection in
+	 * co-op or counter-op. */
+	if (type == OBJTYPE_HOVERCAR &&
+			(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)) {
+		snprintf(out, out_n, ",\n      \"coop\": false");
+		return;
+	}
+	/* setup.c (B-228, a port addition): the lifts and escalator steps of
+	 * these single-player stages are kept, whatever their exclusions, when
+	 * the stage runs in multiplayer. */
+	if ((type == OBJTYPE_LIFT || type == OBJTYPE_ESCASTEP) &&
+			(stagenum == STAGE_CITRAINING || stagenum == STAGE_CHICAGO ||
+			stagenum == STAGE_VILLA || stagenum == STAGE_INFILTRATION ||
+			stagenum == STAGE_G5BUILDING || stagenum == STAGE_PELAGIC)) {
+		snprintf(out, out_n, ",\n      \"multiplayer\": true");
+		return;
+	}
+	/* setup.c (Enemy Rockets): the K7 Avenger is kept on Investigation at
+	 * Perfect Agent. */
+	if (type == OBJTYPE_WEAPON && len >= (s32)sizeof(struct weaponobj) &&
+			((const struct weaponobj *)ptr)->weaponnum == WEAPON_K7AVENGER &&
+			stagenum == STAGE_INVESTIGATION) {
+		snprintf(out, out_n, ",\n      \"enemy_rockets_exempt\": [\"perfect_agent\"]");
+		return;
+	}
+	/* propobj.c (chopperIncrementMovement, chopperTickFall): the Extraction
+	 * chopper's hums, and its fall with no collision checks. */
+	if (type == OBJTYPE_CHOPPER && stagenum == STAGE_EXTRACTION) {
+		char engine[CATALOG_ID_LEN];
+		char thrust[CATALOG_ID_LEN];
+
+		catalogReadableSoundRefId(SFX_SHIP_HUM, engine, sizeof(engine));
+		catalogReadableSoundRefId(SFX_810D, thrust, sizeof(thrust));
+		snprintf(out, out_n,
+			",\n      \"engine_hum\": \"%s\",\n      \"thrust_hum\": \"%s\",\n      \"fall\": \"drop\"",
+			engine, thrust);
+	}
+}
+
 static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
                                          u32 index,
                                          const char *record_id,
@@ -3119,7 +3181,8 @@ static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
                                          const char *ailist_ref,
                                          const char *flags,
                                          const char *flags2,
-                                         const char *flags3)
+                                         const char *flags3,
+                                         const char *rules_json)
 {
 	if (!objects_json || !record_id || !kind) return -1;
 	if (s_textbufAppend(objects_json, index ? ",\n    {\n" : "    {\n") != 0 ||
@@ -3147,13 +3210,14 @@ static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
 			s_textbufAppendJsonString(objects_json, flags2) != 0 ||
 			s_textbufAppend(objects_json, ",\n      \"flags3\": ") != 0 ||
 			s_textbufAppendJsonString(objects_json, flags3) != 0 ||
+			(rules_json && rules_json[0] && s_textbufAppend(objects_json, rules_json) != 0) ||
 			s_textbufAppend(objects_json, "\n    }") != 0) {
 		return -1;
 	}
 	return 0;
 }
 
-static s32 s_buildSetupTables(const u8 *data, u32 size,
+static s32 s_buildSetupTables(const u8 *data, u32 size, s32 stagenum,
                               pdscenario_textbuf_t *objects_json,
                               pdscenario_textbuf_t *objectives_json,
                               pdscenario_textbuf_t *setup_fields_json,
@@ -3256,7 +3320,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 					"", "", "",
 					s_nonnullCatalogId(catalogBodyIdByBodynum(chr->bodynum)),
 					s_nonnullCatalogId(catalogHeadIdByHeadnum(chr->headnum)),
-					ailist_ref, flags, flags2, "") != 0) {
+					ailist_ref, flags, flags2, "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -3280,18 +3344,20 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			snprintf(flags, sizeof(flags), "0x%08x", (unsigned)obj->flags);
 			snprintf(flags2, sizeof(flags2), "0x%08x", (unsigned)obj->flags2);
 			snprintf(flags3, sizeof(flags3), "0x%08x", (unsigned)obj->flags3);
+			char rules_json[384];
+			s_objectRulesJson(stagenum, type, ptr, len, rules_json, sizeof(rules_json));
 			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), pad_ref,
 					s_nonnullCatalogId(catalogModelIdByModelnum(obj->modelnum)),
 					weapon_ref, dual_weapon_ref, "", "", "",
-					flags, flags2, flags3) != 0) {
+					flags, flags2, flags3, rules_json) != 0) {
 				free(tag_targets);
 				return -1;
 			}
 		} else {
 			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), "", "", "", "",
-					"", "", "", "", "", "") != 0) {
+					"", "", "", "", "", "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -4184,20 +4250,237 @@ static void s_aiOpcodeSemanticKind(u16 opcode, const char *opcode_name,
 	}
 }
 
-static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
-	const u8 *cmd, u32 len)
+/* context/designs/modding/ai-typed-operands.md, slices 2-3b: every model,
+ * weapon, body, head, animation and sound argument by catalog id (a "none"
+ * value as null), and back to its value as the compiler resolves it
+ * (ai_catalog_refs.c). A value the catalog cannot name fails the archive:
+ * the namer says which. */
+static const char *s_aiCatalogNamer(ai_operand_kind_t kind, int64_t value, void *user)
 {
-	if (s_textbufAppend(out, "[") != 0) {
+	const char *id = aiCatalogRefName(kind, value);
+
+	if (!id && user) {
+		((int64_t *)user)[0] = (int64_t)kind;
+		((int64_t *)user)[1] = value;
+	}
+	return id;
+}
+
+static int s_aiCatalogResolver(ai_operand_kind_t kind, const char *id, int64_t *out_value,
+	void *user)
+{
+	(void)user;
+	return aiCatalogRefResolve(kind, id, out_value);
+}
+
+/* One command's arguments as ", \"args\": {...}" from the command schema
+ * (named, typed fields; an unused field only when it is not zero; catalog
+ * references by id). The row gives its bytes by these args alone, so the
+ * writer checks here that they encode back to exactly the command's bytes,
+ * the catalog ids resolved as the compiler resolves them. A command the
+ * schema cannot type, an asset the catalog cannot name, or args that do not
+ * give its bytes, fail the archive. */
+static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)
+{
+	char args[1024];
+	u8 bytes[512];
+	char error[160];
+	const u16 opcode = len >= 2 ? (u16)(((u16)cmd[0] << 8) | cmd[1]) : 0;
+	const ai_command_schema_t *schema = len >= 2 ? aiCommandSchemaFind(opcode) : NULL;
+	/* The last value the catalog could not name: [0] its kind, [1] the value. */
+	int64_t unnamed[2] = { -1, 0 };
+	s32 args_len;
+	s32 count;
+
+	args_len = schema ? aiCommandArgsToJsonRefs(schema, cmd + 2, len - 2, args,
+		sizeof(args), s_aiCatalogNamer, unnamed) : -1;
+	if (args_len < 0) {
+		if (schema && unnamed[0] >= 0) {
+			sysLogPrintf(LOG_ERROR,
+				"romextract: AI command 0x%04x (%s): the catalog names no %s %lld",
+				(unsigned)opcode, schema->name,
+				aiOperandKindName((ai_operand_kind_t)unnamed[0]), (long long)unnamed[1]);
+		} else {
+			sysLogPrintf(LOG_ERROR,
+				"romextract: AI command 0x%04x (%u bytes) does not fit the AI command schema",
+				(unsigned)opcode, (unsigned)len);
+		}
 		return -1;
 	}
-	for (u32 i = 2; i < len; i++) {
-		if (s_textbufAppendf(out, "%s\"0x%02x\"",
-				i > 2 ? ", " : "", (unsigned)cmd[i]) != 0) {
+	count = aiCommandArgsEncodeRefs(schema, args, (u32)args_len, bytes, sizeof(bytes),
+		s_aiCatalogResolver, NULL, error, sizeof(error));
+	if (count != (s32)(len - 2) || (count > 0 && memcmp(bytes, cmd + 2, (size_t)count) != 0)) {
+		sysLogPrintf(LOG_ERROR,
+			"romextract: AI command 0x%04x args %s do not give its bytes back (%s)",
+			(unsigned)opcode, args, count < 0 ? error : "different bytes");
+		return -1;
+	}
+	if (s_textbufAppend(out, ", \"args\": ") != 0 || s_textbufAppend(out, args) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
+/* context/designs/modding/ai-list-graphs.md: one AI list's commands as its
+ * rows read them (offset, length, opcode and operand bytes), and the
+ * control-flow edges and flags ai_list_edges.c computes from those bytes. */
+typedef struct {
+	ai_list_command_t *commands;
+	u32 *offsets;
+	u32 *lengths;
+	ai_list_edge_t *edges;
+	u8 *flags;
+	u32 count;
+	u32 capacity;
+	u32 edge_count;
+} pdscenario_ai_list_scan_t;
+
+static void s_aiListScanFree(pdscenario_ai_list_scan_t *scan)
+{
+	free(scan->commands);
+	free(scan->offsets);
+	free(scan->lengths);
+	free(scan->edges);
+	free(scan->flags);
+	memset(scan, 0, sizeof(*scan));
+}
+
+static s32 s_aiListScanGrow(pdscenario_ai_list_scan_t *scan)
+{
+	const u32 capacity = scan->capacity ? scan->capacity * 2 : 256;
+	ai_list_command_t *commands;
+	u32 *offsets;
+	u32 *lengths;
+	ai_list_edge_t *edges;
+	u8 *flags;
+
+	commands = (ai_list_command_t *)realloc(scan->commands,
+		(size_t)capacity * sizeof(*commands));
+	if (!commands) {
+		return -1;
+	}
+	scan->commands = commands;
+	offsets = (u32 *)realloc(scan->offsets,
+		(size_t)capacity * sizeof(*offsets));
+	if (!offsets) {
+		return -1;
+	}
+	scan->offsets = offsets;
+	lengths = (u32 *)realloc(scan->lengths,
+		(size_t)capacity * sizeof(*lengths));
+	if (!lengths) {
+		return -1;
+	}
+	scan->lengths = lengths;
+	edges = (ai_list_edge_t *)realloc(scan->edges,
+		(size_t)capacity * AI_LIST_EDGES_PER_COMMAND * sizeof(*edges));
+	if (!edges) {
+		return -1;
+	}
+	scan->edges = edges;
+	flags = (u8 *)realloc(scan->flags, (size_t)capacity * sizeof(*flags));
+	if (!flags) {
+		return -1;
+	}
+	scan->flags = flags;
+	scan->capacity = capacity;
+	return 0;
+}
+
+/* Reads one list as its rows are written: chraiGetCommandLength per command,
+ * up to and including the first AICMD_END, never past max_len bytes. Then
+ * computes the list's edges and flags. require_end refuses a list that runs
+ * out before its end command. Returns 0, or -1 when a command does not fit,
+ * the end is missing, an operand the control flow reads is missing or memory
+ * runs out. */
+static s32 s_aiListScan(const u8 *list, u32 max_len, s32 require_end,
+	pdscenario_ai_list_scan_t *scan)
+{
+	u32 offset = 0;
+	u32 bad_command = 0;
+	s32 ended = 0;
+	ai_list_edges_result_t result;
+
+	scan->count = 0;
+	scan->edge_count = 0;
+	while (offset + 2 <= max_len && scan->count < 65536u) {
+		const u8 *cmd = list + offset;
+		const u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
+		const u32 len = chraiGetCommandLength((u8 *)list, offset);
+
+		if (len < 2 || len > max_len - offset) {
 			return -1;
 		}
+		if (scan->count == scan->capacity && s_aiListScanGrow(scan) != 0) {
+			return -1;
+		}
+		scan->commands[scan->count].opcode = opcode;
+		scan->commands[scan->count].operands = cmd + 2;
+		scan->commands[scan->count].operand_len = len - 2;
+		scan->offsets[scan->count] = offset;
+		scan->lengths[scan->count] = len;
+		scan->count++;
+		offset += len;
+		if (opcode == AICMD_END) {
+			ended = 1;
+			break;
+		}
 	}
-	if (s_textbufAppend(out, "]") != 0) {
+	if (require_end && !ended) {
 		return -1;
+	}
+	result = aiListEdgesCompute(scan->commands, scan->count, scan->edges,
+		scan->capacity * AI_LIST_EDGES_PER_COMMAND, &scan->edge_count,
+		scan->flags, &bad_command);
+	if (result != AI_LIST_EDGES_OK) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract: AI list control flow failed at command %u: %s",
+			(unsigned)bad_command, aiListEdgesResultName(result));
+		return -1;
+	}
+	return 0;
+}
+
+/* A command node's control-flow flags (ai-list-graphs.md); reachable is
+ * written only when false. */
+static s32 s_appendAiCommandFlagsJson(pdscenario_textbuf_t *out, u8 flags)
+{
+	if (((flags & AI_LIST_NODE_YIELDS) &&
+			s_textbufAppend(out, ", \"yields\": true") != 0) ||
+			((flags & AI_LIST_NODE_ENDS) &&
+			s_textbufAppend(out, ", \"ends\": true") != 0) ||
+			((flags & AI_LIST_NODE_RETURNS) &&
+			s_textbufAppend(out, ", \"returns\": true") != 0) ||
+			((flags & AI_LIST_NODE_SWITCHES_LIST) &&
+			s_textbufAppend(out, ", \"switches_list\": true") != 0) ||
+			(!(flags & AI_LIST_NODE_REACHABLE) &&
+			s_textbufAppend(out, ", \"reachable\": false") != 0)) {
+		return -1;
+	}
+	return 0;
+}
+
+/* One link per control-flow edge of a list, {from, to, kind}, between its
+ * command nodes (<node_prefix>.command.NNNN). A link opens with ",\n" unless
+ * first is given and set (it is then cleared). */
+static s32 s_appendAiEdgeLinksJson(pdscenario_textbuf_t *out,
+	const char *node_prefix, const pdscenario_ai_list_scan_t *scan,
+	s32 *first)
+{
+	for (u32 e = 0; e < scan->edge_count; e++) {
+		const ai_list_edge_t *edge = &scan->edges[e];
+
+		if (s_textbufAppendf(out,
+				"%s    { \"from\": \"%s.command.%04u\", \"to\": \"%s.command.%04u\", \"kind\": \"%s\" }",
+				first && *first ? "" : ",\n",
+				node_prefix, (unsigned)edge->from,
+				node_prefix, (unsigned)edge->to,
+				aiListEdgeKindName(edge->kind)) != 0) {
+			return -1;
+		}
+		if (first) {
+			*first = 0;
+		}
 	}
 	return 0;
 }
@@ -4238,33 +4521,36 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 	u32 list_cap = (size - (u32)table_ofs) / (u32)sizeof(struct ailist);
 	u32 list_count = 0;
 	u32 command_count = 0;
+	pdscenario_ai_list_scan_t scan;
 
+	memset(&scan, 0, sizeof(scan));
 	for (u32 i = 0; i < list_cap && i < 16384u; i++) {
 		uintptr_t list_ofs = (uintptr_t)lists[i].list;
 		if (!list_ofs) {
 			break;
 		}
 		if (list_ofs >= size) {
-			return -1;
+			goto fail;
 		}
 
 		const u8 *list = data + list_ofs;
-		u32 max_len = size - (u32)list_ofs;
-		u32 offset = 0;
-		u32 command_index = 0;
+		char list_node_prefix[48];
 
-		while (offset + 2 <= max_len && command_index < 65536u) {
+		/* ai-list-graphs.md: the list's commands, as the rows below read
+		 * them, and the control-flow edges computed from their bytes. */
+		if (s_aiListScan(list, size - (u32)list_ofs, 0, &scan) != 0) {
+			goto fail;
+		}
+		snprintf(list_node_prefix, sizeof(list_node_prefix),
+			"scenario.ai.ailist_%04u", (unsigned)i);
+
+		for (u32 command_index = 0; command_index < scan.count;
+				command_index++) {
+			const u32 offset = scan.offsets[command_index];
+			const u32 len = scan.lengths[command_index];
 			const u8 *cmd = list + offset;
-			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
-			u32 len = chraiGetCommandLength((u8 *)list, offset);
-			if (len < 2 || len > max_len - offset) {
-				return -1;
-			}
+			const u16 opcode = scan.commands[command_index].opcode;
 
-			const char *model_id = "";
-			const char *weapon_id = "";
-			const char *body_id = "";
-			const char *head_id = "";
 			const char *opcode_name = s_aiOpcodeName(opcode);
 			char graph_node[64];
 			char semantic_kind[128];
@@ -4273,21 +4559,6 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 				(unsigned)i, (unsigned)command_index);
 			s_aiOpcodeSemanticKind(opcode, opcode_name, semantic_kind,
 				sizeof(semantic_kind));
-
-			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-			} else if (opcode == AICMD_EQUIPWEAPON && len >= 5) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-				weapon_id = s_nonnullCatalogId(catalogWeaponIdByRuntimeWeaponNum(cmd[4]));
-			} else if (opcode == 0x01dc && len >= 3) {
-				weapon_id = s_nonnullCatalogId(
-					catalogWeaponIdByRuntimeWeaponNum(cmd[2]));
-			} else if ((opcode == AICMD_SPAWNCHRATPAD || opcode == AICMD_SPAWNCHRATCHR) && len >= 4) {
-				body_id = s_nonnullCatalogId(catalogBodyIdByBodynum(cmd[2]));
-				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
-			}
 
 			if (s_textbufAppendf(ai_lists_json,
 					"%s    { \"ailist_ref\": \"ailist_%04u\", \"list_id\": \"0x%04x\", \"graph_node\": ",
@@ -4299,23 +4570,9 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 					(unsigned)command_index, (unsigned)offset,
 					(unsigned)opcode) != 0 ||
 					s_textbufAppendJsonString(ai_lists_json, opcode_name) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"operands\": ") != 0 ||
-					s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"model_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, model_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"weapon_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, weapon_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"body_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, body_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"head_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, head_id) != 0 ||
+					s_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||
 					s_textbufAppend(ai_lists_json, " }") != 0) {
-				return -1;
+				goto fail;
 			}
 
 			if (s_textbufAppend(ai_command_nodes_json,
@@ -4335,6 +4592,9 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						", \"semantic_kind\": ") != 0 ||
 					s_textbufAppendJsonString(ai_command_nodes_json,
 						semantic_kind) != 0 ||
+					s_appendAiArgsJson(ai_command_nodes_json, cmd, len) != 0 ||
+					s_appendAiCommandFlagsJson(ai_command_nodes_json,
+						scan.flags[command_index]) != 0 ||
 					s_textbufAppend(ai_command_nodes_json, " }") != 0 ||
 					s_textbufAppend(ai_command_links_json,
 						",\n    { \"from\": \"scenario.ai.lists\", \"to\": ") != 0 ||
@@ -4342,18 +4602,20 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						graph_node) != 0 ||
 					s_textbufAppend(ai_command_links_json,
 						" }") != 0) {
-				return -1;
+				goto fail;
 			}
 
 			command_count++;
-			offset += len;
-			command_index++;
-			if (opcode == AICMD_END) {
-				break;
-			}
+		}
+		/* The list's control flow: next, branch, goto and restart edges
+		 * between its command nodes, after its list links. */
+		if (s_appendAiEdgeLinksJson(ai_command_links_json, list_node_prefix,
+				&scan, NULL) != 0) {
+			goto fail;
 		}
 		list_count++;
 	}
+	s_aiListScanFree(&scan);
 
 	if (out_lists) *out_lists = list_count;
 	if (out_commands) *out_commands = command_count;
@@ -4361,6 +4623,174 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 		return -1;
 	}
 	return 0;
+
+fail:
+	s_aiListScanFree(&scan);
+	return -1;
+}
+
+/* The global AI lists as public rows. The fields, their order and the
+ * catalog ids for item, weapon, body and head operands follow
+ * s_buildAiListsTable, so the reader that compiles a scenario's lists reads
+ * these too. Each list ends with its AICMD_END row. */
+char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
+{
+	pdscenario_textbuf_t json = { 0 };
+	u32 list_count = 0;
+	u32 command_count = 0;
+
+	if (out_lists) *out_lists = 0;
+	if (out_commands) *out_commands = 0;
+	if (s_textbufAppend(&json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.lists.v1\",\n"
+			"  \"rows\": [\n") != 0) {
+		goto fail;
+	}
+
+	for (u32 i = 0; g_GlobalAilists[i].list != NULL && i < 4096u; i++) {
+		u8 *list = g_GlobalAilists[i].list;
+		u16 list_id = (u16)g_GlobalAilists[i].id;
+		u32 offset = 0;
+		u32 command_index = 0;
+		s32 ended = 0;
+
+		while (offset < 0x10000u && command_index < 65536u) {
+			const u8 *cmd = list + offset;
+			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
+			u32 len = chraiGetCommandLength(list, offset);
+			const char *opcode_name = s_aiOpcodeName(opcode);
+			char graph_node[64];
+
+			if (len < 2) {
+				goto fail;
+			}
+			snprintf(graph_node, sizeof(graph_node),
+				"scenario.ai.global_%04x.command.%04u",
+				(unsigned)list_id, (unsigned)command_index);
+			if (s_textbufAppendf(&json,
+					"%s    { \"ailist_ref\": \"global_%04x\", \"list_id\": \"0x%04x\", \"graph_node\": ",
+					command_count ? ",\n" : "",
+					(unsigned)list_id, (unsigned)list_id) != 0 ||
+					s_textbufAppendJsonString(&json, graph_node) != 0 ||
+					s_textbufAppendf(&json,
+					", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+					(unsigned)command_index, (unsigned)offset,
+					(unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(&json, opcode_name) != 0 ||
+					s_appendAiArgsJson(&json, cmd, len) != 0 ||
+					s_textbufAppend(&json, " }") != 0) {
+				goto fail;
+			}
+
+			command_count++;
+			offset += len;
+			command_index++;
+			if (opcode == AICMD_END) {
+				ended = 1;
+				break;
+			}
+		}
+		if (!ended) {
+			goto fail;
+		}
+		list_count++;
+	}
+
+	if (s_textbufAppend(&json, "\n  ]\n}\n") != 0) {
+		goto fail;
+	}
+	if (out_lists) *out_lists = list_count;
+	if (out_commands) *out_commands = command_count;
+	return json.data;
+
+fail:
+	s_textbufFree(&json);
+	return NULL;
+}
+
+/* context/designs/modding/ai-list-graphs.md: the global lists' control flow
+ * as a graph (pd2.scenario.ai.graph.v1), the ai/global_ailists.graph.json
+ * member of base:ai_global. Its nodes are the rows' graph_node ids
+ * (romExtractGlobalAiListsJson) with the fields and flags a scenario's
+ * command nodes carry in level.graph.json; its links are the edges between
+ * them, computed from the bytes the rows carry. */
+char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges)
+{
+	pdscenario_textbuf_t nodes = { 0 };
+	pdscenario_textbuf_t links = { 0 };
+	pdscenario_textbuf_t json = { 0 };
+	pdscenario_ai_list_scan_t scan;
+	u32 node_count = 0;
+	u32 edge_count = 0;
+	s32 first_link = 1;
+
+	memset(&scan, 0, sizeof(scan));
+	if (out_nodes) *out_nodes = 0;
+	if (out_edges) *out_edges = 0;
+
+	for (u32 i = 0; g_GlobalAilists[i].list != NULL && i < 4096u; i++) {
+		const u16 list_id = (u16)g_GlobalAilists[i].id;
+		char list_node_prefix[48];
+
+		if (s_aiListScan(g_GlobalAilists[i].list, 0x10000u, 1, &scan) != 0) {
+			goto fail;
+		}
+		snprintf(list_node_prefix, sizeof(list_node_prefix),
+			"scenario.ai.global_%04x", (unsigned)list_id);
+		for (u32 c = 0; c < scan.count; c++) {
+			const u16 opcode = scan.commands[c].opcode;
+			const char *opcode_name = s_aiOpcodeName(opcode);
+			char semantic_kind[128];
+
+			s_aiOpcodeSemanticKind(opcode, opcode_name, semantic_kind,
+				sizeof(semantic_kind));
+			if (s_textbufAppendf(&nodes,
+					"%s    { \"id\": \"%s.command.%04u\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/global_ailists.json\", \"ailist_ref\": \"global_%04x\", \"list_id\": \"0x%04x\", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+					node_count ? ",\n" : "", list_node_prefix, (unsigned)c,
+					(unsigned)list_id, (unsigned)list_id, (unsigned)c,
+					(unsigned)scan.offsets[c], (unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(&nodes, opcode_name) != 0 ||
+					s_textbufAppend(&nodes, ", \"semantic_kind\": ") != 0 ||
+					s_textbufAppendJsonString(&nodes, semantic_kind) != 0 ||
+					s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],
+						scan.lengths[c]) != 0 ||
+					s_appendAiCommandFlagsJson(&nodes, scan.flags[c]) != 0 ||
+					s_textbufAppend(&nodes, " }") != 0) {
+				goto fail;
+			}
+			node_count++;
+		}
+		if (s_appendAiEdgeLinksJson(&links, list_node_prefix, &scan,
+				&first_link) != 0) {
+			goto fail;
+		}
+		edge_count += scan.edge_count;
+	}
+
+	if (s_textbufAppend(&json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.graph.v1\",\n"
+			"  \"nodes\": [\n") != 0 ||
+			(nodes.data && s_textbufAppend(&json, nodes.data) != 0) ||
+			s_textbufAppend(&json, "\n  ],\n  \"links\": [\n") != 0 ||
+			(links.data && s_textbufAppend(&json, links.data) != 0) ||
+			s_textbufAppend(&json, "\n  ]\n}\n") != 0) {
+		goto fail;
+	}
+	s_aiListScanFree(&scan);
+	s_textbufFree(&nodes);
+	s_textbufFree(&links);
+	if (out_nodes) *out_nodes = node_count;
+	if (out_edges) *out_edges = edge_count;
+	return json.data;
+
+fail:
+	s_aiListScanFree(&scan);
+	s_textbufFree(&nodes);
+	s_textbufFree(&links);
+	s_textbufFree(&json);
+	return NULL;
 }
 
 static s32 s_buildScenarioSourceFiles(const char *scenario_id,
@@ -4883,6 +5313,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"id\": \"scenario.ai.action.say_quip\", \"kind\": \"scenario.ai.action.say_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.quip\", \"opcode\": \"0x0130\" },\n"
 			"    { \"id\": \"scenario.ai.action.say_ci_staff_quip\", \"kind\": \"scenario.ai.action.say_ci_staff_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.ci_staff_quip\", \"opcode\": \"0x01a2\" },\n"
 			"    { \"id\": \"scenario.ai.action.shuffle_ruins_pillars\", \"kind\": \"scenario.ai.action.shuffle_ruins_pillars\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b1\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_bot_respawning\", \"kind\": \"scenario.ai.condition.if_bot_respawning\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aibot.respawning\", \"opcode\": \"0x0176\" },\n"
+			"    { \"id\": \"scenario.ai.action.mp_init_simulants\", \"kind\": \"scenario.ai.action.mp_init_simulants\", \"source\": \"ai/ailists.json\", \"target\": \"simulants.spawn_wave\", \"opcode\": \"0x0185\" },\n"
 			"    { \"id\": \"scenario.ai.action.shuffle_pelagic_switches\", \"kind\": \"scenario.ai.action.shuffle_pelagic_switches\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b9\" }%s\n",
 			scenario_id, kind ? kind : "scenario",
 			(unsigned)portal_count,
@@ -5402,6 +5834,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.set_pad_preset\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_set_pad_preset\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_copy_pad_preset\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_bot_respawning\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.mp_init_simulants\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
@@ -5747,6 +6181,8 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	m->min = min;
 	m->flag = flag;
 	m->alpha_mode = alpha_mode;
+	m->animation = texnum >= 0 ?
+		scenarioDyntexBaseKind(texnum, scene->stagenum) : SCENARIO_DYNTEX_NONE;
 	if (texnum >= 0 && texnum2 >= 0) {
 		snprintf(m->name, sizeof(m->name), "mat_%03u_tex_%04x_%04x_c%d",
 			(unsigned)scene->material_count, (unsigned)texnum,
@@ -6254,6 +6690,8 @@ typedef struct {
 	u32 runtime_uv_accessor;
 	u32 color_accessor;
 	u32 room_accessor;
+	u32 dyntex_view;
+	u32 dyntex_accessor;
 	u32 texture_index;
 	u32 secondary_texture_index;
 	f32 min_x, min_y, min_z;
@@ -6432,6 +6870,18 @@ static void s_bgMaterialGlbAuthorUv(f32 runtime_u, f32 runtime_v,
 	if (out_v) *out_v = (runtime_v - min_v) / span;
 }
 
+/* A material whose texture moves (a dyntex.c preset): scene.glb gives it
+ * the preset, its UV scale and a _PD_DYNTEX vertex attribute. The binary,
+ * bufferView and accessor passes below must agree on this, so all three ask
+ * here. */
+static s32 s_bgMaterialAnimated(const pdscenario_bgscene_t *scene,
+                                const pdscenario_bgmaterial_t *m)
+{
+	return m->vertex_count > 0 && m->animation > SCENARIO_DYNTEX_NONE &&
+		m->animation < SCENARIO_DYNTEX_KIND_COUNT &&
+		s_bgSceneDecodedTextureIndex(scene, m->texnum) >= 0;
+}
+
 static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 {
 	if (!scene || scene->tri_count == 0 || scene->material_count == 0) return -1;
@@ -6453,6 +6903,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			mr[i].room_accessor = 0xffffffffu;
 		mr[i].texture_index = 0xffffffffu;
 		mr[i].secondary_texture_index = 0xffffffffu;
+		mr[i].dyntex_view = mr[i].dyntex_accessor = 0xffffffffu;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		texture_views[i] = 0xffffffffu;
@@ -6537,6 +6988,21 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				goto fail;
 			}
 		}
+		if (s_bgMaterialAnimated(scene, m)) {
+			if (s_binbufPad4(&bin) != 0) goto fail;
+			mr[i].dyntex_view = view_count++;
+			mr[i].dyntex_accessor = accessor_count++;
+			for (u32 v = 0; v < m->vertex_count; v++) {
+				if (s_binbufAppendF32(&bin, (f32)m->vertices[v].dyntex_s) != 0 ||
+				    s_binbufAppendF32(&bin, (f32)m->vertices[v].dyntex_t) != 0 ||
+				    s_binbufAppendF32(&bin,
+						(f32)m->vertices[v].dyntex_scale_s) != 0 ||
+				    s_binbufAppendF32(&bin,
+						(f32)m->vertices[v].dyntex_scale_t) != 0) {
+					goto fail;
+				}
+			}
+		}
 	}
 
 	for (u32 i = 0; i < scene->texture_count; i++) {
@@ -6580,13 +7046,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"attributes\":{\"POSITION\":%u,\"TEXCOORD_0\":%u,"
 				"\"TEXCOORD_1\":%u,"
 				"\"COLOR_0\":%u,"
-				"\"_PD_ROOM\":%u},"
-				"\"material\":%u,\"mode\":4}",
+				"\"_PD_ROOM\":%u",
 				(unsigned)mr[i].pos_accessor,
 				(unsigned)mr[i].uv_accessor,
 				(unsigned)mr[i].runtime_uv_accessor,
 				(unsigned)mr[i].color_accessor,
-				(unsigned)mr[i].room_accessor,
+				(unsigned)mr[i].room_accessor) != 0) goto fail_json;
+		if (mr[i].dyntex_accessor != 0xffffffffu &&
+				s_textbufAppendf(&json, ",\"_PD_DYNTEX\":%u",
+					(unsigned)mr[i].dyntex_accessor) != 0) goto fail_json;
+		if (s_textbufAppendf(&json, "},\"material\":%u,\"mode\":4}",
 				(unsigned)i) != 0) goto fail_json;
 	}
 	if (s_textbufAppend(&json, "]}],\"materials\":[") != 0) goto fail_json;
@@ -6640,6 +7109,15 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				s_bgGltfWrapName(m->smode), s_bgGltfWrapName(m->tmode),
 				m->offset, m->shifts, m->shiftt, m->min,
 				m->flag ? 1 : 0) != 0) goto fail_json;
+		if (mr[i].dyntex_accessor != 0xffffffffu) {
+			f32 anim_u_scale = 1.0f;
+			f32 anim_v_scale = 1.0f;
+			s_bgMaterialUvScaleForGlb(scene, m, &anim_u_scale, &anim_v_scale);
+			if (s_textbufAppendf(&json,
+					",\"animation\":\"%s\",\"uv_scale\":[%.9g,%.9g]",
+					scenarioDyntexKindName(m->animation),
+					(double)anim_u_scale, (double)anim_v_scale) != 0) goto fail_json;
+		}
 		if (mr[i].secondary_texture_index != 0xffffffffu) {
 			if (s_textbufAppendf(&json,
 					",\"secondaryTexture\":{\"index\":%d,\"texCoord\":1}",
@@ -6761,6 +7239,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
 				(unsigned)offset, (unsigned)room_len) != 0) goto fail_json;
 		offset += room_len;
+		if (s_bgMaterialAnimated(scene, m)) {
+			u32 dyntex_len = m->vertex_count * 16u;
+			offset = (offset + 3u) & ~3u;
+			if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+			emitted_view++;
+			if (s_textbufAppendf(&json,
+					"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
+					(unsigned)offset, (unsigned)dyntex_len) != 0) goto fail_json;
+			offset += dyntex_len;
+		}
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		const pdscenario_bgtexture_t *tex = &scene->textures[i];
@@ -6819,6 +7307,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"\"type\":\"SCALAR\"}",
 				(unsigned)mr[i].room_view, (unsigned)m->vertex_count) != 0) {
 			goto fail_json;
+		}
+		if (s_bgMaterialAnimated(scene, m)) {
+			if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+			emitted_accessor++;
+			if (s_textbufAppendf(&json,
+					"{\"bufferView\":%u,\"componentType\":5126,\"count\":%u,"
+					"\"type\":\"VEC4\"}",
+					(unsigned)mr[i].dyntex_view, (unsigned)m->vertex_count) != 0) {
+				goto fail_json;
+			}
 		}
 	}
 	if (s_textbufAppend(&json, "]}") != 0) goto fail_json;
@@ -6926,12 +7424,36 @@ static s32 s_bgGdlCommand(const Gfx *cmd)
 	return (s32)((cmd->words.w0 >> 24) & 0xffu);
 }
 
+/* Animated surfaces: the N64 texture coordinates and the room's texture
+ * scale of the triangle s_bgSceneAddTri just appended (its material's last
+ * three vertices), which the renderer moves as dyntex.c does. */
+static void s_bgSceneTagDyntex(pdscenario_bgscene_t *scene, s32 material_index,
+                               const Vtx *a, const Vtx *b, const Vtx *c,
+                               u32 scale_a, u32 scale_b, u32 scale_c)
+{
+	if (material_index < 0 || (u32)material_index >= scene->material_count) {
+		material_index = 0;
+	}
+	pdscenario_bgmaterial_t *m = &scene->materials[material_index];
+	if (m->vertex_count < 3) return;
+	pdscenario_visual_vertex_t *v = &m->vertices[m->vertex_count - 3];
+	const Vtx *src[3] = { a, b, c };
+	const u32 scale[3] = { scale_a, scale_b, scale_c };
+	for (s32 i = 0; i < 3; i++) {
+		v[i].dyntex_s = src[i]->s;
+		v[i].dyntex_t = src[i]->t;
+		v[i].dyntex_scale_s = (u16)(scale[i] >> 16);
+		v[i].dyntex_scale_t = (u16)(scale[i] & 0xffffu);
+	}
+}
+
 static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
                                   s32 material_index,
                                   const Vtx loaded[16],
                                   const Col loaded_colours[16],
                                   const s32 loaded_s[16],
                                   const s32 loaded_t[16],
+                                  const u32 loaded_scale[16],
                                   const u8 valid[16],
                                   u32 a, u32 b, u32 c,
                                   const struct coord *room_pos,
@@ -6940,12 +7462,17 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 	if (a >= 16u || b >= 16u || c >= 16u) return 0;
 	if (!valid[a] || !valid[b] || !valid[c]) return 0;
 	if (a == b && b == c) return 0;
-	return s_bgSceneAddTri(scene, material_index,
-		&loaded[a], &loaded[b], &loaded[c],
-		loaded_colours[a], loaded_colours[b], loaded_colours[c],
-		room_pos, roomnum,
-		loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
-		loaded_s[c], loaded_t[c]);
+	if (s_bgSceneAddTri(scene, material_index,
+			&loaded[a], &loaded[b], &loaded[c],
+			loaded_colours[a], loaded_colours[b], loaded_colours[c],
+			room_pos, roomnum,
+			loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
+			loaded_s[c], loaded_t[c]) != 0) {
+		return -1;
+	}
+	s_bgSceneTagDyntex(scene, material_index, &loaded[a], &loaded[b],
+		&loaded[c], loaded_scale[a], loaded_scale[b], loaded_scale[c]);
+	return 0;
 }
 
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
@@ -6961,6 +7488,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	Col loaded_colours[16];
 	s32 loaded_s[16];
 	s32 loaded_t[16];
+	u32 loaded_scale[16];
 	u8 valid[16];
 	const Col white = { .r = 255, .g = 255, .b = 255, .a = 255 };
 	const Col *current_colours = colours;
@@ -6971,6 +7499,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	}
 	memset(loaded_s, 0, sizeof(loaded_s));
 	memset(loaded_t, 0, sizeof(loaded_t));
+	memset(loaded_scale, 0xff, sizeof(loaded_scale));
 	memset(valid, 0, sizeof(valid));
 	s32 material_index = 0;
 	u16 texture_scale_s = 0xffffu;
@@ -7038,6 +7567,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 					((s32)src[v].s * (s32)texture_scale_s) >> 16;
 				loaded_t[dest + v] =
 					((s32)src[v].t * (s32)texture_scale_t) >> 16;
+				loaded_scale[dest + v] = ((u32)texture_scale_s << 16) |
+					(u32)texture_scale_t;
 				valid[dest + v] = 1;
 			}
 		} else if (op == (u8)G_TRI1) {
@@ -7046,7 +7577,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, a, b, c,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, a, b, c,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -7058,16 +7589,16 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x1, y1, z1,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x1, y1, z1,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x2, y2, z2,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x2, y2, z2,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x3, y3, z3,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x3, y3, z3,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x4, y4, z4,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x4, y4, z4,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -7386,6 +7917,104 @@ static s32 s_stageNoDarkRoomLists(s32 stagenum)
 	return stagenum == STAGE_CRASHSITE;
 }
 
+/* The environmental sparks do not flash the room lights (sparks.c). */
+static s32 s_stageSparksNoLightFlash(s32 stagenum)
+{
+	return stagenum == STAGE_CRASHSITE;
+}
+
+/* The Escape gas (nbomb.c gasRender), written from the rule a ROM stage uses
+ * (g_EscapeGasRule), so the two cannot differ. */
+static s32 s_appendStageGasJson(s32 stagenum, pdscenario_textbuf_t *out)
+{
+	const scenario_stage_gas_t *gas = stagenum == STAGE_ESCAPE ? &g_EscapeGasRule : NULL;
+	s32 i;
+	s32 j;
+
+	if (!gas) {
+		return 0;
+	}
+	if (s_textbufAppend(out, ",\n  \"gas\": { \"rooms\": [") != 0) {
+		return -1;
+	}
+	for (i = 0; i < gas->room_count; i++) {
+		if (s_textbufAppendf(out, "%s%d", i ? ", " : "", (s32)gas->rooms[i]) != 0) {
+			return -1;
+		}
+	}
+	if (s_textbufAppend(out, "]") != 0) {
+		return -1;
+	}
+	if (gas->has_sphere) {
+		if (s_textbufAppendf(out,
+				", \"sphere\": { \"center\": [%.9g, %.9g, %.9g], \"radius\": %.9g",
+				(double)gas->sphere_center[0], (double)gas->sphere_center[1],
+				(double)gas->sphere_center[2], (double)gas->sphere_radius) != 0 ||
+				(gas->sphere_door_tag >= 0 &&
+				s_textbufAppendf(out, ", \"door_tag\": %d", gas->sphere_door_tag) != 0) ||
+				s_textbufAppend(out, " }") != 0) {
+			return -1;
+		}
+	}
+	if (gas->door_room_count > 0) {
+		if (s_textbufAppend(out, ", \"door_rooms\": [") != 0) {
+			return -1;
+		}
+		for (i = 0; i < gas->door_room_count; i++) {
+			const scenario_stage_gas_door_room_t *door = &gas->door_rooms[i];
+
+			if (s_textbufAppendf(out, "%s{ \"room\": %d, \"door_tags\": [", i ? ", " : "",
+					(s32)door->room) != 0) {
+				return -1;
+			}
+			for (j = 0; j < door->tag_count; j++) {
+				if (s_textbufAppendf(out, "%s%d", j ? ", " : "", door->tags[j]) != 0) {
+					return -1;
+				}
+			}
+			if (s_textbufAppendf(out, "], \"add\": %.9g }", (double)door->add) != 0) {
+				return -1;
+			}
+		}
+		if (s_textbufAppend(out, "]") != 0) {
+			return -1;
+		}
+	}
+	if (gas->has_cutscene_fade &&
+			s_textbufAppendf(out, ", \"cutscene_fade\": { \"start_frame\": %d, \"full_frame\": %d }",
+				gas->fade_start, gas->fade_full) != 0) {
+		return -1;
+	}
+	return s_textbufAppend(out, " }");
+}
+
+/* The unlimited ammo cheats leave the remote mines alone on Chicago and the
+ * timed mines on Air Force One (bgunAmmotypeAllowsUnlimitedAmmo, bondgun.c).
+ * The rule names the weapon whose primary ammo it is. */
+static u32 s_stageUnlimitedAmmoExcludedType(s32 stagenum)
+{
+	switch (stagenum) {
+	case STAGE_CHICAGO:     return AMMOTYPE_REMOTE_MINE;
+	case STAGE_AIRFORCEONE: return AMMOTYPE_TIMED_MINE;
+	}
+	return 0;
+}
+
+static const char *s_weaponIdForPrimaryAmmo(u32 ammotype)
+{
+	s32 i;
+
+	for (i = 0; i < g_WeaponDataCount; i++) {
+		const struct weapon *wpn = g_WeaponData[i];
+
+		if (wpn && wpn->ammos[FUNC_PRIMARY] && wpn->ammos[FUNC_PRIMARY]->type == ammotype
+				&& g_WeaponDataCatalogIds[i] && g_WeaponDataCatalogIds[i][0]) {
+			return g_WeaponDataCatalogIds[i];
+		}
+	}
+	return NULL;
+}
+
 /* Mission endings (CORE, 2026-11-15): the stage whose end screens report the
  * outcome as unknown, the game's g_StageIndex == STAGEINDEX_DEFENSE checks in
  * endscreen.c, menu.c and menugfx.c. */
@@ -7437,6 +8066,8 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	const s32 untargetable = s_stageDisguiseUntargetable(stagenum);
 	const f32 coop_distance = s_stageCoopSpawnDistance(stagenum);
 	const s32 no_dark_room_lists = s_stageNoDarkRoomLists(stagenum);
+	const u32 ammo_excluded = s_stageUnlimitedAmmoExcludedType(stagenum);
+	const char *ammo_exclude_id = ammo_excluded ? s_weaponIdForPrimaryAmmo(ammo_excluded) : NULL;
 	const s32 outcome_unknown = s_stageOutcomeUnknown(stagenum);
 	const s32 is_hub = s_stageIsHub(stagenum);
 	s32 star_count = 0;
@@ -7454,7 +8085,7 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
-			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent). ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. stars: the starfield of a stage that has one: count stars on a sky cube of grid cells per face side, below_horizon when they fill the whole sky. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent); unlimited_ammo_excludes, the weapons (catalog ids) whose primary ammo the unlimited ammo cheats do not refill here. ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. stars: the starfield of a stage that has one: count stars on a sky cube of grid cells per face side, below_horizon when they fill the whole sky. sparks: flash_lights false keeps the stage's environmental sparks from flashing the room lights. gas: a gas cloud over the screen in rooms (room numbers), in a sphere {center, radius, door_tag} thinning toward its edge and following a door, in door_rooms [{room, door_tags, add}] that follow their most open door, with a cutscene_fade {start_frame, full_frame}. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
 		return -1;
 	}
 	if (weather) {
@@ -7489,7 +8120,11 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 			return -1;
 		}
 	}
-	if (pa_outfit >= 0 || disguise_outfit >= 0 || untargetable || coop_distance > 0.0f) {
+	if (ammo_excluded && !ammo_exclude_id) {
+		return -1; /* no weapon carries that ammo: the rule cannot be named */
+	}
+	if (pa_outfit >= 0 || disguise_outfit >= 0 || untargetable || coop_distance > 0.0f ||
+			ammo_exclude_id) {
 		s32 fields = 0;
 
 		if (s_textbufAppend(out, ",\n  \"player\": {") != 0) {
@@ -7517,6 +8152,13 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 			}
 			fields++;
 		}
+		if (ammo_exclude_id) {
+			if (s_textbufAppendf(out, "%s \"unlimited_ammo_excludes\": [\"%s\"]", fields ? "," : "",
+					ammo_exclude_id) != 0) {
+				return -1;
+			}
+			fields++;
+		}
 		if (s_textbufAppend(out, " }") != 0) {
 			return -1;
 		}
@@ -7535,6 +8177,13 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (has_stars && s_textbufAppendf(out,
 			",\n  \"stars\": { \"count\": %d, \"grid\": %d, \"below_horizon\": %s }",
 			star_count, star_grid, star_below ? "true" : "false") != 0) {
+		return -1;
+	}
+	if (s_stageSparksNoLightFlash(stagenum) &&
+			s_textbufAppend(out, ",\n  \"sparks\": { \"flash_lights\": false }") != 0) {
+		return -1;
+	}
+	if (s_appendStageGasJson(stagenum, out) != 0) {
 		return -1;
 	}
 	return s_textbufAppend(out, "\n}\n");
@@ -8037,10 +8686,11 @@ static s32 s_exportBgSection2Textures(const u8 *bg, u32 bg_size,
 }
 
 static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
-                                  pdscenario_bgscene_t *scene)
+                                  pdscenario_bgscene_t *scene, s32 stagenum)
 {
 	if (!bg || !bg_size || !scene) return -1;
 	if (s_bgSceneInit(scene) != 0) return -1;
+	scene->stagenum = stagenum;
 
 	u8 *primary = NULL;
 	u32 primary_size = 0;
@@ -8105,6 +8755,26 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 			return -1;
 		}
 		struct roomgfxdata *gfx = (struct roomgfxdata *)room;
+		/* B-1172 census: roomHighlight (dlights.c) keeps colour i's rgb and
+		 * scales only its alpha by the room brightness when the room's
+		 * vertex i has flags & 1 (it reads the vertex table with the colour
+		 * index). The scene renderer lights every colour; this counts how
+		 * many colours that misses. */
+		if (gfx->vertices) {
+			u32 flagged = 0;
+			s32 numcolours = gfx->numcolours > 0 ? gfx->numcolours : 0;
+			for (s32 ci = 0; ci < numcolours; ci++) {
+				const u8 *flag_byte = (const u8 *)gfx->vertices +
+					(uintptr_t)ci * sizeof(Vtx) + offsetof(Vtx, flags);
+				if (s_rangeInBuffer(room, new_len, flag_byte, 1) &&
+						(*flag_byte & 1u)) {
+					flagged++;
+				}
+			}
+			scene->light_flag_colours += flagged;
+			scene->light_flag_rooms += flagged ? 1u : 0u;
+			scene->light_colours_total += (u32)numcolours;
+		}
 		if (s_exportBgRoomBlocks(scene, gfx, room, new_len,
 				&rooms[roomnum].pos, roomnum) != 0) {
 			sysMemFree(room);
@@ -9405,6 +10075,10 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"scenario.ai.action.chr_set_pad_preset") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.ai.action.chr_copy_pad_preset") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.condition.if_bot_respawning") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.mp_init_simulants") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json") &&
 		s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath);
@@ -9682,7 +10356,7 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"modArchiveBegin failed for \"%s\"", full);
@@ -9765,7 +10439,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveBegin failed for \"%s\"", dst_full);
@@ -9880,7 +10554,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	s32 has_setup = s_loadStageFilePreprocessed(setup_fileid,
 		LOADTYPE_SETUP, &setup_data, &setup_size);
 	if (has_setup > 0) {
-		if (s_buildSetupTables(setup_data, setup_size, &objects_json,
+		if (s_buildSetupTables(setup_data, setup_size,
+				use_mp_setup ? -1 : (s32)spec->stagenum, &objects_json,
 				&objectives_json, &setup_fields_json, &object_count,
 				&objective_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
@@ -9971,8 +10646,15 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	u32 bg_size = 0;
 	s32 has_bg = s_loadStageFileRaw(st->bgfileid, &bg_data, &bg_size);
 	if (has_bg > 0) {
-		if (s_buildBgVisualExports(bg_data, bg_size, &bg_scene) == 0) {
+		if (s_buildBgVisualExports(bg_data, bg_size, &bg_scene,
+				spec->stagenum) == 0) {
 			has_visual = 1;
+			sysLogPrintf(LOG_NOTE,
+				"romextract pdscenario: B-1172 light-flag census \"%s\" rooms=%u flagged_rooms=%u flagged_colours=%u of %u",
+				scenario_id, (unsigned)bg_scene.room_count,
+				(unsigned)bg_scene.light_flag_rooms,
+				(unsigned)bg_scene.light_flag_colours,
+				(unsigned)bg_scene.light_colours_total);
 		} else {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: BG visual display-list export failed for \"%s\"",

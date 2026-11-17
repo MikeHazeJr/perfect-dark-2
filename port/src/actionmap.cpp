@@ -464,7 +464,11 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     /* 121-122: gun roll (T-MODDING-008) */
     "GunRollLeft",
     "GunRollRight",
+    /* 123: vehicle boost (Maian vehicle V3) */
+    "VehicleBoost",
 };
+/* Every action has a name: a missing one is a null config key (B-1116 on
+ * week-pd/core, the same fix as CRYSTAL's B-1184). */
 static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
               "B-1184: every InputAction needs a persisted name");
 
@@ -1944,6 +1948,7 @@ s32 actionIsBlockedInFreefly(InputAction a)
     case ACTION_VEHICLE_STEER_LEFT:
     case ACTION_VEHICLE_STEER_RIGHT:
     case ACTION_VEHICLE_EXIT:
+    case ACTION_VEHICLE_BOOST:
     /* Crouch / jump / sprint on the frozen player-chr: block */
     case ACTION_CROUCH:
     case ACTION_JUMP:
@@ -2633,6 +2638,13 @@ void actionmapLoadBinds(void)
     if (active >= 0) inputProfilesSetActive(active);
     if (ok) actionmapUpdateLegacyBindStrings();
     else sysLogPrintf(LOG_WARNING, "ACTIONMAP: %s", s_BindingPersistenceError.c_str());
+    if (ok && s_ProfileStore.upgradedFromActions() > 0) {
+        /* The file was saved by a build with fewer actions (each new action
+         * makes every saved file one row short per context). */
+        sysLogPrintf(LOG_NOTE,
+            "ACTIONMAP: bindings file from an older build (%d of %d actions per context): bindings kept, new actions take their defaults, file brought up to date",
+            (s32)s_ProfileStore.upgradedFromActions(), (s32)ACTION_COUNT);
+    }
     actionmapRetireBindingState();
 }
 
@@ -3218,7 +3230,8 @@ static void setupVehicleDefaults(s32 player)
     /* Vehicle expansion (Mike directive 2026-05-17). LOOK_X/Y mirror the
      * right-stick + arrow-key shape of ACTION_AIM_* so mounted yaw/pitch
      * uses the analog stick the user already trained on for on-foot aim.
-     * HANDBRAKE on Space / A-button. The on-foot mount/use shortcut lives
+     * HANDBRAKE on Space / B-button: Mike 2026-11-16 gave A to boost and
+     * moved the handbrake to B. The on-foot mount/use shortcut lives
      * on g_ImcGameplay because this vehicle IMC is inactive until mounted. */
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_LEFT));
@@ -3229,7 +3242,10 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_UP);
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_DOWN);
     addBind(imc, ACTION_VEHICLE_HANDBRAKE,   VK_SPACE);
-    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   JOY_BTN(0, JBTN_B));
+    /* Boost (Maian vehicle V3, Mike 2026-11-16): Shift and A, mappable. */
+    addBind(imc, ACTION_VEHICLE_BOOST,       VK_LSHIFT);
+    addBind(imc, ACTION_VEHICLE_BOOST,       JOY_BTN(0, JBTN_A));
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
     addBind(imc, ACTION_VOICE_PTT,           VKL_V);
@@ -3850,6 +3866,8 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     /* 121-122: gun roll (T-MODDING-008) */
     { "ACTION_GUN_ROLL_LEFT",        ACTION_GUN_ROLL_LEFT },
     { "ACTION_GUN_ROLL_RIGHT",       ACTION_GUN_ROLL_RIGHT },
+    /* 123: vehicle boost (Maian vehicle V3) */
+    { "ACTION_VEHICLE_BOOST",        ACTION_VEHICLE_BOOST },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

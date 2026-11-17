@@ -608,6 +608,51 @@ TEST_CASE("production source dispatch rejects invalid secondary and unsupported 
     REQUIRE(wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error)) == -1);
     REQUIRE(error[0]); REQUIRE_FALSE(out.catalog_id[0]);
 }
+// The .pdweapon layout requires a variables member and a shared-context member.
+// held_single_shot.v1 uses neither, so a v2 archive may carry them only in the
+// forms that ask nothing of the runtime; anything authored beyond that is
+// refused instead of being silently ignored.
+TEST_CASE("v2 archive accepts the required variables and shared-context members only in their empty standard forms",
+        "[graph-v2-equipped][graph-v2-ingress][modding][pdxxx]") {
+    const std::string variables = "{\"schema\":\"pd.weapon_variables.v1\",\"asset_id\":\"mod:single\",\"variables\":[]}";
+    const std::string contexts = "{\"schema\":\"pd.weapon_shared_context.v1\",\"asset_id\":\"mod:single\",\"contexts\":["
+        "{\"name\":\"owner_player\",\"scope\":\"player\",\"source\":\"equipped_player\",\"type\":\"player_ref\",\"lifetime\":\"weapon_instance\"},"
+        "{\"name\":\"owner_team\",\"scope\":\"player\",\"source\":\"equipped_player_team\",\"type\":\"team_ref\",\"lifetime\":\"weapon_instance\"},"
+        "{\"name\":\"weapon_instance\",\"scope\":\"weapon\",\"source\":\"equipped_weapon\",\"type\":\"weapon_instance_ref\",\"lifetime\":\"weapon_instance\"},"
+        "{\"name\":\"damage_credit_player\",\"scope\":\"projectile\",\"source\":\"owner_player\",\"type\":\"player_ref\",\"lifetime\":\"projectile_life\"}]}";
+    const auto inspect = [](const std::string &v, const std::string &c, const char *extra_descriptor) {
+        auto sources = productionSources();
+        sources[0].second += "variables_file=behavior/variables.json\nshared_context_file=behavior/shared-context.json\n";
+        sources[0].second += extra_descriptor;
+        sources.push_back({"behavior/variables.json", v});
+        sources.push_back({"behavior/shared-context.json", c});
+        const auto bytes = snapshot(sources); char error[512]{}; weapon_graph_archive_descriptor_t out{};
+        const int result = wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error));
+        if (result == -1) { REQUIRE(error[0]); REQUIRE_FALSE(out.catalog_id[0]); }
+        return result;
+    };
+    // The forms every base weapon carries are accepted, in any context order.
+    REQUIRE(inspect(variables, contexts, "") == 1);
+    const std::string team = "{\"name\":\"owner_team\",\"scope\":\"player\",\"source\":\"equipped_player_team\",\"type\":\"team_ref\",\"lifetime\":\"weapon_instance\"},";
+    const std::string reordered = replace(replace(contexts, team, ""), "\"contexts\":[", "\"contexts\":[" + team);
+    REQUIRE(reordered != contexts);
+    REQUIRE(inspect(variables, reordered, "") == 1);
+    // A declared variable is authored behavior this runtime cannot honor.
+    REQUIRE(inspect(replace(variables, "[]", "[{\"name\":\"heat\",\"type\":\"float\"}]"), contexts, "") == -1);
+    REQUIRE(inspect(replace(variables, "mod:single", "mod:other"), contexts, "") == -1);
+    REQUIRE(inspect(replace(variables, "pd.weapon_variables.v1", "pd.weapon_variables.v2"), contexts, "") == -1);
+    REQUIRE(inspect(replace(variables, "\"variables\":[]", "\"variables\":[],\"defaults\":{}"), contexts, "") == -1);
+    REQUIRE(inspect("{", contexts, "") == -1);
+    // So is a context that is altered, duplicated, missing, extended or extra.
+    REQUIRE(inspect(variables, replace(contexts, "equipped_player_team", "enemy_team"), "") == -1);
+    REQUIRE(inspect(variables, replace(contexts, "\"name\":\"owner_team\"", "\"name\":\"owner_player\""), "") == -1);
+    REQUIRE(inspect(variables, replace(contexts, team, ""), "") == -1);
+    REQUIRE(inspect(variables, replace(contexts, "\"lifetime\":\"projectile_life\"}", "\"lifetime\":\"projectile_life\",\"note\":\"x\"}"), "") == -1);
+    REQUIRE(inspect(variables, replace(contexts, "]}", ",{\"name\":\"target\",\"scope\":\"player\",\"source\":\"aim_target\",\"type\":\"player_ref\",\"lifetime\":\"weapon_instance\"}]}"), "") == -1);
+    REQUIRE(inspect(variables, replace(contexts, "mod:single", "mod:other"), "") == -1);
+    // Presentation bindings stay refused whatever the other two members say.
+    REQUIRE(inspect(variables, contexts, "presentation_file=presentation.json\n") == -1);
+}
 TEST_CASE("idle gset copies retain exact equipment after source retirement without selecting an action", "[graph-v2-equipped][graph-v2-gset][modding][pdxxx][c3842]") {
     Fixture f; char error[512]{}; wg_v2_use use{};
     using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;

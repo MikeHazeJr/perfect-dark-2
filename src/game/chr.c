@@ -4,6 +4,7 @@
 #include "lib/memp.h"
 #include "constants.h"
 #include "asset_runtime.h"
+#include "body_blood.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
 #include "game/bondmove.h"
@@ -3389,14 +3390,20 @@ s32 chrTick(struct prop *prop)
 	 * blend update. After the chr's AI/movement has settled the chr's
 	 * world position for this frame, sample the surface normal under
 	 * the new pos and roll the blend timer. The renderer reads the
-	 * interpolated value via chrSurfaceLocoGetRenderUp. */
-	if (chr->surface_blend_frames > 0) {
-		chr->surface_blend_frames--;
-		if (chr->surface_blend_frames == 0) {
-			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+	 * interpolated value via chrSurfaceLocoGetRenderUp.
+	 * B-1179: chrTick runs once per player per frame, and the blend and
+	 * the floor sample belong to the chr, so only the frame's full tick
+	 * advances them. Outside it, two players halved the 8-frame blend
+	 * and sampled the floor twice (SP-87, the class of B-1202). */
+	if (fulltick) {
+		if (chr->surface_blend_frames > 0) {
+			chr->surface_blend_frames--;
+			if (chr->surface_blend_frames == 0) {
+				chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+			}
 		}
+		chrSurfaceLocoTick(chr);
 	}
-	chrSurfaceLocoTick(chr);
 
 	return TICKOP_NONE;
 }
@@ -3799,22 +3806,30 @@ void chrRenderAttachedObject(struct prop *prop, struct modelrenderdata *renderda
 	}
 }
 
+/* The Maian bodies' green blood. */
+static void chrGetMaianBloodColour(u8 *colour1, u32 *colour2)
+{
+	if (colour1) {
+		colour1[0] = 10;
+		colour1[1] = 0x40;
+		colour1[2] = 10;
+	}
+	if (colour2) {
+		colour2[0] = 0x103010ff;
+		colour2[1] = 0x104010ff;
+		colour2[2] = 0x005611a0;
+	}
+}
+
 void chrGetBloodColour(s16 bodynum, u8 *colour1, u32 *colour2)
 {
+	const char *bodyid;
+
 	switch (bodynum) {
 	case BODY_ELVIS1:
 	case BODY_THEKING:
 	case BODY_ELVISWAISTCOAT:
-		if (colour1) {
-			colour1[0] = 10;
-			colour1[1] = 0x40;
-			colour1[2] = 10;
-		}
-		if (colour2) {
-			colour2[0] = 0x103010ff;
-			colour2[1] = 0x104010ff;
-			colour2[2] = 0x005611a0;
-		}
+		chrGetMaianBloodColour(colour1, colour2);
 		return;
 	case BODY_DRCAROLL:
 	case BODY_EYESPY:
@@ -3844,6 +3859,15 @@ void chrGetBloodColour(s16 bodynum, u8 *colour1, u32 *colour2)
 			colour2[1] = 0x402010ff;
 			colour2[2] = 0x560011a0;
 		}
+		return;
+	}
+
+	/* A mod body is not in the original's list above: a Maian-type one bleeds
+	 * the Maian green (body_blood.h). The type is read only for a body the
+	 * catalog knows, so an unknown slot raises no catalog miss here. */
+	bodyid = catalogBodyIdByBodynum(bodynum);
+	if (bodyid && bodyBloodForCatalogBody(bodyid, catalogGetBodyType(bodynum)) == BODY_BLOOD_MAIAN) {
+		chrGetMaianBloodColour(colour1, colour2);
 		return;
 	}
 

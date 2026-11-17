@@ -288,6 +288,14 @@ const char *modmgrGetModDep(s32 index, s32 depIndex);
 // Returns NULL if no mods directory was found.
 const char *modmgrGetModsDir(void);
 
+/* Every mods folder the last scan read. 0 is the folder the game writes
+ * mods to (modmgrGetModsDir): normally the user mods folder,
+ * %LOCALAPPDATA%\perfectdark\mods. The install's own folders follow and
+ * are only read. On a clash of mod ids the earlier folder wins
+ * (mods_roots.h). */
+s32 modmgrGetModsRootCount(void);
+const char *modmgrGetModsRoot(s32 index);
+
 // --- S196: Base-Game Template Mod accessors (for UI) ---
 
 // Return 1 if this mod.json declared "template": true, 0 otherwise.

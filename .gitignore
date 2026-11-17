@@ -16,6 +16,8 @@ backups/
 *.obj
 !tests/fixtures/modpipe/external-folder/maps/tri_arena/geometry.obj
 !tests/fixtures/modpipe/external-archive-entries/maps/tri_arena/geometry.obj
+# Mod model sources in dev-mods are OBJ meshes, not compiler objects.
+!dev-mods/**/meshes/**/*.obj
 *.a
 *.pdb
 *.pyc

@@ -1714,34 +1714,25 @@ static void scan_themes_in_root(const char *root, int allow_recurse, int *walked
 /** Scan the `mods/` directory and register every `<slug>/theme.json` found. */
 static void scan_mods_for_themes(void)
 {
-    /* Match modmgr search order so theme discovery follows the same roots:
-     * $E/../mods, ./mods, $E/mods, then base-dir mods fallback. */
-    char candidateBufs[4][THEME_FILEPATH_LEN];
-    if (nativeWritePolicyActive()) {
-        fsFullPath("$B/mods", candidateBufs[0], sizeof(candidateBufs[0]));
-        candidateBufs[1][0] = candidateBufs[2][0] = candidateBufs[3][0] = '\0';
-    } else {
-    fsFullPath("$E/../mods", candidateBufs[0], sizeof(candidateBufs[0]));
-    snprintf(candidateBufs[1], sizeof(candidateBufs[1]), "%s", "mods");
-    fsFullPath("$E/mods", candidateBufs[2], sizeof(candidateBufs[2]));
-    fsFullPath("mods",    candidateBufs[3], sizeof(candidateBufs[3]));
-    }
+    /* B-1160: the same mods/ roots modmgr walks (fsModRoots: only the
+     * explicit --moddir when one is given, else $E/../mods, ./mods,
+     * $E/mods, then the base-dir mods fallback). */
+    fs_mod_roots_t roots;
+    fsModRoots(&roots);
 
     int walked = 0;
-    for (int ci = 0; ci < 4; ci++) {
-        if (!candidateBufs[ci][0]) continue;
-
+    for (int ci = 0; ci < roots.count; ci++) {
         /* Avoid re-scanning duplicate resolved paths. */
         bool dup = false;
         for (int pj = 0; pj < ci; pj++) {
-            if (candidateBufs[pj][0] && strcmp(candidateBufs[pj], candidateBufs[ci]) == 0) {
+            if (strcmp(roots.path[pj], roots.path[ci]) == 0) {
                 dup = true;
                 break;
             }
         }
         if (dup) continue;
 
-        scan_themes_in_root(candidateBufs[ci], 1, &walked);
+        scan_themes_in_root(roots.path[ci], 1, &walked);
     }
 
     sysLogPrintf(LOG_NOTE,
@@ -1988,7 +1979,7 @@ void pdguiThemeLoaderOnCatalogReady(void)
                 "PDGUI theme loader: auto-applying first-sight theme '%s'",
                 s_Themes[i].catalog_id);
             pdguiThemeLoadFromCatalog(s_Themes[i].catalog_id);
-            configSave("pd.ini");
+            configSave(CONFIG_PATH);
             break;
         }
     }
@@ -2280,7 +2271,7 @@ void pdguiThemeSetEnabled(s32 index, s32 enabled)
     if (!enabled && strcmp(s_Themes[index].catalog_id, s_ActiveThemeId) == 0) {
         pdguiThemeLoadFromCatalog(THEME_DEFAULT_ID);
     }
-    configSave("pd.ini");
+    configSave(CONFIG_PATH);
 }
 
 /* 2026-04-11: register a single mod theme at runtime so the Save-as-Mod

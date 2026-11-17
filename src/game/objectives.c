@@ -50,6 +50,10 @@ s32 g_ObjectiveLastIndex = -1;
 bool g_ObjectiveChecksDisabled = false;
 bool g_DebugForceCompleteCurrentMissionObjectives = false;
 
+/* One warning per objective per stage when the mission graph cannot
+ * evaluate it (reset by tagsReset at stage load). */
+static u32 s_ObjectiveNoGraphLogged;
+
 static bool objectiveGraphRequirementUsesObjectState(u8 type);
 static void objectiveSeedGraphObjectStates(void);
 
@@ -121,6 +125,7 @@ void tagsReset(void)
 		tag = tag->next;
 	}
 
+	s_ObjectiveNoGraphLogged = 0;
 	objectiveSeedGraphObjectStates();
 
 #if PIRACYCHECKS
@@ -677,6 +682,70 @@ static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
  * requirement in the objective to decide whether to change it to incomplete or
  * failed.
  */
+/**
+ * The original evaluation of one objective from its setup commands. Read
+ * only: it merges the status of every requirement of the objective. Since
+ * Mike's decision 1 (2026-11-15) the mission graph is the only evaluator in
+ * play; this survives only as the auto-campaign runner's parity oracle
+ * (objectiveGraphParity), never as a gameplay fallback.
+ */
+static s32 objectiveCheckNative(s32 index)
+{
+	s32 objstatus = OBJECTIVE_COMPLETE;
+
+	// Note: This is setting the cmd pointer to the start of the
+	// beginobjective macro in the stage's setup file. The first
+	// iteration of the while loop below will skip past it.
+	u32 *cmd = (u32 *)g_Objectives[index];
+
+	while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+		objstatus = objectiveMergeRequirementStatus(objstatus,
+			objectiveEvaluateRequirement((u8)PD_BE32(cmd[0]), cmd));
+
+		cmd = cmd + setupGetCmdLength(cmd);
+	}
+
+	return objstatus;
+}
+
+/**
+ * Parity check for the behavior-graph objective path: evaluates objective
+ * index both from the mission graph and natively, without recording either.
+ * Returns false when the objective has no setup commands or no mission graph
+ * evaluates it; otherwise both answers are written out.
+ */
+bool objectiveGraphParity(s32 index, s32 *out_graph, s32 *out_native)
+{
+	s32 graph = OBJECTIVE_INCOMPLETE;
+
+	if (index < 0 || index >= ARRAYCOUNT(g_Objectives)
+			|| g_Objectives[index] == NULL
+			|| g_DebugForceCompleteCurrentMissionObjectives) {
+		return false;
+	}
+	if (!objectiveCheckGraphSource(index, &graph)) {
+		return false;
+	}
+	if (out_graph) {
+		*out_graph = graph;
+	}
+	if (out_native) {
+		*out_native = objectiveCheckNative(index);
+	}
+	return true;
+}
+
+static void objectiveLogNoGraphOnce(s32 index)
+{
+	if (index < 0 || index >= 32 || (s_ObjectiveNoGraphLogged & (1u << index))) {
+		return;
+	}
+	s_ObjectiveNoGraphLogged |= 1u << index;
+	sysLogPrintf(LOG_WARNING,
+		"OBJECTIVES: objective %d has no mission graph evaluation and stays incomplete (graph_active=%d)",
+		index, scenarioSourceObjectiveGraphIsActive());
+}
+
 s32 objectiveCheck(s32 index)
 {
 	u32 stack[5];
@@ -692,17 +761,11 @@ s32 objectiveCheck(s32 index)
 		} else if (objectiveCheckGraphSource(index, &objstatus)) {
 			/* Graph-driven path used. */
 		} else {
-			// Note: This is setting the cmd pointer to the start of the
-			// beginobjective macro in the stage's setup file. The first
-			// iteration of the while loop below will skip past it.
-			u32 *cmd = (u32 *)g_Objectives[index];
-
-			while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
-				objstatus = objectiveMergeRequirementStatus(objstatus,
-					objectiveEvaluateRequirement((u8)PD_BE32(cmd[0]), cmd));
-
-				cmd = cmd + setupGetCmdLength(cmd);
-			}
+			/* Decision 1: the mission graph is the only evaluator. An
+			 * objective it cannot evaluate stays incomplete, loudly; the
+			 * original evaluation is no fallback. */
+			objstatus = OBJECTIVE_INCOMPLETE;
+			objectiveLogNoGraphOnce(index);
 		}
 	}
 
@@ -738,11 +801,23 @@ s32 objectivesDebugCompleteCurrentMission(void)
 bool objectiveIsAllComplete(void)
 {
 	s32 i;
+	s32 forced_complete = 0;
+
+	/* mission-flow.md: once a mission graph ended the mission
+	 * (og.mission.end_*), the outcome is the graph's. */
+	if (scenarioSourceMissionGraphForcedOutcome(&forced_complete)) {
+		return forced_complete != 0;
+	}
 
 	for (i = 0; i < objectiveGetCount(); i++) {
 		u32 diffbits = objectiveGetDifficultyBits(i);
 
-		if (1 << lvGetDifficulty() & diffbits) {
+		/* mission-flow.md: the outcome takes the objectives the mission
+		 * graph requires; "required": false leaves a bonus objective out.
+		 * Every caller (the end screen, the menus, the AI command
+		 * if_all_objectives_complete) reads the outcome here. */
+		if ((1 << lvGetDifficulty() & diffbits)
+				&& scenarioSourceMissionObjectiveRequired(i)) {
 			s32 status;
 			// In network co-op, client uses cached statuses from SVC_OBJ_STATUS
 			// instead of re-evaluating criteria (which may depend on server state).
@@ -887,12 +962,16 @@ void objectivesCheckAll(void)
 			}
 
 			if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
-				any_active_objective = 1;
-				if (status == OBJECTIVE_FAILED) {
-					any_failed_objective = 1;
-				}
-				if (status != OBJECTIVE_COMPLETE) {
-					all_active_objectives_complete = 0;
+				/* An optional objective is shown and checked but does not
+				 * decide the mission's phase (mission-flow.md). */
+				if (scenarioSourceMissionObjectiveRequired(i)) {
+					any_active_objective = 1;
+					if (status == OBJECTIVE_FAILED) {
+						any_failed_objective = 1;
+					}
+					if (status != OBJECTIVE_COMPLETE) {
+						all_active_objectives_complete = 0;
+					}
 				}
 				availableindex++;
 			}
@@ -904,6 +983,25 @@ void objectivesCheckAll(void)
 					(all_active_objectives_complete ? "complete" :
 						"active"),
 				"objectives.check");
+		}
+		/* mission-flow.md: the phase just recorded reaches the mission
+		 * graph as event.mission.phase_changed, after the objectives' own
+		 * events. */
+		scenarioSourceMissionGraphDeliverPhaseEvent();
+		/* trigger-volume-events.md: a player going into or out of a box the
+		 * mission graph names; the host's graph decides on a network game. */
+		if (g_NetMode != NETMODE_CLIENT) {
+			struct coord positions[MAX_PLAYERS];
+			s32 present[MAX_PLAYERS];
+			const s32 count = PLAYERCOUNT() < MAX_PLAYERS ? PLAYERCOUNT() : MAX_PLAYERS;
+
+			for (i = 0; i < count; i++) {
+				present[i] = g_Vars.players[i] && g_Vars.players[i]->prop;
+				if (present[i]) {
+					positions[i] = g_Vars.players[i]->prop->pos;
+				}
+			}
+			scenarioSourceMissionGraphDeliverVolumeEvents(positions, present, count);
 		}
 	}
 }

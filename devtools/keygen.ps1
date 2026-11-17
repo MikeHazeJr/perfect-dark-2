@@ -4,8 +4,9 @@
 # dev-keys/ (gitignored), and patches the embedded public key into
 # port/include/updater_pubkey.h.
 #
-# Called automatically at build time by build-env.sh and build-headless.ps1
-# when dev-keys/ed25519-private.pem does not exist.
+# Called by release.ps1 when dev-keys/ed25519-private.pem does not exist, and
+# by hand. Builds no longer call it (B-1122 follow-up): it rewrites the tracked
+# header, so a build in a fresh worktree used to leave a throwaway key there.
 #
 # Usage:
 #   .\devtools\keygen.ps1          # Generate keypair (auto-called by build)
@@ -119,7 +120,11 @@ if (-not (Test-Path -LiteralPath $headerPath)) {
     exit 1
 }
 
-$header = Get-Content -LiteralPath $headerPath -Raw
+# Read as UTF-8 on purpose (B-1122). Windows PowerShell 5.1 decodes a file with
+# no BOM in the ANSI code page, so `Get-Content -Raw` followed by the UTF-8
+# write below garbled every non-ASCII character once more on each run.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$header = [System.IO.File]::ReadAllText($headerPath, $utf8NoBom)
 
 $lines = @()
 for ($i = 0; $i -lt 32; $i += 8) {
@@ -141,6 +146,9 @@ $keyBody
 };
 /* END UPDATER_PUBKEY */
 "@
+# The header is tracked with LF line ends; this script is CRLF, and so is the
+# here-string above. Keep the generated block LF like the rest of the file.
+$block = $block.Replace("`r`n", "`n")
 
 $pattern = '(?s)/\* BEGIN UPDATER_PUBKEY.*?/\* END UPDATER_PUBKEY \*/'
 if ($header -notmatch $pattern) {
@@ -156,7 +164,6 @@ $header = $regex.Replace($header, $evaluator, 1)
 # No-BOM UTF-8 write. PowerShell 5.1's `Set-Content -Encoding UTF8` always
 # emits a BOM regardless of -NoNewline; updater_pubkey.h is tracked, and
 # the BOM byte left it dirty in the working tree after every keygen run.
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($headerPath, $header, $utf8NoBom)
 
 Write-Host ""

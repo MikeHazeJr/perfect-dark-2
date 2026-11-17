@@ -298,6 +298,7 @@ static const char *dependencyTypeName(asset_type_e type)
 	case ASSET_FONT:        return "font";
 	case ASSET_SCENARIO:    return "scenario";
 	case ASSET_THEME:       return "theme";
+	case ASSET_AI_LISTS:    return "ai_lists";
 	default:                return "asset";
 	}
 }

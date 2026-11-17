@@ -1,4 +1,5 @@
 #include "weapon_graph_v2_equipped.h"
+#include "weapon_graph_v2_ingress.h"
 #include "modarchive.h"
 #include "assetcatalog_weapon_slots.h"
 #include "modasset_gltf_document.h"
@@ -381,10 +382,12 @@ extern "C" wg_v2_catalog_entry *wgV2EquippedCatalogPrepareArchive(wg_v2_catalog 
         if (weaponGraphArchiveReadDescriptorBytes(bytes, size, ASSET_WEAPON,
                 &descriptor, error, cap) != 0) return nullptr;
         if (std::strcmp(id, descriptor.catalog_id)) bad("equipped archive catalog identity mismatch");
-        /* These v1 bindings are not implemented by the v2 profile. Accepting
-         * them here would silently ignore part of the authored behavior. */
-        if (descriptor.variables[0] || descriptor.shared_context[0] || descriptor.presentation[0])
-            bad("equipped v2 archive has unsupported variables/shared-context/presentation bindings");
+        /* Variables, shared contexts and presentation bindings are not
+         * implemented by the v2 profile. Accepting authored ones would silently
+         * ignore part of the behavior, so only the forms that ask nothing of
+         * the runtime pass: an empty variable list and the four standard
+         * contexts, which the archive layout requires every weapon to carry. */
+        if (!wgV2ArchiveUnusedBindingsAccepted(bytes, size, &descriptor, error, cap)) return nullptr;
         const char *selected = use->function == 1 ? descriptor.secondary_graph :
             (descriptor.primary_graph[0] ? descriptor.primary_graph : descriptor.behavior_graph);
         const auto graph = archiveText(bytes, size, selected);

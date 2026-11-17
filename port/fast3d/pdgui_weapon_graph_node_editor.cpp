@@ -12,6 +12,7 @@
 #include "imgui/imgui.h"
 #include "imgui_node_editor.h"
 #include "crude_json.h"
+#include "weapon_graph_editor_io.h"
 
 namespace ed = ax::NodeEditor;
 
@@ -278,7 +279,7 @@ static bool paramsSetContext(char *params,
 			return entry.is_string() && entry.get<crude_json::string>() == name;
 		}), refs.end());
 	if (enabled) refs.push_back(crude_json::value(name));
-	std::string dumped = root.dump(0);
+	std::string dumped = weaponGraphEditorValueText(root);
 	if (dumped.size() >= params_cap) return false;
 	snprintf(params, params_cap, "%s", dumped.c_str());
 	return true;
@@ -316,7 +317,7 @@ static void seedMissingNodeLayout(PdWeaponGraphEditModel *model)
 static bool paramsRewrite(char *params, size_t params_cap, const crude_json::value &root)
 {
 	if (!params || params_cap == 0) return false;
-	std::string dumped = root.dump(0);
+	std::string dumped = weaponGraphEditorValueText(root);
 	if (dumped.size() >= params_cap) return false;
 	snprintf(params, params_cap, "%s", dumped.c_str());
 	return true;
@@ -1032,8 +1033,14 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 	if (root.contains("nodes") && root["nodes"].is_array()) {
 		const auto &items = root["nodes"].get<crude_json::array>();
 		for (const auto &item : items) {
-			if (!item.is_object() || model->node_count >= PDGUI_WEAPON_GRAPH_MAX_NODES) {
-				continue;
+			if (!item.is_object()) continue;
+			if (model->node_count >= PDGUI_WEAPON_GRAPH_MAX_NODES) {
+				if (err && err_cap) {
+					snprintf(err, err_cap, "the graph has more than %d nodes",
+						PDGUI_WEAPON_GRAPH_MAX_NODES);
+				}
+				pdguiWeaponGraphModelReset(model, contexts, context_count);
+				return false;
 			}
 			PdWeaponGraphNodeEdit &node = model->nodes[model->node_count++];
 			memset(&node, 0, sizeof(node));
@@ -1045,7 +1052,18 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 			}
 			if (!node.subgraph[0]) snprintf(node.subgraph, sizeof(node.subgraph), "primary");
 			if (item.contains("params") && item["params"].is_object()) {
-				std::string dumped = item["params"].dump(0);
+				std::string dumped = weaponGraphEditorValueText(item["params"]);
+				if (dumped.size() >= sizeof(node.params)) {
+					/* Cut-off settings would be saved as a broken weapon. */
+					if (err && err_cap) {
+						snprintf(err, err_cap,
+							"node %s has more settings text than the editor holds (%u of %u bytes)",
+							node.id, (unsigned)dumped.size(),
+							(unsigned)sizeof(node.params) - 1);
+					}
+					pdguiWeaponGraphModelReset(model, contexts, context_count);
+					return false;
+				}
 				snprintf(node.params, sizeof(node.params), "%s", dumped.c_str());
 			} else {
 				snprintf(node.params, sizeof(node.params), "{}");
@@ -1055,8 +1073,14 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 	if (root.contains("edges") && root["edges"].is_array()) {
 		const auto &items = root["edges"].get<crude_json::array>();
 		for (const auto &item : items) {
-			if (!item.is_object() || model->edge_count >= PDGUI_WEAPON_GRAPH_MAX_EDGES) {
-				continue;
+			if (!item.is_object()) continue;
+			if (model->edge_count >= PDGUI_WEAPON_GRAPH_MAX_EDGES) {
+				if (err && err_cap) {
+					snprintf(err, err_cap, "the graph has more than %d links",
+						PDGUI_WEAPON_GRAPH_MAX_EDGES);
+				}
+				pdguiWeaponGraphModelReset(model, contexts, context_count);
+				return false;
 			}
 			if (!item.contains("from") || !item.contains("to") ||
 					!item["from"].is_string() || !item["to"].is_string()) {

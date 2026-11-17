@@ -28,7 +28,7 @@ static s32 persistExtendedBinds(void)
 {
     if (actionmapSaveBinds()) {
         g_ExtendedBindStatus[0] = '\0';
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
         return 1;
     }
     snprintf(g_ExtendedBindStatus, sizeof(g_ExtendedBindStatus), "%s\n",

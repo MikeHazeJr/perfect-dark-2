@@ -52,6 +52,21 @@ std::string functionBlock(const std::string &text, const std::string &name)
     return {};
 }
 
+/* The block of the definition that starts with this exact header (a static
+ * helper's forward declaration names it first, so functionBlock would stop
+ * there). */
+std::string definitionBlock(const std::string &text, const std::string &header)
+{
+    const size_t start = text.find(header);
+    if (start == std::string::npos) {
+        return {};
+    }
+    const std::string rest = text.substr(start);
+    const size_t open = rest.find('(');
+    return open == std::string::npos ? std::string()
+        : functionBlock(rest, rest.substr(0, open));
+}
+
 } /* namespace */
 
 TEST_CASE("vehicle layer wiring: hoverbike routes through scene layer", "[input][vehicle][static]")
@@ -119,7 +134,15 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE_FALSE(main.empty());
     REQUIRE_FALSE(smoke.empty());
 
-    const std::string mount = functionBlock(propobj, "currentPlayerTryMountHoverbike");
+    /* pd.vehicle_graph.v1: the mount candidate and commit is the native
+     * function the graph's og.vehicle.mount_seat runs; the public entry
+     * fires the graph's mount request first. The two dismount bodies are the
+     * helpers og.vehicle.dismount_seat runs. */
+    const std::string mount = definitionBlock(propobj,
+        "static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)\n{");
+    const std::string mountRequest = functionBlock(propobj, "currentPlayerTryMountHoverbike");
+    const std::string sides = definitionBlock(bondbike, "static s32 bbikeDismountToSides(void *context)");
+    const std::string chosen = definitionBlock(bondbike, "static s32 bbikeExitToChosenSide(void *context)");
     const std::string committed = functionBlock(propobj, "currentPlayerApplyHoverbikeState");
     const std::string canApply = functionBlock(propobj, "currentPlayerCanApplyHoverbikeState");
     const std::string interact = functionBlock(propobj, "propobjInteract");
@@ -214,9 +237,25 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE(apply.find("targetForward = vAccel - vBrake") != std::string::npos);
     REQUIRE(apply.find("targetForward = -vBrake") == std::string::npos);
     REQUIRE(apply.find("ACTION_VEHICLE_EXIT") != std::string::npos);
-    REQUIRE(apply.find("s_VehicleExitIntentPending") != std::string::npos);
     REQUIRE(apply.find("g_NetMode == NETMODE_CLIENT") != std::string::npos);
-    REQUIRE(apply.find("if (g_Vars.currentplayer->walkinitmove)") != std::string::npos);
+    REQUIRE_FALSE(mountRequest.empty());
+    REQUIRE_FALSE(sides.empty());
+    REQUIRE_FALSE(chosen.empty());
+    REQUIRE(mountRequest.find("hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED") <
+        mountRequest.find("return currentPlayerTryMountHoverbikeNative(prop);"));
+    REQUIRE(mountRequest.find("return currentPlayerTryMountHoverbikeNative(prop);") != std::string::npos);
+    // og.vehicle.mount_seat runs the native mount through the request's action.
+    REQUIRE(propobj.find("return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;") !=
+        std::string::npos);
+    REQUIRE(mountRequest.find("VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);") !=
+        std::string::npos);
+    REQUIRE(apply.find("hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED") !=
+        std::string::npos);
+    REQUIRE(apply.find("assetRuntimeVehicleAllows(bike->base.modelnum, \"dismount\")") != std::string::npos);
+    REQUIRE(apply.find("bbikeExitToChosenSide(&vexit)") != std::string::npos);
+    REQUIRE(chosen.find("s_VehicleExitIntentPending") != std::string::npos);
+    REQUIRE(chosen.find("g_NetMode == NETMODE_CLIENT") != std::string::npos);
+    REQUIRE(chosen.find("if (g_Vars.currentplayer->walkinitmove)") != std::string::npos);
     REQUIRE(init.find("!player || !player->prop") != std::string::npos);
     REQUIRE(init.find("bikebase->prop != bikeprop") != std::string::npos);
     REQUIRE(init.find("sceneFire(SCENE_EVENT_VEHICLE_BOARD") != std::string::npos);
@@ -243,11 +282,16 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
         bikeActivate.find("_bbContrMode == CONTROLMODE_PC"));
     REQUIRE(bikeActivate.find("clientLocalIntent") != std::string::npos);
     REQUIRE(bikeActivate.find("localIntentAccepted") != std::string::npos);
-    REQUIRE(bikeActivate.find("bbikeTryDismountAngle") <
-        bikeActivate.find("s_VehicleExitIntentPending"));
-    REQUIRE(bikeActivate.find("s_VehicleExitIntentPending") <
-        bikeActivate.find("bbikeTryDismount()"));
-    REQUIRE(bikeActivate.find("s_VehicleExitIntentPending") != std::string::npos);
+    REQUIRE(bikeActivate.find("hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike") <
+        bikeActivate.find("bbikeDismountToSides(&d);"));
+    REQUIRE(bikeActivate.find("bbikeDismountToSides(&d);") != std::string::npos);
+    REQUIRE(bikeActivate.find("localIntentAccepted = d.localIntentAccepted") != std::string::npos);
+    REQUIRE(sides.find("bbikeTryDismountAngle") <
+        sides.find("s_VehicleExitIntentPending"));
+    REQUIRE(sides.find("s_VehicleExitIntentPending") <
+        sides.find("bbikeTryDismount()"));
+    REQUIRE(sides.find("s_VehicleExitIntentPending") != std::string::npos);
+    REQUIRE(sides.find("d->localIntentAccepted = true") != std::string::npos);
     REQUIRE(bikeActivate.find("return") != std::string::npos);
     REQUIRE(remoteInput.find("!handled && (inmove->ucmd & UCMD_ACTIVATE)") != std::string::npos);
     REQUIRE(remoteInput.find("UCMD_VEHICLE_PC_INTENT") != std::string::npos);
@@ -267,7 +311,7 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE(bondmove.find("g_Vars.currentplayer->ucmd |= UCMD_ACTIVATE") != std::string::npos);
     REQUIRE(bondmove.find("g_Vars.currentplayer->ucmd |= UCMD_VEHICLE_PC_INTENT") != std::string::npos);
     REQUIRE(apply.find("player->pcinteractusekind = 2") != std::string::npos);
-    REQUIRE(apply.find("bbikeTryDismountAngle") < apply.find("s_VehicleExitIntentPending"));
+    REQUIRE(chosen.find("bbikeTryDismountAngle") < chosen.find("s_VehicleExitIntentPending"));
     REQUIRE(mode.find("sceneVehicleDriverCanBoard()") != std::string::npos);
     REQUIRE(mode.find("!player->isremote") != std::string::npos);
     REQUIRE(mode.find("bwalkInit()") != std::string::npos);

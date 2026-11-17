@@ -177,6 +177,43 @@ s32 modArchiveSha256(const char *path, u8 digest[SHA256_DIGEST_SIZE]);
 mod_archive_writer_t *modArchiveBegin(const char *path);
 
 /**
+ * Begin an archive of derived output: content the game rebuilds from the ROM
+ * when it is missing or broken, such as first-launch extraction (B-1110).
+ * Finish publishes it through the same temp file and atomic replace as
+ * modArchiveBegin, but does not force the file to disk and does not ask for a
+ * write-through rename (together about 100 ms per file on a hard disk).
+ * Instead the path is kept until modArchiveDerivedBarrier makes it durable.
+ * Anything a player or author made uses modArchiveBegin.
+ */
+mod_archive_writer_t *modArchiveBeginDerived(const char *path);
+
+/**
+ * Force every derived archive published so far under directory `dir` (every
+ * one when `dir` is NULL) to disk and forget it. Anything that vouches for
+ * those files without opening them, such as an extraction cache stamp, must
+ * be written only after this returns 0. A path that no longer exists (an
+ * intermediate its owner removed) is skipped. Returns 0 on success, -1 when
+ * any file could not be flushed; the rest are still flushed and forgotten.
+ * Thread-safe.
+ */
+s32 modArchiveDerivedBarrier(const char *dir);
+
+/**
+ * Same as modArchiveDerivedBarrier, with the flushes spread over a range
+ * runner such as bootPoolForRangeBlocking: several flushes in flight let a
+ * hard disk serve them together (1,000 new files on D: took 17.6 ms each one
+ * at a time, 8.3 with four at once). The runner must call fn(i, ctx) exactly
+ * once for each i in [begin, end) and return when all calls have finished.
+ * NULL runs them in turn on the calling thread.
+ */
+typedef void (*mod_archive_range_runner)(int begin, int end,
+	void (*fn)(int index, void *ctx), void *ctx);
+s32 modArchiveDerivedBarrierWith(const char *dir, mod_archive_range_runner runner);
+
+/** Number of derived archives under `dir` (all when NULL) not yet flushed. */
+s32 modArchiveDerivedPendingCount(const char *dir);
+
+/**
  * Add an entry from an in-memory buffer. `name` must be a forward-slash
  * relative path; the writer rejects anything with `..` segments or a
  * leading slash. `data` may be NULL when `len == 0` (empty entry).

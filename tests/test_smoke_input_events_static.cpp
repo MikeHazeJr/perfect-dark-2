@@ -1,8 +1,10 @@
 #include "catch.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -1079,9 +1081,12 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(systemSource, "strncpy(outPath, debugHome, outLen - 1)");
 
     const std::string modmgr = readTextFile("port/src/modmgr.c");
-    requireContains(modmgr, "const char *explicitModsDir = fsGetModDir();");
-    requireContains(modmgr, "if (explicitModsDir && explicitModsDir[0]) {");
-    requireContains(modmgr, "candidateBufs[1][0] = '\\0';");
+    // B-1031 + B-1160: an explicit --moddir is the only root (fsModRoots).
+    const std::string fsSource = readTextFile("port/src/fs.c");
+    requireContains(fsSource, "if (modDir[0]) {\n\t\tsnprintf(out->path[0], sizeof(out->path[0]), \"%s\", modDir);");
+    requireContains(fsSource, "out->explicit_dir = 1;");
+    requireContains(modmgr, "fsModRoots(&roots);");
+    requireContains(modmgr, "if (roots.explicit_dir) {");
     requireContains(modmgr, "modmgr: could not open explicit mod directory");
 }
 
@@ -1503,4 +1508,42 @@ TEST_CASE("smoke kills the scenario token's carrier through production damage",
     requireContains(kill, "smokeHarnessExit(1, \"kill_token_holder_no_holder\");");
     requireContains(kill, "chrDamageByMisc(chr, 1000.0f, &dir, NULL, NULL);");
     requireContains(kill, "SMOKE.KILL_TOKEN_HOLDER: simulant player=%d token=%s died=%d at_ms=%d");
+}
+
+TEST_CASE("B-1170 every fixture key name resolves through the smoke key table",
+          "[smoke][input][static][b1170]")
+{
+    // A key the table lacks makes the harness refuse the whole fixture at
+    // parse time (menu_settings_keyboard could not run for weeks: it pages
+    // with PageUp/PageDown, which the table did not have).
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string table = requireSlice(harness, "static const SmokeKeyEntry s_KeyTable[] = {", "};");
+    std::set<std::string> names;
+    const std::regex entry(R"re(\{ "([A-Za-z0-9]+)",\s+SDL_SCANCODE_[A-Z0-9_]+\s*\})re");
+    for (std::sregex_iterator it(table.begin(), table.end(), entry), end; it != end; ++it) {
+        names.insert((*it)[1].str());
+    }
+    REQUIRE(names.count("Return") == 1);
+    REQUIRE(names.count("PageDown") == 1);
+
+    // Fixture events are one object per line; a key event names "type": "key".
+    const std::regex keyEvent(R"re("type"\s*:\s*"key")re");
+    const std::regex keyName(R"re("key"\s*:\s*"([^"]+)")re");
+    size_t checked = 0;
+    for (const auto &file : std::filesystem::directory_iterator("tools/smoke-verify/tests")) {
+        if (file.path().extension() != ".json") continue;
+        std::ifstream in(file.path(), std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!std::regex_search(line, keyEvent)) continue;
+            std::smatch m;
+            if (!std::regex_search(line, m, keyName)) continue;
+            const std::string key = m[1].str();
+            const bool single = key.size() == 1 && std::isalnum(static_cast<unsigned char>(key[0]));
+            INFO(file.path().filename().string() << ": key '" << key << "'");
+            REQUIRE((single || names.count(key) == 1));
+            ++checked;
+        }
+    }
+    REQUIRE(checked > 20);
 }
