@@ -348,6 +348,32 @@ Not done:
   disagreeing; a first version of the module moved objects that way and it was
   taken out for that reason. This is the next piece, and it is what "add a
   weapon" in F2's proof needs.
+- What the next piece (objects) has to respect, from a survey of the 132 base
+  levels' `setup.fields.json` (15,940 objects, up to 21,240 field rows in one
+  level) and from the runtime, READ 2026-11-17:
+  - `objects.json` and the fields file agree about every object's pad (no
+    disagreement in base data). The pad field is `base.pad` for 10,053 objects
+    and `character.pad` for the 1,750 character spawns; other pad-typed fields
+    (`lift.stops[n].pad`, `pad_effect.pad`, `autogun.target_pad`,
+    `cctv.look_at_pad`, `camera_position.pad`) are other places an object
+    names, not where it stands.
+  - **A record's id number is its place in the command list.** `command.order`
+    runs 0 to n-1 in every level and equals the number in `setup_NNNN`, and the
+    runtime turns a reference to another record into a relative offset from it
+    (`s_setupRecordRefOffset`: the referenced id's number minus the referring
+    record's order). Records refer to each other a lot (`tag.target` 2,724
+    times, `monitor.owner`, lift and door links, `rename_object.target`,
+    `conditional_scenery.trigger`). So a new object can be added at the end
+    (id and order n) without touching anything else, and an object can be
+    moved, but removing one from the middle would shift every later record
+    under the references that point at them. Removal needs renumbering with
+    every reference rewritten, or a way to leave the record in place and
+    switch it off; it is not in the next piece.
+  - In a multiplayer arena a weapon pickup does not name a weapon: its
+    `pickup.weapon` is a slot of the match's weapon set (`mp_location_00`),
+    with ammo crates beside it. "Add a weapon" in such a level means another
+    spot for a slot, which is a copy of an existing pickup record at a new
+    pad. So the first way to add an object is to duplicate one.
 - A run that shows a new spawn used in a match. READ in the runtime, it is
   enough to add the row: `s_setupBuildStageBlock` (`scenario_source_runtime.c`)
   builds the stage's intro script from `spawns.json`, one `INTROCMD_SPAWN pad
