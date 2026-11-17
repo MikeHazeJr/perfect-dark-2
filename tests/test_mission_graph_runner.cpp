@@ -552,8 +552,7 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
   "asset_id": "base:test__projectile_fuse",
   "graph_id": "test_projectile_fuse",
   "nodes": [
-    { "id": "spawn_state", "kind": "projectile.spawn_state",
-      "params": { "model_catalog_id": "base:model_chrgrenade", "scale": 1 } },
+    { "id": "spawn_state", "kind": "projectile.spawn_state", "params": { "scale": 1 } },
     { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
     { "id": "fuse", "kind": "event.projectile.timer_expired" },
     { "id": "explode", "kind": "og.projectile.fuse_expired" }
@@ -564,6 +563,8 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
   ],
   "exports": [ { "name": "main", "node": "motion" } ]
 })";
+	// No model: the record resolves a model_catalog_id against the catalog,
+	// which pd-tests does not load; the motion makes it a record.
 	const char *const id = "base:test__projectile_fuse";
 	char err[256] = { 0 };
 
