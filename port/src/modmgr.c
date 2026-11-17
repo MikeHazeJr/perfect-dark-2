@@ -1770,6 +1770,13 @@ static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
 
 static void modmgrScanDirectory(void)
 {
+	/* B-1262: a scan starts from an empty registry and root list (the dev
+	 * merge 9f38d6dd dropped these two, so every rescan appended each mod
+	 * again and enabling one failed: "Duplicate installed package
+	 * identity"). */
+	g_ModRegistryCount = 0;
+	g_ModsRootCount = 0;
+
 	/* The folders one scan reads come from fsModRoots (B-1160), the list the
 	 * font, theme, map import and migration scanners use too, so none of
 	 * them can disagree:
