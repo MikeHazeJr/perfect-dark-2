@@ -172,6 +172,43 @@ Facts from a read-only survey of `week-pd/core` (c0410f15).
   wires them: Forge's first levels, or a test arena whose level program
   refuses one pickup and opens a door when another is collected.
 
+## Slice 4 plan (CORE, 2026-11-17)
+
+The base game's own pickup and door rules move into the graph, so the
+Pickups and Doors rows tick (decision 1).
+
+- **Pickups.** `objTestForPickup` keeps its range and line-of-sight test
+  and then fires `event.pickup.touched` (the object payload, the player)
+  instead of deciding. Its rule part (collectable flags, projectile pickup
+  timers, armed throwables, safes, a weapon carried full, dual weapons, the
+  unlimited-ammo cheats) becomes a predicate the native gate
+  `gate.pickup.native_rules` runs, and the effect (`propPickupByPlayer`
+  and its tick operation) the module `og.pickup.collect`, whose result the
+  seam returns. Every extracted level graph wires
+  `event.pickup.touched` -> `gate.pickup.native_rules` (pass) ->
+  `og.pickup.collect`; an author puts a gate of their own on that path, or
+  rewires it.
+- **Doors.** `propdoorInteract` fires `event.door.use`; every level graph
+  wires it -> `gate.door.native_unlocked` (`doorIsUnlocked`: keys, lock
+  flags, front and back) -> pass `og.door.activate` (swing direction and
+  `doorsActivate`), fail `og.door.locked_message` (the original locked
+  message and sound). The automatic door check fires `event.door.approach`
+  wired the same way to `og.door.activate_automatic`.
+- **The queries fold in.** `event.pickup.requested` and
+  `event.door.open_requested` (slice 3) are the same moments; once the
+  rules are in the graph an author's gate on the rule path does what
+  `og.pickup.refuse` and `og.door.refuse` did, so slice 4 retires them
+  rather than keep two ways.
+- **Fails closed.** A scenario-source level graph without the wiring (no
+  handler for `event.pickup.touched` or `event.door.use`) refuses at
+  activation, as the mission graph does; the extractor writes the wiring,
+  so the scenario kind moves (`_objevents`).
+- **Proof.** A parity probe in the campaign runner computes the native
+  decision beside the graph's at every pickup and door use and counts
+  differences per mission; the campaign fixtures pin `differ=0`, as the
+  outcome and AI edge probes do. Then the Pickups and Doors rows tick
+  (lifts and glass stay their own events, after).
+
 ## Slices 1-3 as written (CORE, 2026-11-16)
 
 - Slice 1 (f63e4248): `missionGraphProgramCompileLevel` compiles a level
