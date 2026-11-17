@@ -2,7 +2,7 @@
  * forge_level_doc.h -- the placements of a level, as Forge edits them.
  *
  * A level is a .pdarena with its .pdscenario inside. Five members of the
- * scenario say what stands where:
+ * scenario say what stands where, and a sixth repeats part of it:
  *
  *   pads.json          pd2.scenario.pads.v1          places: a position, an up
  *                                                    and a look direction each
@@ -14,8 +14,11 @@
  *                                                    rest: a pad each, or none
  *   setup.fields.json  pd2.scenario.setup.fields.v1  every field of every
  *                                                    object, one row a field
+ *   level.graph.json   pd2.level.graph.v1            the level's graph: among
+ *                                                    much else, one node per
+ *                                                    bounds row, and counts
  *
- * This module reads those five texts, lets a caller add, move and remove
+ * This module reads those six texts, lets a caller add, move and remove
  * spawns and move, duplicate and leave out objects, and gives the texts back
  * for saving.
  * It holds no game state and touches no file: text in, text out. Forge's
@@ -39,6 +42,15 @@
  *   old one where it is; only a pad this document added is moved in place.
  * - A new pad comes with its bounds row, as every pad of a base level has
  *   one, and a moved pad's bounds move with it.
+ * - The level's graph keeps step with the bounds rows. When it loads a level
+ *   the game counts the graph's trigger volume nodes (the text `"kind":
+ *   "scenario.trigger.volume.source"`) and refuses the level unless that is
+ *   the number of rows in volumes.json. So a new bounds row comes with its
+ *   node and the link the extractor gives every such node, and a level whose
+ *   two counts already differ is refused here as the game would refuse it.
+ *   The graph's `counts` of pads, volumes and objects follow the tables when
+ *   they were true to begin with. Nothing else in the graph is read or
+ *   changed, and every other byte of it is kept.
  * - Ids are not handed out twice. A new spawn takes the number above the
  *   highest spawn number the document has ever held.
  * - An object's place is written twice, in objects.json (`pad_ref`) and in
@@ -85,6 +97,7 @@ enum {
 	FORGE_LEVEL_MEMBER_OBJECTS,
 	FORGE_LEVEL_MEMBER_VOLUMES,
 	FORGE_LEVEL_MEMBER_SETUP_FIELDS,
+	FORGE_LEVEL_MEMBER_LEVEL_GRAPH,
 	FORGE_LEVEL_MEMBER_COUNT
 };
 
@@ -100,7 +113,7 @@ enum {
 #define FORGE_LEVEL_MAX_SPAWN_NUMBER 9999
 #define FORGE_LEVEL_MAX_OBJECT_NUMBER 9999
 
-/* The five members' texts, indexed by FORGE_LEVEL_MEMBER_*. */
+/* The six members' texts, indexed by FORGE_LEVEL_MEMBER_*. */
 typedef struct forge_level_texts {
 	const char *text[FORGE_LEVEL_MEMBER_COUNT];
 	size_t size[FORGE_LEVEL_MEMBER_COUNT];
@@ -135,7 +148,7 @@ typedef struct forge_level_object {
 } forge_level_object_t;
 
 /*
- * Reads the five members. Returns NULL with the reason in err when any of
+ * Reads the six members. Returns NULL with the reason in err when any of
  * them breaks a rule above. The texts are copied; the caller keeps its own.
  */
 forge_level_doc_t *forgeLevelDocRead(const forge_level_texts_t *texts, char *err, size_t err_cap);

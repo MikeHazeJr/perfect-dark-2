@@ -1,9 +1,9 @@
 /**
  * forge_level_io.h -- a level's placements in and out of the running game.
  *
- * forge_level_doc.h edits five texts and knows nothing about the game. This
+ * forge_level_doc.h edits six texts and knows nothing about the game. This
  * is the part that does. It finds the archive a level in the catalog came
- * from, reads the five members out of the scenario inside it, and saves a
+ * from, reads the six members out of the scenario inside it, and saves a
  * changed document as a level mod through the mod author, the same save the
  * other in-game creators use (context/designs/modding/forge-mode-scope.md,
  * step F2). Every step is logged as a FORGE.LEVEL.* line.

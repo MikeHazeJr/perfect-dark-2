@@ -4,6 +4,7 @@
 #include "modasset_gltf_document.h"
 #include "../external/imgui-node-editor/crude_json.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -20,12 +21,20 @@ namespace {
 using Json = crude_json::value;
 
 constexpr const char *kMemberNames[FORGE_LEVEL_MEMBER_COUNT] = {
-	"pads.json", "spawns.json", "objects.json", "volumes.json", "setup.fields.json"
+	"pads.json", "spawns.json", "objects.json", "volumes.json", "setup.fields.json", "level.graph.json"
 };
 constexpr const char *kSchemas[FORGE_LEVEL_MEMBER_COUNT] = {
 	"pd2.scenario.pads.v1", "pd2.scenario.spawns.v1", "pd2.scenario.objects.v1",
-	"pd2.scenario.volumes.v1", "pd2.scenario.setup.fields.v1"
+	"pd2.scenario.volumes.v1", "pd2.scenario.setup.fields.v1", "pd2.level.graph.v1"
 };
+/* What the game counts in a level's graph when it loads the level, as text
+ * (scenario_source_runtime.c, s_countTextOccurrences): one of these for each
+ * row of volumes.json, or the level is refused. */
+constexpr const char *kVolumeNodeKind = "\"kind\": \"scenario.trigger.volume.source\"";
+/* A link to such a node, as the extractor writes one. */
+constexpr const char *kVolumeLinkTo = "\"to\": \"trigger.volume.";
+/* The graph's `counts` this module keeps true, and the table each one counts. */
+constexpr const char *kGraphCounts[3] = { "pads", "volumes", "objects" };
 /* A pad's bounds reach this far from it on every axis when it has no box of
  * its own; the extractor writes the same box for such a pad. */
 constexpr f32 kPadReach = 100.0f;
@@ -371,6 +380,15 @@ struct Table {
 		touch();
 	}
 
+	/* A member that is not a list of rows (the level's graph) is kept and
+	 * replaced whole. */
+	void setWhole(const std::string &text)
+	{
+		built = text;
+		changed = true;
+		stale = false;
+	}
+
 	const std::string &text()
 	{
 		if (!changed) return original;
@@ -495,6 +513,10 @@ struct forge_level_doc {
 		std::string fieldText;
 	};
 	std::vector<ObjectFlags> objectFlags;
+	/* level.graph.json: every node id it holds, and which of its counts of
+	 * pads, volumes and objects were true when it was read. */
+	std::set<std::string> graphNodeIds;
+	bool graphCountTrue[3] = { false, false, false };
 	long nextOrder = 0;      /* above every place in the command list, and every setup number */
 	long nextSpawn = 0;      /* above every spawn number this document has held */
 	std::string spawnProfile = "intro";
@@ -766,6 +788,258 @@ void padReach(const f32 position[3], f32 lo[3], f32 hi[3])
 	}
 }
 
+/* ------------------------------------------------------------------------ */
+/* The level's graph                                                        */
+/* ------------------------------------------------------------------------ */
+/*
+ * level.graph.json is not a list of rows, so it is kept whole and edited as
+ * text in three places only: one more element in its `nodes`, one more in
+ * its `links`, and numbers in its `counts`. Everything else keeps its bytes.
+ */
+
+/* How many times `needle` stands in `text`. */
+long countText(const std::string &text, const char *needle)
+{
+	const size_t length = strlen(needle);
+	long count = 0;
+	for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + length)) {
+		count++;
+	}
+	return count;
+}
+
+/* The value of a top-level key of the graph; for an array, its elements too. */
+bool graphValue(const std::string &text, const char *key, Span &value, std::vector<Span> *elements)
+{
+	size_t start = 0;
+	skipSpace(text, start);
+	std::vector<Member> members;
+	if (!objectMembers(text, start, members)) return false;
+	const Member *found = nullptr;
+	for (const Member &member : members) {
+		if (member.key != key) continue;
+		if (found) return false;
+		found = &member;
+	}
+	if (!found) return false;
+	value = found->value;
+	if (elements) {
+		size_t pos = value.begin;
+		elements->clear();
+		if (text[pos] != '[' || !skipContainer(text, pos, 0, nullptr, elements)) return false;
+	}
+	return true;
+}
+
+/* True when the text between a span's ends holds `marker`. */
+bool spanHolds(const std::string &text, const Span &span, const char *marker)
+{
+	const auto first = text.begin() + static_cast<std::ptrdiff_t>(span.begin);
+	const auto last = text.begin() + static_cast<std::ptrdiff_t>(span.end);
+	return std::search(first, last, marker, marker + strlen(marker)) != last;
+}
+
+/*
+ * Puts `element` into the top-level array `key`: after the last element
+ * whose text holds `marker`, after the last element when none does, or as
+ * the only element of an empty array.
+ */
+bool graphInsert(std::string &text, const char *key, const char *marker, const std::string &element)
+{
+	Span array;
+	std::vector<Span> elements;
+	if (!graphValue(text, key, array, &elements)) return false;
+	if (elements.empty()) {
+		text.replace(array.begin, array.end - array.begin, "[\n    " + element + "\n  ]");
+		return true;
+	}
+	size_t at = elements.back().end;
+	for (size_t i = elements.size(); i-- > 0;) {
+		if (spanHolds(text, elements[i], marker)) {
+			at = elements[i].end;
+			break;
+		}
+	}
+	text.insert(at, ",\n    " + element);
+	return true;
+}
+
+/* The members of the graph's `counts` object. */
+bool graphCounts(const std::string &text, std::vector<Member> &members)
+{
+	Span counts;
+	return graphValue(text, "counts", counts, nullptr) && text[counts.begin] == '{' &&
+		objectMembers(text, counts.begin, members);
+}
+
+/* The number at counts.<key>, or -1 when the graph has no such whole number. */
+long graphCount(const std::string &text, const char *key)
+{
+	std::vector<Member> members;
+	if (!graphCounts(text, members)) return -1;
+	for (const Member &member : members) {
+		if (member.key == key) {
+			return wholeNumber(text.substr(member.value.begin, member.value.end - member.value.begin));
+		}
+	}
+	return -1;
+}
+
+/* Writes counts.<key>. False when the graph has no such number to write over. */
+bool graphSetCount(std::string &text, const char *key, long value)
+{
+	std::vector<Member> members;
+	if (!graphCounts(text, members)) return false;
+	for (const Member &member : members) {
+		if (member.key != key) continue;
+		const size_t length = member.value.end - member.value.begin;
+		if (wholeNumber(text.substr(member.value.begin, length)) < 0) return false;
+		text.replace(member.value.begin, length, std::to_string(value));
+		return true;
+	}
+	return false;
+}
+
+/* The rows of the table that counts.<kGraphCounts[which]> counts. */
+long graphTableRows(const forge_level_doc &doc, int which)
+{
+	if (which == 0) return static_cast<long>(doc.pads.size());
+	if (which == 1) return static_cast<long>(doc.tables[FORGE_LEVEL_MEMBER_VOLUMES].rows.size());
+	return static_cast<long>(doc.objects.size());
+}
+
+/*
+ * Brings the graph's counts of pads, volumes and objects up to the tables.
+ * Only a count that was true when the level was read: one that was not is
+ * left as it is, because nothing here repairs a level.
+ */
+void graphSyncCounts(forge_level_doc &doc)
+{
+	Table &table = doc.tables[FORGE_LEVEL_MEMBER_LEVEL_GRAPH];
+	std::string text = table.text();
+	bool changed = false;
+	for (int i = 0; i < 3; i++) {
+		if (!doc.graphCountTrue[i]) continue;
+		const long rows = graphTableRows(doc, i);
+		if (graphCount(text, kGraphCounts[i]) == rows) continue;
+		if (graphSetCount(text, kGraphCounts[i], rows)) changed = true;
+	}
+	if (changed) table.setWhole(text);
+}
+
+/*
+ * Where a new trigger volume node hangs from: the `from` of the graph's last
+ * link to such a node, as written; the load event when the graph has that
+ * node and no such link yet; or "" when the graph gives nothing to copy, and
+ * then the new node gets no link.
+ */
+std::string graphVolumeLinkFrom(const forge_level_doc &doc, const std::string &text)
+{
+	Span links;
+	std::vector<Span> elements;
+	if (!graphValue(text, "links", links, &elements)) return std::string();
+	for (size_t i = elements.size(); i-- > 0;) {
+		if (!spanHolds(text, elements[i], kVolumeLinkTo)) continue;
+		std::vector<Member> members;
+		if (text[elements[i].begin] != '{' || !objectMembers(text, elements[i].begin, members)) break;
+		for (const Member &member : members) {
+			if (member.key == "from") {
+				return text.substr(member.value.begin, member.value.end - member.value.begin);
+			}
+		}
+		break;
+	}
+	return doc.graphNodeIds.count("scenario.load") ? std::string("\"scenario.load\"") : std::string();
+}
+
+/*
+ * `text`, the graph, with the node of a new bounds row and the link the
+ * extractor gives every such node. The node's id is the first free
+ * "trigger.volume.NNNN" from `number` up, and goes to `nodeId`.
+ */
+bool graphWithVolume(const forge_level_doc &doc, long number, const std::string &volumeId,
+	const char *padRef, std::string &text, std::string &nodeId, std::string &error)
+{
+	nodeId.clear();
+	for (long n = number; n <= 9999; n++) {
+		const std::string candidate = numbered("trigger.volume.", n);
+		if (!doc.graphNodeIds.count(candidate)) {
+			nodeId = candidate;
+			break;
+		}
+	}
+	if (nodeId.empty()) {
+		error = "level.graph.json has no trigger volume node id left for another pad";
+		return false;
+	}
+	const std::string from = graphVolumeLinkFrom(doc, text);
+	const std::string node = std::string("{ \"id\": \"") + nodeId + "\", " + kVolumeNodeKind +
+		", \"table\": \"volumes.json\", \"volume\": \"" + volumeId + "\", \"pad\": \"" + padRef + "\" }";
+	const std::string link = "{ \"from\": " + from + ", \"to\": \"" + nodeId + "\" }";
+	if (!graphInsert(text, "nodes", kVolumeNodeKind, node) ||
+			(!from.empty() && !graphInsert(text, "links", kVolumeLinkTo, link))) {
+		error = "level.graph.json could not take the new pad's trigger volume node";
+		return false;
+	}
+	return true;
+}
+
+/*
+ * level.graph.json: read whole by the strict reader like every member, then
+ * held as text. What the document needs from it: every node id (so a new
+ * node's id is new), the count the game checks, and which of its own counts
+ * are true.
+ */
+bool readGraph(forge_level_doc &doc, const char *json, size_t size, std::string &error)
+{
+	const char *file = kMemberNames[FORGE_LEVEL_MEMBER_LEVEL_GRAPH];
+	Table &table = doc.tables[FORGE_LEVEL_MEMBER_LEVEL_GRAPH];
+	Json root;
+	if (!json || !size || !modAssetJsonReadValue(json, size, root) || !root.is_object()) {
+		error = std::string(file) + " is not one JSON object";
+		return false;
+	}
+	if (!hasString(root, "schema") ||
+			stringOf(root, "schema") != kSchemas[FORGE_LEVEL_MEMBER_LEVEL_GRAPH]) {
+		error = std::string(file) + " needs \"schema\": \"" + kSchemas[FORGE_LEVEL_MEMBER_LEVEL_GRAPH] + "\"";
+		return false;
+	}
+	if (!root.contains("nodes") || !root["nodes"].is_array() ||
+			!root.contains("links") || !root["links"].is_array()) {
+		error = std::string(file) + " has no nodes array or no links array";
+		return false;
+	}
+	table.original.assign(json, size);
+
+	const crude_json::array &nodes = root["nodes"].get<crude_json::array>();
+	for (const Json &node : nodes) {
+		const std::string id = stringOf(node, "id");
+		if (!id.empty()) doc.graphNodeIds.insert(id);
+	}
+	Span value;
+	std::vector<Span> elements;
+	if (!graphValue(table.original, "nodes", value, &elements) || elements.size() != nodes.size() ||
+			!graphValue(table.original, "links", value, &elements) ||
+			elements.size() != root["links"].get<crude_json::array>().size()) {
+		error = std::string(file) + " could not be laid out";
+		return false;
+	}
+
+	/* The game's own test, on the same text. */
+	const long volumeNodes = countText(table.original, kVolumeNodeKind);
+	const long volumeRows = graphTableRows(doc, 1);
+	if (volumeNodes != volumeRows) {
+		error = std::string(file) + " has " + std::to_string(volumeNodes) +
+			" trigger volume nodes and volumes.json has " + std::to_string(volumeRows) +
+			" rows; the game refuses a level where the two differ";
+		return false;
+	}
+	for (int i = 0; i < 3; i++) {
+		doc.graphCountTrue[i] = graphCount(table.original, kGraphCounts[i]) == graphTableRows(doc, i);
+	}
+	return true;
+}
+
 /* A new pad at the end of the list, facing along look. Its number, or -1. */
 int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::string &error)
 {
@@ -800,6 +1074,16 @@ int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::
 	pad.added = 1;
 	pad.has_volume = 1;
 
+	/* The graph's node for the bounds row, worked out before anything is
+	 * changed: the game refuses a level with a bounds row and no node. */
+	Table &graphTable = doc.tables[FORGE_LEVEL_MEMBER_LEVEL_GRAPH];
+	std::string graph = graphTable.text();
+	std::string nodeId;
+	if (!graphWithVolume(doc, static_cast<long>(doc.tables[FORGE_LEVEL_MEMBER_VOLUMES].rows.size()),
+			volumeId, pad.pad_ref, graph, nodeId, error)) {
+		return -1;
+	}
+
 	/* The row the extractor would write for a pad with a free facing: no
 	 * axis-alignment flags, and the box it gives a pad that has none of its
 	 * own (the game's reader wants the keys either way). */
@@ -822,6 +1106,10 @@ int addPad(forge_level_doc &doc, const f32 position[3], const f32 look[3], std::
 	volumes.append(volume);
 	doc.padVolume.push_back(static_cast<int>(volumes.rows.size()) - 1);
 	doc.volumeIds.insert(volumeId);
+
+	graphTable.setWhole(graph);
+	doc.graphNodeIds.insert(nodeId);
+	graphSyncCounts(doc);
 	return static_cast<int>(number);
 }
 
@@ -907,6 +1195,14 @@ forge_level_doc_t *forgeLevelDocRead(const forge_level_texts_t *texts, char *err
 	}
 	std::string error;
 	for (int member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		if (member == FORGE_LEVEL_MEMBER_LEVEL_GRAPH) {
+			/* Not a list of rows, and read last: its rule is about the bounds rows. */
+			if (!readGraph(*doc, texts->text[member], texts->size[member], error)) {
+				setError(err, err_cap, "%s", error.c_str());
+				return nullptr;
+			}
+			continue;
+		}
 		Json root;
 		bool ok = readTable(member, texts->text[member], texts->size[member], doc->tables[member], root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_PADS) ok = readPads(*doc, root, error);
@@ -1221,6 +1517,7 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	doc->objects.push_back(copy);
 	doc->objectFlags.push_back(copyFlags);
 	doc->nextOrder = place + 1;
+	graphSyncCounts(*doc);
 	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
 	return 1;
 }

@@ -3,13 +3,15 @@
  * (port/include/forge_level_doc.h; step F2 of
  * context/designs/modding/forge-mode-scope.md).
  *
- * The document reads a level's pads, spawns, objects, pad bounds and object
- * fields, changes them, and gives the five texts back. The cases check the rules it promises:
- * a row nobody touched keeps its bytes, nothing is repaired, pads are only
- * added and each comes with its bounds row, and an id is never handed out
- * twice. One case saves an edited level through the mod author and checks
- * what the game checks before it loads one: the navigation record's counts
- * and hashes match the saved files.
+ * The document reads a level's pads, spawns, objects, pad bounds, object
+ * fields and graph, changes them, and gives the six texts back. The cases
+ * check the rules it promises: a row nobody touched keeps its bytes, nothing
+ * is repaired, pads are only added and each comes with its bounds row and
+ * that row's node in the level's graph, and an id is never handed out twice.
+ * One case saves an edited level through the mod author and checks what the
+ * game checks before it loads one: the navigation record's counts and hashes
+ * match the saved files, and the graph has one trigger volume node for each
+ * bounds row.
  *
  * With PD2_BASE_TEMPLATE_DIR set (a folder of extracted base levels, local
  * only) the last case reads every base level and writes it back unchanged.
@@ -156,16 +158,63 @@ std::string levelFields(const std::string &cratePad = "pad_0001", const std::str
 /* A level with no field rows at all. */
 const char *const kNoFields = "{\n  \"schema\": \"pd2.scenario.setup.fields.v1\",\n  \"rows\": [\n  ]\n}\n";
 
+/* How many times `needle` stands in `text`. */
+size_t occurrences(const std::string &text, const char *needle)
+{
+	size_t count = 0;
+	const size_t length = strlen(needle);
+	for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + length)) count++;
+	return count;
+}
+
+/* The text the game counts in a level's graph: one per bounds row, or it refuses the level. */
+const char *const kVolumeNode = "\"kind\": \"scenario.trigger.volume.source\"";
+
+/*
+ * A level's graph the way the extractor writes one, cut down to what the
+ * document reads: a trigger volume node and a link to it for each of
+ * `volumes` bounds rows, between other nodes and links, and the counts.
+ * Bounds row n is volume_pad_n of pad_n, as in every base level, so the graph
+ * of a level that gained a pad is this same text with one more of each.
+ */
+std::string levelGraph(size_t pads, size_t objects, size_t volumes)
+{
+	std::string nodes = "    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
+		"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"source\": \"scene.glb\" },\n";
+	std::string links = "    { \"from\": \"scenario.load\", \"to\": \"source.scene\" },\n";
+	for (size_t i = 0; i < volumes; i++) {
+		char number[16];
+		snprintf(number, sizeof(number), "%04u", static_cast<unsigned>(i));
+		nodes += std::string("    { \"id\": \"trigger.volume.") + number + "\", " + kVolumeNode +
+			", \"table\": \"volumes.json\", \"volume\": \"volume_pad_" + number + "\", \"pad\": \"pad_" +
+			number + "\" },\n";
+		links += std::string("    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.") + number + "\" },\n";
+	}
+	nodes += "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\" }\n";
+	links += "    { \"from\": \"scenario.load\", \"to\": \"scenario.ai.lists\" }\n";
+	return "{\n  \"schema\": \"pd2.level.graph.v1\",\n  \"scenario\": \"example:tri_scenario\",\n  \"nodes\": [\n" +
+		nodes + "  ],\n  \"links\": [\n" + links + "  ],\n  \"counts\": { \"rooms\": 2, \"triangles\": 1, \"pads\": " +
+		std::to_string(pads) + ", \"volumes\": " + std::to_string(volumes) + ", \"objects\": " +
+		std::to_string(objects) + ", \"objectives\": 0 }\n}\n";
+}
+
 struct Level {
 	forge_level_doc_t *doc = nullptr;
 	std::string error;
 
+	/* Without a graph of its own a level gets the one that fits its tables:
+	 * a node per bounds row, and counts that are true. */
 	Level(const std::string &pads, const std::string &spawns, const std::string &objects,
-		const std::string &volumes, const std::string &fields = kNoFields)
+		const std::string &volumes, const std::string &fields = kNoFields,
+		const std::string &graph = std::string())
 	{
 		char err[256] = { 0 };
 		forge_level_texts_t texts = {};
-		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = { &pads, &spawns, &objects, &volumes, &fields };
+		const std::string fitted = graph.empty()
+			? levelGraph(occurrences(pads, "\"pad_ref\""), occurrences(objects, "\"record_id\""),
+				occurrences(volumes, "\"volume_id\""))
+			: graph;
+		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = { &pads, &spawns, &objects, &volumes, &fields, &fitted };
 		for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
 			texts.text[member] = all[member]->data();
 			texts.size[member] = all[member]->size();
@@ -268,6 +317,8 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_VOLUMES)) == "volumes.json");
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_SETUP_FIELDS)) == "setup.fields.json");
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields());
+	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_LEVEL_GRAPH)) == "level.graph.json");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == levelGraph(3, 3, 3));
 	CHECK(forgeLevelDocRead(nullptr, nullptr, 0) == nullptr);
 	CHECK(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_COUNT) == nullptr);
 	CHECK(forgeLevelDocMemberText(level.doc, -1, nullptr) == nullptr);
@@ -338,9 +389,18 @@ TEST_CASE("A new spawn gets a pad of its own, the pad's bounds and the next id; 
 	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 0);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == kObjects);
 
+	/* The level's graph keeps step: the game counts its trigger volume nodes
+	 * and refuses a level where that is not the number of bounds rows. The
+	 * new row gets its node, the link every such node has, and true counts,
+	 * which makes this the graph of a level with four pads, byte for byte. */
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == levelGraph(4, 3, 4));
+	CHECK(occurrences(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), kVolumeNode) == 4);
+
 	/* What was written is a level the module reads again, the same level. */
 	Level again(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
-		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES), kNoFields,
+		level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 4);
@@ -741,13 +801,115 @@ TEST_CASE("Rows are found in any layout, and an empty list takes its first row",
 	const std::string firstRow = pads.substr(pads.find("{\"pad_ref\""), pads.find("}]") + 1 - pads.find("{\"pad_ref\""));
 	CHECK(padsAfter.find(firstRow + ", { \"pad_ref\": \"pad_0001\"") != std::string::npos);
 
+	/* The graph had no trigger volume node; the first one and its link go
+	 * at the end of their lists, and the result is still the level's graph. */
+	const std::string graphAfter = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+	CHECK(occurrences(graphAfter, kVolumeNode) == 1);
+	CHECK(graphAfter.find("{ \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", "
+		"\"source\": \"ai/ailists.json\" },\n    { \"id\": \"trigger.volume.0000\", " + std::string(kVolumeNode) +
+		", \"table\": \"volumes.json\", \"volume\": \"volume_pad_0001\", \"pad\": \"pad_0001\" }\n  ],") !=
+		std::string::npos);
+	CHECK(graphAfter.find("{ \"from\": \"scenario.load\", \"to\": \"scenario.ai.lists\" },\n"
+		"    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" }\n  ],") != std::string::npos);
+	CHECK(graphAfter.find("\"pads\": 2, \"volumes\": 1, \"objects\": 0,") != std::string::npos);
+
 	Level again(padsAfter, level.text(FORGE_LEVEL_MEMBER_SPAWNS), level.text(FORGE_LEVEL_MEMBER_OBJECTS),
-		level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES), kNoFields, graphAfter);
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
 	CHECK(forgeLevelDocSpawnCount(again.doc) == 1);
 	CHECK(forgeLevelDocVolumeCount(again.doc) == 1);
+}
+
+TEST_CASE("The level's graph keeps one trigger volume node for each bounds row", "[forge-level-doc]")
+{
+	char id[32] = { 0 };
+	char err[256] = { 0 };
+
+	/* The game counts the nodes and refuses a level where that is not the
+	 * number of bounds rows. So does the document, with the reason. */
+	{
+		Level fewer(kPads, kSpawns, kObjects, kVolumes, levelFields(), levelGraph(3, 3, 2));
+		CHECK(fewer.doc == nullptr);
+		CHECK(fewer.error == "level.graph.json has 2 trigger volume nodes and volumes.json has 3 rows; "
+			"the game refuses a level where the two differ");
+		Level more(kPads, kSpawns, kObjects, kVolumes, levelFields(), levelGraph(3, 3, 4));
+		CHECK(more.doc == nullptr);
+		Level notGraph(kPads, kSpawns, kObjects, kVolumes, levelFields(), kVolumes);
+		CHECK(notGraph.error == "level.graph.json needs \"schema\": \"pd2.level.graph.v1\"");
+		Level noLists(kPads, kSpawns, kObjects, kVolumes, levelFields(),
+			"{ \"schema\": \"pd2.level.graph.v1\", \"nodes\": [] }");
+		CHECK(noLists.error == "level.graph.json has no nodes array or no links array");
+		Level cut(kPads, kSpawns, kObjects, kVolumes, levelFields(), "{ \"schema\": \"pd2.level.graph.v1\"");
+		CHECK(cut.error == "level.graph.json is not one JSON object");
+	}
+
+	/* Each pad the document adds brings one node and one link, whatever it
+	 * was added for, and the counts follow: two spawns and a copied object
+	 * make this the graph of a level with six pads and four objects. */
+	{
+		Level level;
+		REQUIRE(level.doc != nullptr);
+		REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+		REQUIRE(forgeLevelDocMoveSpawn(level.doc, "spawn_0004", kPlace, kFacing, err, sizeof(err)) == 1);
+		REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id),
+			err, sizeof(err)) == 1);
+		CHECK(forgeLevelDocPadCount(level.doc) == 6);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == levelGraph(6, 4, 6));
+
+		/* What adds no pad leaves the graph alone: a spawn removed, a pad of
+		 * the document's own moved again, an object left out. */
+		const std::string graph = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+		REQUIRE(forgeLevelDocRemoveSpawn(level.doc, "spawn_0000", err, sizeof(err)) == 1);
+		REQUIRE(forgeLevelDocMoveSpawn(level.doc, "spawn_0004", kPlace, kFacing, err, sizeof(err)) == 1);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+
+		/* And the whole level reads back with its own graph. */
+		Level again(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+			level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+			level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), graph);
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		CHECK(forgeLevelDocVolumeCount(again.doc) == 6);
+	}
+
+	/* An edit that fails adds nothing to the graph. */
+	{
+		Level level;
+		REQUIRE(level.doc != nullptr);
+		const f32 nowhere[3] = { 0.0f, 0.0f, 0.0f };
+		CHECK(forgeLevelDocAddSpawn(level.doc, kPlace, nowhere, nullptr, id, sizeof(id), err, sizeof(err)) == 0);
+		CHECK(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "red", id, sizeof(id), err, sizeof(err)) == 0);
+		CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 0);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == levelGraph(3, 3, 3));
+	}
+
+	/* A node id already in use is not used again, the link hangs from what
+	 * the graph's own links to such nodes hang from, and a count that was
+	 * not true when the level was read is not made true. */
+	{
+		std::string graph = levelGraph(9, 3, 3);   /* says nine pads; the level has three */
+		graph = replaced(graph, "\"id\": \"scenario.ai.lists\"", "\"id\": \"trigger.volume.0003\"");
+		graph = replaced(graph, "\"to\": \"scenario.ai.lists\"", "\"to\": \"trigger.volume.0003\"");
+		graph = replaced(graph, "{ \"from\": \"scenario.load\", \"to\": \"trigger.volume.0002\" }",
+			"{ \"from\": \"scenario.volumes\", \"to\": \"trigger.volume.0002\" }");
+		Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), graph);
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+		const std::string after = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+		CHECK(occurrences(after, kVolumeNode) == 4);
+		/* trigger.volume.0003 is another node's id here, so the new node is 0004. */
+		CHECK(after.find("\"pad\": \"pad_0002\" },\n    { \"id\": \"trigger.volume.0004\", " + std::string(kVolumeNode) +
+			", \"table\": \"volumes.json\", \"volume\": \"volume_pad_0003\", \"pad\": \"pad_0003\" },\n") !=
+			std::string::npos);
+		/* The last link to a trigger volume node is the one to the node that
+		 * only shares the name; the new link follows it and copies its source. */
+		CHECK(after.find("{ \"from\": \"scenario.load\", \"to\": \"trigger.volume.0003\" },\n"
+			"    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0004\" }\n  ],") != std::string::npos);
+		CHECK(after.find("\"pads\": 9, \"volumes\": 4, \"objects\": 3,") != std::string::npos);
+	}
 }
 
 namespace {
@@ -987,13 +1149,15 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	const std::string objects = levelMember(scenario, "objects.json");
 	const std::string volumes = levelMember(scenario, "volumes.json");
 	const std::string fields = levelMember(scenario, "setup.fields.json");
+	const std::string graph = levelMember(scenario, "level.graph.json");
 	REQUIRE(!pads.empty());
 	REQUIRE(!spawns.empty());
 	REQUIRE(!objects.empty());
 	REQUIRE(!volumes.empty());
 	REQUIRE(!fields.empty());
+	REQUIRE(!graph.empty());
 
-	Level level(pads, spawns, objects, volumes, fields);
+	Level level(pads, spawns, objects, volumes, fields, graph);
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(level.doc) == 1);
@@ -1005,6 +1169,8 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+	CHECK(occurrences(graph, kVolumeNode) == 1);
 	/* The example also holds a briefing record, which the object list does not. */
 	forge_level_object_t prop = {};
 	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &prop) == 1);
@@ -1033,6 +1199,21 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	const size_t rowEnd = pads.rfind('}', pads.rfind(']')) + 1;
 	CHECK(padsMoved.compare(0, rowEnd, pads, 0, rowEnd) == 0);
 
+	/* The example's own graph, written the way the extractor writes one,
+	 * gains the new bounds row's node after its one trigger volume node, the
+	 * link after that node's link, and true counts. Taken back out by hand,
+	 * what is left is the graph that was read: nothing else moved. */
+	const std::string graphMoved = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+	const std::string newNode = ",\n    { \"id\": \"trigger.volume.0001\", " + std::string(kVolumeNode) +
+		", \"table\": \"volumes.json\", \"volume\": \"volume_pad_0001\", \"pad\": \"pad_0001\" }";
+	const std::string newLink = ",\n    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0001\" }";
+	CHECK(occurrences(graphMoved, kVolumeNode) == 2);
+	CHECK(graphMoved.find("\"volume\": \"volume_pad_0000\", \"pad\": \"pad_0000\" }" + newNode) != std::string::npos);
+	CHECK(graphMoved.find("{ \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" }" + newLink) !=
+		std::string::npos);
+	CHECK(replaced(replaced(replaced(graphMoved, newNode, ""), newLink, ""),
+		"\"pads\": 2, \"volumes\": 2, \"objects\": 1,", "\"pads\": 1, \"volumes\": 1, \"objects\": 1,") == graph);
+
 	Level again(padsMoved, moved, level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES));
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
@@ -1044,9 +1225,11 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, copyId, sizeof(copyId),
 		err, sizeof(err)) == 1);
 	CHECK(std::string(copyId) == "setup_0002");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH).find("\"pads\": 3, \"volumes\": 3, \"objects\": 2,") !=
+		std::string::npos);
 	Level whole(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
 		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
-		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
 	INFO(whole.error);
 	REQUIRE(whole.doc != nullptr);
 	CHECK(forgeLevelDocObjectCount(whole.doc) == 2);
@@ -1068,7 +1251,7 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	REQUIRE(!scenario.empty());
 	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
 		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
-		levelMember(scenario, "setup.fields.json"));
+		levelMember(scenario, "setup.fields.json"), levelMember(scenario, "level.graph.json"));
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 
@@ -1081,19 +1264,24 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	char id[32] = { 0 };
 	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "team_1", id, sizeof(id), err, sizeof(err)) == 1);
 	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
-	/* The pads, the spawns and the bounds changed; the objects did not. */
-	REQUIRE(overrides.count == 3);
+	/* The pads, the spawns, the bounds and the graph (the new bounds row's
+	 * node) changed; the objects and their fields did not. */
+	REQUIRE(overrides.count == 4);
 	CHECK(std::string(overrides.entries[0].entry) == std::string(scenarioMember) + "::pads.json");
 	CHECK(std::string(overrides.entries[1].entry) == std::string(scenarioMember) + "::spawns.json");
 	CHECK(std::string(overrides.entries[2].entry) == std::string(scenarioMember) + "::volumes.json");
+	CHECK(std::string(overrides.entries[3].entry) == std::string(scenarioMember) + "::level.graph.json");
 	CHECK(std::string(static_cast<const char *>(overrides.entries[1].data), overrides.entries[1].len) ==
 		level.text(FORGE_LEVEL_MEMBER_SPAWNS));
+	CHECK(std::string(static_cast<const char *>(overrides.entries[3].data), overrides.entries[3].len) ==
+		level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
 	CHECK(overrides.entries[0].remove == 0);
 	/* A scenario saved on its own names its members directly. */
 	forge_level_overrides_t direct;
 	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &direct, err, sizeof(err)) == 1);
-	REQUIRE(direct.count == 3);
+	REQUIRE(direct.count == 4);
 	CHECK(std::string(direct.entries[0].entry) == "pads.json");
+	CHECK(std::string(direct.entries[3].entry) == "level.graph.json");
 	CHECK(forgeLevelDocOverrides(nullptr, scenarioMember, &direct, err, sizeof(err)) == 0);
 	CHECK(direct.count == 0);
 
@@ -1129,7 +1317,16 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	const std::string savedPads = levelMember(savedScenario, "pads.json");
 	const std::string savedSpawns = levelMember(savedScenario, "spawns.json");
 	const std::string savedVolumes = levelMember(savedScenario, "volumes.json");
-	Level again(savedPads, savedSpawns, levelMember(savedScenario, "objects.json"), savedVolumes);
+	/* The saved level's own graph, with the ids the save gave it: it has the
+	 * two trigger volume nodes the game will count against the two bounds
+	 * rows, so the document reads the level as the game will. */
+	const std::string savedGraph = levelMember(savedScenario, "level.graph.json");
+	REQUIRE(!savedGraph.empty());
+	CHECK(occurrences(savedGraph, kVolumeNode) == 2);
+	CHECK(savedGraph.find("\"pads\": 2, \"volumes\": 2, \"objects\": 1,") != std::string::npos);
+	CHECK(savedGraph.find("mod:arena_forge_yard__") != std::string::npos);
+	Level again(savedPads, savedSpawns, levelMember(savedScenario, "objects.json"), savedVolumes,
+		levelMember(savedScenario, "setup.fields.json"), savedGraph);
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
@@ -1257,14 +1454,19 @@ TEST_CASE("A saved level is its own template: edited again, it is saved under it
 		REQUIRE(!arena.empty());
 		const std::string scenario = levelMember(arena, scenarioMember);
 		REQUIRE(!scenario.empty());
+		/* The level's own graph, never a stand-in: what the document gives
+		 * back for it is what the save writes into the level. */
+		const std::string graph = levelMember(scenario, "level.graph.json");
+		REQUIRE(!graph.empty());
 		Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
 			levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
-			levelMember(scenario, "setup.fields.json"));
+			levelMember(scenario, "setup.fields.json"), graph);
 		INFO(level.error);
 		REQUIRE(level.doc != nullptr);
 		REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
 		forge_level_overrides_t overrides;
 		REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
+		REQUIRE(overrides.count == 4);
 		mod_author_request_t request = {};
 		request.template_path = templateFile.c_str();
 		request.mods_root = rootText.c_str();
@@ -1283,9 +1485,17 @@ TEST_CASE("A saved level is its own template: edited again, it is saved under it
 		CHECK(valid == 0);
 	};
 	const auto countsOf = [&](const SavedLevel &saved, s32 pads, s32 spawns) {
+		/* Read with the saved level's own graph: the document refuses a level
+		 * whose graph the game would refuse, so this is also the check that
+		 * every save kept one trigger volume node for each bounds row. */
+		const std::string graph = levelMember(saved.scenario, "level.graph.json");
+		REQUIRE(!graph.empty());
+		CHECK(occurrences(graph, kVolumeNode) == static_cast<size_t>(pads));
+		CHECK(graph.find("\"pads\": " + std::to_string(pads) + ", \"volumes\": " + std::to_string(pads) +
+			", \"objects\": 1,") != std::string::npos);
 		Level level(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
 			levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
-			levelMember(saved.scenario, "setup.fields.json"));
+			levelMember(saved.scenario, "setup.fields.json"), graph);
 		INFO(level.error);
 		REQUIRE(level.doc != nullptr);
 		CHECK(forgeLevelDocPadCount(level.doc) == pads);
@@ -1378,6 +1588,7 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 	long objectTotal = 0;
 	long removableTotal = 0;
 	long alreadyOut = 0;
+	long graphBytes = 0;
 	for (const char *sub : { "arenas", "scenarios" }) {
 		const fs::path folder = fs::path(dir) / sub;
 		if (!fs::is_directory(folder)) continue;
@@ -1399,8 +1610,14 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			const std::string objects = levelMember(scenario, "objects.json");
 			const std::string volumes = levelMember(scenario, "volumes.json");
 			const std::string fields = levelMember(scenario, "setup.fields.json");
-			if (pads.empty() || spawns.empty() || objects.empty() || volumes.empty() || fields.empty()) continue;
-			Level level(pads, spawns, objects, volumes, fields);
+			const std::string graph = levelMember(scenario, "level.graph.json");
+			if (pads.empty() || spawns.empty() || objects.empty() || volumes.empty() || fields.empty() ||
+					graph.empty()) {
+				continue;
+			}
+			/* Read with the level's own graph: a base level that the document
+			 * refused here would be one whose graph and bounds rows differ. */
+			Level level(pads, spawns, objects, volumes, fields, graph);
 			INFO(entry.path().string() << ": " << level.error);
 			REQUIRE(level.doc != nullptr);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
@@ -1408,16 +1625,30 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+			CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
 			/* Every pad of a base level has its bounds row. */
 			CHECK(forgeLevelDocVolumeCount(level.doc) == forgeLevelDocPadCount(level.doc));
+			const size_t volumeNodes = occurrences(graph, kVolumeNode);
+			CHECK(volumeNodes == static_cast<size_t>(forgeLevelDocVolumeCount(level.doc)));
 
 			/* Adding a spawn and removing it again leaves the spawns as they
-			 * were, which exercises the rebuilt text on real files. */
+			 * were, which exercises the rebuilt text on real files. The pad it
+			 * was given stays, and the graph has that pad's node. */
 			char id[32] = { 0 };
 			char err[200] = { 0 };
 			REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
 			REQUIRE(forgeLevelDocRemoveSpawn(level.doc, id, err, sizeof(err)) == 1);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
+			{
+				const std::string edited = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+				CHECK(occurrences(edited, kVolumeNode) == volumeNodes + 1);
+				Level grown(level.text(FORGE_LEVEL_MEMBER_PADS), spawns, objects,
+					level.text(FORGE_LEVEL_MEMBER_VOLUMES), fields, edited);
+				INFO(entry.path().string() << " with one more pad: " << grown.error);
+				REQUIRE(grown.doc != nullptr);
+				CHECK(forgeLevelDocPadCount(grown.doc) == forgeLevelDocPadCount(level.doc));
+				graphBytes += static_cast<long>(graph.size());
+			}
 
 			/* Leaving out every object that can be left out gives a level that
 			 * reads back, and putting each one back gives both object files
@@ -1435,7 +1666,7 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			if (!leftOut.empty()) {
 				CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) != objects);
 				Level thinned(pads, spawns, level.text(FORGE_LEVEL_MEMBER_OBJECTS), volumes,
-					level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+					level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), graph);
 				INFO(entry.path().string() << " with its objects left out: " << thinned.error);
 				REQUIRE(thinned.doc != nullptr);
 				CHECK(forgeLevelDocObjectCount(thinned.doc) == forgeLevelDocObjectCount(level.doc));
@@ -1452,6 +1683,7 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 	}
 	WARN("base levels read and written back unchanged: " << levels << " (" << padTotal << " pads, "
 		<< objectTotal << " objects, " << removableTotal << " left out and put back, "
-		<< alreadyOut << " already left out on every difficulty)");
+		<< alreadyOut << " already left out on every difficulty, " << graphBytes
+		<< " bytes of level graph, each graph given one more trigger volume node)");
 	CHECK(levels > 0);
 }

@@ -265,11 +265,12 @@ header's comment is the reference for its rules. Not wired to the editor yet.
 
 What it does:
 
-- Reads five members of a level's scenario by schema name: `pads.json`
+- Reads six members of a level's scenario by schema name: `pads.json`
   (`pd2.scenario.pads.v1`), `spawns.json` (`pd2.scenario.spawns.v1`),
   `objects.json` (`pd2.scenario.objects.v1`), `volumes.json`
-  (`pd2.scenario.volumes.v1`, each pad's bounds in the world) and
-  `setup.fields.json` (`pd2.scenario.setup.fields.v1`). A wrong schema,
+  (`pd2.scenario.volumes.v1`, each pad's bounds in the world),
+  `setup.fields.json` (`pd2.scenario.setup.fields.v1`) and `level.graph.json`
+  (`pd2.level.graph.v1`, kept whole; see the graph rule below). A wrong schema,
   a row with no id, a repeated id, a pad out of sequence, or a spawn, object or
   bounds row naming a pad the level does not have is refused with the reason.
   Nothing is repaired.
@@ -313,6 +314,27 @@ conformance tool on a level with one pad added and by reading the runtime
   `volume_pad_NNNN` row per pad (the pad's place, a hundred units each way
   when the pad has no box of its own), and the extractor writes the two counts
   as the same number.
+- **The level's graph has one trigger volume node for each bounds row**
+  (found 2026-11-17 06:15 UTC by the F5 survey, before any run; READ in
+  `scenario_source_runtime.c` near "trigger volume node count differs from
+  volumes.json rows"). At activation the game counts the text `"kind":
+  "scenario.trigger.volume.source"` in `level.graph.json` and refuses the
+  level unless that is the number of rows in `volumes.json`. The first
+  versions of the document added a bounds row with every pad and left the
+  graph alone, so **every level Forge saved with a new pad would have been
+  refused by the game**, and nothing short of a run would have shown it: the
+  archive conformance tool does not check this rule, and hosted CI passed.
+  `level.graph.json` is now the document's sixth member. A new bounds row
+  comes with its node (`{ "id": "trigger.volume.NNNN", "kind":
+  "scenario.trigger.volume.source", "table": "volumes.json", "volume": ...,
+  "pad": ... }`, put after the last such node) and the link the extractor
+  gives every such node (`{ "from": "scenario.load", "to": ... }`, with the
+  `from` of the graph's own last such link). The graph's `counts` of pads,
+  volumes and objects follow the tables when they were true to begin with.
+  A level whose two counts already differ is refused when it is opened, as
+  the game would refuse it. Every other byte of the graph is kept; a Python
+  run of the same edit on the example's and Complex's real graphs gave valid
+  JSON with nothing else moved.
 - **Four digits.** The conformance tool wants a spawn's id and a spawn's pad
   written `spawn_NNNN` and `pad_NNNN` with exactly four digits, so the document
   stops at 10,000 pads and at spawn number 9,999. The largest base level has
@@ -528,3 +550,73 @@ Not known until a run: whether a level loaded for Forge straight from the boot
 stage (no agent chosen, no match started) has a player for the session to
 attach to, which is what `--launch-scenario empty_map` relies on for CI
 Training; and whether applying mods with a level loaded disturbs it.
+
+## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
+
+A read-only survey of `week-pd/mods-v4` at f88ff301 (file and line as it
+reported them; only the trigger volume rule above was re-read by MODS). It
+answers what a level needs when its walls come from a `.glb` and nothing in it
+comes from the original game.
+
+What exists:
+
+- **Collision and the navigation record need no new tool.** The game builds
+  collision at catalog activation from `collision.obj` or, when the scenario
+  names no collision file, from `scene.glb` itself (`modasset_compiler.c`
+  near 9549, `assetcatalog_load.c` 1382). `_meta/generated-navmesh.json` is a
+  stamp of counts and hashes, not a navmesh; the archive rebuild already
+  re-makes it. `_meta/generated-collision.json` is read by nothing.
+- **Rooms come from the model.** A per-vertex attribute `_PD_ROOM` (a whole
+  number, 1 to 32767; 0 is "no room") gives each triangle its room when all
+  three vertices agree; in an OBJ, an `o room_N` or `g room_N` line does
+  (`modasset_compiler.c` 2758 and 1009). At least one triangle must be in a
+  room above 0, or the load stops at `tilesreset.c:51`.
+- **Simulants can move without a navmesh.** With empty waypoint, waygroup and
+  cover tables the game makes a waypoint and a cover per pad and links them
+  from `paths.json`, or pad 0 to pad 1 to pad 2 when there are no paths
+  (`scenario_source_runtime.c` 34469, 6689). That ignores walls, so paths
+  have to be authored.
+- The scene is drawn whole, with textures embedded in the GLB, UVs, vertex
+  colours and `alphaMode`; lighting is baked.
+- `rooms.json`, `portals.json` (may be empty) and `collision.flags.json` are
+  optional. Without `rooms.json` room boxes come from collision triangles,
+  and a prop on a pad outside every box is not created (`bg.c` 1712).
+
+What is missing:
+
+1. Export conventions written down (Y up, units, triangles, embedded
+   textures, how rooms are tagged) and a Blender step that writes `_PD_ROOM`
+   or room-named OBJ objects. Whether Blender's glTF exporter writes that
+   attribute in a form the game takes is not known.
+2. Writers for `collision.obj`, `portals.json`, `rooms.json` and the seed
+   tables (pads, spawns, volumes, paths) outside the extractor.
+3. A level graph template that the game accepts: the extractor's full node
+   list with the `scenario.navigation.generate` node, one trigger volume node
+   per bounds row, and later CORE's `object.rules` wiring. The mod packer's
+   template (`"nodes": []`) and the example level's graph are both refused by
+   the game.
+4. A packer that builds a `.pdscenario` inside a `.pdarena` from those
+   sources. Rebuilding a template with member overrides exists, but **there
+   is no playable template that is free of the original game's data**: the
+   example `tri_arena` is not a playable level (its collision is all room 0
+   and its graph lacks the navigation node; smokes only activate it as a
+   catalog asset), `mapimport.c` writes a stub no stage can load, The Grid's
+   Blank Map is the original game's stage 0x1a, and `--launch-scenario
+   empty_map` is CI Training.
+5. A smoke that starts a match on such a level.
+
+So the first piece of F5 is a small original level that plays: one room, a
+floor and walls from Blender, a few pads and starts, an accepted graph. It is
+the "blank canvas" of this document's first version, the template every
+shareable Forge level starts from, and the proof of the pipeline before the
+Maian arena's geometry goes through it.
+
+Also found: passing `tools/asset_archive_conformance.py` does not mean a level
+loads. The tool requires neither the navigation node nor a `collision.obj`
+member nor the trigger volume count, and the game requires all three.
+
+Open: the Blender scale that matches game units (a mod's stage copies the
+Skedar stage row, scale fields included), whether rooms and portals still hide
+props and characters when the scene is drawn whole, whether a portal's vertex
+order matters, and whether a pad's room is taken from `room_ref` or from the
+room boxes.
