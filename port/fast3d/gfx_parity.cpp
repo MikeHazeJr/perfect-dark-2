@@ -69,21 +69,39 @@ bool writeBmp24(const std::string &path, int w, int h, const std::vector<uint8_t
     return true;
 }
 
+/* The capture path as a JSON string body (Windows paths carry backslashes). */
+std::string jsonEscape(const std::string &text)
+{
+    std::string out;
+    for (const char c : text) {
+        if (c == '\\' || c == '"') {
+            out += '\\';
+            out += c;
+        } else if ((unsigned char)c < 0x20) {
+            out += ' ';
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 extern "C" void gfxParityCompare(const char *path, const uint8_t *glRgb, int w, int h,
                                  const uint8_t *bgfxRgba, int bw, int bh)
 {
     const std::string base = path ? path : "parity";
+    const std::string capture = jsonEscape(base);
     std::string json;
-    char line[512];
+    char line[4096];
 
     if (w != bw || h != bh || !glRgb || !bgfxRgba) {
         sysLogPrintf(LOG_WARNING, "PARITY: %s size mismatch: GL %dx%d, bgfx %dx%d", base.c_str(), w, h, bw, bh);
         snprintf(line, sizeof(line),
                  "{\n  \"schema\": \"pd2.renderer-parity.v1\",\n  \"capture\": \"%s\",\n"
                  "  \"gl_size\": [%d, %d],\n  \"bgfx_size\": [%d, %d],\n  \"size_match\": false\n}\n",
-                 base.c_str(), w, h, bw, bh);
+                 capture.c_str(), w, h, bw, bh);
         json = line;
     } else {
         std::vector<uint8_t> bgfxRgb((size_t)w * h * 3);
@@ -132,7 +150,7 @@ extern "C" void gfxParityCompare(const char *path, const uint8_t *glRgb, int w, 
                  "  \"pixels\": %llu,\n  \"differing_pixels\": %llu,\n  \"max_channel_delta\": %d,\n"
                  "  \"delta_histogram\": {\"1\": %llu, \"2-3\": %llu, \"4-15\": %llu, \"16+\": %llu},\n"
                  "  \"bbox_top_left\": [%d, %d, %d, %d]\n}\n",
-                 base.c_str(), w, h, bw, bh, (unsigned long long)w * h, (unsigned long long)differing, maxDelta,
+                 capture.c_str(), w, h, bw, bh, (unsigned long long)w * h, (unsigned long long)differing, maxDelta,
                  (unsigned long long)hist[0], (unsigned long long)hist[1], (unsigned long long)hist[2],
                  (unsigned long long)hist[3], differing ? x0 : -1, top, differing ? x1 : -1, bottom);
         json = line;
