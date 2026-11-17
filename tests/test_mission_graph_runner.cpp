@@ -466,6 +466,81 @@ TEST_CASE("every mission graph under PD2_MISSION_GRAPH_ROOT compiles and runs it
 	CHECK(wired == checked);
 }
 
+// projectile-events.md slice 2: a projectile or entity archive's program.
+TEST_CASE("projectile programs take the projectile events, and only they do",
+	"[mission-graph][projectile-graph]")
+{
+	// A v1 projectile graph's data nodes and structural edge, plus a program.
+	const std::string projectile = R"({
+  "schema": "pd.projectile_graph.v2",
+  "asset_id": "base:test__projectile_timed",
+  "nodes": [
+    { "id": "spawn_state", "kind": "projectile.spawn_state", "params": { "scale": 1 } },
+    { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "explode", "kind": "og.test.a" }
+  ],
+  "edges": [
+    { "from": "spawn_state", "to": "motion" },
+    { "from": "fuse", "output": "out", "to": "explode", "input": "exec" }
+  ]
+})";
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(projectile.data(),
+		projectile.size(), knownModule, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 2);
+	CHECK(missionGraphProgramExecEdgeCount(program) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_LANDED) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED) == 1);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_GLASS_BROKEN) == 0);
+
+	int instance = 0;
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+	event.player = -1;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == -1); // no instance
+	event.instance = &instance;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].node == "explode");
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_LANDED;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 0); // nothing wired
+	missionGraphProgramFree(program);
+
+	// A data-only v1 graph is an empty program.
+	const std::string dataOnly = R"({ "nodes": [ { "id": "spawn_state", "kind": "projectile.spawn_state" } ], "edges": [] })";
+	program = missionGraphProgramCompileProjectile(dataOnly.data(), dataOnly.size(), knownModule, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 0);
+	missionGraphProgramFree(program);
+
+	// Any other event in a projectile program is refused, and a projectile
+	// event in a mission or level graph.
+	const std::string objectiveInProjectile = graph(
+		R"({ "id": "s", "kind": "event.objective.status_changed" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "s", "output": "out", "to": "m", "input": "exec" })");
+	program = missionGraphProgramCompileProjectile(objectiveInProjectile.data(), objectiveInProjectile.size(),
+		knownModule, err, sizeof(err));
+	CHECK(program == nullptr);
+	CHECK(std::string(err).find("is not a projectile event") != std::string::npos);
+	missionGraphProgramFree(program);
+
+	const std::string projectileEvent = graph(
+		R"({ "id": "f", "kind": "event.projectile.timer_expired" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "f", "output": "out", "to": "m", "input": "exec" })");
+	CHECK(refusal(projectileEvent).find("belongs to a projectile or entity graph") != std::string::npos);
+	program = missionGraphProgramCompileLevel(projectileEvent.data(), projectileEvent.size(),
+		knownModule, err, sizeof(err));
+	CHECK(program == nullptr);
+	CHECK(std::string(err).find("belongs to a projectile or entity graph") != std::string::npos);
+	missionGraphProgramFree(program);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

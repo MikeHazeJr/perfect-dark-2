@@ -57,6 +57,12 @@ extern "C" {
  *       event.lift.arrived, event.glass.damaged (slices 4 and 5, level
  *       programs only): an object's event; optional "object": "any" (the
  *       default) or an objects.json record_id.
+ *   event.projectile.spawned, .bounced, .hit_target, .landed, .ended,
+ *       .detonated and .timer_expired (projectile-events.md slice 2):
+ *       projectile and entity programs only
+ *       (missionGraphProgramCompileProjectile); the event's instance is the
+ *       weapon object. A mission or level graph that names one is refused,
+ *       and a projectile program refuses every other event.
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
@@ -95,6 +101,15 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_LIFT_ARRIVED 16
 #define MISSION_GRAPH_EVENT_GLASS_DAMAGED 17
 #define MISSION_GRAPH_EVENT_GLASS_BROKEN 18
+/* projectile-events.md slice 2: the projectile events, projectile and entity
+ * programs only. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED 19
+#define MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED 20
+#define MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET 21
+#define MISSION_GRAPH_EVENT_PROJECTILE_LANDED 22
+#define MISSION_GRAPH_EVENT_PROJECTILE_ENDED 23
+#define MISSION_GRAPH_EVENT_PROJECTILE_DETONATED 24
+#define MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED 25
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -129,6 +144,8 @@ typedef struct mission_graph_event {
 	s32 tag;                 /* the id of the tag record that names it, or -1 */
 	const char *object_kind; /* its objects.json kind ("door", "weapon_pickup", ...) */
 	const char *catalog_id;  /* a pickup's weapon, else the object's model; may be NULL */
+	/* projectile events (projectile-events.md slice 2) */
+	void *instance;          /* the weapon object (struct defaultobj *); never NULL */
 } mission_graph_event_t;
 
 /* "active", "complete" or "failed" as a MISSION_GRAPH_PHASE_* value, or -1. */
@@ -162,6 +179,14 @@ mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t jso
  * nodes. A level graph without program nodes compiles to an empty program. */
 mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
+/* projectile-events.md slice 2: compile a projectile or entity archive's
+ * program (its behavior.graph.json). As for a level graph, only the event.*,
+ * gate.* and og.* nodes are the program and every other node is data
+ * (projectile.spawn_state, entity.*), skipped and not counted; its events
+ * are the projectile events and no other. A graph without program nodes
+ * compiles to an empty program. */
+mission_graph_program_t *missionGraphProgramCompileProjectile(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
 void missionGraphProgramFree(mission_graph_program_t *program);
 
 s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);
@@ -180,6 +205,10 @@ s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 
  * (MISSION_GRAPH_EVENT_PICKUP_TOUCHED, _DOOR_USE, _DOOR_APPROACH,
  * _LIFT_CALLED, _LIFT_IDLE, _LIFT_ARRIVED, _GLASS_DAMAGED). */
 s32 missionGraphEventIsObjectRule(s32 event_kind);
+
+/* projectile-events.md slice 2: whether the kind is a projectile event
+ * (MISSION_GRAPH_EVENT_PROJECTILE_*). */
+s32 missionGraphEventIsProjectile(s32 event_kind);
 
 /* Whether an event of this kind can reach a native module of this og.* kind
  * along execution edges (both branches of every gate). */
