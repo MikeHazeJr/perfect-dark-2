@@ -555,12 +555,34 @@ static const char *packerSidecarTemplate(const char *leaf)
 			"supports_ceiling = true\n";
 	}
 	if (strcmp(leaf, "level.graph.json") == 0) {
+		/* object-events.md slice 4: a level graph wires the level's pickup
+		 * and door rules, or its stage is refused. */
 		return
 			"{\n"
 			"  \"schema\": \"pd2.level.graph.v1\",\n"
 			"  \"source\": \"scene.glb\",\n"
-			"  \"nodes\": [],\n"
-			"  \"links\": []\n"
+			"  \"nodes\": [\n"
+			"    { \"id\": \"object.rules.pickup.touched\", \"kind\": \"event.pickup.touched\" },\n"
+			"    { \"id\": \"object.rules.pickup.native_rules\", \"kind\": \"gate.pickup.native_rules\" },\n"
+			"    { \"id\": \"object.rules.pickup.collect\", \"kind\": \"og.pickup.collect\" },\n"
+			"    { \"id\": \"object.rules.door.use\", \"kind\": \"event.door.use\" },\n"
+			"    { \"id\": \"object.rules.door.use_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate\", \"kind\": \"og.door.activate\" },\n"
+			"    { \"id\": \"object.rules.door.locked_message\", \"kind\": \"og.door.locked_message\" },\n"
+			"    { \"id\": \"object.rules.door.approach\", \"kind\": \"event.door.approach\" },\n"
+			"    { \"id\": \"object.rules.door.approach_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate_automatic\", \"kind\": \"og.door.activate_automatic\" }\n"
+			"  ],\n"
+			"  \"links\": [],\n"
+			"  \"edges\": [\n"
+			"    { \"from\": \"object.rules.pickup.touched\", \"to\": \"object.rules.pickup.native_rules\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.pickup.native_rules\", \"to\": \"object.rules.pickup.collect\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use\", \"to\": \"object.rules.door.use_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.activate\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.locked_message\", \"input\": \"exec\", \"output\": \"fail\" },\n"
+			"    { \"from\": \"object.rules.door.approach\", \"to\": \"object.rules.door.approach_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" }\n"
+			"  ]\n"
 			"}\n";
 	}
 	return NULL;
