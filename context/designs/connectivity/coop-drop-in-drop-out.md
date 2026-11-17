@@ -47,6 +47,32 @@ a player can also join a co-op mission already in progress, and leave it, withou
   (a friend joins the next one); a mission started with a free partner slot is the one friends drop into. The
   original never mixed a human partner with AI buddies.
 
+## AI buddies (built 2026-11-17, branch week-pd/multiplayer-coop, 26557b90; not run yet)
+
+Mike's 2026-11-16 call (the co-op AI-buddy entry comes back) and the 2026-11-17 answer above, as built:
+
+- **The Room's Campaign tab** has a Partner section under Difficulty. With a second player in the Room, that player
+  is the partner. With three or more, the tab says co-op is for two players (the lobby start already refuses more).
+  Alone, a Perfect Buddy choice offers 1 to N simulants, where N is the original's limit for the difficulty shown:
+  one buddy, plus more once the whole co-op campaign is finished on harder difficulties, at most 4
+  (`getMaxAiBuddiesForDifficulty`, split out of `getMaxAiBuddies`). The choice lives in `g_NetCoopAiBuddies`.
+- **Hosted Room, host alone:** `netServerCoopStageStart` sets `g_Vars.numaibuddies` from the choice only when the
+  co-op roster is the host alone, clamps it after the mission difficulty is set, and puts the old value back on each
+  of its three rollbacks. With a partner it is 0, so the original never-mixed rule holds. The buddies spawn at the
+  player as in the original (`playerTick`, `GAILIST_INIT_DEFAULT_BUDDY`). Log: `COOP.AIBUDDIES: host alone=1
+  buddies=N requested=R max=M difficulty=D`, then `COOP.AIBUDDIES: spawned N of N at lvframe F`.
+- **A client** clears `g_Vars.numaibuddies` in its stage start: its partner is the host, and a count left from a
+  mission it hosted alone would spawn buddies on that machine only.
+- **Offline Room** (Play, Combat Simulator, no network): the Campaign tab's Start used to fail (it asked the network
+  lobby). It now runs the original's one-player co-op through the Solo Missions start (`pdguiRoomStartOfflineCoop`,
+  `menuhandlerAcceptMission`: one player, no co-op player, the clamped buddies).
+- The Campaign tab's old text ("Drop-in co-op: players join at next safe spawn. Up to 4 players.") is gone; S4 still
+  owns showing a mission in progress with a free slot.
+- Smokes: `network_coop_ai_buddies_smoke` (one listen host, `--host-autostart-peers 0`, `--coop-ai-buddies 2`; a
+  fresh profile clamps to 1) and `coop_ai_buddies_offline_smoke` (Agent Select, the real Main Menu and Play graph
+  into the offline Room, `--debug-room-tab campaign`, the Room's own Start Match). Static pins: `[aibuddies]` in
+  `tests/test_net_mission_end_static.cpp`.
+
 ## Steps
 
 - **S1 Park, don't kill (co-op).** In the disconnect path, a co-op partner is parked instead of killed; the
