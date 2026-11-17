@@ -2741,10 +2741,16 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
     catalog_id = descriptor_values.get("catalog_id", "")
     physics = read_json_member(zf, "physics.json")
     behavior = read_json_member(zf, "behavior.graph.json")
-    # A v1 graph pairs with physics v3 (no boost keys: the graph's
-    # og.vehicle.throttle_boost holds them); a v2 behavior with physics v2.
+    # A v1 graph with physics v3 (no boost keys: the graph's
+    # og.vehicle.throttle_boost holds them). The base vehicles are v1 since
+    # the base re-extract, so a v2 behavior (pd2.vehicle.behavior.v2 with
+    # pd2.vehicle.physics.v2) is retired (vehicle-graph-v1.md, "Migration").
     graph_v1 = isinstance(behavior, dict) and behavior.get("schema") == VEHICLE_GRAPH_SCHEMA
-    physics_schema = "pd2.vehicle.physics.v3" if graph_v1 else "pd2.vehicle.physics.v2"
+    if not graph_v1:
+        errors.append(f"{label} behavior.graph.json: pd2.vehicle.behavior.v2 and "
+                      "pd2.vehicle.physics.v2 are retired; a vehicle needs a "
+                      f"{VEHICLE_GRAPH_SCHEMA} graph with pd2.vehicle.physics.v3 physics")
+    physics_schema = "pd2.vehicle.physics.v3"
     if validate_catalog_bound_json(
             label, "physics.json", physics, physics_schema,
             catalog_id, errors):
@@ -2776,15 +2782,12 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             "yaw_response_ntsc",
             "yaw_response_pal",
         )
-        if graph_v1:
-            for field_name in ("boost_speed", "boost_time_ticks60"):
-                if field_name in physics:
-                    errors.append(
-                        f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
-                        "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
-                    )
-        else:
-            numeric_fields += ("boost_speed", "boost_time_ticks60")
+        for field_name in ("boost_speed", "boost_time_ticks60"):
+            if field_name in physics:
+                errors.append(
+                    f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
+                    "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
+                )
         for field_name in numeric_fields:
             value = physics.get(field_name)
             if not is_finite_json_number(value) or float(value) < 0.0:
@@ -2821,14 +2824,6 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
     if graph_v1:
         errors.extend(validate_vehicle_graph_execution(
             label, behavior, variables, catalog_id))
-    elif validate_catalog_bound_json(
-            label, "behavior.graph.json", behavior,
-            "pd2.vehicle.behavior.v2", catalog_id, errors):
-        for field_name in ("allow_mount", "allow_drive", "allow_dismount"):
-            if not isinstance(behavior.get(field_name), bool):
-                errors.append(
-                    f"{label} behavior.graph.json {field_name} must be boolean"
-                )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -11325,7 +11320,7 @@ def run_selftest() -> int:
                     "behavior_graph = behavior.graph.json\n"
                 ),
                 "physics.json": json.dumps({
-                    "schema": "pd2.vehicle.physics.v2",
+                    "schema": "pd2.vehicle.physics.v3",
                     "catalog_id": "test:vehicle",
                     "archetype": "hoverbike",
                     **{
@@ -11341,21 +11336,24 @@ def run_selftest() -> int:
                             "forward_tilt", "lateral_tilt",
                             "tilt_response_ntsc", "tilt_response_pal",
                             "yaw_response_ntsc", "yaw_response_pal",
-                            "boost_speed", "boost_time_ticks60",
                         )
                     },
                     "hover": [1.0] * 13,
                 }),
                 "behavior.graph.json": json.dumps({
-                    "schema": "pd2.vehicle.behavior.v2",
+                    "schema": "pd.vehicle_graph.v1",
                     "catalog_id": "test:vehicle",
-                    "allow_mount": True,
-                    "allow_drive": True,
-                    "allow_dismount": True,
+                    "nodes": [
+                        {"id": "tick", "kind": "event.vehicle.tick"},
+                        {"id": "drive", "kind": "og.vehicle.hover_drive"},
+                    ],
+                    "edges": [
+                        {"from": "tick", "output": "out", "to": "drive", "input": "exec"},
+                    ],
                 }),
             },
-            ("behavior.graph.json", '"allow_drive": true', '"allow_drive": 1'),
-            "allow_drive must be boolean",
+            ("behavior.graph.json", '"og.vehicle.hover_drive"', '"og.vehicle.fly"'),
+            "native module 'og.vehicle.fly' does not exist",
         ),
     ]
     for name, validator, entries, mutation, expected_error in structured_contracts:

@@ -315,22 +315,25 @@ V2_BEHAVIOR = {"schema": "pd2.vehicle.behavior.v2", "catalog_id": CATALOG,
 
 
 class VehicleSourcePairingTests(unittest.TestCase):
-    def test_v1_with_physics_v3_and_v2_with_physics_v2_pass(self):
+    def test_v1_with_physics_v3_passes_and_v2_is_retired(self):
         self.assertEqual(contract_errors(pdvehicle(
             "pd2.vehicle.physics.v3", maian_graph(), False, VARIABLES)), [])
-        self.assertEqual(contract_errors(pdvehicle(
-            "pd2.vehicle.physics.v2", V2_BEHAVIOR, True)), [])
+        errors = contract_errors(pdvehicle("pd2.vehicle.physics.v2", V2_BEHAVIOR, True))
+        self.assertTrue(any("pd2.vehicle.behavior.v2 and pd2.vehicle.physics.v2 are retired" in e
+                            for e in errors), errors)
 
     def test_mixed_sources_are_refused(self):
         cases = [
             (pdvehicle("pd2.vehicle.physics.v2", maian_graph(), True, VARIABLES),
              "must declare schema pd2.vehicle.physics.v3"),
             (pdvehicle("pd2.vehicle.physics.v3", V2_BEHAVIOR, False),
-             "must declare schema pd2.vehicle.physics.v2"),
+             "pd2.vehicle.behavior.v2 and pd2.vehicle.physics.v2 are retired"),
             (pdvehicle("pd2.vehicle.physics.v3", maian_graph(), True, VARIABLES),
              "has no boost keys"),
             (pdvehicle("pd2.vehicle.physics.v2", V2_BEHAVIOR, True, VARIABLES),
              "is read only with a pd.vehicle_graph.v1"),
+            (pdvehicle("pd2.vehicle.physics.v2", V2_BEHAVIOR, True),
+             "must declare schema pd2.vehicle.physics.v3"),
         ]
         for zf, expected in cases:
             with self.subTest(expected=expected):

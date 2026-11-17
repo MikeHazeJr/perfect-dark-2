@@ -1425,12 +1425,12 @@ static void s_freeVehicleGraph(asset_runtime_binding_t *binding)
 }
 
 /*
- * A vehicle's sources pair one way or the other, never mixed:
- *   pd.vehicle_graph.v1 behavior + pd2.vehicle.physics.v3 (no boost keys: the
- *   graph's og.vehicle.throttle_boost holds them, CORE's answer 3), or
- *   pd2.vehicle.behavior.v2 + pd2.vehicle.physics.v2 (the booleans and the
- *   original bonus keys), read until the base re-extract writes v1.
- * behavior/variables.json belongs to a v1 graph only.
+ * A vehicle's sources are a pd.vehicle_graph.v1 behavior with
+ * pd2.vehicle.physics.v3 physics (no boost keys: the graph's
+ * og.vehicle.throttle_boost holds them, CORE's answer 3). The base vehicles
+ * are v1 since the base re-extract (PDMETA_FAST_CACHE_KIND _vehiclegraph),
+ * so a pd2.vehicle.behavior.v2 behavior or pd2.vehicle.physics.v2 physics
+ * is refused (vehicle-graph-v1.md, "Migration"; B-1230 ends).
  */
 static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
 {
@@ -1465,23 +1465,20 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
         ok = 1;
         physics_v3 = strcmp(physics_schema, "pd2.vehicle.physics.v3") == 0;
     }
-    if (ok && graph_v1 != physics_v3) {
-        ok = s_refuseVehicle(binding, graph_v1
-            ? "a pd.vehicle_graph.v1 behavior needs pd2.vehicle.physics.v3 physics"
-            : "pd2.vehicle.physics.v3 physics needs a pd.vehicle_graph.v1 behavior");
+    if (ok && graph_v1 && !physics_v3) {
+        ok = s_refuseVehicle(binding,
+            "a pd.vehicle_graph.v1 behavior needs pd2.vehicle.physics.v3 physics");
+    }
+    if (ok && !graph_v1) {
+        ok = s_refuseVehicle(binding,
+            "behavior.graph.json needs a pd.vehicle_graph.v1 behavior (pd2.vehicle.behavior.v2 and "
+            "pd2.vehicle.physics.v2 are retired since the base re-extract)");
     }
     if (ok && physics_v3 &&
             (s_jsonFindValue(physics, physics_size, "boost_speed") ||
              s_jsonFindValue(physics, physics_size, "boost_time_ticks60"))) {
         ok = s_refuseVehicle(binding,
             "pd2.vehicle.physics.v3 has no boost keys (the graph's og.vehicle.throttle_boost holds them)");
-    }
-    if (ok && !graph_v1 &&
-            s_sourceMemberPath(binding->primary_path, "behavior/variables.json", path,
-                sizeof(path)) &&
-            s_primaryFileSize(path) >= 0) {
-        ok = s_refuseVehicle(binding,
-            "behavior/variables.json is read only with a pd.vehicle_graph.v1 behavior graph");
     }
     if (ok && (!s_sourceCatalogIdMatches(binding, physics, physics_size) ||
             !s_sourceCatalogIdMatches(binding, behavior, behavior_size))) {

@@ -1797,7 +1797,7 @@ TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped input
 /* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): a
  * .pdvehicle's behavior.graph.json compiles with its behavior/variables.json
  * when the catalog hydrates the vehicle; v1 pairs with physics v3 (no boost
- * keys) and v2 with physics v2, never mixed. */
+ * keys). A v2 behavior and v2 physics are retired since the base re-extract. */
 static const char *const kAdapterPhysicsCommon =
 	"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
 	"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
@@ -1956,18 +1956,13 @@ static int admitGraphVehicle(const char *dirName, const std::string &behavior,
 
 TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrates the vehicle",
           "[modding][pdxxx][runtime][vehicle-graph]") {
-	SECTION("a v2 behavior keeps its booleans and the original bonus keys") {
+	SECTION("a v2 behavior is retired: refused, with the reason") {
 		assetRuntimeReset();
 		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_v2",
-			adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, nullptr) == 1);
-		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
-		REQUIRE(b != nullptr);
-		REQUIRE(b->vehicle_graph == nullptr);
-		REQUIRE(b->vehicle_allow_mount == 1);
-		REQUIRE(b->vehicle_allow_drive == 1);
-		REQUIRE(b->vehicle_allow_dismount == 1);
-		REQUIRE(b->vehicle_boost_speed == Approx(7.0f));
-		REQUIRE(b->vehicle_boost_time_ticks60 == 1800);
+			adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, nullptr) == 0);
+		CHECK(std::string(assetRuntimeVehicleGraphError()).find(
+			"needs a pd.vehicle_graph.v1 behavior") != std::string::npos);
+		CHECK(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
 	}
 	SECTION("a v1 graph compiles with its variables; the booleans come from the graph") {
 		assetRuntimeReset();
@@ -2115,7 +2110,7 @@ TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrat
 			{ adapterPhysics("pd2.vehicle.physics.v3", true), adapterGraph(), true,
 				"has no boost keys" },
 			{ adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, true,
-				"read only with a pd.vehicle_graph.v1" },
+				"needs a pd.vehicle_graph.v1 behavior" },
 			{ adapterPhysics("pd2.vehicle.physics.v9", false), adapterGraph(), true,
 				"physics.json needs" },
 		};

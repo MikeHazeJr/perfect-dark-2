@@ -452,6 +452,12 @@ Follow-up tasks (to become Workbench items at the merge, as agreed for the week)
   graph (the base graph in this doc) and `pd2.vehicle.physics.v3` physics behind a vehicle export
   version; then the runtime refuses v2 behavior and physics and conformance reports them. B-1230
   ends with it; until then the v2 path is the second path.
+  **Done on `week-pd/core-s5` (CORE, 2026-11-17):** `romextract_pdmeta.c` writes this doc's base
+  graph and v3 physics (the meta export version moves to `_vehiclegraph`, so every install
+  re-extracts its meta archives once); `asset_runtime.c` refuses a vehicle whose behavior is not
+  a v1 graph (the message names `pd.vehicle_graph.v1` and the retired v2 schemas); conformance
+  reports v2 as an error and its self-test checks a v1 vehicle; the typed example vehicle is v1
+  (boost 7.0 over 1800 ticks240). The Maian recipe already replaced its template's v2 files.
 - B-1232 (MULTIPLAYER's wire, MODS's choice offered): a remote rider's boost never reaches the
   host. MODS's preference: a boost bit in the move message, so the host runs `boost_heat` with the
   client's input as for its own rider, and the phase (with the toggled parts) in the vehicle state

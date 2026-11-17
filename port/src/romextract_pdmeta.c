@@ -32,7 +32,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -1575,7 +1575,7 @@ static s32 s_emitVehicle(const asset_entry_t *e, const char *out_dir,
 	char physics[4096];
 	int physics_len = snprintf(physics, sizeof(physics),
 		"{\n"
-		"  \"schema\": \"pd2.vehicle.physics.v2\",\n"
+		"  \"schema\": \"pd2.vehicle.physics.v3\",\n"
 		"  \"catalog_id\": \"%s\",\n"
 		"  \"archetype\": \"hoverbike\",\n"
 		"  \"turn_input_scale\": 0.0436262824,\n"
@@ -1600,8 +1600,6 @@ static s32 s_emitVehicle(const asset_entry_t *e, const char *out_dir,
 		"  \"tilt_response_pal\": 0.0478,\n"
 		"  \"yaw_response_ntsc\": 0.15,\n"
 		"  \"yaw_response_pal\": 0.177,\n"
-		"  \"boost_speed\": 5.0,\n"
-		"  \"boost_time_ticks60\": 2400,\n"
 		"  \"hover\": [80.0, 1.0, 3.0, 0.0025, 0.1, "
 			"0.0125643704, 0.0188465547, 0.0000209406171, "
 			"0.00062821852, 0.0125643704, 0.0188465547, "
@@ -1611,14 +1609,34 @@ static s32 s_emitVehicle(const asset_entry_t *e, const char *out_dir,
 		return -1;
 	}
 
-	char behavior[1024];
+	/* The base hoverbike's behavior graph (vehicle-graph-v1.md, "The base
+	 * hoverbike's graph"): the original mount, dismount, drive and boost as
+	 * the native modules, wired from the vehicle events. The boost keys of
+	 * the old v2 physics are the throttle_boost node's (B-1230: the ramp is
+	 * counted in 240ths). */
+	char behavior[4096];
 	int behavior_len = snprintf(behavior, sizeof(behavior),
 		"{\n"
-		"  \"schema\": \"pd2.vehicle.behavior.v2\",\n"
+		"  \"schema\": \"pd.vehicle_graph.v1\",\n"
 		"  \"catalog_id\": \"%s\",\n"
-		"  \"allow_mount\": true,\n"
-		"  \"allow_drive\": true,\n"
-		"  \"allow_dismount\": true\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"mount\", \"kind\": \"event.vehicle.mount_requested\" },\n"
+		"    { \"id\": \"dismount\", \"kind\": \"event.vehicle.dismount_requested\" },\n"
+		"    { \"id\": \"tick\", \"kind\": \"event.vehicle.tick\" },\n"
+		"    { \"id\": \"driver_free\", \"kind\": \"gate.vehicle.seat_free\", \"params\": { \"seat\": \"driver\" } },\n"
+		"    { \"id\": \"mount_driver\", \"kind\": \"og.vehicle.mount_seat\", \"params\": { \"seat\": \"driver\" } },\n"
+		"    { \"id\": \"dismount_driver\", \"kind\": \"og.vehicle.dismount_seat\", \"params\": { \"seat\": \"driver\" } },\n"
+		"    { \"id\": \"drive\", \"kind\": \"og.vehicle.hover_drive\" },\n"
+		"    { \"id\": \"throttle_boost\", \"kind\": \"og.vehicle.throttle_boost\",\n"
+		"      \"params\": { \"boost_speed\": 5.0, \"ramp_time\": { \"value\": 2400, \"unit\": \"ticks240\" } } }\n"
+		"  ],\n"
+		"  \"edges\": [\n"
+		"    { \"from\": \"mount\", \"output\": \"out\", \"to\": \"driver_free\", \"input\": \"exec\" },\n"
+		"    { \"from\": \"driver_free\", \"output\": \"pass\", \"to\": \"mount_driver\", \"input\": \"exec\" },\n"
+		"    { \"from\": \"dismount\", \"output\": \"out\", \"to\": \"dismount_driver\", \"input\": \"exec\" },\n"
+		"    { \"from\": \"tick\", \"output\": \"out\", \"to\": \"drive\", \"input\": \"exec\" },\n"
+		"    { \"from\": \"tick\", \"output\": \"out\", \"to\": \"throttle_boost\", \"input\": \"exec\" }\n"
+		"  ]\n"
 		"}\n", e->id);
 	if (behavior_len <= 0 || (size_t)behavior_len >= sizeof(behavior)) {
 		return -1;
