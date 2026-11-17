@@ -111,12 +111,35 @@ s32 forgeLevelStartForge(const char *arena_id);
  * that level, adds a player start a short step in front of its first one and
  * another spot for its first weapon pickup a short step in front of that
  * pickup, leaves its first ammo crate out, and saves the result as the level
- * `display_name`. It is what a
- * smoke uses to prove an edited level loads; the Forge editor will make the
+ * `display_name`. With --debug-forge-level-weapon <weapon id> the copied
+ * pickup is given that catalog weapon (`pickup_weapon_id`; NULL or "" leaves
+ * it a weapon place like the one it was copied from). It is what a
+ * smoke uses to prove an edited level loads; the Forge editor makes the
  * same open and save calls. Returns 1 when the level was saved and is in the
  * catalog.
  */
-s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name);
+s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id);
+
+/**
+ * The model and the size a pickup of the weapon `weapon_catalog_id` is shown
+ * with. For a weapon the match's weapon sets offer, its row in the weapon set
+ * table (g_MpWeapons): what one of a level's weapon places becomes when a
+ * match gives it that weapon. For any other weapon, the model it is held
+ * with, at life size. 1 with the model's catalog id and the size (256 is life
+ * size); 0 with the reason when the catalog has no such weapon or the game
+ * has no model for it.
+ */
+s32 forgeLevelPickupLook(const char *weapon_catalog_id, char *out_model_id, size_t model_cap,
+		s32 *out_extra_scale, char *err, size_t err_cap);
+
+/**
+ * Makes the pickup `record_id` of the open document give the catalog weapon
+ * `weapon_catalog_id`, shown with that weapon's model and size
+ * (forgeLevelPickupLook, then forgeLevelDocSetPickupWeapon). 1 on success; 0
+ * with the reason, and the document unchanged.
+ */
+s32 forgeLevelSessionGivePickup(const char *record_id, const char *weapon_catalog_id,
+		char *err, size_t err_cap);
 
 /**
  * --debug-forge-session-save <name>, inside a Forge session started on a

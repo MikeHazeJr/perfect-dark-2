@@ -217,13 +217,17 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *
  *   --debug-forge-level <arena catalog id>
  *   --debug-forge-level-name <display name>
+ *   --debug-forge-level-weapon <weapon catalog id>
  *       Edits a level without the Forge editor: opens the named arena's
  *       placements (forge_level_io.h), adds a player start a short step in
  *       front of its first one and another spot for its first weapon pickup,
- *       and saves the result as a level mod under the display name, through
- *       the open and save calls the Forge editor makes. Runs right after the
- *       character tool's flags, so one launch can make the level and then
- *       start a match on it. Logged as FORGE.LEVEL.* lines.
+ *       leaves its first ammo crate out, and saves the result as a level mod
+ *       under the display name, through the open and save calls the Forge
+ *       editor makes. With a weapon id, the copied pickup gives that weapon
+ *       of the catalog instead of being one of the match's weapon places.
+ *       Runs right after the character tool's flags, so one launch can make
+ *       the level and then start a match on it. Logged as FORGE.LEVEL.*
+ *       lines.
  *
  *   --launch-forge-level <arena catalog id>
  *       Starts a Forge session on the named level once the boot stage has
@@ -1152,6 +1156,7 @@ static void bootApplyDebugForgeLevel(void)
 {
 	const char *arena_id = sysArgGetString("--debug-forge-level");
 	const char *name = sysArgGetString("--debug-forge-level-name");
+	const char *weapon_id = sysArgGetString("--debug-forge-level-weapon");
 
 	if (!arena_id || !arena_id[0]) {
 		return;
@@ -1159,8 +1164,9 @@ static void bootApplyDebugForgeLevel(void)
 	if (!name || !name[0]) {
 		name = "Debug Level";
 	}
-	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' result=%s",
-		arena_id, name, forgeLevelDebugEdit(arena_id, name) ? "OK" : "FAIL");
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' weapon=%s result=%s",
+		arena_id, name, (weapon_id && weapon_id[0]) ? weapon_id : "(none)",
+		forgeLevelDebugEdit(arena_id, name, weapon_id) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.

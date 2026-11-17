@@ -79,7 +79,7 @@
       "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_forge_edit restart_count=\\d+",
       "FORGE\\.LEVEL\\.SAVE\\.OK: template=base:arena_mp_complex catalog=mod:arena_forge_edit changed_members=6 restart_count=\\d+ archive='.*arena_forge_edit\\.pdarena'",
       "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=OK catalog=mod:arena_forge_edit",
-      "BOOT: --debug-forge-level arena=base:arena_mp_complex name='Forge_Edit' result=OK",
+      "BOOT: --debug-forge-level arena=base:arena_mp_complex name='Forge_Edit' weapon=\\(none\\) result=OK",
       "PDARENA\\.SCENARIO: owner=mod:arena_forge_edit id=mod:arena_forge_edit__\\S+ stagenum=0x[0-9a-f]+ source=",
       "BOOT: --launch-mp-room direct match start",
       "SCENARIO\\.GRAPH: trigger volume nodes '[^']*arena_forge_edit[^']*' nodes=228 rows=228 ",

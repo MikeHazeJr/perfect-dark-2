@@ -1174,6 +1174,15 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 			setupCreateObject(&weapon->base, cmdindex);
 			if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {
 				s_SetupMpCreatedWeaponCount++;
+				if (g_SetupCurMpLocation < 0) {
+					/* Not one of the match's weapon places: a pickup its level
+					 * pins to one weapon, drawn with its own record's model. A
+					 * level made in Forge can have these; a run can see here
+					 * that one was made. */
+					sysLogPrintf(LOG_NOTE, "SETUP: fixed weapon pickup cmd=%d weapon=%d model=%d prop=%d",
+						cmdindex, (s32)weapon->weaponnum, (s32)weapon->base.modelnum,
+						weapon->base.prop ? 1 : 0);
+				}
 			}
 		}
 	}

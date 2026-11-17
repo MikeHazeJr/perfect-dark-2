@@ -645,11 +645,28 @@ An id must have the shape of a catalog id (lower-case letters, digits, `_`,
 has the asset is the caller's to check, and the game refuses a level that
 names one it does not have.
 
-Not written yet: the editor's side (a list of the catalog's weapons and prop
-models to choose from, and the model and size that go with a weapon, which
-the game holds per weapon in the weapon set table), a new object of a kind
-the level has none of, and a run. A level that has a pinned pickup of the
-crystal pistol in it is the proof to aim for.
+The game's side of the first one (`forge_level_io.h`, written, not run):
+`forgeLevelPickupLook(weapon id)` gives the model and size a pickup of that
+weapon is shown with. For a weapon the match's weapon sets offer it is that
+weapon's row in the weapon set table (`g_MpWeapons`: what a weapon place
+becomes when a match gives it the weapon); for any other weapon, the model it
+is held with (`playermgrGetModelOfWeapon`, which knows mod weapons) at life
+size. `forgeLevelSessionGivePickup(record, weapon id)` does the lookup and the
+document edit on the open level.
+
+Proof prepared: `--debug-forge-level-weapon <weapon id>` makes the scripted
+level edit give its copied pickup that weapon, and `forge_level_weapon_smoke`
+saves such a level from Complex with `base:dragon` and starts a match on it.
+It requires the game's compile of the rewritten rows (a weapon or model id
+the catalog cannot resolve refuses the level) and a new line `setup.c` writes
+when a match makes a weapon pickup that is not one of its weapon places
+(`SETUP: fixed weapon pickup cmd=35 ... prop=1`). It is a smoke of its own so
+that a fault in it cannot hide the plain edit proof.
+
+Not written yet: the editor's widgets for it (a list of the catalog's weapons
+and prop models to choose from), a new object of a kind the level has none
+of, and any run. A level with a pinned pickup of the crystal pistol in it is
+the proof to aim for after this one.
 
 ## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
 

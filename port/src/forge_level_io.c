@@ -11,9 +11,12 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "constants.h"
+#include "data.h"
 #include "forge_level_doc.h"
 #include "forge_level_io.h"
 #include "fs.h"
+#include "game/playermgr.h"
 #include "mod_author.h"
 #include "mod_author_runtime.h"
 #include "modarchive.h"
@@ -21,6 +24,7 @@
 #include "net/matchsetup.h"
 #include "pdgui_forge.h"
 #include "system.h"
+#include "types.h"
 
 /* The level Forge has open, and the arena its session was started on. */
 static struct {
@@ -303,6 +307,74 @@ s32 forgeLevelStartForge(const char *arena_id)
 	return started ? 1 : 0;
 }
 
+s32 forgeLevelPickupLook(const char *weapon_catalog_id, char *out_model_id, size_t model_cap,
+		s32 *out_extra_scale, char *err, size_t err_cap)
+{
+	catalog_weapon_result_t weapon;
+	const char *model_id;
+	s32 modelnum = -1;
+	s32 scale = 256;
+
+	if (err && err_cap) err[0] = '\0';
+	if (out_model_id && model_cap) out_model_id[0] = '\0';
+	if (!weapon_catalog_id || !weapon_catalog_id[0] || !out_model_id || model_cap == 0 || !out_extra_scale) {
+		levelFail(err, err_cap, "a weapon, and somewhere to put its model and size, are needed", "");
+		return 0;
+	}
+	memset(&weapon, 0, sizeof(weapon));
+	if (!catalogResolveWeapon(weapon_catalog_id, &weapon)) {
+		levelFail(err, err_cap, "the catalog has no weapon", weapon_catalog_id);
+		return 0;
+	}
+
+	/* A weapon the match's weapon sets offer is shown as its row there says:
+	 * that is what a weapon place of the level becomes when a match gives it
+	 * this weapon (setup.c, setupPlaceWeapon). Row 0 is "no weapon". */
+	if (weapon.mp_weapon_id > 0 && weapon.mp_weapon_id < NUM_MPWEAPONS) {
+		const struct mpweapon *row = &g_MpWeapons[weapon.mp_weapon_id];
+
+		if (row->weaponnum == (u8)weapon.weapon_num && row->model > 0) {
+			modelnum = row->model;
+			if (row->extrascale > 0) scale = row->extrascale;
+		}
+	}
+	/* Any other weapon: the model it is held with, at life size. */
+	if (modelnum < 0) {
+		modelnum = playermgrGetModelOfWeapon(weapon.weapon_num);
+	}
+	model_id = modelnum >= 0 ? catalogModelIdByModelnum(modelnum) : NULL;
+	if (!model_id || !model_id[0]) {
+		levelFail(err, err_cap, "the game has no model to show a pickup of", weapon_catalog_id);
+		return 0;
+	}
+	snprintf(out_model_id, model_cap, "%s", model_id);
+	*out_extra_scale = scale;
+	return 1;
+}
+
+s32 forgeLevelSessionGivePickup(const char *record_id, const char *weapon_catalog_id,
+		char *err, size_t err_cap)
+{
+	char model_id[CATALOG_ID_LEN];
+	s32 scale = 256;
+
+	if (err && err_cap) err[0] = '\0';
+	if (!s_Session.doc) {
+		levelFail(err, err_cap, "no level file is open", "");
+		return 0;
+	}
+	if (!forgeLevelPickupLook(weapon_catalog_id, model_id, sizeof(model_id), &scale, err, err_cap)) {
+		return 0;
+	}
+	if (!forgeLevelDocSetPickupWeapon(s_Session.doc, record_id, weapon_catalog_id, model_id, scale,
+			err, err_cap)) {
+		return 0;
+	}
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: %s now gives %s (model %s, size %d)",
+		record_id, weapon_catalog_id, model_id, scale);
+	return 1;
+}
+
 /* `distance` units from a pad along the way it faces. */
 static void levelStepFrom(const forge_level_pad_t *pad, f32 distance, f32 out[3])
 {
@@ -355,7 +427,7 @@ done:
 	return ok;
 }
 
-s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
+s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name, const char *pickup_weapon_id)
 {
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
@@ -418,6 +490,13 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: copied %s %s to %s at (%.0f, %.0f, %.0f)", object.kind,
 		object.record_id, copy_id, place[0], place[1], place[2]);
+
+	/* The copy is given a weapon of the catalog, when one was asked for: the
+	 * original stays one of the match's weapon places. */
+	if (pickup_weapon_id && pickup_weapon_id[0] &&
+			!forgeLevelSessionGivePickup(copy_id, pickup_weapon_id, err, sizeof(err))) {
+		goto done;
+	}
 
 	/* The level's first ammo crate is left out. A level with none keeps
 	 * everything; that is not a failure of this run. */
