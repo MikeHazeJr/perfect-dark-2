@@ -223,6 +223,14 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       Simulator is the default. Co-op and Counter-Op interpret the stage ID
  *       supplied to --launch-mp-room as a typed mission map and use
  *       --difficulty; Counter-Op assigns the one remote room member as Anti.
+ *       --host-autostart-peers N waits for N remote peers (default 1); 0 is
+ *       for co-op only: the host starts alone, with AI buddies.
+ *   --coop-ai-buddies <1..4>
+ *       The Room's Partner choice: simulant buddies for a co-op mission the
+ *       host (or the offline Room) starts alone, clamped to the original's
+ *       limit (getMaxAiBuddies).
+ *   --debug-room-tab <combat|campaign|counterop>
+ *       The Room opens on that tab; --debug-auto-start-match waits for it.
  *   --launch-challenge <slot>
  *       Starts the challenge in that slot (0-based among the challenges this
  *       profile can play) through matchStartFromChallenge, the ImGui
@@ -408,6 +416,7 @@ static s32         g_BootMatchTeamScoreLimit = 0;
  * UI checkboxes. Both consumed on first frame where the relevant
  * surface exists. */
 static bool        g_BootDebugAutoStartMatch = false;
+static s32         g_BootDebugRoomTab = -1;      /* --debug-room-tab: 0..2, -1 unset */
 static s32         g_BootLaunchMpMatchPending = 0;
 /* T-NETWORKING-011 (finding 10): --launch-challenge <slot> starts the
  * challenge in that slot (0-based, counting only the challenges this profile
@@ -1578,6 +1587,18 @@ s32 bootConsumeDebugAutoStartMatch(void)
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-auto-start-match consumed");
 	return 1;
+}
+
+/* The Room's first-frame tab request (--debug-room-tab): returns the tab
+ * once, -1 after that or when unset. */
+s32 bootConsumeDebugRoomTab(void)
+{
+	const s32 tab = g_BootDebugRoomTab;
+
+	if (tab < 0) return -1;
+	g_BootDebugRoomTab = -1;
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-room-tab consumed: tab=%d", tab);
+	return tab;
 }
 
 /* Arm the --debug-mount-bike one-shot.  The actual mount runs inside
@@ -4718,10 +4739,44 @@ int main(int argc, const char **argv)
 			sysLogPrintf(LOG_WARNING, "BOOT: --launch-challenge expects a slot 0..29; ignored");
 		}
 	}
-	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
+	/* Co-op AI buddies (Mike, 2026-11-16): the Room's Partner choice, for a
+	 * smoke; the stage start clamps it to the original's limit. */
+	if (sysArgCheck("--coop-ai-buddies")) {
+		const s32 buddies = sysArgGetInt("--coop-ai-buddies", 0);
+
+		if (buddies >= 1 && buddies <= 4) {
+			g_NetCoopAiBuddies = (u8)buddies;
+			sysLogPrintf(LOG_NOTE, "BOOT: --coop-ai-buddies armed: buddies=%d", buddies);
+		} else {
+			sysLogPrintf(LOG_WARNING, "BOOT: --coop-ai-buddies expects 1..4; ignored");
+		}
+	}
+	/* --debug-room-tab <combat|campaign|counterop>: the Room opens on that
+	 * tab (with --debug-auto-start-match, its Start Match waits for it). */
+	{
+		const char *tab = sysArgGetString("--debug-room-tab");
+
+		if (tab && tab[0]) {
+			if (strcasecmp(tab, "combat") == 0) {
+				g_BootDebugRoomTab = 0;
+			} else if (strcasecmp(tab, "campaign") == 0 || strcasecmp(tab, "coop") == 0) {
+				g_BootDebugRoomTab = 1;
+			} else if (strcasecmp(tab, "counterop") == 0) {
+				g_BootDebugRoomTab = 2;
+			}
+			if (g_BootDebugRoomTab >= 0) {
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-room-tab armed: tab=%d", g_BootDebugRoomTab);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-room-tab '%s' unknown (combat|campaign|counterop)", tab);
+			}
+		}
+	}
+	/* c3845 (2026-06-23): listen-host two-process match smoke infra. A co-op
+	 * host may start alone (--host-autostart-peers 0: AI buddies). */
 	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
 	g_BootHostAutostartPeers = sysArgGetInt("--host-autostart-peers", 1);
-	if (g_BootHostAutostartPeers < 1 || g_BootHostAutostartPeers >= MAX_PLAYERS) {
+	if (g_BootHostAutostartPeers < 0 || g_BootHostAutostartPeers >= MAX_PLAYERS) {
 		sysLogPrintf(LOG_WARNING, "BOOT: invalid --host-autostart-peers; autostart disabled");
 		g_BootHostAutostartArmed = false;
 	}
@@ -4740,6 +4795,11 @@ int main(int argc, const char **argv)
 			sysLogPrintf(LOG_WARNING,
 				"BOOT: --host-autostart-mode '%s' invalid; autostart disabled",
 				mode ? mode : "");
+			g_BootHostAutostartArmed = false;
+		} else if (g_BootHostAutostartPeers == 0
+				&& g_BootHostAutostartGameMode != NETGAMEMODE_COOP) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --host-autostart-peers 0 is for co-op only; autostart disabled");
 			g_BootHostAutostartArmed = false;
 		} else {
 			sysLogPrintf(LOG_NOTE,

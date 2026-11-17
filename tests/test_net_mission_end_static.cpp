@@ -673,3 +673,97 @@ TEST_CASE("net frame: a cutscene authority frame keeps the tick's reliable messa
 			!= std::string::npos);
 	}
 }
+
+TEST_CASE("co-op AI buddies: a host alone, or the offline Room, takes the Partner choice's buddies",
+          "[net][coop][aibuddies]") {
+	const size_t npos = std::string::npos;
+
+	// The original's limit for a given difficulty; getMaxAiBuddies asks it
+	// with the mission's difficulty
+	const std::string mainmenu = code_only(read_text_file("src/game/mainmenu.c"));
+	const std::string limit = function_body(mainmenu, "s32 getMaxAiBuddiesForDifficulty(s32 difficulty)\n{");
+	REQUIRE(limit.find("s32 max = 1 - difficulty;") != npos);
+	REQUIRE(limit.find("(g_GameFile.coopcompletions[d] | 0xfffe0000) == 0xffffffff") != npos);
+	REQUIRE(limit.find("if (max > 4) {") != npos);
+	REQUIRE(limit.find("if (max < 1) {") != npos);
+	const std::string legacy = function_body(mainmenu, "s32 getMaxAiBuddies(void)\n{");
+	REQUIRE(legacy.find("return getMaxAiBuddiesForDifficulty(g_MissionConfig.difficulty);") != npos);
+
+	// The host's co-op stage start: buddies only for a co-op host alone,
+	// clamped once the difficulty is set, before the stage loads; every
+	// rollback puts the count back
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string start = function_body(net, "s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)\n{");
+	const size_t diff = start.find("g_MissionConfig.difficulty = difficulty;");
+	const size_t zero = start.find("g_Vars.numaibuddies = 0;");
+	const size_t alone = start.find("if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {");
+	const size_t clamp = start.find("const s32 max_buddies = getMaxAiBuddies();");
+	const size_t take = start.find("g_Vars.numaibuddies = buddies;");
+	const size_t change = start.find("mainChangeToStage(stagenum);");
+	REQUIRE(diff != npos);
+	REQUIRE(zero != npos);
+	REQUIRE(alone != npos);
+	REQUIRE(clamp != npos);
+	REQUIRE(take != npos);
+	REQUIRE(change != npos);
+	REQUIRE(diff < zero);
+	REQUIRE(zero < alone);
+	REQUIRE(alone < clamp);
+	REQUIRE(clamp < take);
+	REQUIRE(take < change);
+	size_t restores = 0;
+	for (size_t at = start.find("g_Vars.numaibuddies = aibuddies_before;"); at != npos;
+			at = start.find("g_Vars.numaibuddies = aibuddies_before;", at + 1)) {
+		restores++;
+	}
+	REQUIRE(restores == 3);
+	REQUIRE(start.find("\"COOP.AIBUDDIES: host alone=%d buddies=%d requested=%u max=%d difficulty=%u\"") != npos);
+
+	// A client's partner is the host: its stage start clears any count left
+	// from a mission this machine hosted alone
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string read = function_body(netmsg,
+		"u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t roles = read.find("g_Vars.antiplayernum = plan.anti_playernum;");
+	const size_t cleared = read.find("g_Vars.numaibuddies = 0;");
+	REQUIRE(roles != npos);
+	REQUIRE(cleared != npos);
+	REQUIRE(roles < cleared);
+	REQUIRE(cleared < read.find("mainChangeToStage(stagenum);"));
+
+	// The offline Room's Campaign start: the Solo Missions start, one player
+	// and the clamped buddies
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string offline = function_body(bridge,
+		"s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)\n{");
+	REQUIRE(offline.find("if (g_NetMode != NETMODE_NONE) {") != npos);
+	REQUIRE(offline.find("max_buddies = getMaxAiBuddiesForDifficulty(difficulty);") != npos);
+	REQUIRE(offline.find("g_MissionConfig.iscoop = 1;") != npos);
+	REQUIRE(offline.find("g_MissionConfig.isanti = 0;") != npos);
+	const size_t buddies = offline.find("g_Vars.numaibuddies = buddies;");
+	const size_t accept = offline.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);");
+	REQUIRE(buddies != npos);
+	REQUIRE(accept != npos);
+	REQUIRE(buddies < accept);
+
+	// The Room: the Partner choice when alone; offline goes to that start
+	// before the lobby start; the old drop-in text is gone
+	const std::string room = code_only(read_text_file("port/fast3d/pdgui_menu_room.cpp"));
+	const std::string campaign = function_body(room,
+		"static void renderCampaignTab(float panelW, float panelH, bool leader)\n{");
+	REQUIRE(campaign.find("const s32 players = s_IsSoloMode ? 1 : lobbyRoomGetPlayerCount();") != npos);
+	REQUIRE(campaign.find("getMaxAiBuddiesForDifficulty(s_CampaignDiff)") != npos);
+	REQUIRE(campaign.find("g_NetCoopAiBuddies = (u8)bi;") != npos);
+	REQUIRE(campaign.find("Up to 4 players") == npos);
+	REQUIRE(campaign.find("Drop-in co-op") == npos);
+	const std::string room_start = function_body(room, "static s32 roomGraphStartMatch(void *userdata)\n{");
+	const size_t solo = room_start.find("if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {");
+	const size_t lobby = room_start.find("return netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);");
+	REQUIRE(solo != npos);
+	REQUIRE(lobby != npos);
+	REQUIRE(solo < lobby);
+
+	// The spawn's witness for the smokes
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	REQUIRE(player.find("\"COOP.AIBUDDIES: spawned %d of %d at lvframe %d\"") != npos);
+}

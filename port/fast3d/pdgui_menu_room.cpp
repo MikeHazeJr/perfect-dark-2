@@ -88,6 +88,10 @@ extern s32 g_NetMode;
 extern s32 g_NetDedicated;
 extern u8 g_NetCoopDifficulty;
 extern u8 g_NetCoopFriendlyFire;
+extern u8 g_NetCoopAiBuddies;
+s32 getMaxAiBuddiesForDifficulty(s32 difficulty); /* mainmenu.c */
+s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty); /* pdgui_bridge.c */
+s32 bootConsumeDebugRoomTab(void); /* main.c: --debug-room-tab, once */
 
 /* Connect code (for displaying to server host) */
 s32 connectCodeEncode(u32 ip, char *buf, s32 bufsize);
@@ -3323,6 +3327,57 @@ static void renderCampaignTab(float panelW, float panelH, bool leader)
     if (!leader) ImGui::EndDisabled();
 
     ImGui::Spacing();
+
+    /* --- Partner (co-op AI buddies, Mike 2026-11-16 and 2026-11-17) ---
+     * Co-op is for two players. A second player in this Room is the
+     * partner; a host who starts alone takes simulant buddies, as the
+     * original's Perfect Buddy option offered with one controller. The
+     * limit is the original's (getMaxAiBuddies): one buddy, more once the
+     * co-op campaign is finished on harder difficulties. The stage start
+     * clamps the choice again and uses it only when the host is alone. */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Partner");
+    {
+        const s32 players = s_IsSoloMode ? 1 : lobbyRoomGetPlayerCount();
+
+        if (players == 2) {
+            ImGui::TextDisabled("The other player in this Room is your partner.");
+        } else if (players > 2) {
+            ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.3f, 1.0f),
+                "Co-op is for two players; this Room has %d.", (int)players);
+        } else {
+            static const char *const s_BuddyNames[] = {
+                "1 Simulant", "2 Simulants", "3 Simulants", "4 Simulants"
+            };
+            const s32 maxBuddies = getMaxAiBuddiesForDifficulty(s_CampaignDiff);
+            s32 shown = g_NetCoopAiBuddies;
+
+            if (shown < 1) shown = 1;
+            if (shown > maxBuddies) shown = maxBuddies;
+            if (!leader) ImGui::BeginDisabled();
+            ImGui::SetNextItemWidth(comboW);
+            if (ImGui::BeginCombo("##aibuddies", s_BuddyNames[shown - 1])) {
+                for (s32 bi = 1; bi <= maxBuddies; bi++) {
+                    bool sel = (bi == shown);
+                    if (ImGui::Selectable(s_BuddyNames[bi - 1], sel)) {
+                        g_NetCoopAiBuddies = (u8)bi;
+                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    }
+                    if (sel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            if (!leader) ImGui::EndDisabled();
+            ImGui::TextDisabled("Simulant buddies play the mission with you.");
+            ImGui::TextDisabled("%s", s_IsSoloMode
+                ? "To play with a friend, host a Room instead."
+                : "A friend who joins this Room is your partner instead.");
+            if (maxBuddies < 4) {
+                ImGui::TextDisabled("Finish the co-op campaign on harder difficulties for more.");
+            }
+        }
+    }
+
+    ImGui::Spacing();
     ImGui::Separator();
 
     /* --- Options --- */
@@ -3337,10 +3392,6 @@ static void renderCampaignTab(float panelW, float panelH, bool leader)
         }
         if (!leader) ImGui::EndDisabled();
     }
-
-    ImGui::Spacing();
-    ImGui::TextDisabled("Drop-in co-op: players join at next safe spawn.");
-    ImGui::TextDisabled("Up to 4 players. Offline: same code path, local authority.");
 
     ImGui::EndChild();
 }
@@ -3524,6 +3575,16 @@ static s32 roomGraphStartMatch(void *userdata)
                     "ROOM: no catalog entry for coop stagenum=0x%02x",
                     (unsigned)s_Missions[s_CampaignMission].stagenum);
                 return -1;
+            }
+            if (s_IsSoloMode) {
+                /* Offline there is no lobby: the original's one-player
+                 * co-op with the Partner choice's simulant buddies, then
+                 * close the solo Room as the Combat Simulator start does. */
+                if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {
+                    return -1;
+                }
+                pdguiSoloRoomClose();
+                return 0;
             }
             return netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);
         }
@@ -3742,6 +3803,20 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * Use a pending flag so SetSelected only fires for one frame. */
     static s32 s_BumperPendingTab = -1;
 
+    /* Smoke hook (--debug-room-tab): open on that tab through the same
+     * pending selection as the bumpers. The tab bar shows it a frame later,
+     * so the debug Start Match below waits until it is the tab shown. */
+    static s32 s_DebugRoomTabWanted = -1;
+    {
+        const s32 wanted = bootConsumeDebugRoomTab();
+
+        if (wanted >= 0 && wanted < s_NumTabs) {
+            s_ActiveTab = wanted;
+            s_BumperPendingTab = wanted;
+            s_DebugRoomTabWanted = wanted;
+        }
+    }
+
     if (pdguiMenuTabPrevPressed()) {
         s_ActiveTab--;
         if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
@@ -3876,13 +3951,20 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
          * end-to-end CS match without keyboard nav. The CLI flag is
          * one-shot (see port/src/main.c::bootConsumeDebugAutoStartMatch). */
         extern s32 bootConsumeDebugAutoStartMatch(void);
-        const bool bootAutoStart = (bootConsumeDebugAutoStartMatch() != 0);
+        /* --debug-room-tab: keep the one-shot until the requested tab is
+         * the one shown, so Start Match starts that tab's mode. */
+        const bool debugTabPending = s_DebugRoomTabWanted >= 0
+            && s_DebugRoomTabWanted != s_ActiveTab;
+        const bool bootAutoStart = !debugTabPending
+            && (bootConsumeDebugAutoStartMatch() != 0);
         const bool cycleAutoStart =
             (combatSimVerifyConsumeRoomAutoStart() != 0);
         const bool autoStart = bootAutoStart || cycleAutoStart;
         if (autoStart) {
             sysLogPrintf(LOG_NOTE,
-                "ROOM: --debug-auto-start-match -- firing Start Match");
+                "ROOM: --debug-auto-start-match -- firing Start Match tab=%d",
+                s_ActiveTab);
+            s_DebugRoomTabWanted = -1;
         }
         if (autoStart || ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);

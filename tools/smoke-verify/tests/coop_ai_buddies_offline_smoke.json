@@ -1,0 +1,239 @@
+{
+  "scenario_name": "coop_ai_buddies_offline_smoke",
+  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. It loads a staged agent through Agent Select, walks the real Main Menu and Play graph into Combat Simulator (the offline Room), opens on the Campaign tab (--debug-room-tab campaign) and fires the Room's own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). The start goes through the mission start Solo Missions uses (menuhandlerAcceptMission) with one player and the buddies, clamped to the original's limit: the staged agent has no co-op completions, so one buddy. The buddy spawns at the player (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show, with no menu or input watchdog repair. Written 2026-11-17.",
+  "tags": [
+    "campaign",
+    "coop",
+    "ai-buddies",
+    "offline",
+    "menu",
+    "smoke",
+    "t-networking-007"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_room.cpp",
+    "port/fast3d/pdgui_bridge.c",
+    "port/src/main.c",
+    "src/game/mainmenu.c",
+    "src/game/player.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "install_state": "clean",
+  "remove_paths": [
+    "coop-ai-buddies-home"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/agent_smoke.json",
+      "dst": "coop-ai-buddies-home/agent_smoke.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./coop-ai-buddies-home",
+    "--debug-auto-start-match",
+    "--debug-room-tab",
+    "campaign",
+    "--coop-ai-buddies",
+    "2",
+    "--debug-end-mission",
+    "40:complete"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Allow clean extraction and the ordinary title path to settle."
+    },
+    {
+      "at_ms": 112000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Open Agent Select through the production title accept path."
+    },
+    {
+      "at_ms": 130000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Activate the only staged JSON profile and enter the live Main Menu."
+    },
+    {
+      "at_ms": 140000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap",
+      "comment": "Clamp restored Main Menu focus to the first Play row without assuming persisted cursor state."
+    },
+    {
+      "at_ms": 140500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 141000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 141500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 142000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 142500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 143000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 143500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 144000,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 144500,
+      "type": "action",
+      "name": "ACTION_MENU_UP",
+      "action": "tap"
+    },
+    {
+      "at_ms": 146000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Main Menu Play accept."
+    },
+    {
+      "at_ms": 148000,
+      "type": "action",
+      "name": "ACTION_MENU_DOWN",
+      "action": "tap",
+      "comment": "Move from Solo Missions to Combat Simulator in the Play subview."
+    },
+    {
+      "at_ms": 149000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Open the real offline Room; it opens on the Campaign tab and its one-shot Start Match fires once that tab is shown."
+    },
+    {
+      "at_ms": 150000,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 180000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "The co-op mission live and controllable, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "at_ms": 151000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "The results, after --debug-end-mission ends the mission at 40 s."
+    },
+    {
+      "at_ms": 155000,
+      "type": "exit",
+      "comment": "Scripted clean exit 4 s (script time) after the results."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=coop_ai_buddies_offline_smoke",
+      "SAVE: initialized .*coop-ai-buddies-home",
+      "BOOT: --coop-ai-buddies armed: buddies=2",
+      "BOOT: --debug-room-tab armed: tab=1",
+      "AGENT\\.SESSION: activation committed name='smoke' source=json",
+      "MENU\\.GRAPH\\.FIRE source=main_menu edge=solo_play",
+      "MENU\\.GRAPH\\.FIRE source=main_solo_view edge=combat_simulator",
+      "MENUPOOL: acquired room",
+      "BOOT: --debug-room-tab consumed: tab=1",
+      "ROOM: --debug-auto-start-match -- firing Start Match tab=1",
+      "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+      "COOP\\.AIBUDDIES: offline start stage=base:defection stageindex=0 difficulty=0 buddies=1 requested=2 max=1",
+      "GAMELOOP\\.COOP: menuhandlerAcceptMission entry stage_id='base:defection'",
+      "COOP\\.AIBUDDIES: spawned 1 of 1 at lvframe [0-9]+",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "BOOT: --debug-end-mission ending stage=0x[0-9a-f]+ result=complete",
+      "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_sequences": [
+      {
+        "name": "room-campaign-start-buddies-results",
+        "patterns": [
+          "MENUPOOL: acquired room",
+          "ROOM: --debug-auto-start-match -- firing Start Match tab=1",
+          "COOP\\.AIBUDDIES: offline start stage=",
+          "COOP\\.AIBUDDIES: spawned 1 of 1 ",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+          "BOOT: --debug-end-mission ending stage=",
+          "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "COOP\\.AIBUDDIES: spawned 0 of",
+      "COOP\\.AIBUDDIES: offline start (has no stage|: .* is not a campaign mission)",
+      "MENU: watchdog",
+      "INPUTCTX watchdog",
+      "MENUPOOL: released [1-9][0-9]* legacy-stack leak slot",
+      "MENUPOOL legacy-stack leak: \\[",
+      "MENUPOOL: drift",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "filemgrSaveOrLoad",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE: result=wait_timeout"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "COOP\\.AIBUDDIES: spawned ",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

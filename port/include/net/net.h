@@ -578,6 +578,7 @@ extern u8 g_NetGameMode; // NETGAMEMODE_MP, NETGAMEMODE_COOP, NETGAMEMODE_ANTI
 extern u8 g_NetCoopDifficulty; // DIFF_A, DIFF_SA, DIFF_PA (0, 1, 2) for co-op missions
 extern u8 g_NetCoopFriendlyFire; // 0 = off, 1 = on
 extern u8 g_NetCoopRadar; // 0 = off, 1 = on
+extern u8 g_NetCoopAiBuddies; // simulant buddies (1..4) for a host who starts co-op alone
 
 extern s32 g_NetJoinLatch;
 extern s32 g_NetHostLatch;

@@ -6268,6 +6268,19 @@ void playerTick(bool arg0)
 
 				g_Vars.aibuddies[i] = prop;
 			}
+
+			{
+				/* PC: the co-op AI-buddy smoke's witness. */
+				s32 spawned = 0;
+
+				for (i = 0; i < g_Vars.numaibuddies && i < ARRAYCOUNT(g_Vars.aibuddies); i++) {
+					if (g_Vars.aibuddies[i]) {
+						spawned++;
+					}
+				}
+				sysLogPrintf(LOG_NOTE, "COOP.AIBUDDIES: spawned %d of %d at lvframe %d",
+					spawned, (s32)g_Vars.numaibuddies, (s32)g_Vars.lvframenum);
+			}
 		}
 	} else if (g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_GE_FADEOUT) {
 		playerRemoveChrBody();

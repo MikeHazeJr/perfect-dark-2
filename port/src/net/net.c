@@ -47,6 +47,7 @@
 #include "game/title.h"
 #include "game/lv.h"
 #include "game/menu.h"
+#include "game/mainmenu.h"
 #include "game/pdmode.h"
 #include "game/mplayer/mplayer.h"
 #if !defined(PD_SERVER)
@@ -162,6 +163,9 @@ u8 g_NetGameMode = NETGAMEMODE_MP;
 u8 g_NetCoopDifficulty = 0;
 u8 g_NetCoopFriendlyFire = 0;
 u8 g_NetCoopRadar = 1;
+/* Co-op AI buddies a host who starts alone takes (1..4, clamped to the
+ * original's limit at the stage start); the Room's Campaign tab sets it. */
+u8 g_NetCoopAiBuddies = 1;
 
 static u8 g_NetMsgBuf[NET_BUFSIZE];
 struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
@@ -1744,6 +1748,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	s32 bond_before;
 	s32 coop_before;
 	s32 anti_before;
+	s32 aibuddies_before;
 	u32 match_seed_before;
 	u32 stage_epoch_before;
 
@@ -1826,6 +1831,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	bond_before = g_Vars.bondplayernum;
 	coop_before = g_Vars.coopplayernum;
 	anti_before = g_Vars.antiplayernum;
+	aibuddies_before = g_Vars.numaibuddies;
 	match_seed_before = g_NetMatchSeed;
 	stage_epoch_before = g_NetStageEpoch;
 
@@ -1840,6 +1846,24 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	g_Vars.coopplayernum = g_NetGameMode == NETGAMEMODE_COOP
 		&& roster_count == 2 ? 1 : -1;
 	g_Vars.antiplayernum = anti_playernum;
+	/* Co-op AI buddies (Mike, 2026-11-16 and 2026-11-17): a host who starts a
+	 * co-op mission alone takes the Room's simulant buddies, as the original's
+	 * Perfect Buddy option did with one controller; with a human partner there
+	 * are none (the original never mixed the two). The limit is the
+	 * original's, read after the difficulty above is set. */
+	g_Vars.numaibuddies = 0;
+	if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {
+		const s32 max_buddies = getMaxAiBuddies();
+		s32 buddies = g_NetCoopAiBuddies;
+
+		if (buddies < 1) {
+			buddies = 1;
+		}
+		if (buddies > max_buddies) {
+			buddies = max_buddies;
+		}
+		g_Vars.numaibuddies = buddies;
+	}
 
 	for (u8 i = 0; i < roster_count; i++) {
 		roster[i]->playernum = i;
@@ -1857,6 +1881,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 		g_Vars.bondplayernum = bond_before;
 		g_Vars.coopplayernum = coop_before;
 		g_Vars.antiplayernum = anti_before;
+		g_Vars.numaibuddies = aibuddies_before;
 		g_NetMatchSeed = match_seed_before;
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK coop-stage reason=replication_lifecycle_rejected globals_restored=1");
@@ -1877,6 +1902,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 		g_Vars.bondplayernum = bond_before;
 		g_Vars.coopplayernum = coop_before;
 		g_Vars.antiplayernum = anti_before;
+		g_Vars.numaibuddies = aibuddies_before;
 		g_NetMatchSeed = match_seed_before;
 		netbufStartWrite(&g_NetMsgRel);
 		netServerRollbackStageReplicationBarrier(stage_epoch_before,
@@ -1897,6 +1923,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 			g_Vars.bondplayernum = bond_before;
 			g_Vars.coopplayernum = coop_before;
 			g_Vars.antiplayernum = anti_before;
+			g_Vars.numaibuddies = aibuddies_before;
 			g_NetMatchSeed = match_seed_before;
 			netmsgCutsceneAuthorityReset();
 			netServerRollbackStageReplicationBarrier(stage_epoch_before,
@@ -1930,6 +1957,12 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 		"PLAYER.INIT.COMMIT coop-stage players=%u bond=%d coop=%d anti=%d",
 		(unsigned)roster_count, g_Vars.bondplayernum,
 		g_Vars.coopplayernum, g_Vars.antiplayernum);
+	if (g_NetGameMode == NETGAMEMODE_COOP) {
+		sysLogPrintf(LOG_NOTE,
+			"COOP.AIBUDDIES: host alone=%d buddies=%d requested=%u max=%d difficulty=%u",
+			roster_count == 1 ? 1 : 0, (s32)g_Vars.numaibuddies,
+			(unsigned)g_NetCoopAiBuddies, getMaxAiBuddies(), (unsigned)difficulty);
+	}
 
 	g_NotLoadMod = true;
 	romdataFileFreeForSolo();

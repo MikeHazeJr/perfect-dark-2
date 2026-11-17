@@ -1381,11 +1381,17 @@ MenuItemHandlerResult menuhandlerBuddyOptionsContinue(s32 operation, struct menu
 }
 
 #if VERSION >= VERSION_NTSC_1_0
-s32 getMaxAiBuddies(void)
+/**
+ * PC (co-op AI buddies, Mike 2026-11-16): the original's buddy limit for a
+ * given difficulty, so the Room's Campaign tab can show the limit of the
+ * difficulty it offers before the mission config holds it. One buddy, plus
+ * one more for each difficulty the whole co-op campaign was finished on,
+ * fewer on harder difficulties; never below 1 or above 4.
+ */
+s32 getMaxAiBuddiesForDifficulty(s32 difficulty)
 {
-	u32 stack;
 	s32 extra = 0;
-	s32 max = 1 - g_MissionConfig.difficulty;
+	s32 max = 1 - difficulty;
 	s32 d;
 
 	for (d = 0; d != 3; d++) {
@@ -1413,6 +1419,11 @@ s32 getMaxAiBuddies(void)
 #endif
 
 	return max;
+}
+
+s32 getMaxAiBuddies(void)
+{
+	return getMaxAiBuddiesForDifficulty(g_MissionConfig.difficulty);
 }
 #endif
 

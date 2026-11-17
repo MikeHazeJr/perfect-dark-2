@@ -1240,6 +1240,66 @@ s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
     return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, NET_NULL_CLIENT, 0, 0, 60, 0, 0, 0, 0, 0xFF);
 }
 
+/* Co-op AI buddies offline (Mike, 2026-11-16 and 2026-11-17): the offline
+ * Room's Campaign tab starts the original's one-player co-op, the player and
+ * simulant buddies, through the mission start Solo Missions uses
+ * (menuhandlerAcceptMission: one player, no co-op player, buddies spawn at
+ * the stage start). A hosted Room goes through the lobby start instead and
+ * netServerCoopStageStart takes the buddies when the host is alone. */
+s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)
+{
+    catalog_stage_result_t stage;
+    s32 stageindex = -1;
+    s32 max_buddies;
+    s32 buddies = g_NetCoopAiBuddies;
+
+    if (g_NetMode != NETMODE_NONE) {
+        return -1;
+    }
+    if (!stage_id || !stage_id[0] || difficulty > DIFF_PA
+            || !catalogResolveStage(stage_id, &stage)) {
+        sysLogPrintf(LOG_ERROR, "COOP.AIBUDDIES: offline start has no stage for '%s'",
+            stage_id ? stage_id : "(null)");
+        return -2;
+    }
+    for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
+        if (g_SoloStages[i].catalog_id && strcmp(g_SoloStages[i].catalog_id, stage_id) == 0) {
+            stageindex = i;
+            break;
+        }
+    }
+    if (stageindex < 0) {
+        sysLogPrintf(LOG_ERROR, "COOP.AIBUDDIES: offline start: '%s' is not a campaign mission",
+            stage_id);
+        return -3;
+    }
+
+    max_buddies = getMaxAiBuddiesForDifficulty(difficulty);
+    if (buddies < 1) {
+        buddies = 1;
+    }
+    if (buddies > max_buddies) {
+        buddies = max_buddies;
+    }
+
+    g_MissionConfig.stageindex = (u8)stageindex;
+    g_MissionConfig.difficulty = difficulty;
+    g_MissionConfig.iscoop = 1;
+    g_MissionConfig.isanti = 0;
+    g_MissionConfig.pdmode = 0;
+    strncpy(g_MissionConfig.stage_id, stage_id, sizeof(g_MissionConfig.stage_id) - 1);
+    g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+    g_MissionConfig.stagenum = (u8)stage.stagenum;
+    g_Vars.numaibuddies = buddies;
+
+    sysLogPrintf(LOG_NOTE,
+        "COOP.AIBUDDIES: offline start stage=%s stageindex=%d difficulty=%u buddies=%d requested=%u max=%d",
+        stage_id, stageindex, (unsigned)difficulty, buddies,
+        (unsigned)g_NetCoopAiBuddies, max_buddies);
+    menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    return 0;
+}
+
 /* ========================================================================
  * B-1193 (Mike, 2026-11-15): after a networked co-op or counter-op mission the
  * host decides what follows, for both players. Next Mission and Retry Mission

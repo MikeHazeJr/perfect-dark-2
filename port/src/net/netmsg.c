@@ -3821,6 +3821,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_Vars.bondplayernum = plan.bond_playernum;
 	g_Vars.coopplayernum = plan.coop_playernum;
 	g_Vars.antiplayernum = plan.anti_playernum;
+	/* Co-op AI buddies: a client's partner is the host, never simulants. A
+	 * count left from a co-op mission this machine hosted alone would make
+	 * only this machine spawn buddies and grow its chr table. */
+	g_Vars.numaibuddies = 0;
 
 	plan.status = NET_STAGE_START_OK;
 	sysLogPrintf(LOG_NOTE,
