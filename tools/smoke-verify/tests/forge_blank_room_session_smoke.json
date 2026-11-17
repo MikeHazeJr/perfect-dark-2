@@ -53,7 +53,8 @@
     "--launch-forge-level",
     "mod_blank_room:arena_blank_room",
     "--debug-forge-session-save",
-    "Room_Session"
+    "Room_Session",
+    "--debug-forge-session-undo"
   ],
   "screenshots": [
     {
@@ -114,6 +115,9 @@
       "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.BEGIN: arena=mod_blank_room:arena_blank_room name='Room_Session'",
       "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room pads=8 spawns=8 objects=0 field_rows=0 archive='.*blank_room\\.pdarena'",
       "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0008 at the camera \\(-?\\d+, -?\\d+, -?\\d+\\); the level now has pads=9 spawns=9 objects=0",
+      "FORGE\\.LEVEL\\.UNDO: arena=mod_blank_room:arena_blank_room pads=8 spawns=8 objects=0 undo_left=0 redo=1",
+      "FORGE\\.LEVEL\\.REDO: arena=mod_blank_room:arena_blank_room pads=9 spawns=9 objects=0 undo=1 redo_left=0",
+      "FORGE\\.LEVEL\\.EDIT: after undo and redo the level has pads=9 spawns=9 objects=0",
       "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_room_session mod_id=mod\\.arena_room_session updated=0",
       "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_room_session restart_count=\\d+",
       "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_room_session changed_members=4 restart_count=\\d+ archive='.*arena_room_session\\.pdarena' own_template=0",

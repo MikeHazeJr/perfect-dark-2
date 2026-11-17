@@ -1096,3 +1096,19 @@ life size, 1,595 are fitted to their pad's box in some way (flag bits
 models and the missions 127, all `base:model_*`. A prop made here is never
 fitted to a pad's box: Forge's pads are 200 units each way, and a fitted prop
 would take that size.
+
+## F3: level edits can be undone (WRITTEN 2026-11-17, not run)
+
+Every edit the editor's Level File section makes to the open level (a start
+added, moved or removed; a weapon place, ammo crate, hoverbike or prop made;
+an object moved, copied, left out or put back; a model or a weapon given) can
+be undone and redone. The document is all values, so a copy shares nothing
+with it (`forgeLevelDocClone`, unit-tested: the copy edits, saves and reports
+changes as the document would have). The session keeps up to 32 copies from
+before each edit (`forgeLevelSessionEditBegin`/`EditEnd` around the edit) and
+Undo and Redo swap the open document with them; opening another level,
+closing and starting a session forget them, a save does not. The section has
+Undo Level Edit (n) and Redo (n). `--debug-forge-session-undo` undoes and
+redoes the start the session debug flag adds, before it saves, and
+`forge_blank_room_session_smoke` requires both steps (`FORGE.LEVEL.UNDO`,
+`FORGE.LEVEL.REDO`) and the same saved level as before.

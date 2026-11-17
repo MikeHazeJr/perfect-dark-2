@@ -166,6 +166,16 @@ forge_level_doc_t *forgeLevelDocRead(const forge_level_texts_t *texts, char *err
 
 void forgeLevelDocFree(forge_level_doc_t *doc);
 
+/*
+ * A copy of the document as it is now, edits included, that shares nothing
+ * with it: what the level was opened from, what changed and every id still
+ * to hand out come along, so the copy saves, edits and reports changes
+ * exactly as the document would have. It is how an edit is undone (the
+ * session keeps copies, forge_level_io.h). NULL for NULL or when out of
+ * memory. Free it with forgeLevelDocFree.
+ */
+forge_level_doc_t *forgeLevelDocClone(const forge_level_doc_t *doc);
+
 s32 forgeLevelDocPadCount(const forge_level_doc_t *doc);
 s32 forgeLevelDocSpawnCount(const forge_level_doc_t *doc);
 s32 forgeLevelDocObjectCount(const forge_level_doc_t *doc);

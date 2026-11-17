@@ -2017,6 +2017,32 @@ static void forgeDrawLevelFileSection(void)
 		ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%d change%s not saved",
 			s_LevelFileEdits, s_LevelFileEdits == 1 ? "" : "s");
 	}
+
+	/* Undo and Redo replace the open document: nothing below may use `doc`
+	 * after either, so the section ends for this frame and starts again on
+	 * the document they leave open. */
+	{
+		const int undoable = (int)forgeLevelSessionUndoCount();
+		const int redoable = (int)forgeLevelSessionRedoCount();
+		char label[64];
+
+		ImGui::BeginDisabled(undoable == 0);
+		snprintf(label, sizeof(label), "Undo Level Edit (%d)###LevelFileUndo", undoable);
+		const bool undo = ImGui::Button(label);
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(redoable == 0);
+		snprintf(label, sizeof(label), "Redo (%d)###LevelFileRedo", redoable);
+		const bool redo = ImGui::Button(label);
+		ImGui::EndDisabled();
+		if (undo || redo) {
+			if (undo ? forgeLevelSessionUndo() : forgeLevelSessionRedo()) {
+				s_LevelFileEdits++;
+				forgeLevelFileStatus(false, "%s", undo ? "Undid the last edit." : "Redid the edit.");
+			}
+			return;
+		}
+	}
 	{
 		bool markers = pdguiForgeLevelMarkersGet() != 0;
 		if (ImGui::Checkbox("Show starts and objects in the world", &markers)) {
@@ -2036,7 +2062,10 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::SeparatorText("Player Starts");
 	if (ImGui::Button("Add Start Here")) {
 		char id[32];
-		if (forgeLevelDocAddSpawn(doc, position, look, nullptr, id, sizeof(id), err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocAddSpawn(doc, position, look, nullptr, id, sizeof(id), err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", id);
 			forgeLevelFileStatus(false, "Added %s where the camera is.", id);
@@ -2047,7 +2076,10 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::SameLine();
 	ImGui::BeginDisabled(s_LevelFileStart[0] == '\0');
 	if (ImGui::Button("Move Start Here")) {
-		if (forgeLevelDocMoveSpawn(doc, s_LevelFileStart, position, look, err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocMoveSpawn(doc, s_LevelFileStart, position, look, err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileStart);
 		} else {
@@ -2056,7 +2088,10 @@ static void forgeDrawLevelFileSection(void)
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Remove Start")) {
-		if (forgeLevelDocRemoveSpawn(doc, s_LevelFileStart, err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocRemoveSpawn(doc, s_LevelFileStart, err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Removed %s.", s_LevelFileStart);
 			s_LevelFileStart[0] = '\0';
@@ -2118,8 +2153,11 @@ static void forgeDrawLevelFileSection(void)
 		}
 		while (slot < 15 && used[slot]) slot++;
 		if (used[slot]) slot = 0;
-		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, slot, position, look, id, sizeof(id),
-				err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, slot, position, look, id, sizeof(id),
+				err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added %s where the camera is: weapon place %d of the match.", id,
 				(int)slot + 1);
@@ -2132,8 +2170,11 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::SameLine();
 	if (ImGui::Button("New Ammo Crate Here")) {
 		char id[32];
-		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, position, look, id, sizeof(id),
-				err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, position, look, id, sizeof(id),
+				err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added the ammo crate %s where the camera is.", id);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
@@ -2145,8 +2186,11 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::SameLine();
 	if (ImGui::Button("New Hoverbike Here")) {
 		char id[32];
-		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, position, look, id, sizeof(id),
-				err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, position, look, id, sizeof(id),
+				err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added the hoverbike %s where the camera is, facing the way it looks.", id);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
@@ -2171,7 +2215,10 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::BeginDisabled(s_LevelFileModel[0] == '\0');
 	if (ImGui::Button("New Prop Here")) {
 		char id[32];
-		if (forgeLevelDocAddProp(doc, s_LevelFileModel, position, look, id, sizeof(id), err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocAddProp(doc, s_LevelFileModel, position, look, id, sizeof(id), err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added the prop %s (%s) where the camera is.", id, s_LevelFileModel);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
@@ -2184,7 +2231,10 @@ static void forgeDrawLevelFileSection(void)
 
 	ImGui::BeginDisabled(!haveSelected || !selected.movable);
 	if (ImGui::Button("Move Object Here")) {
-		if (forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileObject);
 		} else {
@@ -2194,8 +2244,11 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::SameLine();
 	if (ImGui::Button("Copy Object Here")) {
 		char id[32];
-		if (forgeLevelDocDuplicateObject(doc, s_LevelFileObject, position, look, id, sizeof(id),
-				err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocDuplicateObject(doc, s_LevelFileObject, position, look, id, sizeof(id),
+				err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (levelEdit) {
 			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Copied %s to %s where the camera is.", s_LevelFileObject, id);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
@@ -2209,7 +2262,10 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::BeginDisabled(!haveSelected || !selected.removable);
 	const bool putBack = haveSelected && selected.removed;
 	if (ImGui::Button(putBack ? "Put Object Back###LevelFileRemove" : "Remove Object###LevelFileRemove")) {
-		if (!forgeLevelDocSetObjectRemoved(doc, s_LevelFileObject, putBack ? 0 : 1, err, sizeof(err))) {
+		forgeLevelSessionEditBegin();
+		const s32 levelEdit = forgeLevelDocSetObjectRemoved(doc, s_LevelFileObject, putBack ? 0 : 1, err, sizeof(err));
+		forgeLevelSessionEditEnd(levelEdit);
+		if (!levelEdit) {
 			forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
 		} else if (putBack) {
 			s_LevelFileEdits++;
@@ -2246,7 +2302,10 @@ static void forgeDrawLevelFileSection(void)
 		}
 		ImGui::BeginDisabled(!selected.model_settable || s_LevelFileModel[0] == '\0');
 		if (ImGui::Button("Draw It With The Chosen Model")) {
-			if (forgeLevelDocSetObjectModel(doc, s_LevelFileObject, s_LevelFileModel, err, sizeof(err))) {
+			forgeLevelSessionEditBegin();
+			const s32 levelEdit = forgeLevelDocSetObjectModel(doc, s_LevelFileObject, s_LevelFileModel, err, sizeof(err));
+			forgeLevelSessionEditEnd(levelEdit);
+			if (levelEdit) {
 				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s is now drawn with %s.", s_LevelFileObject, s_LevelFileModel);
 			} else {
@@ -2280,7 +2339,10 @@ static void forgeDrawLevelFileSection(void)
 		ImGui::SameLine();
 		ImGui::BeginDisabled(s_LevelFileWeapon[0] == '\0');
 		if (ImGui::Button("Always Give This Weapon")) {
-			if (forgeLevelSessionGivePickup(s_LevelFileObject, s_LevelFileWeapon, err, sizeof(err))) {
+			forgeLevelSessionEditBegin();
+			const s32 levelEdit = forgeLevelSessionGivePickup(s_LevelFileObject, s_LevelFileWeapon, err, sizeof(err));
+			forgeLevelSessionEditEnd(levelEdit);
+			if (levelEdit) {
 				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s now always gives %s.", s_LevelFileObject, s_LevelFileWeapon);
 			} else {
@@ -2294,7 +2356,10 @@ static void forgeDrawLevelFileSection(void)
 		if (s_LevelFilePlace > 16) s_LevelFilePlace = 16;
 		ImGui::SameLine();
 		if (ImGui::Button("Make It This Weapon Place")) {
-			if (forgeLevelDocSetPickupSlot(doc, s_LevelFileObject, (s32)s_LevelFilePlace - 1, err, sizeof(err))) {
+			forgeLevelSessionEditBegin();
+			const s32 levelEdit = forgeLevelDocSetPickupSlot(doc, s_LevelFileObject, (s32)s_LevelFilePlace - 1, err, sizeof(err));
+			forgeLevelSessionEditEnd(levelEdit);
+			if (levelEdit) {
 				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s is now weapon place %d of the match.", s_LevelFileObject,
 					s_LevelFilePlace);

@@ -262,7 +262,9 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       the projection and that the editor's angles are the view's. It takes
  *       no screenshot and ends nothing: a smoke
  *       waits on forge_level_file_open and times those itself. Logged as
- *       FORGE.LEVEL.* lines.
+ *       FORGE.LEVEL.* lines. With --debug-forge-session-undo the added start
+ *       is undone and redone before the save, through the session's undo,
+ *       as the editor's Undo and Redo buttons do.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -3434,7 +3436,8 @@ s32 bootForgeLevelTick(void)
 		look[0] = -sinf(yaw);
 		look[1] = 0.0f;
 		look[2] = cosf(yaw);
-		saved = forgeLevelDebugSessionEdit(s_name, position, look);
+		saved = forgeLevelDebugSessionEdit(s_name, position, look,
+			sysArgCheck("--debug-forge-session-undo") ? 1 : 0);
 		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
 			s_name, saved ? "OK" : "FAIL");
 		s_saved_frame = g_Vars.lvframenum;

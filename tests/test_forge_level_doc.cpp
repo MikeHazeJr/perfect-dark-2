@@ -2311,6 +2311,55 @@ TEST_CASE("A level gains a hoverbike made from nothing, with the record every ba
 	CHECK(forgeLevelDocPadCount(level.doc) == 5);
 }
 
+TEST_CASE("A copy of a document shares nothing with it and goes on exactly as it would",
+          "[forge-level-doc]")
+{
+	/* This is how an edit is undone: the session keeps copies from before
+	 * each edit and puts one back. */
+	Level level;
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+	const auto textOf = [](forge_level_doc_t *doc, s32 member) {
+		size_t size = 0;
+		const char *t = forgeLevelDocMemberText(doc, member, &size);
+		return t ? std::string(t, size) : std::string();
+	};
+
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
+	forge_level_doc_t *copy = forgeLevelDocClone(level.doc);
+	REQUIRE(copy != nullptr);
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		CAPTURE(member);
+		CHECK(textOf(copy, member) == level.text(member));
+		CHECK(forgeLevelDocMemberChanged(copy, member) == forgeLevelDocMemberChanged(level.doc, member));
+	}
+
+	/* An edit of the copy leaves the document as it was. */
+	const std::string spawnsBefore = level.text(FORGE_LEVEL_MEMBER_SPAWNS);
+	char copyId[32] = { 0 };
+	REQUIRE(forgeLevelDocAddSpawn(copy, kPlace, kFacing, nullptr, copyId, sizeof(copyId), err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocSpawnCount(copy) == forgeLevelDocSpawnCount(level.doc) + 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawnsBefore);
+
+	/* The same edit of the document gives the same id and the same texts:
+	 * the copy took every id still to hand out with it. */
+	char sameId[32] = { 0 };
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, sameId, sizeof(sameId), err,
+		sizeof(err)) == 1);
+	CHECK(std::string(sameId) == copyId);
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		CAPTURE(member);
+		CHECK(textOf(copy, member) == level.text(member));
+	}
+
+	/* Freeing the copy leaves the document whole. */
+	forgeLevelDocFree(copy);
+	CHECK(forgeLevelDocSpawnCount(level.doc) == 4);
+	CHECK(forgeLevelDocClone(nullptr) == nullptr);
+}
+
 TEST_CASE("A level gains a plain prop made from nothing, drawn with the model it is given",
           "[forge-level-doc]")
 {

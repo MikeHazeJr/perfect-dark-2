@@ -1354,6 +1354,13 @@ void forgeLevelDocFree(forge_level_doc_t *doc)
 	delete doc;
 }
 
+forge_level_doc_t *forgeLevelDocClone(const forge_level_doc_t *doc)
+{
+	/* Every part of a document is a value (texts, lists, maps), so a copy
+	 * shares nothing with the document it was made from. */
+	return doc ? new (std::nothrow) forge_level_doc(*doc) : nullptr;
+}
+
 s32 forgeLevelDocPadCount(const forge_level_doc_t *doc)
 {
 	return doc ? static_cast<s32>(doc->pads.size()) : 0;

@@ -96,8 +96,33 @@ s32 forgeLevelSessionChanged(void);
 s32 forgeLevelSessionSaveAs(const char *display_name, mod_author_result_t *result,
 		char *err, size_t err_cap);
 
-/* Closes the open document and drops its edits. */
+/* Closes the open document and drops its edits, and everything Undo and Redo
+ * could have brought back. */
 void forgeLevelSessionClose(void);
+
+/*
+ * Undo and redo for the open document (Forge F3: edits can be undone). The
+ * editor brackets each edit with EditBegin and EditEnd: Begin keeps a copy of
+ * the document as it is (forgeLevelDocClone); End(1) puts that copy on the
+ * undo list, because the edit changed the document, and forgets what Redo
+ * could have brought back; End(0) drops it. Undo makes the latest copy the
+ * open document again and keeps the one it replaces for Redo; Redo does the
+ * reverse. Each logs FORGE.LEVEL.UNDO or FORGE.LEVEL.REDO and returns 1 when
+ * it did something. At most FORGE_LEVEL_UNDO_DEPTH steps are kept (the oldest
+ * go first); opening another level, closing, and starting a session forget
+ * them all. A save does not: an edit made before it can still be undone, and
+ * the next save writes the result.
+ *
+ * Undo and Redo replace the open document, so a caller must not keep using a
+ * document pointer it took before calling them.
+ */
+#define FORGE_LEVEL_UNDO_DEPTH 32
+void forgeLevelSessionEditBegin(void);
+void forgeLevelSessionEditEnd(s32 changed);
+s32 forgeLevelSessionUndo(void);
+s32 forgeLevelSessionRedo(void);
+s32 forgeLevelSessionUndoCount(void);
+s32 forgeLevelSessionRedoCount(void);
 
 /**
  * Starts a Forge session on the arena `arena_id`, the way choosing it in The
@@ -153,10 +178,13 @@ s32 forgeLevelSessionGivePickup(const char *record_id, const char *weapon_catalo
  * adds a player start at `position` facing `look` (the editor camera's), and
  * saves the result as the level `display_name` while the level is loaded and
  * the editor is up. It is what the editor's Add Start Here and Save As Level
- * buttons do, and it leaves the document open as they do. Returns 1 when the
- * level was saved and is in the catalog.
+ * buttons do, and it leaves the document open as they do. With `undo_redo`
+ * (--debug-forge-session-undo) it undoes the start and redoes it before the
+ * save, as the editor's Undo and Redo buttons do. Returns 1 when the level
+ * was saved and is in the catalog.
  */
-s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3]);
+s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3],
+		s32 undo_redo);
 
 #ifdef __cplusplus
 }

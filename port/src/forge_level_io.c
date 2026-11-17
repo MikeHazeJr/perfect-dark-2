@@ -33,6 +33,43 @@ static struct {
 	forge_level_source_t source;
 } s_Session;
 
+/* Undo and redo for the open document: copies of it from before each edit
+ * (oldest first), the documents undone since the last edit (latest last), and
+ * the copy an edit in progress started from. */
+static struct {
+	forge_level_doc_t *undo[FORGE_LEVEL_UNDO_DEPTH];
+	s32 undo_count;
+	forge_level_doc_t *redo[FORGE_LEVEL_UNDO_DEPTH];
+	s32 redo_count;
+	forge_level_doc_t *pending;
+} s_Undo;
+
+static void undoForgetRedo(void)
+{
+	for (s32 i = 0; i < s_Undo.redo_count; i++) forgeLevelDocFree(s_Undo.redo[i]);
+	s_Undo.redo_count = 0;
+}
+
+static void undoForgetAll(void)
+{
+	for (s32 i = 0; i < s_Undo.undo_count; i++) forgeLevelDocFree(s_Undo.undo[i]);
+	s_Undo.undo_count = 0;
+	undoForgetRedo();
+	forgeLevelDocFree(s_Undo.pending);
+	s_Undo.pending = NULL;
+}
+
+/* Pushes onto a full list by forgetting its oldest entry. */
+static void undoPush(forge_level_doc_t **list, s32 *count, forge_level_doc_t *doc)
+{
+	if (*count == FORGE_LEVEL_UNDO_DEPTH) {
+		forgeLevelDocFree(list[0]);
+		memmove(&list[0], &list[1], sizeof(list[0]) * (FORGE_LEVEL_UNDO_DEPTH - 1));
+		(*count)--;
+	}
+	list[(*count)++] = doc;
+}
+
 static void levelFail(char *err, size_t err_cap, const char *reason, const char *detail)
 {
 	if (!err || err_cap == 0) return;
@@ -204,8 +241,67 @@ s32 forgeLevelSessionChanged(void)
 	return 0;
 }
 
+void forgeLevelSessionEditBegin(void)
+{
+	forgeLevelDocFree(s_Undo.pending);
+	s_Undo.pending = s_Session.doc ? forgeLevelDocClone(s_Session.doc) : NULL;
+}
+
+void forgeLevelSessionEditEnd(s32 changed)
+{
+	forge_level_doc_t *before = s_Undo.pending;
+
+	s_Undo.pending = NULL;
+	if (!before) return;
+	if (!changed || !s_Session.doc) {
+		forgeLevelDocFree(before);
+		return;
+	}
+	undoPush(s_Undo.undo, &s_Undo.undo_count, before);
+	undoForgetRedo();
+}
+
+s32 forgeLevelSessionUndo(void)
+{
+	forge_level_doc_t *before;
+
+	if (!s_Session.doc || s_Undo.undo_count == 0) return 0;
+	before = s_Undo.undo[--s_Undo.undo_count];
+	undoPush(s_Undo.redo, &s_Undo.redo_count, s_Session.doc);
+	s_Session.doc = before;
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.UNDO: arena=%s pads=%d spawns=%d objects=%d undo_left=%d redo=%d",
+		s_Session.source.arena_id, forgeLevelDocPadCount(before), forgeLevelDocSpawnCount(before),
+		forgeLevelDocObjectCount(before), s_Undo.undo_count, s_Undo.redo_count);
+	return 1;
+}
+
+s32 forgeLevelSessionRedo(void)
+{
+	forge_level_doc_t *after;
+
+	if (!s_Session.doc || s_Undo.redo_count == 0) return 0;
+	after = s_Undo.redo[--s_Undo.redo_count];
+	undoPush(s_Undo.undo, &s_Undo.undo_count, s_Session.doc);
+	s_Session.doc = after;
+	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.REDO: arena=%s pads=%d spawns=%d objects=%d undo=%d redo_left=%d",
+		s_Session.source.arena_id, forgeLevelDocPadCount(after), forgeLevelDocSpawnCount(after),
+		forgeLevelDocObjectCount(after), s_Undo.undo_count, s_Undo.redo_count);
+	return 1;
+}
+
+s32 forgeLevelSessionUndoCount(void)
+{
+	return s_Session.doc ? s_Undo.undo_count : 0;
+}
+
+s32 forgeLevelSessionRedoCount(void)
+{
+	return s_Session.doc ? s_Undo.redo_count : 0;
+}
+
 void forgeLevelSessionClose(void)
 {
+	undoForgetAll();
 	if (!s_Session.doc) return;
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.CLOSE: arena=%s edited=%d", s_Session.source.arena_id,
 		forgeLevelSessionChanged());
@@ -381,7 +477,8 @@ static void levelStepFrom(const forge_level_pad_t *pad, f32 distance, f32 out[3]
 	for (s32 i = 0; i < 3; i++) out[i] = pad->position[i] + pad->look[i] * distance;
 }
 
-s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3])
+s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], const f32 look[3],
+		s32 undo_redo)
 {
 	mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
 	forge_level_doc_t *doc = NULL;
@@ -405,13 +502,32 @@ s32 forgeLevelDebugSessionEdit(const char *display_name, const f32 position[3], 
 	}
 	if (!forgeLevelSessionOpen(arena_id, err, sizeof(err))) goto done;
 	doc = forgeLevelSessionDoc();
-	if (!forgeLevelDocAddSpawn(doc, position, look, NULL, spawn_id, sizeof(spawn_id), err, sizeof(err))) {
-		goto done;
-	}
+	/* Bracketed for undo, as the editor's Add Start Here is. */
+	forgeLevelSessionEditBegin();
+	ok = forgeLevelDocAddSpawn(doc, position, look, NULL, spawn_id, sizeof(spawn_id), err, sizeof(err));
+	forgeLevelSessionEditEnd(ok);
+	if (!ok) goto done;
+	ok = 0;
 	sysLogPrintf(LOG_NOTE,
 		"FORGE.LEVEL.EDIT: added spawn %s at the camera (%.0f, %.0f, %.0f); the level now has pads=%d spawns=%d objects=%d",
 		spawn_id, position[0], position[1], position[2], forgeLevelDocPadCount(doc),
 		forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
+	/* --debug-forge-session-undo: take the start back and put it back again,
+	 * as the editor's Undo and Redo do, before saving. */
+	if (undo_redo) {
+		if (!forgeLevelSessionUndo()) {
+			snprintf(err, sizeof(err), "the start could not be undone");
+			goto done;
+		}
+		if (!forgeLevelSessionRedo()) {
+			snprintf(err, sizeof(err), "the start could not be redone");
+			goto done;
+		}
+		/* Undo and Redo replace the open document. */
+		doc = forgeLevelSessionDoc();
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: after undo and redo the level has pads=%d spawns=%d objects=%d",
+			forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
+	}
 	if (forgeLevelSessionSaveAs(display_name, result, err, sizeof(err)) != MOD_AUTHOR_OK) goto done;
 	if (!assetCatalogResolve(result->catalog_id)) {
 		snprintf(err, sizeof(err), "%s was saved but is not in the catalog", result->catalog_id);
