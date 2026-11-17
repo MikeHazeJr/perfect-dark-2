@@ -3993,7 +3993,7 @@ static s32 weaponNestedPrepareMember(weapon_nested_preflight_t *p,
 		const char *weapon_id, const char *container_archive,
 		const void *container_bytes, u32 container_size,
 		const char *entry_name, asset_type_e expected_type,
-		char *err, size_t err_cap)
+		s32 owner_bundled, char *err, size_t err_cap)
 {
 	u32 descriptor_size = 0;
 	const char *descriptor_leaf = NULL;
@@ -4093,10 +4093,18 @@ static s32 weaponNestedPrepareMember(weapon_nested_preflight_t *p,
 		u32 manifest_size = 0;
 		void *manifest = modArchiveExtractMemAlloc(p->bytes, p->size,
 			ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
+		/* B-1152: for a mesh that is not the base game's, the native file its
+		 * manifest names is provenance only. A weapon mod saved from a base
+		 * gun before the mod author stopped copying that name still carries
+		 * it; honoured, the mod's mesh took the base gun's file slot and the
+		 * base gun drew the mod's model. Such a mesh keeps the slot its row
+		 * already has, or gets a private one when it is bound, as a mod
+		 * vehicle's mesh does (body_head_source_bind.c, force_private). */
+		const s32 own_slot = !owner_bundled && !(existing && existing->bundled);
 		if (!loaderWalkerMeshSourcePlanManifest((const char *)manifest,
 				manifest_size, p->catalog_id, p->archive_ref,
 				weaponNestedMeshPublicGeometry(&p->ini),
-				existing ? existing->source_filenum : -1,
+				own_slot ? -1 : (existing ? existing->source_filenum : -1),
 				&p->mesh_source, err, err_cap)) {
 			free(manifest);
 			if (!err || !err[0]) {
@@ -4107,6 +4115,16 @@ static s32 weaponNestedPrepareMember(weapon_nested_preflight_t *p,
 			return 0;
 		}
 		free(manifest);
+		if (own_slot) {
+			if (p->mesh_source.source_symbol_present) {
+				sysLogPrintf(LOG_WARNING,
+					"PDWEAPON.NESTED.MESH_SOURCE: owner=%s id=%s keeps a slot of its own: its manifest names file %d, which is the base game's (saved before B-1152's fix; saving the mod again removes the name)",
+					weapon_id, p->catalog_id, p->mesh_source.source_filenum);
+			}
+			p->mesh_source.source_filenum = existing && existing->source_filenum > 0
+				? existing->source_filenum : -1;
+			p->mesh_source.source_symbol_present = 0;
+		}
 		/* Planning does not read geometry. Verify the exact selected member
 		 * now so a missing source cannot publish an otherwise valid catalog row.
 		 * Geometry semantics remain the production model compiler's authority. */
@@ -4198,7 +4216,7 @@ static s32 collectWeaponEmbeddedMesh(const char *entry, u32 size, void *user)
 
 static s32 weaponNestedPrepareRecursiveMeshes(weapon_nested_preflight_t **pending,
 		size_t *count, size_t *capacity, weapon_nested_mesh_edges_t *edges,
-		const char *weapon_id, char *err, size_t err_cap)
+		const char *weapon_id, s32 owner_bundled, char *err, size_t err_cap)
 {
 	/* The executable v1 payload inventory owns direct projectile/entity archives.
 	 * Enumerate their mesh children through the same public descriptor preflight.
@@ -4229,7 +4247,7 @@ static s32 weaponNestedPrepareRecursiveMeshes(weapon_nested_preflight_t **pendin
 			weapon_nested_preflight_t *p = &(*pending)[*count];
 			s32 result = weaponNestedPrepareMember(p, *pending, *count,
 				weapon_id, container_archive, bytes, size, scan.entries[j], ASSET_MODEL,
-				err, err_cap);
+				owner_bundled, err, err_cap);
 			if (!result || !weaponNestedAddMeshEdge(edges, owner, p->catalog_id, err, err_cap)) {
 				free(scan.entries);
 				return 0;
@@ -4626,7 +4644,7 @@ static s32 registerWeaponNestedDependenciesWithAnimationBatch(const char *weapon
 		p = &pending[pending_count];
 		s32 prepared = weaponNestedPrepareMember(p, pending, pending_count,
 			weapon_id, weapon_archive, weapon_bytes, weapon_size,
-			entry_name, expected_type, err, err_cap);
+			entry_name, expected_type, bundled, err, err_cap);
 		if (!prepared) goto rollback;
 		if (prepared == 2) {
 			free(p->bytes);
@@ -4637,7 +4655,7 @@ static s32 registerWeaponNestedDependenciesWithAnimationBatch(const char *weapon
 	}
 	}
 	if (!weaponNestedPrepareRecursiveMeshes(&pending, &pending_count,
-			&pending_capacity, &mesh_edges, weapon_id, err, err_cap)
+			&pending_capacity, &mesh_edges, weapon_id, bundled, err, err_cap)
 			|| !weaponNestedPrepareMeshConsumers(pending, pending_count, &mesh_edges,
 				weapon_id, weapon_archive, weapon_bytes, weapon_size, held_mesh_id,
 				err, err_cap)) goto rollback;

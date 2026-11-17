@@ -285,6 +285,45 @@ TEST_CASE("mod manifest parse logs do not look like asset fallback failures",
 	REQUIRE(log_block.find("mod->base_fallback") != std::string::npos);
 }
 
+TEST_CASE("A mod weapon's own mesh never takes the base file slot its manifest names",
+          "[social][public_mods][static][b1152]")
+{
+	/* B-1152, the loader side. A weapon mod saved from a base gun before the
+	 * mod author stopped copying `source_filenum_symbol` still carries that
+	 * name in its mesh manifest. Honoured, the mod's mesh claimed the base
+	 * gun's file slot and the base gun drew the mod's model. The nested
+	 * registration treats the name as provenance for any mesh whose owner is
+	 * not bundled: it plans without the row's number, drops the number the
+	 * manifest resolved to, and says so once in the log. */
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	REQUIRE_FALSE(scanner.empty());
+	const size_t prepare = scanner.find("static s32 weaponNestedPrepareMember(");
+	REQUIRE(prepare != std::string::npos);
+	const size_t prepare_end = scanner.find("static s32 weaponNestedPrepareRecursiveMeshes(", prepare);
+	REQUIRE(prepare_end != std::string::npos);
+	const size_t flag = scanner.find("s32 owner_bundled, char *err, size_t err_cap)", prepare);
+	const size_t own = scanner.find(
+		"const s32 own_slot = !owner_bundled && !(existing && existing->bundled);", prepare);
+	const size_t plan = scanner.find(
+		"own_slot ? -1 : (existing ? existing->source_filenum : -1),", prepare);
+	const size_t drop = scanner.find("p->mesh_source.source_symbol_present = 0;", prepare);
+	REQUIRE(flag != std::string::npos);
+	REQUIRE(own != std::string::npos);
+	REQUIRE(plan != std::string::npos);
+	REQUIRE(drop != std::string::npos);
+	REQUIRE(flag < own);
+	REQUIRE(own < plan);
+	REQUIRE(plan < drop);
+	REQUIRE(drop < prepare_end);
+	REQUIRE(scanner.find("keeps a slot of its own: its manifest names file %d", prepare) < prepare_end);
+	/* Both callers hand the owner's flag down: the weapon's own members and
+	 * the meshes inside its projectile and entity archives. */
+	REQUIRE(scanner.find("entry_name, expected_type, bundled, err, err_cap);") != std::string::npos);
+	REQUIRE(scanner.find("&pending_capacity, &mesh_edges, weapon_id, bundled, err, err_cap)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("owner_bundled, err, err_cap);", prepare_end) != std::string::npos);
+}
+
 TEST_CASE("Public Mods registry writes JSON strings through an escaping helper", "[social][public_mods][static]")
 {
 	const std::string share = readTextFile("port/src/social_share.c");
