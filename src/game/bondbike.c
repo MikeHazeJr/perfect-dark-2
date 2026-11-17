@@ -476,6 +476,19 @@ static s32 bbikeExitToChosenSide(void *context)
 	return g_Vars.currentplayer->walkinitmove ? 1 : 0;
 }
 
+/* The two dismounts above as og.vehicle.dismount_seat's action, which is
+ * told the seat its module names. Both are the driver seat's dismount; they
+ * have nothing for the gunner seat (that one comes with the gunner's ride). */
+static s32 bbikeDismountToSidesSeat(void *context, s32 seat)
+{
+	return seat == VEHICLE_GRAPH_SEAT_DRIVER ? bbikeDismountToSides(context) : 0;
+}
+
+static s32 bbikeExitToChosenSideSeat(void *context, s32 seat)
+{
+	return seat == VEHICLE_GRAPH_SEAT_DRIVER ? bbikeExitToChosenSide(context) : 0;
+}
+
 void bbikeHandleActivate(bool transportedintent)
 {
 	const bool clientLocalIntent = g_NetMode == NETMODE_CLIENT
@@ -514,7 +527,7 @@ void bbikeHandleActivate(bool transportedintent)
 		 * runs it directly. */
 		if (hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike,
 				VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, VEHICLE_GRAPH_SEAT_DRIVER,
-				bbikeDismountToSides, &d) < 0) {
+				bbikeDismountToSidesSeat, &d) < 0) {
 			bbikeDismountToSides(&d);
 		}
 		if (d.returnEarly) {
@@ -599,7 +612,7 @@ void bbikeApplyMoveData(struct movedata *data)
 			vexit.bike = bike;
 			vexit.wantRight = (vRight - vLeft) > 0.25f;
 			if (hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
-					VEHICLE_GRAPH_SEAT_DRIVER, bbikeExitToChosenSide, &vexit) < 0
+					VEHICLE_GRAPH_SEAT_DRIVER, bbikeExitToChosenSideSeat, &vexit) < 0
 					&& assetRuntimeVehicleAllows(bike->base.modelnum, "dismount")) {
 				bbikeExitToChosenSide(&vexit);
 			}

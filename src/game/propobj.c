@@ -18637,9 +18637,13 @@ static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)
 }
 
 /* What og.vehicle.mount_seat does for the driver seat: the native candidate
- * and commit above. */
-static s32 hoverbikeMountDriverAction(void *context)
+ * and commit above. It has nothing for the gunner seat (that mount comes
+ * with the gunner's ride). */
+static s32 hoverbikeMountDriverAction(void *context, s32 seat)
 {
+	if (seat != VEHICLE_GRAPH_SEAT_DRIVER) {
+		return 0;
+	}
 	return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;
 }
 

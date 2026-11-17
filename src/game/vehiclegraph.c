@@ -41,7 +41,7 @@
 typedef struct hoverbike_graph_host {
 	struct hoverbikeobj *bike;
 	struct prop *prop;
-	hoverbike_seat_action_fn action; /* a seat request's mount or dismount */
+	hoverbike_seat_action_fn action; /* a seat request's mount, dismount or switch */
 	void *action_context;
 	s32 seat_done;                   /* the seat module did it */
 } hoverbike_graph_host_t;
@@ -78,8 +78,10 @@ static s32 hoverbikeGraphSeatFree(void *context, s32 seat)
 	return 0;
 }
 
-/* og.vehicle.mount_seat and og.vehicle.dismount_seat: run the request's
- * action for the seat, once. */
+/* og.vehicle.mount_seat, og.vehicle.dismount_seat and og.vehicle.switch_seat:
+ * run the request's action for the seat the module names, once. Which seats
+ * an action serves is the action's own business: it returns 0 for a seat it
+ * has nothing for (the gunner seat, until the gunner's ride is built). */
 static s32 hoverbikeGraphSeatAction(void *context, s32 seat, const vehicle_graph_event_t *event)
 {
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
@@ -90,8 +92,9 @@ static s32 hoverbikeGraphSeatAction(void *context, s32 seat, const vehicle_graph
 	 * nothing. The compiler refuses a second one for one seat on one event;
 	 * this keeps the host safe whatever the graph (CORE's review,
 	 * 2026-11-16). */
-	if (host->seat_done || seat != VEHICLE_GRAPH_SEAT_DRIVER || !host->action
-			|| !host->action(host->action_context)) {
+	if (host->seat_done || !host->action
+			|| (seat != VEHICLE_GRAPH_SEAT_DRIVER && seat != VEHICLE_GRAPH_SEAT_GUNNER)
+			|| !host->action(host->action_context, seat)) {
 		return 0;
 	}
 	host->seat_done = 1;
@@ -125,13 +128,14 @@ static void hoverbikeGraphHostInit(vehicle_graph_host_t *table, hoverbike_graph_
 	memset(host, 0, sizeof(*host));
 	host->bike = bike;
 	host->prop = prop;
-	/* A callback left NULL refuses its module (the seat switch, until the
-	 * gunner seat is built). */
+	/* A callback left NULL would refuse its module. The three seat modules
+	 * share one: each runs the action of the request that reached it. */
 	memset(table, 0, sizeof(*table));
 	table->context = host;
 	table->seat_free = hoverbikeGraphSeatFree;
 	table->mount_seat = hoverbikeGraphSeatAction;
 	table->dismount_seat = hoverbikeGraphSeatAction;
+	table->switch_seat = hoverbikeGraphSeatAction;
 	table->set_part_visible = hoverbikeGraphPartVisible;
 }
 
@@ -301,7 +305,7 @@ void hoverbikeGraphIdleTick(struct hoverbikeobj *bike)
 }
 
 /* ---------------------------------------------------------------------------
- * Seat requests: mounting and dismounting
+ * Seat requests: mounting, dismounting and switching seat
  * ------------------------------------------------------------------------- */
 
 s32 hoverbikeGraphSeatRequest(struct prop *prop, s32 kind, s32 seat,

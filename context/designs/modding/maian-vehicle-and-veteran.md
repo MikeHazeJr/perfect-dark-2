@@ -509,6 +509,15 @@ Status on `week-pd/mods-v4` (2026-11-17):
   other gameplay action is closed in the gunner's seat; a "Vehicle Turret"
   group of seven rows under the Controls menu's Vehicle tab, reset with it.
   Nothing pushes the turret layer yet (step 4 does), so play is unchanged.
+- Step 3, first part WRITTEN, not compiled locally: a seat action is told the
+  seat its module names (`hoverbike_seat_action_fn(context, seat)`), the
+  host's three seat modules share one callback that runs the request's action
+  once, and `og.vehicle.switch_seat` is no longer refused by the host. The
+  pinned native functions keep their text: the driver mount action refuses
+  any other seat, and `bondbike.c` has two small adapters
+  (`bbikeDismountToSidesSeat`, `bbikeExitToChosenSideSeat`) that serve the
+  driver seat. No pin moved. The mount points (`hoverbikeSeatWorldPos`) come
+  with step 5, where they are first used.
 
 Risks the survey found, to settle before or in step 5:
 
