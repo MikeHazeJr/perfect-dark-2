@@ -601,6 +601,11 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 		REQUIRE(source->find(R"({ \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" })")
 			!= std::string::npos);
 	}
+	// B-1260: an objects.json weapon pickup names its weapons as
+	// setup.fields.json does (the catalog, then the game's weapon table).
+	REQUIRE(extractor.find("\t\t\t\tweapon_ref = s_nonnullCatalogId(\n"
+		"\t\t\t\t\ts_setupWeaponCatalogIdByRuntime(w->weaponnum));") != std::string::npos);
+	REQUIRE(extractor.find("catalogWeaponIdByRuntimeWeaponNum(w->weaponnum)") == std::string::npos);
 	// An archive without the wiring is stale for the extractor.
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
 		"\t\t\t\"\\\"object.rules.door.activate_automatic\\\"\") &&") != std::string::npos);

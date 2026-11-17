@@ -5839,6 +5839,48 @@ def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
     return len(rows), errors
 
 
+# B-1260: an objects.json row names the weapons its setup.fields.json
+# record gives (pickup.weapon, pickup.dual_weapon): the same catalog id, or
+# none when the field is a weapon selector.
+OBJECT_WEAPON_FIELDS = (("weapon_catalog_id", "pickup.weapon"),
+                        ("secondary_weapon_catalog_id", "pickup.dual_weapon"))
+OBJECT_WEAPON_ERRORS_SHOWN = 12
+
+
+def validate_object_weapon_refs(label: str, objects_text: str, fields_text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        rows = json.loads(objects_text).get("rows")
+        fields = json.loads(fields_text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return errors  # the row checks report an unreadable file
+    if not isinstance(rows, list) or not isinstance(fields, list):
+        return errors
+    given: dict[tuple[str, str], str] = {}
+    for field in fields:
+        if isinstance(field, dict) and field.get("field") in ("pickup.weapon", "pickup.dual_weapon"):
+            value = field.get("catalog_id") if field.get("type") == "weapon_catalog_id" else ""
+            given[(str(field.get("record_id")), field["field"])] = value if isinstance(value, str) else ""
+    differ = 0
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        record_id = str(row.get("record_id"))
+        for column, field in OBJECT_WEAPON_FIELDS:
+            if (record_id, field) not in given:
+                continue
+            want, have = given[(record_id, field)], row.get(column, "")
+            if have != want:
+                differ += 1
+                if differ <= OBJECT_WEAPON_ERRORS_SHOWN:
+                    errors.append(f"{label} objects.json row {idx} ({record_id}): {column} {have!r} "
+                                  f"is not the {field} of setup.fields.json ({want!r})")
+    if differ > OBJECT_WEAPON_ERRORS_SHOWN:
+        errors.append(f"{label} objects.json: {differ} weapon names differ from setup.fields.json; "
+                      f"first {OBJECT_WEAPON_ERRORS_SHOWN} shown")
+    return errors
+
+
 # Object rules (context/designs/modding/object-rules.md): optional fields on
 # objects.json rows, each allowed only on the kind of row whose code reads it.
 OBJECT_RULE_DIFFICULTIES = ["agent", "special_agent", "perfect_agent", "perfect_dark"]
@@ -8640,6 +8682,10 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.extend(object_errors)
                     result.errors.extend(validate_object_rule_fields(
                         label, zf.read("objects.json").decode("utf-8", errors="replace")))
+                    if "setup.fields.json" in name_set:
+                        result.errors.extend(validate_object_weapon_refs(
+                            label, zf.read("objects.json").decode("utf-8", errors="replace"),
+                            zf.read("setup.fields.json").decode("utf-8", errors="replace")))
                 if "ai/ailists.json" in name_set:
                     ai_row_count, ai_errors = validate_scenario_ai_lists_json_schema(
                         label,

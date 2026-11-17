@@ -3336,10 +3336,14 @@ static s32 s_buildSetupTables(const u8 *data, u32 size, s32 stagenum,
 			if ((type == OBJTYPE_WEAPON || type == OBJTYPE_MINE) &&
 					len >= (s32)sizeof(struct weaponobj)) {
 				const struct weaponobj *w = (const struct weaponobj *)ptr;
+				/* B-1260: the same naming as setup.fields.json (the
+				 * catalog, then the game's weapon table), so a device or
+				 * item weapon the extraction-time catalog does not know
+				 * is named too. */
 				weapon_ref = s_nonnullCatalogId(
-					catalogWeaponIdByRuntimeWeaponNum(w->weaponnum));
+					s_setupWeaponCatalogIdByRuntime(w->weaponnum));
 				dual_weapon_ref = s_nonnullCatalogId(
-					catalogWeaponIdByRuntimeWeaponNum(w->dualweaponnum));
+					s_setupWeaponCatalogIdByRuntime(w->dualweaponnum));
 			}
 			snprintf(flags, sizeof(flags), "0x%08x", (unsigned)obj->flags);
 			snprintf(flags2, sizeof(flags2), "0x%08x", (unsigned)obj->flags2);
