@@ -20,6 +20,10 @@
   control (Shift, or A on a controller, where the vehicle handbrake moves to
   B); both can be remapped.
 
+- Keep saved key bindings when an update adds a control: a bindings file or
+  input profile from an older version loads, and the new control takes its
+  default.
+
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
 

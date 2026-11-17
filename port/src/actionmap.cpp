@@ -2636,6 +2636,13 @@ void actionmapLoadBinds(void)
     if (active >= 0) inputProfilesSetActive(active);
     if (ok) actionmapUpdateLegacyBindStrings();
     else sysLogPrintf(LOG_WARNING, "ACTIONMAP: %s", s_BindingPersistenceError.c_str());
+    if (ok && s_ProfileStore.upgradedFromActions() > 0) {
+        /* The file was saved by a build with fewer actions (each new action
+         * makes every saved file one row short per context). */
+        sysLogPrintf(LOG_NOTE,
+            "ACTIONMAP: bindings file from an older build (%d of %d actions per context): bindings kept, new actions take their defaults, file brought up to date",
+            (s32)s_ProfileStore.upgradedFromActions(), (s32)ACTION_COUNT);
+    }
     actionmapRetireBindingState();
 }
 
