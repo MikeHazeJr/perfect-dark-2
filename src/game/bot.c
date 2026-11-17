@@ -1694,6 +1694,36 @@ bool botIsAboutToAttack(struct chrdata *chr, bool arg1)
 	return result;
 }
 
+/* PC (B-1271): the Hacker Central terminal nearest this simulant, or NULL
+ * outside Hacker Central. */
+static struct prop *botHtmNearestTerminal(struct chrdata *chr)
+{
+	struct prop *best = NULL;
+	f32 bestdist = 0;
+	s32 i;
+
+	if (g_MpSetup.scenario != MPSCENARIO_HACKERCENTRAL || chr->prop == NULL) {
+		return NULL;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.htm.terminals); i++) {
+		struct prop *terminal = g_ScenarioData.htm.terminals[i].prop;
+
+		if (terminal) {
+			f32 dx = terminal->pos.x - chr->prop->pos.x;
+			f32 dz = terminal->pos.z - chr->prop->pos.z;
+			f32 dist = dx * dx + dz * dz;
+
+			if (best == NULL || dist < bestdist) {
+				best = terminal;
+				bestdist = dist;
+			}
+		}
+	}
+
+	return best;
+}
+
 s32 botTick(struct prop *prop)
 {
 	struct chrdata *chr = prop->chr;
@@ -2009,6 +2039,15 @@ s32 botTick(struct prop *prop)
 				targetangle = oldangle + targetangle + aibot->extraangle;
 			} else if (chr->myaction == MA_AIBOTDOWNLOAD && g_ScenarioData.htm.dlterminalnum != -1) {
 				targetangle = chrGetAngleToPos(chr, &g_ScenarioData.htm.terminals[g_ScenarioData.htm.dlterminalnum].prop->pos);
+				targetangle = oldangle + targetangle;
+			} else if (chr->myaction == MA_AIBOTDOWNLOAD && botHtmNearestTerminal(chr) != NULL) {
+				/* PC (B-1271, Mike 2026-11-16): a download starts only while the
+				 * simulant faces the terminal (within 45 degrees), and the branch
+				 * above turns it only once a download runs, so one that reached
+				 * range facing away, or lost its facing, stood unarmed for the
+				 * rest of the match. Turn toward the terminal while waiting, at
+				 * the normal turning speed below. */
+				targetangle = chrGetAngleToPos(chr, &botHtmNearestTerminal(chr)->pos);
 				targetangle = oldangle + targetangle;
 			} else if (chr->myaction == MA_AIBOTFOLLOW
 					&& aibot->followingplayernum >= 0

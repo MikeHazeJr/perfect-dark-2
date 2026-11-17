@@ -38,7 +38,7 @@ client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and sh
 carrier at 23.5 s, the dying simulant's case was announced (`BOT.DROP: host announced simulant 2 weapon=79 syncid=48`),
 and the client replayed simulant 4's pickup of it as `item 48 weapon=79 result=0` and showed simulant 4 as the holder.
 
-## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, open, intermittent: the original's rule; fix waits for Mike)
+## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, fixed in code with Mike's OK, not yet run)
 
 Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
 a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
@@ -88,6 +88,13 @@ uplink, not downloading (not facing the terminal) ... action=46 actiontype=1 inr
 10 s. That is the deadlock in the cause: in `MA_AIBOTDOWNLOAD`, standing (`ACT_STAND`), unarmed, counted in range,
 never turned toward the terminal. Nobody scored in that match. So a simulant also gets there by losing its facing
 during a download, not only by arriving facing away.
+
+**Fix (Mike's OK 2026-11-16, "fix the bug"; constraints.md):** in `botTick`'s target angle, right after the branch
+that turns a downloading simulant toward its download's terminal, a simulant in `MA_AIBOTDOWNLOAD` whose download
+has not started turns toward the nearest Hacker Central terminal (`botHtmNearestTerminal`, Hacker Central only), at
+the ordinary turning speed (about 1 s for half a turn), so the download starts once it faces within 45 degrees.
+This departs from the original on purpose. Pinned by `[b1271]` in `tests/test_net_bot_pickup_static.cpp`. Not
+built yet; the queued carrier-death run builds it.
 
 ## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
 

@@ -599,3 +599,39 @@ TEST_CASE("bot stuck watchdog: a simulant downloading at a Hacker Central termin
 	REQUIRE(relocate != std::string::npos);
 	REQUIRE(gated < relocate);
 }
+
+TEST_CASE("bot turn: a simulant waiting to download turns toward the terminal",
+          "[bot][scenario][b1271]") {
+	// B-1271 (Mike 2026-11-16): a download starts only while the simulant faces
+	// the terminal, and the original turned it toward the terminal only once a
+	// download ran, so one that reached range facing away stood unarmed in
+	// MA_AIBOTDOWNLOAD for the rest of the match (caught in
+	// mp_hacker_central_net_carrier_death_smoke). While it waits it now turns
+	// toward the nearest terminal, at the normal turning speed.
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const std::string nearest = function_body(bot,
+		"static struct prop *botHtmNearestTerminal(struct chrdata *chr)\n{");
+	REQUIRE(nearest.find("if (g_MpSetup.scenario != MPSCENARIO_HACKERCENTRAL || chr->prop == NULL) {")
+		!= std::string::npos);
+	REQUIRE(nearest.find("struct prop *terminal = g_ScenarioData.htm.terminals[i].prop;") != std::string::npos);
+
+	const std::string tick = function_body(bot, "s32 botTick(struct prop *prop)\n{");
+	const size_t running = tick.find(
+		"} else if (chr->myaction == MA_AIBOTDOWNLOAD && g_ScenarioData.htm.dlterminalnum != -1) {");
+	const size_t waiting = tick.find(
+		"} else if (chr->myaction == MA_AIBOTDOWNLOAD && botHtmNearestTerminal(chr) != NULL) {");
+	const size_t aim = tick.find("targetangle = chrGetAngleToPos(chr, &botHtmNearestTerminal(chr)->pos);");
+	const size_t follow = tick.find("} else if (chr->myaction == MA_AIBOTFOLLOW");
+	const size_t tween = tick.find("tweenangle = g_Vars.lvupdate60freal * 0.061590049415827f;");
+	REQUIRE(running != std::string::npos);
+	REQUIRE(waiting != std::string::npos);
+	REQUIRE(aim != std::string::npos);
+	REQUIRE(follow != std::string::npos);
+	REQUIRE(tween != std::string::npos);
+	// a running download keeps its own terminal; the wait comes right after it,
+	// and both go through the ordinary turn rate
+	REQUIRE(running < waiting);
+	REQUIRE(waiting < aim);
+	REQUIRE(aim < follow);
+	REQUIRE(follow < tween);
+}
