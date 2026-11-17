@@ -283,7 +283,14 @@ What it does:
   pad moved in place takes its bounds with it. A unit case saves the example
   arena with a new spawn through `modAuthorSave`, reads the saved level back,
   and checks its navigation record against its files.
-- Objects are read and kept byte for byte, not edited (see "Not done").
+- Moves an object and duplicates one (written after the survey of
+  `setup.fields.json` below; `setup.fields.json` is the document's fifth
+  member). A move changes the object's pad in `objects.json` and in its pad
+  field (`base.pad` or `character.pad`), so the two files never disagree; the
+  document refuses a level in which they already do. A duplicate is the next
+  command: every field row of the original is copied under the next id, whose
+  number is its place in the command list, on a pad of its own. There is no
+  remove for objects (see below).
 
 What a save must keep true, found on 2026-11-17 by running the archive
 conformance tool on a level with one pad added and by reading the runtime
@@ -339,15 +346,16 @@ near line 2910):
 
 Not done:
 
-- Moving, adding and removing objects. An object's kind and fields are rows
-  of `setup.fields.json` (37 rows for one weapon pickup of Complex), which also
-  repeats the object's pad as `base.pad`, and `level.graph.json` events name
-  objects by `record_id`; the module reads neither yet. The game applies
-  `objects.json` after `setup.fields.json`, so the pad named in `objects.json`
-  is the one used, but an edit that changed only that file would leave the two
-  disagreeing; a first version of the module moved objects that way and it was
-  taken out for that reason. This is the next piece, and it is what "add a
-  weapon" in F2's proof needs.
+- Removing objects, and adding one of a kind the level does not have yet. An
+  object's kind and fields are rows of `setup.fields.json` (37 rows for one
+  weapon pickup of Complex). Removal has to renumber every later record and
+  rewrite every reference to them, or switch the record off where it stands.
+  A new kind needs that kind's rows written from nothing (a duplicate only
+  copies what a level already has), and `level.graph.json` events name objects
+  by `record_id`, which the module does not read. A first version of the
+  module moved objects by changing `objects.json` alone; the game applies that
+  file after `setup.fields.json`, so it would have worked, but it left the two
+  files disagreeing and was replaced.
 - What the next piece (objects) has to respect, from a survey of the 132 base
   levels' `setup.fields.json` (15,940 objects, up to 21,240 field rows in one
   level) and from the runtime, READ 2026-11-17:

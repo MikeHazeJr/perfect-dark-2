@@ -8,6 +8,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <new>
 #include <set>
@@ -19,11 +20,11 @@ namespace {
 using Json = crude_json::value;
 
 constexpr const char *kMemberNames[FORGE_LEVEL_MEMBER_COUNT] = {
-	"pads.json", "spawns.json", "objects.json", "volumes.json"
+	"pads.json", "spawns.json", "objects.json", "volumes.json", "setup.fields.json"
 };
 constexpr const char *kSchemas[FORGE_LEVEL_MEMBER_COUNT] = {
 	"pd2.scenario.pads.v1", "pd2.scenario.spawns.v1", "pd2.scenario.objects.v1",
-	"pd2.scenario.volumes.v1"
+	"pd2.scenario.volumes.v1", "pd2.scenario.setup.fields.v1"
 };
 /* A pad's bounds reach this far from it on every axis when it has no box of
  * its own; the extractor writes the same box for such a pad. */
@@ -202,6 +203,29 @@ long trailingNumber(const std::string &name, const char *prefix)
 		value = value * 10 + (name[i] - '0');
 	}
 	return value;
+}
+
+/* "12" as 12; -1 for anything that is not a plain whole number. */
+long wholeNumber(const std::string &text)
+{
+	if (text.empty() || text.size() > 9) return -1;
+	long value = 0;
+	for (const char c : text) {
+		if (c < '0' || c > '9') return -1;
+		value = value * 10 + (c - '0');
+	}
+	return value;
+}
+
+std::string quoted(const std::string &text)
+{
+	return "\"" + text + "\"";
+}
+
+/* The field of a record that says where it stands. */
+bool isPlaceField(const std::string &field)
+{
+	return field == "base.pad" || field == "character.pad";
 }
 
 std::string numbered(const char *prefix, long number)
@@ -406,6 +430,15 @@ struct forge_level_doc {
 	std::vector<forge_level_object_t> objects;
 	std::vector<int> padVolume;         /* each pad's row in volumes.json, or -1 */
 	std::set<std::string> volumeIds;    /* every volume_id the file has held */
+	/* setup.fields.json: what each row says, and each record's rows in file order. */
+	struct FieldRow {
+		std::string record;
+		std::string field;
+		std::string value;
+	};
+	std::vector<FieldRow> fields;
+	std::map<std::string, std::vector<size_t>> recordRows;
+	long nextOrder = 0;      /* above every place in the command list, and every setup number */
 	long nextSpawn = 0;      /* above every spawn number this document has held */
 	std::string spawnProfile = "intro";
 };
@@ -570,6 +603,76 @@ bool readVolumes(forge_level_doc &doc, const Json &root, std::string &error)
 	return true;
 }
 
+int findObject(const forge_level_doc &doc, const char *id)
+{
+	for (size_t i = 0; id && i < doc.objects.size(); i++) {
+		if (strcmp(doc.objects[i].record_id, id) == 0) return static_cast<int>(i);
+	}
+	return -1;
+}
+
+/*
+ * setup.fields.json: every field of every record, a row each. The document
+ * needs three things from it: each object's place in the command list, the
+ * field that repeats its pad, and the next free place.
+ */
+bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
+{
+	const crude_json::array &rows = root["rows"].get<crude_json::array>();
+	for (size_t i = 0; i < rows.size(); i++) {
+		const Json &row = rows[i];
+		forge_level_doc::FieldRow info;
+		info.record = stringOf(row, "record_id");
+		info.field = stringOf(row, "field");
+		info.value = stringOf(row, "value");
+		if (info.record.empty() || info.field.empty() || !hasString(row, "kind") ||
+				!hasString(row, "type")) {
+			error = "setup.fields.json row " + std::to_string(i) + " needs record_id, kind, field and type";
+			return false;
+		}
+		if (info.field == "command.order") {
+			const long order = wholeNumber(info.value);
+			if (order < 0) {
+				error = "setup.fields.json " + info.record + " has a command.order that is not a number";
+				return false;
+			}
+			if (order >= doc.nextOrder) doc.nextOrder = order + 1;
+		}
+		doc.recordRows[info.record].push_back(i);
+		doc.fields.push_back(info);
+	}
+
+	for (forge_level_object_t &object : doc.objects) {
+		const long number = trailingNumber(object.record_id, "setup_");
+		object.order = -1;
+		object.movable = 0;
+		if (number >= doc.nextOrder) doc.nextOrder = number + 1;
+		const auto found = doc.recordRows.find(object.record_id);
+		if (found == doc.recordRows.end()) continue;
+		for (const size_t index : found->second) {
+			const forge_level_doc::FieldRow &field = doc.fields[index];
+			if (field.field == "command.order") {
+				object.order = static_cast<s32>(wholeNumber(field.value));
+				/* References between records count on this (see the header). */
+				if (number >= 0 && number != object.order) {
+					error = std::string("setup.fields.json puts ") + object.record_id + " at place " +
+						field.value + " of the command list; its id says " + std::to_string(number);
+					return false;
+				}
+			}
+			if (isPlaceField(field.field) && object.pad_ref[0]) {
+				if (field.value != object.pad_ref) {
+					error = std::string("objects.json says ") + object.record_id + " stands on " +
+						object.pad_ref + " and setup.fields.json says " + field.value;
+					return false;
+				}
+				object.movable = 1;
+			}
+		}
+	}
+	return true;
+}
+
 /* The bounds of a pad at `position` that has no box of its own. */
 void padReach(const f32 position[3], f32 lo[3], f32 hi[3])
 {
@@ -706,28 +809,27 @@ template <size_t N> bool copyOut(char (&out)[N], const char *value)
 
 extern "C" {
 
-forge_level_doc_t *forgeLevelDocRead(const char *pads_json, size_t pads_size,
-	const char *spawns_json, size_t spawns_size,
-	const char *objects_json, size_t objects_size,
-	const char *volumes_json, size_t volumes_size,
-	char *err, size_t err_cap)
+forge_level_doc_t *forgeLevelDocRead(const forge_level_texts_t *texts, char *err, size_t err_cap)
 {
 	if (err && err_cap) err[0] = '\0';
+	if (!texts) {
+		setError(err, err_cap, "no level was given");
+		return nullptr;
+	}
 	std::unique_ptr<forge_level_doc> doc(new (std::nothrow) forge_level_doc);
 	if (!doc) {
 		setError(err, err_cap, "out of memory");
 		return nullptr;
 	}
-	const char *texts[FORGE_LEVEL_MEMBER_COUNT] = { pads_json, spawns_json, objects_json, volumes_json };
-	const size_t sizes[FORGE_LEVEL_MEMBER_COUNT] = { pads_size, spawns_size, objects_size, volumes_size };
 	std::string error;
 	for (int member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
 		Json root;
-		bool ok = readTable(member, texts[member], sizes[member], doc->tables[member], root, error);
+		bool ok = readTable(member, texts->text[member], texts->size[member], doc->tables[member], root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_PADS) ok = readPads(*doc, root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_SPAWNS) ok = readSpawns(*doc, root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_OBJECTS) ok = readObjects(*doc, root, error);
 		if (ok && member == FORGE_LEVEL_MEMBER_VOLUMES) ok = readVolumes(*doc, root, error);
+		if (ok && member == FORGE_LEVEL_MEMBER_SETUP_FIELDS) ok = readFields(*doc, root, error);
 		if (!ok) {
 			setError(err, err_cap, "%s", error.c_str());
 			return nullptr;
@@ -759,6 +861,11 @@ s32 forgeLevelDocObjectCount(const forge_level_doc_t *doc)
 s32 forgeLevelDocVolumeCount(const forge_level_doc_t *doc)
 {
 	return doc ? static_cast<s32>(doc->tables[FORGE_LEVEL_MEMBER_VOLUMES].rows.size()) : 0;
+}
+
+s32 forgeLevelDocFieldRowCount(const forge_level_doc_t *doc)
+{
+	return doc ? static_cast<s32>(doc->fields.size()) : 0;
 }
 
 s32 forgeLevelDocGetPad(const forge_level_doc_t *doc, s32 index, forge_level_pad_t *out)
@@ -865,6 +972,161 @@ s32 forgeLevelDocMoveSpawn(forge_level_doc_t *doc, const char *spawn_id,
 		table.touch();
 		copyOut(spawn.pad_ref, ref);
 	}
+	return 1;
+}
+
+/* The object `record_id` when it can be given a place, or NULL with the reason. */
+static forge_level_object_t *movableObject(forge_level_doc_t *doc, const char *record_id,
+	int *out_index, char *err, size_t err_cap)
+{
+	const int index = doc ? findObject(*doc, record_id) : -1;
+	if (index < 0) {
+		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
+		return nullptr;
+	}
+	forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
+	if (!object.pad_ref[0]) {
+		setError(err, err_cap, "%s stands on no pad, so it has no place to move", object.record_id);
+		return nullptr;
+	}
+	if (!object.movable) {
+		setError(err, err_cap, "%s is a %s with no field that says where it stands", object.record_id,
+			object.kind);
+		return nullptr;
+	}
+	*out_index = index;
+	return &object;
+}
+
+s32 forgeLevelDocMoveObject(forge_level_doc_t *doc, const char *record_id,
+	const f32 position[3], const f32 look[3], char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	int index = -1;
+	forge_level_object_t *object = movableObject(doc, record_id, &index, err, err_cap);
+	if (!object) return 0;
+
+	/* A pad this document added moves where it stands and no row that names
+	 * it changes. Any other pad stays, and the object names a new one: work
+	 * out every row that will say so before anything is changed. */
+	const int padIndex = findPad(*doc, object->pad_ref);
+	const bool newPad = !doc->pads[static_cast<size_t>(padIndex)].added;
+	const std::string ref = newPad ? numbered("pad_", static_cast<long>(doc->pads.size()))
+		: std::string(object->pad_ref);
+	Table &objects = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	std::string objectRow = objects.rows[static_cast<size_t>(index)];
+	std::vector<std::pair<size_t, std::string>> fieldRows;
+	if (newPad) {
+		if (!replaceValue(objectRow, "pad_ref", quoted(ref))) {
+			setError(err, err_cap, "%s could not be rewritten", object->record_id);
+			return 0;
+		}
+		for (const size_t row : doc->recordRows[object->record_id]) {
+			if (!isPlaceField(doc->fields[row].field)) continue;
+			std::string text = fields.rows[row];
+			if (!replaceValue(text, "value", quoted(ref))) {
+				setError(err, err_cap, "%s's place could not be rewritten", object->record_id);
+				return 0;
+			}
+			fieldRows.emplace_back(row, text);
+		}
+	}
+
+	std::string error;
+	if (movePad(*doc, padIndex, position, look, error) < 0) {
+		setError(err, err_cap, "%s", error.c_str());
+		return 0;
+	}
+	if (newPad) {
+		objects.rows[static_cast<size_t>(index)] = objectRow;
+		objects.touch();
+		for (const auto &changed : fieldRows) {
+			fields.rows[changed.first] = changed.second;
+			doc->fields[changed.first].value = ref;
+		}
+		if (!fieldRows.empty()) fields.touch();
+		copyOut(object->pad_ref, ref.c_str());
+	}
+	return 1;
+}
+
+s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (out_record_id && out_cap) out_record_id[0] = '\0';
+	int index = -1;
+	forge_level_object_t *source = movableObject(doc, record_id, &index, err, err_cap);
+	if (!source) return 0;
+	if (doc->nextOrder > FORGE_LEVEL_MAX_OBJECT_NUMBER) {
+		setError(err, err_cap, "the level's command list is full (setup_%04d is its last place)",
+			FORGE_LEVEL_MAX_OBJECT_NUMBER);
+		return 0;
+	}
+
+	/* The copy is the next command: its id number and its place are the
+	 * same number, which is what references between records count on. */
+	const long place = doc->nextOrder;
+	const std::string id = numbered("setup_", place);
+	const std::string ref = numbered("pad_", static_cast<long>(doc->pads.size()));
+	if (doc->recordRows.count(id) || findObject(*doc, id.c_str()) >= 0) {
+		setError(err, err_cap, "the level already has a %s", id.c_str());
+		return 0;
+	}
+
+	/* Every row of the copy, before anything is changed. */
+	Table &objects = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	std::string objectRow = objects.rows[static_cast<size_t>(index)];
+	if (!replaceValue(objectRow, "record_id", quoted(id)) || !replaceValue(objectRow, "pad_ref", quoted(ref))) {
+		setError(err, err_cap, "%s could not be copied", source->record_id);
+		return 0;
+	}
+	const std::vector<size_t> sourceRows = doc->recordRows[source->record_id];
+	std::vector<std::string> texts;
+	std::vector<forge_level_doc::FieldRow> infos;
+	for (const size_t row : sourceRows) {
+		std::string text = fields.rows[row];
+		forge_level_doc::FieldRow info = doc->fields[row];
+		bool ok = replaceValue(text, "record_id", quoted(id));
+		info.record = id;
+		if (ok && info.field == "command.order") {
+			info.value = std::to_string(place);
+			ok = replaceValue(text, "value", quoted(info.value));
+		}
+		if (ok && isPlaceField(info.field)) {
+			info.value = ref;
+			ok = replaceValue(text, "value", quoted(ref));
+		}
+		if (!ok) {
+			setError(err, err_cap, "%s's %s could not be copied", source->record_id, info.field.c_str());
+			return 0;
+		}
+		texts.push_back(text);
+		infos.push_back(info);
+	}
+
+	std::string error;
+	const forge_level_object_t original = *source;   /* addPad may move the objects */
+	if (addPad(*doc, position, look, error) < 0) {
+		setError(err, err_cap, "%s", error.c_str());
+		return 0;
+	}
+	forge_level_object_t copy = original;
+	copyOut(copy.record_id, id.c_str());
+	copyOut(copy.pad_ref, ref.c_str());
+	copy.order = static_cast<s32>(place);
+	objects.append(objectRow);
+	doc->objects.push_back(copy);
+	for (size_t i = 0; i < texts.size(); i++) {
+		fields.append(texts[i]);
+		doc->fields.push_back(infos[i]);
+		doc->recordRows[id].push_back(doc->fields.size() - 1);
+	}
+	doc->nextOrder = place + 1;
+	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
 	return 1;
 }
 

@@ -3,8 +3,8 @@
  * (port/include/forge_level_doc.h; step F2 of
  * context/designs/modding/forge-mode-scope.md).
  *
- * The document reads a level's pads, spawns, objects and pad bounds, changes
- * them, and gives the four texts back. The cases check the rules it promises:
+ * The document reads a level's pads, spawns, objects, pad bounds and object
+ * fields, changes them, and gives the five texts back. The cases check the rules it promises:
  * a row nobody touched keeps its bytes, nothing is repaired, pads are only
  * added and each comes with its bounds row, and an id is never handed out
  * twice. One case saves an edited level through the mod author and checks
@@ -128,19 +128,52 @@ const char *const kVolumes =
 	"  ]\n"
 	"}\n";
 
+/* One row of setup.fields.json, laid out the way the extractor writes it. */
+std::string fieldRow(const char *record, const char *kind, const char *field, const char *type,
+	const std::string &value, const char *ref = "")
+{
+	return std::string("    {\n      \"record_id\": \"") + record + "\",\n      \"kind\": \"" + kind +
+		"\",\n      \"field\": \"" + field + "\",\n      \"type\": \"" + type + "\",\n      \"value\": \"" +
+		value + "\",\n      \"catalog_id\": \"\",\n      \"ref_record_id\": \"" + ref + "\"\n    }";
+}
+
+/* The fields of kObjects' three records: a weapon spot on pad_0002, a crate
+ * on `cratePad`, and a tag that stands nowhere and points at the weapon spot.
+ * `extra` is appended as further rows (each starting with ",\n"). */
+std::string levelFields(const std::string &cratePad = "pad_0001", const std::string &extra = "")
+{
+	return std::string("{\n  \"schema\": \"pd2.scenario.setup.fields.v1\",\n  \"rows\": [\n") +
+		fieldRow("setup_0000", "weapon_pickup", "command.order", "s32", "0") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "base.pad", "pad_ref", "pad_0002") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector", "mp_location_00") + ",\n" +
+		fieldRow("setup_0001", "prop", "command.order", "s32", "1") + ",\n" +
+		fieldRow("setup_0001", "prop", "base.pad", "pad_ref", cratePad) + ",\n" +
+		fieldRow("setup_0002", "tag", "command.order", "s32", "2") + ",\n" +
+		fieldRow("setup_0002", "tag", "tag.target", "s32", "", "setup_0000") + extra +
+		"\n  ]\n}\n";
+}
+
+/* A level with no field rows at all. */
+const char *const kNoFields = "{\n  \"schema\": \"pd2.scenario.setup.fields.v1\",\n  \"rows\": [\n  ]\n}\n";
+
 struct Level {
 	forge_level_doc_t *doc = nullptr;
 	std::string error;
 
 	Level(const std::string &pads, const std::string &spawns, const std::string &objects,
-		const std::string &volumes)
+		const std::string &volumes, const std::string &fields = kNoFields)
 	{
 		char err[256] = { 0 };
-		doc = forgeLevelDocRead(pads.data(), pads.size(), spawns.data(), spawns.size(),
-			objects.data(), objects.size(), volumes.data(), volumes.size(), err, sizeof(err));
+		forge_level_texts_t texts = {};
+		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = { &pads, &spawns, &objects, &volumes, &fields };
+		for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+			texts.text[member] = all[member]->data();
+			texts.size[member] = all[member]->size();
+		}
+		doc = forgeLevelDocRead(&texts, err, sizeof(err));
 		error = err;
 	}
-	Level() : Level(kPads, kSpawns, kObjects, kVolumes) {}
+	Level() : Level(kPads, kSpawns, kObjects, kVolumes, levelFields()) {}
 	~Level() { forgeLevelDocFree(doc); }
 	Level(const Level &) = delete;
 	Level &operator=(const Level &) = delete;
@@ -233,6 +266,9 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_SPAWNS)) == "spawns.json");
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_OBJECTS)) == "objects.json");
 	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_VOLUMES)) == "volumes.json");
+	CHECK(std::string(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_SETUP_FIELDS)) == "setup.fields.json");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields());
+	CHECK(forgeLevelDocRead(nullptr, nullptr, 0) == nullptr);
 	CHECK(forgeLevelDocMemberName(FORGE_LEVEL_MEMBER_COUNT) == nullptr);
 	CHECK(forgeLevelDocMemberText(level.doc, -1, nullptr) == nullptr);
 }
@@ -420,6 +456,151 @@ TEST_CASE("Moving a spawn off a template pad gives it a new pad and leaves the o
 	CHECK(volumesMoved[4] == volumesBefore[4]);
 }
 
+TEST_CASE("An object's place is written in two files, and both follow a move", "[forge-level-doc]")
+{
+	Level level;
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 7);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields());
+	forge_level_object_t object = {};
+	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &object) == 1);
+	CHECK(object.order == 1);
+	CHECK(object.movable == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 2, &object) == 1);
+	CHECK(object.order == 2);
+	CHECK(object.movable == 0);
+
+	/* The crate shares pad_0001 with a spawn. It gets a pad of its own, and
+	 * objects.json and setup.fields.json both name it. */
+	char err[200] = { 0 };
+	const f32 place[3] = { 7.0f, 0.0f, 9.0f };
+	const f32 facing[3] = { 0.0f, 0.0f, 2.0f };
+	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0001", place, facing, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &object) == 1);
+	CHECK(std::string(object.pad_ref) == "pad_0003");
+	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) ==
+		replaced(kObjects, "\"pad_ref\": \"pad_0001\"", "\"pad_ref\": \"pad_0003\""));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields("pad_0003"));
+	/* The spawn that shared the old pad is where it was. */
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == kSpawns);
+
+	/* Moved again, the crate's own pad moves and no row that names it changes. */
+	const f32 further[3] = { 8.0f, 0.0f, 9.0f };
+	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0001", further, facing, err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields("pad_0003"));
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, "pad_0003", &pad) == 1);
+	CHECK(pad.position[0] == 8.0f);
+
+	/* What cannot be moved, and why. */
+	CHECK(forgeLevelDocMoveObject(level.doc, "setup_0002", place, facing, err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0002 stands on no pad, so it has no place to move");
+	CHECK(forgeLevelDocMoveObject(level.doc, "setup_0009", place, facing, err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "the level has no object \"setup_0009\"");
+	Level bare(kPads, kSpawns, kObjects, kVolumes, kNoFields);
+	REQUIRE(bare.doc != nullptr);
+	CHECK(forgeLevelDocMoveObject(bare.doc, "setup_0001", place, facing, err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0001 is a prop with no field that says where it stands");
+	CHECK(forgeLevelDocMemberChanged(bare.doc, FORGE_LEVEL_MEMBER_PADS) == 0);
+}
+
+TEST_CASE("A copy of an object is the next command, with every field of the original", "[forge-level-doc]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	char id[32] = { 0 };
+	char err[200] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 1);
+	/* Three records hold places 0 to 2, so the copy is setup_0003 at place 3. */
+	CHECK(std::string(id) == "setup_0003");
+	CHECK(forgeLevelDocObjectCount(level.doc) == 4);
+	CHECK(forgeLevelDocPadCount(level.doc) == 4);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 4);
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 10);
+	forge_level_object_t copy = {};
+	REQUIRE(forgeLevelDocGetObject(level.doc, 3, &copy) == 1);
+	CHECK(std::string(copy.record_id) == "setup_0003");
+	CHECK(std::string(copy.kind) == "weapon_pickup");
+	CHECK(std::string(copy.pad_ref) == "pad_0003");
+	CHECK(std::string(copy.weapon_catalog_id) == "base:falcon2");
+	CHECK(copy.order == 3);
+	CHECK(copy.movable == 1);
+
+	/* Its field rows are the original's, with its own id, place and pad. */
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == levelFields("pad_0001",
+		",\n" + fieldRow("setup_0003", "weapon_pickup", "command.order", "s32", "3") +
+		",\n" + fieldRow("setup_0003", "weapon_pickup", "base.pad", "pad_ref", "pad_0003") +
+		",\n" + fieldRow("setup_0003", "weapon_pickup", "pickup.weapon", "weapon_selector", "mp_location_00")));
+	/* The original's rows in objects.json are untouched, and the copy follows them. */
+	const std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string original(kObjects);
+	const size_t listEnd = original.rfind("\n  ]");
+	REQUIRE(listEnd != std::string::npos);
+	CHECK(objects.compare(0, listEnd, original, 0, listEnd) == 0);
+	CHECK(objects.find("\"record_id\": \"setup_0003\",\n      \"kind\": \"weapon_pickup\",\n"
+		"      \"pad_ref\": \"pad_0003\",") != std::string::npos);
+
+	/* A second copy takes the next place; a copy can be copied. */
+	char second[32] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, id, kPlace, kFacing, second, sizeof(second), err, sizeof(err)) == 1);
+	CHECK(std::string(second) == "setup_0004");
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 13);
+
+	/* Written out and read again, it is the same level. */
+	Level again(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+	INFO(again.error);
+	REQUIRE(again.doc != nullptr);
+	CHECK(forgeLevelDocObjectCount(again.doc) == 5);
+	REQUIRE(forgeLevelDocGetObject(again.doc, 4, &copy) == 1);
+	CHECK(std::string(copy.record_id) == "setup_0004");
+	CHECK(copy.order == 4);
+	CHECK(copy.movable == 1);
+
+	/* What cannot be copied changes nothing. */
+	CHECK(forgeLevelDocDuplicateObject(level.doc, "setup_0002", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0002 stands on no pad, so it has no place to move");
+	CHECK(std::string(id).empty());
+	const f32 nowhere[3] = { 0.0f, 0.0f, 0.0f };
+	CHECK(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, nowhere, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocObjectCount(level.doc) == 5);
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 13);
+}
+
+TEST_CASE("The two object files must agree, and a record's id is its place", "[forge-level-doc]")
+{
+	const auto refused = [](const std::string &fields) {
+		Level level(kPads, kSpawns, kObjects, kVolumes, fields);
+		CHECK(level.doc == nullptr);
+		return level.error;
+	};
+	CHECK(refused(levelFields("pad_0002")) ==
+		"objects.json says setup_0001 stands on pad_0001 and setup.fields.json says pad_0002");
+	CHECK(refused(replaced(levelFields(), "\"value\": \"1\"", "\"value\": \"5\"")) ==
+		"setup.fields.json puts setup_0001 at place 5 of the command list; its id says 1");
+	CHECK(refused(replaced(levelFields(), "\"value\": \"2\"", "\"value\": \"two\"")) ==
+		"setup.fields.json setup_0002 has a command.order that is not a number");
+	CHECK(refused(replaced(levelFields(), "      \"field\": \"pickup.weapon\",\n", "")) ==
+		"setup.fields.json row 2 needs record_id, kind, field and type");
+	CHECK(refused(replaced(levelFields(), "setup.fields.v1", "setup.fields.v2")) ==
+		"setup.fields.json needs \"schema\": \"pd2.scenario.setup.fields.v1\"");
+
+	/* A record the object list does not have (a briefing, say) is carried
+	 * along, and its place counts when the next one is handed out. */
+	Level level(kPads, kSpawns, kObjects, kVolumes, levelFields("pad_0001",
+		",\n" + fieldRow("briefing_0000", "briefing", "command.order", "s32", "3")));
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char id[32] = { 0 };
+	char err[200] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0001", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0004");
+}
+
 TEST_CASE("An edit that cannot be made is refused and changes nothing", "[forge-level-doc]")
 {
 	Level level;
@@ -580,12 +761,14 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	const std::string spawns = levelMember(scenario, "spawns.json");
 	const std::string objects = levelMember(scenario, "objects.json");
 	const std::string volumes = levelMember(scenario, "volumes.json");
+	const std::string fields = levelMember(scenario, "setup.fields.json");
 	REQUIRE(!pads.empty());
 	REQUIRE(!spawns.empty());
 	REQUIRE(!objects.empty());
 	REQUIRE(!volumes.empty());
+	REQUIRE(!fields.empty());
 
-	Level level(pads, spawns, objects, volumes);
+	Level level(pads, spawns, objects, volumes, fields);
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(level.doc) == 1);
@@ -596,6 +779,12 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	/* The example also holds a briefing record, which the object list does not. */
+	forge_level_object_t prop = {};
+	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &prop) == 1);
+	CHECK(prop.order == 0);
+	CHECK(prop.movable == 1);
 
 	/* Its spawn and its prop share the one pad. Moving the spawn leaves the
 	 * prop where it was. This file repeats the place in the spawn's row, so
@@ -620,6 +809,19 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	REQUIRE(again.doc != nullptr);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
 	CHECK(forgeLevelDocVolumeCount(again.doc) == 2);
+
+	/* A copy of the prop: the briefing holds place 1, so the copy is setup_0002. */
+	char copyId[32] = { 0 };
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, copyId, sizeof(copyId),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(copyId) == "setup_0002");
+	Level whole(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+	INFO(whole.error);
+	REQUIRE(whole.doc != nullptr);
+	CHECK(forgeLevelDocObjectCount(whole.doc) == 2);
+	CHECK(forgeLevelDocPadCount(whole.doc) == 3);
 }
 
 TEST_CASE("A changed level is saved by the mod author, and its navigation record matches its files",
@@ -636,7 +838,8 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	const std::string scenario = levelMember(arena, scenarioMember);
 	REQUIRE(!scenario.empty());
 	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
-		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"));
+		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
+		levelMember(scenario, "setup.fields.json"));
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
 
@@ -786,14 +989,16 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			const std::string spawns = levelMember(scenario, "spawns.json");
 			const std::string objects = levelMember(scenario, "objects.json");
 			const std::string volumes = levelMember(scenario, "volumes.json");
-			if (pads.empty() || spawns.empty() || objects.empty() || volumes.empty()) continue;
-			Level level(pads, spawns, objects, volumes);
+			const std::string fields = levelMember(scenario, "setup.fields.json");
+			if (pads.empty() || spawns.empty() || objects.empty() || volumes.empty() || fields.empty()) continue;
+			Level level(pads, spawns, objects, volumes, fields);
 			INFO(entry.path().string() << ": " << level.error);
 			REQUIRE(level.doc != nullptr);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+			CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
 			/* Every pad of a base level has its bounds row. */
 			CHECK(forgeLevelDocVolumeCount(level.doc) == forgeLevelDocPadCount(level.doc));
 
