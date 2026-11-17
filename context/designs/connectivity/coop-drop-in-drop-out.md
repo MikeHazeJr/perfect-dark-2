@@ -105,7 +105,8 @@ Mike's 2026-11-16 call (the co-op AI-buddy entry comes back) and the 2026-11-17 
 
 ## Steps
 
-- **S1 Park, don't kill (co-op).** In the disconnect path, a co-op partner is parked instead of killed; the
+- **S1 Park, don't kill (co-op). Built 2026-11-17 (9f06ecae, week-pd/multiplayer-coop), not run yet:** `playerParkForNetwork` from `netServerEvDisconnect` for the co-op partner; the parked tick, HUD, CCTV and results skips; smoke `network_coop_partner_drop_smoke`; pins `[s1]`. Known gaps: a laptop gun the partner deployed keeps working (the death path's owner cleanup does not run), and a reconnect into a parked partner is not handled until S2.
+  Original text: In the disconnect path, a co-op partner is parked instead of killed; the
   host's game ignores a parked partner (guards, objectives that count players, the mission-failed rule when both
   players are dead). Static pins; a smoke where the partner times out and the host plays on to the mission end.
 - **S2 Rejoin into a co-op mission.** Reuse the reconnect path; add what co-op needs (NPC snapshot, objective
