@@ -1457,8 +1457,10 @@ extern "C" void gfxBgfxResetForOverlay(int width, int height)
                 bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_RT);
             s_teeReadback = bgfx::createTexture2D((uint16_t)width, (uint16_t)height, false, 1,
                 bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK);
-            s_teeFinal = bgfx::isValid(s_teeFinalColor)
-                ? bgfx::createFrameBuffer(1, &s_teeFinalColor, true) : BGFX_INVALID_HANDLE;
+            s_teeFinal = BGFX_INVALID_HANDLE;
+            if (bgfx::isValid(s_teeFinalColor)) {
+                s_teeFinal = bgfx::createFrameBuffer(1, &s_teeFinalColor, true);
+            }
             if (!bgfx::isValid(s_teeFinal) || !bgfx::isValid(s_teeReadback)) {
                 /* Never fall back to the window: in parity mode it is the
                  * window the classic renderer presents. */
