@@ -144,6 +144,18 @@ nothing else is worth building before them.
   pickups, doors and used objects name an object by that id. A stage whose
   level program does not compile is refused, so a Forge level's
   `level.graph.json` must stay a valid one (a level with no program is valid).
+- Every level graph carries the level's pickup and door rules (CORE's notice,
+  2026-11-17 01:37 UTC, week note schema table; object events slice 4, built on
+  `week-pd/core-s4`, not merged yet): ten `object.rules.*` nodes and seven
+  execution edges that handle `event.pickup.touched`, `event.door.use` and
+  `event.door.approach` (the exact JSON is in `object-events.md`, "Slice 4
+  design"; the mod packer's level graph template writes it). A level graph that
+  does not handle all three is refused at activation and by conformance, so
+  every level Forge or the mod author makes must carry that wiring. A level
+  cloned from a base arena gets it with its template's graph once the base is
+  extracted again with CORE's extractor; a level from the blank canvas or from
+  imported geometry needs it written. An author changes a rule by changing the
+  wiring.
 - A level that fails a rule is refused when it is saved or registered, with the
   reason, never repaired silently or half loaded.
 
