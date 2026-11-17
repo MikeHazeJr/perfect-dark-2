@@ -345,18 +345,46 @@ near line 2910):
 - Spawn ids are `spawn_NNNN` and object ids `setup_NNNN` with no repeats. A new
   spawn takes the number above the highest the document has ever held.
 
+- Removes an object by leaving it out, and puts it back
+  (`forgeLevelDocSetObjectRemoved`, written 2026-11-17 after the survey and
+  the read of `setup.c` below). An object's second flags word holds four
+  bits, one per difficulty, that leave it out of the level
+  (`OBJFLAG2_EXCLUDE_A`, `_SA`, `_PA`, `_PD`, 0x10 to 0x80). The setup loop
+  (`setup.c`, `diffflag |= 1 << (lvGetDifficulty() + 4)`, then `(obj->flags2 &
+  diffflag) == 0` in every object type's case) does not create an object whose
+  word has the bit of the difficulty being played, in every mode. Its second
+  pass tests for a prop before it links records (READ for objects inside
+  another, lift doors, safe items, padlocked doors and conditional scenery;
+  linked guns are paired without that test, as they are today when a
+  difficulty leaves one of a pair out). Removing sets all
+  four in both files (`flags2` in `objects.json`, `base.flags2` in
+  `setup.fields.json`); the record keeps its place, so no reference shifts.
+  Putting back restores the bits the object had, and the exact text when that
+  is the word that was read. Not removable: a lift or an escalator step (the
+  loop relaxes their filter on six levels in multiplayer), a character (its
+  word is `character.flags2`, which that loop does not test), and a record
+  whose word is missing from either file or differs between them. An object
+  that is left out is not copied.
+  - Survey behind it (66 arena and mission archives of base 7, 10,374 objects
+    with a flags word): the two files agree about the word for every object
+    (`base.flags2` 8,645 times, `character.flags2` 1,729, type `u32_hex`,
+    written `0x%08x`), and **no base object has all four bits**. So "left out
+    everywhere" is a state the game's code allows for but its levels never
+    used; no run has shown it yet.
+
 Not done:
 
-- Removing objects, and adding one of a kind the level does not have yet. An
-  object's kind and fields are rows of `setup.fields.json` (37 rows for one
-  weapon pickup of Complex). Removal has to renumber every later record and
-  rewrite every reference to them, or switch the record off where it stands.
-  A new kind needs that kind's rows written from nothing (a duplicate only
-  copies what a level already has), and `level.graph.json` events name objects
-  by `record_id`, which the module does not read. A first version of the
-  module moved objects by changing `objects.json` alone; the game applies that
-  file after `setup.fields.json`, so it would have worked, but it left the two
-  files disagreeing and was replaced.
+- Adding an object of a kind the level does not have yet. An object's kind
+  and fields are rows of `setup.fields.json` (37 rows for one weapon pickup of
+  Complex). A new kind needs that kind's rows written from nothing (a
+  duplicate only copies what a level already has), and `level.graph.json`
+  events name objects by `record_id`, which the module does not read. A first
+  version of the module moved objects by changing `objects.json` alone; the
+  game applies that file after `setup.fields.json`, so it would have worked,
+  but it left the two files disagreeing and was replaced.
+- Deleting a record outright. It would have to renumber every later record
+  and rewrite every reference to them; leaving it out does the job without
+  that.
 - What the next piece (objects) has to respect, from a survey of the 132 base
   levels' `setup.fields.json` (15,940 objects, up to 21,240 field rows in one
   level) and from the runtime, READ 2026-11-17:
@@ -414,8 +442,9 @@ the part that knows the game; the document above does not.
 - `--debug-forge-level <arena id>` with `--debug-forge-level-name <name>`
   (`main.c`, right after the character tool's flags) makes those two calls
   with a fixed edit between them: a player start 40 units in front of the
-  level's first one, and a copy of its first weapon pickup 60 units in front
-  of that pickup. Every step logs a `FORGE.LEVEL.*` line.
+  level's first one, a copy of its first weapon pickup 60 units in front of
+  that pickup, and its first ammo crate left out. Every step logs a
+  `FORGE.LEVEL.*` line.
 - `forge_level_edit_smoke` is F2's proof: it edits base Complex (226 pads, 19
   starts, 35 objects, read from base 7) that way, saves it as `Forge_Edit`,
   starts a match on `mod:arena_forge_edit` in the same launch, and requires
@@ -445,8 +474,8 @@ this arena; any open document is closed), `forgeLevelSessionOpen`,
 - **The section** is at the top of the editor's Setup tab
   (`forgeDrawLevelFileSection` in `pdgui_forge_editor.cpp`, sidebar row "Level
   File"): Open Level File; Add Start Here, Move Start Here, Remove Start; Move
-  Object Here, Copy Object Here; a name and Save As Level; Close Without
-  Saving (asks twice when there are changes). Everything is placed where the
+  Object Here, Copy Object Here, Remove Object and Put Object Back; a name and
+  Save As Level; Close Without Saving (asks twice when there are changes). Everything is placed where the
   editor camera is, facing the way it faces, flat (a pad's look becomes a
   player's turn angle as `atan2f(look.x, look.z)`, the camera's own
   convention). The two lists show each start's team and place and each

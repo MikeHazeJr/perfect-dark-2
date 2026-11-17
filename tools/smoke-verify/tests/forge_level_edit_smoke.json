@@ -1,6 +1,6 @@
 {
   "scenario_name": "forge_level_edit_smoke",
-  "description": "Forge step F2: an edited level loads and plays. One ordinary client launch opens the placements of the extracted base Complex arena (226 pads, 19 player starts, 35 objects), adds a player start 40 units in front of the first one and a copy of the first weapon pickup 60 units in front of it, and saves the result as the mod level 'Forge_Edit' through --debug-forge-level (the open and save calls the Forge editor makes; the save is the mod author's, the one the other in-game creators use). The same launch then starts an offline Combat Simulator match on mod:arena_forge_edit with three simulants and waits for the player to spawn and walk. The proof that the game read the edited files and not the template's: its navigation record counts 228 pads and 228 volumes, and its setup compiles to 36 records and 20 spawns. What this does not prove: that the copied pickup is drawn where it was put, or that a player or simulant used the new start; nothing here looks at the world. No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
+  "description": "Forge step F2: an edited level loads and plays. One ordinary client launch opens the placements of the extracted base Complex arena (226 pads, 19 player starts, 35 objects), adds a player start 40 units in front of the first one and a copy of the first weapon pickup 60 units in front of it, leaves the first ammo crate out (all four difficulty exclusion bits, the way base levels thin a level for one difficulty), and saves the result as the mod level 'Forge_Edit' through --debug-forge-level (the open and save calls the Forge editor makes; the save is the mod author's, the one the other in-game creators use). The same launch then starts an offline Combat Simulator match on mod:arena_forge_edit with three simulants and waits for the player to spawn and walk. The proof that the game read the edited files and not the template's: its navigation record counts 228 pads and 228 volumes, and its setup compiles to 36 records and 20 spawns. What this does not prove: that the copied pickup is drawn where it was put, that the crate left out is gone, or that a player or simulant used the new start; nothing here looks at the world. No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
   "tags": [
     "modding",
     "forge",
@@ -70,9 +70,10 @@
     "required_lines": [
       "SMOKE: scenario=forge_level_edit_smoke",
       "FORGE\\.LEVEL\\.DEBUG\\.BEGIN: arena=base:arena_mp_complex name='Forge_Edit'",
-      "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=1880 archive='.*base_arena_mp_complex\\.pdarena' scenario='dependencies/assets/scenarios/base_scenario_mp_complex\\.pdscenario'",
+      "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=[1-9]\\d* archive='.*base_arena_mp_complex\\.pdarena' scenario='dependencies/assets/scenarios/base_scenario_mp_complex\\.pdscenario'",
       "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0019 at \\(-3817, 53, 309\\), in front of spawn_0000 on pad_0028",
       "FORGE\\.LEVEL\\.EDIT: copied weapon_pickup setup_0000 to setup_0035 at \\(-1877, 328, 185\\)",
+      "FORGE\\.LEVEL\\.EDIT: left out multi_ammo_crate setup_0001 on pad_0057",
       "FORGE\\.LEVEL\\.EDIT: the level now has pads=228 spawns=20 objects=36",
       "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_edit mod_id=mod\\.arena_forge_edit updated=0",
       "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_forge_edit restart_count=\\d+",

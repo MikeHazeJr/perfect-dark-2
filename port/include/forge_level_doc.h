@@ -16,7 +16,8 @@
  *                                                    object, one row a field
  *
  * This module reads those five texts, lets a caller add, move and remove
- * spawns and move and duplicate objects, and gives the texts back for saving.
+ * spawns and move, duplicate and leave out objects, and gives the texts back
+ * for saving.
  * It holds no game state and touches no file: text in, text out. Forge's
  * editor fills it from the level's archive and hands the changed members to
  * the mod author (context/designs/modding/forge-mode-scope.md, step F2).
@@ -47,9 +48,18 @@
  *   place in the level's command list (setup_0012 is the thirteenth
  *   command), and the game turns a reference from one record to another into
  *   the distance between them. A new object takes the next number and
- *   disturbs nothing. Removing one from the middle would shift every later
- *   record under the references that point at them, so there is no remove
- *   for objects here.
+ *   disturbs nothing. Taking one out of the middle would shift every later
+ *   record under the references that point at them, so a record is never
+ *   deleted.
+ * - An object is removed by leaving it out. An object's second flags word
+ *   says on which of the four difficulties the level leaves it out; base
+ *   levels use that to thin a level for one difficulty, and the game's setup
+ *   loop then never creates the object while its record stays in place for
+ *   whatever refers to it. Removing an object here sets all four, in both
+ *   files that hold the word (`flags2` in objects.json, `base.flags2` in
+ *   setup.fields.json); putting it back restores the bits it had. No base
+ *   level leaves an object out on all four, so this is a state the game's
+ *   code allows for but its levels have not used.
  *
  * Saving goes through the archive rebuild, which brings the scenario's
  * navigation record (its count of pads and volumes and its hash of each of
@@ -120,6 +130,8 @@ typedef struct forge_level_object {
 	char weapon_catalog_id[64];
 	s32 order;            /* its place in the command list, or -1 when no field row says */
 	s32 movable;          /* 1 when it stands on a pad and its pad field is known */
+	s32 removable;        /* 1 when the level can leave it out (forgeLevelDocSetObjectRemoved) */
+	s32 removed;          /* 1 when the level leaves it out on every difficulty */
 } forge_level_object_t;
 
 /*
@@ -171,10 +183,23 @@ s32 forgeLevelDocMoveObject(forge_level_doc_t *doc, const char *record_id,
  * A copy of a movable object at a new place: the same kind and the same
  * fields, on a pad of its own, with the next id at the end of the command
  * list. This is how a level gains another weapon spot, another crate or
- * another prop. The new id goes to out_record_id.
+ * another prop. The new id goes to out_record_id. An object the level leaves
+ * out is not copied: put it back first.
  */
 s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap);
+
+/*
+ * Leaves an object out of the level (removed = 1) or puts it back (0). The
+ * record keeps its place in the command list. Only a `removable` object: one
+ * whose flags word is in both files and agrees, and of a kind the game always
+ * filters by it (a lift or an escalator step is kept on some levels whatever
+ * its flags say, and a character has no such word). Asking for the state it
+ * is already in changes nothing and succeeds. Putting back an object that
+ * this document left out gives back the exact text it had.
+ */
+s32 forgeLevelDocSetObjectRemoved(forge_level_doc_t *doc, const char *record_id, s32 removed,
 	char *err, size_t err_cap);
 
 /* 1 when the member's text is no longer what was read. */

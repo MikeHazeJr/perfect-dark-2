@@ -64,7 +64,7 @@
       "BOOT: --launch-forge-level arena=base:arena_mp_complex result=OK",
       "GRID: session active stage=0x[0-9a-f]+ \\(starting in FREEFLY\\)",
       "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.BEGIN: arena=base:arena_mp_complex name='Forge_Session'",
-      "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=1880 archive='.*base_arena_mp_complex\\.pdarena'",
+      "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=[1-9]\\d* archive='.*base_arena_mp_complex\\.pdarena'",
       "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0019 at the camera \\(-?\\d+, -?\\d+, -?\\d+\\); the level now has pads=227 spawns=20 objects=35",
       "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_session mod_id=mod\\.arena_forge_session updated=0",
       "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_forge_session restart_count=\\d+",

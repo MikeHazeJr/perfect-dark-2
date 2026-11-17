@@ -30,6 +30,14 @@ constexpr const char *kSchemas[FORGE_LEVEL_MEMBER_COUNT] = {
  * its own; the extractor writes the same box for such a pad. */
 constexpr f32 kPadReach = 100.0f;
 
+/* The four bits of an object's second flags word that leave it out of the
+ * level on one difficulty each (OBJFLAG2_EXCLUDE_A, _SA, _PA and _PD in
+ * constants.h). The setup loop tests the word against the bit of the
+ * difficulty being played, so an object with all four is never created. */
+constexpr unsigned long kExcludeEverywhere = 0x000000f0ul;
+/* The field of setup.fields.json that repeats objects.json's `flags2`. */
+constexpr const char *kFlagsField = "base.flags2";
+
 /* ------------------------------------------------------------------------ */
 /* Where values start and end                                               */
 /* ------------------------------------------------------------------------ */
@@ -220,6 +228,41 @@ long wholeNumber(const std::string &text)
 std::string quoted(const std::string &text)
 {
 	return "\"" + text + "\"";
+}
+
+/* "0x000000f0" as 0xf0. False for anything that is not "0x" and one to eight
+ * hex digits, which is how the extractor writes a flags word. */
+bool hexWord(const std::string &text, unsigned long &out)
+{
+	if (text.size() < 3 || text.size() > 10 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X')) return false;
+	unsigned long value = 0;
+	for (size_t i = 2; i < text.size(); i++) {
+		const char c = text[i];
+		unsigned long digit;
+		if (c >= '0' && c <= '9') digit = static_cast<unsigned long>(c - '0');
+		else if (c >= 'a' && c <= 'f') digit = static_cast<unsigned long>(c - 'a') + 10;
+		else if (c >= 'A' && c <= 'F') digit = static_cast<unsigned long>(c - 'A') + 10;
+		else return false;
+		value = (value << 4) | digit;
+	}
+	out = value;
+	return true;
+}
+
+/* A flags word the way the extractor writes one. */
+std::string hexWordText(unsigned long value)
+{
+	char text[16];
+	snprintf(text, sizeof(text), "0x%08lx", value & 0xfffffffful);
+	return text;
+}
+
+/* A kind the game's setup loop always filters by the flags word. A lift and
+ * an escalator step are kept on some levels in multiplayer whatever theirs
+ * says (setup.c, "relaxing LIFT/ESCASTEP exclude filter"). */
+bool kindCanBeLeftOut(const char *kind)
+{
+	return strcmp(kind, "lift") != 0 && strcmp(kind, "escalator_step") != 0;
 }
 
 /* The field of a record that says where it stands. */
@@ -438,6 +481,20 @@ struct forge_level_doc {
 	};
 	std::vector<FieldRow> fields;
 	std::map<std::string, std::vector<size_t>> recordRows;
+	/* Each object's second flags word, one entry per object. */
+	struct ObjectFlags {
+		bool inObjects = false;     /* objects.json gives the word */
+		bool known = false;         /* setup.fields.json gives it too, and the same */
+		unsigned long value = 0;
+		unsigned long restore = 0;  /* the exclusion bits to put back when it is no longer left out */
+		size_t fieldRow = 0;        /* its row in setup.fields.json, when known */
+		/* The word as each file wrote it when read, so that going back to that
+		 * word gives back those exact characters. */
+		unsigned long original = 0;
+		std::string objectsText;
+		std::string fieldText;
+	};
+	std::vector<ObjectFlags> objectFlags;
 	long nextOrder = 0;      /* above every place in the command list, and every setup number */
 	long nextSpawn = 0;      /* above every spawn number this document has held */
 	std::string spawnProfile = "intro";
@@ -568,7 +625,12 @@ bool readObjects(forge_level_doc &doc, const Json &root, std::string &error)
 		copyText(object.pad_ref, ref);
 		copyText(object.model_catalog_id, stringOf(row, "model_catalog_id"));
 		copyText(object.weapon_catalog_id, stringOf(row, "weapon_catalog_id"));
+		forge_level_doc::ObjectFlags flags;
+		flags.objectsText = stringOf(row, "flags2");
+		flags.inObjects = hexWord(flags.objectsText, flags.value);
+		flags.original = flags.value;
 		doc.objects.push_back(object);
+		doc.objectFlags.push_back(flags);
 	}
 	return true;
 }
@@ -642,15 +704,30 @@ bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
 		doc.fields.push_back(info);
 	}
 
-	for (forge_level_object_t &object : doc.objects) {
+	for (size_t objectIndex = 0; objectIndex < doc.objects.size(); objectIndex++) {
+		forge_level_object_t &object = doc.objects[objectIndex];
+		forge_level_doc::ObjectFlags &flags = doc.objectFlags[objectIndex];
 		const long number = trailingNumber(object.record_id, "setup_");
 		object.order = -1;
 		object.movable = 0;
+		object.removable = 0;
+		object.removed = 0;
 		if (number >= doc.nextOrder) doc.nextOrder = number + 1;
 		const auto found = doc.recordRows.find(object.record_id);
 		if (found == doc.recordRows.end()) continue;
 		for (const size_t index : found->second) {
 			const forge_level_doc::FieldRow &field = doc.fields[index];
+			if (field.field == kFlagsField) {
+				/* The two files agree about this word in every base level. One
+				 * that does not is still read; its object just cannot be left
+				 * out here, because there would be no telling which to change. */
+				unsigned long value = 0;
+				if (flags.inObjects && !flags.known && hexWord(field.value, value) && value == flags.value) {
+					flags.known = true;
+					flags.fieldRow = index;
+					flags.fieldText = field.value;
+				}
+			}
 			if (field.field == "command.order") {
 				object.order = static_cast<s32>(wholeNumber(field.value));
 				/* References between records count on this (see the header). */
@@ -668,6 +745,13 @@ bool readFields(forge_level_doc &doc, const Json &root, std::string &error)
 				}
 				object.movable = 1;
 			}
+		}
+		if (flags.known) {
+			object.removed = (flags.value & kExcludeEverywhere) == kExcludeEverywhere ? 1 : 0;
+			object.removable = kindCanBeLeftOut(object.kind) ? 1 : 0;
+			/* What to put back if it stops being left out: the bits it has now,
+			 * or none when the level it came from already leaves it out. */
+			flags.restore = object.removed ? 0 : (flags.value & kExcludeEverywhere);
 		}
 	}
 	return true;
@@ -1060,6 +1144,10 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	int index = -1;
 	forge_level_object_t *source = movableObject(doc, record_id, &index, err, err_cap);
 	if (!source) return 0;
+	if (source->removed) {
+		setError(err, err_cap, "%s is left out of the level; put it back before copying it", source->record_id);
+		return 0;
+	}
 	if (doc->nextOrder > FORGE_LEVEL_MAX_OBJECT_NUMBER) {
 		setError(err, err_cap, "the level's command list is full (setup_%04d is its last place)",
 			FORGE_LEVEL_MAX_OBJECT_NUMBER);
@@ -1115,18 +1203,75 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 		return 0;
 	}
 	forge_level_object_t copy = original;
+	forge_level_doc::ObjectFlags copyFlags = doc->objectFlags[static_cast<size_t>(index)];
+	const size_t sourceFlagsRow = copyFlags.fieldRow;
 	copyOut(copy.record_id, id.c_str());
 	copyOut(copy.pad_ref, ref.c_str());
 	copy.order = static_cast<s32>(place);
 	objects.append(objectRow);
-	doc->objects.push_back(copy);
 	for (size_t i = 0; i < texts.size(); i++) {
 		fields.append(texts[i]);
 		doc->fields.push_back(infos[i]);
 		doc->recordRows[id].push_back(doc->fields.size() - 1);
+		/* The copy's flags word is the row copied from the original's. */
+		if (copyFlags.known && sourceRows[i] == sourceFlagsRow) {
+			copyFlags.fieldRow = doc->fields.size() - 1;
+		}
 	}
+	doc->objects.push_back(copy);
+	doc->objectFlags.push_back(copyFlags);
 	doc->nextOrder = place + 1;
 	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
+	return 1;
+}
+
+s32 forgeLevelDocSetObjectRemoved(forge_level_doc_t *doc, const char *record_id, s32 removed,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	const int index = doc ? findObject(*doc, record_id) : -1;
+	if (index < 0) {
+		setError(err, err_cap, "the level has no object \"%s\"", record_id ? record_id : "");
+		return 0;
+	}
+	forge_level_object_t &object = doc->objects[static_cast<size_t>(index)];
+	forge_level_doc::ObjectFlags &flags = doc->objectFlags[static_cast<size_t>(index)];
+	if (!flags.known) {
+		setError(err, err_cap, "%s is a %s with no flags word that both of the level's object files give, "
+			"so it cannot be left out", object.record_id, object.kind);
+		return 0;
+	}
+	if (!object.removable) {
+		setError(err, err_cap, "%s is a %s, which the game keeps on some levels whatever its flags say",
+			object.record_id, object.kind);
+		return 0;
+	}
+	const bool want = removed != 0;
+	if (want == (object.removed != 0)) return 1;
+
+	const unsigned long before = flags.value;
+	const unsigned long after = want ? (before | kExcludeEverywhere)
+		: ((before & ~kExcludeEverywhere) | flags.restore);
+	/* Back at the word that was read, each file gets the characters it had. */
+	const std::string objectsText = after == flags.original ? flags.objectsText : hexWordText(after);
+	const std::string fieldText = after == flags.original ? flags.fieldText : hexWordText(after);
+	Table &objects = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	std::string objectRow = objects.rows[static_cast<size_t>(index)];
+	std::string fieldRow = fields.rows[flags.fieldRow];
+	if (!replaceValue(objectRow, "flags2", quoted(objectsText)) ||
+			!replaceValue(fieldRow, "value", quoted(fieldText))) {
+		setError(err, err_cap, "%s's flags could not be rewritten", object.record_id);
+		return 0;
+	}
+	objects.rows[static_cast<size_t>(index)] = objectRow;
+	objects.touch();
+	fields.rows[flags.fieldRow] = fieldRow;
+	fields.touch();
+	doc->fields[flags.fieldRow].value = fieldText;
+	if (want) flags.restore = before & kExcludeEverywhere;
+	flags.value = after;
+	object.removed = want ? 1 : 0;
 	return 1;
 }
 

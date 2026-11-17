@@ -2082,14 +2082,35 @@ static void forgeDrawLevelFileSection(void)
 		}
 	}
 	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::BeginDisabled(!haveSelected || !selected.removable);
+	const bool putBack = haveSelected && selected.removed;
+	if (ImGui::Button(putBack ? "Put Object Back###LevelFileRemove" : "Remove Object###LevelFileRemove")) {
+		if (!forgeLevelDocSetObjectRemoved(doc, s_LevelFileObject, putBack ? 0 : 1, err, sizeof(err))) {
+			forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
+		} else if (putBack) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Put %s back in the level.", s_LevelFileObject);
+		} else {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Removed %s. Put Object Back undoes it.", s_LevelFileObject);
+		}
+	}
+	ImGui::EndDisabled();
 	if (haveSelected && !selected.movable) {
 		ImGui::TextDisabled("%s stands on no pad, so it cannot be moved or copied here.",
 			selected.record_id);
 	}
+	if (haveSelected && !selected.removable) {
+		ImGui::TextDisabled("%s is a %s, which cannot be removed here.", selected.record_id,
+			selected.kind);
+	}
 	ImGui::TextWrapped(
 		"A copy is a new object of the same kind with the same settings. In a "
 		"multiplayer level a weapon is a slot of the match's weapon set, so a copy "
-		"of a weapon is another spot for that slot. Objects cannot be removed yet.");
+		"of a weapon is another spot for that slot. Removing an object leaves it out "
+		"of the level and keeps its line in the list, so anything that refers to it "
+		"still finds it. Lifts, escalator steps and characters cannot be removed yet.");
 
 	ImGui::BeginChild("LevelFileObjects", ImVec2(-1, 190 * pdguiScale(1.0f)), true);
 	{
@@ -2102,8 +2123,9 @@ static void forgeDrawLevelFileSection(void)
 				if (!forgeLevelDocGetObject(doc, i, &object)) continue;
 				const char *what = object.weapon_catalog_id[0] ? object.weapon_catalog_id
 					: object.model_catalog_id;
-				snprintf(label, sizeof(label), "%s   %s   %s   %s", object.record_id, object.kind,
-					what[0] ? what : "-", object.pad_ref[0] ? object.pad_ref : "no pad");
+				snprintf(label, sizeof(label), "%s   %s   %s   %s%s", object.record_id, object.kind,
+					what[0] ? what : "-", object.pad_ref[0] ? object.pad_ref : "no pad",
+					object.removed ? "   REMOVED" : "");
 				ImGui::PushID(i);
 				if (ImGui::Selectable(label, i == s_LevelFileObjectIndex)) {
 					s_LevelFileObjectIndex = i;

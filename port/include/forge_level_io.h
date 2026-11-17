@@ -102,7 +102,8 @@ s32 forgeLevelStartForge(const char *arena_id);
  * --debug-forge-level <arena id> with --debug-forge-level-name <name>: opens
  * that level, adds a player start a short step in front of its first one and
  * another spot for its first weapon pickup a short step in front of that
- * pickup, and saves the result as the level `display_name`. It is what a
+ * pickup, leaves its first ammo crate out, and saves the result as the level
+ * `display_name`. It is what a
  * smoke uses to prove an edited level loads; the Forge editor will make the
  * same open and save calls. Returns 1 when the level was saved and is in the
  * catalog.

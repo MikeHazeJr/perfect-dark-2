@@ -397,6 +397,25 @@ s32 forgeLevelDebugEdit(const char *arena_id, const char *display_name)
 	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: copied %s %s to %s at (%.0f, %.0f, %.0f)", object.kind,
 		object.record_id, copy_id, place[0], place[1], place[2]);
+
+	/* The level's first ammo crate is left out. A level with none keeps
+	 * everything; that is not a failure of this run. */
+	picked = -1;
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc) && picked < 0; i++) {
+		if (forgeLevelDocGetObject(doc, i, &object) && object.removable && !object.removed &&
+				strcmp(object.kind, "multi_ammo_crate") == 0) {
+			picked = i;
+		}
+	}
+	if (picked >= 0 && forgeLevelDocGetObject(doc, picked, &object)) {
+		if (!forgeLevelDocSetObjectRemoved(doc, object.record_id, 1, err, sizeof(err))) {
+			goto done;
+		}
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: left out %s %s on %s", object.kind, object.record_id,
+			object.pad_ref[0] ? object.pad_ref : "no pad");
+	} else {
+		sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level has no ammo crate to leave out");
+	}
 	sysLogPrintf(LOG_NOTE, "FORGE.LEVEL.EDIT: the level now has pads=%d spawns=%d objects=%d",
 		forgeLevelDocPadCount(doc), forgeLevelDocSpawnCount(doc), forgeLevelDocObjectCount(doc));
 

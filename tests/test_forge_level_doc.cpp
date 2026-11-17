@@ -750,6 +750,231 @@ TEST_CASE("Rows are found in any layout, and an empty list takes its first row",
 	CHECK(forgeLevelDocVolumeCount(again.doc) == 1);
 }
 
+namespace {
+
+/* kObjects with the second flags word the extractor writes for every object:
+ * `weapon` on the weapon spot and `crate` on the crate. The tag keeps none. */
+std::string objectsWithFlags(const char *weapon = "0x00000000", const char *crate = "0x00000020")
+{
+	const std::string withWeapon = replaced(kObjects, "\"flags\": \"0x00000001\"\n",
+		std::string("\"flags\": \"0x00000001\",\n      \"flags2\": \"") + weapon + "\"\n");
+	/* The first row whose flags are zero is the crate's; the tag's comes after it. */
+	return replaced(withWeapon, "\"flags\": \"0x00000000\"\n",
+		std::string("\"flags\": \"0x00000000\",\n      \"flags2\": \"") + crate + "\"\n");
+}
+
+/* levelFields() with the field that repeats each of those two words. */
+std::string fieldsWithFlags(const char *weapon = "0x00000000", const char *crate = "0x00000020")
+{
+	return levelFields("pad_0001",
+		",\n" + fieldRow("setup_0000", "weapon_pickup", "base.flags2", "u32_hex", weapon) +
+		",\n" + fieldRow("setup_0001", "prop", "base.flags2", "u32_hex", crate));
+}
+
+} // namespace
+
+TEST_CASE("An object is removed by leaving it out on every difficulty, and put back as it was",
+          "[forge-level-doc]")
+{
+	/* The crate starts left out on one difficulty (0x20), as base levels do
+	 * to thin a level. That is not "removed". */
+	const std::string objects = objectsWithFlags();
+	const std::string fields = fieldsWithFlags();
+	Level level(kPads, kSpawns, objects, kVolumes, fields);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	forge_level_object_t weapon = {};
+	forge_level_object_t crate = {};
+	forge_level_object_t tag = {};
+	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &weapon) == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 2, &tag) == 1);
+	CHECK(weapon.removable == 1);
+	CHECK(weapon.removed == 0);
+	CHECK(crate.removable == 1);
+	CHECK(crate.removed == 0);
+	CHECK(tag.removable == 0);
+	CHECK(tag.removed == 0);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+
+	/* Removing sets all four bits in both files and changes nothing else:
+	 * the record keeps its place, so the tag that points at the weapon spot
+	 * and every later record stay where they are. */
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
+	CHECK(crate.removed == 1);
+	CHECK(crate.order == 1);
+	CHECK(forgeLevelDocObjectCount(level.doc) == 3);
+	const std::string objectsOut = replaced(objects, "\"flags2\": \"0x00000020\"", "\"flags2\": \"0x000000f0\"");
+	const std::string fieldsOut = replaced(fields, "\"value\": \"0x00000020\"", "\"value\": \"0x000000f0\"");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objectsOut);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fieldsOut);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SETUP_FIELDS) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SPAWNS) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_VOLUMES) == 0);
+
+	/* Asking again for the state it is in succeeds and changes nothing. */
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objectsOut);
+
+	/* The saved texts read back as a level that leaves the crate out. Put
+	 * back from there, it has no bit of its own to return to. */
+	{
+		Level saved(kPads, kSpawns, objectsOut, kVolumes, fieldsOut);
+		INFO(saved.error);
+		REQUIRE(saved.doc != nullptr);
+		forge_level_object_t read = {};
+		REQUIRE(forgeLevelDocGetObject(saved.doc, 1, &read) == 1);
+		CHECK(read.removed == 1);
+		CHECK(read.removable == 1);
+		REQUIRE(forgeLevelDocSetObjectRemoved(saved.doc, "setup_0001", 0, err, sizeof(err)) == 1);
+		REQUIRE(forgeLevelDocGetObject(saved.doc, 1, &read) == 1);
+		CHECK(read.removed == 0);
+		CHECK(saved.text(FORGE_LEVEL_MEMBER_OBJECTS) ==
+			replaced(objects, "\"flags2\": \"0x00000020\"", "\"flags2\": \"0x00000000\""));
+		/* And removed again from there, it is the text that was read. */
+		REQUIRE(forgeLevelDocSetObjectRemoved(saved.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+		CHECK(saved.text(FORGE_LEVEL_MEMBER_OBJECTS) == objectsOut);
+		CHECK(saved.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fieldsOut);
+		CHECK(forgeLevelDocMemberChanged(saved.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 0);
+	}
+
+	/* Put back in the document that removed it, the one bit it had returns
+	 * and both files are the bytes that were read. */
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
+	CHECK(crate.removed == 0);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_OBJECTS) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_SETUP_FIELDS) == 0);
+}
+
+TEST_CASE("A copy has flags of its own, and an object that is left out is not copied",
+          "[forge-level-doc]")
+{
+	Level level(kPads, kSpawns, objectsWithFlags(), kVolumes, fieldsWithFlags());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = { 0 };
+	char copyId[32] = { 0 };
+
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0000", 1, err, sizeof(err)) == 1);
+	const std::string objectsBefore = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string fieldsBefore = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	const std::string padsBefore = level.text(FORGE_LEVEL_MEMBER_PADS);
+	CHECK(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, copyId, sizeof(copyId),
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "setup_0000 is left out of the level; put it back before copying it");
+	CHECK(copyId[0] == '\0');
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objectsBefore);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fieldsBefore);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == padsBefore);
+	/* It can still be moved while it is left out. */
+	CHECK(forgeLevelDocMoveObject(level.doc, "setup_0000", kPlace, kFacing, err, sizeof(err)) == 1);
+
+	/* Back in the level, it is copied, and the copy is left out on its own. */
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0000", 0, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0000", kPlace, kFacing, copyId, sizeof(copyId),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(copyId) == "setup_0003");
+	forge_level_object_t copy = {};
+	REQUIRE(forgeLevelDocGetObject(level.doc, 3, &copy) == 1);
+	CHECK(copy.removable == 1);
+	CHECK(copy.removed == 0);
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, copyId, 1, err, sizeof(err)) == 1);
+
+	Level saved(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+	INFO(saved.error);
+	REQUIRE(saved.doc != nullptr);
+	forge_level_object_t original = {};
+	REQUIRE(forgeLevelDocGetObject(saved.doc, 0, &original) == 1);
+	REQUIRE(forgeLevelDocGetObject(saved.doc, 3, &copy) == 1);
+	CHECK(original.removed == 0);
+	CHECK(copy.removed == 1);
+	CHECK(std::string(copy.record_id) == "setup_0003");
+	CHECK(copy.order == 3);
+}
+
+TEST_CASE("What cannot be left out is refused with the reason", "[forge-level-doc]")
+{
+	char err[256] = { 0 };
+
+	/* A record with no flags word (a tag), and an id the level does not have. */
+	{
+		const std::string objects = objectsWithFlags();
+		const std::string fields = fieldsWithFlags();
+		Level level(kPads, kSpawns, objects, kVolumes, fields);
+		REQUIRE(level.doc != nullptr);
+		CHECK(forgeLevelDocSetObjectRemoved(level.doc, "setup_0002", 1, err, sizeof(err)) == 0);
+		CHECK(std::string(err) == "setup_0002 is a tag with no flags word that both of the level's object "
+			"files give, so it cannot be left out");
+		CHECK(forgeLevelDocSetObjectRemoved(level.doc, "setup_0009", 1, err, sizeof(err)) == 0);
+		CHECK(std::string(err) == "the level has no object \"setup_0009\"");
+		CHECK(forgeLevelDocSetObjectRemoved(nullptr, "setup_0000", 1, err, sizeof(err)) == 0);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	}
+
+	/* A lift: the game keeps lifts on some levels whatever their flags say. */
+	{
+		Level level(kPads, kSpawns, replaced(objectsWithFlags(), "\"kind\": \"prop\"", "\"kind\": \"lift\""),
+			kVolumes, fieldsWithFlags());
+		REQUIRE(level.doc != nullptr);
+		forge_level_object_t lift = {};
+		REQUIRE(forgeLevelDocGetObject(level.doc, 1, &lift) == 1);
+		CHECK(lift.removable == 0);
+		CHECK(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 0);
+		CHECK(std::string(err) == "setup_0001 is a lift, which the game keeps on some levels whatever "
+			"its flags say");
+	}
+
+	/* The two files disagree about the word. The level is still read (no
+	 * base level is like this), but there is no telling which to change. */
+	{
+		Level level(kPads, kSpawns, objectsWithFlags("0x00000000", "0x00000020"), kVolumes,
+			fieldsWithFlags("0x00000000", "0x00000040"));
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		forge_level_object_t crate = {};
+		forge_level_object_t weapon = {};
+		REQUIRE(forgeLevelDocGetObject(level.doc, 0, &weapon) == 1);
+		REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
+		CHECK(weapon.removable == 1);
+		CHECK(crate.removable == 0);
+		CHECK(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 0);
+		CHECK(std::string(err).find("no flags word that both") != std::string::npos);
+	}
+
+	/* A word that is not written as hex is no word, and one written another
+	 * way (short, capitals) is read and comes back as it was written. */
+	{
+		const std::string objects = objectsWithFlags("zero", "0X2A");
+		const std::string fields = fieldsWithFlags("zero", "0x0000002a");
+		Level level(kPads, kSpawns, objects, kVolumes, fields);
+		INFO(level.error);
+		REQUIRE(level.doc != nullptr);
+		forge_level_object_t crate = {};
+		forge_level_object_t weapon = {};
+		REQUIRE(forgeLevelDocGetObject(level.doc, 0, &weapon) == 1);
+		REQUIRE(forgeLevelDocGetObject(level.doc, 1, &crate) == 1);
+		CHECK(weapon.removable == 0);
+		CHECK(crate.removable == 1);
+		REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) ==
+			replaced(objects, "\"flags2\": \"0X2A\"", "\"flags2\": \"0x000000fa\""));
+		REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, err, sizeof(err)) == 1);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+		CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	}
+}
+
 TEST_CASE("The example level is read and written back unchanged, then edited", "[forge-level-doc]")
 {
 	const std::string arena = levelReadFile(fs::path(PD_SOURCE_DIR) /
@@ -785,6 +1010,10 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	REQUIRE(forgeLevelDocGetObject(level.doc, 0, &prop) == 1);
 	CHECK(prop.order == 0);
 	CHECK(prop.movable == 1);
+	/* The example's field rows hold the prop's first flags word only, not the
+	 * second, so the document does not offer to leave the prop out. */
+	CHECK(prop.removable == 0);
+	CHECK(prop.removed == 0);
 
 	/* Its spawn and its prop share the one pad. Moving the spawn leaves the
 	 * prop where it was. This file repeats the place in the spawn's row, so
@@ -969,6 +1198,9 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 	}
 	int levels = 0;
 	long padTotal = 0;
+	long objectTotal = 0;
+	long removableTotal = 0;
+	long alreadyOut = 0;
 	for (const char *sub : { "arenas", "scenarios" }) {
 		const fs::path folder = fs::path(dir) / sub;
 		if (!fs::is_directory(folder)) continue;
@@ -1009,10 +1241,40 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
 			REQUIRE(forgeLevelDocRemoveSpawn(level.doc, id, err, sizeof(err)) == 1);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
+
+			/* Leaving out every object that can be left out gives a level that
+			 * reads back, and putting each one back gives both object files
+			 * their bytes. */
+			std::vector<std::string> leftOut;
+			for (s32 i = 0; i < forgeLevelDocObjectCount(level.doc); i++) {
+				forge_level_object_t object = {};
+				REQUIRE(forgeLevelDocGetObject(level.doc, i, &object) == 1);
+				objectTotal++;
+				if (object.removed) alreadyOut++;
+				if (!object.removable || object.removed) continue;
+				REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, object.record_id, 1, err, sizeof(err)) == 1);
+				leftOut.push_back(object.record_id);
+			}
+			if (!leftOut.empty()) {
+				CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) != objects);
+				Level thinned(pads, spawns, level.text(FORGE_LEVEL_MEMBER_OBJECTS), volumes,
+					level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS));
+				INFO(entry.path().string() << " with its objects left out: " << thinned.error);
+				REQUIRE(thinned.doc != nullptr);
+				CHECK(forgeLevelDocObjectCount(thinned.doc) == forgeLevelDocObjectCount(level.doc));
+			}
+			for (const std::string &record : leftOut) {
+				REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, record.c_str(), 0, err, sizeof(err)) == 1);
+			}
+			CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+			CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+			removableTotal += static_cast<long>(leftOut.size());
 			levels++;
 			padTotal += forgeLevelDocPadCount(level.doc);
 		}
 	}
-	WARN("base levels read and written back unchanged: " << levels << " (" << padTotal << " pads)");
+	WARN("base levels read and written back unchanged: " << levels << " (" << padTotal << " pads, "
+		<< objectTotal << " objects, " << removableTotal << " left out and put back, "
+		<< alreadyOut << " already left out on every difficulty)");
 	CHECK(levels > 0);
 }
