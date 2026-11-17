@@ -3390,14 +3390,20 @@ s32 chrTick(struct prop *prop)
 	 * blend update. After the chr's AI/movement has settled the chr's
 	 * world position for this frame, sample the surface normal under
 	 * the new pos and roll the blend timer. The renderer reads the
-	 * interpolated value via chrSurfaceLocoGetRenderUp. */
-	if (chr->surface_blend_frames > 0) {
-		chr->surface_blend_frames--;
-		if (chr->surface_blend_frames == 0) {
-			chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+	 * interpolated value via chrSurfaceLocoGetRenderUp.
+	 * B-1179: chrTick runs once per player per frame, and the blend and
+	 * the floor sample belong to the chr, so only the frame's full tick
+	 * advances them. Outside it, two players halved the 8-frame blend
+	 * and sampled the floor twice (SP-87, the class of B-1202). */
+	if (fulltick) {
+		if (chr->surface_blend_frames > 0) {
+			chr->surface_blend_frames--;
+			if (chr->surface_blend_frames == 0) {
+				chr->surface_loco_flags &= ~SURFACE_LOCO_FLAG_BLENDING;
+			}
 		}
+		chrSurfaceLocoTick(chr);
 	}
-	chrSurfaceLocoTick(chr);
 
 	return TICKOP_NONE;
 }

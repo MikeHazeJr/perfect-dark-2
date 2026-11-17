@@ -805,6 +805,13 @@ void meshWorldFinalize(void)
 	if (g_WorldMesh.cellsx > MESHGRID_MAX_DIM) g_WorldMesh.cellsx = MESHGRID_MAX_DIM;
 	if (g_WorldMesh.cellsz > MESHGRID_MAX_DIM) g_WorldMesh.cellsz = MESHGRID_MAX_DIM;
 
+	if (maxx - minx >= MESHGRID_MAX_DIM * MESHGRID_CELL_SIZE
+			|| maxz - minz >= MESHGRID_MAX_DIM * MESHGRID_CELL_SIZE) {
+		sysLogPrintf(LOG_NOTE, "MESHCOL: world mesh %.0f x %.0f units is wider than the %dx%d grid; "
+			"triangles past the cap share its last row or column (B-1210)",
+			maxx - minx, maxz - minz, MESHGRID_MAX_DIM, MESHGRID_MAX_DIM);
+	}
+
 	s32 totalcells = g_WorldMesh.cellsx * g_WorldMesh.cellsz;
 	g_WorldMesh.cells = calloc(totalcells, sizeof(struct meshgridcell));
 
@@ -823,15 +830,12 @@ void meshWorldFinalize(void)
 			if (v->z > tzmax) tzmax = v->z;
 		}
 
-		s32 cx0 = (s32)((txmin - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-		s32 cx1 = (s32)((txmax - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-		s32 cz0 = (s32)((tzmin - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
-		s32 cz1 = (s32)((tzmax - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
-
-		if (cx0 < 0) cx0 = 0;
-		if (cz0 < 0) cz0 = 0;
-		if (cx1 >= g_WorldMesh.cellsx) cx1 = g_WorldMesh.cellsx - 1;
-		if (cz1 >= g_WorldMesh.cellsz) cz1 = g_WorldMesh.cellsz - 1;
+		/* Both ends clamp into the grid (B-1210): a triangle wholly past
+		 * the cap is listed in the last row or column, not in no cell. */
+		s32 cx0 = meshGridCell(txmin, g_WorldMesh.originx, g_WorldMesh.cellsx);
+		s32 cx1 = meshGridCell(txmax, g_WorldMesh.originx, g_WorldMesh.cellsx);
+		s32 cz0 = meshGridCell(tzmin, g_WorldMesh.originz, g_WorldMesh.cellsz);
+		s32 cz1 = meshGridCell(tzmax, g_WorldMesh.originz, g_WorldMesh.cellsz);
 
 		for (s32 cz = cz0; cz <= cz1; cz++) {
 			for (s32 cx = cx0; cx <= cx1; cx++) {
@@ -984,15 +988,10 @@ f32 meshSweepCapsuleWorld(struct coord *start, struct coord *move,
 	sweepminx -= radius; sweepmaxx += radius;
 	sweepminz -= radius; sweepmaxz += radius;
 
-	s32 cx0 = (s32)((sweepminx - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-	s32 cx1 = (s32)((sweepmaxx - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-	s32 cz0 = (s32)((sweepminz - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
-	s32 cz1 = (s32)((sweepmaxz - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
-
-	if (cx0 < 0) cx0 = 0;
-	if (cz0 < 0) cz0 = 0;
-	if (cx1 >= g_WorldMesh.cellsx) cx1 = g_WorldMesh.cellsx - 1;
-	if (cz1 >= g_WorldMesh.cellsz) cz1 = g_WorldMesh.cellsz - 1;
+	s32 cx0 = meshGridCell(sweepminx, g_WorldMesh.originx, g_WorldMesh.cellsx);
+	s32 cx1 = meshGridCell(sweepmaxx, g_WorldMesh.originx, g_WorldMesh.cellsx);
+	s32 cz0 = meshGridCell(sweepminz, g_WorldMesh.originz, g_WorldMesh.cellsz);
+	s32 cz1 = meshGridCell(sweepmaxz, g_WorldMesh.originz, g_WorldMesh.cellsz);
 
 	f32 bestfrac = 1.0f;
 	struct coord bestnormal = {0, 1, 0};
@@ -1371,9 +1370,9 @@ f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY)
 		return -30000.0f;
 	}
 
-	/* Find the grid cell at this XZ position */
-	s32 cx = (s32)((pos->x - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-	s32 cz = (s32)((pos->z - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
+	/* Find the grid cell at this XZ position (clamped: B-1210) */
+	s32 cx = meshGridCell(pos->x, g_WorldMesh.originx, g_WorldMesh.cellsx);
+	s32 cz = meshGridCell(pos->z, g_WorldMesh.originz, g_WorldMesh.cellsz);
 
 	f32 bestFloorY = -30000.0f;
 	f32 bestNormalY = 1.0f;
@@ -1447,8 +1446,8 @@ f32 meshFindCeiling(struct coord *pos, f32 radius)
 		return 99999.0f;
 	}
 
-	s32 cx = (s32)((pos->x - g_WorldMesh.originx) / MESHGRID_CELL_SIZE);
-	s32 cz = (s32)((pos->z - g_WorldMesh.originz) / MESHGRID_CELL_SIZE);
+	s32 cx = meshGridCell(pos->x, g_WorldMesh.originx, g_WorldMesh.cellsx);
+	s32 cz = meshGridCell(pos->z, g_WorldMesh.originz, g_WorldMesh.cellsz);
 
 	f32 bestCeilY = 99999.0f;
 

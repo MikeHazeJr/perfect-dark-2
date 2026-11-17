@@ -268,7 +268,7 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 			"fsFullPath failed for \"%s\"", relpath);
 		return -1;
 	}
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDHEAD",
 			"modArchiveBegin failed for \"%s\"", full);

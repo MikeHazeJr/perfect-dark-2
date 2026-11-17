@@ -26,6 +26,7 @@
 
 #include "system.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
@@ -108,20 +109,22 @@ static int writeSyntheticArchive(const char *outPath)
  * exits. Useful for ops + the M-4.2 verification recipe. */
 static void runStandaloneMigration(void)
 {
-	const char *candidates[4];
-	char buf[4][512];
-	fsFullPath("$E/../mods", buf[0], sizeof(buf[0]));
-	strncpy(buf[1], "./mods", sizeof(buf[1]) - 1); buf[1][sizeof(buf[1]) - 1] = '\0';
-	fsFullPath("$E/mods", buf[2], sizeof(buf[2]));
-	fsFullPath("mods",    buf[3], sizeof(buf[3]));
-	for (s32 i = 0; i < 4; i++) candidates[i] = buf[i];
+	/* B-1160: the same roots the loader walks (fsModRoots: only the explicit
+	 * --moddir when one is given). Migration writes, so it is refused where
+	 * the loader refuses it, and no root is probed by creating a file. */
+	if (nativeWritePolicyActive()) {
+		sysLogPrintf(LOG_ERROR, "MIGRATE: refused under the native write policy");
+		exit(2);
+	}
+	fs_mod_roots_t roots;
+	fsModRoots(&roots);
+	const char *candidates[FS_MOD_ROOTS_MAX];
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
+		candidates[i] = i < roots.count ? roots.path[i] : "";
+	}
 
-	for (s32 i = 0; i < 4; i++) {
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
 		if (!candidates[i][0]) continue;
-		FILE *probe = fopen(candidates[i], "rb");
-		if (probe || (probe = fopen(candidates[i], "wb"))) {
-			fclose(probe);
-		}
 		struct stat st;
 		if (stat(candidates[i], &st) != 0) continue;
 		if (!(st.st_mode & S_IFDIR)) continue;

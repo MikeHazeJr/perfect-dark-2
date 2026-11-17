@@ -1415,8 +1415,13 @@ static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag,
     const asset_entry_t *he;
     s32 was_present;
 
-    if (headnum < 0 || headnum >= 256) {
-        return; /* negative = hologram / special */
+    if (headnum <= 0 || headnum >= 256) {
+        /* negative = hologram / special. 0 = no separate head: the body
+         * model carries its own (body.c treats headnum 0 the same way), and
+         * entry 0 of the body and head table is a body. Looking it up only
+         * produced a "not in catalog" warning per character, 58 in one
+         * campaign run. */
+        return;
     }
     hcan = catalogHeadIdByHeadnum(headnum);
     he   = hcan ? assetCatalogResolve(hcan) : NULL;

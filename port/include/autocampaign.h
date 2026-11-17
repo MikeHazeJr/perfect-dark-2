@@ -20,6 +20,16 @@ extern "C" {
  *   --auto-campaign-difficulty [0..2]
  *   --auto-campaign-through-load [solo-index]
  *   --auto-campaign-verify [solo-index]
+ *   --auto-campaign-soak [1..900 game seconds]
+ *
+ * Before every forced end the runner proves, through the production
+ * objective check, that each active objective made only of stage-flag
+ * criteria answers to its own flags (objective flag probe).
+ *
+ * The optional soak is run-only. It holds each mission in live play for the
+ * given number of game seconds before the forced end, with the idle player
+ * kept invincible, and fails the run if the mission ends by itself, the
+ * player dies anyway, or game time stops advancing.
  *
  * The optional through-load terminal is run-only. It builds one exact,
  * inclusive campaign slice and exits successfully after the final planned

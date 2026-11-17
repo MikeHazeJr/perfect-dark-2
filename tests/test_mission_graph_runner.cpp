@@ -41,8 +41,10 @@ s32 knownModule(const char *kind)
 		k == "og.progress.unlock_alt_title";
 }
 
-s32 runModule(const char *kind, const char *node_id, const mission_graph_event_t *event, void *)
+s32 runModule(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *)
 {
+	(void)params;
 	g_calls.push_back(Call{ kind, node_id, event->status, event->objective_number, event->seam });
 	return g_refusing.count(node_id) ? 0 : 1;
 }
@@ -525,12 +527,44 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 		}
 		return out;
 	};
-	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == std::set<std::string>{ "event.objective.status_changed",
-		"event.mission.completed", "event.mission.continue" });
-	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == std::set<std::string>{ "gate.objective.status" });
-	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == std::set<std::string>{ "og.hud.objective_status_message",
-		"og.mission.start_next_stage", "og.mission.start_credits", "og.progress.unlock_alt_title" });
+	// The kinds as the sources define them: the runner's event and gate
+	// constants, and the native module table's og.* and gate.* rows
+	// (object-events.md slice 3 adds native gates there).
+	auto kinds_in = [](const std::string &text, const char *pattern) {
+		std::set<std::string> out;
+		const std::regex re(pattern);
+		for (std::sregex_iterator it(text.begin(), text.end(), re), end; it != end; ++it) {
+			out.insert((*it)[1].str());
+		}
+		return out;
+	};
+	const std::set<std::string> events = kinds_in(runner, R"re(Event = "(event\.[a-z_.]+)";)re");
+	std::set<std::string> gates = kinds_in(runner, R"re(Gate = "(gate\.[a-z_.]+)";)re");
+	const std::set<std::string> table_gates = kinds_in(modules, R"re(\{ "(gate\.[a-z_.]+)", s_)re");
+	gates.insert(table_gates.begin(), table_gates.end());
+	const std::set<std::string> table_modules = kinds_in(modules, R"re(\{ "(og\.[a-z_.]+)", s_)re");
+	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == events);
+	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == gates);
+	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == table_modules);
+	// The mission runner's own kinds are among them.
+	for (const char *kind : { "event.objective.status_changed", "event.mission.completed",
+			"event.mission.continue", "event.mission.phase_changed", "event.volume.entered",
+			"event.volume.left", "event.pickup.collected", "event.door.open_requested" }) {
+		INFO(kind);
+		CHECK(events.count(kind) == 1);
+	}
+	CHECK(gates == std::set<std::string>{ "gate.objective.status", "gate.mission.phase",
+		"gate.object.kind", "gate.player.has_item" });
+	CHECK(table_modules.count("og.hud.objective_status_message") == 1);
+	CHECK(table_modules.count("og.mission.end_completed") == 1);
+	CHECK(table_modules.count("og.door.open") == 1);
 	REQUIRE(runner.find("const char *const kObjectiveStatusEvent = \"event.objective.status_changed\";") != std::string::npos);
 	REQUIRE(runner.find("const char *const kObjectiveStatusGate = \"gate.objective.status\";") != std::string::npos);
+	// Mission flow slice 2 (mission-flow.md): the phase event and gate, and the
+	// two modules that end a mission.
+	REQUIRE(runner.find("const char *const kMissionPhaseEvent = \"event.mission.phase_changed\";") != std::string::npos);
+	REQUIRE(runner.find("const char *const kMissionPhaseGate = \"gate.mission.phase\";") != std::string::npos);
+	REQUIRE(modules.find("{ \"og.mission.end_failed\", s_runEndMissionFailed },") != std::string::npos);
+	REQUIRE(modules.find("{ \"og.mission.end_completed\", s_runEndMissionCompleted },") != std::string::npos);
 	REQUIRE(conformance.find("errors.extend(validate_mission_graph_execution(label, graph))") != std::string::npos);
 }

@@ -1,4 +1,5 @@
 #include "scenario_scene_renderer.h"
+#include "scenario_dyntex.h"
 
 #include "../external/imgui-node-editor/crude_json.h"
 #include "../external/stb_image.h"
@@ -13,6 +14,7 @@ extern "C" {
 #include "system.h"
 }
 
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -67,6 +69,12 @@ struct Material {
 	 * legacy scenes that predate alphaMode emission. */
 	bool alpha_mode_explicit = false;
 	float alpha_cutoff = 0.01f;
+	/* Animated surfaces: the dyntex.c preset this texture moves by
+	 * (pd2_material.animation) and the factors that turn N64 texture
+	 * coordinates into its runtime UVs (pd2_material.uv_scale). */
+	int animation = SCENARIO_DYNTEX_NONE;
+	float anim_u_scale = 0.0f;
+	float anim_v_scale = 0.0f;
 };
 
 struct Image {
@@ -92,6 +100,25 @@ struct Vertex {
 	float g;
 	float b;
 	float a;
+	/* B-1172: 1 for a vertex of a sky room (rooms.json sky): the game draws
+	 * those rooms relative to the camera's room (roomPopulateMtx), so the
+	 * shader moves them by the camera's draw offset. */
+	float sky;
+	/* The vertex's room (the scene's _PD_ROOM attribute), -1 when it names none. */
+	int32_t room;
+};
+
+/* An animated vertex: its N64 texture coordinates (after the group shift)
+ * and texture scales from _PD_DYNTEX, its preset, material and room. */
+struct DyntexVertex {
+	uint32_t vertex = 0;
+	int32_t base_s = 0;
+	int32_t base_t = 0;
+	uint16_t scale_s = 0xffff;
+	uint16_t scale_t = 0xffff;
+	int kind = SCENARIO_DYNTEX_NONE;
+	int material = -1;
+	int32_t room = -1;
 };
 
 struct DrawGroup {
@@ -114,6 +141,23 @@ struct Scene {
 	GLuint shader = 0;
 	GLuint white_tex = 0;
 	bool gpu_ready = false;
+	/* B-1172: the sky flags changed after the vertex upload. */
+	bool sky_dirty = false;
+	size_t sky_vertex_count = 0;
+	/* B-1172: the room lighting of each camera slot (and of the last camera),
+	 * two texel rows per room: brightness, flash, flash_black, unlit; tint
+	 * r, g, b, greyscale. */
+	std::vector<float> slot_room_lights[8];
+	std::vector<float> room_lights;
+	GLuint room_light_tex = 0;
+	int room_light_tex_width = 0;
+	bool logged_room_lights = false;
+	/* B-1172: the stage fog of the next draw (scenarioSceneRendererSetFog). */
+	int fog_enabled = 0;
+	float fog_mul = 0.0f;
+	float fog_offset = 0.0f;
+	float fog_color[3] = {};
+	bool logged_fog = false;
 	bool active = false;
 	bool logged_render = false;
 	bool logged_camera_ready = false;
@@ -132,6 +176,22 @@ struct Scene {
 	size_t mask_material_count = 0;
 	size_t blend_material_count = 0;
 	float view_projection[4][4] = {};
+	/* B-1172: the camera of each scene draw queued in this frame's display
+	 * list (one per player view), so each draw uses the camera of the player
+	 * that queued it, and the last camera set (backdrop draws). */
+	scenario_scene_camera_t camera_slots[8] = {};
+	scenario_scene_camera_t camera = {};
+	int camera_slot_count = 0;
+	int last_camera_slot = -1;
+	/* Animated surfaces (dyntex.c presets): the vertices whose runtime UVs
+	 * move, and the frame state the game sets before each draw. */
+	std::vector<DyntexVertex> dyntex_vertices;
+	size_t dyntex_groups = 0;
+	size_t dyntex_kind_counts[SCENARIO_DYNTEX_KIND_COUNT] = {};
+	size_t dyntex_unusable_primitives = 0;
+	scenario_dyntex_frame_t dyntex_frame = {};
+	bool dyntex_frame_dirty = false;
+	bool logged_dyntex_update = false;
 };
 
 Scene g_scene;
@@ -475,6 +535,38 @@ static void parseMaterials(const crude_json::value &root,
 		if (pd2) {
 			mat.primary_texcoord = 1;
 		}
+		if (pd2) {
+			auto anim_it = pd2->find("animation");
+			if (anim_it != pd2->end()) {
+				int kind = anim_it->second.is_string()
+					? scenarioDyntexKindFromName(
+						anim_it->second.get<crude_json::string>().c_str())
+					: -1;
+				float us = 0.0f;
+				float vs = 0.0f;
+				bool scale_ok = false;
+				auto scale_it = pd2->find("uv_scale");
+				if (scale_it != pd2->end() && scale_it->second.is_array()) {
+					const crude_json::array *uv =
+						scale_it->second.get_ptr<crude_json::array>();
+					if (uv && uv->size() == 2 && (*uv)[0].is_number()
+							&& (*uv)[1].is_number()) {
+						us = (float)(*uv)[0].get<crude_json::number>();
+						vs = (float)(*uv)[1].get<crude_json::number>();
+						scale_ok = std::isfinite(us) && std::isfinite(vs);
+					}
+				}
+				if (kind > SCENARIO_DYNTEX_NONE && scale_ok) {
+					mat.animation = kind;
+					mat.anim_u_scale = us;
+					mat.anim_v_scale = vs;
+				} else {
+					sysLogPrintf(LOG_WARNING,
+						"SCENARIO.RENDER: material %zu has an animation the renderer cannot use; it stays still",
+						materials.size());
+				}
+			}
+		}
 		const crude_json::object *secondary =
 			pd2 ? objectField(*pd2, "secondaryTexture") : nullptr;
 		if (secondary) {
@@ -629,6 +721,7 @@ static bool appendPrimitive(const crude_json::value &prim,
 	int uv0_i = findAttr("TEXCOORD_0");
 	int uv1_i = findAttr("TEXCOORD_1");
 	int color_i = findAttr("COLOR_0");
+	int room_i = findAttr("_PD_ROOM");
 	if (pos_i < 0 || (size_t)pos_i >= accessors.size()) {
 		return false;
 	}
@@ -649,10 +742,62 @@ static bool appendPrimitive(const crude_json::value &prim,
 			|| (color && color->count != pos.count)) {
 		return false;
 	}
+	/* B-1172: the vertex's room, for sky rooms. Optional: an authored scene
+	 * may name none, and then has no sky rooms. */
+	const Accessor *room =
+		(room_i >= 0 && (size_t)room_i < accessors.size()
+			&& accessors[(size_t)room_i].count == pos.count)
+			? &accessors[(size_t)room_i] : nullptr;
+	auto readRoom = [&](uint32_t index) -> int32_t {
+		uint32_t roomnum = 0;
+		if (!room || !readIndexValue(*room, views, bin, bin_size, index, &roomnum)) {
+			return -1;
+		}
+		return (int32_t)roomnum;
+	};
 
 	int material = intMember(prim, "material", -1);
 	int indices_i = intMember(prim, "indices", -1);
 	uint32_t first = (uint32_t)scene.vertices.size();
+
+	/* Animated surfaces: an animated material's primitive carries
+	 * _PD_DYNTEX (VEC4: N64 s, t and the texture scales). A primitive
+	 * without a usable one draws still. */
+	const Material *prim_material =
+		(material >= 0 && (size_t)material < scene.materials.size())
+			? &scene.materials[(size_t)material] : nullptr;
+	const Accessor *dyntex = nullptr;
+	std::vector<DyntexVertex> prim_dyntex;
+	if (prim_material && prim_material->animation > SCENARIO_DYNTEX_NONE) {
+		int dyntex_i = findAttr("_PD_DYNTEX");
+		if (dyntex_i >= 0 && (size_t)dyntex_i < accessors.size()
+				&& accessors[(size_t)dyntex_i].count == pos.count
+				&& accessors[(size_t)dyntex_i].type == "VEC4"
+				&& accessors[(size_t)dyntex_i].component_type == 5126) {
+			dyntex = &accessors[(size_t)dyntex_i];
+		} else {
+			scene.dyntex_unusable_primitives++;
+		}
+	}
+	auto readDyntex = [&](uint32_t index) -> bool {
+		if (!dyntex) {
+			return true;
+		}
+		float s = 0.0f, t = 0.0f, scale_s = 0.0f, scale_t = 0.0f;
+		if (!readFloatVec4(*dyntex, views, bin, bin_size, index,
+				&s, &t, &scale_s, &scale_t)) {
+			return false;
+		}
+		DyntexVertex d;
+		d.base_s = (int32_t)s;
+		d.base_t = (int32_t)t;
+		d.scale_s = (uint16_t)scale_s;
+		d.scale_t = (uint16_t)scale_t;
+		d.kind = prim_material->animation;
+		d.material = material;
+		prim_dyntex.push_back(d);
+		return true;
+	};
 
 	if (indices_i >= 0) {
 		if ((size_t)indices_i >= accessors.size()) {
@@ -692,6 +837,10 @@ static bool appendPrimitive(const crude_json::value &prim,
 					&out.r, &out.g, &out.b, &out.a)) {
 				return false;
 			}
+			out.room = readRoom(idx);
+			if (!readDyntex(idx)) {
+				return false;
+			}
 			scene.vertices.push_back(out);
 		}
 	} else {
@@ -725,6 +874,10 @@ static bool appendPrimitive(const crude_json::value &prim,
 					&out.r, &out.g, &out.b, &out.a)) {
 				return false;
 			}
+			out.room = readRoom(i);
+			if (!readDyntex(i)) {
+				return false;
+			}
 			scene.vertices.push_back(out);
 		}
 	}
@@ -739,6 +892,14 @@ static bool appendPrimitive(const crude_json::value &prim,
 	if (instance.mirrored) {
 		for (size_t i = first; i + 2 < scene.vertices.size(); i += 3)
 			std::swap(scene.vertices[i + 1], scene.vertices[i + 2]);
+		for (size_t i = 0; i + 2 < prim_dyntex.size(); i += 3)
+			std::swap(prim_dyntex[i + 1], prim_dyntex[i + 2]);
+	}
+	for (size_t k = 0; k < prim_dyntex.size(); k++) {
+		DyntexVertex d = prim_dyntex[k];
+		d.vertex = first + (uint32_t)k;
+		d.room = scene.vertices[d.vertex].room;
+		scene.dyntex_vertices.push_back(d);
 	}
 
 	DrawGroup group;
@@ -930,6 +1091,85 @@ done:
 	return ok;
 }
 
+/* dyntexTickRoom's first-use shift, per group: the vertices of one preset
+ * in one room (dyntex.c groups by room and type as they load). */
+static void prepareDyntex(Scene &scene)
+{
+	struct GroupRange {
+		int32_t room;
+		int kind;
+		int min_s, max_s, min_t, max_t;
+	};
+	std::vector<GroupRange> groups;
+	auto findGroup = [&](int32_t room, int kind) -> GroupRange & {
+		for (GroupRange &g : groups) {
+			if (g.room == room && g.kind == kind) {
+				return g;
+			}
+		}
+		groups.push_back({room, kind, 32767, -32766, 32767, -32766});
+		return groups.back();
+	};
+	for (const DyntexVertex &d : scene.dyntex_vertices) {
+		GroupRange &g = findGroup(d.room, d.kind);
+		g.min_s = std::min(g.min_s, (int)d.base_s);
+		g.max_s = std::max(g.max_s, (int)d.base_s);
+		g.min_t = std::min(g.min_t, (int)d.base_t);
+		g.max_t = std::max(g.max_t, (int)d.base_t);
+	}
+	for (DyntexVertex &d : scene.dyntex_vertices) {
+		const GroupRange &g = findGroup(d.room, d.kind);
+		int add_s = 0;
+		int add_t = 0;
+		scenarioDyntexGroupShift(g.min_s, g.max_s, g.min_t, g.max_t, &add_s, &add_t);
+		d.base_s += add_s;
+		d.base_t += add_t;
+		if (d.kind > SCENARIO_DYNTEX_NONE && d.kind < SCENARIO_DYNTEX_KIND_COUNT) {
+			scene.dyntex_kind_counts[d.kind]++;
+		}
+	}
+	scene.dyntex_groups = groups.size();
+}
+
+/* Moves the animated vertices' runtime UVs for this frame. Returns whether
+ * any changed, and the vertex range to upload. */
+static bool applyDyntexFrame(Scene &scene, uint32_t *out_first, uint32_t *out_last)
+{
+	uint32_t first = UINT32_MAX;
+	uint32_t last = 0;
+	for (const DyntexVertex &d : scene.dyntex_vertices) {
+		int16_t s = 0;
+		int16_t t = 0;
+		if (!scenarioDyntexAnimate(d.kind, &scene.dyntex_frame,
+				d.base_s, d.base_t, &s, &t)) {
+			continue;
+		}
+		if (d.material < 0 || (size_t)d.material >= scene.materials.size()
+				|| d.vertex >= scene.vertices.size()) {
+			continue;
+		}
+		const Material &mat = scene.materials[(size_t)d.material];
+		float u = 0.0f;
+		float v = 0.0f;
+		scenarioDyntexUv(s, t, d.scale_s, d.scale_t,
+			mat.anim_u_scale, mat.anim_v_scale, &u, &v);
+		Vertex &vertex = scene.vertices[d.vertex];
+		if (vertex.u1 == u && vertex.v1 == v) {
+			continue;
+		}
+		vertex.u1 = u;
+		vertex.v1 = v;
+		first = std::min(first, d.vertex);
+		last = std::max(last, d.vertex);
+	}
+	if (first == UINT32_MAX) {
+		return false;
+	}
+	*out_first = first;
+	*out_last = last;
+	return true;
+}
+
 static void fillProbeResult(const Scene &scene,
 	scenario_scene_renderer_probe_t *out_probe)
 {
@@ -994,21 +1234,6 @@ static GLuint compileShader(GLenum type, const char *src, const char *label)
 	return shader;
 }
 
-static void multiplyMatrix(float out[4][4], const float a[4][4],
-	const float b[4][4])
-{
-	float tmp[4][4];
-	for (int i = 0; i < 4; i++) {
-		for (int j = 0; j < 4; j++) {
-			tmp[i][j] = a[i][0] * b[0][j]
-				+ a[i][1] * b[1][j]
-				+ a[i][2] * b[2][j]
-				+ a[i][3] * b[3][j];
-		}
-	}
-	std::memcpy(out, tmp, sizeof(tmp));
-}
-
 static bool finiteFloat(float value)
 {
 	return std::isfinite(value);
@@ -1034,110 +1259,6 @@ static bool finiteVec3(const float v[3])
 		&& finiteFloat(v[2]);
 }
 
-static bool normalizeVec3(float v[3])
-{
-	float len2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-	if (!finiteFloat(len2) || len2 <= 0.000001f) {
-		return false;
-	}
-
-	float inv = 1.0f / std::sqrt(len2);
-	v[0] *= inv;
-	v[1] *= inv;
-	v[2] *= inv;
-	return finiteVec3(v);
-}
-
-static void loadIdentity(float m[4][4])
-{
-	for (int row = 0; row < 4; row++) {
-		for (int col = 0; col < 4; col++) {
-			m[row][col] = row == col ? 1.0f : 0.0f;
-		}
-	}
-}
-
-static bool buildViewMatrix(float out[4][4], const float position[3],
-	const float look[3], const float up[3])
-{
-	if (!finiteVec3(position) || !finiteVec3(look) || !finiteVec3(up)) {
-		return false;
-	}
-
-	float zaxis[3] = { -look[0], -look[1], -look[2] };
-	if (!normalizeVec3(zaxis)) {
-		return false;
-	}
-
-	float xaxis[3] = {
-		up[1] * zaxis[2] - up[2] * zaxis[1],
-		up[2] * zaxis[0] - up[0] * zaxis[2],
-		up[0] * zaxis[1] - up[1] * zaxis[0],
-	};
-	if (!normalizeVec3(xaxis)) {
-		return false;
-	}
-
-	float yaxis[3] = {
-		zaxis[1] * xaxis[2] - zaxis[2] * xaxis[1],
-		zaxis[2] * xaxis[0] - zaxis[0] * xaxis[2],
-		zaxis[0] * xaxis[1] - zaxis[1] * xaxis[0],
-	};
-	if (!normalizeVec3(yaxis)) {
-		return false;
-	}
-
-	out[0][0] = xaxis[0];
-	out[1][0] = xaxis[1];
-	out[2][0] = xaxis[2];
-	out[3][0] = -(position[0] * xaxis[0] + position[1] * xaxis[1]
-		+ position[2] * xaxis[2]);
-
-	out[0][1] = yaxis[0];
-	out[1][1] = yaxis[1];
-	out[2][1] = yaxis[2];
-	out[3][1] = -(position[0] * yaxis[0] + position[1] * yaxis[1]
-		+ position[2] * yaxis[2]);
-
-	out[0][2] = zaxis[0];
-	out[1][2] = zaxis[1];
-	out[2][2] = zaxis[2];
-	out[3][2] = -(position[0] * zaxis[0] + position[1] * zaxis[1]
-		+ position[2] * zaxis[2]);
-
-	out[0][3] = 0.0f;
-	out[1][3] = 0.0f;
-	out[2][3] = 0.0f;
-	out[3][3] = 1.0f;
-	return true;
-}
-
-static bool buildProjectionMatrix(float out[4][4], float fovy_degrees,
-	float aspect, float znear, float zfar)
-{
-	if (!finiteFloat(fovy_degrees) || !finiteFloat(aspect)
-			|| !finiteFloat(znear) || !finiteFloat(zfar)
-			|| fovy_degrees <= 1.0f || fovy_degrees >= 179.0f
-			|| aspect <= 0.01f || znear <= 0.0f || zfar <= znear) {
-		return false;
-	}
-
-	float fovy = fovy_degrees * 3.14159265358979323846f / 180.0f;
-	float cot = 1.0f / std::tan(fovy * 0.5f);
-	if (!finiteFloat(cot)) {
-		return false;
-	}
-
-	loadIdentity(out);
-	out[0][0] = cot / aspect;
-	out[1][1] = cot;
-	out[2][2] = (znear + zfar) / (znear - zfar);
-	out[2][3] = -1.0f;
-	out[3][2] = (2.0f * znear * zfar) / (znear - zfar);
-	out[3][3] = 0.0f;
-	return true;
-}
-
 static bool ensureShader(Scene &scene)
 {
 	if (scene.shader) {
@@ -1151,18 +1272,58 @@ static bool ensureShader(Scene &scene)
 	static const char *vs =
 		"#version 130\n"
 		"uniform mat4 u_VP;\n"
+		"uniform vec3 u_SkyOffset;\n"
 		"in vec3 a_Pos;\n"
 		"in vec2 a_Uv0;\n"
 		"in vec2 a_Uv1;\n"
 		"in vec4 a_Color;\n"
+		"in float a_Sky;\n"
+		"in float a_Room;\n"
+		/* B-1172: roomHighlight's formula (dlights.c), from two texel rows per
+		 * room: brightness, flash, flash_black, unlit; tint rgb, greyscale. */
+		"uniform sampler2D u_RoomLight;\n"
+		"uniform int u_RoomLightCount;\n"
+		/* B-1172: x = fog on, y = fog_mul, z = fog_offset (gfx_sp_vertex). */
+		"uniform vec3 u_Fog;\n"
+		"float pdRoomUnlit() {\n"
+		"  int room = int(floor(a_Room + 0.5));\n"
+		"  if (room < 0 || room >= u_RoomLightCount) return 0.0;\n"
+		"  return texelFetch(u_RoomLight, ivec2(room, 0), 0).w;\n"
+		"}\n"
+		"vec4 pdRoomLit(vec4 col) {\n"
+		"  int room = int(floor(a_Room + 0.5));\n"
+		"  if (room < 0 || room >= u_RoomLightCount) return col;\n"
+		"  vec4 l0 = texelFetch(u_RoomLight, ivec2(room, 0), 0);\n"
+		"  vec4 l1 = texelFetch(u_RoomLight, ivec2(room, 1), 0);\n"
+		"  if (l0.w > 0.5) return col;\n"
+		"  vec3 c = floor(col.rgb * 255.0 + 0.5);\n"
+		"  if (l1.w > 0.5) c = vec3(max(c.r, max(c.g, c.b)));\n"
+		"  float m = max(c.r, max(c.g, c.b));\n"
+		"  float mult = m > l0.x ? l0.x / m : 1.0;\n"
+		"  c = floor(c * mult);\n"
+		"  m = floor(m * mult);\n"
+		"  float extra = l1.w > 0.5 ? 0.0 : min(l0.y, 285.0 - m);\n"
+		"  if (c.r + c.g + c.b != 0.0 || l0.z > 0.5) c += vec3(extra);\n"
+		"  c = floor(c * l1.rgb);\n"
+		"  return vec4(clamp(c, 0.0, 255.0) / 255.0, col.a);\n"
+		"}\n"
 		"out vec2 v_Uv0;\n"
 		"out vec2 v_Uv1;\n"
 		"out vec4 v_Color;\n"
+		"out float v_Fog;\n"
 		"void main() {\n"
-		"  gl_Position = u_VP * vec4(a_Pos, 1.0);\n"
+		"  vec4 clip = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);\n"
+		"  gl_Position = clip;\n"
+		"  v_Fog = 0.0;\n"
+		"  if (u_Fog.x > 0.5 && a_Sky < 0.5 && pdRoomUnlit() < 0.5) {\n"
+		"    float w = abs(clip.w) < 0.001 ? 0.001 : clip.w;\n"
+		"    float winv = 1.0 / w;\n"
+		"    if (winv < 0.0) winv = 32767.0;\n"
+		"    v_Fog = clamp(clip.z * winv * u_Fog.y + u_Fog.z, 0.0, 255.0) / 255.0;\n"
+		"  }\n"
 		"  v_Uv0 = a_Uv0;\n"
 		"  v_Uv1 = a_Uv1;\n"
-		"  v_Color = a_Color;\n"
+		"  v_Color = pdRoomLit(a_Color);\n"
 		"}\n";
 	static const char *fs =
 		"#version 130\n"
@@ -1175,6 +1336,8 @@ static bool ensureShader(Scene &scene)
 		"in vec2 v_Uv0;\n"
 		"in vec2 v_Uv1;\n"
 		"in vec4 v_Color;\n"
+		"in float v_Fog;\n"
+		"uniform vec3 u_FogColor;\n"
 		"out vec4 fragColor;\n"
 		"vec2 pdTexcoord(int channel) {\n"
 		"  return channel == 0 ? v_Uv0 : v_Uv1;\n"
@@ -1189,6 +1352,7 @@ static bool ensureShader(Scene &scene)
 		/* c3844 glass fix: MASK passes a real cutoff (crisp cutout edges); OPAQUE and
 		 * BLEND pass ~0 so only fully-transparent texels drop. */
 		"  if (outColor.a < u_AlphaCutoff) discard;\n"
+		"  outColor.rgb = mix(outColor.rgb, u_FogColor, v_Fog);\n"
 		"  fragColor = outColor;\n"
 		"}\n";
 
@@ -1221,6 +1385,8 @@ static bool ensureShader(Scene &scene)
 	glBindAttribLocation(program, 1, "a_Uv0");
 	glBindAttribLocation(program, 2, "a_Uv1");
 	glBindAttribLocation(program, 3, "a_Color");
+	glBindAttribLocation(program, 4, "a_Sky");
+	glBindAttribLocation(program, 5, "a_Room");
 	glLinkProgram(program);
 
 	GLint ok = GL_FALSE;
@@ -1299,6 +1465,13 @@ static void ensureGpu(Scene &scene)
 	glEnableVertexAttribArray(3);
 	glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
 		(void *)(7 * sizeof(float)));
+	glEnableVertexAttribArray(4);
+	glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+		(void *)offsetof(Vertex, sky));
+	glEnableVertexAttribArray(5);
+	glVertexAttribPointer(5, 1, GL_INT, GL_FALSE, sizeof(Vertex),
+		(void *)offsetof(Vertex, room));
+	scene.sky_dirty = false;
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -1455,7 +1628,19 @@ extern "C" int scenarioSceneRendererActivate(const char *scenario_id,
 	}
 
 	next.active = true;
+	prepareDyntex(next);
 	g_scene = std::move(next);
+	if (!g_scene.dyntex_vertices.empty() || g_scene.dyntex_unusable_primitives) {
+		const size_t *k = g_scene.dyntex_kind_counts;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: animated surfaces '%s' vertices=%zu groups=%zu river=%zu monitor=%zu ocean=%zu arrows=%zu teleportal=%zu powerring=%zu powerjuice=%zu unusable_primitives=%zu",
+			scenario_id ? scenario_id : "?", g_scene.dyntex_vertices.size(),
+			g_scene.dyntex_groups,
+			k[SCENARIO_DYNTEX_RIVER], k[SCENARIO_DYNTEX_MONITOR],
+			k[SCENARIO_DYNTEX_OCEAN], k[SCENARIO_DYNTEX_ARROWS],
+			k[SCENARIO_DYNTEX_TELEPORTAL], k[SCENARIO_DYNTEX_POWERRING],
+			k[SCENARIO_DYNTEX_POWERJUICE], g_scene.dyntex_unusable_primitives);
+	}
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.RENDER: activated source scene '%s' source=%s vertices=%zu groups=%zu materials=%zu images=%zu alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu uv=TEXCOORD_1 alpha_modes=opaque:%zu/mask:%zu/blend:%zu dualtex=extras",
 		scenario_id ? scenario_id : "?", scene_path,
@@ -1485,14 +1670,16 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 	float fovy_degrees,
 	float aspect,
 	float znear,
-	float zfar)
+	float zfar,
+	float world_scale,
+	const float draw_offset[3])
 {
-	float view[4][4];
-	float projection[4][4];
+	scenario_scene_camera_t camera;
 
-	if (!buildViewMatrix(view, position, look, up)
-			|| !buildProjectionMatrix(projection, fovy_degrees, aspect,
-				znear, zfar)) {
+	/* B-1172: built in the game's draw space (scenario_scene_camera.c), so the
+	 * scene's depth values are the ones the game's own draws use. */
+	if (!scenarioSceneCameraBuild(&camera, position, look, up, fovy_degrees,
+				aspect, znear, zfar, world_scale, draw_offset)) {
 		g_scene.has_camera = false;
 		if (g_scene.active && !g_scene.logged_camera_invalid) {
 			g_scene.logged_camera_invalid = true;
@@ -1505,7 +1692,12 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 		return;
 	}
 
-	multiplyMatrix(g_scene.view_projection, view, projection);
+	g_scene.camera = camera;
+	memcpy(g_scene.view_projection, camera.view_projection, sizeof(g_scene.view_projection));
+	if (g_scene.camera_slot_count < 8) {
+		g_scene.camera_slots[g_scene.camera_slot_count] = camera;
+		g_scene.last_camera_slot = g_scene.camera_slot_count++;
+	}
 	g_scene.has_camera = true;
 	g_scene.camera_ever_valid = true;
 	g_scene.logged_missing_camera = false;
@@ -1514,17 +1706,154 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 	if (!g_scene.logged_camera_ready) {
 		g_scene.logged_camera_ready = true;
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.RENDER: accepted camera frame '%s' look_len=%.6f up_len=%.6f fovy=%.3f aspect=%.3f z=[%.3f,%.3f]",
+			"SCENARIO.RENDER: accepted camera frame '%s' look_len=%.6f up_len=%.6f fovy=%.3f aspect=%.3f z=[%.3f,%.3f] world_scale=%.3f",
 			g_scene.scenario_id.c_str(), vec3Length(look), vec3Length(up),
-			fovy_degrees, aspect, znear, zfar);
+			fovy_degrees, aspect, znear, zfar, camera.world_scale);
+	}
+}
+
+extern "C" int scenarioSceneRendererCurrentCameraSlot(void)
+{
+	return g_scene.last_camera_slot;
+}
+
+extern "C" void scenarioSceneRendererEndFrame(void)
+{
+	g_scene.camera_slot_count = 0;
+	g_scene.last_camera_slot = -1;
+}
+
+extern "C" int scenarioSceneRendererSlotCamera(int slot, scenario_scene_camera_t *out)
+{
+	if (!g_scene.active || !g_scene.camera_ever_valid || !out) {
+		return 0;
+	}
+	*out = (slot >= 0 && slot < g_scene.camera_slot_count)
+		? g_scene.camera_slots[slot] : g_scene.camera;
+	return 1;
+}
+
+extern "C" int scenarioSceneRendererVertexCount(void)
+{
+	return g_scene.active ? (int)g_scene.vertices.size() : 0;
+}
+
+extern "C" int scenarioSceneRendererVertexPosition(int index, float out[3])
+{
+	if (!g_scene.active || index < 0 || (size_t)index >= g_scene.vertices.size() || !out) {
+		return 0;
+	}
+	out[0] = g_scene.vertices[(size_t)index].x;
+	out[1] = g_scene.vertices[(size_t)index].y;
+	out[2] = g_scene.vertices[(size_t)index].z;
+	return 1;
+}
+
+extern "C" void scenarioSceneRendererSetSkyRooms(const int *rooms, int count)
+{
+	size_t sky_vertices = 0;
+
+	if (!g_scene.active) {
+		return;
+	}
+	for (Vertex &vertex : g_scene.vertices) {
+		float sky = 0.0f;
+		for (int i = 0; vertex.room >= 0 && rooms && i < count; i++) {
+			if (rooms[i] == vertex.room) {
+				sky = 1.0f;
+				break;
+			}
+		}
+		if (vertex.sky != sky) {
+			vertex.sky = sky;
+			g_scene.sky_dirty = true;
+		}
+		if (sky != 0.0f) {
+			sky_vertices++;
+		}
+	}
+	g_scene.sky_vertex_count = sky_vertices;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.RENDER: sky rooms '%s' rooms=%d vertices=%zu (drawn relative to the camera's room)",
+		g_scene.scenario_id.c_str(), rooms ? count : 0, sky_vertices);
+}
+
+extern "C" void scenarioSceneRendererSetRoomLights(const scenario_scene_room_light_t *lights, int count)
+{
+	if (!g_scene.active || !lights || count <= 0) {
+		return;
+	}
+	std::vector<float> &texels = g_scene.room_lights;
+	texels.assign((size_t)count * 8, 0.0f);
+	int unlit = 0;
+	for (int i = 0; i < count; i++) {
+		float *row0 = &texels[(size_t)i * 4];
+		float *row1 = &texels[((size_t)count + (size_t)i) * 4];
+		row0[0] = lights[i].brightness;
+		row0[1] = lights[i].flash;
+		row0[2] = lights[i].flash_black ? 1.0f : 0.0f;
+		row0[3] = lights[i].unlit ? 1.0f : 0.0f;
+		row1[0] = lights[i].tint[0];
+		row1[1] = lights[i].tint[1];
+		row1[2] = lights[i].tint[2];
+		row1[3] = lights[i].greyscale ? 1.0f : 0.0f;
+		unlit += lights[i].unlit ? 1 : 0;
+	}
+	if (g_scene.last_camera_slot >= 0 && g_scene.last_camera_slot < 8) {
+		g_scene.slot_room_lights[g_scene.last_camera_slot] = texels;
+	}
+	if (!g_scene.logged_room_lights) {
+		g_scene.logged_room_lights = true;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: room lights '%s' rooms=%d unlit=%d (roomHighlight's formula in the scene shader)",
+			g_scene.scenario_id.c_str(), count, unlit);
+	}
+}
+
+extern "C" void scenarioSceneRendererSetDyntexFrame(float interval80,
+	int teleports_on, int engines_destroyed)
+{
+	if (!g_scene.active || g_scene.dyntex_vertices.empty()) {
+		return;
+	}
+	g_scene.dyntex_frame.interval80 = interval80;
+	g_scene.dyntex_frame.teleports_on = teleports_on ? 1 : 0;
+	g_scene.dyntex_frame.engines_destroyed = engines_destroyed ? 1 : 0;
+	g_scene.dyntex_frame_dirty = true;
+}
+
+extern "C" void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fog_offset, const float color[3])
+{
+	g_scene.fog_enabled = enabled ? 1 : 0;
+	g_scene.fog_mul = fog_mul;
+	g_scene.fog_offset = fog_offset;
+	if (color) {
+		memcpy(g_scene.fog_color, color, sizeof(g_scene.fog_color));
+	}
+	if (enabled && g_scene.active && !g_scene.logged_fog) {
+		g_scene.logged_fog = true;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: fog '%s' fog_mul=%.0f fog_offset=%.0f colour=(%.3f,%.3f,%.3f) (the stage fog, applied by the scene shader)",
+			g_scene.scenario_id.c_str(), fog_mul, fog_offset, g_scene.fog_color[0],
+			g_scene.fog_color[1], g_scene.fog_color[2]);
 	}
 }
 
 extern "C" void scenarioSceneRendererRender(int width, int height)
 {
-	if (!g_scene.active || g_scene.vertices.empty()) {
+	scenarioSceneRendererRenderPasses(0, 0, width, height, NULL, NULL, -1,
+		SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND);
+}
+
+extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int width, int height,
+	const float *view_projection, const float *sky_offset, int light_slot, int passes)
+{
+	if (!g_scene.active || g_scene.vertices.empty()
+			|| !(passes & (SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND))) {
 		return;
 	}
+	const float *camera = view_projection ? view_projection : &g_scene.view_projection[0][0];
+	const float *sky_shift = sky_offset ? sky_offset : g_scene.camera.draw_offset;
 
 	if (!g_scene.has_camera) {
 		if (!g_scene.camera_ever_valid) {
@@ -1596,9 +1925,12 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture);
 	glActiveTexture(GL_TEXTURE1);
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture1);
+	GLint prev_texture2 = 0;
+	glActiveTexture(GL_TEXTURE2);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture2);
 	glActiveTexture(GL_TEXTURE0);
 
-	glViewport(0, 0, width, height);
+	glViewport(view_x, view_y, width, height);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
@@ -1617,12 +1949,78 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glGetUniformLocation(g_scene.shader, "u_SecondaryTexcoord");
 	GLint alpha_cutoff_loc =
 		glGetUniformLocation(g_scene.shader, "u_AlphaCutoff");
-	glUniformMatrix4fv(vp_loc, 1, GL_FALSE,
-		(const float *)g_scene.view_projection);
+	glUniformMatrix4fv(vp_loc, 1, GL_FALSE, camera);
+	glUniform3f(glGetUniformLocation(g_scene.shader, "u_SkyOffset"),
+		sky_shift[0], sky_shift[1], sky_shift[2]);
+	glUniform3f(glGetUniformLocation(g_scene.shader, "u_Fog"),
+		g_scene.fog_enabled ? 1.0f : 0.0f, g_scene.fog_mul, g_scene.fog_offset);
+	glUniform3f(glGetUniformLocation(g_scene.shader, "u_FogColor"),
+		g_scene.fog_color[0], g_scene.fog_color[1], g_scene.fog_color[2]);
+	{
+		/* B-1172: this view's room lighting, on texture unit 2. */
+		const std::vector<float> &texels =
+			(light_slot >= 0 && light_slot < g_scene.camera_slot_count && light_slot < 8
+				&& !g_scene.slot_room_lights[light_slot].empty())
+			? g_scene.slot_room_lights[light_slot] : g_scene.room_lights;
+		const int rooms = (int)(texels.size() / 8);
+		glActiveTexture(GL_TEXTURE2);
+		if (rooms > 0) {
+			if (!g_scene.room_light_tex) {
+				glGenTextures(1, &g_scene.room_light_tex);
+			}
+			glBindTexture(GL_TEXTURE_2D, g_scene.room_light_tex);
+			if (g_scene.room_light_tex_width != rooms) {
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+				glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+				glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, rooms, 2, 0, GL_RGBA, GL_FLOAT, texels.data());
+				g_scene.room_light_tex_width = rooms;
+			} else {
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, rooms, 2, GL_RGBA, GL_FLOAT, texels.data());
+			}
+		}
+		glActiveTexture(GL_TEXTURE0);
+		glUniform1i(glGetUniformLocation(g_scene.shader, "u_RoomLight"), 2);
+		glUniform1i(glGetUniformLocation(g_scene.shader, "u_RoomLightCount"), rooms);
+	}
 	glUniform1i(tex_loc, 0);
 	glUniform1i(tex2_loc, 1);
 
 	glBindVertexArray(g_scene.vao);
+	if (g_scene.sky_dirty) {
+		/* B-1172: the sky flags were set after the upload. The entry
+		 * GL_ARRAY_BUFFER binding is restored below. */
+		glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0,
+			(GLsizeiptr)(g_scene.vertices.size() * sizeof(Vertex)),
+			g_scene.vertices.data());
+		g_scene.sky_dirty = false;
+	}
+	if (g_scene.dyntex_frame_dirty) {
+		/* Animated surfaces: this frame's UVs, uploaded for the range of
+		 * vertices that moved. The entry GL_ARRAY_BUFFER binding is
+		 * restored below. */
+		uint32_t moved_first = 0;
+		uint32_t moved_last = 0;
+		if (applyDyntexFrame(g_scene, &moved_first, &moved_last)) {
+			glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
+			glBufferSubData(GL_ARRAY_BUFFER,
+				(GLintptr)((size_t)moved_first * sizeof(Vertex)),
+				(GLsizeiptr)((size_t)(moved_last - moved_first + 1) * sizeof(Vertex)),
+				g_scene.vertices.data() + moved_first);
+			if (!g_scene.logged_dyntex_update) {
+				sysLogPrintf(LOG_NOTE,
+					"SCENARIO.RENDER: animated surfaces moved '%s' vertices %u..%u interval80=%.4f teleports_on=%d engines_destroyed=%d",
+					g_scene.scenario_id.c_str(), moved_first, moved_last,
+					g_scene.dyntex_frame.interval80,
+					g_scene.dyntex_frame.teleports_on,
+					g_scene.dyntex_frame.engines_destroyed);
+				g_scene.logged_dyntex_update = true;
+			}
+		}
+		g_scene.dyntex_frame_dirty = false;
+	}
 	/* c3844 glass fix: render scene groups via a lambda so we can do two passes --
 	 * opaque first, then translucent (uses_alpha) materials with GL_BLEND on -- so
 	 * translucent scene materials (e.g. the CI menu glass table) blend instead of
@@ -1683,6 +2081,10 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	 * alpha-blended over the opaque scene with depth writes disabled so glass shows
 	 * what's behind it (e.g. Joanna at the terminal). */
 	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
+		/* B-1172: each pass draws where its command was queued. */
+		if (!(passes & (scene_pass == 0 ? SCENARIO_SCENE_PASS_OPAQUE : SCENARIO_SCENE_PASS_BLEND))) {
+			continue;
+		}
 		if (scene_pass == 1) {
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -1731,6 +2133,8 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 			g_scene.groups.size(), g_scene.images.size());
 	}
 
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)prev_texture2);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, (GLuint)prev_texture1);
 	glActiveTexture(GL_TEXTURE0);

@@ -1333,6 +1333,7 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
 		".pdscenario", ".pdskin", ".pdeffect", ".pdprop", ".pdvehicle",
 		".pdmission", ".pdgamemode", ".pdbotprofile", ".pdhud", ".pdtheme",
+		".pdai",
 		NULL
 	};
 	size_t n = strlen(name);
@@ -1767,98 +1768,53 @@ static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
 	closedir(d);
 }
 
-/* The user mods folder for this launch, created when missing (mods_roots.h).
- * Left empty when it cannot be named or created: the install's folders are
- * then the only ones, as before. */
-static void modmgrResolveUserModsDir(char *out, size_t cap)
-{
-	char saveDir[FS_MAXPATH + 1];
-	char homeDir[FS_MAXPATH + 1];
-
-	out[0] = '\0';
-	fsFullPath("$S", saveDir, sizeof(saveDir));
-	fsFullPath("$H", homeDir, sizeof(homeDir));
-	if (!modsRootsUserDir(sysArgCheck("--portable"), sysArgGetString("--savedir"),
-			saveDir, getenv("LOCALAPPDATA"), homeDir, out, cap)) {
-		sysLogPrintf(LOG_WARNING,
-			"modmgr: no user mods folder could be named; only the install's mods folders are used");
-		out[0] = '\0';
-		return;
-	}
-	if (!modsRootsEnsureDir(out)) {
-		sysLogPrintf(LOG_WARNING,
-			"modmgr: could not create the user mods folder '%s'; only the install's mods folders are used",
-			out);
-		out[0] = '\0';
-		return;
-	}
-	sysLogPrintf(LOG_NOTE, "modmgr: user mods folder '%s'", out);
-}
-
 static void modmgrScanDirectory(void)
 {
+	/* B-1262: a scan starts from an empty registry and root list (the dev
+	 * merge 9f38d6dd dropped these two, so every rescan appended each mod
+	 * again and enabling one failed: "Duplicate installed package
+	 * identity"). */
 	g_ModRegistryCount = 0;
 	g_ModsRootCount = 0;
 
-	/* Read order without --moddir: the user mods folder (created when
-	 * missing; the only folder the game writes mods to), then the install's
-	 * own folders from modsInstallRoots (B-1169). No folder is created under
-	 * the working folder. */
+	/* The folders one scan reads come from fsModRoots (B-1160), the list the
+	 * font, theme, map import and migration scanners use too, so none of
+	 * them can disagree:
+	 *   - the existing-install reuse policy: $B/mods only;
+	 *   - --moddir (B-1031: an isolation contract, never one more
+	 *     candidate): exactly that folder, created here when missing;
+	 *   - otherwise the user mods folder first (Mike, 2026-11-15,
+	 *     mods_roots.h: the only folder the game writes mods to, and on a
+	 *     clash of mod ids its copy wins), created here when missing, then
+	 *     the install's own folders, only read (B-1169).
+	 * No folder is created under the working folder. */
+	fs_mod_roots_t roots;
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	char candidateBufs[MODS_ROOTS_MAX][FS_MAXPATH + 1];
-	const char *candidates[MODS_ROOTS_MAX];
+	const char *candidates[FS_MOD_ROOTS_MAX];
 
-	memset(candidateBufs, 0, sizeof(candidateBufs));
-
-	const char *explicitModsDir = fsGetModDir();
-
-	/* B-1031: --moddir is an explicit isolation/override contract, not one
-	 * more discovery candidate. fsInit has already resolved and validated it.
-	 * The prior dynamic scanner ignored fsGetModDir() and still walked every
-	 * executable/CWD/base root, which made two canonical-executable peers see
-	 * each other's mods even with distinct base/save directories. */
-	if (nativeWritePolicyActive()) {
-		/* Reuse may only mount mods from the exact verified asset base. */
-		fsFullPath("$B/" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else if (explicitModsDir && explicitModsDir[0]) {
-		strncpy(candidateBufs[0], explicitModsDir, sizeof(candidateBufs[0]) - 1);
-		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else {
-		/* The user mods folder first (Mike, 2026-11-15): the only folder the
-		 * game writes mods to, and on a clash of mod ids its copy wins. The
-		 * install's own folders follow and are only read (mods_roots.h). */
-		modmgrResolveUserModsDir(candidateBufs[0], sizeof(candidateBufs[0]));
-		/* B-1169 (Mike, 2026-11-15, option A): then the install's own
-		 * folders only (mods_install_roots.h): the repository-root folder for
-		 * a build inside a source checkout, then <base>/mods next to the game.
-		 * A folder beside the install could belong to another game, and the
-		 * working folder's mods/ follows a shortcut's start folder; neither
-		 * is read. */
-		char exeDir[FS_MAXPATH + 1];
-		char baseDir[FS_MAXPATH + 1];
-		char *installRoots[MODS_INSTALL_ROOTS_MAX] = { candidateBufs[1], candidateBufs[2] };
-		fsFullPath("$E", exeDir, sizeof(exeDir));
-		fsFullPath("$B", baseDir, sizeof(baseDir));
-		/* fsFullPath hands back the placeholder itself when it has no path. */
-		if (exeDir[0] == '$') exeDir[0] = '\0';
-		if (baseDir[0] == '$') baseDir[0] = '\0';
-		if (modsInstallRoots(exeDir, baseDir, installRoots, sizeof(candidateBufs[1]),
-				MODS_INSTALL_ROOTS_MAX) <= 0) {
-			sysLogPrintf(LOG_WARNING,
-				"modmgr: the install's mods folders could not be named (exe '%s', base '%s')",
-				exeDir, baseDir);
-		}
+	fsModRoots(&roots);
+	if (roots.explicit_dir && !nativeWritePolicyActive()) {
+		fsCreateDir(roots.path[0]);
 	}
-	for (s32 i = 0; i < MODS_ROOTS_MAX; i++) candidates[i] = candidateBufs[i];
+	if (roots.user_dir) {
+		if (modsRootsEnsureDir(roots.path[0])) {
+			sysLogPrintf(LOG_NOTE, "modmgr: user mods folder '%s'", roots.path[0]);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not create the user mods folder '%s'; only the install's mods folders are used",
+				roots.path[0]);
+			roots.path[0][0] = '\0';
+		}
+	} else if (!roots.explicit_dir && !nativeWritePolicyActive()) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: no user mods folder could be named; only the install's mods folders are used");
+	}
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
+		candidates[i] = i < roots.count ? roots.path[i] : "";
+	}
 
-	for (s32 i = 0; i < MODS_ROOTS_MAX; i++) {
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
 		if (!candidates[i][0]) continue;
 		dir = opendir(candidates[i]);
 		if (dir) {
@@ -1868,9 +1824,9 @@ static void modmgrScanDirectory(void)
 	}
 
 	if (!dir) {
-		if (explicitModsDir && explicitModsDir[0]) {
+		if (roots.explicit_dir) {
 			sysLogPrintf(LOG_WARNING,
-				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
+				"modmgr: could not open explicit mod directory '%s'", roots.path[0]);
 		} else {
 			sysLogPrintf(LOG_WARNING,
 				"modmgr: could not open a mods folder (tried the user mods folder and the install's mods folders)");
@@ -1960,7 +1916,7 @@ static void modmgrScanDirectory(void)
 	/* Scan the remaining folders (the install's, after the user mods folder)
 	 * for mods not in the primary one. Duplicate mod IDs are skipped, so the
 	 * user copy of a mod wins. */
-	for (s32 ci = 0; ci < MODS_ROOTS_MAX && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
+	for (s32 ci = 0; ci < FS_MOD_ROOTS_MAX && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
 		if (!candidates[ci][0]) continue;
 		/* The primary, or a folder already read under another spelling
 		 * (the user folder is the install's own with --portable). */
@@ -3562,7 +3518,17 @@ s32 modmgrInstallArchiveFile(const char *archive_path,
 	const char *modsdir = modmgrGetModsDir();
 	char fallback_mods[FS_MAXPATH + 1];
 	if (!modsdir || !modsdir[0]) {
-		fsFullPath("./" MODMGR_MODS_DIR, fallback_mods, sizeof(fallback_mods));
+		/* B-1169: the install's own folder, never a mods/ under the
+		 * working folder. */
+		fs_mod_roots_t roots;
+		fsModRoots(&roots);
+		if (roots.count <= 0) {
+			if (out_error && error_len > 0) {
+				snprintf(out_error, (size_t)error_len, "No mods folder is available.");
+			}
+			return -1;
+		}
+		snprintf(fallback_mods, sizeof(fallback_mods), "%s", roots.path[roots.count - 1]);
 		fsCreateDir(fallback_mods);
 		modsdir = fallback_mods;
 	}

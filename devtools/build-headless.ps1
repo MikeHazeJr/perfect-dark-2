@@ -1225,22 +1225,16 @@ if (-not (Test-Path $BuildDir)) {
 }
 
 # ============================================================================
-# Auto-generate Ed25519 keypair if not present (idempotent)
+# Updater signing key (B-1122 follow-up): a build never makes a keypair and
+# never edits the tracked port/include/updater_pubkey.h. That header holds the
+# release public key; a build without dev-keys/ (every fresh worktree) embeds
+# it as a shipped client does, and the tree stays clean. A signing key is made
+# only by release.ps1 when it has to sign, or by hand with keygen.ps1.
 # ============================================================================
 
 $devKeyPath = Join-Path $ProjectDir "dev-keys\ed25519-private.pem"
 if (-not (Test-Path $devKeyPath)) {
-    if ($RetainHousekeeping) { throw "Retained child refuses key generation." }
-    Write-Header "Generating Ed25519 keypair (first build)"
-    $keygenScript = Join-Path $ScriptDir "keygen.ps1"
-    if (Test-Path $keygenScript) {
-        & $keygenScript
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "  Keypair generation failed -- build continues but releases won't be signable."
-        }
-    } else {
-        Write-Warn "  $keygenScript not found -- skipping key generation."
-    }
+    Write-Info "  No dev-keys signing key: this build embeds the tracked updater public key (signing is release.ps1's job)."
 }
 
 # ============================================================================

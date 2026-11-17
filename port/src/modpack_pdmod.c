@@ -912,6 +912,10 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *langKeys[] = {
 		"strings_file", "strings", "file_path"
 	};
+	/* global-ai-lists.md: a .pdai names its rows member in ai.ini. */
+	static const char *aiListsKeys[] = {
+		"ai_lists_file", "file_path"
+	};
 	static const char *materialOptionalKeys[] = {
 		"material_file", "texture_archive", "texture_file", "effect_archive",
 		"file_path"
@@ -1162,6 +1166,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			langKeys, (s32)(sizeof(langKeys) / sizeof(langKeys[0])),
+			NULL, 0);
+	case ASSET_AI_LISTS:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, aiListsKeys,
+				(s32)(sizeof(aiListsKeys) / sizeof(aiListsKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			aiListsKeys, (s32)(sizeof(aiListsKeys) / sizeof(aiListsKeys[0])),
 			NULL, 0);
 	case ASSET_GAMEMODE:
 	case ASSET_BOT_PROFILE:

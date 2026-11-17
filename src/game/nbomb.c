@@ -26,6 +26,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "scenario_source_runtime.h"
 
 s16 var8009cb00;
 s32 var8009cb04;
@@ -907,6 +908,50 @@ Gfx *nbombRenderOverlay(Gfx *gdl)
 	return gdl;
 }
 
+/* The original's Escape gas (gasRender's constants), the rule a ROM stage
+ * uses and the extractor writes into Escape's stage.json. */
+const scenario_stage_gas_t g_EscapeGasRule = {
+	.present = 1,
+	.room_count = 12,
+	.rooms = {
+		ROOM_LUE_0092, ROOM_LUE_0093, ROOM_LUE_0094, ROOM_LUE_0095,
+		ROOM_LUE_0096, ROOM_LUE_0097, ROOM_LUE_0098, ROOM_LUE_0099,
+		ROOM_LUE_009A, ROOM_LUE_0091, ROOM_LUE_008F, ROOM_LUE_0090,
+	},
+	.has_sphere = 1,
+	.sphere_center = { -1473.0f, -308.0f, -13660.0f },
+	.sphere_radius = 1328.0f,
+	.sphere_door_tag = 0x32,
+	.door_room_count = 1,
+	.door_rooms = { { .room = 0x91, .tag_count = 2, .tags = { 0x30, 0x31 }, .add = 0.2f } },
+	.has_cutscene_fade = 1,
+	.fade_start = 2180,
+	.fade_full = 2600,
+};
+
+/* The stage's gas: on a stage built from scenario source its stage.json rule,
+ * on a ROM stage the original's Escape gas. */
+static bool gasActiveRule(scenario_stage_gas_t *out)
+{
+	if (bgUsesScenarioSource()) {
+		return scenarioSourceStageGas(out) != 0;
+	}
+
+	if (g_Vars.stagenum == STAGE_ESCAPE) {
+		*out = g_EscapeGasRule;
+		return true;
+	}
+
+	return false;
+}
+
+bool gasStageHasGas(void)
+{
+	scenario_stage_gas_t rule;
+
+	return gasActiveRule(&rule);
+}
+
 Gfx *gasRender(Gfx *gdl)
 {
 	bool show = false;
@@ -917,71 +962,66 @@ Gfx *gasRender(Gfx *gdl)
 	s32 i;
 	bool drawn = false;
 
-	const s32 gasrooms[] = {
-		ROOM_LUE_0092,
-		ROOM_LUE_0093,
-		ROOM_LUE_0094,
-		ROOM_LUE_0095,
-		ROOM_LUE_0096,
-		ROOM_LUE_0097,
-		ROOM_LUE_0098,
-		ROOM_LUE_0099,
-		ROOM_LUE_009A,
-		ROOM_LUE_0091,
-		ROOM_LUE_008F,
-		ROOM_LUE_0090,
-	};
+	scenario_stage_gas_t rule;
 
-	if (g_Vars.stagenum == STAGE_ESCAPE) {
+	if (gasActiveRule(&rule)) {
 		f32 intensityfrac = 1.0f;
 
 		campos.x = g_Vars.currentplayer->cam_pos.x;
 		campos.y = g_Vars.currentplayer->cam_pos.y;
 		campos.z = g_Vars.currentplayer->cam_pos.z;
 
-		for (i = 0; i < ARRAYCOUNT(gasrooms); i++) {
-			if (bgRoomContainsCoord(&campos, gasrooms[i])) {
+		for (i = 0; i < rule.room_count; i++) {
+			if (bgRoomContainsCoord(&campos, rule.rooms[i])) {
 				show = true;
 			}
 		}
 
 		if (!show) {
-			// Outside of the gas rooms list - check distance to abitrary point
-			f32 distance = sqrtf(
-					(campos.f[0] - -1473.0f) * (campos.f[0] - -1473.0f) +
-					(campos.f[1] - -308.0f) * (campos.f[1] - -308.0f) +
-					(campos.f[2] - -13660.0f) * (campos.f[2] - -13660.0f));
+			// Outside of the gas rooms list - check the distance to the sphere
+			if (rule.has_sphere) {
+				f32 distance = sqrtf(
+						(campos.f[0] - rule.sphere_center[0]) * (campos.f[0] - rule.sphere_center[0]) +
+						(campos.f[1] - rule.sphere_center[1]) * (campos.f[1] - rule.sphere_center[1]) +
+						(campos.f[2] - rule.sphere_center[2]) * (campos.f[2] - rule.sphere_center[2]));
 
-			if (distance < 1328.0f) {
-				show = true;
-				alphafrac = 1.0f - distance / 1328.0f;
-				intensityfrac = gasGetDoorFrac(0x32);
+				if (distance < rule.sphere_radius) {
+					show = true;
+					alphafrac = 1.0f - distance / rule.sphere_radius;
+					intensityfrac = rule.sphere_door_tag >= 0 ? gasGetDoorFrac(rule.sphere_door_tag) : 1.0f;
+				}
 			}
 		} else {
-			if (bgRoomContainsCoord(&campos, 0x91)) {
-				// In the small room between the first two doors
-				f32 frac1 = gasGetDoorFrac(0x30);
-				f32 frac2 = gasGetDoorFrac(0x31);
+			for (i = 0; i < rule.door_room_count; i++) {
+				if (bgRoomContainsCoord(&campos, rule.door_rooms[i].room)) {
+					// A room between doors (Escape: the small room between
+					// the first two): the gas follows the most open door
+					f32 frac = 0.0f;
+					s32 j;
 
-				if (frac2 > frac1) {
-					intensityfrac = frac2;
-				} else {
-					intensityfrac = frac1;
+					for (j = 0; j < rule.door_rooms[i].tag_count; j++) {
+						f32 doorfrac = gasGetDoorFrac(rule.door_rooms[i].tags[j]);
+
+						if (doorfrac > frac) {
+							frac = doorfrac;
+						}
+					}
+
+					intensityfrac = frac + rule.door_rooms[i].add;
+					break;
 				}
-
-				intensityfrac += 0.2f;
 			}
 		}
 
 		alphafrac *= intensityfrac;
 
-		if (show && g_Vars.tickmode == TICKMODE_CUTSCENE) {
+		if (show && rule.has_cutscene_fade && g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			s32 cutsceneframe60 = playerCurrentCutsceneCurAnimFrame60();
 
-			if (cutsceneframe60 < 2180) {
+			if (cutsceneframe60 < rule.fade_start) {
 				show = false;
-			} else if (cutsceneframe60 < 2600) {
-				f32 tmp = (cutsceneframe60 - 2180) / 420.0f;
+			} else if (cutsceneframe60 < rule.fade_full) {
+				f32 tmp = (cutsceneframe60 - rule.fade_start) / (f32)(rule.fade_full - rule.fade_start);
 				alphafrac *= tmp;
 			}
 		}

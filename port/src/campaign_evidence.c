@@ -98,10 +98,13 @@ s32 campaignEvidenceWrite(const campaign_run_t *run,
 		",\n  \"difficulty\": %d,\n  \"start_solo_index\": %d,\n"
 		"  \"final_solo_index\": %d,\n  \"mission_count\": %d,\n"
 		"  \"completed_count\": %d,\n  \"credits_verified\": %s,\n"
+		"  \"terminal\": \"%s\",\n  \"menu_verified\": %s,\n"
 		"  \"missions\": [\n",
 		run->difficulty, run->start_solo_index, run->final_solo_index,
 		run->mission_count, run->completed_count,
-		run->credits_verified ? "true" : "false");
+		run->credits_verified ? "true" : "false",
+		campaignRunTerminalName(run->terminal),
+		run->menu_verified ? "true" : "false");
 
 	for (i = 0; i < run->mission_count; i++) {
 		const campaign_run_mission_t *mission = &run->missions[i];
@@ -116,6 +119,7 @@ s32 campaignEvidenceWrite(const campaign_run_t *run,
 			" \"save_result\": %d, \"besttime\": %u,"
 			" \"persisted_besttime\": %u, \"routed\": %s,"
 			" \"next_unlocked\": %s, \"route_is_credits\": %s,"
+			" \"route_is_menu\": %s, \"menu_reached\": %s,"
 			" \"route_to\": ",
 			mission->solo_index, mission->runtime_stagenum, mission->difficulty,
 			mission->loaded ? "true" : "false", mission->objective_count,
@@ -129,7 +133,9 @@ s32 campaignEvidenceWrite(const campaign_run_t *run,
 			(unsigned int)evidencePersistedBesttime(run, options, i),
 			mission->routed ? "true" : "false",
 			mission->next_unlocked ? "true" : "false",
-			mission->route_is_credits ? "true" : "false");
+			mission->route_is_credits ? "true" : "false",
+			mission->route_is_menu ? "true" : "false",
+			mission->menu_reached ? "true" : "false");
 		evidenceWriteJsonString(stream, mission->route_to);
 		fprintf(stream, "}%s\n", i + 1 < run->mission_count ? "," : "");
 	}

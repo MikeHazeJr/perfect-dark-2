@@ -858,7 +858,7 @@ static s32 s_emitOneSong(s32 slot_idx,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		s_bytebufFree(&mid_buf);
 		s_bytebufFree(&json_buf);

@@ -919,6 +919,7 @@ static asset_type_e categoryToType(const char *dirname)
 	if (strcmp(dirname, "botprofiles") == 0) return ASSET_BOT_PROFILE;
 	if (strcmp(dirname, "bot_profiles") == 0) return ASSET_BOT_PROFILE;
 	if (strcmp(dirname, "themes") == 0)      return ASSET_THEME;
+	if (strcmp(dirname, "ai") == 0)          return ASSET_AI_LISTS;
 	return ASSET_NONE;
 }
 
@@ -962,6 +963,7 @@ static asset_type_e sectionToType(const char *section)
 	if (strcmp(section, "botprofile") == 0)   return ASSET_BOT_PROFILE;
 	if (strcmp(section, "bot_profile") == 0)  return ASSET_BOT_PROFILE;
 	if (strcmp(section, "theme") == 0)        return ASSET_THEME;
+	if (strcmp(section, "ai_lists") == 0)     return ASSET_AI_LISTS;
 	return ASSET_NONE;
 }
 
@@ -2885,6 +2887,20 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 				iniGet(ini, "effect_archive", ""),
 				sizeof(e->ext.theme.effect_archive) - 1);
 			const char *pf = e->ext.theme.theme_file;
+			if (pf[0]) {
+				catalogSetPrimaryFile(e, pf);
+			}
+		}
+		break;
+
+	case ASSET_AI_LISTS:
+		/* global-ai-lists.md: ai.ini names the public rows member
+		 * (ai/global_ailists.json in a .pdai). */
+		{
+			strncpy(e->ext.ai_lists.lists_file,
+				iniGet(ini, "ai_lists_file", iniGet(ini, "file_path", "")),
+				sizeof(e->ext.ai_lists.lists_file) - 1);
+			const char *pf = e->ext.ai_lists.lists_file;
 			if (pf[0]) {
 				catalogSetPrimaryFile(e, pf);
 			}
@@ -5789,6 +5805,8 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		{ "", "ui.ini", ASSET_UI },
 		{ "", "font.ini", ASSET_FONT },
 		{ "", "lang.ini", ASSET_LANG },
+		/* .pdai is the only public AI list unit; a loose ai.ini is not read
+		 * (global-ai-lists.md, a new type with no loose mods to keep). */
 		{ "", "animation.ini", ASSET_ANIMATION },
 	};
 	static const external_descriptor_spec_t specs[] = {
@@ -5821,6 +5839,7 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		{ "ui", "texture.ini", ASSET_UI },
 		{ "fonts", "font.ini", ASSET_FONT },
 		{ "lang", "lang.ini", ASSET_LANG },
+		/* .pdai is the only public AI list unit; loose ai.ini is rejected. */
 		{ "animations", "animation.ini", ASSET_ANIMATION },
 		{ "animations/weapon", "animation.ini", ASSET_ANIMATION },
 		{ "animations/character", "animation.ini", ASSET_ANIMATION },
@@ -6017,7 +6036,8 @@ static s32 archiveIniIsDescriptor(const char *entry_name)
 		|| strcmp(leaf, "lang.ini") == 0
 		|| strcmp(leaf, "animation.ini") == 0
 		|| strcmp(leaf, "hud.ini") == 0
-		|| strcmp(leaf, "theme.ini") == 0;
+		|| strcmp(leaf, "theme.ini") == 0
+		|| strcmp(leaf, "ai.ini") == 0;
 }
 
 static s32 archiveEntryIsDescriptor(const char *entry_name)
@@ -6067,6 +6087,7 @@ static asset_type_e archiveExpectedTypeForPath(const char *entry_name)
 	if (strcmp(seg0, "effects") == 0) return ASSET_EFFECT;
 	if (strcmp(seg0, "hud") == 0) return ASSET_HUD;
 	if (strcmp(seg0, "themes") == 0) return ASSET_THEME;
+	if (strcmp(seg0, "ai") == 0) return ASSET_AI_LISTS;
 
 	if (strcmp(seg0, "characters") == 0) {
 		if (strcmp(seg1, "heads") == 0) return ASSET_HEAD;

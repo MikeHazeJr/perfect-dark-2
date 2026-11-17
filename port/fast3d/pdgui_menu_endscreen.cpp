@@ -1760,5 +1760,5 @@ extern "C" void pdguiMenuEndscreenRegister(void)
 
     /* g_MpEndscreenSavePlayerMenuDialog suppressed in pdgui_menu_mpingame.cpp (B-115).
      * g_MpEndscreenConfirmNameMenuDialog suppressed in pdgui_menu_warning.cpp (B-115).
-     * Both redundant on PC — auto-save via configSave("pd.ini") handles saving. */
+     * Both redundant on PC: auto-save via configSave(CONFIG_PATH) handles saving. */
 }

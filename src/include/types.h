@@ -2405,8 +2405,11 @@ struct gunctrl {
 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
 	struct modeldef *loadretainedmodel; /* Exact stage-pinned source, independent of current catalog rows. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
-	/*0x15b8*/ uintptr_t *loadmemptr;
-	/*0x15bc*/ uintptr_t*loadmemremaining;
+	/* Queue targets use the real object types. They used to be uintptr_t*, so on
+	 * 64-bit every read and write through loadmemremaining covered 8 bytes of a
+	 * 4-byte counter and took masterloadstate, gunloadstate and loadfilenum with it. */
+	/*0x15b8*/ u8 **loadmemptr;
+	/*0x15bc*/ u32 *loadmemremaining; /* memloadremaining, or handmemloadremaining through its unsigned alias */
 	/*0x15c0*/ struct texpool texpool;
 	/*0x15d0*/ u32 nexttexturetoload;
 	/*0x15d4*/ struct fileinfo fileinfo; /* Queued model payload sizes, independent of g_FileInfo[]. */

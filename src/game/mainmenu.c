@@ -1964,6 +1964,36 @@ s32 func0f104720(s32 value)
 	return 20;
 }
 
+/**
+ * B-1117: whether the mission list offers this solo stage at all. The four
+ * special assignments follow the original special-missions list: one per
+ * difficulty Skedar Ruins was completed on, and The Duel once every firing
+ * range weapon has a medal (getNumUnlockedSpecialStages, func0f104720).
+ * isStageDifficultyUnlocked only decides which difficulties an offered
+ * special assignment has, and grants Agent to all of them. Every other stage
+ * is offered once its Agent difficulty is unlocked. The PC mission menu and
+ * the campaign runner both ask here.
+ */
+bool soloStageIsOffered(s32 stageindex)
+{
+	s32 count;
+	s32 slot;
+
+	if (stageindex <= SOLOSTAGEINDEX_SKEDARRUINS || stageindex >= NUM_SOLOSTAGES) {
+		return isStageDifficultyUnlocked(stageindex, DIFF_A);
+	}
+
+	count = getNumUnlockedSpecialStages();
+
+	for (slot = 0; slot < count; slot++) {
+		if (func0f104720(slot) == stageindex) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	struct optiongroup groups[] = {

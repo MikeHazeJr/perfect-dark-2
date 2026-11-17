@@ -16,7 +16,7 @@ const char *source = R"({"source_format":"weapon_animation_commands","name":"Rel
 {"command":"play_sound","slot":7,"sound":"soundmod:reload"},
 {"command":"include_animation","slot":1,"animation":"firstmod:reload"},
 {"command":"random_animation","weight":40,"animation":"secondmod:reload"},
-{"command":"repeat_until_full","slot":9,"dont_loop":1,"goto_trigger":3},
+{"command":"repeat_until_full","slot":9,"dont_loop":0,"goto_trigger":3},
 {"command":"popout_sack_of_pills","slot":10},
 {"command":"play_character_animation","animation":"clipmod:reload","direction":65535,"speed":55536},
 {"command":"set_sound_speed","slot":11,"speed":900},
@@ -50,10 +50,24 @@ TEST_CASE("public weapon command reader preserves all native command semantics a
     REQUIRE(item(s.get(), 5).selector == 1); REQUIRE(item(s.get(), 5).reference_kind == WEAPON_COMMAND_COMMANDS);
     REQUIRE(std::string(item(s.get(), 5).reference) == "firstmod:reload");
     REQUIRE(std::string(item(s.get(), 6).reference) == "secondmod:reload"); REQUIRE(item(s.get(), 6).trigger == 40);
-    REQUIRE(item(s.get(), 7).trigger == 9); REQUIRE(item(s.get(), 7).value == ((intptr_t{1} << 16) | 3));
+    REQUIRE(item(s.get(), 7).trigger == 9); REQUIRE(item(s.get(), 7).value == 3);
     REQUIRE(item(s.get(), 8).trigger == 10); REQUIRE(item(s.get(), 9).reference_kind == WEAPON_COMMAND_CLIP);
     REQUIRE(item(s.get(), 9).value == ((intptr_t{65535} << 16) | 55536));
     REQUIRE(item(s.get(), 10).value == 900); REQUIRE_FALSE(item(s.get(), 11).reference);
+}
+TEST_CASE("public weapon command reader admits only backward repeat targets", "[weapon-command-source]") {
+    for (const auto &text : {
+            replace(source, "\"dont_loop\":0", "\"dont_loop\":1"),
+            replace(source, "\"dont_loop\":0", "\"dont_loop\":65535"),
+            replace(source, "\"goto_trigger\":3", "\"goto_trigger\":9"),
+            replace(source, "\"goto_trigger\":3", "\"goto_trigger\":10"),
+            replace(replace(source, "\"slot\":9", "\"slot\":0"), "\"goto_trigger\":3", "\"goto_trigger\":0")}) {
+        parse(text, false);
+    }
+    auto first = parse(replace(replace(source, "\"slot\":9", "\"slot\":1"), "\"goto_trigger\":3", "\"goto_trigger\":0"));
+    REQUIRE(item(first.get(), 7).trigger == 1); REQUIRE(item(first.get(), 7).value == 0);
+    auto last = parse(replace(replace(source, "\"slot\":9", "\"slot\":65535"), "\"goto_trigger\":3", "\"goto_trigger\":65534"));
+    REQUIRE(item(last.get(), 7).trigger == 65535); REQUIRE(item(last.get(), 7).value == 65534);
 }
 TEST_CASE("public weapon command reader rejects malformed source without partial records", "[weapon-command-source]") {
     const auto text = GENERATE_COPY(

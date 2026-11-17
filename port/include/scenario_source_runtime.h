@@ -79,6 +79,49 @@ s32 scenarioSourceObjectiveGraphRecordStageFlags(u32 flags);
 s32 scenarioSourceObjectiveGraphHasStageFlag(u32 flag, s32 *out_has_flag);
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason);
+/* mission-flow.md: 0 when the active mission graph leaves objective `index`
+ * out of the mission's outcome ("required": false on its objectives.json
+ * row); 1 otherwise, also with no mission graph or an objective it does not
+ * know (that one stays incomplete, so the mission cannot complete). */
+s32 scenarioSourceMissionObjectiveRequired(s32 index);
+/* mission-flow.md: deliver a recorded phase change as
+ * event.mission.phase_changed (only objectivesCheckAll calls it); end the
+ * mission from its graph (og.mission.end_*); the outcome a graph forced; and
+ * whether the stage must end now (taken once, after the objectives check). */
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void);
+/* trigger-volume-events.md: players going into or out of the volumes the
+ * mission graph names; called from the objectives check after the phase
+ * with every player's position (present[p] 0 when it has no prop). */
+struct coord;
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
+/* object-events.md slice 1: players going into or out of the volumes the
+ * level graph's own program names, on every stage; called from lvTick after
+ * scenarioTick on the host (present[p] 0 when a player has no prop). */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
+/* object-events.md slice 2: an object event from a native seam
+ * (MISSION_GRAPH_EVENT_PICKUP_COLLECTED, _DOOR_OPENED, _DOOR_CLOSED,
+ * _OBJECT_USED), after the native decision and effect: the object's
+ * objects.json record_id ("" when it has none), its tag (-1 when none), its
+ * object type, its catalog id (a pickup's weapon, else its model; may be
+ * NULL) and the player who caused it (-1 when none). Fired on the host only.
+ * Returns the modules run. The totals are logged once per stage. */
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+void scenarioSourceGraphObjectEventsReport(const char *reason);
+/* object-events.md slice 3: a query from a native seam before the native
+ * rule (MISSION_GRAPH_EVENT_PICKUP_REQUESTED, _DOOR_OPEN_REQUESTED), with the
+ * same payload. Returns 1 when a graph refused it (og.pickup.refuse,
+ * og.door.refuse), 0 to let the native rule decide. Asked on the host only. */
+s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+/* Whether any active graph handles that query kind (cheap; a seam asks
+ * first, so the base game builds no payload). */
+s32 scenarioSourceGraphHandlesObjectQuery(s32 kind);
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
+s32 scenarioSourceMissionGraphTakePendingEnd(void);
 s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	struct chopperobj *hovercar);
 s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr);
@@ -290,6 +333,9 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteRebuildTeams(void);
+/* ai-list-graphs.md: the two simulant commands (host only). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label);
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void);
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void);
 s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	s32 chrnum, s32 listening);
@@ -829,6 +875,8 @@ struct scenario_stage_player;
 struct scenario_stage_ai;
 struct scenario_stage_ending;
 struct scenario_stage_stars;
+struct scenario_stage_sparks;
+struct scenario_stage_gas;
 s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp);
 s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
@@ -839,6 +887,32 @@ s32 scenarioSourceStageIsHub(void);
 /* B-1172 / decision 1: the loaded stage's starfield rule; 0 when it has none.
  * out may be NULL. */
 s32 scenarioSourceStageStars(struct scenario_stage_stars *out);
+/* The loaded stage's sparks rule; 0 when it has none. out may be NULL. */
+s32 scenarioSourceStageSparks(struct scenario_stage_sparks *out);
+/* The loaded stage's gas rule; 0 when it has none. out may be NULL. */
+s32 scenarioSourceStageGas(struct scenario_stage_gas *out);
+
+/* A pd2.scenario.ai.lists.v1 document compiled to the AI interpreter's
+ * bytes by the same reader and compiler as a scenario's ai/ailists.json
+ * (catalog ids resolved to their numbers): one entry per list in document
+ * order. Returns 1, or 0 with a reason in error. scenarioSourceAiListsFree
+ * releases the lists. Global AI lists: context/designs/modding/global-ai-lists.md.
+ * edges (AI lists as graphs, slice 2): the list's edge table for the shadow
+ * walk, built from the same commands (NULL when they give none). The owner of
+ * lists that run hands it to aiEdgeShadowRegister (ai_edge_shadow.h) and
+ * clears the field; scenarioSourceAiListsFree frees one still there. */
+struct ai_edge_table;
+typedef struct scenario_ai_compiled_list {
+	s32 id;
+	u8 *bytes;
+	u32 size;
+	u32 commands;
+	struct ai_edge_table *edges;
+} scenario_ai_compiled_list_t;
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size);
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count);
 
 #ifdef __cplusplus
 }

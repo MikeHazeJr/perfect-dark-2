@@ -285,13 +285,20 @@ static s32 copyDirRecursive(const char *src, const char *dst)
 }
 
 /**
- * Get the resolved mods directory path. Checks CWD-relative first.
+ * The mods folder imports go to: the one the mod manager resolved, else the
+ * install's own folder (B-1169: never a mods/ under the working folder).
  */
 static const char *getModsDir(void)
 {
+	static char fallback[FS_MAXPATH + 1];
+	fs_mod_roots_t roots;
 	const char *dir = modmgrGetModsDir();
+
 	if (dir && dir[0]) return dir;
-	return "./" MODMGR_MODS_DIR;
+	fsModRoots(&roots);
+	snprintf(fallback, sizeof(fallback), "%s",
+		roots.count > 0 ? roots.path[roots.count - 1] : "");
+	return fallback;
 }
 
 static const char *pathLeaf(const char *path)

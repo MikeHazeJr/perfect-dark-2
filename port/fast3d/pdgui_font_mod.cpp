@@ -261,27 +261,19 @@ static void rescan(void)
 {
     s_Count = 0;
 
-    /* Match modmgr search order for mods/ roots. */
-    char cands[4][FONTMOD_PATH_LEN];
-    if (nativeWritePolicyActive()) {
-        fsFullPath("$B/mods", cands[0], sizeof(cands[0]));
-        cands[1][0] = cands[2][0] = cands[3][0] = '\0';
-    } else {
-    fsFullPath("$E/../mods", cands[0], sizeof(cands[0]));
-    snprintf(cands[1], sizeof(cands[1]), "%s", "mods");
-    fsFullPath("$E/mods", cands[2], sizeof(cands[2]));
-    fsFullPath("mods",    cands[3], sizeof(cands[3]));
-    }
+    /* B-1160: the same mods/ roots modmgr walks (only the explicit
+     * --moddir when one is given). */
+    fs_mod_roots_t roots;
+    fsModRoots(&roots);
 
-    for (int i = 0; i < 4; i++) {
-        if (!cands[i][0]) continue;
+    for (int i = 0; i < roots.count; i++) {
         /* De-dupe resolved paths. */
         bool dup = false;
         for (int j = 0; j < i; j++) {
-            if (cands[j][0] && strcmp(cands[i], cands[j]) == 0) { dup = true; break; }
+            if (strcmp(roots.path[i], roots.path[j]) == 0) { dup = true; break; }
         }
         if (dup) continue;
-        scan_mods_root(cands[i]);
+        scan_mods_root(roots.path[i]);
         if (s_Count >= FONTMOD_MAX) break;
     }
 

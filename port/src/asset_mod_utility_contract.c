@@ -44,6 +44,7 @@ static const asset_mod_utility_contract_t s_Contracts[] = {
 	{ ASSET_BOT_PROFILE, "bot_profile", ".pdbotprofile", "botprofile.ini",  "Rules",        "bot-profile", UTIL_CORE },
 	{ ASSET_HUD,         "hud",         ".pdhud",        "hud.ini",         "UI",           "hud",         UTIL_WITH_PREVIEW },
 	{ ASSET_THEME,       "theme",       ".pdtheme",      "theme.ini",       "Menu Style",   "theme",       UTIL_WITH_PREVIEW },
+	{ ASSET_AI_LISTS,    "ai_lists",    ".pdai",         "ai.ini",          "AI Lists",     "ai-lists",    UTIL_CORE },
 	{ ASSET_TOOL,        "tool",        ".pdtool",       "tool.ini",        "Tools",        "tool",        UTIL_VALIDATE_ONLY | ASSET_MOD_UTIL_SECURE_TOOL },
 };
 
