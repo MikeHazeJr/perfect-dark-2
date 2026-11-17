@@ -11476,3 +11476,56 @@ Next
   tick AI commands and AI actions and simulants.
 - Build and test object-events slice 1 once MULTIPLAYER's smoke ends; then
   slice 2 (record-only pickup, door and use events).
+
+## 2026-11-16 (21:25 UTC) to 2026-11-17 (01:10 UTC) - CORE: slice 3b in play, object events slices 1-3 built and in play, B-1259
+
+Mike (22:00 UTC): raise CORE's C: smoke archive cap from 2 to 4 GiB, run
+slice 3b's smokes, carry on with object-events slices 1 and 2; keep C: above
+the 100 GB floor; commit and push as you go; no merges into dev or main
+without his OK.
+
+Done
+- The cap is 4 GiB in CORE's untracked `.claude/smoke-storage-location.json`.
+- Turn q_20261116220351738_26b6bced (22:21-22:49 UTC, core-tf = da7cd094):
+  all pass: simulant twins 17/17 (both branches of if_bot_respawning, the
+  harness killing a simulant twice), Complex 12/12, mod bank 10/10, release
+  61/61, specials 49/49. The AI commands and AI actions rows are ticked.
+- Object events (context/designs/modding/object-events.md): slice 1
+  f63e4248 (every stage compiles its level graph's own program), slice 2
+  5233cbb7 (record-only pickup.collected, door.opened, door.closed,
+  object.used at the native seams, totals per stage), slice 3 4881fc32
+  (node parameters, native gates, the pickup and door queries, og.door.*,
+  og.pickup.give, gate.object.kind, gate.player.has_item), ae3ba2a8 (the
+  design's "as written"), caf00d7c (conformance's kind sets checked against
+  the runner and module table by pd-tests).
+- Turn q_20261117000144009_bab5471d (00:15-00:45 UTC; caf00d7c built inside
+  the turn, pd-tests 2,061 cases; client core-tg): all pass (17/17, 12/12,
+  10/10, 61/61, 49/49). 35 level program activations, nodes=1
+  exec_edges=0, no refusal; doors opened in 7 missions (G5 Building 16),
+  pickups in 13; nothing failed. Every payload had object=-.
+- 97f4d167: slice 4 planned (the native pickup and door rules as wired
+  modules, the queries folded in, fail closed, a parity probe).
+- 4cbcd3da: B-1259 fixed. setupGetCmdIndexByProp read the prop pointer from
+  the command's word 5 (the N64 offset; padding on 64-bit), so it never
+  matched: empty record ids, and multiplayer's regeneration of an object
+  inside another looked up the wrong parent. It now reads the object's prop
+  field through setupCmdObj (shared with setupGetObjByCmdIndex). SP-94; its
+  searches found no other instance. Same commit: a literal NUL byte in
+  propobj.c (objGraphEventCapture's '\0', since 5233cbb7; same value, but
+  grep saw a binary file) is the escape again; no other tracked source has
+  a NUL byte.
+- door.closed=0 is not a bug: each campaign smoke mission lasts 3-6 s and
+  the doors open near its end.
+- Week note: log entry 01:08 UTC; the Doors and Pickups rows say what is
+  built (not ticked). C: 197.48 GiB free at the tg turn's start, 193.89 at
+  its end (installs recycled); 192 GiB at 01:03 UTC.
+- Pushed week-pd/core through 4cbcd3da.
+
+Next
+- Turn q_20261117010613172_f7fbd316 (core-th, queued behind MULTIPLAYER,
+  about 55 min): build 4cbcd3da inside the turn, pd-tests, simulant twins,
+  Complex, release, specials and the campaign soak (60 s per mission, for
+  door.closed); the report checks each logged payload against its stage's
+  objects.json row (record id, kind, catalog id).
+- Then object-events slice 4 (Pickups and Doors rows).
+- Recycle the frozen clients core-te and core-tf once core-th is frozen.
