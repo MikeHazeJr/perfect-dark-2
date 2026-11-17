@@ -568,8 +568,10 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
 	char err[256] = { 0 };
 
 	weaponGraphRuntimeClearAll();
-	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, v2.data(),
-		(u32)v2.size(), err, sizeof(err)) == 0);
+	const s32 registered = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id,
+		v2.data(), (u32)v2.size(), err, sizeof(err));
+	INFO("registration error: " << err);
+	REQUIRE(registered == 0);
 	const mission_graph_program_t *program = weaponGraphRuntimeProjectileProgram(id);
 	REQUIRE(program != nullptr);
 	CHECK(missionGraphProgramNodeCount(program) == 2);
