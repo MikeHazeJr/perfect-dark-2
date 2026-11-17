@@ -2088,6 +2088,46 @@ static void forgeDrawLevelFileSection(void)
 	const bool haveSelected = s_LevelFileObjectIndex >= 0
 		&& forgeLevelDocGetObject(doc, s_LevelFileObjectIndex, &selected)
 		&& strcmp(selected.record_id, s_LevelFileObject) == 0;
+
+	/* New objects, for a level that has none of the kind to copy. A new weapon
+	 * place takes the lowest place number the level does not use yet. */
+	if (ImGui::Button("New Weapon Place Here")) {
+		bool used[16] = {};
+		s32 slot = 0;
+		char id[32];
+		for (s32 i = 0; i < forgeLevelDocObjectCount(doc); i++) {
+			forge_level_object_t object;
+			if (forgeLevelDocGetObject(doc, i, &object) && object.weapon_slot >= 0 && object.weapon_slot < 16) {
+				used[object.weapon_slot] = true;
+			}
+		}
+		while (slot < 15 && used[slot]) slot++;
+		if (used[slot]) slot = 0;
+		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, slot, position, look, id, sizeof(id),
+				err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Added %s where the camera is: weapon place %d of the match.", id,
+				(int)slot + 1);
+			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+		} else {
+			forgeLevelFileStatus(true, "Could not add a weapon place: %s", err);
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("New Ammo Crate Here")) {
+		char id[32];
+		if (forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, position, look, id, sizeof(id),
+				err, sizeof(err))) {
+			s_LevelFileEdits++;
+			forgeLevelFileStatus(false, "Added the ammo crate %s where the camera is.", id);
+			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+		} else {
+			forgeLevelFileStatus(true, "Could not add an ammo crate: %s", err);
+		}
+	}
+
 	ImGui::BeginDisabled(!haveSelected || !selected.movable);
 	if (ImGui::Button("Move Object Here")) {
 		if (forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err))) {

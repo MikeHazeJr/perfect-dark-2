@@ -55,6 +55,14 @@ constexpr const char *kScaleField = "base.extra_scale";
 constexpr const char *kWeaponField = "pickup.weapon";
 constexpr const char *kPickupKind = "weapon_pickup";
 constexpr const char *kPropKind = "prop";
+constexpr const char *kCrateKind = "multi_ammo_crate";
+/* What a new weapon place and a new ammo crate are drawn with: the models
+ * every weapon place (260 of 260) and every such crate (524 of 524) of the
+ * base levels names. A place shows its stand-in only until a match's weapon
+ * set gives it a weapon. */
+constexpr const char *kPlaceModel = "base:model_roofgun";
+constexpr const char *kCrateModel = "base:model_multi_ammo_crate";
+constexpr int kCrateSlots = 19;          /* multi_ammo_crate.slots[0] to [18] */
 constexpr long kWeaponSlots = 16;        /* mp_location_00 to mp_location_15 */
 /* An object's size is an unsigned 16-bit number in the game and a weapon
  * set's a signed one (types.h: defaultobj and mpweapon); this fits both. */
@@ -1629,6 +1637,154 @@ s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
 	doc->objects.push_back(copy);
 	doc->objectFlags.push_back(copyFlags);
 	doc->objectCatalog.push_back(copyWhat);
+	doc->nextOrder = place + 1;
+	graphSyncCounts(*doc);
+	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());
+	return 1;
+}
+
+s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (out_record_id && out_cap) out_record_id[0] = '\0';
+	if (!doc) {
+		setError(err, err_cap, "no level is open");
+		return 0;
+	}
+	if (kind < 0 || kind >= FORGE_LEVEL_NEW_KIND_COUNT) {
+		setError(err, err_cap, "%d is not a kind of object that can be made here", static_cast<int>(kind));
+		return 0;
+	}
+	const bool isPlace = kind == FORGE_LEVEL_NEW_WEAPON_PLACE;
+	if (isPlace && (weapon_slot < 0 || weapon_slot >= kWeaponSlots)) {
+		setError(err, err_cap, "a match has weapon places 0 to %ld, not %d", kWeaponSlots - 1,
+			static_cast<int>(weapon_slot));
+		return 0;
+	}
+	if (doc->nextOrder > FORGE_LEVEL_MAX_OBJECT_NUMBER) {
+		setError(err, err_cap, "the level's command list is full (setup_%04d is its last place)",
+			FORGE_LEVEL_MAX_OBJECT_NUMBER);
+		return 0;
+	}
+
+	/* The next command, on the next pad: the same rule a copy follows. */
+	const long place = doc->nextOrder;
+	const std::string id = numbered("setup_", place);
+	const std::string ref = numbered("pad_", static_cast<long>(doc->pads.size()));
+	if (doc->recordRows.count(id) || findObject(*doc, id.c_str()) >= 0) {
+		setError(err, err_cap, "the level already has a %s", id.c_str());
+		return 0;
+	}
+	const char *const kindName = isPlace ? kPickupKind : kCrateKind;
+	const char *const model = isPlace ? kPlaceModel : kCrateModel;
+
+	/* Every row of the record, in the extractor's order and layout, before
+	 * anything is changed. The rows that the document keeps track of are
+	 * remembered by their place in this list. */
+	std::vector<std::string> texts;
+	std::vector<forge_level_doc::FieldRow> infos;
+	long modelAt = -1;
+	long scaleAt = -1;
+	long weaponAt = -1;
+	long flagsAt = -1;
+	const auto add = [&](const std::string &field, const char *type, const std::string &value,
+			const std::string &catalog = std::string()) {
+		forge_level_doc::FieldRow info;
+		info.record = id;
+		info.field = field;
+		info.value = value;
+		info.type = type;
+		info.catalog = catalog;
+		infos.push_back(info);
+		texts.push_back("{\n      \"record_id\": \"" + id + "\",\n      \"kind\": \"" + kindName +
+			"\",\n      \"field\": \"" + field + "\",\n      \"type\": \"" + type + "\",\n      \"value\": \"" +
+			value + "\",\n      \"catalog_id\": \"" + catalog + "\",\n      \"ref_record_id\": \"\"\n    }");
+		return static_cast<long>(texts.size() - 1);
+	};
+	add("command.order", "s32", std::to_string(place));
+	scaleAt = add(kScaleField, "s32", "256");
+	add("base.hidden2", "s32", "0");
+	modelAt = add(kModelField, "model_catalog_id", "", model);
+	add("base.pad", "pad_ref", ref);
+	add("base.flags", "u32_hex", "0x00000001");
+	flagsAt = add(kFlagsField, "u32_hex", "0x00000000");
+	add("base.flags3", "u32_hex", "0x00000000");
+	for (int row = 0; row < 3; row++) {
+		for (int column = 0; column < 3; column++) {
+			add("base.rotation[" + std::to_string(row) + "][" + std::to_string(column) + "]", "f32", "0");
+		}
+	}
+	add("base.hidden", "u32_hex", "0x00000000");
+	add("base.damage", "s32", "0");
+	add("base.max_damage", "s32", "1000");
+	for (int i = 0; i < 4; i++) add("base.shade_color[" + std::to_string(i) + "]", "s32", "0");
+	for (int i = 0; i < 4; i++) add("base.next_color[" + std::to_string(i) + "]", "s32", "0");
+	add("base.floor_color", "s32", "4095");
+	add("base.geo_count", "s32", "0");
+	if (isPlace) {
+		weaponAt = add(kWeaponField, "weapon_selector", weaponSlotText(weapon_slot));
+		add("pickup.unknown_5d", "s32", "0");
+		add("pickup.unknown_5e", "s32", "0");
+		add("pickup.fire_mode", "s32", "0");
+		add("pickup.fadeout_timer60", "s32", "0");
+		add("pickup.dual_weapon", "weapon_selector", "none");
+		add("pickup.team_or_timer240", "s32", "-1");
+	} else {
+		for (int i = 0; i < kCrateSlots; i++) {
+			const std::string slot = "multi_ammo_crate.slots[" + std::to_string(i) + "]";
+			add(slot + ".model", "model_catalog_id", "");
+			add(slot + ".quantity", "s32", "0");
+		}
+	}
+	const std::string objectRow = "{\n      \"record_id\": \"" + id + "\",\n      \"kind\": \"" + kindName +
+		"\",\n      \"pad_ref\": \"" + ref + "\",\n      \"model_catalog_id\": \"" + model +
+		"\",\n      \"weapon_catalog_id\": \"\",\n      \"secondary_weapon_catalog_id\": \"\",\n"
+		"      \"body_catalog_id\": \"\",\n      \"head_catalog_id\": \"\",\n      \"ailist_ref\": \"\",\n"
+		"      \"flags\": \"0x00000001\",\n      \"flags2\": \"0x00000000\",\n      \"flags3\": \"0x00000000\"\n    }";
+
+	std::string error;
+	if (addPad(*doc, position, look, error) < 0) {
+		setError(err, err_cap, "%s", error.c_str());
+		return 0;
+	}
+
+	Table &objects = doc->tables[FORGE_LEVEL_MEMBER_OBJECTS];
+	Table &fields = doc->tables[FORGE_LEVEL_MEMBER_SETUP_FIELDS];
+	const long firstRow = static_cast<long>(doc->fields.size());
+	objects.append(objectRow);
+	for (size_t i = 0; i < texts.size(); i++) {
+		fields.append(texts[i]);
+		doc->fields.push_back(infos[i]);
+		doc->recordRows[id].push_back(doc->fields.size() - 1);
+	}
+
+	forge_level_object_t object = {};
+	copyOut(object.record_id, id.c_str());
+	copyOut(object.kind, kindName);
+	copyOut(object.pad_ref, ref.c_str());
+	copyOut(object.model_catalog_id, model);
+	object.order = static_cast<s32>(place);
+	object.movable = 1;
+	object.removable = 1;
+	object.removed = 0;
+	object.weapon_slot = isPlace ? weapon_slot : -1;
+	object.model_settable = 1;
+	object.weapon_settable = isPlace ? 1 : 0;
+	forge_level_doc::ObjectFlags flags;
+	flags.inObjects = true;
+	flags.known = true;
+	flags.fieldRow = static_cast<size_t>(firstRow + flagsAt);
+	flags.objectsText = "0x00000000";
+	flags.fieldText = "0x00000000";
+	forge_level_doc::ObjectCatalog what;
+	what.modelRow = firstRow + modelAt;
+	what.scaleRow = firstRow + scaleAt;
+	what.weaponRow = isPlace ? firstRow + weaponAt : -1;
+	doc->objects.push_back(object);
+	doc->objectFlags.push_back(flags);
+	doc->objectCatalog.push_back(what);
 	doc->nextOrder = place + 1;
 	graphSyncCounts(*doc);
 	if (out_record_id && out_cap) snprintf(out_record_id, out_cap, "%s", id.c_str());

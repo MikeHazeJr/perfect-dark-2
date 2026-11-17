@@ -19,9 +19,9 @@
  *                                                    bounds row, and counts
  *
  * This module reads those six texts, lets a caller add, move and remove
- * spawns, move, duplicate and leave out objects, change what a weapon pickup
- * gives and which model a prop is drawn with, and gives the texts back for
- * saving.
+ * spawns, move, duplicate and leave out objects, make a weapon place or an
+ * ammo crate where there is none to copy, change what a weapon pickup gives
+ * and which model a prop is drawn with, and gives the texts back for saving.
  * It holds no game state and touches no file: text in, text out. Forge's
  * editor fills it from the level's archive and hands the changed members to
  * the mod author (context/designs/modding/forge-mode-scope.md, step F2).
@@ -211,6 +211,37 @@ s32 forgeLevelDocMoveObject(forge_level_doc_t *doc, const char *record_id,
  * out is not copied: put it back first.
  */
 s32 forgeLevelDocDuplicateObject(forge_level_doc_t *doc, const char *record_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap);
+
+/* The kinds of object this module makes where there is none to copy. */
+enum {
+	FORGE_LEVEL_NEW_WEAPON_PLACE = 0,   /* one of the match's weapon places */
+	FORGE_LEVEL_NEW_AMMO_CRATE,         /* the crate a match fills with ammunition for its weapons */
+	FORGE_LEVEL_NEW_KIND_COUNT
+};
+
+/*
+ * A new object at a place, made from nothing, for a level that has no object
+ * of that kind to copy: an empty level has none of any kind. It gets a pad of
+ * its own and the next id at the end of the command list, as a copy does.
+ *
+ * Its record is the one every such object of the multiplayer arenas has: the
+ * same list of fields (37 for a weapon place, 68 for an ammo crate; each kind
+ * has exactly one list across all the base levels) with the values those
+ * objects share. A weapon place is weapon place `weapon_slot` (0 to 15) of the
+ * match, with the stand-in model the arenas give a place until the match's
+ * weapon set gives it a weapon (`base:model_roofgun`). An ammo crate is
+ * `base:model_multi_ammo_crate` with its nineteen slots empty, as in every
+ * arena: the match fills it. Both fall to the floor under them (flags
+ * 0x00000001), are life size (256) and can be moved, copied, left out and,
+ * for the place, given a weapon afterwards. `weapon_slot` is ignored for a
+ * crate.
+ *
+ * The two model ids are the game's own, so the level names assets every
+ * install has; nothing of them is in the level.
+ */
+s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
 	char *err, size_t err_cap);
 

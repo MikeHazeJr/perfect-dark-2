@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -1996,6 +1997,165 @@ TEST_CASE("A prop is given another model, and a copied pickup is changed without
 	CHECK(std::string(armouryFind(again.doc, "setup_0005").weapon_catalog_id) == "base:dragon");
 	CHECK(armouryFind(again.doc, "setup_0005").weapon_settable == 1);
 	CHECK(std::string(armouryFind(again.doc, "setup_0002").model_catalog_id) == "mod:prop_maian_crate");
+}
+
+TEST_CASE("A level with no objects gains a weapon place and an ammo crate made from nothing",
+          "[forge-level-doc]")
+{
+	/* An empty level: pads, starts and bounds, and no object of any kind to
+	 * copy. This is what a level template made from a model starts as. */
+	const char *const noObjects = "{\n  \"schema\": \"pd2.scenario.objects.v1\",\n  \"rows\": [\n  ]\n}\n";
+	Level level(kPads, kSpawns, noObjects, kVolumes, kNoFields);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	REQUIRE(forgeLevelDocObjectCount(level.doc) == 0);
+	char err[256] = { 0 };
+	char id[32] = { 0 };
+	const f32 nowhere[3] = { 0.0f, 0.0f, 0.0f };
+	const f32 broken[3] = { 1.0f, std::numeric_limits<f32>::quiet_NaN(), 3.0f };
+
+	/* What cannot be made changes nothing. */
+	CHECK(forgeLevelDocAddObject(level.doc, -1, 0, kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "-1 is not a kind of object that can be made here");
+	CHECK(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_KIND_COUNT, 0, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 16, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "a match has weapon places 0 to 15, not 16");
+	CHECK(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, -1, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, broken, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(std::string(err) == "a position and a facing need three finite numbers each");
+	CHECK(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0, kPlace, nowhere, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddObject(nullptr, FORGE_LEVEL_NEW_AMMO_CRATE, 0, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 0);
+	CHECK(std::string(id).empty());
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+		CAPTURE(member);
+		CHECK(forgeLevelDocMemberChanged(level.doc, member) == 0);
+	}
+	CHECK(forgeLevelDocObjectCount(level.doc) == 0);
+	CHECK(forgeLevelDocPadCount(level.doc) == 3);
+
+	/* Weapon place 5 of the match, then a crate. Each takes the next command
+	 * and a pad of its own, with the pad's bounds row and graph node. */
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 5, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0000");
+	/* A crate ignores the weapon place it is handed. */
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 99, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0001");
+	CHECK(forgeLevelDocObjectCount(level.doc) == 2);
+	CHECK(forgeLevelDocPadCount(level.doc) == 5);
+	CHECK(forgeLevelDocVolumeCount(level.doc) == 5);
+	/* 37 rows for a weapon place and 68 for a crate, as every one of the base
+	 * levels has. */
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 37 + 68);
+
+	forge_level_object_t place = armouryFind(level.doc, "setup_0000");
+	CHECK(std::string(place.kind) == "weapon_pickup");
+	CHECK(std::string(place.pad_ref) == "pad_0003");
+	CHECK(std::string(place.model_catalog_id) == "base:model_roofgun");
+	CHECK(std::string(place.weapon_catalog_id).empty());
+	CHECK(place.order == 0);
+	CHECK(place.weapon_slot == 5);
+	CHECK(place.movable == 1);
+	CHECK(place.removable == 1);
+	CHECK(place.removed == 0);
+	CHECK(place.model_settable == 1);
+	CHECK(place.weapon_settable == 1);
+	forge_level_object_t crate = armouryFind(level.doc, "setup_0001");
+	CHECK(std::string(crate.kind) == "multi_ammo_crate");
+	CHECK(std::string(crate.pad_ref) == "pad_0004");
+	CHECK(std::string(crate.model_catalog_id) == "base:model_multi_ammo_crate");
+	CHECK(crate.order == 1);
+	CHECK(crate.weapon_slot == -1);
+	CHECK(crate.movable == 1);
+	CHECK(crate.removable == 1);
+	CHECK(crate.weapon_settable == 0);
+
+	/* The rows are the extractor's, in its layout. */
+	const std::string objects = level.text(FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string fields = level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	const std::string graph = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+	CHECK(objects.find("  \"rows\": [\n    {\n      \"record_id\": \"setup_0000\",\n      \"kind\": \"weapon_pickup\",\n"
+		"      \"pad_ref\": \"pad_0003\",\n      \"model_catalog_id\": \"base:model_roofgun\",\n"
+		"      \"weapon_catalog_id\": \"\",\n      \"secondary_weapon_catalog_id\": \"\",\n"
+		"      \"body_catalog_id\": \"\",\n      \"head_catalog_id\": \"\",\n      \"ailist_ref\": \"\",\n"
+		"      \"flags\": \"0x00000001\",\n      \"flags2\": \"0x00000000\",\n      \"flags3\": \"0x00000000\"\n"
+		"    },\n    {\n      \"record_id\": \"setup_0001\",\n      \"kind\": \"multi_ammo_crate\",\n") !=
+		std::string::npos);
+	CHECK(objects.rfind("\n    }\n  ]\n}\n") == objects.size() - strlen("\n    }\n  ]\n}\n"));
+	CHECK(fields.find("  \"rows\": [\n" + fieldRow("setup_0000", "weapon_pickup", "command.order", "s32", "0") +
+		",\n" + fieldRow("setup_0000", "weapon_pickup", "base.extra_scale", "s32", "256") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "base.hidden2", "s32", "0") + ",\n" +
+		catalogRow("setup_0000", "weapon_pickup", "base.model", "model_catalog_id", "base:model_roofgun") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "base.pad", "pad_ref", "pad_0003") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "base.flags", "u32_hex", "0x00000001") + ",\n") !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector",
+		"mp_location_05")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "pickup.dual_weapon", "weapon_selector", "none")) !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "pickup.team_or_timer240", "s32", "-1")) !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0000", "weapon_pickup", "base.rotation[2][2]", "f32", "0")) !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0001", "multi_ammo_crate", "command.order", "s32", "1")) != std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0001", "multi_ammo_crate", "base.pad", "pad_ref", "pad_0004")) !=
+		std::string::npos);
+	CHECK(fields.find(fieldRow("setup_0001", "multi_ammo_crate", "multi_ammo_crate.slots[18].quantity", "s32",
+		"0") + "\n  ]\n}\n") != std::string::npos);
+	CHECK(occurrences(fields, "\"field\": \"multi_ammo_crate.slots[") == 38);
+	CHECK(occurrences(fields, "\"record_id\": \"setup_0000\"") == 37);
+	CHECK(occurrences(fields, "\"record_id\": \"setup_0001\"") == 68);
+	/* The graph keeps a node for each bounds row and counts the objects. */
+	CHECK(occurrences(graph, kVolumeNode) == 5);
+	CHECK(graph.find("\"objects\": 2") != std::string::npos);
+	CHECK(graph.find("\"pads\": 5") != std::string::npos);
+
+	/* What was written reads back as the same two objects, and they take
+	 * every edit an object of a base level takes. */
+	{
+		Level again(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, objects, level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+			fields, graph);
+		INFO(again.error);
+		REQUIRE(again.doc != nullptr);
+		CHECK(forgeLevelDocObjectCount(again.doc) == 2);
+		const forge_level_object_t read = armouryFind(again.doc, "setup_0000");
+		CHECK(read.weapon_slot == 5);
+		CHECK(read.weapon_settable == 1);
+		CHECK(read.movable == 1);
+		CHECK(read.removable == 1);
+		CHECK(armouryFind(again.doc, "setup_0001").removable == 1);
+		CHECK(armouryFind(again.doc, "setup_0001").movable == 1);
+	}
+	REQUIRE(forgeLevelDocSetPickupWeapon(level.doc, "setup_0000", "base:dragon", "base:model_chrdragon", 256,
+		err, sizeof(err)) == 1);
+	CHECK(std::string(armouryFind(level.doc, "setup_0000").weapon_catalog_id) == "base:dragon");
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)) == 1);
+	CHECK(armouryFind(level.doc, "setup_0001").removed == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS).find(fieldRow("setup_0001", "multi_ammo_crate",
+		"base.flags2", "u32_hex", "0x000000f0")) != std::string::npos);
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, err, sizeof(err)) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS).find(fieldRow("setup_0001", "multi_ammo_crate",
+		"base.flags2", "u32_hex", "0x00000000")) != std::string::npos);
+	REQUIRE(forgeLevelDocMoveObject(level.doc, "setup_0001", kPlace, kFacing, err, sizeof(err)) == 1);
+	/* A pad this document added moves where it stands: no new pad for the move. */
+	CHECK(forgeLevelDocPadCount(level.doc) == 5);
+	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0001", kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0002");
+	CHECK(std::string(armouryFind(level.doc, "setup_0002").kind) == "multi_ammo_crate");
+	CHECK(forgeLevelDocFieldRowCount(level.doc) == 37 + 68 + 68);
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, kPlace, kFacing, id, sizeof(id),
+		err, sizeof(err)) == 1);
+	CHECK(std::string(id) == "setup_0003");
+	CHECK(armouryFind(level.doc, "setup_0003").weapon_slot == 0);
+	CHECK(armouryFind(level.doc, "setup_0003").order == 3);
 }
 
 TEST_CASE("Every base level is read and written back unchanged (local, needs PD2_BASE_TEMPLATE_DIR)",

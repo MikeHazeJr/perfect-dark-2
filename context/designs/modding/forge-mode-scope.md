@@ -678,10 +678,32 @@ a list of every weapon the catalog has enabled (by catalog id, a mod's
 included) with Always Give This Weapon, and a place number with Make It This
 Weapon Place.
 
-Not written yet: the same for a prop's model (the catalog's list of models is
-long and wants a filter), a new object of a kind the level has none of, and
-any run. A level with a pinned pickup of the crystal pistol in it is the proof
-to aim for after this one.
+**A new object where there is none to copy (WRITTEN 2026-11-17, unit-tested,
+not run):** `forgeLevelDocAddObject(kind, weapon place, position, facing)`
+makes a weapon place or an ammo crate from nothing. An empty level, which is
+what a template made from a model starts as, has no object of any kind to
+copy, so without this nothing could be placed on it. READ from base 8: every
+weapon pickup of the base levels has the same list of 37 field rows (1,887
+records, one list) and every multi-ammo crate the same 68 (524 records, one
+list); the 180 weapon places of the 18 multiplayer arenas all carry flags
+0x00000001 and the stand-in model `base:model_roofgun`, and every crate is
+`base:model_multi_ammo_crate` with its nineteen slots empty. The new record is
+that list with the values those objects share, life size, on a pad of its own
+at the end of the command list. It can then be moved, copied, left out and,
+for a place, given a weapon. Its two model ids are the game's own: a level
+that names them holds nothing of them. The archive validator in hosted CI does
+not know `base:model_*` ids without a base install beside it, so a level
+saved with such an object is not handed to that step; the unit case reads the
+rows back instead.
+
+In the editor (written, seen by nobody): New Weapon Place Here and New Ammo
+Crate Here, above the object list. A new place takes the lowest place number
+the level does not use yet.
+
+Not written yet: the same choice for a prop's model (the catalog's list of
+models is long and wants a filter; how a mod's prop gets a model the level can
+name is not read yet), and any run. A level with a pinned pickup of the crystal pistol in it is the
+proof to aim for after this one.
 
 ## F5 survey: a level from a Blender model (READ 2026-11-17, nothing built)
 
