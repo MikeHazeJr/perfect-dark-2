@@ -3,6 +3,7 @@
 #include "actionmap.h"
 #include "asset_runtime.h"
 #include "vehicle_graph_runtime.h"
+#include "vehicle_seats.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
 #include "game/vehiclegraph.h"
@@ -41,6 +42,12 @@ static bool s_VehicleExitIntentPending[MAX_PLAYERS];
  * the sense of the vehicle's turn angle (hoverpropGetTurnAngle). Zero looks
  * where the vehicle points. Reset when a player takes the gunner seat. */
 static f32 s_GunnerYaw[MAX_PLAYERS];
+
+/* Each rider's exit button between presses: one press leaves the vehicle,
+ * two in quick succession move to the other seat when it is free
+ * (vehicleExitPressStep, vehicle_seats.h). Forgotten at every mount,
+ * dismount and seat switch. */
+static vehicle_exit_press_t s_ExitPress[MAX_PLAYERS];
 
 /* The seat the current player rides in (VEHICLE_GRAPH_SEAT_*). Only a gunner
  * is recorded, in the vehicle's graph record (vehicle_graph_runtime.h); any
@@ -141,6 +148,7 @@ bool bbikeInit(void)
 			s_LastVehicleInputProp[g_Vars.currentplayernum] = bikeprop;
 			s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
 			s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
+			vehicleExitPressReset(&s_ExitPress[g_Vars.currentplayernum]);
 		}
 		sysLogPrintf(LOG_NOTE, "VEHICLE: mounted player=%d seat=gunner", g_Vars.currentplayernum);
 		return true;
@@ -161,6 +169,7 @@ bool bbikeInit(void)
 		s_LastVehicleInputProp[g_Vars.currentplayernum] = bikeprop;
 		s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
 		s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
+		vehicleExitPressReset(&s_ExitPress[g_Vars.currentplayernum]);
 	}
 
 	sysLogPrintf(LOG_NOTE, "VEHICLE: mounted player=%d", g_Vars.currentplayernum);
@@ -204,6 +213,7 @@ static void bbikeExitLocal(void)
 			s_LastVehicleInputProp[g_Vars.currentplayernum] = NULL;
 			s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
 			s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
+			vehicleExitPressReset(&s_ExitPress[g_Vars.currentplayernum]);
 		}
 		return;
 	}
@@ -241,6 +251,7 @@ static void bbikeExitLocal(void)
 		s_LastVehicleInputProp[g_Vars.currentplayernum] = NULL;
 		s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
 		s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
+		vehicleExitPressReset(&s_ExitPress[g_Vars.currentplayernum]);
 	}
 }
 
@@ -608,6 +619,167 @@ static s32 bbikeExitToChosenSideSeat(void *context, s32 seat)
 	return seat == bbikeCurrentSeat() ? bbikeExitToChosenSide(context) : 0;
 }
 
+/* The seat the current rider could move to right now, or
+ * VEHICLE_GRAPH_SEAT_NONE (Mike, 2026-11-16: "If no one is in the other
+ * seat, double-tapping the enter/exit vehicle button switches seats instead
+ * of exiting"). The vehicle's graph must have a switch for that seat, the
+ * seat must be empty, and the rider must be settled in their own (not still
+ * easing into it). Solo play only, like the gunner seat itself. */
+static s32 bbikeSeatToSwitchTo(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	const asset_runtime_binding_t *source;
+	struct defaultobj *obj;
+	s32 other;
+
+	if (g_NetMode != NETMODE_NONE || !player || player->isremote || !bikeprop
+			|| bikeprop->type != PROPTYPE_OBJ || !bikeprop->obj
+			|| bikeprop->obj->type != OBJTYPE_HOVERBIKE
+			|| player->bondvehiclemode != VEHICLEMODE_RUNNING) {
+		return VEHICLE_GRAPH_SEAT_NONE;
+	}
+	obj = bikeprop->obj;
+	source = assetRuntimeVehicleForModelnum(obj->modelnum);
+	if (!source || !source->vehicle_graph) {
+		return VEHICLE_GRAPH_SEAT_NONE;
+	}
+	other = bbikeCurrentSeat() == VEHICLE_GRAPH_SEAT_GUNNER
+		? VEHICLE_GRAPH_SEAT_DRIVER : VEHICLE_GRAPH_SEAT_GUNNER;
+	if ((vehicleGraphProgramEventSeats(source->vehicle_graph,
+			VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED) & (1u << other)) == 0) {
+		return VEHICLE_GRAPH_SEAT_NONE;
+	}
+	if (other == VEHICLE_GRAPH_SEAT_DRIVER) {
+		if ((obj->hidden & OBJHFLAG_MOUNTED) != 0) {
+			return VEHICLE_GRAPH_SEAT_NONE;
+		}
+	} else if (vehicleGraphRuntimeSeatOccupant(bikeprop, bikeprop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER) >= 0) {
+		return VEHICLE_GRAPH_SEAT_NONE;
+	}
+	return other;
+}
+
+/* og.vehicle.switch_seat's action: move the current rider to this seat
+ * without leaving the vehicle. The rider's old seat is closed the way its
+ * exit closes it and the new one opened the way its mount opens it, with the
+ * walk in between left out: the scene's vehicle layer is swapped (the scene
+ * boards nothing while a vehicle layer is open, so the old one is closed
+ * first), the driver's half of the exit or of the init runs for the driver
+ * seat, the gunner's record is set or cleared, and the eye eases to the new
+ * seat from where it is. */
+static s32 bbikeSwitchSeatAction(void *context, s32 seat)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	const s32 playernum = g_Vars.currentplayernum;
+	struct hoverbikeobj *bike;
+	SceneVehiclePayload payload;
+	Mtxf matrix;
+	s32 from;
+
+	(void)context;
+	if (g_NetMode != NETMODE_NONE || !player || player->isremote || !player->prop
+			|| !bikeprop || bikeprop->type != PROPTYPE_OBJ || !bikeprop->obj
+			|| bikeprop->obj->type != OBJTYPE_HOVERBIKE
+			|| player->bondmovemode != MOVEMODE_BIKE
+			|| playernum < 0 || playernum >= MAX_PLAYERS) {
+		return 0;
+	}
+	bike = (struct hoverbikeobj *)bikeprop->obj;
+	from = bbikeCurrentSeat();
+	if (seat == from
+			|| (seat != VEHICLE_GRAPH_SEAT_DRIVER && seat != VEHICLE_GRAPH_SEAT_GUNNER)) {
+		return 0;
+	}
+
+	if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		/* The one step that can refuse (the seat was just taken) comes
+		 * before anything is changed. From here the rider is the gunner. */
+		if (!vehicleGraphRuntimeSetSeatOccupant(bikeprop, bikeprop->lifecycle_generation,
+				VEHICLE_GRAPH_SEAT_GUNNER, playernum)) {
+			return 0;
+		}
+	} else if ((bike->base.hidden & OBJHFLAG_MOUNTED) != 0) {
+		return 0; /* the driver seat was just taken */
+	}
+
+	payload.prop = bikeprop;
+	payload.vehicle_kind = from == VEHICLE_GRAPH_SEAT_GUNNER
+		? SCENE_VEHICLE_KIND_TURRET : SCENE_VEHICLE_KIND_DRIVER;
+	(void)sceneFire(SCENE_EVENT_VEHICLE_DISMOUNT, &payload);
+
+	if (from == VEHICLE_GRAPH_SEAT_DRIVER) {
+		/* The driver's half of the local exit: the vehicle keeps its
+		 * momentum and drifts on with nobody driving. */
+		struct coord speed;
+
+		bike->base.hidden &= ~OBJHFLAG_MOUNTED;
+		speed.x = bike->speed[0];
+		speed.y = 0;
+		speed.z = bike->speed[1];
+		objApplyMomentum(&bike->base, &speed, bike->w, false, false);
+		psStopSound(bikeprop, PSTYPE_GENERAL, 0xffff);
+		psStopSound(player->prop, PSTYPE_GENERAL, 0xffff);
+		psCreate(NULL, bikeprop, SFX_BIKE_PULSE, -1,
+				-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
+		bike->base.flags |= OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY;
+	} else {
+		/* The driver's half of the init: take the vehicle over from its
+		 * drift. The gunner seat is empty again. */
+		vehicleGraphRuntimeSetSeatOccupant(bikeprop, bikeprop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER, -1);
+		if (bike->base.hidden & OBJHFLAG_PROJECTILE) {
+			struct projectile *projectile = bike->base.projectile;
+			bike->speed[0] = projectile->speed.x;
+			bike->speed[1] = projectile->speed.z;
+			bike->w = projectile->unk0dc;
+		}
+		objFreeEmbedmentOrProjectile(bikeprop);
+		bike->base.hidden |= OBJHFLAG_MOUNTED;
+	}
+
+	payload.vehicle_kind = seat == VEHICLE_GRAPH_SEAT_GUNNER
+		? SCENE_VEHICLE_KIND_TURRET : SCENE_VEHICLE_KIND_DRIVER;
+	if (sceneFire(SCENE_EVENT_VEHICLE_BOARD, &payload) != 0) {
+		/* The layer just closed left room for this one, so this is not
+		 * expected; say so if it ever happens. */
+		sysLogPrintf(LOG_ERROR, "VEHICLE.SEAT: the %s seat's input layer did not open player=%d",
+			seat == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver", playernum);
+	}
+
+	/* The eye eases to the new seat from where it is now, as it does when a
+	 * player mounts. The driver's seat starts its engine again at the end
+	 * of the ease (bbikeTick); the gunner's has none. */
+	bbikeUpdateVehicleOffset();
+	player->bondvehiclemode = VEHICLEMODE_OFF;
+	player->bondentert = 0;
+	player->bondentert2 = 1;
+	player->bondenterpos.x = player->prop->pos.x;
+	player->bondenterpos.y = player->prop->pos.y;
+	player->bondenterpos.z = player->prop->pos.z;
+	mtx3ToMtx4(bike->base.realrot, &matrix);
+	mtx4SetTranslation(&bikeprop->pos, &matrix);
+	mtx4TransformVec(&matrix, &player->bondvehicleoffset, &player->bondenteraim);
+	mtx00016b58(&player->bondentermtx,
+			0, 0, 0,
+			-player->bond2.unk1c.x, -player->bond2.unk1c.y, -player->bond2.unk1c.z,
+			player->bond2.unk28.x, player->bond2.unk28.y, player->bond2.unk28.z);
+	player->speedtheta = 0;
+	player->speedthetacontrol = 0;
+	player->speedforwards = 0;
+	player->speedsideways = 0;
+	s_GunnerYaw[playernum] = 0.0f;
+	vehicleExitPressReset(&s_ExitPress[playernum]);
+	s_VehicleExitIntentPending[playernum] = false;
+
+	sysLogPrintf(LOG_NOTE, "VEHICLE.SEAT: player=%d switched from the %s seat to the %s seat",
+		playernum, from == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver",
+		seat == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver");
+	return 1;
+}
+
 void bbikeHandleActivate(bool transportedintent)
 {
 	const bool clientLocalIntent = g_NetMode == NETMODE_CLIENT
@@ -713,7 +885,35 @@ void bbikeApplyMoveData(struct movedata *data)
 	if (contmode == CONTROLMODE_PC) {
 		f32 vLeft   = actionValue(actionPlayer, ACTION_VEHICLE_STEER_LEFT);
 		f32 vRight  = actionValue(actionPlayer, ACTION_VEHICLE_STEER_RIGHT);
-		if (actionPressed(actionPlayer, ACTION_VEHICLE_EXIT)) {
+		/* The exit button (Maian vehicle V4): one press leaves the
+		 * vehicle; a second press within 0.3 s moves the rider to the
+		 * other seat instead, when the vehicle has one and it is free.
+		 * Only a rider who could switch waits for a second press; every
+		 * other rider leaves at once, as before. The step runs every
+		 * update, because a single press that was waiting leaves when its
+		 * wait ends, with no press on that update. */
+		s32 exitStep = actionPressed(actionPlayer, ACTION_VEHICLE_EXIT)
+			? VEHICLE_EXIT_PRESS_DISMOUNT : VEHICLE_EXIT_PRESS_NONE;
+		const s32 switchSeat = bbikeSeatToSwitchTo();
+
+		if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+			exitStep = vehicleExitPressStep(&s_ExitPress[g_Vars.currentplayernum],
+				exitStep == VEHICLE_EXIT_PRESS_DISMOUNT,
+				switchSeat != VEHICLE_GRAPH_SEAT_NONE,
+				g_Vars.lvframe60, VEHICLE_EXIT_SWITCH_WINDOW60);
+		}
+		if (exitStep == VEHICLE_EXIT_PRESS_SWITCH && switchSeat != VEHICLE_GRAPH_SEAT_NONE) {
+			/* pd.vehicle_graph.v1: the request is
+			 * event.vehicle.switch_seat_requested, naming the seat asked
+			 * for, and og.vehicle.switch_seat runs the move. */
+			if (hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED,
+					switchSeat, bbikeSwitchSeatAction, NULL) != 1) {
+				sysLogPrintf(LOG_NOTE, "VEHICLE.SEAT: player=%d seat switch refused",
+					g_Vars.currentplayernum);
+			}
+			return;
+		}
+		if (exitStep == VEHICLE_EXIT_PRESS_DISMOUNT) {
 			if (!bbikeCanDismount()) {
 				return;
 			}
