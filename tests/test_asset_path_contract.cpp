@@ -68,6 +68,69 @@ static s32 qualifyFixturePath(const PathIngressFixture &fixture, char *out,
 		: assetPathQualifyFilesystemChecked(out, outCap, root.c_str(), member.c_str());
 }
 
+TEST_CASE("a sibling member stays in the innermost archive of a chain",
+	"[catalog][pdxxx][path][forge]")
+{
+	char out[FS_MAXPATH];
+
+	/* One level: as before. */
+	REQUIRE(assetPathSiblingMemberChecked(out, sizeof(out),
+		"data/scenarios/complex.pdscenario::scene.glb", "pads.json") == 1);
+	REQUIRE(std::string(out) == "data/scenarios/complex.pdscenario::pads.json");
+
+	/* A scenario nested in a mod level's .pdarena (Forge F1): its own
+	 * members, never the outer archive's. */
+	REQUIRE(assetPathSiblingMemberChecked(out, sizeof(out),
+		"mods/forge/arena_test.pdarena::dependencies/assets/scenarios/test.pdscenario::scene.glb",
+		"navigation/paths.json") == 1);
+	REQUIRE(std::string(out) ==
+		"mods/forge/arena_test.pdarena::dependencies/assets/scenarios/test.pdscenario::navigation/paths.json");
+
+	/* No archive member, no member, an empty archive part: nothing. */
+	std::memset(out, 'q', sizeof(out));
+	REQUIRE(assetPathSiblingMemberChecked(out, sizeof(out), "loose/scene.glb", "pads.json") == 0);
+	REQUIRE(out[0] == '\0');
+	REQUIRE(assetPathSiblingMemberChecked(out, sizeof(out), "a.pdscenario::scene.glb", "") == 0);
+	REQUIRE(out[0] == '\0');
+	REQUIRE(assetPathSiblingMemberChecked(out, sizeof(out), "::scene.glb", "pads.json") == 0);
+	REQUIRE(out[0] == '\0');
+
+	/* Too small for the result: empty, never a cut path. */
+	char small[24];
+	REQUIRE(assetPathSiblingMemberChecked(small, sizeof(small),
+		"a.pdarena::b.pdscenario::scene.glb", "pads.json") == 0);
+	REQUIRE(small[0] == '\0');
+	char exact[sizeof("a.pdscenario::pads.json")];
+	REQUIRE(assetPathSiblingMemberChecked(exact, sizeof(exact),
+		"a.pdscenario::scene.glb", "pads.json") == 1);
+	REQUIRE(std::string(exact) == "a.pdscenario::pads.json");
+
+	/* The scenario runtime's member paths go through it. */
+	const std::string runtime = pathContractRead("port/src/scenario_source_runtime.c");
+	REQUIRE(runtime.find("assetPathSiblingMemberChecked(out, out_n, archive_member_path,") !=
+		std::string::npos);
+}
+
+TEST_CASE("a stage a mod minted resolves through the row that owns it",
+	"[catalog][stage][forge]")
+{
+	const std::string api = pathContractRead("port/src/assetcatalog_api.c");
+
+	/* Only a minted stagenum, on an enabled scenario or arena row. */
+	REQUIRE(api.find("return stagenum >= STAGENUM_CUSTOM_START && stagenum < STAGENUM_CUSTOM_END;") !=
+		std::string::npos);
+	REQUIRE(api.find("static const asset_type_e owners[] = { ASSET_SCENARIO, ASSET_ARENA };") !=
+		std::string::npos);
+	/* catalogResolveStage takes the owner; the typed resolver stays strict. */
+	const size_t resolve = api.find("s32 catalogResolveStage(const char *id, catalog_stage_result_t *out)\n{");
+	REQUIRE(resolve != std::string::npos);
+	REQUIRE(api.find("if (s_ownsMintedStage(e)) {", resolve) < api.find("return catalogResolveStageForType(id, ASSET_MAP, out);", resolve));
+	/* Both id lookups fall back to the owner only when no map row answers. */
+	REQUIRE(api.find("owner = s_mintedStageOwner(-1, stage_table_index);") != std::string::npos);
+	REQUIRE(api.find("const asset_entry_t *owner = s_mintedStageOwner(stagenum, -1);") != std::string::npos);
+	REQUIRE(api.find("out->stagenum   = s_entryStagenum(e);") != std::string::npos);
+}
+
 TEST_CASE("standalone pdmod and received-network qualification preserve exact paths",
 	"[catalog][network][pdmod][path][behavior][T-CATALOG-003]")
 {

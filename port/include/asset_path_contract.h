@@ -101,6 +101,36 @@ static inline s32 assetPathHasParentTraversal(const char *path)
 	return 0;
 }
 
+/* The path of `member` in the same archive as `member_path`, an
+ * archive::member chain: the innermost archive of the chain, so a member of a
+ * nested archive (a .pdscenario inside a .pdarena) is looked for inside it,
+ * and a one-level path behaves as it always did. Returns 0 with an empty out
+ * when member_path names no archive member, member is empty or out is too
+ * small. */
+static inline s32 assetPathSiblingMemberChecked(char *out, size_t out_cap,
+		const char *member_path, const char *member)
+{
+	const char *sep = NULL;
+	const char *p;
+	size_t archive_len;
+	size_t member_len;
+
+	if (!out || out_cap == 0) return 0;
+	out[0] = '\0';
+	if (!member_path || !member || !member[0]) return 0;
+	for (p = strstr(member_path, "::"); p; p = strstr(p + 2, "::")) {
+		sep = p;
+	}
+	if (!sep) return 0;
+	archive_len = (size_t)(sep - member_path);
+	member_len = strlen(member);
+	if (archive_len == 0 || archive_len + 2 + member_len >= out_cap) return 0;
+	memcpy(out, member_path, archive_len);
+	memcpy(out + archive_len, "::", 2);
+	memcpy(out + archive_len + 2, member, member_len + 1);
+	return 1;
+}
+
 /* Qualify a public loose/network source against its real component root.
  * Already-qualified absolute or archive-VFS paths are retained exactly.
  * Relative paths, including nested subdirectories, are always rooted. */
