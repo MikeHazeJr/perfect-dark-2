@@ -95,4 +95,4 @@ The shot hit test was asking the operating system whether each vertex batch
 was readable, 5,829 system calls for one test of the model. The base
 hoverbike showed the same chain in a third of its samples and held 60 frames
 a second only because its model is small. See `context/bugs.md` B-1234 and
-`context/systemic-bugs.md` SP-95.
+`context/systemic-bugs.md` SP-97.

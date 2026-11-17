@@ -3979,7 +3979,7 @@ object inside another looked up the wrong parent.
   then check each array is pointer-sized (`uintptr_t *`, `struct x *[]`), not `u32 *`.
 - `rg -n "\(u32 \*\)[^;]*\)\[[0-9]+\]" src/game src/lib` for word reads of native structs.
 
-## SP-95: An operating system probe sits inside a loop that runs every frame
+## SP-97: An operating system probe sits inside a loop that runs every frame
 
 **Severity: MEDIUM — nothing breaks. The frame rate falls with the size of the
 data, so a small base model hides the cost and a large mod model shows it.**
