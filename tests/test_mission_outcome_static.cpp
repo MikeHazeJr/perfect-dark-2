@@ -107,7 +107,7 @@ TEST_CASE("mission flow: the phase reaches the graph and a graph can end the mis
 		std::string::npos);
 	REQUIRE(conformance.find("MISSION_GRAPH_AFTER_END_EVENTS = {\"event.mission.completed\", \"event.mission.continue\"}") !=
 		std::string::npos);
-	REQUIRE(conformance.find("MISSION_GRAPH_EXEC_GATES = {\"gate.objective.status\", \"gate.mission.phase\"}") !=
+	REQUIRE(conformance.find("MISSION_GRAPH_EXEC_GATES = {\"gate.objective.status\", \"gate.mission.phase\",") !=
 		std::string::npos);
 }
 
