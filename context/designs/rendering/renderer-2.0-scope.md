@@ -2,9 +2,9 @@
 
 **Status:** scope only. This was a read-only investigation: no code was changed,
 built or run, and no game tests were run. Every claim carries a tag (legend
-below). Updated 2026-11-16 with Mike's decisions D1 to D4 (section 0). D2 picked
-option B (our own renderer on a cross-API library, bgfx); the decisions it
-raises, D5 to D7, are open (section 10).
+below). Updated 2026-11-16 with Mike's decisions D1 to D7 (section 0): D2 picked
+option B (our own renderer on a cross-API library, bgfx), and D5 to D7 settle
+the graphics API order, DLLs and ray tracing.
 
 **Milestone:** 2.0. D-004 limits 1.0 to the base game plus Theater, so this work
 is post-1.0 ([D] `tools/Workbench/data/roadmap.json`, item D-004).
@@ -48,8 +48,8 @@ Unless a path says otherwise, `bg.c`, `lv.c`, `chr.c`, `prop.c`, `propobj.c`,
 
 ## 0. Decisions (Mike, 2026-11-16)
 
-These answer questions 1, 2, 3 and 5 of section 10 and settle part of 4. The
-sections they change are listed at the end.
+These answer questions 1, 2, 3, 5, 12, 13 and 14 of section 10 and settle part
+of 4. The sections they change are listed at the end.
 
 - **D1. The toggle works like Halo: Combat Evolved Anniversary.** One switch
   between classic and remastered, and it is instant. In Anniversary the original
@@ -74,9 +74,9 @@ sections they change are listed at the end.
     variants.
   - bgfx's OpenGL backend needs GL 4.3+ ([W]), so today's GL 3.0 fallback
     goes away; older Windows GPUs would use D3D11 instead [I].
-  - The no-DLL rule needs a decision: bgfx's D3D11 backend loads `d3d11.dll`
-    and DXGI at runtime and also tries optional vendor libraries (AMD AGS,
-    NVAPI) ([W]). New decisions D5 to D7 are in section 10.
+  - bgfx's D3D11 backend loads `d3d11.dll` and DXGI at runtime and also tries
+    optional vendor libraries (AMD AGS, NVAPI) ([W]); D6 below sets the rule
+    for that.
 - **D3. Remastered base stages get PBR materials and dynamic lighting.** This is
   the full-relight direction from the earlier question, not "keep the baked
   lighting and add to it". Fixture lights become real lights, materials become
@@ -87,6 +87,53 @@ sections they change are listed at the end.
   player can toggle, not a mod. It must look right with no packs installed, so
   base materials need a built-in PBR derivation (7.4, 8.9). Art packs are
   ordinary mods under the existing mod rules (8.8), so R8 is dropped.
+- **D5. Graphics API order: OpenGL first, then D3D11 by default.** Classic moves
+  onto bgfx's OpenGL backend first, so the parity captures compare two
+  renderers on the same driver. Then D3D11 becomes the Windows default, with
+  GL 4.3 as the fallback and Vulkan as an option. Vulkan needs nothing from
+  us: drivers that support it install its loader, and where it is missing the
+  option is hidden [I]. Exact pixel identity may not hold across APIs, so on
+  D3D11 each remaining difference is explained and accepted (phase 2a,
+  section 11) [I].
+- **D6. DLLs: nothing for players to install, and a DLL folder if one is ever
+  needed.** In Mike's words: "DLL's if needed will go in a DLL folder. It should
+  be inclusive so people who download it can play it without prerequisites."
+  The rule:
+  - Static linking stays the default, as today (`CMakeLists.txt:802-809` [V]).
+  - Graphics DLLs that ship with Windows (`opengl32`, `d3d11`, `dxgi`, `d3d12`)
+    are loaded from the system at runtime and never bundled.
+  - Our copy of bgfx is patched so release builds never try AMD AGS, NVAPI or
+    RenderDoc.
+  - Any other DLL that is truly needed ships inside the release, in a `dll/`
+    folder at the install root beside `data/` and `mods/` (*proposal* for the
+    name). A download then runs with nothing to install: no Visual C++
+    redistributable, no DirectX installer, no SDK.
+  - Windows does not search subfolders of the program's folder for DLLs ([W]).
+    The client adds `dll/` to its search path at startup
+    (`SetDefaultDllDirectories` with `AddDllDirectory` [W]) or loads each DLL
+    by full path. DLLs in the program's import table are resolved before our
+    code runs, so anything in `dll/` must be loaded at runtime or delay-loaded
+    [I].
+  - When the first such DLL ships, these change with it [V]: the release
+    layout in `devtools/release.ps1` (executables at 716-725, the install
+    layout text at 863-875); the zero-DLL rule at
+    `context/pillars/build-dev-tooling.md:339` and `:352` and
+    `context/pillars/rendering.md:224`; and the comment at
+    `CMakeLists.txt:802-809`. The updater must carry the folder too (not
+    checked).
+  - New `LoadLibrary` or `GetProcAddress` calls in client code must pass
+    `tools/native_write_policy_guard.py`, which fails on them unless reviewed
+    (route list at 23-48, reviewed entries from 52) and scans every source of
+    the `pd` target plus the repository headers they include (125-165) [V]. A
+    separately built static library is outside that scan; the guard's notes
+    send new dependencies to the native dependency import audit (lines 1-6)
+    [V].
+- **D7. Ray tracing waits for 3.0.** 2.0 keeps bgfx and gets GI from the
+  per-light probe bake (7.3). A ray-traced path in 3.0 would need a library
+  that supports it, such as Diligent or NVRHI, or bgfx gaining it; bgfx lists
+  none today ([W]), and the rest is [I]. To keep that door open, 2.0 keeps
+  lights, probes and materials as data that does not depend on the library
+  (5.3, 8.2) [I].
 
 Sections changed by these decisions: 1, 4.2, 5.4, 5.6, 5.8, 6 (R8 dropped, R10
 added), 7.1 to 7.4, the feature summary, 8.8, 8.9, 9, 10, 11, 12 and the
@@ -788,9 +835,9 @@ What any option has to satisfy:
   the scene renderer and the other raw-GL users (the swarm compute shaders,
   screenshots); add a shader cross-compile step to the build; still write every
   feature ourselves. [V for the files], [I]
-- Risk: the DLL rule. D3D11 and D3D12 ship with Windows, like `opengl32`, but
-  still need Mike's OK; Vulkan's loader comes with GPU drivers, not Windows, so
-  it needs an exception. Classic must be re-proven pixel for pixel on the new
+- Risk: the DLL rule, now settled by D6 (section 0): D3D11 and D3D12 ship with
+  Windows, like `opengl32`; Vulkan stays an option because its loader comes
+  with GPU drivers (D5). Classic must be re-proven pixel for pixel on the new
   backend. [I]
 
 **C. A renderer-only engine: Filament, Ogre-Next, or DiligentFX on Diligent.**
@@ -1236,8 +1283,10 @@ These are *proposals*; each one points at the evidence that motivates it.
     not hand-emitted GBI (2.7).
 11. **Don't widen `GfxRenderingAPI` for remastered features;** it sits below
     the point where objects are known (2.2).
-12. **No new dynamic libraries in 1.0** (zero-DLL), and load GL 4.3+ features
-    with the swarm pattern. D6 decides the rule for 2.0.
+12. **Prefer static linking, and follow D6 for anything else.** Graphics DLLs
+    that ship with Windows load from the system; any other DLL that is truly
+    needed goes in the release's `dll/` folder, so players install nothing.
+    Load GL 4.3+ features with the swarm pattern.
 13. **Version typed archives** so older clients refuse newer material schemas
     cleanly (8.2).
 14. **Keep the classic path capturable** (reference screenshots and logs), since
@@ -1262,7 +1311,8 @@ proposals.*
 1. **Toggle granularity. Decided (D1):** one switch, like Halo: Combat Evolved
    Anniversary, with developer-only per-pass overrides for debugging.
 2. **Engine and graphics API. Decided (D2):** option B, our own renderer on
-   bgfx, with classic moved onto it (5.8, R10). It raises D5 to D7 below.
+   bgfx, with classic moved onto it (5.8, R10). Its follow-ups D5 to D7 are
+   decided too (items 12 to 14).
 3. **Look on base stages. Decided (D3):** PBR materials and dynamic lighting,
    the full-relight direction.
 4. **Source of remastered art. Partly decided (D4):** the baseline is the
@@ -1285,22 +1335,15 @@ proposals.*
     classic? *Recommend both, through one light schema.*
 11. **Who owns R1** (the `lvRender` split)? It touches gameplay timing across
     every lane and should run during a source freeze with the parity harness.
-12. **D5. Default graphics API on Windows. Open.** (A) D3D11 by default, with
-    GL 4.3 as fallback: bgfx's most widely used Windows path [I], using only
-    DLLs that ship with Windows. (B) D3D12 by default. (C) Vulkan by default,
-    which is also the road to Linux and Steam Deck, but its loader comes with
-    GPU drivers. *Recommend: port classic on bgfx's OpenGL backend first, so
-    parity tests compare like with like, then make D3D11 the default with GL
-    4.3 as fallback, and offer Vulkan as an option if D6 allows it.*
-13. **D6. The no-DLL rule. Open.** (A) Allow graphics DLLs that ship with
-    Windows (`d3d11`, `dxgi`, `d3d12`), loaded at runtime as `opengl32` is
-    today, and patch our copy of bgfx so release builds never try vendor
-    extras (AMD AGS, NVAPI) or RenderDoc. (B) Also allow Vulkan's loader, which
-    GPU drivers install. (C) Keep `opengl32` only, which limits bgfx to its GL
-    backend. *Recommend A, adding B only if Vulkan becomes a goal.*
-14. **D7. Ray tracing. Open.** (A) Not needed for 2.0: keep bgfx, with GI from
-    the probe bake (7.3). (B) Wanted: use Diligent or NVRHI instead of bgfx,
-    accepting weaker MinGW support. *Recommend A.*
+12. **D5. Default graphics API on Windows. Decided:** classic moves onto bgfx's
+    OpenGL backend first, then D3D11 becomes the default with GL 4.3 as
+    fallback and Vulkan as an option (section 0).
+13. **D6. The no-DLL rule. Decided:** graphics DLLs that ship with Windows,
+    vendor extras patched out of release builds, and a `dll/` folder for
+    anything else truly needed, so a download needs no prerequisites
+    (section 0).
+14. **D7. Ray tracing. Decided:** deferred to 3.0; 2.0 keeps bgfx and the probe
+    bake (section 0).
 
 ---
 
@@ -1310,7 +1353,7 @@ proposals.*
 |---|---|---|---|
 | 0. 1.x guardrails | Section 9 rules; land B-1172 from core; R3 and R6 if cheap; continue the standard-glTF materials plan. | No new couplings in review; extracted materials carry catalog IDs. | S-M [I] |
 | 1. Separation | R1, R2, R4, R5, R9; snapshot schema and producers for views, rooms, lights, environment, instances and `.pdeffect`. | Classic captures and gameplay logs unchanged; the listen host no longer builds remote views; the snapshot covers every opaque world draw. | XL [I] |
-| 2a. Classic onto bgfx (D2, R10) | fast3d backend on bgfx, the combiner uber-shader, ImGui on bgfx, the scene renderer and other raw-GL users, SDL window and API selection (D5), DLL handling (D6). | Classic is pixel-identical to the 1.0 GL renderer on R9 captures; then the old GL backend is removed. | L-XL [I] |
+| 2a. Classic onto bgfx (D2, D5, R10) | First on bgfx's OpenGL backend: fast3d backend on bgfx, the combiner uber-shader, ImGui on bgfx, the scene renderer and the other raw-GL users. Then D3D11 as the default with GL 4.3 as fallback and Vulkan as an option, SDL windows without a GL context, and the DLL rule (D6). | On bgfx's GL backend, classic is pixel-identical to the 1.0 GL renderer on R9 captures; on D3D11 every remaining difference is explained and accepted; then the old GL backend is removed. | L-XL [I] |
 | 2b. Remastered skeleton | bgfx views and passes; HDR target; `G_REMASTER_PASS_EXT`; the Halo-style switch (D1); rooms in neutral shading; tone mapping. | Toggling changes only pixels: gameplay logs identical in both modes. | M-L [I] |
 | 3. Objects | GPU model cache, per-instance matrices, visibility and shading; characters, props, viewmodel and attachments; translucency order; opaque instancing. | All models remastered; neutral mode matches classic composition. | L-XL [I] |
 | 4. Lighting, shadows and GI (D3) | Normals; clustered lights; fixtures as real lights bounded by rooms; the per-stage lighting file; cached fixture shadows and sun cascades; the per-light probe bake. One showcase stage first, then the rest. | Mike signs off the showcase stage's look; flash and light-op timing match classic. | XL [I] |
@@ -1339,7 +1382,7 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
 | Two presentation paths drift | Remastered shows a different visible set or placement | Record the snapshot in the same functions that emit classic GBI (3.12); neutral-mode parity captures. [I] |
 | Shared depth and draw space | B-936-style invisible or misordered objects | Draw in the game's draw space (5.7); CORE's matrix probe as a test. [I], [V core] |
 | Classic parity on bgfx (D2) | Classic looks different after the port, the problem Halo's classic mode later had ([W]) | Port on bgfx's GL backend first; check the combiner uber-shader against R9 captures from the 1.0 renderer; keep the old backend until parity holds. [I] |
-| Runtime DLL loads (D2) | bgfx loads graphics DLLs and tries vendor extras at runtime ([W]) | Decide D6; patch our copy of bgfx so release builds drop the vendor extras. [I] |
+| Runtime DLL loads (D2) | bgfx loads graphics DLLs and tries vendor extras at runtime ([W]) | D6 (section 0): system graphics DLLs only, vendor extras patched out of release builds, a `dll/` folder for anything else, and new load calls reviewed under the write-policy guard. [I] |
 | Full relight look (D3) | Base stages look flat or wrong on original geometry | One showcase stage with Mike's sign-off before scaling; calibration as data; GI and AO from the start. [I] |
 | Per-stage tuning time | 20-plus stages each need light calibration | Extractor defaults from the original light data, tuned in data files, budgeted inside phase 4. [I] |
 | BYOR | No shippable remastered base art | Built-in derivation runs locally (D4); packs must be original art. [I] |
@@ -1364,6 +1407,8 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   descriptions (sources below), not its internals.
 - The third-party library facts in 5.8 come from the sources below and were not
   tried here: nothing was built with them.
+- How the updater applies a release that gains a new folder (`dll/`, D6) was
+  not checked.
 
 ## Appendix: web sources for [W] claims (checked 2026-11-16)
 
@@ -1397,3 +1442,7 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   https://diligentgraphics.github.io/docs/d2/df3/DiligentCore_Graphics_GraphicsEngineOpenGL_readme.html
 - Ogre-Next: no MinGW statement found (search only):
   https://wiki.ogre3d.org/Specific+Build+Guides
+- Windows searches the program's folder, the system folders, the current folder
+  and `PATH` for DLLs, not subfolders; `SetDefaultDllDirectories` and
+  `AddDllDirectory` add folders (D6):
+  https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order
