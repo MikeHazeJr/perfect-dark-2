@@ -948,6 +948,25 @@ void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg)
 	sysLogPrintf(LOG_NOTE, "GRID: debug camera angles yaw=%.1f pitch=%.1f", yaw_deg, pitch_deg);
 }
 
+void forgeAddCameraAngles(f32 dyaw_deg, f32 dpitch_deg)
+{
+	if (s_forge.state != FORGE_SESSION_FREEFLY) {
+		return;
+	}
+	/* Not a number, or more than a quarter turn in one call (a cursor that
+	 * jumped, not a hand that moved): leave the camera where it is. */
+	if (!(dyaw_deg >= -90.0f && dyaw_deg <= 90.0f) || !(dpitch_deg >= -90.0f && dpitch_deg <= 90.0f)) {
+		return;
+	}
+
+	s_forge.fly.yaw_deg += dyaw_deg;
+	s_forge.fly.pitch_deg += dpitch_deg;
+	while (s_forge.fly.yaw_deg < 0.0f)    s_forge.fly.yaw_deg += 360.0f;
+	while (s_forge.fly.yaw_deg >= 360.0f) s_forge.fly.yaw_deg -= 360.0f;
+	if (s_forge.fly.pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
+	if (s_forge.fly.pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
+}
+
 f32 forgeGetCameraYawDeg(void)
 {
 	return s_forge.fly.yaw_deg;

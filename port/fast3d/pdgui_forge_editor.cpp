@@ -2467,6 +2467,37 @@ static void forgeSidebarDraw(void)
 	ImGui::SameLine();
 }
 
+/* Mouse look for the editor camera: hold the right mouse button over the
+ * world and drag.
+ *
+ * The camera's own look input is the aim axis (forgemode.c), which is the
+ * right stick or the aim keys; the mouse does not feed it (actionmap.cpp),
+ * the game's own mouse deltas are zeroed while the editor's input context is
+ * on top (input.c), and this editor binds the up, down and right arrow keys
+ * to its sidebar. So with a keyboard and a mouse the camera could not be
+ * turned. ImGui still sees the mouse, because the editor's window is used
+ * with it, and its movement is taken from there. A drag that starts over a
+ * window belongs to that window. The cursor stays visible: it is an editor. */
+static void forgeEditorMouseLook(void)
+{
+	static bool s_looking = false;
+	const float degPerPixel = 0.15f;
+	ImGuiIO &io = ImGui::GetIO();
+
+	if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+		s_looking = false;
+		return;
+	}
+	if (!s_looking && io.WantCaptureMouse) {
+		return;
+	}
+	s_looking = true;
+	if (io.MouseDelta.x != 0.0f || io.MouseDelta.y != 0.0f) {
+		/* The picture's y grows downward; looking up is a positive pitch. */
+		forgeAddCameraAngles(io.MouseDelta.x * degPerPixel, -io.MouseDelta.y * degPerPixel);
+	}
+}
+
 void pdguiForgeEditorRender(s32 winW, s32 winH)
 {
 	if (!forgeSessionIsActive()) return;
@@ -2497,6 +2528,9 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	 * bring the editor BACK on screen; the early-return below skips the
 	 * Begin/End block while hidden. */
 	forgeSidebarHandleInput();
+
+	/* Before the window: the look works with the editor hidden too. */
+	forgeEditorMouseLook();
 
 	if (!s_EditorVisible) return;
 
@@ -2578,7 +2612,8 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::Separator();
 	ImGui::TextDisabled(
 		"Editor: X / Tab   Tabs: LB/RB or PgUp/PgDn or Ctrl+Tab   "
-		"D-pad: sidebar nav   Sticks: fly   LT/RT: raise/lower");
+		"D-pad: sidebar nav   Sticks: fly   LT/RT: raise/lower   "
+		"Hold right mouse button over the world: look");
 
 	ImGui::End();
 }

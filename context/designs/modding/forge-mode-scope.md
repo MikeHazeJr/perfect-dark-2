@@ -596,10 +596,18 @@ mirrored angle too. That is recorded as B-1238 and left alone until the probe
 has measured it.
 
 Also read on the way (not a fault of this work, recorded with B-1237): the
-mouse does not turn the editor camera. Its deltas are zeroed while the
-editor's input context is on top (`input.c`), and the aim axis the camera
-reads is the right stick or the aim keys (`actionmap.cpp`). An editor wants a
-mouse look, held on a button; that belongs to F3.
+mouse did not turn the editor camera. Its deltas are zeroed while the
+editor's input context is on top (`input.c`), the aim axis the camera reads is
+the right stick or the aim keys (`actionmap.cpp`), and the editor's own
+bindings take the up, down and right arrow keys for its sidebar. So with a
+keyboard and a mouse the camera could hardly be turned at all.
+
+**Mouse look (WRITTEN 2026-11-17, seen by nobody):** hold the right mouse
+button over the world, not over a window, and drag. The editor takes the
+mouse's movement from ImGui, which still sees it, and turns the camera through
+`forgeAddCameraAngles` (0.15 degrees a pixel; a drag that starts over a window
+belongs to the window; the cursor stays visible). The footer hint says so. No
+smoke can show this: it wants a hand on the mouse.
 
 ## F3 back end, first piece: what a pickup gives, what a prop looks like (WRITTEN 2026-11-17, unit-tested, not run)
 

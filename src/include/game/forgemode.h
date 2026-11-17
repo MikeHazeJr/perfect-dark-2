@@ -114,6 +114,13 @@ s32  forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_d
  *  turn it with the look input. Does nothing outside FREEFLY. */
 void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg);
 
+/** Turns the editor camera by a number of degrees while it is flying: yaw to
+ *  the right for a positive `dyaw_deg`, pitch up for a positive
+ *  `dpitch_deg`, the directions the look stick turns it. For a look input the
+ *  action map does not carry (the editor's mouse look). A call asking for
+ *  more than a quarter turn at once is ignored. */
+void forgeAddCameraAngles(f32 dyaw_deg, f32 dpitch_deg);
+
 f32  forgeGetCameraYawDeg(void);
 f32  forgeGetCameraPitchDeg(void);
 f32  forgeGetCurrentSpeedScale(void); /* 1.0 default, 3.0 boost, 0.25 precision */
