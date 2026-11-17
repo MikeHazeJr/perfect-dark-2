@@ -26,6 +26,10 @@ typedef struct vehicle_graph_record {
 	f32 last_z;
 	f32 last_ticks60;
 	f32 peak_ground;
+	/* The turret's aim (vehicleGraphRuntimeSetTurretAim). */
+	s32 has_aim;
+	f32 aim_yaw;
+	f32 aim_pitch;
 } vehicle_graph_record_t;
 
 static vehicle_graph_record_t s_Records[VEHICLE_GRAPH_RUNTIME_MAX];
@@ -282,6 +286,37 @@ s32 vehicleGraphRuntimeSeatOfPlayer(const void *prop, u64 generation, s32 player
 		}
 	}
 	return VEHICLE_GRAPH_SEAT_NONE;
+}
+
+void vehicleGraphRuntimeSetTurretAim(const void *prop, u64 generation, f32 yaw, f32 pitch)
+{
+	vehicle_graph_record_t *record;
+
+	if (!isfinite(yaw) || !isfinite(pitch)) {
+		return;
+	}
+	record = vgrRecord(prop, generation, 1);
+	if (record) {
+		record->has_aim = 1;
+		record->aim_yaw = yaw;
+		record->aim_pitch = pitch;
+	}
+}
+
+s32 vehicleGraphRuntimeTurretAim(const void *prop, u64 generation, f32 *yaw, f32 *pitch)
+{
+	vehicle_graph_record_t *record = vgrRecord(prop, generation, 0);
+
+	if (!record || !record->has_aim) {
+		return 0;
+	}
+	if (yaw) {
+		*yaw = record->aim_yaw;
+	}
+	if (pitch) {
+		*pitch = record->aim_pitch;
+	}
+	return 1;
 }
 
 s32 vehicleGraphRuntimeCount(void)

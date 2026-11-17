@@ -249,6 +249,8 @@
       "VEHICLE\\.SEAT: modelnum=\\d+ gunner eye from model part 161 at \\(0, 960, -300\\) model units",
       "VEHICLE: gunner player=0 yaw=0\\.00 ",
       "VEHICLE: gunner player=0 yaw=(?!0\\.00 )\\d+\\.\\d\\d ",
+      "VEHICLE\\.TURRET: modelnum=\\d+ the turret follows the gunner's aim: yaw part 1, pitch part 2",
+      "VEHICLE\\.TURRET: modelnum=\\d+ drawn turned: yaw=-?\\d+\\.\\d\\d pitch=-?\\d+\\.\\d\\d",
       "VEHICLE\\.SEAT: player=0 switched from the gunner seat to the driver seat",
       "ACTIONMAP: vehicle turret IMC dismounted",
       "VEHICLE: dismounted player=0$"

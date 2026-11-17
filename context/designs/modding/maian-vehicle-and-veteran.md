@@ -318,6 +318,23 @@ a Modding Hub tab for players), and the tools grow with the mods.
   crystals that regrow per shot (the crystal pistol's regrow ammo), full
   regrow = interval x 18 plus about 10 % scaled by speed, fire rate lowered by
   normalised non-boost speed; locked out at full boost.
+  - V5a WRITTEN 2026-11-17 (not run): the turret points where the gunner
+    aims. The gunner's update records the aim for the vehicle (its yaw on top
+    of the vehicle's heading, and the view's pitch;
+    `vehicleGraphRuntimeSetTurretAim`), and the vehicle keeps the last one
+    when the gunner leaves. When the vehicle's matrices are built
+    (`objInitMatrices`), `hoverbikeApplyTurretAim` rebuilds the turret's yaw
+    part (part 1) and every position node under it with the yaw turned in,
+    and the pitch part (part 2) and its nodes with the pitch: the model is
+    placed with no animation, so each node's matrix is its parent's times its
+    own offset. The gunner's eye (part 161, on the yaw part) goes round the
+    yaw pivot with it (`vehicleTurretTurnPoint`, unit-tested in
+    `[vehicle-seats]`), so the gunner keeps looking along the cannon. Only a
+    model whose yaw part carries the gunner's seat part is turned. Not yet:
+    pitch limits, firing, lock and zoom, and the parts named by an
+    `og.vehicle.turret_aim` node instead of fixed numbers. The seats smoke
+    requires the `VEHICLE.TURRET:` lines, and its gunner-looking-right picture
+    should show the cannon ahead of the eye.
 - V6. Lock-on at vehicles only: shots track until they hit, the gunner
   releases, or boost ramps; the boost curve weakens tracking; a shot that
   loses tracking keeps its heading.

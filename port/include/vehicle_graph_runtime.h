@@ -89,6 +89,18 @@ s32 vehicleGraphRuntimeSeatOccupant(const void *prop, u64 generation, s32 seat);
 s32 vehicleGraphRuntimeSetSeatOccupant(const void *prop, u64 generation, s32 seat, s32 player);
 s32 vehicleGraphRuntimeSeatOfPlayer(const void *prop, u64 generation, s32 player);
 
+/*
+ * The turret's aim (Maian vehicle V5a): where the gunner's view points,
+ * relative to the vehicle. yaw is radians about the vehicle's up axis in the
+ * sense of its turn angle (0 is straight ahead); pitch is radians, positive
+ * up. The gunner's update sets it every update; the vehicle keeps the last one
+ * when the gunner leaves, so the turret stays where it was pointed. A value
+ * that is not finite is ignored. TurretAim returns 1 with the aim when one was
+ * set for this vehicle, else 0 (the turret is drawn as modelled).
+ */
+void vehicleGraphRuntimeSetTurretAim(const void *prop, u64 generation, f32 yaw, f32 pitch);
+s32 vehicleGraphRuntimeTurretAim(const void *prop, u64 generation, f32 *yaw, f32 *pitch);
+
 /* Records in use (tests and diagnostics). */
 s32 vehicleGraphRuntimeCount(void);
 

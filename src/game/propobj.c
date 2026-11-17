@@ -13142,6 +13142,12 @@ void objInitMatrices(struct prop *prop)
 				thing.unk00 = &sp28;
 
 				modelSetMatrices(&thing, obj->model);
+
+				/* A vehicle's turret points where its gunner aims (V5a;
+				 * nothing happens for a vehicle with no aim recorded). */
+				if (obj->type == OBJTYPE_HOVERBIKE) {
+					hoverbikeApplyTurretAim(prop);
+				}
 			}
 		}
 	}

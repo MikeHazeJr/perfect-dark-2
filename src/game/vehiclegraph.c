@@ -26,6 +26,7 @@
 #include "constants.h"
 #include "asset_runtime.h"
 #include "vehicle_graph_runtime.h"
+#include "vehicle_seats.h"
 #include "system.h"
 #include "game/vehiclegraph.h"
 #include "bss.h"
@@ -168,6 +169,148 @@ s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos)
 	 * hangs off the turret's yaw node), in model units. */
 	modelNodeGetModelRelativePosition(model, node, pos);
 	return 1;
+}
+
+/* Whether `node` is `ancestor` or under it. */
+static s32 hoverbikeNodeIsUnder(struct modelnode *node, struct modelnode *ancestor)
+{
+	while (node) {
+		if (node == ancestor) {
+			return 1;
+		}
+		node = node->parent;
+	}
+	return 0;
+}
+
+/* The turret's yaw part when it is a position node that carries the gunner's
+ * eye (part 161 under it), else NULL. */
+static struct modelnode *hoverbikeTurretYawNode(struct model *model)
+{
+	struct modelnode *yawnode;
+	struct modelnode *eyenode;
+
+	if (!model || !model->definition) {
+		return NULL;
+	}
+	yawnode = modelGetPart(model->definition, VEHICLE_MODEL_PART_TURRET_YAW);
+	eyenode = modelGetPart(model->definition, VEHICLE_MODEL_PART_GUNNER_SEAT);
+	if (!yawnode || (yawnode->type & 0xff) != MODELNODETYPE_POSITION || !yawnode->parent
+			|| !eyenode || !hoverbikeNodeIsUnder(eyenode, yawnode) || eyenode == yawnode) {
+		return NULL;
+	}
+	return yawnode;
+}
+
+s32 hoverbikeTurretEyeModelPos(struct defaultobj *obj, f32 yaw, struct coord *eye)
+{
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *yawnode = hoverbikeTurretYawNode(model);
+	struct coord pivot;
+	f32 at[3];
+	f32 turned[3];
+
+	if (!yawnode || !eye) {
+		return 0;
+	}
+	/* The pivot in model units: the yaw part's own position and its
+	 * parents', as hoverbikeSeatModelPos sums them for the eye. */
+	modelNodeGetModelRelativePosition(model, yawnode, &pivot);
+	at[0] = eye->x;
+	at[1] = eye->y;
+	at[2] = eye->z;
+	vehicleTurretTurnPoint(pivot.f, at, yaw, turned);
+	eye->x = turned[0];
+	eye->y = turned[1];
+	eye->z = turned[2];
+	return 1;
+}
+
+void hoverbikeApplyTurretAim(struct prop *prop)
+{
+	static s32 s_LoggedModelnum = -1;
+	static s32 s_LoggedTurnedModelnum = -1;
+	struct defaultobj *obj = (prop && prop->type == PROPTYPE_OBJ) ? prop->obj : NULL;
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *yawnode;
+	struct modelnode *pitchnode;
+	struct modelnode *node;
+	f32 yaw;
+	f32 pitch;
+
+	if (!obj || obj->type != OBJTYPE_HOVERBIKE || !model || !model->matrices
+			|| !vehicleGraphRuntimeTurretAim(prop, prop->lifecycle_generation, &yaw, &pitch)) {
+		return;
+	}
+	yawnode = hoverbikeTurretYawNode(model);
+	if (!yawnode) {
+		return;
+	}
+	pitchnode = modelGetPart(model->definition, VEHICLE_MODEL_PART_TURRET_PITCH);
+	if (pitchnode && ((pitchnode->type & 0xff) != MODELNODETYPE_POSITION
+			|| !hoverbikeNodeIsUnder(pitchnode, yawnode))) {
+		pitchnode = NULL;
+	}
+
+	/* The model was placed with no animation (objInitMatrices), so each
+	 * position node's matrix is its parent's times its own offset. Rebuild
+	 * the yaw part's and every position node's under it, parents first, with
+	 * the yaw turned in at the yaw part and the pitch at the pitch part; the
+	 * drawn parts under them take their matrices from these. A two-matrix
+	 * joint is not built this way, and a model with one under the turret is
+	 * left as modelled. */
+	for (node = yawnode; node; ) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+			struct modelrodata_position *rodata = &node->rodata->position;
+			Mtxf *parentmtx = modelFindNodeMtx(model, node->parent, 0);
+			Mtxf local;
+			Mtxf rot;
+			Mtxf turned;
+
+			if ((node->type & MODELNODETYPE_0100) || !parentmtx
+					|| rodata->mtxindex0 < 0 || rodata->mtxindex0 >= model->definition->nummatrices) {
+				return;
+			}
+			mtx4LoadTranslation(&rodata->pos, &local);
+			if (node == yawnode || node == pitchnode) {
+				if (node == yawnode) {
+					mtx4LoadYRotation(yaw, &rot);
+				} else {
+					/* Up is positive: the cannon's +z tilts towards +y, as
+					 * the gunner's view does (bbikeTickGunner). */
+					mtx4LoadXRotation(-pitch, &rot);
+				}
+				mtx00015be4(&local, &rot, &turned);
+				local = turned;
+			}
+			mtx00015be4(parentmtx, &local, &model->matrices[rodata->mtxindex0]);
+		}
+
+		/* The next node under the yaw part, parents before children. */
+		if (node->child) {
+			node = node->child;
+			continue;
+		}
+		while (node != yawnode && !node->next) {
+			node = node->parent;
+		}
+		if (node == yawnode) {
+			break;
+		}
+		node = node->next;
+	}
+
+	if (s_LoggedModelnum != obj->modelnum) {
+		s_LoggedModelnum = obj->modelnum;
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.TURRET: modelnum=%d the turret follows the gunner's aim: yaw part %d, pitch part %d",
+			obj->modelnum, VEHICLE_MODEL_PART_TURRET_YAW, pitchnode ? VEHICLE_MODEL_PART_TURRET_PITCH : -1);
+	}
+	if (s_LoggedTurnedModelnum != obj->modelnum && (yaw > 0.1f || yaw < -0.1f)) {
+		s_LoggedTurnedModelnum = obj->modelnum;
+		sysLogPrintf(LOG_NOTE, "VEHICLE.TURRET: modelnum=%d drawn turned: yaw=%.2f pitch=%.2f",
+			obj->modelnum, yaw, pitch);
+	}
 }
 
 s32 hoverbikeSeatWorldPos(struct defaultobj *obj, s32 seat, struct coord *pos)

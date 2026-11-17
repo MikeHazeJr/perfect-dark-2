@@ -110,6 +110,18 @@ void vehicleExitPressReset(vehicle_exit_press_t *state);
 s32 vehicleExitPressStep(vehicle_exit_press_t *state, s32 pressed, s32 can_switch,
 	s32 now60, s32 window60);
 
+/*
+ * Where a point that rides on the turret is once the turret has turned `yaw`
+ * radians about its pivot's vertical axis, in the model's own units and axes
+ * (+x left, +y up, +z forward). The gunner's eye rides on the turret's yaw
+ * part, so it goes round the pivot as the turret turns, and the gunner keeps
+ * looking along the cannon. The turn is the game's own Y rotation
+ * (mtx4LoadYRotation), the one the gunner's view and the drawn turret use, so
+ * all three agree: a yaw of a quarter turn takes a point ahead of the pivot
+ * (+z) to its left (+x). The height does not change.
+ */
+void vehicleTurretTurnPoint(const f32 pivot[3], const f32 point[3], f32 yaw, f32 out[3]);
+
 #ifdef __cplusplus
 }
 #endif

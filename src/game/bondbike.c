@@ -1674,6 +1674,7 @@ static void bbikeTickGunner(void)
 	struct defaultobj *obj = player->hoverbike->obj;
 	struct prop *prop;
 	struct coord seatpos;
+	struct coord eye;
 	struct coord pos;
 	Mtxf seatmtx;
 	Mtxf view;
@@ -1731,10 +1732,16 @@ static void bbikeTickGunner(void)
 			player->bondbreathing = 0.0f;
 		}
 
-		/* The seat's place on the vehicle as it stands now. */
+		/* The seat's place on the vehicle as it stands now. The turret points
+		 * where the gunner aims (V5a: the yaw and the view's pitch, recorded
+		 * for the vehicle's drawing), and the gunner's eye rides on it. */
+		vehicleGraphRuntimeSetTurretAim(obj->prop, obj->prop->lifecycle_generation, yaw,
+			player->vv_verta * 0.017453292f);
+		eye = player->bondvehicleoffset;
+		hoverbikeTurretEyeModelPos(obj, yaw, &eye);
 		mtx3ToMtx4(obj->realrot, &seatmtx);
 		mtx4SetTranslation(&obj->prop->pos, &seatmtx);
-		mtx4TransformVec(&seatmtx, &player->bondvehicleoffset, &seatpos);
+		mtx4TransformVec(&seatmtx, &eye, &seatpos);
 
 		/* Rooms, ground and pitch as for the driver. It also sets the
 		 * view's yaw to the vehicle's heading; the gunner's own yaw goes

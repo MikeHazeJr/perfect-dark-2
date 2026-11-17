@@ -17,6 +17,22 @@
  * below removes. Declared here because the math.h the client build finds does
  * not declare it, and game/atan2f.h brings the game's types with it. */
 float atan2f(float x, float z);
+/* The same reason for these two: the client's are the game's own (PR/gu.h). */
+float sinf(float angle);
+float cosf(float angle);
+
+void vehicleTurretTurnPoint(const f32 pivot[3], const f32 point[3], f32 yaw, f32 out[3])
+{
+	const f32 c = cosf(yaw);
+	const f32 s = sinf(yaw);
+	const f32 dx = point[0] - pivot[0];
+	const f32 dz = point[2] - pivot[2];
+
+	/* mtx4LoadYRotation(yaw): +x goes to (cos, 0, -sin), +z to (sin, 0, cos). */
+	out[0] = pivot[0] + c * dx + s * dz;
+	out[1] = point[1];
+	out[2] = pivot[2] - s * dx + c * dz;
+}
 
 f32 vehicleSeatViewAngle(f32 dx, f32 dz, f32 view_theta_deg)
 {

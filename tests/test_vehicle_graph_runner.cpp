@@ -9,6 +9,7 @@
  */
 #include "catch.hpp"
 
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <regex>
@@ -1168,5 +1169,45 @@ TEST_CASE("A vehicle's speed over the ground comes from its moves and their tick
 	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 4, 500.0f, 500.0f, 1.0f) == 0.0f);
 	vehicleGraphRuntimeReset();
 	CHECK(vehicleGraphRuntimeTakePeakGround(&b, 5) == 0.0f);
+	CHECK(vehicleGraphRuntimeCount() == 0);
+}
+
+TEST_CASE("A vehicle keeps its turret's aim, and a gunner who leaves leaves it pointed", "[vehicle-graph]")
+{
+	vehicleGraphRuntimeReset();
+	int a = 0, b = 0;
+	f32 yaw = -1.0f, pitch = -1.0f;
+
+	// No aim yet: the turret is drawn as modelled, and nothing is written.
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 3, &yaw, &pitch) == 0);
+	CHECK(yaw == -1.0f);
+	CHECK(pitch == -1.0f);
+	CHECK(vehicleGraphRuntimeCount() == 0);
+
+	vehicleGraphRuntimeSetTurretAim(&a, 3, 0.5f, -0.25f);
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 3, &yaw, &pitch) == 1);
+	CHECK(yaw == Approx(0.5f));
+	CHECK(pitch == Approx(-0.25f));
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 3, nullptr, nullptr) == 1);
+
+	// A value that is not a number is not an aim; the last aim stays.
+	vehicleGraphRuntimeSetTurretAim(&a, 3, std::nanf(""), 0.0f);
+	vehicleGraphRuntimeSetTurretAim(&a, 3, 0.0f, INFINITY);
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 3, &yaw, &pitch) == 1);
+	CHECK(yaw == Approx(0.5f));
+
+	// The gunner leaves: the seat empties and the aim stays.
+	REQUIRE(vehicleGraphRuntimeSetSeatOccupant(&a, 3, VEHICLE_GRAPH_SEAT_GUNNER, 0) == 1);
+	REQUIRE(vehicleGraphRuntimeSetSeatOccupant(&a, 3, VEHICLE_GRAPH_SEAT_GUNNER, -1) == 1);
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 3, &yaw, &pitch) == 1);
+	CHECK(yaw == Approx(0.5f));
+
+	// Each vehicle has its own; a new vehicle in the same slot has none; a
+	// reset forgets them all.
+	CHECK(vehicleGraphRuntimeTurretAim(&b, 5, &yaw, &pitch) == 0);
+	CHECK(vehicleGraphRuntimeTurretAim(&a, 4, &yaw, &pitch) == 0);
+	vehicleGraphRuntimeSetTurretAim(&b, 5, -2.0f, 0.1f);
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeTurretAim(&b, 5, &yaw, &pitch) == 0);
 	CHECK(vehicleGraphRuntimeCount() == 0);
 }

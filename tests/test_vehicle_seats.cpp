@@ -200,3 +200,47 @@ TEST_CASE("One press of the exit button leaves; two in quick succession switch s
 		CHECK(vehicleExitPressStep(nullptr, 0, 1, 100, window) == VEHICLE_EXIT_PRESS_NONE);
 	}
 }
+
+TEST_CASE("A point on the turret goes round the pivot as the turret turns", "[vehicle-seats]")
+{
+	// The Maian vehicle's gunner's eye is 300 units behind and above the yaw
+	// pivot; the pivot is off the model's origin.
+	const f32 pivot[3] = { 10.0f, 306.0f, -50.0f };
+	const f32 eye[3] = { 10.0f, 960.0f, -350.0f };
+	f32 out[3];
+
+	// No turn: the point stays.
+	vehicleTurretTurnPoint(pivot, eye, 0.0f, out);
+	CHECK(out[0] == Approx(10.0f));
+	CHECK(out[1] == Approx(960.0f));
+	CHECK(out[2] == Approx(-350.0f));
+
+	// A quarter turn: behind the pivot (-z) goes to its right (-x), as a point
+	// ahead (+z) goes to its left (+x); the height stays.
+	vehicleTurretTurnPoint(pivot, eye, 1.5707963f, out);
+	CHECK(out[0] == Approx(10.0f - 300.0f).margin(0.01));
+	CHECK(out[1] == Approx(960.0f));
+	CHECK(out[2] == Approx(-50.0f).margin(0.01));
+	const f32 ahead[3] = { 10.0f, 0.0f, 50.0f };
+	vehicleTurretTurnPoint(pivot, ahead, 1.5707963f, out);
+	CHECK(out[0] == Approx(110.0f).margin(0.01));
+	CHECK(out[2] == Approx(-50.0f).margin(0.01));
+
+	// Half a turn puts it ahead; the distance to the pivot never changes.
+	vehicleTurretTurnPoint(pivot, eye, 3.1415927f, out);
+	CHECK(out[0] == Approx(10.0f).margin(0.01));
+	CHECK(out[2] == Approx(250.0f).margin(0.01));
+	for (int step = 0; step < 16; step++) {
+		vehicleTurretTurnPoint(pivot, eye, step * 0.4f - 3.0f, out);
+		CHECK(std::hypot(out[0] - pivot[0], out[2] - pivot[2]) == Approx(300.0f).margin(0.01));
+		CHECK(out[1] == Approx(960.0f));
+	}
+
+	// The same turn as the game's matrix: column 0 is (cos, 0, -sin) and
+	// column 2 is (sin, 0, cos).
+	const f32 yaw = 0.7f;
+	const f32 side[3] = { 10.0f + 1.0f, 0.0f, -50.0f };
+	vehicleTurretTurnPoint(pivot, side, yaw, out);
+	CHECK(out[0] - pivot[0] == Approx(std::cos(yaw)));
+	CHECK(out[2] - pivot[2] == Approx(-std::sin(yaw)));
+}
