@@ -59,7 +59,7 @@ client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and sh
 carrier at 23.5 s, the dying simulant's case was announced (`BOT.DROP: host announced simulant 2 weapon=79 syncid=48`),
 and the client replayed simulant 4's pickup of it as `item 48 weapon=79 result=0` and showed simulant 4 as the holder.
 
-## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, fixed in code with Mike's OK, not yet run)
+## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, fixed with Mike's OK; checked in play)
 
 Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
 a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
@@ -116,6 +116,11 @@ has not started turns toward the nearest Hacker Central terminal (`botHtmNearest
 the ordinary turning speed (about 1 s for half a turn), so the download starts once it faces within 45 degrees.
 This departs from the original on purpose. Pinned by `[b1271]` in `tests/test_net_bot_pickup_static.cpp`. Not
 built yet; the queued carrier-death run builds it.
+
+**Checked in play (4789effa, base 7):** `mp_hacker_central_net_carrier_death_smoke` 106/106
+(`results-20261117T012828Z.json`) and `mp_hacker_central_net_smoke` 88/88 (`results-20261117T014259Z.json`, it
+needs a score): no `holds the uplink, not downloading (not facing the terminal)` line in either, 5 and 2 downloads,
+scores 10 (the score limit) and 4.
 
 ## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
 
