@@ -1009,6 +1009,15 @@ void bbikeApplyMoveData(struct movedata *data)
 				sysLogPrintf(LOG_NOTE,
 					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f boost=%.2f",
 					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake, vBoost);
+				/* B-1244: where the rider's view is, beside where the vehicle is,
+				 * and the rooms each is in (the room view was found drawing the
+				 * floor and not the walls). */
+				sysLogPrintf(LOG_NOTE,
+					"VEHICLE: view player=%d camera=(%.0f, %.0f, %.0f) camera_room=%d vehicle=(%.0f, %.0f, %.0f) vehicle_room=%d floor_room=%d",
+					actionPlayer, g_Vars.currentplayer->cam_pos.x, g_Vars.currentplayer->cam_pos.y,
+					g_Vars.currentplayer->cam_pos.z, (s32)g_Vars.currentplayer->cam_room,
+					bikeprop->pos.x, bikeprop->pos.y, bikeprop->pos.z, (s32)bikeprop->rooms[0],
+					(s32)g_Vars.currentplayer->floorroom);
 				s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = (s32)g_Vars.lvframenum;
 			}
 		}
