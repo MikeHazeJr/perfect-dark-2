@@ -291,6 +291,32 @@ campaign fixtures pin it.
 - Proof so far: pd-tests (`tests/test_level_graph_program.cpp`); in game,
   the next campaign turn shows every stage's level program and its object
   event totals. The gates and modules need a level that wires them.
+- In game 2026-11-17 (q_20261117000144009_bab5471d, client caf00d7c):
+  every stage compiled its level program and recorded its object events;
+  every payload's record id was empty, B-1259 (`setupGetCmdIndexByProp`
+  read the N64 word offset), fixed in 4cbcd3da.
+
+## Slice 4 as written (CORE, 2026-11-17)
+
+- ca42b3af on `week-pd/core-s4`: the rule events (runner kinds 11 to 13;
+  a mission graph naming one is refused when it compiles), the rule
+  context (`mission_graph_object_rule_t`, `missionGraphModulesRuleBegin`
+  and `End`) and the six rule gates and modules, `objTestForPickup` split
+  into the candidate test, `objPickupRulesAllow` and the touch,
+  `doorShowLocked` and `doorOpenAutomatic` out of `propdoorInteract` and
+  `doorsCheckAutomatic`, the wiring in the extractor (kind `_ruleevents`,
+  plus a freshness marker), the mod packer's template and the typed example
+  builder (examples regenerated), the fail-closed check in the runtime and
+  conformance, the parity probe and its fixture pins; slice 3's queries
+  removed.
+- 7326bbe8: the harness's `use_door` and `mp_arena_door_rules` (Felicity),
+  since no campaign smoke presses use on a door.
+- Not routed through the rules, on purpose: the AI's `give_object_to_chr`
+  (an AI command with its own graph twin), the thrown laptop gun's
+  recovery by the use button (the weapon graph's deployed entity decides
+  it: `pickup_recover`, `interact_filter`), simulants' pickups (bot AI,
+  MULTIPLAYER's) and a network client's door prediction (the host
+  decides).
 
 ## Not in scope
 
