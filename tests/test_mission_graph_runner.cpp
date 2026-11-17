@@ -482,7 +482,9 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 	REQUIRE(meta.find(R"({ \"id\": \"objective.status_message\", \"kind\": \"og.hud.objective_status_message\" },)") != std::string::npos);
 	REQUIRE(meta.find(R"({ \"from\": \"objective.status_changed\", \"output\": \"out\", \"to\": \"objective.status_message\", \"input\": \"exec\" })") != std::string::npos);
 	REQUIRE(meta.find("\"\\\"input\\\": \\\"exec\\\"\") &&") != std::string::npos);
-	REQUIRE(meta.find("_objective_status_event_mission_endings\"") != std::string::npos);
+	// The marker stays in the meta cache kind (later suffixes may follow it:
+	// _vehiclegraph, B-1230).
+	REQUIRE(meta.find("_objective_status_event_mission_endings") != std::string::npos);
 
 	// The objective check fires the event when the mission graph owns it and
 	// shows the message directly otherwise; the message is one function.
