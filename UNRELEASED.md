@@ -10,6 +10,16 @@
 
 - Fix a hang when a mod's descriptor file had a line that was not `key = value`.
 
+- Keep your mods through updates: mods you make or install live in
+  `%LOCALAPPDATA%\perfectdark\mods` and are no longer erased when the game or
+  its caches are rebuilt. The game's own `mods` folder is still read, and your
+  copy wins when both hold the same mod.
+
+- Vehicles can be mods. A vehicle mod brings its own model and a behavior graph
+  that decides how it is mounted, driven and boosted. Adds a Vehicle Boost
+  control (Shift, or A on a controller, where the vehicle handbrake moves to
+  B); both can be remapped.
+
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
 
