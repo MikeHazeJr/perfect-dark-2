@@ -2300,7 +2300,13 @@ u32 actionHoldPressStartMs(s32 player, InputAction action)
  * combat, weapons, interact) is the canonical owner of those bindings in
  * pd.ini. Mission / CombatSim sit above gameplay in the iteration but only
  * own actions they explicitly bind (today: ACTION_SCORECARD_HOLD on
- * CombatSim), so they never shadow the baseline at save/load time. */
+ * CombatSim), so they never shadow the baseline at save/load time.
+ *
+ * The order is also part of the saved bindings file: a new context goes at
+ * the END of this list. actionmap_profile::decode reads a file that lacks the
+ * last contexts as a complete file from an older build (their bindings take
+ * the defaults); a file that lacks any other context is refused as damaged.
+ * So a context inserted in the middle would make every saved file invalid. */
 static InputMappingContext * const s_AllImcs[] = {
     &g_ImcGameplay,
     &g_ImcCutscene,
@@ -2637,11 +2643,13 @@ void actionmapLoadBinds(void)
     if (ok) actionmapUpdateLegacyBindStrings();
     else sysLogPrintf(LOG_WARNING, "ACTIONMAP: %s", s_BindingPersistenceError.c_str());
     if (ok && s_ProfileStore.upgradedFromActions() > 0) {
-        /* The file was saved by a build with fewer actions (each new action
-         * makes every saved file one row short per context). */
+        /* The file was saved by a build with fewer actions or fewer input
+         * contexts (each new action makes every saved file one row short per
+         * context; each new context, one context short). */
         sysLogPrintf(LOG_NOTE,
-            "ACTIONMAP: bindings file from an older build (%d of %d actions per context): bindings kept, new actions take their defaults, file brought up to date",
-            (s32)s_ProfileStore.upgradedFromActions(), (s32)ACTION_COUNT);
+            "ACTIONMAP: bindings file from an older build (%d of %d actions per context, %d of %d contexts): bindings kept, new actions and contexts take their defaults, file brought up to date",
+            (s32)s_ProfileStore.upgradedFromActions(), (s32)ACTION_COUNT,
+            (s32)s_ProfileStore.upgradedFromContexts(), s_NumAllImcs);
     }
     actionmapRetireBindingState();
 }

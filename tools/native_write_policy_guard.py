@@ -63,8 +63,11 @@ REVIEWED = {
     # Re-reviewed for B-1233 (T-MODDING-008): Store::initialize also rewrites,
     # through the same serializer, a complete bindings file saved by a build
     # with fewer actions, once it has been read and applied.
-    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "ee30087477ac847653ef68c5e197fd9e8976c71bc87ca4db1d56fc889224b8ab"},
-    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "03d168b8946aac8b3fd73491df60fae0ea248b640b050ef1b00f68c748135220"},
+    # Re-reviewed for the input context rule (T-MODDING-008, 2026-11-17): the
+    # same rewrite also runs for a complete file from a build with fewer input
+    # contexts; the write call, its serializer and its path are unchanged.
+    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "b5a389d2af84ec5230a7075b9d1c586b150671b163b2cb332199a800ef3108ad"},
+    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "82f4d0718bdc89e747a271634dda46f9b7abc5692d059e70d7a8c26441702891"},
     # Inactive POSIX branches; the Windows counterparts are wrapped.
     "port/src/crash.c": {"routes": ["open"], "sha256": "766fc2f5ffb484f092be672bded832cd300d97d90805ffe5cc038d89d13c33f7"},
     "port/src/fs.c": {"routes": ["mkdir"], "sha256": "95a210fddb3711643c1ec36e0b219dc1cde9bcac74594f504dc353f1c1e7e53d"},

@@ -503,12 +503,17 @@ Risks the survey found, to settle before or in step 5:
 - `objTestForInteract` aims the interact cone at the vehicle's origin
   (`propobj.c:18313`), so looking at a seat far from the centre may not
   interact at all.
-- Bindings files: `actionmap_profile.cpp:324` wants exactly contexts times
-  actions rows, so two new actions and a thirteenth context make every existing
-  `input-bindings.ini` invalid and block saving (`:425`). This needs a
-  migration (or the tolerant read B-1184 added for a file cut off at an
-  unnamed action, extended to a missing context), decided with whoever owns
-  the bindings file before step 2 lands.
+- Bindings files: `actionmap_profile.cpp:324` wanted exactly contexts times
+  actions rows, so two new actions and a thirteenth context would have made
+  every existing `input-bindings.ini` invalid and blocked saving (`:425`).
+  SETTLED 2026-11-17: B-1233 (on `week-pd/mods`) reads a complete file from a
+  build with fewer actions, and the side branch extends the same rule to a
+  build with fewer input contexts (`[upgrade]` cases; not compiled locally
+  yet): the bindings are kept, new actions and contexts take their defaults
+  and the file is written back complete. The rule holds only while new actions
+  are appended to the action list and new contexts to the end of `s_AllImcs`
+  (`actionmap.cpp`), so the turret context goes last there, after
+  `g_ImcTextInput`.
 - A driverless vehicle slides as a projectile in the prop pass
   (`propobj.c:8052`) and excludes only its owner prop from collision, so it may
   hit its own gunner, and the gunner's eye may lag a frame. Unconfirmed in
