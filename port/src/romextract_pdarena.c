@@ -10174,6 +10174,13 @@ static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
 #define PDARENA_CLEAN_MARKER_NAME ".pdextract-clean"
 #define PDARENA_CLEAN_MARKER_SCHEMA "pdarena-clean-v1"
 
+/* The persisted format is unchanged. Size the read from the same record the
+ * writer uses so growing either kind cannot truncate the comparison. */
+static const char k_PdarenaCleanMarker[] =
+	"schema=" PDARENA_CLEAN_MARKER_SCHEMA "\n"
+	"arena_kind=" ROMEXTRACT_PDARENA_FAST_CACHE_KIND "\n"
+	"scenario_kind=" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "\n";
+
 static s32 s_pdarenaCleanMarkerPath(const char *arenas_dir, char *out,
 	size_t out_n)
 {
@@ -10190,26 +10197,16 @@ static s32 s_pdarenaCleanMarkerPath(const char *arenas_dir, char *out,
 static s32 s_pdarenaCleanMarkerIsValid(const char *arenas_dir)
 {
 	char path[FS_MAXPATH + 1];
-	char schema[64] = {0};
-	char arena_kind[512] = {0};
-	char scenario_kind[512] = {0};
-	FILE *f;
-	int matched;
+	char record[sizeof(k_PdarenaCleanMarker) - 1];
 
 	if (!s_pdarenaCleanMarkerPath(arenas_dir, path, sizeof(path))) return 0;
-	f = fopen(path, "rb");
+	FILE *f = fopen(path, "rb");
 	if (!f) return 0;
-	matched = fscanf(f,
-		"schema=%63s\narena_kind=%511s\nscenario_kind=%511s\n",
-		schema, arena_kind, scenario_kind);
+	s32 matches = fread(record, 1, sizeof(record), f) == sizeof(record) &&
+		memcmp(record, k_PdarenaCleanMarker, sizeof(record)) == 0 &&
+		fgetc(f) == EOF && !ferror(f);
 	fclose(f);
-	if (matched != 3) return 0;
-	if (strcmp(schema, PDARENA_CLEAN_MARKER_SCHEMA) != 0) return 0;
-	if (strcmp(arena_kind, ROMEXTRACT_PDARENA_FAST_CACHE_KIND) != 0) return 0;
-	if (strcmp(scenario_kind, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND) != 0) {
-		return 0;
-	}
-	return 1;
+	return matches;
 }
 
 static void s_pdarenaCleanMarkerWrite(const char *arenas_dir)
@@ -10224,10 +10221,7 @@ static void s_pdarenaCleanMarkerWrite(const char *arenas_dir)
 			"romextract pdarena: could not write clean marker \"%s\"", path);
 		return;
 	}
-	fprintf(f, "schema=%s\narena_kind=%s\nscenario_kind=%s\n",
-		PDARENA_CLEAN_MARKER_SCHEMA,
-		ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
-		ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+	fputs(k_PdarenaCleanMarker, f);
 	fclose(f);
 }
 

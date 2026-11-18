@@ -1,5 +1,25 @@
 # Session Log (Active)
 
+2026-11-18, P-001 warm startup. The arena clean marker now compares
+the complete version record used by its writer, and loose ZIP archives no longer
+go through a full-file read before manifest extraction. The source guard and
+static checks passed, including a byte-for-byte comparison with the existing
+Base 9 marker. The comparison and guard receipt is
+`.claude/p001-startup-20261118/static.log`. Mike approved the per-run storage
+exception in D-034. The live checkout's test build failed on an unrelated
+untracked gameplay-graph static assertion. A clean `e4deb4404` source export
+with the three owned files built both targets through the queued wrapper and
+passed the native-source guard, 119 focused cases, and all 2,259 native cases.
+Two launches per binary on the same private Base 9 data averaged 63.16 to
+29.84 seconds for warm asset startup and 34.18 to 1.43 seconds for arena and
+scenario validation. The catalog walker averaged 25.36 and 25.62 seconds.
+Each launch registered all 5,570 assets and left all 9,026 typed files
+unchanged. The patched windowed boot smoke passed 14/14. Missing and corrupt
+CI Training fixtures each changed only that scenario archive. An older kind
+simulated in the scenario stamp rewrote 87 scenarios and 47 linked arenas.
+Every repair run registered all 5,570 assets. Receipts are under
+`.claude/p001-startup-20261118/`.
+
 2026-11-17 (04:37 ET) MULTIPLAYER: week-pd/multiplayer LANDED on dev as e09bbbc9 (tip 86dbf5cc; dev was fd4c1f03), pushed as a fast-forward; main untouched. Mike's approval of 2026-11-17 and its conditions: B-1273's run passed (326df90c: Hacker Central carrier death 107/107, Combat with simulants 71/71), MODS (940b21b1) and CORE (48667628, then slice 4 fd4c1f03) landed first, dev merged in first (4febf6b8, 86dbf5cc; seven and one conflicts, both sides kept; CORE's kill_simulant pin fixed in 1138a112), rebuilt and tested in the landing turn q_20261117041122187_1ddde2f9 on shared base 9: pd-tests 2258 cases, mp_combat_net_bots_smoke 71/71, mp_hacker_central_net_carrier_death_smoke 107/107, network_coop_mission_end_smoke 130/130, network_counterop_mission_end_smoke 128/128. The merge tree is the tested tree. Canonical in-flight edits kept (CMakeLists.txt, pdmain.c, chr.c, prop.c 3-way clean; UNRELEASED.md both insertions, the in-flight text unchanged; numstat identical). NET_PROTOCOL_VER 64 on dev now: every peer must be built from it. Posted in the week note (09:45 UTC) and the hub. Next: week-pd/multiplayer-coop (AI buddies, B-1274, S1, S2; its run q_20261117051637463_af6eb56c is queued), then S3 and S4; open for Mike: a parked partner's items, counter-op drop-out, the co-op radar option.
 
 2026-11-16 (23:08 ET) MULTIPLAYER, continued. Mike approved landing week-pd/multiplayer on dev once B-1273's run passes and after MODS and CORE land (merge dev in first, renumber the protocol above dev's, rebuild and test, merge, push, post; main untouched), and took my recommendations: Challenges as their own Room tab, presets as a Load Preset list atop Combat Simulator, drop-in/drop-out for two-player co-op only, an AI-buddy mission stays one (a friend joins at the next mission); recorded in constraints.md (326df90c). B-1273 checked in play: turn q_20261117014917169_52e3ea4a built 326df90c (pd-tests 2045/2045), Hacker Central carrier death 107/107 and Combat with simulants 71/71, five dropped guns and the replacement uplink with no model warning. MODS landed on dev (940b21b1, still v63, no net/ change: the vehicle boost is an input action, not a wire bit); CORE has merged dev (9f38d6dd, v63) and is about to land. My v64 stays above both. Next: land on dev after CORE; then the AI buddy choice, then co-op drop-in/drop-out S1 to S4.

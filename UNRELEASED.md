@@ -484,6 +484,7 @@
   coordination/queue hub.
 - Fixed the end credits rendering dust motes and text as solid opaque squares, and fixed glow/gradient textures that rendered as opaque black boxes: extracted textures now decode with N64-accurate alpha and channel order (I4/I8 intensity-alpha, IA16 byte order, RGBA32 channel order). Existing installs re-extract affected textures and scenes once automatically.
 - Fixed a bug that silently re-extracted all 87 level scenarios on every game launch (a binary-file probe always reported them stale). Warm boots now skip straight past extraction, cutting roughly 40 seconds off every launch after the first.
+- Fixed repeated arena and scenario validation on warm launches and removed full-archive reads used only to identify ZIP files during catalog startup.
 - Dev Window v2 and v3 now open the Workbench and treat its roadmap, notes,
   changelog, Codex memory mirror, and release notes as live project state.
 - Git Pull in Dev Window v2 now fetches remote commits first and lets the operator choose the exact commit to fast-forward to.

@@ -34,6 +34,9 @@
 #include "loader_walker_common.h"
 #include "asset_path_contract.h"
 #include "modarchive.h"
+#ifndef PD_SERVER
+#include "modvfs.h"
+#endif
 #include "system.h"
 
 /* ------------------------------------------------------------------ */
@@ -354,34 +357,47 @@ static s32 s_loadManifest(const char *rel_path,
     *out_len = 0;
     if (out_arc) *out_arc = NULL;
 
-    /* fsFileLoad reads via fsFullPath internally; works for the relative
-     * data/<romid>/<class>/file form we pass in. */
+    char full_buf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel_path, full_buf, sizeof(full_buf));
+    if (!full[0]) return 0;
+
+    /* Preserve fsFileLoad's mounted-entry precedence. For a loose file,
+     * read only its signature before choosing the ZIP or legacy JSON path. */
     u32 size = 0;
-    void *raw = fsFileLoad(rel_path, &size);
-    if (!raw || size < 2) {
-        if (raw) sysMemFree(raw);
-        return 0;
+    void *raw = NULL;
+#ifndef PD_SERVER
+    raw = modVfsResolveAnyAlloc(rel_path, &size, NULL, 0);
+#endif
+    u8 bytes[2];
+    if (raw) {
+        if (size < sizeof(bytes)) {
+            sysMemFree(raw);
+            return 0;
+        }
+        memcpy(bytes, raw, sizeof(bytes));
+    } else {
+        FILE *probe = fopen(full, "rb");
+        if (!probe) return 0;
+        size_t bytes_read = fread(bytes, 1, sizeof(bytes), probe);
+        fclose(probe);
+        if (bytes_read != sizeof(bytes)) return 0;
     }
 
-    const u8 *bytes = (const u8 *)raw;
     s32 is_zip = (bytes[0] == 'P' && bytes[1] == 'K');
-    /* Plain JSON: fsFileLoad already null-terminates per its contract; reuse
-     * the buffer. ASCII '{' / '[' both legal JSON top-levels. */
+    /* Plain JSON needs the complete, NUL-terminated source. */
     if (!is_zip) {
+        if (!raw) raw = fsFileLoad(rel_path, &size);
+        if (!raw || size < sizeof(bytes)) {
+            if (raw) sysMemFree(raw);
+            return 0;
+        }
         *out_buf = (char *)raw;
         *out_len = (size_t)size;
         return 1;
     }
 
-    /* ZIP compound: free the raw bytes and re-open via modArchive so we
-     * can extract _meta/manifest.json while still accepting the legacy
-     * root manifest during migration. */
-    sysMemFree(raw);
-
-    char fullBuf[FS_MAXPATH + 1];
-    const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
-    if (!full || !full[0]) return 0;
-
+    /* ZIP compound: leave entry selection and validation to modArchive. */
+    if (raw) sysMemFree(raw);
     mod_archive_t *arc = modArchiveOpen(full);
     if (!arc) return 0;
 

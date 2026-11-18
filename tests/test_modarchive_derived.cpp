@@ -306,6 +306,20 @@ TEST_CASE("B-1110 the cache stamp is written only after its archives are flushed
 	REQUIRE(body.find("return;", refusal) < scan);
 }
 
+TEST_CASE("arena clean markers validate the complete version record they write",
+		"[modarchive][pdextract][static]")
+{
+	const std::string source = readSource("port/src/romextract_pdarena.c");
+	const std::string reader = functionBody(source, "static s32 s_pdarenaCleanMarkerIsValid(");
+	const std::string writer = functionBody(source, "static void s_pdarenaCleanMarkerWrite(");
+	REQUIRE(source.find("\"scenario_kind=\" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(reader.find("sizeof(k_PdarenaCleanMarker) - 1") != std::string::npos);
+	REQUIRE(reader.find("fread(record, 1, sizeof(record), f) == sizeof(record)") != std::string::npos);
+	REQUIRE(reader.find("memcmp(record, k_PdarenaCleanMarker, sizeof(record))") != std::string::npos);
+	REQUIRE(reader.find("fgetc(f) == EOF && !ferror(f)") != std::string::npos);
+	REQUIRE(writer.find("fputs(k_PdarenaCleanMarker, f)") != std::string::npos);
+}
+
 TEST_CASE("B-1110 every extractor publishes derived archives", "[modarchive][b1110][static]")
 {
 	const std::regex durable("\\bmodArchiveBegin\\(");

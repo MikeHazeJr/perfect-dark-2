@@ -928,6 +928,12 @@ renderer activation. Those failures now use a shared fatal that identifies the
 stage, payload, legacy id, and public `.pdscenario` source, and the native-source
 guard rejects the old setup/pads/tiles/background fallback signatures.
 
+The arena and scenario warm path accepts an existing `.pdextract-clean` marker
+only when the complete version record and both family stamps match.
+`romextract_pdarena.c` derives the read size from the record it writes. The
+catalog manifest loader in `loader_walker_common.c` probes loose files for a ZIP
+signature before opening the archive. Legacy JSON still loads in full.
+
 The fallback telemetry seen in the first weapon run was classified and fixed as
 extraction-bootstrap instrumentation noise: first-launch ROM reads during
 extraction/verify no longer count as runtime fallback, while post-extraction

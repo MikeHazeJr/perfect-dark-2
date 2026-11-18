@@ -2179,7 +2179,14 @@ Remaining 1.0 work:
 - T-NETWORKING-007: co-op continuity, drop-out/reconnect, and Combat Simulator
   start/return behavior.
 - P-001: explicit cold, warm, validation, rebuild, activation, creator, stage,
-  and match timing budgets with raw artifacts.
+  and match timing budgets with raw artifacts. N-0843 records the warm-start
+  diagnosis. The marker and manifest read fixes are in the canonical checkout
+  and a clean dev export with the patch built both client and tests. The
+  full native suite passed 2,259 cases. Paired Base 9 warm asset startup
+  averaged 63.2 seconds before and 29.8 seconds after. The ordinary boot
+  smoke passed 14/14. Missing and corrupt scenario fixtures each repaired one
+  archive. A simulated scenario version change regenerated its 87 scenarios
+  and 47 linked arenas. The other P-001 timing budgets remain open.
 
 Host authority migration after authority departure remains post-1.0 under
 T-NETWORKING-008 unless Mike promotes it.
