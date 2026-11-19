@@ -93,7 +93,8 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(countOf(propobj, "projectileEventBind(") == 1);
 	REQUIRE(events.find("s_ProjectileBinds[i].generation == obj->prop->lifecycle_generation") != std::string::npos);
 	REQUIRE(events.find("strcmp(held->projectile_ref, asset_id) == 0") != std::string::npos);
-	REQUIRE(countOf(events, "!projectileIdentify(obj, &who)") == 2);
+	// The records, the fuse rule and the contact rules (slice 3).
+	REQUIRE(countOf(events, "!projectileIdentify(obj, &who)") == 3);
 	REQUIRE(events.find("program = projectileProgramFor(&who, &asset_id);") != std::string::npos);
 	REQUIRE(events.find("projectileProgramForWeapon") == std::string::npos);
 	// An object that is no weapon is recorded only when a launch bound it
