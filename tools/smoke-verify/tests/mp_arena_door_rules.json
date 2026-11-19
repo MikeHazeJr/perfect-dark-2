@@ -67,7 +67,7 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=mp_arena_door_rules",
-      "SCENARIO\\.GRAPH: level program 'base:scenario_mp_felicity' nodes=11 exec_edges=7 modules=4 volumes=0 ",
+      "SCENARIO\\.GRAPH: level program 'base:scenario_mp_felicity' nodes=23 exec_edges=15 modules=8 volumes=0 ",
       "SMOKE\\.USE_DOOR: object=setup_[0-9]{4} distance=[0-9]+ mode=0->[1-9] ",
       "SCENARIO\\.GRAPH: event\\.door\\.use 'base:scenario_mp_felicity' object=setup_[0-9]{4} tag=-?[0-9]+ kind=door catalog_id=base:[a-z0-9_]+ player=0 level_modules=1 ",
       "SCENARIO\\.GRAPH: event\\.door\\.opened 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",

@@ -1,6 +1,6 @@
 {
   "scenario_name": "mod_vehicle_drive_smoke",
-  "description": "Maian vehicle V1 (week PD 2026-11-15): a mod vehicle can be placed and driven. The in-game mod author saves the base hoverbike as mod:vehicle_smoke_hover (a local-only stand-in: it embeds the base model, so it is never shared). The scanner binds the copy's embedded mesh through a private model slot and gives the vehicle that model number (PDVEHICLE.MODEL). --debug-swap-vehicle then gives the stage's hoverbike that model (VEHICLE.SWAP), --debug-mount-bike mounts it, and driving it runs hoverbikeUpdateMovement, which looks the vehicle up by model number every tick and fails loudly (VEHICLE.SOURCE) if the mod vehicle's physics are not found. Proves placement and the physics lookup for a mod vehicle; the mod vehicle's own model and tunables come with the Maian vehicle (V2, V3). Runs on Escape (--launch-mission base:escape). The mount hook places Player 0 beside the bike with chrMoveToPos, which now skips the body model a solo player does not have outside a cutscene (B-1158; the hook used to wait for that model, which never came, so it never mounted on any campaign stage). Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug): after the intro is skipped, one direct-activate press (ACTION_VEHICLE_USE, E) lets go of it, and the mount hook, which waits for walk mode, fires. The mount hook mounts in the same frame walk mode comes back, so the smoke waits only for vehicle_driver_ready after that press (an on-foot wait there never comes true: 2026-11-16 08:48 UTC runs).",
+  "description": "Maian vehicle V1 (week PD 2026-11-15): a mod vehicle can be placed and driven. The in-game mod author saves the base hoverbike as mod:vehicle_smoke_hover (a local-only stand-in: it embeds the base model, so it is never shared). The scanner binds the copy's embedded mesh through a private model slot and gives the vehicle that model number (PDVEHICLE.MODEL). --debug-swap-vehicle then gives the stage's hoverbike that model (VEHICLE.SWAP), --debug-mount-bike mounts it, and driving it runs hoverbikeUpdateMovement, which looks the vehicle up by model number every tick and fails loudly (VEHICLE.SOURCE) if the mod vehicle's physics are not found. Proves placement and the physics lookup for a mod vehicle; the mod vehicle's own model and tunables come with the Maian vehicle (V2, V3). Runs on Escape (--launch-mission base:escape). The mount hook places Player 0 beside the bike with chrMoveToPos, which now skips the body model a solo player does not have outside a cutscene (B-1158; the hook used to wait for that model, which never came, so it never mounted on any campaign stage). Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug): after the intro is skipped, one direct-activate press (ACTION_VEHICLE_USE, E) lets go of it, and the mount hook, which waits for walk mode, fires. The mount hook mounts in the same frame walk mode comes back, so the smoke waits only for vehicle_driver_ready after that press (an on-foot wait there never comes true: 2026-11-16 08:48 UTC runs). Since the base hoverbike is a graph vehicle (pd.vehicle_graph.v1, object-events slice 5 on week-pd/core-s5), the copy carries that graph: the run must make its graph instance (8 nodes, 5 execution edges) and mount, drive and steer through it. Before that the copy was a v2 vehicle and this smoke forbade any graph line.",
   "tags": [
     "vehicle",
     "modding",
@@ -143,6 +143,7 @@
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_smoke_hover\\)",
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=8 exec_edges=5 pending=0 parts=0 boost_heat=0",
       "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
       "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
       "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
@@ -162,8 +163,7 @@
       "VEHICLE\\.GRAPH: refused",
       "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
       "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
-      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused",
-      "VEHICLE\\.GRAPH: modelnum="
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused"
     ],
     "required_counts": [
       {
