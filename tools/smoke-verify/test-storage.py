@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 import unittest
+from unittest.mock import patch
 import uuid
 
 spec = importlib.util.spec_from_file_location('smoke_storage', Path(__file__).with_name('storage.py'))
@@ -496,6 +497,65 @@ class StorageTests(unittest.TestCase):
             with self.assertRaises((OSError,storage.StorageError)): s.restore(run['StorageId'],s.root/'restored/corrupt')
         for name in ['../escape','a/../b','a/./b','C:/outside','a\\b','/absolute']:
             with self.assertRaises(storage.StorageError): storage.relative(name)
+
+    def test_default_build_floor_only_reserves_allocation_and_growth(self):
+        gib = 2**30
+        checked_in = json.loads(Path(storage.__file__).with_name('storage-policy.json').read_text())
+        # Both direct/default callers and the PS harness's complete policy use
+        # exactly the same floor. No real disk allocation or game build occurs.
+        for policy in (None, {}, checked_in):
+            s = storage.Storage(self.project, policy)
+            self.assertEqual(s.project_policy['peak_build_gib_bytes'], 4 * gib)
+            self.assertEqual(s.project_policy['extra_growth_gib_bytes'], 2 * gib)
+            with patch.object(storage.shutil, 'disk_usage') as usage:
+                for free in (6 * gib, 100 * gib, 206 * gib - 1):
+                    usage.return_value.free = free
+                    result = s.preflight(4 * gib, build=True)
+                    self.assertEqual(result['floor_bytes'], 0)
+                    usage.assert_called_with(s.project)
+                usage.return_value.free = 6 * gib - 1
+                with self.assertRaisesRegex(storage.StorageError, 'Disk preflight refused'):
+                    s.preflight(4 * gib, build=True)
+                # Non-build admission remains 200 + 2 run + 2 growth GiB.
+                usage.return_value.free = 204 * gib - 1
+                with self.assertRaisesRegex(storage.StorageError, 'Disk preflight refused'):
+                    s.preflight(2 * gib)
+                usage.return_value.free = 204 * gib
+                self.assertEqual(s.preflight(2 * gib)['floor_bytes'], 200 * gib)
+                self.assertEqual(s.policy['max_archive_gib_bytes'], 8 * gib)
+                self.assertEqual(s.policy['max_full_install_gib_bytes'], 8 * gib)
+                self.assertEqual(s.policy['max_full_installs'], 5)
+                s.archive_used = 8 * gib
+                s.preflight(4 * gib, build=True)
+                with self.assertRaisesRegex(storage.StorageError, 'Archive budget refused'):
+                    s.preflight(4 * gib, archive_pending=1, build=True)
+
+    def test_custom_build_floor_is_explicit_and_legacy_policies_are_preserved(self):
+        gib = 2**30
+        for policy, floor in (({'min_free_gib': 200}, 200),
+                              ({'min_free_gib': 23}, 23),
+                              ({'min_free_gib': 23, 'min_build_free_gib': 7}, 7),
+                              ({'min_free_gib': 200, 'min_build_free_gib': 0}, 0)):
+            s = storage.Storage(self.project, policy)
+            with patch.object(storage.shutil, 'disk_usage') as usage:
+                usage.return_value.free = (floor + 6) * gib - 1
+                with self.assertRaisesRegex(storage.StorageError, 'Disk preflight refused'):
+                    s.preflight(4 * gib, build=True)
+                usage.return_value.free += 1
+                self.assertEqual(s.preflight(4 * gib, build=True)['floor_bytes'], floor * gib)
+            self.assertEqual(s.policy['min_free_gib'], policy['min_free_gib'])
+
+    def test_location_cannot_set_build_floor(self):
+        location = self.project / '.claude/smoke-storage-location.json'
+        location.write_text(json.dumps({'schema': 1, 'root': str(self.project / 'ssd-root'),
+                                       'policy': {'min_build_free_gib': 0}}), encoding='utf-8')
+        with self.assertRaisesRegex(storage.StorageError, 'location policy may set only'):
+            storage.Storage(self.project)
+
+    def test_build_floor_validation(self):
+        for value in (-1, float('nan'), float('inf'), True, '0', None):
+            with self.assertRaises(storage.StorageError):
+                storage.policy_from({'min_build_free_gib': value})
 
     def test_policy_validation(self):
         for value in [dict(max_full_installs=0),dict(min_free_gib=float('nan')),dict(max_archive_gib=-1),dict(schema=2),dict(typo=1)]:

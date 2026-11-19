@@ -210,10 +210,15 @@ def policy_from(value):
     if set(value or {}) - set(defaults) or (value or {}).get("schema", 1) != 1:
         raise StorageError("Unknown storage policy fields/schema")
     defaults.update(value or {})
+    # Legacy explicit policies used min_free_gib for both workloads. Preserve
+    # that contract unless the caller explicitly selects a separate build floor.
+    # The checked-in default opts builds into allocation + growth only.
+    if value and "min_free_gib" in value and "min_build_free_gib" not in value:
+        defaults["min_build_free_gib"] = value["min_free_gib"]
     count = defaults["max_full_installs"]
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
         raise StorageError("max_full_installs must be a positive integer")
-    for k in ["min_free_gib", "max_full_install_gib", "max_archive_gib", "peak_run_gib", "extra_growth_gib", "peak_build_gib"]:
+    for k in ["min_free_gib", "min_build_free_gib", "max_full_install_gib", "max_archive_gib", "peak_run_gib", "extra_growth_gib", "peak_build_gib"]:
         x = defaults[k]
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) or x < 0:
             raise StorageError("Invalid storage budget: " + k)
@@ -484,7 +489,7 @@ class Storage:
         # checkout's drive with the checkout's floor, wherever the smoke
         # storage lives (6B: storage on C:, builds on D:).
         policy = self.project_policy if build else self.policy
-        floor = policy["min_free_gib_bytes"]
+        floor = policy["min_build_free_gib_bytes" if build else "min_free_gib_bytes"]
         growth = policy["extra_growth_gib_bytes"]
         free = shutil.disk_usage(self.project if build else self.root).free
         if free - pending - growth < floor:
