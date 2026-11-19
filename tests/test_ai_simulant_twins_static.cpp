@@ -172,7 +172,15 @@ TEST_CASE("AI simulant twins: the smoke harness kills a simulant through the dam
 	REQUIRE(schema.find("|| !strcmp(type, \"kill_simulant\")\n") != std::string::npos);
 	// use_door (object-events.md slice 4) is one too.
 	REQUIRE(schema.find("\"kill_player\", \"kill_simulant\", \"use_door\",") != std::string::npos);
-	REQUIRE(schema.find("|| !strcmp(type, \"use_door\")) {") != std::string::npos);
+	REQUIRE(schema.find("|| !strcmp(type, \"use_door\")\n") != std::string::npos);
+	// use_lift_door and damage_glass (object-events.md slice 5) too.
+	REQUIRE(schema.find("\"use_door\", \"use_lift_door\", \"damage_glass\",") != std::string::npos);
+	REQUIRE(schema.find("|| !strcmp(type, \"damage_glass\")\n") != std::string::npos);
+	// touch_pickup (slice 4 in play) closes the list.
+	REQUIRE(schema.find("|| !strcmp(type, \"touch_pickup\")) {") != std::string::npos);
+	REQUIRE(harness.find("if (!strcmp(type_str, \"use_lift_door\")) {") != std::string::npos);
+	REQUIRE(harness.find("if (!strcmp(type_str, \"damage_glass\")) {") != std::string::npos);
+	REQUIRE(harness.find("\t\t\t\tobjDamage(glass, 1000.0f, &pos, WEAPON_FALCON2, 0);") != std::string::npos);
 	REQUIRE(harness.find("if (!strcmp(type_str, \"use_door\")) {") != std::string::npos);
 	REQUIRE(harness.find("\t\t\t\tpropdoorInteract(door->base.prop);") != std::string::npos);
 	REQUIRE(harness.find("if (!strcmp(type_str, \"kill_simulant\")) {") != std::string::npos);

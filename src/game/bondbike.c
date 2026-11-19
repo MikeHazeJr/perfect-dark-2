@@ -816,13 +816,13 @@ void bbikeHandleActivate(bool transportedintent)
 		d.localIntentAccepted = false;
 		d.returnEarly = false;
 		/* pd.vehicle_graph.v1: the request is event.vehicle.dismount_requested,
-		 * and og.vehicle.dismount_seat runs the side dismount; a v2 vehicle
-		 * runs it directly. */
-		if (hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike,
-				VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, bbikeCurrentSeat(),
-				bbikeDismountToSidesSeat, &d) < 0) {
-			bbikeDismountToSides(&d);
-		}
+		 * and og.vehicle.dismount_seat runs the side dismount. Every vehicle
+		 * has a graph (a v2 behavior is refused when the catalog hydrates it),
+		 * so nothing runs it directly. The request names the seat the rider
+		 * leaves. */
+		(void)hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike,
+			VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED, bbikeCurrentSeat(),
+			bbikeDismountToSidesSeat, &d);
 		if (d.returnEarly) {
 			return;
 		}
@@ -930,18 +930,15 @@ void bbikeApplyMoveData(struct movedata *data)
 			 * lands on; default LEFT if no input (bbikeExitToChosenSide).
 			 * pd.vehicle_graph.v1: the request is
 			 * event.vehicle.dismount_requested and og.vehicle.dismount_seat
-			 * runs it; a v2 vehicle runs it when its behavior allows a
-			 * dismount (B-1231: this path used to skip that check). */
+			 * runs it, so a graph with no dismount keeps the player on
+			 * (B-1231: this path once skipped the vehicle's own rule). */
 			bbike_exit_t vexit;
 
 			vexit.bike = bike;
 			vexit.wantRight = (vRight - vLeft) > 0.25f;
 			/* The request names the seat the rider leaves. */
-			if (hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
-					bbikeCurrentSeat(), bbikeExitToChosenSideSeat, &vexit) < 0
-					&& assetRuntimeVehicleAllows(bike->base.modelnum, "dismount")) {
-				bbikeExitToChosenSide(&vexit);
-			}
+			(void)hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
+				bbikeCurrentSeat(), bbikeExitToChosenSideSeat, &vexit);
 			return;
 		}
 
@@ -950,7 +947,8 @@ void bbikeApplyMoveData(struct movedata *data)
 		f32 vHandbrake = actionValue(actionPlayer, ACTION_VEHICLE_HANDBRAKE);
 		/* Held boost, for a vehicle whose pd.vehicle_graph.v1 graph has
 		 * og.vehicle.boost_heat (its tick takes it). Only a vehicle with a
-		 * graph gets a record: a v2 bike never takes one (CORE's review). */
+		 * graph gets a record (CORE's review); since v2 is refused, that is
+		 * every vehicle the catalog hydrated. */
 		f32 vBoost = actionValue(actionPlayer, ACTION_VEHICLE_BOOST);
 		if (gunner) {
 			/* The turret layer closes these actions already; a gunner's

@@ -34,6 +34,9 @@ typedef struct mission_graph_object_rule {
 	s32 collected;      /* og.pickup.collect ran */
 	s32 activated;      /* og.door.activate or og.door.activate_automatic ran */
 	s32 locked_message; /* og.door.locked_message ran */
+	/* object-events.md slice 5 */
+	s32 stop;           /* a lift event's stop (event.lift.called: the calling door's); -1 */
+	s32 acted;          /* the lift or glass rule's module ran */
 } mission_graph_object_rule_t;
 
 mission_graph_object_rule_t *missionGraphModulesRuleBegin(mission_graph_object_rule_t *rule);

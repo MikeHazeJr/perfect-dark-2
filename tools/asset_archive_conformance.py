@@ -144,7 +144,16 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
+)
+# Level formats the game still loads besides the current one
+# (object-events.md, "Levels authored before slice 5"): an arena a mod
+# authored may name one of these older kinds, and the scenario it embeds is
+# then held to what that kind promised (the pickup and door rule wiring, not
+# the lift and glass rules). A base arena names the current kind: an install
+# re-extracts it otherwise.
+ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents",
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -2748,10 +2757,16 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
     catalog_id = descriptor_values.get("catalog_id", "")
     physics = read_json_member(zf, "physics.json")
     behavior = read_json_member(zf, "behavior.graph.json")
-    # A v1 graph pairs with physics v3 (no boost keys: the graph's
-    # og.vehicle.throttle_boost holds them); a v2 behavior with physics v2.
+    # A v1 graph with physics v3 (no boost keys: the graph's
+    # og.vehicle.throttle_boost holds them). The base vehicles are v1 since
+    # the base re-extract, so a v2 behavior (pd2.vehicle.behavior.v2 with
+    # pd2.vehicle.physics.v2) is retired (vehicle-graph-v1.md, "Migration").
     graph_v1 = isinstance(behavior, dict) and behavior.get("schema") == VEHICLE_GRAPH_SCHEMA
-    physics_schema = "pd2.vehicle.physics.v3" if graph_v1 else "pd2.vehicle.physics.v2"
+    if not graph_v1:
+        errors.append(f"{label} behavior.graph.json: pd2.vehicle.behavior.v2 and "
+                      "pd2.vehicle.physics.v2 are retired; a vehicle needs a "
+                      f"{VEHICLE_GRAPH_SCHEMA} graph with pd2.vehicle.physics.v3 physics")
+    physics_schema = "pd2.vehicle.physics.v3"
     if validate_catalog_bound_json(
             label, "physics.json", physics, physics_schema,
             catalog_id, errors):
@@ -2783,15 +2798,12 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             "yaw_response_ntsc",
             "yaw_response_pal",
         )
-        if graph_v1:
-            for field_name in ("boost_speed", "boost_time_ticks60"):
-                if field_name in physics:
-                    errors.append(
-                        f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
-                        "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
-                    )
-        else:
-            numeric_fields += ("boost_speed", "boost_time_ticks60")
+        for field_name in ("boost_speed", "boost_time_ticks60"):
+            if field_name in physics:
+                errors.append(
+                    f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
+                    "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
+                )
         for field_name in numeric_fields:
             value = physics.get(field_name)
             if not is_finite_json_number(value) or float(value) < 0.0:
@@ -2828,14 +2840,6 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
     if graph_v1:
         errors.extend(validate_vehicle_graph_execution(
             label, behavior, variables, catalog_id))
-    elif validate_catalog_bound_json(
-            label, "behavior.graph.json", behavior,
-            "pd2.vehicle.behavior.v2", catalog_id, errors):
-        for field_name in ("allow_mount", "allow_drive", "allow_dismount"):
-            if not isinstance(behavior.get(field_name), bool):
-                errors.append(
-                    f"{label} behavior.graph.json {field_name} must be boolean"
-                )
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -3051,30 +3055,52 @@ MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.co
                              "event.volume.entered", "event.volume.left",
                              "event.pickup.collected", "event.door.opened",
                              "event.door.closed", "event.object.used",
-                             "event.pickup.touched", "event.door.use", "event.door.approach"}
-# object-events.md slices 2 and 4: each may filter one object by its
-# record_id; the last three are the rule events.
+                             "event.pickup.touched", "event.door.use", "event.door.approach",
+                             "event.lift.called", "event.lift.idle", "event.lift.arrived",
+                             "event.glass.damaged", "event.glass.broken"}
+# object-events.md slices 2, 4 and 5: each may filter one object by its
+# record_id.
 MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
-                               "event.door.closed", "event.object.used",
-                               "event.pickup.touched", "event.door.use", "event.door.approach"}
-# object-events.md slice 4: the level's own pickup and door rules. A level
-# graph must handle each (or its stage would have no pickups and no doors);
-# a mission graph may not name one.
-MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach")
+                               "event.door.closed", "event.object.used", "event.glass.broken",
+                               "event.pickup.touched", "event.door.use", "event.door.approach",
+                               "event.lift.called", "event.lift.idle", "event.lift.arrived",
+                               "event.glass.damaged"}
+# object-events.md slices 4 and 5: the level's own pickup, door, lift and
+# glass rules. A level graph must handle each (or its stage would have no
+# pickups, doors, lifts or breaking glass); a mission graph may not name one.
+MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach",
+                             "event.lift.called", "event.lift.idle", "event.lift.arrived",
+                             "event.glass.damaged")
+# The rule events a level had to handle before slice 5: what the runtime
+# still requires of every level, and all that conformance requires of a level
+# whose arena names a kind of ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED.
+LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = ("event.pickup.touched", "event.door.use",
+                                      "event.door.approach")
+
+
+def arena_kind_promises_ai_edges(kind: str | None) -> bool:
+    """The AI control-flow edges and typed operands of a level graph: written
+    by the current kind and by every older kind the game still loads (each is
+    the current kind less the lift and glass rule wiring)."""
+    return (kind == ARENA_SCENARIO_GRAPH_CACHE_KIND
+            or kind in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED)
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
                                 "event.mission.phase_changed"}
 MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase",
                             "gate.object.kind", "gate.player.has_item",
-                            "gate.pickup.native_rules", "gate.door.native_unlocked"}
+                            "gate.pickup.native_rules", "gate.door.native_unlocked",
+                            "gate.lift.native_vacant", "gate.lift.native_ready",
+                            "gate.lift.native_door_unlocked", "gate.glass.native_broken"}
 MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
                                 "og.mission.start_credits", "og.progress.unlock_alt_title",
                                 "og.mission.end_failed", "og.mission.end_completed",
                                 "og.door.open", "og.door.close", "og.door.lock",
                                 "og.door.unlock", "og.pickup.give", "og.pickup.collect",
                                 "og.door.activate", "og.door.locked_message",
-                                "og.door.activate_automatic"}
+                                "og.door.activate_automatic", "og.lift.go_to_stop",
+                                "og.lift.go_to_next_stop", "og.lift.open_door", "og.glass.break"}
 # object-events.md slice 3: the modules that act on an object name it by its
 # objects.json record_id ("setup_0123"); lock and unlock take the key flags.
 MISSION_GRAPH_OBJECT_MODULES = {"og.door.open", "og.door.close", "og.door.lock",
@@ -3092,7 +3118,8 @@ def _is_graph_program_kind(kind: object) -> bool:
     return isinstance(kind, str) and kind.startswith(("event.", "gate.", "og."))
 
 
-def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:
+def validate_mission_graph_execution(label: str, graph: dict, level: bool = False,
+                                     rule_events: tuple[str, ...] | None = None) -> list[str]:
     """The same rules the runner applies when it compiles a mission graph:
     unique ids, known og.* modules and gate kinds, every edge between existing
     nodes, and execution edges ("input": "exec") only from an executable
@@ -3135,6 +3162,15 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
             if not isinstance(ref, str) or not MISSION_GRAPH_RECORD_ID_RE.fullmatch(ref):
                 errors.append(f"{where} {kind} {node_id!r} needs \"object\": a record_id of "
                               "objects.json (setup_N)")
+        if kind == "og.lift.go_to_stop" and ("object" in node or "stop" in node):
+            # object-events.md slice 5: outside event.lift.called it names
+            # the lift and the stop.
+            ref, stop = node.get("object"), node.get("stop")
+            if not isinstance(ref, str) or not MISSION_GRAPH_RECORD_ID_RE.fullmatch(ref):
+                errors.append(f"{where} og.lift.go_to_stop {node_id!r} needs \"object\": a lift's "
+                              "record_id of objects.json (setup_N)")
+            if isinstance(stop, bool) or not isinstance(stop, int) or not 0 <= stop <= 3:
+                errors.append(f"{where} og.lift.go_to_stop {node_id!r} needs \"stop\": 0 to 3")
         if kind in ("og.door.lock", "og.door.unlock"):
             bits = node.get("bits")
             if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 255:
@@ -3202,9 +3238,12 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
                 and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
             exec_out.setdefault(edge["from"], []).append(edge["to"])
     # object-events.md slice 4: a level program handles every rule event (an
-    # event node of the kind with an execution edge), as the runtime requires.
+    # event node of the kind with an execution edge). rule_events narrows the
+    # set for a level of an older format (slice 5: a level authored before
+    # the lift and glass rules need not wire them; the runtime requires the
+    # pickup and door rules of every level).
     if level:
-        for rule in MISSION_GRAPH_RULE_EVENTS:
+        for rule in (MISSION_GRAPH_RULE_EVENTS if rule_events is None else rule_events):
             if not any(kind == rule and exec_out.get(node_id) for node_id, kind in kinds.items()):
                 errors.append(f"{where} handles no {rule}: the level's pickup and door rules "
                               "are not wired (object-events.md slice 4)")
@@ -9826,7 +9865,13 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         # program (its event.*, gate.* and og.* nodes), as the
                         # runtime compiles it for every stage.
                         result.errors.extend(
-                            validate_mission_graph_execution(label, graph, level=True))
+                            validate_mission_graph_execution(
+                                label, graph, level=True,
+                                rule_events=(
+                                    LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS
+                                    if parent_scenario_graph_cache
+                                    in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                                    else None)))
                         links = graph.get("links")
                         link_pairs = set()
                         if isinstance(links, list):
@@ -9938,8 +9983,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_list_edge_errors(
                                         ai_rows, nodes, links,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                                 # ai-typed-operands.md slice 2: the rows'
@@ -9948,8 +9993,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_args_node_errors(
                                         ai_rows, nodes,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                         for pair in {
@@ -10515,7 +10560,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} arena.ini cannot declare scenario = null when a scenario dependency is present"
                         )
-                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND:
+                    # An arena a mod authored may name an older kind the
+                    # game still loads; a base arena names the current one.
+                    authored_older_kind = (
+                        scenario_graph_cache in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                        and not descriptor_value(text, "catalog_id").lower().startswith("base:"))
+                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND and not authored_older_kind:
                         result.errors.append(
                             f"{label} arena.ini must declare scenario_graph_cache = {ARENA_SCENARIO_GRAPH_CACHE_KIND}"
                         )
@@ -11401,7 +11451,7 @@ def run_selftest() -> int:
                     "behavior_graph = behavior.graph.json\n"
                 ),
                 "physics.json": json.dumps({
-                    "schema": "pd2.vehicle.physics.v2",
+                    "schema": "pd2.vehicle.physics.v3",
                     "catalog_id": "test:vehicle",
                     "archetype": "hoverbike",
                     **{
@@ -11417,21 +11467,24 @@ def run_selftest() -> int:
                             "forward_tilt", "lateral_tilt",
                             "tilt_response_ntsc", "tilt_response_pal",
                             "yaw_response_ntsc", "yaw_response_pal",
-                            "boost_speed", "boost_time_ticks60",
                         )
                     },
                     "hover": [1.0] * 13,
                 }),
                 "behavior.graph.json": json.dumps({
-                    "schema": "pd2.vehicle.behavior.v2",
+                    "schema": "pd.vehicle_graph.v1",
                     "catalog_id": "test:vehicle",
-                    "allow_mount": True,
-                    "allow_drive": True,
-                    "allow_dismount": True,
+                    "nodes": [
+                        {"id": "tick", "kind": "event.vehicle.tick"},
+                        {"id": "drive", "kind": "og.vehicle.hover_drive"},
+                    ],
+                    "edges": [
+                        {"from": "tick", "output": "out", "to": "drive", "input": "exec"},
+                    ],
                 }),
             },
-            ("behavior.graph.json", '"allow_drive": true', '"allow_drive": 1'),
-            "allow_drive must be boolean",
+            ("behavior.graph.json", '"og.vehicle.hover_drive"', '"og.vehicle.fly"'),
+            "native module 'og.vehicle.fly' does not exist",
         ),
     ]
     for name, validator, entries, mutation, expected_error in structured_contracts:

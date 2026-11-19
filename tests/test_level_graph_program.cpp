@@ -185,9 +185,11 @@ TEST_CASE("Level graph program: the runtime compiles it for every stage and runs
 	REQUIRE(lv.find("\t\tif (!g_MainIsEndscreen && g_NetMode != NETMODE_CLIENT) {") != std::string::npos);
 
 	// Conformance checks a level graph's program as the runner compiles it.
-	REQUIRE(conformance.find("def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:")
+	REQUIRE(conformance.find("def validate_mission_graph_execution(label: str, graph: dict, level: bool = False,\n"
+		"                                     rule_events: tuple[str, ...] | None = None) -> list[str]:")
 		!= std::string::npos);
-	REQUIRE(conformance.find("validate_mission_graph_execution(label, graph, level=True))") != std::string::npos);
+	REQUIRE(conformance.find("validate_mission_graph_execution(\n"
+		"                                label, graph, level=True,") != std::string::npos);
 }
 
 namespace {
@@ -319,7 +321,7 @@ TEST_CASE("Level graph program: the native seams fire the object events, recorde
 		!= std::string::npos);
 	REQUIRE(runtime.find("mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,")
 		!= std::string::npos);
-	REQUIRE(runtime.find("\"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.touched=%d door.use=%d door.approach=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner\"")
+	REQUIRE(runtime.find("\"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d glass.broken=%d pickup.touched=%d door.use=%d door.approach=%d lift.called=%d lift.idle=%d lift.arrived=%d glass.damaged=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner\"")
 		!= std::string::npos);
 	REQUIRE(runtime.find("static void s_resetActiveScenarioGraphs(void)\n{\n\ts_reportObjectEvents(\"next_stage\");")
 		!= std::string::npos);
@@ -471,6 +473,18 @@ const char *const kRuleWiring = R"({ "nodes": [
 	{ "id": "object.rules.door.approach", "kind": "event.door.approach" },
 	{ "id": "object.rules.door.approach_unlocked", "kind": "gate.door.native_unlocked" },
 	{ "id": "object.rules.door.activate_automatic", "kind": "og.door.activate_automatic" },
+	{ "id": "object.rules.lift.called", "kind": "event.lift.called" },
+	{ "id": "object.rules.lift.called_vacant", "kind": "gate.lift.native_vacant" },
+	{ "id": "object.rules.lift.go_to_stop", "kind": "og.lift.go_to_stop" },
+	{ "id": "object.rules.lift.idle", "kind": "event.lift.idle" },
+	{ "id": "object.rules.lift.idle_ready", "kind": "gate.lift.native_ready" },
+	{ "id": "object.rules.lift.go_to_next_stop", "kind": "og.lift.go_to_next_stop" },
+	{ "id": "object.rules.lift.arrived", "kind": "event.lift.arrived" },
+	{ "id": "object.rules.lift.arrival_door_unlocked", "kind": "gate.lift.native_door_unlocked" },
+	{ "id": "object.rules.lift.open_door", "kind": "og.lift.open_door" },
+	{ "id": "object.rules.glass.damaged", "kind": "event.glass.damaged" },
+	{ "id": "object.rules.glass.damaged_broken", "kind": "gate.glass.native_broken" },
+	{ "id": "object.rules.glass.break", "kind": "og.glass.break" },
 	{ "id": "source.scene", "kind": "scenario.scene.source", "file": "scene.glb" } ],
   "links": [ { "from": "scenario.load", "to": "source.scene" } ],
   "edges": [
@@ -480,12 +494,23 @@ const char *const kRuleWiring = R"({ "nodes": [
 	{ "from": "object.rules.door.use_unlocked", "to": "object.rules.door.activate", "input": "exec", "output": "pass" },
 	{ "from": "object.rules.door.use_unlocked", "to": "object.rules.door.locked_message", "input": "exec", "output": "fail" },
 	{ "from": "object.rules.door.approach", "to": "object.rules.door.approach_unlocked", "input": "exec", "output": "out" },
-	{ "from": "object.rules.door.approach_unlocked", "to": "object.rules.door.activate_automatic", "input": "exec", "output": "pass" } ] })";
+	{ "from": "object.rules.door.approach_unlocked", "to": "object.rules.door.activate_automatic", "input": "exec", "output": "pass" },
+	{ "from": "object.rules.lift.called", "to": "object.rules.lift.called_vacant", "input": "exec", "output": "out" },
+	{ "from": "object.rules.lift.called_vacant", "to": "object.rules.lift.go_to_stop", "input": "exec", "output": "pass" },
+	{ "from": "object.rules.lift.idle", "to": "object.rules.lift.idle_ready", "input": "exec", "output": "out" },
+	{ "from": "object.rules.lift.idle_ready", "to": "object.rules.lift.go_to_next_stop", "input": "exec", "output": "pass" },
+	{ "from": "object.rules.lift.arrived", "to": "object.rules.lift.arrival_door_unlocked", "input": "exec", "output": "out" },
+	{ "from": "object.rules.lift.arrival_door_unlocked", "to": "object.rules.lift.open_door", "input": "exec", "output": "pass" },
+	{ "from": "object.rules.glass.damaged", "to": "object.rules.glass.damaged_broken", "input": "exec", "output": "out" },
+	{ "from": "object.rules.glass.damaged_broken", "to": "object.rules.glass.break", "input": "exec", "output": "pass" } ] })";
 
 s32 knownRules(const char *kind)
 {
 	for (const char *known : { "gate.pickup.native_rules", "og.pickup.collect", "gate.door.native_unlocked",
-			"og.door.activate", "og.door.locked_message", "og.door.activate_automatic" }) {
+			"og.door.activate", "og.door.locked_message", "og.door.activate_automatic",
+			"gate.lift.native_vacant", "og.lift.go_to_stop", "gate.lift.native_ready",
+			"og.lift.go_to_next_stop", "gate.lift.native_door_unlocked", "og.lift.open_door",
+			"gate.glass.native_broken", "og.glass.break" }) {
 		if (std::strcmp(kind, known) == 0) return 1;
 	}
 	return 0;
@@ -506,6 +531,9 @@ s32 runRules(const char *kind, const char *node_id, const mission_graph_params_t
 	RuleFake *fake = static_cast<RuleFake *>(user);
 	if (std::strcmp(kind, "gate.pickup.native_rules") == 0) return fake->allow ? 1 : 0;
 	if (std::strcmp(kind, "gate.door.native_unlocked") == 0) return fake->unlocked ? 1 : 0;
+	if (std::strncmp(kind, "gate.lift.", 10) == 0 || std::strcmp(kind, "gate.glass.native_broken") == 0) {
+		return fake->allow ? 1 : 0;
+	}
 	fake->ran.push_back(kind);
 	return 1;
 }
@@ -538,11 +566,13 @@ TEST_CASE("Level graph program: the level's pickup and door rules are its progra
 		std::strlen(kRuleWiring), knownRules, err, sizeof(err));
 	INFO(err);
 	REQUIRE(program != nullptr);
-	REQUIRE(missionGraphProgramNodeCount(program) == 11);
-	REQUIRE(missionGraphProgramExecEdgeCount(program) == 7);
-	REQUIRE(missionGraphProgramModuleNodeCount(program) == 4);
+	REQUIRE(missionGraphProgramNodeCount(program) == 23);
+	REQUIRE(missionGraphProgramExecEdgeCount(program) == 15);
+	REQUIRE(missionGraphProgramModuleNodeCount(program) == 8);
 	for (s32 kind : { MISSION_GRAPH_EVENT_PICKUP_TOUCHED, MISSION_GRAPH_EVENT_DOOR_USE,
-			MISSION_GRAPH_EVENT_DOOR_APPROACH }) {
+			MISSION_GRAPH_EVENT_DOOR_APPROACH, MISSION_GRAPH_EVENT_LIFT_CALLED,
+			MISSION_GRAPH_EVENT_LIFT_IDLE, MISSION_GRAPH_EVENT_LIFT_ARRIVED,
+			MISSION_GRAPH_EVENT_GLASS_DAMAGED }) {
 		REQUIRE(missionGraphEventIsObjectRule(kind) == 1);
 		REQUIRE(missionGraphProgramHandlesEvent(program, kind) == 1);
 	}
@@ -561,8 +591,26 @@ TEST_CASE("Level graph program: the level's pickup and door rules are its progra
 	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_DOOR_APPROACH, true, true)
 		== std::vector<std::string>({ "og.door.activate_automatic" }));
 	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_DOOR_APPROACH, true, false).empty());
+	// Slice 5: a called lift goes to the door's stop when vacant; an idle
+	// lift moves on when its stop is ready; an arriving lift opens an
+	// unlocked door; damaged glass breaks at its limit. Each stays put when
+	// its gate fails.
+	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_LIFT_CALLED, true, true)
+		== std::vector<std::string>({ "og.lift.go_to_stop" }));
+	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_LIFT_IDLE, true, true)
+		== std::vector<std::string>({ "og.lift.go_to_next_stop" }));
+	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_LIFT_ARRIVED, true, true)
+		== std::vector<std::string>({ "og.lift.open_door" }));
+	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_GLASS_DAMAGED, true, true)
+		== std::vector<std::string>({ "og.glass.break" }));
+	for (s32 kind : { MISSION_GRAPH_EVENT_LIFT_CALLED, MISSION_GRAPH_EVENT_LIFT_IDLE,
+			MISSION_GRAPH_EVENT_LIFT_ARRIVED, MISSION_GRAPH_EVENT_GLASS_DAMAGED }) {
+		REQUIRE(fireRule(program, kind, false, true).empty());
+	}
 	// A record event reaches none of the rule modules.
 	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_PICKUP_COLLECTED, true, true).empty());
+	REQUIRE(fireRule(program, MISSION_GRAPH_EVENT_GLASS_BROKEN, true, true).empty());
+	REQUIRE(missionGraphEventIsObjectRule(MISSION_GRAPH_EVENT_GLASS_BROKEN) == 0);
 	missionGraphProgramFree(program);
 
 	// A mission graph does not take the rule events.
@@ -600,6 +648,57 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 			!= std::string::npos);
 		REQUIRE(source->find(R"({ \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" })")
 			!= std::string::npos);
+	}
+	// Slice 5: the lift and glass wiring is written too, and an archive
+	// without it is stale.
+	for (const std::string *source : { &extractor, &packer, &builder }) {
+		REQUIRE(source->find(R"({ \"id\": \"object.rules.lift.called\", \"kind\": \"event.lift.called\" })")
+			!= std::string::npos);
+		REQUIRE(source->find(R"({ \"from\": \"object.rules.glass.damaged_broken\", \"to\": \"object.rules.glass.break\", \"input\": \"exec\", \"output\": \"pass\" })")
+			!= std::string::npos);
+	}
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
+		"\t\t\t\"\\\"object.rules.glass.break\\\"\") &&") != std::string::npos);
+	for (const char *row : { "{ \"gate.lift.native_vacant\", s_gateLiftNativeVacant },",
+			"{ \"og.lift.go_to_stop\", s_runLiftGoToStop },",
+			"{ \"gate.lift.native_ready\", s_gateLiftNativeReady },",
+			"{ \"og.lift.go_to_next_stop\", s_runLiftGoToNextStop },",
+			"{ \"gate.lift.native_door_unlocked\", s_gateLiftNativeDoorUnlocked },",
+			"{ \"og.lift.open_door\", s_runLiftOpenDoor },",
+			"{ \"gate.glass.native_broken\", s_gateGlassNativeBroken },",
+			"{ \"og.glass.break\", s_runGlassBreak }," }) {
+		INFO(row);
+		REQUIRE(modules.find(row) != std::string::npos);
+	}
+	// The seams: a lift door's call, the idle lift, the arrival and glass
+	// damage go to the level program on a scenario-source stage.
+	REQUIRE(propobj.find("\t\t\t\t\t} else if (scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_CALLED)) {\n"
+		"\t\t\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+		"\t\t\t\t\t\tliftCalled(link->lift, link->stopnum);") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_IDLE)) {\n"
+		"\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+		"\t\t\tliftIdled(prop);\n\t\t\treturn;") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_ARRIVED)) {\n"
+		"\t\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+		"\t\t\t\t\tliftArrived(prop);") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_GLASS_DAMAGED)) {\n"
+		"\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+		"\t\t\t\tglassDamaged(obj);") != std::string::npos);
+	// Each seam keeps the game's own rule behind it, for a level whose
+	// program does not handle the event (one authored before slice 5).
+	REQUIRE(propobj.find("\t\t\t\t\t\tliftCalled(link->lift, link->stopnum);\n"
+		"\t\t\t\t\t} else if (liftIsVacant((struct liftobj *)link->lift->obj)) {") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t\tliftArrived(prop);\n"
+		"\t\t\t\t} else if (door && door->keyflags == 0) {") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\tglassDamaged(obj);\n"
+		"\t\t\t} else if (obj->damage >= obj->maxdamage) {") != std::string::npos);
+	REQUIRE(propobj.find("\tobjGraphEventFire(MISSION_GRAPH_EVENT_GLASS_BROKEN, &broken, -1);")
+		!= std::string::npos);
+	for (const char *kind : { "MISSION_GRAPH_EVENT_LIFT_CALLED", "MISSION_GRAPH_EVENT_LIFT_IDLE",
+			"MISSION_GRAPH_EVENT_LIFT_ARRIVED", "MISSION_GRAPH_EVENT_GLASS_DAMAGED" }) {
+		INFO(kind);
+		REQUIRE(propobj.find(std::string("\tscenarioSourceGraphObjectRuleCompared(") + kind) != std::string::npos);
+		REQUIRE(runtime.find(std::string("\t\t{ ") + kind + ", \"event.") != std::string::npos);
 	}
 	// B-1260: an objects.json weapon pickup names its weapons as
 	// setup.fields.json does (the catalog, then the game's weapon table).
@@ -641,6 +740,34 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 			"MISSION_GRAPH_EVENT_DOOR_APPROACH" }) {
 		INFO(kind);
 		REQUIRE(propobj.find(std::string("\tscenarioSourceGraphObjectRuleCompared(") + kind) != std::string::npos);
+	}
+
+	// Levels authored before slice 5 still load: the activation check
+	// requires the pickup and door rules only and notes unwired lift and
+	// glass rules, which the game's own rules then decide; conformance holds
+	// a level of an older kind to the pickup and door rules.
+	{
+		const size_t required = runtime.find("static s32 s_levelProgramHandlesRules(");
+		const size_t noted = runtime.find("static void s_levelProgramNoteUnwiredRules(");
+		REQUIRE(required != std::string::npos);
+		REQUIRE(noted != std::string::npos);
+		REQUIRE(required < noted);
+		const std::string requiredBlock = runtime.substr(required, noted - required);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_PICKUP_TOUCHED") != std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_DOOR_APPROACH") != std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_LIFT_CALLED") == std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_GLASS_DAMAGED") == std::string::npos);
+		REQUIRE(runtime.find("\ts_levelProgramNoteUnwiredRules(s_ActiveScenarioGraphs.level_program, scenario->id);")
+			!= std::string::npos);
+		REQUIRE(runtime.find("s32 scenarioSourceGraphObjectRuleHandled(s32 kind)\n{\n"
+			"\treturn scenarioSourceGraphObjectRulesActive()\n"
+			"\t\t&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);\n}")
+			!= std::string::npos);
+		REQUIRE(conformance.find("ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (") != std::string::npos);
+		REQUIRE(conformance.find("LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = (\"event.pickup.touched\", \"event.door.use\",")
+			!= std::string::npos);
+		REQUIRE(conformance.find("and not descriptor_value(text, \"catalog_id\").lower().startswith(\"base:\"))")
+			!= std::string::npos);
 	}
 
 	// The runtime refuses a level program without the wiring, fires the rule
