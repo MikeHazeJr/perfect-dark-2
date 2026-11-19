@@ -11060,6 +11060,16 @@ static u8 readyGatePopcount(u32 mask)
 	return n;
 }
 
+static void matchCountdownSet(u8 ready_count, u8 total_count, u8 phase,
+	u8 countdown_secs, bool active)
+{
+	g_MatchCountdownState.ready_count = ready_count;
+	g_MatchCountdownState.total_count = total_count;
+	g_MatchCountdownState.phase = phase;
+	g_MatchCountdownState.countdown_secs = countdown_secs;
+	g_MatchCountdownState.active = active;
+}
+
 static void readyGateBroadcastCountdown(u8 phase)
 {
 	u8 ready_count = readyGatePopcount(s_ReadyGate.ready_mask);
@@ -11071,6 +11081,14 @@ static void readyGateBroadcastCountdown(u8 phase)
 		u32 remaining = (g_NetTick < s_ReadyGate.deadline_ticks)
 		                ? (s_ReadyGate.deadline_ticks - g_NetTick) : 0;
 		countdown_secs = (u8)(remaining / 60);
+	}
+
+	/* The listen host participates locally and has no ENet peer. */
+	if (!g_NetDedicated && g_NetLocalClient
+			&& g_NetLocalClient->room_id == s_ReadyGate.room_id
+			&& g_NetLocalClient->state == CLSTATE_PREPARING) {
+		matchCountdownSet(ready_count, s_ReadyGate.total_count, phase,
+			countdown_secs, true);
 	}
 
 	netbufStartWrite(&g_NetMsgRel);
@@ -13376,12 +13394,9 @@ u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
 	             (unsigned)phase, (unsigned)countdown_secs);
 
 	/* Phase F: store countdown state so the room UI can display it. */
-	g_MatchCountdownState.ready_count    = ready_count;
-	g_MatchCountdownState.total_count    = total_count;
-	g_MatchCountdownState.phase          = phase;
-	g_MatchCountdownState.countdown_secs = countdown_secs;
 	/* A declined guest stays in the room without entering its loading flow. */
-	g_MatchCountdownState.active = !netDistribClientManifestDeclined();
+	matchCountdownSet(ready_count, total_count, phase, countdown_secs,
+		!netDistribClientManifestDeclined());
 
 	return src->error;
 }

@@ -2178,6 +2178,97 @@ TEST_CASE("network gameplay transition releases lobby menu input ownership",
     REQUIRE(release_room < sidebar);
 }
 
+TEST_CASE("match preparation keeps menu input for content consent and countdown cancellation",
+          "[net][lifecycle][input][listen-host][lobby-ui][static]")
+{
+    const std::string lobby = function_block(
+        read_text_file("port/fast3d/pdgui_lobby.cpp"), "void pdguiLobbyRender");
+    const size_t preparing = lobby.find("else if (netLocalClientIsPreparing())");
+    const size_t menu_input = lobby.find(
+        "menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu)", preparing);
+    const size_t content = lobby.find("pdguiDistribOverlayRender(winW, winH, 1)", preparing);
+    const size_t release = lobby.find("menupoolRelease(MENU_TYPE_ROOM)", preparing);
+    const size_t close_content = lobby.find("pdguiDistribOverlayRender(winW, winH, 0)", release);
+    REQUIRE(preparing < menu_input);
+    REQUIRE(menu_input < content);
+    REQUIRE(content < release);
+    REQUIRE(release < close_content);
+    REQUIRE(close_content != std::string::npos);
+
+    const std::string distrib = function_block(
+        read_text_file("port/fast3d/pdgui_lobby_distrib.cpp"), "void pdguiDistribOverlayRender");
+    const size_t inactive = distrib.find("!consentPending && ImGui::IsPopupOpen(consentPopup)");
+    const size_t cleanup = distrib.find("ImGui::CloseCurrentPopup()", inactive);
+    const size_t open_content = distrib.find("ImGui::OpenPopup(consentPopup)");
+    const size_t content_open = distrib.find("ImGui::BeginPopupModal(consentPopup", open_content);
+    const size_t back = distrib.find("pdguiMenuCancelPressed()", content_open);
+    const size_t skip = distrib.find("ImGui::Button(\"Skip\"", back);
+    const size_t resolve = distrib.find("if (netDistribClientResolveConsent(accept, temporary))", skip);
+    const size_t close_resolved = distrib.find("ImGui::CloseCurrentPopup()", resolve);
+    REQUIRE(inactive < cleanup);
+    REQUIRE(cleanup < open_content);
+    REQUIRE(open_content < content_open);
+    REQUIRE(content_open < back);
+    REQUIRE(back < skip);
+    REQUIRE(skip < resolve);
+    REQUIRE(resolve < close_resolved);
+    REQUIRE(close_resolved != std::string::npos);
+    REQUIRE(distrib.find("const bool accept = !cancel && !skip", skip) < resolve);
+
+    const std::string bridge = function_block(
+        read_text_file("port/fast3d/pdgui_bridge.c"), "s32 pdguiCountdownIsActive");
+    REQUIRE(bridge.find("netLocalClientIsPreparing() && g_MatchCountdownState.active") != std::string::npos);
+
+    const std::string countdown = function_block(
+        read_text_file("port/fast3d/pdgui_countdown.cpp"), "void pdguiCountdownRender");
+    const size_t open_countdown = countdown.find("ImGui::OpenPopup(countdownPopup)");
+    const size_t countdown_open = countdown.find("ImGui::BeginPopupModal(countdownPopup", open_countdown);
+    const size_t glyph = countdown.find("pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL", countdown_open);
+    const size_t mapped = countdown.find("pdguiMenuCancelPressed()", glyph);
+    const size_t button = countdown.find("ImGui::Button(label,", mapped);
+    const size_t cancel = countdown.find("netLobbyRequestCancel()", button);
+    REQUIRE(open_countdown < countdown_open);
+    REQUIRE(countdown_open < glyph);
+    REQUIRE(glyph < mapped);
+    REQUIRE(mapped < button);
+    REQUIRE(button < cancel);
+    REQUIRE(cancel != std::string::npos);
+
+    const std::string transport = read_text_file("port/src/net/netmsg.c");
+    const std::string publish = function_block(transport, "static void readyGateBroadcastCountdown");
+    const std::string receive = function_block(transport, "u32 netmsgSvcMatchCountdownRead");
+    const size_t local_room = publish.find("g_NetLocalClient->room_id == s_ReadyGate.room_id");
+    const size_t local_publish = publish.find("matchCountdownSet(", local_room);
+    const size_t peer_publish = publish.find("netSendToRoom(", local_publish);
+    REQUIRE(local_room < local_publish);
+    REQUIRE(local_publish < peer_publish);
+    REQUIRE(peer_publish != std::string::npos);
+    REQUIRE(receive.find("matchCountdownSet(") != std::string::npos);
+}
+
+TEST_CASE("Social owns Back and tab navigation above the Room and server lobby",
+          "[net][lifecycle][input][lobby-ui][static]")
+{
+    const std::string room = function_block(
+        read_text_file("port/fast3d/pdgui_menu_room.cpp"), "void pdguiRoomScreenRender");
+    const std::string lobby = function_block(
+        read_text_file("port/fast3d/pdgui_menu_lobby.cpp"), "void pdguiLobbyScreenRender");
+    for (const std::string *screen : {&room, &lobby}) {
+        const size_t social = screen->find("socialOwnsInput = pdguiFriendsAnySurfaceIsOpen()");
+        const size_t no_input = screen->find("wflags |= ImGuiWindowFlags_NoInputs", social);
+        const size_t window = screen->find("ImGui::Begin(", no_input);
+        REQUIRE(social < no_input);
+        REQUIRE(no_input < window);
+        REQUIRE(window != std::string::npos);
+    }
+    REQUIRE(room.find("!socialOwnsInput && pdguiMenuTabPrevPressed()") != std::string::npos);
+    REQUIRE(room.find("!socialOwnsInput && pdguiMenuTabNextPressed()") != std::string::npos);
+    REQUIRE(room.find("roomChildBlocks = roomPopupOwnedFrame || socialOwnsInput") != std::string::npos);
+    REQUIRE(room.find("!socialOwnsInput && (restoreRoomFocus || ImGui::IsWindowAppearing())") != std::string::npos);
+    REQUIRE(lobby.find("if (!socialOwnsInput && !roomModalOwnedInput") != std::string::npos);
+    REQUIRE(lobby.find("!socialOwnsInput && (restoreLobbyFocus || ImGui::IsWindowAppearing())") != std::string::npos);
+}
+
 TEST_CASE("smoke PDCA ingress suppresses only the absent-peer acknowledgement",
           "[net][distribution][static][b1028]")
 {

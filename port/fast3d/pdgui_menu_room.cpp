@@ -30,6 +30,7 @@
 #include <algorithm>
 
 #include "imgui/imgui.h"
+#include "pdgui_friends.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -1203,7 +1204,7 @@ static void roomRememberFocusedRegion(int region)
 static void roomRememberFocusedPlayerRow(void)
 {
     roomRememberFocusedRegion(ROOM_FOCUS_PLAYERS);
-    if (pdguiMenuStartPressed()) {
+    if (!pdguiFriendsAnySurfaceIsOpen() && pdguiMenuStartPressed()) {
         s_StartMatchFocusPending = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
@@ -1245,6 +1246,7 @@ static void roomCsHandlePendingSectionJump(void)
 
 static bool roomContextPopupRequestedForLastItem(void)
 {
+    if (pdguiFriendsAnySurfaceIsOpen()) return false;
     bool requested = false;
     if (ImGui::IsItemFocused() && pdguiMenuSecondaryPressed()) {
         requested = true;
@@ -3637,6 +3639,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
+    const bool socialOwnsInput = pdguiFriendsAnySurfaceIsOpen() != 0;
+    static bool socialOwnedInput = false;
+    const bool restoreRoomFocus = socialOwnedInput && !socialOwnsInput;
+    socialOwnedInput = socialOwnsInput;
+    if (socialOwnsInput) wflags |= ImGuiWindowFlags_NoInputs;
 
     if (!ImGui::Begin("##room_interior", nullptr, wflags)) {
         ImGui::End();
@@ -3656,8 +3663,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * IsWindowAppearing after stage transitions — same class as main menu). */
     menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
 
-    if (ImGui::IsWindowAppearing()) {
+    if (!socialOwnsInput && (restoreRoomFocus || ImGui::IsWindowAppearing())) {
         ImGui::SetWindowFocus();
+    }
+    if (ImGui::IsWindowAppearing()) {
         /* S352: reset portrait cache on every room open */
         lobbyPortraitsReset();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)",
@@ -3742,13 +3751,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * Use a pending flag so SetSelected only fires for one frame. */
     static s32 s_BumperPendingTab = -1;
 
-    if (pdguiMenuTabPrevPressed()) {
+    if (!socialOwnsInput && pdguiMenuTabPrevPressed()) {
         s_ActiveTab--;
         if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
         s_BumperPendingTab = s_ActiveTab;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (pdguiMenuTabNextPressed()) {
+    if (!socialOwnsInput && pdguiMenuTabNextPressed()) {
         s_ActiveTab++;
         if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
         s_BumperPendingTab = s_ActiveTab;
@@ -3785,7 +3794,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * (page-jump fallback): if the focused panel has neither groups nor
      * scroll, LT/RT is no-op; LT/RT NEVER crosses panels (D-pad does).
      * Boundary case: clamp, no wrap. */
-    if (s_ActiveTab == 0) {
+    if (!socialOwnsInput && s_ActiveTab == 0) {
         int skipDir = 0;
         if (pdguiMenuSkipUpPressed()) {
             skipDir = -1;
@@ -3921,7 +3930,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * destructive-action rule — Leave Room / Back to Menu tears down the
      * lobby session (and potentially disconnects from the server), so the
      * user must confirm. */
-    const bool roomChildBlocks = roomPopupOwnedFrame || s_ShowChangeCharModal
+    const bool roomChildBlocks = roomPopupOwnedFrame || socialOwnsInput || s_ShowChangeCharModal
         || s_BotModalOpen || s_ShowSaveScenario || s_ShowLoadScenario
         || ImGui::IsPopupOpen(nullptr,
             ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);

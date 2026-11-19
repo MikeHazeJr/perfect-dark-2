@@ -35,6 +35,7 @@
 #include "pdgui_style.h"
 #include "system.h"
 #include "connectcode.h"
+#include "inputctx.h"
 #include "menupool.h"
 
 /* ========================================================================
@@ -94,6 +95,7 @@ void pdguiRoomScreenAdoptMatchConfig(void);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
+s32 netLocalClientIsPreparing(void);
 
 /* HUD context gate — true when combat sim match is actively running */
 s32 pdguiPauseGetNormMplayerIsRunning(void);
@@ -105,7 +107,7 @@ void pdguiCountdownReset(void);
 void lobbyUpdate(void);
 
 /* D3R-9: Distribution overlay and kill feed (pdgui_lobby_distrib.cpp) */
-void pdguiDistribOverlayRender(s32 winW, s32 winH);
+void pdguiDistribOverlayRender(s32 winW, s32 winH, s32 active);
 void pdguiHostDistribOverlayRender(s32 winW, s32 winH);
 void pdguiKillFeedRender(s32 winW, s32 winH);
 
@@ -501,6 +503,7 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     s_LastMode = mode;
 
     if (mode == NETMODE_NONE) {
+        pdguiDistribOverlayRender(winW, winH, 0);
         /* Solo play: show Room screen without a network session */
         if (s_SoloRoomActive) {
             pdguiRoomScreenRender(winW, winH);
@@ -552,11 +555,17 @@ void pdguiLobbyRender(s32 winW, s32 winH)
                 pdguiLobbyScreenRender(winW, winH);
             }
             /* D3R-9: download progress overlay on top of either screen */
-            pdguiDistribOverlayRender(winW, winH);
+            pdguiDistribOverlayRender(winW, winH, 1);
+            pdguiHostDistribOverlayRender(winW, winH);
+        } else if (netLocalClientIsPreparing()) {
+            /* The ready gate owns the Room input context while its setup
+             * controls are hidden. Offers and countdown still need it. */
+            menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
+            pdguiDistribOverlayRender(winW, winH, 1);
             /* v34: host sees per-client download status during ready gate */
             pdguiHostDistribOverlayRender(winW, winH);
         } else {
-            /* B-1042: leaving CLSTATE_LOBBY stops calling the full-screen
+            /* B-1042: leaving the lobby and preparation stops calling the full-screen
              * lobby/room renderers, so their normal ImGui close paths cannot
              * release the menu-pool slot that owns g_CtxImGuiMenu.  A listen
              * host consequently entered the match with the menu layer still
@@ -566,6 +575,7 @@ void pdguiLobbyRender(s32 winW, s32 winH)
              * correct room UI can be reacquired after the match. */
             menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);
             menupoolRelease(MENU_TYPE_ROOM);
+            pdguiDistribOverlayRender(winW, winH, 0);
             /* A new match took this player along from its results screen. */
             s_ResultsPending = false;
 

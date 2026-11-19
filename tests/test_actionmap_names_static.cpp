@@ -95,13 +95,11 @@ TEST_CASE("every input action has one unique config name, in enum order",
 	}
 
 	// The last action and the last name belong together, so the table has not
-	// merely grown to the right length with an entry missing in the middle
-	// (the gun roll pair, 121-122, came with the crystal pistol; the vehicle
-	// boost, 123, with the Maian vehicle, MODS's landing 940b21b1).
-	REQUIRE(actions.back() == "ACTION_VEHICLE_BOOST");
-	REQUIRE(names.back() == "VehicleBoost");
-	REQUIRE(actions[actions.size() - 2] == "ACTION_GUN_ROLL_RIGHT");
-	REQUIRE(names[names.size() - 2] == "GunRollRight");
+	// merely grown to the right length with an entry missing in the middle.
+	REQUIRE(actions.back() == "ACTION_FORGE_EDITOR_CONTROLS");
+	REQUIRE(names.back() == "ForgeEditorControls");
+	REQUIRE(actions[actions.size() - 2] == "ACTION_VEHICLE_BOOST");
+	REQUIRE(names[names.size() - 2] == "VehicleBoost");
 
 	// And the compiler holds the two to the same length from now on.
 	REQUIRE(source.find("static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,") !=

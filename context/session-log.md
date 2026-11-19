@@ -1,5 +1,7 @@
 # Session Log (Active)
 
+2026-11-19, T-MENUS-003. Built and tested the canonical front-end control repairs in an isolated snapshot that excludes unrelated dirty work. All 2,261 native tests passed. In a focused game window the SDL virtual controller typed and saved Agent `12`, activated it and reached Main Menu Play (21/21). The separate Back route verified both editor and screen dismissal (31/31). The [front-end audit](audits/2026/frontend-control-2026-11-19.md#implementation-follow-up) records the changes and open V-004, multiplayer and Grid gates.
+
 2026-11-18, P-001 warm startup. The arena clean marker now compares
 the complete version record used by its writer, and loose ZIP archives no longer
 go through a full-file read before manifest extraction. The source guard and

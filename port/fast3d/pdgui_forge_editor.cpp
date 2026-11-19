@@ -26,6 +26,9 @@
 
 #include "imgui/imgui.h"
 #include "pdgui_forge.h"
+#include "pdgui_glyphs.h"
+#include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui.h"   /* B-195 / Fix 2+3 (2026-05-01): pdguiClearImGuiFocusAndNav */
@@ -35,6 +38,8 @@ extern "C" {
 #include "game/forgemode.h"
 #include "pdgui_constants.h"
 #include "forge/forge_core.h"
+#include "inputctx.h"
+#include "menupool.h"
 /* Issue 8b (2026-04-24): direct actionmap reads for the editor's
  * sidebar / tab-cycle actions. The enum and query API are extern "C"
  * in actionmap.h; including it here is safe (no types.h drag). */
@@ -70,6 +75,31 @@ enum {
  * activates. Keeping the helper near the sidebar data for readability;
  * this declaration makes it visible at the earlier call sites. */
 static void forgeScrollAnchorMaybe(int tab, int anchor_id);
+
+static bool s_GridPopupOwnsControls;
+
+static bool forgeEditorControlsActive(void)
+{
+	return menupoolIsActive(MENU_TYPE_GRID_EDITOR_CONTROLS)
+		&& inputCtxGetTop() == &g_CtxImGuiMenu;
+}
+
+static bool forgeEditorAcquireControls(void)
+{
+	if (forgeEditorControlsActive()) return true;
+	if (inputCtxGetTop() != &g_CtxForgeEditor) return false;
+
+	menupoolAcquire(MENU_TYPE_GRID_EDITOR_CONTROLS, nullptr, &g_CtxImGuiMenu);
+	if (forgeEditorControlsActive()) return true;
+	menupoolRelease(MENU_TYPE_GRID_EDITOR_CONTROLS);
+	return false;
+}
+
+static void forgeEditorReleaseControls(void)
+{
+	s_GridPopupOwnsControls = false;
+	menupoolRelease(MENU_TYPE_GRID_EDITOR_CONTROLS);
+}
 
 /* ============================================================
  * Helpers
@@ -234,7 +264,8 @@ static void forgeDrawCatalogTab(void)
 			                             : IM_COL32(240, 130, 130, 255);
 			ImGui::PushStyleColor(ImGuiCol_Border, ring);
 			ImGui::BeginChild("PlaceBanner", ImVec2(0, 44 * pdguiScale(1.0f)),
-					true, ImGuiWindowFlags_NoScrollbar);
+					ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened,
+					ImGuiWindowFlags_NoScrollbar);
 			ImGui::Text("Placing:  %s", pp->pending_catalog_id);
 			ImGui::SameLine();
 			ImGui::TextColored(pp->ghost_valid
@@ -287,7 +318,8 @@ static void forgeDrawCatalogTab(void)
 	ImGui::Separator();
 
 	/* Categorised scrollable list */
-	ImGui::BeginChild("CatalogList", ImVec2(0, 0), true);
+	ImGui::BeginChild("CatalogList", ImVec2(0, 0),
+		ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
 	/* Group by category for clarity */
 	for (int c = 0; c < (int)FORGE_CAT_COUNT; ++c) {
@@ -1370,13 +1402,17 @@ static void forgeDrawSettingsTab(void)
 	}
 
 	ImGui::SeparatorText("Save / Load");
+	static const char savePopup[] = "Confirm Save -- Mod Dependencies";
 	static char save_slug[FORGE_NAME_LEN] = "";
 	if (save_slug[0] == '\0') f_slug_from_name(s->map_name, save_slug, sizeof(save_slug));
 	ImGui::InputText("Mod Slug", save_slug, FORGE_NAME_LEN);
-	if (ImGui::Button("Save As Mod")) {
-		/* Open confirmation modal so the author sees exactly which mods
-		 * will be bundled with this Grid map before committing. */
-		if (save_slug[0]) ImGui::OpenPopup("Confirm Save -- Mod Dependencies");
+	if (ImGui::Button("Save As Mod") && save_slug[0]) {
+		const bool controlsWereActive = forgeEditorControlsActive();
+		if (forgeEditorAcquireControls()) {
+			s_GridPopupOwnsControls = !controlsWereActive;
+			ImGui::OpenPopup(savePopup);
+			pdguiNavSuppressOpeningGesture();
+		}
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("Quick Re-Derive Slug")) {
@@ -1392,7 +1428,7 @@ static void forgeDrawSettingsTab(void)
 	/* Save confirmation modal -- lists mod dependencies so the author
 	 * knows the full bundle before pressing Save. */
 	{
-		if (ImGui::BeginPopupModal("Confirm Save -- Mod Dependencies", nullptr,
+		if (ImGui::BeginPopupModal(savePopup, nullptr,
 				ImGuiWindowFlags_AlwaysAutoResize)) {
 			ImGui::Text("Saving The Grid map  '%s'", s->map_name);
 			ImGui::Text("Slug:  mods/Forge Maps/%s/", save_slug);
@@ -1417,18 +1453,18 @@ static void forgeDrawSettingsTab(void)
 			}
 
 			ImGui::Separator();
-			if (ImGui::Button("Save", ImVec2(120 * pdguiScale(1.0f), 0))) {
-				forgeSerializeSaveToMod(save_slug);
-				ImGui::CloseCurrentPopup();
-			}
+			const bool save = ImGui::Button("Save", ImVec2(120 * pdguiScale(1.0f), 0));
 			ImGui::SameLine();
-			if (ImGui::Button("Cancel", ImVec2(120 * pdguiScale(1.0f), 0))) {
-				ImGui::CloseCurrentPopup();
+			const bool cancel = ImGui::Button("Cancel", ImVec2(120 * pdguiScale(1.0f), 0))
+				|| pdguiMenuCancelPressed();
+			ImGui::SetItemDefaultFocus();
+			if (save && !cancel) {
+				forgeSerializeSaveToMod(save_slug);
 			}
+			if (save || cancel) ImGui::CloseCurrentPopup();
 			ImGui::EndPopup();
 		}
 	}
-
 	ImGui::SeparatorText("Reset");
 	if (ImGui::Button("Reset Map (destructive)")) {
 		forgeCoreReset();
@@ -2023,7 +2059,7 @@ static void forgeSidebarHandleInput(void)
  * outer Begin in pdguiForgeEditorRender. This function only runs while
  * the editor is on-screen, so the sidebar is always shown alongside
  * the tab area. */
-static void forgeSidebarDraw(void)
+static void forgeSidebarDraw(float footerReserve)
 {
 	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
 	int sel = s_SidebarSelection[s_forge_active_tab];
@@ -2031,8 +2067,8 @@ static void forgeSidebarDraw(void)
 	const float scale = pdguiScale(1.0f);
 	const float sidebarW = 180.0f * scale;
 
-	ImGui::BeginChild("##GridSidebar", ImVec2(sidebarW, 0),
-			ImGuiChildFlags_Borders, ImGuiWindowFlags_None);
+	ImGui::BeginChild("##GridSidebar", ImVec2(sidebarW, -footerReserve),
+			ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
 	ImGui::TextDisabled("%s", forgeTabLabel(s_forge_active_tab));
 	ImGui::Separator();
@@ -2051,11 +2087,6 @@ static void forgeSidebarDraw(void)
 		ImGui::PopID();
 	}
 
-	ImGui::Separator();
-	ImGui::TextDisabled("X / Tab: hide editor");
-	ImGui::TextDisabled("D-pad ^v: move");
-	ImGui::TextDisabled("D-pad >: apply");
-
 	ImGui::EndChild();
 	ImGui::SameLine();
 }
@@ -2067,38 +2098,56 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 
 	forgeCoreInit();
 
-	/* S313 -- Keyboard navigation is already enabled globally in
-	 * pdguiInit; we ensure it here idempotently.  Gamepad nav is
-	 * intentionally left off because the freefly camera consumes the
-	 * same stick inputs ImGui would consume for focus navigation --
-	 * having both active at once fights over the sticks.  Controller
-	 * tab-cycling is still reachable via PageUp/PageDown on keyboard
-	 * (mapped to L1/R1 in the game's actionmap layer through the
-	 * actionmap binding UI). */
-	{
-		ImGuiIO &io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	const bool popupWasOpen = ImGui::IsPopupOpen(nullptr,
+		ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+	bool focusControls = false;
+	if (!popupWasOpen && inputCtxGetTop() == &g_CtxForgeEditor) {
+		if (pdguiMenuActionPressed(ACTION_FORGE_EDITOR_CONTROLS) && forgeEditorAcquireControls()) {
+			pdguiNavSuppressOpeningGesture();
+			s_EditorVisible = true;
+			focusControls = true;
+		} else {
+			forgeSidebarHandleInput();
+		}
 	}
 
-	/* Issue 8b (2026-04-24): consume the six ACTION_FORGE_* sidebar /
-	 * tab-cycle actions before the ImGui window renders. Bindings live
-	 * in g_ImcForge (priority 7, active only in FREEFLY) so these reads
-	 * cannot fire outside the editor.
-	 *
-	 * Fix 2+3 (2026-05-01): the toggle action now flips s_EditorVisible
-	 * (whole window visibility). Run it unconditionally so X / Tab can
-	 * bring the editor BACK on screen; the early-return below skips the
-	 * Begin/End block while hidden. */
-	forgeSidebarHandleInput();
-
 	if (!s_EditorVisible) return;
+
+	const bool controlsActive = forgeEditorControlsActive();
+	if (controlsActive && !popupWasOpen) {
+		const int direction = pdguiMenuTabNextPressed() - pdguiMenuTabPrevPressed();
+		if (direction) {
+			s_forge_active_tab = (s_forge_active_tab + direction + FGT_COUNT) % FGT_COUNT;
+			s_forge_tab_set_request = s_forge_active_tab;
+		}
+	}
 
 	const float scale = pdguiScale(1.0f);
 	ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 620.0f * scale), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2((float)winW - 640.0f * scale, 70.0f * scale), ImGuiCond_FirstUseEver);
 
+	if (focusControls) ImGui::SetNextWindowFocus();
 	ImGui::Begin("The Grid -- Editor", nullptr,
 			ImGuiWindowFlags_NoCollapse);
+
+	char controlsBinding[32];
+	char controlsLabel[96];
+	const InputAction modeAction = controlsActive ? ACTION_MENU_CANCEL : ACTION_FORGE_EDITOR_CONTROLS;
+	const char *modeLabel = controlsActive ? "Return to camera" : "Use editor controls";
+	if (pdguiGlyphGetActionLabel(modeAction, controlsBinding, sizeof(controlsBinding))) {
+		snprintf(controlsLabel, sizeof(controlsLabel), "%s (%s)###GridEditorInputMode",
+			modeLabel, controlsBinding);
+	} else {
+		snprintf(controlsLabel, sizeof(controlsLabel), "%s###GridEditorInputMode", modeLabel);
+	}
+	if (focusControls) {
+		ImGui::SetNavCursorVisible(true);
+		ImGui::SetKeyboardFocusHere();
+	}
+	const bool switchMode = ImGui::Button(controlsLabel);
+	if (switchMode && !controlsActive && forgeEditorAcquireControls()) {
+		pdguiNavSuppressOpeningGesture();
+	}
 
 	/* Undo / redo bar always visible. */
 	if (ImGui::Button("Undo")) forgeUndoApplyUndo();
@@ -2114,17 +2163,6 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::SameLine();
 	ImGui::TextDisabled(" | Tab: %s", forgeTabLabel(s_forge_active_tab));
 
-	/* Priority E + Issue 8b (2026-04-24): chord-based tab cycling.
-	 *
-	 * PageUp / PageDown and the LB / RB gamepad buttons are bound to
-	 * ACTION_FORGE_TAB_PREV / NEXT in g_ImcForge and consumed in
-	 * forgeSidebarHandleInput() above. Firing them again here would
-	 * double-advance the tab.
-	 *
-	 * Ctrl+Tab / Ctrl+Shift+Tab are synthetic chord VKs emitted by
-	 * actionmapDispatch and consumed through the same ACTION_FORGE_TAB_*
-	 * reads in forgeSidebarHandleInput() above. */
-
 	ImGui::Separator();
 
 	/* Issue 8b (2026-04-24): reserve space for the footer hint so the
@@ -2137,11 +2175,10 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	 * regions. The sidebar takes a fixed width when visible; the tab
 	 * area fills the rest. Both reserve footerReserve on the bottom
 	 * so the footer stays pinned to the window frame. */
-	forgeSidebarDraw();   /* ends with SameLine() if visible, so the
-	                         tab area lands to its right */
+	forgeSidebarDraw(footerReserve);
 
 	ImGui::BeginChild("##GridTabArea", ImVec2(0, -footerReserve),
-			ImGuiChildFlags_None, ImGuiWindowFlags_None);
+			ImGuiChildFlags_NavFlattened);
 
 	/* S313 -- Use resizable tab-bar policy so labels fit on smaller
 	 * editor windows without truncating; scroll if they overflow. */
@@ -2169,9 +2206,30 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	/* Controller / keyboard hint footer so authors know which buttons
 	 * drive the editor.  Always on so it's visible from any tab. */
 	ImGui::Separator();
-	ImGui::TextDisabled(
-		"Editor: X / Tab   Tabs: LB/RB or PgUp/PgDn or Ctrl+Tab   "
-		"D-pad: sidebar nav   Sticks: fly   LT/RT: raise/lower");
+	if (controlsActive) {
+		ImGui::TextDisabled("D-pad / arrows: controls   LB/RB / PgUp/PgDn: tabs");
+	} else {
+		ImGui::TextDisabled("Sticks: fly   LT/RT: height   D-pad: sidebar   X / Tab: hide");
+	}
+
+	const bool popupOpen = ImGui::IsPopupOpen(nullptr,
+		ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+	/* Mouse-opened combos and color pickers need controller navigation too. */
+	if (popupOpen && !popupWasOpen && !forgeEditorControlsActive() && forgeEditorAcquireControls()) {
+		s_GridPopupOwnsControls = true;
+		pdguiNavSuppressOpeningGesture();
+	}
+	if (s_GridPopupOwnsControls && !popupOpen) {
+		forgeEditorReleaseControls();
+	} else if (controlsActive && !popupWasOpen && !popupOpen) {
+		if (switchMode) {
+			forgeEditorReleaseControls();
+		} else if (pdguiMenuCancelPressed()) {
+			const forge_placement_state_t *placement = forgeGetPlacement();
+			if (placement && placement->ghost_active) forgePlaceCancel();
+			else forgeEditorReleaseControls();
+		}
+	}
 
 	ImGui::End();
 }
@@ -2191,8 +2249,10 @@ void pdguiForgeEditorTick(void)
 	 * exclusive on the catalog flow, but kept independent here so a
 	 * future tool-mode that re-engages ghost placement on top of a
 	 * held object still works. */
-	if (!forgeSessionIsActive()) return;
-	if (!forgeIsFreefly())       return;
+	if (!forgeIsFreefly()) {
+		forgeEditorReleaseControls();
+		return;
+	}
 
 	/* Reach into the forge freefly camera via its C-API (struct coord
 	 * is forward-declared in forgemode.h to avoid including types.h

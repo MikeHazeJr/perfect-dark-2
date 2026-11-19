@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
+
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
   the Case holders, uplink downloads and bases. Final scores and rankings are

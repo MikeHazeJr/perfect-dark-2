@@ -165,6 +165,7 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_STATS_PANEL]         = "stats_panel",
     [MENU_TYPE_DEBUG_OVERLAY]       = "debug_overlay",
     [MENU_TYPE_GRID_SUBMENU]        = "grid_submenu",
+    [MENU_TYPE_GRID_EDITOR_CONTROLS] = "grid_editor_controls",
     [MENU_TYPE_SOCIAL_SHELL]        = "social_shell",
 };
 
@@ -183,6 +184,7 @@ static s32 menupoolLegacyStackOptional(menu_type_t type)
     case MENU_TYPE_SOCIAL_LOBBY:
     case MENU_TYPE_SOCIAL_SHELL:
     case MENU_TYPE_CRASH_RECOVERY:
+    case MENU_TYPE_GRID_EDITOR_CONTROLS:
         return 1;
     default:
         return 0;

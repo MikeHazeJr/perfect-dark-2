@@ -320,7 +320,9 @@ typedef enum InputAction {
      * which landed on dev first. */
     ACTION_VEHICLE_BOOST,            /* = 123 Left Shift / A-button */
 
-    ACTION_COUNT                /* = 124, sentinel - keep last */
+    ACTION_FORGE_EDITOR_CONTROLS,    /* = 124 Give focus to Grid editor controls */
+
+    ACTION_COUNT                /* = 125, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

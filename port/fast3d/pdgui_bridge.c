@@ -361,6 +361,12 @@ s32 netLocalClientInLobby(void)
     return (g_NetLocalClient->state == CLSTATE_LOBBY) ? 1 : 0;
 }
 
+s32 netLocalClientIsPreparing(void)
+{
+    return g_NetMode != NETMODE_NONE && g_NetLocalClient
+        && g_NetLocalClient->state == CLSTATE_PREPARING;
+}
+
 u32 netGetClientPing(s32 clientId)
 {
     if (clientId < 0 || clientId > NET_MAX_CLIENTS) return 0;
@@ -1406,7 +1412,7 @@ s32 netLobbyRequestCancel(void)
 /* Returns 1 when the MANIFEST_PHASE_LOADING countdown is active (3-2-1 visible). */
 s32 pdguiCountdownIsActive(void)
 {
-    return (g_MatchCountdownState.active &&
+    return (netLocalClientIsPreparing() && g_MatchCountdownState.active &&
             g_MatchCountdownState.phase == MANIFEST_PHASE_LOADING) ? 1 : 0;
 }
 

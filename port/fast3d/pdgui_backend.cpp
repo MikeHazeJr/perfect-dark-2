@@ -577,7 +577,8 @@ static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
     static PdguiMouseBackGesture mouseBack;
-    const bool navigationActive = pdguiIsActive() && !pdguiMainMenuBindingCaptureListening();
+    const bool navigationActive = pdguiIsActive() && !inputCtxIsFocusLost() &&
+        !pdguiMainMenuBindingCaptureListening();
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
      * menus already use (Escape / ACTION_CANCEL_USE). Using middle-click avoids

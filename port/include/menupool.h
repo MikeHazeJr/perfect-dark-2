@@ -145,6 +145,7 @@ typedef enum {
      * the main menu's chrome continues around it. */
     MENU_TYPE_GRID_SUBMENU,
     MENU_TYPE_SOCIAL_SHELL,       /* friends sidebar / Social menu / chat / NAT diagnostics */
+    MENU_TYPE_GRID_EDITOR_CONTROLS,
 
     MENU_TYPE_COUNT
 } menu_type_t;
