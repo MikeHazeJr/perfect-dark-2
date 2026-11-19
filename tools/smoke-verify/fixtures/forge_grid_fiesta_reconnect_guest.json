@@ -1,0 +1,16 @@
+{
+  "scenario_name": "forge_grid_fiesta_reconnect_guest",
+  "timeout_seconds": 550,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 150000 },
+    { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 45000, "stable_ms": 1000 },
+    { "at_ms": 3000, "type": "wait_until", "condition": "network_reconnect_available", "timeout_ms": 60000, "stable_ms": 1000 },
+    { "at_ms": 3000, "type": "network_reconnect" },
+    { "at_ms": 3000, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 75000 },
+    { "at_ms": 3000, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 500 },
+    { "at_ms": 3000, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press", "comment": "Move as soon as the reconnected player's new life is ready, regardless of which Fiesta weapon the host grants." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release" },
+    { "at_ms": 5000, "type": "wait_until", "condition": "endscreen_visible", "timeout_ms": 120000, "stable_ms": 1000 },
+    { "at_ms": 7000, "type": "exit" }
+  ]
+}

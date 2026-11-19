@@ -106,6 +106,30 @@ s32 assetCatalogResolveSoundPrivateSlot(const char *catalog_id)
     return SND_CUSTOM_START + idx;
 }
 
+s32 assetCatalogFindSoundPrivateSlot(const char *id)
+{
+    if (!id || !id[0]) return -1;
+    for (s32 i = 0; i < SND_CUSTOM_COUNT; i++) {
+        if (strcmp(s_CustomSoundCatalogIds[i], id) == 0) return SND_CUSTOM_START + i;
+    }
+    return -1;
+}
+
+s32 assetCatalogCanRetireSoundReservation(const char *id, s32 slot)
+{
+    if (!id || !id[0] || slot < SND_CUSTOM_START || slot >= SND_CUSTOM_END) return 0;
+    const s32 local = slot - SND_CUSTOM_START;
+    return !s_GenerationSlots[local] && !s_SnapshotReservations[local]
+        && strcmp(s_CustomSoundCatalogIds[local], id) == 0;
+}
+
+s32 assetCatalogRetireSoundReservation(const char *id, s32 slot)
+{
+    if (!assetCatalogCanRetireSoundReservation(id, slot)) return 0;
+    s_CustomSoundCatalogIds[slot - SND_CUSTOM_START][0] = '\0';
+    return 1;
+}
+
 s32 assetCatalogReserveSoundGenerationSlot(void)
 {
     for (s32 i = SND_CUSTOM_COUNT; i-- > 0;) {

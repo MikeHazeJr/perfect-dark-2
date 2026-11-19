@@ -65,6 +65,9 @@ typedef void (*CatalogDepTypedIterFn)(const char *dep_id,
 	asset_type_e expected_type, void *userdata);
 typedef s32 (*CatalogDepKeepFn)(const char *dep_id,
 	asset_type_e expected_type, void *userdata);
+typedef s32 (*CatalogDepOwnsIdFn)(const char *id, void *userdata);
+typedef s32 (*CatalogDepAppendFn)(const char *owner_id, const char *dep_id,
+	asset_type_e expected_type, s32 bundled, void *userdata);
 
 /* Opaque deep snapshot used by scanner-owned admission transactions. The
  * snapshot captures every edge because a descriptor may register a reverse
@@ -117,6 +120,12 @@ s32 catalogDepReserve(s32 additional);
 s32 catalogDepSnapshotCreate(catalog_dep_snapshot_t *snapshot);
 s32 catalogDepSnapshotRestore(const catalog_dep_snapshot_t *snapshot);
 void catalogDepSnapshotDestroy(catalog_dep_snapshot_t *snapshot);
+/* Verify the old ordered edge table is unchanged and every appended edge is
+ * allowed by the caller. No allocation or mutation. */
+s32 catalogDepValidateAppended(const catalog_dep_snapshot_t *before,
+	CatalogDepAppendFn allow, void *userdata);
+/* Refuse retirement while any edge from outside the owned set enters it. */
+s32 catalogDepCanRetireOwnerSet(CatalogDepOwnsIdFn owns, void *userdata);
 
 /**
  * Iterate all deps registered for owner_id.

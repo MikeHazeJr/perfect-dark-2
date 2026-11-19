@@ -1,5 +1,39 @@
 # Unreleased Changes
 
+- Online play requires protocol 65. A new match in the same Room gets a fresh
+  stage ID. Grid matches verify the pinned level and every required original
+  mod. Guests approve one download for missing packages. Room members can
+  propose mods, and approved proposals are shared when the match uses them.
+  Placed assets include any required owning package. Original effects can
+  include their native texture archives.
+- Grid matches keep final scores and the played revision in the same Room.
+  Reconnect can reuse exact packages approved for the match. Temporary
+  packages retire after play. An expired or changed offer can be retried
+  from the Room. Grid Fiesta, Random, damage, and weapon switching use the
+  host's exact weapon choices across local slot differences.
+- Save a variant from Level File, a shared draft, or a played Grid match.
+  Choose which packages to retain. Omitted pickups can become Falcon 2s or
+  Slayers, and omitted props or hoverbikes use stock equivalents. Reopening
+  a variant restores the exact retained sources. The listen host can use
+  Save Played Variant, and the Room displays library refresh errors.
+  Hosts can save local variants of installed base-derived Shared Drafts.
+- Create original two-room arenas with adjustable rooms and a connecting
+  doorway. Level File supports precise placement, custom hoverbikes, mode
+  markers, bot waypoints and cover, door and pickup triggers, and Logic
+  Zones. Edit sky, fog, rain or snow, room lighting, and sequenced music.
+- Level File validates native sources before saving. Save As creates a copy.
+  Pin, fork, and restore exact revisions or recover a placement checkpoint.
+  Use Play Draft from the controller sidebar to play unsaved edits with
+  normal controls and return to the same document and undo history.
+- Invite a creator to a Shared Draft and private bot playtest. Players and
+  creators have separate visibility controls. The creator can move starts
+  and decorations on the plan, and reconnect to the ongoing draft.
+- Stage and review a two-room extension in the Room or private playtest
+  pause menu. Apply verified geometry while keeping the current timer and
+  scores. Compatible live decoration moves and ambient edits carry over.
+  Actors move to safe positions if needed.
+- Set `DisplayName` in the `[Forge]` section of `pd.ini` to rename The Grid.
+
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
   the Case holders, uplink downloads and bases. Final scores and rankings are

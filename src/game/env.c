@@ -4,6 +4,9 @@
 #include "game/camera.h"
 #include "game/bg.h"
 #include "game/env.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+#include "system.h"
 #include "bss.h"
 #include "lib/vi.h"
 #include "data.h"
@@ -299,7 +302,7 @@ void envSetStageNum(s32 stagenum)
 	// empty
 }
 
-void envChooseAndApply(s32 stagenum, bool allowoverride)
+static void envChooseBase(s32 stagenum, bool allowoverride)
 {
 	struct nofogenvironment *finalenv = NULL;
 	struct nofogenvironment *env2;
@@ -353,6 +356,35 @@ void envChooseAndApply(s32 stagenum, bool allowoverride)
 	g_EnvOrigFogEnvironment = NULL;
 }
 
+static void envApplyStageAtmosphere(s32 stagenum)
+{
+	scenario_stage_atmosphere_t look;
+	if (!scenarioSourceStageAtmosphere(stagenum, &look)) return;
+	if (look.has_sky) {
+		g_Env.sky_r = look.sky_rgb[0];
+		g_Env.sky_g = look.sky_rgb[1];
+		g_Env.sky_b = look.sky_rgb[2];
+		g_Env.skyredfrac = g_Env.sky_r / 255.0f;
+		g_Env.skygreenfrac = g_Env.sky_g / 255.0f;
+		g_Env.skybluefrac = g_Env.sky_b / 255.0f;
+	}
+	if (look.has_fog) {
+		g_FogEnabled = true;
+		g_Env.fogmin = look.fog_start;
+		g_Env.fogmax = look.fog_end;
+		envTick();
+	}
+	sysLogPrintf(LOG_NOTE, "ENV.ATMOSPHERE: stage=0x%02x sky=%u,%u,%u fog=%d range=%d,%d",
+		stagenum, (u32)g_Env.sky_r, (u32)g_Env.sky_g, (u32)g_Env.sky_b,
+		g_FogEnabled, g_Env.fogmin, g_Env.fogmax);
+}
+
+void envChooseAndApply(s32 stagenum, bool allowoverride)
+{
+	envChooseBase(stagenum, allowoverride);
+	envApplyStageAtmosphere(stagenum);
+}
+
 void envApplyTransitionFrac(f32 frac)
 {
 	static struct fogenvironment tmp;
@@ -373,6 +405,7 @@ void envApplyTransitionFrac(f32 frac)
 	tmp.sky_b &= 0xf8;
 
 	envApplyFogEnvironment(&tmp);
+	envApplyStageAtmosphere(g_Vars.stagenum);
 }
 
 Gfx *envStartFog(Gfx *gdl, bool xlupass)

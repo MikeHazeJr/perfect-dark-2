@@ -36,10 +36,14 @@
 #define _IN_NETDISTRIB_H
 
 #include <PR/ultratypes.h>
+#include "grid_match_cache.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Legacy automatic package offers must omit packages owned by The Grid. */
+s32 netDistribLegacyPackageWithheld(const char *mod_id);
 
 /* ========================================================================
  * Kill feed flags (SVC_LOBBY_KILL_FEED)
@@ -164,6 +168,8 @@ void netDistribServerHandleManifestDiff(struct netclient *cl,
                                         const char (*missing_ids)[64],
                                         u16 count,
                                         u8 temporary);
+s32 netDistribServerQueueGridArena(struct netclient *cl, const grid_match_offer_t *offer,
+                                  u16 package, const char *arena_id);
 
 /**
  * Tick the server distribution system (process pending transfers).
@@ -215,6 +221,20 @@ void netDistribClientBeginManifestOffer(void);
 /** Hold a match-manifest transfer request until the user consents. */
 s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
                                             u16 missing_count, u32 manifest_hash);
+s32 netDistribClientBeginGridConsent(const char (*package_ids)[CATALOG_ID_LEN],
+	u16 count, u32 bytes, s32 arena_only);
+const char *netDistribClientGridConsentId(s32 index);
+s32 netDistribClientIsGridArena(void);
+/* The exact offer caller supplies the requested ID and the number of
+ * completed, verified packages. Bytes are cumulative raw archive bytes. */
+void netDistribClientGridArenaPackage(u16 completed, const char *id, u32 received);
+void netDistribClientGridArenaProgress(u32 received);
+void netDistribClientEndGridArena(s32 success);
+/* For failure of the current authenticated Grid offer. The local notice
+ * survives generic offer cancellation until the next offer or room exit. */
+void netDistribClientFailGridArena(const char *reason);
+const char *netDistribClientGridArenaError(void);
+void netDistribClientClearGridArenaError(void);
 
 /** Resolve the pending request. Declining a match sends DECLINE; declining an
  * initial catalog request disconnects rather than claiming content is ready. */

@@ -31,6 +31,8 @@
 #include "types.h"
 #include "constants.h"
 #include "asset_archive_policy.h"
+#include "grid_archive_policy.h"
+#include "grid_match_package_io.h"
 #include "assetcatalog.h"
 #include "catalog_audio_source_identity.h"
 #include "catalog_audio_public_source.h"
@@ -49,8 +51,11 @@
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
+#include "catalog_model_generation.h"
 #include "assetcatalog_sound_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_texture_slots.h" /* c3849 Wave 2 */
+#include "catalog_texture_generation.h"
+#include "texture_source_runtime.h"
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
 #include "assetcatalog_stage_slots.h" /* c3849 Wave 2 */
 #include "game/stagetable.h" /* c3849 Wave 2: stageTableAppend for minted stagenums */
@@ -61,13 +66,19 @@
 #include "loader_pool.h"
 #include "loader_walker_mesh_source.h"
 #include "loader_walker_common.h"
+#include "mod.h"
 #include "modarchive.h"
+#include "mod_asset_validate.h"
+#include "mods_roots.h"
+#include "net/net.h"
+#include "net/netmanifest.h"
 #include "pdeffect_source.h"
 #include "effect_dependencies.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "weapon_graph_v2_ingress.h"
 #include "romdata.h"
+#include "sha256.h"
 #include "system.h"
 #include "fs.h"
 
@@ -1590,14 +1601,12 @@ static s32 parseEffectTargetKeyValue(const char *value, s32 default_value)
 		(s32)(sizeof(values) / sizeof(values[0])));
 }
 
-static void registerDependencyList(const char *owner_id, const char *deps,
-                                   s32 is_bundled)
+s32 assetCatalogVisitDeclaredDependencies(const char *deps,
+	asset_catalog_declared_dep_fn visit, void *userdata)
 {
-	if (!owner_id || !owner_id[0] || !deps || !deps[0]) {
-		return;
-	}
-
-	char buf[512];
+	if (!visit) return 0;
+	if (!deps || !deps[0]) return 1;
+	char buf[ASSET_CATALOG_DECLARED_DEP_BYTES];
 	strncpy(buf, deps, sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = '\0';
 
@@ -1609,12 +1618,30 @@ static void registerDependencyList(const char *owner_id, const char *deps,
 		}
 
 		char *dep = trimWhitespace(tok);
-		if (dep[0]) {
-			catalogDepRegister(owner_id, dep, is_bundled);
-		}
+		if (dep[0] && !visit(dep, userdata)) return 0;
 
 		tok = next;
 	}
+	return 1;
+}
+
+typedef struct declared_dependency_owner {
+	const char *id;
+	s32 bundled;
+} declared_dependency_owner_t;
+
+static s32 registerDeclaredDependency(const char *id, void *userdata)
+{
+	const declared_dependency_owner_t *owner = userdata;
+	catalogDepRegister(owner->id, id, owner->bundled);
+	return 1;
+}
+
+static void registerDependencyList(const char *owner_id, const char *deps, s32 is_bundled)
+{
+	if (!owner_id || !owner_id[0]) return;
+	declared_dependency_owner_t owner = {owner_id, is_bundled};
+	assetCatalogVisitDeclaredDependencies(deps, registerDeclaredDependency, &owner);
 }
 
 static s32 registerAnimationCommandSource(const char *id,
@@ -1717,6 +1744,86 @@ static s32 s_mintCustomStagenum(asset_entry_t *e, const char *mint_key)
 	}
 
 	return stagenum;
+}
+
+static const char *s_scenarioPrimarySource(const ini_section_t *ini,
+	const char **out_scene, const char **out_rooms)
+{
+	const char *sf = iniGet(ini, "scene_file",
+		iniGet(ini, "scene",
+		iniGet(ini, "runtime_source_file",
+		iniGet(ini, "blender_scene_file",
+		iniGet(ini, "visual_scene_file", "")))));
+	const char *rf = iniGet(ini, "rooms_file",
+		iniGet(ini, "rooms",
+		iniGet(ini, "geometry_file",
+		iniGet(ini, "geometry", ""))));
+	if (out_scene) *out_scene = sf;
+	if (out_rooms) *out_rooms = rf;
+	return sf[0] ? sf : rf;
+}
+
+static const char *s_bindScenarioSourceFields(asset_entry_t *e, const ini_section_t *ini)
+{
+	e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
+	e->ext.scenario.source_room_count = iniGetInt(ini,
+		"source_room_count", 0);
+	const char *sf, *rf;
+	const char *primary = s_scenarioPrimarySource(ini, &sf, &rf);
+	const char *cf = iniGet(ini, "collision_file",
+		iniGet(ini, "collision_source_file",
+		iniGet(ini, "collision_source", "")));
+	strncpy(e->ext.scenario.scene_file, sf,
+		sizeof(e->ext.scenario.scene_file) - 1);
+	strncpy(e->ext.scenario.collision_file, cf,
+		sizeof(e->ext.scenario.collision_file) - 1);
+	strncpy(e->ext.scenario.rooms_file, rf,
+		sizeof(e->ext.scenario.rooms_file) - 1);
+	strncpy(e->ext.scenario.portals_file,
+		iniGet(ini, "portals_file", ""),
+		sizeof(e->ext.scenario.portals_file) - 1);
+	strncpy(e->ext.scenario.pads_file,
+		iniGet(ini, "pads_file", ""),
+		sizeof(e->ext.scenario.pads_file) - 1);
+	strncpy(e->ext.scenario.spawns_file,
+		iniGet(ini, "spawns_file", ""),
+		sizeof(e->ext.scenario.spawns_file) - 1);
+	strncpy(e->ext.scenario.volumes_file,
+		iniGet(ini, "volumes_file", ""),
+		sizeof(e->ext.scenario.volumes_file) - 1);
+	strncpy(e->ext.scenario.objects_file,
+		iniGet(ini, "objects_file",
+		iniGet(ini, "props_file", "")),
+		sizeof(e->ext.scenario.objects_file) - 1);
+	strncpy(e->ext.scenario.setup_fields_file,
+		iniGet(ini, "setup_fields_file", ""),
+		sizeof(e->ext.scenario.setup_fields_file) - 1);
+	strncpy(e->ext.scenario.ai_lists_file,
+		iniGet(ini, "ai_lists_file", ""),
+		sizeof(e->ext.scenario.ai_lists_file) - 1);
+	strncpy(e->ext.scenario.objectives_file,
+		iniGet(ini, "objectives_file", ""),
+		sizeof(e->ext.scenario.objectives_file) - 1);
+	strncpy(e->ext.scenario.navigation_file,
+		iniGet(ini, "navigation_file", ""),
+		sizeof(e->ext.scenario.navigation_file) - 1);
+	strncpy(e->ext.scenario.navigation_waypoints_file,
+		iniGet(ini, "waypoints_file", ""),
+		sizeof(e->ext.scenario.navigation_waypoints_file) - 1);
+	strncpy(e->ext.scenario.navigation_waygroups_file,
+		iniGet(ini, "waygroups_file", ""),
+		sizeof(e->ext.scenario.navigation_waygroups_file) - 1);
+	strncpy(e->ext.scenario.navigation_covers_file,
+		iniGet(ini, "covers_file", ""),
+		sizeof(e->ext.scenario.navigation_covers_file) - 1);
+	strncpy(e->ext.scenario.navigation_paths_file,
+		iniGet(ini, "paths_file", ""),
+		sizeof(e->ext.scenario.navigation_paths_file) - 1);
+	strncpy(e->ext.scenario.level_graph_file,
+		iniGet(ini, "level_graph_file",
+		iniGet(ini, "level_graph", "")),
+		sizeof(e->ext.scenario.level_graph_file) - 1);
+	return primary;
 }
 
 /* Shared public body/head transaction. Scanner and specialized walker both
@@ -1875,6 +1982,7 @@ static s32 registerBodyHeadPublicIni(const ini_section_t *ini, const char *id,
     entry->runtime_index = slot;
     entry->source_filenum = mesh_file;
     entry->bundled = bundled;
+    entry->grid_offer_only = iniGet(ini, GRID_ARENA_PROVENANCE_KEY, NULL) != NULL;
     if (temporary >= 0) entry->temporary = !!temporary;
     if (is_head) {
         entry->ext.head.headnum = slot;
@@ -2113,6 +2221,11 @@ done:
 	return ok;
 }
 
+static s32 gridPrepareOriginalStandaloneMesh(const char *descriptor, const char *id,
+	loader_walker_mesh_source_plan_t *plan, char *err, size_t err_cap);
+static s32 gridBindStandaloneMesh(asset_entry_t *row, loader_walker_mesh_source_plan_t *plan,
+	char *err, size_t err_cap);
+
 static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const char *dirpath,
                               const char *mod_id, const char *descriptor_path,
                               loader_animation_source_batch_t *batch)
@@ -2194,6 +2307,31 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 		}
 	}
 
+	loader_walker_mesh_source_plan_t model_plan;
+	s32 planned_model = 0;
+	s32 native_model_slot = -1;
+	s32 had_model_row = 0;
+	char model_error[256] = {0};
+	if (type == ASSET_MODEL && iniGetInt(ini, "enabled", 1) && !iniGetInt(ini, "bundled", 0)
+			&& strcmp(iniGet(ini, GRID_ARENA_PROVENANCE_KEY, ""), GRID_ARENA_PROVENANCE_ORIGINAL) == 0) {
+		planned_model = gridPrepareOriginalStandaloneMesh(descriptor_path, idbuf, &model_plan,
+			model_error, sizeof(model_error));
+		if (planned_model < 0) {
+			sysLogPrintf(LOG_WARNING, "PDMESH.NATIVE.REJECT: id=%s reason=%s", idbuf, model_error);
+			return 0;
+		}
+		if (planned_model) {
+			const asset_entry_t *prior = assetCatalogResolveAny(idbuf);
+			if (prior && (prior->type != ASSET_MODEL || prior->bundled
+					|| !loaderWalkerMeshSourceChangeAllowed(prior->load_state, prior->bundled,
+						prior->ref_count, prior->loaded_data != NULL, prior->payload_kind))) {
+				sysLogPrintf(LOG_WARNING, "PDMESH.NATIVE.REJECT: id=%s already has an incompatible or resident source", idbuf);
+				return 0;
+			}
+			had_model_row = prior != NULL;
+		}
+	}
+
 	catalog_audio_source_identity_t audio_identity;
 	catalog_audio_public_source_t audio_public;
 	void *audio_slot_snapshot = NULL;
@@ -2243,6 +2381,14 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 		return 0;
 	}
 	assetCatalogDestroyCustomSoundSlotSnapshot(audio_slot_snapshot);
+	if (planned_model) {
+		native_model_slot = gridBindStandaloneMesh(e, &model_plan, model_error, sizeof(model_error));
+		if (native_model_slot < 0) {
+			if (!had_model_row) assetCatalogUnregister(idbuf);
+			sysLogPrintf(LOG_WARNING, "PDMESH.NATIVE.REJECT: id=%s reason=%s", idbuf, model_error);
+			return 0;
+		}
+	}
 
 	/* Common fields */
 	strncpy(e->category, category, CATALOG_CATEGORY_LEN - 1);
@@ -2256,7 +2402,9 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 	e->enabled = iniGetInt(ini, "enabled", 1);
 	e->bundled = iniGetInt(ini, "bundled", 0);
 	e->temporary = 0;
-	e->runtime_index = -1;  /* assigned later during callsite migration */
+	/* Marked native archives travel only in an exact Grid source set. */
+	e->grid_offer_only = iniGet(ini, GRID_ARENA_PROVENANCE_KEY, NULL) != NULL;
+	e->runtime_index = native_model_slot; /* Other typed native indices are assigned below. */
 
 	/* Type-specific fields */
 	switch (type) {
@@ -2385,7 +2533,7 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 				iniGet(ini, "geometry_file",
 				iniGet(ini, "geometry",
 				iniGet(ini, "file_path", "")))));
-			if (pf[0]) {
+			if (pf[0] && native_model_slot < 0) {
 				catalogSetPrimaryFile(e, pf);
 			}
 		}
@@ -2602,81 +2750,12 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 		}
 		break;
 
-	case ASSET_SCENARIO:
+	case ASSET_SCENARIO: {
 		e->ext.scenario.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
-		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
-		e->ext.scenario.source_room_count = iniGetInt(ini,
-			"source_room_count", 0);
-		{
-			const char *sf = iniGet(ini, "scene_file",
-				iniGet(ini, "scene",
-				iniGet(ini, "runtime_source_file",
-				iniGet(ini, "blender_scene_file",
-				iniGet(ini, "visual_scene_file", "")))));
-			const char *cf = iniGet(ini, "collision_file",
-				iniGet(ini, "collision_source_file",
-				iniGet(ini, "collision_source", "")));
-			const char *rf = iniGet(ini, "rooms_file",
-				iniGet(ini, "rooms",
-				iniGet(ini, "geometry_file",
-				iniGet(ini, "geometry", ""))));
-			strncpy(e->ext.scenario.scene_file, sf,
-				sizeof(e->ext.scenario.scene_file) - 1);
-			strncpy(e->ext.scenario.collision_file, cf,
-				sizeof(e->ext.scenario.collision_file) - 1);
-			strncpy(e->ext.scenario.rooms_file, rf,
-				sizeof(e->ext.scenario.rooms_file) - 1);
-			strncpy(e->ext.scenario.portals_file,
-				iniGet(ini, "portals_file", ""),
-				sizeof(e->ext.scenario.portals_file) - 1);
-			strncpy(e->ext.scenario.pads_file,
-				iniGet(ini, "pads_file", ""),
-				sizeof(e->ext.scenario.pads_file) - 1);
-			strncpy(e->ext.scenario.spawns_file,
-				iniGet(ini, "spawns_file", ""),
-				sizeof(e->ext.scenario.spawns_file) - 1);
-			strncpy(e->ext.scenario.volumes_file,
-				iniGet(ini, "volumes_file", ""),
-				sizeof(e->ext.scenario.volumes_file) - 1);
-			strncpy(e->ext.scenario.objects_file,
-				iniGet(ini, "objects_file",
-				iniGet(ini, "props_file", "")),
-				sizeof(e->ext.scenario.objects_file) - 1);
-			strncpy(e->ext.scenario.setup_fields_file,
-				iniGet(ini, "setup_fields_file", ""),
-				sizeof(e->ext.scenario.setup_fields_file) - 1);
-			strncpy(e->ext.scenario.ai_lists_file,
-				iniGet(ini, "ai_lists_file", ""),
-				sizeof(e->ext.scenario.ai_lists_file) - 1);
-			strncpy(e->ext.scenario.objectives_file,
-				iniGet(ini, "objectives_file", ""),
-				sizeof(e->ext.scenario.objectives_file) - 1);
-			strncpy(e->ext.scenario.navigation_file,
-				iniGet(ini, "navigation_file", ""),
-				sizeof(e->ext.scenario.navigation_file) - 1);
-			strncpy(e->ext.scenario.navigation_waypoints_file,
-				iniGet(ini, "waypoints_file", ""),
-				sizeof(e->ext.scenario.navigation_waypoints_file) - 1);
-			strncpy(e->ext.scenario.navigation_waygroups_file,
-				iniGet(ini, "waygroups_file", ""),
-				sizeof(e->ext.scenario.navigation_waygroups_file) - 1);
-			strncpy(e->ext.scenario.navigation_covers_file,
-				iniGet(ini, "covers_file", ""),
-				sizeof(e->ext.scenario.navigation_covers_file) - 1);
-			strncpy(e->ext.scenario.navigation_paths_file,
-				iniGet(ini, "paths_file", ""),
-				sizeof(e->ext.scenario.navigation_paths_file) - 1);
-			strncpy(e->ext.scenario.level_graph_file,
-				iniGet(ini, "level_graph_file",
-				iniGet(ini, "level_graph", "")),
-				sizeof(e->ext.scenario.level_graph_file) - 1);
-			if (sf[0]) {
-				catalogSetPrimaryFile(e, sf);
-			} else if (rf[0]) {
-				catalogSetPrimaryFile(e, rf);
-			}
-		}
+		const char *primary = s_bindScenarioSourceFields(e, ini);
+		if (primary[0]) catalogSetPrimaryFile(e, primary);
 		break;
+	}
 
 	case ASSET_AUDIO:
 		if (!catalogAudioSourceIdentityApply(e, &audio_identity)) return 0;
@@ -5413,7 +5492,7 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 	char descriptor_ref[FS_MAXPATH];
 	char component_dir[FS_MAXPATH];
 	const asset_entry_t *arena = arena_id ? assetCatalogResolve(arena_id) : NULL;
-	const asset_entry_t *row;
+	asset_entry_t *row;
 	const char *descriptor_leaf = NULL;
 	const char *found_id;
 	const char *cut;
@@ -5432,6 +5511,7 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 	if (!arena->ext.arena.scenario_id[0] || !arena->ext.arena.scenario_archive[0]) {
 		return 0;
 	}
+	const s32 grid_offer_only = arena->grid_offer_only;
 	/* Registration may grow the catalog that owns these strings. */
 	if (!assetPathCopyChecked(owner, sizeof(owner), arena_id)
 			|| !assetPathCopyChecked(scenario_id, sizeof(scenario_id),
@@ -5442,8 +5522,19 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 		return -1;
 	}
 	cut = strstr(chain, "::");
-	if (strncmp(owner, "base:", 5) == 0 || !catalogIdSharesNamespace(owner, scenario_id)
-			|| !cut || assetCatalogResolve(scenario_id)) {
+	if (strncmp(owner, "base:", 5) == 0 || !catalogIdSharesNamespace(owner, scenario_id) || !cut) {
+		return 0;
+	}
+	if (assetCatalogResolve(scenario_id)) {
+		/* An in-place save can mark an already registered arena. Follow
+		 * that mark only for the exact scenario row it owns. */
+		row = assetCatalogGetMutable(scenario_id);
+		size_t len = strlen(chain);
+		if (row && row->type == ASSET_SCENARIO
+				&& strncmp(row->descriptor_path, chain, len) == 0
+				&& row->descriptor_path[len] == ':' && row->descriptor_path[len + 1] == ':') {
+			row->grid_offer_only = grid_offer_only;
+		}
 		return 0;
 	}
 
@@ -5490,11 +5581,12 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 		nestedSetErr(err, err_cap, "could not register scenario %s of %s", scenario_id, owner);
 		goto done;
 	}
-	row = assetCatalogResolve(scenario_id);
+	row = assetCatalogGetMutable(scenario_id);
 	if (!row || row->type != ASSET_SCENARIO) {
 		nestedSetErr(err, err_cap, "scenario %s of %s did not get a catalog row", scenario_id, owner);
 		goto done;
 	}
+	row->grid_offer_only = grid_offer_only;
 	sysLogPrintf(LOG_NOTE,
 		"PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s",
 		owner, scenario_id, row->ext.scenario.stagenum, chain);
@@ -5741,6 +5833,1710 @@ effect_publish_fail:
 		}
 	}
 	return -1;
+}
+
+static s32 gridLeaseError(char *err, size_t cap, const char *reason)
+{
+	if (err && cap) snprintf(err, cap, "%s", reason);
+	return 0;
+}
+
+static s32 gridLeaseCanonicalId(const char *id)
+{
+	if (!id || strlen(id) >= CATALOG_ID_LEN
+			|| strspn(id, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:_.-") != strlen(id)) {
+		return 0;
+	}
+	const char *colon = strchr(id, ':');
+	return colon && colon != id && colon[1] && !strchr(colon + 1, ':')
+		&& strncmp(id, "base:", 5) != 0;
+}
+
+static const char *gridLeaseDigestLeaf(const char *path)
+{
+	if (!path || !fsPathIsAbsolute(path) || strstr(path, "::") || assetPathHasParentTraversal(path)) {
+		return NULL;
+	}
+	const char *leaf = path;
+	for (const char *p = path; *p; p++) {
+		if (*p == '/' || *p == '\\') leaf = p + 1;
+	}
+	const size_t hex_length = SHA256_HEX_SIZE - 1;
+	return strspn(leaf, "0123456789abcdef") == hex_length
+		&& strcmp(leaf + hex_length, ".pdarena") == 0 ? leaf : NULL;
+}
+
+static s32 gridLeaseFilePolicyMatches(const char *path, const char *leaf,
+	asset_catalog_grid_arena_file_policy_e file_policy)
+{
+	char directory[FS_MAXPATH + 1], pinned[FS_MAXPATH + 1];
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	const s32 has_pin_path = fsPathIsAbsolute(directory)
+		&& assetPathJoinChecked(pinned, sizeof(pinned), directory, "/", leaf);
+	if (file_policy == GRID_ARENA_LEASE_TEMPORARY_FILE) {
+		return !has_pin_path || !modsRootsSameDir(path, pinned);
+	}
+	return file_policy == GRID_ARENA_LEASE_PINNED_FILE && has_pin_path && strcmp(path, pinned) == 0;
+}
+
+static s32 gridLeaseParseDescriptor(const char *text, u32 len, asset_type_e type,
+	const char *id, ini_section_t *out)
+{
+	if (!text || !iniParseText(text, len, out, NULL, 0)
+			|| sectionToType(out->type) != type
+			|| strcmp(iniGet(out, "catalog_id", ""), id) != 0
+			|| !iniGetInt(out, "enabled", 1) || iniGetInt(out, "bundled", 0)) {
+		return 0;
+	}
+	for (s32 i = 0; i < out->count; i++) {
+		const ini_pair_t *pair = &out->pairs[i];
+		if (assetPathKeyIsSource(pair->key)
+				&& (assetPathIsAbsolute(pair->value) || assetPathHasParentTraversal(pair->value)
+					|| strstr(pair->value, "::") || strchr(pair->value, '\\'))) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static s32 gridLeaseReadDescriptor(const void *bytes, u32 size, const char *path,
+	asset_type_e type, const char *id, ini_section_t *out)
+{
+	u32 len = 0;
+	char *text = assetArchiveExtractDescriptorMemAlloc(bytes, size, path,
+		ASSET_ARCHIVE_VALIDATE_RELEASE, &len, NULL);
+	const s32 ok = gridLeaseParseDescriptor(text, len, type, id, out);
+	free(text);
+	return ok;
+}
+
+static s32 gridSourceSetReadDescriptor(const void *bytes, u32 size, const char *path,
+	asset_type_e type, const char *id, ini_section_t *out)
+{
+	const char *leaf = assetArchiveDescriptorForPath(path);
+	u32 len = 0;
+	char *text = leaf ? gridMatchPackageReadMember(bytes, size, leaf, 1024u * 1024u, &len, NULL) : NULL;
+	const s32 ok = text && !memchr(text, '\0', len) && gridLeaseParseDescriptor(text, len, type, id, out);
+	free(text);
+	return ok;
+}
+
+s32 assetCatalogReadGridArenaSource(const char *text, u32 len, const char *arena_id,
+	asset_catalog_grid_arena_source_t *out)
+{
+	if (!text || !len || memchr(text, '\0', len) || !out || !gridLeaseCanonicalId(arena_id)) return 0;
+	ini_section_t *ini = malloc(sizeof(*ini));
+	if (!ini) return 0;
+
+	asset_catalog_grid_arena_source_t candidate = {0};
+	s32 ok = gridLeaseParseDescriptor(text, len, ASSET_ARENA, arena_id, ini)
+		&& catalogArenaLoadModeFromIni(ini) == ARENA_LOADMODE_PLAYABLE;
+	if (ok) {
+		const char *id = iniGet(ini, "scenario", "");
+		const char *member = iniGet(ini, "scenario_archive", "");
+		ok = gridLeaseCanonicalId(id) && strcmp(arena_id, id) != 0
+			&& catalogIdSharesNamespace(arena_id, id)
+			&& assetArchiveTypeForPath(member) == ASSET_SCENARIO
+			&& assetPathCopyChecked(candidate.scenario_id, sizeof(candidate.scenario_id), id)
+			&& assetPathCopyChecked(candidate.scenario_member, sizeof(candidate.scenario_member), member);
+	}
+	free(ini);
+	if (ok) *out = candidate;
+	return ok;
+}
+
+s32 assetCatalogBindGridScenarioDescriptor(const char *text, u32 len, const char *scenario_ref,
+	const char *scenario_id, asset_entry_t *out)
+{
+	char descriptor[FS_MAXPATH];
+	if (!text || !len || memchr(text, '\0', len) || !out || !gridLeaseCanonicalId(scenario_id)
+			|| assetArchiveTypeForPath(scenario_ref) != ASSET_SCENARIO
+			|| !strstr(scenario_ref, "::")
+			|| !assetPathJoinChecked(descriptor, sizeof(descriptor), scenario_ref, "::", "scenario.ini")) {
+		return 0;
+	}
+	ini_section_t *ini = malloc(sizeof(*ini));
+	if (!ini) return 0;
+
+	/* The legacy level_graph alias is not in the native source path inventory. */
+	const s32 ok = gridLeaseParseDescriptor(text, len, ASSET_SCENARIO, scenario_id, ini)
+		&& !iniGet(ini, "level_graph", "")[0]
+		&& qualifyTypedArchiveSourcePaths(ini, scenario_ref);
+	if (ok) {
+		memset(out, 0, sizeof(*out));
+		out->type = ASSET_SCENARIO;
+		out->enabled = 1;
+		out->runtime_index = -1;
+		out->mp_index = -1;
+		out->ext.scenario.stagenum = -1;
+		assetPathCopyChecked(out->id, sizeof(out->id), scenario_id);
+		assetPathCopyChecked(out->descriptor_path, sizeof(out->descriptor_path), descriptor);
+		s_bindScenarioSourceFields(out, ini);
+	}
+	free(ini);
+	return ok;
+}
+
+static s32 gridLeaseScenarioOwnsPath(const char *scenario_ref, const char *path)
+{
+	const size_t prefix_len = strlen(scenario_ref);
+	return path && strncmp(path, scenario_ref, prefix_len) == 0
+		&& strncmp(path + prefix_len, "::", 2) == 0;
+}
+
+static s32 gridLeaseInspect(const char *archive_path, const char *leaf, const char *arena_id,
+	const char *scenario_id, const void *bytes, u32 size, asset_catalog_grid_arena_source_t *out,
+	char *err, size_t err_cap)
+{
+	const char *invalid_archive = "the private archive is not the offered original arena and scenario";
+	if (!bytes || !size || size > NET_DISTRIB_MAX_COMP) return gridLeaseError(err, err_cap, invalid_archive);
+
+	u8 digest[SHA256_DIGEST_SIZE];
+	char hex[SHA256_HEX_SIZE];
+	sha256Hash(bytes, size, digest);
+	sha256ToHex(digest, hex);
+	if (memcmp(hex, leaf, SHA256_HEX_SIZE - 1) != 0
+			|| assetArchiveValidateBytes(bytes, size, archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE, NULL, 0) != 0
+			|| gridArchiveOrigin(archive_path, bytes, size) != GRID_ARCHIVE_ORIGINAL) {
+		return gridLeaseError(err, err_cap, invalid_archive);
+	}
+
+	const u32 descriptor_limit = 1024u * 1024u;
+	u32 length = 0;
+	char *descriptor = gridMatchPackageReadMember(bytes, size, "arena.ini", descriptor_limit, &length, NULL);
+	asset_catalog_grid_arena_source_t candidate;
+	const s32 arena_valid = descriptor && assetCatalogReadGridArenaSource(descriptor, length, arena_id, &candidate)
+		&& strcmp(candidate.scenario_id, scenario_id) == 0;
+	free(descriptor);
+	char scenario_ref[FS_MAXPATH], descriptor_ref[FS_MAXPATH];
+	if (!arena_valid || !assetPathJoinChecked(descriptor_ref, sizeof(descriptor_ref), archive_path, "::", "arena.ini")
+			|| !assetPathJoinChecked(scenario_ref, sizeof(scenario_ref), archive_path, "::", candidate.scenario_member)
+			|| !assetPathJoinChecked(descriptor_ref, sizeof(descriptor_ref), scenario_ref, "::", "scenario.ini")) {
+		return gridLeaseError(err, err_cap, invalid_archive);
+	}
+	u32 scenario_size = 0;
+	void *scenario = gridMatchPackageReadMember(bytes, size, candidate.scenario_member,
+		NET_DISTRIB_MAX_COMP, &scenario_size, NULL);
+	ini_section_t *ini = scenario ? malloc(sizeof(*ini)) : NULL;
+	s32 ok = ini && gridLeaseReadDescriptor(scenario, scenario_size, candidate.scenario_member,
+		ASSET_SCENARIO, scenario_id, ini) && qualifyTypedArchiveSourcePaths(ini, scenario_ref);
+	if (ok) {
+		const char *primary = s_scenarioPrimarySource(ini, NULL, NULL);
+		const char *paths[] = {scenario_ref, primary};
+		if (!gridLeaseScenarioOwnsPath(scenario_ref, primary)) {
+			ok = gridLeaseError(err, err_cap, "the offered scenario has no primary source inside its archive");
+		} else if (!fileProviderCanInternPaths(paths, sizeof(paths) / sizeof(paths[0]))) {
+			ok = gridLeaseError(err, err_cap, "the FileProvider has no room for both Grid arena source paths");
+		}
+	} else {
+		gridLeaseError(err, err_cap, invalid_archive);
+	}
+	free(ini);
+	free(scenario);
+	if (ok) *out = candidate;
+	return ok;
+}
+
+static void gridLeaseMarkDependency(const char *id, asset_type_e type, void *userdata)
+{
+	(void)id;
+	(void)type;
+	*(s32 *)userdata = 1;
+}
+
+static s32 gridLeaseDropDependency(const char *id, asset_type_e type, void *userdata)
+{
+	(void)id;
+	(void)type;
+	(void)userdata;
+	return 0;
+}
+
+s32 assetCatalogPreviewGridArenaLeaseStage(const char *scenario_id)
+{
+	if (!g_Stages || !gridLeaseCanonicalId(scenario_id)
+			|| assetCatalogFindStagenumPrivateSlot(scenario_id) >= 0) return -1;
+	const s32 stagenum = assetCatalogPeekStagenumPrivateSlot(scenario_id);
+	if (stagenum < 0) return -1;
+
+	s32 has_template = 0;
+	for (s32 i = 0; i < g_NumStages; i++) {
+		const struct stagetableentry *row = stageGetEntry(i);
+		if (!row) continue;
+		/* The scanner would reuse this occupied row instead of minting a new one. */
+		if (row->id == stagenum) return -1;
+		if (row->id == STAGE_MP_SKEDAR) has_template = 1;
+	}
+	return has_template ? stagenum : -1;
+}
+
+s32 assetCatalogPreflightGridArenaLease(const char *archive_path, const char *arena_id,
+	const char *scenario_id, asset_catalog_grid_arena_file_policy_e file_policy, const void *bytes, u32 size,
+	asset_catalog_grid_arena_source_t *source, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	const char *leaf = gridLeaseDigestLeaf(archive_path);
+	if (!source || !leaf || !gridLeaseCanonicalId(arena_id) || !gridLeaseCanonicalId(scenario_id)
+			|| strcmp(arena_id, scenario_id) == 0 || !catalogIdSharesNamespace(arena_id, scenario_id)) {
+		return gridLeaseError(err, err_cap, "invalid Grid arena lease identity or private archive path");
+	}
+	if (!gridLeaseFilePolicyMatches(archive_path, leaf, file_policy)) {
+		return gridLeaseError(err, err_cap, "the private archive path violates the Grid file policy");
+	}
+	s32 prior_deps = 0;
+	catalogDepForEachTyped(arena_id, gridLeaseMarkDependency, &prior_deps);
+	catalogDepForEachTyped(scenario_id, gridLeaseMarkDependency, &prior_deps);
+	if (assetCatalogResolveAny(arena_id) || assetCatalogResolveAny(scenario_id)
+			|| assetCatalogFindStagenumPrivateSlot(scenario_id) >= 0 || prior_deps) {
+		return gridLeaseError(err, err_cap, "the offered arena or scenario conflicts with local catalog ownership");
+	}
+	if (assetCatalogPreviewGridArenaLeaseStage(scenario_id) < 0) {
+		return gridLeaseError(err, err_cap, "no private native stage is available for the offered Grid arena");
+	}
+	return gridLeaseInspect(archive_path, leaf, arena_id, scenario_id, bytes, size, source, err, err_cap);
+}
+
+static s32 gridLeaseOwnsRows(const asset_catalog_arena_lease_t *lease,
+	const asset_entry_t *arena, const asset_entry_t *scenario)
+{
+	char chain[FS_MAXPATH], descriptor[FS_MAXPATH];
+	if (!arena || !scenario || arena->type != ASSET_ARENA || scenario->type != ASSET_SCENARIO
+			|| !arena->enabled || !scenario->enabled || arena->bundled || scenario->bundled
+			|| !arena->grid_offer_only || !scenario->grid_offer_only
+			|| arena->ext.arena.load_mode != ARENA_LOADMODE_PLAYABLE
+			|| arena->ext.arena.stagenum != lease->stagenum || scenario->ext.scenario.stagenum != lease->stagenum
+			|| arena->runtime_index != lease->stage_index || scenario->runtime_index != lease->stage_index
+			|| strcmp(arena->ext.arena.scenario_id, lease->scenario_id) != 0
+			|| assetCatalogFindStagenumPrivateSlot(lease->scenario_id) != lease->stagenum
+			|| !stageTableOwnsCustom(lease->stage_index, lease->stagenum)
+			|| !assetPathJoinChecked(chain, sizeof(chain), lease->archive_path, "::", lease->scenario_member)
+			|| strcmp(arena->ext.arena.scenario_archive, chain) != 0) {
+		return 0;
+	}
+	const struct stagetableentry *stage = stageGetEntry(lease->stage_index);
+	const char *arena_source = fileProviderPath(catalogEffectiveHandle(arena));
+	const char *scene_source = fileProviderPath(catalogEffectiveHandle(scenario));
+	return stage && !stage->bgfileid && !stage->tilefileid && !stage->padsfileid
+		&& !stage->setupfileid && !stage->mpsetupfileid
+		&& arena_source && strcmp(arena_source, chain) == 0
+		&& gridLeaseScenarioOwnsPath(chain, scene_source)
+		&& assetPathJoinChecked(descriptor, sizeof(descriptor), chain, "::", "scenario.ini")
+		&& strcmp(scenario->descriptor_path, descriptor) == 0
+		&& assetPathJoinChecked(descriptor, sizeof(descriptor), lease->archive_path, "::", "arena.ini")
+		&& strcmp(arena->descriptor_path, descriptor) == 0;
+}
+
+s32 assetCatalogAdmitGridArenaLease(const char *archive_path, const char *arena_id,
+	const char *scenario_id, asset_catalog_grid_arena_file_policy_e file_policy,
+	asset_catalog_arena_lease_t *lease, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	const char *leaf = gridLeaseDigestLeaf(archive_path);
+	if (!lease || lease->arena_id[0] || !leaf || !gridLeaseFilePolicyMatches(archive_path, leaf, file_policy)) {
+		return gridLeaseError(err, err_cap, "invalid Grid arena lease or file policy");
+	}
+	u32 size = 0;
+	void *bytes = gridMatchPackageLoad(archive_path, &size);
+	asset_catalog_grid_arena_source_t source;
+	const s32 verified = assetCatalogPreflightGridArenaLease(archive_path, arena_id, scenario_id,
+		file_policy, bytes, size, &source, err, err_cap);
+	free(bytes);
+	if (!verified) return 0;
+
+	asset_catalog_arena_lease_t candidate = { .file_policy = file_policy };
+	if (!assetPathCopyChecked(candidate.archive_path, sizeof(candidate.archive_path), archive_path)
+			|| !assetPathCopyChecked(candidate.arena_id, sizeof(candidate.arena_id), arena_id)
+			|| !assetPathCopyChecked(candidate.scenario_id, sizeof(candidate.scenario_id), scenario_id)
+			|| !assetPathCopyChecked(candidate.scenario_member, sizeof(candidate.scenario_member), source.scenario_member)) {
+		return gridLeaseError(err, err_cap, "the private archive binding is too long");
+	}
+
+	_Static_assert(STAGENUM_CUSTOM_COUNT <= sizeof(u32) * CHAR_BIT, "custom stages fit occupancy mask");
+	u32 occupied_stages = 0;
+	for (s32 i = 0; i < g_NumStages; i++) {
+		const struct stagetableentry *row = stageGetEntry(i);
+		if (row && row->id >= STAGENUM_CUSTOM_START && row->id < STAGENUM_CUSTOM_END) {
+			occupied_stages |= 1u << (row->id - STAGENUM_CUSTOM_START);
+		}
+	}
+	char namespace_id[CATALOG_ID_LEN];
+	size_t namespace_len = (size_t)(strchr(arena_id, ':') - arena_id);
+	memcpy(namespace_id, arena_id, namespace_len);
+	namespace_id[namespace_len] = '\0';
+
+	loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+	external_scan_transaction_t transaction;
+	if (!batch || !externalScanTransactionBegin(&transaction)) {
+		loaderAnimationSourceBatchDestroy(batch);
+		return gridLeaseError(err, err_cap, "could not prepare the Grid arena catalog transaction");
+	}
+	candidate.provider_before = transaction.provider;
+	s32 ok = registerTypedPdDescriptorFile(archive_path, ASSET_ARENA, namespace_id, 1, batch) == 1
+		&& loaderAnimationSourceBatchCommit(batch);
+	loaderAnimationSourceBatchDestroy(batch);
+
+	asset_entry_t *arena = assetCatalogGetMutable(arena_id);
+	asset_entry_t *scenario = assetCatalogGetMutable(scenario_id);
+	candidate.stagenum = arena ? arena->ext.arena.stagenum : -1;
+	candidate.stage_index = arena ? arena->runtime_index : -1;
+	ok = ok && assetCatalogGetPoolSize() == transaction.row_count + 2
+		&& gridLeaseOwnsRows(&candidate, arena, scenario)
+		&& !(occupied_stages & (1u << (candidate.stagenum - STAGENUM_CUSTOM_START)));
+	for (s32 i = 0; ok && i < transaction.row_count; i++) {
+		const asset_entry_t *row = assetCatalogGetByIndex(i);
+		const catalog_entry_snapshot_t *prior = &transaction.rows[i];
+		ok = row ? catalogEntrySnapshotMatches(prior, row) : !prior->row.occupied;
+	}
+	u8 digest[SHA256_DIGEST_SIZE];
+	char hex[SHA256_HEX_SIZE];
+	if (ok && modArchiveSha256(archive_path, digest) == MODARCHIVE_OK) {
+		sha256ToHex(digest, hex);
+		ok = memcmp(hex, leaf, SHA256_HEX_SIZE - 1) == 0
+			&& fileProviderCheckpointCreate(&candidate.provider_after);
+	} else {
+		ok = 0;
+	}
+	if (!ok) {
+		s32 restored = externalScanTransactionRollback(&transaction);
+		externalScanTransactionDestroy(&transaction);
+		assetCatalogTrimUnoccupiedTail();
+		return gridLeaseError(err, err_cap, restored ? "the typed scanner did not admit the exact Grid arena pair"
+			: "the Grid arena catalog rollback failed");
+	}
+	arena->temporary = 1;
+	scenario->temporary = 1;
+	externalScanTransactionDestroy(&transaction);
+	*lease = candidate;
+	return 1;
+}
+
+s32 assetCatalogRetireGridArenaLease(asset_catalog_arena_lease_t *lease,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!lease) return gridLeaseError(err, err_cap, "invalid Grid arena lease");
+	if (!lease->arena_id[0]) return 1;
+	const asset_entry_t *arena = assetCatalogResolveAny(lease->arena_id);
+	const asset_entry_t *scenario = assetCatalogResolveAny(lease->scenario_id);
+	if (!gridLeaseOwnsRows(lease, arena, scenario)
+			|| !assetCatalogRetireUnactivatedArenaPair(lease->arena_id, lease->scenario_id)) {
+		return gridLeaseError(err, err_cap, "the Grid arena lease changed or still has active catalog references");
+	}
+	catalogDepPruneOwner(lease->arena_id, gridLeaseDropDependency, NULL);
+	catalogDepPruneOwner(lease->scenario_id, gridLeaseDropDependency, NULL);
+	/* Preconditions above establish both owners on the main thread. */
+	stageTableRetireCustom(lease->stage_index, lease->stagenum);
+	assetCatalogReleaseStagenumPrivateSlot(lease->scenario_id, lease->stagenum);
+
+	/* The intern pool is append-only. Rewind only when no other readers
+	 * registered paths after this lease was admitted. */
+	file_provider_checkpoint_t current;
+	if (fileProviderCheckpointCreate(&current)
+			&& current.pool_used == lease->provider_after.pool_used
+			&& current.path_count == lease->provider_after.path_count
+			&& current.warned == lease->provider_after.warned) {
+		(void)fileProviderCheckpointRestore(&lease->provider_before);
+	}
+	memset(lease, 0, sizeof(*lease));
+	return 1;
+}
+
+#define GRID_WEAPON_LEASE_MAX_ROWS 32u
+
+struct asset_catalog_grid_weapon_lease {
+	char path[FS_MAXPATH + 1];
+	grid_match_source_root_t rows[GRID_WEAPON_LEASE_MAX_ROWS];
+	char descriptors[GRID_WEAPON_LEASE_MAX_ROWS][FS_MAXPATH];
+	s32 slots[GRID_WEAPON_LEASE_MAX_ROWS];
+	size_t count;
+	file_provider_checkpoint_t provider_before;
+	file_provider_checkpoint_t provider_after;
+};
+
+typedef struct grid_weapon_admission {
+	const grid_match_sources_t *plan;
+	size_t package_index;
+	asset_catalog_grid_weapon_lease_t *lease;
+	ini_section_t *ini;
+	u64 remaining;
+	u8 *seen_members;
+	s32 strict_inventory;
+	s32 allow_scenario;
+} grid_weapon_admission_t;
+
+typedef struct grid_weapon_member_scan {
+	grid_weapon_admission_t *admission;
+	const void *bytes;
+	u32 size;
+	const char *chain;
+	s32 depth;
+	s32 valid;
+} grid_weapon_member_scan_t;
+
+static s32 gridWeaponLeaseOwns(const char *id, void *userdata)
+{
+	const asset_catalog_grid_weapon_lease_t *lease = userdata;
+	for (size_t i = 0; i < lease->count; i++) {
+		if (strcmp(lease->rows[i].id, id) == 0) return 1;
+	}
+	return 0;
+}
+
+static s32 gridWeaponChildType(asset_type_e type, const char *name)
+{
+	switch (type) {
+	case ASSET_MODEL: return pathEndsWithNoCase(name, ".pdmesh");
+	case ASSET_PROJECTILE: return pathEndsWithNoCase(name, ".pdprojectile");
+	case ASSET_ENTITY: return pathEndsWithNoCase(name, ".pdentity");
+	case ASSET_EFFECT: return pathEndsWithNoCase(name, ".pdeffect");
+	case ASSET_AUDIO: return pathEndsWithNoCase(name, ".pdsfx");
+	case ASSET_UI: return pathEndsWithNoCase(name, ".pdui");
+	case ASSET_MATERIAL: return pathEndsWithNoCase(name, ".pdmaterial");
+	default: return 0;
+	}
+}
+
+static s32 gridSourceSetChildType(asset_type_e type, asset_type_e outer_type, const char *chain)
+{
+	if (gridWeaponChildType(type, chain)) return 1;
+	if (type != ASSET_TEXTURE) return 0;
+
+	asset_type_e owner, child;
+	const char *member;
+	return gridMatchPackageMemberOwner(outer_type, chain, &owner, &member)
+		&& owner == ASSET_EFFECT && effectNestedMemberType(member, &child) && child == ASSET_TEXTURE;
+}
+
+static s32 gridSourceSetValidateTexture(const void *bytes, u32 size, const char *id,
+	const ini_section_t *ini, char *err, size_t err_cap);
+static s32 gridWeaponInspectMembers(grid_weapon_admission_t *admission, const void *bytes,
+	u32 size, const char *chain, s32 depth);
+
+static s32 gridWeaponInspectMember(const char *name, u32 size, void *userdata)
+{
+	grid_weapon_member_scan_t *scan = userdata;
+	grid_weapon_admission_t *admission = scan->admission;
+	if (size > admission->remaining) {
+		scan->valid = 0;
+		return 1;
+	}
+	admission->remaining -= size;
+	if (!assetArchivePathIsTyped(name)) return 0;
+
+	char chain[FS_MAXPATH];
+	if (scan->depth >= MOD_ASSET_VALIDATE_MAX_DEPTH
+			|| !(scan->chain[0]
+				? assetPathJoinChecked(chain, sizeof(chain), scan->chain, "::", name)
+				: assetPathCopyChecked(chain, sizeof(chain), name))) {
+		scan->valid = 0;
+		return 1;
+	}
+	const grid_match_sources_t *plan = admission->plan;
+	const grid_match_source_entry_t *entry = NULL;
+	for (size_t i = 0; i < plan->entry_count; i++) {
+		if (plan->entries[i].package_index == admission->package_index
+				&& strcmp(plan->entries[i].member_chain, chain) == 0) {
+			entry = &plan->entries[i];
+			break;
+		}
+	}
+	const s32 native_child = entry && (admission->strict_inventory
+		? gridSourceSetChildType(entry->asset.type, plan->packages[admission->package_index].owner.type, chain)
+		: gridWeaponChildType(entry->asset.type, name));
+	const s32 arena_scenario = entry && admission->allow_scenario
+		&& entry->asset.type == ASSET_SCENARIO && assetArchiveTypeForPath(name) == ASSET_SCENARIO;
+	if (!native_child && !arena_scenario) {
+		scan->valid = 0;
+		return 1;
+	}
+	if (admission->seen_members) {
+		u8 *seen = &admission->seen_members[entry - plan->entries];
+		if (*seen) {
+			scan->valid = 0;
+			return 1;
+		}
+		*seen = 1;
+	}
+	u32 length = 0;
+	void *nested = modArchiveExtractMemAlloc(scan->bytes, scan->size, name, &length);
+	if (admission->strict_inventory) {
+		scan->valid = nested && length == size
+			&& gridWeaponInspectMembers(admission, nested, length, chain, scan->depth + 1)
+			&& assetArchiveValidateBytes(nested, length, name, ASSET_ARCHIVE_VALIDATE_RELEASE, NULL, 0) == 0
+			&& gridSourceSetReadDescriptor(nested, length, name, entry->asset.type, entry->asset.id, admission->ini)
+			&& (entry->asset.type != ASSET_TEXTURE
+				|| gridSourceSetValidateTexture(nested, length, entry->asset.id, admission->ini, NULL, 0));
+	} else {
+		scan->valid = nested && length == size
+			&& gridLeaseReadDescriptor(nested, length, name, entry->asset.type, entry->asset.id, admission->ini)
+			&& gridWeaponInspectMembers(admission, nested, length, chain, scan->depth + 1);
+	}
+	free(nested);
+	return !scan->valid;
+}
+
+static s32 gridWeaponInspectMembers(grid_weapon_admission_t *admission, const void *bytes,
+	u32 size, const char *chain, s32 depth)
+{
+	grid_weapon_member_scan_t scan = {
+		.admission = admission, .bytes = bytes, .size = size, .chain = chain,
+		.depth = depth, .valid = 1,
+	};
+	return modArchiveMemForEachEntry(bytes, size, gridWeaponInspectMember, &scan) == MODARCHIVE_OK
+		&& scan.valid;
+}
+
+static s32 gridWeaponAcceptEdge(const char *owner, const char *dependency, asset_type_e type,
+	s32 bundled, void *userdata)
+{
+	grid_weapon_admission_t *admission = userdata;
+	if (bundled || !gridWeaponLeaseOwns(owner, admission->lease)) return 0;
+	const asset_entry_t *row = assetCatalogResolve(dependency);
+	if (!row || !row->enabled || row->type != type) return 0;
+	const grid_match_sources_t *plan = admission->plan;
+	for (size_t i = 0; i < plan->entry_count; i++) {
+		const grid_match_source_entry_t *entry = &plan->entries[i];
+		if (strcmp(entry->asset.id, dependency) == 0) {
+			return entry->asset.type == type
+				&& plan->packages[entry->package_index].bundled == !!row->bundled;
+		}
+	}
+	return 0;
+}
+
+static s32 gridSourceIsBodyHead(asset_type_e type)
+{
+	return type == ASSET_BODY || type == ASSET_HEAD;
+}
+
+static s32 gridWeaponFindSlot(const grid_match_source_root_t *row)
+{
+	switch (row->type) {
+	case ASSET_WEAPON: return assetCatalogFindWeaponPrivateSlot(row->id);
+	case ASSET_MODEL: return assetCatalogFindModelPrivateSlot(row->id);
+	case ASSET_AUDIO: return assetCatalogFindSoundPrivateSlot(row->id);
+	case ASSET_TEXTURE: return assetCatalogFindTexturePrivateSlot(row->id);
+	case ASSET_BODY:
+	case ASSET_HEAD: return assetCatalogFindBodyHeadPrivateSlot(row->type == ASSET_HEAD, row->id);
+	default: return -1;
+	}
+}
+
+static s32 gridWeaponOwnsRow(const asset_catalog_grid_weapon_lease_t *lease, size_t index,
+	const asset_entry_t *row)
+{
+	if (!row || !row->enabled || row->bundled || row->type != lease->rows[index].type
+			|| strcmp(row->descriptor_path, lease->descriptors[index]) != 0) return 0;
+	const asset_data_handle_t source = catalogEffectiveHandle(row);
+	if (assetHandleIsNull(source)) return 1;
+	const char *path = fileProviderPath(source);
+	const size_t length = strlen(lease->path);
+	return path && strncmp(path, lease->path, length) == 0
+		&& path[length] == ':' && path[length + 1] == ':';
+}
+
+static s32 gridWeaponRecordRows(asset_catalog_grid_weapon_lease_t *lease,
+	const grid_match_sources_t *plan, size_t package_index)
+{
+	const grid_match_source_package_t *package = &plan->packages[package_index];
+	s32 has_owner = 0;
+	for (size_t i = 0; i < plan->entry_count; i++) {
+		const grid_match_source_entry_t *entry = &plan->entries[i];
+		if (entry->package_index != package_index) continue;
+		const s32 is_owner = !entry->member_chain[0];
+		const size_t index = lease->count;
+		const char *name = is_owner ? lease->path : entry->member_chain;
+		const char *descriptor = assetArchiveDescriptorForPath(name);
+		if (index == GRID_WEAPON_LEASE_MAX_ROWS || !descriptor
+				|| !catalogIdSharesNamespace(package->owner.id, entry->asset.id)
+				|| (!is_owner && !gridWeaponChildType(entry->asset.type, name))
+				|| assetCatalogResolveAny(entry->asset.id) || gridWeaponFindSlot(&entry->asset) >= 0) return 0;
+		s32 prior_deps = 0;
+		catalogDepForEachTyped(entry->asset.id, gridLeaseMarkDependency, &prior_deps);
+		if (prior_deps) return 0;
+
+		char root[FS_MAXPATH];
+		if (!(is_owner ? assetPathCopyChecked(root, sizeof(root), lease->path)
+				: assetPathJoinChecked(root, sizeof(root), lease->path, "::", name))
+				|| !assetPathJoinChecked(lease->descriptors[index], sizeof(lease->descriptors[index]),
+					root, "::", descriptor)) return 0;
+		lease->rows[index] = entry->asset;
+		lease->slots[index] = -1;
+		lease->count++;
+		has_owner |= is_owner;
+	}
+	return has_owner && catalogDepCanRetireOwnerSet(gridWeaponLeaseOwns, lease);
+}
+
+static s32 gridWeaponValidateRows(grid_weapon_admission_t *admission,
+	const external_scan_transaction_t *transaction)
+{
+	asset_catalog_grid_weapon_lease_t *lease = admission->lease;
+	if ((size_t)assetCatalogGetPoolSize() != (size_t)transaction->row_count + lease->count) return 0;
+	for (s32 i = 0; i < transaction->row_count; i++) {
+		const asset_entry_t *row = assetCatalogGetByIndex(i);
+		const catalog_entry_snapshot_t *prior = &transaction->rows[i];
+		if (row ? !catalogEntrySnapshotMatches(prior, row) : prior->row.occupied) return 0;
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(lease->rows[i].id);
+		if (!gridWeaponOwnsRow(lease, i, row)) return 0;
+		const s32 slot = gridWeaponFindSlot(&lease->rows[i]);
+		if ((row->type == ASSET_WEAPON && (slot < 0 || row->runtime_index != slot))
+				|| (row->type == ASSET_MODEL && (row->runtime_index != slot
+					|| (slot < 0 ? row->source_filenum > 0
+						: row->source_filenum != assetCatalogModelPrivateSourceFilenum(slot))))
+				|| (row->type == ASSET_AUDIO && (slot < 0 || row->ext.audio.category != AUDIO_CAT_SFX
+					|| row->source_soundnum != slot || row->ext.audio.sound_id != slot))) return 0;
+		lease->slots[i] = slot;
+	}
+	const grid_match_source_root_t *owner = &admission->plan->packages[admission->package_index].owner;
+	return catalogDepValidateAppended(&transaction->deps, gridWeaponAcceptEdge, admission)
+		&& catalogCanDeactivateTypedAsset(owner->type, owner->id);
+}
+
+s32 assetCatalogAdmitGridWeaponLease(const char *archive_path, const grid_match_sources_t *plan,
+	size_t package_index, asset_catalog_grid_weapon_lease_t **out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!archive_path || !plan || !out || *out || package_index >= plan->package_count) {
+		return gridLeaseError(err, err_cap, "invalid Grid weapon lease request");
+	}
+	grid_match_sources_t sealed = *plan;
+	if (!gridMatchSourcesSeal(&sealed, err, err_cap) || sealed.total_bytes != plan->total_bytes
+			|| memcmp(sealed.digest, plan->digest, sizeof(sealed.digest)) != 0) {
+		return gridLeaseError(err, err_cap, "Grid weapon lease needs an exact sealed source plan");
+	}
+	const grid_match_source_package_t *package = &plan->packages[package_index];
+	if (package->owner.type != ASSET_WEAPON || strcmp(package->suffix, ".pdweapon") != 0
+			|| package->bundled || !gridLeaseCanonicalId(package->owner.id)) {
+		return gridLeaseError(err, err_cap, "Grid weapon lease needs one nonbundled native weapon");
+	}
+
+	char folder[FS_MAXPATH + 1], expected[FS_MAXPATH + 1], digest_hex[SHA256_HEX_SIZE];
+	fsFullPath("$S/grid-session", folder, sizeof(folder));
+	sha256ToHex(package->digest, digest_hex);
+	const int written = snprintf(expected, sizeof(expected), "%s/%s.pdweapon", folder, digest_hex);
+	if (!fsPathIsAbsolute(folder) || written <= 0 || written >= (int)sizeof(expected)
+			|| strcmp(expected, archive_path) != 0 || fsFileSize(archive_path) != (s32)package->size) {
+		return gridLeaseError(err, err_cap, "Grid weapon archive is outside its private digest path or wrong-sized");
+	}
+
+	asset_catalog_grid_weapon_lease_t *lease = calloc(1, sizeof(*lease));
+	ini_section_t *ini = malloc(sizeof(*ini));
+	const u32 size = package->size;
+	void *bytes = malloc(size);
+	u8 digest[SHA256_DIGEST_SIZE];
+	grid_weapon_admission_t admission = {
+		.plan = plan, .package_index = package_index, .lease = lease, .ini = ini,
+		.remaining = NET_DISTRIB_MAX_SESSION,
+	};
+	s32 ok = lease && ini && bytes && fsFileLoadTo(archive_path, bytes, size) == (s32)size;
+	if (ok) {
+		sha256Hash(bytes, size, digest);
+		memcpy(lease->path, expected, (size_t)written + 1);
+		ok = memcmp(digest, package->digest, sizeof(digest)) == 0
+			&& gridWeaponRecordRows(lease, plan, package_index)
+			&& gridWeaponInspectMembers(&admission, bytes, size, "", 0)
+			&& assetArchiveValidateBytes(bytes, size, archive_path,
+				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) == 0
+			&& gridArchiveOrigin(archive_path, bytes, size) == GRID_ARCHIVE_ORIGINAL
+			&& gridLeaseReadDescriptor(bytes, size, archive_path, ASSET_WEAPON, package->owner.id, ini);
+	}
+	free(ini);
+	free(bytes);
+	if (!ok) {
+		free(lease);
+		return gridLeaseError(err, err_cap, "invalid original Grid weapon, unsupported child, or local identity conflict");
+	}
+
+	char namespace_id[CATALOG_ID_LEN];
+	const size_t length = (size_t)(strchr(package->owner.id, ':') - package->owner.id);
+	memcpy(namespace_id, package->owner.id, length);
+	namespace_id[length] = '\0';
+	loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+	external_scan_transaction_t transaction;
+	if (!batch || !externalScanTransactionBegin(&transaction)) {
+		loaderAnimationSourceBatchDestroy(batch);
+		free(lease);
+		return gridLeaseError(err, err_cap, "could not prepare the Grid weapon catalog transaction");
+	}
+	lease->provider_before = transaction.provider;
+	ok = registerTypedPdDescriptorFile(archive_path, ASSET_WEAPON, namespace_id, 1, batch) == 1
+		&& gridWeaponValidateRows(&admission, &transaction)
+		&& modArchiveSha256(archive_path, digest) == MODARCHIVE_OK
+		&& memcmp(digest, package->digest, sizeof(digest)) == 0
+		&& fileProviderCheckpointCreate(&lease->provider_after)
+		&& loaderAnimationSourceBatchCommit(batch);
+	loaderAnimationSourceBatchDestroy(batch);
+	if (!ok) {
+		const s32 restored = externalScanTransactionRollback(&transaction);
+		externalScanTransactionDestroy(&transaction);
+		assetCatalogTrimUnoccupiedTail();
+		free(lease);
+		return gridLeaseError(err, err_cap, restored ? "typed scanner did not admit the exact Grid weapon closure"
+			: "Grid weapon catalog rollback failed");
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		asset_entry_t *row = assetCatalogGetMutable(lease->rows[i].id);
+		row->temporary = 1;
+		row->grid_offer_only = 1;
+	}
+	externalScanTransactionDestroy(&transaction);
+	catalogRefreshSoundOverrides();
+	*out = lease;
+	return 1;
+}
+
+const char *assetCatalogGridWeaponLeasePath(const asset_catalog_grid_weapon_lease_t *lease)
+{
+	return lease ? lease->path : NULL;
+}
+
+static s32 gridWeaponRetireSlot(const grid_match_source_root_t *row, s32 slot, s32 commit)
+{
+	switch (row->type) {
+	case ASSET_WEAPON:
+		return commit ? assetCatalogRetireWeaponReservation(row->id, slot)
+			: assetCatalogCanRetireWeaponReservation(row->id, slot);
+	case ASSET_MODEL:
+		if (slot < 0) return 1;
+		return commit ? assetCatalogRetireModelReservation(row->id, slot)
+			: assetCatalogCanRetireModelReservation(row->id, slot);
+	case ASSET_AUDIO:
+		return commit ? assetCatalogRetireSoundReservation(row->id, slot)
+			: assetCatalogCanRetireSoundReservation(row->id, slot);
+	case ASSET_TEXTURE:
+		if (!commit) return assetCatalogCanRetireTextureReservation(row->id, slot)
+			&& !textureSourceRuntimeHasStageRead(slot)
+			&& !catalogTextureGenerationHasLiveIdentity(row->id);
+		textureSourceRuntimeInvalidateSlot(slot);
+		return assetCatalogRetireTextureReservation(row->id, slot);
+	default: return 1;
+	}
+}
+
+s32 assetCatalogReleaseGridWeaponLeaseStageRefs(const asset_catalog_grid_weapon_lease_t *lease,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!lease) return 1;
+	if (!lease->count || lease->count > GRID_WEAPON_LEASE_MAX_ROWS) {
+		return gridLeaseError(err, err_cap, "invalid Grid weapon lease for stage release");
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(lease->rows[i].id);
+		if (!gridWeaponOwnsRow(lease, i, row) || !row->temporary || !row->grid_offer_only) {
+			return gridLeaseError(err, err_cap, "the Grid weapon lease changed before stage release");
+		}
+		if (row->stage_ref_count && (row->stage_ref_count != 1 || row->ref_count <= 0
+				|| row->ref_count == ASSET_REF_BUNDLED
+				|| !catalogCanDeactivateTypedAsset(row->type, row->id))) {
+			return gridLeaseError(err, err_cap, "the Grid weapon stage reference could not be verified");
+		}
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(lease->rows[i].id);
+		if (row->stage_ref_count) catalogReleaseStageAsset(row->type, row->id);
+	}
+	return 1;
+}
+
+s32 assetCatalogRetireGridWeaponLease(asset_catalog_grid_weapon_lease_t **owned,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!owned) return gridLeaseError(err, err_cap, "invalid Grid weapon retirement request");
+	asset_catalog_grid_weapon_lease_t *lease = *owned;
+	if (!lease) return 1;
+	if (!catalogDepCanRetireOwnerSet(gridWeaponLeaseOwns, lease)) {
+		return gridLeaseError(err, err_cap, "another catalog source depends on the temporary Grid weapon");
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(lease->rows[i].id);
+		if (!gridWeaponOwnsRow(lease, i, row) || !row->temporary || !row->grid_offer_only
+				|| row->ref_count || row->stage_ref_count || row->loaded_data
+				|| !gridWeaponRetireSlot(&lease->rows[i], lease->slots[i], 0)) {
+			return gridLeaseError(err, err_cap, "the Grid weapon lease changed or still has active references");
+		}
+	}
+	for (size_t i = 0; i < lease->count; i++) {
+		if (!catalogDeactivateTypedAsset(lease->rows[i].type, lease->rows[i].id)) {
+			return gridLeaseError(err, err_cap, "the Grid weapon lease runtime could not be detached");
+		}
+	}
+	if (!assetCatalogRetireUnactivatedGridWeaponRows(lease->rows, lease->count)) {
+		return gridLeaseError(err, err_cap, "the Grid weapon lease catalog rows could not be retired");
+	}
+	/* The exact reservations were preflighted on this same main thread. */
+	for (size_t i = 0; i < lease->count; i++) {
+		(void)gridWeaponRetireSlot(&lease->rows[i], lease->slots[i], 1);
+		catalogDepPruneOwner(lease->rows[i].id, gridLeaseDropDependency, NULL);
+	}
+	catalogRefreshSoundOverrides();
+	file_provider_checkpoint_t current;
+	if (fileProviderCheckpointCreate(&current)
+			&& current.pool_used == lease->provider_after.pool_used
+			&& current.path_count == lease->provider_after.path_count
+			&& current.warned == lease->provider_after.warned) {
+		(void)fileProviderCheckpointRestore(&lease->provider_before);
+	}
+	free(lease);
+	*owned = NULL;
+	return 1;
+}
+
+typedef struct grid_source_set_package {
+	u16 index;
+	char path[FS_MAXPATH + 1];
+} grid_source_set_package_t;
+
+typedef struct grid_source_set_binding {
+	s32 slot;
+	s32 sequence;
+	s32 body_head_model;
+	s32 standalone_model;
+	char descriptor[FS_MAXPATH];
+} grid_source_set_binding_t;
+
+struct asset_catalog_grid_source_set {
+	size_t package_count, row_count;
+	grid_source_set_package_t *packages;
+	grid_match_source_root_t *rows;
+	grid_source_set_binding_t *bindings;
+	asset_catalog_arena_lease_t arena;
+	catalog_dep_snapshot_t prior_deps;
+};
+
+static void gridSourceSetFree(asset_catalog_grid_source_set_t *set)
+{
+	if (!set) return;
+	catalogDepSnapshotDestroy(&set->prior_deps);
+	free(set->bindings);
+	free(set->rows);
+	free(set->packages);
+	free(set);
+}
+
+static size_t gridSourceSetPackageIndex(const asset_catalog_grid_source_set_t *set, size_t package_index)
+{
+	size_t first = 0, last = set->package_count;
+	while (first < last) {
+		const size_t middle = (first + last) / 2;
+		if (set->packages[middle].index < package_index) first = middle + 1;
+		else last = middle;
+	}
+	return first < set->package_count && set->packages[first].index == package_index ? first : set->package_count;
+}
+
+static size_t gridSourceSetFindRow(const asset_catalog_grid_source_set_t *set, const char *id)
+{
+	size_t first = 0, last = set->row_count;
+	while (first < last) {
+		const size_t middle = (first + last) / 2;
+		if (strcmp(set->rows[middle].id, id) < 0) first = middle + 1;
+		else last = middle;
+	}
+	return first < set->row_count && strcmp(set->rows[first].id, id) == 0 ? first : set->row_count;
+}
+
+static s32 gridSourceSetOwnsId(const char *id, void *userdata)
+{
+	const asset_catalog_grid_source_set_t *set = userdata;
+	return gridSourceSetFindRow(set, id) < set->row_count;
+}
+
+static s32 gridSourceSetOwnsRow(const asset_catalog_grid_source_set_t *set, size_t index,
+	const asset_entry_t *row)
+{
+	const grid_source_set_binding_t *binding = &set->bindings[index];
+	if (!row || !row->enabled || row->bundled || row->type != set->rows[index].type
+			|| strcmp(row->descriptor_path, binding->descriptor) != 0) return 0;
+	const asset_data_handle_t source = catalogEffectiveHandle(row);
+	if (assetHandleIsNull(source)) {
+		return row->type != ASSET_ARENA && row->type != ASSET_SCENARIO
+			&& row->type != ASSET_AUDIO && row->type != ASSET_MODEL && row->type != ASSET_TEXTURE
+			&& row->type != ASSET_VEHICLE && !gridSourceIsBodyHead(row->type);
+	}
+	const char *path = fileProviderPath(source);
+	const char *leaf = strrchr(binding->descriptor, ':');
+	if (!path || !leaf || leaf == binding->descriptor || leaf[-1] != ':') return 0;
+	const size_t owner_len = (size_t)(leaf - binding->descriptor - 1);
+	return strncmp(path, binding->descriptor, owner_len) == 0
+		&& strncmp(path + owner_len, "::", 2) == 0;
+}
+
+static s32 gridSourceSetRecordRows(asset_catalog_grid_source_set_t *set, const grid_match_sources_t *plan,
+	const char *arena_id, const char *scenario_id)
+{
+	for (size_t i = 0; i < plan->entry_count; i++) {
+		const grid_match_source_entry_t *entry = &plan->entries[i];
+		const size_t package_index = gridSourceSetPackageIndex(set, entry->package_index);
+		if (package_index == set->package_count) continue;
+		const grid_match_source_package_t *owner = &plan->packages[entry->package_index];
+		const s32 child = entry->member_chain[0] != '\0';
+		const s32 stage_owner = owner->owner.type == ASSET_ARENA;
+		if (!gridLeaseCanonicalId(entry->asset.id) || !catalogIdSharesNamespace(owner->owner.id, entry->asset.id)
+				|| assetCatalogResolveAny(entry->asset.id) || gridWeaponFindSlot(&entry->asset) >= 0) return 0;
+		if (stage_owner) {
+			if (!scenario_id || strcmp(owner->owner.id, arena_id) != 0
+					|| (child ? entry->asset.type != ASSET_SCENARIO || strcmp(entry->asset.id, scenario_id) != 0
+						: entry->asset.type != ASSET_ARENA)) return 0;
+		} else if (child && !gridSourceSetChildType(entry->asset.type, owner->owner.type, entry->member_chain)) {
+			return 0;
+		}
+		s32 prior_deps = 0;
+		catalogDepForEachTyped(entry->asset.id, gridLeaseMarkDependency, &prior_deps);
+		if (prior_deps) return 0;
+
+		const size_t index = set->row_count;
+		grid_source_set_binding_t *binding = &set->bindings[index];
+		const char *path = set->packages[package_index].path;
+		const char *leaf = assetArchiveDescriptorForPath(child ? entry->member_chain : path);
+		char qualified[FS_MAXPATH];
+		if (!leaf || !(child ? assetPathJoinChecked(qualified, sizeof(qualified), path, "::", entry->member_chain)
+					: assetPathCopyChecked(qualified, sizeof(qualified), path))
+				|| !assetPathJoinChecked(binding->descriptor, sizeof(binding->descriptor), qualified, "::", leaf)) return 0;
+		binding->slot = -1;
+		binding->sequence = !child && owner->owner.type == ASSET_AUDIO
+			&& strcmp(owner->suffix, ".pdsong") == 0;
+		binding->body_head_model = child && entry->asset.type == ASSET_MODEL
+			&& gridSourceIsBodyHead(owner->owner.type);
+		binding->standalone_model = !child && entry->asset.type == ASSET_MODEL;
+		set->rows[index] = entry->asset;
+		set->row_count++;
+	}
+	return set->row_count >= set->package_count;
+}
+
+static s32 gridPlanStandaloneMesh(const char *archive, const char *id, const void *bytes, u32 size,
+	const ini_section_t *ini, loader_walker_mesh_source_plan_t *plan, char *err, size_t err_cap)
+{
+	u32 manifest_size = 0;
+	void *manifest = gridMatchPackageReadMember(bytes, size, ASSET_ARCHIVE_META_MANIFEST_PATH,
+		1024u * 1024u, &manifest_size, NULL);
+	const s32 planned = manifest && loaderWalkerMeshSourcePlanManifest(manifest, manifest_size, id,
+		archive, weaponNestedMeshPublicGeometry(ini), -1, plan, err, err_cap);
+	free(manifest);
+	if (!planned) {
+		if (err && err_cap && err[0]) return 0;
+		return gridLeaseError(err, err_cap, "the original .pdmesh source plan is invalid");
+	}
+
+	u32 geometry_size = 0;
+	void *geometry = gridMatchPackageReadMember(bytes, size, plan->geometry_member,
+		NET_DISTRIB_MAX_SESSION, &geometry_size, NULL);
+	free(geometry);
+	if (!geometry_size) return gridLeaseError(err, err_cap, "the original .pdmesh has no exact geometry member");
+	return 1;
+}
+
+/* Installed and temporary standalone sources share this native bridge. Meshes
+ * embedded in other typed owners still use their own compound registrar. */
+static s32 gridPrepareOriginalStandaloneMesh(const char *descriptor, const char *id,
+	loader_walker_mesh_source_plan_t *plan, char *err, size_t err_cap)
+{
+	char archive[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+	if (!descriptor || !gridMatchPackageLocation(descriptor, archive, sizeof(archive), chain, sizeof(chain), NULL)
+			|| chain[0] || assetArchiveTypeForPath(archive) != ASSET_MODEL) return 0;
+	u32 size = 0;
+	void *bytes = gridMatchPackageLoad(archive, &size);
+	ini_section_t *ini = malloc(sizeof(*ini));
+	const s32 ok = gridLeaseCanonicalId(id) && strncmp(id, "base:", 5) != 0
+		&& bytes && ini && size <= NET_DISTRIB_MAX_COMP
+		&& gridMatchPackageOrigin(archive, bytes, size) == GRID_ARCHIVE_ORIGINAL
+		&& gridSourceSetReadDescriptor(bytes, size, archive, ASSET_MODEL, id, ini)
+		&& gridPlanStandaloneMesh(archive, id, bytes, size, ini, plan, err, err_cap);
+	free(ini);
+	free(bytes);
+	if (ok) return 1;
+	if (err && err_cap && !err[0]) gridLeaseError(err, err_cap, "could not read the exact original .pdmesh source");
+	return -1;
+}
+
+static s32 gridBindStandaloneMesh(asset_entry_t *row, loader_walker_mesh_source_plan_t *plan,
+	char *err, size_t err_cap)
+{
+	const asset_data_handle_t prior = row->source.primary;
+	if (prior.provider == fileProvider()) {
+		const char *path = fileProviderPath(prior);
+		const size_t length = strlen(plan->archive_path);
+		if (!path || strncmp(path, plan->archive_path, length) != 0
+				|| strncmp(path + length, "::", 2) != 0) {
+			gridLeaseError(err, err_cap, "another archive already owns this model source");
+			return -1;
+		}
+	}
+	const s32 old_slot = assetCatalogFindModelPrivateSlot(row->id);
+	const s32 slot = assetCatalogResolveModelPrivateSlot(row->id);
+	plan->source_symbol_present = 0;
+	plan->source_filenum = assetCatalogModelPrivateSourceFilenum(slot);
+	const char *slot_owner = slot >= 0 ? catalogModelIdByModelnum(slot) : NULL;
+	const char *file_owner = plan->source_filenum > 0
+		? catalogIdBySourceFilenum(ASSET_MODEL, plan->source_filenum) : NULL;
+	if (slot < 0 || plan->source_filenum <= 0
+			|| (slot_owner && strcmp(slot_owner, row->id) != 0)
+			|| (file_owner && strcmp(file_owner, row->id) != 0)
+			|| !loaderWalkerBindMeshSource(row, plan, 1, err, err_cap)) {
+		if (slot >= 0 && old_slot < 0) (void)assetCatalogRetireModelReservation(row->id, slot);
+		if (err && err_cap && !err[0]) gridLeaseError(err, err_cap, "no exact private model source binding is available");
+		return -1;
+	}
+	return slot;
+}
+
+static s32 gridSourceSetValidateTexture(const void *bytes, u32 size, const char *id,
+	const ini_section_t *ini, char *err, size_t err_cap)
+{
+	const char *source = iniGet(ini, "file_path", iniGet(ini, "texture_file", ""));
+	if (!pathEndsWithNoCase(source, ".png") && !pathEndsWithNoCase(source, ".tga")
+			&& !pathEndsWithNoCase(source, ".jpg") && !pathEndsWithNoCase(source, ".jpeg")
+			&& !pathEndsWithNoCase(source, ".bmp")) {
+		return gridLeaseError(err, err_cap, "Grid texture requires an editable image member");
+	}
+	u32 descriptor_size = 0;
+	char *descriptor = gridMatchPackageReadMember(bytes, size, "texture.ini",
+		NET_DISTRIB_MAX_COMP, &descriptor_size, NULL);
+	texture_source_properties_t properties;
+	const s32 descriptor_ok = descriptor && textureSourceReadProperties(descriptor,
+		descriptor_size, id, &properties, err, err_cap);
+	free(descriptor);
+	if (!descriptor_ok) return 0;
+
+	u32 image_size = 0;
+	void *image = gridMatchPackageReadMember(bytes, size, source, NET_DISTRIB_MAX_SESSION, &image_size, NULL);
+	if (!image) return gridLeaseError(err, err_cap, "Grid texture image member could not be read");
+	mod_texture_rgba32_source_t rgba;
+	const s32 decoded = modTextureDecodeRgba32Source(image, image_size, &rgba, err, err_cap);
+	modTextureFreeRgba32Source(&rgba);
+	free(image);
+	return decoded > 0;
+}
+
+static s32 gridSourceSetInspectVehicle(const void *bytes, u32 size, const ini_section_t *ini,
+	char *err, size_t err_cap)
+{
+	const char *const members[] = {
+		iniGet(ini, "model_file", iniGet(ini, "file_path", "")),
+		iniGet(ini, "physics_file", ""),
+		iniGet(ini, "behavior_graph", ""),
+	};
+	if (assetArchiveTypeForPath(members[0]) != ASSET_MODEL) {
+		return gridLeaseError(err, err_cap, "a Grid vehicle requires an exact embedded native model");
+	}
+	for (size_t i = 0; i < ARRAYCOUNT(members); i++) {
+		u32 length = 0;
+		void *member = gridMatchPackageReadMember(bytes, size, members[i],
+			NET_DISTRIB_MAX_SESSION, &length, NULL);
+		const s32 valid = member && length;
+		free(member);
+		if (!valid) return gridLeaseError(err, err_cap, "a Grid vehicle is missing its exact model, physics or behavior source");
+	}
+	return 1;
+}
+
+s32 assetCatalogGridVehicleSourceShareable(const char *name, const void *bytes, u32 size)
+{
+	if (assetArchiveTypeForPath(name) != ASSET_VEHICLE || !size || size > NET_DISTRIB_MAX_COMP) return 0;
+	u32 length = 0;
+	char *text = gridMatchPackageReadMember(bytes, size, "vehicle.ini", 1024u * 1024u, &length, NULL);
+	ini_section_t *ini = malloc(sizeof(*ini));
+	char id[CATALOG_ID_LEN];
+	const s32 ok = text && ini && !memchr(text, '\0', length) && iniParseText(text, length, ini, NULL, 0)
+		&& assetPathCopyChecked(id, sizeof(id), iniGet(ini, "catalog_id", ""))
+		&& gridLeaseCanonicalId(id) && strncmp(id, "base:", 5) != 0
+		&& gridLeaseParseDescriptor(text, length, ASSET_VEHICLE, id, ini)
+		&& gridSourceSetInspectVehicle(bytes, size, ini, NULL, 0);
+	free(ini);
+	free(text);
+	return ok;
+}
+
+typedef struct grid_body_head_members {
+	const char *mesh;
+	const char *hand;
+	s32 valid;
+} grid_body_head_members_t;
+
+static s32 gridBodyHeadInspectMember(const char *name, u32 size, void *userdata)
+{
+	(void)size;
+	grid_body_head_members_t *members = userdata;
+	if (assetArchivePathIsTyped(name)
+			&& (!members->mesh || strcmp(name, members->mesh) != 0)
+			&& (!members->hand || strcmp(name, members->hand) != 0)) {
+		members->valid = 0;
+		return 1;
+	}
+	return 0;
+}
+
+static s32 gridBodyHeadInspectMesh(const void *bytes, u32 size, const char *member,
+	const char *expected_id, const char *owner, ini_section_t *ini, char id[CATALOG_ID_LEN],
+	char *err, size_t err_cap)
+{
+	u32 nested_size = 0, member_size = 0, manifest_size = 0;
+	void *nested = assetArchiveTypeForPath(member) == ASSET_MODEL
+		? gridMatchPackageReadMember(bytes, size, member, NET_DISTRIB_MAX_SESSION, &nested_size, NULL) : NULL;
+	char *text = nested
+		? gridMatchPackageReadMember(nested, nested_size, "mesh.ini", 1024u * 1024u, &member_size, NULL) : NULL;
+	grid_body_head_members_t inventory = { .valid = 1 };
+	s32 ok = text && !memchr(text, '\0', member_size)
+		&& modArchiveMemForEachEntry(nested, nested_size, gridBodyHeadInspectMember, &inventory) == MODARCHIVE_OK
+		&& inventory.valid && assetArchiveValidateBytes(nested, nested_size, member,
+			ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) == 0
+		&& bodyHeadSourceReadIniBytes(text, member_size, "model", ini, err, err_cap)
+		&& assetPathCopyChecked(id, CATALOG_ID_LEN, iniGet(ini, "catalog_id", ""))
+		&& gridLeaseCanonicalId(id) && catalogIdSharesNamespace(owner, id) && strcmp(owner, id) != 0
+		&& (!expected_id[0] || strcmp(id, expected_id) == 0)
+		&& strcmp(iniGet(ini, "id", id), id) == 0
+		&& gridLeaseParseDescriptor(text, member_size, ASSET_MODEL, id, ini)
+		&& strcmp(iniGet(ini, "kind", ""), "mesh") == 0;
+
+	const char *geometry = NULL;
+	for (size_t i = 0; ok && i < loaderWalkerMeshPublicGeometryKeyCount(); ++i) {
+		const char *value = iniGet(ini, loaderWalkerMeshPublicGeometryKey(i), NULL);
+		if (!value) continue;
+		ok = value[0] && (!geometry || strcmp(geometry, value) == 0);
+		geometry = value;
+	}
+	s32 manifest_absent = 0;
+	char *manifest = ok ? gridMatchPackageReadMember(nested, nested_size, ASSET_ARCHIVE_META_MANIFEST_PATH,
+		1024u * 1024u, &manifest_size, &manifest_absent) : NULL;
+	loader_walker_mesh_source_plan_t plan;
+	ok = ok && (manifest || manifest_absent)
+		&& loaderWalkerMeshSourcePlanManifest(manifest ? manifest : "{}", manifest ? manifest_size : 2,
+			id, member, geometry ? geometry : "model.obj", -1, &plan, err, err_cap)
+		&& plan.source_filenum <= 0;
+	void *model = ok ? gridMatchPackageReadMember(nested, nested_size, plan.geometry_member,
+		NET_DISTRIB_MAX_SESSION, &member_size, NULL) : NULL;
+	ok = ok && model && member_size;
+	free(model);
+	free(manifest);
+	free(text);
+	free(nested);
+	return ok;
+}
+
+static s32 gridSourceSetInspectBodyHead(const char *name, const void *bytes, u32 size,
+	const char *expected_id, char *err, size_t err_cap)
+{
+	const asset_type_e type = assetArchiveTypeForPath(name);
+	if (!gridSourceIsBodyHead(type) || !bytes || !size || size > NET_DISTRIB_MAX_COMP) return 0;
+	const s32 is_head = type == ASSET_HEAD;
+	u32 length = 0;
+	char *text = gridMatchPackageReadMember(bytes, size, is_head ? "head.ini" : "body.ini",
+		1024u * 1024u, &length, NULL);
+	ini_section_t *ini = malloc(sizeof(*ini));
+	char id[CATALOG_ID_LEN], mesh_id[CATALOG_ID_LEN], hand_id[CATALOG_ID_LEN];
+	body_head_source_t source;
+	s32 ok = text && ini && !memchr(text, '\0', length)
+		&& bodyHeadSourceReadIniBytes(text, length, is_head ? "head" : "body", ini, err, err_cap)
+		&& assetPathCopyChecked(id, sizeof(id), iniGet(ini, "catalog_id", ""))
+		&& gridLeaseCanonicalId(id) && strncmp(id, "base:", 5) != 0
+		&& (!expected_id || strcmp(id, expected_id) == 0)
+		&& strcmp(iniGet(ini, GRID_ARENA_PROVENANCE_KEY, ""), GRID_ARENA_PROVENANCE_ORIGINAL) == 0
+		&& bodyHeadSourceParseIni(ini, id, is_head, &source, err, err_cap)
+		&& source.enabled && !source.bundled && source.rig_class[0] && source.mesh_archive[0]
+		&& gridLeaseParseDescriptor(text, length, type, id, ini);
+	if (ok) {
+		grid_body_head_members_t members = { source.mesh_archive, source.hand_archive, 1 };
+		ok = modArchiveMemForEachEntry(bytes, size, gridBodyHeadInspectMember, &members) == MODARCHIVE_OK
+			&& members.valid && gridBodyHeadInspectMesh(bytes, size, source.mesh_archive,
+				source.mesh_id, id, ini, mesh_id, err, err_cap);
+		if (ok && source.hand_archive[0]) {
+			ok = gridBodyHeadInspectMesh(bytes, size, source.hand_archive, source.hand_id,
+				id, ini, hand_id, err, err_cap)
+				&& (strcmp(mesh_id, hand_id) != 0 || strcmp(source.mesh_archive, source.hand_archive) == 0);
+		}
+	}
+	free(ini);
+	free(text);
+	if (ok || (err && err_cap && err[0])) return ok;
+	return gridLeaseError(err, err_cap, "Grid body/head requires exact private native model sources");
+}
+
+s32 assetCatalogGridBodyHeadSourceShareable(const char *name, const void *bytes, u32 size)
+{
+	return name && gridSourceSetInspectBodyHead(name, bytes, size, NULL, NULL, 0);
+}
+
+/* Verify what the exact lease would publish without opening a scratch path
+ * or consulting local runtime reservations. Both callers use strict inventory. */
+static s32 gridSourceSetInspectInventory(grid_weapon_admission_t *scan, size_t package_index,
+	const void *bytes, u32 size, char *err, size_t err_cap)
+{
+	const grid_match_sources_t *plan = scan->plan;
+	if (!plan || !plan->packages || !plan->entries || package_index >= plan->package_count
+			|| plan->entry_count > MANIFEST_MAX_ENTRIES || !bytes || !size
+			|| size > NET_DISTRIB_MAX_COMP || size != plan->packages[package_index].size) {
+		return gridLeaseError(err, err_cap, "invalid Grid source inventory input");
+	}
+	const grid_match_source_package_t *package = &plan->packages[package_index];
+	const s32 arena = package->owner.type == ASSET_ARENA;
+	s32 owner_count = 0, scenarios = 0;
+	for (size_t i = 0; i < plan->entry_count; ++i) {
+		const grid_match_source_entry_t *entry = &plan->entries[i];
+		if (entry->package_index != package_index) continue;
+		if (!gridLeaseCanonicalId(entry->asset.id)
+				|| !catalogIdSharesNamespace(package->owner.id, entry->asset.id)) {
+			return gridLeaseError(err, err_cap, "a Grid source inventory row belongs to a different namespace");
+		}
+		if (!entry->member_chain[0]) {
+			if (entry->asset.type != package->owner.type || strcmp(entry->asset.id, package->owner.id) != 0) {
+				return gridLeaseError(err, err_cap, "the Grid source inventory root differs from its package owner");
+			}
+			++owner_count;
+		} else if (arena) {
+			if (entry->asset.type != ASSET_SCENARIO || assetArchiveTypeForPath(entry->member_chain) != ASSET_SCENARIO
+					|| strstr(entry->member_chain, "::")) {
+				return gridLeaseError(err, err_cap, "an arena may only supply its exact embedded scenario");
+			}
+			++scenarios;
+		} else if (!gridSourceSetChildType(entry->asset.type, package->owner.type, entry->member_chain)) {
+			return gridLeaseError(err, err_cap, "the required archive contains an unsupported Grid typed child");
+		}
+	}
+	if (owner_count != 1 || (arena && scenarios != 1)) {
+		return gridLeaseError(err, err_cap, "the Grid source inventory omits its owner or exact scenario");
+	}
+	u8 seen_members[MANIFEST_MAX_ENTRIES] = {0};
+	scan->package_index = package_index;
+	scan->allow_scenario = arena;
+	scan->seen_members = seen_members;
+	const s32 valid = gridWeaponInspectMembers(scan, bytes, size, "", 0);
+	scan->seen_members = NULL;
+	if (!valid) {
+		return gridLeaseError(err, err_cap, "the archive contains unplanned or invalid Grid typed members");
+	}
+	for (size_t i = 0; i < plan->entry_count; ++i) {
+		const grid_match_source_entry_t *entry = &plan->entries[i];
+		if (entry->package_index == package_index && entry->member_chain[0] && !seen_members[i]) {
+			return gridLeaseError(err, err_cap, "the archive is missing a planned Grid typed member");
+		}
+	}
+	return 1;
+}
+
+s32 assetCatalogGridPackageInventoryEligible(const grid_match_sources_t *plan, size_t package_index,
+	const void *bytes, u32 size, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	ini_section_t *ini = malloc(sizeof(*ini));
+	if (!ini) return gridLeaseError(err, err_cap, "could not allocate a Grid inventory inspection");
+	grid_weapon_admission_t scan = {
+		.plan = plan, .ini = ini, .remaining = NET_DISTRIB_MAX_SESSION, .strict_inventory = 1,
+	};
+	const s32 ok = gridSourceSetInspectInventory(&scan, package_index, bytes, size, err, err_cap);
+	free(ini);
+	return ok;
+}
+
+static s32 gridSourceSetInspectPackage(asset_catalog_grid_source_set_t *set, size_t package_index,
+	const char *arena_id, const char *scenario_id, grid_weapon_admission_t *scan, char *err, size_t err_cap)
+{
+	const grid_match_source_package_t *package = &scan->plan->packages[package_index];
+	const size_t position = gridSourceSetPackageIndex(set, package_index);
+	grid_source_set_package_t *staged = &set->packages[position];
+	const char *path = staged->path;
+	const s32 arena = package->owner.type == ASSET_ARENA;
+	u8 sha[SHA256_DIGEST_SIZE];
+	u32 size = 0;
+	void *bytes = gridMatchPackageLoad(path, &size);
+	if (!bytes || size != package->size) {
+		free(bytes);
+		return gridLeaseError(err, err_cap, "the staged Grid package is absent or has a different size");
+	}
+	sha256Hash(bytes, size, sha);
+	s32 ok = memcmp(sha, package->digest, sizeof(sha)) == 0
+		&& gridSourceSetInspectInventory(scan, package_index, bytes, size, err, err_cap)
+		&& assetArchiveValidateBytes(bytes, size, path, ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) == 0
+		&& gridMatchPackageOrigin(path, bytes, size) == GRID_ARCHIVE_ORIGINAL
+		&& gridSourceSetReadDescriptor(bytes, size, path, package->owner.type, package->owner.id, scan->ini);
+	if (ok && package->owner.type == ASSET_MODEL) {
+		loader_walker_mesh_source_plan_t mesh;
+		ok = gridPlanStandaloneMesh(path, package->owner.id, bytes, size, scan->ini, &mesh, err, err_cap);
+	}
+	if (ok && package->owner.type == ASSET_TEXTURE) {
+		ok = gridSourceSetValidateTexture(bytes, size, package->owner.id, scan->ini, err, err_cap);
+	}
+	if (ok && package->owner.type == ASSET_AUDIO && strcmp(package->suffix, ".pdsong") == 0) {
+		ok = modSequenceValidateGridSource(package->suffix, bytes, size, err, err_cap);
+	}
+	if (ok && package->owner.type == ASSET_VEHICLE) {
+		ok = gridSourceSetInspectVehicle(bytes, size, scan->ini, err, err_cap);
+	}
+	if (ok && gridSourceIsBodyHead(package->owner.type)) {
+		ok = gridSourceSetInspectBodyHead(path, bytes, size, package->owner.id, err, err_cap);
+	}
+	if (ok && arena) {
+		asset_catalog_grid_arena_source_t source;
+		ok = assetCatalogPreflightGridArenaLease(path, arena_id, scenario_id,
+			GRID_ARENA_LEASE_TEMPORARY_FILE, bytes, size, &source, err, err_cap);
+		if (ok) {
+			asset_catalog_arena_lease_t *lease = &set->arena;
+			lease->file_policy = GRID_ARENA_LEASE_TEMPORARY_FILE;
+			assetPathCopyChecked(lease->archive_path, sizeof(lease->archive_path), path);
+			assetPathCopyChecked(lease->arena_id, sizeof(lease->arena_id), arena_id);
+			assetPathCopyChecked(lease->scenario_id, sizeof(lease->scenario_id), scenario_id);
+			assetPathCopyChecked(lease->scenario_member, sizeof(lease->scenario_member), source.scenario_member);
+			lease->stagenum = assetCatalogPreviewGridArenaLeaseStage(scenario_id);
+			ok = lease->stagenum >= 0;
+		}
+	}
+	free(bytes);
+	if (ok || (err && err_cap && err[0])) return ok;
+	return gridLeaseError(err, err_cap, "invalid original Grid source, archive inventory or exact identity");
+}
+
+/* The supported rows defer runtime activation. Reserve source-bearing leaves
+ * first, then graph owners and finally the one playable native stage. */
+static s32 gridSourceSetFamilyOrder(asset_type_e type)
+{
+	switch (type) {
+	case ASSET_MODEL: case ASSET_MATERIAL: case ASSET_AUDIO: case ASSET_UI:
+	case ASSET_TEXTURE: return 0;
+	case ASSET_EFFECT: case ASSET_PROJECTILE: case ASSET_ENTITY: return 1;
+	case ASSET_WEAPON: case ASSET_VEHICLE: case ASSET_BODY: case ASSET_HEAD: return 2;
+	case ASSET_ARENA: return 3;
+	default: return -1;
+	}
+}
+
+typedef struct grid_source_set_admission {
+	const grid_match_sources_t *plan;
+	asset_catalog_grid_source_set_t *set;
+} grid_source_set_admission_t;
+
+static s32 gridSourceSetAcceptEdge(const char *owner, const char *dependency, asset_type_e type,
+	s32 bundled, void *userdata)
+{
+	const grid_source_set_admission_t *admission = userdata;
+	if (bundled || !gridSourceSetOwnsId(owner, admission->set)) return 0;
+	const asset_entry_t *row = assetCatalogResolve(dependency);
+	if (!row || !row->enabled || row->type != type) return 0;
+	const grid_match_sources_t *plan = admission->plan;
+	size_t first = 0, last = plan->entry_count;
+	while (first < last) {
+		const size_t middle = (first + last) / 2;
+		if (strcmp(plan->entries[middle].asset.id, dependency) < 0) first = middle + 1;
+		else last = middle;
+	}
+	if (first == plan->entry_count) return 0;
+	const grid_match_source_entry_t *entry = &plan->entries[first];
+	return strcmp(entry->asset.id, dependency) == 0 && entry->asset.type == type
+		&& plan->packages[entry->package_index].bundled == !!row->bundled;
+}
+
+static s32 gridSourceSetValidateRows(grid_source_set_admission_t *admission,
+	const external_scan_transaction_t *transaction, char *err, size_t err_cap)
+{
+	asset_catalog_grid_source_set_t *set = admission->set;
+	if ((size_t)assetCatalogGetPoolSize() != (size_t)transaction->row_count + set->row_count) return 0;
+	for (s32 i = 0; i < transaction->row_count; i++) {
+		const asset_entry_t *row = assetCatalogGetByIndex(i);
+		const catalog_entry_snapshot_t *prior = &transaction->rows[i];
+		if (row ? !catalogEntrySnapshotMatches(prior, row) : prior->row.occupied) return 0;
+	}
+	if (set->arena.arena_id[0]) {
+		const asset_entry_t *arena = assetCatalogResolveAny(set->arena.arena_id);
+		const asset_entry_t *scenario = assetCatalogResolveAny(set->arena.scenario_id);
+		if (!arena) return 0;
+		set->arena.stage_index = arena->runtime_index;
+		if (!gridLeaseOwnsRows(&set->arena, arena, scenario)) return 0;
+	}
+	if (!catalogDepValidateAppended(&transaction->deps, gridSourceSetAcceptEdge, admission)) return 0;
+	for (size_t i = 0; i < set->row_count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(set->rows[i].id);
+		if (!gridSourceSetOwnsRow(set, i, row) || row->ref_count || row->stage_ref_count || row->loaded_data
+				|| row->payload_kind != ASSET_PAYLOAD_NONE) return 0;
+		const s32 slot = gridWeaponFindSlot(&set->rows[i]);
+		const s32 sequence = set->bindings[i].sequence;
+		if ((row->type == ASSET_WEAPON && (slot < 0 || row->runtime_index != slot))
+				|| (row->type == ASSET_MODEL && (row->runtime_index != slot
+					|| (set->bindings[i].standalone_model && slot < 0)
+					|| (slot < 0 ? row->source_filenum > 0
+						: row->source_filenum != assetCatalogModelPrivateSourceFilenum(slot))))
+				|| (sequence && (row->type != ASSET_AUDIO || row->ext.audio.category != AUDIO_CAT_MUSIC
+					|| slot >= 0 || row->source_soundnum != -1 || row->ext.audio.sound_id != -1
+					|| row->ext.audio.file_path[0]))
+				|| (row->type == ASSET_AUDIO && !sequence && (slot < 0 || row->ext.audio.category != AUDIO_CAT_SFX
+					|| row->source_soundnum != slot || row->ext.audio.sound_id != slot))
+				|| (row->type == ASSET_TEXTURE && (slot < 0 || row->source_texnum != slot
+					|| row->runtime_index != slot || row->ext.texture.texture_id != -1))
+				|| !catalogCanDeactivateTypedAsset(row->type, row->id)) return 0;
+		if (gridSourceIsBodyHead(row->type)) {
+			const s32 is_head = row->type == ASSET_HEAD;
+			if (slot < 0 || row->runtime_index != slot
+					|| (is_head ? row->ext.head.headnum : row->ext.body.bodynum) != slot
+					|| !loaderPoolRetirePublicBodyHead(is_head, row->id, slot, 0)
+					|| !(is_head ? catalogManagerRetireCustomHead(row->id, slot, 0)
+						: catalogManagerRetireCustomBody(row->id, slot, 0))) return 0;
+		}
+		if (row->type == ASSET_VEHICLE && !assetRuntimeVehiclePlacementSourceValid(row, err, err_cap)) return 0;
+		set->bindings[i].slot = slot;
+	}
+	return 1;
+}
+
+static s32 gridSourceSetReserveSequences(asset_catalog_grid_source_set_t *set, char *err, size_t err_cap)
+{
+	for (size_t i = 0; i < set->row_count; i++) {
+		grid_source_set_binding_t *binding = &set->bindings[i];
+		if (!binding->sequence) continue;
+		binding->slot = modSequenceReserveGridTrack(set->rows[i].id);
+		if (binding->slot < 0) return gridLeaseError(err, err_cap, "could not reserve the exact Grid sequence track");
+	}
+	return 1;
+}
+
+static s32 gridSourceSetCancelSequences(const asset_catalog_grid_source_set_t *set)
+{
+	s32 ok = 1;
+	for (size_t i = 0; i < set->row_count; i++) {
+		const grid_source_set_binding_t *binding = &set->bindings[i];
+		if (binding->sequence && binding->slot >= 0
+				&& !modSequenceRetireGridTrack(set->rows[i].id, binding->slot)) ok = 0;
+	}
+	return ok;
+}
+
+s32 assetCatalogAdmitGridSourceSet(const grid_match_sources_t *plan, size_t count,
+	const u16 *indices, const char *const *paths, const char *arena_id, const char *scenario_id,
+	asset_catalog_grid_source_set_t **out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!plan || !out || *out || !count || count > plan->package_count || !indices || !paths
+			|| !gridLeaseCanonicalId(arena_id)) {
+		return gridLeaseError(err, err_cap, "invalid Grid source set request");
+	}
+	grid_match_sources_t sealed = *plan;
+	if (!gridMatchSourcesSeal(&sealed, err, err_cap) || sealed.total_bytes != plan->total_bytes
+			|| memcmp(sealed.digest, plan->digest, sizeof(sealed.digest)) != 0) {
+		return gridLeaseError(err, err_cap, "Grid source set needs an exact sealed plan");
+	}
+
+	asset_catalog_grid_source_set_t *set = calloc(1, sizeof(*set));
+	if (!set) return gridLeaseError(err, err_cap, "could not allocate the Grid source set");
+	set->package_count = count;
+	set->arena.stagenum = -1;
+	set->packages = calloc(count, sizeof(*set->packages));
+	set->rows = calloc(plan->entry_count, sizeof(*set->rows));
+	set->bindings = calloc(plan->entry_count, sizeof(*set->bindings));
+	ini_section_t *ini = malloc(sizeof(*ini));
+	s32 ok = set->packages && set->rows && set->bindings && ini;
+	for (size_t i = 0; ok && i < count; i++) {
+		if (indices[i] >= plan->package_count || (i && indices[i - 1] >= indices[i]) || !paths[i]) {
+			ok = 0;
+			break;
+		}
+		const grid_match_source_package_t *package = &plan->packages[indices[i]];
+		char folder[FS_MAXPATH + 1], expected[FS_MAXPATH + 1];
+		ok = !package->bundled && gridLeaseCanonicalId(package->owner.id)
+			&& gridSourceSetFamilyOrder(package->owner.type) >= 0
+			&& gridMatchPackageTypeShareable(package->owner.type, package->suffix)
+			&& (package->owner.type != ASSET_ARENA
+				|| (strcmp(package->owner.id, arena_id) == 0 && gridLeaseCanonicalId(scenario_id)))
+			&& gridMatchPackagePrivatePath(package->digest, package->suffix, folder, expected)
+			&& strcmp(expected, paths[i]) == 0
+			&& assetPathCopyChecked(set->packages[i].path, sizeof(set->packages[i].path), expected);
+		set->packages[i].index = indices[i];
+	}
+	ok = ok && gridSourceSetRecordRows(set, plan, arena_id, scenario_id);
+	grid_weapon_admission_t scan = {
+		.plan = plan, .ini = ini, .remaining = NET_DISTRIB_MAX_SESSION, .strict_inventory = 1,
+	};
+	for (size_t i = 0; ok && i < count; i++) {
+		ok = gridSourceSetInspectPackage(set, indices[i], arena_id, scenario_id, &scan, err, err_cap);
+	}
+	free(ini);
+	if (!ok) {
+		gridSourceSetFree(set);
+		if (err && err_cap && err[0]) return 0;
+		return gridLeaseError(err, err_cap, "invalid, unsupported or locally occupied Grid source set");
+	}
+
+	loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+	external_scan_transaction_t transaction;
+	if (!batch || !externalScanTransactionBegin(&transaction)) {
+		loaderAnimationSourceBatchDestroy(batch);
+		gridSourceSetFree(set);
+		return gridLeaseError(err, err_cap, "could not prepare the Grid source set catalog transaction");
+	}
+	for (s32 pass = 0; ok && pass < 4; pass++) {
+		for (size_t i = 0; ok && i < count; i++) {
+			const grid_match_source_package_t *package = &plan->packages[indices[i]];
+			if (gridSourceSetFamilyOrder(package->owner.type) != pass) continue;
+			if (gridSourceIsBodyHead(package->owner.type)) {
+				ok = assetCatalogRegisterBodyHeadArchive(set->packages[i].path, package->owner.id,
+					package->owner.type == ASSET_HEAD, -1, 0, err, err_cap);
+				continue;
+			}
+			char namespace_id[CATALOG_ID_LEN];
+			const size_t length = (size_t)(strchr(package->owner.id, ':') - package->owner.id);
+			memcpy(namespace_id, package->owner.id, length);
+			namespace_id[length] = '\0';
+			ok = registerTypedPdDescriptorFile(set->packages[i].path, package->owner.type,
+				namespace_id, 1, batch) == 1;
+		}
+	}
+	grid_source_set_admission_t admission = { .plan = plan, .set = set };
+	ok = ok && gridSourceSetValidateRows(&admission, &transaction, err, err_cap);
+	for (size_t i = 0; ok && i < count; ++i) {
+		const grid_match_source_package_t *package = &plan->packages[indices[i]];
+		u8 digest[SHA256_DIGEST_SIZE];
+		ok = modArchiveSha256(set->packages[i].path, digest) == MODARCHIVE_OK
+			&& memcmp(digest, package->digest, sizeof(digest)) == 0;
+	}
+	ok = ok && gridSourceSetReserveSequences(set, err, err_cap)
+		&& loaderAnimationSourceBatchCommit(batch);
+	loaderAnimationSourceBatchDestroy(batch);
+	if (!ok) {
+		s32 restored = gridSourceSetCancelSequences(set);
+		if (!externalScanTransactionRollback(&transaction)) restored = 0;
+		externalScanTransactionDestroy(&transaction);
+		assetCatalogTrimUnoccupiedTail();
+		gridSourceSetFree(set);
+		if (restored && err && err_cap && err[0]) return 0;
+		return gridLeaseError(err, err_cap, restored ? "the typed scanner refused the exact Grid source set"
+			: "the Grid source set catalog rollback failed");
+	}
+	/* Installed rows can declare one of these previously absent sources.
+	 * Preserve the preexisting dormant edges and refuse new external owners. */
+	set->prior_deps = transaction.deps;
+	memset(&transaction.deps, 0, sizeof(transaction.deps));
+	s32 textures_changed = 0;
+	for (size_t i = 0; i < set->row_count; i++) {
+		asset_entry_t *row = assetCatalogGetMutable(set->rows[i].id);
+		row->temporary = 1;
+		row->grid_offer_only = 1;
+		if (row->type == ASSET_TEXTURE) {
+			textureSourceRuntimeInvalidateSlot(set->bindings[i].slot);
+			textures_changed = 1;
+		}
+	}
+	externalScanTransactionDestroy(&transaction);
+	catalogRefreshSoundOverrides();
+	if (textures_changed) catalogRefreshTextureOverrides();
+	*out = set;
+	return 1;
+}
+
+s32 assetCatalogGridSourceSetStage(const asset_catalog_grid_source_set_t *set)
+{
+	return set ? set->arena.stagenum : -1;
+}
+
+const char *assetCatalogGridSourceSetPath(const asset_catalog_grid_source_set_t *set, size_t package_index)
+{
+	if (!set) return NULL;
+	const size_t index = gridSourceSetPackageIndex(set, package_index);
+	return index < set->package_count ? set->packages[index].path : NULL;
+}
+
+s32 assetCatalogReleaseGridSourceSetStageRefs(const asset_catalog_grid_source_set_t *set, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!set) return 1;
+	for (size_t i = 0; i < set->row_count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(set->rows[i].id);
+		if (!gridSourceSetOwnsRow(set, i, row) || !row->temporary || !row->grid_offer_only
+				|| (row->stage_ref_count && (row->stage_ref_count != 1 || row->ref_count <= 0
+					|| row->ref_count == ASSET_REF_BUNDLED || !catalogCanDeactivateTypedAsset(row->type, row->id)))) {
+			return gridLeaseError(err, err_cap, "the Grid source set changed before stage release");
+		}
+	}
+	for (size_t i = 0; i < set->row_count; ++i) {
+		const asset_entry_t *row = assetCatalogResolveAny(set->rows[i].id);
+		if (row->stage_ref_count) catalogReleaseStageAsset(row->type, row->id);
+	}
+	return 1;
+}
+
+static s32 gridSourceSetAllowsNewRetirementEdge(const char *owner, const char *dependency,
+	asset_type_e type, s32 bundled, void *userdata)
+{
+	(void)type;
+	(void)bundled;
+	return !gridSourceSetOwnsId(dependency, userdata) || gridSourceSetOwnsId(owner, userdata);
+}
+
+static s32 gridSourceSetRetireBodyHead(const grid_match_source_root_t *row, s32 slot, s32 commit)
+{
+	const s32 is_head = row->type == ASSET_HEAD;
+	if (slot < 0 || gridWeaponFindSlot(row) != slot
+			|| (!commit && catalogModelGenerationHasLiveIdentity(row->id))) return 0;
+	if (!(is_head ? catalogManagerRetireCustomHead(row->id, slot, 0)
+			: catalogManagerRetireCustomBody(row->id, slot, 0))) return 0;
+	if (!loaderPoolRetirePublicBodyHead(is_head, row->id, slot, commit)) return 0;
+	if (!commit) return 1;
+	const s32 cleared = is_head ? catalogManagerRetireCustomHead(row->id, slot, 1)
+		: catalogManagerRetireCustomBody(row->id, slot, 1);
+	return cleared && assetCatalogRetireBodyHeadReservation(is_head, row->id, slot);
+}
+
+static s32 gridSourceSetRetireBinding(const asset_catalog_grid_source_set_t *set, size_t i, s32 commit)
+{
+	const grid_source_set_binding_t *binding = &set->bindings[i];
+	const grid_match_source_root_t *row = &set->rows[i];
+	if (gridSourceIsBodyHead(row->type)) return gridSourceSetRetireBodyHead(row, binding->slot, commit);
+	if (!commit && binding->body_head_model && catalogModelGenerationHasLiveIdentity(row->id)) return 0;
+	if (binding->sequence) {
+		return commit ? modSequenceRetireGridTrack(row->id, binding->slot)
+			: modSequenceCanRetireGridTrack(row->id, binding->slot);
+	}
+	return (commit || gridWeaponFindSlot(row) == binding->slot)
+		&& gridWeaponRetireSlot(row, binding->slot, commit);
+}
+
+s32 assetCatalogRetireGridSourceSet(asset_catalog_grid_source_set_t **owned, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!owned) return gridLeaseError(err, err_cap, "invalid Grid source set retirement request");
+	asset_catalog_grid_source_set_t *set = *owned;
+	if (!set) return 1;
+	if (!catalogDepCanRetireOwnerSet(gridSourceSetOwnsId, set)
+			&& !catalogDepValidateAppended(&set->prior_deps, gridSourceSetAllowsNewRetirementEdge, set)) {
+		return gridLeaseError(err, err_cap, "another catalog source now depends on the temporary Grid source set");
+	}
+	if (set->arena.arena_id[0] && !gridLeaseOwnsRows(&set->arena, assetCatalogResolveAny(set->arena.arena_id),
+			assetCatalogResolveAny(set->arena.scenario_id))) {
+		return gridLeaseError(err, err_cap, "the temporary Grid source set no longer owns its native stage");
+	}
+	for (size_t i = 0; i < set->row_count; i++) {
+		const asset_entry_t *row = assetCatalogResolveAny(set->rows[i].id);
+		if (!gridSourceSetOwnsRow(set, i, row) || !row->temporary || !row->grid_offer_only
+				|| row->ref_count || row->stage_ref_count || row->loaded_data || row->payload_kind != ASSET_PAYLOAD_NONE
+				|| !gridSourceSetRetireBinding(set, i, 0)) {
+			return gridLeaseError(err, err_cap, "the Grid source set changed or still has active references");
+		}
+	}
+	for (size_t i = 0; i < set->row_count; i++) {
+		if (!catalogDeactivateTypedAsset(set->rows[i].type, set->rows[i].id)) {
+			return gridLeaseError(err, err_cap, "the Grid source set native adapters could not be detached");
+		}
+	}
+	if (!assetCatalogRetireUnactivatedGridWeaponRows(set->rows, set->row_count)) {
+		return gridLeaseError(err, err_cap, "the Grid source set catalog rows could not be retired");
+	}
+	/* Main-thread preflight above owns the exact native reservations. */
+	s32 textures_changed = 0;
+	for (size_t i = 0; i < set->row_count; i++) {
+		(void)gridSourceSetRetireBinding(set, i, 1);
+		catalogDepPruneOwner(set->rows[i].id, gridLeaseDropDependency, NULL);
+		if (set->rows[i].type == ASSET_TEXTURE) textures_changed = 1;
+	}
+	if (set->arena.arena_id[0]) {
+		stageTableRetireCustom(set->arena.stage_index, set->arena.stagenum);
+		assetCatalogReleaseStagenumPrivateSlot(set->arena.scenario_id, set->arena.stagenum);
+	}
+	catalogRefreshSoundOverrides();
+	if (textures_changed) catalogRefreshTextureOverrides();
+	/* A live stage can intern new provider paths. Only the synchronous
+	 * transaction rollback may rewind this shared append-only pool. */
+	gridSourceSetFree(set);
+	*owned = NULL;
+	return 1;
 }
 
 static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,

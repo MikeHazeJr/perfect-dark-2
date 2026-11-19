@@ -123,6 +123,38 @@ void catalogDepSnapshotDestroy(catalog_dep_snapshot_t *snapshot)
     memset(snapshot, 0, sizeof(*snapshot));
 }
 
+s32 catalogDepValidateAppended(const catalog_dep_snapshot_t *before,
+	CatalogDepAppendFn allow, void *userdata)
+{
+	if (!before || !allow || before->count < 0 || before->count > s_NumDepPairs
+			|| (before->count && !before->pairs)) return 0;
+	const s_DepPair *prior = before->pairs;
+	for (s32 i = 0; i < before->count; i++) {
+		const s_DepPair *current = &s_DepTable[i];
+		if (prior[i].owner_hash != current->owner_hash
+				|| strcmp(prior[i].owner_id, current->owner_id) != 0
+				|| strcmp(prior[i].dep_id, current->dep_id) != 0
+				|| prior[i].expected_type != current->expected_type
+				|| prior[i].is_bundled != current->is_bundled) return 0;
+	}
+	for (s32 i = before->count; i < s_NumDepPairs; i++) {
+		const s_DepPair *edge = &s_DepTable[i];
+		if (!allow(edge->owner_id, edge->dep_id, edge->expected_type, edge->is_bundled,
+				userdata)) return 0;
+	}
+	return 1;
+}
+
+s32 catalogDepCanRetireOwnerSet(CatalogDepOwnsIdFn owns, void *userdata)
+{
+	if (!owns) return 0;
+	for (s32 i = 0; i < s_NumDepPairs; i++) {
+		const s_DepPair *edge = &s_DepTable[i];
+		if (owns(edge->dep_id, userdata) && !owns(edge->owner_id, userdata)) return 0;
+	}
+	return 1;
+}
+
 s32 catalogDepRegisterTyped(const char *owner_id, const char *dep_id,
 	asset_type_e expected_type, s32 is_bundled)
 {

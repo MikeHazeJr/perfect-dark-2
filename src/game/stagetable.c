@@ -111,6 +111,8 @@ static const struct stagetableentry s_StagesInit[] = {
 struct stagetableentry *g_Stages = NULL;
 s32 g_NumStages = 0;
 
+enum { STAGE_TABLE_UNUSED = -1 };
+
 typedef struct stage_table_snapshot {
 	struct stagetableentry *rows;
 	s32 count;
@@ -133,7 +135,7 @@ void stageTableInit(void)
 /* Phase 2: Bounds-checked accessor. Returns NULL for out-of-range index. */
 struct stagetableentry *stageGetEntry(s32 index)
 {
-	if (index < 0 || index >= g_NumStages || !g_Stages) {
+	if (index < 0 || index >= g_NumStages || !g_Stages || g_Stages[index].id == STAGE_TABLE_UNUSED) {
 		return NULL;
 	}
 	return &g_Stages[index];
@@ -142,6 +144,13 @@ struct stagetableentry *stageGetEntry(s32 index)
 /* Phase 2: Append a mod stage entry. Returns the new stage table index or -1 on failure. */
 s32 stageTableAppend(const struct stagetableentry *entry)
 {
+	const s32 base_count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	for (s32 i = base_count; i < g_NumStages; i++) {
+		if (g_Stages[i].id == STAGE_TABLE_UNUSED) {
+			g_Stages[i] = *entry;
+			return i;
+		}
+	}
 	struct stagetableentry *newbuf = (struct stagetableentry *)realloc(
 		g_Stages, (g_NumStages + 1) * sizeof(struct stagetableentry));
 	if (!newbuf) {
@@ -151,6 +160,27 @@ s32 stageTableAppend(const struct stagetableentry *entry)
 	g_Stages = newbuf;
 	g_Stages[g_NumStages] = *entry;
 	return g_NumStages++;
+}
+
+s32 stageTableOwnsCustom(s32 index, s32 stagenum)
+{
+	const s32 base_count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	const struct stagetableentry *entry = stageGetEntry(index);
+	return entry && index >= base_count && stagenum >= STAGENUM_CUSTOM_START
+		&& stagenum < STAGENUM_CUSTOM_END && entry->id == stagenum;
+}
+
+s32 stageTableRetireCustom(s32 index, s32 stagenum)
+{
+	if (!stageTableOwnsCustom(index, stagenum)) return 0;
+	const s32 base_count = (s32)(sizeof(s_StagesInit) / sizeof(s_StagesInit[0]));
+	struct stagetableentry *entry = &g_Stages[index];
+	memset(entry, 0, sizeof(*entry));
+	entry->id = STAGE_TABLE_UNUSED;
+	while (g_NumStages > base_count && g_Stages[g_NumStages - 1].id == STAGE_TABLE_UNUSED) {
+		g_NumStages--;
+	}
+	return 1;
 }
 
 void *stageTableSnapshotCreate(void)
@@ -221,7 +251,7 @@ struct stagetableentry *stageGetCurrent(void)
 	s32 i;
 
 	for (i = 0; i < g_NumStages; i++) {
-		if (g_Stages[i].id == stagenum) {
+		if (g_Stages[i].id != STAGE_TABLE_UNUSED && g_Stages[i].id == stagenum) {
 			return &g_Stages[i];
 		}
 	}
@@ -234,7 +264,7 @@ s32 stageGetIndex(s32 stagenum)
 	s32 i;
 
 	for (i = 0; i < g_NumStages; i++) {
-		if (g_Stages[i].id == stagenum) {
+		if (g_Stages[i].id != STAGE_TABLE_UNUSED && g_Stages[i].id == stagenum) {
 			return i;
 		}
 	}

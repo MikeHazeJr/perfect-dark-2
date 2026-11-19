@@ -20,6 +20,7 @@ extern "C" {
 #include <cstring>
 #include <cfloat>
 #include <cmath>
+#include <memory>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -609,14 +610,16 @@ static void parseMaterials(const crude_json::value &root,
 
 static bool parseImages(const crude_json::value &root,
 	const std::vector<BufferView> &views, const uint8_t *bin,
-	uint32_t bin_size, std::vector<Image> &images)
+	uint32_t bin_size, std::vector<Image> &images, size_t decoded_budget = 0)
 {
+	const bool bounded = decoded_budget != 0;
 	const crude_json::array *arr = arrayMember(root, "images");
 	if (!arr) {
 		return true;
 	}
 	for (const auto &v : *arr) {
-		Image img;
+		images.emplace_back();
+		Image &img = images.back();
 		img.name = stringMember(v, "name");
 		int view_index = intMember(v, "bufferView", -1);
 		if (view_index >= 0 && (size_t)view_index < views.size()) {
@@ -630,6 +633,14 @@ static bool parseImages(const crude_json::value &root,
 						images.size(), img.name.c_str(), img.size);
 				}
 				int comp = 0;
+				if (bounded) {
+					int width = 0, height = 0;
+					if (img.size > INT32_MAX
+							|| !stbi_info_from_memory(img.bytes, (int)img.size, &width, &height, &comp)
+							|| width <= 0 || height <= 0
+							|| (uint64_t)width * (uint64_t)height > decoded_budget / 4) return false;
+					decoded_budget -= (size_t)width * (size_t)height * 4;
+				}
 				img.rgba = stbi_load_from_memory(img.bytes,
 					(int)img.size, &img.width, &img.height, &comp, 4);
 				if (probeLoggingEnabled()) {
@@ -642,7 +653,7 @@ static bool parseImages(const crude_json::value &root,
 					imageHasNonOpaqueAlpha(img.rgba, img.width, img.height);
 			}
 		}
-		images.push_back(img);
+		if (bounded && !img.rgba) return false;
 	}
 	return true;
 }
@@ -702,7 +713,8 @@ static void markMaterialAlpha(Scene &scene)
 static bool appendPrimitive(const crude_json::value &prim,
 	const std::vector<Accessor> &accessors,
 	const std::vector<BufferView> &views, const uint8_t *bin,
-	uint32_t bin_size, const modasset_gltf_scene_instance_t &instance, Scene &scene)
+	uint32_t bin_size, const modasset_gltf_scene_instance_t &instance, Scene &scene,
+	size_t vertex_limit)
 {
 	const crude_json::object *attrs = objectMember(prim, "attributes");
 	if (!attrs) {
@@ -759,6 +771,9 @@ static bool appendPrimitive(const crude_json::value &prim,
 	int material = intMember(prim, "material", -1);
 	int indices_i = intMember(prim, "indices", -1);
 	uint32_t first = (uint32_t)scene.vertices.size();
+	if (indices_i >= 0 && (size_t)indices_i >= accessors.size()) return false;
+	const auto vertex_count = indices_i >= 0 ? accessors[(size_t)indices_i].count : pos.count;
+	if (vertex_limit && (first > vertex_limit || vertex_count > vertex_limit - first)) return false;
 
 	/* Animated surfaces: an animated material's primitive carries
 	 * _PD_DYNTEX (VEC4: N64 s, t and the texture scales). A primitive
@@ -800,9 +815,6 @@ static bool appendPrimitive(const crude_json::value &prim,
 	};
 
 	if (indices_i >= 0) {
-		if ((size_t)indices_i >= accessors.size()) {
-			return false;
-		}
 		const Accessor &indices = accessors[(size_t)indices_i];
 		if ((indices.count % 3u) != 0u) {
 			return false;
@@ -938,15 +950,18 @@ static uint8_t *decodeSceneBuffer(const char *uri, uint32_t declared)
 	return out;
 }
 
-static bool buildCpuScene(const char *scenario_id, const char *path,
-	Scene &out)
+enum class SceneBuild { Runtime, GeometryProbe, GridGeometry };
+
+static bool buildCpuSceneBytes(const char *scenario_id, const char *path,
+	const uint8_t *bytes, u32 size, Scene &out, SceneBuild build)
 {
-	u32 size = 0;
-	uint8_t *bytes = (uint8_t *)fsFileLoad(path, &size);
-	if (!bytes || !size) {
-		if (bytes) std::free(bytes);
-		return false;
-	}
+	if (!bytes || !size) return false;
+	const bool geometry_probe = build == SceneBuild::GeometryProbe;
+	const bool detached = build != SceneBuild::Runtime;
+	/* A small mesh can be instanced many times. Bound the expanded
+	 * vertex and image storage independently of the archive size. */
+	constexpr size_t geometry_bytes = 64u * 1024u * 1024u;
+	const size_t vertex_limit = detached ? geometry_bytes / (sizeof(Vertex) + sizeof(DyntexVertex)) : 0;
 	if (probeLoggingEnabled()) {
 		sysLogPrintf(LOG_NOTE,
 			"SCENARIO.RENDER.CPU_PROBE: loaded source scenario='%s' source=%s bytes=%u",
@@ -958,8 +973,10 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 	uint32_t json_size = 0;
 	const uint8_t *bin = nullptr;
 	uint32_t bin_size = 0;
-	uint8_t *owned_bin = nullptr;
+	std::unique_ptr<uint8_t, decltype(&std::free)> owned_bin(nullptr, std::free);
 	modasset_gltf_scene_plan_t plan {};
+	const std::unique_ptr<modasset_gltf_scene_plan_t, decltype(&modAssetGltfScenePlanFree)>
+		plan_cleanup(&plan, modAssetGltfScenePlanFree);
 	char plan_error[128] = {};
 
 	if (size >= 4 && std::memcmp(bytes, "glTF", 4) == 0) {
@@ -974,7 +991,7 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 		json_size = chunks.json_size;
 		bin = chunks.bin;
 		bin_size = declared;
-	} else {
+	} else if (!detached) {
 		std::vector<char> uri(static_cast<size_t>(size) + 1);
 		uint32_t declared;
 		if (!modAssetGltfBufferDocument(reinterpret_cast<const char *>(bytes), size,
@@ -982,15 +999,17 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 		json_bytes = bytes;
 		json_size = size;
 		if (std::strncmp(uri.data(), "data:", 5) == 0) {
-			owned_bin = decodeSceneBuffer(uri.data(), declared);
+			owned_bin.reset(decodeSceneBuffer(uri.data(), declared));
 			bin_size = declared;
 		} else {
 			char buffer_path[FS_MAXPATH + 1];
 			if (!modAssetGltfBufferPath(path, uri.data(), buffer_path, sizeof(buffer_path))) goto done;
-			owned_bin = static_cast<uint8_t *>(fsFileLoad(buffer_path, &bin_size));
+			owned_bin.reset(static_cast<uint8_t *>(fsFileLoad(buffer_path, &bin_size)));
 		}
 		if (!owned_bin || !modAssetGltfBufferSize(declared, bin_size, 0)) goto done;
-		bin = owned_bin;
+		bin = owned_bin.get();
+	} else {
+		goto done;
 	}
 
 	{
@@ -1008,6 +1027,15 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 				!parseViews(root, views)
 				|| !parseAccessors(root, accessors)) {
 			goto done;
+		}
+		if (detached) {
+			if (const auto *images = arrayMember(root, "images")) {
+				for (const auto &image : *images) {
+					const auto *uri = member(image, "uri");
+					if (uri && (!geometry_probe || !uri->is_string()
+							|| uri->get<crude_json::string>().rfind("data:", 0) != 0)) goto done;
+				}
+			}
 		}
 		if (probeLoggingEnabled()) {
 			sysLogPrintf(LOG_NOTE,
@@ -1029,7 +1057,8 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 				"SCENARIO.RENDER.CPU_PROBE: end materials count=%zu begin images",
 				out.materials.size());
 		}
-		parseImages(root, views, bin, bin_size, out.images);
+		if (!geometry_probe && !parseImages(root, views, bin, bin_size, out.images,
+				detached ? geometry_bytes : 0)) goto done;
 		if (probeLoggingEnabled()) {
 			sysLogPrintf(LOG_NOTE,
 				"SCENARIO.RENDER.CPU_PROBE: end images count=%zu begin material alpha",
@@ -1059,7 +1088,7 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 					goto done;
 				}
 				if (!appendPrimitive(prim, accessors, views, bin,
-						bin_size, instance, out)) {
+						bin_size, instance, out, vertex_limit)) {
 					goto done;
 				}
 			}
@@ -1074,9 +1103,6 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 	}
 
 done:
-	modAssetGltfScenePlanFree(&plan);
-	std::free(owned_bin);
-	std::free(bytes);
 	if (!ok) {
 		if (plan_error[0]) sysLogPrintf(LOG_WARNING,
 			"SCENARIO.RENDER: source scene invalid source=%s reason=%s", path, plan_error);
@@ -1089,6 +1115,14 @@ done:
 		out = Scene();
 	}
 	return ok;
+}
+
+static bool buildCpuScene(const char *scenario_id, const char *path, Scene &out)
+{
+	u32 size = 0;
+	const std::unique_ptr<void, decltype(&std::free)> bytes(fsFileLoad(path, &size), std::free);
+	return buildCpuSceneBytes(scenario_id, path, static_cast<const uint8_t *>(bytes.get()), size, out,
+		SceneBuild::Runtime);
 }
 
 /* dyntexTickRoom's first-use shift, per group: the vertices of one preset
@@ -1492,6 +1526,9 @@ static void freeScene(Scene &scene)
 	if (scene.white_tex) {
 		glDeleteTextures(1, &scene.white_tex);
 	}
+	if (scene.room_light_tex) {
+		glDeleteTextures(1, &scene.room_light_tex);
+	}
 	for (auto &img : scene.images) {
 		if (img.gl) {
 			glDeleteTextures(1, &img.gl);
@@ -1501,6 +1538,22 @@ static void freeScene(Scene &scene)
 		}
 	}
 	scene = Scene();
+}
+
+static bool uploadGridScene(Scene &scene)
+{
+	if (!glGetString || !glGetString(GL_VERSION) || glGetError() != GL_NO_ERROR) return false;
+	GLint vao = 0, buffer = 0, texture = 0;
+	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
+	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &buffer);
+	glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+	ensureGpu(scene);
+	const GLenum result = glGetError();
+	glBindVertexArray((GLuint)vao);
+	glBindBuffer(GL_ARRAY_BUFFER, (GLuint)buffer);
+	glBindTexture(GL_TEXTURE_2D, (GLuint)texture);
+	return result == GL_NO_ERROR && scene.gpu_ready && scene.vao && scene.vbo && scene.white_tex
+		&& std::all_of(scene.images.begin(), scene.images.end(), [](const Image &image) { return image.gl != 0; });
 }
 
 static void logTransformProbe(Scene &scene)
@@ -1581,6 +1634,11 @@ static void logTransformProbe(Scene &scene)
 
 } // namespace
 
+struct scenario_scene_prepared {
+	Scene scene;
+	~scenario_scene_prepared() { freeScene(scene); }
+};
+
 extern "C" int scenarioSceneRendererProbeSource(const char *scenario_id,
 	const char *scene_path, scenario_scene_renderer_probe_t *out_probe)
 {
@@ -1602,6 +1660,84 @@ extern "C" int scenarioSceneRendererProbeSource(const char *scenario_id,
 	fillProbeResult(probe, out_probe);
 	freeScene(probe);
 	return 1;
+}
+
+extern "C" int scenarioSceneRendererProbeGlbBytes(const char *scenario_id, const char *scene_path,
+	const void *bytes, u32 size, scenario_scene_renderer_probe_t *out_probe)
+{
+	if (!scene_path || !scene_path[0] || !out_probe) return 0;
+	try {
+		Scene probe;
+		if (!buildCpuSceneBytes(scenario_id, scene_path,
+				static_cast<const uint8_t *>(bytes), size, probe, SceneBuild::GeometryProbe)) return 0;
+		scenario_scene_renderer_probe_t summary {};
+		fillProbeResult(probe, &summary);
+		*out_probe = summary;
+		return 1;
+	} catch (...) {
+		return 0;
+	}
+}
+
+extern "C" int scenarioSceneRendererPrepareGridGeometry(const char *scenario_id, const char *scene_path,
+	const void *bytes, u32 size, scenario_scene_prepared_t **out)
+{
+	if (!out || *out || !scene_path || !scene_path[0] || !g_scene.active || !g_scene.gpu_ready) return 0;
+	try {
+		auto prepared = std::make_unique<scenario_scene_prepared_t>();
+		Scene &next = prepared->scene;
+		if (!buildCpuSceneBytes(scenario_id, scene_path, static_cast<const uint8_t *>(bytes),
+				size, next, SceneBuild::GridGeometry)) return 0;
+		for (const Material &material : next.materials) {
+			if ((material.image >= 0 && (size_t)material.image >= next.images.size())
+					|| (material.secondary_image >= 0 && (size_t)material.secondary_image >= next.images.size())) return 0;
+		}
+		if (g_scene.sky_vertex_count) {
+			std::vector<int32_t> sky_rooms;
+			for (const Vertex &vertex : g_scene.vertices) {
+				if (vertex.sky != 0.0f) sky_rooms.push_back(vertex.room);
+			}
+			std::sort(sky_rooms.begin(), sky_rooms.end());
+			sky_rooms.erase(std::unique(sky_rooms.begin(), sky_rooms.end()), sky_rooms.end());
+			for (Vertex &vertex : next.vertices) {
+				vertex.sky = std::binary_search(sky_rooms.begin(), sky_rooms.end(), vertex.room) ? 1.0f : 0.0f;
+				if (vertex.sky != 0.0f) ++next.sky_vertex_count;
+			}
+		}
+		prepareDyntex(next);
+		if (!uploadGridScene(next)) return 0;
+		next.active = true;
+		*out = prepared.release();
+		return 1;
+	} catch (...) {
+		return 0;
+	}
+}
+
+extern "C" void scenarioSceneRendererSwapGridGeometry(scenario_scene_prepared_t *prepared)
+{
+	if (!prepared) return;
+	Scene &next = prepared->scene;
+	/* Room identities and stage rules are stable across a layout revision.
+	 * Keep their current light, fog, and animated surface state. */
+	std::swap(g_scene.room_lights, next.room_lights);
+	std::swap(g_scene.slot_room_lights, next.slot_room_lights);
+	std::swap(g_scene.room_light_tex, next.room_light_tex);
+	std::swap(g_scene.room_light_tex_width, next.room_light_tex_width);
+	std::swap(g_scene.fog_enabled, next.fog_enabled);
+	std::swap(g_scene.fog_mul, next.fog_mul);
+	std::swap(g_scene.fog_offset, next.fog_offset);
+	std::swap(g_scene.fog_color, next.fog_color);
+	std::swap(g_scene.dyntex_frame, next.dyntex_frame);
+	next.dyntex_frame_dirty = !next.dyntex_vertices.empty();
+	std::swap(g_scene, next);
+	sysLogPrintf(LOG_NOTE, "SCENARIO.RENDER: committed prepared Grid scene '%s' vertices=%zu",
+		g_scene.scenario_id.c_str(), g_scene.vertices.size());
+}
+
+extern "C" void scenarioSceneRendererReleaseGridGeometry(scenario_scene_prepared_t *prepared)
+{
+	delete prepared;
 }
 
 extern "C" int scenarioSceneRendererActivate(const char *scenario_id,

@@ -430,7 +430,7 @@ TEST_CASE("Level graph program: the object modules and the native gates are wire
 			"{ \"og.door.close\", s_runDoorClose },", "{ \"og.door.lock\", s_runDoorLock },",
 			"{ \"og.door.unlock\", s_runDoorUnlock },", "{ \"og.pickup.give\", s_runPickupGive },",
 			"{ \"gate.object.kind\", s_gateObjectKind },",
-			"{ \"gate.player.has_item\", s_gatePlayerHasItem }," }) {
+			"{ \"gate.player.has_item\", s_gatePlayerHasItem, kHasItemParam, ASSET_WEAPON }," }) {
 		INFO(row);
 		REQUIRE(modules.find(row) != std::string::npos);
 	}
@@ -663,4 +663,22 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 	REQUIRE(release.find("\"object rule parity: \",") != std::string::npos);
 	REQUIRE(release.find("object rule parity stage_id='base:[^']+' compared=[0-9]+ differ=0\", \"min\": 17, \"max\": 17")
 		!= std::string::npos);
+}
+
+TEST_CASE("Grid layout changes retain the same executable level graph", "[grid-layout-apply]")
+{
+	const auto graph = [](const std::string &scenario, const std::string &object) {
+		return R"({"scenario":")" + scenario + R"(","nodes":[{"id":"scenario.global.settings",)"
+			R"("kind":"scenario.global.settings.source","scenario":")" + scenario
+			+ R"("},{"id":"pickup","kind":"og.pickup.give","object":")" + object + R"("}],"edges":[]})";
+	};
+	const auto old_graph = graph("mod:scenario_old", "setup_0000");
+	const auto new_graph = graph("mod:scenario_extended", "setup_0000");
+	const auto new_action = graph("mod:scenario_extended", "setup_0001");
+	CHECK(missionGraphLevelLayoutCompatible(old_graph.data(), old_graph.size(), "mod:scenario_old",
+		new_graph.data(), new_graph.size(), "mod:scenario_extended"));
+	CHECK_FALSE(missionGraphLevelLayoutCompatible(old_graph.data(), old_graph.size(), "mod:scenario_old",
+		new_action.data(), new_action.size(), "mod:scenario_extended"));
+	CHECK_FALSE(missionGraphLevelLayoutCompatible(old_graph.data(), old_graph.size(), "mod:scenario_old",
+		new_graph.data(), new_graph.size(), "mod:another_scenario"));
 }

@@ -13,10 +13,12 @@ typedef struct move_admission_result {
 } move_admission_result;
 typedef struct move_ingress_result {
     uint32_t tick, previousTick, ack, lerp, command, forceTick, playerCommand;
+    uint32_t bytesRead;
     float position, angle, teleportPosition, teleportAngle;
     int unchanged, ackValid, weapon, teleports, ground, room;
     int logs, warnings, forceLogs, reconnectLogs, witnessPending;
     int singleChecks, doubleChecks, playerChanges, inventoryPlayer, currentPlayer;
+    int inventoryWeapon, gridRefChecks;
 } move_ingress_result;
 typedef struct move_consumption_result {
     uint32_t appliedTick, commandBefore, commandAfter;
@@ -40,8 +42,13 @@ void moveIngressDestroy(void *);
 void moveIngressForce(void *, uint32_t tick, uint32_t command);
 void moveIngressInventory(void *, int single, int dual);
 void moveIngressReady(void *, int sender, int target);
+void moveIngressAbsent(void *);
 void moveIngressWitness(void *);
+void moveIngressFiesta(void *, int dead);
+void moveIngressGrid(void *, uint32_t epoch, int peerReady, uint16_t ref, int localWeapon);
 int moveIngressRead(void *, int snapshot, const void *, uint32_t,
+    move_ingress_result *);
+int moveIngressReadGrid(void *, int snapshot, const void *, uint32_t,
     move_ingress_result *);
 #ifdef __cplusplus
 }

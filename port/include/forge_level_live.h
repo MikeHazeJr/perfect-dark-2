@@ -94,6 +94,9 @@ s32 forgeLevelLiveKindShown(const char *kind);
 s32 forgeLevelLivePlan(const forge_level_doc_t *opened, const forge_level_doc_t *now,
 		forge_level_live_plan_t *out, char *err, size_t err_cap);
 
+/* Check an absolute position against the loaded Level File's native room bounds. */
+s32 forgeLevelLivePositionInRoom(const f32 position[3]);
+
 /*
  * The client's half: call once a frame. `editing` is 1 while a Forge session
  * is in the flying camera. While it is, and the open document is of the level

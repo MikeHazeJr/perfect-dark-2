@@ -877,6 +877,67 @@ s32 assetCatalogRollbackUnactivatedRegistration(const char *id)
     return removed;
 }
 
+static void s_trimUnoccupiedTailLocked(void)
+{
+	while (s_EntryPoolSize > 0 && !s_EntryPool[s_EntryPoolSize - 1].occupied) {
+		s_EntryPoolSize--;
+	}
+}
+
+void assetCatalogTrimUnoccupiedTail(void)
+{
+	CATALOG_LOCK();
+	s_trimUnoccupiedTailLocked();
+	CATALOG_UNLOCK();
+}
+
+static const asset_entry_t *s_resolveAnyLocked(const char *id);
+
+static s32 s_isRetirableGridRow(const asset_entry_t *entry, asset_type_e type)
+{
+	return entry && entry->type == type && entry->temporary && entry->grid_offer_only
+		&& !entry->bundled && !entry->loaded_data && entry->payload_kind == ASSET_PAYLOAD_NONE
+		&& entry->ref_count == 0 && entry->stage_ref_count == 0 && entry->load_state <= ASSET_STATE_ENABLED;
+}
+
+s32 assetCatalogRetireUnactivatedArenaPair(const char *arena_id, const char *scenario_id)
+{
+	CATALOG_LOCK();
+	const asset_entry_t *arena = s_resolveAnyLocked(arena_id);
+	const asset_entry_t *scenario = s_resolveAnyLocked(scenario_id);
+	if (!s_isRetirableGridRow(arena, ASSET_ARENA) || !s_isRetirableGridRow(scenario, ASSET_SCENARIO)) {
+		CATALOG_UNLOCK();
+		return 0;
+	}
+	/* Both exact rows were preflighted under the same lock. Unregistering
+	 * either only clears its own slot and rehashes surviving identities. */
+	s_unregisterLocked(scenario_id);
+	s_unregisterLocked(arena_id);
+	s_trimUnoccupiedTailLocked();
+	CATALOG_UNLOCK();
+	return 1;
+}
+
+s32 assetCatalogRetireUnactivatedGridWeaponRows(const grid_match_source_root_t *rows,
+	size_t count)
+{
+	if (!rows || !count) return 0;
+	CATALOG_LOCK();
+	for (size_t i = 0; i < count; i++) {
+		const grid_match_source_root_t *expected = &rows[i];
+		if (!memchr(expected->id, '\0', sizeof(expected->id))
+				|| (i && strcmp(rows[i - 1].id, expected->id) >= 0)
+				|| !s_isRetirableGridRow(s_resolveAnyLocked(expected->id), expected->type)) {
+			CATALOG_UNLOCK();
+			return 0;
+		}
+	}
+	for (size_t i = count; i-- > 0;) s_unregisterLocked(rows[i].id);
+	s_trimUnoccupiedTailLocked();
+	CATALOG_UNLOCK();
+	return 1;
+}
+
 asset_entry_t *assetCatalogRegisterMap(const char *id, s32 stagenum,
                                         const char *dirpath)
 {

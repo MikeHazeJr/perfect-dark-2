@@ -2,6 +2,7 @@
 
 #include "asset_archive_policy.h"
 #include "fs.h"
+#include "grid_archive_policy.h"
 #include "modarchive.h"
 #include "system.h"
 
@@ -193,7 +194,22 @@ static bool parseDescriptor(const char *text,size_t len,pd_effect_source_info_t 
 	schema=get("schema",false);bool v2=schema==PD_EFFECT_SOURCE_SCHEMA_V2;if(!schema.empty()&&!v2&&schema!=PD_EFFECT_SOURCE_SCHEMA_V1){fail(e,"effect descriptor schema is unsupported");return false;}
 	static const char *v2keys[]={"catalog_id","name","schema","profile_kind","target_policy","attachment_policy","priority_policy","scorch_policy","effect_file"};
 	static const char *v1keys[]={"catalog_id","name","schema","effect_key","target_key","effect_file","timeline_file","shader_id","intensity"};const char *const *allowed=v2?v2keys:v1keys;size_t count=v2?9:9;
-	for(const auto &p:fields){size_t i=0;for(;i<count;i++)if(p.first==allowed[i])break;if(i==count){fail(e,"effect descriptor has unknown field '%s'",p.first.c_str());return false;}}
+	for (const auto &p : fields) {
+		if (p.first == GRID_ARENA_PROVENANCE_KEY) {
+			if (p.second != GRID_ARENA_PROVENANCE_ORIGINAL && p.second != GRID_ARENA_PROVENANCE_BYOR
+					&& p.second != GRID_ARENA_PROVENANCE_UNVERIFIED) {
+				fail(e, "effect descriptor has invalid '%s'", GRID_ARENA_PROVENANCE_KEY);
+				return false;
+			}
+			continue;
+		}
+		size_t i = 0;
+		for (; i < count; i++) if (p.first == allowed[i]) break;
+		if (i == count) {
+			fail(e, "effect descriptor has unknown field '%s'", p.first.c_str());
+			return false;
+		}
+	}
 	std::string id=get("catalog_id"),name=get("name"),member=get("effect_file",v2);if(!validCatalog(id)){fail(e,"catalog_id must be a valid catalog ID");return false;}if(name.empty()){fail(e,"effect name must not be empty");return false;}if(!member.empty()&&!validMember(member)){fail(e,"effect_file must be a safe relative archive member");return false;}
 	snprintf(info.catalog_id,sizeof(info.catalog_id),"%s",id.c_str());snprintf(info.name,sizeof(info.name),"%s",name.c_str());snprintf(info.effect_file,sizeof(info.effect_file),"%s",member.c_str());info.intensity=1.0f;
 	if(v2){std::string kind=get("profile_kind");if(kind=="explosion")info.profile_kind=PD_EFFECT_PROFILE_EXPLOSION;else if(kind=="spark")info.profile_kind=PD_EFFECT_PROFILE_SPARK;else if(kind=="smoke")info.profile_kind=PD_EFFECT_PROFILE_SMOKE;else{fail(e,"profile_kind is invalid");return false;}for(const char *k:{"target_policy","attachment_policy","priority_policy","scorch_policy"})if(get(k)!="callsite"){fail(e,"%s must be 'callsite'",k);return false;}info.format=PD_EFFECT_SOURCE_FORMAT_PROFILE_LIBRARY;

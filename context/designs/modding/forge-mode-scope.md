@@ -1319,9 +1319,120 @@ logic, zones and a level's look are later work that needs CORE's schemas);
 the old Grid map save is hidden, not deleted, since the scope already retires
 it.
 
-What a level does not hold yet, and what it needs: its look (lighting, sky,
-fog, music: no scenario member carries them; `stage.json` holds stage rules
-such as weather, which is CORE's, so this is a question for CORE), and the
-game modes' markers (hills, bases, the case's places), which the placements
-list in F3 names and which the scenario tables do not have a row kind for yet
-(also CORE's and MULTIPLAYER's to settle).
+The editor's display name defaults to The Grid. Set `DisplayName` under
+`[Forge]` in the global `pd.ini` to customize it. The menu routes, action
+bindings, archive paths and log identifiers use their existing IDs.
+
+Playtest sits next to Level File and includes live bot controls. Play Draft
+rebuilds the open Level File as a private typed scenario and loads it at the
+offline stage boundary. The editor toggle reloads the original arena and
+restores the camera, open document, and edit history. It requires the normal
+Level File member paths and the matching arena in an offline Grid session.
+Level File tracks the last successful save independently of the placement
+preview baseline.
+
+Save Recovery Checkpoint and Restore Recovery Checkpoint preserve the open
+placement edits for an exact source archive in the local profile. After
+reopening the source level, restore loads the same placement members through
+the native Level File parser. The restored draft is an undoable edit.
+
+Level File saves hills, case homes, and team respawns in the scenario's optional
+`intro.json`. Moving a start or prop preserves independently authored markers
+and door triggers on its former pad.
+
+In Bot Navigation, Require Bot Waypoint marks a native pad. Add Cover at Pad
+copies the selected pad's position and horizontal facing into the existing
+`navigation/covers.json` table. Move Cover to Pad moves a selected authored
+cover to the current waypoint pad in one undo action. The pad must have a
+native floor, and its declared room must match that floor when set. Moves
+can cross rooms and preserve the cover's ID, facing, and flags.
+The first authored cover can enable `generate_routes` in that table. When
+both explicit route tables are empty, the stage derives routes from its
+native pads and paths and loads the authored cover rows intact. Save and
+pin cover edits before opening a Shared Draft.
+
+Create Original Arena in Levels builds two connected rooms with independently
+chosen lengths and doorway dimensions. The typed archive keeps scene, room
+bounds, collision, portal, and pads consistent. Level File authors sky, fog,
+default room light, startup weather, and a sequenced soundtrack in `stage.json`.
+The door trigger tool links a pad-centered native volume to a placed door.
+Stage Extended Variant extends one outer wall of a recognized original
+two-room arena. The host can prepare it in Shared Draft or the private round's
+pause settings. The variant updates native scene, collision and room bounds
+and preserves the portal and committed placement and navigation references.
+Play Saved Variant checks the pin and starts it from the Room at the next
+playtest launch. For a supported two-room extension, the host can also use
+Apply to Running Playtest after the invited creator verifies the exact
+staged sources. The round keeps its stage epoch, score and timer. Apply
+prepares the scene, room bounds and collision together, checks the original
+starts and compatible bot routes, and finds a safe position for each actor
+that needs one. A failed preparation or readiness check leaves the current
+layout active. A returning creator who can see the match receives the
+current layout identity with their live overview. The creator can target a
+start or eligible decoration on the live plan. The host checks the shown
+round and layout, the visibility policy and the native floor. Start edits
+apply to the draft. Compatible decoration moves can apply during the round.
+The host protects pads referenced by starts, paths, waypoints and active
+links. A later geometry Apply keeps accepted decoration moves when their
+exact placements and supporting floors remain valid in the new layout.
+Turning off the live ambient override restores native room brightness.
+A later geometry Apply accepts that verified disabled state.
+
+Level Logic edits native events, gates, actions and execution links in
+Level File. The draft validates edits before committing and preserves its
+structural graph and built-in object rules. Logic Zones creates, resizes and
+moves the native boxes that fire Enter and Leave events. A referenced box
+keeps its ID and remains in the draft until its graph references are removed.
+
+Pin Saved Revision preserves the exact validated arena bytes by SHA-256 in
+the profile. Moving the map's current pointer leaves earlier revisions
+available. Review Saved Match Sources inventories the pinned arena and
+embedded scenario, placement and stage-rule references, and their registered
+typed dependencies. Exact match preparation includes graph, intro, and
+match-selected package roots and deduplicates owning archives by byte digest.
+
+New Grid-authored arena descriptors carry `grid_provenance`. Base-derived
+levels keep BYOR provenance through forks, the verified room builder can mark
+original geometry, and other sources are unverified. Legacy offers withhold
+marked Grid content and the packed bytes are checked again before sending.
+Room-scoped exact offers, consent, staged activation, and shared private
+variants remain tracked separately from the offline controls.
+
+
+## Required mods and saved variants
+
+Grid matches carry the exact required source set for the pinned arena and
+committed match settings. Original marked native packages the guest lacks
+appear in one Room consent prompt. Match-ready state requires validated
+sources for the complete match. Installed source conflicts are rejected
+before staging. Approved files have match-scoped runtime ownership and
+retire after results or an abort.
+
+A placed asset can bring its owning package and the package's native
+dependencies into the match source set.
+An effect can carry its declared texture as a native archive. Grid checks
+the exact member and editable image before staging the effect.
+
+A Room member can offer an original mod they have installed. The host can
+approve the offer and use its exact native source without enabling it as
+an installed mod. Approval alone does not add it to a match. The exact
+source set for the selected arena and match controls which peers receive
+it. Automatic weapon selections exclude proposal-only sources.
+
+Choose which packages a new original variant keeps in Level File or as
+the host of a Shared Draft. An installed base-derived Shared Draft can
+save a local variant that keeps its existing exact source references.
+After a match, players can use Save Played Variant from
+the Room to start from the verified played revision. The Room shows
+any library refresh error after the archive is written. Each omitted
+placement gets a native typed replacement when supported. Weapon pickups
+can become Falcon 2 or Slayer. Plain props and hoverbikes use stock models.
+A package still required by the remaining native setup or graph prevents
+the save until that reference is replaced.
+
+The new arena records its parent's immutable identity independently of its
+display name. An optional dependency digest binds the exact retained native
+sources. The local revision store retains eligible kept source archives
+by SHA-256. On later startup the same launcher checks the plan, reuses exact
+installed sources, and mounts missing retained sources for that stage.
+Existing native Combat Simulator roster and weapon settings still apply.

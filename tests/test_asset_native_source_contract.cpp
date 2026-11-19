@@ -1445,7 +1445,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	{
 		// The multiplayer crate slots of base content are empty (model 0).
 		const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
-		REQUIRE(runtime.find("if (!catalog_id || !catalog_id[0]) {\n\t\t\t\tivalue = 0;\n\t\t\t} else if (!s_setupResolveModelnum(catalog_id, &ivalue)) {") !=
+		REQUIRE(runtime.find("if (!catalog_id || !catalog_id[0]) {\n\t\t\t\tivalue = 0;\n\t\t\t} else if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_MODEL, s_setupResolveModelnum, &ivalue)) {") !=
 		        std::string::npos);
 		REQUIRE(gfx_pc.find("no on-screen scene vertex this frame (frames without: %d)") != std::string::npos);
 	}
@@ -1848,7 +1848,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string get_wide_offsets =
 			functionBlock(scenario_runtime, "scenarioSourcePadsGetWideOffsets");
 		const std::string build_padfile =
-			functionBlock(scenario_runtime, "s_buildPadfile");
+			functionBlock(scenario_runtime, "static u8 *s_buildPadfile(");
 		REQUIRE(!clear_wide_offsets.empty());
 		REQUIRE(!get_wide_offsets.empty());
 		REQUIRE(!build_padfile.empty());
@@ -1892,7 +1892,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourceLoadPortalsForStage") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("s_parsePortalsJson") !=
+	REQUIRE(scenario_runtime.find("scenarioPortalSourceRead(text, text_size, &rows, &row_count") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.SOURCE: compiled portals.json") !=
 	        std::string::npos);
@@ -12135,7 +12135,7 @@ TEST_CASE("Scenario source accepts explicit empty public pads and portals",
 
 	REQUIRE(runtime.find("s_parsePadsJson(text, &row_count)") !=
 	        std::string::npos);
-	REQUIRE(runtime.find("s_parsePortalsJson(text, &row_count)") !=
+	REQUIRE(runtime.find("scenarioPortalSourceRead(text, text_size, &rows, &row_count") !=
 	        std::string::npos);
 	REQUIRE(runtime.find("!rows || row_count <= 0") == std::string::npos);
 	REQUIRE(runtime.find("SCENARIO.SOURCE: compiled pads.json") !=
@@ -12149,6 +12149,699 @@ TEST_CASE("Scenario source accepts explicit empty public pads and portals",
 	        std::string::npos);
 	REQUIRE(bg.find("SCENARIO.SOURCE: built native portal tables") !=
 	        std::string::npos);
+}
+
+TEST_CASE("Original Grid match prepare probes exact GLB bytes with the native CPU scene builder",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const std::string renderer = readTextFile("port/fast3d/scenario_scene_renderer.cpp");
+	const std::string runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto probe = functionBlock(renderer, "int scenarioSceneRendererProbeGlbBytes(");
+	const auto builder = functionBlock(renderer, "static bool buildCpuSceneBytes(");
+	const auto native = functionBlock(renderer, "static bool buildCpuScene(");
+	REQUIRE(probe.find("buildCpuSceneBytes(scenario_id, scene_path,") != std::string::npos);
+	REQUIRE(probe.find("size, probe, SceneBuild::GeometryProbe)") != std::string::npos);
+	REQUIRE(probe.find("fillProbeResult(probe, &summary)") != std::string::npos);
+	REQUIRE(probe.find("g_scene") == std::string::npos);
+	REQUIRE(probe.find("fsFileLoad") == std::string::npos);
+	REQUIRE(native.find("buildCpuSceneBytes(scenario_id, path,") != std::string::npos);
+	REQUIRE(native.find("size, out,\n\t\tSceneBuild::Runtime)") != std::string::npos);
+	REQUIRE(builder.find("modAssetGltfGlbChunks(bytes, size, &chunks)") != std::string::npos);
+	REQUIRE(builder.find("modAssetGltfBufferDocument") != std::string::npos);
+	REQUIRE(builder.find("modAssetGltfScenePlanBuild") != std::string::npos);
+	REQUIRE(builder.find("bin_size, instance, out, vertex_limit)") != std::string::npos);
+	REQUIRE(builder.find("} else if (!detached) {") != std::string::npos);
+	REQUIRE(builder.find("if (!geometry_probe && !parseImages(") != std::string::npos);
+
+	const auto source = functionBlock(runtime, "static void *runtimeReadScenarioMember(");
+	const auto leaf = functionBlock(runtime, "static const char *runtimeScenarioMemberLeaf(");
+	REQUIRE(leaf.find("runtimeHasBoundArchive(source->match, root, source->arena, source->arena_size)") != std::string::npos);
+	REQUIRE(leaf.find("strcmp(root, source->arena_root) != 0") != std::string::npos);
+	REQUIRE(source.find("runtimeScenarioMemberLeaf(source, path)") != std::string::npos);
+	REQUIRE(source.find("runtimeReadMemberChain(source->scenario, source->scenario_size, leaf,") != std::string::npos);
+	REQUIRE(source.find("fsFileLoad") == std::string::npos);
+	const auto attached = functionBlock(runtime, "static s32 runtimePreflightOriginalScenario(");
+	REQUIRE(attached.find("GRID_ARCHIVE_ORIGINAL") != std::string::npos);
+	REQUIRE(attached.find("runtimeProbeOriginalScenario(") != std::string::npos);
+	const auto preflight = functionBlock(runtime, "static s32 runtimeProbeOriginalScenario(");
+	REQUIRE(preflight.find("scenario->ext.scenario.scene_file") != std::string::npos);
+	requireTokenOrder(preflight, "scenarioSourcePreflightPortals(", "scenarioSceneRendererProbeGlbBytes(");
+	const auto prepare = functionBlock(runtime, "s32 gridMatchRuntimePrepare(");
+	requireTokenOrder(prepare, "runtimePreflightOriginalScenario(", "s_PendingMatch = match;");
+}
+
+TEST_CASE("Original Grid collision preflight compiles exact native triangles and combines room extents",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+	const std::string runtime = readTextFile("port/src/grid_match_runtime.c");
+	const std::string scenario = readTextFile("port/src/scenario_source_runtime.c");
+	const auto detached = functionBlock(compiler, "s32 modAssetCompilerBuildColmeshFromBytes(");
+	const auto ordinary = functionBlock(compiler, "s32 modAssetCompilerBuildColmesh(");
+	const auto shared = functionBlock(compiler, "static s32 buildColmeshFromSourceBytes(");
+	REQUIRE(detached.find("buildColmeshFromSourceBytes(") != std::string::npos);
+	REQUIRE(ordinary.find("buildColmeshFromSourceBytes(") != std::string::npos);
+	REQUIRE(detached.find("fsFileLoad") == std::string::npos);
+	REQUIRE(shared.find("parseObjSourceBounded(") != std::string::npos);
+	REQUIRE(shared.find("parseGlbMeshBounded(") != std::string::npos);
+	REQUIRE(shared.find("meshAddTriangle(") != std::string::npos);
+	REQUIRE(shared.find("mesh_budget ? obj_mesh.triangle_count : -1") != std::string::npos);
+	REQUIRE(shared.find("mesh_budget && flags_text && !have_colflags") != std::string::npos);
+	REQUIRE(shared.find("added->flags = colflags.rows[i].flags;") != std::string::npos);
+	REQUIRE(compiler.find("current_room >= SCENARIO_ROOM_DOMAIN_MAX_COUNT") != std::string::npos);
+	REQUIRE(compiler.find("colflagsReadStrictUint") != std::string::npos);
+
+	const auto collision = functionBlock(runtime, "static s32 runtimePreflightCollision(");
+	REQUIRE(collision.find("scenario->ext.scenario.collision_file[0]") != std::string::npos);
+	REQUIRE(collision.find("runtimeReadScenarioMember(") != std::string::npos);
+	REQUIRE(collision.find("(flags || flags_absent)") != std::string::npos);
+	REQUIRE(collision.find("modAssetCompilerBuildColmeshFromBytes(") != std::string::npos);
+	REQUIRE(collision.find("collision->tris[i].roomnum") != std::string::npos);
+	REQUIRE(collision.find("meshWorld") == std::string::npos);
+	const auto preflight = functionBlock(runtime, "static s32 runtimeProbeOriginalScenario(");
+	requireTokenOrder(preflight, "runtimePreflightCollision(", "scenarioSourcePreflightPortals(");
+	REQUIRE(preflight.find("probe->collision_max_room, &room_count, err, err_cap") != std::string::npos);
+	const auto portals = functionBlock(scenario, "s32 scenarioSourcePreflightPortals(");
+	REQUIRE(portals.find("mesh_max_room, s_portalRowsMaxRoom(rows, count)") != std::string::npos);
+}
+
+TEST_CASE("Grid closure visits only typed operands resolved by the native setup parser",
+	"[modding][pdxxx][scenario][grid][setup][static]")
+{
+	const auto runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const auto visit = functionBlock(runtime, "s32 scenarioSourceVisitSetupAssets(");
+	REQUIRE(visit.find(".visit_asset = visit, .visit_userdata = ctx") != std::string::npos);
+	requireTokenOrder(visit, "s_setupParseFieldsJson(fields_text, &table)", "s_setupApplyObjectsJson(objects_text, &table)");
+	requireTokenOrder(visit, "s_setupApplyObjectsJson(objects_text, &table)", "s_setupFreeTable(&table)");
+	for (const char *resident : {"s_activeGraphSetSourceSetupChrRefs", "s_ActiveScenarioGraphs",
+			"s_clearGridDecorationCommands", "mempAlloc", "fsFileLoad"}) {
+		REQUIRE(visit.find(resident) == std::string::npos);
+	}
+	const auto live = functionBlock(runtime, "u8 *scenarioSourceLoadSetupForStage(");
+	requireTokenOrder(live, "s_setupParseFieldsJson(setup_text, &table)", "s_setupApplyObjectsJson(objects_text, &table)");
+	const auto resolve = functionBlock(runtime, "static s32 s_setupResolveAssetOperand(");
+	requireTokenOrder(resolve, "resolve(id, out)", "table->visit_asset(id, type, table->visit_userdata)");
+
+	const auto fields = functionBlock(runtime, "static s32 s_setupApplyKnownField(");
+	const auto dual = fields.find("pickup.dual_weapon");
+	const auto rename = fields.find("rename_object.weapon");
+	REQUIRE(dual != std::string::npos);
+	REQUIRE(rename != std::string::npos);
+	requireTokenOrder(fields.substr(dual, rename - dual), "pickup.dual_weapon",
+		"s_setupResolveAssetOperand(table, catalog_id, ASSET_WEAPON");
+	requireTokenOrder(fields.substr(rename), "rename_object.weapon",
+		"s_setupResolveAssetOperand(table, catalog_id, ASSET_WEAPON");
+	const auto character = functionBlock(runtime, "static s32 s_setupApplyCharacterField(");
+	requireTokenOrder(character, "character.body", "s_setupResolveAssetOperand(table, catalog_id, ASSET_BODY");
+	requireTokenOrder(character, "head_selector", "s_setupResolveAssetOperand(table, catalog_id, ASSET_HEAD");
+	REQUIRE(runtime.find("s_setupResolveAssetOperand(table, secondary_weapon_id, ASSET_WEAPON,") != std::string::npos);
+	REQUIRE(runtime.find("s_setupResolveAssetOperand(table, body_id, ASSET_BODY,") != std::string::npos);
+	REQUIRE(runtime.find("s_setupResolveAssetOperand(table, head_id, ASSET_HEAD,") != std::string::npos);
+	const auto hum = functionBlock(runtime, "static s32 s_setupResolveHumSound(");
+	requireTokenOrder(hum, "s_setupPackHumSound(entry->ext.audio.sound_id, entry->ext.audio.category, out)",
+		"table->visit_asset(id, ASSET_AUDIO, table->visit_userdata)");
+	requireTokenOrder(hum, "table->visit_asset(id, ASSET_AUDIO, table->visit_userdata)", "catalogResolveAudio(id, &audio)");
+	const auto pack = functionBlock(runtime, "static s32 s_setupPackHumSound(");
+	REQUIRE(pack.find("category != AUDIO_CAT_SFX && !(category == AUDIO_CAT_VOICE && ref.hasconfig)") != std::string::npos);
+}
+
+TEST_CASE("Grid setup asset review follows the native graph's selected setup and AI tables",
+	"[modding][pdxxx][scenario][grid][setup][static]")
+{
+	const auto runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const auto matcher = functionBlock(runtime, "s32 scenarioSourceSetupAssetMembersMatch(");
+	for (const char *key : {"{ \"setup_fields\", setup_member }", "{ \"objects\", objects_member }",
+			"{ \"ai_lists\", ai_member }"}) {
+		REQUIRE(matcher.find(key) != std::string::npos);
+	}
+	requireTokenOrder(matcher, "s_readLevelGraphTableMember(text, expected[i].key, member)",
+		"strcmp(member, expected[i].member) == 0");
+	REQUIRE(matcher.find("fsFileLoad") == std::string::npos);
+	const auto binder = functionBlock(runtime, "static s32 s_bindLevelGraphTablePath(");
+	REQUIRE(binder.find("s_readLevelGraphTableMember(graph_text, key, member)") != std::string::npos);
+}
+
+TEST_CASE("Exact Grid preparation validates the native room bounds before disposing collision",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto scenario = readTextFile("port/src/scenario_source_runtime.c");
+	const auto probe = functionBlock(runtime, "static s32 runtimeProbeOriginalScenario(");
+	requireTokenOrder(probe, "scenarioSourcePreflightPortals(", "runtimePreflightRoomTable(");
+	requireTokenOrder(probe, "runtimePreflightRoomTable(", "scenarioSceneRendererProbeGlbBytes(");
+	requireTokenOrder(probe, "scenarioSceneRendererProbeGlbBytes(", "scenarioSourcePreflightNavigation(");
+	const auto release = probe.rfind("meshFree(&collision)");
+	REQUIRE(release != std::string::npos);
+	REQUIRE(probe.find("scenarioSourcePreflightNavigation(") < release);
+
+	const auto bind = functionBlock(runtime, "static s32 runtimePreflightRoomTable(");
+	requireTokenOrder(bind, "scenarioSourceRoomTablePath(", "runtimeReadScenarioMember(source, path, &size, &absent)");
+	requireTokenOrder(bind, "text || absent", "scenarioSourcePreflightRoomTable(text, size, room_count, collision,");
+	REQUIRE(bind.find("fsFileLoad") == std::string::npos);
+
+	const auto path = functionBlock(scenario, "s32 scenarioSourceRoomTablePath(");
+	REQUIRE(path.find("s_scenarioMemberPath(scenario, \"rooms.json\", out, out_cap)") != std::string::npos);
+	const auto live_bounds_start = scenario.find("s32 scenarioSourceApplyRoomTableForStage(");
+	const auto live_origins_start = scenario.find("static struct coord *s_loadRoomOrigins(");
+	const auto live_origins_end = scenario.find("static s32 s_jsonReadNestedIntArrayInRange(", live_origins_start);
+	REQUIRE(live_bounds_start != std::string::npos);
+	REQUIRE(live_origins_start != std::string::npos);
+	REQUIRE(live_origins_end != std::string::npos);
+	const auto live_bounds = scenario.substr(live_bounds_start);
+	const auto live_origins = scenario.substr(live_origins_start, live_origins_end - live_origins_start);
+	for (const auto *reader : {&live_bounds, &live_origins}) {
+		REQUIRE(reader->find("scenarioSourceRoomTablePath(scenario, bounds_path, sizeof(bounds_path))") != std::string::npos);
+		REQUIRE(reader->find("s_roomJsonArrayEnd(rows_open, text_end)") != std::string::npos);
+		REQUIRE(reader->find("s_jsonReadFloatArray3Value(") != std::string::npos);
+	}
+	const auto candidate = functionBlock(scenario, "s32 scenarioSourcePreflightRoomTable(");
+	requireTokenOrder(candidate, "s_roomCandidateCollision(", "if (text)");
+	requireTokenOrder(candidate, "modAssetJsonValidateObject(text, size)", "s_roomCandidateRows(");
+	requireTokenOrder(candidate, "boxes[roomnum].seen || (has_bounds && !scenarioRoomBoundsValid(&bounds, 1))",
+		"boxes[roomnum].seen = 1;");
+	requireTokenOrder(candidate, "boxes[roomnum].seen = 1;", "if (has_bounds)");
+	requireTokenOrder(candidate, "if (has_bounds)", "scenarioRoomBoundsContain(&bounds, &boxes[roomnum].collision)");
+	requireTokenOrder(candidate, "scenarioRoomBoundsContain(&bounds, &boxes[roomnum].collision)", "authored++;");
+	REQUIRE(candidate.find("s_StageRoomRules") == std::string::npos);
+	REQUIRE(candidate.find("mempAlloc") == std::string::npos);
+	REQUIRE(scenario.find("scenarioRoomBoundsValid(&boxes[roomnum].collision, 0)") != std::string::npos);
+	const auto rows = functionBlock(scenario, "static char *s_roomCandidateRows(");
+	requireTokenOrder(rows, "strstr(document, \"pd2.scenario.rooms.v1\")", "if (!schema) return rows;");
+	requireTokenOrder(rows, "if (!schema) return rows;", "modAssetJsonStringEquals(");
+	const auto row_start = scenario.find("static s32 s_roomCandidateReadRow(");
+	const auto row_end = scenario.find("s32 scenarioSourcePreflightRoomTable(", row_start);
+	REQUIRE(row_start != std::string::npos);
+	REQUIRE(row_end != std::string::npos);
+	const auto row = scenario.substr(row_start, row_end - row_start);
+	requireTokenOrder(row, "(low != NULL) != (high != NULL)", "modAssetJsonParseS32Token(");
+	requireTokenOrder(row, "s_jsonReadFloatArray3At(origin_value, end, origin)", "!scenarioRoomOriginValid(origin)");
+	requireTokenOrder(row, "!scenarioRoomOriginValid(origin)", "return !*has_bounds ||");
+}
+
+TEST_CASE("Staged Grid variants preflight their pinned native package before Mod enable",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const auto runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto editor = readTextFile("port/src/net/grid_edit_room_net.c");
+	const auto detached = functionBlock(scanner, "s32 assetCatalogBindGridScenarioDescriptor(");
+	const auto attached = functionBlock(scanner, "case ASSET_SCENARIO: {");
+	const auto fields = functionBlock(scanner, "static const char *s_bindScenarioSourceFields(");
+	REQUIRE(attached.find("s_bindScenarioSourceFields(e, ini)") != std::string::npos);
+	REQUIRE(attached.find("s_mintCustomStagenum(") != std::string::npos);
+	REQUIRE(attached.find("catalogSetPrimaryFile(") != std::string::npos);
+	requireTokenOrder(detached, "gridLeaseParseDescriptor(", "qualifyTypedArchiveSourcePaths(ini, scenario_ref)");
+	requireTokenOrder(detached, "qualifyTypedArchiveSourcePaths(ini, scenario_ref)", "s_bindScenarioSourceFields(out, ini)");
+	for (const char *call : {"assetCatalogRegister(", "assetCatalogGetMutable(", "catalogSetPrimaryFile(",
+			"s_mintCustomStagenum(", "fileProviderHandle("}) {
+		REQUIRE(detached.find(call) == std::string::npos);
+		REQUIRE(fields.find(call) == std::string::npos);
+	}
+
+	const auto member = functionBlock(runtime, "static void *runtimeReadMemberChain(");
+	requireTokenOrder(member, "bound.matches != 1 || !bound.size || bound.size > max_member_size",
+		"modArchiveExtractMemAlloc(");
+	const auto preflight = functionBlock(runtime, "static s32 runtimePreflightSavedArena(");
+	requireTokenOrder(preflight, "sha256Hash(bytes, size, digest)", "strcmp(sha, expected_sha)");
+	requireTokenOrder(preflight, "strcmp(sha, expected_sha)", "runtimeReadMemberChain(bytes, size, \"arena.ini\"");
+	requireTokenOrder(preflight, "runtimeReadMemberChain(bytes, size, \"arena.ini\"", "gridArchiveOrigin(");
+	requireTokenOrder(preflight, "gridMatchPackageLocation(", "strcmp(root, locator)");
+	requireTokenOrder(preflight, "strcmp(chain, arena_source.scenario_member)", "runtimeReadMemberChain(bytes, size, chain");
+	requireTokenOrder(preflight, "runtimeReadMemberChain(native_scenario, scenario_size, \"scenario.ini\"",
+		"assetCatalogBindGridScenarioDescriptor(");
+	requireTokenOrder(preflight, "assetCatalogBindGridScenarioDescriptor(", "runtimeProbeOriginalScenario(");
+	for (const char *call : {"assetCatalogResolve(", "modAuthorRuntimeEnable(", "fsFileLoad(", "s_PendingMatch ="}) {
+		REQUIRE(preflight.find(call) == std::string::npos);
+	}
+
+	const auto check_file = functionBlock(editor, "static s32 editPreflightVariantFile(");
+	requireTokenOrder(check_file, "gridMatchPackageLoad(path, &size)",
+		"gridMatchRuntimePreflightRoomExtension(path, bytes, size, arena_id, expected_sha,");
+	requireTokenOrder(check_file, "gridMatchRuntimePreflightRoomExtension(", "free(bytes)");
+	const auto stage = functionBlock(editor, "static s32 editStageVariant(");
+	requireTokenOrder(stage, "editPreflightVariantFile(candidate.path, candidate.arena_id, NULL, candidate.digest)",
+		"forgeRevisionReadParent(");
+	requireTokenOrder(stage, "forgeRevisionReadParent(", "forgeRevisionPublishLocal(");
+	requireTokenOrder(stage, "forgeRevisionPublishLocal(", "s_EditStagedVariant = staged;");
+	const auto launch = functionBlock(editor, "static s32 editEnableStagedVariant(");
+	requireTokenOrder(launch, "if (!editPreflightVariantFile(s_EditStagedVariant.archive_path, arena_id, sha, NULL)) return 0;",
+		"modAuthorRuntimeEnable(");
+	requireTokenOrder(launch, "modAuthorRuntimeEnable(", "gridMatchPackageLocation(");
+	requireTokenOrder(launch, "gridMatchPackageLocation(", "editStagedVariantMatchesPin(root, sha)");
+}
+
+TEST_CASE("Offline Level File publishes a detached checked room fork and keeps the draft open",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto ui = functionBlock(editor, "static void forgeDrawLevelFileSection(void)");
+	requireTokenOrder(ui, "forgeLevelSessionCanSaveExtendedVariant()", "ImGui::Button(\"Save Extended Variant\")");
+	requireTokenOrder(ui, "ImGui::Button(\"Save Extended Variant\")", "forgeLevelSessionSaveExtendedVariant(");
+	REQUIRE(ui.find("enable it in Mods, then open it from Levels") != std::string::npos);
+
+	const auto can_save = functionBlock(io, "s32 forgeLevelSessionCanSaveExtendedVariant(");
+	REQUIRE(can_save.find("g_NetMode == NETMODE_NONE") != std::string::npos);
+	REQUIRE(can_save.find("s_Draft.phase == FORGE_DRAFT_NONE") != std::string::npos);
+	const auto save = functionBlock(io, "s32 forgeLevelSessionSaveExtendedVariant(");
+	requireTokenOrder(save, "levelSourceStillMatches(source, err, err_cap)",
+		"forgeRevisionRead(directory, source->arena_id, source->archive_sha256,");
+	requireTokenOrder(save, "forgeRevisionRead(directory, source->arena_id, source->archive_sha256,",
+		"forgeLevelValidateOriginalDraft(s_Session.doc, source, NULL");
+	requireTokenOrder(save, "forgeLevelValidateOriginalDraft(s_Session.doc, source, NULL",
+		"levelForkRevisionWithChecks(&revision, name, s_Session.doc, room, extra_length, 1,");
+	const auto fork = functionBlock(io, "static s32 levelForkRevisionWithChecks(");
+	requireTokenOrder(fork, "modAuthorPlan(&request", "levelAllOverrides(doc, &source");
+	requireTokenOrder(fork, "levelAllOverrides(doc, &source", "levelBuildRoomExtension(&source");
+	requireTokenOrder(fork, "levelBuildRoomExtension(&source", "levelSaveCheckedRoomFork(&request");
+
+	const auto preflight = functionBlock(io, "static s32 levelPreflightRoomFork(");
+	requireTokenOrder(preflight, "gridMatchPackageLoad(fork->archive_path", "sha256Hash(bytes, size, digest)");
+	requireTokenOrder(preflight, "sha256Hash(bytes, size, digest)", "gridMatchRuntimePreflightRoomExtension(");
+	const auto publish = functionBlock(io, "static s32 levelSaveCheckedRoomFork(");
+	requireTokenOrder(publish, "_mkdir(staging)", "modAuthorSave(&draft, candidate");
+	requireTokenOrder(publish, "modAuthorSave(&draft, candidate", "levelPreflightRoomFork(candidate");
+	requireTokenOrder(publish, "levelPreflightRoomFork(candidate", "MoveFileExA(candidate->mod_dir, fork->mod_dir, MOVEFILE_WRITE_THROUGH)");
+	for (const char *mutation : {"forgeLevelSessionSaveAs(", "forgeLevelSessionClose(", "forgeLevelSessionEditBegin(",
+			"modAuthorRuntimeEnable(", "modmgrRescanDirectory(", "mainChangeStage(", "MOVEFILE_REPLACE_EXISTING"}) {
+		REQUIRE(save.find(mutation) == std::string::npos);
+		REQUIRE(publish.find(mutation) == std::string::npos);
+	}
+}
+
+TEST_CASE("Ordinary original Grid save validates the same-ID draft before publication",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto header = readTextFile("port/include/grid_match_runtime.h");
+	const auto save = functionBlock(io, "static s32 levelSaveAs(");
+	requireTokenOrder(save, "strcmp(descriptor_values[0].value, GRID_ARENA_PROVENANCE_ORIGINAL) == 0",
+		"code = levelSaveExisting(doc, source, target->display_name, original, target, require_direct");
+	requireTokenOrder(save, "original && !forgeLevelValidateOriginalDraft(doc, source, NULL",
+		": modAuthorRuntimeSave(&request, target, &restarts, err, err_cap)");
+	const auto originalSave = functionBlock(io, "static s32 levelSaveExisting(");
+	const char *const validate = "levelBuildValidatedOriginalDraft(doc, source, &size, NULL,";
+	requireTokenOrder(originalSave, "levelInPlaceOwner(target, source, name, scenario_id, 1, require_resident)", validate);
+	requireTokenOrder(originalSave, validate, "code = levelSaveInPlaceArchive(");
+	const auto session = functionBlock(io, "static s32 levelSessionSaveAs(");
+	requireTokenOrder(session, "s32 status = levelSaveAs(", "if (status == MOD_AUTHOR_OK)");
+	requireTokenOrder(session, "if (status == MOD_AUTHOR_OK)", "s_Session.saved_revision = s_Session.revision;");
+
+	const auto draft = functionBlock(io, "static void *levelBuildValidatedOriginalDraft(");
+	requireTokenOrder(draft, "levelBuildPrivateDraftArchive(doc, source,", "gridMatchRuntimePreflightLocalArena(path, archive, archive_size, source->arena_id, sha,");
+	requireTokenOrder(draft, "gridMatchRuntimePreflightLocalArena(", "gridValidateDraftSources(scenario, scenario_size, source->scenario_member,");
+	const auto validateDraft = functionBlock(io, "s32 forgeLevelValidateOriginalDraft(");
+	REQUIRE(validateDraft.find("levelBuildValidatedOriginalDraft(doc, source,") != std::string::npos);
+	REQUIRE(header.find("s32 gridMatchRuntimePreflightLocalArena(") != std::string::npos);
+	const auto local = functionBlock(runtime, "s32 gridMatchRuntimePreflightLocalArena(");
+	requireTokenOrder(local, "runtimePreflightSavedArena(locator, bytes, size, arena_id, expected_sha, 0,",
+		"128u * 1024u * 1024u");
+	const auto network = functionBlock(runtime, "s32 gridMatchRuntimePreflightSavedArena(");
+	REQUIRE(network.find("expected_sha, 0, NET_DISTRIB_MAX_COMP") != std::string::npos);
+	const auto extension = functionBlock(runtime, "s32 gridMatchRuntimePreflightRoomExtension(");
+	REQUIRE(extension.find("expected_sha, 1, NET_DISTRIB_MAX_COMP") != std::string::npos);
+	const auto attached = functionBlock(runtime, "static s32 runtimePreflightOriginalScenario(");
+	REQUIRE(attached.find(".max_bytes = NET_DISTRIB_MAX_COMP") != std::string::npos);
+	const auto detached = functionBlock(runtime, "static s32 runtimePreflightSavedArena(");
+	REQUIRE(detached.find("size > max_bytes") != std::string::npos);
+	REQUIRE(detached.find("runtimeReadMemberChain(bytes, size, chain, max_bytes,") != std::string::npos);
+	REQUIRE(detached.find(".max_bytes = max_bytes") != std::string::npos);
+	const auto sources = functionBlock(runtime, "static void *runtimeReadScenarioMember(");
+	REQUIRE(sources.find("source->max_bytes, out_size, out_absent") != std::string::npos);
+	const auto collision = functionBlock(runtime, "static s32 runtimePreflightCollision(");
+	REQUIRE(collision.find("flags, flags_size, source->max_bytes, collision") != std::string::npos);
+}
+
+TEST_CASE("Original in-place Save As retains the exact predecessor and can fork it",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto save = functionBlock(io, "static s32 levelSaveAs(");
+	requireTokenOrder(save, "modAuthorPlan(&request, target", "const s32 repeat = !own && target->updated && last_saved");
+	requireTokenOrder(save, "modsRootsSameDir(last_saved->path, target->archive_path)",
+		"if (!own && !repeat && (target->updated || assetCatalogResolveAny(target->catalog_id)");
+	requireTokenOrder(save, "request.require_new_folder = 1;",
+		"repeat ? levelSaveLastDestination(&request, source, last_saved, target");
+	const auto repeat = functionBlock(io, "static s32 levelSaveLastDestination(");
+	requireTokenOrder(repeat, "modsRootsSameDir(saved->path, bound.path)", "levelForkSource(&bound, &destination");
+	requireTokenOrder(repeat, "levelInPlaceOwner(target, &destination, target->display_name, scenario_id, 1, 0)",
+		"draft.mods_root = staging");
+	requireTokenOrder(repeat, "modAuthorSave(&draft, candidate", "levelSaveInPlaceArchive(target, &destination");
+	REQUIRE(repeat.find("modAuthorRuntimeSave(") == std::string::npos);
+	REQUIRE(repeat.find("modAuthorRuntimeEnable(") == std::string::npos);
+	const auto session = functionBlock(io, "static s32 levelSessionSaveAs(");
+	requireTokenOrder(session, "levelSaveAs(s_Session.doc, &s_Session.source, display_name, require_direct,",
+		"&s_Session.saved_archive, NULL, NULL, saved, err, err_cap)");
+	const auto retain = functionBlock(io, "static s32 levelRememberPreviousSave(");
+	REQUIRE(retain.find("forgeRevisionRememberPrevious(directory, source->arena_id, target->archive_path,") != std::string::npos);
+	REQUIRE(retain.find("source->archive_sha256, &previous, err, err_cap)") != std::string::npos);
+	REQUIRE(retain.find("forgeRevisionPublishLocal(") == std::string::npos);
+
+	const auto fork = functionBlock(io, "s32 forgeLevelSessionForkPreviousRevision(");
+	REQUIRE(fork.find("g_NetMode != NETMODE_NONE") != std::string::npos);
+	requireTokenOrder(fork, "forgeRevisionReadPrevious(directory, s_Session.source.arena_id, &previous",
+		"levelForkRevision(&previous, name, NULL, 0, 0, fork");
+	const auto controls = functionBlock(editor, "static void forgeDrawLevelFileSection(void)");
+	requireTokenOrder(controls, "ImGui::Button(\"Fork Previous Save\")", "forkRevision = &forgeLevelSessionForkPreviousRevision");
+	requireTokenOrder(controls, "forkRevision = &forgeLevelSessionForkPreviousRevision",
+		"forkRevision(s_LevelFileName, fork, err, sizeof(err))");
+}
+
+TEST_CASE("Canonical Grid originals replace only the validated loose archive",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto owner = functionBlock(io, "static s32 levelInPlaceOwner(");
+	REQUIRE(owner.find("modmgrFindMod(target->mod_id)") != std::string::npos);
+	REQUIRE(owner.find("modsRootsSameDir(mod->dirpath, target->mod_dir)") != std::string::npos);
+	REQUIRE(owner.find("->category") == std::string::npos);
+	REQUIRE(owner.find("strcmp(mod->name, name)") != std::string::npos);
+	REQUIRE(owner.find("strcmp(arena->ext.arena.display_name, name)") != std::string::npos);
+	REQUIRE(owner.find("modsRootsSameDir(opened, target->archive_path)") != std::string::npos);
+	REQUIRE(owner.find("strcmp(expected, scenario->descriptor_path)") != std::string::npos);
+	REQUIRE(owner.find("fileProviderPath(catalogEffectiveHandle(arena))") != std::string::npos);
+	REQUIRE(owner.find("fileProviderPath(catalogEffectiveHandle(scenario))") != std::string::npos);
+	const auto save = functionBlock(io, "static s32 levelSaveExisting(");
+	requireTokenOrder(save, "target->ids.archive_count == 2 && target->ids.id_count == 2", "code = levelSaveInPlaceArchive(");
+	REQUIRE(save.find("archive, size, catalog_generation, stage_index, require_resident, err, err_cap)") != std::string::npos);
+	REQUIRE(save.find("modAuthorRuntimeSave(") == std::string::npos);
+	const auto publish = functionBlock(io, "static s32 levelSaveInPlaceArchive(");
+	requireTokenOrder(publish, "levelCheckArchiveDigest(prior_digest, source->archive_sha256", "memcmp(before, after, sizeof(before)) == 0");
+	requireTokenOrder(publish, "memcmp(before, after, sizeof(before)) == 0", "saveAtomicBegin(&write, target->archive_path)");
+	requireTokenOrder(publish, "fwrite(archive, 1, size, saveAtomicStream(&write))", "assetCatalogGetGeneration() != catalog_generation");
+	requireTokenOrder(publish, "memcmp(manifest_digest, mod->sha256", "levelRememberPreviousSave(target, source");
+	requireTokenOrder(publish, "levelRememberPreviousSave(target, source", "levelSourceStillMatches(source, err, err_cap)");
+	requireTokenOrder(publish, "levelSourceStillMatches(source, err, err_cap)", "saveAtomicCommit(&write)");
+	REQUIRE(publish.find("saveAtomicAbort(&write)") != std::string::npos);
+	REQUIRE(publish.find("modAuthorRuntimeSave(") == std::string::npos);
+	REQUIRE(publish.find("modmgrApplyChanges") == std::string::npos);
+}
+
+TEST_CASE("Grid Edit Placement routes its input and applies one native document edit",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto sidebar = functionBlock(editor, "static void forgeSidebarActivate(");
+	requireTokenOrder(sidebar, "payload == kForgeFileEditPlacement", "s_LevelFilePoseRequested = true;");
+	const auto controls = functionBlock(editor, "static void forgeDrawLevelFileSection(void)");
+	requireTokenOrder(controls, "s_LevelFilePoseRequested && netGetMode() == 0", "forgeDrawLevelFilePose(doc, editPlacement)");
+	const auto modal = functionBlock(editor, "static void forgeDrawLevelFilePose(");
+	requireTokenOrder(modal, "menupoolAcquire(MENU_TYPE_GRID_PLACEMENT", "pose.generation != forgeLevelSessionGeneration()");
+	requireTokenOrder(modal, "forgeLevelLivePositionInRoom(pose.position)", "forgeLevelSessionEditBegin()");
+	requireTokenOrder(modal, "memcpy(look, pose.before.look", "if (yawChanged)");
+	requireTokenOrder(modal, "forgeLevelSessionEditBegin()", "forgeLevelDocMoveObject(doc, pose.id");
+	requireTokenOrder(modal, "forgeLevelDocMoveSpawn(doc, pose.id", "forgeLevelSessionEditEnd(changed)");
+	requireTokenOrder(modal, "if (close) ImGui::CloseCurrentPopup();", "if (close) menupoolRelease(MENU_TYPE_GRID_PLACEMENT);");
+	const auto controller = functionBlock(editor, "static void forgeSidebarHandleInput(");
+	REQUIRE(controller.find("if (menupoolIsActive(MENU_TYPE_GRID_PLACEMENT)) return;") != std::string::npos);
+	const auto pool = functionBlock(readTextFile("port/src/menupool.c"), "static s32 menupoolLegacyStackOptional(");
+	requireTokenOrder(pool, "case MENU_TYPE_GRID_PLACEMENT:", "return 1;");
+}
+
+TEST_CASE("Save Opened Level cannot publish to another arena or fall back to Mod Author",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto target = functionBlock(io, "const char *forgeLevelSessionSaveTarget(");
+	requireTokenOrder(target, "strcmp(saved->arena_id, source->arena_id)", "modAuthorNames(&request");
+	requireTokenOrder(target, "strcmp(saved->digest, source->archive_sha256)", "modAuthorNames(&request");
+	requireTokenOrder(target, "!modsRootsSameDir(saved->path, source->archive_path)", "modAuthorNames(&request");
+	requireTokenOrder(target, "strcmp(target.catalog_id, source->arena_id)", "levelInPlaceOwner(&target, source, name, NULL, 0, 1)");
+
+	const auto entry = functionBlock(io, "s32 forgeLevelSessionSaveOpened(");
+	requireTokenOrder(entry, "assetPathCopyChecked(name", "levelSessionSaveAs(name, NULL, 1");
+	const auto common = functionBlock(io, "static s32 levelSaveAs(");
+	requireTokenOrder(common, "require_direct && (!original || !own || packed)",
+		"levelSaveExisting(doc, source, target->display_name, original, target, require_direct");
+	const auto original = functionBlock(io, "static s32 levelSaveExisting(");
+	requireTokenOrder(original, "!levelInPlaceOwner(target, source, name, scenario_id, 1, require_resident)",
+		"levelBuildValidatedOriginalDraft(");
+	REQUIRE(original.find("modAuthorRuntimeEnable(") == std::string::npos);
+
+	const auto sidebar = functionBlock(editor, "static void forgeSidebarActivate(");
+	requireTokenOrder(sidebar, "payload == kForgeFileSaveOpened", "s_LevelFileSaveRequested = true;");
+	const auto controls = functionBlock(editor, "static void forgeDrawLevelFileSection(void)");
+	requireTokenOrder(controls, "s_LevelFileSaveRequested && netGetMode() == 0", "forgeLevelSessionSaveTarget()");
+	requireTokenOrder(controls, "if (clickSaveOpened || saveOpened)", "forgeLevelSessionSaveOpened(err, sizeof(err))");
+}
+
+TEST_CASE("Grid Level File tools own controller input for trigger edits and native routes",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto sidebar = functionBlock(editor, "static void forgeSidebarActivate(");
+	requireTokenOrder(sidebar, "payload == kForgeFileEditTriggers || payload == kForgeFileEditNavigation", "s_LevelFileToolRequested = payload;");
+	const auto controls = functionBlock(editor, "static void forgeDrawLevelFileSection(void)");
+	requireTokenOrder(controls, "const int toolRequest = netGetMode() == 0", "forgeDrawLevelFileTools(doc");
+	const auto modal = functionBlock(editor, "static void forgeDrawLevelFileTools(");
+	requireTokenOrder(modal, "menupoolAcquire(MENU_TYPE_GRID_LEVEL_TOOLS", "forgeDrawLevelFileTriggers(doc, start,");
+	requireTokenOrder(modal, "menupoolAcquire(MENU_TYPE_GRID_LEVEL_TOOLS", "forgeDrawLevelFileWaypoints(doc, start)");
+	const auto input = functionBlock(editor, "static void forgeSidebarHandleInput(");
+	REQUIRE(input.find("if (menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS)) return;") != std::string::npos);
+	const auto pool = functionBlock(readTextFile("port/src/menupool.c"), "static s32 menupoolLegacyStackOptional(");
+	requireTokenOrder(pool, "case MENU_TYPE_GRID_LEVEL_TOOLS:", "return 1;");
+
+	const auto trigger = functionBlock(editor, "static void forgeDrawLevelFileTriggers(");
+	requireTokenOrder(trigger, "forgeLevelSessionEditBegin()", "forgeLevelDocUpdateTrigger(doc, selected.volume_id");
+	requireTokenOrder(trigger, "forgeLevelDocUpdateTrigger(doc, selected.volume_id, pad.pad_ref",
+		"forgeLevelSessionEditEnd(changed)");
+	requireTokenOrder(trigger, "forgeLevelLivePositionInRoom(pad.position)",
+		"forgeDrawLevelFileTriggerPreview(pad, halfSize)");
+	requireTokenOrder(trigger, "if (trigger.editable)", "ImGui::SmallButton(\"Edit Trigger\")");
+	const auto route = functionBlock(editor, "static void forgeDrawLevelFileWaypoints(");
+	requireTokenOrder(route, "forgeLevelFilePickPad(doc, \"Waypoint pad\"", "forgeDrawLevelFileCoverMove(doc,");
+	const auto cover = functionBlock(editor, "static void forgeDrawLevelFileCoverMove(");
+	requireTokenOrder(cover, "forgeLevelDocGetCover(doc", "ImGui::Button(\"Move Cover to Pad\")");
+	requireTokenOrder(cover, "ImGui::Button(\"Move Cover to Pad\")", "forgeLevelSessionMoveCoverToPad(s_LevelFileCover, pad->pad_ref");
+	const auto cover_move = functionBlock(readTextFile("port/src/forge_level_io.c"), "s32 forgeLevelSessionMoveCoverToPad(");
+	requireTokenOrder(cover_move, "forgeLevelSessionCanEditCover()", "levelRouteFloorRoom(&position, pad.room_ref)");
+	requireTokenOrder(cover_move, "levelRouteFloorRoom(&position, pad.room_ref)", "forgeLevelSessionEditBegin()");
+	requireTokenOrder(cover_move, "forgeLevelSessionEditBegin()", "forgeLevelDocMoveCoverToPad(s_Session.doc, cover_ref, pad_ref");
+	requireTokenOrder(cover_move, "forgeLevelDocMoveCoverToPad(s_Session.doc, cover_ref, pad_ref", "forgeLevelSessionEditEnd(changed)");
+	requireTokenOrder(route, "forgeLevelDocCanDisconnectPads(doc", "forgeLevelDocDisconnectPads(doc");
+	const size_t disconnect = route.find("forgeLevelDocDisconnectPads(doc");
+	REQUIRE(route.find("forgeLevelSessionEditEnd(changed)", disconnect) != std::string::npos);
+}
+
+TEST_CASE("Grid Room Brightness reaches the native room table for draft and saved play",
+	"[modding][pdxxx][scenario][grid][static]")
+{
+	const auto editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+	const auto sidebar = functionBlock(editor, "static void forgeSidebarActivate(");
+	requireTokenOrder(sidebar, "payload == kForgeFileEditRoomBrightness", "s_LevelFileToolRequested = payload;");
+	const auto tools = functionBlock(editor, "static void forgeDrawLevelFileTools(");
+	requireTokenOrder(tools, "menupoolAcquire(MENU_TYPE_GRID_LEVEL_TOOLS", "forgeDrawLevelFileRoomBrightness(doc)");
+	const auto bright = functionBlock(editor, "static void forgeDrawLevelFileRoomBrightness(");
+	requireTokenOrder(bright, "forgeLevelSessionCanEditRoomBrightness()", "forgeLevelSessionEditBegin()");
+	requireTokenOrder(bright, "forgeLevelSessionEditBegin()", "forgeLevelDocSetRoomBrightness(doc, room.roomnum");
+	requireTokenOrder(bright, "forgeLevelDocSetRoomBrightness(doc, room.roomnum", "forgeLevelSessionEditEnd(changed)");
+
+	const auto io = readTextFile("port/src/forge_level_io.c");
+	const auto can_edit = functionBlock(io, "s32 forgeLevelSessionCanEditRoomBrightness(");
+	REQUIRE(can_edit.find("levelScenarioUsesRoomTable(scenario, arena->ext.arena.scenario_archive)") != std::string::npos);
+	const auto room_path = functionBlock(io, "static s32 levelScenarioUsesRoomTable(");
+	requireTokenOrder(room_path, "scenarioSourceRoomTablePath(", "strcmp(actual, expected) == 0");
+	const auto draft = functionBlock(io, "static void *levelBuildPrivateDraftArchive(");
+	requireTokenOrder(draft, "levelAllOverrides(doc, source, input, overrides", "assetArchiveRebuildFile(input, path");
+	const auto fork = functionBlock(io, "static forge_room_extension_t *levelBuildRoomExtension(");
+	requireTokenOrder(fork, "strcmp(sha, source->archive_sha256) == 0", "forgeRoomCreateExtensionWithRoomBrightness(");
+	const auto scenario_runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const auto apply_start = scenario_runtime.find("s32 scenarioSourceApplyRoomTableForStage(");
+	REQUIRE(apply_start != std::string::npos);
+	const auto apply = scenario_runtime.substr(apply_start);
+	requireTokenOrder(apply, "scenarioSourceRoomTablePath(scenario,", "br_light_min = (u8)brightness[0]");
+	requireTokenOrder(apply, "br_light_min = (u8)brightness[0]", "br_light_max = (u8)brightness[1]");
+	const auto consume = functionBlock(readTextFile("src/game/dlights.c"), "void roomInitLights(");
+	REQUIRE(consume.find("bgGetRoomBrightnessRange(roomnum, &room->br_light_min, &room->br_light_max)") != std::string::npos);
+	const auto bg = readTextFile("src/game/bg.c");
+	const char *const scene = "static void bgSetScenarioSceneRoomLights(void)";
+	const auto scene_start = bg.rfind(scene);
+	REQUIRE(scene_start != std::string::npos);
+	const auto render = functionBlock(bg.substr(scene_start), scene);
+	requireTokenOrder(render, "scenarioSourceRoomHasBrightnessRange(i)", "scenarioSceneRendererSetRoomLights(lights, count)");
+	REQUIRE(render.find("g_Rooms[i].br_base") != std::string::npos);
+}
+
+TEST_CASE("Exact original Grid prepare checks and packs native navigation before pending publication",
+	"[modding][pdxxx][scenario][grid][navigation][static]")
+{
+	const auto runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto scenario = readTextFile("port/src/scenario_source_runtime.c");
+	const auto reader = functionBlock(runtime, "static char *runtimeReadNavigationMember(");
+	REQUIRE(reader.find("runtimeReadScenarioMember(ctx, path, &length, NULL)") != std::string::npos);
+	REQUIRE(reader.find("fsFileLoad") == std::string::npos);
+	const auto original = functionBlock(runtime, "static s32 runtimeProbeOriginalScenario(");
+	requireTokenOrder(original, "scenarioSourcePreflightPortals(", "scenarioSourcePreflightNavigation(");
+	REQUIRE(original.find("room_count, source->max_bytes, room_extension ? &collision : NULL") != std::string::npos);
+	REQUIRE(original.find("scenarioSourcePreflightNavigation(") < original.rfind("meshFree(&collision)"));
+	const auto exact_preflight = functionBlock(runtime, "static s32 runtimePreflightOriginalScenario(");
+	requireTokenOrder(exact_preflight, "netGridEditPrivateLaunchMatches(match->identity.offer.room_id, match->identity.arena_id)", "runtimeReadMemberChain(arena, size, scenario_chain,");
+	REQUIRE(exact_preflight.find("valid = runtimeProbeOriginalScenario(") != std::string::npos);
+	requireTokenOrder(exact_preflight, "(void)scenarioSourcePreflightNavigation(scenario, runtimeReadNavigationMember, &source,", "&match->scenario_probe.navigation_probe, NULL, 0)");
+	const auto prepare = functionBlock(runtime, "s32 gridMatchRuntimePrepare(");
+	requireTokenOrder(prepare, "runtimePreflightOriginalScenario(", "s_PendingMatch = match;");
+
+	const auto detached = functionBlock(scenario, "s32 scenarioSourcePreflightNavigation(");
+	REQUIRE(detached.find("s_bindNavigationGenerateSource(") != std::string::npos);
+	REQUIRE(detached.find("s_parsePadsJson(") != std::string::npos);
+	REQUIRE(detached.find("s_loadNavigationTablesWithSources(") != std::string::npos);
+	REQUIRE(detached.find("s_checkCandidateNavigation(") != std::string::npos);
+	requireTokenOrder(detached, "s_readNavigationRows(spawns_path,", "s_loadSpawnSourceRows(text, &spawns)");
+	requireTokenOrder(detached, "padnum >= summary.pads", "summary.spawns = spawns.count;");
+	requireTokenOrder(detached, "if (room_extension_collision)", "s_checkRoomExtensionWalk(");
+	requireTokenOrder(detached, "s_checkRoomExtensionWalk(", "s_buildPadfileForOwner(");
+	const auto walk = functionBlock(scenario, "static s32 s_checkRoomExtensionWalk(");
+	requireTokenOrder(walk, "s_roomExtensionPortal(portal, from, to)", "s_checkRoomExtensionLink(mesh, from");
+	REQUIRE(walk.find("s_roomExtensionVisitsAll(nav, SCENARIO_SEGMENT_FLAG_INWARD)") != std::string::npos);
+	REQUIRE(walk.find("s_roomExtensionVisitsAll(nav, SCENARIO_SEGMENT_FLAG_OUTWARD)") != std::string::npos);
+	REQUIRE(walk.find("if (!waypoint->neighbours.count)") != std::string::npos);
+	REQUIRE(walk.find("s_roomExtensionStartConnects(mesh, pads, nav, spawns->rows[i].padnum)") != std::string::npos);
+	requireTokenOrder(detached, "s_buildPadfileForOwner(", "sha256Hash(packed,");
+	REQUIRE(detached.find("s_ActiveScenarioGraphs") == std::string::npos);
+	REQUIRE(detached.find("mempAlloc") == std::string::npos);
+	const auto packed = functionBlock(scenario, "static u8 *s_buildPadfileForOwner(");
+	REQUIRE(packed.find("native_budget ? malloc(total_size) : mempAlloc(") != std::string::npos);
+	REQUIRE(packed.find("g_SourceWidePad") == std::string::npos);
+	REQUIRE(detached.find("native_budget, &summary.bytes, NULL)") != std::string::npos);
+	const auto refs = functionBlock(scenario, "static s32 s_checkCandidateNavigation(");
+	REQUIRE(refs.find("pad->room < -1 || pad->room > 511 || pad->room >= room_count") != std::string::npos);
+	REQUIRE(refs.find("row->padnum >= pad_count") != std::string::npos);
+	REQUIRE(refs.find("row->groupnum >= nav->waygroup_count") != std::string::npos);
+	REQUIRE(refs.find("const u32 waypoint = row->waypoints.values[j];") != std::string::npos);
+	requireTokenOrder(refs, "waypoint >= (u32)nav->waypoint_count", "grouped[waypoint]");
+	REQUIRE(refs.find("nav->waypoints[waypoint].groupnum != i") != std::string::npos);
+	REQUIRE(refs.find("s_checkNavigationSegments(&row->neighbours, nav->waypoint_count)") != std::string::npos);
+	REQUIRE(refs.find("s_checkNavigationSegments(&row->neighbours, nav->waygroup_count)") != std::string::npos);
+	const auto tables = functionBlock(scenario, "static s32 s_loadNavigationTablesWithSources(");
+	REQUIRE(tables.find("row->pads[j] < pad_count") != std::string::npos);
+	REQUIRE(tables.find("s_generateNavigationTablesFromPads(") != std::string::npos);
+	requireTokenOrder(tables, "row->pads[j] < pad_count", "s_protectCandidateNavigationPad(probe, row->pads[j])");
+	requireTokenOrder(detached, "s_checkCandidateNavigation(", "s_protectCandidateNavigationPad(&summary, row->padnum)");
+	REQUIRE(detached.find("if (!nav.generated_waypoints)") != std::string::npos);
+	REQUIRE(detached.find("if (row->neighbours.count) s_protectCandidateNavigationPad(&summary, row->padnum)") != std::string::npos);
+	REQUIRE(detached.find("s_protectCandidateNavigationPad(&summary, nav.waypoints[target].padnum)") != std::string::npos);
+	requireTokenOrder(detached, "padnum >= summary.pads", "s_protectCandidateNavigationPad(&summary, padnum)");
+	const auto eligible = functionBlock(runtime, "s32 gridMatchRuntimeDecorationPadIndependent(");
+	requireTokenOrder(eligible, "pad < nav->pads", "nav->protected_pads[pad / 8]");
+	const auto composition = functionBlock(runtime, "static s32 runtimeGridLayoutDecorationsFit(");
+	REQUIRE(composition.find("runtimeGridLayoutDecoration(match, proof->pose.record_id)") != std::string::npos);
+	const auto layout_decoration = functionBlock(runtime, "static struct defaultobj *runtimeGridLayoutDecoration(");
+	REQUIRE(layout_decoration.find("gridMatchRuntimeDecorationPadIndependent(obj->pad)") != std::string::npos);
+	const auto commit = functionBlock(runtime, "s32 gridMatchRuntimeCommitPrivateLayout(");
+	requireTokenOrder(commit, "runtimeGridLayoutDecorationsFit(layout, match,", "meshWorldSwapPrepared(");
+	const auto grid_room = readTextFile("port/src/net/grid_edit_room_net.c");
+	const auto live_decoration = functionBlock(grid_room, "static struct defaultobj *editPlaytestDecoration(");
+	REQUIRE(live_decoration.find("gridMatchRuntimeDecorationPadIndependent(obj->pad)") != std::string::npos);
+}
+
+TEST_CASE("Grid layout Apply accepts the current private ambient state and preserves other stage rules",
+	"[modding][pdxxx][scenario][grid][layout][static]")
+{
+	const auto grid_room = readTextFile("port/src/net/grid_edit_room_net.c");
+	const auto state = functionBlock(grid_room, "s32 netGridEditPrivatePlaytestAmbientState(");
+	requireTokenOrder(state, "netGridEditPrivatePlaytestRoom(g_NetMatchRoomId)", "*enabled = s_EditPlaytest.ambient_enabled");
+	requireTokenOrder(state, "s_EditPlaytest.phase != EDIT_PLAYTEST_ACTIVE || !s_EditPlaytest.displayed_revision",
+		"*enabled = s_EditPlaytest.ambient_enabled");
+	requireTokenOrder(state, "s_EditPlaytest.stage_epoch != g_NetStageEpoch", "*brightness = s_EditPlaytest.brightness");
+	const auto enabled = functionBlock(grid_room, "s32 netGridEditPrivatePlaytestAmbient(");
+	requireTokenOrder(enabled, "netGridEditPrivatePlaytestAmbientState(&enabled, &brightness) || !enabled", "*out = brightness");
+
+	const auto runtime = readTextFile("port/src/grid_match_runtime.c");
+	const auto rules = functionBlock(runtime, "static s32 runtimeGridLayoutStageRulesMatch(");
+	REQUIRE(rules.find("SCENARIO_STAGE_RULES_SCHEMA") != std::string::npos);
+	REQUIRE(rules.find("scenarioStageRulesParse(old_absent ? defaults : old_text") != std::string::npos);
+	REQUIRE(rules.find("scenarioStageRulesParse(new_absent ? defaults : new_text") != std::string::npos);
+	requireTokenOrder(rules, "netGridEditPrivatePlaytestAmbientState(&live_enabled, &live_ambient)",
+		"new_rules.atmosphere.has_ambient == live_enabled");
+	REQUIRE(rules.find("!live_enabled || new_rules.atmosphere.ambient_light == live_ambient") != std::string::npos);
+	requireTokenOrder(rules, "runtimeGridLayoutStripAmbient(&old_rules.atmosphere)", "memcmp(&old_rules, &new_rules, sizeof(old_rules))");
+	requireTokenOrder(rules, "runtimeGridLayoutStripAmbient(&new_rules.atmosphere)", "memcmp(&old_rules, &new_rules, sizeof(old_rules))");
+	const auto strip = functionBlock(runtime, "static void runtimeGridLayoutStripAmbient(");
+	REQUIRE(strip.find("atmosphere->has_sky || atmosphere->has_fog || atmosphere->primary_music[0]") != std::string::npos);
+
+	const auto bg = readTextFile("src/game/bg.c");
+	const auto lights = functionBlock(bg, "static void bgSetScenarioSceneRoomLights(void)\n{");
+	requireTokenOrder(lights, "netGridEditPrivatePlaytestAmbientState(&ambient_enabled, &ambient)",
+		"clear_ambient = live_ambient && !ambient_enabled");
+	REQUIRE(lights.find("has_default = source_only && pinned_default && !clear_ambient") != std::string::npos);
+	REQUIRE(lights.find("restore_base = clear_ambient && pinned_default") != std::string::npos);
+	REQUIRE(lights.find("else if (restore_base) selected = roomGetRangeBaseBrightness(i)") != std::string::npos);
+	REQUIRE(lights.find("has_ambient ? ambient : roomGetRangeBaseBrightness(i)") != std::string::npos);
+	REQUIRE(lights.find("bgApplyPrivateRoomAmbient(i, light->brightness, selected)") != std::string::npos);
+	REQUIRE(lights.find("g_Rooms[i].br_base =") == std::string::npos);
+	const auto native = readTextFile("src/game/dlights.c");
+	const auto range = functionBlock(native, "s32 roomGetRangeBaseBrightness(");
+	REQUIRE(range.find("const struct room *room = &g_Rooms[roomnum]") != std::string::npos);
+	REQUIRE(range.find("room->br_light_min + (room->br_light_max - room->br_light_min) * 4 / 5") != std::string::npos);
+}
+
+TEST_CASE("Authored covers can opt into native routes while retaining their source rows",
+	"[modding][pdxxx][scenario][navigation][static]")
+{
+	const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const std::string header = readTextFile("port/include/scenario_source_runtime.h");
+	const std::string conformance = readTextFile("tools/asset_archive_conformance.py");
+	const auto parse_start = runtime.find("static s32 s_readNavigationRootBool(");
+	const auto parse_end = runtime.find("static void s_copyMemberPath(", parse_start);
+	REQUIRE(parse_start != std::string::npos);
+	REQUIRE(parse_end != std::string::npos);
+	const auto parser = runtime.substr(parse_start, parse_end - parse_start);
+	REQUIRE(parser.find("depth != 1") != std::string::npos);
+	REQUIRE(parser.find("modAssetJsonStringEquals(key, p + 1, option)") != std::string::npos);
+	REQUIRE(parser.find("s_readNavigationRootBool(text, end, \"generate_routes\", &generated)") != std::string::npos);
+	REQUIRE(parser.find("modAssetJsonParseBoolToken(value, end, enabled, &token_end)") != std::string::npos);
+	REQUIRE(parser.find("modAssetJsonValidateObject(text, text_size)") != std::string::npos);
+	REQUIRE(conformance.find("generate_routes_fields > 1") != std::string::npos);
+	REQUIRE(conformance.find("not isinstance(parsed[\"generate_routes\"], bool)") != std::string::npos);
+
+	const auto loader = functionBlock(runtime, "static s32 s_loadNavigationTablesWithSources(");
+	REQUIRE(loader.find("generate_routes && nav->cover_count > 0") != std::string::npos);
+	REQUIRE(loader.find("nav->waypoint_count == 0 && nav->waygroup_count == 0") != std::string::npos);
+	REQUIRE(loader.find("(nav->cover_count == 0 || keep_authored_covers)") != std::string::npos);
+	REQUIRE(loader.find("path_table_loaded ? &path_table : NULL, !keep_authored_covers, &generated") != std::string::npos);
+	REQUIRE(loader.find("generated.covers = nav->covers;") != std::string::npos);
+	REQUIRE(loader.find("generated.cover_count = nav->cover_count;") != std::string::npos);
+	requireTokenOrder(loader, "nav->covers = NULL;", "*nav = generated;");
+	REQUIRE(loader.find("generated navigation routes with authored covers") != std::string::npos);
+
+	const auto cover_source = functionBlock(runtime, "s32 scenarioSourceUsesGridCoverMember(");
+	REQUIRE(header.find("s32 scenarioSourceUsesGridCoverMember(") != std::string::npos);
+	REQUIRE(cover_source.find("s_ActiveScenarioGraphs.level_graph_active") != std::string::npos);
+	REQUIRE(cover_source.find("s_ActiveScenarioGraphs.covers_path[0]") != std::string::npos);
+	REQUIRE(cover_source.find("archive_root, \"::\", \"navigation/covers.json\"") != std::string::npos);
+	REQUIRE(cover_source.find("strcmp(s_ActiveScenarioGraphs.covers_path, expected) == 0") != std::string::npos);
+}
+
+TEST_CASE("Generated waypoints may opt into traversable path endpoints",
+	"[modding][pdxxx][scenario][navigation][static]")
+{
+	const auto runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const auto parse_start = runtime.find("static s32 s_parseWaypointsJson(");
+	const auto parse_end = runtime.find("static s32 s_parseWaygroupsJson(", parse_start);
+	REQUIRE(parse_start != std::string::npos);
+	REQUIRE(parse_end != std::string::npos);
+	const auto parse = runtime.substr(parse_start, parse_end - parse_start);
+	REQUIRE(parse.find("s_readNavigationRootBool(text, end, \"only_linked_pads\", &linked)") != std::string::npos);
+	REQUIRE(parse.find("linked >= 0 && !modAssetJsonValidateObject(text, text_size)") != std::string::npos);
+	const auto loader = functionBlock(runtime, "static s32 s_loadNavigationTablesWithSources(");
+	requireTokenOrder(loader, "if (generate)", "s_generateNavigationTablesFromPads(pads, pad_count, only_linked_pads,");
+	REQUIRE(loader.find("only_linked_pads && path_table.count > 0 && !generated.waypoint_count") != std::string::npos);
+
+	const auto build = functionBlock(runtime, "static s32 s_generateNavigationTablesFromPads(");
+	requireTokenOrder(build, "path->pads[path->pad_count - 1]", "s_filterGeneratedWaypointLinks(nav, pad_to_waypoint)");
+	requireTokenOrder(build, "nav->cover_count = generate_covers ? pad_count : 0",
+		"s_filterGeneratedWaypointLinks(nav, pad_to_waypoint)");
+	requireTokenOrder(build, "s_filterGeneratedWaypointLinks(nav, pad_to_waypoint)",
+		"s_generateNavigationWaygroupsFromEdges(nav)");
+
+	const auto filter = functionBlock(runtime, "static void s_filterGeneratedWaypointLinks(");
+	REQUIRE(filter.find("SCENARIO_SEGMENT_FLAG_OUTWARD | SCENARIO_SEGMENT_FLAG_INWARD") != std::string::npos);
+	requireTokenOrder(filter, "(edge & disabled) != disabled", "new_index[i] = count ? kept++ : -1");
+	requireTokenOrder(filter, "new_index[i] = count ? kept++ : -1", "new_index[edge & SCENARIO_SEGMENT_ID_MASK]");
+	REQUIRE(filter.find("(edge & ~SCENARIO_SEGMENT_ID_MASK) | (u32)neighbour") != std::string::npos);
 }
 
 TEST_CASE("Scenario source derives navigation runtime rows from empty public nav tables",

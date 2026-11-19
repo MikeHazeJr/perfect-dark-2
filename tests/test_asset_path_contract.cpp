@@ -1,5 +1,6 @@
 #include "catch.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <sstream>
@@ -9,6 +10,8 @@
 extern "C" {
 #include "asset_path_contract.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
+#include "assetprovider_checkpoint.h"
 #include "weapon_graph_archive.h"
 }
 
@@ -18,6 +21,68 @@ static std::string pathContractRead(const char *path)
 	std::ostringstream out;
 	out << in.rdbuf();
 	return out.str();
+}
+
+TEST_CASE("FileProvider preflights exact capacity without interning or warning", "[catalog][provider][capacity]")
+{
+	struct ResetProvider {
+		file_provider_checkpoint_t initial = {};
+		~ResetProvider() { (void)fileProviderCheckpointRestore(&initial); }
+	} reset;
+	REQUIRE(fileProviderCheckpointCreate(&reset.initial));
+
+	constexpr char present[] = "test/provider/arena.pdarena::scenario.pdscenario";
+	constexpr char fresh[] = "grid-fit-bytes";
+	constexpr char different[] = "Grid-fit-bytes";
+	constexpr s32 pool_capacity = 1024 * 1024;
+	const asset_data_handle_t original = fileProviderHandle(present);
+	REQUIRE_FALSE(assetHandleIsNull(original));
+	const std::string too_long(FS_MAXPATH, 'x');
+	const char *const oversized[] = {too_long.c_str()};
+	CHECK_FALSE(fileProviderCanInternPaths(oversized, 1));
+
+	file_provider_checkpoint_t before_fill = {};
+	REQUIRE(fileProviderCheckpointCreate(&before_fill));
+	s32 padding = pool_capacity - before_fill.pool_used - static_cast<s32>(sizeof(fresh));
+	REQUIRE(padding >= FS_MAXPATH);
+	for (s32 i = 0; padding > 0; ++i) {
+		s32 bytes = std::min(padding, FS_MAXPATH);
+		if (padding > bytes && padding - bytes < 32) bytes -= 32;
+		std::string path = "test-provider-fill-" + std::to_string(i);
+		REQUIRE(path.size() < static_cast<size_t>(bytes));
+		path.resize(static_cast<size_t>(bytes - 1), 'x');
+		REQUIRE_FALSE(assetHandleIsNull(fileProviderHandle(path.c_str())));
+		padding -= bytes;
+	}
+
+	file_provider_checkpoint_t before = {};
+	REQUIRE(fileProviderCheckpointCreate(&before));
+	REQUIRE(before.pool_used == pool_capacity - static_cast<s32>(sizeof(fresh)));
+	const char *const fits[] = {present, fresh, fresh, present};
+	const char *const exceeds[] = {present, fresh, different, fresh};
+	const char *const invalid[] = {fresh, nullptr};
+	CHECK(fileProviderCanInternPaths(nullptr, 0));
+	CHECK_FALSE(fileProviderCanInternPaths(nullptr, 1));
+	CHECK(fileProviderCanInternPaths(fits, sizeof(fits) / sizeof(fits[0])));
+	CHECK_FALSE(fileProviderCanInternPaths(exceeds, sizeof(exceeds) / sizeof(exceeds[0])));
+	CHECK_FALSE(fileProviderCanInternPaths(invalid, sizeof(invalid) / sizeof(invalid[0])));
+
+	file_provider_checkpoint_t after = {};
+	REQUIRE(fileProviderCheckpointCreate(&after));
+	CHECK(after.pool_used == before.pool_used);
+	CHECK(after.path_count == before.path_count);
+	CHECK(after.warned == before.warned);
+	const char *original_path = fileProviderPath(original);
+	REQUIRE(original_path);
+	CHECK(std::strcmp(original_path, present) == 0);
+
+	REQUIRE_FALSE(assetHandleIsNull(fileProviderHandle(fresh)));
+	CHECK(fileProviderCanInternPaths(fits, sizeof(fits) / sizeof(fits[0])));
+	CHECK_FALSE(fileProviderCanInternPaths(exceeds, sizeof(exceeds) / sizeof(exceeds[0])));
+	REQUIRE(fileProviderCheckpointCreate(&after));
+	CHECK(after.pool_used == pool_capacity);
+	CHECK(after.path_count == before.path_count + 1);
+	CHECK(after.warned == before.warned);
 }
 
 TEST_CASE("public asset path copy and join preserve boundaries or fail empty",

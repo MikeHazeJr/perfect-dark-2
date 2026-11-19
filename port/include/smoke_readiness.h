@@ -33,7 +33,8 @@ typedef enum smoke_readiness_condition {
 	 * it: the state a Forge session starts in. */
 	SMOKE_READINESS_FORGE_EDITOR_READY,
 	/* That, and the editor has the level's own file open. */
-	SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN
+	SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN,
+	SMOKE_READINESS_GRID_CONSENT_READY
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -51,6 +52,9 @@ typedef struct smoke_readiness_facts {
 	int local_client_in_game;
 	int local_client_in_lobby;
 	int manifest_declined;
+	int grid_consent_preparing;
+	int grid_consent_pending;
+	int grid_consent_accept_focused;
 	int gameplay_stage;
 	int stage_ready_epoch;
 	int multiplayer_running;

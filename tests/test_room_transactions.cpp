@@ -114,6 +114,62 @@ TEST_CASE("Room invitation is leader scoped and consumed by successful admission
     REQUIRE(room->creator_client_id == 2);
 }
 
+TEST_CASE("Private Grid readmission keeps the running Room and its access limits",
+          "[net][room][transactions][grid-edit-room]")
+{
+    Rooms reset;
+    auto *previous = roomGetById(0);
+    auto *playing = roomCreateConfigured("Shared Grid", 2, ROOM_ACCESS_PASSWORD, "secret", 2);
+    REQUIRE(previous);
+    REQUIRE(playing);
+    REQUIRE(roomJoinForClient(nullptr, previous, 1, "") == ROOM_RESULT_OK);
+
+    playing->state = ROOM_STATE_PREPARING;
+    REQUIRE(roomJoinForClientDuringPrivatePlaytest(previous, playing, 1, "secret") == ROOM_RESULT_NOT_OPEN);
+    SECTION("the Room reports a match") {
+        playing->state = ROOM_STATE_MATCH;
+    }
+    SECTION("a host-only ready round can still carry the lobby loading state") {
+        playing->state = ROOM_STATE_LOADING;
+    }
+    const auto state = playing->state;
+    const auto original = *playing;
+    REQUIRE(roomJoinForClient(previous, playing, 1, "secret") == ROOM_RESULT_NOT_OPEN);
+    REQUIRE(roomJoinForClientDuringPrivatePlaytest(previous, playing, 1, "wrong") == ROOM_RESULT_PASSWORD);
+    REQUIRE(std::memcmp(playing, &original, sizeof(original)) == 0);
+    CHECK(room_test_leaves == 0);
+    CHECK(room_test_aborts == 0);
+
+    REQUIRE(roomJoinForClientDuringPrivatePlaytest(previous, playing, 1, "secret") == ROOM_RESULT_OK);
+    CHECK(playing->state == state);
+    CHECK(playing->creator_client_id == 2);
+    CHECK(previous->client_count == 0);
+    CHECK(roomOccupiedCount(playing) == 2);
+    CHECK(playing->clients[1] == 1);
+    CHECK(roomJoinForClientDuringPrivatePlaytest(nullptr, playing, 3, "secret") == ROOM_RESULT_FULL);
+    CHECK(room_test_leaves == 1);
+    CHECK(room_test_aborts == 0);
+}
+
+TEST_CASE("Invite-only Grid resume still requires a separate leader invitation to the Room",
+          "[net][room][transactions][grid-edit-room]")
+{
+    Rooms reset;
+    auto *playing = roomCreateConfigured("Invite-only Grid", 4, ROOM_ACCESS_INVITE, "", 1);
+    REQUIRE(playing);
+    playing->state = ROOM_STATE_MATCH;
+    REQUIRE(roomInviteClient(playing, 1, 2) == ROOM_RESULT_NOT_OPEN);
+    REQUIRE(roomInviteClientDuringPrivatePlaytest(playing, 3, 2) == ROOM_RESULT_NOT_LEADER);
+    REQUIRE(roomJoinForClientDuringPrivatePlaytest(nullptr, playing, 2, "") == ROOM_RESULT_INVITE_REQUIRED);
+    REQUIRE(roomInviteClientDuringPrivatePlaytest(playing, 1, 2) == ROOM_RESULT_OK);
+    REQUIRE(roomJoinForClient(nullptr, playing, 2, "") == ROOM_RESULT_NOT_OPEN);
+    REQUIRE(roomJoinForClientDuringPrivatePlaytest(nullptr, playing, 2, "") == ROOM_RESULT_OK);
+    CHECK(playing->state == ROOM_STATE_MATCH);
+    REQUIRE(playing->client_count == 2);
+    CHECK(playing->clients[1] == 2);
+    CHECK((playing->invited_client_mask & (1u << 2)) == 0);
+}
+
 TEST_CASE("Room snapshots are independent and failed writes preserve accepted data",
           "[net][room][snapshots][T-NETWORKING-011]")
 {

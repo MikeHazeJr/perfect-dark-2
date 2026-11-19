@@ -25,14 +25,27 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <cfloat>
+#include <cmath>
+#include <string>
+#include <vector>
 
 #include "imgui/imgui.h"
 #include "pdgui_forge.h"
+#include "pdgui_grid_variant_picker.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
+#include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui.h"   /* B-195 / Fix 2+3 (2026-05-01): pdguiClearImGuiFocusAndNav */
 #include "system.h"  /* Issue 9 placeholder TODO log lines */
+#include "inputctx.h"
+#include "menupool.h"
+#include "asset_runtime.h"
 #include "forge_level_io.h"   /* Forge F2: the level's own placements */
+#include "forge_room_builder.h"
+#include "net/net_scenario_state_wire.h"
+#include "scenario_stage_rules.h"
 #include "forge_level_live.h" /* Forge F3: the world follows the level file */
 
 extern "C" {
@@ -43,6 +56,11 @@ extern "C" {
  * sidebar / tab-cycle actions. The enum and query API are extern "C"
  * in actionmap.h; including it here is safe (no types.h drag). */
 #include "actionmap.h"
+
+s32 netGetMode(void);
+s32 mainStageChangePending(void);
+s32 videoGetNativeWidth(void);
+s32 videoGetNativeHeight(void);
 
 /* B-304 hotfix (2026-05-01): gfx debug toggles consumed by the Level
  * tab's Debug Rendering subsection in forgeDrawLevelExtras. Defined as
@@ -66,10 +84,10 @@ s32 bootForgeLevelTick(void);
  * forgeTabLabel switches on them. */
 enum {
 	FGT_FILE = 0,   /* the level being made: its starts and objects, saved in its archive */
+	FGT_GAMEPLAY,   /* Playtest: loaded level and live bots */
 	FGT_LEVEL,      /* "Look": lighting, mission, sky, music (an old Grid map's) */
 	FGT_OBJECTS,    /* "Grid Objects": The Grid's own catalog (an old Grid map's) */
 	FGT_CONTROL,
-	FGT_GAMEPLAY,
 	FGT_SETUP,      /* "Grid Map": an old Grid map's settings and its save */
 	FGT_COUNT
 };
@@ -1343,7 +1361,7 @@ static void forgeDrawSettingsTab(void)
 	bool srf = ed->snap_surface_enabled;
 	if (ImGui::Checkbox("Surface Snap (editor)", &srf)) ed->snap_surface_enabled = srf ? 1 : 0;
 	bool ps = ed->paused_sim;
-	if (ImGui::Checkbox("Pause Simulation in The Grid", &ps)) ed->paused_sim = ps ? 1 : 0;
+	if (ImGui::Checkbox("Pause Simulation While Editing", &ps)) ed->paused_sim = ps ? 1 : 0;
 	bool zv = ed->zone_viz_enabled;
 	if (ImGui::Checkbox("Show Zone Wireframes (V)", &zv)) ed->zone_viz_enabled = zv ? 1 : 0;
 	ImGui::SameLine();
@@ -1382,8 +1400,7 @@ static void forgeDrawSettingsTab(void)
 	static bool s_ShowOldGridSave = false;
 	ImGui::Checkbox("Show the old Grid map save (mods/Forge Maps)", &s_ShowOldGridSave);
 	if (!s_ShowOldGridSave) {
-		ImGui::TextDisabled("A level is saved in Level File, as a level mod that shows in The Grid and "
-			"in match setup.");
+		ImGui::TextDisabled("Level File saves a level mod for %s and match setup.", forgeDisplayName());
 	}
 	static char save_slug[FORGE_NAME_LEN] = "";
 	if (s_ShowOldGridSave) {
@@ -1402,10 +1419,9 @@ static void forgeDrawSettingsTab(void)
 	if (ImGui::Button("Load From Mod")) {
 		if (save_slug[0]) forgeSerializeLoadFromMod(save_slug);
 	}
-	ImGui::TextDisabled("Saves to mods/Forge Maps/<slug>/ (The Grid map format; "
-			"writes mod.json + map.json).");
+	ImGui::TextDisabled("Saves a legacy map (mod.json + map.json) to mods/Forge Maps/<slug>/.");
 	ImGui::TextDisabled("Only this editor reads that format. To make a level that "
-			"shows in The Grid and in match setup, use the Level File tab.");
+			"shows in %s and in match setup, use the Level File tab.", forgeDisplayName());
 	}
 
 	/* Save confirmation modal -- lists mod dependencies so the author
@@ -1413,7 +1429,7 @@ static void forgeDrawSettingsTab(void)
 	{
 		if (ImGui::BeginPopupModal("Confirm Save -- Mod Dependencies", nullptr,
 				ImGuiWindowFlags_AlwaysAutoResize)) {
-			ImGui::Text("Saving The Grid map  '%s'", s->map_name);
+			ImGui::Text("Saving legacy map '%s'", s->map_name);
 			ImGui::Text("Slug:  mods/Forge Maps/%s/", save_slug);
 			ImGui::Separator();
 
@@ -1468,7 +1484,7 @@ static void forgeDrawSettingsTab(void)
  *   Level    -> Lighting + Mission + (future) skybox / skylight / music
  *   Objects  -> Catalog + Properties
  *   Control  -> Logic + Zones
- *   Gameplay -> Game Type + Bots
+ *   Playtest -> Bots + session rules
  *   Setup    -> Settings (map metadata -- stays as a 5th tab rather
  *               than folding under another category; accessed via
  *               the tab-bar gear position).
@@ -1491,7 +1507,7 @@ static const char *forgeTabLabel(int idx)
 	case FGT_LEVEL:    return "Look";
 	case FGT_OBJECTS:  return "Grid Objects";
 	case FGT_CONTROL:  return "Control";
-	case FGT_GAMEPLAY: return "Gameplay";
+	case FGT_GAMEPLAY: return "Playtest";
 	case FGT_SETUP:    return "Grid Map";
 	default:           return "?";
 	}
@@ -1511,11 +1527,52 @@ struct ForgeSidebarEntry {
 	int         payload;
 };
 
-/* Level File: anchors inside forgeDrawLevelFileSection. */
+/* Level File anchors and offline actions. */
+static constexpr int kForgeFileEditPlacement = 4;
+static constexpr int kForgeFileSaveOpened = 5;
+static constexpr int kForgeFileEditTriggers = 6;
+static constexpr int kForgeFileEditNavigation = 7;
+static constexpr int kForgeFileEditRoomBrightness = 8;
+static constexpr int kForgeFileOpen = 9;
+static constexpr int kForgeFileEditLogic = 10;
+static constexpr int kForgeFileEditLogicZones = 11;
+static constexpr int kForgeFileAddHoverbike = 12;
+static constexpr int kForgeGameplayPlayDraft = 8;
+static constexpr int kForgeFileSharedEntryCount = 4;
+static bool s_LevelFileOpenRequested;
+static bool s_LevelFilePlayDraftRequested;
+static bool s_LevelFilePoseRequested;
+static bool s_LevelFileSaveRequested;
+static int s_LevelFileToolRequested;
+
+static bool forgeCanOpenLevelFileFromEditor(void)
+{
+	const char *arena = forgeLevelSessionArena();
+	return netGetMode() == 0 && forgeIsFreefly() && !mainStageChangePending()
+		&& arena && arena[0] && !forgeLevelSessionDoc();
+}
+
+static bool forgeCanPlayDraftFromEditor(void)
+{
+	return netGetMode() == 0 && forgeIsFreefly() && !forgeIsCanvasMode()
+		&& !mainStageChangePending() && !forgeLevelDraftOwnsStageTransition()
+		&& forgeLevelSessionCanPlayDraft();
+}
+
 static const ForgeSidebarEntry s_SbFile[] = {
+	{ "Open Level File", kForgeFileOpen },
 	{ "Starts",  0 },
 	{ "Objects", 1 },
-	{ "Save",    2 },
+	{ "Atmosphere", 3 },
+	{ "Save & Share", 2 },
+	{ "Edit Placement", kForgeFileEditPlacement },
+	{ "Save Opened Level", kForgeFileSaveOpened },
+	{ "Triggers", kForgeFileEditTriggers },
+	{ "Logic Zones", kForgeFileEditLogicZones },
+	{ "Level Logic", kForgeFileEditLogic },
+	{ "Bot Navigation", kForgeFileEditNavigation },
+	{ "Room Brightness", kForgeFileEditRoomBrightness },
+	{ "Choose Hoverbike", kForgeFileAddHoverbike },
 };
 
 static const ForgeSidebarEntry s_SbLevel[] = {
@@ -1552,13 +1609,14 @@ static const ForgeSidebarEntry s_SbControl[] = {
 };
 
 static const ForgeSidebarEntry s_SbGameplay[] = {
+	{ "Play Draft",  kForgeGameplayPlayDraft },
+	{ "Bots",        7 },
 	{ "Game Type",   0 },
 	{ "Scoring",     1 },
 	{ "Players",     2 },
 	{ "Modifiers",   3 },
 	{ "HUD",         4 },
 	{ "Waves",       5 },
-	{ "Bots",        7 },
 };
 
 static const ForgeSidebarEntry s_SbSetup[] = {
@@ -1570,15 +1628,18 @@ static const ForgeSidebarEntry s_SbSetup[] = {
 struct ForgeSidebarList {
 	const ForgeSidebarEntry *items;
 	int                      count;
+	int                      first; /* Array index of the first visible row. */
 };
 
 static ForgeSidebarList forgeSidebarForTab(int tab)
 {
-	ForgeSidebarList out;
+	ForgeSidebarList out = {};
 	switch (tab) {
 	case FGT_FILE:
-		out.items = s_SbFile;
-		out.count = (int)(sizeof(s_SbFile) / sizeof(s_SbFile[0]));
+		out.first = forgeCanOpenLevelFileFromEditor() ? 0 : 1;
+		out.items = s_SbFile + out.first;
+		out.count = IM_ARRAYSIZE(s_SbFile) - out.first;
+		if (netGetMode() != 0) out.count = kForgeFileSharedEntryCount;
 		break;
 	case FGT_LEVEL:
 		out.items = s_SbLevel;
@@ -1593,8 +1654,9 @@ static ForgeSidebarList forgeSidebarForTab(int tab)
 		out.count = (int)(sizeof(s_SbControl) / sizeof(s_SbControl[0]));
 		break;
 	case FGT_GAMEPLAY:
-		out.items = s_SbGameplay;
-		out.count = (int)(sizeof(s_SbGameplay) / sizeof(s_SbGameplay[0]));
+		out.first = forgeCanPlayDraftFromEditor() ? 0 : 1;
+		out.items = s_SbGameplay + out.first;
+		out.count = IM_ARRAYSIZE(s_SbGameplay) - out.first;
 		break;
 	case FGT_SETUP:
 		out.items = s_SbSetup;
@@ -1649,6 +1711,29 @@ static void forgeSidebarActivate(int tab, int sel)
 	if (!lst.items || sel < 0 || sel >= lst.count) return;
 	int payload = lst.items[sel].payload;
 
+	if (tab == FGT_FILE && payload == kForgeFileOpen) {
+		s_LevelFileOpenRequested = true;
+		return;
+	}
+	if (tab == FGT_GAMEPLAY && payload == kForgeGameplayPlayDraft) {
+		s_LevelFilePlayDraftRequested = true;
+		return;
+	}
+	if (tab == FGT_FILE && payload == kForgeFileEditPlacement) {
+		s_LevelFilePoseRequested = true;
+		return;
+	}
+	if (tab == FGT_FILE && payload == kForgeFileSaveOpened) {
+		s_LevelFileSaveRequested = true;
+		s_SidebarScrollRequest[tab] = 2;
+		return;
+	}
+	if (tab == FGT_FILE && (payload == kForgeFileEditTriggers || payload == kForgeFileEditNavigation
+			|| payload == kForgeFileEditRoomBrightness || payload == kForgeFileEditLogic
+			|| payload == kForgeFileEditLogicZones || payload == kForgeFileAddHoverbike)) {
+		s_LevelFileToolRequested = payload;
+		return;
+	}
 	if (tab == FGT_OBJECTS) {
 		forge_editor_state_t *ed = forgeGetEditor();
 		if (ed) {
@@ -1912,8 +1997,17 @@ static char s_LevelFileName[MOD_AUTHOR_NAME_MAX] = "";
 static char s_LevelFileStatus[400]               = "";
 static bool s_LevelFileStatusBad                 = false;
 static char s_LevelFileStart[32]                 = "";   /* selected player start, by id */
+static char s_LevelFileCasePad[32]               = "";
+static int  s_LevelFileCaseTeam                  = 0;
+static char s_LevelFileTriggerPad[32]            = "";
+static char s_LevelFileTriggerTarget[32]         = "";
+static s32 s_LevelFileTriggerAction              = FORGE_LEVEL_TRIGGER_OPEN_DOOR;
+static char s_LevelFileWaypointPad[32]           = "";
+static char s_LevelFileCover[32]                 = "";
+static char s_LevelFileRouteTarget[32]           = "";
 static char s_LevelFileObject[32]                = "";   /* selected object, by id */
 static int  s_LevelFileObjectIndex               = -1;   /* its row; objects are only added, so rows do not move */
+static bool s_LevelFilePosePreferObject;
 static int  s_LevelFileSizePercent               = 100;  /* the Size section's slider */
 
 /* Where the editor's panel was drawn last (pdguiForgeEditorPanelRect). */
@@ -1930,7 +2024,6 @@ s32 pdguiForgeEditorPanelRect(float *x0, float *y0, float *x1, float *y1)
 	if (y1) *y1 = s_EditorPanelMax.y;
 	return 1;
 }
-static int  s_LevelFileEdits                     = 0;    /* edits since the level was opened or last saved */
 static bool s_LevelFileCloseArmed                = false;
 static char s_LevelFileWeapon[CATALOG_ID_LEN]    = "";   /* the weapon chosen for a pickup, by catalog id */
 static int  s_LevelFilePlace                     = 1;    /* the weapon place chosen for a pickup, 1 to 16 */
@@ -1993,12 +2086,907 @@ static void forgeLevelFileDrawStatus(void)
 	ImGui::PopStyleColor();
 }
 
+static bool forgeLevelFilePickPad(forge_level_doc_t *doc, const char *label, char (&selected)[32],
+	const forge_level_pad_t *start, forge_level_pad_t &pad)
+{
+	const bool useStart = selected[0] == '\0';
+	bool havePad = useStart ? start != nullptr : forgeLevelDocFindPad(doc, selected, &pad) != 0;
+	if (useStart && start) pad = *start;
+	if (ImGui::BeginCombo(label, havePad ? pad.pad_ref : "Select a pad")) {
+		if (ImGui::Selectable("Use selected start", useStart)) {
+			selected[0] = '\0';
+			havePad = start != nullptr;
+			if (start) pad = *start;
+		}
+		ImGuiListClipper clipper;
+		clipper.Begin(forgeLevelDocPadCount(doc));
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+				forge_level_pad_t item;
+				if (!forgeLevelDocGetPad(doc, i, &item)) continue;
+				char entry[112];
+				snprintf(entry, sizeof(entry), "%s   (%.0f, %.0f, %.0f)", item.pad_ref,
+					item.position[0], item.position[1], item.position[2]);
+				if (ImGui::Selectable(entry, strcmp(item.pad_ref, selected) == 0)) {
+					snprintf(selected, sizeof(selected), "%s", item.pad_ref);
+					pad = item;
+					havePad = true;
+				}
+			}
+		}
+		ImGui::EndCombo();
+	}
+	return havePad;
+}
+
+static void forgeDrawLevelFileCoverMove(forge_level_doc_t *doc, const forge_level_pad_t *pad)
+{
+	const s32 count = forgeLevelDocCoverCount(doc);
+	if (!count) return;
+	s32 selectedRow = -1;
+	if (s_LevelFileCover[0]) {
+		for (s32 i = 0; i < count; ++i) {
+			forge_level_cover_t cover;
+			if (forgeLevelDocGetCover(doc, i, &cover) && strcmp(cover.cover_ref, s_LevelFileCover) == 0) {
+				selectedRow = i;
+				break;
+			}
+		}
+	}
+	if (ImGui::BeginCombo("Cover marker", selectedRow >= 0 ? s_LevelFileCover : "Select a cover marker")) {
+		ImGuiListClipper clipper;
+		clipper.Begin(count);
+		if (selectedRow >= 0) clipper.IncludeItemByIndex(selectedRow);
+		while (clipper.Step()) {
+			for (s32 i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+				forge_level_cover_t cover;
+				if (!forgeLevelDocGetCover(doc, i, &cover)) continue;
+				char entry[192];
+				snprintf(entry, sizeof(entry), "%s   (%.0f, %.0f, %.0f)###%d", cover.cover_ref,
+					cover.position[0], cover.position[1], cover.position[2], i);
+				if (ImGui::Selectable(entry, i == selectedRow)) {
+					snprintf(s_LevelFileCover, sizeof(s_LevelFileCover), "%s", cover.cover_ref);
+					selectedRow = i;
+				}
+				if (i == selectedRow) ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+	ImGui::BeginDisabled(!pad || selectedRow < 0);
+	const bool move = ImGui::Button("Move Cover to Pad");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Move this marker to the selected waypoint pad.");
+	ImGui::EndDisabled();
+	if (move) {
+		char err[256] = {};
+		if (forgeLevelSessionMoveCoverToPad(s_LevelFileCover, pad->pad_ref, err, sizeof(err))) {
+			forgeLevelFileStatus(false, "Moved %s to %s.", s_LevelFileCover, pad->pad_ref);
+		} else {
+			forgeLevelFileStatus(true, "Could not move cover. %s", err);
+		}
+	}
+}
+
+static void forgeDrawLevelFileWaypoints(forge_level_doc_t *doc, const forge_level_pad_t *start)
+{
+	forge_level_pad_t pad = {};
+	const bool havePad = forgeLevelFilePickPad(doc, "Waypoint pad", s_LevelFileWaypointPad, start, pad);
+	bool required = pad.walk_direct != 0;
+	ImGui::BeginDisabled(!havePad);
+	const bool toggle = ImGui::Checkbox("Require Bot Waypoint", &required);
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bots follow this pad when it is on their route.");
+	ImGui::EndDisabled();
+	if (toggle) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocSetPadWalkDirect(doc, pad.pad_ref, required, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) forgeLevelFileStatus(false, "Updated bot waypoint %s.", pad.pad_ref);
+		else forgeLevelFileStatus(true, "Could not update waypoint: %s", err);
+	}
+	const bool coverEditable = forgeLevelSessionCanEditCover() != 0;
+	ImGui::BeginDisabled(!havePad || !coverEditable);
+	const bool addCover = ImGui::Button("Add Cover at Pad");
+	ImGui::EndDisabled();
+	if (addCover) {
+		char err[256] = {};
+		char cover[32];
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocAddCoverAtPad(doc, pad.pad_ref, cover, sizeof(cover), err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			snprintf(s_LevelFileCover, sizeof(s_LevelFileCover), "%s", cover);
+			forgeLevelFileStatus(false, "Added %s at %s.", cover, pad.pad_ref);
+		} else {
+			forgeLevelFileStatus(true, "Could not add cover: %s", err);
+		}
+	}
+	if (coverEditable) forgeDrawLevelFileCoverMove(doc, havePad ? &pad : nullptr);
+	forge_level_pad_t target = {};
+	const bool routeEditable = forgeLevelSessionCanConnectPads() != 0;
+	ImGui::BeginDisabled(!routeEditable);
+	const bool haveTarget = forgeLevelFilePickPad(doc, "Destination pad", s_LevelFileRouteTarget, start, target);
+	const bool distinctPads = havePad && haveTarget && strcmp(pad.pad_ref, target.pad_ref) != 0;
+	static struct {
+		char first[32];
+		char second[32];
+		u32 generation;
+		bool removable;
+	} route = {};
+	const u32 generation = forgeLevelSessionGeneration();
+	if (routeEditable && distinctPads && (route.generation != generation
+			|| strcmp(route.first, pad.pad_ref) != 0 || strcmp(route.second, target.pad_ref) != 0)) {
+		snprintf(route.first, sizeof(route.first), "%s", pad.pad_ref);
+		snprintf(route.second, sizeof(route.second), "%s", target.pad_ref);
+		route.generation = generation;
+		route.removable = forgeLevelDocCanDisconnectPads(doc, pad.pad_ref, target.pad_ref) != 0;
+	}
+	const bool disconnect = routeEditable && distinctPads && route.removable;
+	ImGui::BeginDisabled(!distinctPads);
+	const bool changeRoute = ImGui::Button(disconnect ? "Disconnect Pads###LevelFileRoute" : "Connect Pads###LevelFileRoute");
+	ImGui::EndDisabled();
+	ImGui::EndDisabled();
+	if (changeRoute) {
+		char err[256] = {};
+		char path[32];
+		if (disconnect) {
+			forgeLevelSessionEditBegin();
+			const s32 changed = forgeLevelDocDisconnectPads(doc, pad.pad_ref, target.pad_ref, path, sizeof(path), err, sizeof(err));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) forgeLevelFileStatus(false, "Disconnected %s and %s.", pad.pad_ref, target.pad_ref);
+			else forgeLevelFileStatus(true, "Could not disconnect the pads: %s", err);
+		} else if (forgeLevelSessionConnectPads(pad.pad_ref, target.pad_ref, path, sizeof(path), err, sizeof(err))) {
+			forgeLevelFileStatus(false, "Connected %s and %s with %s.", pad.pad_ref, target.pad_ref, path);
+		} else {
+			forgeLevelFileStatus(true, "Could not connect the pads: %s", err);
+		}
+	}
+}
+
+static void forgeDrawLevelFileCaseMarkers(forge_level_doc_t *doc, const forge_level_pad_t *start)
+{
+	ImGui::SeparatorText("Case Markers");
+	ImGui::TextWrapped("Hacker Central and Hold the Briefcase also use these pads.");
+	char base[32];
+	snprintf(base, sizeof(base), "Base %d", s_LevelFileCaseTeam + 1);
+	if (ImGui::BeginCombo("Base slot", base)) {
+		for (int i = 0; i < NET_SCENARIO_CTC_BASES; ++i) {
+			snprintf(base, sizeof(base), "Base %d", i + 1);
+			if (ImGui::Selectable(base, i == s_LevelFileCaseTeam)) s_LevelFileCaseTeam = i;
+		}
+		ImGui::EndCombo();
+	}
+	forge_level_pad_t pad = {};
+	const bool havePad = forgeLevelFilePickPad(doc, "Case pad", s_LevelFileCasePad, start, pad);
+	char home[32] = "";
+	s32 respawns = 0;
+	bool respawnAtPad = false;
+	for (s32 i = 0; i < forgeLevelDocCaseMarkerCount(doc); ++i) {
+		forge_level_case_marker_t marker;
+		if (!forgeLevelDocGetCaseMarker(doc, i, &marker) || marker.team != s_LevelFileCaseTeam) continue;
+		if (marker.respawn) {
+			++respawns;
+			respawnAtPad |= strcmp(marker.pad_ref, pad.pad_ref) == 0;
+		} else {
+			snprintf(home, sizeof(home), "%s", marker.pad_ref);
+		}
+	}
+	ImGui::BeginDisabled(!havePad || strcmp(home, pad.pad_ref) == 0);
+	const bool setHome = ImGui::Button(home[0] ? "Replace Case Home###LevelFileCaseHome"
+		: "Set Case Home###LevelFileCaseHome");
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::BeginDisabled(!havePad || respawnAtPad || respawns >= NET_SCENARIO_CTC_SPAWNPADS);
+	const bool addRespawn = ImGui::Button("Add Team Respawn");
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	ImGui::Text("%d/%d", respawns, NET_SCENARIO_CTC_SPAWNPADS);
+	if (setHome || addRespawn) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = setHome
+			? forgeLevelDocSetCaseHome(doc, s_LevelFileCaseTeam, pad.pad_ref, err, sizeof(err))
+			: forgeLevelDocAddCaseRespawn(doc, s_LevelFileCaseTeam, pad.pad_ref, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "%s at %s.", setHome ? "Set case home" : "Added team respawn", pad.pad_ref);
+		} else {
+			forgeLevelFileStatus(true, "Could not update case markers: %s", err);
+		}
+	}
+
+	const s32 count = forgeLevelDocCaseMarkerCount(doc);
+	if (count == 0) return;
+	s32 remove = -1;
+	ImGui::BeginChild("LevelFileCaseMarkers", ImVec2(-1, 104 * pdguiScale(1.0f)), true);
+	{
+		ImGuiListClipper clipper;
+		clipper.Begin(count);
+		while (clipper.Step()) {
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+				forge_level_case_marker_t marker;
+				if (!forgeLevelDocGetCaseMarker(doc, i, &marker)) continue;
+				char label[96];
+				snprintf(label, sizeof(label), "Base %d   %s   %s", marker.team + 1,
+					marker.respawn ? "Team respawn" : "Case home", marker.pad_ref);
+				ImGui::PushID(i);
+				const bool selected = marker.team == s_LevelFileCaseTeam && strcmp(marker.pad_ref, pad.pad_ref) == 0;
+				if (ImGui::Selectable(label, selected, 0, ImVec2(ImGui::CalcTextSize(label).x, 0))) {
+					s_LevelFileCaseTeam = marker.team;
+					snprintf(s_LevelFileCasePad, sizeof(s_LevelFileCasePad), "%s", marker.pad_ref);
+				}
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Remove")) remove = i;
+				ImGui::PopID();
+			}
+		}
+	}
+	ImGui::EndChild();
+	if (remove >= 0) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocRemoveCaseMarker(doc, remove, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "Removed case marker.");
+		} else {
+			forgeLevelFileStatus(true, "Could not remove case marker: %s", err);
+		}
+	}
+}
+
+static void forgeDrawLevelFileTriggerPreview(const forge_level_pad_t &pad, const f32 halfSize[3])
+{
+	const s32 nativeWidth = videoGetNativeWidth();
+	const s32 nativeHeight = videoGetNativeHeight();
+	if (nativeWidth <= 0 || nativeHeight <= 0) return;
+	const ImVec2 display = ImGui::GetIO().DisplaySize;
+	const ImVec2 scale(display.x / nativeWidth, display.y / nativeHeight);
+	f32 low[3], high[3];
+	for (int axis = 0; axis < 3; ++axis) {
+		if (!std::isfinite(halfSize[axis]) || halfSize[axis] < FORGE_LEVEL_TRIGGER_MIN_HALF_SIZE
+				|| halfSize[axis] > FORGE_LEVEL_TRIGGER_MAX_HALF_SIZE) return;
+		low[axis] = pad.position[axis] - halfSize[axis];
+		high[axis] = pad.position[axis] + halfSize[axis];
+		if (!std::isfinite(low[axis]) || !std::isfinite(high[axis]) || low[axis] >= high[axis]) return;
+	}
+
+	ImVec2 corners[8];
+	bool projected[8] = {};
+	for (int i = 0; i < 8; ++i) {
+		const f32 world[3] = { i & 1 ? high[0] : low[0], i & 2 ? high[1] : low[1], i & 4 ? high[2] : low[2] };
+		f32 x, y;
+		if (forgeProjectWorldPos(world, &x, &y, nullptr)) {
+			corners[i] = ImVec2(x * scale.x, y * scale.y);
+			projected[i] = std::isfinite(corners[i].x) && std::isfinite(corners[i].y);
+		}
+	}
+	ImDrawList *draw = ImGui::GetBackgroundDrawList();
+	const float thickness = pdguiScale(1.5f);
+	for (int i = 0; i < 8; ++i) {
+		if (!projected[i]) continue;
+		for (int axis = 0; axis < 3; ++axis) {
+			const int end = i | (1 << axis);
+			if (end != i && projected[end]) draw->AddLine(corners[i], corners[end], IM_COL32(120, 220, 255, 230), thickness);
+		}
+	}
+}
+
+static void forgeDrawLevelFileTriggers(forge_level_doc_t *doc, const forge_level_pad_t *start, bool opening)
+{
+	static float newHalfSize[3] = {100.0f, 100.0f, 100.0f};
+	static forge_level_trigger_t selected = {};
+	static char editedPad[32];
+	static char editedTarget[32];
+	static float editedHalfSize[3];
+	static u32 selectionGeneration;
+	const u32 generation = forgeLevelSessionGeneration();
+	if (opening || selectionGeneration != generation) {
+		selected = {};
+		selectionGeneration = generation;
+	}
+	const bool editing = selected.volume_id[0] != '\0';
+	static const char *const actions[] = {"Open Door", "Give Fixed Pickup"};
+	if (editing) {
+		ImGui::Text("Editing %s at %s", selected.action == FORGE_LEVEL_TRIGGER_GIVE_PICKUP
+			? actions[1] : actions[0], selected.pad_ref);
+	} else if (ImGui::Combo("Action", &s_LevelFileTriggerAction, actions, IM_ARRAYSIZE(actions))) {
+		s_LevelFileTriggerTarget[0] = '\0';
+	}
+	const s32 action = editing ? selected.action : s_LevelFileTriggerAction;
+	const bool pickup = action == FORGE_LEVEL_TRIGGER_GIVE_PICKUP;
+	forge_level_pad_t pad = {};
+	char (&padSelection)[32] = editing ? editedPad : s_LevelFileTriggerPad;
+	const bool pickedPad = forgeLevelFilePickPad(doc, "Trigger pad", padSelection, start, pad);
+	const bool hasBounds = pickedPad && pad.has_volume;
+	const bool relocated = editing && hasBounds && strcmp(selected.pad_ref, pad.pad_ref) != 0;
+	const bool validCenter = hasBounds && ((editing && !relocated) || forgeLevelLivePositionInRoom(pad.position));
+	if (pickedPad && !hasBounds) ImGui::TextDisabled("Choose a pad with native bounds.");
+	else if (hasBounds && !validCenter) ImGui::TextDisabled("The trigger center must be inside a loaded room.");
+	char (&target)[32] = editing ? editedTarget : s_LevelFileTriggerTarget;
+	const char *targetId = target[0] ? target : s_LevelFileObject;
+	bool haveTarget = forgeLevelDocCanTriggerObject(doc, action, targetId) != 0;
+	const char *placeholder = pickup ? "Select a placed fixed pickup" : "Select a placed door";
+	if (ImGui::BeginCombo(pickup ? "Pickup to give" : "Door to open", haveTarget ? targetId : placeholder)) {
+		for (s32 i = 0; i < forgeLevelDocObjectCount(doc); ++i) {
+			forge_level_object_t object;
+			if (!forgeLevelDocGetObject(doc, i, &object) || !forgeLevelDocCanTriggerObject(doc, action, object.record_id)) continue;
+			char name[128];
+			if (pickup) snprintf(name, sizeof(name), "%s  %s", object.record_id, object.weapon_catalog_id);
+			else snprintf(name, sizeof(name), "%s", object.record_id);
+			if (ImGui::Selectable(name, haveTarget && strcmp(object.record_id, targetId) == 0)) {
+				snprintf(target, sizeof(target), "%s", object.record_id);
+				targetId = target;
+				haveTarget = true;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	float *halfSize = editing ? editedHalfSize : newHalfSize;
+	ImGui::SliderFloat3("Half-size (X/Y/Z)", halfSize, FORGE_LEVEL_TRIGGER_MIN_HALF_SIZE,
+		FORGE_LEVEL_TRIGGER_MAX_HALF_SIZE, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+	const bool unchanged = editing && !relocated && strcmp(selected.target_id, targetId) == 0
+		&& memcmp(selected.half_size, halfSize, sizeof(selected.half_size)) == 0;
+	ImGui::BeginDisabled(!validCenter || !haveTarget || unchanged);
+	const bool apply = ImGui::Button(editing ? "Apply Trigger Edits"
+		: (pickup ? "Give Fixed Pickup on Enter" : "Open Door on Enter"));
+	ImGui::EndDisabled();
+	if (editing) {
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel Edit")) {
+			selected = {};
+			return;
+		}
+	}
+	if (apply) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = editing
+			? forgeLevelDocUpdateTrigger(doc, selected.volume_id, pad.pad_ref, targetId, halfSize, err, sizeof(err))
+			: forgeLevelDocAddTrigger(doc, action, pad.pad_ref, targetId, halfSize, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "%s trigger at %s.", editing ? "Updated" : "Added", pad.pad_ref);
+			if (editing) {
+				selected = {};
+				return;
+			}
+		} else {
+			forgeLevelFileStatus(true, "Could not %s trigger: %s", editing ? "update" : "add", err);
+		}
+	}
+	if (validCenter) forgeDrawLevelFileTriggerPreview(pad, halfSize);
+	if (editing) return;
+	for (s32 i = 0; i < forgeLevelDocTriggerCount(doc); ++i) {
+		forge_level_trigger_t trigger;
+		if (!forgeLevelDocGetTrigger(doc, i, &trigger)) continue;
+		ImGui::PushID(trigger.volume_id);
+		ImGui::Text("%s %s %s", trigger.pad_ref,
+			trigger.action == FORGE_LEVEL_TRIGGER_GIVE_PICKUP ? "gives" : "opens", trigger.target_id);
+		if (trigger.editable) {
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Edit Trigger")) {
+				selected = trigger;
+				selectionGeneration = forgeLevelSessionGeneration();
+				snprintf(editedPad, sizeof(editedPad), "%s", trigger.pad_ref);
+				snprintf(editedTarget, sizeof(editedTarget), "%s", trigger.target_id);
+				memcpy(editedHalfSize, trigger.half_size, sizeof(editedHalfSize));
+			}
+		}
+		ImGui::SameLine();
+		const bool remove = ImGui::SmallButton("Remove Trigger");
+		ImGui::PopID();
+		if (remove) {
+			char err[256] = {};
+			forgeLevelSessionEditBegin();
+			const s32 changed = forgeLevelDocRemoveTrigger(doc, i, err, sizeof(err));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) forgeLevelFileStatus(false, "Removed trigger at %s.", trigger.pad_ref);
+			else forgeLevelFileStatus(true, "Could not remove trigger: %s", err);
+			break;
+		}
+	}
+}
+
+static void forgeDrawLevelFileLogicZones(forge_level_doc_t *doc, const forge_level_pad_t *start, bool opening)
+{
+	static forge_level_logic_zone_t selected;
+	static char selectedPad[32];
+	static f32 halfSize[3] = {100.0f, 100.0f, 100.0f};
+	if (opening) {
+		selected = {};
+		selectedPad[0] = '\0';
+	}
+	const bool editing = selected.volume_id[0] != '\0';
+	if (editing) ImGui::Text("Editing %s", selected.volume_id);
+	forge_level_pad_t pad = {};
+	const bool pickedPad = forgeLevelFilePickPad(doc, "Zone pad", selectedPad, start, pad);
+	const bool anchored = editing && pickedPad && strcmp(selected.pad_ref, pad.pad_ref) == 0;
+	const bool validCenter = pickedPad && pad.has_volume && (anchored || forgeLevelLivePositionInRoom(pad.position));
+	if (pickedPad && !validCenter) ImGui::TextDisabled("Choose a pad with bounds inside a loaded room.");
+	ImGui::SliderFloat3("Half-size (X/Y/Z)", halfSize, FORGE_LEVEL_TRIGGER_MIN_HALF_SIZE,
+		FORGE_LEVEL_TRIGGER_MAX_HALF_SIZE, "%.0f", ImGuiSliderFlags_AlwaysClamp);
+	if (validCenter) forgeDrawLevelFileTriggerPreview(pad, halfSize);
+	const bool unchanged = anchored && memcmp(selected.half_size, halfSize, sizeof(halfSize)) == 0;
+	ImGui::BeginDisabled(!validCenter || unchanged);
+	const bool apply = ImGui::Button(editing ? "Apply Zone Changes" : "Create Zone");
+	ImGui::EndDisabled();
+	if (editing) {
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel Edit")) {
+			selected = {};
+			return;
+		}
+	}
+	if (apply) {
+		char id[32] = {}, error[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = editing
+			? forgeLevelDocUpdateLogicZone(doc, selected.volume_id, pad.pad_ref, halfSize, error, sizeof(error))
+			: forgeLevelDocAddLogicZone(doc, pad.pad_ref, halfSize, id, sizeof(id), error, sizeof(error));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "%s %s at %s.", editing ? "Updated" : "Created",
+				editing ? selected.volume_id : id, pad.pad_ref);
+			selected = {};
+		} else {
+			forgeLevelFileStatus(true, "%s", error);
+		}
+	}
+	if (editing) return;
+
+	for (s32 i = 0; i < forgeLevelDocLogicZoneCount(doc); ++i) {
+		forge_level_logic_zone_t zone;
+		if (!forgeLevelDocGetLogicZone(doc, i, &zone)) continue;
+		ImGui::PushID(zone.volume_id);
+		ImGui::Text("%s  %s", zone.volume_id, zone.pad_ref);
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Edit")) {
+			selected = zone;
+			snprintf(selectedPad, sizeof(selectedPad), "%s", zone.pad_ref);
+			memcpy(halfSize, zone.half_size, sizeof(halfSize));
+		}
+		ImGui::SameLine();
+		ImGui::BeginDisabled(zone.referenced != 0);
+		const bool remove = ImGui::SmallButton("Remove");
+		ImGui::EndDisabled();
+		if (zone.referenced) {
+			ImGui::SameLine();
+			ImGui::TextDisabled("Used by level logic");
+		}
+		ImGui::PopID();
+		if (remove) {
+			char error[256] = {};
+			forgeLevelSessionEditBegin();
+			const s32 changed = forgeLevelDocRemoveLogicZone(doc, zone.volume_id, error, sizeof(error));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) forgeLevelFileStatus(false, "Removed %s.", zone.volume_id);
+			else forgeLevelFileStatus(true, "%s", error);
+			break;
+		}
+	}
+}
+
+static void forgeDrawLevelFileRoomBrightness(forge_level_doc_t *doc)
+{
+	const s32 count = forgeLevelDocRoomBrightnessCount(doc);
+	if (!count || !forgeLevelSessionCanEditRoomBrightness()) {
+		ImGui::TextWrapped("This level has no editable native room brightness ranges.");
+		return;
+	}
+	static s32 selection;
+	static s32 minimum, maximum;
+	static u32 generation = (u32)-1;
+	const u32 current = forgeLevelSessionGeneration();
+	if (selection >= count) selection = 0;
+	forge_level_room_brightness_t room;
+	if (!forgeLevelDocGetRoomBrightness(doc, selection, &room)) return;
+	if (generation != current) {
+		minimum = room.minimum;
+		maximum = room.maximum;
+		generation = current;
+	}
+
+	char label[32];
+	snprintf(label, sizeof(label), "Room %d", room.roomnum);
+	if (ImGui::BeginCombo("Room", label)) {
+		ImGuiListClipper clipper;
+		clipper.Begin(count);
+		while (clipper.Step()) {
+			for (s32 i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+				forge_level_room_brightness_t option;
+				if (!forgeLevelDocGetRoomBrightness(doc, i, &option)) continue;
+				snprintf(label, sizeof(label), "Room %d", option.roomnum);
+				if (ImGui::Selectable(label, i == selection)) {
+					selection = i;
+					room = option;
+					minimum = room.minimum;
+					maximum = room.maximum;
+				}
+				if (i == selection) ImGui::SetItemDefaultFocus();
+			}
+		}
+		ImGui::EndCombo();
+	}
+
+	ImGui::SliderInt("Minimum", &minimum, 0, 255, "%d", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderInt("Maximum", &maximum, 0, 255, "%d", ImGuiSliderFlags_AlwaysClamp);
+	if (minimum > maximum) ImGui::TextWrapped("Minimum must be at or below maximum.");
+	if (room.has_base_override) {
+		ImGui::TextDisabled("This room has an authored base brightness override.");
+	} else {
+		scenario_stage_atmosphere_t atmosphere = {};
+		if (forgeLevelDocGetAtmosphere(doc, &atmosphere) && atmosphere.has_ambient) {
+			ImGui::TextDisabled("Stage ambient sets the base brightness in this room.");
+		}
+	}
+	ImGui::BeginDisabled(minimum > maximum || (minimum == room.minimum && maximum == room.maximum));
+	const bool apply = ImGui::Button("Apply Room Brightness");
+	ImGui::EndDisabled();
+	ImGui::TextDisabled("Preview in Play Draft.");
+	if (apply) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocSetRoomBrightness(doc, room.roomnum, minimum, maximum, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) forgeLevelFileStatus(false, "Updated room %d brightness.", room.roomnum);
+		else forgeLevelFileStatus(true, "Could not update room brightness: %s", err);
+	}
+}
+
+static std::string s_LevelFileLogicText;
+static bool s_LevelFileLogicChanged;
+
+static void forgeLoadLevelLogic(forge_level_doc_t *doc)
+{
+	size_t size = 0;
+	const char *text = forgeLevelDocMemberText(doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH, &size);
+	s_LevelFileLogicText.assign(text ? text : "", size);
+	s_LevelFileLogicChanged = false;
+}
+
+static int forgeResizeLogicInput(ImGuiInputTextCallbackData *edit)
+{
+	auto &text = *static_cast<std::string *>(edit->UserData);
+	text.resize(static_cast<size_t>(edit->BufTextLen));
+	edit->Buf = text.data();
+	return 0;
+}
+
+static void forgeDrawLevelFileLogic(forge_level_doc_t *doc, bool opening)
+{
+	static s32 selectedZone = 0;
+	if (opening) {
+		forgeLoadLevelLogic(doc);
+		selectedZone = 0;
+	}
+	ImGui::TextWrapped("Edit the level's event, gate, and action nodes and their execution links. "
+		"Apply the logic to the draft, then use Play Draft to try it.");
+	forge_level_logic_zone_t zone;
+	const s32 zones = forgeLevelDocLogicZoneCount(doc);
+	if (zones && forgeLevelDocGetLogicZone(doc, selectedZone, &zone)) {
+		ImGui::BeginDisabled(s_LevelFileLogicChanged);
+		if (ImGui::BeginCombo("Logic Zone", zone.volume_id)) {
+			for (s32 i = 0; i < zones; ++i) {
+				forge_level_logic_zone_t option;
+				if (!forgeLevelDocGetLogicZone(doc, i, &option)) continue;
+				if (ImGui::Selectable(option.volume_id, i == selectedZone)) {
+					selectedZone = i;
+					zone = option;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		const bool enter = ImGui::Button("Add Enter Event");
+		ImGui::SameLine();
+		const bool leave = ImGui::Button("Add Leave Event");
+		ImGui::EndDisabled();
+		if (enter || leave) {
+			char id[64] = {}, error[256] = {};
+			forgeLevelSessionEditBegin();
+			const s32 changed = forgeLevelDocAddLogicZoneEvent(doc, zone.volume_id,
+				enter ? FORGE_LEVEL_LOGIC_ZONE_ENTER : FORGE_LEVEL_LOGIC_ZONE_LEAVE, id, sizeof(id), error, sizeof(error));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) {
+				forgeLoadLevelLogic(doc);
+				forgeLevelFileStatus(false, "Added %s. Link its execution to a gate or action.", id);
+			} else {
+				forgeLevelFileStatus(true, "%s", error);
+			}
+		}
+	}
+	const float height = std::fmin(pdguiScale(312.0f), ImGui::GetIO().DisplaySize.y * 0.45f);
+	if (ImGui::InputTextMultiline("##LevelLogicSource", s_LevelFileLogicText.data(),
+			s_LevelFileLogicText.capacity() + 1, ImVec2(-FLT_MIN, height),
+			ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_AllowTabInput,
+			forgeResizeLogicInput, &s_LevelFileLogicText)) {
+		s_LevelFileLogicChanged = true;
+	}
+	ImGui::BeginDisabled(!s_LevelFileLogicChanged);
+	const bool apply = ImGui::Button("Apply Logic to Draft");
+	ImGui::SameLine();
+	const bool revert = ImGui::Button("Revert Text");
+	ImGui::EndDisabled();
+	if (revert) forgeLoadLevelLogic(doc);
+	if (!apply) return;
+
+	char error[256] = {};
+	forgeLevelSessionEditBegin();
+	const s32 changed = forgeLevelDocReplaceLogic(doc, s_LevelFileLogicText.data(),
+		s_LevelFileLogicText.size(), error, sizeof(error));
+	forgeLevelSessionEditEnd(changed);
+	if (!changed && error[0]) {
+		forgeLevelFileStatus(true, "%s", error);
+		return;
+	}
+	forgeLoadLevelLogic(doc);
+	forgeLevelFileStatus(false, changed ? "Level logic updated." : "The executable logic matches the draft.");
+}
+
+static constexpr const char *kForgeDefaultHoverbikeModel = "base:model_hovbike";
+
+static s32 forgePlaceLevelHoverbike(forge_level_doc_t *doc, const char *model,
+	const f32 position[3], const f32 look[3])
+{
+	char id[32], err[256] = {};
+	forgeLevelSessionEditBegin();
+	const s32 changed = forgeLevelDocAddHoverbike(doc, model, position, look, id, sizeof(id), err, sizeof(err));
+	forgeLevelSessionEditEnd(changed);
+	if (changed) {
+		forgeLevelFileStatus(false, "Added the hoverbike %s where the camera is, facing the way it looks.", id);
+		snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
+		s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
+	} else {
+		forgeLevelFileStatus(true, "Could not add a hoverbike: %s", err);
+	}
+	return changed;
+}
+
+static bool forgeDrawLevelFileHoverbikePicker(forge_level_doc_t *doc, const f32 position[3],
+	const f32 look[3], bool opening)
+{
+	static char vehicle[CATALOG_ID_LEN];
+	if (opening) vehicle[0] = '\0';
+	ImGui::SetNextItemWidth(310.0f * pdguiScale(1.0f));
+	if (ImGui::BeginCombo("Hoverbike", vehicle[0] ? vehicle : "Default Hoverbike")) {
+		if (ImGui::Selectable("Default Hoverbike", !vehicle[0])) vehicle[0] = '\0';
+		if (!vehicle[0]) ImGui::SetItemDefaultFocus();
+		/* The iterator owns the catalog lock. Resolve linked models afterward. */
+		std::vector<std::string> ids;
+		assetCatalogIterateByType(ASSET_VEHICLE, [](const asset_entry_t *entry, void *data) {
+			if (!entry->bundled) static_cast<std::vector<std::string> *>(data)->emplace_back(entry->id);
+		}, &ids);
+		for (const std::string &id : ids) {
+			if (!assetRuntimeVehiclePlacementModel(id.c_str())) continue;
+			const bool selected = id == vehicle;
+			if (ImGui::Selectable(id.c_str(), selected)) snprintf(vehicle, sizeof(vehicle), "%s", id.c_str());
+			if (selected) ImGui::SetItemDefaultFocus();
+		}
+		ImGui::EndCombo();
+	}
+	if (opening) ImGui::SetItemDefaultFocus();
+	const asset_entry_t *model = vehicle[0] ? assetRuntimeVehiclePlacementModel(vehicle) : nullptr;
+	ImGui::BeginDisabled(vehicle[0] && !model);
+	const bool place = ImGui::Button("Place Here");
+	ImGui::EndDisabled();
+	if (vehicle[0] && !model) ImGui::TextDisabled("Choose an available hoverbike.");
+	if (!place) return false;
+	return forgePlaceLevelHoverbike(doc, model ? model->id : kForgeDefaultHoverbikeModel, position, look) != 0;
+}
+
+static void forgeDrawLevelFileTools(forge_level_doc_t *doc, const forge_level_pad_t *start, int request,
+	const f32 position[3], const f32 look[3])
+{
+	static int active;
+	static u32 generation;
+	if (request) {
+		active = request;
+		generation = forgeLevelSessionGeneration();
+	}
+	if (!active) return;
+	const char *title = "Bot Navigation###GridLevelTools";
+	if (active == kForgeFileEditTriggers) title = "Triggers###GridLevelTools";
+	if (active == kForgeFileEditRoomBrightness) title = "Room Brightness###GridLevelTools";
+	if (active == kForgeFileEditLogic) title = "Level Logic###GridLevelTools";
+	if (active == kForgeFileEditLogicZones) title = "Logic Zones###GridLevelTools";
+	if (active == kForgeFileAddHoverbike) title = "Choose Hoverbike###GridLevelTools";
+	if (request) ImGui::OpenPopup(title);
+	const float scale = pdguiScale(1.0f);
+	const float maxWidth = (active == kForgeFileEditLogic ? 760.0f : 560.0f) * scale;
+	ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(maxWidth, ImGui::GetIO().DisplaySize.y * 0.75f));
+	if (!ImGui::BeginPopupModal(title, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+		active = 0;
+		menupoolRelease(MENU_TYPE_GRID_LEVEL_TOOLS);
+		return;
+	}
+	if (request) {
+		menupoolAcquire(MENU_TYPE_GRID_LEVEL_TOOLS, nullptr, &g_CtxImGuiMenu);
+		pdguiNavSuppressOpeningGesture();
+	}
+	bool close = !menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS) || !doc || netGetMode() != 0
+		|| generation != forgeLevelSessionGeneration();
+	if (!close) {
+		if (active == kForgeFileEditTriggers) forgeDrawLevelFileTriggers(doc, start, request == kForgeFileEditTriggers);
+		else if (active == kForgeFileEditRoomBrightness) forgeDrawLevelFileRoomBrightness(doc);
+		else if (active == kForgeFileEditLogic) forgeDrawLevelFileLogic(doc, request == kForgeFileEditLogic);
+		else if (active == kForgeFileEditLogicZones) forgeDrawLevelFileLogicZones(doc, start, request == kForgeFileEditLogicZones);
+		else if (active == kForgeFileAddHoverbike) close = forgeDrawLevelFileHoverbikePicker(doc, position, look,
+			request == kForgeFileAddHoverbike);
+		else forgeDrawLevelFileWaypoints(doc, start);
+		generation = forgeLevelSessionGeneration();
+		forgeLevelFileDrawStatus();
+		const bool editingLogic = active == kForgeFileEditLogic && s_LevelFileLogicChanged;
+		close = ImGui::Button(editingLogic ? "Discard Text and Close"
+			: active == kForgeFileAddHoverbike ? "Cancel" : "Close") || close;
+		if (pdguiMenuCancelPressed() && !editingLogic) close = true;
+	}
+	if (close) ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
+	if (close) {
+		active = 0;
+		menupoolRelease(MENU_TYPE_GRID_LEVEL_TOOLS);
+	}
+}
+
+static grid_match_sources_t s_LevelVariantReview;
+static pdgui_grid_variant_picker_t s_LevelVariantPicker;
+static u32 s_LevelVariantGeneration;
+
+static void forgeLevelClearVariantReview(void)
+{
+	gridMatchSourcesFree(&s_LevelVariantReview);
+	s_LevelVariantPicker = {};
+}
+
+void pdguiBeginGridVariantPicker(pdgui_grid_variant_picker_t &picker,
+	const forge_level_doc_t *doc, const grid_match_sources_t &sources)
+{
+	picker.keep.assign(sources.package_count, 1);
+	picker.power_weapon.assign(forgeLevelDocObjectCount(doc), 0);
+}
+
+static bool gridVariantOmitted(const pdgui_grid_variant_picker_t &picker,
+	const grid_match_sources_t &sources, const char *id, asset_type_e type)
+{
+	for (size_t i = 0; id[0] && i < sources.entry_count; i++) {
+		const auto &source = sources.entries[i];
+		if (source.asset.type == type && strcmp(source.asset.id, id) == 0) {
+			return !picker.keep[source.package_index];
+		}
+	}
+	return false;
+}
+
+bool pdguiDrawGridVariantPicker(pdgui_grid_variant_picker_t &picker,
+	const forge_level_doc_t *doc, const grid_match_sources_t &sources,
+	pdgui_grid_variant_selection_t &selection, char *err, size_t err_cap)
+{
+	size_t modCount = 0;
+	for (size_t i = 0; i < sources.package_count; i++) {
+		const auto &package = sources.packages[i];
+		if (package.bundled || package.owner.type == ASSET_ARENA || strncmp(package.owner.id, "base:", 5) == 0) continue;
+		ImGui::PushID(static_cast<s32>(i));
+		bool keep = picker.keep[i] != 0;
+		ImGui::Checkbox("Keep", &keep);
+		ImGui::SameLine();
+		ImGui::TextUnformatted(package.owner.id);
+		picker.keep[i] = keep;
+		if (!keep) selection.omitted.push_back(static_cast<u16>(i));
+		ImGui::PopID();
+		modCount++;
+	}
+	if (!modCount) ImGui::TextDisabled("No additional mod packages.");
+	if (selection.omitted.empty()) return true;
+
+	const s32 objects = forgeLevelDocObjectCount(doc);
+	selection.records.resize(objects);
+	selection.pickup_models.resize(objects);
+	bool valid = true;
+	for (s32 i = 0; i < objects; i++) {
+		auto &object = selection.records[i];
+		if (!forgeLevelDocGetObject(doc, i, &object) || object.removed) continue;
+		forge_level_placement_fallback_t fallback = {};
+		fallback.record_id = object.record_id;
+		ImGui::PushID(object.record_id);
+		if (object.weapon_settable && gridVariantOmitted(picker, sources, object.weapon_catalog_id, ASSET_WEAPON)) {
+			const char *roles[] = { "Ordinary weapon (Falcon 2)", "Power weapon (Slayer)" };
+			ImGui::TextUnformatted(object.weapon_catalog_id);
+			ImGui::Combo("Replacement", &picker.power_weapon[i], roles, IM_ARRAYSIZE(roles));
+			const char *weapon = picker.power_weapon[i] ? "base:slayer" : "base:falcon2";
+			auto &model = selection.pickup_models[i];
+			fallback.kind = FORGE_LEVEL_FALLBACK_PICKUP;
+			fallback.expected_catalog_id = object.weapon_catalog_id;
+			fallback.weapon_catalog_id = weapon;
+			fallback.model_catalog_id = model.data();
+			if (!forgeLevelPickupLook(weapon, model.data(), model.size(), &fallback.extra_scale,
+					valid ? err : nullptr, valid ? err_cap : 0)) valid = false;
+			selection.fallbacks.push_back(fallback);
+		} else if (gridVariantOmitted(picker, sources, object.model_catalog_id, ASSET_MODEL)
+				&& (strcmp(object.kind, "prop") == 0 || strcmp(object.kind, "hoverbike") == 0)) {
+			fallback.kind = strcmp(object.kind, "prop") == 0 ? FORGE_LEVEL_FALLBACK_PROP : FORGE_LEVEL_FALLBACK_HOVERBIKE;
+			fallback.expected_catalog_id = object.model_catalog_id;
+			ImGui::Text("%s uses %s", object.record_id,
+				fallback.kind == FORGE_LEVEL_FALLBACK_PROP ? "a base prop" : "the base hoverbike model");
+			selection.fallbacks.push_back(fallback);
+		}
+		ImGui::PopID();
+	}
+	return valid;
+}
+
+static void forgeDrawLevelVariantReview(forge_level_doc_t *doc, bool opening)
+{
+	char err[256] = {};
+	if (opening) {
+		forgeLevelClearVariantReview();
+		if (!forgeLevelSessionReviewVariantSources(&s_LevelVariantReview, err, sizeof(err))) {
+			forgeLevelFileStatus(true, "Could not review the variant: %s", err);
+			return;
+		}
+		pdguiBeginGridVariantPicker(s_LevelVariantPicker, doc, s_LevelVariantReview);
+		s_LevelVariantGeneration = forgeLevelSessionGeneration();
+		ImGui::OpenPopup("Save Variant###GridVariantMods");
+	}
+	const float scale = pdguiScale(1.0f);
+	ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(690.0f * scale, ImGui::GetIO().DisplaySize.y * 0.8f));
+	if (!ImGui::BeginPopupModal("Save Variant###GridVariantMods", nullptr, ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings)) return;
+	if (opening) {
+		menupoolAcquire(MENU_TYPE_GRID_LEVEL_TOOLS, nullptr, &g_CtxImGuiMenu);
+		pdguiNavSuppressOpeningGesture();
+	}
+	bool close = !menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS)
+		|| forgeLevelSessionGeneration() != s_LevelVariantGeneration;
+	if (!close) {
+		ImGui::Text("Variant %s", s_LevelFileName);
+		pdgui_grid_variant_selection_t selection;
+		const bool valid = pdguiDrawGridVariantPicker(s_LevelVariantPicker, doc, s_LevelVariantReview,
+			selection, err, sizeof(err));
+		if (!valid) ImGui::TextWrapped("%s", err);
+		ImGui::BeginDisabled(!valid || !s_LevelFileName[0]);
+		const bool save = ImGui::Button("Save Variant");
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		close = ImGui::Button("Cancel") || pdguiMenuCancelPressed();
+		if (save) {
+			auto *result = static_cast<mod_author_result_t *>(calloc(1, sizeof(mod_author_result_t)));
+			if (result && forgeLevelSessionSaveSelectedVariant(s_LevelFileName, &s_LevelVariantReview,
+					selection.omitted.data(), selection.omitted.size(), selection.fallbacks.data(),
+					selection.fallbacks.size(), result, err, sizeof(err))) {
+				forgeLevelFileStatus(false, "Saved variant %s.", result->catalog_id);
+				close = true;
+			} else {
+				forgeLevelFileStatus(true, "Could not save the variant: %s", result ? err : "out of memory");
+			}
+			free(result);
+		}
+		forgeLevelFileDrawStatus();
+	}
+	if (close) ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
+	if (close) {
+		forgeLevelClearVariantReview();
+		menupoolRelease(MENU_TYPE_GRID_LEVEL_TOOLS);
+	}
+}
+
 static void forgeLevelFileForget(void)
 {
+	forgeLevelClearVariantReview();
+	s_LevelFileLogicText.clear();
+	s_LevelFileLogicChanged = false;
 	s_LevelFileStart[0] = '\0';
+	s_LevelFileCasePad[0] = '\0';
+	s_LevelFileCaseTeam = 0;
+	s_LevelFileTriggerPad[0] = '\0';
+	s_LevelFileTriggerTarget[0] = '\0';
+	s_LevelFileTriggerAction = FORGE_LEVEL_TRIGGER_OPEN_DOOR;
+	s_LevelFileWaypointPad[0] = '\0';
+	s_LevelFileCover[0] = '\0';
+	s_LevelFileRouteTarget[0] = '\0';
 	s_LevelFileObject[0] = '\0';
 	s_LevelFileObjectIndex = -1;
-	s_LevelFileEdits = 0;
+	s_LevelFilePosePreferObject = false;
 	s_LevelFileCloseArmed = false;
 }
 
@@ -2020,6 +3008,157 @@ static void forgeLevelFileCamera(f32 position[3], f32 look[3])
 	look[0] = -sinf(yaw);
 	look[1] = 0.0f;
 	look[2] = cosf(yaw);
+}
+
+struct ForgeLevelFilePose {
+	u32 generation;
+	char id[32];
+	bool object;
+	forge_level_pad_t before;
+	f32 position[3];
+	f32 originalYaw;
+	f32 yaw;
+	char error[256];
+};
+
+static void forgeLevelFilePoseSelect(ForgeLevelFilePose &pose, const char *id,
+		const forge_level_pad_t &pad, s32 objectIndex)
+{
+	pose.generation = forgeLevelSessionGeneration();
+	snprintf(pose.id, sizeof(pose.id), "%s", id);
+	pose.object = objectIndex >= 0;
+	pose.before = pad;
+	memcpy(pose.position, pad.position, sizeof(pose.position));
+	pose.yaw = pose.originalYaw = atan2f(-pad.look[0], pad.look[2]) * (180.0f / 3.14159265358979323846f);
+	pose.error[0] = '\0';
+	s_LevelFilePosePreferObject = pose.object;
+	if (pose.object) {
+		s_LevelFileObjectIndex = objectIndex;
+		snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", pose.id);
+	} else {
+		snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", pose.id);
+	}
+}
+
+static void forgeLevelFilePosePicker(forge_level_doc_t *doc, ForgeLevelFilePose &pose)
+{
+	if (!ImGui::BeginCombo("Placement", pose.id[0] ? pose.id : "Select a start or object", ImGuiComboFlags_HeightLarge)) return;
+
+	ImGui::SeparatorText("Player Starts");
+	for (s32 i = 0; i < forgeLevelDocSpawnCount(doc); ++i) {
+		forge_level_spawn_t start;
+		forge_level_pad_t pad;
+		if (!forgeLevelDocGetSpawn(doc, i, &start) || !forgeLevelDocFindPad(doc, start.pad_ref, &pad)) continue;
+		const bool selected = !pose.object && strcmp(pose.id, start.spawn_id) == 0;
+		if (ImGui::Selectable(start.spawn_id, selected) && !selected) {
+			forgeLevelFilePoseSelect(pose, start.spawn_id, pad, -1);
+		}
+		if (selected) ImGui::SetItemDefaultFocus();
+	}
+	ImGui::SeparatorText("Objects");
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc); ++i) {
+		forge_level_object_t object;
+		forge_level_pad_t pad;
+		if (!forgeLevelDocGetObject(doc, i, &object) || !object.movable
+				|| !forgeLevelDocFindPad(doc, object.pad_ref, &pad)) continue;
+		const bool selected = pose.object && strcmp(pose.id, object.record_id) == 0;
+		char label[128];
+		snprintf(label, sizeof(label), "%s (%s)###%s", object.record_id, object.kind, object.record_id);
+		if (ImGui::Selectable(label, selected) && !selected) {
+			forgeLevelFilePoseSelect(pose, object.record_id, pad, i);
+		}
+		if (selected) ImGui::SetItemDefaultFocus();
+	}
+	ImGui::EndCombo();
+}
+
+static void forgeDrawLevelFilePose(forge_level_doc_t *doc, bool request)
+{
+	static const char popup[] = "Edit Placement##LevelFilePose";
+	static ForgeLevelFilePose pose;
+	if (request) {
+		pose = {};
+		pose.generation = forgeLevelSessionGeneration();
+		forge_level_pad_t startPad, objectPad;
+		forge_level_object_t object;
+		const bool haveStart = forgeLevelFileStartPad(doc, s_LevelFileStart, &startPad);
+		const bool haveObject = s_LevelFileObjectIndex >= 0 && forgeLevelDocGetObject(doc, s_LevelFileObjectIndex, &object)
+			&& object.movable && strcmp(object.record_id, s_LevelFileObject) == 0
+			&& forgeLevelDocFindPad(doc, object.pad_ref, &objectPad);
+		if (haveObject && (s_LevelFilePosePreferObject || !haveStart)) {
+			forgeLevelFilePoseSelect(pose, object.record_id, objectPad, s_LevelFileObjectIndex);
+		} else if (haveStart) {
+			forgeLevelFilePoseSelect(pose, s_LevelFileStart, startPad, -1);
+		}
+		ImGui::OpenPopup(popup);
+	}
+	if (!ImGui::BeginPopupModal(popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+		menupoolRelease(MENU_TYPE_GRID_PLACEMENT);
+		return;
+	}
+	if (request) {
+		menupoolAcquire(MENU_TYPE_GRID_PLACEMENT, nullptr, &g_CtxImGuiMenu);
+		pdguiNavSuppressOpeningGesture();
+	}
+	if (!menupoolIsActive(MENU_TYPE_GRID_PLACEMENT) || netGetMode() != 0
+			|| pose.generation != forgeLevelSessionGeneration()) {
+		forgeLevelFileStatus(true, "The Level File changed. Reopen Edit Placement to try again.");
+		ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		menupoolRelease(MENU_TYPE_GRID_PLACEMENT);
+		return;
+	}
+
+	ImGui::SetNextItemWidth(235.0f * pdguiScale(1.0f));
+	forgeLevelFilePosePicker(doc, pose);
+	ImGui::BeginDisabled(!pose.id[0]);
+	ImGui::SetNextItemWidth(235.0f * pdguiScale(1.0f));
+	if (ImGui::InputFloat3("World X, Y, Z", pose.position, "%.3f")) pose.error[0] = '\0';
+	ImGui::SetNextItemWidth(235.0f * pdguiScale(1.0f));
+	if (ImGui::InputFloat("Yaw (degrees)", &pose.yaw, 1.0f, 15.0f, "%.2f")) pose.error[0] = '\0';
+
+	const f32 yaw = std::isfinite(pose.yaw) ? remainderf(pose.yaw, 360.0f) : pose.yaw;
+	const bool yawChanged = !std::isfinite(yaw) || remainderf(yaw - pose.originalYaw, 360.0f) != 0.0f;
+	const bool positionChanged = pose.position[0] != pose.before.position[0]
+		|| pose.position[1] != pose.before.position[1] || pose.position[2] != pose.before.position[2];
+	bool close = false;
+	ImGui::BeginDisabled(!positionChanged && !yawChanged);
+	if (ImGui::Button("Apply Placement")) {
+		if (!std::isfinite(yaw) || !std::isfinite(pose.position[0])
+				|| !std::isfinite(pose.position[1]) || !std::isfinite(pose.position[2])) {
+			snprintf(pose.error, sizeof(pose.error), "Position and yaw must be finite numbers.");
+		} else if (!forgeLevelLivePositionInRoom(pose.position)) {
+			snprintf(pose.error, sizeof(pose.error), "Choose a position inside a room of the loaded level.");
+		} else {
+			f32 look[3];
+			memcpy(look, pose.before.look, sizeof(look));
+			if (yawChanged) {
+				const f32 forward[3] = { 0.0f, 0.0f, 1.0f };
+				forgeLevelTurnLook(forward, yaw, look);
+			}
+			forgeLevelSessionEditBegin();
+			const s32 changed = pose.object
+				? forgeLevelDocMoveObject(doc, pose.id, pose.position, look, pose.error, sizeof(pose.error))
+				: forgeLevelDocMoveSpawn(doc, pose.id, pose.position, look, pose.error, sizeof(pose.error));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) {
+				forgeLevelFileStatus(false, "Updated the placement of %s.", pose.id);
+				close = true;
+			}
+		}
+	}
+	ImGui::EndDisabled();
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel") || pdguiMenuCancelPressed()) close = true;
+	if (pose.error[0]) {
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.55f, 0.5f, 1.0f));
+		ImGui::TextWrapped("%s", pose.error);
+		ImGui::PopStyleColor();
+	}
+	if (close) ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
+	if (close) menupoolRelease(MENU_TYPE_GRID_PLACEMENT);
 }
 
 /* How far one press of a Nudge button moves a start or an object. */
@@ -2061,6 +3200,113 @@ static bool forgeLevelFileNudgeRow(const char *id, const f32 camera_look[3], f32
 	return pressed;
 }
 
+static void forgeDrawLevelFileAtmosphere(forge_level_doc_t *doc)
+{
+	static scenario_stage_atmosphere_t draft = {};
+	static u32 generation = (u32)-1;
+	const u32 current = forgeLevelSessionGeneration();
+	if (generation != current) {
+		forgeLevelDocGetAtmosphere(doc, &draft);
+		if (!draft.has_sky) {
+			draft.sky_rgb[0] = 64;
+			draft.sky_rgb[1] = 88;
+			draft.sky_rgb[2] = 120;
+		}
+		if (!draft.has_fog) {
+			draft.fog_start = 100;
+			draft.fog_end = 650;
+		}
+		if (!draft.has_ambient) draft.ambient_light = 160;
+		generation = current;
+	}
+
+	ImGui::SeparatorText("Atmosphere");
+	bool sky = draft.has_sky != 0;
+	bool fog = draft.has_fog != 0;
+	bool ambient = draft.has_ambient != 0;
+	ImGui::Checkbox("Set sky color", &sky);
+	ImGui::BeginDisabled(!sky);
+	float rgb[] = {draft.sky_rgb[0] / 255.0f, draft.sky_rgb[1] / 255.0f, draft.sky_rgb[2] / 255.0f};
+	if (ImGui::ColorEdit3("Sky", rgb, ImGuiColorEditFlags_Uint8)) {
+		for (s32 i = 0; i < 3; i++) draft.sky_rgb[i] = static_cast<u8>(rgb[i] * 255.0f + 0.5f);
+	}
+	ImGui::EndDisabled();
+	ImGui::Checkbox("Set fog distance", &fog);
+	ImGui::BeginDisabled(!fog);
+	ImGui::SliderInt("Fog start", &draft.fog_start, 0, draft.fog_end - 1, "%d / 1000", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::SliderInt("Fog end", &draft.fog_end, draft.fog_start + 1, 1000, "%d / 1000", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::EndDisabled();
+	ImGui::Checkbox("Set ambient light", &ambient);
+	ImGui::BeginDisabled(!ambient);
+	ImGui::SliderInt("Default room brightness", &draft.ambient_light, 0, 255, "%d", ImGuiSliderFlags_AlwaysClamp);
+	ImGui::EndDisabled();
+
+	const asset_entry_t *song = draft.primary_music[0] ? assetCatalogResolve(draft.primary_music) : nullptr;
+	const char *name = song && song->type == ASSET_AUDIO && song->ext.audio.name[0]
+		? song->ext.audio.name : draft.primary_music[0] ? draft.primary_music : "Stage default";
+	if (ImGui::BeginCombo("Music", name)) {
+		if (ImGui::Selectable("Stage default", !draft.primary_music[0])) draft.primary_music[0] = '\0';
+		assetCatalogIterateUnlockedMusic([](const asset_entry_t *entry, void *context) {
+			/* Stage music uses the game's sequencer. */
+			if (entry->ext.audio.sound_id < 0 && entry->ext.audio.file_path[0]) return;
+			auto *settings = static_cast<scenario_stage_atmosphere_t *>(context);
+			ImGui::PushID(entry->id);
+			const auto *label = entry->ext.audio.name[0] ? entry->ext.audio.name : entry->id;
+			if (ImGui::Selectable(label, strcmp(entry->id, settings->primary_music) == 0)) {
+				snprintf(settings->primary_music, sizeof(settings->primary_music), "%s", entry->id);
+			}
+			ImGui::PopID();
+		}, &draft);
+		ImGui::EndCombo();
+	}
+	draft.has_sky = sky ? 1 : 0;
+	draft.has_fog = fog ? 1 : 0;
+	draft.has_ambient = ambient ? 1 : 0;
+	if (ImGui::Button("Apply Atmosphere")) {
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocSetAtmosphere(doc, &draft, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "Atmosphere updated. Save and reopen to play it.");
+		} else {
+			forgeLevelFileStatus(true, "Atmosphere update failed (%s).", err);
+		}
+	}
+}
+
+static void forgeDrawLevelFileWeather(forge_level_doc_t *doc)
+{
+	s32 kind, intensity;
+	if (!forgeLevelDocGetWeatherStart(doc, &kind, &intensity)) return;
+
+	const char *const options[] = { "Stage default", "Light rain", "Rain", "Heavy rain", "Snow" };
+	int selection = 0;
+	if (kind == SCENARIO_STAGE_WEATHER_START_RAIN) selection = intensity;
+	else if (kind == SCENARIO_STAGE_WEATHER_START_SNOW) selection = 4;
+	if (ImGui::Combo("Weather at stage start", &selection, options, IM_ARRAYSIZE(options))) {
+		if (selection == 0) {
+			kind = SCENARIO_STAGE_WEATHER_START_NONE;
+			intensity = 0;
+		} else if (selection == 4) {
+			kind = SCENARIO_STAGE_WEATHER_START_SNOW;
+			intensity = 1;
+		} else {
+			kind = SCENARIO_STAGE_WEATHER_START_RAIN;
+			intensity = selection;
+		}
+		char err[256] = {};
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocSetWeatherStart(doc, kind, intensity, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "Weather updated. Playtest the draft or load the saved level.");
+		} else if (err[0]) {
+			forgeLevelFileStatus(true, "Weather update failed (%s).", err);
+		}
+	}
+}
+
 static void forgeDrawLevelFileSection(void)
 {
 	forgeScrollAnchorMaybe(FGT_FILE, 0);   /* sidebar "Starts" (the top) */
@@ -2069,29 +3315,35 @@ static void forgeDrawLevelFileSection(void)
 	const char *arena = forgeLevelSessionArena();
 	forge_level_doc_t *doc = forgeLevelSessionDoc();
 	const forge_level_source_t *source = forgeLevelSessionSource();
+	const bool openLevelFile = s_LevelFileOpenRequested && forgeCanOpenLevelFileFromEditor();
+	const bool editPlacement = s_LevelFilePoseRequested && netGetMode() == 0;
+	const bool saveOpened = s_LevelFileSaveRequested && netGetMode() == 0;
+	const int toolRequest = netGetMode() == 0 ? s_LevelFileToolRequested : 0;
+	s_LevelFileOpenRequested = false;
+	s_LevelFilePoseRequested = false;
+	s_LevelFileSaveRequested = false;
+	s_LevelFileToolRequested = 0;
 	char err[256];
 	err[0] = '\0';
 
 	if (!doc || !source) {
+		if (saveOpened) forgeLevelFileStatus(true, "Open an original Level File to save it.");
 		if (!arena || !arena[0]) {
-			ImGui::TextWrapped(
-				"This session was not started on a level from The Grid's list, "
-				"so it has no level file to edit.");
+			ImGui::TextWrapped("Choose a level in %s to edit its level file.", forgeDisplayName());
 		} else {
 			ImGui::Text("Level: %s", arena);
-			if (ImGui::Button("Open Level File")) {
+			if (ImGui::Button("Open Level File") || openLevelFile || editPlacement || toolRequest) {
 				forgeLevelFileForget();
 				if (forgeLevelSessionOpen(arena, err, sizeof(err))) {
 					forgeLevelFileStatus(false, "Opened %s.", arena);
+					s_LevelFilePoseRequested = editPlacement;
+					s_LevelFileToolRequested = toolRequest;
 				} else {
 					forgeLevelFileStatus(true, "Could not open %s: %s", arena, err);
 				}
 			}
-			ImGui::TextWrapped(
-				"Reads this level's player starts and objects from its archive. "
-				"Nothing changes until you save, and you save under a name: a level "
-				"of your own saved under its own name is updated, and one of the "
-				"game's own levels always stays as it is.");
+			ImGui::TextWrapped("Edit player starts, objects, and level rules from this archive. "
+				"Save your original in place or save a separate level.");
 		}
 		forgeLevelFileDrawStatus();
 		return;
@@ -2103,13 +3355,16 @@ static void forgeDrawLevelFileSection(void)
 		char pickObject[32];
 		s32 pickIndex = -1;
 		if (pdguiForgeLevelMarkersTakePick(pickStart, sizeof(pickStart), pickObject, sizeof(pickObject),
-				&pickIndex)) {
+				&pickIndex) && !menupoolIsActive(MENU_TYPE_GRID_PLACEMENT)
+				&& !menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS)) {
 			if (pickObject[0]) {
 				snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", pickObject);
 				s_LevelFileObjectIndex = (int)pickIndex;
+				s_LevelFilePosePreferObject = true;
 				forgeLevelFileStatus(false, "Selected %s.", pickObject);
 			} else if (pickStart[0]) {
 				snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", pickStart);
+				s_LevelFilePosePreferObject = false;
 				forgeLevelFileStatus(false, "Selected %s.", pickStart);
 			}
 		}
@@ -2119,9 +3374,8 @@ static void forgeDrawLevelFileSection(void)
 	ImGui::Text("%d player starts, %d objects, %d pads",
 		(int)forgeLevelDocSpawnCount(doc), (int)forgeLevelDocObjectCount(doc),
 		(int)forgeLevelDocPadCount(doc));
-	if (s_LevelFileEdits > 0) {
-		ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "%d change%s not saved",
-			s_LevelFileEdits, s_LevelFileEdits == 1 ? "" : "s");
+	if (forgeLevelSessionHasUnsavedChanges()) {
+		ImGui::TextColored(ImVec4(1.0f, 0.9f, 0.5f, 1.0f), "Unsaved changes");
 	}
 
 	/* Undo and Redo replace the open document: nothing below may use `doc`
@@ -2143,12 +3397,12 @@ static void forgeDrawLevelFileSection(void)
 		ImGui::EndDisabled();
 		if (undo || redo) {
 			if (undo ? forgeLevelSessionUndo() : forgeLevelSessionRedo()) {
-				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s", undo ? "Undid the last edit." : "Redid the edit.");
 			}
 			return;
 		}
 	}
+	forgeDrawLevelFilePose(doc, editPlacement);
 	{
 		bool markers = pdguiForgeLevelMarkersGet() != 0;
 		if (ImGui::Checkbox("Show starts and objects in the world", &markers)) {
@@ -2174,7 +3428,6 @@ static void forgeDrawLevelFileSection(void)
 		const s32 levelEdit = forgeLevelDocAddSpawn(doc, position, look, nullptr, id, sizeof(id), err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", id);
 			forgeLevelFileStatus(false, "Added %s where the camera is.", id);
 		} else {
@@ -2188,7 +3441,6 @@ static void forgeDrawLevelFileSection(void)
 		const s32 levelEdit = forgeLevelDocMoveSpawn(doc, s_LevelFileStart, position, look, err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileStart);
 		} else {
 			forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileStart, err);
@@ -2200,7 +3452,6 @@ static void forgeDrawLevelFileSection(void)
 		const s32 levelEdit = forgeLevelDocRemoveSpawn(doc, s_LevelFileStart, err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Removed %s.", s_LevelFileStart);
 			s_LevelFileStart[0] = '\0';
 		} else {
@@ -2222,7 +3473,6 @@ static void forgeDrawLevelFileSection(void)
 					sizeof(err));
 				forgeLevelSessionEditEnd(levelEdit);
 				if (levelEdit) {
-					s_LevelFileEdits++;
 					forgeLevelFileStatus(false, "Turned %s 45 degrees %s.", s_LevelFileStart,
 						turn == 0 ? "left" : "right");
 				} else {
@@ -2244,7 +3494,6 @@ static void forgeDrawLevelFileSection(void)
 				const s32 levelEdit = forgeLevelDocMoveSpawn(doc, s_LevelFileStart, to, pad.look, err, sizeof(err));
 				forgeLevelSessionEditEnd(levelEdit);
 				if (levelEdit) {
-					s_LevelFileEdits++;
 					forgeLevelFileStatus(false, "Nudged %s to (%.0f, %.0f, %.0f).", s_LevelFileStart, to[0], to[1], to[2]);
 				} else {
 					forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileStart, err);
@@ -2276,6 +3525,7 @@ static void forgeDrawLevelFileSection(void)
 				ImGui::PushID(i);
 				if (ImGui::Selectable(label, strcmp(s_LevelFileStart, spawn.spawn_id) == 0)) {
 					snprintf(s_LevelFileStart, sizeof(s_LevelFileStart), "%s", spawn.spawn_id);
+					s_LevelFilePosePreferObject = false;
 				}
 				ImGui::PopID();
 			}
@@ -2283,6 +3533,53 @@ static void forgeDrawLevelFileSection(void)
 	}
 	ImGui::EndChild();
 
+	ImGui::SeparatorText("King of the Hill");
+	forge_level_pad_t selectedStart = {};
+	const bool haveStart = s_LevelFileStart[0]
+		&& forgeLevelFileStartPad(doc, s_LevelFileStart, &selectedStart);
+	ImGui::BeginDisabled(!haveStart || forgeLevelDocHasHill(doc, selectedStart.pad_ref));
+	if (ImGui::Button("Add Hill at Selected Start")) {
+		forgeLevelSessionEditBegin();
+		const s32 changed = forgeLevelDocSetHill(doc, selectedStart.pad_ref, 1, err, sizeof(err));
+		forgeLevelSessionEditEnd(changed);
+		if (changed) {
+			forgeLevelFileStatus(false, "Added hill at %s.", selectedStart.pad_ref);
+		} else {
+			forgeLevelFileStatus(true, "Could not add hill: %s", err);
+		}
+	}
+	ImGui::EndDisabled();
+	for (s32 i = 0; i < forgeLevelDocHillCount(doc); i++) {
+		char pad[32];
+		if (!forgeLevelDocGetHillPad(doc, i, pad, sizeof(pad))) continue;
+		ImGui::PushID(i);
+		ImGui::Text("%s", pad);
+		ImGui::SameLine();
+		const bool remove = ImGui::SmallButton("Remove Hill");
+		ImGui::PopID();
+		if (remove) {
+			forgeLevelSessionEditBegin();
+			const s32 changed = forgeLevelDocSetHill(doc, pad, 0, err, sizeof(err));
+			forgeLevelSessionEditEnd(changed);
+			if (changed) {
+				forgeLevelFileStatus(false, "Removed hill at %s.", pad);
+			} else {
+				forgeLevelFileStatus(true, "Could not remove hill: %s", err);
+			}
+			break;
+		}
+	}
+	forgeDrawLevelFileCaseMarkers(doc, haveStart ? &selectedStart : nullptr);
+	int requestedTool = toolRequest;
+	if (netGetMode() == 0) {
+		if (ImGui::Button("Triggers")) requestedTool = kForgeFileEditTriggers;
+		ImGui::SameLine();
+		if (ImGui::Button("Bot Navigation")) requestedTool = kForgeFileEditNavigation;
+		ImGui::SameLine();
+		if (ImGui::Button("Level Logic")) requestedTool = kForgeFileEditLogic;
+		ImGui::SameLine();
+		if (ImGui::Button("Logic Zones")) requestedTool = kForgeFileEditLogicZones;
+	}
 	/* -------------------------------------------------------------
 	 * Objects
 	 * ------------------------------------------------------------- */
@@ -2312,7 +3609,6 @@ static void forgeDrawLevelFileSection(void)
 				err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added %s where the camera is: weapon place %d of the match.", id,
 				(int)slot + 1);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
@@ -2329,7 +3625,6 @@ static void forgeDrawLevelFileSection(void)
 				err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Added the ammo crate %s where the camera is.", id);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
 			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
@@ -2339,20 +3634,12 @@ static void forgeDrawLevelFileSection(void)
 	}
 	ImGui::SameLine();
 	if (ImGui::Button("New Hoverbike Here")) {
-		char id[32];
-		forgeLevelSessionEditBegin();
-		const s32 levelEdit = forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, position, look, id, sizeof(id),
-				err, sizeof(err));
-		forgeLevelSessionEditEnd(levelEdit);
-		if (levelEdit) {
-			s_LevelFileEdits++;
-			forgeLevelFileStatus(false, "Added the hoverbike %s where the camera is, facing the way it looks.", id);
-			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
-			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
-		} else {
-			forgeLevelFileStatus(true, "Could not add a hoverbike: %s", err);
-		}
+		forgePlaceLevelHoverbike(doc, kForgeDefaultHoverbikeModel, position, look);
 	}
+	if (netGetMode() == 0) {
+		if (ImGui::SmallButton("Choose Hoverbike")) requestedTool = kForgeFileAddHoverbike;
+	}
+	forgeDrawLevelFileTools(doc, haveStart ? &selectedStart : nullptr, requestedTool, position, look);
 
 	/* A new plain prop, drawn with a model chosen from the catalog. The same
 	 * choice redraws a selected plain prop (below). */
@@ -2367,18 +3654,22 @@ static void forgeDrawLevelFileSection(void)
 	}
 	ImGui::SameLine();
 	ImGui::BeginDisabled(s_LevelFileModel[0] == '\0');
-	if (ImGui::Button("New Prop Here")) {
+	const bool addProp = ImGui::Button("New Prop Here");
+	const bool addDecoration = ImGui::Button("New Decoration Here");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Players and projectiles pass through decorations.");
+	if (addProp || addDecoration) {
 		char id[32];
 		forgeLevelSessionEditBegin();
-		const s32 levelEdit = forgeLevelDocAddProp(doc, s_LevelFileModel, position, look, id, sizeof(id), err, sizeof(err));
+		const auto add = addDecoration ? forgeLevelDocAddDecoration : forgeLevelDocAddProp;
+		const s32 levelEdit = add(doc, s_LevelFileModel, position, look, id, sizeof(id), err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
+		const char *kind = addDecoration ? "decoration" : "prop";
 		if (levelEdit) {
-			s_LevelFileEdits++;
-			forgeLevelFileStatus(false, "Added the prop %s (%s) where the camera is.", id, s_LevelFileModel);
+			forgeLevelFileStatus(false, "Added the %s %s (%s) where the camera is.", kind, id, s_LevelFileModel);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
 			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
 		} else {
-			forgeLevelFileStatus(true, "Could not add a prop: %s", err);
+			forgeLevelFileStatus(true, "Could not add a %s: %s", kind, err);
 		}
 	}
 	ImGui::EndDisabled();
@@ -2389,7 +3680,6 @@ static void forgeDrawLevelFileSection(void)
 		const s32 levelEdit = forgeLevelDocMoveObject(doc, s_LevelFileObject, position, look, err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Moved %s to where the camera is.", s_LevelFileObject);
 		} else {
 			forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileObject, err);
@@ -2403,7 +3693,6 @@ static void forgeDrawLevelFileSection(void)
 				err, sizeof(err));
 		forgeLevelSessionEditEnd(levelEdit);
 		if (levelEdit) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Copied %s to %s where the camera is.", s_LevelFileObject, id);
 			snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", id);
 			s_LevelFileObjectIndex = (int)forgeLevelDocObjectCount(doc) - 1;
@@ -2426,7 +3715,6 @@ static void forgeDrawLevelFileSection(void)
 					sizeof(err));
 				forgeLevelSessionEditEnd(levelEdit);
 				if (levelEdit) {
-					s_LevelFileEdits++;
 					forgeLevelFileStatus(false, "Turned %s 45 degrees %s.", s_LevelFileObject,
 						turn == 0 ? "left" : "right");
 				} else {
@@ -2448,7 +3736,6 @@ static void forgeDrawLevelFileSection(void)
 				const s32 levelEdit = forgeLevelDocMoveObject(doc, s_LevelFileObject, to, pad.look, err, sizeof(err));
 				forgeLevelSessionEditEnd(levelEdit);
 				if (levelEdit) {
-					s_LevelFileEdits++;
 					forgeLevelFileStatus(false, "Nudged %s to (%.0f, %.0f, %.0f).", s_LevelFileObject, to[0], to[1], to[2]);
 				} else {
 					forgeLevelFileStatus(true, "Could not move %s: %s", s_LevelFileObject, err);
@@ -2467,10 +3754,8 @@ static void forgeDrawLevelFileSection(void)
 		if (!levelEdit) {
 			forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
 		} else if (putBack) {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Put %s back in the level.", s_LevelFileObject);
 		} else {
-			s_LevelFileEdits++;
 			forgeLevelFileStatus(false, "Removed %s. Put Object Back undoes it.", s_LevelFileObject);
 		}
 	}
@@ -2505,7 +3790,6 @@ static void forgeDrawLevelFileSection(void)
 			const s32 levelEdit = forgeLevelDocSetObjectModel(doc, s_LevelFileObject, s_LevelFileModel, err, sizeof(err));
 			forgeLevelSessionEditEnd(levelEdit);
 			if (levelEdit) {
-				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s is now drawn with %s.", s_LevelFileObject, s_LevelFileModel);
 			} else {
 				forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
@@ -2533,7 +3817,6 @@ static void forgeDrawLevelFileSection(void)
 				const s32 levelEdit = forgeLevelDocSetObjectScale(doc, s_LevelFileObject, scale, err, sizeof(err));
 				forgeLevelSessionEditEnd(levelEdit);
 				if (levelEdit) {
-					s_LevelFileEdits++;
 					forgeLevelFileStatus(false, "%s is now drawn at %d%% of its model's size.", s_LevelFileObject,
 						s_LevelFileSizePercent);
 				} else {
@@ -2571,7 +3854,6 @@ static void forgeDrawLevelFileSection(void)
 			const s32 levelEdit = forgeLevelSessionGivePickup(s_LevelFileObject, s_LevelFileWeapon, err, sizeof(err));
 			forgeLevelSessionEditEnd(levelEdit);
 			if (levelEdit) {
-				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s now always gives %s.", s_LevelFileObject, s_LevelFileWeapon);
 			} else {
 				forgeLevelFileStatus(true, "Could not change %s: %s", s_LevelFileObject, err);
@@ -2588,7 +3870,6 @@ static void forgeDrawLevelFileSection(void)
 			const s32 levelEdit = forgeLevelDocSetPickupSlot(doc, s_LevelFileObject, (s32)s_LevelFilePlace - 1, err, sizeof(err));
 			forgeLevelSessionEditEnd(levelEdit);
 			if (levelEdit) {
-				s_LevelFileEdits++;
 				forgeLevelFileStatus(false, "%s is now weapon place %d of the match.", s_LevelFileObject,
 					s_LevelFilePlace);
 			} else {
@@ -2616,6 +3897,7 @@ static void forgeDrawLevelFileSection(void)
 				if (ImGui::Selectable(label, i == s_LevelFileObjectIndex)) {
 					s_LevelFileObjectIndex = i;
 					snprintf(s_LevelFileObject, sizeof(s_LevelFileObject), "%s", object.record_id);
+					s_LevelFilePosePreferObject = true;
 				}
 				ImGui::PopID();
 			}
@@ -2626,8 +3908,54 @@ static void forgeDrawLevelFileSection(void)
 	/* -------------------------------------------------------------
 	 * Save
 	 * ------------------------------------------------------------- */
-	forgeScrollAnchorMaybe(FGT_FILE, 2);   /* sidebar "Save" */
+	forgeScrollAnchorMaybe(FGT_FILE, 3);
+	forgeDrawLevelFileAtmosphere(doc);
+	if (netGetMode() == 0 && ImGui::Button("Room Brightness")) {
+		s_LevelFileToolRequested = kForgeFileEditRoomBrightness;
+	}
+	forgeDrawLevelFileWeather(doc);
+	forgeScrollAnchorMaybe(FGT_FILE, 2);   /* sidebar "Save & Share" */
 	ImGui::SeparatorText("Save Level");
+	const char *saveTarget = forgeLevelSessionSaveTarget();
+	const bool canSaveOpened = saveTarget && forgeLevelSessionHasUnsavedChanges();
+	bool clickSaveOpened = false;
+	if (saveTarget) {
+		ImGui::BeginDisabled(!canSaveOpened);
+		clickSaveOpened = ImGui::Button("Save Opened Level");
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::TextUnformatted(saveTarget);
+	}
+	if (clickSaveOpened || saveOpened) {
+		if (!saveTarget) {
+			forgeLevelFileStatus(true, "The opened level cannot be saved in place. Use Save As Level.");
+		} else if (!canSaveOpened) {
+			forgeLevelFileStatus(false, "The opened level has no unsaved changes.");
+		} else if (forgeLevelSessionSaveOpened(err, sizeof(err)) == MOD_AUTHOR_OK) {
+			forgeLevelFileStatus(false, "Saved the opened level.");
+		} else {
+			forgeLevelFileStatus(true, "Could not save the opened level: %s", err);
+		}
+	}
+	static u32 checkedGeneration;
+	static u32 checkedCatalogGeneration;
+	static bool draftValid;
+	static char draftCheck[320];
+	if (ImGui::Button("Validate Draft")) {
+		char digest[SHA256_HEX_SIZE];
+		draftValid = forgeLevelValidateOriginalDraft(doc, forgeLevelSessionSource(), digest, err, sizeof(err)) != 0;
+		checkedGeneration = forgeLevelSessionGeneration();
+		checkedCatalogGeneration = assetCatalogGetGeneration();
+		if (draftValid) snprintf(draftCheck, sizeof(draftCheck), "Native draft source validated  %.12s", digest);
+		else snprintf(draftCheck, sizeof(draftCheck), "Draft validation failed. %s", err);
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Check the original arena's current draft before saving or playing it.");
+	if (draftCheck[0] && checkedGeneration == forgeLevelSessionGeneration()
+			&& checkedCatalogGeneration == assetCatalogGetGeneration()) {
+		ImGui::PushStyleColor(ImGuiCol_Text, draftValid ? ImVec4(0.6f, 0.95f, 0.6f, 1.0f) : ImVec4(1.0f, 0.55f, 0.5f, 1.0f));
+		ImGui::TextWrapped("%s", draftCheck);
+		ImGui::PopStyleColor();
+	}
 	ImGui::InputText("Level Name", s_LevelFileName, sizeof(s_LevelFileName));
 	ImGui::BeginDisabled(s_LevelFileName[0] == '\0');
 	if (ImGui::Button("Save As Level")) {
@@ -2636,30 +3964,149 @@ static void forgeDrawLevelFileSection(void)
 			forgeLevelFileStatus(true, "Could not save: out of memory.");
 		} else {
 			if (forgeLevelSessionSaveAs(s_LevelFileName, result, err, sizeof(err)) == MOD_AUTHOR_OK) {
-				s_LevelFileEdits = 0;
 				forgeLevelFileStatus(false,
-					"%s the level \"%s\" (%s). Choose it in The Grid or in match setup to play it.",
-					result->updated ? "Updated" : "Saved", s_LevelFileName, result->catalog_id);
+					"%s the level \"%s\" (%s). Choose it in %s or in match setup to play it.",
+					result->updated ? "Updated" : "Saved", s_LevelFileName, result->catalog_id, forgeDisplayName());
 			} else {
 				forgeLevelFileStatus(true, "Could not save: %s", err);
 			}
 			free(result);
 		}
 	}
-	ImGui::EndDisabled();
 	ImGui::SameLine();
-	if (ImGui::Button(s_LevelFileCloseArmed ? "Really Close?###LevelFileClose"
-			: "Close Without Saving###LevelFileClose")) {
-		if (s_LevelFileEdits > 0 && !s_LevelFileCloseArmed) {
-			const int edits = s_LevelFileEdits;
-			forgeLevelFileStatus(true, "%d change%s would be lost. Press the button again to close.",
-				edits, edits == 1 ? "" : "s");
+	ImGui::BeginDisabled(!forgeLevelSessionCanReviewVariantSources());
+	const bool reviewVariant = ImGui::Button("Review Variant Mods");
+	ImGui::EndDisabled();
+	ImGui::EndDisabled();
+	forgeDrawLevelVariantReview(doc, reviewVariant);
+	ImGui::BeginDisabled(forgeLevelSessionHasUnsavedChanges() != 0);
+	if (ImGui::Button("Pin Saved Revision")) {
+		forge_revision_t revision;
+		if (forgeLevelSessionPinSavedRevision(&revision, err, sizeof(err))) {
+			forgeLevelFileStatus(false, "Pinned %.12s for %s in this profile.",
+				revision.digest, revision.arena_id);
+		} else {
+			forgeLevelFileStatus(true, "Could not pin revision: %s", err);
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Allow Temporary Sharing")) ImGui::OpenPopup("Share Pinned Revision");
+	ImGui::EndDisabled();
+	if (ImGui::BeginPopup("Share Pinned Revision")) {
+		ImGui::TextUnformatted("Allow players joining your match to temporarily receive this pinned revision.\n"
+			"Confirm that you have permission to share everything inside the arena.");
+		if (ImGui::Button("Allow Sharing")) {
+			if (forgeLevelSessionAllowMatchSharing(err, sizeof(err))) {
+				const forge_revision_t *permission = forgeLevelMatchSharePermission();
+				forgeLevelFileStatus(false, "Temporary sharing allowed for %s (%.12s).",
+					permission->arena_id, permission->digest);
+			} else {
+				forgeLevelFileStatus(true, "Could not allow sharing: %s", err);
+			}
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+	}
+	if (const forge_revision_t *permission = forgeLevelMatchSharePermission()) {
+		ImGui::Text("Sharing allowed  %s (%.12s)", permission->arena_id, permission->digest);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", permission->digest);
+		ImGui::SameLine();
+		if (ImGui::Button("Revoke Sharing")) {
+			forgeLevelRevokeMatchSharing();
+			forgeLevelFileStatus(false, "Temporary sharing permission revoked.");
+		}
+	}
+	ImGui::BeginDisabled(s_LevelFileName[0] == '\0');
+	auto forkRevision = ImGui::Button("Fork Pinned Revision") ? &forgeLevelSessionForkPinnedRevision : nullptr;
+	if (netGetMode() == 0) {
+		ImGui::SameLine();
+		if (ImGui::Button("Fork Previous Save")) forkRevision = &forgeLevelSessionForkPreviousRevision;
+	}
+	ImGui::EndDisabled();
+	forge_revision_t parent = {};
+	const forge_revision_parent_e parentState = forgeLevelSessionParentRevision(&parent, err, sizeof(err));
+	if (parentState == FORGE_REVISION_PARENT_AVAILABLE) {
+		ImGui::Text("Parent Revision  %s (%.12s)", parent.arena_id, parent.digest);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", parent.digest);
+		ImGui::BeginDisabled(s_LevelFileName[0] == '\0');
+		if (ImGui::Button("Fork Parent Revision")) forkRevision = &forgeLevelSessionForkParentRevision;
+		ImGui::EndDisabled();
+	} else if (parentState == FORGE_REVISION_PARENT_UNAVAILABLE) {
+		ImGui::TextWrapped("Parent Revision unavailable. %s", err);
+	}
+	if (forkRevision) {
+		mod_author_result_t *fork = (mod_author_result_t *)calloc(1, sizeof(*fork));
+		if (!fork) {
+			forgeLevelFileStatus(true, "Could not fork: out of memory.");
+		} else {
+			if (forkRevision(s_LevelFileName, fork, err, sizeof(err))) {
+				forgeLevelFileStatus(false, "Forked %s. Choose it in %s to edit or play it.",
+					fork->catalog_id, forgeDisplayName());
+			} else {
+				forgeLevelFileStatus(true, "Could not fork: %s", err);
+			}
+			free(fork);
+		}
+	}
+	if (forgeLevelSessionCanSaveExtendedVariant() && ImGui::CollapsingHeader("Extend a Room")) {
+		ImGui::PushID("offline-room-extension");
+		static char variant[MOD_AUTHOR_NAME_MAX];
+		static int room;
+		static int metres = 3;
+		ImGui::TextWrapped("Pin the saved original two-room arena before adding draft edits.");
+		ImGui::InputText("Variant name", variant, sizeof(variant));
+		const char *const rooms[] = {"Room 1", "Room 2"};
+		ImGui::Combo("Room", &room, rooms, IM_ARRAYSIZE(rooms));
+		ImGui::InputInt("Extra length (m)", &metres);
+		constexpr int maxMetres = (ForgeRoomSize::MaxLength - ForgeRoomSize::MinLength) / 100;
+		ImGui::BeginDisabled(!variant[0] || metres < 1 || metres > maxMetres);
+		if (ImGui::Button("Save Extended Variant")) {
+			mod_author_result_t *result = (mod_author_result_t *)calloc(1, sizeof(*result));
+			if (!result) {
+				forgeLevelFileStatus(true, "Could not save variant: out of memory.");
+			} else {
+				if (forgeLevelSessionSaveExtendedVariant(variant, room + 1, metres * 100, result, err, sizeof(err))) {
+					forgeLevelFileStatus(false, "Saved %s. Restart the game, enable it in Mods, then open it from Levels.", variant);
+					variant[0] = '\0';
+				} else {
+					forgeLevelFileStatus(true, "Could not save variant: %s", err);
+				}
+				free(result);
+			}
+		}
+		ImGui::EndDisabled();
+		ImGui::PopID();
+	}
+	if (ImGui::Button("Save Recovery Checkpoint")) {
+		if (forgeLevelSessionWriteCheckpoint(err, sizeof(err))) {
+			forgeLevelFileStatus(false, "Checkpoint saved to this profile.");
+		} else {
+			forgeLevelFileStatus(true, "Could not save checkpoint: %s", err);
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Restore Recovery Checkpoint")) {
+		if (forgeLevelSessionRestoreCheckpoint(err, sizeof(err))) {
+			forgeLevelFileForget();
+			forgeLevelFileStatus(false, "Checkpoint restored. Undo to return to the previous draft.");
+		} else {
+			forgeLevelFileStatus(true, "Could not restore checkpoint: %s", err);
+		}
+		/* A successful restore replaces the document. */
+		return;
+	}
+	if (ImGui::Button(s_LevelFileCloseArmed ? "Discard Edits###LevelFileClose"
+			: "Close Level File###LevelFileClose")) {
+		if (forgeLevelSessionHasUnsavedChanges() && !s_LevelFileCloseArmed) {
+			forgeLevelFileStatus(true, "Discard unsaved changes and close the level file?");
 			s_LevelFileCloseArmed = true;
 		} else {
 			/* `doc` and `source` are gone after this: nothing below may use them. */
 			forgeLevelSessionClose();
 			forgeLevelFileForget();
-			forgeLevelFileStatus(false, "Closed the level file. Nothing was saved.");
+			forgeLevelFileStatus(false, "Closed the level file.");
 			forgeLevelFileDrawStatus();
 			return;
 		}
@@ -2695,8 +4142,8 @@ static void forgeDrawActiveTab(int idx)
 		forgeDrawLevelFileSection();
 		break;
 	case FGT_LEVEL:
-		forgeNotInLevelNote("the lighting, sky, music and mission settings here are previewed live "
-			"and kept only in an old Grid map. A level's look is not part of its file yet.");
+		forgeNotInLevelNote("settings on this tab preview live and save in a legacy Grid map. "
+			"Use Level File to save lighting, sky, fog, weather and music in the arena.");
 		/* Level = Lighting + Mission + ambience (skybox / skylight / music).
 		 * Sidebar anchors: 0 = Lighting sub-tab start, 1 = Mission sub-tab
 		 * start. Anchors 2-4 (Skybox / Skylight / Background Music) live
@@ -2713,7 +4160,7 @@ static void forgeDrawActiveTab(int idx)
 		/* Objects = Catalog + Properties. The Objects sidebar's payload
 		 * is the catalog category filter and is applied via
 		 * forgeSidebarActivate, not a scroll-to anchor. */
-		forgeNotInLevelNote("these are The Grid's own objects, kept only in an old Grid map. "
+		forgeNotInLevelNote("these objects are saved in legacy maps. "
 			"Place a level's starts, weapons, crates, vehicles and props in Level File.");
 		forgeDrawCatalogTab();
 		ImGui::Separator();
@@ -2723,7 +4170,7 @@ static void forgeDrawActiveTab(int idx)
 		/* Control = Logic + Zones. Anchors: 0 = Logic start, 1 = Wires,
 		 * 2 = Zones start, 3 = Channels (inside Logic). */
 		forgeNotInLevelNote("logic and zones run here and are kept only in an old Grid map. "
-			"They become part of a level's own graph later.");
+			"Use Level File > Level Logic for rules saved in a level.");
 		forgeScrollAnchorMaybe(FGT_CONTROL, 0);
 		forgeDrawLogicTab();
 		ImGui::Separator();
@@ -2731,16 +4178,40 @@ static void forgeDrawActiveTab(int idx)
 		forgeDrawZonesTab();
 		break;
 	case FGT_GAMEPLAY:
-		/* Gameplay = Game Type + Bots. Anchor 0 = Game Type start,
+		/* Playtest = Bots + Game Type. Anchor 0 = Game Type start,
 		 * anchor 7 = Bots start. Other anchors (1-6) live inside
 		 * forgeDrawGameTypeTab next to their section headers. */
-		forgeNotInLevelNote("the game type and the bots are for trying the level out here. "
-			"A match on a saved level takes its rules from match setup.");
-		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 0);
-		forgeDrawGameTypeTab();
-		ImGui::Separator();
+		if (forgeCanPlayDraftFromEditor()) {
+			static char draft_error[256];
+			if (ImGui::Button("Play Draft") || s_LevelFilePlayDraftRequested) {
+				s_LevelFilePlayDraftRequested = false;
+				forgeLevelSessionPlayDraft(draft_error, sizeof(draft_error));
+			}
+			ImGui::TextWrapped("Play the current Level File with its unsaved edits. "
+				"Use the editor toggle to return.");
+			if (draft_error[0]) ImGui::TextWrapped("%s", draft_error);
+		}
+		if (forgeLevelSessionDoc()) {
+			static char match_sources[256];
+			if (ImGui::Button("Review Saved Match Sources")) {
+				grid_match_sources_t plan = {};
+				char reason[192];
+				if (forgeLevelSessionReviewMatchSources(&plan, reason, sizeof(reason))) {
+					snprintf(match_sources, sizeof(match_sources),
+						"Placements, stage rules and registered dependencies use %u assets in %u archives. ID %.12s.",
+						(unsigned)plan.entry_count, (unsigned)plan.package_count, plan.digest);
+				} else {
+					snprintf(match_sources, sizeof(match_sources), "%s", reason);
+				}
+				gridMatchSourcesFree(&plan);
+			}
+			if (match_sources[0]) ImGui::TextWrapped("%s", match_sources);
+		}
 		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 7);
 		forgeDrawBotsTab();
+		ImGui::Separator();
+		forgeScrollAnchorMaybe(FGT_GAMEPLAY, 0);
+		forgeDrawGameTypeTab();
 		break;
 	case FGT_SETUP:
 		/* Grid Map = an old Grid map's settings and save. Anchors live
@@ -2765,6 +4236,9 @@ static void forgeDrawActiveTab(int idx)
  * navigation on a short list is seamless. */
 static void forgeSidebarHandleInput(void)
 {
+	if (menupoolIsActive(MENU_TYPE_GRID_PLACEMENT)) return;
+	if (menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS)) return;
+
 	/* Fix 8 (2026-05-01): the sidebar Toggle / Activate actions are
 	 * context-sensitive when the user is holding an object (select-spawn-
 	 * attach flow). Toggle on a held object opens its Properties context
@@ -2842,16 +4316,20 @@ static void forgeSidebarHandleInput(void)
 
 	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
 	if (lst.count > 0) {
-		int *sel = &s_SidebarSelection[s_forge_active_tab];
-		if (*sel < 0 || *sel >= lst.count) *sel = 0;
-		if (actionPressed(0, ACTION_FORGE_SIDEBAR_UP)) {
-			*sel = (*sel + lst.count - 1) % lst.count;
+		int &stored = s_SidebarSelection[s_forge_active_tab];
+		int sel = stored - lst.first;
+		if (sel < 0 || sel >= lst.count) sel = 0;
+		const bool up = actionPressed(0, ACTION_FORGE_SIDEBAR_UP) != 0;
+		const bool down = actionPressed(0, ACTION_FORGE_SIDEBAR_DOWN) != 0;
+		if (up) {
+			sel = (sel + lst.count - 1) % lst.count;
 		}
-		if (actionPressed(0, ACTION_FORGE_SIDEBAR_DOWN)) {
-			*sel = (*sel + 1) % lst.count;
+		if (down) {
+			sel = (sel + 1) % lst.count;
 		}
+		if (up || down) stored = sel + lst.first;
 		if (actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)) {
-			forgeSidebarActivate(s_forge_active_tab, *sel);
+			forgeSidebarActivate(s_forge_active_tab, sel);
 		}
 	}
 }
@@ -2866,7 +4344,8 @@ static void forgeSidebarHandleInput(void)
 static void forgeSidebarDraw(void)
 {
 	ForgeSidebarList lst = forgeSidebarForTab(s_forge_active_tab);
-	int sel = s_SidebarSelection[s_forge_active_tab];
+	int sel = s_SidebarSelection[s_forge_active_tab] - lst.first;
+	if (sel < 0 || sel >= lst.count) sel = 0;
 
 	const float scale = pdguiScale(1.0f);
 	const float sidebarW = 180.0f * scale;
@@ -2881,11 +4360,11 @@ static void forgeSidebarDraw(void)
 		ImGui::TextDisabled("(no sections)");
 	}
 	for (int i = 0; i < lst.count; i++) {
-		ImGui::PushID(i);
+		ImGui::PushID(i + lst.first);
 		char lbl[128];
 		snprintf(lbl, sizeof(lbl), "%s##sb", lst.items[i].label);
 		if (ImGui::Selectable(lbl, i == sel)) {
-			s_SidebarSelection[s_forge_active_tab] = i;
+			s_SidebarSelection[s_forge_active_tab] = i + lst.first;
 			forgeSidebarActivate(s_forge_active_tab, i);
 		}
 		ImGui::PopID();
@@ -2917,7 +4396,8 @@ static void forgeEditorMouseLook(void)
 	const float degPerPixel = 0.15f;
 	ImGuiIO &io = ImGui::GetIO();
 
-	if (!ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+	if (menupoolIsActive(MENU_TYPE_GRID_PLACEMENT) || menupoolIsActive(MENU_TYPE_GRID_LEVEL_TOOLS)
+			|| !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
 		s_looking = false;
 		return;
 	}
@@ -2933,6 +4413,8 @@ static void forgeEditorMouseLook(void)
 
 void pdguiForgeEditorRender(s32 winW, s32 winH)
 {
+	s_LevelFileOpenRequested = false;
+	s_LevelFilePlayDraftRequested = false;
 	if (!forgeSessionIsActive()) return;
 	if (!forgeIsFreefly())       return;     /* editor hides in NORMAL play */
 
@@ -2972,7 +4454,9 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	ImGui::SetNextWindowSize(ImVec2(620.0f * scale, 620.0f * scale), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2((float)winW - 640.0f * scale, 70.0f * scale), ImGuiCond_FirstUseEver);
 
-	ImGui::Begin("The Grid -- Editor", nullptr,
+	char editorTitle[FORGE_DISPLAY_NAME_CAP + sizeof(" -- Editor###The Grid -- Editor")];
+	snprintf(editorTitle, sizeof(editorTitle), "%s -- Editor###The Grid -- Editor", forgeDisplayName());
+	ImGui::Begin(editorTitle, nullptr,
 			ImGuiWindowFlags_NoCollapse);
 	/* For the HUD, which draws before the panel: its labels stay out from
 	 * under it (the panel is translucent). */
@@ -2981,15 +4465,16 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 		s_EditorPanelMin.y + ImGui::GetWindowHeight());
 	s_EditorPanelShown = true;
 
-	if (s_forge_active_tab == FGT_FILE) {
+	if (s_forge_active_tab == FGT_FILE || s_forge_active_tab == FGT_GAMEPLAY) {
 		/* The level being made. Its own Undo and Redo are in the tab. */
 		forge_level_doc_t *topDoc = forgeLevelSessionDoc();
 		const forge_level_source_t *topSource = forgeLevelSessionSource();
 		if (topDoc && topSource) {
 			ImGui::Text("Level: %s", topSource->arena_id);
 			ImGui::SameLine();
-			ImGui::TextDisabled(" | starts %d | objects %d | unsaved edits %d", (int)forgeLevelDocSpawnCount(topDoc),
-				(int)forgeLevelDocObjectCount(topDoc), s_LevelFileEdits);
+			ImGui::TextDisabled(" | starts %d | objects %d%s", (int)forgeLevelDocSpawnCount(topDoc),
+				(int)forgeLevelDocObjectCount(topDoc),
+				forgeLevelSessionHasUnsavedChanges() ? " | Unsaved changes" : "");
 		} else {
 			ImGui::TextDisabled("No level file is open. Open the level below to edit its starts and objects.");
 		}
@@ -3049,7 +4534,8 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 			if (s_forge_tab_set_request == i) {
 				flags |= ImGuiTabItemFlags_SetSelected;
 			}
-			if (ImGui::BeginTabItem(forgeTabLabel(i), nullptr, flags)) {
+			const char *label = i == FGT_GAMEPLAY ? "Playtest###Gameplay" : forgeTabLabel(i);
+			if (ImGui::BeginTabItem(label, nullptr, flags)) {
 				s_forge_active_tab = i;
 				forgeDrawActiveTab(i);
 				ImGui::EndTabItem();
@@ -3091,6 +4577,16 @@ void pdguiForgeEditorTick(void)
 	 * save from inside it. A no-op unless one was passed. Before the
 	 * session checks, because the first of them is what starts a session. */
 	(void)bootForgeLevelTick();
+	if (!forgeSessionIsActive() || !forgeIsFreefly() || netGetMode() != 0) {
+		s_LevelFilePoseRequested = false;
+		s_LevelFileSaveRequested = false;
+		s_LevelFileToolRequested = 0;
+		menupoolRelease(MENU_TYPE_GRID_PLACEMENT);
+		menupoolRelease(MENU_TYPE_GRID_LEVEL_TOOLS);
+	} else if (!forgeLevelSessionDoc()) {
+		menupoolRelease(MENU_TYPE_GRID_PLACEMENT);
+		menupoolRelease(MENU_TYPE_GRID_LEVEL_TOOLS);
+	}
 
 	/* Forge F3: while the camera flies, the world shows the open level file
 	 * (moved and new objects drawn where the file puts them); otherwise the

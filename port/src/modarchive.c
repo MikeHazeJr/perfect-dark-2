@@ -545,7 +545,7 @@ void *modArchiveExtractAlloc(mod_archive_t *arc, s32 idx, u32 *outSize)
 	}
 
 	s64 dataOff = lfhDataOffset(arc->fp, e->lfh_offset);
-	if (dataOff < 0 || (u32)dataOff + e->size_compressed > arc->file_size) {
+	if (dataOff < 0 || (u64)dataOff + e->size_compressed > arc->file_size) {
 		setError(MODARCHIVE_ERR_FORMAT);
 		return NULL;
 	}
@@ -699,12 +699,12 @@ static s64 findEocdOffsetMem(const u8 *bytes, u32 size)
 
 static s64 lfhDataOffsetMem(const u8 *bytes, u32 size, u32 lfhOffset)
 {
-	if (!bytes || lfhOffset + 30 > size) return -1;
+	if (!bytes || (u64)lfhOffset + 30u > size) return -1;
 	const u8 *lfh = bytes + lfhOffset;
 	if (readU32LE(lfh) != LFH_SIG) return -1;
 	u16 nameLen  = readU16LE(&lfh[26]);
 	u16 extraLen = readU16LE(&lfh[28]);
-	u32 dataOff = lfhOffset + 30u + (u32)nameLen + (u32)extraLen;
+	u64 dataOff = (u64)lfhOffset + 30u + nameLen + extraLen;
 	return (dataOff <= size) ? (s64)dataOff : -1;
 }
 
@@ -756,7 +756,7 @@ static s32 walkMemCentralDirectory(const void *archiveBytes, u32 archiveSize,
 	u32 walked = 0;
 	u32 foundTarget = 0;
 	const u8 *cd = bytes + cdOffset;
-	while (walked + 46 <= cdSize) {
+	while (cdSize - walked >= 46) {
 		const u8 *p = cd + walked;
 		if (readU32LE(p) != CDH_SIG) {
 			break;
@@ -772,7 +772,7 @@ static s32 walkMemCentralDirectory(const void *archiveBytes, u32 archiveSize,
 		u16 cmtLen    = readU16LE(&p[32]);
 		u32 lfhOffset = readU32LE(&p[42]);
 		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
-		if (walked + recordLen > cdSize) {
+		if (recordLen > cdSize - walked) {
 			break;
 		}
 
@@ -845,6 +845,13 @@ void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
 		return NULL;
 	}
 
+	s64 dataOff = lfhDataOffsetMem((const u8 *)archiveBytes, archiveSize,
+		e.lfh_offset);
+	if (dataOff < 0 || (u64)dataOff + e.size_compressed > archiveSize) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return NULL;
+	}
+
 	if (e.size_uncompressed == 0) {
 		void *empty = malloc(1);
 		if (!empty) {
@@ -855,13 +862,6 @@ void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
 		if (outSize) *outSize = 0;
 		setError(MODARCHIVE_OK);
 		return empty;
-	}
-
-	s64 dataOff = lfhDataOffsetMem((const u8 *)archiveBytes, archiveSize,
-		e.lfh_offset);
-	if (dataOff < 0 || (u32)dataOff + e.size_compressed > archiveSize) {
-		setError(MODARCHIVE_ERR_FORMAT);
-		return NULL;
 	}
 
 	u8 *out = (u8 *)malloc(e.size_uncompressed);
@@ -956,7 +956,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 	u32 walked = 0;
 	s32 delivered = 0;
 	const u8 *cd = bytes + cdOffset;
-	while (walked + 46 <= cdSize) {
+	while (cdSize - walked >= 46) {
 		const u8 *p = cd + walked;
 		if (readU32LE(p) != CDH_SIG) {
 			break;
@@ -971,7 +971,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 		u16 cmtLen    = readU16LE(&p[32]);
 		u32 lfhOffset = readU32LE(&p[42]);
 		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
-		if (walked + recordLen > cdSize) {
+		if (recordLen > cdSize - walked) {
 			break;
 		}
 
@@ -985,7 +985,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 		}
 
 		s64 dataOff = lfhDataOffsetMem(bytes, archiveSize, lfhOffset);
-		if (dataOff < 0 || (u32)dataOff + csize > archiveSize) {
+		if (dataOff < 0 || (u64)dataOff + csize > archiveSize) {
 			walked += recordLen;
 			continue;
 		}

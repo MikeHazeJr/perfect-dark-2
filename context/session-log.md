@@ -11896,3 +11896,2271 @@ Next
 - Projectiles row: run projectile_events_smoke in a turn; then slice 2
   (timers and detonation as rule events on v2 programs).
 - Held weapons waits for Mike (the parked week-pd/inflight-20261114 lane).
+
+## 2026-11-17 (20:54 UTC) - The Grid offline editor checkpoint
+
+- Mike approved the existing `week-pd/mods-v4` worktree and the sole Grid
+  writer handoff in D-025. Offline work is tracked as T-MODDING-015.
+- The global editor display name defaults to The Grid. Level File and
+  Playtest are adjacent, and the unsaved indicator follows the exact saved
+  undo/redo position.
+- Client `7FDEEF10...` and tests `C032D06E...` built with the queued isolated
+  wrapper on base source `69ceb3bd`. Focused tests passed 5,220 assertions
+  in 116 cases. The read-only base-9 sweep passed 39,566 assertions in 35
+  cases across 132 archives. The native-source guard passed.
+- Classic GL `forge_blank_room_session_smoke` passed 46/46 on the same
+  client, including a save between undo/redo pairs and the edited prop
+  preview. Receipt `20261117T205030895412Z-forge_blank_room_session_smoke-6cb07f91`.
+  The initial C: storage admission refused its archive budget before launch.
+- Next offline gates include recovery, authored mode markers, room and
+  portal building, scene settings, and playing the exact edited revision.
+
+### Grid recovery and mode markers
+
+- Profile-local recovery tracks the exact source SHA-256 and restores
+  placement members as an undoable edit. Classic GL recovery smoke passed
+  47/47 on client `5F700CA0...` on shared base 9. Receipt
+  `20261117T205842796437Z-forge_blank_room_session_smoke-a8021e98`.
+- King of the Hill markers use the native optional `intro.json` in the
+  saved scenario. Classic GL runtime consumed both authored markers in a
+  match with three bots on client `3DD047D5...`. Smoke passed 15/15 on
+  shared base 9, receipt `20261117T210758959956Z-forge_grid_hill_smoke-1b715dd8`.
+- The linked worktree's commit hook reads its historical Workbench snapshot.
+  The canonical claim is T-MODDING-015. Preserve source diffs and receipts
+  while keeping the hook active. Mike granted Grid-only shared engine and
+  multiplayer ownership in D-026.
+
+### Grid room authoring, atmosphere, and native draft
+
+- Source stays on `week-pd/mods-v4` at `69ceb3bd` plus the Grid diff.
+  Classic GL on shared base 9 passed both smokes on client `9021E76B...`.
+  Room authoring passed 19/19 in
+  `20261117T215009087937Z-forge_grid_build_rooms_smoke-4f36ddba`.
+  The Levels tool built 2100 by 1800 by 600 unit rooms and the stage
+  loaded the resized scene, portal, collision and room-assigned pads.
+  Atmosphere passed 15/15 in
+  `20261117T214418848056Z-forge_grid_atmosphere_smoke-b069c49f`.
+  The native loader applied sky, fog, default light and a catalog sequence.
+- Tests `DB9DA9F4...` passed 44,280 assertions across 136 cases,
+  including unchanged round trips for 132 extracted base archives. An
+  explicit stage argument at room lighting cleared the source guard.
+- Exact native draft playtest now stages a validated archive in private
+  memory, binds its typed scenario at the offline reload boundary and
+  retains the Level File history on return. Its two-reload smoke is pending.
+  The initial boot-probe build refused a wrong pad field name, corrected by
+  reusing the existing pad-relative positioning helper.
+- Batch 2 inspection found exact arena scenario identity differs from the
+  lobby game mode. The existing manifest append is one hop and transfer
+  admission installs per file. The Grid needs an immutable staged set
+  before online use. Batch 3 still requires private grants, ordered edits
+  and an epoch boundary that preserves the prior world on validation failure.
+
+### 2026-11-17 (22:27 UTC) Grid native playtest and match-source checkpoint
+
+- T-MODDING-015 native draft pass 20/20 on client `BB59A5CC...` and base 9,
+  receipt `20261117T220623640964Z-forge_grid_draft_playtest_smoke-b162c470`.
+  Both cycles loaded unsaved placements, a hill marker and sky, spawned a
+  live bot and returned with undo history. The first run passed 18/19;
+  the roster treated unused slots with defaults as occupied. The fix checks
+  live participants and restores each borrowed config on retirement.
+- Local immutable revision tests prove a replaced pointer keeps both
+  archives and an interrupted pointer update preserves the last good one.
+  Source patch for the native pass `grid-offline-native-BB59A5CC.patch`,
+  SHA-256 `9066C273928D76735BAC484A626E8887BEE3C1B92E34A6880B4C1FD5C0867A7F`.
+- T-NETWORKING-012 exact source inspection starts from a pinned arena and its
+  declared embedded scenario. The focused suite on `9ADFD018...` passed
+  44,321 assertions in 138 cases with 132 base archive round trips. It tests
+  nested/shared typed dependencies, canonical digest, package dedup and
+  failed-plan rollback. Native draft plus exact source-plan smoke passed
+  21/21 on `414CD513...`, receipt
+  `20261117T222134760029Z-forge_grid_draft_playtest_smoke-b13c9c0a`.
+- Grid origin stamping and legacy transfer exclusion are in build queue
+  `q_20261117222614201_f5d85d1d`. Exact publication and friend transfer
+  still require complete gameplay roots, consent and private activation.
+
+### 2026-11-17 (23:22 UTC) Grid native cases and first online candidate
+
+- T-MODDING-015 native Capture the Case passed 14/14 on `30CF84AD` with
+  three bots in `20261117T225605726216Z-forge_grid_cases_smoke-ae79f92c`.
+  Exact draft and pinned source cache passed 22/22 on that binary in
+  `20261117T230117411258Z-forge_grid_draft_playtest_smoke-74fdb32d`.
+  Exact pinned fork passed 14/14 on `ABCBD932` in
+  `20261117T223613225836Z-forge_grid_fork_smoke-339b2718`.
+- Test build `3F074F74` passed 44,771 assertions in 149 cases. That includes
+  132 base archive round trips, exact source/offer/cache validation and
+  the first host-side edit transaction and visibility checks. Shared edits
+  still need transport and actual private gameplay grants.
+- The new offline candidate adds native pad-centered door triggers and a
+  verified exact-parent fork action. First Car Park and expanded fork
+  smokes are pending. The case smoke does not exercise those changes.
+- T-NETWORKING-012's first production slice keeps ordinary v64 as the
+  working assumption pending D-027. The client build `FC914D65` is
+  running the first exact preinstalled Grid room smoke in
+  `q_20261117232109623_75447979`. It must prove authenticated capability,
+  exact SHA-bound READY, active phase and timed host and guest results.
+  Missing-package consent and scoped temporary catalog admission remain
+  outstanding. No external peers have been contacted.
+- The first exact stage build caught a mismatch in a session catalog
+  field name. The next compile caught a smoke-only branch applied to an
+  earlier Forge test function. Both were corrected in the running
+  candidate and the failed wrapper logs were retained.
+
+### 2026-11-17 (23:54 UTC) Grid trigger, lineage and exact arena transfer candidate
+
+- Classic GL client `FC914D65` passed the Car Park native door trigger
+  14/14 in `20261117T233305084918Z-forge_grid_door_trigger_smoke-0a3dffbc`.
+  Ordinary spawning entered the authored volume and opened the native
+  shutter without door-use input. The expanded fork passed 15/15 in
+  `20261117T233811983373Z-forge_grid_fork_smoke-41c2f42d`, including
+  reopening the fork and following its verified parent revision.
+- Client `3D4F6663` and tests `7F192802` built successfully. The tests
+  passed 50,653 assertions in 193 cases, including 132 unchanged base
+  archive round trips, the exact result codec, and the creator-only
+  edit journal and short resource leases. Shared edit transport and live
+  world replacement remain unverified and are not wired.
+- The first online smoke established capability in both directions but
+  failed before stage launch because its initial projection included
+  legacy manifest rows. The exact route now rebuilds the projection from
+  roster and match selections, publishes the guest dictionary with exact
+  READY, and stages the verified terminal scoreboard and receipt together.
+  The first isolated rerun reserved one extra install and hit the
+  two-slot storage cap before launching. The unchanged attempt was
+  released via the storage tool with a retained receipt and no deletion.
+  The separate-profile retry with a run-specific three-slot policy is
+  `q_20261117235112451_df5fbf83`.
+- The next build `q_20261117235243157_5ed69355` adds explicit per-pin
+  temporary host sharing for one original native arena, guest consent,
+  exact queued byte transfer, and verification and retirement of its
+  private catalog lease. These changes require live proof. Missing
+  dependencies outside the arena, Grid reconnect, WAN, and the shared
+  private playtest journey still remain.
+
+### 2026-11-18 (00:37 UTC) Grid protocol, shared draft, and native room authoring
+
+- Mike decided D-027 option B. Online play now requires protocol 65 from
+  connection authentication onward. The Grid still authorizes exact offers,
+  temporary sharing, and creator traffic separately. The pre-authentication
+  v64 discovery packets were removed from the candidate.
+- Client 2FFC02C0 and tests 2F1ABA76 built in the Grid session. Run
+  q_20261118002842141_9c35ace9 passed 21,538 assertions in 59 cases, including
+  the production connection decoder rejecting fresh and reconnecting v64
+  peers. Mixed-binary runtime rejection remains open.
+- The Room Shared Draft path opens one exact pinned baseline for the host
+  and an invited creator. Ambient edits commit through the host over targeted
+  traffic, and the host can save a typed Variant with the exact parent SHA.
+  The first three-process run ended its host before the creator finished
+  booting. It did not reach draft admission. The smoke is being revised to
+  complete after the native commit and targeted close.
+- The AD75D812 preinstalled match attempt reached both authenticated profiles
+  and stopped in exact source preflight at the Cyclone. Candidate 2FFC02C0
+  uses the catalog provider or hydrated source path when a bundled catalog
+  row has no archive descriptor. Exact runtime retry remains queued. The
+  earlier E14056E9 temporary-transfer case reached original pinning and
+  sharing consent, then refused the missing bot-profile archive locator.
+- The Levels tool now offers Create Original Arena from a shipped,
+  SHA-verified typed seed outside Mods. Source includes independent chamber
+  lengths and doorway width and height with shared portal and navigation
+  mapping. Bounds, runtime geometry, and the fresh-profile smoke still
+  require verification after the next build.
+- An accepted temporary arena can now retain one exact raw snapshot for the
+  same room's last-played result, while the temporary stage lease still
+  retires. This lets an invited creator open the played source from the
+  session without a global install. Native compilation and runtime retention
+  still require verification. Reconnect snapshots, a complete private live
+  playtest, and structural world activation remain open.
+
+### 2026-11-18 (01:50 UTC) Grid runtime and draft resume checkpoints
+
+- Fresh-profile native room authoring passed 20/20 on 9BA5607C. The two
+  independently sized rooms, shared doorway and portal, collision tiles and
+  bot waypoints loaded in a real Combat round. Actual portal traversal is
+  pending.
+- Exact preinstalled match passed 29/29 on 2FFC02C0. Authorized temporary
+  original arena sharing passed 37/37 on 9BA5607C. Both peers matched the
+  exact arena and final score identities and returned to the same room.
+  Only the temporary test transferred bytes. Its guest retired the staged
+  arena and retained the exact played source for that room.
+- Native wrapped arena authoring passed 10/10 on E8A5E109. The wrapped
+  preinstalled Needler ran and fired in a two-player match, used its embedded
+  model, effect and audio, and passed 41/41 on the same binary. General
+  temporary weapon admission still requires runtime coverage and code.
+- D-027 protocol cutoff passed the mixed binary smoke
+  20261118T013330284943Z-grid_v65_rejects_v64-e4ba1a66. New host 2FFC02C0
+  held an ordinary room and refused v64 guest 30CF84AD during connection.
+  Both exited cleanly.
+- Private shared draft passed 17/17 on 9BA5607C. Native snapshot resume passed
+  18/18 on 7D0C3E5C with a fresh creator grant after voluntary draft departure.
+  Both peers verified snapshot 85cb8a25ccdece5f41a4887646316d0fc0ddf9df4d44f6beb61468d21ba604be
+  at revision 2. New actor 3 advanced revision 3, which the host saved and
+  reopened. The ordinary peer received no private traffic. Live ENet reconnect
+  remains separate. The focused suite passed 23,674 assertions across 72
+  cases on the snapshot candidate.
+- Production private bot launch and renderer-side ambient updates have their
+  first source candidate. It isolates the host's player and bots from room
+  guests and leaves the invited creator in the editor. Compilation, live
+  lighting and same-room return proof remain pending. Structural world
+  activation and the two independent view policies remain open.
+
+### 2026-11-18 (02:41 UTC) Grid exact package sets and private world validation
+
+- Candidate 6DC7BA05 built and passed 26,383 assertions in 85 focused tests.
+  Source checkpoint grid-native-live-checkpoint-0201Z.patch contains 137
+  paths against week-pd/mods-v4 at 69ceb3bd. SHA-256
+  446AF616B8F17853D08EEEA3CDD9D883D7B9811D1F3F59E95B21EEFC8C59B021.
+- The explicit arena decline on 6DC7BA05 passed 21/21 in
+  20261118T021213127399Z-forge_grid_declined_arena_smoke-724061d5. It
+  retained the party, accepted Room setup and guest's original catalog.
+  The guest received no bytes and neither peer entered gameplay.
+- Shared Draft now accepts the native start position command with the same
+  host sequencing and latest-author inverse as ambient. A resumed draft uses
+  the same canonical native pad source on both peers. The host can pin a
+  saved Variant and start its exact private round while authoring continues.
+- 39E9AB0B and tests 4062D507 built. The focused suite passed 26,611
+  assertions in 91 cases, including shared start movement and inverse,
+  snapshot round trip, bounded two-package wire and original weapon provenance.
+  The Grid can stage one authorized arena and one authorized native weapon
+  under one session-only approval. Both must verify before catalog/epoch
+  admission. Live two-package allocation, firing and retirement remain open.
+- The first private round fixture requested three bots from an empty setup.
+  Its fixed retry launched the real stage with one player and three bots,
+  kept both remote peers in Room and sent the stage start to zero remotes.
+  It timed out before the lighting witness. Generated rooms without fixtures
+  skip the legacy light matrix. The targeted Grid renderer now uses authored
+  ambient in that case. A rebuilt Variant smoke will verify the live edit and
+  exact same-room return.
+- The first portal smoke failed before stage launch because the fresh profile
+  Mods directory was missing. Its corrected fixture stages the migration
+  marker before the first boot. Grounded traversal and the blocked wall
+  after restart still require live evidence.
+
+### 2026-11-18 (03:15 UTC) Grid source and managed runtime checkpoint
+
+- Build 87081114 includes the fixture-free Grid lighting fallback and the
+  two-package raw staging path. Its private Variant, missing arena plus weapon,
+  and corrupted transfer smokes stopped at storage preflight without launching.
+  The same-party retry binary was also refused. D-028 awaits Mike on whether to
+  raise only the detached runner's 2 GiB archive cap to 3 GiB. The checkout and
+  archive config are untouched.
+- The portal retry reached a real freshly authored and loaded native arena,
+  then held the forward button without movement. Focus loss suppressed
+  physical digital-to-axis conversion. The corrected witness uses the normal
+  gameplay movement axis and requires an observed grounded approach. Neither
+  traversal nor wall-block acceptance is verified yet.
+- Client 8F54E1FA / tests 67CEF5F1 built through q_20261118025708142_cbae036f.
+  The 157-path exact source patch grid-exact-view-reconnect-checkpoint-0259Z.patch
+  has SHA-256 2553669E62E5F4C10CB0B6C666DCBAE019F0D0A19A996AA7801B97B9FA4B4B09.
+  The broader suite ran 361 cases with 359 passing. The only two failures
+  searched for the prior reconnect helper name. The test anchors were fixed
+  after checking the base source, preserving their assertions.
+- The candidate has separate creator overview and player cursor policies,
+  native bot waypoint controls, and installed-only active exact Grid reconnect.
+  Pending follow-through stages previously consented arena/weapon bytes only
+  for the same authorized reconnect and adds same-room decoration moves for
+  original native props with the exact pass-through contract.
+- The four-setting view fixture drives visibility and revocation in one private
+  round. The installed-only and temporary reconnect fixtures wait for real native
+  gameplay resync and authoritative results. These fixtures still need runtime
+  proof. Full independent creator camera, structural world replacement, and
+  two-machine/WAN acceptance remain open.
+
+### 2026-11-18 (03:50 UTC) Grid candidate and compact managed smoke
+
+- Client 48537749 includes exact active-stage start protection, reconnect
+  lease retirement gating, compatible decoration movement, and both private
+  visibility controls under Pause Settings. The client passed the isolated
+  build and the native source guard. Tests 4A1B563B passed 81,011 assertions
+  in 364 cases plus 667 in 19 supplemental cases. The checks round-tripped
+  132 base native levels. Build q_20261118034514790_043cc219 and tests
+  q_20261118034018039_dd077e84 and q_20261118034120288_b0debbba.
+- Grid source checkpoint grid-48537749-source.patch contains 165 paths from
+  base 69ceb3bd. SHA-256 is
+  E29B48864DD04046A7205A0D203ECE0CAAEBB70C1F69E6DEA008B23F1649F436.
+  The isolated index left the real index empty and excluded the unrelated
+  runner preference file. Git queue q_20261118034908445_b1543f5f.
+- The full binary is 101,897,201 bytes. A managed-smoke copy strips debug
+  sections only and is 32,604,776 bytes, SHA-256
+  9A6321A22C54D55A2D19433546C9824DFDB1030DE3EA99D54062F231180EBEDC.
+  grid-pe-smoke-equivalence-48537749.json verifies matching loadable PE
+  sections, entry point and runtime data directories. The same 2 GiB archive
+  preflight accepted the copy. The managed two-package run launched under
+  q_20261118034626916_1b34396d. Gameplay and receipt archival are pending.
+- D-029 asks Mike to choose between restarting the private round and carrying
+  its compatible gameplay state after a structural apply. Current setup
+  retains one resident render, room, collision and navigation world. A
+  staged candidate needs its own monotonic identity, preflight before
+  retirement, and a recoverable last-good world path.
+
+### 2026-11-18 (04:08 UTC) Grid runtime findings and new source checkpoint
+
+- Private decoration smoke 20261118T035537240195Z-forge_grid_private_decoration_smoke-821709e7
+  passed 32/32 on 9A6321A2 with three process exits at 0. One host and
+  three bots ran a private native round. Revision 2 increased rendered room
+  brightness from 104 to 137. An out-of-bounds edit was refused and revision 3
+  moved the exact authored decoration in epoch 1. Continue preserved the
+  shared draft and the ordinary member received no private packets.
+- The two-package run 20261118T034800069206Z-forge_grid_temporary_arena_weapon_smoke-c4b9a967
+  passed 37/40. The guest approved exact native arena and weapon archives
+  totaling 47,981 bytes. Both played and returned to Room 1 with matching
+  result identity, and the host authored projectile shots from both clients.
+  The guest's old world kept both temporary files resident after Continue.
+  One assertion also used an installed-only readiness marker. The revised
+  fixture uses transferred readiness, guest input and projectile handling,
+  authoritative host firing and retirement before lobby resync.
+- Client 1BF8ED4F schedules the connected Room over the existing system-stage
+  allocation after exact results. Native world teardown precedes manifest
+  and temporary package retirement. Lobby resync waits for cleanup, retaining
+  party and exact result identity. The runtime retest is queued. This build
+  also adds optional native stage-start rain and snow in Level File.
+- Tests 25068EF7 passed 81,934 assertions in 387 cases including 132 native
+  base-level round trips, q_20261118040530420_0fd8c88b. Native asset guard
+  passed. Source patch grid-1BF8ED4F-source.patch covers 167 owned paths, with
+  SHA-256 22043CEB566CB183FB0311540D6EE3D4256B15673017CA68CC3BA4EDEB6789DA.
+  git queue q_20261118040455229_0a20393c. Compact runtime copy A2E6BF8A was
+  checked against the full executable's loadable sections and entry point.
+
+### 2026-11-18 (04:23 UTC) Grid visibility proof and terminal Room corrections
+
+- Compact 9A6321A2 private visibility smoke
+  20261118T040444858525Z-forge_grid_private_visibility_smoke-d8c40263
+  passed all 33 checks. Native scope observed cursor only, overview only,
+  both, and neither, with both revoked before Continue. One local player
+  and three bots remained in the same epoch. Only the authorized creator
+  received the two rooms and four actor positions. Manual Settings
+  interactions and a full independent creator camera still need proof.
+- Two-package retest on A2E6BF8A
+  20261118T041358334821Z-forge_grid_temporary_arena_weapon_smoke-8b381266
+  again played the exact temporary native arena and weapon and produced equal
+  result tuples. The host reached the system-stage Room backdrop after a
+  26.85-second character-preview manifest preload. The guest kept its
+  committed network epoch after accepting the result, so Continue bypassed
+  the backdrop and sent resync early. The managed run passed 34/41 checks.
+- Client FB491390 clears replication after validating and accepting the
+  exact terminal packet. The old world stops before the match manifest
+  releases its owned references. Preview assets load through ordinary Room
+  use. An immediate exact rematch waits for the participating peers to
+  finish results, and incoming exact offers require prior lease cleanup.
+  Client and test build q_20261118042109946_b5876a1e passed. Tests 3A635CF5
+  passed 84,215 assertions in 430 cases, q_20261118042319314_a73e213f,
+  including exact handoff order, 132 unchanged native base round trips,
+  network controls, typed manifests and catalog ownership.
+- Compact FB491390 runtime copy 4DB93F24 retains matching entry point,
+  data directories and loadable sections and is 24,943,616 bytes. The
+  unchanged 2 GiB archive had 12,840,146 bytes free after the second compact
+  run. A new seed for this binary requires the D-028 decision. Portal,
+  startup weather and corrupt transfer checks reuse the already archived
+  equivalent A2E6BF8A binary and are queued. D-029 remains open.
+- Portal run 20261118T042202518773Z-forge_grid_portal_crossing_smoke-c719c0ec
+  reached the real native arena and verified a grounded approach with the
+  production forward axis. At X=-183.7 and Z=36.2 it exited because the
+  witness allowed only 35 units of lateral drift. Client D75BD8E5 updates
+  only the smoke witness. It keeps the crossing within the 500-unit opening
+  and the blocked run at least 50 units outside its edge, and requires a
+  grounded stop with forward input still held for 30 frames. Candidate
+  build q_20261118042725731_1d8249a0 and asset source guard passed. The 430
+  native cases apply to the same production code. Final runtime retest needs
+  space for the PE-equivalent F2B33FD2.
+
+### 2026-11-18 (04:35 UTC) Grid current freeze and late managed evidence
+
+- D75BD8E5 source is frozen in grid-D75BD8E5-source.patch, 167 paths from
+  HEAD 69ceb3bd, SHA-256
+  88CC6255580E2DF7779FDBFD34C449DCA2B16E674B568293557372B8DD3BDAD2.
+  q_20261118042916247_db78aab0 left the real Git index empty. The latest
+  targeted suite adds smoke-input tests and passes 84,637 assertions in
+  441 cases on 3A635CF5, q_20261118043500988_d2cfb792. The equivalent
+  smoke binary is F2B33FD2 at 24,943,616 bytes.
+- Native startup snow smoke
+  20261118T042735035875Z-forge_grid_native_weather_smoke-a8b8dcac passed
+  17/17 gameplay assertions and exited 0 on A2E6BF8A. The engine read
+  authored weather from stage.json, instantiated snow, and captured
+  grid-native-weather.bmp at 2560x1440. The archive refused closeout at
+  used=2137257140 pending=11060278. The protected install holds the full
+  screenshot and client log. The inspection copy is
+  grid-native-weather-inspection.png in the isolated build folder.
+- The active snow install holds a 2 GiB full-install reservation. Default
+  corrupt transfer and temporary reconnect seeds refused before launch.
+  The detached runner's per-run 0.9 GiB reservation admits the already
+  archived binary for remaining work under the same configured 2 GiB
+  archive cap, two-install limit and 3 GiB full-install budget. Corrupt
+  transfer q_20261118043350243_2e7d8058 is in progress. Temporary reconnect
+  q_20261118043416706_f093cd71 is queued. New binary seeds await D-028.
+
+### 2026-11-18 (04:55 UTC) Grid handoff verification checkpoint
+
+- Corruption run b9861e0a passed 21/21, both exits 0 and durable managed
+  closeout. The guest refused the 31,184-byte altered arena on digest
+  mismatch. No catalog rows, private files, stage epoch or review were
+  published. Both peers stayed in Room 1 with its settings intact.
+- Reconnect launch 0391616a found two invalid harness schedule bounds and
+  expected filenames that differed from the game's real logs. The corrected
+  A2E6BF8A run a7957d92 reached live epoch 1, retired both initial leases,
+  authenticated the same cookie, and restored 31,195 arena bytes and
+  16,799 weapon bytes without a second transfer. Stage replay failed because
+  the receiver saved its local slot 0 while the host assigned slot 1. The
+  production fix records the wire slot from the accepted roster before
+  local remapping and uses it for reconnect. The updated smoke asserts
+  authoritative host projectile creation and guest input and model use.
+- Client C680EB4B, tests 345FD913 and the asset-native source guard passed
+  the isolated build q_20261118045211694_c300db10. The expanded suite passed
+  84,646 assertions in 441 cases, q_20261118045435054_63b244ae. Compact
+  runtime 10CE721D is 24,943,616 bytes. Its PE entry point, runtime
+  directories and loadable sections match the full client.
+- Reconnect closeout also hit the 2 GiB archive cap at used=2147342021,
+  pending=1220805. Remaining archive capacity is 141,627 bytes. The snow
+  and reconnect installs are protected because their processes exited
+  before managed completion. They occupy both install slots. The existing
+  reviewed release applies only to unchanged seed copies, and both contain
+  generated evidence. Resume needs D-028 and a supported reviewed
+  closeout for the protected installs. Preserve their logs, screenshot,
+  and stored bytes. Retest final terminal Room cleanup, same-epoch reconnect
+  and corrected doorway crossing on the new candidate once storage is
+  available. Full live structural activation still needs D-029.
+
+### 2026-11-18 (05:12 UTC) Grid native edit and stage preparation checkpoint
+
+- Moving a start or object now detaches it from a pad it shares with a
+  hill, case marker, required bot waypoint, door trigger or typed placement.
+  The native object summary and setup place field switch pads together. A
+  failed rewrite leaves the current pad, volume and graph intact.
+- Exact original Grid match preparation reads the portal table from the
+  verified staged arena at the native descriptor path. It rejects malformed
+  rows, nonfinite or collapsed planes, out-of-domain endpoints, excess room
+  links and 16-bit packed-offset overflow before publishing pending state.
+  Room load and stage portal load share the native reader. This is a portal
+  preflight, with structural world commit and rollback still pending D-029.
+- If player allocation or world initialization fails after match publication,
+  the Grid path releases the exact match manifest before retiring stage leases.
+  A normal process exit from an active Grid match still needs its own cleanup
+  coverage and a managed runtime check.
+- Client CC1847E8 and tests 51C54098 built in q_20261118050823477_01dc9ba1.
+  The asset-native-source guard passed. q_20261118051118056_916b518d passed
+  91,240 assertions across 456 cases, including 132 extracted native portal
+  tables. The original GLB importer passed all seven behavioral cases. The
+  fixture byte check flagged the model under the test wrapper's Python. The
+  default authoring Python reproduced the exact tracked GLB and complete
+  Model Room fixture in q_20261118051213083_4d8866b5.
+- D-028 and D-029 remain open. The detached smoke runner still has two
+  protected interrupted installs with generated evidence and 141,627 bytes
+  available in its archive. Resume managed runs after both capacity and a
+  supported closeout are available. Work stays in the authorized mods-v4
+  worktree at 69ceb3bd.
+
+### 2026-11-18 (05:24 UTC) Grid cover and clean exit checkpoint
+
+- Level File now adds native cover at a selected pad in an offline arena
+  using the conventional active cover source. It retains the existing
+  `navigation/covers.json` bytes and metadata outside the edit, uses the
+  pad's horizontal facing, and recovers older checkpoints with cover
+  inherited from the exact opened archive. The native stage honors the
+  optional `generate_routes` boolean when explicit route tables are empty.
+  It retains authored cover rows while deriving waypoints and groups from
+  the existing pads and paths.
+- Shared Draft snapshot v1 still transmits its eight editable members.
+  An unchanged cover table stays in the exact pinned arena. An unsaved
+  offline cover edit cannot enter a shared snapshot. Variant save inherits
+  the pinned cover bytes when the snapshot omits them.
+- Clean exit stops an initialized Grid world before shutting down scene,
+  audio and UI. After transport disconnect it releases the match manifest
+  and retires the exact temporary leases. Ordinary crash recovery order is
+  preserved. The managed runtime quit path still needs a game run.
+- Client 2CED4920 and tests 7F537A1B built in q_20261118051847736_539bc387.
+  The asset-native-source guard passed. Tests q_20261118052012858_c4000209
+  passed 91,498 assertions in 460 cases, with 132 base archives retaining
+  cover bytes. The Model Room fixture reproduced and seven importer cases
+  passed. D-028 archive/API recovery and D-029 structural policy remain
+  open. Current validation covers archive and source paths, including saved
+  cover count and content hash. Managed bot selection, portal traversal,
+  reconnect, same-party return, and clean process exit need runtime evidence
+  on this client.
+
+### 2026-11-18 (05:48 UTC) Grid structural staging and live creator return
+
+- Stage Extended Variant is connected to the Shared Draft Room and private
+  pause settings. It extends one far wall of the recognized original two-room
+  geometry and writes scene, collision, and room bounds in one native variant.
+  The same save retains the exact parent lineage, portal, placement and route
+  references, authored cover, and rebuilt navigation metadata. The variant is
+  written and pinned while the existing game world is resident. Play Saved
+  Variant checks the original staged file and the resolved catalog archive
+  against the pin at the next normal Room launch.
+- Exact original Grid prepare compiles the staged native collision input and
+  authored flag sidecar into a detached CPU mesh. It feeds the observed maximum
+  room into portal-domain validation and probes staged GLB positions through
+  the scenario renderer's shared CPU builder. Pending publication follows the
+  prepare checks. Engine navigation activation and reachability still need
+  runtime proof, and same-round world replacement awaits D-029.
+- A detached creator can rejoin the live private Room through normal network
+  authentication as a lobby member. Password, invite-only and capacity checks
+  remain in the Room transaction. The host's Pause Settings offers a fresh
+  connection-bound Room invite when needed and a separate creator invite.
+  Only an exact snapshot ACK and successful creator grant rebind the draft to
+  the existing stage epoch. Ordinary players receive no creator role or view.
+- Asset guard and isolated client C31E63D2 passed q_20261118054437912_47c6f2b0.
+  The initial Room test used a temporary room named Lounge and observed its
+  correct teardown. The corrected permanent Lounge fixture and exact test
+  build EDAFB40F passed q_20261118054644659_ba8e8b1b. The suite passed 91,686
+  assertions across 465 cases, including asymmetric native variant save/reopen,
+  132 base arenas and room admission checks, in q_20261118054729483_dcc253e4.
+  Seven model importer cases and the exact Model Room fixture passed.
+- D-028 and D-029 still open at this checkpoint. Both protected smoke installs
+  and their generated evidence remain present. The latest client has no
+  managed gameplay proof for live rejoin, variant play, or earlier portal and
+  two-package return/reconnect witnesses. Two-machine and WAN coverage remain
+  outstanding.
+
+### 2026-11-18 (06:11 UTC) Grid navigation, weapon sharing and rejoin checkpoint
+
+- Exact original Grid preparation now verifies and packs navigation from the
+  same staged scenario as collision, portals and scene geometry. Candidate
+  packing leaves the active stage alone and rejects flagged raw group-member
+  indexes. Route reachability still needs a bot playtest.
+- A listen host reserves a distinct stage epoch on every start in the same
+  server lifetime. Room hosts can review and explicitly allow an original
+  weapon placed directly in an arena, with the package digest rechecked at
+  approval.
+- A detached creator in a private playtest can freshly authenticate in the
+  Lounge without claiming a preserved player slot. The separate Room invite
+  and snapshot-backed creator grant still apply. Added the three-process
+  `forge_grid_private_live_reconnect_smoke` fixture to check restoration,
+  rendering and ordinary-peer isolation on the original epoch.
+- Client `47A1D744FB81F6A43858A97ADABD4313F3BC4EBD430C363B28401D7712E2E995`
+  and native source guard passed in `q_20261118060719223_6ebad08e`.
+  The initial suite caught a stale source check for the auth boundary. Updated
+  tests `B8058BB2C5D05D36710C4B8E8D84FAAAB58936C7FB5354EE4F1E8B09257E38F8`
+  built in `q_20261118061003504_e35b77b0`. Verification
+  `q_20261118061052379_efb46ab2` passed 91,969 assertions across 470 cases,
+  132 base arena round trips, the exact Model Room fixture, seven importer
+  tests, and static checks of the reconnect fixture.
+- Managed gameplay remains pending. D-028 archive capacity and both protected
+  occupied install slots prevent new seeds. D-029 still determines how to
+  apply an already validated structural variant within the same private round.
+
+### 2026-11-18 (06:47 UTC) Grid routes and Room score review checkpoint
+
+- Level File can connect pads on a clear floor in the same room. The normal
+  draft and archive paths retain the new native route, preserve a linked pad
+  when its start moves, and refresh generated navigation metadata. Older
+  checkpoints inherit omitted paths and Shared Grid snapshot v1 inherits the
+  exact pinned paths. The new Connect Pads smoke checks native adjacency,
+  return to the unmodified original, and retained undo and redo.
+- Review Scores in the Room keeps each authorized result after Continue. It
+  decodes the existing score hash and ordered rows, uses the native scenario
+  score before teardown, and retains the rows with the exact result. An
+  installed guest can now reopen the played arena using the verified stage
+  cache, including for an arena nested inside a mod package. The host has its
+  immutable pin from match preparation.
+- A staged structural Variant now runs the shared native scene, portal,
+  collision and navigation probes on its exact local bytes before enabling the
+  mod. The ordinary launch continues to bind and check the enabled archive.
+- Client `9CE271EF1C3513DDBBC1D18F43F233EE54679F5C415E73FDD5255D01D7A1EAF4`
+  and the native source guard passed in `q_20261118064230471_bdf7d1ab`.
+  The first archive test passed empty strings for absent optional members.
+  Tests `C47D2CA51CB16107E3E681A2719EF41F36F06F2408CE523C390FBC020722E2B8`
+  model the loader's absent values and built in `q_20261118064447348_b618fff3`.
+  `q_20261118064555696_cfd4d1c0` passed 92,293 assertions in 479 cases,
+  132 base arena round trips, the exact Model Room, seven importer cases,
+  and static checks of the route, installed-match and live-reconnect fixtures.
+- Native gameplay for this candidate, the two-machine journey and WAN remain
+  pending. Both protected full installs are still present under D-028. Same
+  private round structural apply and rollback remain under D-029.
+
+### 2026-11-18 (07:11 UTC) Grid staged revision, native bounds and trigger checkpoint
+
+- Structural staging checks the exact arena and its recorded parent before
+  publishing the candidate pin. Its captured draft revision and exact digest
+  stay independently available through later normal Variant saves. The Room
+  can play the staged revision after the current round, and reports when the
+  current draft has moved ahead. A refused candidate keeps the previous record.
+- Detached and normal exact Grid preparation validate authored `rooms.json`
+  bounds against the compiled room collision and check native light origin
+  arithmetic. Missing tables and origin-only rows retain collision-synthesized
+  bounds. The new three-process fixture targets live staging, refusal, original
+  world retention, Continue, and a new stage epoch with resized native bounds.
+- Level File supports Give Fixed Pickup on Enter through the existing volume
+  graph. It preserves the exact pickup and anchor references across the
+  archive round trip and leaves authored door triggers compatible.
+- Isolated client `66917F9805C0C50FD5E2C2A9BFB50F93DD97B58D48F8648C448D5317C6CE86BC`
+  and tests `CCE2887CD61B6650EF1CFF4EE6BC9282D91951D0750890FE9F45D5EA9B9CDE55`
+  built in `q_20261118070751452_af617788` with the native asset source guard.
+  `q_20261118070955012_97ea1254` passed 92,519 assertions in 487 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Static checks passed for all four targeted gameplay fixtures.
+- Managed gameplay remains pending under D-028 and both occupied protected
+  slots. The new fixture covers ordinary next-round activation when run.
+  Same-round structural activation and rollback remain under D-029.
+
+### 2026-11-18 (07:41 UTC) Grid directed review and exact model textures
+
+- A host can send a staged room extension to the invited creator for review
+  during the private round. The existing v65 control channel negotiates the
+  optional action and binds the reply to the exact draft, arena digest,
+  parent, round epoch and creator connection. The creator can acknowledge or
+  decline. A matching installed arena is checked against the same detached
+  native probe. This review leaves stage activation under the existing flow.
+- Grid source preparation includes explicit catalog textures from bounded
+  native OBJ material members, including the nested Crystal Pistol mesh's
+  separate body texture. The typed closure checks texture identity, dedup,
+  changes in the source digest, missing and stale copies, and cycles. Separate
+  textures use the existing installed-source policy. Secondary typed setup
+  roots still require an exact dependency audit.
+- Added a fixture for actual fixed-pickup inventory after normal volume entry,
+  with the placed weapon in the other room. Extended the staged room fixture
+  to require the exact creator acknowledgement before the host ends the first
+  round. Both fixture definitions passed static checks.
+- Isolated client `8A248D0D2967FD26424A68243A18D26F0331498852DE0683BFCA0362CDCFA0E9`
+  and tests `BA29D941F4E172350CD65E49DA3FDB5CEC47F789AC6DD7BE32F365518F074ABB`
+  built with the native asset guard in `q_20261118073633815_48faecea`.
+  `q_20261118073918690_010b857e` passed 110,295 assertions in 504 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Five targeted smoke fixtures passed static validation.
+- Managed gameplay needs D-028 and a supported release of a protected install
+  slot. D-029 still owns same-round structural activation and rollback.
+
+### 2026-11-18 (08:04 UTC) Grid draft validation and native setup dependencies
+
+- Level File's Validate Draft checks a private rebuild of the current original
+  arena. It checks detached scene, rooms, portals, collision and navigation,
+  the executable graph, and authored references against the installed catalog.
+  Its result follows the current editor document and catalog generations.
+- Exact Grid match preparation uses the native setup fields and objects
+  readers, in stage load order, and checks the native graph's selected setup,
+  object and AI members. This includes crate-slot models, secondary and dual
+  weapons, character bodies and heads, and chopper audio. Document and archive
+  member reads enforce expansion bounds before decoding.
+- The new managed Validate Draft fixture checks a valid unsaved trigger, an
+  unknown graph action, and the stage, saved arena, pin and undo history.
+  Its definition passed static validation.
+- Isolated client `65C6C3DB39E4120E18950337E6FF400E0E24DCAD67D68136921CDDC281C01AA6`
+  and tests `47C67F81CE9886E59FE3DD875B464E6460F2B5EB60FB289FACC0C4DBF022EB49`
+  built with the native asset guard in `q_20261118075951194_34b10f19`.
+  `q_20261118080222551_ad956bdc` passed 110,347 assertions in 506 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Six targeted smoke fixtures passed static validation.
+- Managed gameplay remains pending under D-028 and the two occupied protected
+  install slots. D-029 remains open for same-round structural activation.
+
+### 2026-11-18 (08:30 UTC) Grid staged arena dependency agreement
+
+- A staged original arena now has a detached source proof. The verifier reads
+  its exact pin, probes the native world and builds a typed dependency plan
+  from both native descriptors and the scenario's authored references. The
+  same walk includes transitive catalog and OBJ texture dependencies. It
+  checks each package again in a temporary cache and discards the cache after
+  review. The plan includes the arena's sources apart from match selections.
+- An optional v65 review exchanges the host's digest and the creator's
+  independently computed digest. The receipt belongs to the current creator,
+  connection, draft revision, Variant and round. Earlier v65 peers retain
+  arena-only review. If the creator lacks the exact local Variant or its
+  dependencies, the host can still receive acknowledgement or arena proof.
+- The three-role staged extension fixture now requires actual host package
+  proof and a creator acknowledgement without a package match. Its definition
+  passed static validation. Positive peer agreement and role isolation still
+  need managed gameplay evidence.
+- Isolated client `90DB1AD178F4F8F7EA5A8FE76F4E3A3511BAA05BDCC6F92417F282776BA86489` and tests
+  `50DC1876938C53C0169B9280C53E923EF21DEF2FB74D81436C1D9DDFED3925CD` built with the native asset guard in
+  `q_20261118082619943_e9021889`. `q_20261118082908005_eef4ba37` passed
+  113,314 assertions in 509 cases, 132 base arena round trips, exact Model
+  Room, and seven importer cases. Six targeted smoke fixtures passed static
+  validation.
+- D-028 and both protected full install slots still prevent game runs.
+  D-029 remains open. The dependency receipt leaves the current world active.
+
+### 2026-11-18 (08:49 UTC) Grid prepared source caches and creator witness
+
+- A negotiated prepared review retains one bounded exact package cache on
+  each peer. The cache uses the Room and review serial, and a digest tied
+  to the creator connection, draft and round. A confirmed cache expires
+  with its review or is released on scope change, downgrade or cancellation.
+  A v65 peer advertising the earlier capability still gets digest review.
+- A new three-role smoke has the creator independently author and install
+  the staged Variant with a separate typed model before connecting. The
+  scripted assertions require the arena SHA to agree, both peers to retain
+  the matching package set and release it on Room return, and the ordinary
+  peer to stay outside the review. The earlier missing-arena fixture now
+  requires the host to release its cache when the creator acknowledges.
+- Isolated client `2094B08637A776CE4531475EE646DB1DE696EB66D6127FD985DF1DFBFFCF4601` and tests
+  `C769235546F43760E0F1330052DF0B8D4484A122ED6531799695FF881900D8F0` built with the native asset guard in
+  `q_20261118084530506_d26c0479`. The first definition check inspected only
+  ordered witness patterns and missed a required-line release witness. The
+  corrected `q_20261118084748381_18aecb97` passed all seven smoke definition
+  checks, 113,462 assertions in 509 cases, 132 base arena round trips, exact
+  Model Room, and seven importer cases.
+- Game runs remain pending under D-028 and both occupied protected install
+  slots. Same-round activation and rollback still depend on D-029.
+
+### 2026-11-18 (09:16 UTC) Grid staged arena transfer with consent
+
+- A host can offer one exact original staged arena to the current creator.
+  The creator must consent before the host queues any archive bytes. The
+  transfer is bounded and scoped to the current review and authenticated
+  connection. Separate dependencies must be available locally.
+- The creator checks the received arena in memory against the offered SHA,
+  archive limits, native arena structure and exact parent revision. A
+  matching derived package digest retains the prepared cache. The received
+  arena has no local package path or catalog entry. The shared archive
+  reader now checks input spans with widened arithmetic or checked
+  subtraction before reading headers or compressed bytes.
+- The three-role transfer smoke starts with the creator lacking the staged
+  arena and having the real typed model dependency. Its assertions witness
+  both consent actions, ready receipts, catalog and stage preservation,
+  cache release and isolation from ordinary Room traffic.
+- Isolated client `DC0C9F0E95F01390139A93D8047AB80C13E990F20BDF870EECC9D46AD270F5E3` and tests
+  `5D8F7E7A7FE8610F622B2DDE5390F9C835969A5A8069DD317F57E252A1FF4A31` built with the native asset guard in
+  `q_20261118091354670_dcd90446` and `q_20261118090635105_2459239c`.
+  The focused `q_20261118091310548_1a840101` passed 24,583 assertions in
+  33 cases. The extended `q_20261118091451669_ecc24054` passed 117,507
+  assertions in 541 cases, 132 base arena round trips, exact Model Room,
+  seven importer cases, and eight static smoke definition checks.
+- Managed gameplay remains pending under D-028 and both occupied protected
+  install slots. Same-round activation and rollback still depend on D-029.
+
+### 2026-11-18 (09:45 UTC) Grid match candidate sources and offline room extension
+
+- A private playtest captures the exact selected gameplay sources before
+  expanding its arena. The runtime owns that subset only after proving it
+  belongs to the sealed start cache. On a matching prepared review, the
+  host combines it with the candidate arena's verified sources and checks
+  the result against both ready donor caches and a single session budget.
+  This drops old arena-only dependencies and invalidates the combined
+  plan if the running roster or settings drift. A transition still needs
+  to recheck this scope before it can apply a world.
+- Private playlist advances use the admitted match audience. The host's
+  local playlist continues normally.
+- Save Extended Variant in offline Level File extends a recognized original
+  two-room arena using the exact pinned parent and current draft. It checks
+  authored references before re-identification, validates the new native
+  geometry and navigation in hidden staging, and publishes the new mod
+  directory without replacing another folder. The saved Variant can be
+  enabled in Mods and opened from Levels after restart.
+- Isolated client `1CD8022DE9692A4986D4573150E060481CE4B8580C85F253A4D59352818AE9C0` and tests
+  `E08AC664CAFEBE45F327FB967FCA3BCAAADED6FA73944FF350FDCA64A69F7ECA` built with the native asset guard in
+  `q_20261118094241744_d9df36b1`. `q_20261118094341883_f9a54354` passed
+  117,914 assertions in 547 cases, 132 base arena round trips, exact Model
+  Room, seven importer cases and eight static smoke definition checks.
+- Managed gameplay, including the positive combined-plan fixture and the
+  offline save and reopen journey, remains pending. D-028 and two protected
+  install slots still block managed runs. D-029 still governs same-round
+  activation and rollback.
+
+### 2026-11-18 (10:20 UTC) Grid room extension collision and native waypoints
+
+- Exact original preflight now reads the selected spawn table with the native
+  loader and verifies its pad references. The two-room extension path also
+  checks authored starts and the bidirectional bot route against detached
+  collision and the exact native doorway. The check uses a standing clearance
+  corridor and samples level floor support. It runs before publishing offline
+  and Room extensions and before accepting their reviewed sources.
+- The room builder opts generated waypoints into linked route pads through
+  the native waypoint source. The native loader preserves pads, covers and
+  direction flags. It leaves unrelated placement pads out of the route.
+  Both detached preparation and live stage loading use this generator.
+- Isolated client `4B94DE7F5DFCDD5754210FA8E54FA5A5A25E4BB4DB0546AB1BEC2B399AEC1632`
+  and tests `43874BE51C8271DA29A6937D93547A6708EF384AEBECC9FE1F3EB5EF0E3D36ED`
+  were built through `q_20261118101507581_7be0efbf` and
+  `q_20261118101823464_20c22466` with passing native source guards.
+  `q_20261118101903577_4dfffb8b` passed 118,000 assertions in 550 cases,
+  132 base arena round trips, the exact Model Room, seven importer tests and
+  eight static smoke definition checks.
+- Live movement and interaction still need managed gameplay. D-028 and the
+  two protected install slots still block those runs. D-029 governs applying
+  the prepared extension in the current private round and rollback.
+
+### 2026-11-18 (10:40 UTC) Grid consent and ordinary Save As
+
+- During exact match preparation, the guest can see and use the Grid
+  consent prompt. The download bar tracks delivered archive bytes and the
+  requested package. A failed preparation shows the local reason in the Room.
+  The two-package fixture now waits until the button owns input and presses
+  Use through the existing menu path.
+- Ordinary Save As checks the original draft's native and executable sources
+  under the opened identity before publication. The detached local check uses
+  the existing 128 MiB authoring budget. The network probes retain 50 MiB.
+  The Validate Draft fixture attempts a malformed in-place Save As through
+  the production author function and checks the prior archive and pin.
+- Shared Draft keeps typed start, decoration and ambient edits when another
+  resource changes. If that resource changes, the input stays visible and the
+  editor requires a reload before applying. An accepted local command takes
+  its normalized readback from the host's commit.
+- Client `8054ED105475410639ECA2D256E93B6D8E58621DC0F0490271081475F06CC1FB`
+  and tests `71C7806C2521925062693CABA3AEAE8FE7DB8845D3C6005A3B0A6574EA8A17DF`
+  built through `q_20261118103630206_81fb0e6c` with a passing source guard.
+  `q_20261118103917459_6ca6bb59` passed 118,931 assertions in 579 cases,
+  132 base arena round trips, the exact Model Room, seven importer cases and
+  nine static smoke definition checks. The actual player input and offline
+  denied-save fixtures still need a managed game run under D-028.
+
+### 2026-11-18 (10:50 UTC) Grid previous-save recovery
+
+- Before replacing an original arena, Save As validates the draft, confirms
+  the author plan targets an existing arena of the same identity, and retains
+  the exact predecessor in the profile revision store. Recovery uses a separate
+  atomic previous-revision record. Fork Previous Save creates a separately
+  named level from those verified bytes in offline Level File.
+- Client `74A6FF4F8A71349BD1E398F4A81DBA56AE223AF1E70EDE3DE97DC7334C4B0B2E`
+  and tests `CE36F9A91DA13179CD5EC6C69AFE5B08730716DDD49F8038478530999E50DA49`
+  built through `q_20261118104526654_26d0838f` and
+  `q_20261118104809109_b452cc32` with passing native-source guards.
+  `q_20261118104845262_d65afa4c` passed 119,059 assertions in 581 cases,
+  including fault-injected revision-pointer updates, 132 base arena round
+  trips, the exact Model Room, seven importer cases and nine static smoke
+  definition checks.
+- A late catalog enable failure can still leave new bytes on disk. The prior
+  archive is recoverable as a fork from the open Level File. Managed gameplay
+  still needs D-028 and an available install slot. D-029 still governs
+  structural apply and rollback within the active private playtest.
+
+### 2026-11-18 (11:14 UTC) Grid exact placements, saves, and launch checks
+
+- Edit Placement takes world XYZ and yaw for an offline native player start
+  or movable object. It owns a menu input scope and checks loaded room
+  bounds. Position-only changes preserve facing. One apply creates one undo
+  edit. Native vector output keeps six decimals and writes complete JSON for
+  large finite coordinates. The test reopens native pad and volume sources
+  after an add and a move.
+- Same-name Save As for the enabled loose original arena and scenario pair
+  can commit the detached-validated archive directly. It requires the exact
+  current catalog and provider bindings, owner manifest hash, original
+  digest, and unchanged descriptors. It keeps the predecessor and replaces
+  one archive atomically without rebuilding the enabled catalog. General
+  new-name, metadata-changing, and multi-asset saves use Mod Author.
+- At zero countdown the host rechecks the exact Room start offer and its
+  catalog bindings before the loading notice. Drift takes the existing
+  ready-gate rollback. Stage load keeps its own final check. The private
+  room extension section also uses the standard controller layout.
+- Final isolated build `q_20261118111224677_6055b7e9`, client
+  `0057DFB86BEE574F521FB54F4791CC2AE662309F40264158244AC5F705F75951`, tests
+  `69412D804AC5E9E889A5A5CD21C0F173173BE3699FE83D9C9218E1073C8CBC8A`. The native source guard passed.
+  `q_20261118111405275_bb8783c5` passed 120,186 assertions in 643 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and nine static smoke definition checks. Managed game and controller
+  validation remain pending.
+- The alternate writer smoke store has about 74.5 MB of archive space. The
+  shared base template executable needs about 97.1 MB, and an ordinary
+  ROM-source run would need at least 76.8 MB of new compressed base
+  data before the executable and receipts. The detached runner still
+  needs D-028 and a supported closeout of a protected interrupted install.
+  D-029 still governs the safe private structural world transition.
+
+### 2026-11-18 (11:29 UTC) Grid direct Save, trigger revision, and route revision
+
+- Save Opened Level serves the exact enabled loose original currently open
+  in the editor. Selecting another destination in Save As requires reopening
+  before using direct Save. The actual write rechecks the owner manifest,
+  matching catalog and providers, archive digest, two native typed rows and
+  unchanged descriptors. The shipped room seed adds an explicit display
+  category. The owning folder, manifest and provider paths establish the
+  exact save destination.
+- Triggers supports resize and retarget within the same door or fixed
+  pickup action. The native edit preserves the pad, volume ID, graph
+  links and untouched fields. Editable triggers require matching native
+  pad-centered bounds. Bot Navigation disconnects a uniquely marked Grid
+  link in either pad order. Earlier unmarked paths stay available to the
+  native runtime. Both panels own menu input through the Level File sidebar
+  and use the native document undo path.
+- Final build `q_20261118112708732_4b08dba6`, client
+  `3F3E58809A17FB62F39152261A92695AD0A10749A560B357FA55CB20149D9FDB`, tests
+  `7775A2ADF714D4CBE8220300414FDF0573BBDE4B460D732A6E545A8AA06489E7`. Asset-native source guard passed.
+  `q_20261118112841614_1e56b7eb` passed 120,342 assertions in 646 cases,
+  132 base archive round trips, the exact Model Room, seven importer tests
+  and nine static smoke definition checks.
+- The managed stores are still at 2,147,342,021 and 2,072,958,450 archive
+  bytes under their independent 2 GiB caps. The detached runner still
+  has the protected weather and temporary-reconnect installs. D-028 and
+  supported slot recovery remain needed for a managed game run.
+- D-029 is open. Private playtest review retains a combined source plan. The
+  two donor caches own the source bytes. A candidate can retain exact
+  read-only package references independently of the world activation behavior.
+
+### 2026-11-18 (11:38 UTC) Grid retained private playtest sources
+
+- Prepared private review now owns the exact combined candidate cache and a
+  reference to the outgoing round's ready cache. Candidate packages share
+  immutable buffers from the donors. Every typed ID, member chain and
+  package digest is checked against a ready same-Room donor. The combined
+  set retains the existing compressed and expanded budgets.
+- Preparation checks the current review offer, live stage, exact outgoing
+  archive and catalog bindings. The host hides stale candidate readiness and
+  releases the caches on review cancellation, expiry, or gameplay drift.
+  These changes prepare sources only. D-029 still governs the world
+  transition. The staged fork is intentionally absent from the live catalog.
+- Client `948611FD19B69E6510D1CD50E1DA42625F860FA3E1D6B1977D3258224C79E77F` and tests
+  `FE0F9D32EBEDD608D0C7382510A49D69BCFF8AFA9DF49FA69338BE478F49FFED` built in
+  `q_20261118113530023_54da9871` with the native source guard passing.
+  `q_20261118113643718_0b2f96df` passed 120,497 assertions in 648 cases,
+  including exact native-byte reuse after donor teardown, the retained
+  outgoing cache and typed-row refusal. Also passed 132 base archive round
+  trips, the exact Model Room, seven importer tests and nine static smoke
+  definition checks. No managed run under the unchanged D-028 limit.
+
+### 2026-11-18 (11:54 UTC) Grid prepared stage archive mounts
+
+- Ordinary exact Grid readiness validates and allocates the sorted
+  filesystem table before taking the pending cache. Stage load moves that
+  table under the existing source lock. An active binding refuses the
+  move and leaves the prepared table owned by the caller.
+- Private review prepares both archive tables while the old world runs.
+  The outgoing aliases mirror its current exact provider bindings and
+  retained cache. The incoming plan confirms the staged arena digest,
+  original provenance and one embedded native scenario, then verifies the
+  installed dependencies. It uses the same digest-named profile locator
+  as the existing temporary package writer. The plan is specific to
+  preparing a new staged host arena for temporary catalog admission.
+- The two tables retain borrowed immutable archive bytes for their owning
+  review. A future handoff must transfer ownership before stage retirement
+  and admit the exact arena rows against the prepared location. D-029 still
+  governs world activation, gameplay state and recovery.
+- Client `E54DB17035C57B32201C10C15BDC637BCB1435ECC937AB059D9013D4BDF3E6E6` and tests
+  `5E28D22C82C6654485881B0E9592E7E59861701D48F3F1F69219B0251A8BEBE6` built in
+  `q_20261118115213732_b3edc55b` with the native source guard passing.
+  `q_20261118115321272_22ad01bf` passed 120,600 assertions in 649 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and nine static smoke definition checks. No managed game run. Both 2 GiB
+  stores and the protected install slots remain unchanged under D-028.
+
+### 2026-11-18 (12:17 UTC) Grid native Room Brightness and shared resume
+
+- The controller-accessible Room Brightness panel edits valid native room
+  minimum and maximum values as one undoable Level File operation.
+  Save and Play Draft carry the native rooms.json member. Older
+  checkpoints inherit the exact opened room table. The room extension
+  builder merges brightness-only draft changes against the pinned geometry
+  and writes one combined native room table.
+- Grid scenes with authored ranges and no fixtures now pass the native
+  derived room base to the renderer while the regional matrix is absent.
+  Explicit room and stage overrides and private playtest ambient retain
+  precedence. The managed two-room fixture checks the saved native range
+  and the corresponding values submitted to the scene renderer.
+- Shared Draft resume on both peers now restores eligible inherited
+  covers, paths and rooms.json from the exact verified arena. V1 snapshot
+  payload shape and digest are unchanged. Unsaved changes to inherited
+  members are refused before encoding.
+- Client `1A7D09C6D4BD3593972B9575F1F9ABEE72758FD7CF13A2CCA6439735F568639D` built with the
+  native-source guard in `q_20261118121140153_5b60cff3`. Tests
+  `448B4E60A9326B76BB4FA47782F7165DC0E592124839A31A28E9760C4D1EB6FD` rebuilt in
+  `q_20261118121440754_f42de8b3`. `q_20261118121607588_08451b41`
+  passed 120,976 assertions in 654 cases, 132 base archive round trips,
+  the exact Model Room, seven importer tests and ten static smoke
+  definition checks. Managed runtime and visual acceptance remain pending
+  under D-028. D-029 still governs the private structural world transition.
+
+### 2026-11-18 (12:33 UTC) Grid pinned structural arena admission preflight
+
+- The private review prepares mounts against the author's exact saved
+  Forge revision. It verifies the reviewed digest and compares the
+  bounded physical pin with the immutable cached bytes. Shared admission
+  preflight checks the digest-named archive, embedded native scenario,
+  provenance, and conflicts with existing catalog owners.
+- Ordinary temporary guest admission uses the same preflight before any
+  catalog registration. Arena lease retirement retains the file policy
+  across a retry. Only scratch downloads are removed and a saved revision
+  survives catalog retirement.
+- Client `6BBCE8A9FD9AA8F84C36EA08CCC425A0D21369B57E9CD62B269F22B22E433FAA`
+  and tests `B68FE0D6CBFBD8C82DA5BD64066078ED95B2474C61A95EC58FE1CC4059E665DA`
+  built in `q_20261118122946521_c9b62df6` with the native-source guard.
+  `q_20261118123206799_3048ce02` passed 121,052 assertions in 655 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and ten static smoke definition checks.
+- Preparation reserves no catalog entries or stage slots and leaves the
+  active round intact. D-029 still governs the structural world
+  transition. Managed gameplay and visual acceptance still require D-028
+  and an available protected install slot.
+
+
+### 2026-11-18 (12:40 UTC) Grid controller Level File and Play Draft route
+
+- Open Level File and Play Draft are reachable from the offline controller
+  sidebar. The rows use the existing open and play handlers, and were made
+  first when eligible. Existing sidebar selections retain their identity.
+  The normal Grid toggle returns from the draft with its document still open.
+- The one-profile smoke definition opens the Blank Room through sidebar
+  activation, switches to Playtest, starts Play Draft, and returns through
+  mapped input. It waits for actual editor and playable stage readiness and
+  requires one native prepare, bind, play and return sequence. The test uses
+  no debug draft-play helper.
+- Client `046068830FBAE7E4752C42718DB63D216F8DF289207E712BEF19E0E3D709C38D`
+  and tests `2EF8F408DB73B190A3F65EE80691886CD59382B9FEEB4E64586CDBFE286DF3FE`
+  built in `q_20261118123820761_b8fcc8b1` with the native-source guard.
+  `q_20261118123955819_8bc5826a` passed 121,079 assertions in 656 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and eleven static smoke definition checks.
+- The mapped-action smoke and physical controller acceptance still require
+  D-028 and an available protected install slot. D-029 remains open for the
+  private structural world transition.
+
+
+### 2026-11-18 (12:52 UTC) Grid native trigger relocation
+
+- The existing Triggers panel can select a different native pad and
+  preview the pending box. A valid Apply updates its anchor, size and
+  target together with one Undo operation. The volume ID, action type,
+  graph node IDs and execution edges remain stable.
+- If the destination pad was added after the trigger, only the trigger
+  row moves past the destination's primary bounds. Shifted row indices
+  are updated. Exact native reload coverage checks both pads, all three
+  triggers, the full graph text and rejection without partial edits.
+- Client `ECD644E0158F3E3FB10E9466D5213A1117C77380B71FD3DFEA89EF1F0A7D8428`
+  built in `q_20261118124622599_70ac3420` with the native-source guard.
+  The first native run `q_20261118124846249_6cbafab3` identified one
+  stale modal signature expectation. Updated that contract and rebuilt
+  tests `C4F7CC9DE757392161AC41D0076F49A5A2C9C3EEA902B4818C995C62341E5693`
+  in `q_20261118125030977_62e76705`.
+  `q_20261118125110954_3829fb25` passed 121,119 assertions in 656 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and eleven static smoke definition checks.
+- Hand-controlled play, preview rendering and managed multiplayer
+  acceptance remain pending under D-028. D-029 still governs the
+  private structural transition.
+
+
+### 2026-11-18 (13:10 UTC) Shared Grid reconnect snapshot and delta tail
+
+- The host can continue editing after an authenticated creator confirms a
+  fresh resume invitation. The first accepted edit uses the same canonical
+  verified snapshot document as the returning creator. A refused edit
+  restores the original host document, and canceling a resume retains
+  any accepted host edits.
+- The host retains up to 64 commits while the creator verifies the frozen
+  snapshot. After its exact acknowledgement, the host sends the ordered
+  tail before the creator grant on the existing reliable control channel.
+  The replica requires the fresh room generation, authenticated host and
+  contiguous revision and sequence. The creator can edit after grant.
+  Existing live-safe ambient and decoration edits stay on the running
+  playtest epoch during catch-up.
+- The existing private resume smoke now requires snapshot revision 2,
+  host revision 3 arriving before the grant, and creator revision 4
+  surviving a Variant save and reopen. Its ordinary participant must
+  receive zero private edit packets. Managed execution awaits D-028.
+- Client `C237ADE62B0878DA469771A430AC157244B137E03A066A07B14DB1D6983278C9`
+  and tests `6A53025896C99A4B84921A3019DCF9E2F48EC679C0AB641786D9070B191D9D2F`
+  built in `q_20261118130439398_8bed62d9` with the native-source guard.
+  `q_20261118130855059_ea3edc2a` passed 121,368 assertions in 657 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and twelve static smoke definition checks.
+- Both managed full-install slots still retain protected interrupted
+  evidence under D-028. D-029 remains open for the private structural
+  world transition.
+
+
+### 2026-11-18 (13:23 UTC) Grid arena lease capacity preflight
+
+- Detached pinned review and ordinary temporary arena admission now
+  share the file policy and current native stage and FileProvider checks.
+  The stage preview uses the same deduplication and first-empty selection
+  as the allocator. A row that still owns that number counts as occupied
+  until actual retirement. Both qualified provider paths must fit
+  together, with existing interned paths and exact duplicates counted once.
+- The host review reports the preparation failure and keeps the
+  verified peer source receipt. A prepared candidate rechecks both
+  catalog owners and current stage availability. Real admission still
+  performs the complete transactional scan and ownership verification.
+  Preparation issues no reservations and no stage change.
+- Client `DC313CB7273269AFA9029A29E99B78A296D97183710F3042ADB79766A05FFBD1`
+  and tests `C2356B19E40BA8F27264387CBFEBE4564BBCB6A9F747C85A3D0628495A8FA89E`
+  built in `q_20261118132030092_ce6706aa` with the native-source guard.
+  `q_20261118132111707_52af0334` passed 123,574 assertions in 666 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and twelve static smoke definition checks. The provider tests link
+  the real provider and verify exact byte-budget fit, deduplication and no
+  changes to its counters or existing handles while previewing.
+- Managed gameplay still awaits D-028 and supported release of a protected
+  install slot. D-029 still determines the private structural transition.
+
+
+### 2026-11-18 (13:44 UTC) Exact Grid Fiesta and reconnect
+
+- Grid seals the host's full unlocked eligible Fiesta pool as an
+  explicit role on exact weapon sources. It includes their typed
+  dependency closures and leaves incidental arena weapons outside the
+  roll. The same nested Grid offer binds membership into its exact digest
+  at start and reconnect. Empty-pool offers preserve v1 bytes, while
+  flagged offers use nested v2 under network protocol 65.
+- Before normal stage setup, both peers confirm the prepared pool
+  corresponds to Fiesta mode and that every bound local weapon definition
+  activates. The player and bot spawn path uses those local slots.
+  The same pool is sealed when Spawn w/ Weapon is initially off because
+  sparse arena pickups can enable the option during setup. That fallback
+  preserves Fiesta's empty ID and sentinel for reconnect.
+- The existing managed installed reconnect fixture now calls the real
+  match configuration and requires successful inventory grants to the
+  host human, guest human and host bots. It requires the guest to
+  activate the sealed pool again before reconnect commits in the same
+  epoch. Managed play still awaits D-028.
+- Initial client build succeeded and native tests exposed an include
+  order collision in `q_20261118133832015_c0b67ee2`. The exact client
+  `DA6FA8EA3BA622628E992BC424AEF9305335C1EFA34A57B7163F6A2AB8EF74B7`
+  and tests `9C876A97B3AA7DE4AD0D2B4B2E2B2B8FECD8F7A94F348529545FEAF9A65B1FCF`
+  rebuilt in `q_20261118134150683_d947e74e` with the native-source guard.
+  `q_20261118133942599_0de7c071` passed 126,675 assertions in 704 focused
+  cases, 132 base archive round trips, exact Model Room, seven importer
+  cases and thirteen static smoke definition checks.
+- D-029 remains open for private live structural Apply. D-028 and both
+  protected smoke slots still gate managed gameplay acceptance.
+
+
+### 2026-11-18 (14:00 UTC) Exact Grid Random and local spawn bindings
+
+- Grid Random takes one host-side roll across distinct, unlocked, locally
+  bound weapons. It seals only the selected typed weapon and its closure
+  for Random. An empty or invalid eligibility pool refuses the exact
+  start. The same selection applies when sparse pickups force arming on.
+- Stage start and reconnect send the committed typed selection for Grid
+  Specific and Random. The guest checks it against the verified Grid
+  sources and binds its own runtime weapon number. The existing wire
+  layout and protocol 65 remain in use. Successful manifest activation
+  now releases its references before retiring any leases if the selected
+  weapon's native definition fails pre-spawn validation.
+- The exact-match fixture uses the normal Random Room default and asserts
+  more than six eligible weapons, one host roll and native spawn grants.
+  The two-package fixture loads Crystal Pistol only on the guest and
+  requires the same Triangle ID at host slot 86 and guest slot 87.
+  The runner checks log patterns independently. Cross-peer equality of
+  the dynamically chosen Random ID is not asserted by that fixture.
+- Client `DBB927A293608E0577119CC0409334D2FC4298EFEABC724F5B5D29DC7354E4DC`
+  and tests `F4E0EC712F2277A29251F487034D8C79F0D77B39CCE50B18252ED2F3F6DCA04C`
+  passed the native-source guard and rebuild `q_20261118135704221_32e01304`.
+  `q_20261118135836448_536f63d4` passed 126,748 assertions in 705 focused
+  cases, exact Model Room, seven importer cases and fourteen static smoke
+  definition checks. No managed matches were launched.
+- Read-only storage status now reports a 4 GiB archive cap in both local
+  policies. The detached runner still has both full-install slots
+  occupied by protected interrupted Grid evidence. The alternate writer
+  store's protected 2 GiB Maian reservation plus a new 2 GiB reservation
+  exceed its 3 GiB full-install budget. Neither store was changed here.
+  D-028 remains open in Workbench and D-029 still governs structural Apply.
+
+
+### 2026-11-18 (14:27 UTC) Managed Grid smoke restored and native model source repair
+
+- The normal writer smoke store admitted a private copy from exact shared
+  base 9 using the existing documented 0.9 GiB run reservation. The
+  frozen source inputs total 379,996,023 bytes. The new reservation plus
+  the protected Maian reservation total 3,113,851,289 bytes within the
+  3 GiB full-install limit. Both archive caps report 4 GiB. The two
+  detached protected Grid installs and the writer's Maian install remain.
+- On DBB927A2, `q_20261118140703322_59cdc441` opened the Room but the guest
+  harness refused its own 897,000ms schedule against a 570,000ms timeout.
+  Receipt 567167b2 compacted with the original failed fixture preserved in
+  grid-b1. The revised schedule has a 537,000ms bound and a guest-auth
+  launch barrier. The native schedule suite passed all 842 assertions.
+- On the same binary, `q_20261118141540592_d6847c9a` authenticated the guest
+  and assigned both peers to Room 1. Receipt b2c5e49d compacted after the
+  host refused the exact offer at the stock Dark Combat model's OBJ
+  material owner check. Neither run entered the match.
+- The normal loader keeps the standalone provider when a nested body
+  supplies byte-identical mesh bytes. The exact Grid resolver now selects
+  that native typed provider before alternate model descriptor metadata.
+  The stock standalone mesh and embedded copy both hash to
+  `6493CA03F8C473656337AC8436251AAE7E3A78246C83E92BD96125F6C5F1D7CE`.
+  Grid still checks typed ID, archive owner, member chain, and the
+  material's 34 typed texture IDs. No fallback to ROM or generated cache.
+- Client `DA1DEA8C4F76B6359E04D77E1E47321D8E8492FE73E49B819B703212DC8B6729`
+  and tests `44E3599EF1AF68FEE15FBF9E0003770A76B61FBC38CE881176B416116B0FF25A`
+  rebuilt with the native-source guard in `q_20261118142540205_a9b62898`.
+  Focused test `q_20261118142656413_3b082509` passed 127,625 assertions in
+  708 cases, with Model Room, seven importer cases, and fourteen static
+  fixture checks. The revised model-provider build still needs the
+  managed two-peer run.
+- Read-only review found two separate local-number leaks after stage
+  start in weapon selection on CLC_MOVE and SVC_PLAYER_MOVE, and weapon
+  metadata in SVC_CHR_DAMAGE. Typed projectile refs already remap. Track
+  these as Grid usage gaps even if the initial auto-equipped shot passes.
+  D-029 still governs live structural Apply.
+
+
+### 2026-11-18 (14:51 UTC) Two-peer exact Random activation and results
+
+- On DA1DEA8C, managed two-package receipt c9e0bf2e proved the fixed
+  native model path prepares an exact offer and presents the explicit
+  arena-and-weapon consent prompt. The guest had no keyboard focus and
+  the host timed out without activating, restoring both peers to Room 1.
+- The fixture now uses the runner's checked host-to-guest focus handoff.
+  Managed receipt 8e89d464 stopped at the Windows source-focus gate.
+  Diagnostics show foreground HWND zero, with no native keyboard focus
+  available. Both attempts compacted and kept their receipts. Actual
+  consent, shifted Triangle slots, and temporary package retirement on
+  this build still require an interactive foreground run.
+- The installed exact Random run `q_20261118144351042_cdcfb8c5` on the
+  same binary reached gameplay in both profiles, using the same stage
+  epoch and source digest. The host rolled `base:sniperrifle` from 15
+  eligible weapons. Both peers logged runtime weapon 21, player grants,
+  and three bot grants. Both played to the time limit, retained the
+  exact played revision and published the same five-row result and score
+  digest. Both game processes exited with code zero.
+- Original receipt 470161f3 recorded 31/32 because the localized Sniper
+  Rifle name split the bot grant line across a newline. The assertion
+  now matches the stable native spawn prefix. `q_20261118145050232_8454cd63`
+  rechecked the exact archived logs with the runner's evaluator (32/32)
+  and independently compared the spawn ID, source digest, result tuple,
+  and all three bot spawn rows per role. The original verdict remains
+  preserved. The guest emitted 18 actor-checksum warnings during play.
+- Corrected definition SHA-256
+  `C9AF6035C945E830B0972E92424A3D7855AEA32F3D5DAC16F4C7C91349FCE3D9`.
+  Summary and exact values in `grid-random-runtime-replay-470161f3.txt`.
+  Same-round live structural Apply still awaits D-029.
+
+
+### 2026-11-18 (15:13 UTC) Grid typed gameplay weapon references
+
+- Grid movement and character damage now use distinct authenticated
+  gameplay messages with the exact stage epoch. Custom weapon references
+  are tied to the sealed typed session catalog. Each peer resolves the
+  same identity to its local runtime slot. Stable native numbers and
+  ordinary match layouts retain their existing meanings.
+- The host checks local inventory after resolving a remote selection.
+  Invalid selections preserve held Fire. Both hand-state edges carry an
+  explicit selection. Stale or wrong-lane frames are consumed without
+  changing movement or acknowledgement history. An authenticated
+  reconnect snapshot can position another reserved, absent participant.
+- Damage resolves its typed weapon after parsing the complete frame,
+  preserving the original function, side metadata, and environmental
+  damage path. An invalid reference cannot cause damage with a different
+  local weapon. Fresh and reconnect exact offers require the current
+  Grid gameplay revision before preparing a catalog. Global protocol
+  remains 65.
+- Queued build `q_20261118151056438_cac4c882` with native-source guard
+  passed on client `CA8201032E196C51082E9BC56108D6E1B8ADC3AC1D8DB57728E52282CE67BD41`
+  and tests `24E5C8D386CCF1B0791FB6B3E0A8F8E7351052DF4523287B5E9537DD39D6E036`.
+  `q_20261118151203732_87154e39` passed 128,483 assertions in 714 cases,
+  including local slot remap, both inventory edges, forced rooms,
+  preserved peers, every Grid move truncation, and fifteen static
+  smoke definition checks with the added installed Needler fixture.
+- The installed Needler fixture loads the identical archive on both
+  peers and reserves Crystal Pistol first only on the guest. It checks
+  the same typed Needler at local slots 86 and 87, normal inventory
+  switches before firing, its nested model and authored effect, and
+  timed results. Managed two-peer verification is pending.
+
+### Grid installed combat and reconnect, 15:38 UTC
+
+- The frozen `CA820103` client passed the installed Needler smoke
+  43/43 in `q_20261118151433114_43391592`, receipt `957fd699`.
+  The host used slot 86 and the guest used slot 87 after installing
+  Crystal Pistol first. The guest switched to Unarmed and back with
+  normal controls, and both peers loaded the typed model, committed
+  Needler effects, and agreed on the timed result without a download.
+- Fiesta reconnect `ccfa3291` matched the stage and restored the
+  participant and active match. The guest died between readiness and
+  Fire, so the host had no Fire witness and the run passed 36/37.
+  Moving the press to the readiness timestamp kept the assertion and
+  passed 37/37 on the same binary in `q_20261118153035943_594cfb12`
+  (receipt `d0111a36`). Both peers activated epoch 1 with digest
+  `6da3da3b30ce2afd70a1b2a5e9f88bd22887c0df370dc9be426c19e5638ddd66`.
+  The host accepted client 1's Fire after rejoin. Both peers had
+  identical five-row results and exited normally.
+- The first reconnect also caught a Fiesta inventory divergence.
+  The same authenticated player's host life started with Cyclone
+  while the guest rolled Rocket Launcher. Stock stats equip the
+  announced slot, and Grid still needs an authoritative spawn grant
+  that restores inventory and ammo for the correct life. This is
+  separate from the passed reconnect transport. Interactive download
+  consent and the director's structural Apply decision remain open.
+
+### Grid host-owned Fiesta life grants, 15:51 UTC
+
+- Exact Grid Fiesta now records one host-selected starting weapon per
+  player life. The record is scoped to the committed stage epoch and
+  stable client ID, and the weapon must resolve in the sealed Fiesta
+  pool. Initial grants ride with the reliable stage baseline. Later
+  grants are sent in reliable order with their life stats and retried
+  until queued. The guest runs its native reset before applying the
+  inventory, ammo, and equip. Duplicate lives cannot refill ammo.
+- The existing exact reconnect snapshot seeds the prior life after
+  restoring current inventory, without equipping the old spawn choice.
+  Guest bot puppets keep their native placement and follow authority
+  for loadout. Ordinary match stats and global protocol 65 stay on
+  their existing paths. Grid admission requires gameplay revision 2.
+- Client `D484FAC12777E5F6526C527A820C8AE2778FC90271AAE349F353481C05735E24`
+  built in `q_20261118155045914_343912d5` with the source guard.
+  The 716-case focused suite passed 128,523 assertions in
+  `q_20261118154808787_089d452e` with tests `CA7174F6`.
+  Managed proof for initial life, preserved dead state, second life,
+  and authoritatively accepted movement is queued.
+
+### Grid Fiesta reconnect receipt, 15:59 UTC
+
+- The frozen `D484FAC1` client passed 44/44 in
+  `q_20261118155124635_375a5b88` with compacted receipt `cdf41df8`.
+  Client 1 had local player slot 1 on the host and slot 0 on the
+  guest. Both applied the same typed Grenade on life 1 and CMP150
+  on life 2. Between them, the guest restored life 1 dead without
+  another grant. Movement tick 6882 was accepted after respawn.
+- The host granted all three bots their starting weapons. The guest
+  made zero bot rolls. Both peers recorded an identical five-row
+  result ending in `c01564d943e8cc1651c64493ae5852270108b8cb4610677c7163fa641cfb4f50`
+  and exited 0. The exact source patch is
+  `9CACC776D44E9145093AB769896E7BC8593923AD0A063467188EE92BEC83EC13`.
+- Independent review found a fresh-release death case missing from
+  that build. If a life ends while a player is still loading, the
+  baseline must expose the corpse without replaying score or drops.
+  Grid gameplay revision 3 adds the state-only release row, including
+  same-life handling after a partial queue retry.
+
+### Grid authored cover and Fiesta placement, 16:10 UTC
+
+- Bot Navigation selects and moves an authored native cover to the
+  current waypoint pad. The resident floor and any declared room
+  must agree. A move may cross rooms and is one undo action. It
+  copies the pad's exact source position into the existing cover row
+  while preserving identity, facing, flags, unknown fields and other
+  members. Derived covers stay engine-owned. The editor limits new
+  rows to 256, the native cover index capacity.
+- Grid Fiesta's living grant carries the host's committed position,
+  ground, facing and room. A guest uses the native life reset and the
+  accepted placement, with no second spawn roll or local capsule veto.
+  Fresh-release deaths and reconnect retain separate state-only modes.
+  Grid gameplay revision 3 gates the new shape, with global protocol 65.
+- Exact client `254878DE41D601F240F69C6B626FFA0F8B891333B67F409C4BDD88F14C50CCDB`
+  and tests `4451B0C3C64009A50BC0E3E4F7D87D4D59E0EC307A3E22432553894A9CD6BA87`
+  built and passed the native-source guard in
+  `q_20261118160916354_03f64b01`.
+
+### Grid controller Play Draft, 16:19 UTC
+
+- Frozen `254878DE` exercised the normal mapped open and Play Draft
+  actions on the Blank Room in `6741373f`. The draft bound and ran,
+  but the readiness wait timed out before the mapped return. Stage
+  ready restored Gameplay and the draft's NORMAL transition then
+  put Observer above it. The explicit Observer action set blocks
+  ordinary combat input even while the player and simulation tick.
+- Native Play Draft keeps Gameplay on top and retains the Grid
+  session mapping for return. Freefly and the normal legacy Forge
+  lane retain their existing behavior. The controlled smoke keeps
+  its original readiness and return assertions.
+- The source-only roster test now follows the shared committed mask
+  helper at both call sites. `254878DE` had 128,657 passing assertions
+  in 717 cases after that correction in `q_20261118161208008_a720d6da`.
+  The first test verdict is retained with its stale pin failure.
+- Client `4F1EA400758B96736136DAE60016A76F305A12F08F546F7733B8EE0E6F844396`
+  and tests `78FB6A84D5DC786F1B710D57FFD91E30ABD8F2EE5406232D0862E3212C72FCBA`
+  passed queued builds and the native-source guard in
+  `q_20261118161754016_c08122ae`. The controller rerun is queued.
+
+### Grid controller and Fiesta placement receipts, 16:32 UTC
+
+- `254878DE` installed Fiesta passed 44/44 in 281.0 seconds
+  (`q_20261118160942634_be3fc361`, compacted `7ab7d53f`).
+  Client 1's host and guest both logged Timed Mine on the first life
+  and Grenade after the dead reconnect. The second life reproduced
+  room 1, position `-601.041,159.000,-601.041`, and yaw `314.996`
+  on both processes. The server accepted played movement, and the
+  five-row result matched. The companion earlier controller run
+  remains 9/11 with the diagnosed Observer aperture.
+- `4F1EA400` corrected that aperture. The same controller sequence
+  passed 11/11 in 94.6 seconds (`q_20261118161754840_f1f85103`,
+  compacted `17463b9c`). The client exe hash is in the receipt seed.
+  The mapped controls opened Level File, loaded its draft with
+  Gameplay active, and returned to the same Blank Room document.
+  All 9 mapped actions/waits completed and the process exited 0.
+  Focused tests `78FB6A84` passed 128,669 assertions in 717 cases
+  in `q_20261118161753341_2668f27b`.
+- The legacy Level preview notice now directs authors to Level File
+  for persisted atmosphere. That text-only client change and the
+  context update built as `0E7B5DCBD3A6696CC99CC08A0FDBF8B8BA1BEA92162CBF42A71579EEA27E1100`
+  in `q_20261118163108943_bdfa84c6` after the native-source guard.
+- The supported desktop preflight reported an active Screen-saver
+  input desktop, no foreground window, and no focus change. Native
+  interactive package consent awaits an unlocked desktop. D-029
+  structural Apply and two-machine/WAN acceptance remain open.
+
+### Grid final verified checkpoint, 16:48 UTC
+
+- Exact client `0E7B5DCB` authored, saved and reopened a new two-room
+  arena and passed the portal smoke 14/14 in `q_20261118163109654_3aafa60d`
+  with compacted receipt `e271a1f6`. The first process walked through
+  the 500-unit doorway from room 1 to room 2 at `x=106.3 z=39.0`
+  while grounded. The second process loaded the saved archive. The
+  same forward input stopped outside the doorway at `x=-30.0 z=460.6`
+  in room 1 for 30 grounded frames. Both exited 0.
+- Latest source passed 128,669 assertions in 717 focused cases in
+  `q_20261118163932369_7a83e6cf`, plus the Model Room check and seven
+  importer tests. The Shifted Needler and ordinary Combat pair
+  passed 43/43 and 71/71 on `4F1EA400` in
+  `q_20261118162336255_6dd64f53`, retained as `103515fc` and
+  `a4ad31af`. Both peers had exact matching final results. The
+  Needler host used slot 86 and the guest used slot 87. The
+  ordinary match ran on global protocol 65. Historical live v64
+  refusal `e4ba1a66` and the current global gate were rechecked.
+- D-029 still owns the private structural Apply round policy.
+  The current desktop probe at 16:43:39 UTC reported Screen-saver
+  input desktop and no foreground window. The interactive temporary
+  package approval and the two-machine/WAN acceptance remain open.
+  Keep the protected unrelated storage pointer and the real Git
+  index. The work remains local in `mods-v4`.
+
+### Grid Shared Draft resume receipt, 16:58 UTC
+
+- Exact `0E7B5DCB` passed 18/18 in
+  `q_20261118165054332_f6079e21` (archived `3650a14e`).
+  The returning creator verified snapshot revision 2 and received
+  the host's revision 3 before the new actor grant. The creator
+  committed revision 4, and the host saved and reopened the variant
+  with the parent's exact SHA and the authored members intact.
+- The ordinary third peer stayed in the Room and received no
+  private packets. All three processes exited 0. The fresh transport
+  reconnect fixture now also requires a nonempty tail in the
+  running bot epoch. Its managed proof is queued separately.
+
+### Grid temporary lease quit and Forge save checkpoint, 17:12 UTC
+
+- Exact 0E7B5DCB transferred the 31,195-byte arena and 16,799-byte
+  Triangle weapon from one debug approval and passed the temporary
+  reconnect fixture 37/37. Both mounts retired after the first timeout
+  and returned in epoch 1 from retained bytes. The host accepted Fire
+  at tick 6402, the two score hashes matched, and both processes exited
+  0. See q_20261118165831338_847e9797 and archived recipe 8263285a.
+- The same guest still held a stage reference to the Triangle mesh
+  after the second match when it quit from the results screen. The final
+  footprint in that recipe retained the exact 16,799-byte private weapon.
+  Enabled mods remained empty. T-NETWORKING-012 owns the Grid-specific
+  shutdown fix and now requires both retirement passes in the fixture.
+- F6590214 compiled both targets and passed 130,196 assertions in 739
+  native cases, 349 base-template saves, Model Room regeneration, and
+  seven importer tests. The 235-path source checkpoint SHA is
+  E89259648BE51DB8334E95A9ED63938C71A971BA0986551B8C29C66A27107181.
+  The exact frozen client is running fresh live creator reconnect,
+  repeated Save As, invalid draft, and Level Tool in
+  q_20261118171107522_5abde2d4. D-029 remains open.
+
+### Grid shutdown cleanup candidate and live fixture diagnosis, 17:21 UTC
+
+- DF6CB728 adds verified shutdown release of stage references on the
+  exact active or deferred temporary weapon. Both targets built, the
+  native source guard passed, and 130,196 assertions in 739 focused
+  cases passed in q_20261118172011217_bbd75b35. Source patch SHA
+  264DFBD1CA581D00F0EF7AECB3F9EDEEB0393FAC5DCFAD86E399941CCAABCC7E.
+  q_20261118171752338_f639923f requires the second retirement of both
+  mounts after quitting directly from the results screen.
+- The F6590214 fresh reconnect fixture originally failed while opening
+  the archive writer for the first arena on both peers. Its 262- and
+  265-character scratch paths include the clone's suffix and the
+  writer's final .tmp. No arena pin or reconnect was reached.
+  Shorter fixture profile roots reduce the longest to 245 characters
+  without changing the arena IDs or assertions. Same executable rerun
+  q_20261118172035151_9ce4c913 is queued with fixture SHA
+  6FD3707FE1AAC19D9E075DE8B728FB3F3B64629785ABDAAB33B7F0FBD840DCE1.
+- T-MODDING-015 covers using the author's normalized display name
+  for exact repeat saves. Existing archive, folder manifest, parent,
+  and live provider checks still apply.
+
+### Grid exact save receipts and Level File probe, 17:39 UTC
+
+- F6590214 passed repeated Save As 7/7 in archived d96d6cf4.
+  The first copy became active, the second save preserved its exact
+  previous archive, and reopening showed ten starts. The original
+  archive, loaded stage, and live catalog stayed unchanged.
+- The same client passed the ordinary Levels-tool create/open/in-place
+  save 45/45 in 5cc3eadd. It retained the exact predecessor, replaced
+  the opened arena, and exited 0.
+- The negative draft fixture 5b198eef stopped before editing because
+  entering Forge clears the document and the smoke had skipped Open
+  Level File. The Connect Pads and pickup probes depended on the same
+  missing step. E9812F1A opens the resident document through the editor
+  API and leaves production validation unchanged. Both targets and the
+  asset guard passed. Its source patch SHA is
+  919C4ED9E4DC8CEEB14796E01C8E1E63FDBFF92C01404655897A70B68383D58A.
+  Managed verification of all three is queued in
+  q_20261118173735836_30cd0e9b.
+- The original live reconnect receipt c5d00aef archived after the
+  profile-name correction, so its recipe reports the revised fixture
+  SHA. Original CLI and logs use the longer paths. The actual tracked
+  fixture is preserved byte-exact as SHA
+  8701F9BA13EC63AEB8CECDF4312218192CFB7C7E60197234C68E8AF6C3205D98
+  in the F6590214 checkpoint and a separate fixture copy.
+
+### Grid pre-launch Save As correction, 17:48 UTC
+
+- The intermediate DF6CB728 run 4fb7371a blocked ordinary same-name
+  Save As while the enabled original arena was still offstage. Both
+  clients exited 1 because the host could not pin or launch it.
+  Save As now checks the exact offline owner, provider, inputs, digest,
+  and stage and catalog generations even before loading this arena.
+  Save Opened still requires the exact resident original.
+- 9441BE6D passed both target builds, the asset guard, and 130,200
+  assertions in 739 focused cases. The frozen 235-path patch SHA is
+  146E837006F06E5321BEABE838E02B2B7C5AA69C7B0D8A149E556D1C1C735AA9.
+  The temporary reconnect rerun checks Save As, pin, and share before
+  the first match and checks both temporary leases after final quit.
+- Active and queued managed runs in order: F6590214 three-peer live
+  reconnect q_20261118172035151_9ce4c913, 02C90200 padded Save As
+  q_20261118173151272_cdc4db9e, 9441BE6D temporary cleanup
+  q_20261118174449076_3875844c, and 9441BE6D Connect Pads, fixed
+  pickup and invalid draft q_20261118174449627_069795a5.
+  D-029 remains open.
+
+### Grid live reconnect and padded save receipts, 17:58 UTC
+
+- Exact F6590214 on shorter profiles passed 32/32 in five minutes,
+  q_20261118172035151_9ce4c913 and archived 997ee27d. Both creators
+  built the same arena bytes. The returning creator authenticated on a
+  fresh connection in Room 1, verified snapshot revision 2, and took
+  host revision 3 before getting the new grant. The creator's revision
+  4 rendered in the original three-bot epoch 1. Normal teardown kept
+  both players in the Room. The ordinary peer saw no private traffic
+  and all three exited 0.
+- Exact 02C90200 passed padded repeated Save As 7/7 in 97.5 seconds,
+  q_20261118173151272_cdc4db9e and archived 3f227118. The client received
+  the literal surrounding spaces. The copy kept its predecessor and
+  reopened with ten starts. The source archive, stage and catalog
+  generations stayed unchanged.
+- Passive 17:56:54 UTC desktop check still reported Screen-saver
+  input desktop and no foreground. Manual consent and two-machine/WAN
+  verification remain open. D-029 remains open.
+
+### Grid model generation stage-owner correction, 18:09 UTC
+
+- 9441BE6D ran the full pre-launch Save As and temporary package
+  reconnect through results in 268.4 seconds. Both processes exited
+  0 and 39/42 checks passed. The remaining three checks concern final
+  weapon retirement only. The Triangle mesh catalog count reached zero
+  after releasing its stage reference, but its stage-pinned model
+  generation retained the numeric slot. Archived d8465f8f records the
+  remaining exact 16,799-byte weapon in the guest's final private footprint.
+- The active Grid shutdown now runs the normal player-root retirement
+  after scene, UI and network teardown. It retires the weapon graph hand
+  owners and drops stage model generations before manifest and exact lease
+  retirement. 9FC5A060 compiled both targets with the asset guard and a
+  235-path checkpoint SHA
+  B8242B6265DF3B986AF126DAE2BFFF6F2F46516CDDCFDE64B73B91E517F8C4EE.
+  Exact final cleanup is queued in q_20261118180807151_e0e69d53.
+- 9441BE6D Connect Pads passed 11/11. The original had eight
+  waypoints, the draft mounted nine with first-hop pad 0, and the
+  original eight returned. The source edit remained supported by undo
+  and redo. The pickup and invalid-graph probes in the same queue
+  are still running.
+
+### Grid scripted pickup prop lifetime, 18:18 UTC
+
+- Fixed-pickup receipt 5fe63674 on 9441BE6D reached the authored
+  volume in room 1 and picked up the Dragon from room 2. The native
+  tick operation then dereferenced a cleared object-to-prop link.
+  The exact binary stack leads from `propExecuteTickOperation` to
+  `s_runPickupGive`, the authored graph runner and normal level tick.
+- The Grid action now retains the incoming native prop until the
+  pickup tick operation can retire it. The original call, restored
+  player context, and authority checks stay in place. Related native
+  AI paths are recorded in `context/systemic-bugs.md`.
+- The 9FC5A060 native check passed 130,201 assertions in 739 tests
+  (q_20261118180806508_8a06413c). Its final match cleanup smoke is
+  queued behind the invalid-draft case. The fixed-pickup correction
+  is building separately for its own managed rerun.
+
+### Grid cleanup and continuing-round policy, 18:30 UTC
+
+- Exact 9FC5A060 passed final temporary mount retirement 42/42
+  in q_20261118180807151_e0e69d53, archived de642e28. The host
+  saved, pinned, and shared the exact arena before entering the round.
+  Both packages mounted, retired, and re-admitted in the same epoch.
+  Both results matched and both clients exited 0. Direct guest quit
+  from results retired both mounts again. Archived final file metadata
+  contained neither temporary package. Human consent and WAN remain open.
+- Exact 9441BE6D Connect Pads and Validate Draft both passed 11/11
+  in q_20261118174449627_069795a5 (9f31eb71 and 51bf3855).
+  The unknown executable action was refused without altering the
+  running level, saved archive, pin, or current draft. The fixed
+  pickup correction EEB3B605 is running separately.
+- Mike chose D-029 B at 18:19 UTC: keep the private bot round running
+  and relocate actors as needed. Workbench records the explicit decision.
+  Structural Apply retains the native round epoch and uses a separate
+  geometry generation. Detached mesh, legacy collision tiles, GPU scene
+  and exact negotiated Apply messages are building in
+  q_20261118182953578_f451a7c6 before production integration.
+
+### Grid Apply integration and candidate validation, 18:59 UTC
+
+- EEB3B605 passed the native fixed pickup trigger 11/11, archived
+  d8019445. The real room-1 volume delivered the room-2 Dragon and
+  offline return restored the normal editor history.
+- D-029 Apply now uses an exact reviewed variant with a fresh geometry
+  generation inside the same private bot round. The native world mesh,
+  collision tiles, background room data, and Classic GL scene prepare
+  detached. The host verifies the bound creator and rechecks current
+  actor clearance immediately before publication. Native bot paths
+  and cursor prediction invalidate when the replacement requires it.
+- 44F91544 built client and tests in q_20261118185153448_4a5dd82e.
+  Its 246-path source patch SHA is
+  A5FCF350FEEA9571F76318A92014D113E478D0C8BB596BAF95A5C0FC301F68FF.
+  The asset source guard and focused tests passed 181,205 assertions
+  in 745 cases in q_20261118185318365_8d3fdb65. The three-peer first
+  runtime check q_20261118184827988_a9f857d1 is in progress.
+- Review confirmed proposal IDs can skip after a refusal. Commit now
+  requires a strictly increasing ID whose previous committed ID still
+  matches the live round. N-0834 records the independent cleanup and
+  current-layout reconnect work and the separate forced relocation
+  smoke. They are outside the frozen 44F91544 candidate.
+### Grid continuing-round Apply, verified at 19:15 UTC
+
+- F946A8B4 built client and tests and passed the asset native source
+  guard. The 248-path patch SHA is
+  D44DE63883897D276916C8387426CD46279288D299ECFF6BE974883A565AF789.
+  q_20261118190535138_3ffca4d7 passed 181,298 assertions in 751 cases.
+- The first 44F91544 run (0c2b978f) stopped before Apply because the
+  smoke did not record the creator actor in the common grant branch.
+  Exact archived sources also showed nine starts and five original
+  waypoint groups, four with no linked routes. Apply now checks the
+  unchanged packed route digest and the reviewed traversable routes
+  against incoming collision separately.
+- F946A8B4 passed q_20261118190533188_b3728453 53/53, archived
+  2f89a5e7. The host committed geometry generation 1 in Room 1 and
+  epoch 1. Before and after frame readings advanced from 614 to 764.
+  The same four actors stayed in the round with zero relocations.
+  Room 2 extended from 2700 to 3000, added a native floor at y=0,
+  and rendered the verified Variant in Classic GL. The creator saw
+  an exact committed receipt while staying in the lobby. The ordinary
+  peer received no private layout messages. All roles exited normally.
+- The exact second Apply with forced relocation and the standard Room
+  consent controls are queued. Post-Apply reconnect source and a
+  creator-only current layout label are frozen for the next build.
+### Grid exact re-entry and launch readiness candidate, 19:28 UTC
+
+- F946A8B4 forced relocation smoke 242f13bb passed its first Apply,
+  then stopped in the second saved Variant's nested clone writer,
+  before review or actor relocation. The writer adds its own .tmp
+  beyond the displayed error leaf. The attempted path was 262
+  characters, versus 258 for the successful first Variant. The
+  archived executable has no longPathAware declaration. The
+  failure did not publish a second Variant.
+- The checked structural fork now uses a shorter private staging
+  directory name, with the same exclusive create, native preflight,
+  and atomic final folder move. The unchanged second Variant
+  fixture remains queued to prove actual relocation.
+- The creator view now displays the active layout identity when
+  authorized. The fresh-connection managed fixture checks exact
+  source/manifest identity, the changed projection, and no
+  disclosure to the ordinary peer. N-0835 records the claims.
+- The Grid initial ready barrier now has a 30-second post-load
+  deadline. Matching Grid R4 peers cancel only the exact unreleased
+  room, offer and epoch, leave the scores untouched, and retire
+  through the normal level-to-Room path. Global protocol 65 is
+  unchanged. Pending native startup and ready staging are distinct
+  from active-round reconnect. N-0836 records the scope.
+- 89024734 built client and tests and passed the source guard in
+  q_20261118192619287_5e9fd9f5. Its exact 251-path source patch SHA
+  is F6BB141418B698E5EA023F88606F499E9EC4803AAC095BE9B6CB7B64B2FCC8FD.
+  Native and three managed checks are queued or running. F946A8B4
+  is separately running the standard Room consent UI fixture.
+### Grid Room consent and retirement, 19:37 UTC
+
+- F946A8B4 normal consent smoke 926a0cc7 reached the real focused
+  two-package card and activated exactly the arena and Triangle
+  Weapon. The same two-row final score hash was
+  ebaf428dc77878fdbb854a73341414bda34e4f8f38a76fb7d4a0e6df62a1a37b.
+  Both peers exited 0, but the managed verdict was 43/45. The
+  guest weapon lease first deferred on one stage mesh reference.
+  The next backdrop allocator released the reference and the
+  temporary weapon retired before Room resync. The archived
+  temporary files were absent.
+- Both clients naturally reserved slot 86 in that run. The guest
+  mounted Crystal Pistol before the base weapon walker, which
+  clears unpinned custom slots. The earlier installed Needler
+  receipt 957fd699 reserved 86 and 87 after a normal Levels rescan.
+  The corrected consent fixture uses a short private local Levels
+  seed to exercise that rescan while leaving the offered arena
+  and weapon absent. The shared base loader stays outside this
+  Grid-specific change.
+- Grid Room return now retires old mesh and player roots after
+  lvStop, then drops manifest and exact stage-owned weapon
+  references before normal lease retirement. Genuine remaining
+  references still use the existing retry. N-0845 records it.
+- 44C04320 built client and tests and passed the source guard.
+  Exact source SHA across 251 paths is
+  5E023E17036E5B635A80D03B8706253E1DC893E685DFFEA22DB14850040E981B.
+  Corrected consent runs after the 89024734 layout re-entry,
+  stage timeout and relocation checks. The 89024734 native suite
+  passed 181,330 assertions in 752 cases.
+### Grid live layout re-entry, 19:41 UTC
+
+- 89024734 passed 62/62 in q_20261118191727257_40a3e307,
+  archive 9a46d254. The new creator connection reached Room 1
+  without a layout receipt or projection. Fresh snapshot grant
+  2 admitted actor 3 and restored layout generation 1, the
+  exact approved arena and composed manifest, and the two-room
+  projection with four actors and seam 26985. The host rendered
+  ambient 155 at draft revision 4 in the original epoch 1.
+  The ordinary peer saw no private data. All three exited 0.
+- Final 44C04320 native q_20261118193507581_d3238198 passed
+  181,336 assertions in 752 cases. Build and asset guard
+  passed. Managed 89024734 exact READY timeout and forced
+  relocation and 44C04320 normal consent remain active or queued.
+### Grid initial READY clock regression, 19:47 UTC
+
+- 89024734 smoke d632fbd3 loaded the native arena on the
+  authenticated guest, which held the first READY as intended.
+  The host nevertheless advanced its clock in epoch 1 and
+  reached the 20-second match limit ahead of the 30-second
+  readiness deadline. The run published an unwanted epoch-1
+  result and failed 13/18.
+- The exact Grid listen host now takes the normal zero-update
+  path in lvTick during the initial WAITING and RELEASE phases.
+  Native spawn, stage-ready callbacks and the scheduler remain
+  active. The held time resumes after baseline publication.
+  Ordinary matches and already-active private playtests are
+  outside the hold. N-0860 owns the scoped follow-up. Build
+  q_20261118194506850_d004920c and managed replay
+  q_20261118194650582_eb265cc6 are queued.
+### Grid forced relocation and clock candidate, 20:04 UTC
+
+- 89024734 passed 56/56 in q_20261118192619960_965b4de8,
+  archived 8b1b7eaa. The second variant publishes after
+  the shorter private scratch path. Both geometry Apply
+  outcomes committed inside Room 1, epoch 1.
+- Geometry generation 2 reduced the room and Classic GL
+  scene from x=3000 to x=2800. Collision mesh and legacy
+  tiles both lost the occupied floor. The real host moved
+  from x=2900 to a valid pad at x=627.1 in room 2. Native
+  actor identities and scores, health, inventory and ammo
+  survived the relocation. Frames advanced 792 to 803.
+  The ordinary peer received zero private layout messages.
+- 0D3C6764 built both targets and passed the asset guard
+  in q_20261118194506850_d004920c. Its exact 251-path patch
+  SHA is 284EC72F5D8512C00B6D406473BCC3E34A45F2C1F559B2B2A045199FA37716EF.
+  Focus q_20261118194652161_29afcf2e passed 181,336
+  assertions in 752 cases. Its delayed READY rerun remains
+  queued. The 44C04320 native temporary package consent
+  rerun is preparing isolated profiles.
+### Grid normal consent replay, 20:11 UTC
+
+- 44C04320 managed run ff7613a9 used the normal focused
+  Room consent prompt for exactly two temporary packages.
+  The same Triangle Weapon used native slot 86 on the host
+  and 87 on the guest. Both profiles completed the same
+  Room 1 and epoch 1 result, with two score rows and SHA
+  ebaf428dc77878fdbb854a73341414bda34e4f8f38a76fb7d4a0e6df62a1a37b.
+- Normal Continue retired both temporary leases before
+  lobby resync without a deferral warning. The archived
+  final guest inventory has neither temporary archive.
+- Original verdict 44/45 was retained. The only assertion
+  expected a colon in the native Levels creation marker.
+  The runner evaluator rechecked the exact archived
+  combined and per-role logs after changing that marker
+  match. q_20261118201029314_8dc7c7e8 passed all 45 and
+  verified exact score equality and the final inventory.
+  Corrected fixture SHA 874408C0424AFAF54276868B912E41B1D00ADA97B6381C6E712A9DB97F753277.
+- 0D3C6764 delayed READY rerun is running. The separate
+  human two-machine and WAN acceptance remain open.
+### Grid delayed READY recovery, 20:17 UTC
+
+- 0D3C6764 passed 18/18 in q_20261118194650582_eb265cc6,
+  archived b67d9fe3. The real guest loaded the first exact
+  arena and withheld READY. The authority clock remained
+  held. After 30 seconds the exact epoch 1 cancelled
+  without a result. Both authenticated players returned
+  to Room 1 on their original connection.
+- A second launch of the same pinned arena released epoch 2
+  and played to the real time limit. Both peers reported the
+  same five-row score SHA
+  c01564d943e8cc1651c64493ae5852270108b8cb4610677c7163fa641cfb4f50
+  and exited 0. The guest received all three corrections
+  requested by the existing shared bot checksum diagnostic.
+  The same diagnostic and corrections were observed before
+  Grid and in ordinary Combat. This does not establish a
+  WAN or human acceptance result.
+- D-029 local same-round Apply, forced relocation, and
+  creator re-entry are verified. Normal consent and archive
+  retirement are verified in the exact local package run.
+  Native general graph editing and hardware acceptance are
+  outside these recorded proofs. Workbench remains the
+  source of status for the three Grid items.
+
+### Grid Level Logic and creator placement, 20:39 UTC
+
+- Level File now exposes the native event, gate, action and execution-link
+  source. Apply validates it through the shipping graph compiler, keeps
+  structural data and existing pickup and door rules intact, and gives the
+  draft a normal undo step. The creator can also target a start or decoration
+  on the live playtest plan. The host checks the exact round and layout shown
+  and the native floor before accepting the edit.
+- Isolated client and tests built after correcting the restart fixture's
+  MinGW math call. The asset-source guard passed. Client 5FBB3EBF
+  is frozen with a 257-path patch SHA
+  DEF5615E51C27D2741FA28398AD20CF6A77406EAE345617B9A8F01D0D05D727A.
+  Native test binary F092A816 passed 755 cases and 148207 assertions
+  in q_20261118203857395_34956a13. The first test run read the next
+  editor change on disk and failed a source contract for the renamed
+  trigger preview. The editor retained the existing shared helper name
+  before the passing run with the same test binary.
+- Managed q_20261118202723150_6fefbb38 uses that exact client for
+  real chained Level Logic, a fire sound nested in the temporarily
+  transferred original weapon, and a saved variant reopened after exit.
+  The Logic Zone authoring and private Apply deadline fixtures follow
+  independently. Keep human two-machine and WAN acceptance open.
+
+### Grid native graph execution, 20:47 UTC
+
+- Exact 5FBB3EBF passed 11/11 managed assertions in d003aad3.
+  Room 1 volume entry ran the native Dragon grant, Dragon inventory
+  gate, and Cyclone grant linked to the two actual Room 2 pickups.
+  The runner reported two executed modules. Play Draft returned with
+  both undo steps, the edited logic, and the original archive SHA
+  0e0a7bdb637ee3722d2b2beb9958f83835a601e53e0ce8baba599cfba8b15265.
+- The next client 25D4B240 built with Logic Zones and private rehearsal
+  probes. Source patch SHA
+  0608E64A67D40C413BAF004101B6257612C21736AEA307D87987EF466C7C4CE4
+  captures 259 scoped paths. Its tests build preflight found the managed
+  storage lock held during evidence archiving. Retry the standard tests
+  wrapper after that storage operation clears. The older 755-case result
+  applies to F092A816 only.
+- D-035 is open for the choice about supporting two independently
+  shared weapons in one match. Audio, saved variant, live placement,
+  and private Apply deadline proofs can advance under either option.
+
+### Grid required mods and variant choices, 20:58 UTC
+
+- D-035 supersedes the first one-arena and one-weapon transfer limit.
+  Mike wants the host to distribute the full set of missing mods the
+  pinned level and match require. Keep ordinary online protocol 65,
+  exact author provenance and hashes, Room consent and temporary leases.
+- D-036 authorizes a client to propose content the host lacks. The host
+  reviews and accepts before obtaining bytes. Approved proposed content
+  is eligible for the ordinary pinned match closure and relay if used.
+- D-037 authorizes per-mod choices when saving a variant. Keep selected
+  sources durably with the variant. Replace declined optional world
+  placements with compatible base-game assets, including distinct
+  ordinary and power-weapon choices. The written variant pins the chosen
+  fallback and rechecks its dependency closure.
+- Client 25D4B240 and test binary EB0D8AF5 built. The native suite passed
+  756 cases and 148282 assertions in q_20261118204336946_98101e7a.
+  The active managed batch remains on 5FBB3EBF. Audio receipt a2412a08
+  passed 46/47, registering the exact nested firing sound but missing
+  actual native playback. The sound-only catalog index repair follows
+  the observed lookup gap and keeps that assertion.
+- D-035 source in progress includes the expanded exact package list,
+  Room consent, temporary source-set admission, and reconnect lifetime.
+  The first adapter set covers nine typed package families. Additional
+  family lifecycle and a mixed-source managed proof are still outstanding.
+  D-036 and D-037 are authorized and under source audit.
+
+### Grid proposal and variant authoring checkpoints, 21:23 UTC
+
+- The five-second private Apply and stale READY rehearsal passed 59/59
+  on 25D4B240 in b2f7d1b4. The original native scene, collision and
+  four actors stayed active. The clock advanced. Generation 1 timed
+  out, its delayed READY was ignored, and generation 2 committed in
+  the same round. Visibility verification continues in the same batch.
+- The placement rehearsal d5f1d085 proved stale rejection and a
+  revision-3 native decoration move. Its early Continue assertion
+  failed before the Room backdrop unloaded the stage. N-0907 now
+  waits for actual retirement before checking the same retained draft
+  and sending Close. A separate variant restart probe also now reopens
+  its unchanged original after the launch transition closes Level File.
+- A2AF1AC6 built the first wider source-set client. Exact 262-path
+  patch SHA 47C03152C2FC6C572DDCA24D07CFBF4B7744E1DD360E8D8D49CCEAEA6A26A6D1.
+  Source identity, grouped consent, atomic typed leases and the
+  catalog sound index follow exact Match revision 5 and online v65.
+- 3CC4B78E built with direct .pdtexture sources and the D-036 offer,
+  approval, transfer controller and Room UI. Exact 273-path patch
+  SHA 87725817444B4DC9BC1EC88DF9506E1BBECA6F6F30D7F99BAB75303246E45846.
+  Its tests needed a const correction and a portable path-check
+  symbol. Both corrections are included in the next queued build.
+- D-036 follow-through keeps proposed sources tied to the authenticated
+  Room lifetime and donor connection. After approval, they can be
+  explicitly selected or placed. Automatic weapon selection does not
+  turn a proposal into match use. Replicas receive only sources in
+  the final pinned match list. Direct quit drains proposal/texture
+  consumers before final cleanup.
+- The D-037 Level File review connects exact package choices to a
+  separate new-name Save Variant, with explicit Falcon 2 or Slayer
+  choice and native prop/hoverbike fallback. Source review is rechecked
+  at save and substitutions are applied to a clone. The result-bound
+  verified byte retention and private immutable dependency store are
+  present. Durable selected-source binding on save and reopen, the
+  Save Played Variant menu, and full shared variant flow remain open.
+
+
+### Grid exact Room content and local variants, 21:50 UTC
+
+- FB77A545 native 756/759. Its three old singleton/static assertions
+  were updated to the production whole-set and consent path. The managed
+  embedded firing-sound run passed 47/47 in 6637b4a1. The guest fired the
+  temporary Triangle and the native sound used its embedded public WAV.
+- Mixed source run 804b6b0a reached the exact three-package offer and
+  cancelled before consent. The standalone marked mesh was advertised
+  by the legacy catalog at authentication. N-0923 withholds marked
+  typed sources there, and an exact Grid prompt can take the place of
+  an unapproved catalog prompt. Native three-source gameplay is pending.
+- FB77A545 extended-variant restart f8c33eee pinned the exact original
+  after reopen and failed on the new variant pin. N-0930 makes an
+  omitted expected digest use the exact archive bytes read for that
+  same verification. Explicit expected digests remain checked.
+- B18FF5DC client and tests built in q_20261118214432891_9d9d059a.
+  Exact 284-path source E212D47EE2883D0327FA40B1016027D4B806C43F930E2F1CDC04200F0B847E85.
+  Native 754/759 and 148625/148630 in q_20261118214643486_e4ccdabf.
+  The five misses were static token checks after the provenance, save
+  signature, stage retirement and relay changes. N-0931 updates those
+  checks. The B18FF5DC managed proposal/mixed/fallback batch runs in
+  q_20261118214713803_ab42911a.
+- Save Played Variant uses the guest's exact verified Room result,
+  retains only selected eligible missing native sources, and writes
+  an independent native arena bound to its immutable received parent.
+  Normal library load verifies the saved dependency plan and mounts
+  absent exact sources for the stage. N-0929 adds a fresh-process
+  managed case for a kept missing mesh and a native Falcon 2 fallback.
+- N-0928 tracks custom native hoverbike assets. N-0932, N-0933 and
+  N-0934 connect shared-draft package selection and new variant
+  publishing without rebuilding the catalog under an active Room lease.
+  Workbench remains partial. No publication or release was attempted.
+
+
+### Grid grouped consent and normal variant startup, 22:06 UTC
+
+- B18FF5DC mixed-source 55dbfeaa proved one real three-package consent.
+  The guest loaded the independent prop from the digest-named .pdmesh,
+  both peers fired Triangle with distinct local weapon slots, and both
+  returned identical results to Room 1. All temporary packages retired
+  before resync. The stored receipt is 55/56 because the host compiler
+  witness used the manifest activation path. N-0939 checks that exact
+  installed archive source and native model activation.
+- B18FF5DC proposal ae530f56 reached donor authentication with identical
+  authored arena bytes. The runner was watching a donor-specific path
+  while the native logger used pd-client.log. N-0936 adds smoke-only
+  role log routing. The retry also explicitly focuses the ordinary peer
+  for actual match consent.
+- 8FD78E62 compiled its client and native suite. Frozen 291-path patch
+  SHA 835F0F9C473359C5CD69F8E7D0296D49B048B6E19F12374396886234B95F2B09.
+  The suite passed 758/760 with 148723 passing assertions. A moved relay
+  predicate and the native source row validation signature accounted
+  for the remaining four assertions in two static tests. The new
+  stored source plan test passed.
+- N-0938 preserves the offline Combat Simulator's prepared roster and
+  weapons while appending the saved variant dependencies. The 77416D90
+  client is frozen at patch CF6AECBAB08B4F7839243E31218D6DE40F1B3003D120210F22DE6A45AFA117A5.
+  Client SHA 77416D908E608D16ADA4A5C7A8E79287259DEC56A18CC20C892585E1BA3EB978.
+  Native verification build q_20261118220358827_6762468a was active at this checkpoint.
+- The 77416D90 managed batch q_20261118220615025_397cef70 is queued
+  behind B18FF5DC fallback e076875a. It covers authenticated proposals,
+  native .pdvehicle transfer with boost motion and retirement, a guest
+  saving a played variant and restarting with its retained missing mesh,
+  explicit Falcon/Slayer placement fallback, and exact extended-variant
+  restart. N-0940 covers direct body/head sources in a later candidate.
+  No user install or shared base changes. Workbench remains partial.
+
+
+- Exact 77416D90 compiled client and tests in
+  q_20261118220358827_6762468a. Isolated native 1704B943 passed all
+  760 tests and 148784 assertions in q_20261118220718595_d0d69a90.
+  The same frozen client is live in the five-case managed batch
+  q_20261118220615025_397cef70, wrapper session 48554.
+- The B18FF5DC aggregate closed at results-20261118T220815Z.json.
+  Its older Falcon/Slayer fixture e076875a wrote the new native arena
+  with Falcon 2, Slayer, and the retained mesh's plan. The old optional
+  digest error stopped the post-save checks before the restart role.
+  The 77416D90 batch reruns with the fixed pin publication.
+- N-0940 adds exact native body/head leases. N-0942 extends required
+  typed suffix and private-slot retirement verification. N-0943 builds
+  an independent sequence playback witness. N-0944 extends Save Played
+  Variant to the exact listen-host result. These scopes are later than
+  the frozen 77416D90 client and are still under source verification.
+
+
+### Grid proposal, base parity and expanded source types, 22:19 UTC
+
+- 77416D90 proposal 1ed918ec passed all 16 managed assertions. One
+  decline caused no upload. An approved package stayed out of the first
+  round. The second round shipped only the selected Triangle package to
+  the one missing player through mapped consent, then used the exact
+  weapon natively. All three finished both rounds with matching results
+  and returned to the same Room. Guest and host retired borrowed content.
+- The 77416D90 native executable 1704B943 read and wrote back 132
+  protected extracted base levels unchanged, with 38519 assertions.
+  The separate base author sweep saved all 349 templates with 352
+  assertions. Both used shared-base-9 as read-only inputs.
+- 21B8175C compiled and froze on 317 source paths. Exact source patch
+  F7B7771AA43600D57D9EE3BCA1AE13C0AAA6A1D381BC5331B23209559C46F7D5.
+  Client 21B8175C40FCED2820C60E248E283AD1EFDBC474626BE989C201E99E6E41AE4F.
+  Isolated native DE151CAA passed 770 cases and 148912 assertions in
+  q_20261118221802993_0d0e4c9c. The active 21B8175C managed waiter is
+  q_20261118221828779_8635e4ef, wrapper 32268, behind 77416D90.
+- N-0940 through N-0945 add native direct body/head package leases,
+  note-bearing public sequence playback coverage, and the exact
+  listen-host Save Played Variant path. N-0947 and N-0948 hold verified
+  proposal and native receipts. Managed character and audio work and
+  the two private view follow-through cases remain queued.
+
+
+### Grid typed archive ownership and consent, 22:25 UTC
+
+- Vehicle case cb5cdc41 on 77416D90 authored its exact native archive,
+  bound its typed embedded model, and produced the valid arena+vehicle
+  Grid offer. It failed 21/43 before transfer. An earlier global legacy
+  catalog prompt leaked the vehicle's nested mesh, and the reused
+  dialog did not focus the Grid button after the prompt changed.
+- N-0949 recognizes a nested asset by its native descriptor locator
+  during initial catalog advertisement, including typed archives
+  inside .pdmod packages. Explicit old distribution checks use typed
+  original provenance for supported parent archives. The Grid button
+  receives focus when its prompt replaces an older pending prompt.
+- Exact client 7C2C21F7F53E1362D93243E3C2395F7A66786900C8BF35A6CE14A851DCF4F71B,
+  317-path patch SHA 7D21770FC33174DB52270C7008ED3B1D57B7B857EA1B24ACED895E9F765C7F80.
+  Native 58F79A6B passed 770 tests and 148961 assertions under
+  q_20261118222511557_549cd2af. The source guard passed.
+- The unstarted 21B8175C game waiter was cancelled through normal
+  coordination. Vehicle retry q_20261118222540968_7a2598dc, wrapper
+  45702, precedes character, mixed, music, interactive Plan and
+  visibility q_20261118222541582_a3f21d68, wrapper 2770. These use
+  7C2C21F7 and wait behind active 77416D90 wrapper 48554, which has the
+  played-variant, fallback and extended-restart cases pending.
+
+
+### Grid variant reopen and full native checks, 22:46 UTC
+
+- 7C2C21F7 full native first reported 2502/2509. Each miss was a
+  static source assertion holding pre-Grid contracts or a prior
+  parser/function location. N-0951 and N-0953 preserved the behavior
+  checks across the shared dependency visitor, portal flags, typed
+  inventory gate, Grid terminal packet, and both focus paths.
+- Isolated C39CF0CC then passed 2510 cases and 568965 assertions in
+  q_20261118224309697_503a66d5. 321-path source snapshot SHA
+  FFFF62D2FDC5321EB9B0FE2F5E729E0487B17D76F25D3EFA8D570EDC33700EA9
+  independently verified in q_20261118224443392_948efa67 with the
+  unchanged 7C2C21F7 executable. The full tests keep their own tiny
+  native write-policy evidence under .claude; it is outside source scope.
+- 77416D90 extended variant 580c6a0b passed all 14 managed checks.
+  Fresh process reopened the unchanged parent and new fork, verified
+  native room/scene bounds at 3000 and matching mesh/tile floors, and
+  played the extended room for 196 frames. Previously failed missing
+  expected pin digest is resolved.
+- Played variant receipt 557cf512 stopped before consent because the
+  runner waited for a guest save before moving focus. N-0952 adds
+  opt-in guest authentication, focus, save and exit barrier order
+  without changing other scenarios. Narrow fallback e3ff3f69 saved
+  both replacements and mounted the exact variant plan after restart.
+  A spawn collected the Slayer before the smoke's check. N-0954 moves
+  the placed tests inward and keeps actual acquisition assertions.
+- Cold fallback and earlier mixed host both showed ordinary installed
+  original mesh source compile with no native prop slot. The guest
+  temporary source had a stable slot, but the installed host prop
+  was skipped. N-0955 binds original installed standalone .pdmesh
+  entries through the same checked private allocator and native
+  source binder. N-0956 adds actual native prop slot witnesses to
+  both peers. New client/tests build q_20261118224549666_22af6f2c,
+  wrapper 32482, is active. Vehicle-only 7C2C21F7 retry remains
+  q_20261118222540968_7a2598dc, wrapper 45702. Old unstarted played
+  and extended-case waiters were cancelled to use the replacement
+  exact model-binding executable. No public Git changes.
+
+### Grid native hoverbike and installed model candidate, 22:52 UTC
+
+- Exact 7C2C21F7 hoverbike rerun 19b26756 passed 43/43 in 242.8 seconds.
+  The guest accepted the exact two-package offer through mapped input,
+  mounted native model data inside the digest-named vehicle archive, and
+  retired the vehicle and arena before Room 1 resync. The host steered and
+  boosted the placed vehicle through native controls, measuring peak ground
+  speed 17.11. Both score digests agreed and both processes exited 0.
+  Workbench N-0958 records the exact receipt.
+- Exact client 9280FA65 and private 321-path source patch F49DEF277 passed
+  the source guard and forward and reverse applicability. C39CF0CC again
+  passed 2,510 native cases and 568,965 assertions against read-only base.
+  The played-variant and cold fallback queue is q_20261118224919473_d72eb41f.
+  The mixed-source and private replay queue is q_20261118224920053_7730e591.
+  Both use the frozen executable.
+
+### Grid selective played save and private replay witnesses, 23:02 UTC
+
+- Exact 9280FA65 passed 23/23 in managed receipt 653e2159. The guest
+  used mapped consent after authentication and accepted the exact arena,
+  mesh and weapon. Native prop slots 441 and 444 prove both worlds
+  instantiated the mesh. The guest saved a distinct arena 189848f7
+  with exact parent 3a039959 and kept source 90682b25, then restarted
+  offline, remounted the profile plan, rendered the mesh, and collected
+  the Falcon 2. Native setup no longer names Triangle. All three roles
+  exited cleanly. Workbench N-0960 retains the exact identities.
+- The offline ordinary/power fallback run cc855d90 is active in the
+  same FIFO item. N-0959 replaces an obsolete Continue log in two
+  queued private fixtures with exact stage retirement, world retirement
+  and same-Room resync. Their gameplay and retained-draft checks remain.
+- N-0961 claims the independent host Save Played smoke in the existing
+  fixture. Its original match sources are installed on the host, so
+  the proof must exercise a different production route from guest
+  callback and returned-source retention. No production save changes.
+
+### Grid ordinary and power pickup variants, 23:06 UTC
+
+- 9280FA65 cold replay cc855d90 passed 15/15, both roles exit 0.
+  The save rejected dropping the required Triangle package before the
+  placements were rewritten. The fresh process confirmed the original
+  5be2ee49, separate variant 840d371d, unavailable Triangle, native prop
+  slot 441 and two actual Room 2 pickup/inventory grants. Workbench N-0962
+  records exact receipts. The priority group now has both D-037 passes.
+- New smoke-only E88D5E73 client and private 321-path F5844A1E patch
+  were frozen after guard and forward/reverse checks. The separate save
+  for the listen host has no production changes. Its managed run is
+  q_20261118230440059_19baa308 after the mixed/private group.
+
+### Grid private Plan and independent visibility, 23:20 UTC
+
+- 9280FA65 native Interactive Plan 17b71a94 passed 33/33. The stale
+  request was rejected locally and the cross-room request was denied by
+  the host. The allowed retry physically moved setup_0002 while epoch 1
+  continued. Native draft revision 3 kept the exact decoration pose and
+  ambient 137 through Continue, Room resync and Close.
+- The same exact client passed 33/33 in visibility 4c921feb. Host cursor
+  and creator projection independently followed 00, 10, 11, 01, 00 in
+  one round. The creator only received the projection in the two allowed
+  phases. The ordinary Room peer received no private playtest traffic.
+  All roles exited zero in both scenarios. Workbench N-0963 has details.
+- Combined FIFO proceeds through the exact required character, mixed
+  source, and music cases. The isolated host Save Played verification is
+  queued separately on E88D5E73. Human two-machine and WAN remain open.
+
+### Grid exact mixed packages and native stage music, 23:37 UTC
+
+- Corrected 9280FA65 mixed package 1cb1a25e passed 59/59. One mapped
+  consent admitted the exact arena, standalone prop and weapon.
+  Native host slot 441 and guest slot 444 instantiate the same mesh.
+  The original weapon fired, both score digests matched, and the guest
+  retired all three temporary assets before Room 1 resync. N-0965.
+- Exact music db28a6cd passed 25/25. Both games opened audio devices,
+  resolved the exact stage track, and played 195 sequenced events from
+  the original typed song. Guest track 16384, row and archive retired
+  after one bounded wait for native references. Scores matched and both
+  exited zero. N-0966.
+- Initial character e08ae8aa stopped before guest auth with a malformed
+  screenshot field in the child fixture. Host scanned and selected exact
+  original body and head. N-0964 fixes only that field after archival.
+  Exact 9280FA65 retry q_20261118232559914_9bb290a9 will follow the
+  E88D5E73 host Save Played FIFO q_20261118230440059_19baa308.
+
+### Grid host save and animated character regression, 23:52 UTC
+
+- Exact E88D5E73 played save 0cef3938 passed 24/24. Host and guest
+  independently saved from parent 3a039959 after world retirement.
+  The host verified unchanged installed sources and its original pin.
+  Guest restarted offline, loaded exact retained mesh, and collected
+  the Falcon 2. All three exits were zero. Workbench N-0967.
+- Exact character retry 296efc7a with corrected guest input reached
+  actual arena, body, and head admission and native head attachment.
+  Host used slot 152, guest 153. Both crashed on the first on-screen bot
+  with the same matrix evaluator fault. The body rig correctly compiled
+  SKEL_CHR. Its static neck POSITION part -1 compiled to u16 65535,
+  which the optimized evaluator used as a scratch index. The generic
+  evaluator already checks source frame parts. The identical archive
+  stays as the focused native regression. N-0968 claims only the
+  matrix decoder guard and this checkpoint.
+
+### Grid matrix fix and managed storage decision, November 19 00:01 UTC
+
+- Source 748E1B21 isolates unbound animation parts in the native matrix
+  decoder, and validates direct and mirrored sample indices. Both client
+  and tests built, the public-source guard passed, and 322-path 7E81634B
+  applied forward and reverse in a private index. Native tests later
+  rebuilt as CB2806F0 for the N-0969 updated matrix source contract.
+- The custom character and stock bot run q_20261118235525323_2cc487bd
+  was refused before launch by the managed install cap. Its previous
+  failed case 296efc7a has a complete archived recipe and outcome.
+  Windows locked a subsequent exact cleanup check, and storage now pins
+  that full install. It occupies the second slot beside the protected
+  Maian record. The alternate detached store also has two protected
+  rows. No original storage policies, registry rows or installs were
+  changed. D-038 awaits authorization for temporary isolated D: storage
+  under the existing limits and restoration of the current location.
+
+### Grid exact offers and live layout composition, November 19 00:34 UTC
+
+- The host and a proposing client now preflight the complete exact
+  archive inventory before offering it. Both use the receiver's nested
+  typed-member validation. Installed exact sources remain usable. N-0972.
+- Applying a staged layout during a round reconstructs accepted live
+  decoration changes from the committed draft. The host checks the same
+  resident prop, its position and its candidate floor. Its native route
+  probe protects starts, paths, authored waypoints and generated links.
+  The optional exact navigation check also supports installed base-derived
+  private maps. A reopened draft reuses an independent decoration's pad.
+  The old native regression changed three unrelated archive members.
+  The corrected path preserves them and passes 61/61. N-0973 through N-0979.
+- Client 34DC6163 and test binary D00F4269 built in
+  q_20261119003121138_add43d59. The public-source guard passed.
+  q_20261119003313541_30fa4517 passed the focused case, 2,510 native
+  cases with 569,087 assertions, and the local 132-level byte-identical
+  round trip with 38,519 assertions. In-game confirmation of the combined
+  live decoration and geometry fixture remains open. D-038 still covers
+  the managed custom character and stock bot smoke reruns. Human
+  two-machine and WAN acceptance remain open.
+
+### Grid played variant dialog and character matrix regression, November 19 00:48 UTC
+
+- Listen hosts now keep Save Played Variant open in the same Room
+  across frames. Guests and listen hosts use the same active lobby
+  predicate, with cleanup on leave, match start, and results. After the
+  archive publishes, the Room displays any library refresh error through
+  the existing status field. N-0981 and N-0983.
+- The focused test calls the production optimized matrix evaluator with
+  real packed translation data. A bound root moves to X=7 and X=11 in
+  direct and mirrored animation. Its unbound rigid child keeps an
+  identity local basis and reaches (10,5,7) and (14,5,7). N-0982.
+- Client 99369D3E and tests 996EA196 built in q_20261119004443157_7101d1df.
+  The asset source guard passed. q_20261119004634442_df1489ec passed the
+  matrix test (28 assertions), decoration replay (61), full native suite
+  (2,511 cases and 569,171 assertions), and 132 byte-identical base level
+  round trips (38,519 assertions). Both managed stores still have their
+  two full install slots occupied by protected evidence. D-038 remains
+  open. Native proof covers the matrix transform, and the managed
+  character render, stock bots and combined live Apply remain open.
+
+### Grid owning packages, local shared variants and ambient-off Apply, November 19 00:59 UTC
+
+- The pinned plan now follows the exact owner of an eligible placed
+  nested asset and includes its native dependencies. The Crystal Pistol
+  fixture starts from its placed mesh alone, retains its linked texture,
+  agrees with the explicit owner plan, and rejects a changed archive.
+  N-0989.
+- The host can save an installed base-derived Shared Draft as a new
+  local variant. The archive preserves its exact parent, source
+  references and provenance. Publish pins and additively registers it,
+  with a Room warning if library registration fails. N-0986 and N-0988.
+- Exact layout Apply accepts the active disabled ambient state with
+  compatible decoration moves. The scene restores the native range base
+  when disabling an inherited stage override and preserves explicit room
+  brightness. The managed composition fixture stages a real decoration
+  move and ambient disable before the same-round geometry Apply.
+  N-0985 and N-0987. Rendered runtime verification remains open.
+- Client 1A8F0003 and tests 80E23A18 built in q_20261119005621921_89c5d7bf.
+  The public source guard passed. Native q_20261119005826912_c45b45b8
+  passed archive owner (32 assertions), base-derived save contract (111),
+  ambient layout contract (41), and decoration replay (61). It passed
+  2,514 native cases and 569,358 assertions, plus all 132 byte-identical
+  base level round trips with 38,519 assertions. D-038 and the managed
+  runtime and human two-machine/WAN gates remain open.
+
+### Grid native effects and embedded textures, November 19 01:07 UTC
+
+- Exact package inventory admits a typed texture when its immediate
+  owner is an effect and the member uses the native effect dependency
+  path. The inventory checks that child's exact descriptor and decodes
+  its editable image before the catalog transaction. N-0991.
+- Native and public conformance readers accept the shared provenance
+  field in v1 and v2 effect descriptors with its established values.
+  This makes standalone original effects authorable through the same
+  exact sharing policy. N-0992.
+- Client 49838DE6 and tests BDC69AB2 built in
+  q_20261119010454902_d82b3719. The asset-source guard passed.
+  q_20261119010409352_46980e28 passed 16 archive parity cases, recursion
+  and 10 structured source contracts. q_20261119010608057_f82cc78b
+  passed 65 focused effect parser assertions, 54 exact texture locator
+  and archive byte assertions, and 2,515 native cases with 569,453
+  assertions. In-game effect registration and rendering still need
+  managed capacity. D-038 and human two-machine/WAN acceptance remain open.
+
+### Grid managed regression fixtures, November 19 01:17 UTC
+
+- The placement fallback smoke now opts into an exact four-placement
+  variant. It drops the custom weapon, independent prop and hoverbike
+  packages. On cold launch it checks the resident stock crate and bike
+  bindings, then both native pickup grants. The original pinned source
+  remains the expected parent. N-0994.
+- A stock Cyclone match places Triangle's real embedded mesh. The
+  guest fixture uses the normal consent flow and expects the original
+  arena and owning .pdweapon, the native model and matching result
+  identity, and both temporary leases retired on return. N-0995.
+- The effect fixture keeps the ordinary Triangle firing path and a
+  declared source edge to an original standalone effect with an
+  embedded editable texture. The host witness is projectile impact and
+  a native particle command. The guest witness is exact texture
+  activation from the leased archive and its retirement. N-0996.
+- The effect and weapon fixture archives reproduced byte for byte.
+  The first conformance attempt lacked the unchanged example body/head
+  ID declarations, and the first definition pass found the wrong guest
+  fixture path. The isolated corpus with those existing archives passed
+  4 root and 12 total archives. Corrected definitions passed 32, 85 and
+  100 regex checks and local source lookup. Native BDC69AB2 passed
+  72 fallback, 32 owning archive and 54 effect texture assertions.
+  Client 3E9E57F7 built in q_20261119011538416_2abcd96e with the source
+  guard. Managed cases remain unrun pending available capacity.

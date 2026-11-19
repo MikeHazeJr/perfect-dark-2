@@ -292,7 +292,12 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	{
 		const float pad = 14.0f * scale;
 		const float badgeH = 28.0f * scale;
-		const float badgeW = 220.0f * scale;
+		char label[FORGE_DISPLAY_NAME_CAP + 32];
+		snprintf(label, sizeof(label), "%s  --  %s", forgeDisplayName(), forgehudModeLabel(state));
+		const ImVec2 ts = ImGui::CalcTextSize(label);
+		const float minWidth = 220.0f * scale;
+		const float textWidth = ts.x + 2.0f * pad;
+		const float badgeW = textWidth > minWidth ? textWidth : minWidth;
 		const float x = pad;
 		const float y = pad;
 
@@ -301,9 +306,6 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		fg->AddRect(ImVec2(x, y), ImVec2(x + badgeW, y + badgeH),
 				forgehudModeColor(state), 4.0f * scale, 0, 1.5f * scale);
 
-		char label[64];
-		snprintf(label, sizeof(label), "THE GRID  --  %s", forgehudModeLabel(state));
-		const ImVec2 ts = ImGui::CalcTextSize(label);
 		fg->AddText(ImVec2(x + (badgeW - ts.x) * 0.5f,
 		                   y + (badgeH - ts.y) * 0.5f),
 				IM_COL32(240, 248, 255, 240), label);

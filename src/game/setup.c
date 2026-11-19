@@ -50,6 +50,7 @@
 #include "assetcatalog.h"
 #include "assetload.h"
 #include "asset_source_debug.h"
+#include "grid_match_runtime.h"
 #include "scenario_source_runtime.h"
 #include "scenario_global_ailists.h"
 #include "scenario_object_rules.h"
@@ -3587,7 +3588,12 @@ void setupCreateProps(s32 stagenum)
 						(s32)g_MatchConfig.spawnWeaponNum);
 				}
 
-				if (!userPickedSpawnWeapon) {
+				const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+				const s32 gridFiesta = grid && g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA
+					&& gridMatchRuntimeFiestaMatches(&grid->offer, 1);
+				if (gridFiesta) {
+					sysLogPrintf(LOG_NOTE, "SETUP: using the sealed Grid Fiesta pool for sparse pickups");
+				} else if (!userPickedSpawnWeapon) {
 					s32 setSpawnMpw = -1;
 					const char *setSpawnId = NULL;
 					for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {

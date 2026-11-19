@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <algorithm>
 #include <vector>
 
 #include "imgui/imgui.h"
@@ -40,6 +41,10 @@
 #include "assetcatalog.h"
 #include "forge_level_doc.h"
 #include "forge_level_io.h"
+#include "grid_archive_policy.h"
+#include "forge_room_builder.h"
+#include "fs.h"
+#include "game/forgemode.h"
 #include "identity.h"
 #include "level_tool.h"
 #include "mod_author.h"
@@ -86,9 +91,14 @@ static LevelToolDetail s_Detail;
  * selected template (asked again only when either changes: the answer looks
  * at the mods folder). */
 static char s_NewName[MOD_AUTHOR_NAME_MAX] = "";
+static char s_OriginalName[MOD_AUTHOR_NAME_MAX] = "";
+static bool s_ShowOriginal = false;
+static constexpr const char *kOriginalRoomSeed = "$E/grid/templates/grid_two_rooms.pdarena";
+static constexpr const char *kDebugOriginal = "original";
 struct LevelToolPlan {
     bool valid;
     char templateId[CATALOG_ID_LEN];
+    char archive[MOD_AUTHOR_PATH_MAX];
     char name[MOD_AUTHOR_NAME_MAX];
     s32 answer;                          /* LEVEL_TOOL_NAME_* */
     char why[320];
@@ -223,12 +233,15 @@ static const LevelToolPlan &toolPlan(const char *templateId, const char *archive
     static mod_author_result_t plan; /* large: paths and the id map */
 
     if (!templateId) templateId = "";
+    if (!archive) archive = "";
     if (!name) name = "";
-    if (s_Plan.valid && strcmp(s_Plan.templateId, templateId) == 0 && strcmp(s_Plan.name, name) == 0) {
+    if (s_Plan.valid && strcmp(s_Plan.templateId, templateId) == 0
+            && strcmp(s_Plan.archive, archive) == 0 && strcmp(s_Plan.name, name) == 0) {
         return s_Plan;
     }
     memset(&s_Plan, 0, sizeof(s_Plan));
     snprintf(s_Plan.templateId, sizeof(s_Plan.templateId), "%s", templateId);
+    snprintf(s_Plan.archive, sizeof(s_Plan.archive), "%s", archive);
     snprintf(s_Plan.name, sizeof(s_Plan.name), "%s", name);
     s_Plan.valid = true;
     if (!name[0]) {
@@ -240,7 +253,7 @@ static const LevelToolPlan &toolPlan(const char *templateId, const char *archive
     char reason[256] = "";
     s32 code = MOD_AUTHOR_ERR_ARGS;
     memset(&plan, 0, sizeof(plan));
-    if (!archive || !archive[0]) {
+    if (!archive[0]) {
         snprintf(reason, sizeof(reason), "the template's archive is not known");
     } else if (!modsRoot || !modsRoot[0]) {
         snprintf(reason, sizeof(reason), "the game has no mods folder to save into");
@@ -259,51 +272,36 @@ static const LevelToolPlan &toolPlan(const char *templateId, const char *archive
     return s_Plan;
 }
 
-static bool toolCreateFail(const char *stage, const asset_entry_t *tmpl, const char *name, const char *msg)
+static bool toolCreateFail(const char *stage, const char *templateId, const char *name, const char *msg)
 {
     sysLogPrintf(LOG_WARNING, "LEVELTOOL.NEW.%s template=%s display='%s' message='%s'",
-                 stage ? stage : "FAIL", tmpl ? tmpl->id : "(none)", (name && name[0]) ? name : "(none)",
+                 stage ? stage : "FAIL", templateId ? templateId : "(none)", (name && name[0]) ? name : "(none)",
                  msg ? msg : "");
     toolSetStatus(false, msg);
     return false;
 }
 
-/* "Create": a copy of the level `tmpl` under `displayName`, as a level mod of
- * its own. On success the new level is selected in the browser and its
- * catalog id is in outCatalogId. */
-static bool toolCreate(const asset_entry_t *tmpl, const char *displayName, char *outCatalogId, size_t outCap)
+/* Save a typed arena under its own name and select the registered result. */
+static bool toolCreateFromSource(const char *templateId, const char *archive, const char *displayName,
+    char *outCatalogId, size_t outCap, const ForgeRoomSize *roomSize, bool original)
 {
     static mod_author_result_t result; /* large: paths and the id map */
-
     if (outCatalogId && outCap) outCatalogId[0] = '\0';
-    if (!tmpl || tmpl->type != ASSET_ARENA) {
-        return toolCreateFail("NO_TEMPLATE", NULL, displayName, "Select a level to start from");
-    }
-    /* The catalog owns the row and a save rescans it: keep what is needed. */
-    char templateId[CATALOG_ID_LEN];
-    snprintf(templateId, sizeof(templateId), "%s", tmpl->id);
-    if (strcmp(s_Detail.id, templateId) != 0) toolLoadDetail(tmpl);
-    if (!s_Detail.opened) {
-        char msg[400];
-        snprintf(msg, sizeof(msg), "This level cannot be a template: %s", s_Detail.openError);
-        return toolCreateFail("TEMPLATE_FAIL", tmpl, displayName, msg);
-    }
-    char archive[MOD_AUTHOR_PATH_MAX];
-    snprintf(archive, sizeof(archive), "%s", s_Detail.archive);
 
     const LevelToolPlan &plan = toolPlan(templateId, archive, displayName);
     if (plan.answer == LEVEL_TOOL_NAME_EMPTY) {
-        return toolCreateFail("NO_NAME", tmpl, displayName, "Type a name for the new level");
+        return toolCreateFail("NO_NAME", templateId, displayName, "Type a name for the new level");
     }
     if (plan.answer != LEVEL_TOOL_NAME_OK) {
         return toolCreateFail(plan.answer == LEVEL_TOOL_NAME_TAKEN ? "NAME_TAKEN"
                               : plan.answer == LEVEL_TOOL_NAME_TEMPLATE ? "NAME_IS_TEMPLATE"
-                              : "BAD_NAME", tmpl, displayName, plan.why);
+                              : "BAD_NAME", templateId, displayName, plan.why);
     }
 
     const char *creator = toolActiveAgentName();
     char description[160];
-    snprintf(description, sizeof(description), "Level made with the Levels tool from %s.", templateId);
+    if (original) snprintf(description, sizeof(description), "Original arena made with the Levels room builder.");
+    else snprintf(description, sizeof(description), "Level made with the Levels tool from %s.", templateId);
     sysLogPrintf(LOG_NOTE,
                  "LEVELTOOL.NEW.BEGIN template=%s display='%s' catalog=%s creator='%s' template_archive='%s'",
                  templateId, displayName, plan.catalogId, creator, archive);
@@ -315,10 +313,32 @@ static bool toolCreate(const asset_entry_t *tmpl, const char *displayName, char 
     request.author = creator;
     request.description = description;
     request.tool = "levels-tool";
+    mod_author_descriptor_value_t provenance = {
+        GRID_ARENA_PROVENANCE_KEY, roomSize ? GRID_ARENA_PROVENANCE_ORIGINAL
+            : forgeLevelCloneProvenance(templateId, archive)
+    };
+    request.descriptor_values = &provenance;
+    request.descriptor_value_count = 1;
 
     memset(&result, 0, sizeof(result));
     s32 restartCount = 0;
     char err[512] = "";
+    ForgeRoomOverrides roomOverrides;
+    if (roomSize) {
+        if (!forgeRoomBuildOverrides(archive, *roomSize, roomOverrides, err, sizeof(err))) {
+            return toolCreateFail("ROOM_BUILD_FAIL", templateId, displayName, err);
+        }
+        request.overrides = roomOverrides.entries.data();
+        request.override_count = static_cast<u32>(roomOverrides.entries.size());
+        if (original) {
+            sysLogPrintf(LOG_NOTE, "LEVELTOOL.ORIGINAL.SEED: template=%s seed_catalogued=%d path='%s'",
+                         templateId, assetCatalogResolve(templateId) ? 1 : 0, archive);
+        }
+        sysLogPrintf(LOG_NOTE,
+                     "LEVELTOOL.ROOMS: length=%d width=%d height=%d members=%u second_length=%d doorway_width=%.2f doorway_height=%.2f",
+                     roomSize->firstLength, roomSize->width, roomSize->height, request.override_count,
+                     roomSize->secondLength, roomSize->effectiveDoorwayWidth(), roomSize->effectiveDoorwayHeight());
+    }
     const s32 code = modAuthorRuntimeSave(&request, &result, &restartCount, err, sizeof(err));
     /* Whatever happened, the answer for this name is no longer the one kept. */
     s_Plan.valid = false;
@@ -333,14 +353,14 @@ static bool toolCreate(const asset_entry_t *tmpl, const char *displayName, char 
         snprintf(msg, sizeof(msg), "%s%s",
                  result.archive_path[0] ? "Saved, but not active yet: " : "Not created: ",
                  err[0] ? err : "the mod author gave no reason");
-        return toolCreateFail(stage, NULL, displayName, msg);
+        return toolCreateFail(stage, nullptr, displayName, msg);
     }
     const asset_entry_t *made = assetCatalogResolve(result.catalog_id);
     if (!made || made->type != ASSET_ARENA) {
         char msg[400];
         snprintf(msg, sizeof(msg), "Saved as %s, but the catalog does not list it as a level%s",
                  result.catalog_id, restartCount ? " until the game is restarted" : "");
-        return toolCreateFail("NOT_IN_CATALOG", NULL, displayName, msg);
+        return toolCreateFail("NOT_IN_CATALOG", nullptr, displayName, msg);
     }
 
     /* Show the new level in the browser. */
@@ -351,12 +371,54 @@ static bool toolCreate(const asset_entry_t *tmpl, const char *displayName, char 
     if (outCatalogId && outCap) snprintf(outCatalogId, outCap, "%s", result.catalog_id);
 
     char status[400];
-    snprintf(status, sizeof(status), "Created %s (%s). Open it in Forge to place things in it.",
-             displayName, result.catalog_id);
+    snprintf(status, sizeof(status), "Created %s (%s). Open it in %s to add placements.",
+             displayName, result.catalog_id, forgeDisplayName());
     toolSetStatus(true, status);
     sysLogPrintf(LOG_NOTE, "LEVELTOOL.NEW.OK template=%s catalog=%s mod_id=%s archive='%s' restart_count=%d",
                  templateId, result.catalog_id, result.mod_id, result.archive_path, (int)restartCount);
     return true;
+}
+
+static bool toolCreate(const asset_entry_t *tmpl, const char *displayName, char *outCatalogId, size_t outCap,
+    const ForgeRoomSize *roomSize = nullptr)
+{
+    if (!tmpl || tmpl->type != ASSET_ARENA) {
+        return toolCreateFail("NO_TEMPLATE", nullptr, displayName, "Select a level to start from");
+    }
+    /* A save rescans the catalog. Keep the source identity and path by value. */
+    char templateId[CATALOG_ID_LEN];
+    snprintf(templateId, sizeof(templateId), "%s", tmpl->id);
+    if (strcmp(s_Detail.id, templateId) != 0) toolLoadDetail(tmpl);
+    if (!s_Detail.opened) {
+        char msg[400];
+        snprintf(msg, sizeof(msg), "This level cannot be a template: %s", s_Detail.openError);
+        return toolCreateFail("TEMPLATE_FAIL", templateId, displayName, msg);
+    }
+    char archive[MOD_AUTHOR_PATH_MAX];
+    snprintf(archive, sizeof(archive), "%s", s_Detail.archive);
+    return toolCreateFromSource(templateId, archive, displayName, outCatalogId, outCap, roomSize, false);
+}
+
+static bool toolOriginalRoomPath(char (&path)[MOD_AUTHOR_PATH_MAX])
+{
+    fsFullPath(kOriginalRoomSeed, path, sizeof(path));
+    return fsPathIsAbsolute(path) && strlen(path) < sizeof(path) - 1;
+}
+
+static bool toolCreateOriginal(const ForgeRoomSize &size, const char *displayName,
+    char *outCatalogId, size_t outCap)
+{
+    if (g_NetMode != 0) {
+        return toolCreateFail("ORIGINAL_OFFLINE", FORGE_ROOM_TEMPLATE_ID, displayName,
+                              "Leave the network game before creating an original arena.");
+    }
+    char archive[MOD_AUTHOR_PATH_MAX];
+    if (!toolOriginalRoomPath(archive)) {
+        return toolCreateFail("TEMPLATE_FAIL", FORGE_ROOM_TEMPLATE_ID, displayName,
+                              "The original arena template is unavailable.");
+    }
+    return toolCreateFromSource(FORGE_ROOM_TEMPLATE_ID, archive, displayName,
+        outCatalogId, outCap, &size, true);
 }
 
 /* "Open in Forge": a Forge session on this level, the way The Grid starts
@@ -380,6 +442,68 @@ static bool toolOpenInForge(const char *arenaId)
     toolSetStatus(true, "");
     pdguiModdingHubHide();
     return true;
+}
+
+static const LevelToolPlan &toolRenderNewName(const char *templateId, const char *archive,
+    char (&name)[MOD_AUTHOR_NAME_MAX])
+{
+    pdguiInputText("Name", name, sizeof(name));
+    const LevelToolPlan &plan = toolPlan(templateId, archive, name);
+    if (plan.answer == LEVEL_TOOL_NAME_OK) {
+        ImGui::Text("Saves as %s, a new level.", plan.catalogId);
+    } else if (plan.answer == LEVEL_TOOL_NAME_EMPTY) {
+        ImGui::TextDisabled("Type a name. It is what players see in the level lists.");
+    } else {
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(240));
+        ImGui::TextWrapped("%s", plan.why);
+        ImGui::PopStyleColor();
+    }
+    return plan;
+}
+
+static void toolRenderRoomDimensions(ForgeRoomSize &roomSize)
+{
+    using Room = ForgeRoomSize;
+    constexpr auto metres = [](double units) { return static_cast<float>(units / 100.0); };
+    constexpr auto units = [](float distance) { return static_cast<s32>(distance * 100.0f + 0.5f); };
+    constexpr auto clampInput = ImGuiSliderFlags_AlwaysClamp;
+    float firstLength = metres(roomSize.firstLength);
+    float secondLength = metres(roomSize.secondLength);
+    float width = metres(roomSize.width);
+    float height = metres(roomSize.height);
+    float doorwayWidth = metres(roomSize.effectiveDoorwayWidth());
+    float doorwayHeight = metres(roomSize.effectiveDoorwayHeight());
+    ImGui::SeparatorText("Room Dimensions");
+    ImGui::SliderFloat("Room 1 length", &firstLength,
+        metres(Room::MinLength), metres(Room::MaxLength), "%.1f m", clampInput);
+    ImGui::SliderFloat("Room 2 length", &secondLength,
+        metres(Room::MinLength), metres(Room::MaxLength), "%.1f m", clampInput);
+    ImGui::SliderFloat("Width of both rooms", &width,
+        metres(Room::MinWidth), metres(Room::MaxWidth), "%.1f m", clampInput);
+    ImGui::SliderFloat("Height of both rooms", &height,
+        metres(Room::MinHeight), metres(Room::MaxHeight), "%.1f m", clampInput);
+    roomSize.firstLength = units(firstLength);
+    roomSize.secondLength = units(secondLength);
+    roomSize.width = units(width);
+    roomSize.height = units(height);
+    const float maxDoorwayWidth = metres(roomSize.width - 2 * Room::MinSideWallWidth);
+    const float maxDoorwayHeight = metres(roomSize.height - Room::MinLintelHeight);
+    doorwayWidth = std::clamp(doorwayWidth, metres(Room::MinDoorwayWidth), maxDoorwayWidth);
+    doorwayHeight = std::clamp(doorwayHeight, metres(Room::MinDoorwayHeight), maxDoorwayHeight);
+    ImGui::SliderFloat("Doorway width", &doorwayWidth,
+        metres(Room::MinDoorwayWidth), maxDoorwayWidth, "%.1f m", clampInput);
+    ImGui::SliderFloat("Doorway height", &doorwayHeight,
+        metres(Room::MinDoorwayHeight), maxDoorwayHeight, "%.1f m", clampInput);
+    roomSize.doorwayWidth = units(doorwayWidth);
+    roomSize.doorwayHeight = units(doorwayHeight);
+}
+
+static void toolRenderStatus(void)
+{
+    ImGui::PushStyleColor(ImGuiCol_Text, s_StatusOk ? ImVec4(0.55f, 0.90f, 0.68f, 0.86f)
+                                                    : pdguiVec4TextWarning(220));
+    ImGui::TextWrapped("%s", s_Status[0] ? s_Status : "Ready");
+    ImGui::PopStyleColor();
 }
 
 /* ========================================================================
@@ -415,7 +539,10 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
         if (i > 0) ImGui::SameLine();
         const bool active = s_List == i;
         if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-        if (toolButton(kListTabs[i])) s_List = i;
+        if (toolButton(kListTabs[i])) {
+            s_List = i;
+            s_ShowOriginal = false;
+        }
         if (active) ImGui::PopStyleColor();
     }
     ImGui::Separator();
@@ -435,6 +562,7 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
                  e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS ? "  (mission)" : "", (int)i);
         if (ImGui::Selectable(label, strcmp(selectedId, e->id) == 0)) {
             snprintf(selectedId, CATALOG_ID_LEN, "%s", e->id);
+            s_ShowOriginal = false;
         }
     }
     if (rows.empty()) {
@@ -449,6 +577,43 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
     /* ---- The selected level ---- */
     ImGui::BeginChild("##level_detail", ImVec2(detailW, contentH),
                       ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
+    const bool online = g_NetMode != 0;
+    if (!s_ShowOriginal && toolButton("Create Original Arena")) {
+        s_ShowOriginal = true;
+        toolSetStatus(true, "");
+    }
+    if (s_ShowOriginal) {
+        static ForgeRoomSize originalSize;
+        ImGui::PushID("original_arena");
+        ImGui::SeparatorText("Original Arena");
+        const bool back = toolButton("Back to Levels");
+        char archive[MOD_AUTHOR_PATH_MAX];
+        const bool available = toolOriginalRoomPath(archive);
+        const LevelToolPlan &plan = toolRenderNewName(FORGE_ROOM_TEMPLATE_ID,
+            available ? archive : nullptr, s_OriginalName);
+        toolRenderRoomDimensions(originalSize);
+        if (online) ImGui::TextDisabled("Leave the network game before creating an arena.");
+        ImGui::BeginDisabled(online || !available || plan.answer != LEVEL_TOOL_NAME_OK);
+        const bool create = toolButton("Create", ImVec2(132.0f * scale, 28.0f * scale));
+        ImGui::SameLine();
+        const bool open = toolButton("Create and Open", ImVec2(244.0f * scale, 28.0f * scale));
+        ImGui::EndDisabled();
+        toolRenderStatus();
+        ImGui::PopID();
+        ImGui::EndChild();
+
+        if (back) s_ShowOriginal = false;
+        if (create || open) {
+            char made[CATALOG_ID_LEN] = "";
+            if (toolCreateOriginal(originalSize, s_OriginalName, made, sizeof(made))) {
+                s_OriginalName[0] = '\0';
+                s_ShowOriginal = false;
+                if (open) toolOpenInForge(made);
+            }
+        }
+        return;
+    }
+    ImGui::Separator();
     const asset_entry_t *e = toolSelectedLevel();
     if (!e) {
         ImGui::TextDisabled("Select a level.");
@@ -480,7 +645,6 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
     if (s_Detail.archive[0]) ImGui::TextWrapped("Archive: %s", s_Detail.archive);
 
     /* Open in Forge. */
-    const bool online = g_NetMode != 0;
     const bool canOpen = s_Detail.opened && !online;
     if (!canOpen) ImGui::BeginDisabled();
     const bool openPressed = toolButton("Open in Forge", ImVec2(204.0f * scale, 28.0f * scale));
@@ -497,22 +661,17 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
     ImGui::Separator();
     ImGui::Text("New level from this one");
     if (!s_Detail.opened) ImGui::BeginDisabled();
-    pdguiInputText("Name", s_NewName, sizeof(s_NewName));
-    const LevelToolPlan &plan = toolPlan(levelId, s_Detail.archive, s_NewName);
-    if (plan.answer == LEVEL_TOOL_NAME_OK) {
-        ImGui::Text("Saves as %s, a new level.", plan.catalogId);
-    } else if (plan.answer == LEVEL_TOOL_NAME_EMPTY) {
-        ImGui::TextDisabled("Type a name. It is what players see in the level lists.");
-    } else {
-        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(240));
-        ImGui::TextWrapped("%s", plan.why);
-        ImGui::PopStyleColor();
-    }
+    const LevelToolPlan &plan = toolRenderNewName(levelId, s_Detail.archive, s_NewName);
     if (isBase) {
         ImGui::TextWrapped("This level comes from your own game files, and the new level will hold "
                            "its data. Keep it on this computer: it must not be shared.");
     }
-    const bool canCreate = s_Detail.opened && plan.answer == LEVEL_TOOL_NAME_OK;
+    const bool roomTemplate = strcmp(levelId, FORGE_ROOM_TEMPLATE_ID) == 0;
+    static ForgeRoomSize roomSize;
+    if (roomTemplate) {
+        toolRenderRoomDimensions(roomSize);
+    }
+    const bool canCreate = s_Detail.opened && plan.answer == LEVEL_TOOL_NAME_OK && (!roomTemplate || !online);
     bool createPressed = false;
     bool createOpenPressed = false;
     if (!canCreate) ImGui::BeginDisabled();
@@ -520,14 +679,11 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
     if (!canCreate) ImGui::EndDisabled();
     ImGui::SameLine();
     if (!canCreate || online) ImGui::BeginDisabled();
-    createOpenPressed = toolButton("Create and Open in Forge", ImVec2(244.0f * scale, 28.0f * scale));
+    createOpenPressed = toolButton("Create and Open", ImVec2(244.0f * scale, 28.0f * scale));
     if (!canCreate || online) ImGui::EndDisabled();
     if (!s_Detail.opened) ImGui::EndDisabled();
 
-    ImGui::PushStyleColor(ImGuiCol_Text, s_StatusOk ? ImVec4(0.55f, 0.90f, 0.68f, 0.86f)
-                                                    : pdguiVec4TextWarning(220));
-    ImGui::TextWrapped("%s", s_Status[0] ? s_Status : "Ready");
-    ImGui::PopStyleColor();
+    toolRenderStatus();
     ImGui::EndChild();
 
     /* The buttons act after the pane is drawn: a save rescans the catalog,
@@ -538,28 +694,64 @@ void pdguiLevelToolRender(float contentW, float contentH, float scale)
         char name[MOD_AUTHOR_NAME_MAX];
         char made[CATALOG_ID_LEN] = "";
         snprintf(name, sizeof(name), "%s", s_NewName);
-        if (toolCreate(assetCatalogResolve(levelId), name, made, sizeof(made))) {
+        if (toolCreate(assetCatalogResolve(levelId), name, made, sizeof(made), roomTemplate ? &roomSize : nullptr)) {
             s_NewName[0] = '\0';
             if (createOpenPressed) toolOpenInForge(made);
         }
     }
 }
 
+static bool toolReadRoomSize(const char *text, ForgeRoomSize &size)
+{
+    s32 dimensions[6];
+    size_t count = 0;
+    do {
+        char *end;
+        long value = strtol(text, &end, 10);
+        if (end == text || value < 0 || value > ForgeRoomSize::MaxLength) return false;
+        dimensions[count++] = static_cast<s32>(value);
+        if (!*end) break;
+        if (*end != ',' || count == 6) return false;
+        text = end + 1;
+    } while (true);
+    if (count == 3) {
+        size = {dimensions[0], dimensions[0], dimensions[1], dimensions[2], 0, 0};
+        return true;
+    }
+    if (count == 6 && dimensions[4] != 0 && dimensions[5] != 0) {
+        size = {dimensions[0], dimensions[1], dimensions[2], dimensions[3], dimensions[4], dimensions[5]};
+        return true;
+    }
+    return false;
+}
+
 s32 pdguiLevelToolDebugNew(const char *templateId, const char *displayName)
 {
     sysLogPrintf(LOG_NOTE, "LEVELTOOL.DEBUG.NEW.BEGIN template=%s display='%s'",
                  templateId ? templateId : "(none)", displayName ? displayName : "");
-    const asset_entry_t *e = (templateId && templateId[0]) ? assetCatalogResolve(templateId) : NULL;
-    if (!e || e->type != ASSET_ARENA) {
-        sysLogPrintf(LOG_WARNING, "LEVELTOOL.DEBUG.NEW.RESULT result=FAIL reason='not a level in the catalog'");
+    char made[CATALOG_ID_LEN] = "";
+    const char *dimensions = sysArgGetString("--debug-grid-room-size");
+    ForgeRoomSize roomSize;
+    if (dimensions && !toolReadRoomSize(dimensions, roomSize)) {
+        sysLogPrintf(LOG_WARNING, "LEVELTOOL.DEBUG.NEW.RESULT result=FAIL reason='expected length,width,height "
+            "or first-length,second-length,width,height,doorway-width,doorway-height in cm'");
         return 0;
     }
-    /* The same state the browser's click and the name field set. */
-    s_List = toolListOf(e);
-    snprintf(s_SelectedId[s_List], CATALOG_ID_LEN, "%s", e->id);
-    toolLoadDetail(e);
-    char made[CATALOG_ID_LEN] = "";
-    const bool created = toolCreate(e, displayName ? displayName : "", made, sizeof(made));
+    const char *name = displayName ? displayName : "";
+    bool created;
+    if (templateId && strcmp(templateId, kDebugOriginal) == 0) {
+        created = toolCreateOriginal(roomSize, name, made, sizeof(made));
+    } else {
+        const asset_entry_t *e = (templateId && templateId[0]) ? assetCatalogResolve(templateId) : nullptr;
+        if (!e || e->type != ASSET_ARENA) {
+            sysLogPrintf(LOG_WARNING, "LEVELTOOL.DEBUG.NEW.RESULT result=FAIL reason='not a level in the catalog'");
+            return 0;
+        }
+        s_List = toolListOf(e);
+        snprintf(s_SelectedId[s_List], CATALOG_ID_LEN, "%s", e->id);
+        toolLoadDetail(e);
+        created = toolCreate(e, name, made, sizeof(made), dimensions ? &roomSize : nullptr);
+    }
     if (created) {
         /* What the browser shows for the new level, as a line a run can read. */
         const asset_entry_t *level = assetCatalogResolve(made);

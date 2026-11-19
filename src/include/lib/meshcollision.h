@@ -120,6 +120,18 @@ void meshFree(struct colmesh *mesh);
 
 /* ---- API: static world mesh ---- */
 
+typedef struct mesh_world_prepared mesh_world_prepared_t;
+
+/* Build an owned static world grid from a nonempty, already world-space
+ * source. The caller keeps the source. *out must start NULL and is assigned
+ * only on success. Neither the current world nor its ray scratch is touched. */
+s32 meshWorldPrepare(const struct colmesh *source, mesh_world_prepared_t **out);
+
+/* Exchange a prepared grid with the live grid at the simulation boundary.
+ * The handle retains the outgoing grid and can be swapped back or freed. */
+void meshWorldSwapPrepared(mesh_world_prepared_t *prepared);
+void meshWorldFreePrepared(mesh_world_prepared_t *prepared);
+
 /* Initialize the world grid (call at stage load, before props) */
 void meshWorldInit(void);
 

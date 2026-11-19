@@ -1,0 +1,94 @@
+{
+  "scenario_name": "forge_grid_hill_smoke",
+  "description": "Author two King of the Hill markers on the original Blank Room, save through Level File, then play the saved arena in King of the Hill with three simulants. Assert that the native intro reader and the mode use the two authored pads.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_intro.cpp",
+    "port/src/scenario_source_runtime.c",
+    "src/game/mplayer/scenarios/kingofthehill.inc"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_grid_hill_smoke"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Grid_Hill_Smoke",
+    "--debug-forge-level-hills",
+    "--launch-mp-room",
+    "mod:arena_grid_hill_smoke",
+    "base:king_of_the_hill",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_hill_smoke",
+      "FORGE\\.LEVEL\\.EDIT: authored 2 King of the Hill markers",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_hill_smoke",
+      "BOOT: --launch-mp-room arena='mod:arena_grid_hill_smoke' scenario='base:king_of_the_hill' bots=3",
+      "SCENARIO\\.SOURCE: intro for '[^']*arena_grid_hill_smoke[^']*': rows=2 .*hills=2 .*source=intro.json",
+      "KOH: hill [01] of 2 at pad=[01] room=1",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "KOH: arena listed .*added"
+    ]
+  }
+}

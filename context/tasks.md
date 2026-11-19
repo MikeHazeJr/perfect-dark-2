@@ -1,5 +1,55 @@
 # Tasks
 
+## Grid implementation, November 18
+
+D-025 assigns The Grid to the existing `mods-v4` worktree. D-026 covers
+Grid-specific engine and multiplayer changes. D-027 requires protocol 65.
+T-MODDING-015 covers native authoring, T-NETWORKING-012 covers the pinned
+match and Room, and T-NETWORKING-013 covers shared drafts and private
+playtest. Workbench owns live status. D-029 keeps the current bot round
+and relocates actors when needed. Local managed runs verified the same
+round through Apply, occupied-floor relocation, and creator re-entry.
+They also exercised the normal consent card, exact typed weapon identity
+across different slots, temporary archive retirement, and a timed-out
+first launch followed by a successful retry in the same Room. Exact
+0D3C6764 passed 752 focused native cases. Workbench and the session log
+retain the receipts. Human two-machine and WAN acceptance remain open.
+
+D-035 covers every missing approved match package, D-036 covers
+client proposals and D-037 covers exact retained sources and stock
+replacements when saving variants. Local managed receipts prove an
+approved client proposal only reaches other peers when used (16/16),
+mixed package use in both worlds (59/59), original sound (47/47),
+native hoverbike play (43/43) and sequenced stage music (25/25).
+Host and guest Save Played passed 24/24. A separate offline test
+collected both the Falcon 2 and Slayer replacements after restart
+(15/15). The original map stayed unchanged. Private Plan and all
+four combinations of visibility passed 33/33 each. Workbench and
+the session log retain exact builds and receipts.
+
+The custom character test attached exact heads in different slots
+before a native matrix scratch fault on an unbound rigid neck.
+Client 49838DE6 includes the bounded part guard, checks nested content
+before host and donor offers, and retains compatible live decoration
+moves when applying geometry. The listen-host Save Played Variant modal
+now stays open and reports a library refresh error if one occurs after
+the archive is published. A placed nested model now includes its eligible
+owning package in the exact source plan. The host can save installed
+base-derived Shared Draft variants. Geometry Apply accepts the current
+disabled ambient state and the scene restores native room brightness.
+Original graph effects can include a native texture archive. Tests
+BDC69AB2 passed 2,515 native cases. The 1A8F0003 base level sweep
+round-tripped all 132 archives byte for byte. The character and stock
+bot smoke reruns await D-038
+because both configured smoke stores are full of protected copies.
+The combined ambient, decoration and geometry smoke and human
+two-machine/WAN acceptance also remain open.
+
+Client 3E9E57F7 adds the managed cold-reload proof for omitted prop
+and hoverbike packages. The placed nested model and embedded effect
+texture cases have verified fixture sources. The focused native tests
+and archive conformance passed. Managed execution awaits capacity.
+
 2026-11-14 week PD (Nov 15 to 21): three parallel Claude sessions (CORE, MULTIPLAYER, MODS) work in `D:\PD2-wt\<name>` on branches `week-pd/<name>`. The live plan, the decisions waiting on Mike and the ordered work queue are in the PD2 Finish Tracker (a Claude Doc) and in `context/week-pd-coordination.md` in the canonical checkout (untracked, one shared copy). Step 0 is done: dev a8ab67f3 builds on this PC, 1,853 unit cases pass, and the boot smoke passes 14/14 from the pre-extracted shared base `D:\PD2-wt\shared-base`. The T-MODDING-011 entries below describe uncommitted, never-compiled work that is parked on branch `week-pd/inflight-20261114`; it is not part of any week branch, and whether it continues is decision 2 in the tracker. New this week: B-1109 (gun loader 64-bit queue targets, fixed on `week-pd/core`) and B-1110 (first-launch extraction about 20 times slower on a hard disk). See the 2026-11-14 entry at the end of `session-log.md`.
 
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829

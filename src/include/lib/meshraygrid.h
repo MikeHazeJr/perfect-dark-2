@@ -36,6 +36,15 @@ f32 meshTrisRayCast(const struct meshtri *tris, s32 numtris,
 		const struct coord *from, const struct coord *to, u16 mask,
 		struct coord *out_normal, s32 *out_tri);
 
+/* Bounded static clearance for a flat, collision-authored walking profile.
+ * Endpoints require support in their specified rooms. Floor rails inside the
+ * footprint may use any positive room in the caller's validated room domain.
+ * The caller bounds the mesh work and supplies actor dimensions. Equal
+ * endpoints check a stationary footprint. The center segment may be up to
+ * 8,000 native units long. No resident stage or prop state is queried. */
+s32 meshCheckFlatWalk(const struct colmesh *mesh, const struct coord *from, RoomNum from_room,
+		const struct coord *to, RoomNum to_room, f32 radius, f32 height);
+
 #ifdef __cplusplus
 }
 #endif

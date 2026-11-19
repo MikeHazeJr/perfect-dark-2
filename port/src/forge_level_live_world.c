@@ -198,6 +198,19 @@ static void liveShowStage(const char *why)
 		why, shown, hidden);
 }
 
+s32 forgeLevelLivePositionInRoom(const f32 position[3])
+{
+	const forge_level_source_t *source = forgeLevelSessionSource();
+	if (!source || strcmp(forgeLevelSessionArena(), source->arena_id) != 0 || !position
+			|| !__builtin_isfinite(position[0]) || !__builtin_isfinite(position[1])
+			|| !__builtin_isfinite(position[2])) return 0;
+	struct coord pos = { .x = position[0], .y = position[1], .z = position[2] };
+	for (s32 room = 1; room < g_Vars.roomcount; ++room) {
+		if (bgRoomContainsCoord(&pos, (RoomNum)room)) return 1;
+	}
+	return 0;
+}
+
 /* Sets an object down where `d` says, as setup sets down an object on a pad. */
 static s32 livePlace(struct defaultobj *obj, const forge_level_live_draw_t *d)
 {

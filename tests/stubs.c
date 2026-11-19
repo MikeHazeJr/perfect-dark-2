@@ -340,6 +340,14 @@ void *fsFileLoad(const char *name, u32 *outSize)
     return NULL;
 }
 
+s32 fsFileSize(const char *name)
+{
+    for (s32 i = 0; name && i < s_TestFsEntryCount; i++) {
+        if (strcmp(name, s_TestFsEntries[i].path) == 0) return (s32)s_TestFsEntries[i].size;
+    }
+    return -1;
+}
+
 /* -------------------------------------------------------------------------
  * Asset catalog stubs.
  *

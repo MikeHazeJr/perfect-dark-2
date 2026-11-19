@@ -56,6 +56,10 @@ s32 assetCatalogResolveModelPrivateSlot(const char *catalog_id);
  * conflicting live identity rejects the entire restore without mutation. */
 s32 assetCatalogPinModelPrivateSlot(const char *catalog_id, s32 runtime_model_slot);
 s32 assetCatalogReleaseModelPrivateSlot(const char *catalog_id, s32 runtime_model_slot);
+/* Lease retirement is checked before removing any owned catalog rows. */
+s32 assetCatalogFindModelPrivateSlot(const char *catalog_id);
+s32 assetCatalogCanRetireModelReservation(const char *catalog_id, s32 runtime_model_slot);
+s32 assetCatalogRetireModelReservation(const char *catalog_id, s32 runtime_model_slot);
 
 /* Map a private model runtime slot to its matching private source_filenum.
  * This is only for legacy loaders that still ask for a model by filenum

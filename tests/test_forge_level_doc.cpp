@@ -6,7 +6,7 @@
  * The document reads a level's pads, spawns, objects, pad bounds, object
  * fields and graph, changes them, and gives the six texts back. The cases
  * check the rules it promises: a row nobody touched keeps its bytes, nothing
- * is repaired, pads are only added and each comes with its bounds row and
+ * is repaired, each new pad comes with its bounds row and
  * that row's node in the level's graph, and an id is never handed out twice.
  * One case saves an edited level through the mod author and checks what the
  * game checks before it loads one: the navigation record's counts and hashes
@@ -21,12 +21,22 @@
 #include "catch.hpp"
 
 #include "asset_archive_policy.h"
+#include "constants.h"
 #include "forge_level_doc.h"
 #include "forge_level_live.h"
+#include "forge_room_builder.h"
+#include "mission_graph_modules.h"
+#include "mission_graph_runner.h"
 #include "mod_author.h"
 #include "modarchive.h"
+#include "net/net_scenario_state_wire.h"
+#include "scenario_intro.h"
+#include "scenario_portal_source.h"
+#include "scenario_stage_rules.h"
 #include "sha256.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -35,8 +45,21 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
+
+/* pd-tests links the pure compiler without the live game module dispatch. */
+extern "C" s32 missionGraphModuleKnown(const char *kind)
+{
+	for (const char *name : {"gate.pickup.native_rules", "og.pickup.collect", "gate.door.native_unlocked",
+			"og.door.activate", "og.door.locked_message", "og.door.activate_automatic", "og.door.open",
+			"og.door.close", "og.door.lock", "og.door.unlock", "og.pickup.give", "gate.object.kind",
+			"gate.player.has_item"}) {
+		if (kind && strcmp(name, kind) == 0) return 1;
+	}
+	return 0;
+}
 
 namespace {
 
@@ -208,7 +231,9 @@ struct Level {
 	 * a node per bounds row, and counts that are true. */
 	Level(const std::string &pads, const std::string &spawns, const std::string &objects,
 		const std::string &volumes, const std::string &fields = kNoFields,
-		const std::string &graph = std::string())
+		const std::string &graph = std::string(), const std::string &intro = std::string(),
+		const std::string &stage = std::string(), const std::string &covers = std::string(),
+		const std::string &paths = std::string(), const std::string &rooms = std::string())
 	{
 		char err[256] = { 0 };
 		forge_level_texts_t texts = {};
@@ -216,8 +241,11 @@ struct Level {
 			? levelGraph(occurrences(pads, "\"pad_ref\""), occurrences(objects, "\"record_id\""),
 				occurrences(volumes, "\"volume_id\""))
 			: graph;
-		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = { &pads, &spawns, &objects, &volumes, &fields, &fitted };
+		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = {
+			&pads, &spawns, &objects, &volumes, &fields, &fitted, &intro, &stage, &covers, &paths, &rooms
+		};
 		for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+			if (forgeLevelDocMemberOptional(member) && all[member]->empty()) continue;
 			texts.text[member] = all[member]->data();
 			texts.size[member] = all[member]->size();
 		}
@@ -326,6 +354,672 @@ TEST_CASE("A level's placements are read, and an untouched document gives back i
 	CHECK(forgeLevelDocMemberText(level.doc, -1, nullptr) == nullptr);
 }
 
+TEST_CASE("Grid cover authoring appends a fitted native row and keeps legacy cover rows",
+          "[forge-level-doc][grid-navigation]")
+{
+	const std::string oldRow = R"({ "cover_ref": "cover_0000", "flags": "0x0020",
+	    "position": [10.000000, 0.000000, 20.000000], "look": [1, 0, 0], "note": "legacy cover" })";
+	const std::string source = std::string("{\"schema\":\"pd2.scenario.covers.v1\", \"rows\": [") + oldRow
+		+ "], \"note\": \"legacy table\"}";
+	const std::string oldPosition = "[10.000000, 0.000000, 20.000000]";
+	const std::string destination = "[30.000000, 0.00000013, 40.000000]";
+	const std::string pads = replaced(replaced(kPads, "\"look\": [0.000000, 0.000000, -1.000000]",
+		"\"look\": [3.000000, 4.000000, 0.000000]"), "\"position\": [30.000000, 0.000000, 40.000000]",
+		"\"note\": \"position\", \"metadata\": {\"position\": [91, 92, 93]}, \"position\": " + destination);
+	const std::string paths = R"({"schema":"pd2.scenario.paths.v1","rows":[{"path_ref":"path_0000","flags":0,"pads":["pad_0000","pad_0001"]}]})";
+	Level level(pads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", source, paths);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == source);
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> undo(
+		forgeLevelDocClone(level.doc), forgeLevelDocFree);
+	REQUIRE(undo != nullptr);
+
+	char id[32] = {};
+	char err[256] = {};
+	REQUIRE(forgeLevelDocAddCoverAtPad(level.doc, "pad_0000", id, sizeof(id), err, sizeof(err)));
+	CHECK(std::string(id) == "cover_0001");
+	const std::string authored = level.text(FORGE_LEVEL_MEMBER_COVERS);
+	CHECK(authored.find(oldRow) != std::string::npos);
+	CHECK(authored.find("\"note\": \"legacy table\"") != std::string::npos);
+	CHECK(authored.find("generate_routes") == std::string::npos);
+	CHECK(authored.find(R"({ "cover_ref": "cover_0001", "flags": 0, "position": [10.000000, 0.000000, 20.000000], "look": [1.000000, 0.000000, 0.000000] })")
+		!= std::string::npos);
+	REQUIRE(forgeLevelDocCoverCount(level.doc) == 2);
+	CHECK_FALSE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0000", "pad_0000", err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0002", "pad_0001", err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0000", "pad_9999", err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == authored);
+	REQUIRE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0000", "pad_0001", err, sizeof(err)));
+	const std::string moved = replaced(authored, oldPosition, destination);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == moved);
+	forge_level_cover_t cover = {};
+	REQUIRE(forgeLevelDocGetCover(level.doc, 0, &cover));
+	CHECK(std::string(cover.cover_ref) == "cover_0000");
+	CHECK(cover.position[1] == 0.00000013f);
+	CHECK_FALSE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0000", "pad_0001", err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == moved);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PATHS) == paths);
+	CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS));
+	CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PATHS));
+	size_t originalSize = 0;
+	const char *original = forgeLevelDocMemberText(undo.get(), FORGE_LEVEL_MEMBER_COVERS, &originalSize);
+	REQUIRE(original != nullptr);
+	CHECK(std::string(original, originalSize) == source);
+	CHECK_FALSE(forgeLevelDocMemberChanged(undo.get(), FORGE_LEVEL_MEMBER_COVERS));
+}
+
+TEST_CASE("Grid requires a native cover table and a horizontal pad facing",
+          "[forge-level-doc][grid-navigation]")
+{
+	Level missing;
+	REQUIRE(missing.doc != nullptr);
+	const auto member = FORGE_LEVEL_MEMBER_COVERS;
+	CHECK(forgeLevelDocMemberOptional(member));
+	size_t absentSize = 1;
+	forgeLevelDocMemberText(missing.doc, member, &absentSize);
+	CHECK(absentSize == 0);
+	char id[32] = {};
+	char err[256] = {};
+	CHECK_FALSE(forgeLevelDocAddCoverAtPad(missing.doc, "pad_0000", id, sizeof(id), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMemberChanged(missing.doc, member));
+
+	const std::string source = R"({"schema":"pd2.scenario.covers.v1", "generate_routes": false,
+		"rows": [], "metadata": {"generate_routes": false}})";
+	const std::string pads = replaced(kPads, "\"look\": [0.000000, 0.000000, -1.000000]",
+		"\"look\": [0.000000, 1.000000, 0.000000]");
+	Level level(pads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", source);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK_FALSE(forgeLevelDocAddCoverAtPad(level.doc, "pad_9999", id, sizeof(id), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocAddCoverAtPad(level.doc, "pad_0000", id, sizeof(id), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, member));
+	CHECK(level.text(member) == source);
+	REQUIRE(forgeLevelDocAddCoverAtPad(level.doc, "pad_0001", id, sizeof(id), err, sizeof(err)));
+	CHECK(std::string(id) == "cover_0000");
+	const std::string authored = level.text(member);
+	CHECK(occurrences(authored, "\"generate_routes\": true") == 1);
+	CHECK(authored.find("\"metadata\": {\"generate_routes\": false}") != std::string::npos);
+
+	const std::string invalid = R"({"schema":"pd2.scenario.covers.v1","rows":[{"cover_ref":"cover_0001",
+		"flags":0,"position":[0,0,0],"look":[1,0,0]}]})";
+	Level malformed(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", invalid);
+	REQUIRE(malformed.doc != nullptr);
+	CHECK(malformed.text(member) == invalid);
+	CHECK_FALSE(forgeLevelDocAddCoverAtPad(malformed.doc, "pad_0001", id, sizeof(id), err, sizeof(err)));
+	CHECK(std::string(err).find("invalid cover row") != std::string::npos);
+	CHECK(malformed.text(member) == invalid);
+
+	const std::string duplicate = replaced(invalid, "\"cover_ref\":\"cover_0001\"",
+		"\"cover_ref\":\"cover_0000\",\"cover_ref\":\"cover_0000\"");
+	Level ambiguous(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", duplicate);
+	REQUIRE(ambiguous.doc != nullptr);
+	CHECK(forgeLevelDocCoverCount(ambiguous.doc) == 0);
+	CHECK_FALSE(forgeLevelDocMoveCoverToPad(ambiguous.doc, "cover_0000", "pad_0001", err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMemberChanged(ambiguous.doc, member));
+	CHECK(ambiguous.text(member) == duplicate);
+}
+
+TEST_CASE("Grid cover authoring stays within the native cover index", "[forge-level-doc][grid-navigation]")
+{
+	const auto member = FORGE_LEVEL_MEMBER_COVERS;
+	std::string rows = R"({"schema":"pd2.scenario.covers.v1","rows":[)";
+	for (unsigned i = 0; i <= 256; ++i) {
+		char id[32];
+		snprintf(id, sizeof(id), "cover_%04u", i);
+		if (i > 0) rows += ',';
+		rows += std::string("{\"cover_ref\":\"") + id + R"(","flags":0,"position":[0,0,0],"look":[1,0,0]})";
+		if (i < 255) continue;
+
+		CAPTURE(i);
+		const std::string source = rows + "]}";
+		Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", source);
+		REQUIRE(level.doc != nullptr);
+		char err[256] = {};
+		CHECK_FALSE(forgeLevelDocAddCoverAtPad(level.doc, "pad_0001", nullptr, 0, err, sizeof(err)));
+		CHECK(level.text(member) == source);
+		if (i == 255) {
+			REQUIRE(forgeLevelDocCoverCount(level.doc) == 256);
+			REQUIRE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0255", "pad_0001", err, sizeof(err)));
+		} else {
+			CHECK(forgeLevelDocCoverCount(level.doc) == 0);
+			CHECK_FALSE(forgeLevelDocMoveCoverToPad(level.doc, "cover_0000", "pad_0001", err, sizeof(err)));
+			CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, member));
+			CHECK(level.text(member) == source);
+		}
+	}
+}
+
+TEST_CASE("Grid requires a bot waypoint by changing only its native pad flag", "[forge-level-doc][grid-navigation]")
+{
+	const std::string oldField = "\"flags\": \"0x00185\", ";
+	std::string pads = kPads;
+	std::string enabled = replaced(pads, oldField, "\"flags\": \"0x00001185\", ");
+	std::string disabled = replaced(pads, oldField, "\"flags\": \"0x00000185\", ");
+	SECTION("hexadecimal flags preserve the other bits") {}
+	SECTION("numeric flags preserve their representation and other bits") {
+		pads = replaced(kPads, oldField, "\"flags\": 389, ");
+		enabled = replaced(pads, "\"flags\": 389, ", "\"flags\": " + std::to_string(389 | PADFLAG_AIWALKDIRECT) + ", ");
+		disabled = pads;
+	}
+	SECTION("the first change supplies an absent flag field") {
+		pads = replaced(kPads, oldField, "");
+		const std::string padRef = "\"pad_ref\": \"pad_0000\"";
+		enabled = replaced(pads, padRef, "\"flags\": \"0x00001000\", " + padRef);
+		disabled = replaced(enabled, "0x00001000", "0x00000000");
+	}
+
+	Level level(pads, kSpawns, kObjects, kVolumes, levelFields());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, "pad_0000", &pad));
+	CHECK_FALSE(pad.walk_direct);
+	char err[256] = {};
+	CHECK_FALSE(forgeLevelDocSetPadWalkDirect(level.doc, "pad_9999", 1, err, sizeof(err)));
+	CHECK(err[0] != '\0');
+	CHECK_FALSE(forgeLevelDocSetPadWalkDirect(level.doc, "pad_0000", 0, err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
+	CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_PADS));
+
+	REQUIRE(forgeLevelDocSetPadWalkDirect(level.doc, "pad_0000", 1, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetPadWalkDirect(level.doc, "pad_0000", 1, err, sizeof(err)));
+	REQUIRE(forgeLevelDocFindPad(level.doc, "pad_0000", &pad));
+	CHECK(pad.walk_direct);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == enabled);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == levelGraph(3, 3, 3));
+
+	forge_level_overrides_t save = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, "scenario.pdscenario", &save, err, sizeof(err)));
+	REQUIRE(save.count == 1);
+	CHECK(std::string(save.entries[0].entry) == "scenario.pdscenario::pads.json");
+	const std::string savedPads(static_cast<const char *>(save.entries[0].data), save.entries[0].len);
+	CHECK(savedPads == enabled);
+	Level reopened(savedPads, kSpawns, kObjects, kVolumes, levelFields());
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	REQUIRE(forgeLevelDocFindPad(reopened.doc, "pad_0000", &pad));
+	CHECK(pad.walk_direct);
+	CHECK(pad.position[0] == 10.0f);
+	CHECK(pad.look[2] == -1.0f);
+	REQUIRE(forgeLevelDocSetPadWalkDirect(reopened.doc, "pad_0000", 0, err, sizeof(err)));
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_PADS) == disabled);
+	REQUIRE(forgeLevelDocFindPad(reopened.doc, "pad_0000", &pad));
+	CHECK_FALSE(pad.walk_direct);
+}
+
+TEST_CASE("Moving a start preserves a bot waypoint authored at its old position",
+	"[forge-level-doc][grid-navigation]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	char id[32] = {};
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)));
+	forge_level_spawn_t start = {};
+	const s32 index = forgeLevelDocSpawnCount(level.doc) - 1;
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, index, &start));
+	const std::string waypoint = start.pad_ref;
+	REQUIRE(forgeLevelDocSetPadWalkDirect(level.doc, waypoint.c_str(), 1, err, sizeof(err)));
+
+	const f32 position[] = {140.0f, 0.0f, -200.0f};
+	REQUIRE(forgeLevelDocMoveSpawn(level.doc, id, position, kFacing, err, sizeof(err)));
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, index, &start));
+	CHECK(std::string(start.pad_ref) != waypoint);
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, waypoint.c_str(), &pad));
+	CHECK(pad.walk_direct);
+	CHECK(pad.position[0] == kPlace[0]);
+	REQUIRE(forgeLevelDocFindPad(level.doc, start.pad_ref, &pad));
+	CHECK_FALSE(pad.walk_direct);
+	CHECK(pad.position[0] == position[0]);
+}
+
+TEST_CASE("Grid hills compile through the native intro reader and preserve other commands",
+          "[forge-level-doc][intro]")
+{
+	const std::string intro = R"({
+  "schema": "pd2.scenario.intro.v1",
+  "note": "Keep authored rows",
+  "rows": [
+    {"cmd":"watch_time","hours":14,"minutes":37}
+  ]
+})";
+	Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", intro);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	CHECK(forgeLevelDocHillCount(level.doc) == 0);
+	CHECK(forgeLevelDocSetHill(level.doc, "pad_4321", 1, err, sizeof(err)) == 0);
+	REQUIRE(forgeLevelDocSetHill(level.doc, "pad_0000", 1, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocSetHill(level.doc, "pad_0002", 1, err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocSetHill(level.doc, "pad_0002", 1, err, sizeof(err)) == 0);
+	REQUIRE(forgeLevelDocHillCount(level.doc) == 2);
+	char pad[32];
+	REQUIRE(forgeLevelDocGetHillPad(level.doc, 1, pad, sizeof(pad)) == 1);
+	CHECK(std::string(pad) == "pad_0002");
+	const std::string edited = level.text(FORGE_LEVEL_MEMBER_INTRO);
+	scenario_intro_t compiled = {};
+	REQUIRE(scenarioIntroParse(edited.data(), edited.size(), nullptr, &compiled, err, sizeof(err)) == 1);
+	CHECK(compiled.counts.hills == 2);
+	CHECK(compiled.counts.watch_times == 1);
+	scenarioIntroFree(&compiled);
+	CHECK(edited.find("\"note\": \"Keep authored rows\"") != std::string::npos);
+	REQUIRE(forgeLevelDocSetHill(level.doc, "pad_0000", 0, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocSetHill(level.doc, "pad_0002", 0, err, sizeof(err)) == 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_INTRO) == intro);
+}
+
+TEST_CASE("Grid case markers preserve authored intro order and compile to native commands",
+          "[forge-level-doc][intro]")
+{
+	const std::string intro = R"({
+  "schema": "pd2.scenario.intro.v1",
+  "note": "Keep original formatting",
+  "rows": [
+    { "cmd": "watch_time", "hours": 3, "minutes": 8 },
+    { "cmd": "hill", "pad_ref": "pad_0002" },
+    { "cmd": "case", "team": 2, "pad_ref": "pad_0000" },
+    { "cmd": "case_respawn", "team": 1, "pad_ref": "pad_0001" },
+    { "pad_ref": "pad_0002", "cmd": "case", "team": 2 },
+    { "cmd": "outfit", "outfit": "default" }
+  ]
+})";
+	Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", intro);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_INTRO) == intro);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_INTRO) == 0);
+	REQUIRE(forgeLevelDocCaseMarkerCount(level.doc) == 3);
+	forge_level_case_marker_t marker = {};
+	REQUIRE(forgeLevelDocGetCaseMarker(level.doc, 1, &marker) == 1);
+	CHECK(marker.team == 1);
+	CHECK(marker.respawn == 1);
+	CHECK(std::string(marker.pad_ref) == "pad_0001");
+	char err[256] = {};
+	CHECK(forgeLevelDocSetCaseHome(level.doc, 2, "pad_0002", err, sizeof(err)) == 0);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_INTRO) == intro);
+
+	/* Removing a hill shifts subsequent intro rows, including the effective home. */
+	REQUIRE(forgeLevelDocSetHill(level.doc, "pad_0002", 0, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocSetCaseHome(level.doc, 2, "pad_0001", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocAddCaseRespawn(level.doc, 2, "pad_0002", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocSetCaseHome(level.doc, 0, "pad_0000", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocRemoveCaseMarker(level.doc, 1, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocCaseMarkerCount(level.doc) == 4);
+	REQUIRE(forgeLevelDocGetCaseMarker(level.doc, 1, &marker) == 1);
+	CHECK(marker.team == 2);
+	CHECK(marker.respawn == 0);
+	CHECK(std::string(marker.pad_ref) == "pad_0001");
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, "level.pdscenario", &overrides, err, sizeof(err)) == 1);
+	REQUIRE(overrides.count == 1);
+	CHECK(std::string(overrides.entries[0].entry) == "level.pdscenario::intro.json");
+	const std::string edited(static_cast<const char *>(overrides.entries[0].data), overrides.entries[0].len);
+	CHECK(edited.find(R"("note": "Keep original formatting")") != std::string::npos);
+	CHECK(edited.find(R"({ "cmd": "watch_time", "hours": 3, "minutes": 8 })") != std::string::npos);
+	CHECK(edited.find(R"({ "cmd": "case", "team": 2, "pad_ref": "pad_0000" })") != std::string::npos);
+	CHECK(edited.find(R"({ "pad_ref": "pad_0001", "cmd": "case", "team": 2 })") != std::string::npos);
+	CHECK(edited.find(R"({ "cmd": "outfit", "outfit": "default" })") != std::string::npos);
+
+	scenario_intro_t compiled = {};
+	REQUIRE(scenarioIntroParse(edited.data(), edited.size(), nullptr, &compiled, err, sizeof(err)) == 1);
+	CHECK(compiled.counts.cases == 3);
+	CHECK(compiled.counts.case_respawns == 1);
+	const std::vector<s32> expected = {
+		INTROCMD_WATCHTIME, 3, 8,
+		INTROCMD_CASE, 2, 0,
+		INTROCMD_CASE, 2, 1,
+		INTROCMD_OUTFIT, OUTFIT_DEFAULT,
+		INTROCMD_CASERESPAWN, 2, 2,
+		INTROCMD_CASE, 0, 0
+	};
+	CHECK(std::vector<s32>(compiled.words, compiled.words + compiled.word_count) == expected);
+	scenarioIntroFree(&compiled);
+
+	Level reopened(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", edited);
+	REQUIRE(reopened.doc != nullptr);
+	CHECK(forgeLevelDocCaseMarkerCount(reopened.doc) == 4);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_INTRO) == edited);
+	CHECK(forgeLevelDocMemberChanged(reopened.doc, FORGE_LEVEL_MEMBER_INTRO) == 0);
+}
+
+TEST_CASE("Grid case edits use real pads and the native team respawn limit", "[forge-level-doc][intro]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	CHECK(forgeLevelDocSetCaseHome(level.doc, -1, "pad_0000", err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocSetCaseHome(level.doc, NET_SCENARIO_CTC_BASES, "pad_0000", err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddCaseRespawn(level.doc, 0, "pad_9999", err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocRemoveCaseMarker(level.doc, 0, err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_INTRO) == 0);
+
+	/* Seven existing pads let the last add exercise capacity independently of duplicates. */
+	for (s32 i = forgeLevelDocPadCount(level.doc); i <= NET_SCENARIO_CTC_SPAWNPADS; ++i) {
+		const f32 position[] = { 100.0f * i, 50.0f, 125.0f };
+		const f32 look[] = { 0.0f, 0.0f, 1.0f };
+		char spawn[32];
+		REQUIRE(forgeLevelDocAddSpawn(level.doc, position, look, nullptr, spawn, sizeof(spawn),
+			err, sizeof(err)) == 1);
+	}
+	for (s32 i = 0; i < NET_SCENARIO_CTC_SPAWNPADS; ++i) {
+		forge_level_pad_t pad;
+		REQUIRE(forgeLevelDocGetPad(level.doc, i, &pad) == 1);
+		REQUIRE(forgeLevelDocAddCaseRespawn(level.doc, 0, pad.pad_ref, err, sizeof(err)) == 1);
+	}
+	CHECK(forgeLevelDocAddCaseRespawn(level.doc, 0, "pad_0000", err, sizeof(err)) == 0);
+	CHECK(std::string(err).find("already uses") != std::string::npos);
+	forge_level_pad_t other;
+	REQUIRE(forgeLevelDocGetPad(level.doc, NET_SCENARIO_CTC_SPAWNPADS, &other) == 1);
+	CHECK(forgeLevelDocAddCaseRespawn(level.doc, 0, other.pad_ref, err, sizeof(err)) == 0);
+	CHECK(std::string(err).find("respawn limit") != std::string::npos);
+	CHECK(forgeLevelDocCaseMarkerCount(level.doc) == NET_SCENARIO_CTC_SPAWNPADS);
+	REQUIRE(forgeLevelDocSetCaseHome(level.doc, 0, other.pad_ref, err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocAddCaseRespawn(level.doc, 1, "pad_0000", err, sizeof(err)) == 1);
+	const s32 markers = forgeLevelDocCaseMarkerCount(level.doc);
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> snapshot(
+		forgeLevelDocClone(level.doc), forgeLevelDocFree);
+	REQUIRE(snapshot != nullptr);
+	for (s32 i = 0; i < markers; ++i) {
+		REQUIRE(forgeLevelDocRemoveCaseMarker(level.doc, 0, err, sizeof(err)) == 1);
+	}
+	CHECK(forgeLevelDocCaseMarkerCount(snapshot.get()) == markers);
+	CHECK(forgeLevelDocMemberChanged(snapshot.get(), FORGE_LEVEL_MEMBER_INTRO) == 1);
+	CHECK(forgeLevelDocCaseMarkerCount(level.doc) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_INTRO) == 0);
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &overrides, err, sizeof(err)) == 1);
+	for (size_t i = 0; i < overrides.count; ++i) CHECK(std::string(overrides.entries[i].entry) != "intro.json");
+}
+
+TEST_CASE("Level File startup weather preserves sibling source through edits and reopen",
+          "[forge-level-doc][stagerules]")
+{
+	const std::string source = R"({
+  "schema": "pd2.scenario.stage.v1",
+  "note": "\u0041n arena",
+  "weather": { "wind_speed": 5.123456789, "y_min": -400, "y_max": 500, "dry_rooms": [2] },
+  "ai": { "dark_room_lists": false }
+})";
+	Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", source);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	const auto member = FORGE_LEVEL_MEMBER_STAGE;
+	char err[256] = {};
+	s32 kind = -1, intensity = -1;
+	REQUIRE(forgeLevelDocGetWeatherStart(level.doc, &kind, &intensity));
+	CHECK(kind == SCENARIO_STAGE_WEATHER_START_NONE);
+	CHECK(intensity == 0);
+
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> before(
+		forgeLevelDocClone(level.doc), forgeLevelDocFree);
+	REQUIRE(before != nullptr);
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_RAIN, 2, err, sizeof(err)));
+	REQUIRE(forgeLevelDocMemberChanged(level.doc, member));
+	const std::string edited = level.text(member);
+	const size_t appended = edited.find(", \"weather_start\":");
+	REQUIRE(appended != std::string::npos);
+	CHECK(edited.substr(0, appended) == source.substr(0, source.find_last_of('}') - 1));
+	size_t beforeSize = 0;
+	const char *beforeText = forgeLevelDocMemberText(before.get(), member, &beforeSize);
+	REQUIRE(beforeText != nullptr);
+	CHECK(std::string(beforeText, beforeSize) == source);
+
+	CHECK_FALSE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_SNOW, 2, err, sizeof(err)));
+	CHECK(err[0] != '\0');
+	CHECK(level.text(member) == edited);
+	CHECK_FALSE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_RAIN, 2, err, sizeof(err)));
+	CHECK(level.text(member) == edited);
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, "arena.pdscenario", &overrides, err, sizeof(err)));
+	REQUIRE(overrides.count == 1);
+	CHECK(std::string(overrides.entries[0].entry) == "arena.pdscenario::stage.json");
+	const std::string saved(static_cast<const char *>(overrides.entries[0].data), overrides.entries[0].len);
+	CHECK(saved == edited);
+	scenario_stage_rules_t rules = {};
+	REQUIRE(scenarioStageRulesParse(saved.data(), saved.size(), &rules, err, sizeof(err)));
+	CHECK(rules.weather.startup_kind == SCENARIO_STAGE_WEATHER_START_RAIN);
+	CHECK(rules.weather.startup_intensity == 2);
+	REQUIRE(rules.weather.room_count == 1);
+	CHECK(rules.weather.rooms[0] == 2);
+	CHECK(rules.ai.no_dark_room_lists == 1);
+
+	Level reopened(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", saved);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	REQUIRE(forgeLevelDocGetWeatherStart(reopened.doc, &kind, &intensity));
+	CHECK(kind == SCENARIO_STAGE_WEATHER_START_RAIN);
+	CHECK(intensity == 2);
+	CHECK_FALSE(forgeLevelDocMemberChanged(reopened.doc, member));
+	REQUIRE(forgeLevelDocSetWeatherStart(reopened.doc, SCENARIO_STAGE_WEATHER_START_SNOW, 1, err, sizeof(err)));
+	REQUIRE(forgeLevelDocGetWeatherStart(reopened.doc, &kind, &intensity));
+	CHECK(kind == SCENARIO_STAGE_WEATHER_START_SNOW);
+	CHECK(intensity == 1);
+	REQUIRE(forgeLevelDocSetWeatherStart(reopened.doc, SCENARIO_STAGE_WEATHER_START_NONE, 0, err, sizeof(err)));
+	CHECK(reopened.text(member) == source);
+
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_NONE, 0, err, sizeof(err)));
+	CHECK(level.text(member) == source);
+	CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, member));
+}
+
+TEST_CASE("Either Grid atmosphere rule can be removed from a draft whose source had no stage.json",
+          "[forge-level-doc][stagerules]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	const auto member = FORGE_LEVEL_MEMBER_STAGE;
+	const std::string original = level.text(member);
+	char err[256] = {};
+	scenario_stage_atmosphere_t ambient = {};
+	ambient.has_ambient = 1;
+	ambient.ambient_light = 137;
+	REQUIRE(forgeLevelDocSetAtmosphere(level.doc, &ambient, err, sizeof(err)));
+	const std::string atmosphereOnly = level.text(member);
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_SNOW, 1, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_NONE, 0, err, sizeof(err)));
+	CHECK(level.text(member) == atmosphereOnly);
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_SNOW, 1, err, sizeof(err)));
+	const scenario_stage_atmosphere_t absent = {};
+	REQUIRE(forgeLevelDocSetAtmosphere(level.doc, &absent, err, sizeof(err)));
+	s32 kind = -1, intensity = -1;
+	REQUIRE(forgeLevelDocGetWeatherStart(level.doc, &kind, &intensity));
+	CHECK(kind == SCENARIO_STAGE_WEATHER_START_SNOW);
+	CHECK(intensity == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, member));
+	REQUIRE(forgeLevelDocSetWeatherStart(level.doc, SCENARIO_STAGE_WEATHER_START_NONE, 0, err, sizeof(err)));
+	CHECK(level.text(member) == original);
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &overrides, err, sizeof(err)));
+	CHECK(overrides.count == 0);
+}
+
+TEST_CASE("Grid room brightness saves and reopens the exact native rooms member", "[forge-level-doc][grid-room-brightness]")
+{
+	const auto seed = fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena";
+	const char *scenarioMember = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const std::string scenario = levelMember(levelReadFile(seed), scenarioMember);
+	REQUIRE(!scenario.empty());
+	const auto readDoc = [](const std::string &archive) {
+		forge_level_texts_t texts = {};
+		std::array<std::string, FORGE_LEVEL_MEMBER_COUNT> source;
+		for (s32 i = 0; i < FORGE_LEVEL_MEMBER_COUNT; ++i) {
+			source[i] = levelMember(archive, forgeLevelDocMemberName(i));
+			if (source[i].empty()) continue;
+			texts.text[i] = source[i].data();
+			texts.size[i] = source[i].size();
+		}
+		char error[256] = {};
+		std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> doc(
+			forgeLevelDocRead(&texts, error, sizeof(error)), forgeLevelDocFree);
+		INFO(error);
+		REQUIRE(doc);
+		return doc;
+	};
+	auto draft = readDoc(scenario);
+	REQUIRE(forgeLevelDocRoomBrightnessCount(draft.get()) == 2);
+	forge_level_room_brightness_t brightness = {};
+	REQUIRE(forgeLevelDocGetRoomBrightness(draft.get(), 0, &brightness));
+	CHECK(brightness.roomnum == 1);
+	CHECK(brightness.minimum == 128);
+	CHECK(brightness.maximum == 255);
+	CHECK_FALSE(brightness.has_base_override);
+	char err[256] = {};
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(draft.get(), 1, 128, 255, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(draft.get(), 1, 128, 112, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(draft.get(), 1, 48, 256, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(draft.get(), 1, -1, 112, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(draft.get(), 0, 48, 112, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMemberChanged(draft.get(), FORGE_LEVEL_MEMBER_ROOMS));
+	REQUIRE(forgeLevelDocSetRoomBrightness(draft.get(), 1, 48, 112, err, sizeof(err)));
+	CHECK(forgeLevelDocMemberChanged(draft.get(), FORGE_LEVEL_MEMBER_ROOMS));
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(draft.get(), scenarioMember, &overrides, err, sizeof(err)));
+	REQUIRE(overrides.count == 1);
+	CHECK(std::string(overrides.entries[0].entry) == std::string(scenarioMember) + "::rooms.json");
+	const std::string authored = replaced(levelMember(scenario, "rooms.json"),
+		"\"brightness\": [128, 255]", "\"brightness\": [48, 112]");
+	CHECK(std::string(static_cast<const char *>(overrides.entries[0].data), overrides.entries[0].len) == authored);
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	struct Scratch {
+		fs::path root;
+		~Scratch() { std::error_code error; fs::remove_all(root, error); }
+	} scratch{fs::temp_directory_path() / ("pd2-forge-room-brightness-" + std::to_string(stamp))};
+	REQUIRE(fs::create_directory(scratch.root));
+	const std::string output = (scratch.root / "room_brightness.pdarena").string();
+	const auto saved = assetArchiveRebuildFile(seed.string().c_str(), output.c_str(), "mod:arena_forge_brightness",
+		"pd-tests", overrides.entries, overrides.count, nullptr, err, sizeof(err));
+	INFO(err);
+	REQUIRE(saved == ASSET_ARCHIVE_CLONE_OK);
+	const std::string savedScenario = levelMember(levelReadFile(output), scenarioMember);
+	CHECK(levelMember(savedScenario, "rooms.json") == authored);
+	auto reopened = readDoc(savedScenario);
+	REQUIRE(forgeLevelDocGetRoomBrightness(reopened.get(), 0, &brightness));
+	CHECK(brightness.roomnum == 1);
+	CHECK(brightness.minimum == 48);
+	CHECK(brightness.maximum == 112);
+	REQUIRE(forgeLevelDocGetRoomBrightness(reopened.get(), 1, &brightness));
+	CHECK(brightness.roomnum == 2);
+	CHECK(brightness.minimum == 128);
+	CHECK(brightness.maximum == 255);
+}
+
+TEST_CASE("Grid room brightness preserves unsupported room sources and native overrides",
+	"[forge-level-doc][grid-room-brightness]")
+{
+	const std::string source = R"({"schema":"pd2.scenario.rooms.v1","rows":[{"roomnum":1,"min":[0,0,0],"max":[100,80,90],"base_brightness":17,"note":"keep me"},{"roomnum":2,"origin":[12,34,56]}]})";
+	Level level(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", "", "", source);
+	INFO(level.error);
+	REQUIRE(level.doc);
+	REQUIRE(forgeLevelDocRoomBrightnessCount(level.doc) == 1);
+	forge_level_room_brightness_t brightness = {};
+	REQUIRE(forgeLevelDocGetRoomBrightness(level.doc, 0, &brightness));
+	CHECK(brightness.roomnum == 1);
+	CHECK(brightness.minimum == 255);
+	CHECK(brightness.maximum == 255);
+	CHECK(brightness.has_base_override);
+	char err[256] = {};
+	CHECK_FALSE(forgeLevelDocSetRoomBrightness(level.doc, 2, 0, 255, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetRoomBrightness(level.doc, 1, 0, 255, err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_ROOMS) == replaced(source, "{\"roomnum\":1",
+		"{ \"brightness\": [0, 255],\"roomnum\":1"));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_STAGE).find("ambient") == std::string::npos);
+
+	const std::string unsupported[] = {
+		"",
+		replaced(source, "pd2.scenario.rooms.v1", "pd2.scenario.rooms.v2"),
+		replaced(source, "\"roomnum\":2", "\"roomnum\":1"),
+		replaced(source, "\"roomnum\":1", "\"roomnum\":32768"),
+		replaced(source, "\"roomnum\":1", "\"roomnum\":0"),
+		replaced(source, "\"roomnum\":1", "\"roomnum\":1.0"),
+		replaced(source, "\"note\":\"keep me\"", "\"brightness\":[0, 255.0]"),
+		replaced(source, "\"note\":\"keep me\"", "\"brightness\":[0, 1, 255]"),
+		replaced(source, "\"note\":\"keep me\"", "\"metadata\":{\"brightness\":[64, 128]}"),
+		replaced(source, "\"note\":\"keep me\"", R"("brightnes\u0073":[64, 128])"),
+	};
+	for (const auto &text : unsupported) {
+		CAPTURE(text);
+		Level old(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", "", "", text);
+		REQUIRE(old.doc);
+		CHECK(forgeLevelDocRoomBrightnessCount(old.doc) == 0);
+		CHECK_FALSE(forgeLevelDocSetRoomBrightness(old.doc, 1, 48, 112, err, sizeof(err)));
+		CHECK_FALSE(forgeLevelDocMemberChanged(old.doc, FORGE_LEVEL_MEMBER_ROOMS));
+		CHECK(old.text(FORGE_LEVEL_MEMBER_ROOMS) == text);
+	}
+}
+
+TEST_CASE("Private Grid recovery restores edited source members only for the exact template",
+          "[forge-level-doc][forge-checkpoint]")
+{
+	const std::string covers = R"({"schema":"pd2.scenario.covers.v1","rows":[],"note":"opened source"})";
+	const std::string paths = R"({"schema":"pd2.scenario.paths.v1","rows":[{"path_ref":"path_0000","flags":0,"pads":["pad_0000","pad_0001"]}]})";
+	const std::string rooms = R"({"schema":"pd2.scenario.rooms.v1","rows":[{"roomnum":1,"min":[0,0,0],"max":[5,10,15],"brightness":[32,96]}]})";
+	Level opened(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", covers, paths, rooms);
+	Level edited;
+	REQUIRE(opened.doc != nullptr);
+	REQUIRE(edited.doc != nullptr);
+	const f32 position[] = { 250.0f, 50.0f, 125.0f };
+	const f32 look[] = { 0.0f, 0.0f, 1.0f };
+	char spawn[32];
+	char err[256] = {};
+	REQUIRE(forgeLevelDocAddSpawn(edited.doc, position, look, nullptr, spawn, sizeof(spawn),
+		err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocSetCaseHome(edited.doc, 3, "pad_0001", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocAddCaseRespawn(edited.doc, 3, "pad_0002", err, sizeof(err)) == 1);
+	const std::string digest(64, 'a');
+	std::unique_ptr<FILE, decltype(&fclose)> stream(tmpfile(), fclose);
+	REQUIRE(stream != nullptr);
+	REQUIRE(forgeLevelDocWriteCheckpoint(edited.doc, digest.c_str(), stream.get(), err, sizeof(err)) == 1);
+	const long size = ftell(stream.get());
+	REQUIRE(size > 0);
+	rewind(stream.get());
+	std::string json(static_cast<size_t>(size), '\0');
+	REQUIRE(fread(json.data(), 1, json.size(), stream.get()) == json.size());
+
+	const std::string otherDigest(64, 'b');
+	CHECK(forgeLevelDocReadCheckpoint(json.data(), json.size(), otherDigest.c_str(),
+		opened.doc, err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("different level revision") != std::string::npos);
+	CHECK(forgeLevelDocReadCheckpoint(json.data(), json.size() - 1, digest.c_str(),
+		opened.doc, err, sizeof(err)) == nullptr);
+
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> recovered(
+		forgeLevelDocReadCheckpoint(json.data(), json.size(), digest.c_str(), opened.doc, err, sizeof(err)),
+		forgeLevelDocFree);
+	INFO(err);
+	REQUIRE(recovered != nullptr);
+	CHECK(forgeLevelDocMemberChanged(recovered.get(), FORGE_LEVEL_MEMBER_INTRO) == 1);
+	REQUIRE(forgeLevelDocCaseMarkerCount(recovered.get()) == 2);
+	forge_level_case_marker_t marker = {};
+	REQUIRE(forgeLevelDocGetCaseMarker(recovered.get(), 1, &marker) == 1);
+	CHECK(marker.team == 3);
+	CHECK(marker.respawn == 1);
+	CHECK(std::string(marker.pad_ref) == "pad_0002");
+	CHECK(forgeLevelDocSpawnCount(recovered.get()) == 3);
+	CHECK(forgeLevelDocSpawnCount(opened.doc) == 2);
+	for (s32 i = 0; i < FORGE_LEVEL_MEMBER_COUNT; i++) {
+		size_t bytes = 0;
+		const char *text = forgeLevelDocMemberText(recovered.get(), i, &bytes);
+		REQUIRE(text != nullptr);
+		const std::string expected = i == FORGE_LEVEL_MEMBER_COVERS ? covers
+			: i == FORGE_LEVEL_MEMBER_PATHS ? paths : i == FORGE_LEVEL_MEMBER_ROOMS ? rooms : edited.text(i);
+		CHECK(std::string(text, bytes) == expected);
+		CHECK(forgeLevelDocMemberChanged(recovered.get(), i) == forgeLevelDocMemberChanged(edited.doc, i));
+	}
+	REQUIRE(forgeLevelDocAddCoverAtPad(recovered.get(), "pad_0001", nullptr, 0, err, sizeof(err)));
+	REQUIRE(forgeLevelDocConnectPads(recovered.get(), "pad_0001", "pad_0003", nullptr, 0, err, sizeof(err)));
+	forge_level_room_brightness_t brightness = {};
+	REQUIRE(forgeLevelDocGetRoomBrightness(recovered.get(), 0, &brightness));
+	CHECK(brightness.roomnum == 1);
+	CHECK(brightness.minimum == 32);
+	CHECK(brightness.maximum == 96);
+}
+
 TEST_CASE("A new spawn gets a pad of its own, the pad's bounds and the next id; other rows keep their bytes",
           "[forge-level-doc]")
 {
@@ -416,6 +1110,46 @@ TEST_CASE("A new spawn gets a pad of its own, the pad's bounds and the next id; 
 	REQUIRE(forgeLevelDocGetPad(again.doc, 3, &pad) == 1);
 	CHECK(pad.added == 0);
 	CHECK(pad.has_volume == 1);
+}
+
+TEST_CASE("Large finite spawn coordinates survive adding, moving and reopening native source",
+          "[forge-level-doc]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	const f32 maximum = std::numeric_limits<f32>::max();
+	const f32 position[] = {1.0e30f, -2.0e30f, maximum};
+	const f32 moved[] = {-1.0e30f, -maximum, 3.0e30f};
+	const f32 initialFacing[] = {0.0f, 0.0f, -1.0f};
+	const f32 facing[] = {1.0f, 0.0f, 0.0f};
+	char id[32] = {};
+	char err[200] = {};
+	const s32 index = forgeLevelDocSpawnCount(level.doc);
+
+	auto checkSavedPose = [&](const f32 expectedPosition[3], const f32 expectedLook[3]) {
+		Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+			level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+			level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+		INFO(reopened.error);
+		REQUIRE(reopened.doc != nullptr);
+		forge_level_spawn_t spawn = {};
+		REQUIRE(forgeLevelDocGetSpawn(reopened.doc, index, &spawn));
+		CHECK(std::string(spawn.spawn_id) == id);
+		forge_level_pad_t pad = {};
+		REQUIRE(forgeLevelDocFindPad(reopened.doc, spawn.pad_ref, &pad));
+		CHECK(pad.has_volume == 1);
+		for (size_t axis = 0; axis < 3; ++axis) {
+			CHECK(pad.position[axis] == expectedPosition[axis]);
+			CHECK(pad.look[axis] == expectedLook[axis]);
+		}
+	};
+
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, position, kFacing, nullptr, id, sizeof(id), err, sizeof(err)));
+	checkSavedPose(position, initialFacing);
+	const s32 pads = forgeLevelDocPadCount(level.doc);
+	REQUIRE(forgeLevelDocMoveSpawn(level.doc, id, moved, facing, err, sizeof(err)));
+	CHECK(forgeLevelDocPadCount(level.doc) == pads);
+	checkSavedPose(moved, facing);
 }
 
 TEST_CASE("An id is not handed out twice, and a removed spawn leaves its pad", "[forge-level-doc]")
@@ -516,6 +1250,55 @@ TEST_CASE("Moving a spawn off a template pad gives it a new pad and leaves the o
 	CHECK(volumesMoved[6].find("\"min\": [-106.000000, -88.000000, -91.000000]") != std::string::npos);
 	CHECK(volumesMoved[6].find("\"max\": [94.000000, 112.000000, 109.000000]") != std::string::npos);
 	CHECK(volumesMoved[4] == volumesBefore[4]);
+}
+
+TEST_CASE("Moving a newly added start preserves the hill and case markers on its pad",
+          "[forge-level-doc][level][markers]")
+{
+	Level level;
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	char id[32] = {};
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, nullptr, id, sizeof(id), err, sizeof(err)));
+	const s32 index = forgeLevelDocSpawnCount(level.doc) - 1;
+	forge_level_spawn_t original = {};
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, index, &original));
+	REQUIRE(forgeLevelDocSetHill(level.doc, original.pad_ref, 1, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetCaseHome(level.doc, 0, original.pad_ref, err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddCaseRespawn(level.doc, 1, original.pad_ref, err, sizeof(err)));
+	const std::string intro = level.text(FORGE_LEVEL_MEMBER_INTRO);
+	const s32 pads = forgeLevelDocPadCount(level.doc);
+
+	const f32 moved[] = {450.0f, 0.0f, -320.0f};
+	REQUIRE(forgeLevelDocMoveSpawn(level.doc, id, moved, kFacing, err, sizeof(err)));
+	CHECK(forgeLevelDocPadCount(level.doc) == pads + 1);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_INTRO) == intro);
+	forge_level_spawn_t spawn = {};
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, index, &spawn));
+	CHECK(std::string(spawn.spawn_id) == id);
+	REQUIRE(std::string(spawn.pad_ref) != original.pad_ref);
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, original.pad_ref, &pad));
+	CHECK(pad.position[0] == kPlace[0]);
+	CHECK(pad.position[2] == kPlace[2]);
+	REQUIRE(forgeLevelDocFindPad(level.doc, spawn.pad_ref, &pad));
+	CHECK(pad.position[0] == moved[0]);
+	CHECK(pad.position[2] == moved[2]);
+
+	Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), intro);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	REQUIRE(forgeLevelDocGetSpawn(reopened.doc, index, &spawn));
+	CHECK(std::string(spawn.pad_ref) == pad.pad_ref);
+	CHECK(forgeLevelDocHasHill(reopened.doc, original.pad_ref));
+	REQUIRE(forgeLevelDocCaseMarkerCount(reopened.doc) == 2);
+	for (s32 i = 0; i < 2; ++i) {
+		forge_level_case_marker_t marker = {};
+		REQUIRE(forgeLevelDocGetCaseMarker(reopened.doc, i, &marker));
+		CHECK(std::string(marker.pad_ref) == original.pad_ref);
+	}
 }
 
 TEST_CASE("An object's place is written in two files, and both follow a move", "[forge-level-doc]")
@@ -661,6 +1444,21 @@ TEST_CASE("The two object files must agree, and a record's id is its place", "[f
 	char err[200] = { 0 };
 	REQUIRE(forgeLevelDocDuplicateObject(level.doc, "setup_0001", kPlace, kFacing, id, sizeof(id), err, sizeof(err)) == 1);
 	CHECK(std::string(id) == "setup_0004");
+}
+
+TEST_CASE("A start whose pad field cannot be rewritten leaves the draft intact",
+          "[forge-level-doc]")
+{
+	const std::string spawns = replaced(kSpawns, "\"pad_ref\"", R"("\u0070ad_ref")");
+	Level level(kPads, spawns, kObjects, kVolumes, levelFields());
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	CHECK_FALSE(forgeLevelDocMoveSpawn(level.doc, "spawn_0000", kPlace, kFacing, err, sizeof(err)));
+	CHECK(std::string(err).find("could not be rewritten") != std::string::npos);
+	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; ++member) {
+		CHECK_FALSE(forgeLevelDocMemberChanged(level.doc, member));
+	}
 }
 
 TEST_CASE("An edit that cannot be made is refused and changes nothing", "[forge-level-doc]")
@@ -1261,6 +2059,389 @@ TEST_CASE("The example level is read and written back unchanged, then edited", "
 	CHECK(forgeLevelDocPadCount(whole.doc) == 3);
 }
 
+TEST_CASE("A new Grid pad connects to the native route and keeps its location after the start moves",
+	"[forge-level-doc][grid-navigation]")
+{
+	const auto templatePath = fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena";
+	const char *member = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const std::string scenario = levelMember(levelReadFile(templatePath), member);
+	REQUIRE(!scenario.empty());
+	const auto readDoc = [](const std::string &level, const std::string &replacementPaths = {}) {
+		forge_level_texts_t texts = {};
+		std::array<std::string, FORGE_LEVEL_MEMBER_COUNT> source;
+		for (s32 i = 0; i < FORGE_LEVEL_MEMBER_COUNT; ++i) {
+			source[i] = i == FORGE_LEVEL_MEMBER_PATHS && !replacementPaths.empty()
+				? replacementPaths : levelMember(level, forgeLevelDocMemberName(i));
+			if (source[i].empty()) continue;
+			texts.text[i] = source[i].data();
+			texts.size[i] = source[i].size();
+		}
+		char err[256] = {};
+		auto *doc = forgeLevelDocRead(&texts, err, sizeof(err));
+		INFO(err);
+		REQUIRE(doc);
+		return std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)>(doc, forgeLevelDocFree);
+	};
+	auto draft = readDoc(scenario);
+	const std::string originalPaths = levelMember(scenario, "navigation/paths.json");
+	REQUIRE(!originalPaths.empty());
+	const f32 branch[3] = {-580.0f, 100.0f, 200.0f};
+	const f32 moved[3] = {-630.0f, 100.0f, 270.0f};
+	char spawn[32] = {}, path[32] = {}, err[256] = {};
+	REQUIRE(forgeLevelDocAddSpawn(draft.get(), branch, kFacing, "any", spawn, sizeof(spawn), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocConnectPads(draft.get(), nullptr, "pad_0008", path, sizeof(path), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocConnectPads(draft.get(), "pad_0000", "pad_0007", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(err).find("already connected") != std::string::npos);
+	CHECK_FALSE(forgeLevelDocMemberChanged(draft.get(), FORGE_LEVEL_MEMBER_PATHS));
+	CAPTURE(err);
+	REQUIRE(forgeLevelDocConnectPads(draft.get(), "pad_0008", "pad_0000", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(path) == "path_0001");
+	REQUIRE(forgeLevelDocCanDisconnectPads(draft.get(), "pad_0000", "pad_0008"));
+	CHECK_FALSE(forgeLevelDocConnectPads(draft.get(), "pad_0000", "pad_0008", path, sizeof(path), err, sizeof(err)));
+	const std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> disconnected(
+		forgeLevelDocClone(draft.get()), forgeLevelDocFree);
+	REQUIRE(disconnected);
+	REQUIRE(forgeLevelDocDisconnectPads(disconnected.get(), "pad_0000", "pad_0008", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(path) == "path_0001");
+	forge_level_pad_t freedPad = {};
+	REQUIRE(forgeLevelDocFindPad(disconnected.get(), "pad_0008", &freedPad));
+	CHECK(freedPad.position[0] == branch[0]);
+	REQUIRE(forgeLevelDocMoveSpawn(disconnected.get(), spawn, moved, kFacing, err, sizeof(err)));
+	CHECK(forgeLevelDocPadCount(disconnected.get()) == 9);
+	REQUIRE(forgeLevelDocFindPad(disconnected.get(), "pad_0008", &freedPad));
+	CHECK(freedPad.position[0] == moved[0]);
+	REQUIRE(forgeLevelDocConnectPads(disconnected.get(), "pad_0008", "pad_0000", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(path) == "path_0001");
+	REQUIRE(forgeLevelDocMoveSpawn(draft.get(), spawn, moved, kFacing, err, sizeof(err)));
+	forge_level_spawn_t placed = {};
+	REQUIRE(forgeLevelDocGetSpawn(draft.get(), 8, &placed));
+	CHECK(std::string(placed.pad_ref) == "pad_0009");
+	forge_level_pad_t routePad = {};
+	REQUIRE(forgeLevelDocFindPad(draft.get(), "pad_0008", &routePad));
+	CHECK(routePad.position[0] == branch[0]);
+	CHECK(routePad.position[2] == branch[2]);
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(draft.get(), member, &overrides, err, sizeof(err)));
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-route-" + std::to_string(stamp));
+	fs::create_directories(root);
+	const std::string input = templatePath.string();
+	const std::string output = (root / "route.pdarena").string();
+	REQUIRE(assetArchiveRebuildFile(input.c_str(), output.c_str(), "mod:arena_forge_route",
+		"pd-tests", overrides.entries, overrides.count, nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	const std::string saved = levelMember(levelReadFile(output), member);
+	REQUIRE(!saved.empty());
+	const std::string paths = levelMember(saved, "navigation/paths.json");
+	CHECK(paths.find(linesOf(originalPaths)[3]) != std::string::npos);
+	CHECK(paths.find("\"path_ref\": \"path_0001\", \"flags\": 0, \"pads\": [\"pad_0008\", \"pad_0000\"]")
+		!= std::string::npos);
+	CHECK(paths.find("\"grid_link\": \"connect_pads\"") != std::string::npos);
+	CHECK(levelMember(saved, "level.graph.json").find("\"paths\": 2") != std::string::npos);
+	const std::string metadata = levelMember(saved, "_meta/generated-navmesh.json");
+	CHECK(metadata.find("\"paths\": 2") != std::string::npos);
+	CHECK(metadata.find(levelSha(paths)) != std::string::npos);
+	auto reopened = readDoc(saved);
+	REQUIRE(forgeLevelDocFindPad(reopened.get(), "pad_0008", &routePad));
+	CHECK(routePad.position[0] == branch[0]);
+	CHECK_FALSE(forgeLevelDocConnectPads(reopened.get(), "pad_0008", "pad_0000", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(err).find("already connected") != std::string::npos);
+	REQUIRE(forgeLevelDocCanDisconnectPads(reopened.get(), "pad_0000", "pad_0008"));
+	REQUIRE(forgeLevelDocConnectPads(reopened.get(), "pad_0009", "pad_0001", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(path) == "path_0002");
+	char shortPath[1] = {};
+	CHECK_FALSE(forgeLevelDocDisconnectPads(reopened.get(), "pad_0000", "pad_0008", shortPath, sizeof(shortPath), err, sizeof(err)));
+	CHECK(forgeLevelDocCanDisconnectPads(reopened.get(), "pad_0000", "pad_0008"));
+	REQUIRE(forgeLevelDocDisconnectPads(reopened.get(), "pad_0000", "pad_0008", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(path) == "path_0001");
+	size_t remainingSize = 0;
+	const char *remaining = forgeLevelDocMemberText(reopened.get(), FORGE_LEVEL_MEMBER_PATHS, &remainingSize);
+	REQUIRE(remaining);
+	const std::string remainingPaths(remaining, remainingSize);
+	CHECK(remainingPaths.find(linesOf(originalPaths)[3]) != std::string::npos);
+	CHECK(remainingPaths.find("path_0001") == std::string::npos);
+	CHECK(remainingPaths.find("path_0002") != std::string::npos);
+	CHECK_FALSE(forgeLevelDocCanDisconnectPads(reopened.get(), "pad_0000", "pad_0008"));
+	CHECK(forgeLevelDocCanDisconnectPads(reopened.get(), "pad_0009", "pad_0001"));
+	CHECK_FALSE(forgeLevelDocMemberChanged(reopened.get(), FORGE_LEVEL_MEMBER_PADS));
+	const char *remainingGraph = forgeLevelDocMemberText(reopened.get(), FORGE_LEVEL_MEMBER_LEVEL_GRAPH, nullptr);
+	REQUIRE(remainingGraph);
+	CHECK(std::string(remainingGraph).find("\"paths\": 2") != std::string::npos);
+	fs::remove_all(root);
+
+	const std::string imported = R"({"schema":"pd2.scenario.paths.v1","rows":[
+		{"path_ref":"path_0022","flags":1,"pads":["pad_0000","pad_0001|inward","pad_0002"]},
+		{"path_ref":"path_0003","flags":0,"pads":["pad_0000","pad_0003"]},
+		{"path_ref":"path_0004","flags":0,"pads":["pad_0004|outward","pad_0005"],"grid_link":"connect_pads"},
+		{"path_ref":"path_0005","flags":0,"pads":["pad_0001","pad_0007"],"grid_link":"connect_pads"},
+		{"path_ref":"path_0006","flags":0,"pads":["pad_0007","pad_0001"]}]})";
+	auto importedDoc = readDoc(scenario, imported);
+	CHECK_FALSE(forgeLevelDocCanDisconnectPads(importedDoc.get(), "pad_0000", "pad_0003"));
+	CHECK_FALSE(forgeLevelDocDisconnectPads(importedDoc.get(), "pad_0000", "pad_0003", path, sizeof(path), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocCanDisconnectPads(importedDoc.get(), "pad_0004", "pad_0005"));
+	CHECK_FALSE(forgeLevelDocDisconnectPads(importedDoc.get(), "pad_0004", "pad_0005", path, sizeof(path), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocCanDisconnectPads(importedDoc.get(), "pad_0007", "pad_0001"));
+	CHECK_FALSE(forgeLevelDocDisconnectPads(importedDoc.get(), "pad_0007", "pad_0001", path, sizeof(path), err, sizeof(err)));
+	CHECK(std::string(err).find("another native path") != std::string::npos);
+	CHECK_FALSE(forgeLevelDocMemberChanged(importedDoc.get(), FORGE_LEVEL_MEMBER_PATHS));
+}
+
+TEST_CASE("An outer Grid room extends when a shared-style native variant is saved",
+          "[forge-level-doc][grid-navigation][grid-structure]")
+{
+	const auto seedPath = fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena";
+	const char *member = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	const fs::path root = fs::temp_directory_path() / ("pd2-forge-room-extension-" + std::to_string(stamp));
+	fs::create_directories(root / "mods");
+	const std::string seed = seedPath.string();
+	const std::string originalPath = (root / "original.pdarena").string();
+	const std::string mods = (root / "mods").string();
+	char err[256] = {};
+
+	/* Resize using the same original-room builder as the Levels entry.
+	 * Extension must recognize this source with unequal chamber lengths. */
+	ForgeRoomSize dimensions;
+	dimensions.firstLength = 1850;
+	dimensions.secondLength = 1725;
+	dimensions.width = 2110;
+	dimensions.height = 680;
+	dimensions.doorwayWidth = 510;
+	dimensions.doorwayHeight = 380;
+	ForgeRoomOverrides initial;
+	REQUIRE(forgeRoomBuildOverrides(seed.c_str(), dimensions, initial, err, sizeof(err)));
+	const std::string waypointMember = std::string(member) + "::navigation/waypoints.json";
+	const std::string groupMember = std::string(member) + "::navigation/waygroups.json";
+	const std::string unknownWaypointField = R"("author_note": { "future": ["keep the source", 10000000000000001] })";
+	const std::string waypointSource = R"({"schema":"pd2.scenario.waypoints.v1","rows":[],"only_linked_pads":false,)"
+		+ unknownWaypointField + "}";
+	std::vector<asset_archive_clone_override_t> starter(initial.entries.begin(), initial.entries.end());
+	starter.push_back({waypointMember.c_str(), waypointSource.data(), static_cast<u32>(waypointSource.size()), 0});
+	REQUIRE(assetArchiveRebuildFile(seed.c_str(), originalPath.c_str(), "mod:arena_extension_source",
+		"pd-tests", starter.data(), static_cast<u32>(starter.size()),
+		nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	const std::string original = levelReadFile(originalPath);
+	REQUIRE(!original.empty());
+	const std::string scenario = levelMember(original, member);
+	REQUIRE(!scenario.empty());
+	Level draft(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
+		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
+		levelMember(scenario, "setup.fields.json"), levelMember(scenario, "level.graph.json"),
+		levelMember(scenario, "intro.json"), levelMember(scenario, "stage.json"),
+		levelMember(scenario, "navigation/covers.json"), levelMember(scenario, "navigation/paths.json"));
+	INFO(draft.error);
+	REQUIRE(draft.doc != nullptr);
+
+	forge_level_spawn_t start = {};
+	REQUIRE(forgeLevelDocGetSpawn(draft.doc, 0, &start));
+	const f32 start_position[] = { -610.0f, 50.0f, 70.0f };
+	REQUIRE(forgeLevelDocMoveSpawn(draft.doc, start.spawn_id, start_position, kFacing, err, sizeof(err)));
+	char prop[32] = {};
+	const f32 prop_position[] = { 1000.0f, 50.0f, 200.0f };
+	REQUIRE(forgeLevelDocAddObject(draft.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0,
+		prop_position, kFacing, prop, sizeof(prop), err, sizeof(err)));
+
+	REQUIRE(forgeLevelDocCoverCount(draft.doc) == 0);
+	forge_level_pad_t sourcePad = {}, destinationPad = {};
+	REQUIRE(forgeLevelDocFindPad(draft.doc, "pad_0005", &sourcePad));
+	REQUIRE(forgeLevelDocFindPad(draft.doc, "pad_0001", &destinationPad));
+	REQUIRE(std::string(sourcePad.room_ref) == "room_2");
+	REQUIRE(std::string(destinationPad.room_ref) == "room_1");
+	CHECK(sourcePad.position[0] > 0.0f);
+	CHECK(destinationPad.position[0] < 0.0f);
+	const std::string padsBeforeCover = draft.text(FORGE_LEVEL_MEMBER_PADS);
+	const std::string pathsBeforeCover = draft.text(FORGE_LEVEL_MEMBER_PATHS);
+	char coverRef[32] = {};
+	REQUIRE(forgeLevelDocAddCoverAtPad(draft.doc, sourcePad.pad_ref, coverRef, sizeof(coverRef), err, sizeof(err)));
+	REQUIRE(std::string(coverRef) == "cover_0000");
+	forge_level_cover_t cover = {};
+	REQUIRE(forgeLevelDocGetCover(draft.doc, 0, &cover));
+	CHECK(std::equal(sourcePad.position, sourcePad.position + 3, cover.position));
+	REQUIRE(forgeLevelDocMoveCoverToPad(draft.doc, coverRef, destinationPad.pad_ref, err, sizeof(err)));
+	REQUIRE(forgeLevelDocGetCover(draft.doc, 0, &cover));
+	CHECK(std::string(cover.cover_ref) == coverRef);
+	CHECK(std::equal(destinationPad.position, destinationPad.position + 3, cover.position));
+	CHECK(draft.text(FORGE_LEVEL_MEMBER_PADS) == padsBeforeCover);
+	CHECK(draft.text(FORGE_LEVEL_MEMBER_PATHS) == pathsBeforeCover);
+
+	using Extension = std::unique_ptr<forge_room_extension_t, decltype(&forgeRoomFreeExtension)>;
+	Extension extension(forgeRoomCreateExtension(original.data(), static_cast<u32>(original.size()),
+		member, 2, 475, err, sizeof(err)), forgeRoomFreeExtension);
+	INFO(err);
+	REQUIRE(extension != nullptr);
+	u32 count = 0;
+	const auto *geometry = forgeRoomExtensionEntries(extension.get(), &count);
+	REQUIRE(geometry != nullptr);
+	REQUIRE(count == 4);
+	const char *files[] = {"scene.glb", "collision.obj", "rooms.json", "navigation/waypoints.json"};
+	for (u32 i = 0; i < count; ++i) {
+		CHECK(std::string(geometry[i].entry) == std::string(member) + "::" + files[i]);
+		CHECK(geometry[i].remove == 0);
+	}
+	forge_level_overrides_t edits = {};
+	REQUIRE(forgeLevelDocOverridesAll(draft.doc, member, &edits, err, sizeof(err)));
+	std::vector<asset_archive_clone_override_t> combined(edits.entries, edits.entries + edits.count);
+	combined.insert(combined.end(), geometry, geometry + count);
+	mod_author_request_t request = {};
+	request.template_path = originalPath.c_str();
+	request.display_name = "Extended Grid Variant";
+	request.mods_root = mods.c_str();
+	request.tool = "pd-tests";
+	request.overrides = combined.data();
+	request.override_count = static_cast<u32>(combined.size());
+	mod_author_result_t saved = {};
+	REQUIRE(modAuthorSave(&request, &saved, err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(levelReadFile(originalPath) == original);
+
+	const std::string savedArena = levelReadFile(saved.archive_path);
+	const std::string savedScenario = levelMember(savedArena, member);
+	REQUIRE(!savedScenario.empty());
+	for (u32 i = 0; i < count; ++i) {
+		CHECK(levelMember(savedScenario, files[i]) == std::string(
+			static_cast<const char *>(geometry[i].data), geometry[i].len));
+	}
+	const std::string collision = levelMember(savedScenario, "collision.obj");
+	CHECK(collision.find("v 2200 ") != std::string::npos);
+	CHECK(collision.find("v 1725 ") == std::string::npos);
+	CHECK(collision.find("v -1850 ") != std::string::npos);
+	for (const char *unchanged : {"portals.json", "navigation/paths.json", "navigation/waygroups.json"}) {
+		REQUIRE(!levelMember(scenario, unchanged).empty());
+		CHECK(levelMember(savedScenario, unchanged) == levelMember(scenario, unchanged));
+	}
+	for (const s32 editable : {FORGE_LEVEL_MEMBER_PADS, FORGE_LEVEL_MEMBER_SPAWNS, FORGE_LEVEL_MEMBER_OBJECTS,
+			FORGE_LEVEL_MEMBER_SETUP_FIELDS, FORGE_LEVEL_MEMBER_VOLUMES, FORGE_LEVEL_MEMBER_COVERS}) {
+		CHECK(levelMember(savedScenario, forgeLevelDocMemberName(editable)) == draft.text(editable));
+	}
+	Level reopened(levelMember(savedScenario, "pads.json"), levelMember(savedScenario, "spawns.json"),
+		levelMember(savedScenario, "objects.json"), levelMember(savedScenario, "volumes.json"),
+		levelMember(savedScenario, "setup.fields.json"), levelMember(savedScenario, "level.graph.json"),
+		levelMember(savedScenario, "intro.json"), levelMember(savedScenario, "stage.json"),
+		levelMember(savedScenario, "navigation/covers.json"), levelMember(savedScenario, "navigation/paths.json"));
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	REQUIRE(forgeLevelDocCoverCount(reopened.doc) == 1);
+	REQUIRE(forgeLevelDocGetCover(reopened.doc, 0, &cover));
+	CHECK(std::string(cover.cover_ref) == coverRef);
+	CHECK(std::equal(destinationPad.position, destinationPad.position + 3, cover.position));
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_PADS) == padsBeforeCover);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_PATHS) == pathsBeforeCover);
+	const std::string record = levelMember(savedScenario, "_meta/generated-navmesh.json");
+	const std::string waypoints = levelMember(savedScenario, "navigation/waypoints.json");
+	CHECK(occurrences(waypoints, "\"only_linked_pads\"") == 1);
+	CHECK(waypoints.find("\"only_linked_pads\": true") != std::string::npos);
+	CHECK(waypoints.find("\"rows\":[]") != std::string::npos);
+	CHECK(waypoints.find(unknownWaypointField) != std::string::npos);
+	CHECK(record.find(levelSha(waypoints)) != std::string::npos);
+	CHECK(record.find(levelSha(collision)) != std::string::npos);
+	CHECK(record.find(levelSha(levelMember(savedScenario, "scene.glb"))) != std::string::npos);
+
+	Extension next(forgeRoomCreateExtension(savedArena.data(), static_cast<u32>(savedArena.size()),
+		member, 1, 100, err, sizeof(err)), forgeRoomFreeExtension);
+	INFO(err);
+	REQUIRE(next != nullptr);
+	const auto *nextEntries = forgeRoomExtensionEntries(next.get(), &count);
+	REQUIRE(count == 4);
+	CHECK(std::string(static_cast<const char *>(nextEntries[3].data), nextEntries[3].len) == waypoints);
+	CHECK(forgeRoomCreateExtension(savedArena.data(), static_cast<u32>(savedArena.size()),
+		member, 2, 2000, err, sizeof(err)) == nullptr);
+	CHECK(forgeRoomCreateExtension(savedArena.data(), static_cast<u32>(savedArena.size()),
+		member, 0, 100, err, sizeof(err)) == nullptr);
+
+	const std::string authoredWaypoints = R"({"schema":"pd2.scenario.waypoints.v1","rows":[{"waypoint_ref":"waypoint_0000","pad_ref":"pad_0000","group_ref":"waygroup_0000","step":0,"neighbours":[]}]})";
+	const std::string authoredGroups = R"({"schema":"pd2.scenario.waygroups.v1","rows":[{"waygroup_ref":"waygroup_0000","step":0,"waypoints":["waypoint_0000"],"neighbours":[]}]})";
+	const asset_archive_clone_override_t authored[] = {
+		{waypointMember.c_str(), authoredWaypoints.data(), static_cast<u32>(authoredWaypoints.size()), 0},
+		{groupMember.c_str(), authoredGroups.data(), static_cast<u32>(authoredGroups.size()), 0},
+	};
+	const std::string authoredPath = (root / "authored.pdarena").string();
+	REQUIRE(assetArchiveRebuildFile(originalPath.c_str(), authoredPath.c_str(), "mod:arena_extension_source",
+		"pd-tests", authored, 2, nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	const std::string authoredArena = levelReadFile(authoredPath);
+	Extension authoredExtension(forgeRoomCreateExtension(authoredArena.data(), static_cast<u32>(authoredArena.size()),
+		member, 2, 100, err, sizeof(err)), forgeRoomFreeExtension);
+	INFO(err);
+	REQUIRE(authoredExtension != nullptr);
+	REQUIRE(forgeRoomExtensionEntries(authoredExtension.get(), &count));
+	CHECK(count == 3);
+
+	/* A valid source archive with even one different collision vertex
+	 * cannot be treated as this fixed room shape. */
+	const std::string altered = replaced(levelMember(scenario, "collision.obj"), "v 1725 ", "v 1724 ");
+	const std::string alteredEntry = std::string(member) + "::collision.obj";
+	const asset_archive_clone_override_t alteration = {alteredEntry.c_str(), altered.data(),
+		static_cast<u32>(altered.size()), 0};
+	const std::string alteredPath = (root / "altered.pdarena").string();
+	REQUIRE(assetArchiveRebuildFile(originalPath.c_str(), alteredPath.c_str(), "mod:arena_extension_source",
+		"pd-tests", &alteration, 1, nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	const std::string alteredArena = levelReadFile(alteredPath);
+	REQUIRE(!alteredArena.empty());
+	CHECK(forgeRoomCreateExtension(alteredArena.data(), static_cast<u32>(alteredArena.size()),
+		member, 2, 100, err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("render or collision geometry") != std::string::npos);
+
+	std::error_code ec;
+	fs::remove_all(root, ec);
+}
+
+TEST_CASE("Grid room extension carries a draft brightness change into one native room table",
+	"[forge-level-doc][grid-room-brightness]")
+{
+	const auto seed = fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena";
+	const std::string arena = levelReadFile(seed);
+	const char *member = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const std::string originalRooms = levelMember(levelMember(arena, member), "rooms.json");
+	REQUIRE(!originalRooms.empty());
+	Level draft(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", "", "", originalRooms);
+	REQUIRE(draft.doc);
+	char err[256] = {};
+	REQUIRE(forgeLevelDocSetRoomBrightness(draft.doc, 1, 48, 112, err, sizeof(err)));
+	const std::string roomDraft = draft.text(FORGE_LEVEL_MEMBER_ROOMS);
+	const std::string roomsPath = std::string(member) + "::rooms.json";
+	const std::string collisionPath = std::string(member) + "::collision.obj";
+	using Extension = std::unique_ptr<forge_room_extension_t, decltype(&forgeRoomFreeExtension)>;
+	for (const s32 room : {1, 2}) {
+		CAPTURE(room);
+		Extension extension(forgeRoomCreateExtensionWithRoomBrightness(arena.data(), static_cast<u32>(arena.size()),
+			member, room, 450, roomDraft.data(), roomDraft.size(), err, sizeof(err)), forgeRoomFreeExtension);
+		INFO(err);
+		REQUIRE(extension);
+		u32 count = 0;
+		const auto *entries = forgeRoomExtensionEntries(extension.get(), &count);
+		REQUIRE(entries);
+		std::string rooms, collision;
+		s32 roomOverrides = 0;
+		for (u32 i = 0; i < count; ++i) {
+			const auto &entry = entries[i];
+			if (roomsPath == entry.entry) {
+				++roomOverrides;
+				rooms.assign(static_cast<const char *>(entry.data), entry.len);
+			} else if (collisionPath == entry.entry) {
+				collision.assign(static_cast<const char *>(entry.data), entry.len);
+			}
+		}
+		REQUIRE(roomOverrides == 1);
+		const std::string wall = room == 1 ? "-2000" : "2000";
+		CHECK(rooms.find(wall) != std::string::npos);
+		CHECK(collision.find("v " + wall + " ") != std::string::npos);
+		Level reopened(kPads, kSpawns, kObjects, kVolumes, levelFields(), "", "", "", "", "", rooms);
+		REQUIRE(reopened.doc);
+		forge_level_room_brightness_t brightness = {};
+		REQUIRE(forgeLevelDocGetRoomBrightness(reopened.doc, 0, &brightness));
+		CHECK(brightness.roomnum == 1);
+		CHECK(brightness.minimum == 48);
+		CHECK(brightness.maximum == 112);
+		REQUIRE(forgeLevelDocGetRoomBrightness(reopened.doc, 1, &brightness));
+		CHECK(brightness.roomnum == 2);
+		CHECK(brightness.minimum == 128);
+		CHECK(brightness.maximum == 255);
+	}
+	const std::string altered = replaced(roomDraft, "\"origin\": [-775.000000", "\"origin\": [-776.000000");
+	Extension refused(forgeRoomCreateExtensionWithRoomBrightness(arena.data(), static_cast<u32>(arena.size()),
+		member, 2, 450, altered.data(), altered.size(), err, sizeof(err)), forgeRoomFreeExtension);
+	CHECK_FALSE(refused);
+	CHECK(std::string(err).find("pinned layout") != std::string::npos);
+}
+
 TEST_CASE("A changed level is saved by the mod author, and its navigation record matches its files",
           "[forge-level-doc]")
 {
@@ -1274,11 +2455,14 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	REQUIRE(!arena.empty());
 	const std::string scenario = levelMember(arena, scenarioMember);
 	REQUIRE(!scenario.empty());
+	const std::string covers = levelMember(scenario, "navigation/covers.json");
+	REQUIRE(!covers.empty());
 	Level level(levelMember(scenario, "pads.json"), levelMember(scenario, "spawns.json"),
 		levelMember(scenario, "objects.json"), levelMember(scenario, "volumes.json"),
-		levelMember(scenario, "setup.fields.json"), levelMember(scenario, "level.graph.json"));
+		levelMember(scenario, "setup.fields.json"), levelMember(scenario, "level.graph.json"), "", "", covers);
 	INFO(level.error);
 	REQUIRE(level.doc != nullptr);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == covers);
 
 	char err[256] = { 0 };
 	forge_level_overrides_t overrides;
@@ -1288,14 +2472,16 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 
 	char id[32] = { 0 };
 	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "team_1", id, sizeof(id), err, sizeof(err)) == 1);
+	char cover[32] = {};
+	REQUIRE(forgeLevelDocAddCoverAtPad(level.doc, "pad_0001", cover, sizeof(cover), err, sizeof(err)));
+	CHECK(std::string(cover) == "cover_0000");
 	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
-	/* The pads, the spawns, the bounds and the graph (the new bounds row's
-	 * node) changed; the objects and their fields did not. */
-	REQUIRE(overrides.count == 4);
+	REQUIRE(overrides.count == 5);
 	CHECK(std::string(overrides.entries[0].entry) == std::string(scenarioMember) + "::pads.json");
 	CHECK(std::string(overrides.entries[1].entry) == std::string(scenarioMember) + "::spawns.json");
 	CHECK(std::string(overrides.entries[2].entry) == std::string(scenarioMember) + "::volumes.json");
 	CHECK(std::string(overrides.entries[3].entry) == std::string(scenarioMember) + "::level.graph.json");
+	CHECK(std::string(overrides.entries[4].entry) == std::string(scenarioMember) + "::navigation/covers.json");
 	CHECK(std::string(static_cast<const char *>(overrides.entries[1].data), overrides.entries[1].len) ==
 		level.text(FORGE_LEVEL_MEMBER_SPAWNS));
 	CHECK(std::string(static_cast<const char *>(overrides.entries[3].data), overrides.entries[3].len) ==
@@ -1304,9 +2490,10 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	/* A scenario saved on its own names its members directly. */
 	forge_level_overrides_t direct;
 	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &direct, err, sizeof(err)) == 1);
-	REQUIRE(direct.count == 4);
+	REQUIRE(direct.count == 5);
 	CHECK(std::string(direct.entries[0].entry) == "pads.json");
 	CHECK(std::string(direct.entries[3].entry) == "level.graph.json");
+	CHECK(std::string(direct.entries[4].entry) == "navigation/covers.json");
 	CHECK(forgeLevelDocOverrides(nullptr, scenarioMember, &direct, err, sizeof(err)) == 0);
 	CHECK(direct.count == 0);
 
@@ -1350,10 +2537,14 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	CHECK(occurrences(savedGraph, kVolumeNode) == 2);
 	CHECK(savedGraph.find("\"pads\": 2, \"volumes\": 2, \"objects\": 1,") != std::string::npos);
 	CHECK(savedGraph.find("mod:arena_forge_yard__") != std::string::npos);
+	const std::string savedCovers = levelMember(savedScenario, "navigation/covers.json");
+	CHECK(savedCovers == level.text(FORGE_LEVEL_MEMBER_COVERS));
+	CHECK(savedCovers.find("\"generate_routes\": true") != std::string::npos);
 	Level again(savedPads, savedSpawns, levelMember(savedScenario, "objects.json"), savedVolumes,
-		levelMember(savedScenario, "setup.fields.json"), savedGraph);
+		levelMember(savedScenario, "setup.fields.json"), savedGraph, "", "", savedCovers);
 	INFO(again.error);
 	REQUIRE(again.doc != nullptr);
+	CHECK(again.text(FORGE_LEVEL_MEMBER_COVERS) == savedCovers);
 	CHECK(forgeLevelDocPadCount(again.doc) == 2);
 	CHECK(forgeLevelDocSpawnCount(again.doc) == 2);
 	CHECK(forgeLevelDocObjectCount(again.doc) == 1);
@@ -1377,7 +2568,7 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 	REQUIRE(!record.empty());
 	INFO(record);
 	CHECK(record.find("\"source_counts\": { \"pads\": 2, \"volumes\": 2, \"waypoints\": 0, "
-		"\"waygroups\": 0, \"covers\": 0, \"paths\": 1 }") != std::string::npos);
+		"\"waygroups\": 0, \"covers\": 1, \"paths\": 1 }") != std::string::npos);
 	const std::string hashes = std::string("\"source_hashes\": { \"scene.glb\": \"") +
 		levelSha(levelMember(savedScenario, "scene.glb")) + "\", \"collision.obj\": \"" +
 		levelSha(levelMember(savedScenario, "collision.obj")) + "\", \"navigation.ini\": \"" +
@@ -1389,7 +2580,7 @@ TEST_CASE("A changed level is saved by the mod author, and its navigation record
 		"\", \"navigation/waygroups.json\": \"" +
 		levelSha(levelMember(savedScenario, "navigation/waygroups.json")) +
 		"\", \"navigation/covers.json\": \"" +
-		levelSha(levelMember(savedScenario, "navigation/covers.json")) +
+		levelSha(savedCovers) +
 		"\", \"navigation/paths.json\": \"" +
 		levelSha(levelMember(savedScenario, "navigation/paths.json")) + "\" }";
 	CHECK(record.find(hashes) != std::string::npos);
@@ -1660,8 +2851,8 @@ TEST_CASE("A level saved over itself is written whole, so an edit taken back sin
 	forge_level_overrides_t whole;
 	REQUIRE(forgeLevelDocOverridesAll(level.doc, scenarioMember, &whole, err, sizeof(err)) == 1);
 	/* Every member, in the order of the members, changed or not. */
-	REQUIRE(whole.count == FORGE_LEVEL_MEMBER_COUNT);
-	for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+	REQUIRE(whole.count == FORGE_LEVEL_MEMBER_INTRO); // This template has no optional members.
+	for (s32 member = 0; member < whole.count; member++) {
 		CHECK(std::string(whole.entries[member].entry) ==
 			std::string(scenarioMember) + "::" + forgeLevelDocMemberName(member));
 		CHECK(std::string(static_cast<const char *>(whole.entries[member].data), whole.entries[member].len) ==
@@ -1773,6 +2964,400 @@ forge_level_object_t armouryFind(const forge_level_doc_t *doc, const char *id)
 	return object;
 }
 
+}
+
+TEST_CASE("Moving an object off a pad used by a door trigger relinks the native setup",
+          "[forge-level-doc][level][graph][volume]")
+{
+	const std::string objects = replaced(armouryObjects(),
+		armouryObject("setup_0003", "door", "", "base:model_door", ""),
+		armouryObject("setup_0003", "door", "pad_0001", "base:model_door", ""));
+	const std::string model = catalogRow("setup_0003", "door", "base.model", "model_catalog_id", "base:model_door");
+	const std::string fields = replaced(armouryFields(), model, model + ",\n" +
+		fieldRow("setup_0003", "door", "base.pad", "pad_ref", "pad_0001"));
+	const std::string graph = replaced(levelGraph(3, 5, 3), "  \"counts\":",
+		"  \"edges\": [ { \"from\": \"scenario.load\", \"to\": \"source.scene\" } ],\n  \"counts\":");
+	Level level(kPads, kSpawns, objects, kVolumes, fields, graph);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+
+	char err[256] = {};
+	char id[32] = {};
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_AMMO_CRATE, 0,
+		kPlace, kFacing, id, sizeof(id), err, sizeof(err)));
+	const forge_level_object_t original = armouryFind(level.doc, id);
+	const f32 halfSize[] = {25.0f, 40.0f, 60.0f};
+	REQUIRE(forgeLevelDocAddDoorTrigger(level.doc, original.pad_ref, "setup_0003",
+		halfSize, err, sizeof(err)));
+	forge_level_door_trigger_t originalTrigger = {};
+	REQUIRE(forgeLevelDocGetDoorTrigger(level.doc, 0, &originalTrigger));
+
+	const f32 position[] = {140.0f, 0.0f, -200.0f};
+	REQUIRE(forgeLevelDocMoveObject(level.doc, id, position, kFacing, err, sizeof(err)));
+	const forge_level_object_t moved = armouryFind(level.doc, id);
+	REQUIRE(std::string(moved.pad_ref) != original.pad_ref);
+	forge_level_pad_t pad = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, original.pad_ref, &pad));
+	CHECK(pad.position[0] == kPlace[0]);
+	REQUIRE(forgeLevelDocFindPad(level.doc, moved.pad_ref, &pad));
+	CHECK(pad.position[0] == position[0]);
+
+	Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	const forge_level_object_t saved = armouryFind(reopened.doc, id);
+	CHECK(std::string(saved.pad_ref) == moved.pad_ref);
+	CHECK(saved.movable == 1);
+	forge_level_door_trigger_t trigger = {};
+	REQUIRE(forgeLevelDocGetDoorTrigger(reopened.doc, 0, &trigger));
+	CHECK(std::string(trigger.pad_ref) == original.pad_ref);
+	CHECK(std::string(trigger.volume_id) == originalTrigger.volume_id);
+	CHECK(std::string(trigger.door_id) == "setup_0003");
+}
+
+TEST_CASE("Grid door triggers round-trip native volumes and run the level graph action",
+          "[forge-level-doc][level][graph][volume]")
+{
+	const std::string objects = replaced(armouryObjects(),
+		armouryObject("setup_0003", "door", "", "base:model_door", ""),
+		armouryObject("setup_0003", "door", "pad_0001", "base:model_door", ""));
+	const std::string model = catalogRow("setup_0003", "door", "base.model", "model_catalog_id", "base:model_door");
+	const std::string fields = replaced(armouryFields(), model, model + ",\n" +
+		fieldRow("setup_0003", "door", "base.pad", "pad_ref", "pad_0001"));
+	const std::string graph = replaced(levelGraph(3, 5, 3), "  \"counts\":",
+		"  \"edges\": [ { \"from\": \"scenario.load\", \"to\": \"source.scene\" } ],\n  \"counts\":");
+	Level level(kPads, kSpawns, objects, kVolumes, fields, graph);
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	char err[256] = {};
+	const f32 halfSize[] = {25.0f, 40.0f, 60.0f};
+	const f32 invalid[] = {25.0f, 0.0f, 60.0f};
+	CHECK(forgeLevelDocAddDoorTrigger(level.doc, "pad_0009", "setup_0003", halfSize, err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddDoorTrigger(level.doc, "pad_0000", "setup_0002", halfSize, err, sizeof(err)) == 0);
+	CHECK(forgeLevelDocAddDoorTrigger(level.doc, "pad_0000", "setup_0003", invalid, err, sizeof(err)) == 0);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+
+	REQUIRE(forgeLevelDocAddDoorTrigger(level.doc, "pad_0000", "setup_0003", halfSize, err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocAddDoorTrigger(level.doc, "pad_0000", "setup_0003", halfSize, err, sizeof(err)) == 0);
+	REQUIRE(forgeLevelDocDoorTriggerCount(level.doc) == 1);
+	forge_level_door_trigger_t trigger = {};
+	REQUIRE(forgeLevelDocGetDoorTrigger(level.doc, 0, &trigger) == 1);
+	CHECK(std::string(trigger.pad_ref) == "pad_0000");
+	CHECK(std::string(trigger.door_id) == "setup_0003");
+	const std::string volumes = level.text(FORGE_LEVEL_MEMBER_VOLUMES);
+	const std::string authored = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+	CHECK(volumes.find("\"min\": [-15.000000, -40.000000, -40.000000]") != std::string::npos);
+	CHECK(volumes.find("\"max\": [35.000000, 40.000000, 80.000000]") != std::string::npos);
+	CHECK(occurrences(authored, kVolumeNode) == 4);
+	CHECK(authored.find("\"volumes\": 4") != std::string::npos);
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, nullptr, &overrides, err, sizeof(err)) == 1);
+	REQUIRE(overrides.count == 2);
+	CHECK(std::string(overrides.entries[0].entry) == "volumes.json");
+	CHECK(std::string(overrides.entries[1].entry) == "level.graph.json");
+
+	const auto knowsDoor = [](const char *kind) -> s32 { return strcmp(kind, "og.door.open") == 0; };
+	std::unique_ptr<mission_graph_program_t, decltype(&missionGraphProgramFree)> program(
+		missionGraphProgramCompileLevel(authored.data(), authored.size(), knowsDoor, err, sizeof(err)),
+		missionGraphProgramFree);
+	INFO(err);
+	REQUIRE(program != nullptr);
+	REQUIRE(missionGraphProgramVolumeCount(program.get()) == 1);
+	CHECK(std::string(missionGraphProgramVolumeAt(program.get(), 0)) == trigger.volume_id);
+	const auto record = [](const char *kind, const char *, const mission_graph_params_t *params,
+			const mission_graph_event_t *, void *out) -> s32 {
+		if (strcmp(kind, "og.door.open") != 0) return 0;
+		const char *door = missionGraphParamText(params, "object");
+		if (!door) return 0;
+		*static_cast<std::string *>(out) = door;
+		return 1;
+	};
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_VOLUME_ENTERED;
+	event.player = 0;
+	event.volume = "volume_pad_0000";
+	std::string opened;
+	CHECK(missionGraphProgramFire(program.get(), &event, record, &opened) == 0);
+	event.volume = trigger.volume_id;
+	CHECK(missionGraphProgramFire(program.get(), &event, record, &opened) == 1);
+	CHECK(opened == "setup_0003");
+
+	Level loaded(kPads, kSpawns, objects, volumes, fields, authored);
+	INFO(loaded.error);
+	REQUIRE(loaded.doc != nullptr);
+	CHECK(forgeLevelDocDoorTriggerCount(loaded.doc) == 1);
+	CHECK(forgeLevelDocMemberChanged(loaded.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 0);
+	Level original(kPads, kSpawns, objects, kVolumes, fields, graph);
+	REQUIRE(original.doc != nullptr);
+	std::unique_ptr<FILE, decltype(&fclose)> stream(tmpfile(), fclose);
+	REQUIRE(stream != nullptr);
+	const std::string digest(64, 'b');
+	REQUIRE(forgeLevelDocWriteCheckpoint(level.doc, digest.c_str(), stream.get(), err, sizeof(err)) == 1);
+	const long size = ftell(stream.get());
+	REQUIRE(size > 0);
+	rewind(stream.get());
+	std::string checkpoint(static_cast<size_t>(size), '\0');
+	REQUIRE(fread(checkpoint.data(), 1, checkpoint.size(), stream.get()) == checkpoint.size());
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> recovered(
+		forgeLevelDocReadCheckpoint(checkpoint.data(), checkpoint.size(), digest.c_str(),
+			original.doc, err, sizeof(err)), forgeLevelDocFree);
+	REQUIRE(recovered != nullptr);
+	CHECK(forgeLevelDocDoorTriggerCount(recovered.get()) == 1);
+	CHECK(forgeLevelDocMemberChanged(recovered.get(), FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 1);
+	CHECK(forgeLevelDocMemberChanged(recovered.get(), FORGE_LEVEL_MEMBER_VOLUMES) == 1);
+	REQUIRE(forgeLevelDocRemoveDoorTrigger(loaded.doc, 0, err, sizeof(err)) == 1);
+	CHECK(loaded.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
+	CHECK(loaded.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+	REQUIRE(forgeLevelDocRemoveDoorTrigger(level.doc, 0, err, sizeof(err)) == 1);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_VOLUMES) == 0);
+	CHECK(forgeLevelDocMemberChanged(level.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == 0);
+}
+
+TEST_CASE("Grid fixed pickup triggers preserve a pad and coexist with native door triggers",
+	"[forge-level-doc][level][graph][volume]")
+{
+	constexpr s32 give = FORGE_LEVEL_TRIGGER_GIVE_PICKUP;
+	const std::string objects = replaced(armouryObjects(),
+		armouryObject("setup_0003", "door", "", "base:model_door", ""),
+		armouryObject("setup_0003", "door", "pad_0001", "base:model_door", ""));
+	const std::string door = catalogRow("setup_0003", "door", "base.model", "model_catalog_id", "base:model_door");
+	const std::string weapon = catalogRow("setup_0001", "weapon_pickup", "pickup.weapon", "weapon_catalog_id", "base:dragon");
+	std::string fields = replaced(armouryFields(), door, door + ",\n" +
+		fieldRow("setup_0003", "door", "base.pad", "pad_ref", "pad_0001"));
+	fields = replaced(fields, weapon, weapon + ",\n" +
+		fieldRow("setup_0001", "weapon_pickup", "base.flags2", "u32_hex", "0x00000000"));
+	const std::string graph = replaced(levelGraph(3, 5, 3), "  \"counts\":",
+		"  \"edges\": [ { \"from\": \"scenario.load\", \"to\": \"source.scene\" } ],\n  \"counts\":");
+	Level level(kPads, kSpawns, objects, kVolumes, fields, graph);
+	INFO(level.error);
+	REQUIRE(level.doc);
+	const f32 half[] = {25.0f, 40.0f, 60.0f};
+	char err[256] = {}, addedStart[32] = {};
+	for (const char *ref : {"setup_0000", "setup_0002", "setup_0003", "setup_0004", "setup_0999"}) {
+		CAPTURE(ref);
+		CHECK_FALSE(forgeLevelDocAddTrigger(level.doc, give, "pad_0002", ref, half, err, sizeof(err)));
+	}
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 1, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocAddTrigger(level.doc, give, "pad_0002", "setup_0001", half, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetObjectRemoved(level.doc, "setup_0001", 0, err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == kVolumes);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+
+	REQUIRE(forgeLevelDocAddTrigger(level.doc, give, "pad_0002", "setup_0001", half, err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES).find(
+		"\"pad_ref\": \"pad_0002\", \"kind\": \"pad_bounds\", \"room_ref\": \"room_0003\"") != std::string::npos);
+	REQUIRE(forgeLevelDocAddDoorTrigger(level.doc, "pad_0000", "setup_0003", half, err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, kPlace, kFacing, "any", addedStart, sizeof(addedStart), err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddTrigger(level.doc, give, "pad_0003", "setup_0001", half, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocAddTrigger(level.doc, give, "pad_0003", "setup_0001", half, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetPickupSlot(level.doc, "setup_0001", 0, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocSetPickupWeapon(level.doc, "setup_0001", "base:briefcase2",
+		"base:model_roofgun", 256, err, sizeof(err)));
+	const f32 moved[] = {kPlace[0] + 80.0f, kPlace[1], kPlace[2]};
+	REQUIRE(forgeLevelDocMoveSpawn(level.doc, addedStart, moved, kFacing, err, sizeof(err)));
+	forge_level_pad_t anchored = {};
+	REQUIRE(forgeLevelDocFindPad(level.doc, "pad_0003", &anchored));
+	CHECK(anchored.position[0] == kPlace[0]);
+
+	const std::string authored = level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH);
+	Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		level.text(FORGE_LEVEL_MEMBER_OBJECTS), level.text(FORGE_LEVEL_MEMBER_VOLUMES),
+		level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS), authored);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc);
+	REQUIRE(forgeLevelDocTriggerCount(reopened.doc) == 3);
+	REQUIRE(forgeLevelDocDoorTriggerCount(reopened.doc) == 1);
+	forge_level_trigger_t trigger = {};
+	REQUIRE(forgeLevelDocGetTrigger(reopened.doc, 2, &trigger));
+	CHECK(trigger.action == give);
+	CHECK(std::string(trigger.pad_ref) == "pad_0003");
+	CHECK(std::string(trigger.target_id) == "setup_0001");
+	forge_level_door_trigger_t oldDoor = {};
+	REQUIRE(forgeLevelDocGetDoorTrigger(reopened.doc, 0, &oldDoor));
+	CHECK(std::string(oldDoor.door_id) == "setup_0003");
+
+	const auto known = [](const char *kind) -> s32 {
+		return strcmp(kind, "og.pickup.give") == 0 || strcmp(kind, "og.door.open") == 0;
+	};
+	std::unique_ptr<mission_graph_program_t, decltype(&missionGraphProgramFree)> program(
+		missionGraphProgramCompileLevel(authored.data(), authored.size(), known, err, sizeof(err)),
+		missionGraphProgramFree);
+	REQUIRE(program);
+	const auto givePickup = [](const char *kind, const char *, const mission_graph_params_t *params,
+			const mission_graph_event_t *event, void *out) -> s32 {
+		const char *ref = missionGraphParamText(params, "object");
+		if (strcmp(kind, "og.pickup.give") != 0 || !ref || event->player != 1) return 0;
+		*static_cast<std::string *>(out) = ref;
+		return 1;
+	};
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_VOLUME_ENTERED;
+	event.player = 1;
+	event.volume = trigger.volume_id;
+	std::string granted;
+	CHECK(missionGraphProgramFire(program.get(), &event, givePickup, &granted) == 1);
+	CHECK(granted == "setup_0001");
+	REQUIRE(forgeLevelDocRemoveTrigger(reopened.doc, 2, err, sizeof(err)));
+	REQUIRE(forgeLevelDocRemoveTrigger(reopened.doc, 0, err, sizeof(err)));
+	CHECK(forgeLevelDocDoorTriggerCount(reopened.doc) == 1);
+	CHECK(forgeLevelDocTriggerCount(reopened.doc) == 1);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH).find("og.pickup.give") == std::string::npos);
+	REQUIRE(forgeLevelDocSetPickupSlot(reopened.doc, "setup_0001", 0, err, sizeof(err)));
+}
+
+TEST_CASE("Grid edits native trigger anchor, size and target without replacing its identity",
+	"[forge-level-doc][level][graph][volume]")
+{
+	const std::string objects = replaced(replaced(armouryObjects(),
+		armouryObject("setup_0000", "weapon_pickup", "pad_0002", "base:model_roofgun", ""),
+		armouryObject("setup_0000", "weapon_pickup", "pad_0002", "base:model_roofgun", "base:falcon2")),
+		armouryObject("setup_0003", "door", "", "base:model_door", ""),
+		armouryObject("setup_0003", "door", "pad_0001", "base:model_door", ""));
+	const std::string door = catalogRow("setup_0003", "door", "base.model", "model_catalog_id", "base:model_door");
+	const std::string pickup = catalogRow("setup_0001", "weapon_pickup", "pickup.weapon", "weapon_catalog_id", "base:dragon");
+	std::string fields = replaced(armouryFields(), door, door + ",\n" +
+		fieldRow("setup_0003", "door", "base.pad", "pad_ref", "pad_0001"));
+	fields = replaced(fields, pickup, pickup + ",\n" +
+		fieldRow("setup_0001", "weapon_pickup", "base.flags2", "u32_hex", "0x00000000"));
+	fields = replaced(fields, fieldRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_selector", "mp_location_03"),
+		catalogRow("setup_0000", "weapon_pickup", "pickup.weapon", "weapon_catalog_id", "base:falcon2") + ",\n" +
+		fieldRow("setup_0000", "weapon_pickup", "base.flags2", "u32_hex", "0x00000000"));
+	const std::string initialGraph = replaced(levelGraph(3, 5, 3), "  \"counts\":",
+		"  \"edges\": [ { \"from\": \"scenario.load\", \"to\": \"source.scene\" } ],\n  \"counts\":");
+	Level initial(kPads, kSpawns, objects, kVolumes, fields, initialGraph);
+	INFO(initial.error);
+	REQUIRE(initial.doc);
+	char err[256] = {};
+	const f32 half[] = {25.0f, 40.0f, 60.0f};
+	const f32 bigger[] = {32.0f, 48.0f, 64.0f};
+	const f32 invalid[] = {32.0f, std::numeric_limits<f32>::quiet_NaN(), 64.0f};
+	REQUIRE(forgeLevelDocAddTrigger(initial.doc, FORGE_LEVEL_TRIGGER_GIVE_PICKUP,
+		"pad_0002", "setup_0001", half, err, sizeof(err)));
+	forge_level_trigger_t pickupTrigger = {};
+	REQUIRE(forgeLevelDocGetTrigger(initial.doc, 0, &pickupTrigger));
+	REQUIRE(forgeLevelDocAddDoorTrigger(initial.doc, "pad_0000", "setup_0003", half, err, sizeof(err)));
+	char destinationStart[32] = {};
+	REQUIRE(forgeLevelDocAddSpawn(initial.doc, kPlace, kFacing, "any", destinationStart, sizeof(destinationStart), err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddTrigger(initial.doc, FORGE_LEVEL_TRIGGER_GIVE_PICKUP,
+		"pad_0003", "setup_0001", half, err, sizeof(err)));
+	const std::string pickupAction = std::string("\"id\": \"grid.trigger.") + pickupTrigger.volume_id +
+		".give\", \"kind\": \"og.pickup.give\", \"object\": \"setup_0001\"";
+	const std::string originalBox = "\"min\": [25.000000, -32.000000, 0.000000], \"max\": [75.000000, 48.000000, 120.000000]";
+	const std::string volumes = replaced(initial.text(FORGE_LEVEL_MEMBER_VOLUMES), originalBox,
+		"\"note\": \"keep this volume field\", " + originalBox);
+	const std::string graph = replaced(initial.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH), pickupAction,
+		pickupAction + ", \"note\": \"keep this action field\"");
+	const std::string pads = initial.text(FORGE_LEVEL_MEMBER_PADS);
+	const std::string spawns = initial.text(FORGE_LEVEL_MEMBER_SPAWNS);
+	Level level(pads, spawns, objects, volumes, fields, graph);
+	INFO(level.error);
+	REQUIRE(level.doc);
+	forge_level_trigger_t doorTrigger = {}, destinationTrigger = {};
+	REQUIRE(forgeLevelDocGetTrigger(level.doc, 0, &pickupTrigger));
+	REQUIRE(forgeLevelDocGetTrigger(level.doc, 1, &doorTrigger));
+	REQUIRE(forgeLevelDocGetTrigger(level.doc, 2, &destinationTrigger));
+	REQUIRE(pickupTrigger.editable);
+	REQUIRE(doorTrigger.editable);
+	CHECK(pickupTrigger.half_size[0] == half[0]);
+	const auto volumeRow = [](const std::string &text, const char *id) {
+		const size_t start = text.find(std::string("{ \"volume_id\": \"") + id + "\"");
+		const size_t end = text.find('}', start);
+		return end == std::string::npos ? std::string() : text.substr(start, end - start + 1);
+	};
+	const std::string previousPrimary = volumeRow(volumes, "volume_pad_0002");
+	const std::string destinationPrimary = volumeRow(volumes, "volume_pad_0003");
+	const std::string pickupVolume = volumeRow(volumes, pickupTrigger.volume_id);
+	REQUIRE_FALSE(previousPrimary.empty());
+	REQUIRE_FALSE(destinationPrimary.empty());
+	REQUIRE_FALSE(pickupVolume.empty());
+	REQUIRE(volumes.find(pickupVolume) < volumes.find(destinationPrimary));
+	const auto update = [&](const char *id, const char *pad, const char *target, const f32 size[3]) {
+		return forgeLevelDocUpdateTrigger(level.doc, id, pad, target, size, err, sizeof(err));
+	};
+	CHECK_FALSE(update("volume_pad_0002", "pad_0003", "setup_0000", bigger));
+	CHECK_FALSE(update(pickupTrigger.volume_id, "pad_0999", "setup_0000", bigger));
+	CHECK_FALSE(update(pickupTrigger.volume_id, "pad_0003", "setup_0003", bigger));
+	CHECK_FALSE(update(pickupTrigger.volume_id, "pad_0003", "setup_0001", bigger));
+	CHECK_FALSE(update(pickupTrigger.volume_id, "pad_0003", "setup_0000", invalid));
+	CHECK_FALSE(update(pickupTrigger.volume_id, pickupTrigger.pad_ref, "setup_0001", half));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
+
+	REQUIRE(update(pickupTrigger.volume_id, "pad_0003", "setup_0000", bigger));
+	const std::string sourceVolume = std::string("\"volume\": \"") + pickupTrigger.volume_id + "\", \"pad\": \"";
+	const std::string editedAction = replaced(pickupAction, "\"object\": \"setup_0001\"", "\"object\": \"setup_0000\"");
+	const std::string editedGraph = replaced(replaced(graph, pickupAction, editedAction),
+		sourceVolume + "pad_0002\"", sourceVolume + "pad_0003\"");
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == editedGraph);
+	/* The first move can shift the following volume rows. Updating the door
+	 * by its original ID must address its own bounds. */
+	REQUIRE(update(doorTrigger.volume_id, doorTrigger.pad_ref, "setup_0003", bigger));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == editedGraph);
+
+	const std::string editedVolumes = level.text(FORGE_LEVEL_MEMBER_VOLUMES);
+	const std::string movedVolume = volumeRow(editedVolumes, pickupTrigger.volume_id);
+	REQUIRE_FALSE(movedVolume.empty());
+	CHECK(movedVolume == replaced(replaced(replaced(pickupVolume, originalBox,
+		"\"min\": [68.000000, -48.000000, -314.500000], \"max\": [132.000000, 48.000000, -186.500000]"),
+		"\"pad_ref\": \"pad_0002\"", "\"pad_ref\": \"pad_0003\""), "\"room_ref\": \"room_0003\"", "\"room_ref\": \"\""));
+	CHECK(volumeRow(editedVolumes, "volume_pad_0002") == previousPrimary);
+	CHECK(volumeRow(editedVolumes, "volume_pad_0003") == destinationPrimary);
+	CHECK(editedVolumes.find(destinationPrimary) < editedVolumes.find(movedVolume));
+	Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), level.text(FORGE_LEVEL_MEMBER_SPAWNS),
+		objects, editedVolumes, fields, level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(reopened.error);
+	REQUIRE(reopened.doc);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_PADS) == pads);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
+	CHECK(forgeLevelDocVolumeCount(reopened.doc) == 7);
+	REQUIRE(forgeLevelDocTriggerCount(reopened.doc) == 3);
+	forge_level_pad_t anchor = {};
+	REQUIRE(forgeLevelDocFindPad(reopened.doc, "pad_0002", &anchor));
+	CHECK(anchor.has_volume);
+	CHECK(anchor.position[0] == 50.0f);
+	REQUIRE(forgeLevelDocFindPad(reopened.doc, "pad_0003", &anchor));
+	CHECK(anchor.has_volume);
+	CHECK(std::equal(anchor.position, anchor.position + 3, kPlace));
+	forge_level_spawn_t destination = {};
+	REQUIRE(forgeLevelDocGetSpawn(reopened.doc, forgeLevelDocSpawnCount(reopened.doc) - 1, &destination));
+	CHECK(std::string(destination.spawn_id) == destinationStart);
+	CHECK(std::string(destination.pad_ref) == "pad_0003");
+	const auto findSaved = [&](const char *id, forge_level_trigger_t &trigger) {
+		for (s32 i = 0; i < forgeLevelDocTriggerCount(reopened.doc); i++) {
+			if (forgeLevelDocGetTrigger(reopened.doc, i, &trigger) && strcmp(trigger.volume_id, id) == 0) return true;
+		}
+		return false;
+	};
+	forge_level_trigger_t saved = {};
+	REQUIRE(findSaved(pickupTrigger.volume_id, saved));
+	CHECK(saved.editable);
+	CHECK(std::string(saved.pad_ref) == "pad_0003");
+	CHECK(std::string(saved.target_id) == "setup_0000");
+	CHECK(saved.action == FORGE_LEVEL_TRIGGER_GIVE_PICKUP);
+	CHECK(std::equal(saved.half_size, saved.half_size + 3, bigger));
+	REQUIRE(findSaved(doorTrigger.volume_id, saved));
+	CHECK(std::string(saved.pad_ref) == doorTrigger.pad_ref);
+	CHECK(std::string(saved.target_id) == doorTrigger.target_id);
+	CHECK(saved.action == FORGE_LEVEL_TRIGGER_OPEN_DOOR);
+	CHECK(std::equal(saved.half_size, saved.half_size + 3, bigger));
+	REQUIRE(findSaved(destinationTrigger.volume_id, saved));
+	CHECK(std::string(saved.pad_ref) == "pad_0003");
+	CHECK(std::string(saved.target_id) == "setup_0001");
+	CHECK(std::equal(saved.half_size, saved.half_size + 3, half));
+
+	Level offset(pads, spawns, objects, replaced(volumes, originalBox,
+		"\"min\": [24.000000, -32.000000, 0.000000], \"max\": [75.000000, 48.000000, 120.000000]"), fields, graph);
+	REQUIRE(offset.doc);
+	REQUIRE(forgeLevelDocGetTrigger(offset.doc, 0, &saved));
+	CHECK_FALSE(saved.editable);
+	CHECK_FALSE(forgeLevelDocUpdateTrigger(offset.doc, saved.volume_id, "pad_0003", "setup_0000", bigger, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocMemberChanged(offset.doc, FORGE_LEVEL_MEMBER_VOLUMES));
+	CHECK_FALSE(forgeLevelDocMemberChanged(offset.doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
 }
 
 TEST_CASE("A weapon pickup is given a weapon of the catalog, or made one of the match's weapon places",
@@ -1998,6 +3583,116 @@ TEST_CASE("A prop is given another model, and a copied pickup is changed without
 	CHECK(std::string(armouryFind(again.doc, "setup_0005").weapon_catalog_id) == "base:dragon");
 	CHECK(armouryFind(again.doc, "setup_0005").weapon_settable == 1);
 	CHECK(std::string(armouryFind(again.doc, "setup_0002").model_catalog_id) == "mod:prop_maian_crate");
+}
+
+TEST_CASE("Grid variant placement fallbacks are written to an independent native document",
+	"[forge-level-doc][grid-variant-fallback]")
+{
+	Level seed(kPads, kSpawns, armouryObjects(), kVolumes, armouryFields());
+	INFO(seed.error);
+	REQUIRE(seed.doc);
+	char err[256] = {};
+	char bike[32] = {};
+	REQUIRE(forgeLevelDocSetPickupWeapon(seed.doc, "setup_0000", "mod:ordinary", "mod:model_ordinary",
+		512, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetPickupWeapon(seed.doc, "setup_0001", "mod:power", "mod:model_power",
+		768, err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetObjectModel(seed.doc, "setup_0002", "mod:model_prop", err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddObject(seed.doc, FORGE_LEVEL_NEW_HOVERBIKE, 0, kPlace, kFacing,
+		bike, sizeof(bike), err, sizeof(err)));
+
+	const std::string originalObjects = replaced(seed.text(FORGE_LEVEL_MEMBER_OBJECTS),
+		"base:model_hovbike", "mod:model_bike");
+	const std::string originalFields = replaced(seed.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS),
+		"base:model_hovbike", "mod:model_bike");
+	Level level(seed.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, originalObjects,
+		seed.text(FORGE_LEVEL_MEMBER_VOLUMES), originalFields, seed.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(level.error);
+	REQUIRE(level.doc);
+	const auto bikeBefore = armouryFind(level.doc, bike);
+	const std::array<forge_level_placement_fallback_t, 4> edits = {{
+		{ FORGE_LEVEL_FALLBACK_PICKUP, "setup_0000", "mod:ordinary", "base:falcon2", "base:model_chrfalcon2", 256 },
+		{ FORGE_LEVEL_FALLBACK_PICKUP, "setup_0001", "mod:power", "base:slayer", "base:model_chrskrocket", 256 },
+		{ FORGE_LEVEL_FALLBACK_PROP, "setup_0002", "mod:model_prop", nullptr, nullptr, 0 },
+		{ FORGE_LEVEL_FALLBACK_HOVERBIKE, bike, "mod:model_bike", nullptr, nullptr, 0 },
+	}};
+
+	const auto text = [](forge_level_doc_t *doc, s32 member) {
+		size_t size = 0;
+		const char *bytes = forgeLevelDocMemberText(doc, member, &size);
+		return bytes ? std::string(bytes, size) : std::string();
+	};
+	std::unique_ptr<forge_level_doc_t, decltype(&forgeLevelDocFree)> variant(
+		forgeLevelDocCloneWithPlacementFallbacks(level.doc, edits.data(), edits.size(), err, sizeof(err)),
+		forgeLevelDocFree);
+	INFO(err);
+	REQUIRE(variant);
+	const std::string objects = text(variant.get(), FORGE_LEVEL_MEMBER_OBJECTS);
+	const std::string fields = text(variant.get(), FORGE_LEVEL_MEMBER_SETUP_FIELDS);
+	std::string expectedObjects = originalObjects;
+	std::string expectedFields = originalFields;
+	const char *const originalModels[] = {"mod:model_ordinary", "mod:model_power"};
+	const char *const originalScales[] = {"512", "768"};
+	for (size_t i = 0; i < 2; i++) {
+		const auto &edit = edits[i];
+		CHECK(fields.find(catalogRow(edit.record_id, "weapon_pickup", "pickup.weapon", "weapon_catalog_id",
+			edit.weapon_catalog_id)) != std::string::npos);
+		CHECK(fields.find(catalogRow(edit.record_id, "weapon_pickup", "base.model", "model_catalog_id",
+			edit.model_catalog_id)) != std::string::npos);
+		const auto fallbackScale = fieldRow(edit.record_id, "weapon_pickup", "base.extra_scale", "s32", "256");
+		CHECK(fields.find(fallbackScale) != std::string::npos);
+		expectedObjects = replaced(expectedObjects, edit.expected_catalog_id, edit.weapon_catalog_id);
+		expectedObjects = replaced(expectedObjects, originalModels[i], edit.model_catalog_id);
+		expectedFields = replaced(expectedFields, edit.expected_catalog_id, edit.weapon_catalog_id);
+		expectedFields = replaced(expectedFields, originalModels[i], edit.model_catalog_id);
+		expectedFields = replaced(expectedFields,
+			fieldRow(edit.record_id, "weapon_pickup", "base.extra_scale", "s32", originalScales[i]), fallbackScale);
+	}
+	CHECK(fields.find(catalogRow("setup_0002", "prop", "base.model", "model_catalog_id", "base:model_crate2_cq"))
+		!= std::string::npos);
+	expectedObjects = replaced(expectedObjects, "mod:model_prop", "base:model_crate2_cq");
+	expectedObjects = replaced(expectedObjects, "mod:model_bike", "base:model_hovbike");
+	expectedFields = replaced(expectedFields, "mod:model_prop", "base:model_crate2_cq");
+	expectedFields = replaced(expectedFields, "mod:model_bike", "base:model_hovbike");
+	CHECK(objects == expectedObjects);
+	CHECK(fields == expectedFields);
+	CHECK(text(variant.get(), FORGE_LEVEL_MEMBER_PADS) == level.text(FORGE_LEVEL_MEMBER_PADS));
+	CHECK(text(variant.get(), FORGE_LEVEL_MEMBER_VOLUMES) == level.text(FORGE_LEVEL_MEMBER_VOLUMES));
+	CHECK(text(variant.get(), FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	Level reopened(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, objects,
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES), fields, level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(reopened.error);
+	REQUIRE(reopened.doc);
+	CHECK(std::string(armouryFind(reopened.doc, "setup_0000").weapon_catalog_id) == "base:falcon2");
+	CHECK(std::string(armouryFind(reopened.doc, "setup_0001").weapon_catalog_id) == "base:slayer");
+	CHECK(std::string(armouryFind(reopened.doc, "setup_0002").model_catalog_id) == "base:model_crate2_cq");
+	const auto bikeAfter = armouryFind(reopened.doc, bike);
+	CHECK(std::string(bikeAfter.kind) == "hoverbike");
+	CHECK(std::string(bikeAfter.pad_ref) == bikeBefore.pad_ref);
+	CHECK(bikeAfter.order == bikeBefore.order);
+	CHECK(std::string(bikeAfter.model_catalog_id) == "base:model_hovbike");
+
+	auto invalid = edits;
+	invalid.back().expected_catalog_id = "mod:old_bike";
+	CHECK(forgeLevelDocCloneWithPlacementFallbacks(level.doc, invalid.data(), invalid.size(), err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("no longer has") != std::string::npos);
+	invalid.back() = edits[0];
+	CHECK(forgeLevelDocCloneWithPlacementFallbacks(level.doc, invalid.data(), invalid.size(), err, sizeof(err)) == nullptr);
+	invalid.back() = { FORGE_LEVEL_FALLBACK_PROP, "setup_0003", "base:model_door", nullptr, nullptr, 0 };
+	CHECK(forgeLevelDocCloneWithPlacementFallbacks(level.doc, invalid.data(), invalid.size(), err, sizeof(err)) == nullptr);
+	invalid = edits;
+	invalid[1].weapon_catalog_id = "base:dragon";
+	CHECK(forgeLevelDocCloneWithPlacementFallbacks(level.doc, invalid.data(), invalid.size(), err, sizeof(err)) == nullptr);
+	const auto bikeModel = catalogRow(bike, "hoverbike", "base.model", "model_catalog_id", "mod:model_bike");
+	const auto duplicateFields = replaced(originalFields, bikeModel, bikeModel + ",\n" + bikeModel);
+	Level ambiguous(level.text(FORGE_LEVEL_MEMBER_PADS), kSpawns, originalObjects,
+		level.text(FORGE_LEVEL_MEMBER_VOLUMES), duplicateFields, level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH));
+	INFO(ambiguous.error);
+	REQUIRE(ambiguous.doc);
+	CHECK(forgeLevelDocCloneWithPlacementFallbacks(ambiguous.doc, edits.data(), edits.size(), err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("no supported placement fallback") != std::string::npos);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == originalObjects);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == originalFields);
 }
 
 TEST_CASE("A start added to a level that had none and taken out again leaves the file as it was read",
@@ -2480,6 +4175,370 @@ TEST_CASE("A level gains a plain prop made from nothing, drawn with the model it
 	CHECK(armouryFind(again.doc, "setup_0001").removed == 1);
 }
 
+TEST_CASE("Grid Logic Zones bind native events and keep their box through save and reopen", "[forge-level-doc][level][graph][grid-logic-zone]")
+{
+	const auto templatePath = (fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena").string();
+	const char *const scenario = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const auto source = readSavedLevel(templatePath.c_str(), scenario);
+	Level level(levelMember(source.scenario, "pads.json"), levelMember(source.scenario, "spawns.json"),
+		levelMember(source.scenario, "objects.json"), levelMember(source.scenario, "volumes.json"),
+		levelMember(source.scenario, "setup.fields.json"), levelMember(source.scenario, "level.graph.json"));
+	INFO(level.error);
+	REQUIRE(level.doc);
+	const auto graphMember = FORGE_LEVEL_MEMBER_LEVEL_GRAPH;
+	const auto volumesMember = FORGE_LEVEL_MEMBER_VOLUMES;
+	const std::string originalGraph = level.text(graphMember);
+	const std::string originalVolumes = level.text(volumesMember);
+	const auto volumeRow = [](const std::string &text, const std::string &id) {
+		const size_t at = text.find("\"volume_id\": \"" + id + "\"");
+		const size_t start = text.rfind('{', at);
+		const size_t end = text.find('}', at);
+		return at == std::string::npos || start == std::string::npos || end == std::string::npos
+			? std::string() : text.substr(start, end - start + 1);
+	};
+	char err[256] = {}, id[32] = {}, early[32] = {}, leave[32] = {};
+	char tiny[] = "!";
+	const f32 half[] = {24.0f, 48.0f, 64.0f};
+	const f32 resized[] = {32.0f, 60.0f, 72.0f};
+	CHECK(forgeLevelDocLogicZoneCount(level.doc) == 0);
+	CHECK_FALSE(forgeLevelDocAddLogicZone(level.doc, "pad_0001", half, tiny, sizeof(tiny), err, sizeof(err)));
+	CHECK(std::string(tiny) == "!");
+	CHECK_FALSE(forgeLevelDocAddLogicZone(level.doc, "pad_9999", half, id, sizeof(id), err, sizeof(err)));
+	CHECK(level.text(graphMember) == originalGraph);
+	CHECK(level.text(volumesMember) == originalVolumes);
+	REQUIRE(forgeLevelDocAddLogicZone(level.doc, "pad_0001", half, id, sizeof(id), err, sizeof(err)));
+	CHECK(std::string(id) == "volume_pad_9999");
+	forge_level_logic_zone_t zone = {};
+	REQUIRE(forgeLevelDocGetLogicZone(level.doc, 0, &zone));
+	CHECK(std::string(zone.pad_ref) == "pad_0001");
+	CHECK_FALSE(zone.referenced);
+	CHECK(forgeLevelDocTriggerCount(level.doc) == 0);
+	CHECK(occurrences(level.text(graphMember), kVolumeNode) == occurrences(originalGraph, kVolumeNode) + 1);
+	CHECK(occurrences(level.text(graphMember), "\"input\": \"exec\"") == occurrences(originalGraph, "\"input\": \"exec\""));
+	CHECK(level.text(graphMember).find("event.volume.entered") == std::string::npos);
+	CHECK_FALSE(forgeLevelDocUpdateLogicZone(level.doc, id, "pad_0001", half, err, sizeof(err)));
+	CHECK_FALSE(err[0]);
+	REQUIRE(forgeLevelDocAddLogicZoneEvent(level.doc, id, FORGE_LEVEL_LOGIC_ZONE_ENTER, early, sizeof(early), err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddLogicZoneEvent(level.doc, id, FORGE_LEVEL_LOGIC_ZONE_LEAVE, leave, sizeof(leave), err, sizeof(err)));
+	CHECK(std::string(early) == std::string("grid.zone.") + id + ".enter");
+	CHECK(std::string(leave) == std::string("grid.zone.") + id + ".leave");
+	const std::string withEvents = level.text(graphMember);
+	CHECK_FALSE(forgeLevelDocAddLogicZoneEvent(level.doc, id, FORGE_LEVEL_LOGIC_ZONE_ENTER, nullptr, 0, err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocRemoveLogicZone(level.doc, id, err, sizeof(err)));
+	CHECK(level.text(graphMember) == withEvents);
+
+	char startId[32] = {};
+	const f32 startPos[] = {1000.0f, 50.0f, 0.0f};
+	REQUIRE(forgeLevelDocAddSpawn(level.doc, startPos, kFacing, "any", startId, sizeof(startId), err, sizeof(err)));
+	forge_level_spawn_t start = {};
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, forgeLevelDocSpawnCount(level.doc) - 1, &start));
+	const std::string primaryId = std::string("volume_") + start.pad_ref;
+	const std::string primary = volumeRow(level.text(volumesMember), primaryId);
+	REQUIRE_FALSE(primary.empty());
+	REQUIRE(forgeLevelDocUpdateLogicZone(level.doc, id, start.pad_ref, resized, err, sizeof(err)));
+	const std::string movedVolumes = level.text(volumesMember);
+	CHECK(volumeRow(movedVolumes, primaryId) == primary);
+	CHECK(movedVolumes.find(primary) < movedVolumes.find(volumeRow(movedVolumes, id)));
+	const f32 movedPos[] = {1100.0f, 50.0f, 0.0f};
+	REQUIRE(forgeLevelDocMoveSpawn(level.doc, startId, movedPos, kFacing, err, sizeof(err)));
+	forge_level_spawn_t moved = {};
+	REQUIRE(forgeLevelDocGetSpawn(level.doc, forgeLevelDocSpawnCount(level.doc) - 1, &moved));
+	CHECK(std::string(moved.pad_ref) != start.pad_ref);
+	REQUIRE(forgeLevelDocGetLogicZone(level.doc, 0, &zone));
+	CHECK(std::string(zone.pad_ref) == start.pad_ref);
+	REQUIRE(forgeLevelDocUpdateLogicZone(level.doc, id, "pad_0005", resized, err, sizeof(err)));
+	CHECK(volumeRow(level.text(volumesMember), id).find("\"room_ref\": \"room_2\"") != std::string::npos);
+	CHECK(volumeRow(level.text(volumesMember), "volume_pad_0001") == volumeRow(originalVolumes, "volume_pad_0001"));
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenario, &overrides, err, sizeof(err)));
+	const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+	struct Scratch {
+		fs::path root;
+		~Scratch() { std::error_code ignored; fs::remove_all(root, ignored); }
+	} scratch{fs::temp_directory_path() / ("pd2-grid-zone-" + std::to_string(stamp))};
+	fs::create_directories(scratch.root);
+	const std::string root = scratch.root.string();
+	mod_author_request_t request = {};
+	request.template_path = templatePath.c_str();
+	request.mods_root = root.c_str();
+	request.display_name = "Grid Zone";
+	request.overrides = overrides.entries;
+	request.override_count = overrides.count;
+	mod_author_result_t result = {};
+	REQUIRE(modAuthorSave(&request, &result, err, sizeof(err)) == MOD_AUTHOR_OK);
+	const auto saved = readSavedLevel(result.archive_path, scenario);
+	const std::string savedGraph = levelMember(saved.scenario, "level.graph.json");
+	Level reopened(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
+		levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
+		levelMember(saved.scenario, "setup.fields.json"), savedGraph);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc);
+	REQUIRE(forgeLevelDocGetLogicZone(reopened.doc, 0, &zone));
+	CHECK(std::string(zone.volume_id) == id);
+	CHECK(std::string(zone.pad_ref) == "pad_0005");
+	CHECK(std::equal(std::begin(zone.half_size), std::end(zone.half_size), resized));
+	CHECK(zone.referenced);
+	CHECK(reopened.text(volumesMember) == level.text(volumesMember));
+	std::unique_ptr<mission_graph_program_t, decltype(&missionGraphProgramFree)> program(
+		missionGraphProgramCompileLevel(savedGraph.data(), savedGraph.size(), missionGraphModuleKnown, err, sizeof(err)),
+		missionGraphProgramFree);
+	REQUIRE(program);
+	REQUIRE(missionGraphProgramVolumeCount(program.get()) == 1);
+	CHECK(std::string(missionGraphProgramVolumeAt(program.get(), 0)) == id);
+	CHECK(missionGraphProgramEventNodeCount(program.get(), MISSION_GRAPH_EVENT_VOLUME_ENTERED) == 1);
+	CHECK(missionGraphProgramEventNodeCount(program.get(), MISSION_GRAPH_EVENT_VOLUME_LEFT) == 1);
+	std::string noEvents = savedGraph;
+	const auto removeEvent = [&](const char *event, const char *kind) {
+		noEvents = replaced(noEvents, std::string(",\n    { \"id\": \"") + event + "\", \"kind\": \"" + kind
+			+ "\", \"volume\": \"" + id + "\" }", "");
+	};
+	removeEvent(early, "event.volume.entered");
+	removeEvent(leave, "event.volume.left");
+	REQUIRE(forgeLevelDocReplaceLogic(reopened.doc, noEvents.data(), noEvents.size(), err, sizeof(err)));
+	REQUIRE(forgeLevelDocGetLogicZone(reopened.doc, 0, &zone));
+	CHECK_FALSE(zone.referenced);
+	REQUIRE(forgeLevelDocRemoveLogicZone(reopened.doc, id, err, sizeof(err)));
+	CHECK(forgeLevelDocLogicZoneCount(reopened.doc) == 0);
+	CHECK(reopened.text(volumesMember).find(id) == std::string::npos);
+	CHECK(reopened.text(graphMember).find(id) == std::string::npos);
+}
+
+TEST_CASE("Grid edits native executable logic without replacing its level data", "[forge-level-doc][level][graph]")
+{
+	const auto templatePath = (fs::path(PD_SOURCE_DIR) / "dev-mods/grid_two_rooms/grid_two_rooms.pdarena").string();
+	const char *const scenario = "dependencies/assets/scenarios/scenario_grid_two_rooms.pdscenario";
+	const auto original = readSavedLevel(templatePath.c_str(), scenario);
+	Level level(levelMember(original.scenario, "pads.json"), levelMember(original.scenario, "spawns.json"),
+		levelMember(original.scenario, "objects.json"), levelMember(original.scenario, "volumes.json"),
+		levelMember(original.scenario, "setup.fields.json"), levelMember(original.scenario, "level.graph.json"));
+	INFO(level.error);
+	REQUIRE(level.doc);
+	char err[256] = {}, pickup[32] = {};
+	REQUIRE(forgeLevelDocAddObject(level.doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, kPlace, kFacing,
+		pickup, sizeof(pickup), err, sizeof(err)));
+	REQUIRE(forgeLevelDocSetPickupWeapon(level.doc, pickup, "base:dragon", "base:model_roofgun", 256, err, sizeof(err)));
+	const f32 halfSize[] = {25.0f, 40.0f, 60.0f};
+	REQUIRE(forgeLevelDocAddTrigger(level.doc, FORGE_LEVEL_TRIGGER_GIVE_PICKUP, "pad_0000", pickup, halfSize, err, sizeof(err)));
+	forge_level_trigger_t trigger = {};
+	REQUIRE(forgeLevelDocGetTrigger(level.doc, 0, &trigger));
+	const auto member = FORGE_LEVEL_MEMBER_LEVEL_GRAPH;
+	const std::string before = level.text(member);
+	const std::string volumes = level.text(FORGE_LEVEL_MEMBER_VOLUMES);
+	const std::string prefix = std::string("grid.trigger.") + trigger.volume_id;
+	const std::string oldEdge = "{ \"from\": \"" + prefix + ".enter\", \"to\": \"" + prefix + ".give\", \"input\": \"exec\" }";
+	const std::string newEdges = "{ \"from\": \"" + prefix + ".enter\", \"to\": \"grid.logic.carried\", \"input\": \"exec\" },\n"
+		"    { \"from\": \"grid.logic.carried\", \"to\": \"" + prefix + ".give\", \"input\": \"exec\", \"output\": \"pass\" }";
+	const std::string candidate = replaced(replaced(before, oldEdge, newEdges), "\"nodes\": [",
+		"\"nodes\": [\n    { \"id\": \"grid.logic.carried\", \"kind\": \"gate.player.has_item\", \"item\": \"base:falcon2\" },");
+	REQUIRE(candidate != before);
+	const auto replace = [&](const std::string &graph) {
+		return forgeLevelDocReplaceLogic(level.doc, graph.data(), graph.size(), err, sizeof(err));
+	};
+	CHECK_FALSE(replace(before));
+	CHECK_FALSE(err[0]);
+	for (const auto &bad : {
+			candidate + "{}",
+			replaced(candidate, "\"pads\": \"pads.json\"", "\"pads\": \"other.json\""),
+			replaced(candidate, "\"file\": \"scene.glb\"", "\"file\": \"other.glb\""),
+			replaced(candidate, "\"kind\": \"gate.pickup.native_rules\"", "\"kind\": \"gate.player.has_item\""),
+			replaced(candidate, "\"gate.player.has_item\"", "\"gate.does_not_exist\""),
+			replaced(candidate, "\"base:falcon2\"", "7"),
+			replaced(candidate, "\"volume\": \"" + std::string(trigger.volume_id) + "\" }",
+				"\"volume\": \"volume_missing\" }"),
+			replaced(candidate, newEdges, replaced(newEdges, "\"output\": \"pass\"", "\"output\": \"out\""))}) {
+		CAPTURE(bad.size());
+		CHECK_FALSE(replace(bad));
+		CHECK(err[0]);
+		CHECK(level.text(member) == before);
+		CHECK(forgeLevelDocTriggerCount(level.doc) == 1);
+	}
+	REQUIRE(replace(candidate));
+	CHECK(level.text(member) == candidate);
+	CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+	CHECK(forgeLevelDocTriggerCount(level.doc) == 0); // the condition belongs to Logic, not the fixed trigger editor
+	forge_level_logic_zone_t promoted = {};
+	REQUIRE(forgeLevelDocGetLogicZone(level.doc, 0, &promoted));
+	CHECK(std::string(promoted.volume_id) == trigger.volume_id);
+	CHECK(promoted.referenced);
+	CHECK_FALSE(replace(candidate));
+	CHECK_FALSE(err[0]);
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenario, &overrides, err, sizeof(err)));
+	const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+	struct Scratch {
+		fs::path root;
+		~Scratch() { std::error_code ignored; fs::remove_all(root, ignored); }
+	} scratch{fs::temp_directory_path() / ("pd2-grid-logic-" + std::to_string(stamp))};
+	fs::create_directories(scratch.root);
+	const std::string root = scratch.root.string();
+	mod_author_request_t request = {};
+	request.template_path = templatePath.c_str();
+	request.mods_root = root.c_str();
+	request.display_name = "Grid Logic";
+	request.overrides = overrides.entries;
+	request.override_count = overrides.count;
+	mod_author_result_t result = {};
+	REQUIRE(modAuthorSave(&request, &result, err, sizeof(err)) == MOD_AUTHOR_OK);
+	const auto saved = readSavedLevel(result.archive_path, scenario);
+	const std::string savedGraph = levelMember(saved.scenario, "level.graph.json");
+	Level reopened(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
+		levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
+		levelMember(saved.scenario, "setup.fields.json"), savedGraph);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc);
+	CHECK(forgeLevelDocTriggerCount(reopened.doc) == 0);
+	CHECK(reopened.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
+	std::unique_ptr<mission_graph_program_t, decltype(&missionGraphProgramFree)> program(
+		missionGraphProgramCompileLevel(savedGraph.data(), savedGraph.size(), missionGraphModuleKnown, err, sizeof(err)),
+		missionGraphProgramFree);
+	REQUIRE(program);
+	CHECK(missionGraphProgramHandlesEvent(program.get(), MISSION_GRAPH_EVENT_PICKUP_TOUCHED));
+	CHECK(missionGraphProgramHandlesEvent(program.get(), MISSION_GRAPH_EVENT_DOOR_USE));
+	CHECK(missionGraphProgramHandlesEvent(program.get(), MISSION_GRAPH_EVENT_DOOR_APPROACH));
+	struct Inventory {
+		bool hasWeapon;
+		std::string granted;
+	} inventory{false, {}};
+	const auto run = [](const char *kind, const char *, const mission_graph_params_t *params,
+			const mission_graph_event_t *, void *user) -> s32 {
+		auto &state = *static_cast<Inventory *>(user);
+		if (strcmp(kind, "gate.player.has_item") == 0) {
+			return state.hasWeapon && strcmp(missionGraphParamText(params, "item"), "base:falcon2") == 0;
+		}
+		if (strcmp(kind, "og.pickup.give") != 0) return 0;
+		state.granted = missionGraphParamText(params, "object");
+		return 1;
+	};
+	mission_graph_event_t entered = {};
+	entered.kind = MISSION_GRAPH_EVENT_VOLUME_ENTERED;
+	entered.volume = trigger.volume_id;
+	entered.player = 0;
+	entered.objective_index = -1;
+	CHECK(missionGraphProgramFire(program.get(), &entered, run, &inventory) == 0);
+	CHECK(inventory.granted.empty());
+	inventory.hasWeapon = true;
+	CHECK(missionGraphProgramFire(program.get(), &entered, run, &inventory) == 1);
+	CHECK(inventory.granted == pickup);
+	REQUIRE(replace(before));
+	CHECK(forgeLevelDocTriggerCount(level.doc) == 1);
+	CHECK(forgeLevelDocLogicZoneCount(level.doc) == 0);
+}
+
+TEST_CASE("Grid decorations save as independent native pass-through basic props", "[forge-level-doc][grid-decoration]")
+{
+	const auto templatePath = (fs::path(PD_SOURCE_DIR) / "dev-mods/blank_room/blank_room.pdarena").string();
+	const char *const scenario = "dependencies/assets/scenarios/scenario_blank_room.pdscenario";
+	const auto original = readSavedLevel(templatePath.c_str(), scenario);
+	Level level(levelMember(original.scenario, "pads.json"), levelMember(original.scenario, "spawns.json"),
+		levelMember(original.scenario, "objects.json"), levelMember(original.scenario, "volumes.json"),
+		levelMember(original.scenario, "setup.fields.json"), levelMember(original.scenario, "level.graph.json"));
+	INFO(level.error);
+	REQUIRE(level.doc != nullptr);
+	const char *const model = "base:model_crate2_cq";
+	char err[256] = {}, propId[32] = {}, decorationId[32] = {};
+	const f32 place[] = {100.0f, 175.0f, -200.0f};
+	const f32 facing[] = {0.0f, 0.0f, 1.0f};
+	REQUIRE(forgeLevelDocAddProp(level.doc, model, place, facing, propId, sizeof(propId), err, sizeof(err)));
+	REQUIRE(forgeLevelDocAddDecoration(level.doc, model, place, facing, decorationId, sizeof(decorationId), err, sizeof(err)));
+	CHECK_FALSE(forgeLevelDocIsDecoration(level.doc, propId));
+	CHECK_FALSE(forgeLevelDocIsDecoration(level.doc, "setup_9999"));
+	CHECK(forgeLevelDocIsDecoration(level.doc, decorationId));
+	const auto decoration = armouryFind(level.doc, decorationId);
+	CHECK(std::string(decoration.kind) == "prop");
+	CHECK(std::string(decoration.model_catalog_id) == model);
+	CHECK(std::string(decoration.weapon_catalog_id).empty());
+	forge_level_pad_t pose = {};
+	REQUIRE(forgeLevelDocGetDecorationPose(level.doc, decorationId, &pose));
+	CHECK(pose.position[1] == place[1]);
+	CHECK(pose.look[2] == facing[2]);
+	const auto pristinePads = level.text(FORGE_LEVEL_MEMBER_PADS);
+	const f32 moved[] = {150.0f, 180.0f, -230.0f};
+	CHECK_FALSE(forgeLevelDocMoveDecoration(level.doc, propId, moved, facing, err, sizeof(err)));
+	CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pristinePads);
+
+	constexpr u32 flags = OBJFLAG_INVINCIBLE | OBJFLAG_UNCOLLECTABLE | OBJFLAG_CANNOT_ACTIVATE | OBJFLAG_AISEETHROUGH;
+	constexpr u32 flags2 = OBJFLAG2_NOFALL | OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_SHOOTTHROUGH
+		| OBJFLAG2_IMMUNETOEXPLOSIONS | OBJFLAG2_THROWTHROUGH;
+	CHECK(forgeLevelDecorationFlagsMatch(flags, flags2, OBJFLAG3_WALKTHROUGH));
+	CHECK_FALSE(forgeLevelDecorationFlagsMatch(flags | OBJFLAG_FALL, flags2, OBJFLAG3_WALKTHROUGH));
+	CHECK_FALSE(forgeLevelDecorationFlagsMatch(flags, flags2 & ~OBJFLAG2_SHOOTTHROUGH, OBJFLAG3_WALKTHROUGH));
+	CHECK_FALSE(forgeLevelDecorationFlagsMatch(flags, flags2, OBJFLAG3_WALKTHROUGH | OBJFLAG3_INTERACTABLE));
+
+	forge_level_overrides_t overrides = {};
+	REQUIRE(forgeLevelDocOverrides(level.doc, scenario, &overrides, err, sizeof(err)));
+	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	struct Scratch {
+		fs::path root;
+		~Scratch() { std::error_code error; fs::remove_all(root, error); }
+	} scratch{fs::temp_directory_path() / ("pd2-grid-decoration-" + std::to_string(stamp))};
+	REQUIRE(fs::create_directory(scratch.root));
+	const std::string root = scratch.root.string();
+	mod_author_request_t request = {};
+	request.template_path = templatePath.c_str();
+	request.mods_root = root.c_str();
+	request.display_name = "Grid Decoration";
+	request.tool = "pd-tests";
+	request.overrides = overrides.entries;
+	request.override_count = overrides.count;
+	mod_author_result_t result = {};
+	const s32 status = modAuthorSave(&request, &result, err, sizeof(err));
+	INFO(err);
+	REQUIRE(status == MOD_AUTHOR_OK);
+	const auto saved = readSavedLevel(result.archive_path, scenario);
+	const auto pads = levelMember(saved.scenario, "pads.json");
+	const auto spawns = levelMember(saved.scenario, "spawns.json");
+	const auto objects = levelMember(saved.scenario, "objects.json");
+	const auto volumes = levelMember(saved.scenario, "volumes.json");
+	const auto fields = levelMember(saved.scenario, "setup.fields.json");
+	const auto graph = levelMember(saved.scenario, "level.graph.json");
+	CHECK(objects.find("\"flags\": \"0x06120000\",\n      \"flags2\": \"0x0220c100\",\n"
+		"      \"flags3\": \"0x00000400\"") != std::string::npos);
+	CHECK(fields.find(fieldRow(decorationId, "prop", "base.flags", "u32_hex", "0x06120000")) != std::string::npos);
+	CHECK(fields.find(fieldRow(decorationId, "prop", "base.flags2", "u32_hex", "0x0220c100")) != std::string::npos);
+	CHECK(fields.find(fieldRow(decorationId, "prop", "base.flags3", "u32_hex", "0x00000400")) != std::string::npos);
+	CHECK(graph.find(decorationId) == std::string::npos);
+	Level reopened(pads, spawns, objects, volumes, fields, graph);
+	INFO(reopened.error);
+	REQUIRE(reopened.doc != nullptr);
+	CHECK_FALSE(forgeLevelDocIsDecoration(reopened.doc, propId));
+	REQUIRE(forgeLevelDocIsDecoration(reopened.doc, decorationId));
+	REQUIRE(forgeLevelDocGetDecorationPose(reopened.doc, decorationId, &pose));
+	CHECK(pose.position[1] == place[1]);
+	REQUIRE(forgeLevelDocMoveDecoration(reopened.doc, decorationId, moved, facing, err, sizeof(err)));
+	REQUIRE(forgeLevelDocGetDecorationPose(reopened.doc, decorationId, &pose));
+	CHECK(pose.position[0] == moved[0]);
+	CHECK(pose.position[1] == moved[1]);
+	CHECK(std::string(armouryFind(reopened.doc, decorationId).record_id) == decorationId);
+
+	Level committed(pads, spawns, objects, volumes, fields, graph);
+	Level replay(pads, spawns, objects, volumes, fields, graph);
+	REQUIRE(committed.doc != nullptr);
+	REQUIRE(replay.doc != nullptr);
+	const f32 firstLiveMove[] = {125.0f, place[1], -215.0f};
+	const f32 lastLiveMove[] = {moved[0], place[1], moved[2]};
+	REQUIRE(forgeLevelDocMoveDecoration(committed.doc, decorationId, firstLiveMove, facing, err, sizeof(err)));
+	REQUIRE(forgeLevelDocMoveDecoration(committed.doc, decorationId, lastLiveMove, facing, err, sizeof(err)));
+	REQUIRE(forgeLevelDocMoveDecoration(replay.doc, decorationId, lastLiveMove, facing, err, sizeof(err)));
+	CHECK(committed.text(FORGE_LEVEL_MEMBER_PADS) != pads);
+	CHECK(committed.text(FORGE_LEVEL_MEMBER_VOLUMES) != volumes);
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_PADS) == committed.text(FORGE_LEVEL_MEMBER_PADS));
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_VOLUMES) == committed.text(FORGE_LEVEL_MEMBER_VOLUMES));
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
+	CHECK(replay.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+
+	const auto linkedFields = replaced(fields, fieldRow(decorationId, "prop", "base.flags3", "u32_hex", "0x00000400"),
+		fieldRow(decorationId, "prop", "base.flags3", "u32_hex", "0x00000400", propId));
+	Level linked(pads, spawns, objects, volumes, linkedFields, graph);
+	INFO(linked.error);
+	REQUIRE(linked.doc != nullptr);
+	CHECK_FALSE(forgeLevelDocIsDecoration(linked.doc, decorationId));
+	CHECK_FALSE(forgeLevelDocGetDecorationPose(linked.doc, decorationId, &pose));
+}
+
 TEST_CASE("The Blank Room, a level that holds nothing of the original game, is edited and saved as a level",
           "[forge-level-doc]")
 {
@@ -2529,9 +4588,11 @@ TEST_CASE("The Blank Room, a level that holds nothing of the original game, is e
 	const f32 facing[3] = { 0.0f, 0.0f, 1.0f };
 	REQUIRE(forgeLevelDocAddSpawn(level.doc, place, facing, nullptr, id, sizeof(id), err, sizeof(err)) == 1);
 	CHECK(std::string(id) == "spawn_0008");
+	REQUIRE(forgeLevelDocSetCaseHome(level.doc, 0, "pad_0000", err, sizeof(err)) == 1);
+	REQUIRE(forgeLevelDocAddCaseRespawn(level.doc, 0, "pad_0008", err, sizeof(err)) == 1);
 	forge_level_overrides_t overrides;
 	REQUIRE(forgeLevelDocOverrides(level.doc, scenarioMember, &overrides, err, sizeof(err)) == 1);
-	REQUIRE(overrides.count == 4);   /* pads, spawns, bounds, graph */
+	REQUIRE(overrides.count == 5);   /* pads, spawns, bounds, graph, intro */
 
 	const auto stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	const fs::path root = fs::temp_directory_path() / ("pd2-forge-blank-" + std::to_string(stamp));
@@ -2565,14 +4626,23 @@ TEST_CASE("The Blank Room, a level that holds nothing of the original game, is e
 	CHECK(levelSha(levelMember(saved.scenario, "scene.glb")) == levelSha(levelMember(room.scenario, "scene.glb")));
 	CHECK(levelSha(levelMember(saved.scenario, "collision.obj")) ==
 		levelSha(levelMember(room.scenario, "collision.obj")));
+	const std::string savedIntro = levelMember(saved.scenario, "intro.json");
+	CHECK(savedIntro == level.text(FORGE_LEVEL_MEMBER_INTRO));
+	scenario_intro_t compiled = {};
+	REQUIRE(scenarioIntroParse(savedIntro.data(), savedIntro.size(), nullptr, &compiled, err, sizeof(err)) == 1);
+	const std::vector<s32> expected = { INTROCMD_CASE, 0, 0, INTROCMD_CASERESPAWN, 0, 8 };
+	CHECK(std::vector<s32>(compiled.words, compiled.words + compiled.word_count) == expected);
+	scenarioIntroFree(&compiled);
 	{
 		Level again(levelMember(saved.scenario, "pads.json"), levelMember(saved.scenario, "spawns.json"),
 			levelMember(saved.scenario, "objects.json"), levelMember(saved.scenario, "volumes.json"),
-			levelMember(saved.scenario, "setup.fields.json"), savedGraph);
+			levelMember(saved.scenario, "setup.fields.json"), savedGraph, savedIntro);
 		INFO(again.error);
 		REQUIRE(again.doc != nullptr);
 		CHECK(forgeLevelDocPadCount(again.doc) == 9);
 		CHECK(forgeLevelDocSpawnCount(again.doc) == 9);
+		CHECK(forgeLevelDocCaseMarkerCount(again.doc) == 2);
+		CHECK(forgeLevelDocMemberChanged(again.doc, FORGE_LEVEL_MEMBER_INTRO) == 0);
 	}
 
 	/* The saved level goes to the archive validator in CI: it names no asset
@@ -2652,15 +4722,30 @@ TEST_CASE("Every base level is read and written back unchanged (local, needs PD2
 			}
 			/* Read with the level's own graph: a base level that the document
 			 * refused here would be one whose graph and bounds rows differ. */
-			Level level(pads, spawns, objects, volumes, fields, graph);
+			const std::string intro = levelMember(scenario, "intro.json");
+			const std::string covers = levelMember(scenario, "navigation/covers.json");
+			Level level(pads, spawns, objects, volumes, fields, graph, intro, "", covers);
 			INFO(entry.path().string() << ": " << level.error);
 			REQUIRE(level.doc != nullptr);
+			const std::string portals = levelMember(scenario, "portals.json");
+			scenario_source_portal_row_t *portalRows = nullptr;
+			s32 portalCount = 0;
+			char portalError[200] = {};
+			const s32 parsedPortals = scenarioPortalSourceRead(portals.data(), portals.size(),
+				&portalRows, &portalCount, portalError, sizeof(portalError));
+			std::unique_ptr<scenario_source_portal_row_t, decltype(&std::free)> ownedRows(portalRows, std::free);
+			INFO(portalError);
+			REQUIRE(parsedPortals);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_PADS) == pads);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SPAWNS) == spawns);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_OBJECTS) == objects);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_VOLUMES) == volumes);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_SETUP_FIELDS) == fields);
 			CHECK(level.text(FORGE_LEVEL_MEMBER_LEVEL_GRAPH) == graph);
+			CHECK(level.text(FORGE_LEVEL_MEMBER_COVERS) == covers);
+			if (!intro.empty()) {
+				CHECK(level.text(FORGE_LEVEL_MEMBER_INTRO) == intro);
+			}
 			/* Every pad of a base level has its bounds row. */
 			CHECK(forgeLevelDocVolumeCount(level.doc) == forgeLevelDocPadCount(level.doc));
 			const size_t volumeNodes = occurrences(graph, kVolumeNode);

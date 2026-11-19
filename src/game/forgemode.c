@@ -20,14 +20,19 @@
 #include "game/forgemode.h"
 
 #include <math.h>
+#include <string.h>
 
 #include "PR/ultratypes.h"
 
 #include "forge/forge_runtime.h"
+#include "forge_level_io.h"
+#include "forge_level_live.h"
 
 #include "bss.h"
 #include "constants.h"
+#include "config.h"
 #include "data.h"
+#include "platform.h"
 #include "types.h"
 
 #include "system.h"
@@ -64,6 +69,28 @@
 
 #define FORGE_DEG2RAD                 0.017453292519943f
 #define FORGE_RAD2DEG                 57.295779513082320f
+
+#define FORGE_DEFAULT_DISPLAY_NAME "The Grid"
+static char s_ForgeDisplayName[FORGE_DISPLAY_NAME_CAP] = FORGE_DEFAULT_DISPLAY_NAME;
+
+PD_CONSTRUCTOR static void forgeRegisterConfig(void)
+{
+	configRegisterString("Forge.DisplayName", s_ForgeDisplayName, sizeof(s_ForgeDisplayName));
+}
+
+const char *forgeDisplayName(void)
+{
+	/* Keep ImGui label delimiters and nonprinting bytes out of a display name. */
+	if (!s_ForgeDisplayName[0] || strstr(s_ForgeDisplayName, "##")) {
+		return FORGE_DEFAULT_DISPLAY_NAME;
+	}
+	for (const unsigned char *c = (const unsigned char *)s_ForgeDisplayName; *c; c++) {
+		if (*c < ' ' || *c == 127) {
+			return FORGE_DEFAULT_DISPLAY_NAME;
+		}
+	}
+	return s_ForgeDisplayName;
+}
 
 /* ============================================================
  * Module state
@@ -617,13 +644,14 @@ static void forgeObserverLayerExit(const char *reason)
 static void forgeTransitionToNormal(const char *reason)
 {
 	struct player *p = forgeCurrentPlayer();
+	const s32 draft_playing = forgeLevelDraftIsPlaying();
 	if (p) {
 		forgeRestorePlayerMode(p);
 	}
-	forgeObserverLayerEnter(reason);
+	if (!draft_playing) forgeObserverLayerEnter(reason);
 	if (s_forge.state != FORGE_SESSION_NORMAL) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> NORMAL (%s)", reason ? reason : "");
-		forgeRuntimeEnterPlay();
+		forgeRuntimeEnterPlay(!draft_playing);
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
 
@@ -675,6 +703,9 @@ static void forgeTransitionToNormal(const char *reason)
 	if (inputCtxIsActive(&g_CtxForgeEditor)) {
 		inputCtxPopDeferred(&g_CtxForgeEditor);
 	}
+	/* A native draft reload starts gameplay. Keep the session's mapped
+	 * return action while leaving gameplay as the active scene layer. */
+	if (draft_playing) forgeObserverLayerExit(reason);
 }
 
 static void forgeTransitionToFreefly(const char *reason)
@@ -813,6 +844,47 @@ static void forgeTransitionToInactive(const char *reason)
 	{
 		extern s32 g_BotUpdatesDisabled;
 		g_BotUpdatesDisabled = 0;
+	}
+}
+
+static struct {
+	struct coord pos;
+	f32 yaw;
+	f32 pitch;
+} s_DraftCamera;
+
+void forgePrepareStageDeparture(s32 draft_reload)
+{
+	if (!forgeSessionIsActive()) {
+		forgeRuntimeReleaseStage();
+		return;
+	}
+	if (forgeIsFreefly()) {
+		if (draft_reload) {
+			s_DraftCamera.pos = s_forge.fly.pos;
+			s_DraftCamera.yaw = s_forge.fly.yaw_deg;
+			s_DraftCamera.pitch = s_forge.fly.pitch_deg;
+		}
+		forgeLevelLiveTick(0);
+	}
+	const s32 enter = s_forge.request_enter_session;
+	const s32 canvas = s_forge.request_canvas_mode;
+	forgeTransitionToInactive(draft_reload ? "draft stage reload" : "stage departure");
+	s_forge.request_enter_session = enter;
+	s_forge.request_canvas_mode = canvas;
+	forgeRuntimeReleaseStage();
+}
+
+void forgeCompleteDraftStageReload(s32 play)
+{
+	imcActivate(&g_ImcForgeSession);
+	if (play) {
+		forgeTransitionToNormal("native draft playtest");
+	} else {
+		forgeTransitionToFreefly("return from draft playtest");
+		s_forge.fly.pos = s_DraftCamera.pos;
+		s_forge.fly.yaw_deg = s_DraftCamera.yaw;
+		s_forge.fly.pitch_deg = s_DraftCamera.pitch;
 	}
 }
 
@@ -1158,7 +1230,8 @@ void forgeTick(void)
 	/* In-session: handle the toggle binding (single tap). */
 	if (actionPressed(0, ACTION_FORGE_TOGGLE)) {
 		if (s_forge.state == FORGE_SESSION_NORMAL) {
-			forgeTransitionToFreefly("toggle press");
+			if (forgeLevelDraftIsPlaying()) forgeLevelDraftReturn();
+			else forgeTransitionToFreefly("toggle press");
 		} else if (s_forge.state == FORGE_SESSION_FREEFLY) {
 			forgeTransitionToNormal("toggle press");
 		}

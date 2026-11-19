@@ -73,6 +73,8 @@ struct head_data;
  * callers must retire live source changes before installing replacements. */
 s32 loaderPoolInstallPublicBody(const struct body_data *body);
 s32 loaderPoolInstallPublicHead(const struct head_data *head);
+/* With commit=0, verify the exact native custom row without clearing it. */
+s32 loaderPoolRetirePublicBodyHead(s32 is_head, const char *id, s32 slot, s32 commit);
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len);
 
 /* Per-asset .pdanim parser. Used by loader_walker_anim.c for public

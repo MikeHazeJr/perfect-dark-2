@@ -216,6 +216,7 @@ typedef struct asset_entry {
     s32  enabled;                      /* bool: user toggle (s32, not stdbool) */
     s32  temporary;                    /* bool: session-only download */
     s32  bundled;                      /* bool: shipped with game */
+    u8   grid_offer_only;              /* authored Grid source requires an exact match offer */
 
     /* Runtime binding */
     s32  runtime_index;                /* index in relevant runtime array */

@@ -475,6 +475,18 @@ void catalogManagerRegisterHead(const char *id, const head_data_t *data)
 		id, headnum);
 }
 
+s32 catalogManagerRetireCustomHead(const char *id, s32 headnum, s32 commit)
+{
+	if (!id || !id[0] || headnum < CATALOG_MGR_HEAD_CUSTOM_START
+			|| headnum >= CATALOG_MGR_HEAD_CUSTOM_END) return 0;
+	if (!s_HeadsInited) return 1;
+	const head_data_t *entry = &s_Heads[headnum];
+	if (entry->modeldef || (entry->catalog_id[0]
+			? strcmp(entry->catalog_id, id) != 0 : entry->filenum != 0)) return 0;
+	if (commit) s_populateFromAuthored(headnum);
+	return 1;
+}
+
 void catalogManagerUnregisterHead(const char *id)
 {
 	const asset_entry_t *e;

@@ -28,6 +28,8 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	}
 	if (strcmp(name, "network_declined_lobby") == 0)
 		return SMOKE_READINESS_NETWORK_DECLINED_LOBBY;
+	if (strcmp(name, "grid_consent_ready") == 0)
+		return SMOKE_READINESS_GRID_CONSENT_READY;
 	if (strcmp(name, "network_stage_live") == 0) {
 		return SMOKE_READINESS_NETWORK_STAGE_LIVE;
 	}
@@ -87,6 +89,8 @@ const char *smokeReadinessConditionName(
 		return "network_lobby_ready";
 	case SMOKE_READINESS_NETWORK_DECLINED_LOBBY:
 		return "network_declined_lobby";
+	case SMOKE_READINESS_GRID_CONSENT_READY:
+		return "grid_consent_ready";
 	case SMOKE_READINESS_NETWORK_STAGE_LIVE:
 		return "network_stage_live";
 	case SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE:
@@ -215,6 +219,11 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 	case SMOKE_READINESS_NETWORK_DECLINED_LOBBY:
 		return facts->boot_complete && facts->network_active
 			&& facts->local_client_in_lobby && facts->manifest_declined;
+	case SMOKE_READINESS_GRID_CONSENT_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->grid_consent_preparing && facts->grid_consent_pending
+			&& facts->menu_input_top && facts->menu_keyboard_ready
+			&& facts->grid_consent_accept_focused;
 	case SMOKE_READINESS_NETWORK_STAGE_LIVE:
 		return stage_live;
 	case SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE:

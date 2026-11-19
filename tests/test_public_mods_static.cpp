@@ -356,7 +356,25 @@ TEST_CASE("The scenario inside a mod level gets a catalog row of its own",
 	REQUIRE(type < same);
 	REQUIRE(same < qualify);
 	REQUIRE(qualify < reg);
-	REQUIRE(scanner.find("|| !cut || assetCatalogResolve(scenario_id)) {", fn) < fn_end);
+	const size_t provenance = scanner.find("const s32 grid_offer_only = arena->grid_offer_only;", fn);
+	const size_t chain_guard = scanner.find("|| !cut) {", own);
+	const size_t existing = scanner.find("if (assetCatalogResolve(scenario_id)) {", chain_guard);
+	const size_t existing_row = scanner.find("row = assetCatalogGetMutable(scenario_id);", existing);
+	const size_t existing_type = scanner.find("if (row && row->type == ASSET_SCENARIO", existing_row);
+	const size_t existing_owner = scanner.find("strncmp(row->descriptor_path, chain, len) == 0", existing_type);
+	const size_t existing_boundary = scanner.find(
+		"row->descriptor_path[len] == ':' && row->descriptor_path[len + 1] == ':'", existing_owner);
+	const size_t existing_provenance = scanner.find("row->grid_offer_only = grid_offer_only;", existing_boundary);
+	const size_t existing_skip = scanner.find("return 0;", existing_provenance);
+	const size_t new_type = scanner.find("if (!row || row->type != ASSET_SCENARIO) {", reg);
+	const size_t new_provenance = scanner.find("row->grid_offer_only = grid_offer_only;", new_type);
+	for (const size_t at : { provenance, chain_guard, existing, existing_row, existing_type, existing_owner,
+			existing_boundary, existing_provenance, existing_skip, new_type, new_provenance }) {
+		REQUIRE(at < fn_end);
+	}
+	REQUIRE(provenance < own);
+	REQUIRE(existing_skip < load);
+	REQUIRE(new_type < new_provenance);
 	REQUIRE(scanner.find("PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s", fn) < fn_end);
 
 	const size_t file_site = scanner.find("if (ini_type == ASSET_ARENA) {", fn_end);

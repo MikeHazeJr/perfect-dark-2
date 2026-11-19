@@ -1775,7 +1775,7 @@ static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
     { BG_VEHICLE_TURRET, "Vehicle Turret",  "The gunner's seat of a two-seat vehicle: aim, fire, zoom, exit." },
     { BG_CBUTTONS,       "C-Buttons",       "Legacy C-stick directions (GEX / Dark Noon)." },
     { BG_DPAD,           "D-Pad",           "Directional pad. Doubles as radial." },
-    { BG_FORGE_SESSION,  "Forge Session",   "Active for the entire Grid session." },
+    { BG_FORGE_SESSION,  "Session",   "Active while editing or playtesting." },
     { BG_FORGE_EDITOR,   "Forge Editor",    "Active in Freefly only." },
     { BG_SKIN_EDITOR,    "Skin Editor",     "Brush, tool, view, undo/redo, and save commands." },
     { BG_OBSERVER,       "Observer",        "Spectator overlay and freefly camera controls." },
@@ -1884,7 +1884,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
 
     /* --- Forge Session (entire Grid session) --- */
-    { ACTION_FORGE_TOGGLE,        "Mode Toggle (Forge / Playtest)", BG_FORGE_SESSION, "Enter or leave Freefly. Active for the entire Grid session.",                              &g_ImcForgeSession },
+    { ACTION_FORGE_TOGGLE,        "Switch Edit / Playtest", BG_FORGE_SESSION, "Switch between the free-fly editor and first-person playtest.",                                   &g_ImcForgeSession },
 
     /* --- Forge Editor (Freefly only) --- */
     { ACTION_FORGE_ASCEND,        "Camera Ascend",      BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
@@ -2045,8 +2045,8 @@ static const ImcTabDesc s_ImcTabs[] = {
         s_ResetImcsVehicle, 2,
     },
     {
-        "The Grid",
-        "Forge level editor. Session toggle plus Freefly-only camera and editor bindings.",
+        nullptr,
+        "Level editor and playtest toggle, plus free-fly camera and editing controls.",
         (1u << BG_FORGE_SESSION) | (1u << BG_FORGE_EDITOR),
         s_ResetImcsGrid, 2,
     },
@@ -2070,6 +2070,11 @@ static const ImcTabDesc s_ImcTabs[] = {
     },
 };
 #define NUM_IMC_TABS (sizeof(s_ImcTabs) / sizeof(s_ImcTabs[0]))
+
+static const char *imcTabName(const ImcTabDesc *tab)
+{
+    return tab->label ? tab->label : forgeDisplayName();
+}
 
 /* Format a row's display name with optional hold-threshold suffix. The
  * SCORECARD_HOLD row reads its threshold live from
@@ -3214,14 +3219,14 @@ static void renderControlsKbmInner(const ImcTabDesc *tab)
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Key bindings -- %s", tab->label);
+    ImGui::TextDisabled("Key bindings -- %s", imcTabName(tab));
     ImGui::Separator();
 
     renderBindTable(0, "##mkb_binds", tab->shownGroups);
 
     ImGui::Spacing();
     char btnLabel[96];
-    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Keyboard & Mouse to Defaults", tab->label);
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Keyboard & Mouse to Defaults", imcTabName(tab));
     if (PdButton(btnLabel)) {
         resetTabDeviceToDefaults(tab, 0);
     }
@@ -3240,7 +3245,7 @@ static void renderControlsControllerInner(float scale, const ImcTabDesc *tab)
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Controller map -- %s", tab->label);
+    ImGui::TextDisabled("Controller map -- %s", imcTabName(tab));
     ImGui::Separator();
     ImGui::TextDisabled(
         "Gamepad: use the binding table below to rebind with the controller. Drag and drop on the visual "
@@ -3255,14 +3260,14 @@ static void renderControlsControllerInner(float scale, const ImcTabDesc *tab)
 
     ImGui::Spacing();
     ImGui::Spacing();
-    ImGui::TextDisabled("Button bindings -- %s", tab->label);
+    ImGui::TextDisabled("Button bindings -- %s", imcTabName(tab));
     ImGui::Separator();
 
     renderBindTable(1, "##ctrl_binds", tab->shownGroups);
 
     ImGui::Spacing();
     char btnLabel[96];
-    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Controller to Defaults", tab->label);
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Controller to Defaults", imcTabName(tab));
     if (PdButton(btnLabel)) {
         resetTabDeviceToDefaults(tab, 1);
     }
@@ -3834,10 +3839,15 @@ static void renderInputBindingsSection(float scale)
     const ImcTabDesc *tab = &s_ImcTabs[s_InputSchemeIndex];
 
     ImGui::SetNextItemWidth(pdguiScale(240.0f));
-    if (ImGui::BeginCombo("Scheme", tab->label)) {
+    if (ImGui::BeginCombo("Scheme", imcTabName(tab))) {
         for (s32 i = 0; i < (s32)NUM_IMC_TABS; i++) {
             bool selected = (s_InputSchemeIndex == i);
-            if (ImGui::Selectable(s_ImcTabs[i].label, selected)) {
+            const ImcTabDesc *item = &s_ImcTabs[i];
+            char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###imc_grid")];
+            if (!item->label) {
+                snprintf(gridLabel, sizeof(gridLabel), "%s###imc_grid", forgeDisplayName());
+            }
+            if (ImGui::Selectable(item->label ? item->label : gridLabel, selected)) {
                 if (s_InputSchemeIndex != i) {
                     inputUiCancelCapture();
                 }
@@ -4656,7 +4666,9 @@ static void renderSettingsDebug(float scale)
         static int s_TestScenChoice = 1; /* default to CPU Bots; first-run friendly for benchmark */
         ImGui::Text("Mode:");
         ImGui::SameLine();
-        ImGui::RadioButton("The Grid##testscen_mode", &s_TestScenChoice, 0);
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###testscen_mode")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###testscen_mode", forgeDisplayName());
+        ImGui::RadioButton(gridLabel, &s_TestScenChoice, 0);
         ImGui::SameLine();
         ImGui::RadioButton("CPU Bots##testscen_mode", &s_TestScenChoice, 1);
         ImGui::SameLine();
@@ -5968,10 +5980,7 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
         gridArenaListBuild();
     }
 
-    ImGui::TextWrapped(
-        "The Grid is a live-bot-test and edit facility.  Pick a base map, "
-        "configure the variant (gametype + rules), then Enter The Grid to "
-        "spin up the session.");
+    ImGui::TextWrapped("Choose a level and match rules for editing and bot playtest.");
     ImGui::Spacing();
 
     /* ----------------------------------------------------------------
@@ -6059,7 +6068,9 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
 
     const bool canEnter = (s_GridArenaCount > 0);
     if (!canEnter) ImGui::BeginDisabled();
-    if (PdButton("Enter The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
+    char enterLabel[FORGE_DISPLAY_NAME_CAP + sizeof("Enter ###grid_enter")];
+    snprintf(enterLabel, sizeof(enterLabel), "Enter %s###grid_enter", forgeDisplayName());
+    if (PdButton(enterLabel, ImVec2(buttonW, buttonH * 1.2f))) {
         if (menuGraphFireSceneOp(MENU_TYPE_GRID_SUBMENU, "enter",
                                  pdguiMainMenuGraphEnterGrid, NULL) == 0) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -6212,7 +6223,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
     else if (s_MenuView == 5) windowTitle = "Player Statistics";
-    else if (s_MenuView == 6) windowTitle = "The Grid";
+    else if (s_MenuView == 6) windowTitle = forgeDisplayName();
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -6403,7 +6414,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * "The Grid" is the unified user-facing facility (Forge and
          * Playtest are modes inside it).  Priority 2 will wire the
          * in-session Halo-Back-style mode toggle. */
-        if (PdButton("The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###grid")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###grid", forgeDisplayName());
+        if (PdButton(gridLabel, ImVec2(buttonW, buttonH * 1.2f))) {
             if (pdguiMainMenuFireSubviewEdge("grid", 6, "open-grid") == 0) {
                 sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
             }

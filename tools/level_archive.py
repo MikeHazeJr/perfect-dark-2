@@ -101,13 +101,17 @@ def pad4(data: bytes, fill: bytes = b"\x00") -> bytes:
 # Collision
 # ---------------------------------------------------------------------------
 
-def collision_obj(collision, comment: str) -> str:
+def collision_obj(collision, comment: str, collision_rooms=()) -> str:
     """`collision` is a list of (triangle, kind), kind "floor" or anything
-    else for a wall. One room, named before the first vertex; no other o or g
-    line, no mtllib. Every triangle is in room 1: a triangle in room 0
-    overruns the game's tile buffer."""
-    lines = ["# " + comment, "o room_1"]
+    else for a wall. Each room's group comes before its first vertex.
+    Room 0 is reserved."""
+    lines = ["# " + comment]
+    active_room = 0
     for index, (triangle, _kind) in enumerate(collision):
+        room = collision_rooms[index] if collision_rooms else 1
+        if room != active_room:
+            lines.append("o room_%d" % room)
+            active_room = room
         for point in triangle:
             lines.append("v %s %s %s" % (number(point[0]), number(point[1]), number(point[2])))
         base = index * 3
@@ -220,19 +224,23 @@ def rows_table(schema: str, rows: list[str]) -> str:
     return '{\n  "schema": "%s",\n  "rows": [\n%s\n  ]\n}\n' % (schema, ",\n".join(rows))
 
 
-def pads_json(places) -> str:
+def room_for_position(position, rooms) -> int:
+    matches = [index for index, (_origin, low, high) in enumerate(rooms, 1)
+               if all(low[axis] < position[axis] < high[axis] for axis in range(3))]
+    require(len(matches) == 1, "pad must be strictly inside one room: %s" % (position,))
+    return matches[0]
+
+
+def pads_json(places, rooms) -> str:
     """`places` is a list of (position, look), one pad and start each."""
     rows = []
     for index, (position, look) in enumerate(places):
-        # room_1 is written out, so a start's room does not depend on the room
-        # boxes. A pad Forge adds leaves it empty, as base pads do, and the
-        # game then finds the room from rooms.json's box. Flags 0: the game
-        # strips a base pad's alignment bits anyway.
-        rows.append('    { "pad_ref": "pad_%04d", "room_ref": "room_1", "liftnum": 0, "flags": "0x00000", '
+        room = room_for_position(position, rooms)
+        rows.append('    { "pad_ref": "pad_%04d", "room_ref": "room_%d", "liftnum": 0, "flags": "0x00000", '
                     '"position": %s, "up": [0.000000, 1.000000, 0.000000], "look": %s, '
                     '"bbox": { "min": [-100.000000, -100.000000, -100.000000], '
                     '"max": [100.000000, 100.000000, 100.000000] } }'
-                    % (index, vector(position), vector(look)))
+                    % (index, room, vector(position), vector(look)))
     return rows_table("pd2.scenario.pads.v1", rows)
 
 
@@ -259,12 +267,12 @@ def paths_json(places) -> str:
     return rows_table("pd2.scenario.paths.v1", ['    { "path_ref": "path_0000", "flags": 1, "pads": [%s] }' % pads])
 
 
-def rooms_json(origin, low, high) -> str:
-    # The room's box, written out so that a pad with no room of its own is
-    # found inside it whatever the collision triangles are.
+def rooms_json(rooms) -> str:
+    # Native bounds locate a pad with no explicit room.
     return rows_table("pd2.scenario.rooms.v1", [
-        '    { "room": "room_1", "roomnum": 1, "origin": %s, "min": %s, "max": %s, "brightness": [128, 255] }'
-        % (vector(origin), vector(low), vector(high))])
+        '    { "room": "room_%d", "roomnum": %d, "origin": %s, "min": %s, "max": %s, "brightness": [128, 255] }'
+        % (index, index, vector(origin), vector(low), vector(high))
+        for index, (origin, low, high) in enumerate(rooms, 1)])
 
 
 # The list every base multiplayer arena has: it starts the match's simulants
@@ -314,14 +322,14 @@ NAVIGATION_INI = (
 )
 
 
-def scenario_ini(scenario_id: str, display_name: str, comment: str) -> str:
+def scenario_ini(scenario_id: str, display_name: str, comment: str, room_count: int) -> str:
     return (
         "; " + comment + "\n"
         "[scenario]\n"
         "catalog_id = " + scenario_id + "\n"
         "name = " + display_name + "\n"
         "mode = mp\n"
-        "source_room_count = 2\n"
+        "source_room_count = %d\n" % room_count +
         "scene_file = scene.glb\n"
         "scene_format = GLB\n"
         "runtime_source_file = scene.glb\n"
@@ -346,20 +354,20 @@ def scenario_ini(scenario_id: str, display_name: str, comment: str) -> str:
     )
 
 
-def scenario_manifest(scenario_id: str) -> str:
+def scenario_manifest(scenario_id: str, room_count: int, portal_count: int) -> str:
     return (
         "{\n"
         '  "pd_kind": "scenario",\n'
         '  "pd_schema_version": 1,\n'
         '  "id": "' + scenario_id + '",\n'
-        '  "room_count": 2,\n'
+        '  "room_count": %d,\n' % room_count +
         '  "scene": "scene.glb",\n'
         '  "scene_format": "GLB",\n'
         '  "runtime_source": "scene.glb",\n'
         '  "collision_source": "collision.obj",\n'
         '  "collision_fallback": "override",\n'
         '  "portals": "portals.json",\n'
-        '  "portal_count": 0,\n'
+        '  "portal_count": %d,\n' % portal_count +
         '  "navigation": "navigation.ini",\n'
         '  "level_graph": "level.graph.json",\n'
         '  "pads": "pads.json",\n'
@@ -435,7 +443,8 @@ def line_object(fields: dict) -> str:
     return "    { " + ", ".join('"%s": %s' % (key, json.dumps(value)) for key, value in fields.items()) + " }"
 
 
-def level_graph(example: dict, places, triangle_count: int, scenario_id: str) -> str:
+def level_graph(example: dict, places, triangle_count: int, scenario_id: str,
+                room_count: int, portal_count: int) -> str:
     pads = len(places)
     own = {
         "scenario.load": {"id": "scenario.load", "kind": "event.scenario.load"},
@@ -443,7 +452,7 @@ def level_graph(example: dict, places, triangle_count: int, scenario_id: str) ->
         "collision.generate": {"id": "collision.generate", "kind": "scenario.collision.generate",
                                "source": "collision.obj", "cache": "_meta/generated-collision.json"},
         "scenario.portals": {"id": "scenario.portals", "kind": "scenario.portals.source",
-                             "source": "portals.json", "portals": 0},
+                             "source": "portals.json", "portals": portal_count},
         "navigation.generate": {"id": "navigation.generate", "kind": "scenario.navigation.generate",
                                 "source": "navigation.ini", "cache": "_meta/generated-navmesh.json"},
         "scenario.pads": {"id": "scenario.pads", "kind": "scenario.pads.source", "source": "pads.json",
@@ -511,11 +520,11 @@ def level_graph(example: dict, places, triangle_count: int, scenario_id: str) ->
 
     edges = example.get("edges", [])
     counts = dict(example["counts"])
-    counts.update({"rooms": 2, "triangles": triangle_count, "pads": pads, "volumes": pads, "objects": 0,
+    counts.update({"rooms": room_count, "triangles": triangle_count, "pads": pads, "volumes": pads, "objects": 0,
                    "objectives": 0, "ai_lists": 1, "ai_commands": len(AI_COMMANDS), "waypoints": 0,
                    "waygroups": 0, "covers": 0, "paths": 1})
     if "portals" in counts:
-        counts["portals"] = 0
+        counts["portals"] = portal_count
 
     tables = example["tables"]
     out = ["{", '  "schema": "pd2.level.graph.v1",', '  "scenario": "%s",' % scenario_id,
@@ -570,6 +579,13 @@ class Level:
     room_low: tuple                 # the room's box
     room_high: tuple
     room_origin: tuple
+    extra_rooms: tuple = ()         # (origin, low, high), in room-number order
+    portals: tuple = ()             # authored portal rows
+    collision_rooms: tuple = ()     # room number of each triangle, in grouped order
+
+    @property
+    def rooms(self):
+        return ((self.room_origin, self.room_low, self.room_high),) + self.extra_rooms
 
 
 def build_level(level: Level, geometry_checks=None):
@@ -578,18 +594,24 @@ def build_level(level: Level, geometry_checks=None):
     rules of the caller's own geometry."""
     example, cache_kind = read_example()
     places = level.places
+    rooms = level.rooms
+    room_count = 1 + len(rooms)
+    portal_count = len(level.portals)
+    if level.collision_rooms:
+        require(len(level.collision_rooms) == len(level.collision), "each triangle needs a collision room")
+        require(all(1 <= room < room_count for room in level.collision_rooms), "invalid collision room")
     members: dict = {}
 
     def put(name: str, data) -> None:
         members[name] = data.encode("utf-8") if isinstance(data, str) else data
 
-    put("scenario.ini", scenario_ini(level.scenario_id, level.display_name, level.scenario_comment))
+    put("scenario.ini", scenario_ini(level.scenario_id, level.display_name, level.scenario_comment, room_count))
     put("scene.glb", level.scene)
-    put("collision.obj", collision_obj(level.collision, level.collision_comment))
+    put("collision.obj", collision_obj(level.collision, level.collision_comment, level.collision_rooms))
     put("collision.flags.json", collision_flags(level.collision))
-    put("rooms.json", rooms_json(level.room_origin, level.room_low, level.room_high))
-    put("portals.json", rows_table("pd2.scenario.portals.v1", []))
-    put("pads.json", pads_json(places))
+    put("rooms.json", rooms_json(rooms))
+    put("portals.json", rows_table("pd2.scenario.portals.v1", [line_object(row) for row in level.portals]))
+    put("pads.json", pads_json(places, rooms))
     put("spawns.json", spawns_json(places))
     put("volumes.json", volumes_json(places))
     put("navigation/waypoints.json", rows_table("pd2.scenario.waypoints.v1", []))
@@ -601,11 +623,12 @@ def build_level(level: Level, geometry_checks=None):
     put("ai/ailists.json", ai_lists_json())
     put("objectives.json", rows_table("pd2.scenario.objectives.v1", []))
     put("navigation.ini", NAVIGATION_INI)
-    put("level.graph.json", level_graph(example, places, len(level.collision), level.scenario_id))
+    put("level.graph.json", level_graph(example, places, len(level.collision),
+        level.scenario_id, room_count, portal_count))
     put("_meta/generated-navmesh.json", navmesh_stamp(members, {
         "pads": len(places), "volumes": len(places), "waypoints": 0, "waygroups": 0, "covers": 0, "paths": 1},
         level.scenario_id))
-    put("_meta/manifest.json", scenario_manifest(level.scenario_id))
+    put("_meta/manifest.json", scenario_manifest(level.scenario_id, room_count, portal_count))
 
     check_scenario(members, level)
     if geometry_checks:
@@ -709,10 +732,11 @@ def check_scenario(members: dict, level: Level) -> None:
         require(not name.endswith((".tsv", ".bin", ".sha256")), "member %s would be refused" % name)
     require(b"mtllib" not in members["collision.obj"], "collision.obj must not name a material library")
 
-    # Collision: one room above 0, floors wound upward, a flags row each.
+    # Collision: one group per room, floors wound upward, a flags row each.
     obj_lines = members["collision.obj"].decode("utf-8").splitlines()
     groups = [line for line in obj_lines if line.startswith(("o ", "g "))]
-    require(groups == ["o room_1"], "collision.obj: rooms are %s" % groups)
+    require(groups == ["o room_%d" % index for index in range(1, len(level.rooms) + 1)],
+            "collision.obj: rooms are %s" % groups)
     first_vertex = next(i for i, line in enumerate(obj_lines) if line.startswith("v "))
     require(obj_lines.index("o room_1") < first_vertex, "collision.obj: the room is named after a vertex")
     for triangle, kind in collision:
@@ -767,8 +791,8 @@ def check_scenario(members: dict, level: Level) -> None:
     for index, row in enumerate(pad_rows):
         require(row["pad_ref"] == "pad_%04d" % index, "pads.json: row %d is %s" % (index, row["pad_ref"]))
         x, y, z = row["position"]
-        require(all(level.room_low[axis] < (x, y, z)[axis] < level.room_high[axis] for axis in range(3)),
-                "pad %d: outside the room's box" % index)
+        require(row["room_ref"] == "room_%d" % room_for_position((x, y, z), level.rooms),
+                "pad %d: room does not match its position" % index)
         require(math.hypot(x, z) > 85, "pad %d: too near the origin" % index)
     for a in range(len(pad_rows)):
         for b in range(a + 1, len(pad_rows)):

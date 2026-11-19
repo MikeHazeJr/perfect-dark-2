@@ -11,10 +11,13 @@
  * brute-force cast. This file is C11 game code (not C++).
  */
 
+#include <float.h>
+#include <math.h>
+
 #include "lib/meshraygrid.h"
 
-/* Local helpers instead of libm: the game supplies its own floorf
- * (src/game/floor.c), which pd-tests does not link. */
+/* The grid keeps floor-to-cell conversion local: the game supplies its own
+ * floorf (src/game/floor.c), which pd-tests does not link. */
 static f32 meshAbs(f32 v)
 {
 	return v < 0.0f ? -v : v;
@@ -260,4 +263,177 @@ f32 meshTrisRayCast(const struct meshtri *tris, s32 numtris,
 	}
 
 	return best;
+}
+
+#define MESH_FLAT_WALK_MAX_DISTANCE 8000.0f
+#define MESH_FLAT_WALK_MAX_DROP 500.0f
+#define MESH_FLAT_WALK_EPSILON 0.25f
+#define MESH_FLAT_WALK_RAIL_STEP 16.0f
+
+static f32 meshMin(f32 a, f32 b)
+{
+	return a < b ? a : b;
+}
+
+static f32 meshMax(f32 a, f32 b)
+{
+	return a > b ? a : b;
+}
+
+/* A room of zero lets footprint rails use either room across a floor seam. */
+static s32 meshFlatWalkFloor(const struct colmesh *mesh, const struct coord *above,
+		f32 lower_y, RoomNum room, f32 *out_floor)
+{
+	if (!(above->y > lower_y)) return 0;
+
+	struct coord below = *above;
+	below.y = lower_y;
+	f32 nearest = 1.0f;
+	s32 found = 0;
+	for (s32 i = 0; i < mesh->numtris; ++i) {
+		const struct meshtri *tri = &mesh->tris[i];
+		if ((room > 0 ? tri->roomnum != room : tri->roomnum <= 0)
+				|| !(tri->flags & (GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2))
+				|| (tri->flags & GEOFLAG_DIE) || !(tri->normal.y > 0.0f)) continue;
+		const f32 y_min = meshMin(tri->v0.y, meshMin(tri->v1.y, tri->v2.y));
+		const f32 y_max = meshMax(tri->v0.y, meshMax(tri->v1.y, tri->v2.y));
+		if (!(y_max - y_min <= MESH_FLAT_WALK_EPSILON)
+				|| y_max < lower_y || y_min > above->y) continue;
+		f32 fraction;
+		if (meshRayVsTri(above, &below, tri, &fraction) && fraction <= nearest) {
+			if (!out_floor) return 1;
+			nearest = fraction;
+			found = 1;
+		}
+	}
+	if (found) *out_floor = above->y + nearest * (lower_y - above->y);
+	return found;
+}
+
+typedef struct mesh_walk_point {
+	f64 axes[3];
+} mesh_walk_point_t;
+
+/* Clip the triangle against all six inclusive prism faces. Every plane
+ * adds at most one vertex to a convex polygon (three plus six planes).
+ * Strict crossings avoid emitting a boundary vertex twice. */
+static s32 meshFlatWalkPrismIntersects(const mesh_walk_point_t triangle[3],
+		const f64 minimum[3], const f64 maximum[3])
+{
+	enum { MAX_CLIP_VERTICES = 9 };
+	mesh_walk_point_t buffer[2][MAX_CLIP_VERTICES];
+	for (s32 i = 0; i < 3; ++i) buffer[0][i] = triangle[i];
+	s32 count = 3;
+
+	for (s32 plane = 0; plane < 6; ++plane) {
+		const s32 axis = plane / 2;
+		const s32 upper = plane % 2;
+		const f64 bound = upper ? maximum[axis] : minimum[axis];
+		const f64 sign = upper ? -1.0 : 1.0;
+		const mesh_walk_point_t *input = buffer[upper];
+		mesh_walk_point_t *output = buffer[1 - upper];
+		s32 clipped = 0;
+		const mesh_walk_point_t *previous = &input[count - 1];
+		f64 previous_delta = sign * (previous->axes[axis] - bound);
+
+		for (s32 i = 0; i < count; ++i) {
+			const mesh_walk_point_t *current = &input[i];
+			const f64 delta = sign * (current->axes[axis] - bound);
+			if ((previous_delta < 0.0 && delta > 0.0) || (previous_delta > 0.0 && delta < 0.0)) {
+				if (clipped == MAX_CLIP_VERTICES) return 1;
+				const f64 fraction = previous_delta / (previous_delta - delta);
+				mesh_walk_point_t *point = &output[clipped++];
+				for (s32 component = 0; component < 3; ++component) {
+					point->axes[component] = previous->axes[component]
+						+ fraction * (current->axes[component] - previous->axes[component]);
+				}
+				point->axes[axis] = bound;
+			}
+			if (delta >= 0.0) {
+				if (clipped == MAX_CLIP_VERTICES) return 1;
+				output[clipped++] = *current;
+			}
+			previous = current;
+			previous_delta = delta;
+		}
+
+		if (!clipped) return 0;
+		count = clipped;
+	}
+	return 1;
+}
+
+static s32 meshFlatWalkPrismClear(const struct colmesh *mesh, const struct coord *origin,
+		f32 ux, f32 uz, f32 length, f32 radius, f32 ground, f32 head)
+{
+	const f64 extent = (f64)radius + MESH_FLAT_WALK_EPSILON;
+	const f64 maximum[3] = {(f64)length + extent, extent, head};
+	for (s32 i = 0; i < mesh->numtris; ++i) {
+		const struct meshtri *tri = &mesh->tris[i];
+		const struct coord *verts[] = {&tri->v0, &tri->v1, &tri->v2};
+		mesh_walk_point_t triangle[3];
+		f64 tri_min[3] = {DBL_MAX, DBL_MAX, DBL_MAX};
+		f64 tri_max[3] = {-DBL_MAX, -DBL_MAX, -DBL_MAX};
+		for (s32 corner = 0; corner < 3; ++corner) {
+			const struct coord *v = verts[corner];
+			const f64 dx = (f64)v->x - origin->x;
+			const f64 dz = (f64)v->z - origin->z;
+			triangle[corner] = (mesh_walk_point_t){{ux * dx + uz * dz, ux * dz - uz * dx, v->y}};
+			for (s32 axis = 0; axis < 3; ++axis) {
+				const f64 value = triangle[corner].axes[axis];
+				if (!__builtin_isfinite(value)) return 0;
+				if (value < tri_min[axis]) tri_min[axis] = value;
+				if (value > tri_max[axis]) tri_max[axis] = value;
+			}
+		}
+		const f64 bottom = (f64)ground + ((tri->flags & GEOFLAG_DIE)
+			? -MESH_FLAT_WALK_EPSILON : MESH_FLAT_WALK_EPSILON);
+		const f64 minimum[3] = {-extent, -extent, bottom};
+		s32 axis = 0;
+		while (axis < 3 && tri_max[axis] >= minimum[axis] && tri_min[axis] <= maximum[axis]) ++axis;
+		if (axis == 3 && meshFlatWalkPrismIntersects(triangle, minimum, maximum)) return 0;
+	}
+	return 1;
+}
+
+s32 meshCheckFlatWalk(const struct colmesh *mesh, const struct coord *from, RoomNum from_room,
+		const struct coord *to, RoomNum to_room, f32 radius, f32 height)
+{
+	if (!mesh || !mesh->tris || mesh->numtris <= 0 || !from || !to || from_room <= 0 || to_room <= 0
+			|| !(radius > 0.0f && radius <= MESH_FLAT_WALK_MAX_DISTANCE)
+			|| !(height > 0.0f) || !__builtin_isfinite(height)
+			|| !__builtin_isfinite(from->y) || !__builtin_isfinite(to->y)) return 0;
+
+	const f32 dx = to->x - from->x;
+	const f32 dz = to->z - from->z;
+	const f32 distance_sq = dx * dx + dz * dz;
+	if (!(distance_sq <= MESH_FLAT_WALK_MAX_DISTANCE * MESH_FLAT_WALK_MAX_DISTANCE)) return 0;
+	const f32 distance = sqrtf(distance_sq);
+	const f32 ux = distance > 0.0f ? dx / distance : 1.0f;
+	const f32 uz = distance > 0.0f ? dz / distance : 0.0f;
+
+	f32 from_floor, to_floor;
+	if (!meshFlatWalkFloor(mesh, from, from->y - MESH_FLAT_WALK_MAX_DROP, from_room, &from_floor)
+			|| !meshFlatWalkFloor(mesh, to, to->y - MESH_FLAT_WALK_MAX_DROP, to_room, &to_floor)
+			|| meshAbs(from_floor - to_floor) > MESH_FLAT_WALK_EPSILON) return 0;
+	const f32 ground = meshMax(from_floor, to_floor);
+	const f32 head = meshMax(meshMax(from->y, to->y), ground) + height;
+	if (!__builtin_isfinite(head) || !(head > ground + MESH_FLAT_WALK_EPSILON)
+			|| !meshFlatWalkPrismClear(mesh, from, ux, uz, distance, radius, ground, head)) return 0;
+
+	const f32 rail_length = distance + 2.0f * radius;
+	const s32 steps = (s32)(rail_length / MESH_FLAT_WALK_RAIL_STEP) + 1;
+	for (s32 step = 0; step <= steps; ++step) {
+		const f32 along = rail_length * (f32)step / (f32)steps - radius;
+		for (s32 rail = -1; rail <= 1; ++rail) {
+			const f32 across = (f32)rail * radius;
+			const struct coord sample = {
+				.x = from->x + ux * along - uz * across,
+				.y = ground + MESH_FLAT_WALK_EPSILON,
+				.z = from->z + uz * along + ux * across,
+			};
+			if (!meshFlatWalkFloor(mesh, &sample, ground - MESH_FLAT_WALK_EPSILON, 0, NULL)) return 0;
+		}
+	}
+	return 1;
 }

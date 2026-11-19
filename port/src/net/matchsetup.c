@@ -28,7 +28,9 @@
 #include "romdata.h"
 #include "modelcatalog.h"
 #include "assetcatalog.h"
+#include "forge_level_io.h"
 #include "asset_runtime.h"
+#include "grid_match_runtime.h"
 #include "player_identity.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
@@ -1090,6 +1092,11 @@ static s32 spawnWeaponBuildPoolFromManifest(const match_manifest_t *m,
 
 s32 spawnWeaponPickFromMatchManifest(void)
 {
+	if (gridMatchRuntimeActive()) {
+		const u8 *pool;
+		const s32 count = gridMatchRuntimeFiestaSlots(&pool);
+		return count > 0 ? (s32)pool[rngRandom() % (u32)count] : 0;
+	}
 	const match_manifest_t *m = spawnWeaponSelectManifest();
 	if (!m) {
 		return spawnWeaponPickFromActiveSet();
@@ -1551,6 +1558,13 @@ s32 matchStart(void)
 	crashBreadcrumbPush("MATCHSTART preflight stage='%s' slots=%d",
 		g_MatchConfig.stage_id, g_MatchConfig.numSlots);
 
+	const s32 had_variant = forgeLevelVariantDependenciesStage() >= 0;
+	char variant_error[256];
+	if (!forgeLevelMountVariantDependencies(g_MatchConfig.stage_id, variant_error, sizeof(variant_error))) {
+		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.VARIANT.MOUNT: %s", variant_error);
+		return -(s32)MATCH_START_INVALID_STAGE;
+	}
+
 	challengeDetermineUnlockedFeatures();
 	/* Apply the selected scenario's rules before the plan freezes options and
 	 * participant teams. An unresolved ID is rejected by the preflight below. */
@@ -1563,6 +1577,9 @@ s32 matchStart(void)
 		 * side-effect free. */
 		g_RngSeed = rng_seed;
 		g_Rng2Seed = rng2_seed;
+		if (!had_variant && forgeLevelVariantDependenciesStage() >= 0) {
+			(void)forgeLevelRetireVariantDependencies(NULL, 0);
+		}
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK match status=%s globals_published=0",
 			matchStartStatusString(status));

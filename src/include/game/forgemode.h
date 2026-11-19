@@ -37,6 +37,10 @@ typedef enum forge_session_state {
 	FORGE_SESSION_FREEFLY  = 2, /* in session, free-fly editor camera */
 } forge_session_state_t;
 
+/* Player-facing name from [Forge] DisplayName in pd.ini. */
+#define FORGE_DISPLAY_NAME_CAP 48
+const char *forgeDisplayName(void);
+
 /* ============================================================
  * Lifecycle
  * ============================================================ */
@@ -73,6 +77,11 @@ void forgeRequestEnterSessionCanvas(void);
  *  bondmovemode if FREEFLY was active.  Safe to call from any context.
  *  Called automatically from forgeTick when leaving gameplay. */
 void forgeExitSession(void);
+
+/* Retire stage-owned Grid state before the engine releases the stage pool.
+ * An offline draft reload also retains the editing camera. */
+void forgePrepareStageDeparture(s32 draft_reload);
+void forgeCompleteDraftStageReload(s32 play);
 
 /* ============================================================
  * State queries

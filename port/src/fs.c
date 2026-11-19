@@ -2,10 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <limits.h>
+#include <stdint.h>
 #include <ctype.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdatomic.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
 #include "config.h"
@@ -23,6 +25,7 @@
 #include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
 #endif
 #include "assetcatalog_resolve.h"
+#include "asset_path_contract.h"
 #ifdef PLATFORM_WIN32
 #include <direct.h>
 #endif
@@ -121,7 +124,7 @@ static void *fsTerminateArchiveBytes(void *raw, u32 entrySize, u32 *outSize)
 	return out;
 }
 
-static void *fsExtractNestedArchiveChain(void *archiveBytes, u32 archiveSize,
+static void *fsExtractNestedArchiveChain(const void *archiveBytes, u32 archiveSize,
 		const char *entryChain, u32 *outSize)
 {
 	char entryName[FS_MAXPATH + 1];
@@ -160,6 +163,252 @@ static void *fsExtractNestedArchiveChain(void *archiveBytes, u32 archiveSize,
 
 	raw = modArchiveExtractMemAlloc(archiveBytes, archiveSize, entryName, &entrySize);
 	return fsTerminateArchiveBytes(raw, entrySize, outSize);
+}
+
+typedef struct fs_stage_archive_binding {
+	char root[FS_MAXPATH + 1];
+	const void *bytes;
+	u32 size;
+} fs_stage_archive_binding_t;
+
+struct fs_stage_archive_set {
+	size_t count;
+	fs_stage_archive_binding_t bindings[];
+};
+
+static atomic_flag s_StageSourceLock = ATOMIC_FLAG_INIT;
+static atomic_int s_StageSourceBound;
+static fs_stage_archive_set_t *s_StageArchives;
+static char s_ScenarioSourceRoot[FS_MAXPATH + 1];
+static size_t s_ScenarioSourceRootLen;
+static const void *s_ScenarioSourceBytes;
+static u32 s_ScenarioSourceSize;
+
+static void fsLockStageSource(void)
+{
+	while (atomic_flag_test_and_set_explicit(&s_StageSourceLock, memory_order_acquire)) {
+		sysCpuRelax();
+	}
+}
+
+static void fsUnlockStageSource(void)
+{
+	atomic_flag_clear_explicit(&s_StageSourceLock, memory_order_release);
+}
+
+static int fsCompareStageArchives(const void *left, const void *right)
+{
+	const fs_stage_archive_binding_t *a = left;
+	const fs_stage_archive_binding_t *b = right;
+	return strcmp(a->root, b->root);
+}
+
+/* Only the first component of a mount root may be a physical path. A
+ * Windows drive prefix is distinct from an archive-member delimiter. */
+static s32 fsStageArchiveLocatorValid(const char *path, s32 physicalRoot)
+{
+	if (!path || !path[0] || strnlen(path, FS_MAXPATH + 1) > FS_MAXPATH
+			|| assetPathHasParentTraversal(path)) {
+		return 0;
+	}
+	if (!physicalRoot && (path[0] == '/' || path[0] == '\\')) return 0;
+	const char *part = path;
+	const char *p = path;
+	if (physicalRoot && isalpha((unsigned char)p[0]) && p[1] == ':'
+			&& (p[2] == '/' || p[2] == '\\')) {
+		p += 2;
+	}
+	for (; *p; p++) {
+		if (*p != ':') continue;
+		if (p == part || p[-1] == '/' || p[-1] == '\\' || p[1] != ':'
+				|| !p[2] || p[2] == '/' || p[2] == '\\') {
+			return 0;
+		}
+		part = p + 2;
+		p++;
+	}
+	return p[-1] != '/' && p[-1] != '\\';
+}
+
+s32 fsPrepareStageArchives(fs_stage_archive_set_t **prepared,
+		const fs_stage_archive_t *archives, size_t count)
+{
+	if (!prepared || *prepared || !archives || !count
+			|| count > (SIZE_MAX - sizeof(fs_stage_archive_set_t)) / sizeof(fs_stage_archive_binding_t)) {
+		return 0;
+	}
+	fs_stage_archive_set_t *set = calloc(1, sizeof(*set) + count * sizeof(set->bindings[0]));
+	if (!set) return 0;
+	set->count = count;
+	fs_stage_archive_binding_t *bindings = set->bindings;
+	for (size_t i = 0; i < count; i++) {
+		const fs_stage_archive_t *source = &archives[i];
+		if (!fsStageArchiveLocatorValid(source->root, 1) || !source->bytes
+				|| !source->size || source->size > INT_MAX) {
+			free(set);
+			return 0;
+		}
+		snprintf(bindings[i].root, sizeof(bindings[i].root), "%s", source->root);
+		bindings[i].bytes = source->bytes;
+		bindings[i].size = source->size;
+	}
+	qsort(bindings, count, sizeof(*bindings), fsCompareStageArchives);
+	for (size_t i = 1; i < count; i++) {
+		if (strcmp(bindings[i - 1].root, bindings[i].root) == 0) {
+			free(set);
+			return 0;
+		}
+	}
+	*prepared = set;
+	return 1;
+}
+
+s32 fsPublishPreparedStageArchives(fs_stage_archive_set_t **prepared)
+{
+	if (!prepared || !*prepared) return 0;
+	fsLockStageSource();
+	if (s_StageArchives || s_ScenarioSourceRootLen) {
+		fsUnlockStageSource();
+		return 0;
+	}
+	s_StageArchives = *prepared;
+	*prepared = NULL;
+	atomic_store_explicit(&s_StageSourceBound, 1, memory_order_release);
+	fsUnlockStageSource();
+	return 1;
+}
+
+void fsReleasePreparedStageArchives(fs_stage_archive_set_t **prepared)
+{
+	if (!prepared) return;
+	free(*prepared);
+	*prepared = NULL;
+}
+
+void fsClearStageArchives(void)
+{
+	fsLockStageSource();
+	fs_stage_archive_set_t *old = s_StageArchives;
+	s_StageArchives = NULL;
+	atomic_store_explicit(&s_StageSourceBound, s_ScenarioSourceRootLen != 0, memory_order_release);
+	fsUnlockStageSource();
+	free(old);
+}
+
+s32 fsBindScenarioSource(const char *root, void *archive, u32 size)
+{
+	size_t len = root ? strlen(root) : 0;
+	if (root && (!archive || !size || len == 0 || len + 2 >= sizeof(s_ScenarioSourceRoot))) {
+		return 0;
+	}
+	fsLockStageSource();
+	if (root) {
+		if (s_StageArchives) {
+			fsUnlockStageSource();
+			return 0;
+		}
+		memcpy(s_ScenarioSourceRoot, root, len + 1);
+	}
+	s_ScenarioSourceRootLen = len;
+	s_ScenarioSourceBytes = archive;
+	s_ScenarioSourceSize = size;
+	atomic_store_explicit(&s_StageSourceBound, root != NULL || s_StageArchives != NULL, memory_order_release);
+	fsUnlockStageSource();
+	return 1;
+}
+
+/* Called under the source lock with a complete candidate locator. */
+static const fs_stage_archive_binding_t *fsFindStageArchive(const char *name, size_t rootLen)
+{
+	if (!rootLen || rootLen > FS_MAXPATH) return NULL;
+	size_t first = 0;
+	size_t past = s_StageArchives->count;
+	while (first < past) {
+		size_t mid = first + (past - first) / 2;
+		const fs_stage_archive_binding_t *binding = &s_StageArchives->bindings[mid];
+		int order = strncmp(name, binding->root, rootLen);
+		if (order == 0) {
+			if (!binding->root[rootLen]) return binding;
+			order = -1;
+		}
+		if (order < 0) past = mid;
+		else first = mid + 1;
+	}
+	return NULL;
+}
+
+/* Called under the source lock. Each later boundary is a more specific
+ * root, and an exact match of the whole request takes precedence. */
+static const fs_stage_archive_binding_t *fsFindStageArchiveForRead(const char *name,
+		const char **member)
+{
+	const fs_stage_archive_binding_t *match = NULL;
+	*member = NULL;
+	for (size_t len = 0; len <= FS_MAXPATH; len++) {
+		if (!name[len]) {
+			const fs_stage_archive_binding_t *whole = fsFindStageArchive(name, len);
+			if (whole) {
+				*member = NULL;
+				return whole;
+			}
+			break;
+		}
+		if (name[len] == ':' && name[len + 1] == ':') {
+			const fs_stage_archive_binding_t *prefix = fsFindStageArchive(name, len);
+			if (prefix) {
+				match = prefix;
+				*member = name + len + 2;
+			}
+		}
+	}
+	return match;
+}
+
+
+/* A matched root owns the request even if its member is absent. A NULL data
+ * output asks for size only. No returned allocation aliases bound bytes. */
+static s32 fsReadBoundArchive(const char *name, void **data, u32 *outSize)
+{
+	if (!name || !atomic_load_explicit(&s_StageSourceBound, memory_order_acquire)) return 0;
+	const char *member = NULL;
+	void *bytes = NULL;
+	u32 size = 0;
+	s32 result = 0;
+
+	fsLockStageSource();
+	const fs_stage_archive_binding_t *binding = s_StageArchives
+		? fsFindStageArchiveForRead(name, &member) : NULL;
+	size_t len = s_ScenarioSourceRootLen;
+	if (binding && !member) {
+		size = binding->size;
+		if (data) {
+			bytes = malloc((size_t)size + 1);
+			if (bytes) {
+				memcpy(bytes, binding->bytes, size);
+				((u8 *)bytes)[size] = 0;
+			}
+		}
+		result = !data || bytes ? 1 : -1;
+	} else if (binding) {
+		if (fsStageArchiveLocatorValid(member, 0)) {
+			bytes = fsExtractNestedArchiveChain(binding->bytes, binding->size, member, &size);
+		}
+		result = bytes ? 1 : -1;
+	} else if (len) {
+		const char *sep = fsNestedArchiveSeparator(name);
+		if (sep && sep != name && strncmp(name, s_ScenarioSourceRoot, len) == 0
+				&& name[len] == ':' && name[len + 1] == ':') {
+			bytes = fsExtractNestedArchiveChain(s_ScenarioSourceBytes, s_ScenarioSourceSize,
+				name + len + 2, &size);
+			result = bytes ? 1 : -1;
+		}
+	}
+	fsUnlockStageSource();
+	if (!result) return 0;
+	if (data) *data = bytes;
+	else free(bytes);
+	if (outSize) *outSize = result > 0 ? size : 0;
+	return result;
 }
 
 static void *fsLoadNestedArchiveEntry(const char *name, u32 *outSize)
@@ -569,9 +818,11 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 {
 	{
 		u32 nestedSize = 0;
-		void *nested = fsLoadNestedArchiveEntry(name, &nestedSize);
+		void *nested = NULL;
+		s32 bound = fsReadBoundArchive(name, &nested, &nestedSize);
+		if (!bound) nested = fsLoadNestedArchiveEntry(name, &nestedSize);
 		if (nested) {
-			if (nestedSize > dstSize) {
+			if (nestedSize > dstSize || (bound && nestedSize > INT_MAX)) {
 				sysLogPrintf(LOG_ERROR, "fsFileLoadTo: archive entry too big for buffer (%u > %u): %s",
 					nestedSize, dstSize, name);
 				free(nested);
@@ -581,6 +832,7 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 			free(nested);
 			return (s32)nestedSize;
 		}
+		if (bound) return -1;
 	}
 
 #ifndef PD_SERVER
@@ -640,7 +892,9 @@ s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)
 void *fsFileLoad(const char *name, u32 *outSize)
 {
 	{
-		void *nested = fsLoadNestedArchiveEntry(name, outSize);
+		void *nested = NULL;
+		if (fsReadBoundArchive(name, &nested, outSize)) return nested;
+		nested = fsLoadNestedArchiveEntry(name, outSize);
 		if (nested) {
 			return nested;
 		}
@@ -709,6 +963,8 @@ s32 fsFileSize(const char *name)
 {
 	{
 		u32 nestedSize = 0;
+		s32 bound = fsReadBoundArchive(name, NULL, &nestedSize);
+		if (bound) return bound > 0 && nestedSize <= INT_MAX ? (s32)nestedSize : -1;
 		void *nested = fsLoadNestedArchiveEntry(name, &nestedSize);
 		if (nested) {
 			free(nested);

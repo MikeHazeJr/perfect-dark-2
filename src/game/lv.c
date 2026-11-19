@@ -117,6 +117,7 @@
 #include "net/net.h"
 #include "net/netmanifest.h"
 #include "net/netmsg.h"
+#include "net/grid_match_result.h"
 #include "video.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
@@ -1605,7 +1606,7 @@ Gfx *lvRender(Gfx *gdl)
 				(viGetViewLeft() + viGetViewWidth()) * 4.0f,
 				(viGetViewTop() + viGetViewHeight()) * 4.0f);
 
-		gdl = titleRender(gdl);
+		if (!mainGridRoomBackdropActive()) gdl = titleRender(gdl);
 		gdl = lvRenderFade(gdl);
 	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
@@ -2844,7 +2845,8 @@ void lvTick(void)
 		g_Vars.players[j]->hands[HAND_RIGHT].hasdotinfo = false;
 	}
 
-	if (lvIsPaused()) {
+	/* A Grid match owns no elapsed time until the initial roster is released. */
+	if (lvIsPaused() || netGridMatchHoldingInitialFrame()) {
 		g_Vars.lvupdate240 = 0;
 	} else if (mpIsPaused()) {
 		g_Vars.lvupdate240 = 0;
@@ -2987,6 +2989,7 @@ void lvTick(void)
 					 * (and solo); the networked client ends via SVC_STAGE_END
 					 * because its own time-limit gate is NETMODE_CLIENT-guarded. */
 					sysLogPrintf(LOG_NOTE, "MATCH: stage end reason=timelimit");
+					netGridMatchNoteEndReason(GRID_MATCH_END_TIME);
 					mainEndStage();
 				}
 			}
@@ -3067,6 +3070,8 @@ void lvTick(void)
 					scorelimit_reached ? "scorelimit"
 						: (teamscorelimit_reached ? "teamscorelimit" : "limit"),
 					g_MpScoreLimit, g_MpTeamScoreLimit);
+				netGridMatchNoteEndReason(scorelimit_reached ? GRID_MATCH_END_SCORE
+					: teamscorelimit_reached ? GRID_MATCH_END_TEAM_SCORE : GRID_MATCH_END_OTHER);
 				mainEndStage();
 			}
 		}
@@ -3083,7 +3088,7 @@ void lvTick(void)
 	}
 
 	if (g_Vars.stagenum == STAGE_TITLE) {
-		titleTick();
+		if (!mainGridRoomBackdropActive()) titleTick();
 		langTick();
 		musicTick();
 	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {

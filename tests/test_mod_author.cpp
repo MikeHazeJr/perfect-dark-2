@@ -1001,6 +1001,59 @@ TEST_CASE("mod author updates a mod in place and edits it from its own archive",
 	}
 }
 
+TEST_CASE("mod author can require a new destination folder", "[modding][author]") {
+	AuthorTempDir root;
+	AuthorRequest req(authorExample(kWeaponTemplate), root.path, "Rivet Carbine");
+	req.request.require_new_folder = 1;
+	const AuthorCall freePlan = authorPlan(req.request);
+	REQUIRE(freePlan.code == MOD_AUTHOR_OK);
+	CHECK(freePlan.result->updated == 0);
+	CHECK(authorTree(root.path).empty());
+
+	const auto expectOccupied = [&]() {
+		const auto before = authorTree(root.path);
+		const AuthorCall refusedPlan = authorPlan(req.request);
+		CHECK(refusedPlan.code == MOD_AUTHOR_ERR_EXISTS);
+		CHECK(refusedPlan.err.find("Choose a different name") != std::string::npos);
+		CHECK(authorResultIsZero(*refusedPlan.result));
+		const AuthorCall refusedSave = authorSave(req.request);
+		CHECK(refusedSave.code == MOD_AUTHOR_ERR_EXISTS);
+		CHECK(refusedSave.err.find("Choose a different name") != std::string::npos);
+		CHECK(authorResultIsZero(*refusedSave.result));
+		CHECK(authorTree(root.path) == before);
+	};
+
+	SECTION("same-name saves preserve the archive, manifest and staging files") {
+		const AuthorCall saved = authorSave(req.request);
+		INFO(saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		CHECK(saved.result->updated == 0);
+		CHECK(std::string(saved.result->mod_dir) == freePlan.result->mod_dir);
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		const std::string manifest = authorReadFile(saved.result->manifest_path);
+		const fs::path candidate = std::string(saved.result->archive_path) + ASSET_ARCHIVE_CLONE_STAGING_SUFFIX;
+		const fs::path manifestCandidate = std::string(saved.result->manifest_path) + ASSET_ARCHIVE_CLONE_STAGING_SUFFIX;
+		const fs::path marker = fs::path(saved.result->mod_dir) / "keep.txt";
+		authorWriteFile(candidate, "archive candidate");
+		authorWriteFile(manifestCandidate, "manifest candidate");
+		authorWriteFile(marker, "folder marker");
+		req.request.version = "2.0.0";
+		expectOccupied();
+		CHECK(authorReadFile(saved.result->archive_path) == archive);
+		CHECK(authorReadFile(saved.result->manifest_path) == manifest);
+		CHECK(authorReadFile(candidate) == "archive candidate");
+		CHECK(authorReadFile(manifestCandidate) == "manifest candidate");
+		CHECK(authorReadFile(marker) == "folder marker");
+	}
+
+	SECTION("an empty directory created after planning is already occupied") {
+		const fs::path modDir = freePlan.result->mod_dir;
+		REQUIRE(fs::create_directories(modDir));
+		expectOccupied();
+		CHECK(fs::is_empty(modDir));
+	}
+}
+
 TEST_CASE("mod author never touches a folder that belongs to something else",
           "[modding][author]") {
 	AuthorTempDir root;
@@ -1520,10 +1573,11 @@ TEST_CASE("mod author names a save without looking at the mods folder",
 	mod_author_request_t request{};
 	request.template_path = "anything.pdweapon";
 	request.mods_root = "no/such/folder";
-	request.display_name = "Maian  Crystal-Pistol!";
+	request.display_name = "  \tMaian  Crystal-Pistol!\t  ";
 	auto names = std::make_unique<mod_author_result_t>();
 	char err[256] = "";
 	REQUIRE(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(names->display_name) == "Maian  Crystal-Pistol!");
 	CHECK(std::string(names->kind) == "weapon");
 	CHECK(std::string(names->slug) == "weapon_maian_crystal_pistol");
 	CHECK(std::string(names->mod_id) == "mod.weapon_maian_crystal_pistol");
@@ -1537,12 +1591,14 @@ TEST_CASE("mod author names a save without looking at the mods folder",
 	request.mods_root = root.c_str();
 	auto plan = std::make_unique<mod_author_result_t>();
 	REQUIRE(modAuthorPlan(&request, plan.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(plan->display_name) == names->display_name);
 	CHECK(std::string(plan->slug) == names->slug);
 	CHECK(std::string(plan->mod_id) == names->mod_id);
 	CHECK(std::string(plan->catalog_id) == names->catalog_id);
 
 	request.display_name = "!!!";
 	CHECK(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_ERR_ARGS);
+	CHECK(names->display_name[0] == '\0');
 	CHECK(names->slug[0] == '\0');
 	CHECK(err[0] != '\0');
 	request.display_name = "Fine";

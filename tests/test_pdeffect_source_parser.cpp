@@ -1,5 +1,6 @@
 #include "catch.hpp"
 
+#include "grid_archive_policy.h"
 #include "pdeffect_source.h"
 #include "modarchive.h"
 
@@ -37,6 +38,31 @@ static const char *explosionDescriptor()
 		"effect_file = effect.graph.json\n";
 }
 
+static void checkGridProvenance(const char *descriptor, const char *graph, size_t graph_len)
+{
+	const std::string marker = GRID_ARENA_PROVENANCE_KEY " = ";
+	char error[256] = {};
+	for (const char *value : {GRID_ARENA_PROVENANCE_ORIGINAL,
+			GRID_ARENA_PROVENANCE_BYOR, GRID_ARENA_PROVENANCE_UNVERIFIED}) {
+		CAPTURE(value);
+		const std::string marked = descriptor + marker + value + "\n";
+		CHECK(pdEffectSourceParse(marked.data(), marked.size(), graph, graph_len,
+			nullptr, nullptr, error, sizeof(error)) == 1);
+	}
+	for (const char *value : {"", "Original", "unknown"}) {
+		CAPTURE(value);
+		const std::string invalid = descriptor + marker + value + "\n";
+		CHECK(pdEffectSourceParse(invalid.data(), invalid.size(), graph, graph_len,
+			nullptr, nullptr, error, sizeof(error)) == 0);
+		CHECK(std::strstr(error, GRID_ARENA_PROVENANCE_KEY) != nullptr);
+	}
+	const std::string duplicate = descriptor + marker + GRID_ARENA_PROVENANCE_ORIGINAL
+		+ "\n" + marker + GRID_ARENA_PROVENANCE_BYOR + "\n";
+	CHECK(pdEffectSourceParse(duplicate.data(), duplicate.size(), graph, graph_len,
+		nullptr, nullptr, error, sizeof(error)) == 0);
+	CHECK(std::strstr(error, "duplicate field '" GRID_ARENA_PROVENANCE_KEY "'") != nullptr);
+}
+
 TEST_CASE("authoritative pdeffect parser accepts complete v2 rows and preserves null audio",
 	"[modding][pdxxx][pdeffect][t-assets-017]")
 {
@@ -56,6 +82,7 @@ TEST_CASE("authoritative pdeffect parser accepts complete v2 rows and preserves 
 	CHECK(info.profile_count == 26);
 	CHECK(info.has_audio_rows == 1);
 	CHECK(info.silent_audio_rows == 25);
+	checkGridProvenance(explosionDescriptor(), graph, graph_len);
 	std::free(graph);
 }
 
@@ -141,6 +168,7 @@ TEST_CASE("legacy v1 pdeffect validates exact public identity and safe members",
 		std::strlen(graph), "example:tri_effect", &info, error, sizeof(error)) == 1);
 	CHECK(info.format == PD_EFFECT_SOURCE_FORMAT_LEGACY_GRAPH);
 	CHECK(info.intensity == 0.75f);
+	checkGridProvenance(descriptor, graph, std::strlen(graph));
 
 	std::string mismatch = graph;
 	mismatch.replace(mismatch.find("example:tri_effect"),

@@ -132,6 +132,11 @@ struct move_ingress_fixture {
     struct prop prop, beforeProp;
     struct chrdata chr, beforeChr;
     int single, dual;
+    u32 grid_epoch;
+    int grid_peer_ready;
+    int grid_fiesta;
+    u16 grid_ref;
+    int grid_local_weapon;
     move_ingress_result observed;
 };
 static struct move_ingress_fixture *s_Ingress;
@@ -194,10 +199,58 @@ void moveIngressReady(void *fixture, int sender, int target)
     g_NetClients[1].state = target ? CLSTATE_GAME : CLSTATE_GAME - 1;
 }
 
+void moveIngressAbsent(void *fixture)
+{
+    (void)fixture;
+    g_NetClients[1].flags |= CLFLAG_ABSENT;
+}
+
 void moveIngressWitness(void *fixture)
 {
     (void)fixture;
     g_NetClients[1].reconnect_gameplay_witness_pending = true;
+}
+
+void moveIngressFiesta(void *fixture, int dead)
+{
+    struct move_ingress_fixture *f = fixture;
+    f->grid_fiesta = 1;
+    f->player.isdead = dead;
+}
+
+s32 gridMatchRuntimeFiestaActive(void)
+{
+    return s_Ingress && s_Ingress->grid_fiesta;
+}
+
+void moveIngressGrid(void *fixture, uint32_t epoch, int peerReady, uint16_t ref, int localWeapon)
+{
+    struct move_ingress_fixture *f = fixture;
+    f->grid_epoch = epoch;
+    f->grid_peer_ready = peerReady;
+    f->grid_ref = ref;
+    f->grid_local_weapon = localWeapon;
+}
+
+u32 netmsgGridGameplayEpoch(void)
+{
+    return s_Ingress ? s_Ingress->grid_epoch : 0;
+}
+
+s32 netmsgGridMovePeerReady(const struct netclient *srccl)
+{
+    return s_Ingress && s_Ingress->grid_peer_ready
+        && (srccl == &g_NetClients[1] || srccl == &s_Ingress->sender)
+        && srccl->state == CLSTATE_GAME;
+}
+
+s32 netmsgGridDecodeWeaponRef(u16 ref, s32 *weapon)
+{
+    if (!s_Ingress || !weapon) return 0;
+    ++s_Ingress->observed.gridRefChecks;
+    if (ref != s_Ingress->grid_ref) return 0;
+    *weapon = s_Ingress->grid_local_weapon;
+    return 1;
 }
 
 void moveFixtureLog(s32 level, const char *fmt, ...)
@@ -222,9 +275,9 @@ void setCurrentPlayerNum(s32 playernum)
 
 bool invHasSingleWeaponIncAllGuns(s32 weaponnum)
 {
-    (void)weaponnum;
     ++s_Ingress->observed.singleChecks;
     s_Ingress->observed.inventoryPlayer = g_Vars.currentplayernum;
+    s_Ingress->observed.inventoryWeapon = weaponnum;
     return s_Ingress->single;
 }
 
@@ -248,7 +301,7 @@ bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
     return true;
 }
 
-int moveIngressRead(void *fixture, int snapshot, const void *wire, uint32_t size,
+static int moveIngressReadMode(void *fixture, int snapshot, s32 grid, const void *wire, uint32_t size,
         move_ingress_result *result)
 {
     struct move_ingress_fixture *f = fixture;
@@ -261,9 +314,10 @@ int moveIngressRead(void *fixture, int snapshot, const void *wire, uint32_t size
     memcpy(&f->beforeChr, &f->chr, sizeof(f->chr));
     memset(&f->observed, 0, sizeof(f->observed));
     netbufStartReadData(&buf, wire, size);
-    const u32 error = snapshot ? netmsgSvcPlayerMoveRead(&buf, &f->sender)
-        : netmsgClcMoveRead(&buf, cl);
+    const u32 error = snapshot ? netmsgSvcPlayerMoveRead(&buf, &f->sender, grid)
+        : netmsgClcMoveRead(&buf, cl, grid);
     *result = f->observed;
+    result->bytesRead = buf.rp;
     result->unchanged = memcmp(cl, &f->before, sizeof(*cl)) == 0
         && memcmp(&f->player, &f->beforePlayer, sizeof(f->player)) == 0
         && memcmp(&f->prop, &f->beforeProp, sizeof(f->prop)) == 0
@@ -282,4 +336,16 @@ int moveIngressRead(void *fixture, int snapshot, const void *wire, uint32_t size
     result->witnessPending = cl->reconnect_gameplay_witness_pending;
     result->currentPlayer = g_Vars.currentplayernum;
     return (int)error;
+}
+
+int moveIngressRead(void *fixture, int snapshot, const void *wire, uint32_t size,
+        move_ingress_result *result)
+{
+    return moveIngressReadMode(fixture, snapshot, 0, wire, size, result);
+}
+
+int moveIngressReadGrid(void *fixture, int snapshot, const void *wire, uint32_t size,
+        move_ingress_result *result)
+{
+    return moveIngressReadMode(fixture, snapshot, 1, wire, size, result);
 }

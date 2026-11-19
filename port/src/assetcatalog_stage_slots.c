@@ -49,27 +49,22 @@ void assetCatalogDestroyCustomStageSlotSnapshot(void *snapshot)
     free(snapshot);
 }
 
-/* Dedup-or-allocate a private slot index in [0, count). Returns the local
- * index, or -1 when the range is exhausted (caller logs the loud failure). */
-static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
-        const char *catalog_id)
+/* An existing key takes precedence over the first free slot. */
+static s32 s_findOrNextStageSlot(const char *catalog_id)
 {
-    s32 i;
-
     if (!catalog_id || !catalog_id[0]) {
         return -1;
     }
 
-    for (i = 0; i < count; i++) {
-        if (ids[i][0] && strncmp(ids[i], catalog_id, CATALOG_ID_LEN) == 0) {
+    for (s32 i = 0; i < STAGENUM_CUSTOM_COUNT; i++) {
+        if (s_CustomStageCatalogIds[i][0]
+                && strncmp(s_CustomStageCatalogIds[i], catalog_id, CATALOG_ID_LEN) == 0) {
             return i;
         }
     }
 
-    for (i = 0; i < count; i++) {
-        if (!ids[i][0]) {
-            strncpy(ids[i], catalog_id, CATALOG_ID_LEN - 1);
-            ids[i][CATALOG_ID_LEN - 1] = '\0';
+    for (s32 i = 0; i < STAGENUM_CUSTOM_COUNT; i++) {
+        if (!s_CustomStageCatalogIds[i][0]) {
             return i;
         }
     }
@@ -77,10 +72,15 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
     return -1;
 }
 
+s32 assetCatalogPeekStagenumPrivateSlot(const char *catalog_id)
+{
+    const s32 idx = s_findOrNextStageSlot(catalog_id);
+    return idx < 0 ? -1 : STAGENUM_CUSTOM_START + idx;
+}
+
 s32 assetCatalogResolveStagenumPrivateSlot(const char *catalog_id)
 {
-    s32 idx = s_allocate(s_CustomStageCatalogIds, STAGENUM_CUSTOM_COUNT,
-        catalog_id);
+    const s32 idx = s_findOrNextStageSlot(catalog_id);
 
     if (idx < 0) {
         if (catalog_id && catalog_id[0]) {
@@ -92,5 +92,32 @@ s32 assetCatalogResolveStagenumPrivateSlot(const char *catalog_id)
         return -1;
     }
 
+    char *slot = s_CustomStageCatalogIds[idx];
+    if (!slot[0]) {
+        strncpy(slot, catalog_id, CATALOG_ID_LEN - 1);
+        slot[CATALOG_ID_LEN - 1] = '\0';
+    }
+
     return STAGENUM_CUSTOM_START + idx;
+}
+
+s32 assetCatalogFindStagenumPrivateSlot(const char *catalog_id)
+{
+    if (!catalog_id || !catalog_id[0]) return -1;
+    for (s32 i = 0; i < STAGENUM_CUSTOM_COUNT; i++) {
+        if (strcmp(s_CustomStageCatalogIds[i], catalog_id) == 0) {
+            return STAGENUM_CUSTOM_START + i;
+        }
+    }
+    return -1;
+}
+
+s32 assetCatalogReleaseStagenumPrivateSlot(const char *catalog_id, s32 stagenum)
+{
+    if (assetCatalogFindStagenumPrivateSlot(catalog_id) != stagenum
+            || stagenum < STAGENUM_CUSTOM_START || stagenum >= STAGENUM_CUSTOM_END) {
+        return 0;
+    }
+    s_CustomStageCatalogIds[stagenum - STAGENUM_CUSTOM_START][0] = '\0';
+    return 1;
 }

@@ -133,6 +133,7 @@ struct ToolLevel {
 		const std::string graph = toolGraph(objectCount);
 		const std::string *all[FORGE_LEVEL_MEMBER_COUNT] = { &pads, &spawns, &objects, &volumes, &fields, &graph };
 		for (s32 member = 0; member < FORGE_LEVEL_MEMBER_COUNT; member++) {
+			if (!all[member]) continue;
 			texts.text[member] = all[member]->data();
 			texts.size[member] = all[member]->size();
 		}

@@ -146,6 +146,8 @@
 #include <strings.h>
 #include <ctype.h>
 #include <math.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <SDL.h>
 
 #include <PR/ultratypes.h>
@@ -168,6 +170,10 @@
 #include "net/netdistrib.h"
 #include "net/net.h"
 #include "net/net_reconnect.h"
+#include "net/matchsetup.h"
+#include "grid_match_runtime.h"
+#include "fs.h"
+#include "room.h"
 #include "game/chraction.h"
 #include "game/player.h"
 #include "game/playermgr.h"
@@ -193,6 +199,7 @@
 
 /* Actual-core smoke probe, never ordinary input admission. */
 extern int modmgrSmokeProbePreparedRetry(void);
+extern s32 netLocalClientPreparingGridTransfer(void);
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
  * on synthesised SDL events. ImGui's SDL2 backend filters events whose
@@ -287,6 +294,19 @@ typedef struct {
 } SmokeEvent;
 
 typedef struct {
+    const char *arena;
+    const struct prop *player_prop;
+    u32 stage_generation;
+    s32 block;
+    s32 saw_input;
+    s32 saw_approach;
+    s32 saw_aperture;
+    s32 wall_frame;
+    f32 wall_x;
+    s32 complete;
+} SmokeGridPortal;
+
+typedef struct {
     s32          active;
     char         test_path[SMOKE_MAX_PATH];
     char         screenshot_dir[SMOKE_MAX_PATH]; /* --smoke-screenshot-dir: glReadPixels output dir */
@@ -310,6 +330,7 @@ typedef struct {
     s32          observed_stage_teardown_count;
     s32          ready_stage_num;
     u32          ready_stage_generation;
+    SmokeGridPortal grid_portal;
     u32          retired_network_prop_syncid;
     u32          retired_network_parent_syncid;
     s32          retired_network_client_id;
@@ -318,6 +339,135 @@ typedef struct {
 } SmokeState;
 
 static SmokeState s_State;
+
+static s32 smokeGridPortalFail(const char *reason)
+{
+    const struct player *player = g_Vars.players[0];
+    const struct prop *prop = player ? player->prop : NULL;
+    sysLogPrintf(LOG_ERROR,
+        "GRID.PORTAL.FAIL: arena=%s reason=%s pos=(%.1f,%.1f,%.1f) room=%d yaw=%.1f ground=%.1f speed=%.2f axis=(%.3f,%.3f) focus_lost=%d",
+        s_State.grid_portal.arena ? s_State.grid_portal.arena : "", reason,
+        prop ? prop->pos.x : 0.0f, prop ? prop->pos.y : 0.0f, prop ? prop->pos.z : 0.0f,
+        prop ? (s32)prop->rooms[0] : -1, player ? player->vv_theta : 0.0f,
+        player ? player->vv_ground : 0.0f, player ? player->speedforwards : 0.0f,
+        actionValue(0, ACTION_AXIS_MOVE_X), actionValue(0, ACTION_AXIS_MOVE_Y), inputCtxIsFocusLost());
+    smokeHarnessExit(1, "grid_portal_witness_failed");
+    return 0;
+}
+
+static s32 smokeGridPortalAnchor(void)
+{
+    const char *mode = sysArgGetString("--debug-grid-portal-witness");
+    SmokeGridPortal *probe = &s_State.grid_portal;
+    if (!mode || probe->stage_generation) return 1;
+
+    probe->arena = sysArgGetString("--debug-grid-portal-arena");
+    probe->block = strcmp(mode, "block") == 0;
+    if (!probe->arena || (!probe->block && strcmp(mode, "cross") != 0)) {
+        return smokeGridPortalFail("invalid_arguments");
+    }
+    const asset_entry_t *arena = assetCatalogResolve(probe->arena);
+    struct player *player = g_Vars.players[0];
+    if (g_NetMode != NETMODE_NONE || !arena || !arena->enabled || arena->type != ASSET_ARENA
+            || arena->ext.arena.load_mode != ARENA_LOADMODE_PLAYABLE
+            || arena->ext.arena.stagenum != g_StageNum || g_Vars.stagenum != g_StageNum
+            || g_Vars.roomcount != 3 || !s_State.ready_stage_generation
+            || !player || !player->prop || !player->prop->chr) {
+        return smokeGridPortalFail("unexpected_stage_or_player");
+    }
+
+    /* Anchor once on the loaded stage. All subsequent movement, including
+     * crossing the shared plane, comes from the fixture's ordinary input. */
+    struct coord position = {-350.0f, 160.0f, probe->block ? 450.0f : 0.0f};
+    RoomNum rooms[] = {1, -1};
+    if (!chrMoveToPos(player->prop->chr, &position, rooms, M_BADTAU / 4.0f, true)
+            || player->prop->rooms[0] != 1 || player->prop->rooms[1] != -1
+            || fabsf(player->prop->pos.x - position.x) > 1.0f
+            || fabsf(player->prop->pos.z - position.z) > 1.0f) {
+        return smokeGridPortalFail("anchor_refused");
+    }
+    probe->player_prop = player->prop;
+    probe->stage_generation = s_State.ready_stage_generation;
+    sysLogPrintf(LOG_NOTE, "GRID.PORTAL.ANCHOR: arena=%s mode=%s room=1 start_x=%.0f start_z=%.0f",
+        probe->arena, mode, player->prop->pos.x, player->prop->pos.z);
+    return 1;
+}
+
+static s32 smokeGridPortalObserve(void)
+{
+    SmokeGridPortal *probe = &s_State.grid_portal;
+    if (!probe->stage_generation || probe->complete) return 1;
+    const struct player *player = g_Vars.players[0];
+    if (s_State.ready_stage_generation != probe->stage_generation
+            || !player || player->prop != probe->player_prop || player->isdead) {
+        return smokeGridPortalFail("player_or_stage_changed");
+    }
+    /* Own the exact axis read by movement. A digital forward action can be
+     * readable to smoke while ordinary focus rules suppress WASD synthesis. */
+    const s32 held = actionHeld(0, ACTION_AXIS_MOVE_Y);
+    if (!held && !probe->saw_input) return 1;
+    const struct prop *prop = player->prop;
+    const f32 x = prop->pos.x;
+    const f32 z = prop->pos.z;
+    const s32 room = prop->rooms[0];
+    const s32 exclusive = prop->rooms[1] == -1;
+    const s32 grounded = player->bondmovemode == MOVEMODE_WALK && !player->isfalling
+        && fabsf(player->vv_ground) <= 5.0f && fabsf(player->vv_manground - player->vv_ground) <= 5.0f;
+    if (held) {
+        const f32 move_x = actionValue(0, ACTION_AXIS_MOVE_X);
+        const f32 move_y = actionValue(0, ACTION_AXIS_MOVE_Y);
+        if (!(fabsf(move_x) <= 0.05f && move_y >= 0.95f && move_y <= 1.0f)) {
+            return smokeGridPortalFail("forward_axis_not_admitted");
+        }
+        if (!probe->saw_input) {
+            probe->saw_input = 1;
+            sysLogPrintf(LOG_NOTE,
+                "GRID.PORTAL.INPUT: arena=%s mode=%s axis=(%.3f,%.3f) yaw=%.1f focus_lost=%d",
+                probe->arena, probe->block ? "block" : "cross", move_x, move_y,
+                player->vv_theta, inputCtxIsFocusLost());
+        }
+    }
+    /* The 500-unit fixture opening spans Z=-250 to Z=250. Allow natural
+     * walking drift while keeping the crossing inside it and the wall
+     * approach at least 50 units beyond its edge. */
+    if (!__builtin_isfinite(x) || !__builtin_isfinite(z)
+            || fabsf(z - (probe->block ? 450.0f : 0.0f)) > 150.0f) {
+        return smokeGridPortalFail("left_test_lane");
+    }
+    if (!probe->saw_approach && held && grounded && exclusive && room == 1 && x >= -250.0f && x <= -100.0f) {
+        probe->saw_approach = 1;
+        sysLogPrintf(LOG_NOTE, "GRID.PORTAL.APPROACH: arena=%s mode=%s room=1 grounded=1 x=%.1f z=%.1f",
+            probe->arena, probe->block ? "block" : "cross", x, z);
+    }
+    if (probe->block) {
+        if (x >= 0.0f || room == 2) return smokeGridPortalFail("crossed_solid_partition");
+        const s32 at_wall = grounded && exclusive && room == 1 && x >= -100.0f && x <= -5.0f;
+        const s32 stopped = at_wall && fabsf(x - probe->wall_x) <= 1.0f;
+        const s32 stopped_frames = g_Vars.lvframe60 - probe->wall_frame;
+        if (held && probe->saw_approach && stopped && probe->wall_frame && stopped_frames >= 30) {
+            probe->complete = 1;
+            sysLogPrintf(LOG_NOTE, "GRID.PORTAL.BLOCKED: arena=%s room=1 grounded=1 x=%.1f z=%.1f frames=%d",
+                probe->arena, x, z, stopped_frames);
+        } else if (!held) {
+            return smokeGridPortalFail("input_released_before_wall_proof");
+        } else if (!stopped) {
+            probe->wall_frame = 0;
+            probe->wall_x = x;
+        } else if (!probe->wall_frame) {
+            probe->wall_frame = g_Vars.lvframe60;
+        }
+    } else {
+        if (!held) return smokeGridPortalFail("input_released_before_crossing");
+        if (grounded && x >= -100.0f && x <= 100.0f) probe->saw_aperture = 1;
+        if (grounded && exclusive && room == 2 && x >= 100.0f) {
+            if (!probe->saw_approach || !probe->saw_aperture) return smokeGridPortalFail("missing_crossing_samples");
+            probe->complete = 1;
+            sysLogPrintf(LOG_NOTE, "GRID.PORTAL.CROSSED: arena=%s from=1 to=2 grounded=1 x=%.1f z=%.1f",
+                probe->arena, x, z);
+        }
+    }
+    return 1;
+}
 
 static Sint16 smokePadAxisNeutral(s32 axis)
 {
@@ -2065,6 +2215,139 @@ static s32 smokeScenarioTokenHolder(const char **token)
     return -1;
 }
 
+/* The host observes the exact prepare/rollback boundary. The guest observes
+ * the failed exact offer and the production return to the same lobby. */
+static struct {
+    hub_room_t room_before;
+    u8 room_id;
+    s32 observed;
+    s32 reported;
+} s_GridDeclineWitness;
+
+void smokeHarnessGridDeclineObserve(const struct netclient *client)
+{
+    if ((!sysArgCheck("--debug-grid-decline-witness") && !sysArgCheck("--debug-grid-corrupt-witness"))
+            || s_GridDeclineWitness.observed
+            || !client || client != g_NetLocalClient || client->room_id == 0xff
+            || client->state != CLSTATE_PREPARING) return;
+    if (g_NetMode == NETMODE_SERVER) {
+        const hub_room_t *room = roomGetById(client->room_id);
+        if (!room || room->state != ROOM_STATE_PREPARING || room->client_count != 2) return;
+        s_GridDeclineWitness.room_before = *room;
+    } else if (g_NetMode != NETMODE_CLIENT) {
+        return;
+    }
+    s_GridDeclineWitness.room_id = client->room_id;
+    s_GridDeclineWitness.observed = 1;
+}
+
+static s32 smokeGridOfferFailedLobby(const char *corrupt_arena)
+{
+    const struct netclient *local = g_NetLocalClient;
+    /* In the corruption case the guest can record its room assignment
+     * before the ordinary host autostart issues the offer. */
+    if (corrupt_arena && g_NetMode == NETMODE_CLIENT && !s_GridDeclineWitness.observed
+            && local && local->state == CLSTATE_LOBBY && local->room_id != 0xff) {
+        s_GridDeclineWitness.room_id = local->room_id;
+        s_GridDeclineWitness.observed = 1;
+    }
+    const u8 room_id = s_GridDeclineWitness.room_id;
+    if (!s_GridDeclineWitness.observed || !local || room_id != local->room_id
+            || local->state != CLSTATE_LOBBY || local->reviewing_results || g_NetStageEpoch
+            || gridMatchRuntimePending() || gridMatchRuntimeActive()) return 0;
+
+    if (g_NetMode == NETMODE_SERVER) {
+        const hub_room_t *room = roomGetById(room_id);
+        const hub_room_t *before = &s_GridDeclineWitness.room_before;
+        if (!room || room->state != ROOM_STATE_LOBBY
+                || room->client_count != before->client_count
+                || room->creator_client_id != before->creator_client_id
+                || room->settings_revision != before->settings_revision
+                || room->playlist_revision != before->playlist_revision
+                || memcmp(room->clients, before->clients, room->client_count) != 0) return 0;
+        for (u8 i = 0; i < room->client_count; i++) {
+            const u8 id = room->clients[i];
+            if (id >= NET_MAX_CLIENTS || g_NetClients[id].room_id != room_id
+                    || g_NetClients[id].state != CLSTATE_LOBBY || g_NetClients[id].reviewing_results) {
+                return 0;
+            }
+        }
+        if (!s_GridDeclineWitness.reported) {
+            sysLogPrintf(LOG_NOTE,
+                "SMOKE.GRID.%s: role=host room=%u members=%u settings_revision=%u playlist_revision=%u retained=1 epoch=0 review=0",
+                corrupt_arena ? "CORRUPT" : "DECLINED", (unsigned)room_id,
+                (unsigned)room->client_count, (unsigned)room->settings_revision,
+                (unsigned)room->playlist_revision);
+        }
+    } else {
+        if (g_NetMode != NETMODE_CLIENT
+                || netDistribClientIsGridArena() || netDistribClientConsentPending()) return 0;
+        distrib_client_status_t status;
+        netDistribClientGetStatus(&status);
+        if (!status.current_bytes_total || status.received_count) return 0;
+        if (corrupt_arena) {
+            if (netDistribClientManifestDeclined() || strcmp(status.current_id, corrupt_arena) != 0
+                    || status.current_bytes_received != status.current_bytes_total
+                    || assetCatalogResolveAny(corrupt_arena)) return 0;
+            char private_dir[FS_MAXPATH + 1];
+            struct stat info;
+            fsFullPath("$S/grid-session", private_dir, sizeof(private_dir));
+            if (stat(private_dir, &info) == 0 || errno != ENOENT) return 0;
+            if (!s_GridDeclineWitness.reported) {
+                sysLogPrintf(LOG_NOTE,
+                    "SMOKE.GRID.CORRUPT: role=guest room=%u retained=1 rejected_bytes=%u catalog=0 private_files=0 epoch=0 review=0 declined=0",
+                    (unsigned)room_id, (unsigned)status.current_bytes_received);
+            }
+        } else if (!netDistribClientManifestDeclined() || status.current_bytes_received) {
+            return 0;
+        } else if (!s_GridDeclineWitness.reported) {
+            sysLogPrintf(LOG_NOTE,
+                "SMOKE.GRID.DECLINED: role=guest room=%u retained=1 received_bytes=0 epoch=0 review=0",
+                (unsigned)room_id);
+        }
+    }
+    s_GridDeclineWitness.reported = 1;
+    return 1;
+}
+
+/* A scheduled marker can retry once through the ordinary listen-host request
+ * after both peers have had time to see the declined lobby. */
+static s32 smokeGridRetryArena(void)
+{
+    extern s32 netLobbyRequestStartWithSims(u8 mode, const char *stage_id,
+        u8 difficulty, u8 anti_client, u8 bots, u8 sim_type, u8 timelimit,
+        u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weapon_set);
+    static s32 attempted;
+    const char *arena_id = sysArgGetString("--debug-grid-retry-arena");
+    if (!arena_id || attempted) return 1;
+    if (g_NetMode != NETMODE_SERVER || g_NetDedicated || !s_GridDeclineWitness.reported
+            || !smokeGridOfferFailedLobby(NULL) || strcmp(arena_id, g_MatchConfig.stage_id) != 0
+            || strcmp(g_MatchConfig.scenario_id, "base:combat") != 0
+            || !g_MatchConfig.numSlots || g_MatchConfig.numSlots > MATCH_MAX_SLOTS) return 0;
+
+    u8 bots = 0;
+    u8 sim_type = 0;
+    for (u8 i = 0; i < g_MatchConfig.numSlots; i++) {
+        const struct matchslot *slot = &g_MatchConfig.slots[i];
+        if (slot->type != SLOT_BOT) continue;
+        if (!bots) sim_type = slot->botDifficulty;
+        bots++;
+    }
+    const u8 room_id = s_GridDeclineWitness.room_id;
+    const u8 weapon_set = (u8)(g_MatchConfig.weaponSetIndex >= 0
+        ? g_MatchConfig.weaponSetIndex : 0xff);
+    attempted = 1;
+    sysLogPrintf(LOG_NOTE, "SMOKE.GRID.RETRY: starting room=%u arena=%s bots=%u",
+        (unsigned)room_id, arena_id, (unsigned)bots);
+    if (netLobbyRequestStartWithSims(NETGAMEMODE_MP, arena_id, 0, NET_NULL_CLIENT,
+            bots, sim_type, g_MatchConfig.timelimit, matchConfigGetUserOptions(),
+            g_MatchConfig.scenario, g_MatchConfig.scorelimit, g_MatchConfig.teamscorelimit,
+            weapon_set) != 0) return 0;
+    const grid_match_runtime_identity_t *retry = gridMatchRuntimePending();
+    return retry && retry->offer.room_id == room_id && retry->offer.generation == 2
+        && strcmp(retry->arena_id, arena_id) == 0;
+}
+
 static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
 {
     smoke_readiness_facts_t facts;
@@ -2101,8 +2384,15 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.local_client_in_game = g_NetLocalClient
         && g_NetLocalClient->state == CLSTATE_GAME;
     facts.manifest_declined = netDistribClientManifestDeclined();
+    if (sysArgCheck("--debug-grid-decline-witness")) {
+        facts.manifest_declined = smokeGridOfferFailedLobby(NULL);
+    }
     facts.local_client_in_lobby = g_NetLocalClient
         && g_NetLocalClient->state == CLSTATE_LOBBY;
+    const char *corrupt_arena = sysArgGetString("--debug-grid-corrupt-witness");
+    if (corrupt_arena && corrupt_arena[0]) {
+        facts.local_client_in_lobby = smokeGridOfferFailedLobby(corrupt_arena);
+    }
     facts.gameplay_stage = g_StageNum == g_Vars.stagenum
         && g_StageNum != STAGE_TITLE;
     facts.stage_ready_epoch = s_State.ready_stage_generation > 0
@@ -2181,6 +2471,14 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
         && facts.menu_focus_settle_remaining_ms == 0
         && !(facts.menu_key_suppressed = inputCtxShouldSuppressKey(&menu_key_probe))
         && !(facts.menu_binding_capture = pdguiMainMenuBindingCaptureListening());
+    facts.grid_consent_preparing = netLocalClientPreparingGridTransfer();
+    facts.grid_consent_pending = facts.grid_consent_preparing && netDistribClientConsentPending();
+    if (facts.grid_consent_pending) {
+        pdgui_menu_view_readiness_t consent_view;
+        facts.grid_consent_accept_focused = pdguiMenuViewReadiness("##distrib_prompt",
+            !facts.menu_focus_lost, &consent_view) && consent_view.play_focused
+            && !pdguiTextKeyboardOwnsMenuInput();
+    }
     const pdgui_menu_input_observation_t agent_select_input = pdguiMenuObserveInput(
         "##agent_select", !facts.menu_focus_lost);
     const pdgui_menu_input_observation_t agent_create_input = pdguiMenuObserveInput(
@@ -2216,6 +2514,11 @@ static void smokeLogReadinessWait(s32 level, const char *status,
     if (ev->readiness_condition == SMOKE_READINESS_NETWORK_LOBBY_READY) {
         sysLogPrintf(level, "SMOKE.WAIT.LOBBY: boot=%d net=%d client_lobby=%d",
             facts->boot_complete, facts->network_active, facts->local_client_in_lobby);
+    }
+    if (ev->readiness_condition == SMOKE_READINESS_GRID_CONSENT_READY) {
+        sysLogPrintf(level, "SMOKE.WAIT.GRIDCONSENT: %s preparing=%d pending=%d accept_focused=%d input_top=%d keyboard_ready=%d",
+            status, facts->grid_consent_preparing, facts->grid_consent_pending,
+            facts->grid_consent_accept_focused, facts->menu_input_top, facts->menu_keyboard_ready);
     }
     if (ev->readiness_condition == SMOKE_READINESS_FORGE_EDITOR_READY
             || ev->readiness_condition == SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN) {
@@ -2779,6 +3082,8 @@ static s32 smokeTickReadinessWait(SmokeEvent *ev, u32 now,
         memset(&s_State.wait_transition, 0, sizeof(s_State.wait_transition));
         smokeLogReadinessWait(LOG_NOTE, "satisfied", ev, waited_ms,
 			real_elapsed_ms, plan.stable_elapsed_ms, &facts);
+        if (ev->readiness_condition == SMOKE_READINESS_OFFLINE_GAMEPLAY_READY
+                && !smokeGridPortalAnchor()) return -1;
         return 1;
     }
     return 0;
@@ -2803,6 +3108,7 @@ void smokeHarnessTick(void)
     if (!smokePadObserve()) return;
     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     smokeObserveStageReadyEpoch();
+    if (!smokeGridPortalObserve()) return;
     u32 script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
         ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
     s32 elapsed = (s32)script_elapsed_ms;
@@ -2880,6 +3186,10 @@ void smokeHarnessTick(void)
         switch (ev->type) {
         case SMOKE_EVENT_WAIT:
             sysLogPrintf(LOG_NOTE, "SMOKE: wait marker at_ms=%d", ev->at_ms);
+            if (!smokeGridRetryArena()) {
+                smokeHarnessExit(1, "grid_retry_failed");
+                return;
+            }
             break;
         case SMOKE_EVENT_KEY_PRESS:
             sysLogPrintf(LOG_NOTE, "SMOKE: press scancode=%d at_ms=%d", ev->scancode, ev->at_ms);
@@ -3259,6 +3569,10 @@ void smokeHarnessTick(void)
             gfxRequestSmokeScreenshot(ev->path);
             break;
         case SMOKE_EVENT_EXIT:
+            if (sysArgCheck("--debug-grid-portal-witness") && !s_State.grid_portal.complete) {
+                smokeGridPortalFail("witness_incomplete");
+                return;
+            }
             sysLogPrintf(LOG_NOTE, "SMOKE: scripted exit at_ms=%d", ev->at_ms);
             /* object-events.md: a stage the smoke leaves before it ends
              * still logs its object event totals. */

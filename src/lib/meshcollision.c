@@ -8,6 +8,8 @@
  * This file is C11 game code (not C++).
  */
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -57,20 +59,23 @@ static bool meshGrow(struct colmesh *mesh, s32 needed)
 	return true;
 }
 
-static void gridCellAdd(struct meshgridcell *cell, s32 triindex)
+static s32 gridCellAdd(struct meshgridcell *cell, s32 triindex, size_t *remaining)
 {
 	if (cell->count >= cell->capacity) {
+		if (cell->capacity > INT_MAX / 2) return 0;
 		s32 newcap = cell->capacity * 2;
 		if (newcap < 16) newcap = 16;
-		s32 *newptr = realloc(cell->triindices, newcap * sizeof(s32));
-		if (!newptr) {
-			sysLogPrintf(LOG_WARNING, "MESHCOL: gridCellAdd realloc failed (%d)", newcap);
-			return;
-		}
+		if ((size_t)newcap > SIZE_MAX / sizeof(*cell->triindices)) return 0;
+		const size_t added = (size_t)(newcap - cell->capacity) * sizeof(*cell->triindices);
+		if (added > *remaining) return 0;
+		s32 *newptr = realloc(cell->triindices, (size_t)newcap * sizeof(*newptr));
+		if (!newptr) return 0;
+		*remaining -= added;
 		cell->triindices = newptr;
 		cell->capacity = newcap;
 	}
 	cell->triindices[cell->count++] = triindex;
+	return 1;
 }
 
 /* ======================================================================== */
@@ -533,9 +538,23 @@ void meshFree(struct colmesh *mesh)
 static bool s_WorldMeshHasShotFlags;
 
 /* B-1189: per-call stamps for meshGridRayCast, one per world triangle. */
-static u32 *s_RayGridStamps;
-static s32 s_RayGridStampCap;
-static u32 s_RayGridStamp;
+struct meshworldray {
+	u32 *stamps;
+	s32 capacity;
+	u32 stamp;
+};
+
+static struct meshworldray s_WorldRay;
+
+struct mesh_world_prepared {
+	struct meshgrid grid;
+	struct meshworldray ray;
+	bool has_shot_flags;
+};
+
+/* A source triangle can span many cells. Bound the owned candidate's
+ * triangles, cell lists and stamps together before a world swap. */
+#define MESH_WORLD_PREPARED_MAX_BYTES (64u * 1024u * 1024u)
 
 void meshWorldInit(void)
 {
@@ -546,15 +565,20 @@ void meshWorldInit(void)
 
 void meshWorldAddMesh(struct colmesh *mesh, Mtxf *transform)
 {
-	if (!mesh || mesh->numtris == 0) return;
+	if (!mesh || !mesh->tris || mesh->numtris <= 0) return;
+	if (mesh->numtris > INT_MAX - g_WorldMesh.numtris) {
+		sysLogPrintf(LOG_WARNING, "MESHCOL: too many triangles for the world mesh");
+		return;
+	}
 
 	/* Ensure capacity in world mesh */
 	s32 needed = g_WorldMesh.numtris + mesh->numtris;
 	if (needed > g_WorldMesh.tricapacity) {
-		s32 newcap = g_WorldMesh.tricapacity * 2;
+		s32 newcap = g_WorldMesh.tricapacity <= INT_MAX / 2 ? g_WorldMesh.tricapacity * 2 : needed;
 		if (newcap < needed) newcap = needed;
 		if (newcap < 1024) newcap = 1024;
-		struct meshtri *newptr = realloc(g_WorldMesh.tris, newcap * sizeof(struct meshtri));
+		if ((size_t)newcap > SIZE_MAX / sizeof(*g_WorldMesh.tris)) return;
+		struct meshtri *newptr = realloc(g_WorldMesh.tris, (size_t)newcap * sizeof(*newptr));
 		if (!newptr) {
 			sysLogPrintf(LOG_WARNING, "MESHCOL: world mesh realloc failed (%d tris)", newcap);
 			return;
@@ -805,22 +829,40 @@ s32 meshWorldAddRenderedRoom(s32 roomnum)
 	return added;
 }
 
-void meshWorldFinalize(void)
+static void meshWorldFreeCells(struct meshgrid *grid)
 {
-	if (g_WorldMesh.numtris == 0) {
-		g_WorldMesh.ready = 1;
-		return;
+	if (grid->cells) {
+		const s32 count = grid->cellsx * grid->cellsz;
+		for (s32 i = 0; i < count; ++i) free(grid->cells[i].triindices);
+		free(grid->cells);
+		grid->cells = NULL;
+	}
+}
+
+static s32 meshWorldBuildGrid(struct meshgrid *grid, bool *has_shot_flags, size_t remaining)
+{
+	grid->ready = 0;
+	meshWorldFreeCells(grid);
+	*has_shot_flags = false;
+	if (grid->numtris == 0) {
+		grid->ready = 1;
+		return 1;
 	}
 
 	/* Compute world bounds */
-	f32 minx = g_WorldMesh.tris[0].v0.x, maxx = minx;
-	f32 minz = g_WorldMesh.tris[0].v0.z, maxz = minz;
-	f32 miny = g_WorldMesh.tris[0].v0.y, maxy = miny;
+	f32 minx = grid->tris[0].v0.x, maxx = minx;
+	f32 minz = grid->tris[0].v0.z, maxz = minz;
+	f32 miny = grid->tris[0].v0.y, maxy = miny;
+	bool shots = false;
 
-	for (s32 i = 0; i < g_WorldMesh.numtris; i++) {
-		struct meshtri *t = &g_WorldMesh.tris[i];
+	for (s32 i = 0; i < grid->numtris; i++) {
+		const struct meshtri *t = &grid->tris[i];
+		if (!__builtin_isfinite(t->normal.x) || !__builtin_isfinite(t->normal.y)
+				|| !__builtin_isfinite(t->normal.z)) return 0;
+		if (t->flags & (GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT)) shots = true;
 		for (s32 vi = 0; vi < 3; vi++) {
-			struct coord *v = (vi == 0) ? &t->v0 : (vi == 1) ? &t->v1 : &t->v2;
+			const struct coord *v = (vi == 0) ? &t->v0 : (vi == 1) ? &t->v1 : &t->v2;
+			if (!__builtin_isfinite(v->x) || !__builtin_isfinite(v->y) || !__builtin_isfinite(v->z)) return 0;
 			if (v->x < minx) minx = v->x;
 			if (v->x > maxx) maxx = v->x;
 			if (v->z < minz) minz = v->z;
@@ -830,15 +872,15 @@ void meshWorldFinalize(void)
 		}
 	}
 
-	g_WorldMesh.originx = minx;
-	g_WorldMesh.originz = minz;
-	g_WorldMesh.miny = miny;
-	g_WorldMesh.maxy = maxy;
+	grid->originx = minx;
+	grid->originz = minz;
+	grid->miny = miny;
+	grid->maxy = maxy;
 
-	g_WorldMesh.cellsx = (s32)((maxx - minx) / MESHGRID_CELL_SIZE) + 1;
-	g_WorldMesh.cellsz = (s32)((maxz - minz) / MESHGRID_CELL_SIZE) + 1;
-	if (g_WorldMesh.cellsx > MESHGRID_MAX_DIM) g_WorldMesh.cellsx = MESHGRID_MAX_DIM;
-	if (g_WorldMesh.cellsz > MESHGRID_MAX_DIM) g_WorldMesh.cellsz = MESHGRID_MAX_DIM;
+	/* Clamp before converting to an integer, including finite source
+	 * coordinates whose span cannot fit in a float or integer. */
+	grid->cellsx = meshGridCell(maxx, minx, MESHGRID_MAX_DIM) + 1;
+	grid->cellsz = meshGridCell(maxz, minz, MESHGRID_MAX_DIM) + 1;
 
 	if (maxx - minx >= MESHGRID_MAX_DIM * MESHGRID_CELL_SIZE
 			|| maxz - minz >= MESHGRID_MAX_DIM * MESHGRID_CELL_SIZE) {
@@ -847,18 +889,22 @@ void meshWorldFinalize(void)
 			maxx - minx, maxz - minz, MESHGRID_MAX_DIM, MESHGRID_MAX_DIM);
 	}
 
-	s32 totalcells = g_WorldMesh.cellsx * g_WorldMesh.cellsz;
-	g_WorldMesh.cells = calloc(totalcells, sizeof(struct meshgridcell));
+	const s32 totalcells = grid->cellsx * grid->cellsz;
+	const size_t cell_bytes = (size_t)totalcells * sizeof(*grid->cells);
+	if (cell_bytes > remaining) return 0;
+	grid->cells = calloc((size_t)totalcells, sizeof(*grid->cells));
+	if (!grid->cells) return 0;
+	remaining -= cell_bytes;
 
 	/* Insert each triangle into all cells it overlaps */
-	for (s32 i = 0; i < g_WorldMesh.numtris; i++) {
-		struct meshtri *t = &g_WorldMesh.tris[i];
+	for (s32 i = 0; i < grid->numtris; i++) {
+		const struct meshtri *t = &grid->tris[i];
 
 		/* Triangle AABB */
 		f32 txmin = t->v0.x, txmax = t->v0.x;
 		f32 tzmin = t->v0.z, tzmax = t->v0.z;
 		for (s32 vi = 1; vi < 3; vi++) {
-			struct coord *v = (vi == 1) ? &t->v1 : &t->v2;
+			const struct coord *v = (vi == 1) ? &t->v1 : &t->v2;
 			if (v->x < txmin) txmin = v->x;
 			if (v->x > txmax) txmax = v->x;
 			if (v->z < tzmin) tzmin = v->z;
@@ -867,47 +913,97 @@ void meshWorldFinalize(void)
 
 		/* Both ends clamp into the grid (B-1210): a triangle wholly past
 		 * the cap is listed in the last row or column, not in no cell. */
-		s32 cx0 = meshGridCell(txmin, g_WorldMesh.originx, g_WorldMesh.cellsx);
-		s32 cx1 = meshGridCell(txmax, g_WorldMesh.originx, g_WorldMesh.cellsx);
-		s32 cz0 = meshGridCell(tzmin, g_WorldMesh.originz, g_WorldMesh.cellsz);
-		s32 cz1 = meshGridCell(tzmax, g_WorldMesh.originz, g_WorldMesh.cellsz);
+		s32 cx0 = meshGridCell(txmin, grid->originx, grid->cellsx);
+		s32 cx1 = meshGridCell(txmax, grid->originx, grid->cellsx);
+		s32 cz0 = meshGridCell(tzmin, grid->originz, grid->cellsz);
+		s32 cz1 = meshGridCell(tzmax, grid->originz, grid->cellsz);
 
 		for (s32 cz = cz0; cz <= cz1; cz++) {
 			for (s32 cx = cx0; cx <= cx1; cx++) {
-				gridCellAdd(&g_WorldMesh.cells[cz * g_WorldMesh.cellsx + cx], i);
+				if (!gridCellAdd(&grid->cells[cz * grid->cellsx + cx], i, &remaining)) {
+					meshWorldFreeCells(grid);
+					return 0;
+				}
 			}
 		}
 	}
 
-	s_WorldMeshHasShotFlags = false;
-	for (s32 i = 0; i < g_WorldMesh.numtris; i++) {
-		if (g_WorldMesh.tris[i].flags & (GEOFLAG_BLOCK_SIGHT | GEOFLAG_BLOCK_SHOOT)) {
-			s_WorldMeshHasShotFlags = true;
-			break;
-		}
-	}
-
-	g_WorldMesh.ready = 1;
+	*has_shot_flags = shots;
+	grid->ready = 1;
 
 	sysLogPrintf(LOG_NOTE, "MESHCOL: world mesh finalized: %d tris, %dx%d grid (%d cells)",
-		g_WorldMesh.numtris, g_WorldMesh.cellsx, g_WorldMesh.cellsz, totalcells);
+		grid->numtris, grid->cellsx, grid->cellsz, totalcells);
+	return 1;
+}
+
+static void meshWorldReleaseGrid(struct meshgrid *grid, struct meshworldray *ray)
+{
+	meshWorldFreeCells(grid);
+	free(grid->tris);
+	free(ray->stamps);
+	memset(grid, 0, sizeof(*grid));
+	memset(ray, 0, sizeof(*ray));
+}
+
+s32 meshWorldPrepare(const struct colmesh *source, mesh_world_prepared_t **out)
+{
+	const size_t budget = MESH_WORLD_PREPARED_MAX_BYTES - sizeof(mesh_world_prepared_t);
+	if (!out || *out || !source || !source->tris || source->numtris <= 0
+			|| source->capacity < source->numtris
+			|| (size_t)source->numtris > budget / (sizeof(struct meshtri) + sizeof(u32))) return 0;
+
+	mesh_world_prepared_t *prepared = calloc(1, sizeof(*prepared));
+	if (!prepared) return 0;
+	const size_t count = (size_t)source->numtris;
+	const size_t tri_bytes = count * sizeof(*source->tris);
+	prepared->grid.tris = malloc(tri_bytes);
+	prepared->ray.stamps = calloc(count, sizeof(*prepared->ray.stamps));
+	if (!prepared->grid.tris || !prepared->ray.stamps) {
+		meshWorldFreePrepared(prepared);
+		return 0;
+	}
+	memcpy(prepared->grid.tris, source->tris, tri_bytes);
+	prepared->grid.numtris = source->numtris;
+	prepared->grid.tricapacity = source->numtris;
+	prepared->ray.capacity = source->numtris;
+	if (!meshWorldBuildGrid(&prepared->grid, &prepared->has_shot_flags,
+			budget - tri_bytes - count * sizeof(*prepared->ray.stamps))) {
+		meshWorldFreePrepared(prepared);
+		return 0;
+	}
+	*out = prepared;
+	return 1;
+}
+
+void meshWorldSwapPrepared(mesh_world_prepared_t *prepared)
+{
+	if (!prepared) return;
+	const mesh_world_prepared_t outgoing = {
+		.grid = g_WorldMesh, .ray = s_WorldRay, .has_shot_flags = s_WorldMeshHasShotFlags,
+	};
+	g_WorldMesh = prepared->grid;
+	s_WorldRay = prepared->ray;
+	s_WorldMeshHasShotFlags = prepared->has_shot_flags;
+	*prepared = outgoing;
+}
+
+void meshWorldFreePrepared(mesh_world_prepared_t *prepared)
+{
+	if (!prepared) return;
+	meshWorldReleaseGrid(&prepared->grid, &prepared->ray);
+	free(prepared);
+}
+
+void meshWorldFinalize(void)
+{
+	if (!meshWorldBuildGrid(&g_WorldMesh, &s_WorldMeshHasShotFlags, SIZE_MAX)) {
+		sysLogPrintf(LOG_WARNING, "MESHCOL: could not finalize the world mesh");
+	}
 }
 
 void meshWorldShutdown(void)
 {
-	if (g_WorldMesh.cells) {
-		s32 totalcells = g_WorldMesh.cellsx * g_WorldMesh.cellsz;
-		for (s32 i = 0; i < totalcells; i++) {
-			if (g_WorldMesh.cells[i].triindices) {
-				free(g_WorldMesh.cells[i].triindices);
-			}
-		}
-		free(g_WorldMesh.cells);
-	}
-	if (g_WorldMesh.tris) {
-		free(g_WorldMesh.tris);
-	}
-	memset(&g_WorldMesh, 0, sizeof(g_WorldMesh));
+	meshWorldReleaseGrid(&g_WorldMesh, &s_WorldRay);
 	s_WorldMeshHasShotFlags = false;
 }
 
@@ -1327,26 +1423,28 @@ f32 meshRayCastWorldMasked(const struct coord *from, const struct coord *to,
 		return 1.0f;
 	}
 
-	if (s_RayGridStampCap < g_WorldMesh.numtris) {
-		u32 *stamps = realloc(s_RayGridStamps, (size_t)g_WorldMesh.numtris * sizeof(*stamps));
+	if (s_WorldRay.capacity < g_WorldMesh.numtris) {
+		const size_t count = (size_t)g_WorldMesh.numtris;
+		if (count > SIZE_MAX / sizeof(*s_WorldRay.stamps)) return 1.0f;
+		u32 *stamps = realloc(s_WorldRay.stamps, count * sizeof(*stamps));
 
 		if (!stamps) {
 			return 1.0f;
 		}
 
-		memset(stamps + s_RayGridStampCap, 0,
-			(size_t)(g_WorldMesh.numtris - s_RayGridStampCap) * sizeof(*stamps));
-		s_RayGridStamps = stamps;
-		s_RayGridStampCap = g_WorldMesh.numtris;
+		memset(stamps + s_WorldRay.capacity, 0,
+			(count - (size_t)s_WorldRay.capacity) * sizeof(*stamps));
+		s_WorldRay.stamps = stamps;
+		s_WorldRay.capacity = g_WorldMesh.numtris;
 	}
 
-	if (++s_RayGridStamp == 0) {
-		memset(s_RayGridStamps, 0, (size_t)s_RayGridStampCap * sizeof(*s_RayGridStamps));
-		s_RayGridStamp = 1;
+	if (++s_WorldRay.stamp == 0) {
+		memset(s_WorldRay.stamps, 0, (size_t)s_WorldRay.capacity * sizeof(*s_WorldRay.stamps));
+		s_WorldRay.stamp = 1;
 	}
 
-	return meshGridRayCast(&g_WorldMesh, from, to, mask, s_RayGridStamps,
-		s_RayGridStamp, out_normal, out_tri);
+	return meshGridRayCast(&g_WorldMesh, from, to, mask, s_WorldRay.stamps,
+		s_WorldRay.stamp, out_normal, out_tri);
 }
 
 bool meshWorldHasShotFlags(void)

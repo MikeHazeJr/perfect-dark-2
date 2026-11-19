@@ -89,6 +89,13 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 s32 modAssetCompilerBuildColmesh(const char *source_path,
                                  struct colmesh *out_mesh);
 
+/* Compile borrowed OBJ or self-contained GLB bytes without FS or stage state.
+ * Parsed and native geometry allocations are each bounded by mesh_budget.
+ * NULL flags with size zero permits native normal-based flags. A supplied
+ * sidecar must describe every source triangle. Failure preserves out_mesh. */
+s32 modAssetCompilerBuildColmeshFromBytes(const char *source_path, const void *source, u32 source_size,
+	const void *flags, u32 flags_size, size_t mesh_budget, struct colmesh *out_mesh);
+
 /**
  * Compatibility wrapper for existing OBJ call sites.
  */

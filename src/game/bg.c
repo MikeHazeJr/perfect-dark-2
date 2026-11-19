@@ -1,4 +1,6 @@
 #include <ultra64.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "constants.h"
 #include "memsizes.h"
@@ -59,7 +61,11 @@
 #include "model_rodata_guard.h"
 #include "scenario_scene_renderer.h"
 #include "game/chraction.h"
+#include "scenario_room_domain.h"
 #include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+#include "smoke_harness.h"
+#include "net/grid_edit_room_net.h"
 
 extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
 extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
@@ -153,6 +159,25 @@ s32 g_BgNumPortalCameraCacheItems = 0;
 s32 g_BgUsingScenarioSource = 0;
 static struct colmesh *g_BgScenarioSourceMesh = NULL;
 static char g_BgScenarioSourceId[CATALOG_ID_LEN];
+static s32 s_BgGridScenario;
+static s32 s_BgLastPrivateAmbient = -1;
+static s32 s_BgRoomBrightnessWitness;
+
+enum { BG_GRID_ROOM_COUNT = 3 };
+
+struct bg_grid_room_geometry {
+	scenario_room_bounds_t bounds;
+	struct coord centre;
+	f32 radius;
+};
+
+struct bg_grid_room_layout {
+	struct room rooms[BG_GRID_ROOM_COUNT];
+	struct bg_grid_room_geometry geometry[BG_GRID_ROOM_COUNT - 1];
+};
+
+static bg_grid_room_layout_t *s_BgGridRoomLayout;
+static struct room *s_BgGridPoolRooms;
 
 s32 bgUsesScenarioSource(void)
 {
@@ -1453,6 +1478,29 @@ void bgLoadFile(void *memaddr, u32 offset, u32 len)
 	memcpy(memaddr, src + offset, len);
 }
 
+static f32 bgClampSceneBrightness(f32 brightness)
+{
+	if (brightness < 0.0f) return 0.0f;
+	if (brightness > 255.0f) return 255.0f;
+	return brightness;
+}
+
+/* Apply the difference between the two base levels to the scene only. The
+ * native tick still owns fixture contributions, regional lighting and AI. */
+static f32 bgApplyPrivateRoomAmbient(s32 roomnum, f32 native, s32 ambient)
+{
+	const struct room *room = &g_Rooms[roomnum];
+	f32 fraction = room->lightop_cur_frac;
+	if (room->numlights) {
+		s32 lightnum;
+		for (lightnum = 0; lightnum < room->numlights; lightnum++) {
+			if (lightIsOn(roomnum, lightnum)) break;
+		}
+		if (lightnum == room->numlights) fraction *= 0.5f;
+	}
+	return bgClampSceneBrightness(native + (ambient - room->br_base) * fraction);
+}
+
 /**
  * B-1172: hand the scene renderer the room lighting this player sees, as
  * roomHighlight (dlights.c) applies it to the BG's vertex colours: the settled
@@ -1464,8 +1512,26 @@ static void bgSetScenarioSceneRoomLights(void)
 {
 	static scenario_scene_room_light_t lights[1024];
 	const s32 greyscale = USINGDEVICE(DEVICE_NIGHTVISION) || USINGDEVICE(DEVICE_IRSCANNER);
+	s32 ambient = -1;
+	s32 ambient_enabled = 0;
+	const s32 live_ambient = netGridEditPrivatePlaytestAmbientState(&ambient_enabled, &ambient);
+	const s32 has_ambient = live_ambient && ambient_enabled && (u32)ambient <= 255;
+	const s32 clear_ambient = live_ambient && !ambient_enabled;
+	/* A native Grid scene with no fixtures skips the legacy light matrix.
+	 * Resolve its authored base directly for presentation. */
+	const s32 source_only = s_BgGridScenario && !g_BgLightsFileData;
+	scenario_stage_atmosphere_t atmosphere;
+	const s32 pinned_default = (source_only || clear_ambient)
+		&& scenarioSourceStageAtmosphere(g_Vars.stagenum, &atmosphere) && atmosphere.has_ambient;
+	const s32 has_default = source_only && pinned_default && !clear_ambient;
+	const s32 restore_base = clear_ambient && pinned_default;
 	/* A room past the table is drawn with its source colours. */
 	const s32 count = g_Vars.roomcount < ARRAYCOUNT(lights) ? g_Vars.roomcount : ARRAYCOUNT(lights);
+	const s32 measure_range = s_BgRoomBrightnessWitness && count == 3 && !has_ambient;
+	s32 range_samples = 0;
+	s32 affected = 0;
+	s32 sample_room = 0;
+	f32 sample_native = 0.0f;
 	s32 i;
 
 	if (count <= 0) {
@@ -1486,7 +1552,9 @@ static void bgSetScenarioSceneRoomLights(void)
 			continue;
 		}
 
-		if ((g_Rooms[i].flags & ROOMFLAG_BRIGHTNESS_CALCED) == 0) {
+		const s32 settled = (g_Rooms[i].flags & ROOMFLAG_BRIGHTNESS_CALCED) != 0;
+		const s32 authored_only = source_only && !settled && !g_Rooms[i].numlights;
+		if (!settled && !authored_only) {
 			g_Rooms[i].flags |= ROOMFLAG_BRIGHTNESS_DIRTY_PERM;
 		}
 
@@ -1495,6 +1563,33 @@ static void bgSetScenarioSceneRoomLights(void)
 		light->unlit = (g_Rooms[i].flags & ROOMFLAG_RENDERALWAYS) != 0;
 		light->flash_black = g_Rooms[i].lightop_cur_frac == 0.0f
 			|| (g_Rooms[i].flags & ROOMFLAG_LIGHTSOFF) != 0;
+		s32 room_base;
+		const s32 explicit_base = (authored_only || has_ambient || restore_base)
+			&& scenarioSourceRoomExplicitBaseBrightness(i, &room_base);
+		const s32 range_base = authored_only && !explicit_base && !has_default
+			&& scenarioSourceRoomHasBrightnessRange(i);
+		if (authored_only && !greyscale && !light->unlit && (explicit_base || has_default || range_base)) {
+			s32 selected = g_Rooms[i].br_base;
+			if (explicit_base) selected = room_base;
+			else if (has_default) selected = atmosphere.ambient_light;
+			else if (restore_base) selected = roomGetRangeBaseBrightness(i);
+			light->brightness = bgClampSceneBrightness(selected * g_Rooms[i].lightop_cur_frac);
+			if (measure_range && range_base && !light->flash_black && light->flash == 0.0f
+					&& g_Rooms[i].lightop_cur_frac == 1.0f) range_samples++;
+		}
+		if ((has_ambient || (restore_base && !authored_only))
+				&& !greyscale && !light->unlit && !light->flash_black && !explicit_base
+				&& (authored_only || (settled && (!g_Rooms[i].numlights || g_BgLightsFileData)))) {
+			if (!affected) {
+				sample_room = i;
+				sample_native = light->brightness;
+			}
+			const s32 selected = has_ambient ? ambient : roomGetRangeBaseBrightness(i);
+			light->brightness = authored_only
+				? bgClampSceneBrightness(selected * g_Rooms[i].lightop_cur_frac)
+				: bgApplyPrivateRoomAmbient(i, light->brightness, selected);
+			affected++;
+		}
 
 		if (g_Rooms[i].lightop == LIGHTOP_HIGHLIGHT) {
 			s32 r = 255;
@@ -1509,6 +1604,18 @@ static void bgSetScenarioSceneRoomLights(void)
 	}
 
 	scenarioSceneRendererSetRoomLights(lights, count);
+	if (range_samples == 2) {
+		sysLogPrintf(LOG_NOTE, "GRID.ROOM.BRIGHTNESS: scenario='%s' room1=%.1f room2=%.1f",
+			g_BgScenarioSourceId, lights[1].brightness, lights[2].brightness);
+		s_BgRoomBrightnessWitness = 0;
+	}
+	if (!has_ambient) {
+		s_BgLastPrivateAmbient = -1;
+	} else if (affected && s_BgLastPrivateAmbient != ambient) {
+		sysLogPrintf(LOG_NOTE, "GRID.PLAYTEST.LIGHT: stage=0x%02x ambient=%d rooms=%d sample_room=%d native=%.1f rendered=%.1f",
+			g_Vars.stagenum, ambient, affected, sample_room, sample_native, lights[sample_room].brightness);
+		s_BgLastPrivateAmbient = ambient;
+	}
 }
 
 static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *stage, s32 prefer_mp)
@@ -1519,8 +1626,11 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	const char *stageid;
 
 	g_BgUsingScenarioSource = 0;
+	s_BgGridScenario = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	s_BgLastPrivateAmbient = -1;
+	s_BgRoomBrightnessWitness = smokeHarnessIsActive() && sysArgCheck("--debug-forge-level-room-brightness");
 	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 
@@ -1554,6 +1664,7 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	g_BgUsingScenarioSource = 1;
+	s_BgGridScenario = scenario->grid_offer_only;
 	g_BgScenarioSourceMesh = mesh;
 	strncpy(g_BgScenarioSourceId, scenario->id, sizeof(g_BgScenarioSourceId) - 1);
 	g_BgScenarioSourceId[sizeof(g_BgScenarioSourceId) - 1] = '\0';
@@ -1695,6 +1806,145 @@ static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stag
 		"SCENARIO.SOURCE: built native portal tables '%s' portals=%d room_refs=%d source=portals.json",
 		g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
 		portalcount, totalrefs);
+}
+
+static void bgMeasureRoomBounds(const f32 minimum[3], const f32 maximum[3],
+	struct coord *centre, f32 *radius)
+{
+	const f32 width = maximum[0] - minimum[0];
+	const f32 height = maximum[1] - minimum[1];
+	const f32 depth = maximum[2] - minimum[2];
+	for (s32 axis = 0; axis < 3; ++axis) {
+		centre->f[axis] = (minimum[axis] + maximum[axis]) / 2.0f;
+	}
+	*radius = sqrtf(width * width + height * height + depth * depth) / 2.0f;
+}
+
+static s32 bgGridCollisionBounds(const struct colmesh *collision,
+	scenario_room_bounds_t bounds[BG_GRID_ROOM_COUNT])
+{
+	u8 seen[BG_GRID_ROOM_COUNT] = {0};
+	if (!collision || !collision->tris || collision->numtris <= 0) return 0;
+	for (s32 i = 0; i < collision->numtris; ++i) {
+		const struct meshtri *tri = &collision->tris[i];
+		const RoomNum room = tri->roomnum;
+		if (room <= 0 || room >= BG_GRID_ROOM_COUNT) return 0;
+		const struct coord *vertices[] = { &tri->v0, &tri->v1, &tri->v2 };
+		for (s32 v = 0; v < ARRAYCOUNT(vertices); ++v) {
+			for (s32 axis = 0; axis < 3; ++axis) {
+				const f32 value = vertices[v]->f[axis];
+				if (!__builtin_isfinite(value)) return 0;
+				if (!seen[room] || value < bounds[room].minimum[axis]) {
+					bounds[room].minimum[axis] = value;
+				}
+				if (!seen[room] || value > bounds[room].maximum[axis]) {
+					bounds[room].maximum[axis] = value;
+				}
+			}
+			seen[room] = 1;
+		}
+	}
+	return seen[1] && seen[2] && scenarioRoomBoundsValid(&bounds[1], 1)
+		&& scenarioRoomBoundsValid(&bounds[2], 1);
+}
+
+s32 bgPrepareGridRoomLayout(const struct colmesh *collision,
+	bg_grid_room_layout_t **out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	RoomNum first, second;
+	if (!out || *out || !g_BgUsingScenarioSource || !s_BgGridScenario
+			|| !g_BgScenarioSourceMesh || !g_Rooms || !g_BgRooms || g_BgLightsFileData
+			|| g_Vars.roomcount != BG_GRID_ROOM_COUNT || g_BgNumPortalCameraCacheItems != 1
+			|| !bgPortalGetRooms(0, &first, &second)
+			|| !((first == 1 && second == 2) || (first == 2 && second == 1))) {
+		if (err && err_cap) snprintf(err, err_cap, "no compatible native Grid room table");
+		return 0;
+	}
+
+	scenario_room_bounds_t bounds[BG_GRID_ROOM_COUNT] = {0};
+	if (!bgGridCollisionBounds(collision, bounds)) {
+		if (err && err_cap) snprintf(err, err_cap, "Grid room collision bounds are empty or invalid");
+		return 0;
+	}
+	/* The staged source proof checks the exact aperture geometry. Keep the
+	 * shared wall and the Y/Z dimensions of both resident rooms fixed here. */
+	if (bounds[1].maximum[0] != g_Rooms[1].bbmax[0]
+			|| bounds[2].minimum[0] != g_Rooms[2].bbmin[0]
+			|| bounds[1].maximum[0] != 0.0f || bounds[2].minimum[0] != 0.0f) {
+		if (err && err_cap) snprintf(err, err_cap, "Grid collision moved the shared room wall");
+		return 0;
+	}
+	for (s32 room = 1; room < BG_GRID_ROOM_COUNT; ++room) {
+		scenario_room_bounds_t current;
+		memcpy(current.minimum, g_Rooms[room].bbmin, sizeof(current.minimum));
+		memcpy(current.maximum, g_Rooms[room].bbmax, sizeof(current.maximum));
+		if (!scenarioRoomBoundsValid(&current, 1)) {
+			if (err && err_cap) snprintf(err, err_cap, "the resident Grid room is empty or invalid");
+			return 0;
+		}
+		for (s32 axis = 1; axis < 3; ++axis) {
+			if (bounds[room].minimum[axis] != current.minimum[axis]
+					|| bounds[room].maximum[axis] != current.maximum[axis]) {
+				if (err && err_cap) snprintf(err, err_cap, "Grid collision changed a room's fixed dimensions");
+				return 0;
+			}
+		}
+	}
+
+	bg_grid_room_layout_t *layout = malloc(sizeof(*layout));
+	if (!layout) {
+		if (err && err_cap) snprintf(err, err_cap, "could not allocate the Grid room table");
+		return 0;
+	}
+	for (s32 room = 1; room < BG_GRID_ROOM_COUNT; ++room) {
+		struct bg_grid_room_geometry *geometry = &layout->geometry[room - 1];
+		geometry->bounds = bounds[room];
+		bgMeasureRoomBounds(geometry->bounds.minimum, geometry->bounds.maximum,
+			&geometry->centre, &geometry->radius);
+	}
+	*out = layout;
+	return 1;
+}
+
+void bgSwapGridRoomLayout(bg_grid_room_layout_t **prepared)
+{
+	bg_grid_room_layout_t *incoming = *prepared;
+	bg_grid_room_layout_t *outgoing = s_BgGridRoomLayout;
+	if (!outgoing) s_BgGridPoolRooms = g_Rooms;
+	/* Copy the very latest live fields, including all shallow attachments.
+	 * Room zero is reserved and retains its entire resident row. */
+	memcpy(incoming->rooms, g_Rooms, sizeof(incoming->rooms));
+	for (s32 room = 1; room < BG_GRID_ROOM_COUNT; ++room) {
+		const struct bg_grid_room_geometry *geometry = &incoming->geometry[room - 1];
+		struct room *installed = &incoming->rooms[room];
+		memcpy(installed->bbmin, geometry->bounds.minimum, sizeof(installed->bbmin));
+		memcpy(installed->bbmax, geometry->bounds.maximum, sizeof(installed->bbmax));
+		installed->centre = geometry->centre;
+		installed->radius = geometry->radius;
+	}
+	g_Rooms = incoming->rooms;
+	s_BgGridRoomLayout = incoming;
+	*prepared = outgoing;
+}
+
+void bgReleaseGridRoomLayout(bg_grid_room_layout_t *layout)
+{
+	free(layout);
+}
+
+void bgClearGridRoomLayout(void)
+{
+	if (!s_BgGridRoomLayout) return;
+	if (g_Rooms == s_BgGridRoomLayout->rooms) {
+		/* Restore the pool root with the current fields after normal unload,
+		 * so the old shallow copy cannot resurrect a freed attachment. */
+		memcpy(s_BgGridPoolRooms, g_Rooms, sizeof(s_BgGridRoomLayout->rooms));
+		g_Rooms = s_BgGridPoolRooms;
+	}
+	bgReleaseGridRoomLayout(s_BgGridRoomLayout);
+	s_BgGridRoomLayout = NULL;
+	s_BgGridPoolRooms = NULL;
 }
 
 static void bgBuildScenarioSourceTables(s32 stagenum)
@@ -1852,13 +2102,8 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 			g_Rooms[i].bbmax[2] = 0.0f;
 		}
 
-		g_Rooms[i].centre.x = (g_Rooms[i].bbmin[0] + g_Rooms[i].bbmax[0]) / 2.0f;
-		g_Rooms[i].centre.y = (g_Rooms[i].bbmin[1] + g_Rooms[i].bbmax[1]) / 2.0f;
-		g_Rooms[i].centre.z = (g_Rooms[i].bbmin[2] + g_Rooms[i].bbmax[2]) / 2.0f;
-		g_Rooms[i].radius = sqrtf(
-			(g_Rooms[i].bbmin[0] - g_Rooms[i].bbmax[0]) * (g_Rooms[i].bbmin[0] - g_Rooms[i].bbmax[0])
-			+ (g_Rooms[i].bbmin[1] - g_Rooms[i].bbmax[1]) * (g_Rooms[i].bbmin[1] - g_Rooms[i].bbmax[1])
-			+ (g_Rooms[i].bbmin[2] - g_Rooms[i].bbmax[2]) * (g_Rooms[i].bbmin[2] - g_Rooms[i].bbmax[2])) / 2.0f;
+		bgMeasureRoomBounds(g_Rooms[i].bbmin, g_Rooms[i].bbmax,
+			&g_Rooms[i].centre, &g_Rooms[i].radius);
 	}
 
 	if (g_Vars.mplayerisrunning) {
@@ -2801,11 +3046,13 @@ void bgStop(void)
 {
 	bgUnloadAllRooms();
 	g_BgUsingScenarioSource = 0;
+	s_BgGridScenario = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
 	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 	mtx00016748(1);
+	bgClearGridRoomLayout();
 }
 
 void bgSetStageTranslationThing(f32 arg0)

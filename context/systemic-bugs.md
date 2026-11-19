@@ -1,5 +1,40 @@
 # Systemic Bug Patterns - Architectural Issue Catalog
 
+2026-11-18, N-0972. Check the complete archive inventory at both offer
+entry points. The host and a proposing client now use the same typed
+member check as the receiving side before requesting transfer consent.
+Nested packages must have exact supported native member paths.
+
+2026-11-18, N-0973 through N-0979. Reconstruct live placement edits
+from the exact approved draft when applying geometry. Preserve each
+eligible decoration's pad through reopen and check native starts, paths,
+waypoints and links before moving it. Check the resident prop and its
+supporting floor before swapping the prepared layout. The focused native
+fixture verifies only the intended pad and bounds members changed.
+
+2026-11-18, N-0968. Treat an unbound native position as a rigid transform.
+The public hierarchy uses part -1 for a node that follows its parent
+without an animation channel. The native compiler stores that convention
+as unsigned 65535. The optimized animation matrix evaluator used it as a
+decoded-frame index; the same character crashed in the installed and
+temporarily mounted worlds. Keep the static local offset, and validate
+both direct and mirrored channel indices before reading frame scratch.
+
+2026-11-18, N-0955. Check the runtime model slot for typed placements.
+A standalone original mesh can validate and compile while a native setup
+prop still resolves to model -1. Check both installed and leased catalog
+paths through native setup. The shared private model and source-file
+binder now reserves both identities for exact standalone originals.
+Managed receipt 653e2159 shows the placed mesh in different real slots on
+host and guest, then after the guest's offline variant restart.
+
+2026-11-18, T-NETWORKING-013. Check both bounds on archived data spans.
+Extraction and enumeration share the archive's actual byte count. Validate
+the full local header, compressed range, and central directory cursor before
+reading or inflating. Use widened offsets or checked subtraction. Expansion
+budgets limit output size and complement the input range checks. The Grid
+review path applies both checks before probing received native source.
+
 N-0829 Debug-only source guards are not production source enforcement. Inspect default gating and caller continuations: gun loading accepted non-file provider continuation while Debug.AssetSourceOnlyType was ASSET_NONE. Owned route now fails unsupported sources; global provider code unchanged. Dead legacy path cleanup and runtime proof remain open.
 
 N-0826 Budgeted-loop cursor ownership: commit persistent progress before an early budget return; otherwise the last processed entry is revisited. bgunTickGunLoad TEXTURES corrected in source; exact-multiple completion timing preserved. Full-width pointer-union and callback reads must survive graph conversion; regression execution deferred until ALL conversion.
@@ -4505,3 +4540,18 @@ estimate in a comment: a sampler on the running client found this in one run
 reading the code had produced a wrong guess.
 
 `rg -n "modelRodataIsReadable(InSpan)?\(" src port`
+
+## Scripted pickup can clear the object-to-prop link
+
+A scripted grant must hold the incoming prop through
+`propPickupByPlayer` and pass it to the returned tick operation. For a
+successful untagged weapon pickup without regeneration, `objFree` uses
+`freeprop=false`, clears `obj->prop`, and leaves the original prop slot
+for `TICKOP_FREE`. Touch pickup already carries the incoming pointer.
+
+The Grid fixed-pickup case 5fe63674 reproduced a crash in
+`propExecuteTickOperation` when `og.pickup.give` read the cleared link.
+The Grid module now keeps the incoming prop. Source review found the
+same expression in `aiGiveObjectToChr` and
+`scenarioSourceAiGraphExecuteGiveObjectToChr`. Their production paths
+need separate AI ownership and runtime verification.

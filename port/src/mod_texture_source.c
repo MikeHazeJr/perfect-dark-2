@@ -76,6 +76,15 @@ s32 modTextureDecodeRgba32Source(const void *bytes, u32 size,
         if (error && cap) snprintf(error, cap, "%s", "invalid image source byte size");
         return -1;
     }
+	if (!stbi_info_from_memory(bytes, (int)size, &width, &height, NULL)
+			|| width <= 0 || height <= 0) {
+		if (error && cap) snprintf(error, cap, "%s", "the image header could not be read");
+		return -1;
+	}
+	if (width > 255 || height > 255) {
+		if (error && cap) snprintf(error, cap, "%s", "the image exceeds the 255x255 runtime texture header limit");
+		return -1;
+	}
 	rgba = stbi_load_from_memory(bytes, (int)size,
 		&width, &height, NULL, 4);
 	if (!rgba || width <= 0 || height <= 0) {

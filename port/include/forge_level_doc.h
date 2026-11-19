@@ -1,15 +1,17 @@
 /**
  * forge_level_doc.h -- the placements of a level, as Forge edits them.
  *
- * A level is a .pdarena with its .pdscenario inside. Five members of the
- * scenario say what stands where, and a sixth repeats part of it:
+ * A level is a .pdarena with its .pdscenario inside. These members hold its
+ * placements and stage settings:
  *
- *   pads.json          pd2.scenario.pads.v1          places: a position, an up
- *                                                    and a look direction each
- *   volumes.json       pd2.scenario.volumes.v1       each pad's bounds in the
- *                                                    world, one row per pad
+ *   pads.json          pd2.scenario.pads.v1          pad position, orientation
+ *                                                    and navigation flags
+ *   volumes.json       pd2.scenario.volumes.v1       pad bounds and authored
+ *                                                    trigger boxes
  *   spawns.json        pd2.scenario.spawns.v1        where players start: a
  *                                                    pad each
+ *   intro.json         pd2.scenario.intro.v1         optional stage intro,
+ *                                                    including mode markers
  *   objects.json       pd2.scenario.objects.v1       props, weapons and the
  *                                                    rest: a pad each, or none
  *   setup.fields.json  pd2.scenario.setup.fields.v1  every field of every
@@ -17,8 +19,10 @@
  *   level.graph.json   pd2.level.graph.v1            the level's graph: among
  *                                                    much else, one node per
  *                                                    bounds row, and counts
+ *   stage.json         pd2.scenario.stage.v1         optional stage settings
+ *   navigation/paths.json pd2.scenario.paths.v1      offline bot route links
  *
- * This module reads those six texts, lets a caller add, move and remove
+ * This module reads those texts, lets a caller add, move and remove
  * spawns, move, duplicate and leave out objects, make a weapon place or an
  * ammo crate where there is none to copy, change what a weapon pickup gives
  * and which model a prop is drawn with, and gives the texts back for saving.
@@ -35,23 +39,27 @@
  *   repeated id, a pad out of sequence, a spawn, object or volume naming a
  *   pad the level does not have, or the two object files disagreeing about
  *   where an object stands is refused with the reason.
- * - Pads are only ever added. The game numbers pads by their place in the
+ * - Pad identities are append-only. The game numbers pads by their place in the
  *   file (pad_0000 is the first row), other members name pads too (the
  *   navigation tables, other fields of objects), and 299 pads of the base
  *   levels are shared by more than one spawn or object. So moving something
  *   that stands on a pad from the template gives it a new pad and leaves the
  *   old one where it is; only a pad this document added is moved in place.
+ *   Required waypoints change their flag. Connecting pads adds a native path
+ *   row, and a pad referenced by a path stays in place when a placement moves.
  * - A new pad comes with its bounds row, as every pad of a base level has
- *   one, and a moved pad's bounds move with it.
+ *   one, and a moved pad's bounds move with it. A pad used by an authored
+ *   trigger stays anchored when a start or object is moved off it.
  * - The level's graph keeps step with the bounds rows. When it loads a level
  *   the game counts the graph's trigger volume nodes (the text `"kind":
  *   "scenario.trigger.volume.source"`) and refuses the level unless that is
  *   the number of rows in volumes.json. So a new bounds row comes with its
  *   node and the link the extractor gives every such node, and a level whose
  *   two counts already differ is refused here as the game would refuse it.
- *   The graph's `counts` of pads, volumes and objects follow the tables when
- *   they were true to begin with. Nothing else in the graph is read or
- *   changed, and every other byte of it is kept.
+ *   A trigger adds a separate box, its source node and an executable
+ *   volume-entered rule. The graph's pad, volume, object and path counts follow
+ *   the tables when they were true to begin with. Unrelated graph rows keep
+ *   their bytes.
  * - Ids are not handed out twice. A new spawn takes the number above the
  *   highest spawn number the document has ever held.
  * - An object's place is written twice, in objects.json (`pad_ref`) and in
@@ -90,6 +98,7 @@
 
 #include <PR/ultratypes.h>
 #include <stddef.h>
+#include <stdio.h>
 #include "asset_archive_clone.h"
 
 #ifdef __cplusplus
@@ -105,6 +114,11 @@ enum {
 	FORGE_LEVEL_MEMBER_VOLUMES,
 	FORGE_LEVEL_MEMBER_SETUP_FIELDS,
 	FORGE_LEVEL_MEMBER_LEVEL_GRAPH,
+	FORGE_LEVEL_MEMBER_INTRO,
+	FORGE_LEVEL_MEMBER_STAGE,
+	FORGE_LEVEL_MEMBER_COVERS,
+	FORGE_LEVEL_MEMBER_PATHS,
+	FORGE_LEVEL_MEMBER_ROOMS,
 	FORGE_LEVEL_MEMBER_COUNT
 };
 
@@ -120,7 +134,7 @@ enum {
 #define FORGE_LEVEL_MAX_SPAWN_NUMBER 9999
 #define FORGE_LEVEL_MAX_OBJECT_NUMBER 9999
 
-/* The six members' texts, indexed by FORGE_LEVEL_MEMBER_*. */
+/* Member texts indexed by FORGE_LEVEL_MEMBER_*. Optional members may be absent. */
 typedef struct forge_level_texts {
 	const char *text[FORGE_LEVEL_MEMBER_COUNT];
 	size_t size[FORGE_LEVEL_MEMBER_COUNT];
@@ -134,6 +148,7 @@ typedef struct forge_level_pad {
 	f32 look[3];
 	s32 added;            /* 1 when this document added the pad */
 	s32 has_volume;       /* 1 when volumes.json has a bounds row for it */
+	s32 walk_direct;      /* 1 when bots should follow this pad on their route */
 } forge_level_pad_t;
 
 typedef struct forge_level_spawn {
@@ -159,12 +174,141 @@ typedef struct forge_level_object {
 } forge_level_object_t;
 
 /*
- * Reads the six members. Returns NULL with the reason in err when any of
+ * Reads the level members. Returns NULL with the reason in err when any of
  * them breaks a rule above. The texts are copied; the caller keeps its own.
  */
 forge_level_doc_t *forgeLevelDocRead(const forge_level_texts_t *texts, char *err, size_t err_cap);
 
 void forgeLevelDocFree(forge_level_doc_t *doc);
+
+s32 forgeLevelDocMemberOptional(s32 member);
+struct scenario_stage_atmosphere;
+s32 forgeLevelDocGetAtmosphere(const forge_level_doc_t *doc, struct scenario_stage_atmosphere *out);
+s32 forgeLevelDocSetAtmosphere(forge_level_doc_t *doc, const struct scenario_stage_atmosphere *look,
+		char *err, size_t err_cap);
+
+typedef struct forge_level_room_brightness {
+	s32 roomnum;
+	s32 minimum;
+	s32 maximum;
+	s32 has_base_override; /* the native room rule can determine the base light */
+} forge_level_room_brightness_t;
+
+/* Authored, bounded rooms in source order. Absent brightness uses 255, 255. */
+s32 forgeLevelDocRoomBrightnessCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetRoomBrightness(const forge_level_doc_t *doc, s32 index, forge_level_room_brightness_t *out);
+s32 forgeLevelDocSetRoomBrightness(forge_level_doc_t *doc, s32 roomnum, s32 minimum, s32 maximum,
+		char *err, size_t err_cap);
+
+/* The startup override uses SCENARIO_STAGE_WEATHER_START_* from scenario_stage_rules.h.
+ * NONE with intensity 0 removes the override and keeps the stage's weather rules. */
+s32 forgeLevelDocGetWeatherStart(const forge_level_doc_t *doc, s32 *kind, s32 *intensity);
+s32 forgeLevelDocSetWeatherStart(forge_level_doc_t *doc, s32 kind, s32 intensity,
+		char *err, size_t err_cap);
+
+/* Places or removes a King of the Hill marker at an existing pad. */
+s32 forgeLevelDocHasHill(const forge_level_doc_t *doc, const char *pad_ref);
+s32 forgeLevelDocHillCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetHillPad(const forge_level_doc_t *doc, s32 index, char *out, size_t cap);
+s32 forgeLevelDocSetHill(forge_level_doc_t *doc, const char *pad_ref, s32 present,
+		char *err, size_t err_cap);
+
+/* Intro case rows in authored order. Capture the Case uses the team field as
+ * a base slot. Hacker Central and Hold the Briefcase use both kinds as a pad bank. */
+typedef struct forge_level_case_marker {
+	char pad_ref[32];
+	s32 team;
+	s32 respawn;
+} forge_level_case_marker_t;
+
+s32 forgeLevelDocCaseMarkerCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetCaseMarker(const forge_level_doc_t *doc, s32 index, forge_level_case_marker_t *out);
+/* Replace the base slot's effective home in place, or add one at an existing pad. */
+s32 forgeLevelDocSetCaseHome(forge_level_doc_t *doc, s32 team, const char *pad_ref,
+		char *err, size_t err_cap);
+s32 forgeLevelDocAddCaseRespawn(forge_level_doc_t *doc, s32 team, const char *pad_ref,
+		char *err, size_t err_cap);
+s32 forgeLevelDocRemoveCaseMarker(forge_level_doc_t *doc, s32 index, char *err, size_t err_cap);
+
+/* A pad-centered box with a native action for the player who enters it. */
+#define FORGE_LEVEL_TRIGGER_MIN_HALF_SIZE 8
+#define FORGE_LEVEL_TRIGGER_MAX_HALF_SIZE 2048
+enum {
+	FORGE_LEVEL_TRIGGER_OPEN_DOOR = 0,
+	FORGE_LEVEL_TRIGGER_GIVE_PICKUP,
+};
+typedef struct forge_level_trigger {
+	char volume_id[32];
+	char pad_ref[32];
+	char target_id[32];
+	s32 action;
+	s32 editable;              /* the existing bounds are a supported pad-centered box */
+	f32 half_size[3];          /* meaningful when editable */
+} forge_level_trigger_t;
+
+s32 forgeLevelDocTriggerCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetTrigger(const forge_level_doc_t *doc, s32 index, forge_level_trigger_t *out);
+s32 forgeLevelDocCanTriggerObject(const forge_level_doc_t *doc, s32 action, const char *record_id);
+s32 forgeLevelDocAddTrigger(forge_level_doc_t *doc, s32 action, const char *pad_ref, const char *target_id,
+	const f32 half_size[3], char *err, size_t err_cap);
+/* Updates the anchor, target and size of an editable trigger. The action and volume ID stay fixed. */
+s32 forgeLevelDocUpdateTrigger(forge_level_doc_t *doc, const char *volume_id, const char *pad_ref, const char *target_id,
+	const f32 half_size[3], char *err, size_t err_cap);
+s32 forgeLevelDocRemoveTrigger(forge_level_doc_t *doc, s32 index, char *err, size_t err_cap);
+
+/* Replace the executable part of the current native level.graph.json.
+ * Submit the full graph. Data nodes, structural bindings, metadata and the
+ * level's native pickup/door rule paths must be retained. Returns 1 on a
+ * committed edit, 0 on refusal or an unchanged program (empty error). */
+s32 forgeLevelDocReplaceLogic(forge_level_doc_t *doc, const char *json, size_t size,
+	char *err, size_t err_cap);
+
+/* A Grid-owned secondary native box. Its stable ID can be used by multiple
+ * Level Logic events. Fixed quick triggers use the trigger API above. */
+typedef struct forge_level_logic_zone {
+	char volume_id[32];
+	char pad_ref[32];
+	f32 half_size[3];
+	s32 referenced;
+} forge_level_logic_zone_t;
+
+enum {
+	FORGE_LEVEL_LOGIC_ZONE_ENTER = 0,
+	FORGE_LEVEL_LOGIC_ZONE_LEAVE,
+};
+
+s32 forgeLevelDocLogicZoneCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetLogicZone(const forge_level_doc_t *doc, s32 index, forge_level_logic_zone_t *out);
+s32 forgeLevelDocAddLogicZone(forge_level_doc_t *doc, const char *pad_ref, const f32 half_size[3],
+	char *volume_id, size_t volume_cap, char *err, size_t err_cap);
+/* Returns 0 with an empty error when the anchor and box are unchanged. */
+s32 forgeLevelDocUpdateLogicZone(forge_level_doc_t *doc, const char *volume_id, const char *pad_ref,
+	const f32 half_size[3], char *err, size_t err_cap);
+s32 forgeLevelDocRemoveLogicZone(forge_level_doc_t *doc, const char *volume_id, char *err, size_t err_cap);
+/* Add an unconnected typed event through the executable Logic validator. */
+s32 forgeLevelDocAddLogicZoneEvent(forge_level_doc_t *doc, const char *volume_id, s32 when,
+	char *event_id, size_t event_cap, char *err, size_t err_cap);
+
+/* Door-only entry points used by existing clients. */
+typedef struct forge_level_door_trigger {
+	char volume_id[32];
+	char pad_ref[32];
+	char door_id[32];
+} forge_level_door_trigger_t;
+
+s32 forgeLevelDocDoorTriggerCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetDoorTrigger(const forge_level_doc_t *doc, s32 index, forge_level_door_trigger_t *out);
+s32 forgeLevelDocAddDoorTrigger(forge_level_doc_t *doc, const char *pad_ref, const char *door_id,
+		const f32 half_size[3], char *err, size_t err_cap);
+s32 forgeLevelDocRemoveDoorTrigger(forge_level_doc_t *doc, s32 index, char *err, size_t err_cap);
+
+/* Private recovery document. An exact source archive digest binds these
+ * placement members to the geometry and other unchanged archive members. */
+#define FORGE_LEVEL_CHECKPOINT_MAX_BYTES (32u * 1024u * 1024u)
+s32 forgeLevelDocWriteCheckpoint(forge_level_doc_t *doc, const char *source_sha256,
+		FILE *stream, char *err, size_t err_cap);
+forge_level_doc_t *forgeLevelDocReadCheckpoint(const char *json, size_t size, const char *source_sha256,
+		const forge_level_doc_t *opened, char *err, size_t err_cap);
 
 /*
  * A copy of the document as it is now, edits included, that shares nothing
@@ -204,6 +348,40 @@ s32 forgeLevelDocSetObjectScale(forge_level_doc_t *doc, const char *record_id, s
 
 /* A pad by its name ("pad_0012"). 1 when the level has it. */
 s32 forgeLevelDocFindPad(const forge_level_doc_t *doc, const char *pad_ref, forge_level_pad_t *out);
+
+/* Set the existing PADFLAG_AIWALKDIRECT bit on a pad. Returns 1 when the
+ * document changed and 0 when the flag is already set as requested or the
+ * edit is refused. Pad geometry and all other flags are preserved. */
+s32 forgeLevelDocSetPadWalkDirect(forge_level_doc_t *doc, const char *pad_ref, s32 enabled,
+	char *err, size_t err_cap);
+
+typedef struct forge_level_cover {
+	char cover_ref[32];
+	f32 position[3];
+} forge_level_cover_t;
+
+/* Editable authored covers in native row order. Derived covers are not listed. */
+s32 forgeLevelDocCoverCount(const forge_level_doc_t *doc);
+s32 forgeLevelDocGetCover(const forge_level_doc_t *doc, s32 index, forge_level_cover_t *out);
+
+/* Copy a pad's position into the same native cover row. Returns 1 for a change. */
+s32 forgeLevelDocMoveCoverToPad(forge_level_doc_t *doc, const char *cover_ref, const char *pad_ref,
+	char *err, size_t err_cap);
+
+/* Append a native cover at a pad's position and horizontal facing. This needs
+ * the source cover table open, and leaves its existing cover ids unchanged. */
+s32 forgeLevelDocAddCoverAtPad(forge_level_doc_t *doc, const char *pad_ref,
+	char *out_cover_id, size_t out_cap, char *err, size_t err_cap);
+
+/* Append a bidirectional link to a pad already in a native path. The caller
+ * checks the two draft positions against the resident collision and room. */
+s32 forgeLevelDocConnectPads(forge_level_doc_t *doc, const char *first, const char *second,
+	char *out_path_id, size_t out_cap, char *err, size_t err_cap);
+
+/* Remove only a uniquely marked Grid Connect Pads row for this pair. */
+s32 forgeLevelDocCanDisconnectPads(const forge_level_doc_t *doc, const char *first, const char *second);
+s32 forgeLevelDocDisconnectPads(forge_level_doc_t *doc, const char *first, const char *second,
+	char *out_path_id, size_t out_cap, char *err, size_t err_cap);
 
 /*
  * `look` turned `degrees` about the vertical axis, flat (y 0) and of unit
@@ -285,6 +463,12 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
 	char *err, size_t err_cap);
 
+/* Add the same native hoverbike record with a selected vehicle's exact
+ * embedded model. The caller resolves the typed vehicle-model binding. */
+s32 forgeLevelDocAddHoverbike(forge_level_doc_t *doc, const char *model_catalog_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap);
+
 /*
  * A plain prop (`kind` "prop") at a place, drawn with the model
  * `model_catalog_id` ("base:model_crate2_cq", or a mod's model), made from
@@ -301,6 +485,22 @@ s32 forgeLevelDocAddObject(forge_level_doc_t *doc, s32 kind, s32 weapon_slot,
 s32 forgeLevelDocAddProp(forge_level_doc_t *doc, const char *model_catalog_id,
 	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
 	char *err, size_t err_cap);
+
+/* A basic prop with native pass-through, stationary and non-interactive
+ * flags. It uses the same model, pad and save contracts as a plain prop. */
+s32 forgeLevelDocAddDecoration(forge_level_doc_t *doc, const char *model_catalog_id,
+	const f32 position[3], const f32 look[3], char *out_record_id, size_t out_cap,
+	char *err, size_t err_cap);
+/* Exact canonical source flags, independently of a record's references. */
+s32 forgeLevelDecorationFlagsMatch(u32 flags, u32 flags2, u32 flags3);
+
+/* A decoration must still have the exact native flags and an independent
+ * pad. These queries check the current Level File, without changing it. */
+s32 forgeLevelDocIsDecoration(const forge_level_doc_t *doc, const char *record_id);
+s32 forgeLevelDocGetDecorationPose(const forge_level_doc_t *doc, const char *record_id,
+	forge_level_pad_t *out);
+s32 forgeLevelDocMoveDecoration(forge_level_doc_t *doc, const char *record_id,
+	const f32 position[3], const f32 look[3], char *err, size_t err_cap);
 
 /*
  * Leaves an object out of the level (removed = 1) or puts it back (0). The
@@ -355,6 +555,30 @@ s32 forgeLevelDocSetPickupSlot(forge_level_doc_t *doc, const char *record_id, s3
  */
 s32 forgeLevelDocSetObjectModel(forge_level_doc_t *doc, const char *record_id,
 	const char *model_catalog_id, char *err, size_t err_cap);
+
+typedef enum forge_level_placement_fallback_kind {
+	FORGE_LEVEL_FALLBACK_PICKUP,
+	FORGE_LEVEL_FALLBACK_PROP,
+	FORGE_LEVEL_FALLBACK_HOVERBIKE
+} forge_level_placement_fallback_kind_e;
+
+typedef struct forge_level_placement_fallback {
+	forge_level_placement_fallback_kind_e kind;
+	const char *record_id;
+	const char *expected_catalog_id;
+	const char *weapon_catalog_id;
+	const char *model_catalog_id;
+	s32 extra_scale;
+} forge_level_placement_fallback_t;
+
+/* Apply a set of placement fallbacks to an owned copy, freed with forgeLevelDocFree.
+ * Each record may appear once. expected_catalog_id is the current non-base weapon
+ * for a pickup, or the current non-base model for a prop or hoverbike. A pickup
+ * takes base:falcon2 or base:slayer and the caller supplies its resolved base pickup
+ * model and scale. Props and hoverbikes take fixed base models, with the replacement
+ * fields left zero. Returns NULL on refusal and leaves the original intact. */
+forge_level_doc_t *forgeLevelDocCloneWithPlacementFallbacks(const forge_level_doc_t *doc,
+	const forge_level_placement_fallback_t *edits, size_t count, char *err, size_t err_cap);
 
 /* 1 when the member's text is no longer what was read. */
 s32 forgeLevelDocMemberChanged(const forge_level_doc_t *doc, s32 member);

@@ -125,16 +125,22 @@ typedef struct hub_room_s {
 
     u32          created_tick;                /**< g_NetTick when created.  */
     u32          state_enter_tick;            /**< g_NetTick of last transition. */
+    u64          lifetime;                    /**< Local identity of this use of the Room slot. */
 } hub_room_t;
 
 /* Admission is prepared before the old membership changes. The caller
  * publishes its client->room_id only after ROOM_RESULT_OK. */
 room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
     u8 client_id, const char *password);
+/* Caller has authenticated an ordinary lobby member and verified the exact
+ * active private Grid playtest currently allows Room admission. */
+room_result_t roomJoinForClientDuringPrivatePlaytest(hub_room_t *previous,
+    hub_room_t *destination, u8 client_id, const char *password);
 room_result_t roomCreateForClient(hub_room_t *previous, u8 client_id,
     const char *name, u8 max_players, room_access_t access,
     const char *password, hub_room_t **created);
 room_result_t roomInviteClient(hub_room_t *room, u8 leader, u8 invited);
+room_result_t roomInviteClientDuringPrivatePlaytest(hub_room_t *room, u8 leader, u8 invited);
 const char *roomResultMessage(room_result_t result);
 s32 roomStoreSettings(hub_room_t *room, const room_settings_t *settings);
 s32 roomStorePlaylist(hub_room_t *room, const char *playlist);

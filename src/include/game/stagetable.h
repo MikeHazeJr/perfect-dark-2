@@ -9,6 +9,9 @@ void stageTableInit(void);
 void stageTableReset(void);
 struct stagetableentry *stageGetEntry(s32 index);
 s32 stageTableAppend(const struct stagetableentry *entry);
+/* Retire an exact custom entry without moving any surviving table index. */
+s32 stageTableOwnsCustom(s32 index, s32 stagenum);
+s32 stageTableRetireCustom(s32 index, s32 stagenum);
 void *stageTableSnapshotCreate(void);
 s32 stageTableSnapshotRestore(const void *snapshot);
 void stageTableSnapshotDestroy(void *snapshot);

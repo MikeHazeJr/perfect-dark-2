@@ -567,6 +567,30 @@ TEST_CASE("menu readiness names round-trip and incomplete ownership fails closed
     }
 }
 
+TEST_CASE("Grid match consent waits for the focused receive action and authenticated offer",
+          "[smoke][readiness][network][distribution]")
+{
+    const auto condition = SMOKE_READINESS_GRID_CONSENT_READY;
+    REQUIRE(smokeReadinessConditionFromName("grid_consent_ready") == condition);
+    REQUIRE(std::string(smokeReadinessConditionName(condition)) == "grid_consent_ready");
+
+    smoke_readiness_facts_t facts{};
+    int *required[] = {
+        &facts.boot_complete, &facts.network_active, &facts.grid_consent_preparing,
+        &facts.grid_consent_pending, &facts.menu_input_top, &facts.menu_keyboard_ready,
+        &facts.grid_consent_accept_focused,
+    };
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, nullptr));
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+    for (int *field : required) *field = 1;
+    REQUIRE(smokeReadinessConditionMet(condition, &facts));
+    for (int *field : required) {
+        *field = 0;
+        REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+        *field = 1;
+    }
+}
+
 TEST_CASE("Declined-content lobby witness requires the accepted decision and live connection",
           "[smoke][readiness][network][distribution]")
 {
