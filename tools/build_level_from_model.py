@@ -203,6 +203,7 @@ def read_level(data: bytes, scale: float, pillow_ok: bool):
     position, facing) before they are set on the floor, and the model's box."""
     model = Model(data)
     doc = model.doc
+    materials = doc.get("materials", [])
     by_material: dict = {}
     collision = []
     starts = []
@@ -222,10 +223,20 @@ def read_level(data: bytes, scale: float, pillow_ok: bool):
                     % doc["meshes"][node["mesh"]].get("name", node["mesh"]))
             attributes = primitive["attributes"]
             positions = [apply(scaled, p) for p in model.accessor(attributes["POSITION"])]
-            uvs = model.accessor(attributes["TEXCOORD_0"]) if "TEXCOORD_0" in attributes else [(0.0, 0.0)] * len(positions)
+            material = primitive.get("material", -1)
+            if role != "collision":
+                info = materials[material] if 0 <= material < len(materials) else {}
+                texture = info.get("pbrMetallicRoughness", {}).get("baseColorTexture")
+                uv_set = texture.get("texCoord", 0) if texture is not None else 0
+                require(type(uv_set) is int and uv_set >= 0, "a base-color texture has an invalid texCoord")
+                uv_attribute = f"TEXCOORD_{uv_set}"
+                # The generated scene writes the selected coordinates into TEXCOORD_0.
+                require(uv_set == 0 or uv_attribute in attributes,
+                        f"material {info.get('name', material)} needs {uv_attribute} on each drawn primitive")
+                uvs = (model.accessor(attributes[uv_attribute]) if uv_attribute in attributes
+                       else [(0.0, 0.0)] * len(positions))
             order = [int(i[0]) for i in model.accessor(primitive["indices"])] if "indices" in primitive \
                 else list(range(len(positions)))
-            material = primitive.get("material", -1)
             for t in range(0, len(order) - 2, 3):
                 a, b, c = order[t], order[t + 1], order[t + 2]
                 if mirrored:
@@ -244,7 +255,6 @@ def read_level(data: bytes, scale: float, pillow_ok: bool):
                     collision.append((triangle, "floor" if normal[1] >= 0.5 else "wall"))
 
     primitives = []
-    materials = doc.get("materials", [])
     for material, triangles in sorted(by_material.items()):
         info = materials[material] if 0 <= material < len(materials) else {}
         pbr = info.get("pbrMetallicRoughness", {})
