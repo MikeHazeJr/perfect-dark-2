@@ -296,12 +296,13 @@ typedef enum InputAction {
 
     /* ---- Vehicle controls expansion (Mike directive 2026-05-17) ----
      * Camera look (yaw/pitch) on RSTICK + mouse-delta so the driver can aim
-     * around while mounted. Handbrake on Space / A-button. Vehicle USE is
-     * the on-foot interact trigger that boards the nearest hoverbike (so the
-     * legacy --debug-mount-bike CLI flag is no longer the only way in). */
+     * around while mounted. Handbrake on Space / B-button (A until Mike moved
+     * it for boost, 2026-11-16). Vehicle USE is the on-foot interact trigger
+     * that boards the nearest hoverbike (so the legacy --debug-mount-bike CLI
+     * flag is no longer the only way in). */
     ACTION_VEHICLE_LOOK_X,           /* = 117 mouse-delta-x / RSTICK_X (yaw) */
     ACTION_VEHICLE_LOOK_Y,           /* = 118 mouse-delta-y / RSTICK_Y (pitch) */
-    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / A-button */
+    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / B-button */
     ACTION_VEHICLE_USE,              /* = 120 E / A-button on-foot mount trigger */
 
     /* ---- Gun roll (T-MODDING-008, Mike 2026-11-15) ----
@@ -312,7 +313,26 @@ typedef enum InputAction {
     ACTION_GUN_ROLL_LEFT,            /* = 121 Z */
     ACTION_GUN_ROLL_RIGHT,           /* = 122 X */
 
-    ACTION_COUNT                /* = 123, sentinel - keep last */
+    /* ---- Vehicle boost (Maian vehicle V3, Mike 2026-11-16) ----
+     * Held: boosts a vehicle whose behavior graph has og.vehicle.boost_heat
+     * (vehicle_boost_heat.h); does nothing on other vehicles. Mappable;
+     * defaults Shift and the controller's A. After the gun roll actions,
+     * which landed on dev first. */
+    ACTION_VEHICLE_BOOST,            /* = 123 Left Shift / A-button */
+
+    /* ---- Vehicle turret (Maian vehicle V4, Mike 2026-11-16) ----
+     * The gunner seat's own actions, bound in the turret context
+     * (g_ImcVehicleTurret, active only in that seat). Held: fire the
+     * turret; held: zoom and lock it. The seat's look, exit and pause are
+     * the vehicle actions above, bound again in the turret context. Both
+     * are read by the turret (V5); until then they are bound and mappable
+     * and do nothing. */
+    ACTION_TURRET_FIRE,              /* = 124 left mouse button / right trigger */
+    ACTION_TURRET_ZOOM,              /* = 125 right mouse button / left trigger */
+
+    ACTION_FORGE_EDITOR_CONTROLS,    /* = 126 Give focus to Grid editor controls */
+
+    ACTION_COUNT                /* = 127, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -696,6 +716,7 @@ extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */
 extern InputMappingContext g_ImcTextInput;     /* priority 30 — text entry / chat     */
+extern InputMappingContext g_ImcVehicleTurret; /* priority  5 - a vehicle's gunner seat (never active with g_ImcVehicle) */
 
 /* ============================================================
  * Scene-scope IMC dispatch (Priority J, 2026-04-25)
@@ -732,6 +753,14 @@ void imcSceneClearGameplay(void);
  *  dismount the baseline takes over again. */
 void imcVehicleMount(void);
 void imcVehicleDismount(void);
+
+/** Activate / deactivate the vehicle turret IMC: the gunner seat's bindings
+ *  (turret fire and zoom, look, exit, pause). Called from the
+ *  LAYER_VEHICLE_TURRET on_push / on_pop / on_abort hooks in inputlayer.c.
+ *  A player is in one seat, so this context and the driver's are never
+ *  active together. */
+void imcVehicleTurretMount(void);
+void imcVehicleTurretDismount(void);
 
 /** Activate / deactivate the Cutscene IMC (Cohort 4, K.2). Called from
  *  the LAYER_CUTSCENE on_push / on_pop hooks in inputlayer.c. Bindings

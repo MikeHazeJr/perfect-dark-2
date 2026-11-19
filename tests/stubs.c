@@ -340,6 +340,14 @@ void *fsFileLoad(const char *name, u32 *outSize)
     return NULL;
 }
 
+s32 fsFileSize(const char *name)
+{
+    for (s32 i = 0; name && i < s_TestFsEntryCount; i++) {
+        if (strcmp(name, s_TestFsEntries[i].path) == 0) return (s32)s_TestFsEntries[i].size;
+    }
+    return -1;
+}
+
 /* -------------------------------------------------------------------------
  * Asset catalog stubs.
  *
@@ -396,6 +404,32 @@ const asset_entry_t *assetCatalogResolveAny(const char *id)
         return s_TestResolvedAsset2;
     }
     return NULL;
+}
+
+/* vehicle_debug.c loads the swap vehicle for the stage. The catalog loader is
+ * not linked here: record the request and return what the test chose. */
+static s32 s_TestStageLoadResult;
+static asset_type_e s_TestStageLoadType;
+static char s_TestStageLoadId[CATALOG_ID_LEN];
+
+void testStubCatalogLoadStageAssetResult(s32 result)
+{
+    s_TestStageLoadResult = result;
+    s_TestStageLoadType = ASSET_NONE;
+    s_TestStageLoadId[0] = '\0';
+}
+
+const char *testStubCatalogLoadStageAssetLastId(asset_type_e *out_type)
+{
+    if (out_type) *out_type = s_TestStageLoadType;
+    return s_TestStageLoadId;
+}
+
+s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId)
+{
+    s_TestStageLoadType = expected_type;
+    snprintf(s_TestStageLoadId, sizeof(s_TestStageLoadId), "%s", assetId ? assetId : "");
+    return s_TestStageLoadResult;
 }
 
 void sysMemFree(void *ptr)

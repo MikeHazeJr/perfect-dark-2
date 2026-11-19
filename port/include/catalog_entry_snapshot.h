@@ -12,6 +12,18 @@ typedef struct catalog_entry_snapshot {
     s32 runtime_self_marker;
 } catalog_entry_snapshot_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Copies the pool under one read lock, including holes in pool order.
+ * The caller owns the returned array. */
+s32 assetCatalogCaptureEntrySnapshots(catalog_entry_snapshot_t **out, s32 *count);
+
+#ifdef __cplusplus
+}
+#endif
+
 static inline void catalogEntrySnapshotCapture(catalog_entry_snapshot_t *snapshot,
         const asset_entry_t *entry)
 {

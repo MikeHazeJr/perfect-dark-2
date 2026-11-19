@@ -32,6 +32,7 @@
 #ifndef _IN_ROMEXTRACT_PD_H
 #define _IN_ROMEXTRACT_PD_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -149,6 +150,19 @@ s32 romExtractAllPdcharacter(s32 force_rewrite);
  * Idempotent. Returns: count of arena files newly written
  * (.pdarena + .pdscenario both count); -1 on infrastructure failure. */
 s32 romExtractAllPdarena(s32 force_rewrite);
+
+/* Resolve the installed source path of one rebuildable standalone stage.
+ * CI Training and stages owned by an arena stay on the normal boot path.
+ * Returns 0 on success or -1 if the stage or buffer is unsuitable. */
+s32 romExtractStandaloneScenarioPath(s32 stagenum, char *relative, size_t capacity);
+
+/* Isolated extraction worker only. The caller supplies verified disk inputs
+ * and an existing private absolute output directory. Emit or retain that
+ * stage's candidate, then validate it before the caller publishes it.
+ * Returns 0 on success or -1 on failure. */
+s32 romExtractStandaloneScenarioCandidate(s32 stagenum, const char *out_dir);
+void romExtractRecordStandaloneScenarioVerified(s32 stagenum, const char *relative_path,
+    const u8 digest[32]);
 
 /* ============================================================
  * Catalog universality pivot Step 3a (2026-05-03).
@@ -419,6 +433,14 @@ s32 romExtractAllPdtexture(s32 force_rewrite);
  * that static base catalog rows bind through FileProvider paths. */
 s32 romExtractAllPdmeta(s32 force_rewrite);
 
+/* Pair a standalone campaign stage with its canonical relative mission path.
+ * Returns 1 for a paired mission, 0 for no pair, or -1 on invalid input. */
+s32 romExtractStandaloneMissionPath(s32 stagenum, char *out, size_t capacity);
+
+/* Refresh the paired mission after adopting its verified scenario. The
+ * caller publishes the catalog rows. Returns 0 on success or -1 on failure. */
+s32 romExtractRefreshStandaloneMission(s32 stagenum);
+
 /* c3843 built-in theme emitter. The implementation lives beside the theme
  * loader because it owns the built-in palette table. Emits .pdtheme archives
  * and lets the theme catalog rows load theme.json through FileProvider. */
@@ -484,6 +506,26 @@ s32 romExtractPdNestedDependencyMatches(const char *archive_path,
  * recorded digest may be automatically refreshed. Edited source is retained
  * and reported as an extraction conflict instead of silently overwritten. */
 s32 romExtractPdArchivePublicUnmodified(const char *archive_path);
+
+/* The global AI lists (g_GlobalAilists) as pd2.scenario.ai.lists.v1 rows, the
+ * same rows a scenario's ai/ailists.json holds: ailist_ref global_XXXX (the
+ * list id in hex), graph_node scenario.ai.global_XXXX.command.NNNN. Returns
+ * the JSON text (the caller frees it) or NULL. Design:
+ * context/designs/modding/global-ai-lists.md. */
+char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands);
+
+/* The global lists' control flow as a pd2.scenario.ai.graph.v1 graph: one
+ * scenario.ai.command node per row (the rows' graph_node ids, with the
+ * control-flow flags) and one {from, to, kind} link per next, branch, goto
+ * or restart edge, computed from the rows' bytes (ai_list_edges.h). Returns
+ * the JSON text (the caller frees it) or NULL. Design:
+ * context/designs/modding/ai-list-graphs.md. */
+char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges);
+
+/* Writes those rows as the base asset base:ai_global,
+ * <data>/ai/base_ai_global.pdai (romextract_pdai.c). Returns 1 when written,
+ * 0 when the archive of the current kind is kept, -1 on failure. */
+s32 romExtractAllPdai(s32 force_rewrite);
 
 #ifdef __cplusplus
 }

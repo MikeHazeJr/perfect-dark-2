@@ -77,6 +77,9 @@ void gfxBgfxSubmitFrame(void);
  * fast3d's next draw opens a fresh view after gfxBgfxEndPass. */
 uint16_t gfxBgfxBeginPass(int x, int y, int width, int height, uint32_t *targetHeight);
 void gfxBgfxEndPass(void);
+/* Applies fast3d's current scissor (box and test, as GL has them) to the
+ * next submit. Returns 0 when the box is empty: GL would draw nothing. */
+int gfxBgfxApplyScissor(void);
 
 /* The view ImGui draws into this frame (valid after gfxBgfxResetForOverlay)
  * and that view's target height. */

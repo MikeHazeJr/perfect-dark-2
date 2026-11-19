@@ -1,0 +1,168 @@
+{
+  "scenario_name": "forge_grid_mod_proposal_smoke",
+  "description": "With three authenticated peers in one Grid Room, decline the first original Triangle proposal before upload, approve the second without adding it to the first match, then select Triangle for the second match and relay the exact source only to the missing peer after normal consent. Verify same-Room results and retire the borrowed sources.",
+  "tags": ["modding", "forge", "network", "temporary-content", "match-lifecycle"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_mod_proposal.c",
+    "port/src/net/netmsg.c",
+    "port/src/net/netdistrib.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/fast3d/pdgui_bridge.c",
+    "port/fast3d/pdgui_menu_room.cpp",
+    "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+    "tools/smoke-verify/fixtures/mod_author/grid_triangle/recipe.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "ordinary",
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": ["grid-proposal-host", "grid-proposal-donor", "grid-proposal-ordinary"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-proposal-host/mods/.pdmod-migration-done" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-proposal-host/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-proposal-host/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-proposal-host/mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-proposal-donor/mods/.pdmod-migration-done" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-proposal-donor/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-proposal-donor/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-proposal-donor/mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/mod_author/grid_triangle/recipe.json", "dst": "grid-proposal-donor/recipes/grid_triangle/recipe.json" },
+    { "src": "examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon", "dst": "grid-proposal-donor/recipes/grid_triangle/tri_weapon.pdweapon" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-proposal-ordinary/mods/.pdmod-migration-done" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-proposal-ordinary/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-proposal-ordinary/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-proposal-ordinary/mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-proposal-host", "--moddir", "$E/grid-proposal-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room", "--debug-forge-level-name", "Grid_Proposal",
+        "--debug-forge-level-pin", "--host", "--listen-bind", "27492",
+        "--launch-mp-room", "mod:arena_grid_proposal", "base:combat", "0", "--match-timelimit-sec", "22",
+        "--host-autostart", "--host-autostart-peers", "2", "--debug-grid-mod-proposal", "host"
+      ],
+      "wait_for": "NET: created server on port 27492",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "decline then hold an unused proposal before the host selects its exact source",
+            "patterns": [
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_proposal sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.PROPOSAL: host declined room=1 upload=0 scratch=0",
+              "SMOKE\\.GRID\\.PROPOSAL: host admitted room=1 id=mod:weapon_grid_triangle sha256=[0-9a-f]{64} temporary=1",
+              "SMOKE\\.GRID\\.PROPOSAL: active role=host round=1 room=1 epoch=[1-9][0-9]* included=0 weapon=base:falcon2 sha256=-",
+              "NET\\.GRID\\.RESULT: room=1 generation=1 epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_proposal revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=3",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=host round=1 room=1 epoch=[1-9][0-9]*",
+              "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.PROPOSAL: active role=host round=2 room=1 epoch=[1-9][0-9]* included=1 weapon=mod:weapon_grid_triangle sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.RESULT: room=1 generation=2 epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_proposal revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=3",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=host round=2 room=1 epoch=[1-9][0-9]*",
+              "GRID\\.MATCH\\.LEASE: retired temporary weapon=mod:weapon_grid_triangle",
+              "SMOKE\\.GRID\\.PROPOSAL: host retired room=1 catalog=0 scratch=0 mods=0",
+              "SMOKE: result=grid_mod_proposal_complete"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "SMOKE\\.GRID\\.PROPOSAL: host admitted", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.RESULT: room=1 .* arena=mod:arena_grid_proposal", "min": 2, "max": 2 }
+        ]
+      }
+    },
+    {
+      "name": "donor",
+      "log_file": "pd-grid-donor.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-proposal-donor", "--moddir", "$E/grid-proposal-donor/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--mod-author", "grid-proposal-donor/recipes/grid_triangle/recipe.json",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room", "--debug-forge-level-name", "Grid_Proposal",
+        "--connect-host", "127.0.0.1:27492", "--debug-grid-mod-proposal", "donor"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 250,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "a real Room member declines and reproposes its locally installed original",
+            "patterns": [
+              "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_grid_triangle",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "SMOKE\\.GRID\\.PROPOSAL: donor observed decline room=1 upload=0",
+              "SMOKE\\.GRID\\.PROPOSAL: donor observed approved upload room=1",
+              "SMOKE\\.GRID\\.PROPOSAL: active role=donor round=1 room=1 epoch=[1-9][0-9]* included=0 weapon=base:falcon2 sha256=-",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=donor round=1 room=1 epoch=[1-9][0-9]*",
+              "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.PROPOSAL: active role=donor round=2 room=1 epoch=[1-9][0-9]* included=1 weapon=mod:weapon_grid_triangle sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=donor round=2 room=1 epoch=[1-9][0-9]*",
+              "SMOKE: result=grid_mod_proposal_complete"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "NET\\.GRID\\.RESULT: room=1 .* arena=mod:arena_grid_proposal", "min": 2, "max": 2 }
+        ],
+        "forbidden_patterns": ["DISTRIB\\.GRID: temporary (arena awaits|packages await) consent", "NET\\.GRID\\.TRANSFER: admitted exact temporary"]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-proposal-ordinary", "--moddir", "$E/grid-proposal-ordinary/mods",
+        "--no-update-check", "--no-sound", "--skip-intro", "--debug-force-first-person",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room", "--debug-forge-level-name", "Grid_Proposal",
+        "--connect-host", "127.0.0.1:27492", "--debug-grid-mod-proposal", "ordinary"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 2",
+      "wait_timeout_seconds": 250,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "only the missing third peer consents and uses the relayed exact native package",
+            "patterns": [
+              "SMOKE\\.GRID\\.PROPOSAL: active role=ordinary round=1 room=1 epoch=[1-9][0-9]* included=0 weapon=base:falcon2 sha256=-",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=ordinary round=1 room=1 epoch=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.PROPOSAL: ordinary consent prompt room=1 package=mod:weapon_grid_triangle count=1",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=24 down=1 .*pressed_after=1",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_proposal packages=1",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*",
+              "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.PROPOSAL: active role=ordinary round=2 room=1 epoch=[1-9][0-9]* included=1 weapon=mod:weapon_grid_triangle sha256=[0-9a-f]{64}",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=20 down=1 .*pressed_after=1",
+              "SMOKE\\.GRID\\.PROPOSAL: returned role=ordinary round=2 room=1 epoch=[1-9][0-9]*",
+              "SMOKE: result=grid_mod_proposal_complete"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "DISTRIB\\.GRID: temporary packages await consent count=1", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary weapon=mod:weapon_grid_triangle", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.RESULT: room=1 .* arena=mod:arena_grid_proposal", "min": 2, "max": 2 }
+        ],
+        "forbidden_patterns": ["NET\\.GRID\\.TRANSFER: admitted exact temporary arena=", "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_grid_triangle"]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": ["SMOKE\\.GRID\\.PROPOSAL: failed", "NET\\.GRID\\.TRANSFER: refused", "NET\\.GRID\\.RESULT: rejected"]
+  }
+}

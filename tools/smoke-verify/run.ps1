@@ -1168,6 +1168,10 @@ function Select-SmokeTests {
 #     native GUI-thread focus and SDL gained/lost evidence are mandatory;
 #     launch order and foreground z-order are not focus proof. Operational
 #     failures retain their exact phase and Win32 diagnostics in the receipt.
+#     The default is to focus after all launches. Set `before_target_barrier`
+#     when the target's launch marker needs input focus first. An optional
+#     `target_ready_wait_for` marker and `target_ready_timeout_seconds` wait
+#     for target boot before starting the ordinary native focus budget.
 #   - Once all processes are launched, the runner waits up to
 #     timeout_seconds for ALL processes to exit. Any still running after
 #     the timeout are killed.
@@ -1469,6 +1473,71 @@ function Invoke-MultiProcessWindowFocusTransition {
     return $true
 }
 
+function Invoke-MultiProcessWindowFocusTarget {
+    param([Parameter(Mandatory)] [string] $Name,
+          [Parameter(Mandatory)] [array] $Processes)
+
+    $script:lastWindowFocusTransitionFailure = $null
+    $targets = @($Processes | Where-Object { $_.Name -eq $Name })
+    if ($targets.Count -ne 1) {
+        return (Set-WindowFocusTransitionFailure -Stage 'target-process-resolution' `
+            -Message "Expected exactly one foreground process named '$Name'.")
+    }
+    if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
+        try { Add-Type -TypeDefinition $captureSource } catch {
+            return (Set-WindowFocusTransitionFailure -Stage 'interop-compile' `
+                -Message "Window focus interop unavailable: $($_.Exception.Message)")
+        }
+    }
+
+    $process = $targets[0].Process
+    $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $process.HasExited -and $deadline.ElapsedMilliseconds -lt 15000) {
+        $window = [PdSmokeWindowCapture]::ResolveUniqueProcessWindow([uint32]$process.Id)
+        if ($window -ne [IntPtr]::Zero -and
+                ([PdSmokeWindowCapture]::HasInputFocus($window) -or
+                 [PdSmokeWindowCapture]::Focus($window, 500))) {
+            Write-Info ("  window-focus: target={0} pid={1} acquired" -f $Name, $process.Id)
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return (Set-WindowFocusTransitionFailure -Stage 'target-native-focus' `
+        -Message "Could not establish GUI-thread focus for '$Name'." `
+        -Diagnostics ([PdSmokeWindowCapture]::DescribeProcessWindows([uint32]$process.Id)))
+}
+
+function Wait-SmokeProcessLaunchMarker {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [object] $Entry,
+        [Parameter(Mandatory)] [string] $Pattern,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+
+    Write-Info ("    waiting for marker: {0} (timeout {1}s)" -f $Pattern, $TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $exited = $Entry.Process.HasExited
+        # Reap before reading the last log line so an exit immediately after
+        # a logger flush cannot become a false launch-barrier failure.
+        if ($exited) { $Entry.Process.WaitForExit() }
+        if (Test-Path -LiteralPath $Entry.LogPath) {
+            try {
+                $hit = Select-String -LiteralPath $Entry.LogPath -Pattern $Pattern -List -ErrorAction SilentlyContinue
+                if ($hit) {
+                    Write-Info "    marker reached"
+                    return
+                }
+            } catch {}
+        }
+        if ($exited) {
+            return ("process exited (code {0}) before emitting wait_for marker" -f $Entry.Process.ExitCode)
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    return ("wait_for marker not seen within {0}s: {1}" -f $TimeoutSeconds, $Pattern)
+}
+
 function Invoke-SmokeTestMultiProcess {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [psobject] $Test,
@@ -1483,6 +1552,11 @@ function Invoke-SmokeTestMultiProcess {
 
     $name = $Test.Name
     $def = $Test.Definition
+    $hasFocusTarget = $def.PSObject.Properties.Match('window_focus_target').Count -gt 0
+    if ($hasFocusTarget -and ([string]::IsNullOrWhiteSpace([string]$def.window_focus_target) -or
+            $def.PSObject.Properties.Match('window_focus_transition').Count -gt 0)) {
+        throw "Smoke fixture '$name' requires a named window_focus_target without a window_focus_transition."
+    }
 
     $separateProcessInstalls = $false
     if ($def.PSObject.Properties.Match('separate_process_installs').Count -gt 0) {
@@ -1589,14 +1663,13 @@ function Invoke-SmokeTestMultiProcess {
                 $explicitProcessState = $true
             }
             if ($ExistingInstall -and -not $explicitProcessState) {
-                # A template run seeds every process's own install from the same
-                # template as the shared install (state current, no extraction).
-                # Before, each peer started clean and re-extracted the whole game,
-                # which on a hard disk outlasted every network fixture's waits.
-                # A process that names its own install_state still gets that.
-                $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
-                    -TestName ("{0}-{1}" -f $name, $pname) `
-                    -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+                # The first process can use the private template copy already
+                # reserved above. Every other process gets its own copy.
+                if ($processIndex -ne 0) {
+                    $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
+                        -TestName ("{0}-{1}" -f $name, $pname) `
+                        -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+                }
             } else {
                 $processRom = $RomOverride
                 if (-not $processRom -and $installInfo.SourceRom) {
@@ -1735,6 +1808,18 @@ function Invoke-SmokeTestMultiProcess {
     $retainedForTest = @()
     $launchFailed = $false
     $operationalFailures = New-Object System.Collections.Generic.List[psobject]
+    $focusTransitionPassed = $true
+    $focusTransitionAttempted = $false
+    $focusBeforeTargetBarrier = $false
+    $focusTarget = ""
+    if ($def.PSObject.Properties['window_focus_transition'] -and $def.window_focus_transition) {
+        $focusTransition = $def.window_focus_transition
+        $focusBeforeTargetBarrier = $focusTransition.PSObject.Properties['before_target_barrier'] -and
+            $focusTransition.before_target_barrier -eq $true
+        if ($focusBeforeTargetBarrier -and $focusTransition.PSObject.Properties['to_process']) {
+            $focusTarget = [string]$focusTransition.to_process
+        }
+    }
 
     foreach ($plan in $processPlans) {
         $pdef = $plan.Definition
@@ -1874,6 +1959,28 @@ function Invoke-SmokeTestMultiProcess {
             RequiredSequenceStartLines = @{}
         }
 
+        if ($focusBeforeTargetBarrier -and -not $focusTransitionAttempted -and $pname -eq $focusTarget) {
+            $focusTransitionAttempted = $true
+            $readyFailure = $null
+            if ($focusTransition.PSObject.Properties['target_ready_wait_for'] -and
+                    $focusTransition.target_ready_wait_for) {
+                $readyTimeoutSeconds = 15
+                if ($focusTransition.PSObject.Properties['target_ready_timeout_seconds'] -and
+                        $focusTransition.target_ready_timeout_seconds) {
+                    $readyTimeoutSeconds = [Math]::Min(3600,
+                        [Math]::Max(1, [int]$focusTransition.target_ready_timeout_seconds))
+                }
+                $readyFailure = Wait-SmokeProcessLaunchMarker -Entry $procs[-1] `
+                    -Pattern ([string]$focusTransition.target_ready_wait_for) -TimeoutSeconds $readyTimeoutSeconds
+            }
+            if ($readyFailure) {
+                $focusTransitionPassed = Set-WindowFocusTransitionFailure -Stage 'target-ready' -Message $readyFailure
+            } else {
+                $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition -Definition $def -Processes $procs
+            }
+            if (-not $focusTransitionPassed) { break }
+        }
+
         # Optional barrier: poll the just-launched process's log for the
         # `wait_for` marker before launching the next process.
         $waitFor = $null
@@ -1886,46 +1993,12 @@ function Invoke-SmokeTestMultiProcess {
         }
 
         if ($waitFor) {
-            Write-Info ("    waiting for marker: {0} (timeout {1}s)" -f $waitFor, $waitTimeoutSec)
-            $deadline = (Get-Date).AddSeconds($waitTimeoutSec)
-            $matched = $false
-            while ((Get-Date) -lt $deadline) {
-                if (Test-Path -LiteralPath $logPath) {
-                    try {
-                        $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
-                        if ($hit) {
-                            $matched = $true
-                            break
-                        }
-                    } catch {}
-                }
-                if ($p.HasExited) {
-                    # A successful smoke result is commonly the process's last
-                    # log line. Reap the process and scan once more so an exit
-                    # between the preceding poll and the logger flush cannot
-                    # become a false launch-barrier failure.
-                    $p.WaitForExit()
-                    if (Test-Path -LiteralPath $logPath) {
-                        try {
-                            $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
-                            if ($hit) {
-                                $matched = $true
-                                break
-                            }
-                        } catch {}
-                    }
-                    Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
-                    $launchFailed = $true
-                    break
-                }
-                Start-Sleep -Milliseconds 200
-            }
-            if (-not $matched -and -not $launchFailed) {
-                Write-Fail ("    wait_for marker not seen within {0}s: {1}" -f $waitTimeoutSec, $waitFor)
+            $markerFailure = Wait-SmokeProcessLaunchMarker -Entry $procs[-1] `
+                -Pattern $waitFor -TimeoutSeconds $waitTimeoutSec
+            if ($markerFailure) {
+                Write-Fail ("    {0}" -f $markerFailure)
                 $launchFailed = $true
-            }
-            if ($matched) {
-                Write-Info "    marker reached"
+                break
             }
         }
 
@@ -1967,10 +2040,16 @@ function Invoke-SmokeTestMultiProcess {
         }
     }
 
-    $focusTransitionPassed = $true
-    if (-not $launchFailed) {
-        $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition `
-            -Definition $def -Processes $procs
+    if (-not $launchFailed -and -not $focusTransitionAttempted) {
+        if ($hasFocusTarget) {
+            $focusTransitionPassed = Invoke-MultiProcessWindowFocusTarget `
+                -Name ([string]$def.window_focus_target) -Processes $procs
+        } elseif ($focusBeforeTargetBarrier) {
+            $focusTransitionPassed = Set-WindowFocusTransitionFailure -Stage 'target-resolution' `
+                -Message ("window focus transition did not reach its target launch barrier: '{0}'" -f $focusTarget)
+        } else {
+            $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition -Definition $def -Processes $procs
+        }
     }
     if (-not $launchFailed -and -not $focusTransitionPassed) {
         if ($null -ne $script:lastWindowFocusTransitionFailure) {
@@ -2485,6 +2564,17 @@ function Invoke-SmokeTest {
     } else {
         $allArgs = @() + $bootArgs
     }
+    # B-1203: a single-process launch whose boot_args name neither --portable
+    # nor --savedir ran against the player's real profile
+    # (AppData\Roaming\perfectdark) and rewrote pd.ini, input-bindings.ini and
+    # playerstats.json there; B-1124 only covered multi-process fixtures. The
+    # game runs from this install, so --portable keeps the install as its base
+    # dir and moves the save dir and $H into it. -ReuseInstallId below replaces
+    # these arguments with explicit directories.
+    if (-not (($bootArgs -contains '--portable') -or ($bootArgs -contains '--savedir'))) {
+        $allArgs += @('--portable')
+        Write-Info "  profile: --portable added, the test names no save dir (B-1203)"
+    }
     Write-Info ("  target: {0} ({1})" -f $target, $exeLeaf)
     if ($ReuseInstallId) {
         $allArgs = @('--smoke', [IO.Path]::GetFullPath($Test.Path)) + @($bootArgs | Where-Object { $_ -ne '--portable' }) + @(
@@ -2854,6 +2944,13 @@ function Invoke-SmokeTest {
         }
     }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
+    if ($storageReceipt -and $storageReceipt.PSObject.Properties.Match('DiscardedBytes').Count -gt 0) {
+        if ($storageReceipt.PSObject.Properties.Match('Recycled').Count -gt 0 -and $storageReceipt.Recycled) {
+            Write-Info ("  install sent to the Recycle Bin after the run (storage location policy): {0:N1} MB, on the drive until the bin is emptied" -f ($storageReceipt.DiscardedBytes / 1MB))
+        } else {
+            Write-Info ("  install discarded after the run (storage location policy): freed {0:N1} MB" -f ($storageReceipt.DiscardedBytes / 1MB))
+        }
+    }
 
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
@@ -2969,12 +3066,12 @@ foreach ($t in $selected) {
 # ----------------------------------------------------------------
 
 if ($useSharedInstall) {
-    Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
+    Write-Info ("Install mode: exclusive reusable workspace ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'shared'))
 } elseif ($Install) {
     Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
     if ($SourceBinary) { Write-Info ("  binary under test replaces the template's own: {0}" -f $SourceBinary) }
 } else {
-    Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
+    Write-Info ("Install mode: private managed install ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'installs'))
 }
 
 $results = @()

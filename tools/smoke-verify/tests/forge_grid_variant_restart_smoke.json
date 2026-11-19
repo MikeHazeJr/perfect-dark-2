@@ -1,0 +1,124 @@
+{
+  "scenario_name": "forge_grid_variant_restart_smoke",
+  "description": "Save a new extended arena through Level File, then restart the same profile. Reopen the fork and its unmodified original, verify both exact revision pins, and play the fork with its extended native room, render geometry, and collision.",
+  "tags": ["modding", "forge", "arena", "pdarena", "variant", "collision", "restart", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_io.c",
+    "port/src/forge_revision_store.c",
+    "port/src/scenario_source_runtime.c",
+    "port/fast3d/scenario_scene_renderer.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "clean",
+  "remove_paths": ["gvr"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "gvr/mods/.pdmod-migration-done"
+    }
+  ],
+  "processes": [
+    {
+      "name": "save-variant",
+      "snapshot_log_file": "grid-variant-save.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--no-net", "--skip-intro",
+        "--savedir", "$E/gvr", "--moddir", "$E/gvr/mods",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Restart_Original",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--launch-forge-level", "mod:arena_grid_restart_original",
+        "--debug-grid-variant-restart-save", "Grid_Restart_Variant"
+      ],
+      "wait_for": "SMOKE\\.GRID\\.VARIANT\\.RESTART: saved original=mod:arena_grid_restart_original parent=[0-9a-f]{64} variant=mod:arena_grid_restart_variant sha256=[0-9a-f]{64}",
+      "wait_timeout_seconds": 300,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "author-and-pin-original-before-saving-distinct-variant",
+            "patterns": [
+              "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_restart_original",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_restart_original sha256=[0-9a-f]{64}",
+              "FORGE\\.REVISION\\.FORK: original=mod:arena_grid_restart_original parent=[0-9a-f]{64} fork=mod:arena_grid_restart_variant",
+              "SMOKE\\.GRID\\.VARIANT\\.RESTART: saved original=mod:arena_grid_restart_original parent=[0-9a-f]{64} variant=mod:arena_grid_restart_variant sha256=[0-9a-f]{64}",
+              "SMOKE: result=grid_variant_restart_saved"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "play-variant-after-restart",
+      "snapshot_log_file": "grid-variant-restart.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--no-net", "--skip-intro",
+        "--savedir", "$E/gvr", "--moddir", "$E/gvr/mods",
+        "--launch-mp-room", "mod:arena_grid_restart_variant", "base:combat", "0",
+        "--debug-auto-start-match",
+        "--debug-grid-variant-restart-play", "mod:arena_grid_restart_original"
+      ],
+      "wait_for": "SMOKE\\.GRID\\.VARIANT\\.RESTART: played arena=mod:arena_grid_restart_variant room=[12]",
+      "wait_timeout_seconds": 300,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loaded mods-enabled\\.json in saved order",
+          "PDARENA\\.SCENARIO: owner=mod:arena_grid_restart_variant id=mod:arena_grid_restart_variant__",
+          "SCENARIO\\.RENDER: rendered native source scene 'mod:arena_grid_restart_variant__"
+        ],
+        "required_sequences": [
+          {
+            "name": "reopen-and-play-precise-variant-after-restart",
+            "patterns": [
+              "SMOKE\\.GRID\\.VARIANT\\.RESTART: reopened original=mod:arena_grid_restart_original parent=[0-9a-f]{64} variant=mod:arena_grid_restart_variant sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.VARIANT\\.RESTART: native arena=mod:arena_grid_restart_variant sha256=[0-9a-f]{64} room2_max=3000 scene_max=3000 mesh_floor=0 tile_floor=0",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=[0-9]+ down=1",
+              "SMOKE\\.GRID\\.VARIANT\\.RESTART: played arena=mod:arena_grid_restart_variant room=[12] distance=[1-9][0-9]*\\.[0-9]+ frames=[1-9][0-9]*",
+              "SMOKE: result=grid_variant_restart_played"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.BEGIN",
+          "FORGE\\.REVISION\\.FORK:"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 290000,
+      "stable_ms": 2500,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {"at_ms": 500, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press"},
+    {"at_ms": 3000, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release"},
+    {"at_ms": 3300, "type": "action", "name": "ACTION_AXIS_MOVE_X", "action": "press"},
+    {"at_ms": 5600, "type": "action", "name": "ACTION_AXIS_MOVE_X", "action": "release"},
+    {"at_ms": 6600, "type": "exit"}
+  ],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.VARIANT\\.RESTART: could not",
+      "SMOKE\\.GRID\\.VARIANT\\.RESTART: persisted source or lineage did not verify",
+      "SMOKE: result=grid_variant_restart_.*failed",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

@@ -205,9 +205,10 @@ TEST_CASE("Roster accepts initial authentication before public appearance settin
 
 TEST_CASE("Roster empty metadata uses canonical string sizes and preserves short output buffers", "[net][lobby][roster-auth-empty]")
 {
-    // One player: two header bytes, four scalar bytes, name A, two empty IDs.
-    const unsigned char canonical[] = {1,1,1,3,255,255,2,0,'A',0,1,0,0,1,0,0};
-    const unsigned char emptyLengthForm[] = {1,1,1,3,255,255,2,0,'A',0,0,0,0,0};
+    // One player: two header bytes, four scalar bytes, name A, two empty IDs,
+    // then the row's flags byte (B-1190: bit 0 = reviewing match stats).
+    const unsigned char canonical[] = {1,1,1,3,255,255,2,0,'A',0,1,0,0,1,0,0,0};
+    const unsigned char emptyLengthForm[] = {1,1,1,3,255,255,2,0,'A',0,0,0,0,0,0};
     lobby_roster_snapshot_t s{}; s.count = 1; s.leaderClientId = 1;
     auto &p = s.players[0]; p.active = 1; p.clientId = 1;
     p.state = lobbyFixtureLobbyState(); p.roomId = 255; p.team = 255;
@@ -230,4 +231,33 @@ TEST_CASE("Roster empty metadata uses canonical string sizes and preserves short
     out.wp = 0; out.size = sizeof(data) - 1;
     REQUIRE_FALSE(lobbyRosterPayloadWrite(&out, &s)); REQUIRE(out.wp == 0);
     REQUIRE(std::memcmp(data, before, sizeof(data)) == 0);
+}
+
+TEST_CASE("Roster carries the reviewing match stats flag and refuses unknown flag bits", "[net][lobby][roster-wire][b1190]")
+{
+    auto s = roster(); s.players[1].reviewing = 1;
+    unsigned char data[LOBBY_ROSTER_WIRE_MAX]{};
+    netbuf out{}; out.data = data; out.size = sizeof(data);
+    REQUIRE(lobbyRosterPayloadWrite(&out, &s));
+    {
+        netbuf in{}; netbufStartReadData(&in, data, out.wp);
+        lobby_roster_snapshot_t actual{};
+        REQUIRE(lobbyRosterPayloadRead(&in, &actual));
+        REQUIRE(in.rp == out.wp);
+        REQUIRE(actual.players[0].reviewing == 0);
+        REQUIRE(actual.players[1].reviewing == 1);
+        REQUIRE(actual.players[2].reviewing == 0);
+    }
+    // The flags byte ends each row; the last row's is the payload's last byte
+    REQUIRE(data[out.wp - 1] == 0);
+    data[out.wp - 1] = 2;
+    netbuf in{}; netbufStartReadData(&in, data, out.wp);
+    lobby_roster_snapshot_t sentinel; std::memset(&sentinel, 0xa5, sizeof(sentinel));
+    auto result = sentinel;
+    REQUIRE_FALSE(lobbyRosterPayloadRead(&in, &result));
+    REQUIRE(std::memcmp(&result, &sentinel, sizeof(result)) == 0);
+
+    // A snapshot with an out-of-range flag is not valid to write
+    s.players[1].reviewing = 2;
+    REQUIRE_FALSE(lobbyRosterValid(&s));
 }

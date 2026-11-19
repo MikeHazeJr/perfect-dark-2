@@ -20,6 +20,14 @@ typedef struct body_head_mesh_binding {
  * Filenum-only routes and private bridges require unique reverse ownership. */
 s32 bodyHeadSourcePrepareMesh(const char *archive_path, const char *expected_id,
     s32 source_by_catalog_id, body_head_mesh_binding_t *out, char *error, size_t error_capacity);
+/* The same preflight for a mesh that must load through a private model slot
+ * whatever native file its manifest names, so bodyHeadSourceBindMesh gives
+ * it one. A mod vehicle's model is one: the game finds the vehicle by its
+ * model number, and a vehicle saved from the base hoverbike still names
+ * FILE_PHOVBIKE, which the base model owns. A slot the id already holds is
+ * kept, so scanning the same archive again changes nothing. */
+s32 meshSourcePreparePrivate(const char *archive_path, const char *expected_id,
+    body_head_mesh_binding_t *out, char *error, size_t error_capacity);
 /* Caller holds the ordinary scanner transaction including model slot map.
  * Catalog pool pointers become invalid on any nested registration. */
 s32 bodyHeadSourceBindMesh(body_head_mesh_binding_t *binding, s32 bundled,
@@ -32,6 +40,9 @@ s32 bodyHeadSourceBindMesh(body_head_mesh_binding_t *binding, s32 bundled,
 s32 assetCatalogRegisterBodyHeadArchive(const char *archive_path,
     const char *expected_id, s32 is_head, s32 base_slot_hint, s32 bundled,
     char *error, size_t error_capacity);
+
+struct loader_walker_archive_preparation;
+extern const struct loader_walker_archive_preparation g_BodyHeadArchivePreparation;
 
 /* Received loose descriptors keep the existing admission transaction alive
  * until their filesystem publication commits. No catalog pointers escape.

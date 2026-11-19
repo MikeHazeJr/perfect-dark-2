@@ -107,6 +107,7 @@ typedef enum {
     ASSET_FONT,                /* reusable UI/gameplay font face asset */
     ASSET_SCENARIO,            /* level/map content selected by arenas, missions, or modes */
     ASSET_THEME,               /* menu/UI theme bundle asset */
+    ASSET_AI_LISTS,            /* global AI list bank (pd2.scenario.ai.lists.v1 rows; base asset base:ai_global) */
     ASSET_TYPE_COUNT
 } asset_type_e;
 
@@ -215,6 +216,7 @@ typedef struct asset_entry {
     s32  enabled;                      /* bool: user toggle (s32, not stdbool) */
     s32  temporary;                    /* bool: session-only download */
     s32  bundled;                      /* bool: shipped with game */
+    u8   grid_offer_only;              /* authored Grid source requires an exact match offer */
 
     /* Runtime binding */
     s32  runtime_index;                /* index in relevant runtime array */
@@ -269,6 +271,13 @@ typedef struct asset_entry {
              *      arenas so the user can fly around without anything
              *      triggering / dying / cutscenes playing. */
             u8  load_mode;
+            /* The arena's own name, from arena.ini's `display_name`. A
+             * base arena has none and is named by name_langid. A mod level
+             * has no entry in the game's language files, so without this
+             * a level saved from Complex showed as a second "Complex"
+             * (Forge F1). The mod author writes it. Empty means "use
+             * name_langid"; the pickers read it through arenaEntryName. */
+            char display_name[64];
         } arena;
         struct {
             s16 bodynum;               /* global body ID in g_HeadsAndBodies[] */
@@ -500,6 +509,11 @@ typedef struct asset_entry {
             s32 string_count_declared; /* distinguish absent count from declared zero */
             char strings_file[FS_MAXPATH];
         } lang;
+        struct {
+            /* ai.ini ai_lists_file: the public pd2.scenario.ai.lists.v1 rows
+             * of the global lists (ai/global_ailists.json in a .pdai). */
+            char lists_file[FS_MAXPATH];
+        } ai_lists;
         struct {
             char font_file[FS_MAXPATH];    /* vector font or bitmap glyph atlas */
             char metrics_file[FS_MAXPATH]; /* bitmap glyph metrics/kerning source */

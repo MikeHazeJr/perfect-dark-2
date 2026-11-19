@@ -1,10 +1,41 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "game/weather.h"
 #include "bss.h"
 #include "lib/memp.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+#include "system.h"
+
+/* A stage built from scenario source takes its weather setup from its
+ * stage.json (decision 3); this is that stage's copy of the table row. */
+static struct weathercfg s_ScenarioWeatherConfig;
+
+static void weatherConfigFromStageRules(const scenario_stage_weather_t *rule,
+	struct weathercfg *cfg)
+{
+	s32 i;
+
+	memset(cfg, 0, sizeof(*cfg));
+	cfg->stagenum = g_Stages[g_StageIndex].id;
+	cfg->flags = (rule->rooms_have_weather ? WEATHERFLAG_INCLUDE : 0) |
+		(rule->cutscene_only ? WEATHERFLAG_CUTSCENE_ONLY : 0) |
+		(rule->has_wind_direction ? WEATHERFLAG_FORCE_WINDDIR : 0);
+	cfg->windspeed = rule->wind_speed;
+	cfg->ymin = rule->y_min;
+	cfg->ymax = rule->y_max;
+	cfg->zmax = rule->z_max;
+	for (i = 0; i < rule->room_count && i < WEATHERCFG_MAX_SKIPROOMS - 1; i++) {
+		cfg->skiprooms[i] = rule->rooms[i];
+	}
+	cfg->windanglerad = rule->wind_angle;
+	cfg->windspeedx = rule->wind_speed_x;
+	cfg->windspeedz = rule->wind_speed_z;
+}
 
 s32 g_WeatherActive = false;
 u32 var800623f4 = 0x00000000;
@@ -40,15 +71,30 @@ static void weatherResetRooms(void)
 
 void weatherReset(void)
 {
+	s32 startup_kind = SCENARIO_STAGE_WEATHER_START_NONE;
+	s32 startup_intensity = 0;
+
 	g_WeatherActive = false;
 	g_WeatherData = NULL;
 
 	// find the weather config for this stage, if any
 	g_CurWeatherConfig = &g_DefaultWeatherConfig;
-	for (s32 i = 0; i < ARRAYCOUNT(g_WeatherConfig) && g_WeatherConfig[i].stagenum; ++i) {
-		if (g_WeatherConfig[i].stagenum == g_Stages[g_StageIndex].id) {
-			g_CurWeatherConfig = &g_WeatherConfig[i];
-			break;
+	if (bgUsesScenarioSource()) {
+		// a stage built from scenario source: the weather of its stage.json
+		scenario_stage_weather_t rule;
+
+		if (scenarioSourceStageWeather(&rule)) {
+			weatherConfigFromStageRules(&rule, &s_ScenarioWeatherConfig);
+			g_CurWeatherConfig = &s_ScenarioWeatherConfig;
+			startup_kind = rule.startup_kind;
+			startup_intensity = rule.startup_intensity;
+		}
+	} else {
+		for (s32 i = 0; i < ARRAYCOUNT(g_WeatherConfig) && g_WeatherConfig[i].stagenum; ++i) {
+			if (g_WeatherConfig[i].stagenum == g_Stages[g_StageIndex].id) {
+				g_CurWeatherConfig = &g_WeatherConfig[i];
+				break;
+			}
 		}
 	}
 
@@ -103,5 +149,15 @@ void weatherReset(void)
 		g_WeatherData->unkd4 = 0;
 
 		g_WeatherActive = true;
+
+		if (startup_kind == SCENARIO_STAGE_WEATHER_START_RAIN) {
+			weatherConfigureRain(startup_intensity);
+		} else if (startup_kind == SCENARIO_STAGE_WEATHER_START_SNOW) {
+			weatherConfigureSnow(startup_intensity);
+		}
+		if (startup_kind != SCENARIO_STAGE_WEATHER_START_NONE) {
+			sysLogPrintf(LOG_NOTE, "SCENARIO.SOURCE: weather started kind=%s intensity=%d source=stage.json",
+				g_WeatherData->type == WEATHERTYPE_RAIN ? "rain" : "snow", g_WeatherData->intensity);
+		}
 	}
 }

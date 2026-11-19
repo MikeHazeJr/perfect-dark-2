@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "bss.h"
@@ -124,6 +125,15 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 		model != NULL ? model->anim : NULL);
 }
 
+static bool modelasmCanSamplePart(s32 part, const struct anim *anim,
+		const struct skeleton *skeleton)
+{
+	if (part < 0 || part >= MODELASM_FRAME_PART_CAPACITY) return false;
+	if (!anim->flip && (anim->fracmerge == 0.0f || !anim->flip2)) return true;
+	return skeleton && skeleton->things && part < skeleton->numthings
+		&& skeleton->things[part][1] < MODELASM_FRAME_PART_CAPACITY;
+}
+
 static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 		struct model *model, struct anim *anim)
 {
@@ -151,7 +161,6 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 	s32 t1;
 	s32 t2;
 	u8 *s0ptr8;
-	s32 i;
 	f32 yrot;
 
 	s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_OK;
@@ -160,10 +169,6 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 			|| model->definition->nummatrices < 0
 			|| model->definition->nummatrices > MODELASM_FRAME_ANIM_STRIDE) {
 		return false;
-	}
-
-	for (i = 0; i < model->definition->nummatrices; i++) {
-		sp00[i].unk00 = 0;
 	}
 
 	/* An allocated animation object with animnum 0 is the normal bind-pose
@@ -175,6 +180,9 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 	animscale = anim != NULL ? anim->animscale : 1.0f;
 
 	if (anim) {
+		/* Animation part indexes are independent of the number of matrices
+		 * allocated by the model. Missing frame parts start neutral. */
+		memset(sp00, 0, sizeof(sp00));
 		t0slot = &sp00[0];
 
 		if (!modelasmBeginAnimationFrame(anim->animnum, anim->frameslot1,
@@ -188,10 +196,6 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 			}
 
 			if (anim->frac != 0.0f) {
-				for (i = 0; i < model->definition->nummatrices; i++) {
-					sp00[MODELASM_FRAME_ANIM_STRIDE + i].unk00 = 0;
-				}
-
 				f0int = anim->frac * 4096;
 
 				t0slot = &sp00[0];
@@ -255,7 +259,7 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 			if (model) {
 				t1 = node->rodata->position.part;
 
-				if (anim) {
+				if (anim && modelasmCanSamplePart(t1, anim, skeleton)) {
 					if (f30 != 0.0f) {
 						if (anim->flip) {
 							t2ptr8 = skeleton->things[t1];
@@ -358,9 +362,8 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 							t2 = t0slot->unk02;
 						}
 
-						s0 = t2;
-
 						if ((sr8 & 1) == 0) {
+							s0 = s1 = s2 = 0;
 							f12 = 1;
 							f13 = 0;
 							f14 = 0;
@@ -394,8 +397,9 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 					f19 = 0;
 					f20 = 1;
 
-					t0slot = &sp00[t1];
-					sr8 = t0slot->unk00;
+					/* Rigid source nodes can carry the unbound part 0xffff. */
+					sr8 = 0;
+					s0 = s1 = s2 = 0;
 				}
 
 				if (sr8 & 2) {
@@ -417,7 +421,7 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 						f23 = f2 + node->rodata->position.pos.z;
 					}
 				} else {
-					if (node != modeldef->rootnode) {
+					if (node != modeldef->rootnode || t1 == 0xffff) {
 						f21 = node->rodata->position.pos.x;
 						f22 = node->rodata->position.pos.y;
 						f23 = node->rodata->position.pos.z;
@@ -518,7 +522,7 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 			if (model) {
 				t1 = node->rodata->chrinfo.animpart;
 
-				if (anim && anim->animnum) {
+				if (anim && modelasmCanSamplePart(t1, anim, skeleton)) {
 					if (f30 != 0.0f) {
 						if (anim->flip) {
 							t2ptr8 = skeleton->things[t1];
@@ -632,8 +636,7 @@ static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
 					f19 = 0;
 					f20 = 1;
 
-					t0slot = &sp00[t1];
-					sr8 = t0slot->unk00;
+					sr8 = 0;
 				}
 
 				f0 = 0;

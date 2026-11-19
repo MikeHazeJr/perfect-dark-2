@@ -21,6 +21,7 @@ import re
 import struct
 import sys
 import zipfile
+from collections import Counter
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -73,6 +74,7 @@ TYPED_DESCRIPTORS = {
     ".pdbotprofile": "botprofile.ini",
     ".pdhud": "hud.ini",
     ".pdtheme": "theme.ini",
+    ".pdai": "ai.ini",
 }
 
 FAMILY_NAMES = {
@@ -103,7 +105,14 @@ FAMILY_NAMES = {
     ".pdbotprofile": "botprofile",
     ".pdhud": "hud",
     ".pdtheme": "theme",
+    ".pdai": "ai_lists",
 }
+
+# Families the checker knows before any archive root carries one, so
+# --require-all-families does not demand them yet. .pdai: the extractor writer
+# for base:ai_global and an example archive are later slices of
+# context/designs/modding/global-ai-lists.md; remove the entry when they land.
+FAMILIES_NOT_YET_REQUIRED = frozenset({".pdai"})
 
 
 def read_json_member(zf: zipfile.ZipFile, member: str) -> dict[str, object]:
@@ -128,8 +137,14 @@ ROOT_METADATA = {
 # DEPENDENCY stamp. Keep these in lockstep with the C sources:
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
+# Animated surfaces: the dyntex.c presets a scene.glb material may name in
+# pd2_material.animation (port/src/scenario_dyntex.c).
+SCENE_DYNTEX_PRESETS = frozenset({
+    "river", "monitor", "ocean", "arrows", "teleportal", "powerring", "powerjuice",
+})
+
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -724,6 +739,8 @@ SCHEMAS: dict[str, Schema] = {
             "collision.flags.json",  # decoded collision GEOFLAG/floortype sidecar (c3844 B-943)
             "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "rooms.json",      # authored BG room table sidecar (B-1113)
+            "stage.json",      # stage-wide rules (decision 3)
+            "intro.json",      # the setup intro other than spawn pads
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -840,7 +857,9 @@ SCHEMAS: dict[str, Schema] = {
     ".pdvehicle": schema(
         required=["vehicle.ini", "physics.json"],
         require_any=[["behavior.graph.json", "model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh"]],
-        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh"],
+        # behavior/variables.json: optional boost and heat values (Maian
+        # vehicle V3, pd.vehicle_variables.v1; validate_vehicle_variables).
+        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh", "behavior/variables.json"],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
             "dependencies/assets/materials/*.pdmaterial",
@@ -891,6 +910,13 @@ SCHEMAS: dict[str, Schema] = {
             "dependencies/assets/audio/*.pdsfx",
             "dependencies/assets/music/*.pdsong",
         ],
+    ),
+    # Global AI list bank (context/designs/modding/global-ai-lists.md): one
+    # descriptor and the pd2.scenario.ai.lists.v1 rows of the global lists,
+    # and their control-flow graph (ai-list-graphs.md).
+    ".pdai": schema(
+        required=["ai.ini", "ai/global_ailists.json"],
+        allowed=["ai.ini", "ai/global_ailists.json", "ai/global_ailists.graph.json"],
     ),
 }
 
@@ -1042,6 +1068,8 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance), ai (no dark room lists), ending (an unknown outcome), hub (the between-missions stage rules) and stars (the starfield: count, grid, below the horizon)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
+        "intro.json": slot("the setup intro other than its spawn pads (pd2.scenario.intro.v1): starting weapons, ammo and outfit, watch time, multiplayer cases, case respawns and hills, and the unread legacy commands", "scenario setup compiler", "rebuilds the intro script after the spawn pads, so the player starts with the mission's loadout and the objective modes find their pads", "the stage has only its spawn pads: no starting loadout, no authored cases or hills"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -1132,6 +1160,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "model.glb": slot("vehicle GLB model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "model.obj": slot("vehicle OBJ model source", "vehicle importer", "loads vehicle model source directly", "mesh.pdmesh or another model source must be present"),
         "behavior.graph.json": slot("vehicle behavior graph", "vehicle importer", "loads vehicle behavior source", "vehicle uses descriptor/default behavior"),
+        "behavior/variables.json": slot("named values for a pd.vehicle_graph.v1 behavior graph (pd.vehicle_variables.v1)", "vehicle importer", "compiled with behavior.graph.json: a \"$name\" graph param takes the variable's value whole", "the graph has literal params only; a \"$name\" param then refuses the graph"),
         "mesh.pdmesh": slot("inline vehicle mesh dependency", "vehicle importer", DEPENDENCY_LOADER, "model source or dependencies/assets/models path must be present"),
         "dependencies/assets/models/*.pdmesh": slot("vehicle model dependencies", "vehicle importer", DEPENDENCY_LOADER, "model source or mesh.pdmesh must be present"),
         "dependencies/assets/materials/*.pdmaterial": slot("vehicle material dependencies", "vehicle importer", DEPENDENCY_LOADER, DEPENDENCY_ABSENT),
@@ -1164,6 +1193,14 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "dependencies/assets/fonts/*.pdfont": slot("theme font dependencies", "theme importer", DEPENDENCY_LOADER, "theme.json uses the active/base font"),
         "dependencies/assets/audio/*.pdsfx": slot("theme sound dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private sounds"),
         "dependencies/assets/music/*.pdsong": slot("theme music dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private music"),
+    },
+    ".pdai": {
+        "ai/global_ailists.graph.json": slot(
+            "control-flow graph of the global AI lists (ai-list-graphs.md)",
+            "romextract_pdai and the conformance edge check",
+            "conformance recomputes every edge and flag from the rows; the runtime does not read it yet",
+            "a bank before extract_version global_ailists_rows_v2_aiedges has only its rows",
+        ),
     },
 }
 
@@ -1462,6 +1499,8 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
     texcoord_accessors: set[int] = set()
     runtime_texcoord_accessors: set[int] = set()
     color_accessors: set[int] = set()
+    scene_primitive_rows: list[tuple[object, dict]] = []
+    animated_materials: set[int] = set()
     meshes = gltf_json.get("meshes", [])
     if isinstance(meshes, list):
         for mesh in meshes:
@@ -1485,6 +1524,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                 color = attributes.get("COLOR_0")
                 if isinstance(color, int):
                     color_accessors.add(color)
+                scene_primitive_rows.append((primitive.get("material"), attributes))
 
     if not texcoord_accessors:
         return
@@ -1567,6 +1607,22 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                             f"{label} scene.glb material {index} pd2_material.{key} "
                             "must be an integer native material field"
                         )
+                if "animation" in pd2_material or "uv_scale" in pd2_material:
+                    if pd2_material.get("animation") not in SCENE_DYNTEX_PRESETS:
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.animation "
+                            f"must be one of {sorted(SCENE_DYNTEX_PRESETS)}"
+                        )
+                    uv_scale = pd2_material.get("uv_scale")
+                    if (not isinstance(uv_scale, list) or len(uv_scale) != 2 or
+                            any(isinstance(value, bool) or
+                                not isinstance(value, (int, float)) or
+                                not math.isfinite(value) for value in uv_scale)):
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.uv_scale "
+                            "must be two finite numbers"
+                        )
+                    animated_materials.add(index)
                 secondary_image = pd2_material.get("secondary_image")
                 secondary_texture = pd2_material.get("secondaryTexture")
                 if secondary_texture is not None:
@@ -1623,6 +1679,47 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                         f"uses texCoord {texcoord}; generated DCC previews must "
                         "bind visible textures to TEXCOORD_0, not runtime repeat UVs"
                     )
+
+    if generated_pd_scenario:
+        # An animated material's primitives carry _PD_DYNTEX: per vertex the
+        # N64 texture coordinates s and t and the room's texture scales.
+        scene_accessors = gltf_json.get("accessors", [])
+        if not isinstance(scene_accessors, list):
+            scene_accessors = []
+
+        def scene_accessor(index: object) -> dict | None:
+            if isinstance(index, int) and not isinstance(index, bool) and \
+                    0 <= index < len(scene_accessors) and \
+                    isinstance(scene_accessors[index], dict):
+                return scene_accessors[index]
+            return None
+
+        for material_index, attributes in scene_primitive_rows:
+            dyntex = attributes.get("_PD_DYNTEX")
+            animated = isinstance(material_index, int) and material_index in animated_materials
+            if animated and dyntex is None:
+                errors.append(
+                    f"{label} scene.glb primitive of animated material "
+                    f"{material_index} is missing _PD_DYNTEX"
+                )
+                continue
+            if dyntex is None:
+                continue
+            if not animated:
+                errors.append(
+                    f"{label} scene.glb primitive of material {material_index} has "
+                    "_PD_DYNTEX without pd2_material.animation"
+                )
+                continue
+            accessor = scene_accessor(dyntex)
+            position = scene_accessor(attributes.get("POSITION"))
+            if (accessor is None or accessor.get("type") != "VEC4" or
+                    accessor.get("componentType") != 5126 or
+                    (position is not None and accessor.get("count") != position.get("count"))):
+                errors.append(
+                    f"{label} scene.glb material {material_index} _PD_DYNTEX must be a "
+                    "VEC4 float accessor with one entry per vertex"
+                )
 
     max_abs_runtime_uv = 0.0
     for accessor_index in sorted(runtime_texcoord_accessors):
@@ -2235,6 +2332,394 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
         return
 
 
+# pd.vehicle_graph.v1, a vehicle's behavior graph (MODS; accepted by CORE
+# 2026-11-16, context/designs/modding/vehicle-graph-v1.md). The same rules the
+# runner applies when it compiles the graph; keep in step with
+# port/src/vehicle_graph_runner.cpp. tests/test_vehicle_graph_runner.cpp checks
+# these kinds against the runner's own list (vehicleGraphKnownKind).
+VEHICLE_GRAPH_SCHEMA = "pd.vehicle_graph.v1"
+VEHICLE_VARIABLES_SCHEMA = "pd.vehicle_variables.v1"
+VEHICLE_GRAPH_MAX_NODES = 4096
+VEHICLE_GRAPH_MAX_EDGES = 16384
+VEHICLE_GRAPH_MAX_LOCKOUT_REASONS = 32
+VEHICLE_GRAPH_MAX_PENDING = 64
+VEHICLE_GRAPH_EVENTS = {"event.vehicle.mount_requested", "event.vehicle.dismount_requested",
+                        "event.vehicle.tick", "event.vehicle.heat_changed",
+                        "event.vehicle.switch_seat_requested"}
+VEHICLE_GRAPH_GATES = {"gate.vehicle.seat", "gate.vehicle.seat_free", "gate.vehicle.heat_phase"}
+VEHICLE_GRAPH_MODULES = {"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                         "og.vehicle.switch_seat",
+                         "og.vehicle.hover_drive", "og.vehicle.throttle_boost",
+                         "og.vehicle.boost_heat", "og.vehicle.part_visible",
+                         "og.vehicle.turret_lockout"}
+# The events a native seam fires; heat_changed is raised by og.vehicle.boost_heat.
+VEHICLE_GRAPH_FIRED_EVENTS = ("event.vehicle.mount_requested",
+                              "event.vehicle.dismount_requested", "event.vehicle.tick",
+                              "event.vehicle.switch_seat_requested")
+VEHICLE_GRAPH_MODULE_EVENTS = {
+    "og.vehicle.mount_seat": {"event.vehicle.mount_requested"},
+    "og.vehicle.dismount_seat": {"event.vehicle.dismount_requested"},
+    "og.vehicle.switch_seat": {"event.vehicle.switch_seat_requested"},
+    "og.vehicle.hover_drive": {"event.vehicle.tick"},
+    "og.vehicle.throttle_boost": {"event.vehicle.tick"},
+    "og.vehicle.boost_heat": {"event.vehicle.tick"},
+    "og.vehicle.part_visible": set(VEHICLE_GRAPH_EVENTS),
+    "og.vehicle.turret_lockout": set(VEHICLE_GRAPH_EVENTS),
+}
+VEHICLE_GRAPH_RAISES = {"og.vehicle.boost_heat": "event.vehicle.heat_changed"}
+VEHICLE_HEAT_PHASES = ("cool", "ramping", "full", "overheated", "recovering")
+# Param types: seat, phases, bool (bool? is optional), speed (0..1000),
+# fraction (0..1), scale (above 0, at most 100), time (at least 0), time+
+# (above 0), part (0..32767, whole), reason (1 to 31 of a-z, 0-9 and _).
+VEHICLE_GRAPH_PARAMS = {
+    "gate.vehicle.seat": {"seat": "seat"},
+    "gate.vehicle.seat_free": {"seat": "seat"},
+    "gate.vehicle.heat_phase": {"phases": "phases"},
+    "og.vehicle.mount_seat": {"seat": "seat"},
+    "og.vehicle.dismount_seat": {"seat": "seat"},
+    "og.vehicle.switch_seat": {"seat": "seat"},
+    "og.vehicle.hover_drive": {"drive": "bool?"},
+    "og.vehicle.throttle_boost": {"boost_speed": "speed", "ramp_time": "time+"},
+    "og.vehicle.boost_heat": {
+        "boost_speed": "speed", "ramp_time": "time+", "overheat_after": "time+",
+        "overheated_boost": "fraction", "steer_limit": "fraction",
+        "steer_limit_time": "time", "recover_time_stopped": "time+",
+        "recover_speed_scale": "scale"},
+    "og.vehicle.part_visible": {"part": "part", "visible": "bool"},
+    "og.vehicle.turret_lockout": {"reason": "reason", "locked": "bool"},
+}
+VEHICLE_VARIABLES_TIME_UNITS = ("ticks60", "ticks240", "centiseconds")
+_VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
+_VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
+_VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
+_VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
+# The modules that change who sits where: one of each per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                                        "og.vehicle.switch_seat"})
+
+
+def vehicle_time_ticks240(value: object):
+    """A {"value": N, "unit": ...} time in 240 Hz ticks, or None (the runner's
+    readTimeObject: exactly those two keys, a known unit, N from 0 to an hour)."""
+    if not isinstance(value, dict) or set(value) != {"value", "unit"}:
+        return None
+    number, unit = value["value"], value["unit"]
+    if not is_finite_json_number(number) or unit not in _VEHICLE_TIME_SCALE:
+        return None
+    if not 0.0 <= float(number) <= _VEHICLE_MAX_TICKS240:
+        return None
+    ticks = float(number) * _VEHICLE_TIME_SCALE[unit]
+    return ticks if ticks <= _VEHICLE_MAX_TICKS240 else None
+
+
+def validate_vehicle_variables(label: str, variables: object,
+                               errors: list[str], catalog_id: str | None = None):
+    """behavior/variables.json (pd.vehicle_variables.v1): names a-z, 0-9 and _
+    (1 to 63), values a number, a bool, a string or a {value, unit} time;
+    schema and catalog_id reserved, and a catalog_id must be the vehicle's
+    (catalog_id, when given), as the runner refuses. Returns the variables,
+    or None when the file is not usable."""
+    where = f"{label} behavior/variables.json"
+    if not isinstance(variables, dict):
+        errors.append(f"{where} must be a JSON object")
+        return None
+    if variables.get("schema") != VEHICLE_VARIABLES_SCHEMA:
+        errors.append(f"{where} schema must be {VEHICLE_VARIABLES_SCHEMA!r}")
+        return None
+    out = {}
+    for name, value in variables.items():
+        if name == "schema":
+            continue
+        if name == "comment":  # free text, not a variable
+            if not isinstance(value, str):
+                errors.append(f"{where} comment must be a string")
+            continue
+        if name == "catalog_id":
+            if not isinstance(value, str):
+                errors.append(f"{where} catalog_id must be a string")
+            elif catalog_id is not None and value != catalog_id:
+                errors.append(f"{where} is for {value!r}, not {catalog_id!r}")
+            continue
+        if not _VEHICLE_NAME.match(name):
+            errors.append(f"{where} variable name {name!r} must be 1 to 63 of a-z, 0-9 and _")
+            continue
+        if isinstance(value, (bool, str)):
+            pass
+        elif isinstance(value, (int, float)):
+            if not is_finite_json_number(value):
+                errors.append(f"{where} variable {name!r} is not a finite number")
+                continue
+        elif isinstance(value, dict):
+            if vehicle_time_ticks240(value) is None:
+                errors.append(
+                    f"{where} variable {name!r} must be {{\"value\": N, \"unit\": "
+                    f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}} with N from 0 to an hour")
+                continue
+        else:
+            errors.append(f"{where} variable {name!r} must be a number, a bool, a string "
+                          "or {value, unit}")
+            continue
+        out[name] = value
+    return out
+
+
+def _vehicle_graph_param(where: str, node_id: str, kind: str, key: str, typ: str,
+                         value: object, reasons: list[str], errors: list[str]) -> None:
+    at = f"{where} node {node_id!r} ({kind}) param {key!r}"
+
+    def number(lo: float, hi: float) -> bool:
+        if not is_finite_json_number(value):
+            errors.append(f"{at} must be a number")
+            return False
+        if not lo <= float(value) <= hi:
+            errors.append(f"{at} must be from {lo:g} to {hi:g}")
+            return False
+        return True
+
+    if typ == "seat":
+        if value not in ("driver", "gunner"):
+            errors.append(f"{at} must be \"driver\" or \"gunner\"")
+    elif typ == "phases":
+        if not isinstance(value, list) or not value:
+            errors.append(f"{at} must be a list of heat phases")
+        elif not all(isinstance(p, str) and p in VEHICLE_HEAT_PHASES for p in value):
+            errors.append(f"{at} may name only {', '.join(VEHICLE_HEAT_PHASES)}")
+        elif len(set(value)) != len(value):
+            errors.append(f"{at} names a phase twice")
+    elif typ == "bool":
+        if not isinstance(value, bool):
+            errors.append(f"{at} must be true or false")
+    elif typ == "speed":
+        number(0.0, 1000.0)
+    elif typ == "fraction":
+        number(0.0, 1.0)
+    elif typ == "scale":
+        if number(0.0, 100.0) and float(value) <= 0.0:
+            errors.append(f"{at} must be above 0")
+    elif typ in ("time", "time+"):
+        ticks = vehicle_time_ticks240(value)
+        if ticks is None:
+            errors.append(f"{at} must be {{\"value\": N, \"unit\": "
+                          f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}}")
+        elif typ == "time+" and ticks <= 0.0:
+            errors.append(f"{at} must be longer than 0")
+    elif typ == "part":
+        if number(0.0, 32767.0) and not float(value).is_integer():
+            errors.append(f"{at} must be a whole number")
+    elif typ == "reason":
+        if not isinstance(value, str) or not _VEHICLE_REASON.match(value):
+            errors.append(f"{at} must be 1 to 31 of a-z, 0-9 and _")
+        elif value not in reasons:
+            reasons.append(value)
+
+
+def validate_vehicle_graph_execution(label: str, graph: object, variables,
+                                     catalog_id: str) -> list[str]:
+    """The runner's compile rules for pd.vehicle_graph.v1: the mission graph
+    runner's edge rules, every executable kind one of v1's with only its own
+    params ("$name" takes a variable whole), modules only on their own events,
+    one hover_drive and one boost_heat, at most 32 lockout reasons, and the
+    raised-event bound (a raised event already being delivered is refused).
+    A graph, a node and an edge may each carry a "comment" string."""
+    where = f"{label} behavior.graph.json"
+    if not isinstance(graph, dict):
+        return [f"{where} must be a JSON object"]
+    errors: list[str] = []
+    if graph.get("schema") != VEHICLE_GRAPH_SCHEMA:
+        errors.append(f"{where} must declare schema {VEHICLE_GRAPH_SCHEMA}")
+    if not isinstance(graph.get("catalog_id"), str) or graph.get("catalog_id") != catalog_id:
+        errors.append(f"{where} catalog_id must match the public descriptor catalog_id "
+                      f"{catalog_id!r}")
+    if "comment" in graph and not isinstance(graph["comment"], str):
+        errors.append(f"{where} comment must be a string")
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return errors + [f"{where} has no nodes array"]
+    if len(nodes) > VEHICLE_GRAPH_MAX_NODES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_NODES} nodes"]
+
+    kinds: dict[str, str] = {}
+    seats: dict[str, object] = {}
+    order: list[str] = []
+    reasons: list[str] = []
+    counts = {"og.vehicle.hover_drive": 0, "og.vehicle.boost_heat": 0}
+    for idx, node in enumerate(nodes):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        if "comment" in node and not isinstance(node["comment"], str):
+            errors.append(f"{where} node {node_id!r} comment must be a string")
+        kinds[node_id] = kind
+        order.append(node_id)
+        params = node.get("params")
+        if kind.startswith("event."):
+            if kind not in VEHICLE_GRAPH_EVENTS:
+                errors.append(f"{where} event kind {kind!r} is not a vehicle event")
+            elif params not in (None, {}):
+                errors.append(f"{where} event {node_id!r} takes no params")
+            continue
+        if kind.startswith("gate.") and kind not in VEHICLE_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+            continue
+        if kind.startswith("og.") and kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+            continue
+        if kind not in VEHICLE_GRAPH_PARAMS:
+            continue  # data: checked, never walked
+        if kind in counts:
+            counts[kind] += 1
+            if counts[kind] > 1:
+                errors.append(f"{where} a vehicle graph has one {kind} ({node_id!r} is a second)")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            errors.append(f"{where} node {node_id!r} ({kind}) params must be an object")
+            continue
+        spec = VEHICLE_GRAPH_PARAMS[kind]
+        for key in params:
+            if key not in spec:
+                errors.append(f"{where} node {node_id!r} ({kind}) has no param {key!r}")
+        for key, typ in spec.items():
+            optional = typ.endswith("?")
+            typ = typ.rstrip("?")
+            if key not in params:
+                if not optional:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} is missing")
+                continue
+            value = params[key]
+            if isinstance(value, str) and value.startswith("$"):
+                if not isinstance(variables, dict) or value[1:] not in variables:
+                    errors.append(f"{where} node {node_id!r} ({kind}) param {key!r} uses "
+                                  f"unknown variable {value!r}")
+                    continue
+                value = variables[value[1:]]
+            if key == "seat" and kind in VEHICLE_GRAPH_SEAT_MODULES:
+                seats[node_id] = value
+            _vehicle_graph_param(where, node_id, kind, key, typ, value, reasons, errors)
+    if len(reasons) > VEHICLE_GRAPH_MAX_LOCKOUT_REASONS:
+        errors.append(f"{where} has more than {VEHICLE_GRAPH_MAX_LOCKOUT_REASONS} "
+                      "turret lockout reasons")
+
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > VEHICLE_GRAPH_MAX_EDGES:
+        return errors + [f"{where} has more than {VEHICLE_GRAPH_MAX_EDGES} edges"]
+
+    def executable(kind: str) -> bool:
+        return kind in VEHICLE_GRAPH_EVENTS or kind in VEHICLE_GRAPH_GATES or \
+            kind in VEHICLE_GRAPH_MODULES
+
+    out: dict[str, list[str]] = {node_id: [] for node_id in order}
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        if "comment" in edge and not isinstance(edge["comment"], str):
+            errors.append(f"{where} edge {idx} comment must be a string")
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not executable(src_kind):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+            continue
+        if dst_kind not in VEHICLE_GRAPH_GATES and dst_kind not in VEHICLE_GRAPH_MODULES:
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+            continue
+        output = edge.get("output")
+        if src_kind in VEHICLE_GRAPH_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+                continue
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+            continue
+        out[src].append(dst)
+    if errors:
+        return errors
+
+    # Which modules each event's walk can reach (both branches of every gate).
+    reach: dict[str, list[str]] = {}
+    for event in sorted(VEHICLE_GRAPH_EVENTS):
+        queue = [dst for node_id in order if kinds[node_id] == event for dst in out[node_id]]
+        seen: set[str] = set()
+        while queue:
+            at = queue.pop(0)
+            if at in seen:
+                continue
+            seen.add(at)
+            queue.extend(out[at])
+        reach[event] = [node_id for node_id in order if node_id in seen]
+        # One event mounts, dismounts or switches to a seat at most once (the
+        # runner's rule).
+        seat_modules: dict[tuple[str, str], int] = {}
+        for node_id in reach[event]:
+            kind = kinds[node_id]
+            if kind in VEHICLE_GRAPH_MODULE_EVENTS and event not in VEHICLE_GRAPH_MODULE_EVENTS[kind]:
+                errors.append(f"{where} {kind} {node_id!r} cannot run on {event}, which reaches it")
+            if kind in VEHICLE_GRAPH_SEAT_MODULES and isinstance(seats.get(node_id), str):
+                key = (kind, seats[node_id])
+                seat_modules[key] = seat_modules.get(key, 0) + 1
+                if seat_modules[key] == 2:
+                    errors.append(f"{where} {event} reaches a second {kind} for the "
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts, "
+                                  "dismounts or switches to a seat once")
+    if errors:
+        return errors
+
+    # The raised-event bound: each raising module an event reaches raises once,
+    # and its event leads to its own; one already being delivered is refused.
+    state: dict[str, int] = {}
+    memo: dict[str, int] = {}
+
+    def bound(event: str) -> int | None:
+        if state.get(event) == 2:
+            return memo[event]
+        if state.get(event) == 1:
+            errors.append(f"{where} {event} can raise itself again while it is being delivered")
+            return None
+        state[event] = 1
+        total = 0
+        for node_id in reach[event]:
+            raised = VEHICLE_GRAPH_RAISES.get(kinds[node_id])
+            if raised is None:
+                continue
+            nested = bound(raised)
+            if nested is None:
+                return None
+            total = min(total + 1 + nested, VEHICLE_GRAPH_MAX_PENDING + 1)
+        state[event] = 2
+        memo[event] = total
+        return total
+
+    worst = 0
+    for event in VEHICLE_GRAPH_FIRED_EVENTS:
+        count = bound(event)
+        if count is None:
+            return errors
+        worst = max(worst, count)
+    if worst > VEHICLE_GRAPH_MAX_PENDING:
+        errors.append(f"{where} one event can lead to more than {VEHICLE_GRAPH_MAX_PENDING} "
+                      "raised events")
+    return errors
+
+
 def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                                      name_set: set[str],
                                      errors: list[str]) -> None:
@@ -2262,8 +2747,13 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
 
     catalog_id = descriptor_values.get("catalog_id", "")
     physics = read_json_member(zf, "physics.json")
+    behavior = read_json_member(zf, "behavior.graph.json")
+    # A v1 graph pairs with physics v3 (no boost keys: the graph's
+    # og.vehicle.throttle_boost holds them); a v2 behavior with physics v2.
+    graph_v1 = isinstance(behavior, dict) and behavior.get("schema") == VEHICLE_GRAPH_SCHEMA
+    physics_schema = "pd2.vehicle.physics.v3" if graph_v1 else "pd2.vehicle.physics.v2"
     if validate_catalog_bound_json(
-            label, "physics.json", physics, "pd2.vehicle.physics.v2",
+            label, "physics.json", physics, physics_schema,
             catalog_id, errors):
         if physics.get("archetype") != "hoverbike":
             errors.append(
@@ -2292,9 +2782,16 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             "tilt_response_pal",
             "yaw_response_ntsc",
             "yaw_response_pal",
-            "boost_speed",
-            "boost_time_ticks60",
         )
+        if graph_v1:
+            for field_name in ("boost_speed", "boost_time_ticks60"):
+                if field_name in physics:
+                    errors.append(
+                        f"{label} physics.json {field_name}: pd2.vehicle.physics.v3 has "
+                        "no boost keys (the graph's og.vehicle.throttle_boost holds them)"
+                    )
+        else:
+            numeric_fields += ("boost_speed", "boost_time_ticks60")
         for field_name in numeric_fields:
             value = physics.get(field_name)
             if not is_finite_json_number(value) or float(value) < 0.0:
@@ -2312,8 +2809,26 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} physics.json hover must contain exactly 13 finite numbers"
             )
 
-    behavior = read_json_member(zf, "behavior.graph.json")
-    if validate_catalog_bound_json(
+    variables = None
+    if "behavior/variables.json" in name_set:
+        try:
+            parsed = json.loads(
+                zf.read("behavior/variables.json").decode("utf-8")
+            )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+            parsed = None
+        if not graph_v1:
+            errors.append(
+                f"{label} behavior/variables.json is read only with a "
+                f"{VEHICLE_GRAPH_SCHEMA} behavior graph"
+            )
+        else:
+            variables = validate_vehicle_variables(label, parsed, errors, catalog_id)
+
+    if graph_v1:
+        errors.extend(validate_vehicle_graph_execution(
+            label, behavior, variables, catalog_id))
+    elif validate_catalog_bound_json(
             label, "behavior.graph.json", behavior,
             "pd2.vehicle.behavior.v2", catalog_id, errors):
         for field_name in ("allow_mount", "allow_drive", "allow_dismount"):
@@ -2495,6 +3010,13 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must include mission phase graph nodes"
                 )
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if isinstance(node, dict) and "required" in node:
+                        errors.append(
+                            f"{label} mission.graph.json node {node.get('id', '?')}: required belongs on the "
+                            f"objective's objectives.json row (mission-flow.md)"
+                        )
             if isinstance(nodes, list) and not any(
                 isinstance(node, dict)
                 and str(node.get("kind", "")) == "mission.objectives.source"
@@ -2504,6 +3026,8 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must bind mission.objectives.source to objectives.json"
                 )
+            if isinstance(nodes, list) and nodes:
+                errors.extend(validate_mission_graph_execution(label, graph))
 
     if "objectives.json" in name_set:
         objectives_text = zf.read("objectives.json").decode(
@@ -2517,6 +3041,558 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
+
+
+# Mission graph runner (decision 2, CORE, 2026-11-15): the executable part of
+# pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
+# the module table in port/src/mission_graph_modules.c.
+MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.completed",
+                             "event.mission.continue", "event.mission.phase_changed",
+                             "event.volume.entered", "event.volume.left",
+                             "event.pickup.collected", "event.door.opened",
+                             "event.door.closed", "event.object.used",
+                             "event.pickup.touched", "event.door.use", "event.door.approach"}
+# object-events.md slices 2 and 4: each may filter one object by its
+# record_id; the last three are the rule events.
+MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
+                               "event.door.closed", "event.object.used",
+                               "event.pickup.touched", "event.door.use", "event.door.approach"}
+# object-events.md slice 4: the level's own pickup and door rules. A level
+# graph must handle each (or its stage would have no pickups and no doors);
+# a mission graph may not name one.
+MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach")
+# trigger-volume-events.md: each names one volume of the stage's volumes.json.
+MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
+MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
+                                "event.mission.phase_changed"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase",
+                            "gate.object.kind", "gate.player.has_item",
+                            "gate.pickup.native_rules", "gate.door.native_unlocked"}
+MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
+                                "og.mission.start_credits", "og.progress.unlock_alt_title",
+                                "og.mission.end_failed", "og.mission.end_completed",
+                                "og.door.open", "og.door.close", "og.door.lock",
+                                "og.door.unlock", "og.pickup.give", "og.pickup.collect",
+                                "og.door.activate", "og.door.locked_message",
+                                "og.door.activate_automatic"}
+# object-events.md slice 3: the modules that act on an object name it by its
+# objects.json record_id ("setup_0123"); lock and unlock take the key flags.
+MISSION_GRAPH_OBJECT_MODULES = {"og.door.open", "og.door.close", "og.door.lock",
+                                "og.door.unlock", "og.pickup.give"}
+MISSION_GRAPH_RECORD_ID_RE = re.compile(r"setup_[0-9]+")
+# mission-flow.md: the phases a phase event carries, and the modules that end
+# a mission (never reached after it ended).
+MISSION_GRAPH_PHASES = {"active", "complete", "failed"}
+MISSION_GRAPH_END_MODULES = {"og.mission.end_failed", "og.mission.end_completed"}
+MISSION_GRAPH_AFTER_END_EVENTS = {"event.mission.completed", "event.mission.continue"}
+MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
+
+
+def _is_graph_program_kind(kind: object) -> bool:
+    return isinstance(kind, str) and kind.startswith(("event.", "gate.", "og."))
+
+
+def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:
+    """The same rules the runner applies when it compiles a mission graph:
+    unique ids, known og.* modules and gate kinds, every edge between existing
+    nodes, and execution edges ("input": "exec") only from an executable
+    event, gate or module to a gate or module, with the right output port.
+    With level (object-events.md slice 1) the graph is a level graph, whose
+    program is only its event.*, gate.* and og.* nodes: its other nodes are
+    level data, and an edge that is not an execution edge may name one."""
+    errors: list[str] = []
+    where = f"{label} level.graph.json" if level else f"{label} mission.graph.json"
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(graph.get("nodes") or []):
+        if level and not (isinstance(node, dict) and _is_graph_program_kind(node.get("kind"))):
+            continue
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("og.") and kind not in MISSION_GRAPH_NATIVE_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+        if kind.startswith("gate.") and kind not in MISSION_GRAPH_EXEC_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+        if kind == "gate.objective.status" and node.get("status") not in MISSION_GRAPH_STATUSES:
+            errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        if kind == "gate.mission.phase":
+            if node.get("phase") not in MISSION_GRAPH_PHASES:
+                errors.append(f"{where} gate {node_id!r} needs phase active, complete or failed")
+            if "objective" in node:
+                errors.append(f"{where} gate {node_id!r} is a phase gate; it has no objective to filter")
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+        if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
+            errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+        if kind in MISSION_GRAPH_OBJECT_MODULES:
+            ref = node.get("object")
+            if not isinstance(ref, str) or not MISSION_GRAPH_RECORD_ID_RE.fullmatch(ref):
+                errors.append(f"{where} {kind} {node_id!r} needs \"object\": a record_id of "
+                              "objects.json (setup_N)")
+        if kind in ("og.door.lock", "og.door.unlock"):
+            bits = node.get("bits")
+            if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 255:
+                errors.append(f"{where} {kind} {node_id!r} needs \"bits\": the key flags, 1 to 255")
+        if kind == "gate.object.kind" and not isinstance(node.get("object_kind"), str):
+            errors.append(f"{where} gate {node_id!r} needs \"object_kind\": an objects.json kind")
+        if kind == "gate.player.has_item" and not (isinstance(node.get("item"), str)
+                                                   and CATALOG_ID_RE.fullmatch(node["item"])):
+            errors.append(f"{where} gate {node_id!r} needs \"item\": a weapon or item catalog id")
+        if kind in MISSION_GRAPH_RULE_EVENTS and not level:
+            errors.append(f"{where} rule event {node_id!r} ({kind}) belongs to the level graph, "
+                          "not the mission graph")
+        if kind in MISSION_GRAPH_OBJECT_EVENTS:
+            if "objective" in node:
+                errors.append(f"{where} object event {node_id!r} has no objective to filter")
+            if "object" in node and not isinstance(node["object"], str):
+                errors.append(f"{where} object event {node_id!r} object must be a string: "
+                              "a record_id of objects.json, or \"any\"")
+        if kind in MISSION_GRAPH_VOLUME_EVENTS:
+            if "objective" in node:
+                errors.append(f"{where} volume event {node_id!r} has no objective to filter")
+            volume = node.get("volume")
+            if not isinstance(volume, str) or not volume or volume == "any":
+                errors.append(f"{where} volume event {node_id!r} needs \"volume\": "
+                              "the volume_id of a volumes.json row")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if level and "input" not in edge and (src not in kinds or dst not in kinds):
+            continue  # a structural edge of the level data
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not (src_kind in MISSION_GRAPH_EXEC_EVENTS or src_kind in MISSION_GRAPH_EXEC_GATES
+                or src_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+        if not (dst_kind in MISSION_GRAPH_EXEC_GATES or dst_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind in MISSION_GRAPH_EXEC_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    # og.mission.end_* ends the mission while it is played; nothing reached
+    # after the end may end it (the runtime refuses such a program).
+    exec_out: dict[str, list[str]] = {}
+    for edge in edges:
+        if isinstance(edge, dict) and edge.get("input") == "exec" \
+                and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
+            exec_out.setdefault(edge["from"], []).append(edge["to"])
+    # object-events.md slice 4: a level program handles every rule event (an
+    # event node of the kind with an execution edge), as the runtime requires.
+    if level:
+        for rule in MISSION_GRAPH_RULE_EVENTS:
+            if not any(kind == rule and exec_out.get(node_id) for node_id, kind in kinds.items()):
+                errors.append(f"{where} handles no {rule}: the level's pickup and door rules "
+                              "are not wired (object-events.md slice 4)")
+    seen: set[str] = set()
+    queue = [dst for src, kind in kinds.items() if kind in MISSION_GRAPH_AFTER_END_EVENTS
+             for dst in exec_out.get(src, [])]
+    while queue:
+        node_id = queue.pop()
+        if node_id in seen or node_id not in kinds:
+            continue
+        seen.add(node_id)
+        if kinds[node_id] in MISSION_GRAPH_END_MODULES:
+            errors.append(f"{where} {kinds[node_id]} {node_id!r} is reached after the mission ended "
+                          "(event.mission.completed or event.mission.continue)")
+        queue.extend(exec_out.get(node_id, []))
+    return errors
+
+
+# Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
+# port/src/scenario_stage_rules.cpp.
+STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
+STAGE_RULES_KEYS = {"schema", "note", "weather", "weather_start", "player", "ai", "ending", "hub",
+                    "stars", "sparks", "gas", "atmosphere"}
+STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance",
+                     "unlimited_ammo_excludes"}
+STAGE_MAX_AMMO_EXCLUDES = 8
+STAGE_AI_KEYS = {"dark_room_lists"}
+STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
+                 "deepsea", "wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian",
+                 "negotiator"]
+STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
+                      "weather_rooms", "dry_rooms", "wind_direction"}
+STAGE_WEATHER_MAX_ROOMS = 127
+STAGE_WEATHER_START_KEYS = {"kind", "intensity"}
+
+
+def validate_stage_gas(where: str, gas) -> list[str]:
+    """stage.json gas (Escape's gas cloud): rooms and/or a sphere, door rooms,
+    a cutscene fade; the reader's limits (scenario_stage_rules.cpp)."""
+    errors: list[str] = []
+
+    def is_whole(value, lo, hi):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) \
+            and float(value).is_integer() and lo <= value <= hi
+
+    if not isinstance(gas, dict):
+        return [f"{where} gas must be an object"]
+    for key in sorted(set(gas) - {"rooms", "sphere", "door_rooms", "cutscene_fade"}):
+        errors.append(f"{where} gas has an unknown key {key!r}")
+    rooms = gas.get("rooms", [])
+    if not isinstance(rooms, list) or len(rooms) > 32 or not all(is_whole(r, 1, 32767) for r in rooms):
+        errors.append(f"{where} gas.rooms must list at most 32 room numbers 1..32767")
+    sphere = gas.get("sphere")
+    if sphere is not None:
+        if not isinstance(sphere, dict):
+            errors.append(f"{where} gas.sphere must be an object")
+        else:
+            for key in sorted(set(sphere) - {"center", "radius", "door_tag"}):
+                errors.append(f"{where} gas.sphere has an unknown key {key!r}")
+            center = sphere.get("center")
+            if not isinstance(center, list) or len(center) != 3 or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) for v in center):
+                errors.append(f"{where} gas.sphere.center must be [x, y, z]")
+            radius = sphere.get("radius")
+            if not isinstance(radius, (int, float)) or isinstance(radius, bool) or not radius > 0:
+                errors.append(f"{where} gas.sphere.radius must be more than 0")
+            if "door_tag" in sphere and not is_whole(sphere["door_tag"], 0, 65535):
+                errors.append(f"{where} gas.sphere.door_tag must be a tag number 0..65535")
+    if not rooms and sphere is None:
+        errors.append(f"{where} gas needs rooms or a sphere")
+    door_rooms = gas.get("door_rooms", [])
+    if not isinstance(door_rooms, list) or len(door_rooms) > 4:
+        errors.append(f"{where} gas.door_rooms must list at most 4 rooms")
+    else:
+        for entry in door_rooms:
+            if not isinstance(entry, dict) or set(entry) - {"room", "door_tags", "add"} \
+                    or not is_whole(entry.get("room"), 1, 32767) \
+                    or not isinstance(entry.get("door_tags"), list) \
+                    or not 1 <= len(entry["door_tags"]) <= 4 \
+                    or not all(is_whole(t, 0, 65535) for t in entry["door_tags"]) \
+                    or ("add" in entry and not (isinstance(entry["add"], (int, float))
+                                                and not isinstance(entry["add"], bool)
+                                                and -1 <= entry["add"] <= 1)):
+                errors.append(f"{where} gas.door_rooms entries need a room, 1 to 4 door_tags "
+                              f"and an optional add -1..1")
+    fade = gas.get("cutscene_fade")
+    if fade is not None:
+        if not isinstance(fade, dict) or set(fade) != {"start_frame", "full_frame"} \
+                or not is_whole(fade["start_frame"], 0, 1000000) \
+                or not is_whole(fade["full_frame"], 1, 1000000) \
+                or not fade["full_frame"] > fade["start_frame"]:
+            errors.append(f"{where} gas.cutscene_fade needs start_frame and a later full_frame")
+    return errors
+
+
+def validate_stage_atmosphere(where: str, look: object) -> list[str]:
+    def whole(value, lo, hi):
+        return (not isinstance(value, bool) and isinstance(value, (int, float))
+                and lo <= value <= hi and int(value) == value)
+
+    if not isinstance(look, dict) or not look:
+        return [f"{where} atmosphere must be a nonempty object"]
+    errors = [f"{where} atmosphere has an unknown key {key!r}"
+              for key in sorted(set(look) - {"sky_rgb", "fog", "ambient_light", "primary_music"})]
+    if "sky_rgb" in look:
+        rgb = look["sky_rgb"]
+        if not isinstance(rgb, list) or len(rgb) != 3 or not all(whole(c, 0, 255) for c in rgb):
+            errors.append(f"{where} atmosphere.sky_rgb needs three integer color channels from 0 to 255")
+    if "fog" in look:
+        fog = look["fog"]
+        if (not isinstance(fog, dict) or set(fog) != {"start", "end"}
+                or not whole(fog["start"], 0, 999) or not whole(fog["end"], 1, 1000)
+                or fog["start"] >= fog["end"]):
+            errors.append(f"{where} atmosphere.fog needs ordered integer start and end values from 0 to 1000")
+    if "ambient_light" in look and not whole(look["ambient_light"], 0, 255):
+        errors.append(f"{where} atmosphere.ambient_light must be an integer from 0 to 255")
+    if "primary_music" in look:
+        music = look["primary_music"]
+        if (not isinstance(music, str) or len(music) >= 64
+                or not re.fullmatch(r"[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+", music)):
+            errors.append(f"{where} atmosphere.primary_music must be a song catalog id")
+    return errors
+
+
+def validate_stage_json(label: str, text: str) -> list[str]:
+    """The reader's rules for stage.json: the schema, known keys only, and a
+    usable weather rule (numbers, y_min below y_max, exactly one room list of
+    room numbers 1..32767, at most 127 of them)."""
+    where = f"{label} stage.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not valid JSON: {exc.msg}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    errors: list[str] = []
+    if doc.get("schema") != STAGE_RULES_SCHEMA:
+        errors.append(f"{where} must declare schema {STAGE_RULES_SCHEMA}")
+    for key in sorted(set(doc) - STAGE_RULES_KEYS):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "atmosphere" in doc:
+        errors.extend(validate_stage_atmosphere(where, doc["atmosphere"]))
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    player = doc.get("player")
+    if player is not None:
+        if not isinstance(player, dict):
+            errors.append(f"{where} player must be an object")
+        else:
+            for key in sorted(set(player) - STAGE_PLAYER_KEYS):
+                errors.append(f"{where} player has an unknown key {key!r}")
+            if "perfect_agent_outfit" in player and player["perfect_agent_outfit"] not in STAGE_OUTFITS:
+                errors.append(f"{where} player.perfect_agent_outfit is not an outfit")
+            disguise = player.get("disguise")
+            if disguise is not None:
+                if not isinstance(disguise, dict):
+                    errors.append(f"{where} player.disguise must be an object")
+                else:
+                    for key in sorted(set(disguise) - {"outfit", "untargetable"}):
+                        errors.append(f"{where} player.disguise has an unknown key {key!r}")
+                    if "outfit" in disguise and disguise["outfit"] not in STAGE_OUTFITS:
+                        errors.append(f"{where} player.disguise.outfit is not an outfit")
+                    if "untargetable" in disguise and not isinstance(disguise["untargetable"], bool):
+                        errors.append(f"{where} player.disguise.untargetable must be true or false")
+            if "coop_spawn_distance" in player:
+                distance = player["coop_spawn_distance"]
+                if isinstance(distance, bool) or not isinstance(distance, (int, float)) \
+                        or not 1 <= distance <= 1000:
+                    errors.append(f"{where} player.coop_spawn_distance must be 1..1000")
+            if "unlimited_ammo_excludes" in player:
+                ids = player["unlimited_ammo_excludes"]
+                if not isinstance(ids, list) or not 1 <= len(ids) <= STAGE_MAX_AMMO_EXCLUDES:
+                    errors.append(f"{where} player.unlimited_ammo_excludes must list 1 to "
+                                  f"{STAGE_MAX_AMMO_EXCLUDES} weapon catalog ids")
+                else:
+                    if any(not isinstance(v, str) or len(v) >= 64 or not CATALOG_ID_RE.match(v)
+                           for v in ids):
+                        errors.append(f"{where} player.unlimited_ammo_excludes holds something "
+                                      f"that is not a weapon catalog id")
+                    elif len(set(ids)) != len(ids):
+                        errors.append(f"{where} player.unlimited_ammo_excludes names a weapon twice")
+    if "hub" in doc and not isinstance(doc["hub"], bool):
+        errors.append(f"{where} hub must be true or false")
+    if "sparks" in doc:
+        sparks = doc["sparks"]
+        if not isinstance(sparks, dict):
+            errors.append(f"{where} sparks must be an object")
+        else:
+            for key in sorted(set(sparks) - {"flash_lights"}):
+                errors.append(f"{where} sparks has an unknown key {key!r}")
+            if not isinstance(sparks.get("flash_lights"), bool):
+                errors.append(f"{where} sparks.flash_lights must be true or false")
+    if "gas" in doc:
+        errors.extend(validate_stage_gas(where, doc["gas"]))
+    if "stars" in doc:
+        stars = doc["stars"]
+        if not isinstance(stars, dict):
+            errors.append(f"{where} stars must be an object")
+        else:
+            for key in sorted(set(stars) - {"count", "grid", "below_horizon"}):
+                errors.append(f"{where} stars has an unknown key {key!r}")
+            for key, lo, hi in (("count", 1, 8192), ("grid", 1, 8)):
+                value = stars.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                    errors.append(f"{where} stars.{key} must be a whole number from {lo} to {hi}")
+            if "below_horizon" in stars and not isinstance(stars["below_horizon"], bool):
+                errors.append(f"{where} stars.below_horizon must be true or false")
+    ending = doc.get("ending")
+    if ending is not None:
+        if not isinstance(ending, dict):
+            errors.append(f"{where} ending must be an object")
+        else:
+            for key in sorted(set(ending) - {"outcome"}):
+                errors.append(f"{where} ending has an unknown key {key!r}")
+            if "outcome" in ending and ending["outcome"] not in ("known", "unknown"):
+                errors.append(f"{where} ending.outcome must be known or unknown")
+    ai = doc.get("ai")
+    if ai is not None:
+        if not isinstance(ai, dict):
+            errors.append(f"{where} ai must be an object")
+        else:
+            for key in sorted(set(ai) - STAGE_AI_KEYS):
+                errors.append(f"{where} ai has an unknown key {key!r}")
+            if "dark_room_lists" in ai and not isinstance(ai["dark_room_lists"], bool):
+                errors.append(f"{where} ai.dark_room_lists must be true or false")
+    if "weather_start" in doc:
+        startup = doc["weather_start"]
+        if not isinstance(startup, dict):
+            errors.append(f"{where} weather_start must be an object")
+        else:
+            for key in sorted(set(startup) - STAGE_WEATHER_START_KEYS):
+                errors.append(f"{where} weather_start has an unknown key {key!r}")
+            kind = startup.get("kind")
+            if kind not in ("rain", "snow"):
+                errors.append(f"{where} weather_start.kind must be rain or snow")
+            else:
+                intensity = startup.get("intensity")
+                ceiling = 3 if kind == "rain" else 1
+                if isinstance(intensity, bool) or intensity not in range(1, ceiling + 1):
+                    errors.append(f"{where} weather_start.intensity must be a whole number from 1 to {ceiling}")
+    weather = doc.get("weather")
+    if weather is None:
+        return errors
+    if not isinstance(weather, dict):
+        return errors + [f"{where} weather must be an object"]
+
+    def number(obj: dict, key: str, path: str) -> float | None:
+        value = obj.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or abs(value) > 1.0e7:
+            errors.append(f"{where} {path}.{key} must be a number")
+            return None
+        return float(value)
+
+    for key in sorted(set(weather) - STAGE_WEATHER_KEYS):
+        errors.append(f"{where} weather has an unknown key {key!r}")
+    number(weather, "wind_speed", "weather")
+    y_min = number(weather, "y_min", "weather")
+    y_max = number(weather, "y_max", "weather")
+    if "z_max" in weather:
+        number(weather, "z_max", "weather")
+    if y_min is not None and y_max is not None and not y_min < y_max:
+        errors.append(f"{where} weather.y_min must be below weather.y_max")
+    if "cutscene_only" in weather and not isinstance(weather["cutscene_only"], bool):
+        errors.append(f"{where} weather.cutscene_only must be true or false")
+    lists = [key for key in ("weather_rooms", "dry_rooms") if key in weather]
+    if len(lists) != 1:
+        errors.append(f"{where} weather needs exactly one of weather_rooms and dry_rooms")
+    else:
+        rooms = weather[lists[0]]
+        if not isinstance(rooms, list) or len(rooms) > STAGE_WEATHER_MAX_ROOMS or not all(
+                isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= 32767 for r in rooms):
+            errors.append(f"{where} weather.{lists[0]} must list at most {STAGE_WEATHER_MAX_ROOMS} "
+                          "room numbers 1..32767")
+    wind = weather.get("wind_direction")
+    if wind is not None:
+        if not isinstance(wind, dict):
+            errors.append(f"{where} weather.wind_direction must be an object")
+        else:
+            for key in sorted(set(wind) - {"angle", "speed_x", "speed_z"}):
+                errors.append(f"{where} weather.wind_direction has an unknown key {key!r}")
+            for key in ("angle", "speed_x", "speed_z"):
+                number(wind, key, "weather.wind_direction")
+    return errors
+
+
+# The stage intro (CORE, 2026-11-15): the reader's rules for intro.json, from
+# port/src/scenario_intro.cpp (port/include/scenario_intro.h).
+INTRO_SCHEMA = "pd2.scenario.intro.v1"
+INTRO_MAX_ROWS = 1024
+INTRO_ROW_KEYS = {
+    "weapon": {"cmd", "weapon_catalog_id", "weapon_selector", "left_weapon_catalog_id", "player"},
+    "ammo": {"cmd", "ammo_type", "quantity", "player"},
+    "outfit": {"cmd", "outfit"},
+    "watch_time": {"cmd", "hours", "minutes"},
+    "case": {"cmd", "team", "pad_ref"},
+    "case_respawn": {"cmd", "team", "pad_ref"},
+    "hill": {"cmd", "pad_ref"},
+    "legacy_3": {"cmd", "words"},
+    "legacy_4": {"cmd", "words"},
+    "legacy_6": {"cmd", "words"},
+}
+INTRO_LEGACY_WORDS = {"legacy_3": 7, "legacy_4": 1, "legacy_6": 9}
+
+
+def validate_intro_json(label: str, text: str) -> list[str]:
+    """The reader's rules for intro.json: the schema, known commands and keys
+    only, whole numbers in range, pad_NNNN pads and named outfits. Catalog ids
+    are resolved by the game, so only their shape is checked here."""
+    errors: list[str] = []
+    where = f"{label} intro.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not JSON: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    if doc.get("schema") != INTRO_SCHEMA:
+        errors.append(f"{where} must declare schema {INTRO_SCHEMA}")
+    for key in sorted(set(doc) - {"schema", "note", "rows"}):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    rows = doc.get("rows")
+    if not isinstance(rows, list):
+        return errors + [f"{where} rows must be a list"]
+    if len(rows) > INTRO_MAX_ROWS:
+        errors.append(f"{where} has more than {INTRO_MAX_ROWS} rows")
+
+    def whole(row: dict, key: str, lo: int, hi: int, at: str) -> None:
+        value = row.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or value != int(value) or not lo <= value <= hi:
+            errors.append(f"{at}.{key} must be a whole number {lo}..{hi}")
+
+    def catalog_id(row: dict, key: str, at: str) -> None:
+        value = row.get(key)
+        if not isinstance(value, str) or ":" not in value or value.startswith(":") or value.endswith(":"):
+            errors.append(f"{at}.{key} must be a catalog weapon id")
+
+    def pad_ref(row: dict, at: str) -> None:
+        value = row.get("pad_ref")
+        if not isinstance(value, str) or not value.startswith("pad_") or not value[4:].isdigit() \
+                or len(value) > 9 or int(value[4:]) > 0x7FFF:
+            errors.append(f"{at}.pad_ref must be pad_NNNN with a pad 0..32767")
+
+    for index, row in enumerate(rows):
+        at = f"{where} rows[{index}]"
+        if not isinstance(row, dict):
+            errors.append(f"{at} must be an object")
+            continue
+        cmd = row.get("cmd")
+        if cmd not in INTRO_ROW_KEYS:
+            errors.append(f"{at}.cmd {cmd!r} is not an intro command")
+            continue
+        for key in sorted(set(row) - INTRO_ROW_KEYS[cmd]):
+            errors.append(f"{at} has an unknown key {key!r}")
+        if cmd == "weapon":
+            has_id, has_selector = "weapon_catalog_id" in row, "weapon_selector" in row
+            if has_id == has_selector:
+                errors.append(f"{at} needs exactly one of weapon_catalog_id and weapon_selector")
+            elif has_id:
+                catalog_id(row, "weapon_catalog_id", at)
+            elif row.get("weapon_selector") != "none":
+                errors.append(f"{at}.weapon_selector must be \"none\"")
+            if "left_weapon_catalog_id" in row:
+                catalog_id(row, "left_weapon_catalog_id", at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "ammo":
+            whole(row, "ammo_type", 0, 32, at)
+            whole(row, "quantity", 0, 1000000, at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "outfit":
+            if row.get("outfit") not in STAGE_OUTFITS:
+                errors.append(f"{at}.outfit is not an outfit ({row.get('outfit')!r})")
+        elif cmd == "watch_time":
+            whole(row, "hours", 0, 23, at)
+            whole(row, "minutes", 0, 59, at)
+        elif cmd in ("case", "case_respawn"):
+            whole(row, "team", 0, 3, at)
+            pad_ref(row, at)
+        elif cmd == "hill":
+            pad_ref(row, at)
+        else:
+            words = row.get("words")
+            if not isinstance(words, list) or len(words) != INTRO_LEGACY_WORDS[cmd] or not all(
+                    not isinstance(w, bool) and isinstance(w, int) and -2**31 <= w < 2**31 for w in words):
+                errors.append(f"{at}.words must hold exactly {INTRO_LEGACY_WORDS[cmd]} whole 32-bit numbers")
+    return errors
 
 
 SCENARIO_ROOM_COUNT_MIN = 2
@@ -3197,6 +4273,14 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
             value = clean_value(match.group(2).split("#", 1)[0].split(";", 1)[0])
             if key in descriptor_keys:
                 errors.append(f"{label} effect.ini has duplicate field {key}")
+            if key == "grid_provenance":
+                raw_key, _, raw_value = line.partition("=")
+                if raw_key.strip(" \t") != key or raw_value.strip(" \t") not in {
+                    "original", "byor", "unverified",
+                }:
+                    errors.append(
+                        f"{label} effect.ini grid_provenance must be original, byor, or unverified"
+                    )
             descriptor_keys.add(key)
             descriptor_values[key] = value
         if section_count != 1:
@@ -3217,7 +4301,7 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
             v2_keys
             if descriptor_values.get("schema") == "pd.effect_graph.v2"
             else v1_keys
-        )
+        ) | {"grid_provenance"}
         for key in sorted(descriptor_keys - allowed_descriptor):
             errors.append(f"{label} effect.ini has unknown field {key}")
 
@@ -5203,18 +6287,32 @@ def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
     return errors
 
 
+class _CoverSourceObject(dict):
+    def __init__(self, pairs: list[tuple[str, object]]) -> None:
+        super().__init__(pairs)
+        self.generate_routes_fields = sum(key == "generate_routes" for key, _ in pairs)
+
+
 def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
                                      schema_id: str,
                                      required_fields: list[str]) -> tuple[int, list[str]]:
     errors: list[str] = []
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(
+            text,
+            object_pairs_hook=_CoverSourceObject if schema_id == "pd2.scenario.covers.v1" else None,
+        )
     except json.JSONDecodeError as exc:
         return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
     if not isinstance(parsed, dict):
         return 0, [f"{label} {entry_name} must be a JSON object"]
     if parsed.get("schema") != schema_id:
         errors.append(f"{label} {entry_name} must declare schema {schema_id}")
+    if isinstance(parsed, _CoverSourceObject):
+        if parsed.generate_routes_fields > 1:
+            errors.append(f"{label} {entry_name} has duplicate generate_routes fields")
+        if "generate_routes" in parsed and not isinstance(parsed["generate_routes"], bool):
+            errors.append(f"{label} {entry_name} generate_routes must be a top-level boolean")
     rows = parsed.get("rows")
     if not isinstance(rows, list):
         errors.append(f"{label} {entry_name} must contain rows")
@@ -5231,6 +6329,770 @@ def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
     return len(rows), errors
 
 
+# B-1260: an objects.json row names the weapons its setup.fields.json
+# record gives (pickup.weapon, pickup.dual_weapon): the same catalog id, or
+# none when the field is a weapon selector.
+OBJECT_WEAPON_FIELDS = (("weapon_catalog_id", "pickup.weapon"),
+                        ("secondary_weapon_catalog_id", "pickup.dual_weapon"))
+OBJECT_WEAPON_ERRORS_SHOWN = 12
+
+
+def validate_object_weapon_refs(label: str, objects_text: str, fields_text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        rows = json.loads(objects_text).get("rows")
+        fields = json.loads(fields_text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return errors  # the row checks report an unreadable file
+    if not isinstance(rows, list) or not isinstance(fields, list):
+        return errors
+    given: dict[tuple[str, str], str] = {}
+    for field in fields:
+        if isinstance(field, dict) and field.get("field") in ("pickup.weapon", "pickup.dual_weapon"):
+            value = field.get("catalog_id") if field.get("type") == "weapon_catalog_id" else ""
+            given[(str(field.get("record_id")), field["field"])] = value if isinstance(value, str) else ""
+    differ = 0
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        record_id = str(row.get("record_id"))
+        for column, field in OBJECT_WEAPON_FIELDS:
+            if (record_id, field) not in given:
+                continue
+            want, have = given[(record_id, field)], row.get(column, "")
+            if have != want:
+                differ += 1
+                if differ <= OBJECT_WEAPON_ERRORS_SHOWN:
+                    errors.append(f"{label} objects.json row {idx} ({record_id}): {column} {have!r} "
+                                  f"is not the {field} of setup.fields.json ({want!r})")
+    if differ > OBJECT_WEAPON_ERRORS_SHOWN:
+        errors.append(f"{label} objects.json: {differ} weapon names differ from setup.fields.json; "
+                      f"first {OBJECT_WEAPON_ERRORS_SHOWN} shown")
+    return errors
+
+
+# Object rules (context/designs/modding/object-rules.md): optional fields on
+# objects.json rows, each allowed only on the kind of row whose code reads it.
+OBJECT_RULE_DIFFICULTIES = ["agent", "special_agent", "perfect_agent", "perfect_dark"]
+
+
+def validate_object_rule_fields(label: str, text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        rows = json.loads(text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return errors  # the row check reports an unreadable file
+    if not isinstance(rows, list):
+        return errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        kind = row.get("kind")
+        where = f"{label} objects.json row {idx} ({row.get('record_id', '?')})"
+        if "coop" in row and (kind != "hover_car" or not isinstance(row["coop"], bool)):
+            errors.append(f"{where}: coop needs a hover_car row and true or false")
+        if "multiplayer" in row and (kind not in ("lift", "escalator_step")
+                                     or not isinstance(row["multiplayer"], bool)):
+            errors.append(f"{where}: multiplayer needs a lift or escalator_step row and true or false")
+        if "enemy_rockets_exempt" in row:
+            value = row["enemy_rockets_exempt"]
+            if kind != "weapon_pickup" or not isinstance(value, list) or not value \
+                    or any(v not in OBJECT_RULE_DIFFICULTIES for v in value) \
+                    or len(set(value)) != len(value):
+                errors.append(f"{where}: enemy_rockets_exempt needs a weapon row and a list of "
+                              f"distinct difficulties ({', '.join(OBJECT_RULE_DIFFICULTIES)})")
+        for key in ("engine_hum", "thrust_hum"):
+            if key in row and (kind != "chopper" or not isinstance(row[key], str)
+                               or not CATALOG_ID_RE.match(row[key])):
+                errors.append(f"{where}: {key} needs a chopper row and a sound effect catalog id")
+        if "fall" in row and (kind != "chopper" or row["fall"] not in ("crash", "drop")):
+            errors.append(f"{where}: fall needs a chopper row and crash or drop")
+    return errors
+
+
+# context/designs/modding/ai-typed-operands.md, slice 1: the typed operands
+# of every AI command. opcode -> (name, length with the opcode (0: print,
+# NUL-terminated text), fields in byte order as (name, offset, width,
+# signed, kind)); multi-byte fields are big-endian. A copy of
+# port/src/ai_command_schema.c: pd-tests keeps them equal.
+AI_COMMAND_SCHEMA = {
+    0x0000: ("go_to_next", 3, (("label", 2, 1, False, "label"),)),
+    0x0001: ("go_to_first", 3, (("label", 2, 1, False, "label"),)),
+    0x0002: ("label", 3, (("label", 2, 1, False, "label"),)),
+    0x0003: ("yield", 2, ()),
+    0x0004: ("end", 2, ()),
+    0x0005: ("set_list", 5, (("chr", 2, 1, False, "chr"), ("ai_list", 3, 2, False, "ai_list"))),
+    0x0006: ("set_return_list", 5, (("chr", 2, 1, False, "chr"), ("ai_list", 3, 2, False, "ai_list"))),
+    0x0007: ("set_shot_list", 4, (("ai_list", 2, 2, False, "ai_list"),)),
+    0x0008: ("return", 2, ()),
+    0x0009: ("stop", 2, ()),
+    0x000a: ("kneel", 2, ()),
+    0x000b: ("chr_do_animation", 12, (("anim", 2, 2, False, "anim"), ("start_frame", 4, 2, False, "number"), ("end_frame", 6, 2, False, "number"), ("flags", 8, 1, False, "flags"), ("merge", 9, 1, False, "number"), ("chr", 10, 1, False, "chr"), ("speed_divisor", 11, 1, False, "number"))),
+    0x000c: ("if_idle", 3, (("label", 2, 1, False, "label"),)),
+    0x000d: ("be_surprised_one_hand", 2, ()),
+    0x000e: ("be_surprised_look_around", 2, ()),
+    0x000f: ("try_sidestep", 3, (("label", 2, 1, False, "label"),)),
+    0x0010: ("try_jump_out", 3, (("label", 2, 1, False, "label"),)),
+    0x0011: ("try_run_sideways", 3, (("label", 2, 1, False, "label"),)),
+    0x0012: ("try_attack_walk", 3, (("label", 2, 1, False, "label"),)),
+    0x0013: ("try_attack_run", 3, (("label", 2, 1, False, "label"),)),
+    0x0014: ("try_attack_roll", 3, (("label", 2, 1, False, "label"),)),
+    0x0015: ("try_attack_stand", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0016: ("try_attack_kneel", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0017: ("try_modify_attack", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0018: ("face_entity", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0019: ("ai_0019", 8, (("chr", 2, 1, False, "chr"), ("hitpart", 3, 1, True, "number"), ("weapon", 4, 1, False, "weapon"), ("weapon_upgrade", 5, 1, False, "flags"), ("weapon_unk", 6, 1, False, "number"), ("weapon_function", 7, 1, False, "number"))),
+    0x001a: ("chr_damage_chr", 5, (("chr", 2, 1, False, "chr"), ("target_chr", 3, 1, False, "chr"), ("hitpart", 4, 1, True, "number"))),
+    0x001b: ("consider_grenade_throw", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x001c: ("drop_item", 6, (("model", 2, 2, False, "model"), ("weapon", 4, 1, False, "weapon"), ("label", 5, 1, False, "label"))),
+    0x001d: ("jog_to_pad", 4, (("pad", 2, 2, False, "pad"),)),
+    0x001e: ("go_to_pad_preset", 3, (("speed", 2, 1, False, "number"),)),
+    0x001f: ("walk_to_pad", 4, (("pad", 2, 2, False, "pad"),)),
+    0x0020: ("run_to_pad", 4, (("pad", 2, 2, False, "pad"),)),
+    0x0021: ("set_path", 3, (("path", 2, 1, False, "path"),)),
+    0x0022: ("start_patrol", 2, ()),
+    0x0023: ("if_patrolling", 3, (("label", 2, 1, False, "label"),)),
+    0x0024: ("surrender", 2, ()),
+    0x0025: ("fade_out", 2, ()),
+    0x0026: ("remove_chr", 3, (("chr", 2, 1, False, "chr"),)),
+    0x0027: ("try_start_alarm", 5, (("pad", 2, 2, False, "pad"), ("label", 4, 1, False, "label"))),
+    0x0028: ("activate_alarm", 2, ()),
+    0x0029: ("deactivate_alarm", 2, ()),
+    0x002a: ("try_run_from_target", 3, (("label", 2, 1, False, "label"),)),
+    0x002b: ("try_jog_to_target_prop", 3, (("label", 2, 1, False, "label"),)),
+    0x002c: ("try_walk_to_target_prop", 3, (("label", 2, 1, False, "label"),)),
+    0x002d: ("try_run_to_target_prop", 3, (("label", 2, 1, False, "label"),)),
+    0x002e: ("try_go_to_cover_prop", 3, (("label", 2, 1, False, "label"),)),
+    0x002f: ("try_jog_to_chr", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0030: ("try_walk_to_chr", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0031: ("try_run_to_chr", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0032: ("if_stopped", 3, (("label", 2, 1, False, "label"),)),
+    0x0033: ("if_chr_dead", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0034: ("if_chr_death_animation_finished", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0035: ("if_can_see_target", 3, (("label", 2, 1, False, "label"),)),
+    0x0036: ("random", 2, ()),
+    0x0037: ("if_random_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0038: ("if_random_greater_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0039: ("if_can_hear_alarm", 3, (("label", 2, 1, False, "label"),)),
+    0x003a: ("if_alarm_active", 3, (("label", 2, 1, False, "label"),)),
+    0x003b: ("if_gas_active", 3, (("label", 2, 1, False, "label"),)),
+    0x003c: ("if_hears_target", 3, (("label", 2, 1, False, "label"),)),
+    0x003d: ("if_saw_injury", 4, (("mode", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x003e: ("if_saw_death", 4, (("mode", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x003f: ("if_los_to_target", 3, (("label", 2, 1, False, "label"),)),
+    0x0040: ("if_target_nearly_in_sight", 7, (("distance", 2, 4, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0041: ("if_nearly_in_targets_sight", 7, (("distance", 2, 4, False, "number"), ("label", 6, 1, False, "label"))),
+    0x0042: ("set_pad_preset_to_pad_on_route_to_target", 3, (("label", 2, 1, False, "label"),)),
+    0x0043: ("if_saw_target_recently", 3, (("label", 2, 1, False, "label"),)),
+    0x0044: ("if_heard_target_recently", 3, (("label", 2, 1, False, "label"),)),
+    0x0045: ("if_los_to_chr", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0046: ("if_never_been_on_screen", 3, (("label", 2, 1, False, "label"),)),
+    0x0047: ("if_on_screen", 3, (("label", 2, 1, False, "label"),)),
+    0x0048: ("if_chr_in_on_screen_room", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0049: ("if_room_is_on_screen", 5, (("pad", 2, 2, False, "pad"), ("label", 4, 1, False, "label"))),
+    0x004a: ("if_target_aiming_at_me", 3, (("label", 2, 1, False, "label"),)),
+    0x004b: ("if_near_miss", 3, (("label", 2, 1, False, "label"),)),
+    0x004c: ("if_sees_suspicious_item", 3, (("label", 2, 1, False, "label"),)),
+    0x004d: ("if_target_in_fov_left", 4, (("angle", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x004e: ("if_check_fov_with_target", 6, (("angle", 2, 1, False, "number"), ("use_x", 3, 1, False, "bool"), ("invert_yvisang", 4, 1, False, "bool"), ("label", 5, 1, False, "label"))),
+    0x004f: ("if_target_out_of_fov_left", 4, (("angle", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0050: ("if_target_in_fov", 4, (("angle", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0051: ("if_target_out_of_fov", 4, (("angle", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0052: ("if_distance_to_target_less_than", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0053: ("if_distance_to_target_greater_than", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0054: ("if_chr_distance_to_pad_less_than", 8, (("chr", 2, 1, False, "chr"), ("distance", 3, 2, False, "number"), ("pad", 5, 2, False, "pad"), ("label", 7, 1, False, "label"))),
+    0x0055: ("if_chr_distance_to_pad_greater_than", 8, (("chr", 2, 1, False, "chr"), ("distance", 3, 2, False, "number"), ("pad", 5, 2, False, "pad"), ("label", 7, 1, False, "label"))),
+    0x0056: ("if_distance_to_chr_less_than", 6, (("distance", 2, 2, False, "number"), ("chr", 4, 1, False, "chr"), ("label", 5, 1, False, "label"))),
+    0x0057: ("if_distance_to_chr_greater_than", 6, (("distance", 2, 2, False, "number"), ("chr", 4, 1, False, "chr"), ("label", 5, 1, False, "label"))),
+    0x0058: ("ai_0058", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0059: ("if_distance_from_target_to_pad_less_than", 7, (("distance", 2, 2, False, "number"), ("pad", 4, 2, False, "pad"), ("label", 6, 1, False, "label"))),
+    0x005a: ("if_distance_from_target_to_pad_greater_than", 7, (("distance", 2, 2, False, "number"), ("pad", 4, 2, False, "pad"), ("label", 6, 1, False, "label"))),
+    0x005b: ("if_chr_in_room", 7, (("chr", 2, 1, False, "chr"), ("mode", 3, 1, False, "number"), ("pad", 4, 2, False, "pad"), ("label", 6, 1, False, "label"))),
+    0x005c: ("if_target_in_room", 5, (("pad", 2, 2, False, "pad"), ("label", 4, 1, False, "label"))),
+    0x005d: ("if_chr_has_object", 5, (("chr", 2, 1, False, "chr"), ("object", 3, 1, False, "object"), ("label", 4, 1, False, "label"))),
+    0x005e: ("if_weapon_thrown", 4, (("weapon", 2, 1, False, "weapon"), ("label", 3, 1, False, "label"))),
+    0x005f: ("if_weapon_thrown_on_object", 5, (("weapon", 2, 1, False, "weapon"), ("object", 3, 1, False, "object"), ("label", 4, 1, False, "label"))),
+    0x0060: ("if_chr_has_weapon_equipped", 5, (("chr", 2, 1, False, "chr"), ("weapon", 3, 1, False, "weapon"), ("label", 4, 1, False, "label"))),
+    0x0061: ("if_gun_unclaimed", 5, (("object", 2, 1, False, "object"), ("mode", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0062: ("if_object_healthy", 4, (("object", 2, 1, False, "object"), ("label", 3, 1, False, "label"))),
+    0x0063: ("if_chr_activated_object", 5, (("chr", 2, 1, False, "chr"), ("object", 3, 1, False, "object"), ("label", 4, 1, False, "label"))),
+    0x0065: ("obj_interact", 3, (("object", 2, 1, False, "object"),)),
+    0x0066: ("destroy_object", 3, (("object", 2, 1, False, "object"),)),
+    0x0067: ("ai_0067", 3, (("object", 2, 1, False, "object"),)),
+    0x0068: ("chr_drop_items", 3, (("chr", 2, 1, False, "chr"),)),
+    0x0069: ("chr_drop_weapon", 3, (("chr", 2, 1, False, "chr"),)),
+    0x006a: ("give_object_to_chr", 4, (("object", 2, 1, False, "object"), ("chr", 3, 1, False, "chr"))),
+    0x006b: ("object_move_to_pad", 5, (("object", 2, 1, False, "object"), ("pad", 3, 2, False, "pad"))),
+    0x006c: ("open_door", 3, (("object", 2, 1, False, "object"),)),
+    0x006d: ("close_door", 3, (("object", 2, 1, False, "object"),)),
+    0x006e: ("if_door_state", 5, (("object", 2, 1, False, "object"), ("flags", 3, 1, False, "flags"), ("label", 4, 1, False, "label"))),
+    0x006f: ("if_object_is_door", 4, (("object", 2, 1, False, "object"), ("label", 3, 1, False, "label"))),
+    0x0070: ("lock_door", 4, (("object", 2, 1, False, "object"), ("flags", 3, 1, False, "flags"))),
+    0x0071: ("unlock_door", 4, (("object", 2, 1, False, "object"), ("flags", 3, 1, False, "flags"))),
+    0x0072: ("if_door_locked", 5, (("object", 2, 1, False, "object"), ("flags", 3, 1, False, "flags"), ("label", 4, 1, False, "label"))),
+    0x0073: ("if_objective_complete", 4, (("objective", 2, 1, False, "objective"), ("label", 3, 1, False, "label"))),
+    0x0074: ("if_objective_failed", 4, (("objective", 2, 1, False, "objective"), ("label", 3, 1, False, "label"))),
+    0x0075: ("ai_0075", 4, (("quadrant", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0076: ("set_pad_preset_to_target_quadrant", 4, (("quadrant", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0077: ("if_difficulty_less_than", 4, (("difficulty", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0078: ("if_difficulty_greater_than", 4, (("difficulty", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0079: ("if_stage_timer_less_than", 5, (("seconds", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x007a: ("if_stage_timer_greater_than", 5, (("seconds", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x007b: ("if_stage_id_less_than", 4, (("stage", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x007c: ("if_stage_id_greater_than", 4, (("stage", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x007d: ("if_num_arghs_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x007e: ("if_num_arghs_greater_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x007f: ("if_num_close_arghs_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0080: ("if_num_close_arghs_greater_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0081: ("if_chr_health_greater_than", 5, (("chr", 2, 1, False, "chr"), ("health", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0082: ("if_chr_health_less_than", 5, (("chr", 2, 1, False, "chr"), ("health", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0083: ("if_injured", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0084: ("set_morale", 3, (("morale", 2, 1, False, "number"),)),
+    0x0085: ("add_morale", 3, (("amount", 2, 1, False, "number"),)),
+    0x0086: ("chr_add_morale", 4, (("amount", 2, 1, False, "number"), ("chr", 3, 1, False, "chr"))),
+    0x0087: ("subtract_morale", 3, (("amount", 2, 1, False, "number"),)),
+    0x0088: ("if_morale_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0089: ("if_morale_less_than_random", 3, (("label", 2, 1, False, "label"),)),
+    0x008a: ("set_alertness", 3, (("alertness", 2, 1, False, "number"),)),
+    0x008b: ("add_alertness", 3, (("amount", 2, 1, False, "number"),)),
+    0x008c: ("chr_add_alertness", 4, (("amount", 2, 1, False, "number"), ("chr", 3, 1, False, "chr"))),
+    0x008d: ("subtract_alertness", 3, (("amount", 2, 1, False, "number"),)),
+    0x008e: ("if_alertness", 5, (("threshold", 2, 1, False, "number"), ("comparison", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x008f: ("if_chr_alertness_less_than", 5, (("threshold", 2, 1, False, "number"), ("chr", 3, 1, False, "chr"), ("label", 4, 1, False, "label"))),
+    0x0090: ("if_alertness_less_than_random", 3, (("label", 2, 1, False, "label"),)),
+    0x0091: ("noop_0091", 2, ()),
+    0x0092: ("set_hear_distance", 4, (("distance", 2, 2, False, "number"),)),
+    0x0093: ("set_view_distance", 3, (("distance", 2, 1, False, "number"),)),
+    0x0094: ("set_grenade_probability", 3, (("probability", 2, 1, False, "number"),)),
+    0x0095: ("set_chr_num", 3, (("chr", 2, 1, False, "chr"),)),
+    0x0096: ("set_max_damage", 5, (("chr", 2, 1, False, "chr"), ("max_damage", 3, 2, False, "number"))),
+    0x0097: ("add_health", 4, (("amount", 2, 2, False, "number"),)),
+    0x0098: ("set_reaction_speed", 3, (("speed", 2, 1, True, "number"),)),
+    0x0099: ("set_recovery_speed", 3, (("speed", 2, 1, True, "number"),)),
+    0x009a: ("set_accuracy", 3, (("accuracy", 2, 1, True, "number"),)),
+    0x009b: ("set_flag", 7, (("flags", 2, 4, False, "flags"), ("bank", 6, 1, False, "number"))),
+    0x009c: ("unset_flag", 7, (("flags", 2, 4, False, "flags"), ("bank", 6, 1, False, "number"))),
+    0x009d: ("if_has_flag", 9, (("flags", 2, 4, False, "flags"), ("expected", 6, 1, False, "bool"), ("bank", 7, 1, False, "number"), ("label", 8, 1, False, "label"))),
+    0x009e: ("chr_set_flag", 8, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"), ("bank", 7, 1, False, "number"))),
+    0x009f: ("chr_unset_flag", 8, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"), ("bank", 7, 1, False, "number"))),
+    0x00a0: ("if_chr_has_flag", 9, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"), ("bank", 7, 1, False, "number"), ("label", 8, 1, False, "label"))),
+    0x00a1: ("set_stage_flag", 6, (("flags", 2, 4, False, "flags"),)),
+    0x00a2: ("unset_stage_flag", 6, (("flags", 2, 4, False, "flags"),)),
+    0x00a3: ("if_stage_flag_eq", 8, (("flags", 2, 4, False, "flags"), ("expected", 6, 1, False, "bool"), ("label", 7, 1, False, "label"))),
+    0x00a4: ("set_chrflag", 6, (("flags", 2, 4, False, "flags"),)),
+    0x00a5: ("unset_chrflag", 6, (("flags", 2, 4, False, "flags"),)),
+    0x00a6: ("if_has_chrflag", 7, (("flags", 2, 4, False, "flags"), ("label", 6, 1, False, "label"))),
+    0x00a7: ("chr_set_chrflag", 7, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"))),
+    0x00a8: ("chr_unset_chrflag", 7, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"))),
+    0x00a9: ("if_chr_has_chrflag", 8, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"), ("label", 7, 1, False, "label"))),
+    0x00aa: ("set_obj_flag", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x00ab: ("unset_obj_flag", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x00ac: ("if_obj_has_flag", 8, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"), ("label", 7, 1, False, "label"))),
+    0x00ad: ("set_obj_flag_2", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x00ae: ("unset_obj_flag_2", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x00af: ("if_obj_has_flag_2", 8, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"), ("label", 7, 1, False, "label"))),
+    0x00b0: ("set_chr_preset", 3, (("chr", 2, 1, False, "chr"),)),
+    0x00b1: ("set_chr_target", 4, (("chr", 2, 1, False, "chr"), ("target_chr", 3, 1, False, "chr"))),
+    0x00b2: ("set_pad_preset", 4, (("pad", 2, 2, False, "pad"),)),
+    0x00b3: ("chr_set_pad_preset", 5, (("chr", 2, 1, False, "chr"), ("pad", 3, 2, False, "pad"))),
+    0x00b4: ("chr_copy_pad_preset", 4, (("chr", 2, 1, False, "chr"), ("target_chr", 3, 1, False, "chr"))),
+    0x00b5: ("print", 0, (("text", 2, 0, False, "string"),)),
+    0x00b6: ("restart_timer", 2, ()),
+    0x00b7: ("reset_timer", 2, ()),
+    0x00b8: ("pause_timer", 2, ()),
+    0x00b9: ("resume_timer", 2, ()),
+    0x00ba: ("if_timer_stopped", 3, (("label", 2, 1, False, "label"),)),
+    0x00bb: ("if_timer_greater_than_random", 3, (("label", 2, 1, False, "label"),)),
+    0x00bc: ("if_timer_less_than", 6, (("time", 2, 3, False, "number"), ("label", 5, 1, False, "label"))),
+    0x00bd: ("if_timer_greater_than", 6, (("time", 2, 3, False, "number"), ("label", 5, 1, False, "label"))),
+    0x00be: ("show_countdown_timer", 2, ()),
+    0x00bf: ("hide_countdown_timer", 2, ()),
+    0x00c0: ("set_countdown_timer_value", 4, (("seconds", 2, 2, False, "number"),)),
+    0x00c1: ("stop_countdown_timer", 2, ()),
+    0x00c2: ("start_countdown_timer", 2, ()),
+    0x00c3: ("if_countdown_timer_stopped", 3, (("label", 2, 1, False, "label"),)),
+    0x00c4: ("if_countdown_timer_less_than", 5, (("seconds", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x00c5: ("if_countdown_timer_greater_than", 5, (("seconds", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x00c6: ("spawn_chr_at_pad", 13, (("body", 2, 1, False, "body"), ("head", 3, 1, True, "head"), ("pad", 4, 2, False, "pad"), ("ai_list", 6, 2, False, "ai_list"), ("flags", 8, 4, False, "flags"), ("label", 12, 1, False, "label"))),
+    0x00c7: ("spawn_chr_at_chr", 12, (("body", 2, 1, False, "body"), ("head", 3, 1, True, "head"), ("chr", 4, 1, False, "chr"), ("ai_list", 5, 2, False, "ai_list"), ("flags", 7, 4, False, "flags"), ("label", 11, 1, False, "label"))),
+    0x00c8: ("try_equip_weapon", 10, (("model", 2, 2, False, "model"), ("weapon", 4, 1, False, "weapon"), ("flags", 5, 4, False, "flags"), ("label", 9, 1, False, "label"))),
+    0x00c9: ("try_equip_hat", 9, (("model", 2, 2, False, "model"), ("flags", 4, 4, False, "flags"), ("label", 8, 1, False, "label"))),
+    0x00ca: ("duplicate_chr", 10, (("chr", 2, 1, False, "chr"), ("ai_list", 3, 2, False, "ai_list"), ("flags", 5, 4, False, "flags"), ("label", 9, 1, False, "label"))),
+    0x00cb: ("show_hudmsg", 5, (("chr", 2, 1, False, "chr"), ("text", 3, 2, False, "text"))),
+    0x00cc: ("show_hudmsg_top_middle", 6, (("chr", 2, 1, False, "chr"), ("text", 3, 2, False, "text"), ("colour", 5, 1, False, "number"))),
+    0x00cd: ("speak", 9, (("chr", 2, 1, False, "chr"), ("text", 3, 2, True, "text"), ("sound", 5, 2, True, "sound"), ("channel", 7, 1, True, "number"), ("colour", 8, 1, False, "number"))),
+    0x00ce: ("play_sound", 5, (("sound", 2, 2, True, "sound"), ("channel", 4, 1, True, "number"))),
+    0x00cf: ("set_object_sound_playing", 6, (("channel", 2, 1, True, "number"), ("object", 3, 1, False, "object"), ("fade_time60", 4, 2, False, "number"))),
+    0x00d0: ("play_repeating_sound_from_pad", 7, (("unused", 2, 1, False, "unused"), ("pad", 3, 2, True, "pad"), ("sound", 5, 2, True, "sound"))),
+    0x00d1: ("set_object_sound_volume", 7, (("channel", 2, 1, True, "number"), ("volume", 3, 2, True, "number"), ("fade_time60", 5, 2, False, "number"))),
+    0x00d2: ("set_object_sound_volume_by_distance", 7, (("channel", 2, 1, True, "number"), ("distance", 3, 2, False, "number"), ("fade_time60", 5, 2, False, "number"))),
+    0x00d3: ("audio_mute_channel", 3, (("channel", 2, 1, True, "number"),)),
+    0x00d4: ("if_object_sound_volume_less_than", 6, (("channel", 2, 1, True, "number"), ("volume", 3, 2, True, "number"), ("label", 5, 1, False, "label"))),
+    0x00d5: ("hovercar_begin_path", 3, (("path", 2, 1, False, "path"),)),
+    0x00d6: ("set_vehicle_speed", 6, (("speed_aim", 2, 2, False, "number"), ("speed_time", 4, 2, False, "number"))),
+    0x00d7: ("set_rotor_speed", 6, (("speed_aim", 2, 2, False, "number"), ("speed_time", 4, 2, False, "number"))),
+    0x00d8: ("noop_00d8", 3, (("unused", 2, 1, False, "unused"),)),
+    0x00d9: ("noop_00d9", 3, (("unused", 2, 1, False, "unused"),)),
+    0x00da: ("set_obj_image", 5, (("object", 2, 1, False, "object"), ("slot", 3, 1, False, "number"), ("image", 4, 1, False, "number"))),
+    0x00db: ("noop_00db", 3, (("unused", 2, 1, False, "unused"),)),
+    0x00dc: ("end_level", 2, ()),
+    0x00dd: ("end_cutscene", 2, ()),
+    0x00de: ("warp_jo_to_pad", 4, (("pad", 2, 2, False, "pad"),)),
+    0x00df: ("warp_jo_to_tag", 7, (("object", 2, 1, False, "object"), ("has_direction", 3, 2, False, "bool"), ("unused", 5, 2, False, "unused"))),
+    0x00e0: ("revoke_control", 4, (("chr", 2, 1, False, "chr"), ("flags", 3, 1, False, "flags"))),
+    0x00e1: ("grant_control", 3, (("chr", 2, 1, False, "chr"),)),
+    0x00e2: ("chr_move_to_pad", 7, (("chr", 2, 1, False, "chr"), ("pad", 3, 2, False, "pad"), ("mode", 5, 1, False, "number"), ("label", 6, 1, False, "label"))),
+    0x00e3: ("player_fade_in", 3, (("chr", 2, 1, False, "chr"),)),
+    0x00e4: ("players_fade_out", 3, (("unused", 2, 1, False, "unused"),)),
+    0x00e5: ("if_colour_fade_complete", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x00e8: ("set_door_open", 3, (("object", 2, 1, False, "object"),)),
+    0x00e9: ("chr_delete_weapon", 4, (("chr", 2, 1, False, "chr"), ("hand", 3, 1, False, "number"))),
+    0x00ea: ("if_num_players_less_than", 4, (("threshold", 2, 1, True, "number"), ("label", 3, 1, False, "label"))),
+    0x00eb: ("if_chr_ammo_quantity_less_than", 6, (("chr", 2, 1, False, "chr"), ("ammo_type", 3, 1, True, "number"), ("quantity", 4, 1, True, "number"), ("label", 5, 1, False, "label"))),
+    0x00ec: ("chr_draw_weapon", 4, (("chr", 2, 1, False, "chr"), ("weapon", 3, 1, True, "weapon"))),
+    0x00ed: ("chr_draw_weapon_in_cutscene", 4, (("chr", 2, 1, False, "chr"), ("weapon", 3, 1, True, "weapon"))),
+    0x00ee: ("set_player_force_speed", 5, (("chr", 2, 1, False, "chr"), ("speed_x", 3, 1, True, "number"), ("speed_z", 4, 1, True, "number"))),
+    0x00ef: ("if_obj_in_room", 6, (("object", 2, 1, False, "object"), ("room", 3, 2, False, "room"), ("label", 5, 1, False, "label"))),
+    0x00f0: ("ai_00f0", 3, (("label", 2, 1, False, "label"),)),
+    0x00f1: ("if_attacking", 3, (("label", 2, 1, False, "label"),)),
+    0x00f2: ("switch_to_alt_sky", 2, ()),
+    0x00f3: ("chr_set_invincible", 3, (("chr", 2, 1, False, "chr"),)),
+    0x00f4: ("prepare_warp_orbit", 14, (("range", 2, 2, False, "number"), ("height", 4, 2, True, "number"), ("rot_angle", 6, 2, True, "number"), ("pad", 8, 2, False, "pad"), ("more_height", 10, 2, True, "number"), ("pos_angle", 12, 2, False, "number"))),
+    0x00f5: ("begin_warp_latch", 2, ()),
+    0x00f6: ("if_warp_latch_complete", 3, (("label", 2, 1, False, "label"),)),
+    0x00f7: ("if_all_objectives_complete", 3, (("label", 2, 1, False, "label"),)),
+    0x00f8: ("if_player_is_invincible", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x00f9: ("play_x_track", 5, (("reason", 2, 1, True, "number"), ("min_seconds", 3, 1, False, "number"), ("max_seconds", 4, 1, False, "number"))),
+    0x00fa: ("stop_x_track", 3, (("reason", 2, 1, True, "number"),)),
+    0x00fb: ("chr_explosions", 3, (("chr", 2, 1, False, "chr"),)),
+    0x00fc: ("if_kill_count_greater_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x00fd: ("if_trigger_shot_list", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x00fe: ("kill_bond", 2, ()),
+    0x00ff: ("be_surprised_surrender", 2, ()),
+    0x0100: ("noop_0100", 3, (("unused", 2, 1, False, "unused"),)),
+    0x0101: ("noop_0101", 3, (("unused", 2, 1, False, "unused"),)),
+    0x0102: ("set_lights", 11, (("room", 2, 2, False, "room"), ("operation", 4, 1, False, "number"), ("brightness_to", 5, 1, False, "number"), ("brightness_from", 6, 1, False, "number"), ("duration", 7, 1, False, "number"), ("unused", 8, 1, False, "unused"), ("unused2", 9, 1, False, "unused"), ("unused3", 10, 1, False, "unused"))),
+    0x0103: ("if_prop_preset_blocking_sight_to_target", 3, (("label", 2, 1, False, "label"),)),
+    0x0104: ("remove_object_at_prop_preset", 2, ()),
+    0x0105: ("if_prop_preset_height_less_than", 5, (("height", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0106: ("set_target", 5, (("chr", 2, 1, False, "chr"), ("mode", 3, 1, False, "number"), ("flags", 4, 1, False, "flags"))),
+    0x0107: ("if_presets_target_is_not_my_target", 3, (("label", 2, 1, False, "label"),)),
+    0x0108: ("if_chr_target", 6, (("chr", 2, 1, False, "chr"), ("target_chr", 3, 1, False, "chr"), ("any_target", 4, 1, False, "bool"), ("label", 5, 1, False, "label"))),
+    0x0109: ("set_chr_preset_to_chr_near_self", 6, (("check_type", 2, 1, False, "number"), ("distance", 3, 2, False, "number"), ("label", 5, 1, False, "label"))),
+    0x010a: ("set_chr_preset_to_chr_near_pad", 8, (("check_type", 2, 1, False, "number"), ("distance", 3, 2, False, "number"), ("pad", 5, 2, False, "pad"), ("label", 7, 1, False, "label"))),
+    0x010b: ("chr_set_team", 4, (("chr", 2, 1, False, "chr"), ("team", 3, 1, False, "team"))),
+    0x010c: ("if_compare_chr_presets_team", 4, (("check_type", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x010d: ("noop_010d", 2, ()),
+    0x010e: ("set_shield", 4, (("shield", 2, 2, False, "number"),)),
+    0x010f: ("if_chr_shield_less_than", 6, (("chr", 2, 1, False, "chr"), ("shield", 3, 2, False, "number"), ("label", 5, 1, False, "label"))),
+    0x0110: ("if_chr_shield_greater_than", 6, (("chr", 2, 1, False, "chr"), ("shield", 3, 2, False, "number"), ("label", 5, 1, False, "label"))),
+    0x0111: ("set_camera_animation", 4, (("anim", 2, 2, True, "anim"),)),
+    0x0112: ("object_do_animation", 8, (("anim", 2, 2, True, "anim"), ("object", 4, 1, False, "object"), ("speed_divisor", 5, 1, False, "number"), ("start_frame", 6, 2, False, "number"))),
+    0x0113: ("if_in_cutscene", 3, (("label", 2, 1, False, "label"),)),
+    0x0114: ("enable_chr", 3, (("chr", 2, 1, False, "chr"),)),
+    0x0115: ("disable_chr", 3, (("chr", 2, 1, False, "chr"),)),
+    0x0116: ("enable_obj", 3, (("object", 2, 1, False, "object"),)),
+    0x0117: ("disable_obj", 3, (("object", 2, 1, False, "object"),)),
+    0x0118: ("set_obj_flag_3", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x0119: ("unset_obj_flag_3", 7, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"))),
+    0x011a: ("if_obj_has_flag_3", 8, (("object", 2, 1, False, "object"), ("flags", 3, 4, False, "flags"), ("label", 7, 1, False, "label"))),
+    0x011b: ("chr_set_hidden_flag", 7, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"))),
+    0x011c: ("chr_unset_hidden_flag", 7, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"))),
+    0x011d: ("if_chr_has_hidden_flag", 8, (("chr", 2, 1, False, "chr"), ("flags", 3, 4, False, "flags"), ("label", 7, 1, False, "label"))),
+    0x011e: ("if_human", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x011f: ("if_skedar", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0120: ("if_safety_2_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0121: ("find_cover", 5, (("criteria", 2, 2, False, "flags"), ("label", 4, 1, False, "label"))),
+    0x0122: ("find_cover_within_dist", 9, (("criteria", 2, 2, False, "flags"), ("distance", 4, 4, False, "number"), ("label", 8, 1, False, "label"))),
+    0x0123: ("find_cover_outside_dist", 9, (("criteria", 2, 2, False, "flags"), ("distance", 4, 4, False, "number"), ("label", 8, 1, False, "label"))),
+    0x0124: ("go_to_cover", 3, (("speed", 2, 1, False, "number"),)),
+    0x0125: ("check_cover_out_of_sight", 3, (("label", 2, 1, False, "label"),)),
+    0x0126: ("if_player_using_cmp_or_ar_34", 3, (("label", 2, 1, False, "label"),)),
+    0x0127: ("detect_enemy_on_same_floor", 3, (("label", 2, 1, False, "label"),)),
+    0x0128: ("detect_enemy", 4, (("distance", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0129: ("if_safety_less_than", 4, (("threshold", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x012a: ("if_target_moving_slowly", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x012b: ("if_target_moving_closer", 3, (("label", 2, 1, False, "label"),)),
+    0x012c: ("if_target_moving_away", 3, (("label", 2, 1, False, "label"),)),
+    0x012f: ("release_cover", 2, ()),
+    0x0130: ("say_quip", 10, (("chr", 2, 1, False, "chr"), ("quip", 3, 1, False, "number"), ("probability", 4, 1, False, "number"), ("sound_gap", 5, 1, False, "number"), ("nearby_mode", 6, 1, False, "number"), ("flags", 7, 1, False, "flags"), ("text_row", 8, 1, False, "number"), ("colour", 9, 1, False, "number"))),
+    0x0131: ("increase_squadron_alertness", 3, (("amount", 2, 1, False, "number"),)),
+    0x0132: ("set_action", 4, (("action", 2, 1, False, "number"), ("keep_orders", 3, 1, False, "bool"))),
+    0x0133: ("set_team_orders", 4, (("unused", 2, 1, False, "unused"), ("label", 3, 1, False, "label"))),
+    0x0134: ("if_orders", 5, (("unused", 2, 1, False, "unused"), ("orders", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0135: ("if_has_orders", 3, (("label", 2, 1, False, "label"),)),
+    0x0136: ("retreat", 4, (("speed", 2, 1, False, "number"), ("operation", 3, 1, False, "number"))),
+    0x0137: ("if_chr_in_squadron_doing_action", 4, (("action", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0138: ("if_channel_free", 4, (("channel", 2, 1, True, "number"), ("label", 3, 1, False, "label"))),
+    0x0139: ("ai_0139", 8, (("angle", 2, 4, False, "number"), ("speed", 6, 1, False, "number"), ("try_alternate", 7, 1, False, "bool"))),
+    0x013a: ("set_chr_preset_to_unalerted_teammate", 5, (("distance", 2, 1, False, "number"), ("mode", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x013b: ("set_squadron", 3, (("squadron", 2, 1, False, "squadron"),)),
+    0x013c: ("face_cover", 3, (("label", 2, 1, False, "label"),)),
+    0x013d: ("if_dangerous_object_nearby", 4, (("flags", 2, 1, False, "flags"), ("label", 3, 1, False, "label"))),
+    0x013e: ("ai_013e", 2, ()),
+    0x013f: ("if_heli_weapons_armed", 3, (("label", 2, 1, False, "label"),)),
+    0x0140: ("if_hoverbot_next_step", 5, (("comparison", 2, 1, False, "number"), ("threshold", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0141: ("shuffle_investigation_terminals", 9, (("good_terminal", 2, 1, False, "object"), ("alarm_terminal", 3, 1, False, "object"), ("terminal1", 4, 1, False, "object"), ("terminal2", 5, 1, False, "object"), ("terminal3", 6, 1, False, "object"), ("terminal4", 7, 1, False, "object"), ("disabled", 8, 1, False, "bool"))),
+    0x0142: ("set_pad_preset_to_investigation_terminal", 4, (("object", 2, 1, False, "object"), ("unused", 3, 1, False, "unused"))),
+    0x0143: ("heli_arm_weapons", 2, ()),
+    0x0144: ("heli_unarm_weapons", 2, ()),
+    0x0145: ("rebuild_teams", 2, ()),
+    0x0146: ("rebuild_squadrons", 2, ()),
+    0x0147: ("if_squadron_is_dead", 4, (("squadron", 2, 1, False, "squadron"), ("label", 3, 1, False, "label"))),
+    0x0148: ("chr_set_listening", 4, (("chr", 2, 1, False, "chr"), ("listening", 3, 1, False, "number"))),
+    0x0149: ("if_chr_listening", 6, (("chr", 2, 1, False, "chr"), ("listening", 3, 1, False, "number"), ("check_convtalk", 4, 1, False, "bool"), ("label", 5, 1, False, "label"))),
+    0x014a: ("if_true", 6, (("unused", 2, 1, False, "unused"), ("unused2", 3, 1, False, "unused"), ("unused3", 4, 1, False, "unused"), ("label", 5, 1, False, "label"))),
+    0x014b: ("if_not_listening", 3, (("label", 2, 1, False, "label"),)),
+    0x0152: ("if_num_chrs_in_squadron_greater_than", 5, (("threshold", 2, 1, False, "number"), ("squadron", 3, 1, False, "squadron"), ("label", 4, 1, False, "label"))),
+    0x0157: ("set_tinted_glass_enabled", 3, (("enabled", 2, 1, False, "bool"),)),
+    0x015b: ("play_track_isolated", 3, (("track", 2, 1, False, "music"),)),
+    0x015c: ("play_default_tracks", 2, ()),
+    0x0165: ("if_chr_injured_target", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0166: ("if_action", 4, (("action", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0167: ("hovercopter_fire_rocket", 3, (("side", 2, 1, False, "number"),)),
+    0x0168: ("if_shield_damaged", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0169: ("if_natural_anim", 4, (("natural_anim", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x016a: ("if_y", 7, (("chr", 2, 1, False, "chr"), ("y", 3, 2, True, "number"), ("comparison", 5, 1, False, "number"), ("label", 6, 1, False, "label"))),
+    0x016b: ("play_repeating_sound_from_object", 10, (("channel", 2, 1, True, "number"), ("object", 3, 1, False, "object"), ("fade_time60", 4, 2, False, "number"), ("falloff_distance", 6, 2, False, "number"), ("max_distance", 8, 2, False, "number"))),
+    0x016c: ("noop_016c", 2, ()),
+    0x016d: ("chr_adjust_motion_blur", 5, (("chr", 2, 1, False, "chr"), ("amount", 3, 1, False, "number"), ("increase", 4, 1, False, "bool"))),
+    0x016e: ("damage_chr_by_amount", 5, (("chr", 2, 1, False, "chr"), ("amount", 3, 1, False, "number"), ("operation", 4, 1, False, "number"))),
+    0x016f: ("if_chr_has_no_gun", 5, (("chr", 2, 1, False, "chr"), ("unused", 3, 1, False, "unused"), ("label", 4, 1, False, "label"))),
+    0x0170: ("do_gun_command", 4, (("operation", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0171: ("if_distance_to_gun_less_than", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x0172: ("recover_gun", 4, (("unused", 2, 1, False, "unused"), ("label", 3, 1, False, "label"))),
+    0x0173: ("chr_copy_properties", 4, (("source_chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0174: ("if_cutscene_button_pressed", 3, (("label", 2, 1, False, "label"),)),
+    0x0175: ("reorient_for_cutscene_stop", 3, (("duration", 2, 1, False, "number"),)),
+    0x0176: ("if_bot_respawning", 3, (("label", 2, 1, False, "label"),)),
+    0x0177: ("player_auto_walk", 9, (("chr", 2, 1, False, "chr"), ("pad", 3, 2, True, "pad"), ("walk_speed", 5, 1, False, "number"), ("turn_speed", 6, 1, False, "number"), ("look_up", 7, 1, False, "number"), ("distance", 8, 1, False, "number"))),
+    0x0178: ("if_player_auto_walk_finished", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x0179: ("play_sound_from_entity", 11, (("channel", 2, 1, True, "number"), ("source", 3, 1, False, "number"), ("fade_time60", 4, 2, False, "number"), ("falloff_distance", 6, 2, False, "number"), ("max_distance", 8, 2, False, "number"), ("source_is_chr", 10, 1, False, "bool"))),
+    0x017a: ("if_los_to_attack_target", 3, (("label", 2, 1, False, "label"),)),
+    0x017b: ("if_chr_knocked_out", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x017c: ("assign_sound", 5, (("sound", 2, 2, True, "sound"), ("channel", 4, 1, True, "number"))),
+    0x017d: ("play_cutscene_track", 3, (("track", 2, 1, False, "music"),)),
+    0x017e: ("stop_cutscene_track", 2, ()),
+    0x017f: ("play_temporary_track", 3, (("track", 2, 1, False, "music"),)),
+    0x0180: ("stop_ambient_track", 2, ()),
+    0x0181: ("if_player_looking_at_object", 5, (("chr", 2, 1, False, "chr"), ("object", 3, 1, False, "object"), ("label", 4, 1, False, "label"))),
+    0x0182: ("punch_or_kick", 4, (("reverse", 2, 1, False, "bool"), ("label", 3, 1, False, "label"))),
+    0x0183: ("if_target_is_player", 3, (("label", 2, 1, False, "label"),)),
+    0x0184: ("try_attack_amount", 4, (("min_percent", 2, 1, False, "number"), ("max_percent", 3, 1, False, "number"))),
+    0x0185: ("mp_init_simulants", 2, ()),
+    0x0186: ("if_sound_timer", 6, (("time", 2, 2, False, "number"), ("comparison", 4, 1, False, "number"), ("label", 5, 1, False, "label"))),
+    0x0187: ("set_target_to_eyespy_if_in_sight", 3, (("label", 2, 1, False, "label"),)),
+    0x0188: ("if_lift_stationary", 4, (("object", 2, 1, False, "object"), ("label", 3, 1, False, "label"))),
+    0x0189: ("lift_go_to_stop", 4, (("object", 2, 1, False, "object"), ("stop", 3, 1, False, "number"))),
+    0x018a: ("if_lift_at_stop", 5, (("object", 2, 1, False, "object"), ("stop", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x018b: ("configure_rain", 3, (("intensity", 2, 1, False, "number"),)),
+    0x018c: ("chr_toggle_model_part", 4, (("chr", 2, 1, False, "chr"), ("part", 3, 1, False, "number"))),
+    0x018d: ("activate_lift", 4, (("lift", 2, 1, False, "number"), ("object", 3, 1, False, "object"))),
+    0x018e: ("mini_skedar_try_pounce", 7, (("unknown1", 2, 1, False, "number"), ("unknown2", 3, 2, False, "number"), ("unknown3", 5, 1, False, "number"), ("label", 6, 1, False, "label"))),
+    0x018f: ("if_object_distance_to_pad_less_than", 8, (("object", 2, 1, False, "object"), ("distance", 3, 2, False, "number"), ("pad", 5, 2, False, "pad"), ("label", 7, 1, False, "label"))),
+    0x0190: ("set_savefile_flag", 3, (("flag", 2, 1, False, "number"),)),
+    0x0191: ("unset_savefile_flag", 3, (("flag", 2, 1, False, "number"),)),
+    0x0192: ("if_savefile_flag_is_set", 4, (("flag", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x0193: ("if_savefile_flag_is_unset", 4, (("flag", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x019e: ("if_obj_health_less_than", 6, (("object", 2, 1, False, "object"), ("damage", 3, 2, False, "number"), ("label", 5, 1, False, "label"))),
+    0x019f: ("set_obj_health", 5, (("object", 2, 1, False, "object"), ("damage", 3, 2, False, "number"))),
+    0x01a0: ("set_chr_special_death_animation", 4, (("chr", 2, 1, False, "chr"), ("special_death", 3, 1, False, "number"))),
+    0x01a1: ("set_room_to_search", 2, ()),
+    0x01a2: ("say_ci_staff_quip", 4, (("quip", 2, 1, False, "number"), ("channel", 3, 1, True, "number"))),
+    0x01a3: ("do_preset_animation", 3, (("preset", 2, 1, False, "number"),)),
+    0x01a4: ("show_hudmsg_middle", 6, (("operation", 2, 1, False, "number"), ("colour", 3, 1, False, "number"), ("text", 4, 2, False, "text"))),
+    0x01a5: ("if_using_lift", 3, (("label", 2, 1, False, "label"),)),
+    0x01a6: ("if_target_y_difference_less_than", 4, (("distance", 2, 1, False, "number"), ("label", 3, 1, False, "label"))),
+    0x01a7: ("if_chr_not_talking", 4, (("chr", 2, 1, False, "chr"), ("label", 3, 1, False, "label"))),
+    0x01aa: ("if_player_chr_portal_distance_less_than", 3, (("label", 2, 1, False, "label"),)),
+    0x01ab: ("if_num_knocked_out_chrs", 5, (("threshold", 2, 1, False, "number"), ("comparison", 3, 1, False, "number"), ("label", 4, 1, False, "label"))),
+    0x01ad: ("release_object", 3, (("unused", 2, 1, False, "unused"),)),
+    0x01ae: ("clear_inventory", 3, (("unused", 2, 1, False, "unused"),)),
+    0x01af: ("chr_grab_object", 4, (("chr", 2, 1, False, "chr"), ("object", 3, 1, False, "object"))),
+    0x01b1: ("shuffle_ruins_pillars", 18, (("pillar_target1", 2, 1, False, "object"), ("pillar_target2", 3, 1, False, "object"), ("pillar_target3", 4, 1, False, "object"), ("pillar1", 5, 1, False, "object"), ("pillar2", 6, 1, False, "object"), ("pillar3", 7, 1, False, "object"), ("pillar4", 8, 1, False, "object"), ("pillar5", 9, 1, False, "object"), ("mine_target1", 10, 1, False, "object"), ("mine_target2", 11, 1, False, "object"), ("mine_target3", 12, 1, False, "object"), ("mine1", 13, 1, False, "object"), ("mine2", 14, 1, False, "object"), ("mine3", 15, 1, False, "object"), ("mine4", 16, 1, False, "object"), ("mine5", 17, 1, False, "object"))),
+    0x01b2: ("set_wind_speed", 3, (("speed", 2, 1, False, "number"),)),
+    0x01b3: ("toggle_p1p2", 3, (("chr", 2, 1, False, "chr"),)),
+    0x01b4: ("if_chr_reposition_valid", 3, (("label", 2, 1, False, "label"),)),
+    0x01b5: ("chr_set_p1p2", 4, (("chr", 2, 1, False, "chr"), ("player_chr", 3, 1, False, "chr"))),
+    0x01b6: ("configure_snow", 3, (("intensity", 2, 1, False, "number"),)),
+    0x01b7: ("chr_set_cloaked", 5, (("chr", 2, 1, False, "chr"), ("cloaked", 3, 1, False, "bool"), ("play_sound", 4, 1, False, "bool"))),
+    0x01b8: ("set_autogun_target_team", 4, (("object", 2, 1, False, "object"), ("team", 3, 1, False, "team"))),
+    0x01b9: ("shuffle_pelagic_switches", 2, ()),
+    0x01ba: ("try_attack_lie", 7, (("flags", 2, 2, False, "flags"), ("target", 4, 2, False, "number"), ("label", 6, 1, False, "label"))),
+    0x01bb: ("noop_01bb", 4, (("unused", 2, 1, False, "unused"), ("unused2", 3, 1, False, "unused"))),
+    0x01bc: ("if_pouncebits_eq", 4, (("pounce_bits", 2, 1, False, "flags"), ("label", 3, 1, False, "label"))),
+    0x01bd: ("if_training_pc_holographed", 3, (("label", 2, 1, False, "label"),)),
+    0x01be: ("if_player_using_device", 5, (("chr", 2, 1, False, "chr"), ("weapon", 3, 1, False, "weapon"), ("label", 4, 1, False, "label"))),
+    0x01bf: ("chr_begin_or_end_teleport", 5, (("pad", 2, 2, False, "pad"), ("chr", 4, 1, False, "chr"))),
+    0x01c0: ("if_chr_teleport_full_white", 4, (("label", 2, 1, False, "label"), ("chr", 3, 1, False, "chr"))),
+    0x01c1: ("set_punch_dodge_list", 4, (("ai_list", 2, 2, False, "ai_list"),)),
+    0x01c2: ("set_shooting_at_me_list", 4, (("ai_list", 2, 2, False, "ai_list"),)),
+    0x01c3: ("set_dark_room_list", 4, (("ai_list", 2, 2, False, "ai_list"),)),
+    0x01c4: ("set_player_dead_list", 4, (("ai_list", 2, 2, False, "ai_list"),)),
+    0x01c5: ("avoid", 2, ()),
+    0x01c6: ("set_dodge_rating", 4, (("mode", 2, 1, True, "number"), ("rating", 3, 1, True, "number"))),
+    0x01c7: ("set_unarmed_dodge_rating", 3, (("rating", 2, 1, True, "number"),)),
+    0x01c8: ("title_init_mode", 3, (("mode", 2, 1, False, "number"),)),
+    0x01c9: ("try_exit_title", 3, (("label", 2, 1, False, "label"),)),
+    0x01ca: ("chr_set_cutscene_weapon", 5, (("chr", 2, 1, False, "chr"), ("weapon", 3, 1, False, "weapon"), ("fallback_weapon", 4, 1, False, "weapon"))),
+    0x01cb: ("fade_screen", 8, (("colour", 2, 4, False, "number"), ("duration", 6, 2, True, "number"))),
+    0x01cc: ("if_fade_complete", 3, (("label", 2, 1, False, "label"),)),
+    0x01cd: ("set_chr_hudpiece_visible", 4, (("chr", 2, 1, False, "chr"), ("visible", 3, 1, False, "bool"))),
+    0x01ce: ("set_passive_mode", 3, (("enabled", 2, 1, False, "bool"),)),
+    0x01cf: ("chr_set_firing_in_cutscene", 4, (("chr", 2, 1, False, "chr"), ("firing", 3, 1, False, "bool"))),
+    0x01d0: ("set_portal_flag", 5, (("portal", 2, 2, True, "portal"), ("flags", 4, 1, False, "flags"))),
+    0x01d1: ("obj_set_model_part_visible", 5, (("object", 2, 1, False, "object"), ("part", 3, 1, False, "number"), ("visible", 4, 1, False, "bool"))),
+    0x01d2: ("chr_emit_sparks", 3, (("chr", 2, 1, False, "chr"),)),
+    0x01d3: ("set_dr_caroll_images", 5, (("chr", 2, 1, False, "chr"), ("right_image", 3, 1, False, "number"), ("left_image", 4, 1, False, "number"))),
+    0x01d4: ("set_room_flag", 6, (("room", 2, 2, True, "room"), ("flags", 4, 2, True, "flags"))),
+    0x01d5: ("show_cutscene_chrs", 3, (("show", 2, 1, False, "bool"),)),
+    0x01d6: ("configure_environment", 6, (("room", 2, 2, True, "room"), ("operation", 4, 1, False, "number"), ("value", 5, 1, False, "number"))),
+    0x01d7: ("if_distance_to_target_2_less_than", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x01d8: ("if_distance_to_target_2_greater_than", 5, (("distance", 2, 2, False, "number"), ("label", 4, 1, False, "label"))),
+    0x01d9: ("play_sound_from_prop", 11, (("channel", 2, 1, True, "number"), ("object", 3, 1, False, "object"), ("sound", 4, 2, True, "sound"), ("volume", 6, 2, False, "number"), ("type", 8, 1, False, "number"), ("unused", 9, 1, False, "unused"), ("flags", 10, 1, False, "flags"))),
+    0x01da: ("play_temporary_primary_track", 3, (("track", 2, 1, False, "music"),)),
+    0x01db: ("chr_kill", 3, (("chr", 2, 1, False, "chr"),)),
+    0x01dc: ("remove_weapon_from_inventory", 3, (("weapon", 2, 1, False, "weapon"),)),
+    0x01dd: ("if_music_event_queue_is_empty", 4, (("unused", 2, 1, False, "unused"), ("label", 3, 1, False, "label"))),
+    0x01de: ("if_coop_mode", 3, (("label", 2, 1, False, "label"),)),
+    0x01df: ("if_chr_same_floor_distance_to_pad_less_than", 8, (("chr", 2, 1, False, "chr"), ("distance", 3, 2, False, "number"), ("pad", 5, 2, False, "pad"), ("label", 7, 1, False, "label"))),
+    0x01e0: ("remove_references_to_chr", 2, ()),
+}
+
+
+AI_ROW_OPERAND_ERROR_CAP = 20
+
+
+def ai_command_args(opcode: int, operands: list[int]) -> dict | None:
+    """A command's arguments as port/src/ai_command_schema.c
+    aiCommandArgsToJson writes them: named fields in byte order, an unused
+    field only when not zero, a bool field holding 0 or 1 as false or true,
+    print's text as a string. None when the bytes do not fit the command."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None:
+        return None
+    _name, length, fields = command
+    if length == 0:
+        if not operands or operands[-1] != 0 or 0 in operands[:-1]:
+            return None
+        return {fields[0][0]: bytes(operands[:-1]).decode("latin-1")}
+    if len(operands) != length - 2:
+        return None
+    args: dict = {}
+    for name, offset, width, signed, kind in fields:
+        raw = 0
+        for byte in operands[offset - 2:offset - 2 + width]:
+            raw = (raw << 8) | byte
+        if signed and raw & (1 << (8 * width - 1)):
+            raw -= 1 << (8 * width)
+        if kind == "unused" and raw == 0:
+            continue
+        args[name] = bool(raw) if kind == "bool" and raw in (0, 1) else raw
+    return args
+
+
+# ai-typed-operands.md slices 3 and 3b: these kinds name their asset by
+# catalog id, or are null (the field's "none" value, every bit set); never a
+# number in an archive.
+AI_CATALOG_KINDS = {"model", "weapon", "body", "head", "anim", "sound"}
+# Slice 3b: a sound named by catalog id may carry its playback values as
+# "<field>_priority" (1 to 3, an MP3 voice line) and "<field>_response"
+# (0 to 3).
+AI_SOUND_PLAYBACK_KEYS = {"_priority": (1, 3), "_response": (0, 3)}
+
+
+def _ai_sound_playback_key(fields: tuple, key: str) -> tuple[str, str] | None:
+    """(sound field, suffix) when key is a sound field's playback key."""
+    for field_name, _offset, _width, _signed, kind in fields:
+        if kind != "sound" or not key.startswith(field_name):
+            continue
+        suffix = key[len(field_name):]
+        if suffix in AI_SOUND_PLAYBACK_KEYS:
+            return field_name, suffix
+    return None
+
+
+def ai_args_catalog_number_error(opcode: int, args: object) -> str | None:
+    """Slice 3b: an asset argument is a catalog id or null, never a number."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None or not isinstance(args, dict):
+        return None
+    for field_name, _offset, _width, _signed, kind in command[2]:
+        value = args.get(field_name)
+        if kind in AI_CATALOG_KINDS and isinstance(value, int):
+            return (f"{command[0]} argument '{field_name}' gives a {kind} by number; "
+                    f"name it by catalog id")
+    return None
+
+
+def ai_args_have_refs(opcode: int, args: object) -> bool:
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None or not isinstance(args, dict):
+        return False
+    return any(isinstance(args.get(field[0]), str) and field[4] in AI_CATALOG_KINDS
+               for field in command[2])
+
+
+def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str | None]:
+    """A command's operand bytes from its args, as port/src/ai_command_schema.c
+    aiCommandArgsEncode makes them: every used field required, an unused one
+    zero unless given, true or false only for a bool field, each value
+    inside its field's range. (bytes, None) or (None, the reason)."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None:
+        return None, f"opcode 0x{opcode:04x} is not an AI command"
+    name, length, fields = command
+    if not isinstance(args, dict):
+        return None, f"{name} args must be an object"
+    known = {field[0] for field in fields}
+    playback: dict[str, dict[str, int]] = {}
+    for key in args:
+        if key in known:
+            continue
+        sound_key = _ai_sound_playback_key(fields, key)
+        if sound_key is None:
+            return None, f"{name} has no argument '{key}'"
+        value = args[key]
+        low, high = AI_SOUND_PLAYBACK_KEYS[sound_key[1]]
+        if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+            return None, f"{name} argument '{key}' must be a whole number from {low} to 3"
+        playback.setdefault(sound_key[0], {})[sound_key[1]] = value
+    for sound_name in playback:
+        if not isinstance(args.get(sound_name), str):
+            return None, (f"{name} arguments '{sound_name}_priority' and "
+                          f"'{sound_name}_response' go with a sound named by catalog id")
+    if length == 0:
+        text = args.get(fields[0][0])
+        if not isinstance(text, str):
+            return None, f"{name} is missing argument '{fields[0][0]}'"
+        try:
+            data = text.encode("latin-1")
+        except UnicodeEncodeError:
+            return None, f"{name} text holds a character above 0xff"
+        if 0 in data:
+            return None, f"{name} text holds a NUL"
+        return list(data) + [0], None
+    out = [0] * (length - 2)
+    for field_name, offset, width, signed, kind in fields:
+        if field_name not in args:
+            if kind == "unused":
+                continue
+            return None, f"{name} is missing argument '{field_name}'"
+        value = args[field_name]
+        if isinstance(value, str) and kind in AI_CATALOG_KINDS:
+            # Slices 3-3b: a catalog id. Conformance has no catalog to resolve
+            # it; the id's form is checked and its bytes stay zero here (they
+            # do not steer control flow).
+            if not CATALOG_ID_RE.fullmatch(value):
+                return None, f"{name} argument '{field_name}' is not a catalog id"
+            continue
+        if kind in AI_CATALOG_KINDS:
+            # Slice 3b: null is the field's "none" (every bit set); a number
+            # is refused.
+            if value is not None:
+                return None, (f"{name} argument '{field_name}' gives a {kind} by number; "
+                              f"name it by catalog id")
+            value = -1 if signed else (1 << (8 * width)) - 1
+        if isinstance(value, bool):
+            if kind != "bool":
+                return None, f"{name} argument '{field_name}' must be a whole number"
+            value = int(value)
+        elif not isinstance(value, int):
+            return None, f"{name} argument '{field_name}' must be a whole number"
+        bits = 8 * width
+        low, high = ((-(1 << (bits - 1)), (1 << (bits - 1)) - 1) if signed
+                     else (0, (1 << bits) - 1))
+        if not low <= value <= high:
+            return None, (f"{name} argument '{field_name}' = {value} is outside its "
+                          f"{width}-byte {'signed' if signed else 'unsigned'} range")
+        raw = value & ((1 << bits) - 1)
+        for i in range(width):
+            out[offset - 2 + i] = (raw >> (8 * (width - 1 - i))) & 0xFF
+    return out, None
+
+
+def ai_row_operand_bytes(row: dict) -> list[int] | None:
+    """A row's operand bytes: its operands, or for an args-only row its args
+    encoded. None when neither gives bytes."""
+    raw = row.get("operands")
+    if isinstance(raw, list):
+        values = [_ai_row_hex(value, 0xFF) for value in raw]
+        return None if any(value is None for value in values) else values
+    if "args" not in row:
+        return None
+    opcode = _ai_row_hex(row.get("opcode"), 0xFFFF)
+    if opcode is None:
+        return None
+    values, _reason = ai_command_encode(opcode, row.get("args"))
+    return values
+
+
+def _ai_args_text(args: object) -> str:
+    return json.dumps(args, sort_keys=True)
+
+
+def _ai_row_args_error(row: dict, opcode: int, values: list[int]) -> str | None:
+    """ai-typed-operands.md slice 2: a row's args, when it has them, are
+    exactly what its operands decode to."""
+    if "args" not in row:
+        return None
+    if ai_args_have_refs(opcode, row.get("args")):
+        return "names catalog ids in its args and also gives operands"
+    number_error = ai_args_catalog_number_error(opcode, row.get("args"))
+    if number_error:
+        return number_error
+    expected = ai_command_args(opcode, values)
+    args = row.get("args")
+    if isinstance(expected, dict) and isinstance(args, dict):
+        for field_name, _offset, width, signed, kind in AI_COMMAND_SCHEMA[opcode][2]:
+            if (kind in AI_CATALOG_KINDS and args.get(field_name, 0) is None
+                    and expected.get(field_name) == (-1 if signed else (1 << (8 * width)) - 1)):
+                expected[field_name] = None
+    if not isinstance(args, dict) or _ai_args_text(args) != _ai_args_text(expected):
+        return (f"args {clean_value(_ai_args_text(args))} do not match its operands "
+                f"({clean_value(_ai_args_text(expected))})")
+    return None
+
+
+def ai_row_operand_error(row: dict) -> str | None:
+    """Why one AI row does not fit the command schema, or None."""
+    try:
+        opcode = int(str(row.get("opcode")), 0)
+    except ValueError:
+        return f"opcode {clean_value(row.get('opcode'))} is not a number"
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None:
+        return f"opcode 0x{opcode:04x} is not an AI command"
+    name, length, _fields = command
+    if row.get("opcode_name") != name:
+        return (f"opcode 0x{opcode:04x} is {name}, not "
+                f"{clean_value(row.get('opcode_name'))}")
+    operands = row.get("operands")
+    if operands is None and "args" in row:
+        # ai-typed-operands.md: args alone give the bytes.
+        encoded, reason = ai_command_encode(opcode, row.get("args"))
+        return reason
+    if not isinstance(operands, list):
+        return "operands must be a list of bytes (or the row must have args)"
+    values = []
+    for value in operands:
+        try:
+            byte = int(str(value), 0)
+        except ValueError:
+            byte = -1
+        if not 0 <= byte <= 0xFF:
+            return f"operand {clean_value(value)} is not a byte"
+        values.append(byte)
+    if length == 0:
+        if not values or values[-1] != 0 or 0 in values[:-1]:
+            return f"{name} text must end at its only NUL byte"
+        return _ai_row_args_error(row, opcode, values)
+    if len(values) != length - 2:
+        return (f"{name} has {len(values)} operand bytes; the command schema "
+                f"says {length - 2}")
+    return _ai_row_args_error(row, opcode, values)
+
+
 def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
                                            text: str) -> tuple[int, list[str]]:
     required_fields = [
@@ -5241,12 +7103,10 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
         "offset",
         "opcode",
         "opcode_name",
-        "operands",
-        "model_catalog_id",
-        "weapon_catalog_id",
-        "body_catalog_id",
-        "head_catalog_id",
     ]
+    # A row gives its bytes as operands, as args (ai-typed-operands.md) or
+    # both; the four *_catalog_id fields are optional (ai_row_operand_error
+    # checks the bytes).
     row_count, errors = validate_simple_rows_json_schema(
         label,
         entry_name,
@@ -5262,6 +7122,7 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
     if not isinstance(rows, list):
         return row_count, errors
 
+    operand_errors = 0
     for idx, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
@@ -5276,7 +7137,515 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
                 f"{clean_value(row.get('opcode'))} to generic command; regenerate "
                 "from named Scenario AI source"
             )
+            continue
+        operand_error = ai_row_operand_error(row)
+        if operand_error:
+            operand_errors += 1
+            if operand_errors <= AI_ROW_OPERAND_ERROR_CAP:
+                errors.append(f"{label} {entry_name} row {idx}: {operand_error}")
+    if operand_errors > AI_ROW_OPERAND_ERROR_CAP:
+        errors.append(
+            f"{label} {entry_name}: {operand_errors - AI_ROW_OPERAND_ERROR_CAP} "
+            "more rows do not fit the AI command schema"
+        )
     return row_count, errors
+
+
+# Global AI list ids are below 0x0401; stage lists start there (ailistFindById).
+GLOBAL_AI_LIST_ID_LIMIT = 0x0401
+
+# context/designs/modding/ai-list-graphs.md, slice 1: an AI list's control
+# flow as edges between its command nodes, recomputed here from the rows'
+# bytes with the native interpreter's rules (src/game/chrai.c chraiExecute
+# and chraiGoToLabel); port/src/ai_list_edges.c is the same in C.
+#
+# The branching commands: opcode -> n, the label byte cmd[n] (operands hold
+# cmd[2..]). Every handler whose native path calls
+# chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[n]), other than
+# go_to_next. Keep equal to s_AiListBranchOps in port/src/ai_list_edges.c:
+# pd-tests derives the set from src/game/chraicommands.c and
+# src/game/mplayer/mpaicommands.c and compares both copies with it.
+AI_LIST_BRANCH_LABEL_BYTE = {
+    0x000c: 2, 0x000f: 2, 0x0010: 2, 0x0011: 2, 0x0012: 2, 0x0013: 2,
+    0x0014: 2, 0x0015: 6, 0x0016: 6, 0x0017: 6, 0x0018: 6, 0x001b: 6,
+    0x001c: 5, 0x0023: 2, 0x0027: 4, 0x002a: 2, 0x002b: 2, 0x002c: 2,
+    0x002d: 2, 0x002e: 2, 0x002f: 3, 0x0030: 3, 0x0031: 3, 0x0032: 2,
+    0x0033: 3, 0x0034: 3, 0x0035: 2, 0x0037: 3, 0x0038: 3, 0x0039: 2,
+    0x003a: 2, 0x003b: 2, 0x003c: 2, 0x003d: 3, 0x003e: 3, 0x003f: 2,
+    0x0040: 6, 0x0041: 6, 0x0042: 2, 0x0043: 2, 0x0044: 2, 0x0045: 3,
+    0x0046: 2, 0x0047: 2, 0x0048: 3, 0x0049: 4, 0x004a: 2, 0x004b: 2,
+    0x004c: 2, 0x004d: 3, 0x004e: 5, 0x004f: 3, 0x0050: 3, 0x0051: 3,
+    0x0052: 4, 0x0053: 4, 0x0054: 7, 0x0055: 7, 0x0056: 5, 0x0057: 5,
+    0x0058: 4, 0x0059: 6, 0x005a: 6, 0x005b: 6, 0x005c: 4, 0x005d: 4,
+    0x005e: 3, 0x005f: 4, 0x0060: 4, 0x0061: 4, 0x0062: 3, 0x0063: 4,
+    0x006e: 4, 0x006f: 3, 0x0072: 4, 0x0073: 3, 0x0074: 3, 0x0075: 3,
+    0x0076: 3, 0x0077: 3, 0x0078: 3, 0x0079: 4, 0x007a: 4, 0x007b: 3,
+    0x007c: 3, 0x007d: 3, 0x007e: 3, 0x007f: 3, 0x0080: 3, 0x0081: 4,
+    0x0082: 4, 0x0083: 3, 0x0088: 3, 0x0089: 2, 0x008e: 4, 0x008f: 4,
+    0x0090: 2, 0x009d: 8, 0x00a0: 8, 0x00a3: 7, 0x00a6: 6, 0x00a9: 7,
+    0x00ac: 7, 0x00af: 7, 0x00ba: 2, 0x00bb: 2, 0x00bc: 5, 0x00bd: 5,
+    0x00c3: 2, 0x00c4: 4, 0x00c5: 4, 0x00c6: 12, 0x00c7: 11, 0x00c8: 9,
+    0x00c9: 8, 0x00ca: 9, 0x00d4: 5, 0x00e2: 6, 0x00e5: 3, 0x00ea: 3,
+    0x00eb: 5, 0x00ef: 5, 0x00f0: 2, 0x00f1: 2, 0x00f6: 2, 0x00f7: 2,
+    0x00f8: 3, 0x00fc: 3, 0x00fd: 3, 0x0103: 2, 0x0105: 4, 0x0107: 2,
+    0x0108: 5, 0x0109: 5, 0x010a: 7, 0x010c: 3, 0x010f: 5, 0x0110: 5,
+    0x0113: 2, 0x011a: 7, 0x011d: 7, 0x011e: 3, 0x011f: 3, 0x0120: 3,
+    0x0121: 4, 0x0122: 8, 0x0123: 8, 0x0125: 2, 0x0126: 2, 0x0127: 2,
+    0x0128: 3, 0x0129: 3, 0x012a: 3, 0x012b: 2, 0x012c: 2, 0x0133: 3,
+    0x0134: 4, 0x0135: 2, 0x0137: 3, 0x0138: 3, 0x013a: 4, 0x013c: 2,
+    0x013d: 3, 0x013f: 2, 0x0140: 4, 0x0147: 3, 0x0149: 5, 0x014a: 5,
+    0x014b: 2, 0x0152: 4, 0x0165: 3, 0x0166: 3, 0x0168: 3, 0x0169: 3,
+    0x016a: 6, 0x016f: 4, 0x0170: 3, 0x0171: 4, 0x0172: 3, 0x0173: 3,
+    0x0174: 2, 0x0176: 2, 0x0178: 3, 0x017a: 2, 0x017b: 3, 0x0181: 4,
+    0x0182: 3, 0x0183: 2, 0x0186: 5, 0x0187: 2, 0x0188: 3, 0x018a: 4,
+    0x018e: 6, 0x018f: 7, 0x0192: 3, 0x0193: 3, 0x019e: 5, 0x01a5: 2,
+    0x01a6: 3, 0x01a7: 3, 0x01aa: 2, 0x01ab: 4, 0x01b4: 2, 0x01ba: 6,
+    0x01bc: 3, 0x01bd: 2, 0x01be: 4, 0x01c0: 2, 0x01c9: 2, 0x01cc: 2,
+    0x01d7: 4, 0x01d8: 4, 0x01dd: 3, 0x01de: 2, 0x01df: 7,
+}
+AI_OP_GO_TO_NEXT = 0x0000
+AI_OP_GO_TO_FIRST = 0x0001
+AI_OP_LABEL = 0x0002
+AI_OP_YIELD = 0x0003
+AI_OP_END = 0x0004
+AI_OP_SET_LIST = 0x0005
+AI_OP_RETURN = 0x0008
+AI_CHR_SELF = 0xFD
+AI_LIST_EDGE_KINDS = ("next", "branch", "goto", "restart")
+# Command-node flags: these are written only when true, reachable only when
+# false.
+AI_LIST_NODE_TRUE_FLAGS = ("yields", "ends", "returns", "switches_list")
+AI_LIST_NODE_FLAG_KEYS = AI_LIST_NODE_TRUE_FLAGS + ("reachable",)
+AI_LIST_EDGE_ERRORS_SHOWN = 20
+# The .pdai bank carries its graph from this extract_version on
+# (PDAI_EXTRACT_VERSION, port/src/romextract_pdai.c).
+PDAI_AI_EDGES_EXTRACT_VERSION = "global_ailists_rows_v2_aiedges"
+# From this extract_version on the bank's rows and graph nodes carry args
+# (ai-typed-operands.md slice 2); it carries the graph too.
+PDAI_TYPED_ARGS_EXTRACT_VERSION = "global_ailists_rows_v3_typedargs"
+# From this extract_version on the bank's rows give args alone, with catalog
+# references (ai-typed-operands.md slice 3).
+PDAI_CATALOG_ARGS_EXTRACT_VERSION = "global_ailists_rows_v4_catalogargs"
+# From this extract_version on every asset argument is a catalog id or null
+# (slice 3b).
+PDAI_ASSET_ARGS_EXTRACT_VERSION = "global_ailists_rows_v5_assetargs"
+PDAI_GRAPH_EXTRACT_VERSIONS = (PDAI_AI_EDGES_EXTRACT_VERSION, PDAI_TYPED_ARGS_EXTRACT_VERSION,
+                               PDAI_CATALOG_ARGS_EXTRACT_VERSION,
+                               PDAI_ASSET_ARGS_EXTRACT_VERSION)
+PDAI_GRAPH_MEMBER = "ai/global_ailists.graph.json"
+AI_GRAPH_SCHEMA = "pd2.scenario.ai.graph.v1"
+
+
+def ai_list_control_flow(
+    commands: list[tuple[int, list[int]]],
+) -> tuple[list[tuple[int, int, str]], list[set[str]]]:
+    """One AI list's control flow, as port/src/ai_list_edges.c computes it.
+
+    commands: (opcode, operand bytes cmd[2..]) in list order. Returns
+    (edges, flags): edges (from, to, kind), grouped by command in command
+    order, next before the command's jump; flags, one set per command of
+    yields, ends, returns, switches_list and reachable. A command's successor
+    is the next command; a branching command also jumps to the first label
+    with its number at or after itself, go_to_next likewise and go_to_first
+    from the top; a label that is not found before the end restarts the list
+    at its first command. end, return, set_list on CHR_SELF and the gotos
+    have no next edge. Raises ValueError(index) for a command that lacks the
+    label or chr operand its control flow reads.
+    """
+    count = len(commands)
+    for index, (opcode, operands) in enumerate(commands):
+        if opcode in (AI_OP_GO_TO_NEXT, AI_OP_GO_TO_FIRST, AI_OP_LABEL,
+                      AI_OP_SET_LIST):
+            needed = 1
+        else:
+            label_byte = AI_LIST_BRANCH_LABEL_BYTE.get(opcode)
+            needed = label_byte - 1 if label_byte is not None else 0
+        if len(operands) < needed:
+            raise ValueError(index)
+
+    def find_label(start: int, label: int) -> int | None:
+        for index in range(start, count):
+            opcode, operands = commands[index]
+            if opcode == AI_OP_LABEL:
+                if operands[0] == label:
+                    return index
+            elif opcode == AI_OP_END:
+                return None
+        return None
+
+    edges: list[tuple[int, int, str]] = []
+    flags: list[set[str]] = [set() for _ in range(count)]
+    for index, (opcode, operands) in enumerate(commands):
+        has_next = True
+        jump: tuple[int, str] | None = None
+        if opcode in (AI_OP_GO_TO_NEXT, AI_OP_GO_TO_FIRST):
+            has_next = False
+            target = find_label(index if opcode == AI_OP_GO_TO_NEXT else 0,
+                                operands[0])
+            jump = (target, "goto") if target is not None else (0, "restart")
+        elif opcode == AI_OP_YIELD:
+            flags[index].add("yields")
+        elif opcode == AI_OP_END:
+            has_next = False
+            flags[index].add("ends")
+        elif opcode == AI_OP_RETURN:
+            has_next = False
+            flags[index].add("returns")
+        elif opcode == AI_OP_SET_LIST:
+            if operands[0] == AI_CHR_SELF:
+                has_next = False
+                flags[index].add("switches_list")
+        else:
+            label_byte = AI_LIST_BRANCH_LABEL_BYTE.get(opcode)
+            if label_byte is not None:
+                target = find_label(index, operands[label_byte - 2])
+                jump = (target, "branch") if target is not None else (0, "restart")
+        if has_next and index + 1 < count:
+            edges.append((index, index + 1, "next"))
+        if jump is not None:
+            edges.append((index, jump[0], jump[1]))
+
+    if count:
+        successors: list[list[int]] = [[] for _ in range(count)]
+        for source, target, _ in edges:
+            successors[source].append(target)
+        flags[0].add("reachable")
+        stack = [0]
+        while stack:
+            for target in successors[stack.pop()]:
+                if "reachable" not in flags[target]:
+                    flags[target].add("reachable")
+                    stack.append(target)
+    return edges, flags
+
+
+def _ai_row_hex(value: object, limit: int) -> int | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        number = int(value, 16)
+    except ValueError:
+        return None
+    return number if 0 <= number <= limit else None
+
+
+def ai_args_node_errors(rows: object, nodes: object, require: bool) -> list[str]:
+    """ai-typed-operands.md slice 2: every command node carries its row's
+    args (both or neither), and with require (the archive's kind or extract
+    version writes them) every row has them. Row args against operands is
+    ai_row_operand_error's."""
+    errors: list[str] = []
+    if not isinstance(rows, list) or not isinstance(nodes, list):
+        return errors
+    row_by_node = {row.get("graph_node"): row for row in rows if isinstance(row, dict)}
+    for idx, row in enumerate(rows):
+        if require and isinstance(row, dict) and "args" not in row:
+            errors.append(f"row {idx} has no args")
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("kind") != "scenario.ai.command":
+            continue
+        row = row_by_node.get(node.get("id"))
+        if row is None:
+            continue
+        if ("args" in node) != ("args" in row) or (
+                "args" in row and _ai_args_text(node.get("args")) != _ai_args_text(row.get("args"))):
+            errors.append(f"node {node.get('id')} args differ from its row's")
+    return errors
+
+
+def ai_list_edge_errors(rows: object, nodes: object, links: object,
+                        require: bool) -> list[str]:
+    """Recomputes every AI list's control flow from its rows and compares it
+    with the graph: each link that leaves a command node must be one of the
+    command's edges ({from, to, kind}), each edge must have its link, and
+    each command node must carry exactly its flags. A graph with no edge and
+    no flag on any command node is from before the edges and is checked only
+    when require is set (its cache kind says it has them). Messages name the
+    list and the command and leave the archive label to the caller.
+    """
+    lists: dict[str, list[dict[str, object]]] = {}
+    command_ids: set[str] = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        ref = row.get("ailist_ref")
+        graph_node = row.get("graph_node")
+        if not isinstance(ref, str) or not isinstance(graph_node, str):
+            continue
+        lists.setdefault(ref, []).append(row)
+        command_ids.add(graph_node)
+
+    node_by_id: dict[str, dict[str, object]] = {}
+    for node in nodes if isinstance(nodes, list) else []:
+        if isinstance(node, dict) and isinstance(node.get("id"), str):
+            node_by_id.setdefault(str(node["id"]), node)
+
+    def hashable(value: object) -> object:
+        return value if isinstance(value, str) or value is None else json.dumps(value)
+
+    actual: dict[str, list[tuple[object, object]]] = {}
+    for link in links if isinstance(links, list) else []:
+        if (isinstance(link, dict) and isinstance(link.get("from"), str)
+                and link["from"] in command_ids):
+            actual.setdefault(link["from"], []).append(
+                (hashable(link.get("to")), hashable(link.get("kind")))
+            )
+    declared = bool(actual) or any(
+        key in node_by_id.get(graph_node, {})
+        for graph_node in command_ids
+        for key in AI_LIST_NODE_FLAG_KEYS
+    )
+    if not declared and not require:
+        return []
+
+    errors: list[str] = []
+    for ref, list_rows in lists.items():
+        where = f"AI list {ref} ({clean_value(list_rows[0].get('list_id'))})"
+        commands: list[tuple[int, list[int]]] = []
+        for index, row in enumerate(list_rows):
+            opcode = _ai_row_hex(row.get("opcode"), 0xFFFF)
+            # An args-only row's bytes are its args encoded.
+            operands = ai_row_operand_bytes(row) if isinstance(row, dict) else None
+            if operands is None:
+                operands = [None]
+            if row.get("command_index") != index:
+                errors.append(
+                    f"{where} command {index} ({row.get('graph_node')}): "
+                    f"command_index {clean_value(row.get('command_index'))} "
+                    "is not its place in the list; its edges cannot be checked"
+                )
+                break
+            if opcode is None or any(value is None for value in operands):
+                errors.append(
+                    f"{where} command {index} ({row.get('graph_node')}): "
+                    "opcode and operands must be hex strings; its edges cannot be checked"
+                )
+                break
+            commands.append((opcode, [int(value) for value in operands]))
+        else:
+            try:
+                expected_edges, expected_flags = ai_list_control_flow(commands)
+            except ValueError as exc:
+                index = int(exc.args[0])
+                errors.append(
+                    f"{where} command {index} ({list_rows[index].get('graph_node')}): "
+                    "lacks the label or chr operand its control flow reads"
+                )
+                continue
+            node_ids = [str(row["graph_node"]) for row in list_rows]
+            index_of = {node_id: index for index, node_id in enumerate(node_ids)}
+
+            def describe(target: object) -> str:
+                if isinstance(target, str) and target in index_of:
+                    return f"command {index_of[target]}"
+                return clean_value(target) or "(none)"
+
+            expected_by_command: list[list[tuple[object, object]]] = [
+                [] for _ in node_ids
+            ]
+            for source, target, kind in expected_edges:
+                expected_by_command[source].append((node_ids[target], kind))
+            for index, node_id in enumerate(node_ids):
+                command_where = f"{where} command {index} ({node_id})"
+                want = Counter(expected_by_command[index])
+                have = Counter(actual.get(node_id, []))
+                for (target, kind), number in sorted(
+                        (want - have).items(), key=lambda item: str(item[0])):
+                    errors.extend(
+                        [f"{command_where}: missing {kind} edge to {describe(target)}"]
+                        * number
+                    )
+                for (target, kind), number in sorted(
+                        (have - want).items(), key=lambda item: str(item[0])):
+                    shown = kind if kind in AI_LIST_EDGE_KINDS else f"kind {clean_value(kind) or '(none)'}"
+                    errors.extend(
+                        [f"{command_where}: unexpected {shown} edge to {describe(target)}"]
+                        * number
+                    )
+                node = node_by_id.get(node_id)
+                if node is None:
+                    continue  # the command node binding check reports it
+                for flag in AI_LIST_NODE_FLAG_KEYS:
+                    value = node.get(flag)
+                    expected = flag in expected_flags[index]
+                    if value is not None and not isinstance(value, bool):
+                        errors.append(f"{command_where}: {flag} must be true or false")
+                    elif flag == "reachable":
+                        if (value is not False) != expected:
+                            errors.append(
+                                f"{command_where}: reachable must be "
+                                f"{'true or absent' if expected else 'false'}"
+                            )
+                    elif bool(value) != expected:
+                        errors.append(
+                            f"{command_where}: {flag} must be "
+                            f"{'true' if expected else 'false or absent'}"
+                        )
+    return errors
+
+
+def _ai_edge_errors_capped(prefix: str, edge_errors: list[str]) -> list[str]:
+    shown = [f"{prefix} {message}" for message in edge_errors[:AI_LIST_EDGE_ERRORS_SHOWN]]
+    if len(edge_errors) > AI_LIST_EDGE_ERRORS_SHOWN:
+        shown.append(
+            f"{prefix} has {len(edge_errors)} AI control-flow edge errors; "
+            f"first {AI_LIST_EDGE_ERRORS_SHOWN} shown"
+        )
+    return shown
+
+
+def validate_ai_lists_graph_member(label: str, zf: zipfile.ZipFile,
+                                   rows: list[object]) -> list[str]:
+    """The .pdai bank's ai/global_ailists.graph.json (ai-list-graphs.md):
+    one scenario.ai.command node per row, by the row's graph_node id and with
+    its fields, and the control-flow edges of every list between them."""
+    prefix = f"{label} {PDAI_GRAPH_MEMBER}"
+    try:
+        graph = json.loads(zf.read(PDAI_GRAPH_MEMBER).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return [f"{prefix} is not valid JSON: {exc}"]
+    if not isinstance(graph, dict) or graph.get("schema") != AI_GRAPH_SCHEMA:
+        return [f"{prefix} must declare schema {AI_GRAPH_SCHEMA}"]
+    nodes = graph.get("nodes")
+    links = graph.get("links")
+    if not isinstance(nodes, list) or not isinstance(links, list):
+        return [f"{prefix} must hold nodes and links arrays"]
+
+    errors: list[str] = []
+    row_by_node = {
+        row["graph_node"]: row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("graph_node"), str)
+    }
+    seen: set[str] = set()
+    node_errors: list[str] = []
+    for idx, node in enumerate(nodes):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        row = row_by_node.get(node_id) if isinstance(node_id, str) else None
+        if row is None:
+            node_errors.append(f"node {idx} is not the graph_node of a row")
+            continue
+        if node_id in seen:
+            node_errors.append(f"node {idx} repeats {node_id}")
+            continue
+        seen.add(node_id)
+        if node.get("kind") != "scenario.ai.command":
+            node_errors.append(f"node {node_id} must be kind scenario.ai.command")
+        if node.get("source") != "ai/global_ailists.json":
+            node_errors.append(f"node {node_id} must source ai/global_ailists.json")
+        semantic_kind = node.get("semantic_kind")
+        if not (isinstance(semantic_kind, str) and semantic_kind.startswith("scenario.ai.")):
+            node_errors.append(f"node {node_id} must declare a scenario.ai semantic_kind")
+        for field in ("ailist_ref", "list_id", "command_index", "offset",
+                      "opcode", "opcode_name"):
+            if node.get(field) != row.get(field):
+                node_errors.append(
+                    f"node {node_id} must copy {field} from ai/global_ailists.json"
+                )
+                break
+    missing = [node_id for node_id in row_by_node if node_id not in seen]
+    if missing:
+        node_errors.append(
+            f"has no node for {len(missing)} row(s), first {missing[0]}"
+        )
+    for idx, link in enumerate(links):
+        source = link.get("from") if isinstance(link, dict) else None
+        if not isinstance(source, str) or source not in row_by_node:
+            node_errors.append(f"link {idx} must leave a command node")
+    errors.extend(_ai_edge_errors_capped(prefix, node_errors))
+    errors.extend(_ai_edge_errors_capped(
+        prefix, ai_list_edge_errors(rows, nodes, links, require=True)
+    ))
+    errors.extend(_ai_edge_errors_capped(prefix, ai_args_node_errors(
+        rows, nodes,
+        require=any(isinstance(row, dict) and "args" in row for row in rows),
+    )))
+    return errors
+
+
+def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
+                                      name_set: set[str],
+                                      errors: list[str]) -> None:
+    """Global AI list bank (.pdai, context/designs/modding/global-ai-lists.md).
+
+    ai.ini's [ai_lists] section names the bank and its rows member. The rows
+    are the per-stage pd2.scenario.ai.lists.v1 schema with global list ids.
+    From extract_version global_ailists_rows_v2_aiedges the bank also carries
+    the lists' control flow (ai_lists_graph_file, ai-list-graphs.md), which
+    must match the edges recomputed from the rows.
+    """
+    graph_named = False
+    extract_version = ""
+    if "ai.ini" in name_set:
+        text = zf.read("ai.ini").decode("utf-8", errors="replace")
+        extract_version = descriptor_value(text, "extract_version")
+        sections = [
+            line.strip()[1:-1].strip()
+            for line in text.splitlines()
+            if line.strip().startswith("[") and line.strip().endswith("]")
+        ]
+        if not sections or sections[0] != "ai_lists":
+            errors.append(f"{label} ai.ini must open with an [ai_lists] section")
+        if not CATALOG_ID_RE.fullmatch(descriptor_value(text, "catalog_id")):
+            errors.append(f"{label} ai.ini catalog_id must be a catalog ID")
+        if descriptor_value(text, "ai_lists_file") != "ai/global_ailists.json":
+            errors.append(
+                f"{label} ai.ini must declare ai_lists_file = ai/global_ailists.json"
+            )
+        graph_file = descriptor_value(text, "ai_lists_graph_file")
+        graph_named = graph_file == PDAI_GRAPH_MEMBER
+        if graph_file and not graph_named:
+            errors.append(
+                f"{label} ai.ini ai_lists_graph_file must be {PDAI_GRAPH_MEMBER}"
+            )
+        if (descriptor_value(text, "extract_version") in PDAI_GRAPH_EXTRACT_VERSIONS
+                and not graph_named):
+            errors.append(
+                f"{label} ai.ini must declare ai_lists_graph_file = {PDAI_GRAPH_MEMBER} "
+                f"(extract_version {PDAI_AI_EDGES_EXTRACT_VERSION} carries the edges)"
+            )
+    if graph_named and PDAI_GRAPH_MEMBER not in name_set:
+        errors.append(f"{label} missing {PDAI_GRAPH_MEMBER}, which ai.ini names")
+    if PDAI_GRAPH_MEMBER in name_set and not graph_named:
+        errors.append(
+            f"{label} {PDAI_GRAPH_MEMBER} must be named by ai.ini ai_lists_graph_file"
+        )
+    if "ai/global_ailists.json" not in name_set:
+        return
+    text = zf.read("ai/global_ailists.json").decode("utf-8", errors="replace")
+    _, row_errors = validate_scenario_ai_lists_json_schema(
+        label, "ai/global_ailists.json", text
+    )
+    errors.extend(row_errors)
+    try:
+        rows = json.loads(text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return  # the schema check reports an unreadable file
+    if not isinstance(rows, list):
+        return
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        list_id = row.get("list_id")
+        try:
+            value = int(str(list_id), 0)
+        except ValueError:
+            value = -1
+        if not 0 <= value < GLOBAL_AI_LIST_ID_LIMIT:
+            errors.append(
+                f"{label} ai/global_ailists.json row {idx} list_id "
+                f"{clean_value(list_id)} is not a global list id (below 0x0401)"
+            )
+    if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION,
+                           PDAI_ASSET_ARGS_EXTRACT_VERSION):
+        without = sum(1 for row in rows if isinstance(row, dict) and "args" not in row)
+        if without:
+            errors.append(
+                f"{label} ai/global_ailists.json has {without} rows without args "
+                f"(extract_version {extract_version} writes them)"
+            )
+    if PDAI_GRAPH_MEMBER in name_set:
+        errors.extend(validate_ai_lists_graph_member(label, zf, rows))
 
 
 def validate_objectives_json_schema(label: str, entry_name: str, text: str,
@@ -5315,6 +7684,17 @@ def validate_objectives_json_schema(label: str, entry_name: str, text: str,
             errors.append(
                 f"{label} {entry_name} row {idx} objective missing difficulty_mask"
             )
+        # mission-flow.md: "required": false on an objective row of the
+        # mission's table makes a bonus objective (out of the outcome).
+        if "required" in row:
+            if schema_id != "pd2.mission.objectives.v1":
+                errors.append(
+                    f"{label} {entry_name} row {idx} required belongs to the mission's objectives.json"
+                )
+            elif row.get("kind") != "objective" or not isinstance(row["required"], bool):
+                errors.append(
+                    f"{label} {entry_name} row {idx} required needs an objective row and true or false"
+                )
         if graph_prefix not in str(row.get("graph_node", "")):
             errors.append(
                 f"{label} {entry_name} row {idx} graph_node must bind {graph_prefix} graph source"
@@ -5794,8 +8174,109 @@ SOURCE_CATALOG_ID_FILES = (
 )
 
 
+# ai-typed-operands.md slice 3b: the catalog registers every slot of the base
+# animation table (port/src/assetcatalog_base_extended.c), named from its
+# ANIM_* symbol (port/src/loader_enum_reverse.c) by the catalog's readable-id
+# rule (port/src/catalog_readable_ids.c; a placeholder symbol falls back to
+# "character_<ordinal>", B-1258). The slots the ROM leaves empty (a
+# cut cutscene's, say) have no archive but are still named; an AI argument
+# may name one. base_animation_slot_id_errors checks the rule against every
+# authored animation archive.
+BASE_ANIMATION_ENUM_SOURCE = "port/src/loader_enum_reverse.c"
+
+
+def _catalog_alpha_ordinal(value: int) -> str:
+    """catalogReadableAlphaOrdinal: a, b, ... z, aa, ab, ..."""
+    if value < 0:
+        return "unknown"
+    letters = []
+    while True:
+        letters.append(chr(ord("a") + value % 26))
+        if value < 26:
+            break
+        value = value // 26 - 1
+    return "".join(reversed(letters))
+
+
+def _catalog_readable_slug(symbol: str | None, fallback_role: str, ordinal: int) -> str:
+    """s_slugFromSymbol in port/src/catalog_readable_ids.c."""
+    body = symbol or ""
+    for prefix in ("SFX_", "ANIM_", "FILE_G", "FILE_P", "FILE_"):
+        if body.startswith(prefix):
+            body = body[len(prefix):]
+            break
+    slug_chars: list[str] = []
+    last_was_sep = True
+    for char in body:
+        if char.isascii() and char.isalnum():
+            slug_chars.append(char.lower())
+            last_was_sep = False
+        elif not last_was_sep:
+            slug_chars.append("_")
+            last_was_sep = True
+    slug = "".join(slug_chars)
+    if slug.endswith("_"):
+        slug = slug[:-1]
+    hexdigits = set("0123456789abcdefABCDEF")
+    first = slug.split("_", 1)[0] if "_" in slug else ""
+    had_leading_hex = bool(first) and all(c in hexdigits for c in first)
+    if had_leading_hex and slug[len(first) + 1:]:
+        slug = slug[len(first) + 1:]
+    hex_only = any(c != "_" for c in slug) and all(c == "_" or c in hexdigits for c in slug)
+    if not slug or hex_only:
+        return f"{fallback_role or 'unlabeled'}_{_catalog_alpha_ordinal(ordinal)}"
+    if had_leading_hex:
+        return f"{slug}_{_catalog_alpha_ordinal(ordinal)}"
+    return slug
+
+
+def base_animation_slot_ids(repo_root: Path = REPO_ROOT) -> dict[int, str]:
+    """Every base animation slot's catalog id, by its index."""
+    try:
+        text = (repo_root / BASE_ANIMATION_ENUM_SOURCE).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    start = text.find("k_AnimEnum[] = {")
+    end = text.find("};", start)
+    if start < 0 or end < 0:
+        return {}
+    ids: dict[int, str] = {}
+    for symbol, value in re.findall(r'\{ "(ANIM_\w+)", (\d+) \}', text[start:end]):
+        index = int(value)
+        ids.setdefault(index, "base:animation_" + _catalog_readable_slug(symbol, "character", index))
+    return ids
+
+
+def base_animation_slot_id_errors(archives: list[Path]) -> list[str]:
+    """The readable-id rule above against the authored animation archives:
+    each base character animation's id is its slot's."""
+    slot_ids = base_animation_slot_ids()
+    errors: list[str] = []
+    if not slot_ids:
+        return errors
+    for archive in archives:
+        if archive.suffix.lower() != ".pdanim":
+            continue
+        try:
+            with zipfile.ZipFile(archive) as zf:
+                manifest = json.loads(zf.read("_meta/manifest.json"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            continue
+        archive_id = manifest.get("id") if isinstance(manifest, dict) else None
+        index = manifest.get("source_index") if isinstance(manifest, dict) else None
+        if (not isinstance(archive_id, str) or not archive_id.startswith("base:animation_")
+                or not isinstance(index, int) or isinstance(index, bool)):
+            continue
+        if slot_ids.get(index) != archive_id:
+            errors.append(
+                f"{archive.name} declares {archive_id} for animation slot {index}; the base "
+                f"animation table names that slot {slot_ids.get(index, '(no symbol)')}"
+            )
+    return errors
+
+
 def collect_source_catalog_ids(repo_root: Path = REPO_ROOT) -> set[str]:
-    ids: set[str] = set()
+    ids: set[str] = set(base_animation_slot_ids(repo_root).values())
     for rel in SOURCE_CATALOG_ID_FILES:
         path = repo_root / rel
         try:
@@ -6309,7 +8790,11 @@ def validate_direct_model_source_integer_native_boundary(label: str,
 
 def validate_archive_bytes(data: bytes, label: str, ext: str,
                            recurse: bool = True,
-                           known_catalog_ids: set[str] | None = None) -> ConformanceResult:
+                           known_catalog_ids: set[str] | None = None,
+                           parent_scenario_graph_cache: str | None = None) -> ConformanceResult:
+    """parent_scenario_graph_cache: the scenario_graph_cache kind an arena
+    declares for the .pdscenario it embeds (None for a standalone scenario).
+    Decides what that kind promises, e.g. the AI control-flow edges."""
     result = ConformanceResult()
     ext = ext.lower()
     descriptor = TYPED_DESCRIPTORS.get(ext)
@@ -6501,6 +8986,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 validate_skin_source_contract(label, zf, name_set, result.errors)
             if ext == ".pdtheme":
                 validate_theme_source_contract(label, zf, name_set, result.errors)
+            if ext == ".pdai":
+                validate_ai_lists_source_contract(label, zf, name_set, result.errors)
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
@@ -6562,6 +9049,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         source_room_count=source_room_count,
                     )
                     result.errors.extend(portal_errors)
+                if "stage.json" in name_set:
+                    result.errors.extend(validate_stage_json(
+                        label, zf.read("stage.json").decode("utf-8", errors="replace")))
+                if "intro.json" in name_set:
+                    result.errors.extend(validate_intro_json(
+                        label, zf.read("intro.json").decode("utf-8", errors="replace")))
                 if "objectives_file = objectives.json" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare objectives_file = objectives.json"
@@ -6677,6 +9170,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         ],
                     )
                     result.errors.extend(object_errors)
+                    result.errors.extend(validate_object_rule_fields(
+                        label, zf.read("objects.json").decode("utf-8", errors="replace")))
+                    if "setup.fields.json" in name_set:
+                        result.errors.extend(validate_object_weapon_refs(
+                            label, zf.read("objects.json").decode("utf-8", errors="replace"),
+                            zf.read("setup.fields.json").decode("utf-8", errors="replace")))
                 if "ai/ailists.json" in name_set:
                     ai_row_count, ai_errors = validate_scenario_ai_lists_json_schema(
                         label,
@@ -7316,11 +9815,18 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             "scenario.ai.action.set_pad_preset": "AI set_pad_preset action",
                             "scenario.ai.action.chr_set_pad_preset": "AI chr_set_pad_preset action",
                             "scenario.ai.action.chr_copy_pad_preset": "AI chr_copy_pad_preset action",
+                            "scenario.ai.condition.if_bot_respawning": "AI if_bot_respawning condition",
+                            "scenario.ai.action.mp_init_simulants": "AI mp_init_simulants action",
                         }.items():
                             if node_kinds.count(required_kind) != 1:
                                 result.errors.append(
                                     f"{label} level.graph.json must include exactly one {description} graph node"
                                 )
+                        # object-events.md slice 1: the level graph's own
+                        # program (its event.*, gate.* and og.* nodes), as the
+                        # runtime compiles it for every stage.
+                        result.errors.extend(
+                            validate_mission_graph_execution(label, graph, level=True))
                         links = graph.get("links")
                         link_pairs = set()
                         if isinstance(links, list):
@@ -7423,6 +9929,29 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     result.errors.append(
                                         f"{label} level.graph.json has {command_graph_error_count} AI command graph binding errors; first 20 shown"
                                     )
+                                # ai-list-graphs.md slice 1: the control-flow
+                                # edges and flags recomputed from the rows.
+                                # Required when the embedding arena's kind is
+                                # the one that writes them; checked whenever
+                                # the graph carries any.
+                                result.errors.extend(_ai_edge_errors_capped(
+                                    f"{label} level.graph.json",
+                                    ai_list_edge_errors(
+                                        ai_rows, nodes, links,
+                                        require=parent_scenario_graph_cache
+                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                    ),
+                                ))
+                                # ai-typed-operands.md slice 2: the rows'
+                                # and the command nodes' args.
+                                result.errors.extend(_ai_edge_errors_capped(
+                                    f"{label} level.graph.json",
+                                    ai_args_node_errors(
+                                        ai_rows, nodes,
+                                        require=parent_scenario_graph_cache
+                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                    ),
+                                ))
                         for pair in {
                             ("scenario.load", "scenario.pads"),
                             ("scenario.ai.lists", "scenario.ai.action.set_list"),
@@ -7908,6 +10437,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             ("scenario.ai.lists", "scenario.ai.action.set_pad_preset"),
                             ("scenario.ai.lists", "scenario.ai.action.chr_set_pad_preset"),
                             ("scenario.ai.lists", "scenario.ai.action.chr_copy_pad_preset"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_bot_respawning"),
+                            ("scenario.ai.lists", "scenario.ai.action.mp_init_simulants"),
                             ("scenario.pads", "scenario.ai.action.jog_to_pad"),
                             ("scenario.pads", "scenario.ai.action.go_to_pad_preset"),
                             ("scenario.pads", "scenario.ai.action.walk_to_pad"),
@@ -8107,13 +10638,25 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         )
 
             if recurse:
+                # An arena's scenario_graph_cache kind is what its embedded
+                # scenario promises (e.g. AI control-flow edges).
+                embedded_scenario_kind = None
+                if ext == ".pdarena" and descriptor in name_set:
+                    embedded_scenario_kind = descriptor_value(
+                        zf.read(descriptor).decode("utf-8", errors="replace"),
+                        "scenario_graph_cache",
+                    )
                 for name in public:
                     nested_ext = Path(name).suffix.lower()
                     if nested_ext in TYPED_DESCRIPTORS:
                         nested = zf.read(name)
                         nested_result = validate_archive_bytes(
                             nested, f"{label}::{name}", nested_ext, recurse=True,
-                            known_catalog_ids=active_catalog_ids
+                            known_catalog_ids=active_catalog_ids,
+                            parent_scenario_graph_cache=(
+                                embedded_scenario_kind
+                                if nested_ext == ".pdscenario" else None
+                            ),
                         )
                         result.extend(nested_result)
     except zipfile.BadZipFile:
@@ -8163,6 +10706,7 @@ def validate_root(root: Path, require_all_families: bool = False,
                 archive.read_bytes(), archive.suffix, recurse=recurse
             )
         )
+    result.errors.extend(base_animation_slot_id_errors(sorted(archives)))
 
     for archive in sorted(archives):
         archive_result = validate_archive_path(
@@ -8172,7 +10716,9 @@ def validate_root(root: Path, require_all_families: bool = False,
         result.extend(archive_result)
 
     if require_all_families:
-        missing = sorted(set(TYPED_DESCRIPTORS) - result.families)
+        missing = sorted(
+            set(TYPED_DESCRIPTORS) - FAMILIES_NOT_YET_REQUIRED - result.families
+        )
         for ext in missing:
             result.errors.append(
                 f"{root} missing required family {ext} ({FAMILY_NAMES[ext]})"
@@ -8727,6 +11273,7 @@ def run_selftest() -> int:
                     "effect_file = effect.graph.json\n"
                     "timeline_file = timeline.json\n"
                     "shader_id = classic_tint\nintensity = 1.0\n"
+                    "grid_provenance = original\n"
                 ),
                 "effect.graph.json": "{}",
                 "timeline.json": "{}",
@@ -8734,6 +11281,23 @@ def run_selftest() -> int:
             ("effect.ini", "shader_id = classic_tint",
              "shader_id = example_glow"),
             "shader_id example_glow has no production pipeline for effect_key explosion",
+        ),
+        (
+            "EFFECT-PROVENANCE",
+            validate_effect_source_contract,
+            {
+                "effect.ini": (
+                    "[effect]\ncatalog_id = test:effect\nname = Test Effect\n"
+                    "schema = pd.effect_graph.v2\n"
+                    "profile_kind = explosion\neffect_file = effect.graph.json\n"
+                    "target_policy = callsite\nattachment_policy = callsite\n"
+                    "priority_policy = callsite\nscorch_policy = callsite\n"
+                    "grid_provenance = unverified\n"
+                ),
+                "effect.graph.json": "{}",
+            },
+            ("effect.ini", "grid_provenance = unverified", "grid_provenance = unknown"),
+            "grid_provenance must be original, byor, or unverified",
         ),
         (
             "PROP",
@@ -8885,6 +11449,53 @@ def run_selftest() -> int:
             failures.append(
                 f"{name} structured contract accepted invalid source mutation"
             )
+
+    # ai-list-graphs.md: the AI control-flow edge rules on a hand-made list
+    # (repeated label 5, a branch by position, 0x01c0's cmd[2] label, a missing
+    # label, a backward go_to_first and two commands nothing reaches).
+    edge_list = [
+        (AI_OP_LABEL, [5]), (0x000C, [5]), (AI_OP_GO_TO_NEXT, [5]),
+        (AI_OP_LABEL, [5]), (AI_OP_YIELD, []), (0x01C0, [9, 5]),
+        (0x000C, [4]), (AI_OP_LABEL, [9]), (AI_OP_GO_TO_FIRST, [5]),
+        (AI_OP_RETURN, []), (AI_OP_END, []),
+    ]
+    edges, edge_flags = ai_list_control_flow(edge_list)
+    if edges != [
+        (0, 1, "next"), (1, 2, "next"), (1, 3, "branch"), (2, 3, "goto"),
+        (3, 4, "next"), (4, 5, "next"), (5, 6, "next"), (5, 7, "branch"),
+        (6, 7, "next"), (6, 0, "restart"), (7, 8, "next"), (8, 0, "goto"),
+    ]:
+        failures.append(f"AI-EDGES hand-made list edges are wrong: {edges}")
+    if [index for index, flags in enumerate(edge_flags)
+            if "reachable" not in flags] != [9, 10] or \
+            edge_flags[4] != {"yields", "reachable"}:
+        failures.append("AI-EDGES hand-made list flags are wrong")
+    edge_rows = [
+        {"ailist_ref": "ailist_0000", "list_id": "0x0401",
+         "graph_node": f"scenario.ai.ailist_0000.command.{index:04d}",
+         "command_index": index, "opcode": f"0x{opcode:04x}",
+         "operands": [f"0x{value:02x}" for value in operands]}
+        for index, (opcode, operands) in enumerate(edge_list)
+    ]
+    edge_nodes = [{"id": row["graph_node"]} for row in edge_rows]
+    for node, flags in zip(edge_nodes, edge_flags):
+        node.update({flag: True for flag in AI_LIST_NODE_TRUE_FLAGS if flag in flags})
+        if "reachable" not in flags:
+            node["reachable"] = False
+    edge_links = [
+        {"from": edge_rows[source]["graph_node"],
+         "to": edge_rows[target]["graph_node"], "kind": kind}
+        for source, target, kind in edges
+    ]
+    if ai_list_edge_errors(edge_rows, edge_nodes, edge_links, require=True):
+        failures.append("AI-EDGES a graph that matches its rows was refused")
+    if not any("missing restart edge to command 0" in error for error in
+               ai_list_edge_errors(edge_rows, edge_nodes, edge_links[:9] + edge_links[10:],
+                                   require=True)):
+        failures.append("AI-EDGES a missing restart edge was not reported")
+    if ai_list_edge_errors(edge_rows, [{"id": row["graph_node"]} for row in edge_rows],
+                           [], require=False):
+        failures.append("AI-EDGES a graph from before the edges was refused")
 
     if failures:
         print("asset-archive scanner selftest FAILED:", file=sys.stderr)

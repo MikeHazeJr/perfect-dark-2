@@ -236,6 +236,49 @@ TEST_CASE("device and context retirement remove only matching physical owners",
     REQUIRE(owners.count(0, ACTION_MENU_ACCEPT) == 0);
 }
 
+TEST_CASE("the preferred frontend controller retires superseded borrowed holds",
+    "[input][actionmap][ownership]")
+{
+    InputMappingContext menu = {};
+    ActionDigitalOwners owners;
+    constexpr int32_t borrowedInstance = 42;
+    constexpr int32_t preferredInstance = 43;
+    const auto borrowedButton = actionSourceKey(ActionSourceKind::ControllerButton, borrowedInstance, 0);
+    const auto borrowedAxis = actionSourceKey(ActionSourceKind::ControllerAxis, borrowedInstance, 3);
+    const auto preferredButton = actionSourceKey(ActionSourceKind::ControllerButton, preferredInstance, 0);
+    const auto nativeButton = actionSourceKey(ActionSourceKind::ControllerButton, borrowedInstance, 1);
+    const auto keyboard = actionSourceKey(ActionSourceKind::Keyboard, 0, SDL_SCANCODE_DOWN);
+    REQUIRE(owners.press(borrowedButton, 0, ACTION_MENU_ACCEPT, &menu, true).first);
+    REQUIRE(owners.press(borrowedAxis, 0, ACTION_MENU_DOWN, &menu, true).first);
+    REQUIRE(owners.press(nativeButton, 1, ACTION_MENU_CANCEL, &menu).first);
+    REQUIRE_FALSE(owners.press(keyboard, 0, ACTION_MENU_DOWN, &menu).first);
+
+    owners.retireBorrowedFrontendOwners(borrowedInstance, [](const ActionDigitalRelease &) {
+        FAIL("an unrelated controller arrival must preserve the current borrowed holds");
+    });
+    REQUIRE(owners.count(0, ACTION_MENU_ACCEPT) == 1);
+    REQUIRE(owners.count(0, ACTION_MENU_DOWN) == 2);
+
+    int retired = 0;
+    owners.retireBorrowedFrontendOwners(preferredInstance, [&](const ActionDigitalRelease &release) {
+        REQUIRE(release.valid);
+        REQUIRE(release.last == (release.owner.action == ACTION_MENU_ACCEPT));
+        ++retired;
+    });
+    REQUIRE(retired == 2);
+    REQUIRE(owners.count(0, ACTION_MENU_ACCEPT) == 0);
+    REQUIRE(owners.count(0, ACTION_MENU_DOWN) == 1);
+    REQUIRE(owners.count(1, ACTION_MENU_CANCEL) == 1);
+
+    REQUIRE(owners.press(preferredButton, 0, ACTION_MENU_ACCEPT, &menu).first);
+    REQUIRE_FALSE(owners.release(borrowedButton).valid);
+    REQUIRE_FALSE(owners.release(borrowedAxis).valid);
+    REQUIRE(owners.count(0, ACTION_MENU_ACCEPT) == 1);
+    REQUIRE(owners.release(preferredButton).last);
+    REQUIRE(owners.release(keyboard).last);
+    REQUIRE(owners.release(nativeButton).last);
+}
+
 TEST_CASE("active binding skips primary keys captured by another context",
     "[input][actionmap][binding][glyphs]")
 {
@@ -386,9 +429,16 @@ TEST_CASE("production dispatch glyph and menu scroll use shared authoritative se
 {
     const std::string actionmap = source("port/src/actionmap.cpp");
     const std::string glyphs = source("port/fast3d/pdgui_glyphs.cpp");
-    REQUIRE(actionmap.find("const ActionBindingMatch winner = actionBindingResolveVkPair(")
+    REQUIRE(actionmap.find("ActionBindingMatch winner = actionBindingResolveVkPair(")
         != std::string::npos);
-    REQUIRE(actionmap.find("return actionBindingFindVk(contexts, s_NumActive, player, action, device, allowed)")
+    REQUIRE(actionmap.find("return actionBindingFindVkMatching(contexts, s_NumActive, player, action,")
+        != std::string::npos);
+    REQUIRE(actionmap.find("winner = {owner, binding.action, binding.vk}") != std::string::npos);
+    REQUIRE(actionmap.find("device, allowed, actionmapMatchNonRecoveryVk, &search)") != std::string::npos);
+    REQUIRE(actionmap.find("actionmapFrontendBorrows(instance)") != std::string::npos);
+    REQUIRE(actionmap.find("s_DigitalOwners.retireBorrowedFrontendOwners(instance, actionmapReleaseDigitalOwner)")
+        != std::string::npos);
+    REQUIRE(actionmap.find("? actionmapFrontendPad() : SDL_GameControllerFromPlayerIndex(player)")
         != std::string::npos);
     REQUIRE(glyphs.find("kAllImcs") == std::string::npos);
     REQUIRE(glyphs.find("actionmapGetActiveBindingVkMatching(0, action, ACTIONMAP_DEVICE_GAMEPAD") != std::string::npos);

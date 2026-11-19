@@ -71,6 +71,12 @@ extern struct menudialogdef g_SoloMissionOptionsMenuDialog;
  * on stage transition. */
 extern struct menudialogdef g_SoloMissionEndscreenCompletedMenuDialog;
 extern struct menudialogdef g_SoloMissionEndscreenFailedMenuDialog;
+/* B-1193: the two-player mission results are not dead on PC; networked co-op
+ * and counter-op push them (endscreen.c), one per machine. */
+extern struct menudialogdef g_2PMissionEndscreenCompletedHMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenFailedHMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenCompletedVMenuDialog;
+extern struct menudialogdef g_2PMissionEndscreenFailedVMenuDialog;
 extern struct menudialogdef g_NetMenuDialog;
 extern struct menudialogdef g_NetJoiningDialog;
 
@@ -160,6 +166,10 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_DEBUG_OVERLAY]       = "debug_overlay",
     [MENU_TYPE_GRID_SUBMENU]        = "grid_submenu",
     [MENU_TYPE_SOCIAL_SHELL]        = "social_shell",
+    [MENU_TYPE_GRID_PLACEMENT]      = "grid_placement",
+    [MENU_TYPE_GRID_LEVEL_TOOLS]    = "grid_level_tools",
+    [MENU_TYPE_GRID_EDITOR_CONTROLS] = "grid_editor_controls",
+    [MENU_TYPE_GRID_VARIANT_REVIEW] = "grid_variant_review",
 };
 
 /* ---- Private helpers ---- */
@@ -177,6 +187,10 @@ static s32 menupoolLegacyStackOptional(menu_type_t type)
     case MENU_TYPE_SOCIAL_LOBBY:
     case MENU_TYPE_SOCIAL_SHELL:
     case MENU_TYPE_CRASH_RECOVERY:
+    case MENU_TYPE_GRID_PLACEMENT:
+    case MENU_TYPE_GRID_LEVEL_TOOLS:
+    case MENU_TYPE_GRID_EDITOR_CONTROLS:
+    case MENU_TYPE_GRID_VARIANT_REVIEW:
         return 1;
     default:
         return 0;
@@ -683,6 +697,12 @@ void menupoolInit(void)
      * menupoolAcquireDialog, leaving the ctx leak-prone on force-close. */
     REG(&g_SoloMissionEndscreenCompletedMenuDialog, MENU_TYPE_ENDSCREEN_SOLO);
     REG(&g_SoloMissionEndscreenFailedMenuDialog,    MENU_TYPE_ENDSCREEN_SOLO);
+    /* B-1193: networked co-op and counter-op results (one per machine), so
+     * the lobby UI and the smoke harness can tell they are open. */
+    REG(&g_2PMissionEndscreenCompletedHMenuDialog,  MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenFailedHMenuDialog,     MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenCompletedVMenuDialog,  MENU_TYPE_ENDSCREEN_SOLO);
+    REG(&g_2PMissionEndscreenFailedVMenuDialog,     MENU_TYPE_ENDSCREEN_SOLO);
 
     /* ---- End Game confirm (DANGER popup) ----
      * B-End-Game-Input: routes through the shared WARNING_MODAL slot so

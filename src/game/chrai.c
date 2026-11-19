@@ -9,6 +9,19 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+#include "ai_edge_shadow.h"
+
+/* Decision 3: whether a scenario-source stage's stage.json ai rule keeps
+ * guards off their dark room AI list. */
+static bool chraiStageHasNoDarkRoomLists(void)
+{
+	scenario_stage_ai_t rule;
+
+	return scenarioSourceStageAi(&rule) && rule.no_dark_room_lists;
+}
 
 bool (*g_CommandPointers[])(void) = {
 	/*0x0000*/ aiGoToNext,
@@ -668,6 +681,33 @@ u32 chraiGoToLabel(u8 *ailist, u32 aioffset, u8 label)
 	} while (true);
 }
 
+/* AI lists as graphs, slice 2 (context/designs/modding/ai-list-graphs.md):
+ * the shadow walk. On a stage built from scenario source the interpreter
+ * reports each command it dispatched, with the cursor after it, and
+ * ai_edge_shadow.c checks the move against the command's edges. Play does
+ * not change. */
+static s32 chraiShadowListId(const u8 *list)
+{
+	bool is_global = false;
+
+	return chraiGetListIdByList((u8 *)list, &is_global);
+}
+
+static void chraiShadowCheck(u8 *list, u32 offset, s32 type,
+		ai_edge_shadow_move_t move)
+{
+	ai_edge_shadow_step_t step;
+
+	step.list = list;
+	step.offset = offset;
+	step.opcode = (u16)type;
+	step.move = move;
+	step.after_list = g_Vars.ailist;
+	step.after_offset = g_Vars.aioffset;
+	step.list_id = chraiShadowListId;
+	aiEdgeShadowObserve(&step);
+}
+
 void chraiExecute(void *entity, s32 proptype)
 {
 	g_Vars.chrdata = NULL;
@@ -756,7 +796,11 @@ void chraiExecute(void *entity, s32 proptype)
 				&& g_Vars.chrdata->darkroomthing
 				&& chrHasFlag(g_Vars.chrdata, CHRFLAG1_INDARKROOM, BANK_1) == 0
 				&& ailistFindById(g_Vars.chrdata->aidarkroomlist) != g_Vars.chrdata->ailist
-				&& g_Vars.stagenum != STAGE_CRASHSITE) {
+				/* Decision 3: a scenario-source stage keeps guards off their
+				 * dark room list by its stage.json ai rule; the stage check
+				 * stays for a ROM stage. */
+				&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()
+					: g_Vars.stagenum != STAGE_CRASHSITE)) {
 			g_Vars.chrdata->darkroomthing = 0;
 
 			if (g_Vars.chrdata->aidarkroomlist >= 0
@@ -774,6 +818,10 @@ void chraiExecute(void *entity, s32 proptype)
 			// empty
 		}
 
+		/* AI lists as graphs, slice 2: the shadow walk runs on a stage built
+		 * from scenario source only, where every list has an edge table. */
+		const bool shadow = bgUsesScenarioSource() != 0;
+
 		// Iterate and execute the ailist
 		while (g_Vars.ailist) {
 			u8 *cmd = g_Vars.aioffset + g_Vars.ailist;
@@ -782,8 +830,13 @@ void chraiExecute(void *entity, s32 proptype)
 			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers)) {
 				u8 *prevailist = g_Vars.ailist;
 				u32 prevoffset = g_Vars.aioffset;
+				ai_edge_shadow_move_t move = AI_EDGE_SHADOW_MOVE_WENT_ON;
 
 				if (g_CommandPointers[type]()) {
+					if (shadow) {
+						chraiShadowCheck(prevailist, prevoffset, type,
+							AI_EDGE_SHADOW_MOVE_STOPPED);
+					}
 					break;
 				}
 
@@ -798,6 +851,12 @@ void chraiExecute(void *entity, s32 proptype)
 				 * lists or moved aioffset already differs and is untouched. */
 				if (g_Vars.ailist == prevailist && g_Vars.aioffset == prevoffset) {
 					g_Vars.aioffset += chraiGetCommandLength(g_Vars.ailist, g_Vars.aioffset);
+					move = AI_EDGE_SHADOW_MOVE_SKIPPED;
+				}
+
+				/* After the guard: the cursor is where the next command runs. */
+				if (shadow) {
+					chraiShadowCheck(prevailist, prevoffset, type, move);
 				}
 			} else {
 				// This is attempting to handle situations where the command

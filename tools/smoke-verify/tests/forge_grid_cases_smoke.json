@@ -1,0 +1,89 @@
+{
+  "scenario_name": "forge_grid_cases_smoke",
+  "description": "Author case homes and team respawn pads in the Blank Room, then load the saved arena in native Capture the Case.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_intro.cpp",
+    "src/game/mplayer/scenarios/capturethecase.inc"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_grid_cases"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Grid_Cases",
+    "--debug-forge-level-cases",
+    "--launch-mp-room",
+    "mod:arena_grid_cases",
+    "base:capture_the_case",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_cases_smoke",
+      "FORGE\\.LEVEL\\.EDIT: authored 4 case homes and 4 team respawns",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_cases",
+      "SCENARIO\\.SOURCE: intro for '[^']*arena_grid_cases[^']*': rows=8 .*cases=4 case_respawns=4 .*source=intro.json",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "CTC: team [0-3] case on base [0-3] pad=[0-3] room=1 respawnpads=1 prop=ok",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "CTC: base [0-9] has no usable",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

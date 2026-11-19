@@ -67,8 +67,14 @@ void bodiesReset(s32 stagenum)
 		g_NumActiveHeadsPerGender =
 			bodiesGetActiveHeadCountForStageId(g_MissionConfig.stage_id, default_count);
 
+		/* The default of 8 is the original game's value for every base
+		 * stage outside the override map, so it is not worth a warning
+		 * there: it fired in 14 of 17 campaign missions and buried real
+		 * ones. Only a stage from outside the base game is told that it
+		 * fell through to the default. */
 		if (g_NumActiveHeadsPerGender == default_count
-				&& g_MissionConfig.stage_id[0] != '\0') {
+				&& g_MissionConfig.stage_id[0] != '\0'
+				&& strncmp(g_MissionConfig.stage_id, "base:", 5) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"BODIES.HEADCOUNT: stage_id='%s' not in override map "
 				"(base:infiltration|rescue|escape), defaulting to %d -- "

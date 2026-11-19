@@ -29,6 +29,10 @@
 #include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "net/netmanifest.h"
+#include "net/net_scenario_state_wire.h"
+#include "grid_match_runtime.h"
+#include "net/grid_edit_room_net.h"
+#include "net/grid_match_result.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -39,6 +43,7 @@
 #include "game/playermgr.h"
 #include "game/bot.h"
 #include "game/chr.h"
+#include "game/chraction.h"
 #include "game/bondgun.h"
 #include "game/game_1531a0.h"
 #include "game/game_0b0fd0.h"
@@ -47,10 +52,15 @@
 #include "game/menu.h"
 #include "game/pdmode.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/setup.h"
+#if !defined(PD_SERVER)
+#include "game/mplayer/scenarios.h"
+#endif
 #include "lib/main.h"
 #include "lib/vi.h"
 #include "config.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "crashbreadcrumb.h"
 #include "console.h"
 #include "fs.h"
@@ -79,6 +89,8 @@
 #if !defined(PD_SERVER)
 #include "input.h"
 #include "inputctx.h"
+#include "pdgui_toast.h"
+#include "smoke_harness.h"
 #include "menupool.h"
 #include "scene.h"
 #endif
@@ -86,6 +98,7 @@
 s32 g_NetMode = NETMODE_NONE;
 u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 u8  g_NetCounterOpClientId = NET_NULL_CLIENT;
+u8  g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 u8  g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
 s32 g_NetHostLatch = false;
@@ -132,7 +145,21 @@ static struct {
 	bool auth_accepted;
 	char addr[NET_MAX_ADDR + 1];
 	struct netclientsettings settings;
+	grid_match_runtime_identity_t grid;
+	grid_match_reconnect_sources_t grid_sources;
+	u32 grid_epoch;
+	u32 grid_retained_ms;
+	u8 grid_client_id;
+	u8 grid_playernum;
 } s_NetReconnectAttempt;
+
+static void netClientReconnectClear(void)
+{
+	gridMatchRuntimeFreeReconnectSources(&s_NetReconnectAttempt.grid_sources);
+	memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+}
+
+static void netClientGridReconnectExpire(void);
 
 /* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
  * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
@@ -145,6 +172,9 @@ s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not 
 bool g_NetBotAuthorityDelegated = false; /* true once SVC_BOT_AUTHORITY sent this match */
 u32  g_NetMatchSeed             = 0;    /* L2-4: server-generated seed for deterministic spawn pools */
 u32  g_NetStageEpoch            = 0;    /* v58: exact published stage-session identity */
+/* A Room can outlive many Grid and ordinary worlds. Reserve each identity
+ * until the ENet host itself is replaced, including a partially sent start. */
+static u32 s_NetStageEpochSequence;
 
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
@@ -168,6 +198,8 @@ struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRel
  * producers reset g_NetMsgRel around their direct sends. */
 static u8 s_NetResyncTxnBuf[65536];
 
+#define NET_SCORE_PAYLOAD_MAX (2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u))
+
 typedef struct net_stage_end_pending_s {
 	bool active;
 	u8 room_id;
@@ -175,9 +207,18 @@ typedef struct net_stage_end_pending_s {
 	/* The final Combat Simulator scores went out ahead of the terminal packet.
 	 * Kept across a failed terminal send so a retry does not depend on it. */
 	bool final_scores_sent;
+	/* B-1193: the same for a co-op or counter-op mission's objective statuses. */
+	bool final_objectives_sent;
+	grid_match_result_t grid_result;
+	grid_match_scorecard_t grid_scorecard;
+	u8 grid_scores[NET_SCORE_PAYLOAD_MAX];
+	u32 grid_scores_size;
 } net_stage_end_pending_t;
 
 static net_stage_end_pending_t s_NetStageEndPending;
+static grid_match_result_t s_LastGridResult;
+static grid_match_scorecard_t s_LastGridScores;
+static grid_match_end_reason_e s_GridEndReason = GRID_MATCH_END_OTHER;
 /* Remains set through the end of the frame that publishes SVC_STAGE_END, even
  * when the first send succeeds immediately and clears the pending retry. This
  * prevents stale gameplay/spectator traffic from following the terminal
@@ -199,6 +240,19 @@ typedef enum net_stage_replication_phase_e {
 static net_stage_replication_phase_e s_NetStageReplicationPhase;
 static u32 s_NetStageReplicationWaitMask;
 static bool s_NetStageAuthorityReady;
+static u32 s_NetStageAuthorityLoadedMs;
+
+#define NET_GRID_STAGE_READY_TIMEOUT_MS 30000u
+
+typedef struct net_grid_fiesta_spawn_record {
+	u32 life;
+	u32 published;
+	s32 weapon;
+	struct player_spawn_pose pose;
+} net_grid_fiesta_spawn_record_t;
+
+static net_grid_fiesta_spawn_record_t s_NetGridFiestaSpawns[NET_MAX_CLIENTS];
+static u32 s_NetGridFiestaSpawnEpoch;
 
 static void netServerClearPreservedPlayers(const char *reason);
 static void netServerDiscardPreservedPlayer(
@@ -425,6 +479,7 @@ u32 netUploadKbpsEstimate(void)
 
 static inline void netClientReset(struct netclient *cl)
 {
+	netGridEditClientReset(cl);
 	/* Retire queued and active content before this stable slot can be reused. */
 	netDistribServerCancelClient(cl);
 	if (cl->state >= CLSTATE_GAME && cl->player) {
@@ -442,6 +497,7 @@ static inline void netClientReset(struct netclient *cl)
 	cl->settings.team = 0xff;
 	cl->room_id = 0xFF;
 	cl->reconnect_preserved_index = NET_NULL_CLIENT;
+	cl->grid_wire_playernum = NET_NULL_CLIENT;
 	netmsgChatRateReset((u32)cl->id);
 	netmsgRoomMutationRateReset((u32)cl->id);
 	netmsgAdminAuthRateReset((u32)cl->id);
@@ -449,6 +505,11 @@ static inline void netClientReset(struct netclient *cl)
 
 static inline void netClientResetAll(void)
 {
+	netGridEditNetworkReset();
+	netmsgGridCancelArenaOffer();
+	gridMatchRuntimeCancelPending();
+	netGridClearMatchResult();
+	s_GridEndReason = GRID_MATCH_END_OTHER;
 	g_NetMaxClients = NET_MAX_CLIENTS;
 	g_NetNumClients = 1; // always at least one client, which is us
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
@@ -507,7 +568,19 @@ static inline void netClientRecordMove(struct netclient *cl, const struct player
 		move->weaponnum = -1;
 	}
 
-	if (pl->gunctrl.dualwielding && !pl->gunctrl.throwing) {
+	if (!pl->gunctrl.throwing && netmsgGridGameplayEpoch()) {
+		const bool forward_select = g_NetMode == NETMODE_SERVER && pl->isremote
+			&& netPlayerMovePending(cl) && (cl->inmove[0].ucmd & UCMD_SELECT);
+		const bool dual = forward_select
+			? (cl->inmove[0].ucmd & UCMD_SELECT_DUAL) != 0 : pl->gunctrl.dualwielding;
+		move->ucmd &= ~UCMD_SELECT_DUAL;
+		if (dual) move->ucmd |= UCMD_SELECT_DUAL;
+		if ((move->ucmd ^ cl->outmove[1].ucmd) & UCMD_SELECT_DUAL) move->ucmd |= UCMD_SELECT;
+		/* Both hands can change without a queued right-hand switch. */
+		if ((move->ucmd & UCMD_SELECT) && move->weaponnum < 0) {
+			move->weaponnum = forward_select ? cl->inmove[0].weaponnum : pl->gunctrl.weaponnum;
+		}
+	} else if (pl->gunctrl.dualwielding && !pl->gunctrl.throwing) {
 		move->ucmd |= UCMD_SELECT_DUAL;
 		if ((move->ucmd ^ cl->outmove[1].ucmd) & UCMD_SELECT_DUAL) {
 			move->ucmd |= UCMD_SELECT;
@@ -641,6 +714,13 @@ static void netClientCommitPreparedSettings(struct netclient *cl,
 
 static inline void netFlushSendBuffers(void)
 {
+	/* Only the committed match stream may publish gameplay for a private round. */
+	if (g_NetMode == NETMODE_SERVER && !netmsgCutsceneAuthorityHasMatch()
+			&& g_NetLocalClient && netGridEditPrivatePlaytestRoom(g_NetLocalClient->room_id)) {
+		netbufStartWrite(&g_NetMsgRel);
+		netbufStartWrite(&g_NetMsg);
+		return;
+	}
 	if (g_NetMsgRel.wp) {
 		if (g_NetMsgRel.error) {
 			sysLogPrintf(LOG_WARNING, "NET: reliable out buffer overflow");
@@ -668,7 +748,8 @@ static bool netServerStageReplicationPeer(const struct netclient *cl,
 		u8 room_id)
 {
 	return cl && cl->peer && cl->state == CLSTATE_GAME
-		&& !(cl->flags & CLFLAG_SPECTATOR) && cl->room_id == room_id;
+		&& !(cl->flags & CLFLAG_SPECTATOR) && cl->room_id == room_id
+		&& !netGridEditPrivatePlaytestRoom(room_id);
 }
 
 bool netServerStageReplicationBlocked(void)
@@ -679,6 +760,96 @@ bool netServerStageReplicationBlocked(void)
 	return g_NetMode == NETMODE_SERVER
 		&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE;
 }
+
+s32 netGridMatchHoldingInitialFrame(void)
+{
+	if (g_NetMode != NETMODE_SERVER || g_NetDedicated || g_NetGameMode != NETGAMEMODE_MP
+			|| !g_NetStageEpoch || !s_NetStageReplicationWaitMask
+			|| (s_NetStageReplicationPhase != NET_STAGE_REPLICATION_WAITING
+				&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_RELEASE)) return false;
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	return grid && grid->stage == g_StageNum && grid->offer.room_id == g_NetMatchRoomId;
+}
+
+static void netResetGridFiestaSpawns(u32 epoch)
+{
+	memset(s_NetGridFiestaSpawns, 0, sizeof(s_NetGridFiestaSpawns));
+	s_NetGridFiestaSpawnEpoch = epoch;
+	netmsgGridFiestaStageReset();
+}
+
+static bool netServerGridFiestaSpawnStage(void)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	return g_NetMode == NETMODE_SERVER && g_NetGameMode == NETGAMEMODE_MP
+		&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_INACTIVE
+		&& g_NetStageEpoch && s_NetGridFiestaSpawnEpoch == g_NetStageEpoch
+		&& grid && grid->stage == g_StageNum && grid->offer.room_id == g_NetMatchRoomId
+		&& gridMatchRuntimeFiestaActive();
+}
+
+static bool netServerGridFiestaSpawnActor(const struct netclient *client)
+{
+	return client && client->id < NET_MAX_CLIENTS && client == &g_NetClients[client->id]
+		&& (client == g_NetLocalClient || client->peer)
+		&& client->state == CLSTATE_GAME && !(client->flags & (CLFLAG_ABSENT | CLFLAG_SPECTATOR))
+		&& client->room_id == g_NetMatchRoomId
+		&& (netmsgServerMatchClientMask(g_NetMatchRoomId) & (1u << client->id))
+		&& client->playernum < MAX_PLAYERS && client->player
+		&& g_Vars.players[client->playernum] == client->player
+		&& client->player->client == client
+		&& client->player->prop && client->player->prop->chr;
+}
+
+void netServerRecordGridFiestaSpawn(struct netclient *client, s32 weapon)
+{
+	if (!netServerGridFiestaSpawnStage() || !netServerGridFiestaSpawnActor(client)
+			|| client->player->isdead) return;
+	const char *id = gridMatchRuntimeFiestaWeaponId(weapon, NULL);
+	if (!id) return;
+	const struct player *player = client->player;
+	const struct player_spawn_pose pose = {
+		.position = player->prop->pos,
+		.ground = player->vv_ground,
+		.yaw = player->vv_theta,
+		.room = player->prop->rooms[0],
+	};
+	if (!playerSpawnPoseIsValid(&pose)) {
+		sysLogPrintf(LOG_ERROR, "GRID.FIESTA.PLAYER: rejected spawn pose client=%u epoch=%u room=%d",
+			(unsigned)client->id, (unsigned)g_NetStageEpoch, (s32)pose.room);
+		return;
+	}
+	net_grid_fiesta_spawn_record_t *record = &s_NetGridFiestaSpawns[client->id];
+	if (record->life == UINT32_MAX) return;
+	record->weapon = weapon;
+	record->pose = pose;
+	record->life++;
+	sysLogPrintf(LOG_NOTE, "GRID.FIESTA.PLAYER: action=recorded client=%u epoch=%u life=%u player=%u id=%s",
+		(unsigned)client->id, (unsigned)g_NetStageEpoch, (unsigned)record->life,
+		(unsigned)client->playernum, id);
+	if (record->life > 1) {
+		sysLogPrintf(LOG_NOTE, "GRID.FIESTA.POSE: action=recorded client=%u epoch=%u life=%u room=%d pos=%.3f,%.3f,%.3f yaw=%.3f",
+			(unsigned)client->id, (unsigned)g_NetStageEpoch, (unsigned)record->life,
+			(s32)pose.room, pose.position.x, pose.position.y, pose.position.z, pose.yaw);
+	}
+}
+
+u32 netServerGridFiestaSpawnLife(u8 client_id)
+{
+	return client_id < NET_MAX_CLIENTS && netServerGridFiestaSpawnStage()
+		? s_NetGridFiestaSpawns[client_id].life : 0;
+}
+
+s32 netServerGridFiestaSpawnPending(const struct netclient *client)
+{
+	if (!netServerGridFiestaSpawnStage() || !netServerGridFiestaSpawnActor(client)
+			|| client->player->isdead) return 0;
+	const net_grid_fiesta_spawn_record_t *record = &s_NetGridFiestaSpawns[client->id];
+	return record->life != record->published;
+}
+
+static void netServerNpcRemoveClear(const char *why);
+static void netServerAuthorityHeldClear(const char *why);
 
 static void netResetStageReplication(const char *reason,
 		bool clear_epoch)
@@ -692,8 +863,11 @@ static void netResetStageReplication(const char *reason,
 	if (clear_epoch) {
 		g_NetStageEpoch = 0;
 	}
+	netResetGridFiestaSpawns(0);
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage replication was reset");
+	netServerAuthorityHeldClear("the stage replication was reset");
 
 	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
 		sysLogPrintf(LOG_NOTE,
@@ -711,8 +885,11 @@ static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
 	s_NetStageAuthorityReady = false;
 	g_NetPendingResyncFlags = 0;
 	g_NetStageEpoch = prior_epoch;
+	netResetGridFiestaSpawns(0);
 	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("the stage start rolled back");
+	netServerAuthorityHeldClear("the stage start rolled back");
 	sysLogPrintf(LOG_WARNING,
 		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
 		(unsigned)prior_epoch, reason ? reason : "unknown");
@@ -730,6 +907,10 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 			reason ? reason : "unknown");
 		return false;
 	}
+	if (s_NetStageEpochSequence == UINT32_MAX) {
+		sysLogPrintf(LOG_ERROR, "NET.STAGE.REPLICATION arm=rejected stage identity exhausted");
+		return false;
+	}
 
 	for (s32 i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
 		struct netclient *cl = &g_NetClients[i];
@@ -740,15 +921,15 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 		wait_mask |= 1u << (u32)i;
 	}
 
-	g_NetStageEpoch++;
-	if (g_NetStageEpoch == 0) {
-		g_NetStageEpoch = 1;
-	}
+	g_NetStageEpoch = ++s_NetStageEpochSequence;
+	netResetGridFiestaSpawns(g_NetStageEpoch);
 	netmsgVehicleStateStageReset();
 	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_WAITING;
 	s_NetStageReplicationWaitMask = wait_mask;
 	s_NetStageAuthorityReady = false;
 	netNpcReplicationReset();
+	netServerNpcRemoveClear("a new stage starts");
+	netServerAuthorityHeldClear("a new stage starts");
 	/* Stage publication may be initiated late in netEndFrame. Retire every
 	 * shared gameplay byte from the lobby/current stage before serializing the
 	 * new SVC_STAGE_START control transaction. */
@@ -759,6 +940,98 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 		(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId,
 		(unsigned)wait_mask, reason ? reason : "unknown");
 	return true;
+}
+
+static void netCommitGridStageCancel(u8 room_id, u32 roster)
+{
+	const u32 epoch = g_NetStageEpoch;
+	if (gridMatchRuntimeActive()) playerResetAllCutsceneStates();
+	netmsgCutsceneAuthorityReset();
+	for (s32 i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (!(roster & (1u << i)) || cl->state != CLSTATE_GAME) continue;
+		cl->state = CLSTATE_LOBBY;
+		cl->stage_ready = false;
+		cl->reviewing_results = false;
+		cl->grid_stage_commit_epoch = 0;
+		cl->grid_wire_playernum = NET_NULL_CLIENT;
+		if (cl == g_NetLocalClient) continue;
+		if (cl->player && cl->player->client == cl) {
+			cl->player->client = NULL;
+			cl->player->isremote = false;
+		}
+		if (cl->config && cl->config->client == cl) cl->config->client = NULL;
+		cl->player = NULL;
+		cl->config = NULL;
+	}
+	netResetStageReplication("grid-stage-load-timeout", true);
+	netmsgGridStageCancelConfig();
+	g_NetMatchRoomId = 0xff;
+	g_NetRngLatch = false;
+	g_NetPendingResyncReqFlags = 0;
+	g_NetLocalBotAuthority = false;
+	g_NetPendingBotAuthority = false;
+	netbufStartWrite(&g_NetMsg);
+	netbufStartWrite(&g_NetMsgRel);
+#if !defined(PD_SERVER)
+	pdguiToastEnqueue(0, TOAST_CATEGORY_SYSTEM, "Grid match cancelled",
+		"A player did not finish loading. The Room is ready to try again.");
+#endif
+	sysLogPrintf(LOG_NOTE,
+		"NET.GRID.STAGE: cancelled role=%s room=%u epoch=%u roster=0x%08x",
+		g_NetMode == NETMODE_SERVER ? "host" : "guest",
+		(unsigned)room_id, (unsigned)epoch, (unsigned)roster);
+}
+
+s32 netClientGridStageCancel(u8 room_id, u32 roster)
+{
+	if (g_NetMode != NETMODE_CLIENT || !mainQueueGridStageAbort(room_id)) return 0;
+	netCommitGridStageCancel(room_id, roster);
+	return 1;
+}
+
+static void netServerCancelGridStageWait(u32 pending_mask)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (!grid || g_NetDedicated || !g_NetStageEpoch || g_NetGameMode != NETGAMEMODE_MP
+			|| grid->offer.room_id != g_NetMatchRoomId || grid->stage != g_StageNum
+			|| netGridEditPrivatePlaytestRoom(g_NetMatchRoomId)) return;
+
+	const u8 room_id = grid->offer.room_id;
+	const u32 epoch = g_NetStageEpoch;
+	const u32 roster = netmsgServerMatchClientMask(room_id);
+	hub_room_t *room = roomGetById(room_id);
+	u8 bytes[96];
+	struct netbuf wire = { .data = bytes, .size = sizeof(bytes) };
+	if (!room || !roster || netmsgSvcGridStageCancelWrite(&wire) != 0
+			|| !mainQueueGridStageAbort(room_id)) return;
+
+	sysLogPrintf(LOG_WARNING,
+		"NET.GRID.STAGE: load_timeout room=%u epoch=%u pending_mask=0x%08x timeout_ms=%u",
+		(unsigned)room_id, (unsigned)epoch, (unsigned)pending_mask,
+		(unsigned)NET_GRID_STAGE_READY_TIMEOUT_MS);
+	/* Match START and cancellation must stay on the same ordered channel.
+	 * Any peer whose packet cannot be queued must leave the abandoned stage. */
+	for (s32 i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (!(s_NetStageReplicationWaitMask & roster & (1u << i))
+				|| !netServerStageReplicationPeer(cl, room_id)) continue;
+		struct netbuf packet = wire;
+		if (netSend(cl, &packet, true, NETCHAN_DEFAULT) != wire.wp) {
+			netServerKick(cl, DISCONNECT_FILES);
+		}
+	}
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		struct netpreservedplayer *preserved = &g_NetPreservedPlayers[i];
+		if (preserved->active && preserved->room_id == room_id
+				&& preserved->grid_stage_epoch == epoch
+				&& preserved->grid_offer_generation == grid->offer.generation) {
+			netServerDiscardPreservedPlayer(preserved, "grid_stage_load_timeout");
+		}
+	}
+	roomTransition(room, ROOM_STATE_LOBBY);
+	netRoomListMarkDirty();
+	netCommitGridStageCancel(room_id, roster);
 }
 
 static bool netServerStageReplicationReady(void)
@@ -799,6 +1072,10 @@ static bool netServerStageReplicationReady(void)
 	}
 
 	if (pending_mask || !s_NetStageAuthorityReady) {
+		if (pending_mask && s_NetStageAuthorityReady && gridMatchRuntimeActive()
+				&& SDL_GetTicks() - s_NetStageAuthorityLoadedMs >= NET_GRID_STAGE_READY_TIMEOUT_MS) {
+			netServerCancelGridStageWait(pending_mask);
+		}
 		return false;
 	}
 
@@ -815,6 +1092,62 @@ typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
 /* Append one complete resync message or leave the destination byte-for-byte
  * writable at its prior boundary. The pending bit is cleared by the caller
  * only after the complete baseline is queued. */
+#if !defined(PD_SERVER)
+/* v64 (T-NETWORKING-011): the objective scenario state the host last sent,
+ * so a running timer is resent at a low rate rather than every frame. */
+static net_scenario_state_t s_NetScenarioLastSent;
+static s32 s_NetScenarioHaveSent;
+static u32 s_NetScenarioLastSentTick;
+
+#define NET_SCENARIO_TIMER_RESEND_TICKS 30
+
+static void netServerScenarioStateResetSend(void)
+{
+	memset(&s_NetScenarioLastSent, 0, sizeof(s_NetScenarioLastSent));
+	s_NetScenarioHaveSent = false;
+	s_NetScenarioLastSentTick = 0;
+}
+
+/* Host, every update frame of an active match: send the scenario state when
+ * it changed, or when only its timer moved and half a second has passed.
+ * Nothing goes out before the stage baseline has carried the first state. */
+static void netServerScenarioStateTick(void)
+{
+	net_scenario_state_t state;
+	s32 changed = false;
+
+	if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCENARIO) {
+		return;
+	}
+
+	if (!scenarioNetCaptureState(&state, &changed)) {
+		return;
+	}
+
+	if (!changed && s_NetScenarioHaveSent) {
+		if (memcmp(&state, &s_NetScenarioLastSent, sizeof(state)) == 0
+				|| (u32)(g_NetTick - s_NetScenarioLastSentTick) < NET_SCENARIO_TIMER_RESEND_TICKS) {
+			return;
+		}
+	}
+
+	if (netmsgSvcScenarioStateWrite(&g_NetMsgRel, &state) != 0) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: send failed scenario=%u rev=%u; next frame retries",
+			(unsigned)state.scenario, (unsigned)state.revision);
+		return;
+	}
+
+	if (changed) {
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=change",
+			(unsigned)state.scenario, (unsigned)state.revision);
+	}
+
+	memcpy(&s_NetScenarioLastSent, &state, sizeof(state));
+	s_NetScenarioHaveSent = true;
+	s_NetScenarioLastSentTick = g_NetTick;
+}
+#endif
+
 static bool netAppendResyncTransaction(struct netbuf *dst,
 		net_resync_writer_fn writer)
 {
@@ -835,6 +1168,44 @@ static bool netAppendResyncTransaction(struct netbuf *dst,
 
 static bool netAppendNpcResyncTransaction(struct netbuf *dst);
 
+static bool netAppendGridFiestaSpawns(struct netbuf *dst, u32 *queued_lives,
+		bool release_baseline)
+{
+	if (!netServerGridFiestaSpawnStage()) return true;
+	for (u8 i = 0; i < NET_MAX_CLIENTS; i++) {
+		const net_grid_fiesta_spawn_record_t *record = &s_NetGridFiestaSpawns[i];
+		struct netclient *client = &g_NetClients[i];
+		if (record->life == record->published || !netServerGridFiestaSpawnActor(client)) continue;
+		const bool dead = client->player->isdead != 0;
+		if (dead && !release_baseline) continue;
+		const enum net_grid_fiesta_spawn_kind mode = dead ? NET_GRID_FIESTA_RELEASE_DEAD : NET_GRID_FIESTA_GRANT;
+		const u32 start = dst->wp;
+		if (netmsgSvcGridFiestaSpawnWrite(dst, client, record->life, record->weapon, mode,
+				dead ? NULL : &record->pose) != 0
+				|| dst->error || dst->wp <= start) return false;
+		queued_lives[i] = record->life;
+	}
+	return true;
+}
+
+static void netMarkGridFiestaSpawnsPublished(const u32 *queued_lives)
+{
+	for (u8 i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (queued_lives[i]) s_NetGridFiestaSpawns[i].published = queued_lives[i];
+	}
+}
+
+static void netServerPublishGridFiestaSpawns(void)
+{
+	struct netbuf wire = { .data = s_NetResyncTxnBuf, .size = sizeof(s_NetResyncTxnBuf) };
+	u32 queued_lives[NET_MAX_CLIENTS] = {0};
+	if (!netAppendGridFiestaSpawns(&wire, queued_lives, false) || !wire.wp) return;
+	const u32 bytes = wire.wp;
+	if (netSendToMatch(g_NetMatchRoomId, &wire, true, NETCHAN_DEFAULT) != bytes) return;
+	netMarkGridFiestaSpawnsPublished(queued_lives);
+	g_NetReliableFrameLen += bytes;
+}
+
 /* Build and queue the complete requested baseline as one reliable packet. No
  * individual ownership bit is consumed until ENet accepts the whole packet
  * for every peer in the match room. RELEASE may therefore retry without ever
@@ -848,6 +1219,7 @@ static bool netServerPublishPendingResyncs(void)
 		.size = sizeof(s_NetResyncTxnBuf),
 	};
 	bool complete = true;
+	u32 queued_fiesta_lives[NET_MAX_CLIENTS] = {0};
 	u32 bytes;
 
 	if (!requested) {
@@ -902,6 +1274,20 @@ static bool netServerPublishPendingResyncs(void)
 			complete = false;
 		}
 	}
+	/* v64: the objective scenario's state rides in the same baseline, so a
+	 * client never shows its own pick of a hill or a base first. */
+	if (complete && (requested & NET_RESYNC_FLAG_SCENARIO)) {
+		if (!netAppendResyncTransaction(&wire,
+				netmsgSvcScenarioStateBaselineWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: scenario state append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	if (complete && s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
+		/* A life recorded during stage loading may already be dead. */
+		complete = netAppendGridFiestaSpawns(&wire, queued_fiesta_lives, true);
+	}
 
 	if (!complete || wire.error || wire.wp == 0) {
 		netbufStartWrite(&wire);
@@ -921,6 +1307,7 @@ static bool netServerPublishPendingResyncs(void)
 	}
 
 	g_NetReliableFrameLen += bytes;
+	netMarkGridFiestaSpawnsPublished(queued_fiesta_lives);
 	g_NetPendingResyncFlags &= (u8)~requested;
 	if (requested & NET_RESYNC_FLAG_SCORES) {
 		/* c3845 (2026-06-23): match-smoke milestone — the stage-start
@@ -1380,9 +1767,10 @@ s32 netStartServer(u16 port, s32 maxclients)
 	}
 
 	g_NetMode = NETMODE_SERVER;
+	s_NetStageEpochSequence = 0;
 	netResetStageReplication("server-start", true);
 	netmsgClcAuthClearCookie();
-	memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+	netClientReconnectClear();
 
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
@@ -1493,8 +1881,10 @@ s32 netServerStageStart(void)
 	 * Phase E: also transition CLSTATE_PREPARING clients (those who sent READY
 	 * through the ready gate); declined clients are already back in CLSTATE_LOBBY
 	 * and are intentionally left there as spectators. */
+	const s32 private_playtest = netGridEditPrivatePlaytestRoom(g_NetMatchRoomId);
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 		state_before[ci] = g_NetClients[ci].state;
+		if (private_playtest && &g_NetClients[ci] != g_NetLocalClient) continue;
 		if (g_NetClients[ci].state == CLSTATE_PREPARING) {
 			if (g_NetMatchRoomId != 0xFF && g_NetClients[ci].room_id != g_NetMatchRoomId) {
 				continue;
@@ -1531,7 +1921,8 @@ s32 netServerStageStart(void)
 		return -3;
 	}
 	netbufStartWrite(&g_NetMsgRel);
-	if (netmsgServerStageStartWrite(&g_NetMsgRel,
+	if (netmsgSvcGridStageCommitWrite(&g_NetMsgRel) != 0
+			|| netmsgServerStageStartWrite(&g_NetMsgRel,
 			g_NetMatchRoomId) != 0) {
 		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 			g_NetClients[ci].state = state_before[ci];
@@ -1635,6 +2026,13 @@ s32 netServerStageStart(void)
 	// kills get current scores immediately rather than waiting for the next
 	// 300-frame periodic broadcast (L1-2).
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
+#if !defined(PD_SERVER)
+	// v64: an objective scenario's state is part of the baseline
+	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()) {
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_SCENARIO;
+	}
+	netServerScenarioStateResetSend();
+#endif
 	netPropSnapReset();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
@@ -1659,6 +2057,10 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	if (g_NetMode != NETMODE_SERVER) {
 		return -1;
+	}
+	if (stageArchiveRepairStatus(stagenum) != 0) {
+		sysLogPrintf(LOG_WARNING, "EXTRACT.STAGE.BACKGROUND: co-op stage 0x%02x is unavailable", (u32)stagenum);
+		return -2;
 	}
 	if (g_NetGameMode != NETGAMEMODE_COOP
 			&& g_NetGameMode != NETGAMEMODE_ANTI) {
@@ -1863,13 +2265,77 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	return 0;
 }
 
+const grid_match_result_t *netGridLastMatchResult(void)
+{
+	return g_NetMode != NETMODE_NONE && g_NetLocalClient
+		&& s_LastGridResult.stage_epoch && s_LastGridResult.offer.room_id == g_NetLocalClient->room_id
+		? &s_LastGridResult : NULL;
+}
+
+const grid_match_scorecard_t *netGridLastMatchScores(void)
+{
+	return netGridLastMatchResult() ? &s_LastGridScores : NULL;
+}
+
+void netGridClearMatchResult(void)
+{
+	gridMatchRuntimeForgetReturnedArena();
+	memset(&s_LastGridResult, 0, sizeof(s_LastGridResult));
+	memset(&s_LastGridScores, 0, sizeof(s_LastGridScores));
+}
+
+static void netCompleteGridScorecard(grid_match_scorecard_t *scorecard)
+{
+	for (u8 i = 0; i < scorecard->count; ++i) {
+		grid_match_score_row_t *row = &scorecard->rows[i];
+		const s32 slot = netChrSlotFromHost(row->host_slot);
+		struct mpchrconfig *config = g_MpAllChrConfigPtrs[slot];
+		if (!config) continue;
+		s32 ranking_deaths = 0;
+		scenarioCalculatePlayerScore(config, slot, &row->score, &ranking_deaths);
+		row->has_score = 1;
+		const char *name = config->name;
+		size_t name_size = sizeof(config->name);
+		if (slot < MAX_PLAYERS) {
+			for (s32 peer = 0; peer < g_NetMaxClients; ++peer) {
+				const struct netclient *client = &g_NetClients[peer];
+				if (client->state == CLSTATE_GAME && client->config && &client->config->base == config
+						&& client->settings.name[0]) {
+					name = client->settings.name;
+					name_size = sizeof(client->settings.name);
+					break;
+				}
+			}
+		}
+		if (name_size >= sizeof(row->name)) name_size = sizeof(row->name) - 1;
+		snprintf(row->name, sizeof(row->name), "%.*s", (int)name_size, name);
+		row->name[strcspn(row->name, "\r\n")] = '\0';
+	}
+}
+
+static void netStoreGridResult(const grid_match_result_t *result, const grid_match_scorecard_t *scorecard)
+{
+	char arena[SHA256_HEX_SIZE], scores[SHA256_HEX_SIZE];
+	s_LastGridResult = *result;
+	s_LastGridScores = *scorecard;
+	sha256ToHex(result->arena_sha256, arena);
+	sha256ToHex(result->score_sha256, scores);
+	sysLogPrintf(LOG_NOTE,
+		"NET.GRID.RESULT: room=%u generation=%llu epoch=%u reason=%u arena=%s revision=%s scores=%s rows=%u",
+		result->offer.room_id, (unsigned long long)result->offer.generation, result->stage_epoch,
+		(u32)result->reason, result->arena_id, arena, scores, (unsigned)scorecard->count);
+}
+
 static bool netServerFlushCutsceneAuthorityPacket(const char *reason,
 		bool append_stage_end, u8 stage_end_room, u8 stage_end_mode)
 {
-	u8 data[NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY + 2u];
+	u8 data[NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY + 2u + NET_SCORE_PAYLOAD_MAX
+		+ 3u + GRID_MATCH_RESULT_WIRE_MAX];
 	struct netbuf wire = { .data = data, .size = sizeof(data) };
 	u8 room_id = 0xff;
 	u32 event_count = 0;
+	const net_stage_end_pending_t *end = &s_NetStageEndPending;
+	const s32 grid_end = append_stage_end && end->grid_result.stage_epoch != 0;
 	netbufStartWrite(&wire);
 	if (netmsgServerPrepareCutsceneAuthorityPacket(&wire, &room_id,
 			&event_count) != 0) {
@@ -1889,6 +2355,12 @@ static bool netServerFlushCutsceneAuthorityPacket(const char *reason,
 			return false;
 		}
 		room_id = stage_end_room;
+		if (grid_end) {
+			netbufWriteU8(&wire, SVC_GRID_MATCH_RESULT);
+			netbufWriteU16(&wire, (u16)end->grid_scores_size);
+			netbufWriteData(&wire, end->grid_scores, end->grid_scores_size);
+			if (!gridMatchResultWrite(&wire, &end->grid_result)) return false;
+		}
 		if (netmsgSvcStageEndWrite(&wire, stage_end_room,
 				stage_end_mode) != 0) {
 			sysLogPrintf(LOG_ERROR,
@@ -1913,6 +2385,12 @@ static bool netServerFlushCutsceneAuthorityPacket(const char *reason,
 			"NET: CUTSCENE.AUTHORITY commit failed after send reason=%s events=%u",
 			reason ? reason : "unspecified", (unsigned)event_count);
 		return false;
+	}
+	if (grid_end) {
+		sysLogPrintf(LOG_NOTE, "MATCH: final scores published before stage end room=%u bytes=%u",
+			room_id, end->grid_scores_size);
+		(void)gridMatchRuntimeRememberReturnedArena(&end->grid_result);
+		netStoreGridResult(&end->grid_result, &end->grid_scorecard);
 	}
 	return true;
 }
@@ -1954,9 +2432,11 @@ static void netServerCommitPendingStageEnd(void)
 		}
 	}
 	g_NetMatchRoomId = 0xFF;
+	g_NetLastCounterOpClientId = g_NetCounterOpClientId;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
 	sessionCatalogTeardown();
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
+	s_GridEndReason = GRID_MATCH_END_OTHER;
 	sysLogPrintf(LOG_NOTE,
 		"NET: SVC_STAGE_END published and committed, returning to lobby");
 }
@@ -1974,7 +2454,7 @@ static bool netServerSendFinalScores(u8 room_id, const char *reason)
 {
 	/* SVC_PLAYER_SCORES: id and count, then per character a slot, a team, two
 	 * s16 totals and one s16 kill count per possible opponent. */
-	u8 data[2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u)];
+	u8 data[NET_SCORE_PAYLOAD_MAX];
 	struct netbuf wire = { .data = data, .size = sizeof(data) };
 	u32 bytes;
 
@@ -1998,17 +2478,67 @@ static bool netServerSendFinalScores(u8 room_id, const char *reason)
 	return true;
 }
 
+/* B-1193: the frame that ends a co-op or counter-op mission wipes the outgoing
+ * buffers (netServerStageEnd), which can drop an SVC_OBJ_STATUS queued earlier
+ * in that frame, and a client shows completed or failed from its cached
+ * statuses. Publish every status on the terminal packet's channel first, as
+ * Combat publishes its final scores. */
+static bool netServerSendFinalObjectives(u8 room_id, const char *reason)
+{
+	/* The objective statuses, then SVC_MISSION_STATS: an id and a count, and
+	 * per player a client id, kills and seven shot counts. */
+	u8 data[MAX_OBJECTIVES * 3u + 2u + MAX_PLAYERS * 17u];
+	struct netbuf wire = { .data = data, .size = sizeof(data) };
+	s32 count = 0;
+	u32 bytes;
+
+	netbufStartWrite(&wire);
+	for (s32 i = 0; i <= g_ObjectiveLastIndex && i < MAX_OBJECTIVES; i++) {
+		netmsgSvcObjStatusWrite(&wire, (u8)i, (u8)g_ObjectiveStatuses[i]);
+		count++;
+	}
+	/* B-1193: and every player's final stats, so each machine's results show
+	 * both players with the host's numbers. */
+	netmsgSvcMissionStatsWrite(&wire);
+	if (wire.error) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses write failed reason=%s room=%u",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	bytes = wire.wp;
+	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses send failed reason=%s room=%u; retry retained",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"MISSION: final objective statuses published before stage end room=%u count=%d",
+		(unsigned)room_id, count);
+	return true;
+}
+
 static bool netServerFlushPendingStageEnd(const char *reason)
 {
 	if (!s_NetStageEndPending.active) {
 		return true;
 	}
 	if (s_NetStageEndPending.mode == NETGAMEMODE_MP
+			&& !s_NetStageEndPending.grid_result.stage_epoch
 			&& !s_NetStageEndPending.final_scores_sent) {
 		if (!netServerSendFinalScores(s_NetStageEndPending.room_id, reason)) {
 			return false;
 		}
 		s_NetStageEndPending.final_scores_sent = true;
+	}
+	if ((s_NetStageEndPending.mode == NETGAMEMODE_COOP
+				|| s_NetStageEndPending.mode == NETGAMEMODE_ANTI)
+			&& !s_NetStageEndPending.final_objectives_sent) {
+		if (!netServerSendFinalObjectives(s_NetStageEndPending.room_id, reason)) {
+			return false;
+		}
+		s_NetStageEndPending.final_objectives_sent = true;
 	}
 	if (!netServerFlushCutsceneAuthorityPacket(reason, true,
 			s_NetStageEndPending.room_id, s_NetStageEndPending.mode)) {
@@ -2016,6 +2546,39 @@ static bool netServerFlushPendingStageEnd(const char *reason)
 	}
 	netServerCommitPendingStageEnd();
 	return true;
+}
+
+void netGridMatchNoteEndReason(s32 reason)
+{
+	if (g_NetMode == NETMODE_SERVER && gridMatchRuntimeActive()
+			&& !s_NetStageEndPending.active) {
+		s_GridEndReason = (grid_match_end_reason_e)reason;
+	}
+}
+
+static s32 netFreezeGridStageEnd(void)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (!grid) return 1;
+	if (!g_NetStageEpoch || grid->offer.room_id != g_NetMatchRoomId
+			|| g_NetGameMode != NETGAMEMODE_MP) return 0;
+	/* A live draft can change what was played without changing the source SHA. */
+	if (netGridEditPrivatePlaytestRoom(grid->offer.room_id)) return 1;
+	net_stage_end_pending_t *end = &s_NetStageEndPending;
+	struct netbuf wire = { .data = end->grid_scores, .size = sizeof(end->grid_scores) };
+	if (netmsgSvcPlayerScoresWrite(&wire) != 0 || wire.wp < 2) return 0;
+	grid_match_result_t result = {
+		.offer = grid->offer, .stage_epoch = g_NetStageEpoch,
+		.end_tick = g_NetTick, .reason = s_GridEndReason,
+	};
+	memcpy(result.arena_id, grid->arena_id, sizeof(result.arena_id));
+	memcpy(result.arena_sha256, grid->arena_sha256, sizeof(result.arena_sha256));
+	sha256Hash(wire.data + 1, wire.wp - 1, result.score_sha256);
+	if (!gridMatchResultReadScores(&result, wire.data + 1, wire.wp - 1, &end->grid_scorecard)) return 0;
+	netCompleteGridScorecard(&end->grid_scorecard);
+	end->grid_result = result;
+	end->grid_scores_size = wire.wp;
+	return 1;
 }
 
 void netServerStageEnd(void)
@@ -2031,6 +2594,10 @@ void netServerStageEnd(void)
 	if (!netmsgCutsceneAuthorityHasMatch()) {
 		sysLogPrintf(LOG_NOTE,
 			"NET: SVC_STAGE_END ignored without active match");
+		return;
+	}
+	if (!netFreezeGridStageEnd()) {
+		sysLogPrintf(LOG_ERROR, "NET.GRID.RESULT: could not freeze the active Grid result");
 		return;
 	}
 
@@ -2110,6 +2677,7 @@ s32 netStartClient(const char *addr)
 	if (g_NetMode || !g_NetInit) {
 		return -1;
 	}
+	netClientGridReconnectExpire();
 	char graph_error[256];
 	if (!wgV2RuntimeCanEnterUse(1, 0, graph_error, sizeof(graph_error))) {
 		sysLogPrintf(LOG_WARNING, "NET.GRAPH.V2: %s", graph_error); return -1;
@@ -2127,6 +2695,10 @@ s32 netStartClient(const char *addr)
 		return -3;
 	}
 	reconnecting = (connect_data & NET_RECONNECT_CONNECT_FLAG) != 0;
+	if (s_NetReconnectAttempt.grid_epoch) {
+		if (reconnecting && !gridMatchRuntimeIsIdle()) return -1;
+		if (!reconnecting) netClientReconnectClear();
+	}
 
 	memset(&g_NetLocalAddr, 0, sizeof(g_NetLocalAddr));
 	g_NetHost = enet_host_create(&g_NetLocalAddr, 1, NETCHAN_COUNT, g_NetClientInRate, g_NetClientOutRate, 0);
@@ -2193,7 +2765,16 @@ s32 netStartClient(const char *addr)
 
 static s32 netDisconnectWithIntent(s32 retain_reconnect)
 {
+	const s32 grid_was_pending = gridMatchRuntimePending() != NULL;
+	netmsgGridCancelArenaOffer();
+	gridMatchRuntimeCancelPending();
+	netGridClearMatchResult();
+	s_GridEndReason = GRID_MATCH_END_OTHER;
 	if (!g_NetMode) {
+		if (!retain_reconnect && s_NetReconnectAttempt.grid_epoch) {
+			netClientReconnectClear();
+			netmsgClcAuthClearCookie();
+		}
 		return -1;
 	}
 
@@ -2201,9 +2782,29 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	const bool wasingame = g_NetLocalClient
 		&& g_NetLocalClient->state == CLSTATE_GAME;
 	const bool reconnect_in_flight = s_NetReconnectAttempt.valid;
-	const bool retain_credential = retain_reconnect && was_client
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	const bool grid_reconnect_unavailable = !reconnect_in_flight
+		&& ((grid && (!g_NetStageEpoch || !g_NetLocalClient || !g_NetLocalClient->stage_ready
+			|| g_NetLocalClient->grid_wire_playernum >= MAX_PLAYERS
+			|| g_NetLocalClient->room_id != grid->offer.room_id))
+			|| (!grid && grid_was_pending));
+	bool retain_credential = retain_reconnect && was_client
 		&& (wasingame || reconnect_in_flight)
+		&& !grid_reconnect_unavailable
 		&& netmsgClcAuthReconnectAvailable(&g_NetRemoteAddr);
+	if (retain_reconnect && was_client && wasingame && grid_reconnect_unavailable) {
+		sysLogPrintf(LOG_CHAT, "The Grid cannot reconnect before the first match load completes.");
+		sysLogPrintf(LOG_NOTE, "NET.GRID.RECONNECT: unavailable reason=initial_load");
+	}
+	if (retain_credential && !reconnect_in_flight && grid) {
+		char err[192] = {0};
+		retain_credential = gridMatchRuntimeRetainReconnectSources(&s_NetReconnectAttempt.grid_sources,
+			err, sizeof(err));
+		if (!retain_credential) {
+			sysLogPrintf(LOG_CHAT, "The Grid could not retain the exact match files for reconnect.");
+			sysLogPrintf(LOG_WARNING, "NET.GRID.RECONNECT: unavailable reason=%s", err);
+		}
+	}
 	if (retain_credential) {
 		/* A first live timeout freezes the exact prior settings/address. A
 		 * second timeout during auth, manifest transfer, or stage publication
@@ -2211,15 +2812,27 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 		 * credential capable of reclaiming the reserved server slot. */
 		if (!reconnect_in_flight) {
 			s_NetReconnectAttempt.valid = true;
-			s_NetReconnectAttempt.auth_accepted = false;
 			s_NetReconnectAttempt.settings = g_NetLocalClient->settings;
+			if (grid) {
+				s_NetReconnectAttempt.grid = *grid;
+				s_NetReconnectAttempt.grid_epoch = g_NetStageEpoch;
+				s_NetReconnectAttempt.grid_retained_ms = SDL_GetTicks();
+				s_NetReconnectAttempt.grid_client_id = (u8)g_NetLocalClient->id;
+				s_NetReconnectAttempt.grid_playernum = g_NetLocalClient->grid_wire_playernum;
+				sysLogPrintf(LOG_NOTE, "NET.GRID.RECONNECT: retained room=%u client=%u player=%u generation=%llu epoch=%u digest=%s retained_packages=%u",
+					(unsigned)grid->offer.room_id, (unsigned)s_NetReconnectAttempt.grid_client_id,
+					(unsigned)s_NetReconnectAttempt.grid_playernum,
+					(unsigned long long)grid->offer.generation, (unsigned)g_NetStageEpoch,
+					grid->offer.manifest_digest, (unsigned)s_NetReconnectAttempt.grid_sources.count);
+			}
 			strncpy(s_NetReconnectAttempt.addr, g_NetLastJoinAddr,
 				sizeof(s_NetReconnectAttempt.addr) - 1);
 			s_NetReconnectAttempt.addr[
 				sizeof(s_NetReconnectAttempt.addr) - 1] = '\0';
 		}
+		s_NetReconnectAttempt.auth_accepted = false;
 	} else {
-		memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+		netClientReconnectClear();
 		netmsgClcAuthClearCookie();
 	}
 
@@ -2300,6 +2913,7 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	}
 	g_NetMatchRoomId = 0xFF;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -2308,15 +2922,49 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 		SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
 		"netDisconnect");
 
-	if (wasingame && !g_AppQuitting) {
+	/* B-1201: since B-1197 a player in the Room after networked results is in
+	 * the lobby state while the ended match or mission stays loaded behind
+	 * the Room until the next one. A disconnect there left that stage live
+	 * offline: a co-op client's guards, puppets of the host whose actions
+	 * were never set up here, then ran their own AI and crashed
+	 * (chrTickAttack). Leave such a stage for CI as an in-game disconnect does. */
+	const bool leftendedstage = !wasingame && g_MainIsEndscreen
+		&& STAGE_IS_GAMEPLAY(g_Vars.stagenum) && g_Vars.stagenum != STAGE_CITRAINING;
+
+	if (leftendedstage) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: disconnect leaves the ended stage 0x%02x behind the Room for CI",
+			(u32)g_Vars.stagenum);
+	}
+
+	if (mainGridRoomBackdropActive() && !g_AppQuitting) {
+		titleSetNextStage(STAGE_CITRAINING);
+		setNumPlayers(1);
+		titleSetNextMode(TITLEMODE_SKIP);
+		sceneStageChangeTo(STAGE_CITRAINING,
+			SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST, "Grid Room disconnect");
+	} else if ((wasingame || leftendedstage) && !g_AppQuitting) {
+		/* B-1201: freeze the stage being left for the frames before CI loads
+		 * (lvReset unpauses CI). Its chrs are this client's puppets of the
+		 * host: with g_NetMode now NETMODE_NONE their AI is no longer
+		 * suppressed (chraTick), and an action the host was running (an
+		 * attack, say) was never set up here. The results push that used to
+		 * pause it is gone (B-1198); each prop's catch-up time goes too, so
+		 * no backgrounded chr ticks with time saved from before the pause. */
+		lvSetPaused(true);
+		g_Vars.lvupdate240 = 0;
+		for (s32 i = 0; g_Vars.props && i < g_Vars.maxprops; i++) {
+			g_Vars.props[i].propupdate240 = 0;
+		}
+
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 			if (g_Vars.players[i]) {
 				g_PlayerConfigsArray[i].options |= OPTION_ASKEDSAVEPLAYER;
 			}
 		}
-		// end the stage immediately
-		mainEndStage();
+		// end the stage immediately, without mission results (B-1198)
+		mainEndStageWithoutResults();
 		// try to drop back to main menu with 1 player
 		mpSetPaused(MPPAUSEMODE_UNPAUSED);
 		/* B-12 Phase 3: reset the participant pool to one local player. */
@@ -2349,11 +2997,28 @@ s32 netDisconnect(void)
 	return netDisconnectWithIntent(false);
 }
 
+static void netClientGridReconnectExpire(void)
+{
+	const u32 max_ms = (NET_PRESERVE_TIMEOUT_FRAMES / 60u) * 1000u;
+	if (!s_NetReconnectAttempt.grid_epoch
+			|| SDL_GetTicks() - s_NetReconnectAttempt.grid_retained_ms < max_ms) return;
+	sysLogPrintf(LOG_NOTE, "NET.GRID.RECONNECT: expired epoch=%u",
+		(unsigned)s_NetReconnectAttempt.grid_epoch);
+	if (g_NetMode == NETMODE_CLIENT) {
+		netDisconnectWithIntent(false);
+	} else {
+		netClientReconnectClear();
+		netmsgClcAuthClearCookie();
+	}
+}
+
 s32 netClientReconnectAvailable(void)
 {
 	ENetAddress endpoint;
+	if (g_NetMode == NETMODE_NONE) netClientGridReconnectExpire();
 
 	if (g_NetMode != NETMODE_NONE || !s_NetReconnectAttempt.valid
+			|| (s_NetReconnectAttempt.grid_epoch && !gridMatchRuntimeIsIdle())
 			|| !s_NetReconnectAttempt.addr[0]
 			|| !netParseAddr(&endpoint, s_NetReconnectAttempt.addr)) {
 		return false;
@@ -2382,6 +3047,34 @@ void netClientReconnectAuthAccepted(void)
 
 }
 
+const grid_match_runtime_identity_t *netClientGridReconnectExpected(u32 *epoch, u8 *playernum)
+{
+	if (!s_NetReconnectAttempt.valid || !s_NetReconnectAttempt.grid_epoch) return NULL;
+	if (epoch) *epoch = s_NetReconnectAttempt.grid_epoch;
+	if (playernum) *playernum = s_NetReconnectAttempt.grid_playernum;
+	return &s_NetReconnectAttempt.grid;
+}
+
+s32 netClientGridReconnectAuthenticated(void)
+{
+	return netClientGridReconnectExpected(NULL, NULL)
+		&& s_NetReconnectAttempt.auth_accepted && g_NetLocalClient
+		&& g_NetLocalClient->id == s_NetReconnectAttempt.grid_client_id;
+}
+
+const grid_match_reconnect_sources_t *netClientGridReconnectSources(void)
+{
+	return netClientGridReconnectAuthenticated() ? &s_NetReconnectAttempt.grid_sources : NULL;
+}
+
+void netClientGridReconnectReject(void)
+{
+	if (!s_NetReconnectAttempt.grid_epoch) return;
+	gridMatchRuntimeFreeReconnectSources(&s_NetReconnectAttempt.grid_sources);
+	s_NetReconnectAttempt.auth_accepted = false;
+	netmsgClcAuthClearCookie();
+}
+
 void netClientReconnectCommitAccepted(void)
 {
 	if (s_NetReconnectAttempt.valid) {
@@ -2392,7 +3085,11 @@ void netClientReconnectCommitAccepted(void)
 		}
 		sysLogPrintf(LOG_NOTE,
 			"NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired");
-		memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+		if (s_NetReconnectAttempt.grid_sources.count) {
+			sysLogPrintf(LOG_NOTE, "NET.GRID.RECONNECT: released retained_packages=%u epoch=%u reason=committed",
+				(unsigned)s_NetReconnectAttempt.grid_sources.count, (unsigned)s_NetReconnectAttempt.grid_epoch);
+		}
+		netClientReconnectClear();
 	}
 }
 
@@ -2409,6 +3106,7 @@ void netLocalStageLoaded(void)
 			return;
 		}
 		already_ready = s_NetStageAuthorityReady;
+		if (!already_ready) s_NetStageAuthorityLoadedMs = SDL_GetTicks();
 		s_NetStageAuthorityReady = true;
 		if (g_NetLocalClient) {
 			g_NetLocalClient->stage_ready = true;
@@ -2426,6 +3124,21 @@ void netLocalStageLoaded(void)
 			|| g_NetLocalClient->stage_ready) {
 		return;
 	}
+
+#if !defined(PD_SERVER)
+	static u32 smoke_held_epoch;
+	if (smokeHarnessIsActive() && sysArgCheck("--debug-grid-hold-initial-stage-ready")
+			&& gridMatchRuntimeActive() && !netClientGridReconnectExpected(NULL, NULL)
+			&& (!smoke_held_epoch || smoke_held_epoch == g_NetStageEpoch)) {
+		if (!smoke_held_epoch) {
+			smoke_held_epoch = g_NetStageEpoch;
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.GRID.STAGE: held_initial_ready epoch=%u post_load=1",
+				(unsigned)smoke_held_epoch);
+		}
+		return;
+	}
+#endif
 
 	memset(&wire, 0, sizeof(wire));
 	wire.data = payload;
@@ -2574,6 +3287,13 @@ void netServerPreservePlayer(struct netclient *cl)
 	candidate.client_id = (u8)cl->id;
 	candidate.playernum = cl->playernum;
 	candidate.room_id = cl->room_id;
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (grid && g_NetStageEpoch && grid->offer.room_id == candidate.room_id) {
+		candidate.grid_stage_epoch = g_NetStageEpoch;
+		candidate.grid_offer_generation = grid->offer.generation;
+		memcpy(candidate.grid_manifest_digest, grid->offer.manifest_digest,
+			sizeof(candidate.grid_manifest_digest));
+	}
 	candidate.prop_syncid = cl->player->prop->syncid;
 	candidate.settings = cl->settings;
 	candidate.config = g_PlayerConfigsArray[cl->playernum];
@@ -2769,6 +3489,25 @@ s32 netServerReconnectSettingsMatch(
 		&& strcmp(plan->name, pp->settings.name) == 0;
 }
 
+s32 netServerGridReconnectMatches(const struct netpreservedplayer *pp)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (g_NetMode != NETMODE_SERVER || !pp || !pp->active || !grid
+			|| !pp->grid_stage_epoch || g_NetStageEpoch != pp->grid_stage_epoch
+			|| g_NetMatchRoomId != pp->room_id || grid->offer.room_id != pp->room_id
+			|| grid->offer.generation != pp->grid_offer_generation
+			|| memcmp(grid->offer.manifest_digest, pp->grid_manifest_digest,
+				sizeof(pp->grid_manifest_digest)) != 0
+			|| s_NetStageEndPending.active || s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE
+			|| g_NetGameMode != NETGAMEMODE_MP || g_StageNum != grid->stage
+			|| netGridEditPrivatePlaytestRoom(pp->room_id)) return 0;
+	const hub_room_t *room = roomGetById(pp->room_id);
+	/* The hub only mirrors its in-game room transition for room zero. The
+	 * replication phase is the live boundary for named listen rooms. */
+	return room && (room->state == ROOM_STATE_LOADING || room->state == ROOM_STATE_MATCH)
+		&& roomCanRejoin(room, pp->client_id);
+}
+
 struct net_restore_candidate {
 	struct netpreservedplayer *preserved;
 	struct player *player;
@@ -2798,6 +3537,16 @@ static enum net_restore_result netServerPrepareRestoreCandidate(
 	out->preserved = pp;
 	if (!pp->active) {
 		return netServerRestoreReject(NET_RESTORE_INACTIVE_RECORD, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	if ((gridMatchRuntimeActive() || pp->grid_stage_epoch)
+			&& (cl->reconnect_manifest_phase != NET_RECONNECT_GRID_READY
+				|| !netServerGridReconnectMatches(pp))) {
+		return netServerRestoreReject(NET_RESTORE_ROOM_UNAVAILABLE, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	if (g_NetLocalClient && netGridEditPrivatePlaytestRoom(g_NetLocalClient->room_id)) {
+		return netServerRestoreReject(NET_RESTORE_ROOM_UNAVAILABLE, cl, pp,
 			PLAYER_IDENTITY_INVALID_ARGUMENT);
 	}
 	if (pp->playernum >= MAX_PLAYERS) {
@@ -2928,7 +3677,8 @@ enum net_restore_result netServerRestorePreserved(struct netclient *cl,
 	memcpy(cl->auth_cookie, pp->cookie, sizeof(cl->auth_cookie));
 
 	netbufStartWrite(stage_wire);
-	if (netmsgSvcStageReplayWrite(stage_wire) != 0 || stage_wire->wp == 0) {
+	if ((pp->grid_stage_epoch && netmsgSvcGridReconnectStageCommitWrite(stage_wire) != 0)
+			|| netmsgSvcStageReplayWrite(stage_wire) != 0 || stage_wire->wp == 0) {
 		result = NET_RESTORE_STAGE_WRITE_FAILED;
 		goto restore_temporary_publication;
 	}
@@ -3196,13 +3946,17 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	}
 
 	const bool ingame = netServerMatchInProgress() != 0;
+	/* A detached Grid creator returns through the Lounge on a fresh link.
+	 * Room admission and draft authority are separate authenticated actions. */
+	const bool grid_resume_lobby = ingame && !reconnect
+		&& netGridEditPrivateResumeRoomOpen(g_NetMatchRoomId);
 
 	struct netclient *cl = NULL;
 
 	/* Dedicated server: slot 0 is free for real players.
 	 * Listen server: slot 0 is the host, start at 1. */
 	s32 slotStart = g_NetDedicated ? 0 : 1;
-	if (ingame) {
+	if (ingame && !grid_resume_lobby) {
 		if (!reconnect || reconnect_client_id < slotStart
 				|| reconnect_client_id >= g_NetMaxClients) {
 			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
@@ -3221,7 +3975,8 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 		cl = &g_NetClients[reconnect_client_id];
 	} else {
 		for (s32 i = slotStart; i < g_NetMaxClients; ++i) {
-			if (!g_NetClients[i].state) {
+			if (!g_NetClients[i].state
+					&& (!grid_resume_lobby || !netServerFindPreservedByClientId((u8)i))) {
 				cl = &g_NetClients[i];
 				break;
 			}
@@ -3240,7 +3995,7 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	netClientReset(cl);
 	cl->state = CLSTATE_AUTH; // skip CLSTATE_CONNECTING, since we already know it connected
 	cl->peer = peer;
-	cl->flags = ingame ? CLFLAG_ABSENT : 0; // mark as pending reconnect if mid-game
+	cl->flags = pp ? CLFLAG_ABSENT : 0;
 	if (pp) {
 		cl->reconnect_preserved_index = (u8)(pp - g_NetPreservedPlayers);
 	}
@@ -3381,7 +4136,8 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_NOP: rc = 0; break;
 			case CLC_AUTH: rc = netmsgClcAuthRead(&cl->in, cl); break;
 			case CLC_CHAT: rc = netmsgClcChatRead(&cl->in, cl); break;
-			case CLC_MOVE: rc = netmsgClcMoveRead(&cl->in, cl); break;
+			case CLC_MOVE:
+			case CLC_GRID_MOVE: rc = netmsgClcMoveRead(&cl->in, cl, msgid == CLC_GRID_MOVE); break;
 			case CLC_SETTINGS: rc = netmsgClcSettingsRead(&cl->in, cl); break;
 			case CLC_RESYNC_REQ: rc = netmsgClcResyncReqRead(&cl->in, cl); break;
 			case CLC_COOP_READY: rc = netmsgClcCoopReadyRead(&cl->in, cl); break;
@@ -3408,6 +4164,11 @@ static void netServerEvReceive(struct netclient *cl)
 			case CLC_LOBBY_RESYNC:     rc = netmsgClcLobbyResyncRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
+			case CLC_GRID_MATCH_STATUS: rc = netmsgClcGridMatchStatusRead(&cl->in, cl); break;
+			case CLC_GRID_RECONNECT_STATUS: rc = netmsgClcGridReconnectStatusRead(&cl->in, cl); break;
+			case CLC_GRID_ARENA_REQUEST: rc = netmsgClcGridArenaRequestRead(&cl->in, cl); break;
+			case CLC_GRID_MOD_PROPOSAL: rc = netmsgClcGridModProposalRead(&cl->in, cl); break;
+			case CLC_GRID_MOD_PROPOSAL_CHUNK: rc = netmsgClcGridModProposalChunkRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
 			/* SVC messages are never client-authoritative. Keep the typed
 			 * vehicle ID explicit here so a forged client packet is parsed and
@@ -3422,6 +4183,13 @@ static void netServerEvReceive(struct netclient *cl)
 	if (rc) {
 		sysLogPrintf(LOG_WARNING , "NET: malformed or unknown message 0x%02x from client %u", msgid, cl->id);
 	}
+}
+
+/* Protocol 65 is required at connection time. Grid traffic still checks
+ * authenticated membership, offer identity and consent or a creator grant. */
+s32 netPeerHasGridCapability(const struct netclient *cl)
+{
+	return cl && cl->state >= CLSTATE_LOBBY && cl->peer;
 }
 
 static void netClientEvConnect(const u32 data)
@@ -3452,6 +4220,52 @@ static void netClientEvDisconnect(const u32 reason)
 		DISCONNECT_TIMEOUT));
 }
 
+static u32 netClientReadGridResult(struct netclient *cl)
+{
+	struct netbuf wire = cl->in;
+	grid_match_result_t result;
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	const u16 score_bytes = netbufReadU16(&wire);
+	const u8 *scores = wire.data + wire.rp;
+	if (!netPeerHasGridCapability(cl) || score_bytes < 2 || score_bytes > NET_SCORE_PAYLOAD_MAX
+			|| netbufReadSkip(&wire, score_bytes) != score_bytes
+			|| !gridMatchResultRead(&wire, &result) || netbufReadLeft(&wire) != 2
+			|| netbufReadU8(&wire) != SVC_STAGE_END) return 1;
+	struct netbuf stage_end = wire;
+	if (netbufReadU8(&wire) != NETGAMEMODE_MP) return 1;
+	if (cl->state != CLSTATE_GAME && !netmsgCutsceneAuthorityHasMatch()
+			&& gridMatchResultMatchesStage(&result, &s_LastGridResult.offer,
+				s_LastGridResult.stage_epoch, s_LastGridResult.arena_id, s_LastGridResult.arena_sha256)
+			&& gridMatchResultMatchesScores(&s_LastGridResult, scores + 1, score_bytes - 1)) {
+		cl->in = wire;
+		return 0;
+	}
+	if (!grid || cl->state != CLSTATE_GAME || cl->room_id != result.offer.room_id
+			|| !netmsgCutsceneAuthorityHasMatch()
+			|| !gridMatchResultMatchesStage(&result, &grid->offer, g_NetStageEpoch,
+				grid->arena_id, grid->arena_sha256)) {
+		sysLogPrintf(LOG_WARNING, "NET.GRID.RESULT: rejected a result outside the active Grid revision");
+		return 1;
+	}
+	/* Check the full score packet before the stock reader mutates any scores. */
+	grid_match_scorecard_t scorecard;
+	if (scores[0] != SVC_PLAYER_SCORES
+			|| !gridMatchResultReadScores(&result, scores + 1, score_bytes - 1, &scorecard)) return 1;
+	struct netbuf score_wire;
+	netbufStartReadData(&score_wire, scores + 1, score_bytes - 1);
+	if (netmsgSvcPlayerScoresRead(&score_wire, cl) != 0) return 1;
+	netCompleteGridScorecard(&scorecard);
+	const s32 remembered = gridMatchRuntimeRememberReturnedArena(&result);
+	if (netmsgSvcStageEndRead(&stage_end, cl) != 0) {
+		if (remembered) gridMatchRuntimeForgetReturnedArena();
+		return 1;
+	}
+	netResetStageReplication("grid-result-commit", true);
+	cl->in = wire;
+	netStoreGridResult(&result, &scorecard);
+	return 0;
+}
+
 static void netClientEvReceive(struct netclient *cl)
 {
 	u32 rc = 0;
@@ -3459,15 +4273,32 @@ static void netClientEvReceive(struct netclient *cl)
 
 	while (!rc && netbufReadLeft(&cl->in) > 0) {
 		msgid = netbufReadU8(&cl->in);
+		if (netClientGridReconnectExpected(NULL, NULL)
+				&& (msgid == SVC_SESSION_CATALOG || msgid == SVC_CATALOG_INFO
+					|| msgid == SVC_DISTRIB_BEGIN || msgid == SVC_DISTRIB_CHUNK
+					|| msgid == SVC_DISTRIB_END || msgid == SVC_GRID_ARENA_CHUNK)) {
+			rc = 1;
+			break;
+		}
 		switch (msgid) {
 			case SVC_NOP: rc = 0; break;
 			case SVC_AUTH: rc = netmsgSvcAuthRead(&cl->in, cl); break;
 			case SVC_CHAT: rc = netmsgSvcChatRead(&cl->in, cl); break;
-			case SVC_STAGE_START: rc = netmsgSvcStageStartRead(&cl->in, cl); break;
-			case SVC_STAGE_END: rc = netmsgSvcStageEndRead(&cl->in, cl); break;
-			case SVC_PLAYER_MOVE: rc = netmsgSvcPlayerMoveRead(&cl->in, cl); break;
+			case SVC_STAGE_START: {
+				const u32 previous_epoch = g_NetStageEpoch;
+				rc = netmsgSvcStageStartRead(&cl->in, cl);
+				if (!rc && g_NetStageEpoch != previous_epoch) netmsgGridFiestaStageReset();
+				break;
+			}
+			case SVC_STAGE_END:
+				rc = gridMatchRuntimeActive() ? 1 : netmsgSvcStageEndRead(&cl->in, cl);
+				break;
+			case SVC_PLAYER_MOVE:
+			case SVC_GRID_PLAYER_MOVE: rc = netmsgSvcPlayerMoveRead(&cl->in, cl, msgid == SVC_GRID_PLAYER_MOVE); break;
 			case SVC_PLAYER_STATS: rc = netmsgSvcPlayerStatsRead(&cl->in, cl); break;
+			case SVC_GRID_FIESTA_SPAWN: rc = netmsgSvcGridFiestaSpawnRead(&cl->in, cl); break;
 			case SVC_PLAYER_SCORES: rc = netmsgSvcPlayerScoresRead(&cl->in, cl); break;
+			case SVC_GRID_MATCH_RESULT: rc = netClientReadGridResult(cl); break;
 			case SVC_PROP_MOVE: rc = netmsgSvcPropMoveRead(&cl->in, cl); break;
 			case SVC_PROP_SPAWN: rc = netmsgSvcPropSpawnRead(&cl->in, cl); break;
 			case SVC_PROP_DAMAGE: rc = netmsgSvcPropDamageRead(&cl->in, cl); break;
@@ -3476,7 +4307,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_PROP_VEHICLE_STATE: rc = netmsgSvcVehicleStateRead(&cl->in, cl); break;
 			case SVC_PROP_DOOR: rc = netmsgSvcPropDoorRead(&cl->in, cl); break;
 			case SVC_PROP_LIFT: rc = netmsgSvcPropLiftRead(&cl->in, cl); break;
-			case SVC_CHR_DAMAGE: rc = netmsgSvcChrDamageRead(&cl->in, cl); break;
+			case SVC_CHR_DAMAGE:
+			case SVC_GRID_CHR_DAMAGE: rc = netmsgSvcChrDamageRead(&cl->in, cl, msgid == SVC_GRID_CHR_DAMAGE); break;
 			case SVC_CHR_DISARM: rc = netmsgSvcChrDisarmRead(&cl->in, cl); break;
 			case SVC_CHR_MOVE: rc = netmsgSvcChrMoveRead(&cl->in, cl); break;
 			case SVC_CHR_STATE: rc = netmsgSvcChrStateRead(&cl->in, cl); break;
@@ -3485,14 +4317,18 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_PROP_SYNC: rc = netmsgSvcPropSyncRead(&cl->in, cl); break;
 			case SVC_PROP_RESYNC: rc = netmsgSvcPropResyncRead(&cl->in, cl); break;
 			case SVC_NPC_MOVE: rc = netmsgSvcNpcMoveRead(&cl->in, cl); break;
+			case SVC_NPC_SPAWN: rc = netmsgSvcNpcSpawnRead(&cl->in, cl); break;
+			case SVC_NPC_REMOVE: rc = netmsgSvcNpcRemoveRead(&cl->in, cl); break;
 			case SVC_NPC_STATE: rc = netmsgSvcNpcStateRead(&cl->in, cl); break;
 			case SVC_NPC_SYNC: rc = netmsgSvcNpcSyncRead(&cl->in, cl); break;
 			case SVC_NPC_RESYNC: rc = netmsgSvcNpcResyncRead(&cl->in, cl); break;
 			/* Bot authority relay */
 			case SVC_BOT_AUTHORITY: rc = netmsgSvcBotAuthorityRead(&cl->in, cl); break;
+			case SVC_BOT_PICKUP: rc = netmsgSvcBotPickupRead(&cl->in, cl); break;
 			case SVC_STAGE_FLAG: rc = netmsgSvcStageFlagRead(&cl->in, cl); break;
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
+			case SVC_SCENARIO_STATE: rc = netmsgSvcScenarioStateRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
 			case SVC_CUTSCENE_SKIP: rc = netmsgSvcCutsceneSkipRead(&cl->in, cl); break;
 			case SVC_RECONNECT_PROP_BEGIN: rc = netmsgSvcReconnectPropBeginRead(&cl->in, cl); break;
@@ -3513,6 +4349,8 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_ROOM_RESULT:      rc = netmsgSvcRoomResultRead(&cl->in, cl); break;
 				case SVC_LOBBY_ROSTER:     rc = netmsgSvcLobbyRosterRead(&cl->in, cl); break;
+			case SVC_MISSION_RETURN:   rc = netmsgSvcMissionReturnRead(&cl->in, cl); break;
+			case SVC_MISSION_STATS:    rc = netmsgSvcMissionStatsRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */
@@ -3524,10 +4362,17 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_PLAYLIST:    rc = netmsgSvcRoomPlaylistRead(&cl->in, cl); break;
 			/* Phase C: Match Startup Pipeline */
 			case SVC_MATCH_MANIFEST:   rc = netmsgSvcMatchManifestRead(&cl->in, cl); break;
+			case SVC_GRID_MATCH_OFFER: rc = netmsgSvcGridMatchOfferRead(&cl->in, cl); break;
+			case SVC_GRID_RECONNECT_OFFER: rc = netmsgSvcGridReconnectOfferRead(&cl->in, cl); break;
+			case SVC_GRID_STAGE_COMMIT: rc = netmsgSvcGridStageCommitRead(&cl->in, cl); break;
+			case SVC_GRID_ARENA_CHUNK: rc = netmsgSvcGridArenaChunkRead(&cl->in, cl); break;
+			case SVC_GRID_MOD_PROPOSAL: rc = netmsgSvcGridModProposalRead(&cl->in, cl); break;
+			case SVC_GRID_MOD_PROPOSAL_READY: rc = netmsgSvcGridModProposalReadyRead(&cl->in, cl); break;
 			case SVC_MATCH_COUNTDOWN:  rc = netmsgSvcMatchCountdownRead(&cl->in, cl); break;
 			case SVC_MATCH_CANCELLED:  rc = netmsgSvcMatchCancelledRead(&cl->in, cl); break;
 			case SVC_SESSION_CATALOG:
-				rc = netmsgSvcSessionCatalogRead(&cl->in, NULL);
+				rc = gridMatchRuntimePending() || gridMatchRuntimeActive()
+					? 1 : netmsgSvcSessionCatalogRead(&cl->in, NULL);
 				break;
 			case SVC_ADMIN: {
 				/* MASTER-C2b: admin reply.  We drain the response here on the
@@ -3560,19 +4405,27 @@ static void netClientEvReceive(struct netclient *cl)
 		const bool reconnect_transaction = s_NetReconnectAttempt.valid;
 		const bool reconnect_control = msgid == SVC_AUTH
 			|| msgid == SVC_MATCH_MANIFEST
+			|| msgid == SVC_GRID_MATCH_OFFER
+			|| msgid == SVC_GRID_RECONNECT_OFFER
+			|| msgid == SVC_GRID_STAGE_COMMIT
+			|| msgid == SVC_GRID_ARENA_CHUNK
 			|| msgid == SVC_SESSION_CATALOG
 			|| msgid == SVC_ROOM_ASSIGN
 			|| msgid == SVC_CATALOG_INFO
 			|| msgid == SVC_DISTRIB_BEGIN
 			|| msgid == SVC_DISTRIB_CHUNK
 			|| msgid == SVC_DISTRIB_END;
-		if ((msgid == SVC_STAGE_START
+		const bool initial_grid_commit_rejected = msgid == SVC_GRID_STAGE_COMMIT
+			&& !reconnect_transaction && cl && cl->state == CLSTATE_PREPARING
+			&& gridMatchRuntimePending();
+		if ((msgid == SVC_STAGE_START || initial_grid_commit_rejected
 				|| (reconnect_transaction
 					&& (reconnect_control || (cl && cl->stage_ready))))
 				&& cl && cl->peer) {
 			sysLogPrintf(LOG_ERROR,
 				"NET.RECONNECT.CLIENT authoritative message rejected id=0x%02x reconnect=%u terminal=1",
 				(unsigned)msgid, reconnect_transaction ? 1u : 0u);
+			netClientGridReconnectReject();
 			enet_peer_disconnect(cl->peer, DISCONNECT_FILES);
 		}
 	}
@@ -3631,11 +4484,17 @@ s32 netClientSettingsChanged(void)
 
 void netStartFrame(void)
 {
+	netClientGridReconnectExpire();
+	gridMatchRuntimePollLeaseRetirement(SDL_GetTicks());
 	if (!g_NetMode) {
+		netmsgGridModProposalPoll();
 		return;
 	}
 
 	++g_NetTick;
+	netGridEditPoll();
+	netmsgGridModProposalPoll();
+	netGridEditPumpSnapshot();
 
 	const bool isClient = (g_NetMode == NETMODE_CLIENT);
 
@@ -3691,7 +4550,8 @@ void netStartFrame(void)
 				if (ev.peer) {
 					struct netclient *cl = (g_NetMode == NETMODE_CLIENT) ? g_NetLocalClient : enet_peer_get_data(ev.peer);
 					if (cl && cl->state) {
-						if (ev.packet && ev.packet->data && ev.packet->dataLength) {
+						if (ev.packet && ev.packet->data && ev.packet->dataLength
+								&& !netGridEditReceive(&ev, cl, isClient)) {
 							netbufStartReadData(&cl->in, ev.packet->data, ev.packet->dataLength);
 							if (isClient) {
 								netClientEvReceive(cl);
@@ -3699,6 +4559,7 @@ void netStartFrame(void)
 								netServerEvReceive(cl);
 							}
 							netbufReset(&cl->in);
+							netGridEditPoll();
 						}
 					} else if (!isClient) {
 						sysLogPrintf(LOG_WARNING | LOGFLAG_NOCON, "NET: spurious receive (no attached client)");
@@ -3713,6 +4574,245 @@ void netStartFrame(void)
 
 	netbufStartWrite(&g_NetMsg);
 	netbufStartWrite(&g_NetMsgRel);
+}
+
+/* B-1196 (T-NETWORKING-011): chrs the host made after the stage start (AI
+ * clones and spawns, SP-85), each announced once with SVC_NPC_SPAWN. The ids
+ * grow for the whole stage (propAllocate), so the list restarts when the
+ * stage's first dynamic id changes. Their moves and states wait a quarter
+ * second after the announcement: the spawn goes on the reliable channel and
+ * a move on the unreliable one, which ENet does not order between them. */
+#define NET_NPC_SPAWN_MAX         128
+#define NET_NPC_SPAWN_SETTLE_TICKS 15
+
+static u32 s_NetNpcSpawnIds[NET_NPC_SPAWN_MAX];
+static u32 s_NetNpcSpawnTicks[NET_NPC_SPAWN_MAX];
+static s32 s_NetNpcSpawnCount = 0;
+static u32 s_NetNpcSpawnFirst = 0;
+static bool s_NetNpcSpawnFullLogged = false;
+
+static s32 netServerNpcSpawnIndex(u32 syncid)
+{
+	if (s_NetNpcSpawnFirst != g_NetFirstDynamicSyncId) {
+		s_NetNpcSpawnFirst = g_NetFirstDynamicSyncId;
+		s_NetNpcSpawnCount = 0;
+		s_NetNpcSpawnFullLogged = false;
+	}
+
+	for (s32 i = 0; i < s_NetNpcSpawnCount; i++) {
+		if (s_NetNpcSpawnIds[i] == syncid) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void netServerNpcSpawnAnnounce(struct chrdata *chr)
+{
+	u32 syncid;
+
+	if (!netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+
+	if (syncid < g_NetFirstDynamicSyncId || netServerNpcSpawnIndex(syncid) >= 0) {
+		return;
+	}
+
+	if (s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX) {
+		if (!s_NetNpcSpawnFullLogged) {
+			sysLogPrintf(LOG_WARNING, "NET.NPC: more than %d chrs made after the stage start; later ones are not announced",
+				NET_NPC_SPAWN_MAX);
+			s_NetNpcSpawnFullLogged = true;
+		}
+		return;
+	}
+
+	if (netmsgSvcNpcSpawnWrite(&g_NetMsgRel, chr) == 0) {
+		s_NetNpcSpawnIds[s_NetNpcSpawnCount] = syncid;
+		s_NetNpcSpawnTicks[s_NetNpcSpawnCount] = g_NetTick;
+		s_NetNpcSpawnCount++;
+	}
+}
+
+static bool netServerNpcSpawnSettled(const struct chrdata *chr)
+{
+	const u32 syncid = chr->prop->syncid;
+	s32 index;
+
+	if (syncid < g_NetFirstDynamicSyncId) {
+		return true;
+	}
+
+	index = netServerNpcSpawnIndex(syncid);
+
+	if (index < 0) {
+		/* Not announced (the list is full): send as before */
+		return s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX;
+	}
+
+	return g_NetTick - s_NetNpcSpawnTicks[index] >= NET_NPC_SPAWN_SETTLE_TICKS;
+}
+
+/* B-1206: chrs the host removed (chrTick's deleting branch), each announced
+ * once with SVC_NPC_REMOVE from the frame's entity broadcast below, ahead of
+ * the frame's spawns, moves and states. chrTick runs in the game tick, and
+ * netEndFrame discards that tick's shared messages on a frame that publishes
+ * a cutscene or stage authority packet, or before the stage replication is
+ * active (SP-91); a removal written there was lost, and the client kept a
+ * chr the host no longer had (Deep Sea's intro actor, removed on the frame
+ * the intro ended). A removal still queued when the stage's release baseline
+ * goes out needs no message: the baseline leaves the chr out and the client
+ * removes what it does not name. A full queue asks for a full NPC snapshot. */
+#define NET_NPC_REMOVE_MAX 64
+
+static u32 s_NetNpcRemoveIds[NET_NPC_REMOVE_MAX];
+static u8 s_NetNpcRemoveFlags[NET_NPC_REMOVE_MAX];
+static s32 s_NetNpcRemoveCount = 0;
+
+static void netServerNpcRemoveClear(const char *why)
+{
+	if (s_NetNpcRemoveCount > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.NPC: %d queued chr removal(s) not sent: %s",
+			s_NetNpcRemoveCount, why);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
+void netServerNpcRemoveQueue(struct chrdata *chr)
+{
+	u32 syncid;
+	u8 flags;
+
+	if (g_NetMode != NETMODE_SERVER || !netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+	flags = (chr->hidden & CHRHFLAG_DROPPINGITEM) ? NET_NPC_REMOVE_DROPPEDITEMS : 0;
+
+	if (syncid >= g_NetFirstDynamicSyncId && netServerNpcSpawnIndex(syncid) < 0) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.NPC: host removed chr syncid=%u chrnum=%d before announcing it; no client has it",
+			(unsigned)syncid, (s32)chr->chrnum);
+		return;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: host removed chr syncid=%u chrnum=%d body=%d dead=%d action=%d dropitems=%d",
+		(unsigned)syncid, (s32)chr->chrnum, (s32)chr->bodynum,
+		chrIsDead(chr) ? 1 : 0, (s32)chr->actiontype,
+		(flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
+
+	if (s_NetNpcRemoveCount >= NET_NPC_REMOVE_MAX) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.NPC: more than %d chr removals queued; a full NPC snapshot replaces them",
+			NET_NPC_REMOVE_MAX);
+		s_NetNpcRemoveCount = 0;
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_NPCS;
+		return;
+	}
+
+	s_NetNpcRemoveIds[s_NetNpcRemoveCount] = syncid;
+	s_NetNpcRemoveFlags[s_NetNpcRemoveCount] = flags;
+	s_NetNpcRemoveCount++;
+}
+
+static void netServerNpcRemoveFlush(void)
+{
+	for (s32 i = 0; i < s_NetNpcRemoveCount; i++) {
+		netmsgSvcNpcRemoveWrite(&g_NetMsgRel, s_NetNpcRemoveIds[i], s_NetNpcRemoveFlags[i]);
+	}
+
+	s_NetNpcRemoveCount = 0;
+}
+
+/* SP-91: the reliable bytes the game tick wrote on a frame that publishes a
+ * cutscene authority packet (START or END). They used to be discarded with the
+ * rest of that frame's shared output, so a one-shot event the host decided in
+ * that tick (a pickup, a stage flag, an objective status, a door, damage)
+ * never reached a client. Now they are held, and once the authority packet is
+ * out they go first in that frame's reliable buffer: same reliable channel
+ * (NETCHAN_DEFAULT), so a client applies them after the cutscene state
+ * changed, as the host's tick saw them in that frame. No client handler gates
+ * on cutscene state, so a message the tick wrote just before START holds when
+ * applied just after it (CORE, 2026-11-16). Only the unreliable buffer is
+ * dropped, as before. While the authority publication retries, they stay held
+ * and the next frames' bytes join them in order. */
+static u8 s_NetAuthorityHeldRel[65536]; /* the size of g_NetMsgRelBuf */
+static u32 s_NetAuthorityHeldRelLen = 0;
+static bool s_NetAuthorityHeldRelOut = false; /* copied into g_NetMsgRel this frame */
+
+static void netServerAuthorityHeldClear(const char *why)
+{
+	if (s_NetAuthorityHeldRelLen > 0) {
+		sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes not sent: %s",
+			(unsigned)s_NetAuthorityHeldRelLen, why);
+	}
+
+	s_NetAuthorityHeldRelLen = 0;
+	s_NetAuthorityHeldRelOut = false;
+}
+
+/* Move the frame's reliable bytes, so far, to the end of the hold */
+static void netServerAuthorityHoldReliable(const char *why)
+{
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (bytes == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || s_NetAuthorityHeldRelLen + bytes > sizeof(s_NetAuthorityHeldRel)) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u game-tick bytes dropped (%s): held=%u overflow=%d",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen, g_NetMsgRel.error ? 1 : 0);
+	} else {
+		memcpy(s_NetAuthorityHeldRel + s_NetAuthorityHeldRelLen, g_NetMsgRel.data, bytes);
+		s_NetAuthorityHeldRelLen += bytes;
+		sysLogPrintf(LOG_NOTE, "NET.SP91: held %u game-tick bytes (%s), %u in all",
+			(unsigned)bytes, why, (unsigned)s_NetAuthorityHeldRelLen);
+	}
+
+	netbufStartWrite(&g_NetMsgRel);
+}
+
+/* Put the held bytes in front of whatever the frame's reliable buffer holds */
+static void netServerAuthorityReleaseHeld(const char *why)
+{
+	const u32 held = s_NetAuthorityHeldRelLen;
+	const u32 bytes = g_NetMsgRel.wp;
+
+	if (held == 0) {
+		return;
+	}
+
+	if (g_NetMsgRel.error || held + bytes > g_NetMsgRel.size) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.SP91: %u held game-tick bytes do not fit before %u frame bytes (%s); still held",
+			(unsigned)held, (unsigned)bytes, why);
+		return;
+	}
+
+	memmove(g_NetMsgRel.data + held, g_NetMsgRel.data, bytes);
+	memcpy(g_NetMsgRel.data, s_NetAuthorityHeldRel, held);
+	g_NetMsgRel.wp = held + bytes;
+	s_NetAuthorityHeldRelOut = true;
+	sysLogPrintf(LOG_NOTE, "NET.SP91: %u held game-tick bytes go out (%s)", (unsigned)held, why);
+}
+
+/* The frame's reliable buffer was sent (sent=true) or discarded */
+static void netServerAuthorityHeldSettle(bool sent)
+{
+	if (s_NetAuthorityHeldRelOut && sent) {
+		s_NetAuthorityHeldRelLen = 0;
+	}
+
+	s_NetAuthorityHeldRelOut = false;
 }
 
 void netEndFrame(void)
@@ -3737,27 +4837,48 @@ void netEndFrame(void)
 		&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
 		&& netmsgCutsceneAuthorityHasPendingEvents();
 
-	/* Any authority event already pending at this boundary supersedes ordinary
-	 * game messages accumulated since netStartFrame. Discard those shared
-	 * buffers, then publish the dedicated authority packet first. This keeps a
-	 * retained START/ACCEPT retry from being overtaken just as strictly as the
-	 * terminal END + SVC_STAGE_END transaction. */
+	/* Any authority event already pending at this boundary is published before
+	 * the ordinary game messages accumulated since netStartFrame. Discard the
+	 * unreliable buffer; SP-91: hold the reliable one and put it back, first,
+	 * once the dedicated authority packet is out (same reliable channel, so it
+	 * follows the packet in order). This keeps a retained START/ACCEPT retry
+	 * from being overtaken just as strictly as the terminal END +
+	 * SVC_STAGE_END transaction, without losing what the tick decided. */
 	if (terminal_stage_end_frame
 			|| (g_NetMode == NETMODE_SERVER
 				&& (s_NetStageReplicationPhase
 					!= NET_STAGE_REPLICATION_ACTIVE))
 			|| authority_pending_frame) {
+		if (authority_pending_frame) {
+			netServerAuthorityHoldReliable("cutscene authority frame");
+		} else if (terminal_stage_end_frame) {
+			netServerAuthorityHeldClear("the stage ends");
+		}
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
 	} else {
+		/* SP-91: bytes held from an earlier authority frame go first, unless
+		 * that packet is still unpublished: then this frame's join the hold */
+		if (s_NetAuthorityHeldRelLen > 0) {
+			if (g_NetMode == NETMODE_SERVER && netmsgCutsceneAuthorityHasPendingEvents()) {
+				netServerAuthorityHoldReliable("its cutscene authority packet is still pending");
+			} else {
+				netServerAuthorityReleaseHeld("after an earlier authority packet");
+			}
+		}
 		// send whatever messages have accumulated so far
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
 	}
 	if (terminal_stage_end_frame && s_NetStageEndPending.active) {
 		(void)netServerFlushPendingStageEnd("end-frame-stage-end");
-	} else if (authority_pending_frame
-			&& !netServerFlushCutsceneAuthority("end-frame-priority")) {
-		authority_publication_failed = true;
+	} else if (authority_pending_frame) {
+		if (!netServerFlushCutsceneAuthority("end-frame-priority")) {
+			authority_publication_failed = true;
+		} else {
+			/* SP-91: the packet is out; the held bytes lead the frame's reliable output */
+			netServerAuthorityReleaseHeld("after the cutscene authority packet");
+		}
 	}
 
 	/* Phase 3 (v42): spectator host fan-out. Server-side only. The
@@ -3877,13 +4998,26 @@ void netEndFrame(void)
 				s_npcBroadcastStarted = true;
 			}
 
+			/* B-1206: the chrs removed since the last broadcast, first */
+			netServerNpcRemoveFlush();
+
+			/* B-1196: a chr the host made after the stage start is announced
+			 * (SVC_NPC_SPAWN) before any move or state names it. */
+			if (g_NumChrSlots > 0) {
+				for (s32 i = 0; i < g_NumChrSlots; ++i) {
+					netServerNpcSpawnAnnounce(&g_ChrSlots[i]);
+				}
+			}
+
 			// NPC position updates every 3 frames (~20 Hz)
 			if ((g_NetTick % 3) == 0) {
 				if (g_NumChrSlots > 0) {
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							}
 						}
 					}
 				}
@@ -3895,7 +5029,9 @@ void netEndFrame(void)
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							}
 						}
 					}
 				}
@@ -3914,6 +5050,13 @@ void netEndFrame(void)
 			 * score broadcast from the HOST proves score replication is live. */
 			sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 		}
+
+#if !defined(PD_SERVER)
+		/* v64 (T-NETWORKING-011): the objective scenario's state. */
+		if (g_Vars.normmplayerisrunning && g_NetGameMode == NETGAMEMODE_MP) {
+			netServerScenarioStateTick();
+		}
+#endif
 		}
 
 	}
@@ -4048,14 +5191,25 @@ void netEndFrame(void)
 					!= NET_STAGE_REPLICATION_RELEASE)) {
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
+		/* SP-91: what was put back stays held for a later frame */
+		netServerAuthorityHeldSettle(false);
 	} else {
 		netFlushSendBuffers();
+		netServerAuthorityHeldSettle(true);
+		/* Already-enqueued damage and death stats lead this frame's grant;
+		 * stats for the new life stay paired with it until the room send succeeds. */
+		if (g_NetMode == NETMODE_SERVER && stage_replication_ready
+				&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE) {
+			netServerPublishGridFiestaSpawns();
+		}
 	}
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
 			&& !authority_publication_failed
 			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
 		s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE;
 		s_NetStageReplicationWaitMask = 0;
+		/* B-1206: the baseline just published leaves those chrs out */
+		netServerNpcRemoveClear("the stage's release baseline covers them");
 		sysLogPrintf(LOG_NOTE,
 			"NET.STAGE.REPLICATION phase=active epoch=%u room=%u fresh_release=1",
 			(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId);
@@ -4129,10 +5283,12 @@ u32 netSendToMatch(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
 	u32 sent_mask = 0;
 	u32 lobby_count = 0;
 	bool failed = false;
+	const s32 private_playtest = netGridEditPrivatePlaytestRoom(room_id);
 	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
 		struct netclient *cl = &g_NetClients[i];
 		if (!cl->peer || cl->room_id != room_id) continue;
 		if (cl->state == CLSTATE_LOBBY) ++lobby_count;
+		if (private_playtest) continue;
 		if (!(admitted & (1u << (u32)i)) || cl->state != CLSTATE_GAME
 				|| (cl->flags & CLFLAG_SPECTATOR)) continue;
 		ENetPacket *packet = enet_packet_create(buf->data, bytes, flags);
@@ -4143,7 +5299,8 @@ u32 netSendToMatch(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
 			sent_mask |= 1u << (u32)i;
 		}
 	}
-	if (buf->data[0] == SVC_STAGE_START) {
+	if (buf->data[0] == SVC_STAGE_START
+			|| (private_playtest && buf->data[0] == SVC_GRID_STAGE_COMMIT)) {
 		sysLogPrintf(LOG_NOTE,
 			"NET.MATCH.AUDIENCE room=%u admitted=0x%08x sent=0x%08x lobby_retained=%u failed=%d",
 			(unsigned)room_id, admitted, sent_mask, lobby_count, failed);
@@ -4211,6 +5368,43 @@ static enum net_player_allocate_result netPlayersAllocationReject(
 		netPlayerAllocateResultString(result), client_id, playernum,
 		playerIdentityStatusString(identity_status));
 	return result;
+}
+
+/*
+ * B-1127: a client runs its own player as player 0 and gives the host's
+ * player the slot the host gave this client (netPlayersAllocate below); every
+ * other player keeps the host's number. The player configs, player stats and
+ * g_MpAllChrPtrs/g_MpAllChrConfigPtrs follow that local numbering, so a
+ * character slot sent by the host must be translated before a client indexes
+ * anything with it. The swap is its own inverse, so the same call maps a
+ * local slot back to the host's number. Simulant slots and every slot on the
+ * host or offline are unchanged.
+ */
+s32 netChrSlotFromHost(s32 slot)
+{
+	s32 hostslot;
+
+	if (g_NetMode != NETMODE_CLIENT || slot < 0 || slot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	// Where the host's player runs on this client (the client's own number
+	// on the host)
+	hostslot = g_NetClients[0].playernum;
+
+	if (hostslot <= 0 || hostslot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	if (slot == 0) {
+		return hostslot;
+	}
+
+	if (slot == hostslot) {
+		return 0;
+	}
+
+	return slot;
 }
 
 enum net_player_allocate_result netPlayersAllocate(

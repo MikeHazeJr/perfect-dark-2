@@ -1,5 +1,1098 @@
 # Bug Tracker
 
+## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
+
+Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.
+Found by SP-93's new model warning on 4789effa (base 7): in `mp_hacker_central_net_smoke` (`results-20261117T014259Z.json`)
+a simulant died and the host logged `NET: model 253 ('base:model_chrcmp150') has no session catalog id` and `model 246
+('base:model_chrleegun1')` as it announced the guns it dropped (`BOT.DROP: host announced simulant 4 weapon=10
+syncid=44`); in the carrier-death run the replacement uplink gave `model 19 ('base:model_chrdatathief')`.
+
+Root cause: SVC_PROP_SPAWN names a weapon prop's model by session catalog id (`netWriteModelRef`), and the client's
+reader builds the prop from that number with no fallback (`setupLoadModeldef(modelnum)`), so a missing id makes it
+model 0, `MODEL_ROOFGUN`. The match manifest lists weapons (the pool, the set, the token) but not the models their
+props are drawn with, so every gun a dying simulant or player drops, B-1209's replacement uplink and a dropped
+briefcase were drawn on clients as the roof gun. The weapon number itself was right (B-1272 made the token's right).
+
+Fix: the host's lobby start adds the world model of every weapon the manifest lists
+(`netLobbyManifestAppendWeaponModels`, `playermgrGetModelOfWeapon`, every game mode, `MANIFEST-HOST: weapon world
+models listed=N`), and the scenario token's own model (`scenarioTokenModelNum`: the uplink's prop is
+`MODEL_CHRDATATHIEF`, which is not the weapon's mapped model; `MANIFEST-HOST: scenario N token model M`). The token-mode,
+carrier-death and Combat-with-simulants net smokes forbid the model warning. Pinned by `[b1273]` in
+`tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+Checked in play 2026-11-17 on 326df90c (built in hub turn q_20261117014917169_52e3ea4a, pd-tests 2045/2045, base 7):
+`mp_hacker_central_net_carrier_death_smoke` PASS 107/107 (`results-20261117T035213Z.json`) and `mp_combat_net_bots_smoke`
+PASS 71/71 (`results-20261117T040515Z.json`). The host lists the uplink's model (`MANIFEST-HOST: scenario 2 token model 19
+as 'base:model_chrdatathief'`) and 13 weapon world models (`listed=13 for 28 entries`; 26 in Combat); in the carrier-death
+run five dropped guns are announced (weapons 8, 2, 8, 8, 5) and the replacement uplink is placed, with no `has no session
+catalog id` line on either side, and the client replays simulants taking the dropped guns as the right weapons (items 44,
+45, 49 as weapons 8, 2, 8).
+
+## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; checked in play for the uplink and the briefcase)
+
+Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of
+`mp_hacker_central_net_carrier_death_smoke` (d44b87d0, base 7, `results-20261116T212817Z.json`, 102/104): the host
+killed the uplink's carrier, made the replacement and announced it (`SCENARIO.NET: host announced the new uplink
+syncid=48 ... rc=0`, B-1209 working), and when simulant 3 took it the host sent `BOT.PICKUP: host sent simulant 3
+item 48 weapon=46` while the client replayed `item 48 weapon=1 result=1`: its copy of the uplink was a
+`WEAPON_UNARMED` weapon prop. (The run's other failure was the spec's: the match ended on the score limit, 5
+downloads, before the time limit.)
+
+Root cause: messages name a weapon by its session catalog id (`netWriteWeaponRef`), and a reader turns id 0 into
+`WEAPON_UNARMED` without a word. The session catalog is built from the match manifest, whose weapon pool takes only
+weapons with an MP weapon slot (`s_manifestSkipMpWeaponSlot`); the data uplink (46) and the briefcase
+(`WEAPON_BRIEFCASE2`) have none, so no Combat Simulator manifest listed them. Every message naming one reached
+clients as no weapon: an announced token (B-1209's replacement uplink or case, a dying carrier's dropped case), a
+simulant's held weapon (`SVC_CHR_STATE`, the resync), a player's gun in `SVC_PLAYER_STATS`, reconnect inventory. A
+client's token scans look for the token's weapon number on the ground (`htmNetPresent`, HTB and CTC alike), so a
+replacement or dropped token also vanished from its radar and HUD. Tokens placed at the stage start are made on
+both machines from the scenario's own template, so the first one was right, which is why the scoring smokes passed.
+
+Fix: `scenarioTokenWeaponNum` (`scenarios.c`) names each scenario's token (Hacker Central the data uplink, Hold the
+Briefcase and Capture the Case the briefcase), and the host's lobby start adds that weapon's catalog closure to
+the Combat Simulator manifest after the scenario's own (`MANIFEST-HOST: scenario N token weapon W as '<id>'`), or
+refuses the start. `netWriteWeaponRef` now says once per weapon, while a session catalog is live, when it sends a
+real weapon with no session id (`NET: weapon N ('<id>') has no session catalog id; clients read it as unarmed`),
+forbidden in the four Hacker Central, Hold the Briefcase and Capture the Case net smokes. Co-op and counter-op
+manifests scan the stage's setup and AI lists for weapons (`manifestBuildMission`), a separate path. Pinned by
+`[b1272]` in `tests/test_net_bot_pickup_static.cpp`. SP-93.
+
+**Checked in play for the uplink (b2a2a720, base 7, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`):** the host's manifest listed it (`MANIFEST-HOST: scenario 2 token weapon 46 as
+'base:datauplink'`), the host killed the first carrier at 23.4 s and announced the replacement (syncid 48), and the
+client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and showed simulant 4 as the holder; no
+`has no session catalog id` warning. **And for the briefcase** (b2a2a720, `mp_hold_the_briefcase_net_carrier_death_smoke` 102/102,
+`results-20261116T222007Z.json`): `MANIFEST-HOST: scenario 1 token weapon 79 as 'base:briefcase2'`; the host killed the
+carrier at 23.5 s, the dying simulant's case was announced (`BOT.DROP: host announced simulant 2 weapon=79 syncid=48`),
+and the client replayed simulant 4's pickup of it as `item 48 weapon=79 result=0` and showed simulant 4 as the holder.
+
+## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, fixed with Mike's OK; checked in play)
+
+Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
+a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
+uplink at 17.8 s, reached the terminal at 42.0 s (`HTM: player 2 download not facing the terminal at 42.0 s xz=240
+y=62 angle=171 weapon=2 action=44`, 240 units away, armed, facing away, still in `MA_AIBOTGOTOPROP`) and logged
+nothing more until the match ended at about 2.5 min: no new goal, no stuck relocation, no download. The same binary
+run locally (`mp_hacker_central_local_smoke`, 32/32, `results-20261116T174929Z.json`) scores: there the simulant
+logged the same `not facing` at 240 units with weapon 2 and action 44, then 0.3 s later `in progress ... weapon=1
+action=46` (unarmed, `MA_AIBOTDOWNLOAD`), and completed three downloads (score 6). So something in the networked
+host keeps the simulant from leaving `MA_AIBOTGOTOPROP` for `MA_AIBOTDOWNLOAD`; `bot.c` makes that switch when
+`g_ScenarioData.htm.playernuminrange` names the simulant, which `htmTickChr` sets whenever it is within 250 units.
+Not found by reading. **Diagnostic (746d79a7):** while a simulant holds the uplink without downloading, `HTM:
+simulant player N holds the uplink, not downloading (<reason>) ... action= actiontype= inrange= target= weapon=
+netmode=` every 10 s. Next run: `mp_hacker_central_net_smoke`.
+
+**Cause (found by reading the code, 2026-11-16; the queued run's diagnostic will confirm it):** the original's
+download rule can deadlock a simulant, and B-1207 removed what used to break it. Within 250 units (and 200 up or
+down) of the terminal, `htmTickChr` counts the simulant in range (`playernuminrange`), so its next decision is
+`MA_AIBOTDOWNLOAD`: it stands (`chrStand`) and `botinvTick` unarms it (in that action it skips weapon scoring and
+switches to `WEAPON_UNARMED`). A download then starts only if it faces the terminal within 45 degrees, and the only
+code that turns it toward the terminal (`botTick`'s target angle, `MA_AIBOTDOWNLOAD && htm.dlterminalnum != -1`)
+needs a download already running: `htmTickChr` starts one each frame and cancels it in the same call while the
+simulant faces away, so `dlterminalnum` is always -1 when the turn is decided. A simulant that reaches range facing
+away therefore stands there for good. Locally it walked in facing the terminal (in range at 100 degrees while still
+walking, 45 degrees when it stood: download started 0.3 s later); over the network it reached range walking away
+(171 degrees) and stood. Until B-1207 the port's stuck watchdog moved any simulant that stood 3 s in
+`MA_AIBOTDOWNLOAD`, which broke this deadlock and also cancelled every good download. **For Mike:** the fix changes
+the original's simulant behaviour: while in `MA_AIBOTDOWNLOAD` before its download starts, a simulant turns toward
+the terminal (at its normal turning speed, about 1 s for half a turn), so it starts instead of standing. Recommended;
+the alternative is to leave the original rule, with a simulant sometimes standing at the terminal forever.
+
+**Run on c35b35a2 (2026-11-16, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`): networked
+Hacker Central scored, so the deadlock is intermittent.** Simulant 3 took the uplink at 18.8 s and spent 46 s
+fetching items (`holds the uplink, not downloading (out of range) ... xz=545` to `2371 ... action=42`,
+`MA_AIBOTGETITEM`), went for the terminal (`action=44`), reached it at 65.1 s 230 units away facing it (4 degrees,
+still armed: `not holding the uplink`), was unarmed in `MA_AIBOTDOWNLOAD` 0.1 s later (`in progress ... weapon=1
+action=46`) and completed four downloads (85.2, 105.3, 125.3 and 145.3 s). The host and the client both rank it
+first with 8 points. As the cause says, it takes a simulant reaching range facing away (171 degrees in the a669d118
+run) to stand for good; the fix question for Mike stands.
+
+**Caught by the diagnostic (b2a2a720, `mp_hacker_central_net_carrier_death_smoke` 106/106,
+`results-20261116T215453Z.json`; the smoke does not need a score):** after the host killed the first carrier,
+simulant 4 took the replacement uplink and started a download at 47.3 s (`in progress ... angle=43 weapon=1
+action=46`), drifted into the terminal (`not facing the terminal at 49.2 s xz=46 ... angle=89`), which cancelled it,
+and from 50.9 s to the end of the match stood 183 to 198 units away facing 160 to 175 degrees away: `holds the
+uplink, not downloading (not facing the terminal) ... action=46 actiontype=1 inrange=4 target=-1 weapon=1`, every
+10 s. That is the deadlock in the cause: in `MA_AIBOTDOWNLOAD`, standing (`ACT_STAND`), unarmed, counted in range,
+never turned toward the terminal. Nobody scored in that match. So a simulant also gets there by losing its facing
+during a download, not only by arriving facing away.
+
+**Fix (Mike's OK 2026-11-16, "fix the bug"; constraints.md):** in `botTick`'s target angle, right after the branch
+that turns a downloading simulant toward its download's terminal, a simulant in `MA_AIBOTDOWNLOAD` whose download
+has not started turns toward the nearest Hacker Central terminal (`botHtmNearestTerminal`, Hacker Central only), at
+the ordinary turning speed (about 1 s for half a turn), so the download starts once it faces within 45 degrees.
+This departs from the original on purpose. Pinned by `[b1271]` in `tests/test_net_bot_pickup_static.cpp`. Not
+built yet; the queued carrier-death run builds it.
+
+**Checked in play (4789effa, base 7):** `mp_hacker_central_net_carrier_death_smoke` 106/106
+(`results-20261117T012828Z.json`) and `mp_hacker_central_net_smoke` 88/88 (`results-20261117T014259Z.json`, it
+needs a score): no `holds the uplink, not downloading (not facing the terminal)` line in either, 5 and 2 downloads,
+scores 10 (the score limit) and 4.
+
+## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed; checked in play)
+
+Severity critical for networked co-op and counter-op: the client crashes. Seen in `network_coop_deepsea_end_smoke`
+on binary a669d118 (base 7, `results-20261116T173916Z.json`, 116/126): as the intro cutscene ended, the client read
+the host's first chr removal (`NET.NPC: client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the host
+removed it)`, the intro actor) and crashed at once: `FATAL: ACCESS_VIOLATION PC=... (+0x153681)`, backtrace
+`propIsOfCdType` (prop.c, reading `chr->actiontype` with `chr` NULL) <- `cdCollectGeoForCyl` <-
+`cdFindGroundInfoAtCyl` <- `chrSetPos` <- `netmsgSvcNpcMoveRead` <- `netStartFrame`. B-1206's follow-up (a669d118)
+made this the first removal message ever to reach a client; before it, no client removed a chr this way.
+
+Root cause: the client's NPC resync (`netmsgNpcResyncRecordApply`, every SVC_NPC_RESYNC, including the one at the
+stage start) wrote the host's rooms straight into `prop->rooms`, without taking the chr out of its old rooms' prop
+lists or putting it into the new ones. A chr whose rooms changed stayed listed in its old rooms. While it lived
+that was harmless (the listing points at a live chr), but when it was removed, `chrRemove` and `propFree` cleared
+only the rooms named in `prop->rooms`, and `propFree` left a `PROPTYPE_CHR` prop with no chr in the old rooms'
+lists. The next NPC move's collision query in such a room read it. The host never runs a resync apply, so only
+the client crashed. The same direct write is in the bot resync (`netmsgSvcChrResyncRead`) and the prop resync
+(`netmsgSvcPropResyncRead`), and SVC_PROP_MOVE and the lift move moved the registration only when `prop->active`,
+which leaves a paused, listed prop in its old rooms (SP-92).
+
+Fix (746d79a7): new `propSetRooms` (prop.c) copies a rooms list exactly (up to and including its terminator; the
+NPC snapshot digest covers the rooms) and moves the prop's registration with it when the prop is in the world
+(active, or listed in its first room). All five paths use it. The prop resync also applies to objects only now, as
+the host sends: `prop->obj` shares storage with `prop->chr`, so a row whose id named a chr on the client wrote
+object fields into the chr. Pinned by `[b1270]` in `tests/test_net_mission_end_static.cpp`. Not changed: the
+bot-authority stub update (`netmsgClcBotMoveRead`, a stub with no room registration) and the reconnect
+snapshot paths, which keep their own staged registration.
+
+**Checked in play (c35b35a2, base 7, `network_coop_deepsea_end_smoke` 126/126, `results-20261116T195117Z.json`):**
+the client read the same removal at 75.3 s (`client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the
+host removed it)`) and one more in Defense (`syncid=147 chrnum=56`), and played on to the end screen and a clean exit
+(`MEMPC [shutdown]: all 5 allocations intact`); no fatal in either process. The reconnect snapshot's prop state
+(`netmsgSvcReconnectPropStateRead`) uses `propSetRooms` too since ae1fa9fd (SP-92 audit).
+
+## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed; announcement checked in play, its weapon type was B-1272)
+
+Severity high for networked Hacker Central: once the first uplink carrier dies, no client sees the uplink or can
+take it, and the client skips every host pickup of it. Seen in `mp_hacker_central_net_smoke` on binary 5cd5d0e5
+(639c9a8a, base 7, `results-20261116T150839Z.json`, 84/86): simulant 3 died at 94.7 s carrying the uplink; the
+host announced its two guns (`BOT.DROP: host announced simulant 3 weapon=2 syncid=57`, `weapon=5 syncid=58`), then
+`htmTick` found no uplink and made a new one at crate pad 69 (`HTM: uplink placed pad=69 source=crate`), prop 59, a
+dynamic id. The client logged nothing about it, and when simulant 3 took it at 102 s: `BOT.PICKUP: client skipped
+item 59 for simulant 3, it is not in this world (no prop has this sync id; first_dynamic=39 ...)`.
+
+Root cause: the original drops no uplink at a carrier's death; `htmTick` makes a new one wherever a crate stands
+(`htbCreateUplink`), and Hold the Briefcase's `htbTick` does the same for its case when none is left
+(`htbCreateToken`; rare, since a dying carrier drops the case as an announced weapon). A networked client runs
+neither (T-NETWORKING-011: it shows the host's scenario and never makes its own), and the host never announced
+the prop, so it had an id only on the host (SP-85).
+
+Fix: new `scenarioNetAnnounceProp` (`scenarios.c`): on the listen host, `SVC_PROP_SPAWN` then `SVC_PROP_MOVE` for
+the new prop, as `botinvDrop` announces a simulant's drop (log `SCENARIO.NET: host announced the new <uplink |
+briefcase> syncid=... rc=0`). `htmTick` and `htbTick` call it right after making the prop during the match; a
+client's `htmNetPresent` already finds a ground uplink by scanning its props. No wire change. Pinned by `[b1209]`
+in `tests/test_net_bot_pickup_static.cpp`. Not changed: the crate that the new uplink replaces is hidden on the
+host only (`OBJHFLAG_DELETING`, regenerating); the prop dirty check's `SVC_PROP_RESYNC` carries hidden state.
+
+## 2026-11-16 B-1208 A client's unchanged settings resend cancels the host's ready gate (T-NETWORKING-011, fixed; checked in play)
+
+Severity medium: a networked start fails whenever a client sends its settings again, with nothing changed, inside
+the ready gate. The host cancels the start (`NET: ready gate aborted by '<name>'`) and someone must press Start
+again; an autostarted smoke fires once, so its match never starts. Seen in `network_coop_mission_end_smoke` on binary
+5cd5d0e5 (639c9a8a, base 7, `results-20261116T145034Z.json`, 62/130; 130/130 at 490e8baf): the host's autostart
+added the client to room 1 at 02:18.78 and fired at 02:19.05; the client's Room opened as it was moved in, its match
+setup reset sent `CLC_SETTINGS` (same body, head, team, handicap and name; no rename line followed), and that
+reached the host at 02:19.21, inside the gate: `PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1`,
+and both machines waited 300 s for a stage that never started.
+
+Root cause: `netmsgClcSettingsRead` rolls the gate back for every valid `CLC_SETTINGS` from a preparing participant
+(B-1103, SP-67), changed or not, and a client sends one whenever its Room opens (`matchConfigInit` calls
+`netClientSettingsChanged` after the match setup reset) and whenever a settings menu closes, changed or not
+(`pdgui_menu_playerconfig.cpp` calls the send "idempotent and cheap").
+
+Fix: a candidate equal to the client's published settings, field for field and raw from the wire (name, body,
+head, options, team, handicap, fovy, fovzoommult), keeps the gate and publishes nothing (`NET: CLC_SETTINGS
+client=N repeats its settings during the ready gate; gate kept, nothing published`); any difference still rolls the
+gate back before publishing, as SP-67 requires. New smoke-only seam `--debug-ready-gate-settings-repeat` (the B-1103
+seam's twin: the same ordinary send at the PREPARING boundary with nothing changed) and
+`ready_gate_settings_repeat_smoke` (port 27218): the gate keeps and the match starts on both machines;
+`ready_gate_settings_rollback_smoke` stays the negative twin (its changed handicap still rolls back). Pinned in
+`tests/test_prepared_stage_transaction_static.cpp` (the B-1067 and B-1103 cases).
+
+**Checked in play (a669d118, base 7):** `ready_gate_settings_repeat_smoke` (`results-20261116T170717Z.json`): `NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published`, then the match started on both machines; its one failure was the smoke's own step order (the stage start logs two lines before the rollback snapshot release), fixed in 746d79a7. `network_coop_mission_end_smoke` passed 130/130 (`results-20261116T171610Z.json`).
+
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed; checked in play locally and networked)
+
+Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
+contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
+`results-20261116T101515Z.json`) and after it (490e8baf, 8dafe7f0, `results-20261116T130655Z.json`, 31/32, the
+missing line is the nonzero score). In the second run the uplink stands on its pad (pad 67, y 2), simulant 2 takes it
+at about 4 s and heads for terminal 0 (pad 7 at (-3305,36,1606), room 39) at 4.4, 22.8 and 41.5 s, fetching shields
+in between, and no download completes in 150 s. The terminal is reachable: it stands on room 39's ground floor
+(floor y 0, pad y 53) with route point pad 221 123 units away at the same height.
+
+What the code needs (`htmTickChr`): the carrier within 250 units (xz) and 200 (y) of the terminal, facing it within
+45 degrees and unarmed (`aibot->weaponnum == WEAPON_UNARMED`), for 20 s without a break. A simulant switches to
+unarmed and turns to the terminal only in `MA_AIBOTDOWNLOAD`, which it enters after a check fails within range
+(`playernuminrange`). It turns only while a download is active (`botTick` reads `dlterminalnum`), while
+`scenarioTickChr` runs after that facing step and cancels the download in the same tick when a test fails. Which
+test fails is not known yet. Diagnostic (this commit, offline and host): `HTM: uplink holder A -> B at T s
+pos=(...)` and `HTM: player N download <out of range | not facing the terminal | not holding the uplink | in
+progress> at T s xz= y= angle= weapon= action=` on each change (300 lines a stage at most), and `HTM: player N
+download complete at T s points=P`. Next run: `mp_hacker_central_net_smoke` in the queued objective-scoring turn,
+and `mp_hacker_central_local_smoke` after it. If the cause is the original's own logic, the fix changes how the
+mode plays and goes to Mike first.
+
+**Root cause (found 2026-11-16 with the diagnostic; not the original's logic):** in `mp_hacker_central_net_smoke`
+on 5cd5d0e5 (`results-20261116T150839Z.json`) simulant 3 reached the terminal three times (32.6, 54.4 and
+142.3 s: 209 to 230 units away, facing it, unarmed, `in progress` in `MA_AIBOTDOWNLOAD`), and each time, about 3 s
+later, `STUCK: bot slot=1 ... relocated to safe waypoint 73 (-698,394,-1889) penalty=25.0%` moved it 4,330 units
+away in the same frame (`out of range ... xz=4330`). The port's stuck watchdog (`botTick`, Phase F 2026-04-02, not
+in the original) relocates a simulant that moved less than 10 units in 3 s while its action counts as navigation
+intent, and `MA_AIBOTDOWNLOAD` was on that list, though a download is 20 s standing at the terminal. So every
+download a simulant began was cancelled 3 s in, with a 25% health penalty. **Fix (in code, not yet run):**
+`MA_AIBOTDOWNLOAD` leaves the intent list; nothing else changes, so the original's download rules apply again (no
+gameplay decision needed). King of the Hill was checked for the same trap (a simulant holding the hill stands in
+`MA_AIBOTGOTOPOS`): its simulants scored 1 and 2 points with one relocation a run in three earlier runs, so that
+case stays as it is. Pinned by `[b1207]` in `tests/test_net_bot_pickup_static.cpp`. The same run found B-1209.
+
+**Checked in play locally (a669d118, base 7):** `mp_hacker_central_local_smoke` 32/32 (`results-20261116T174929Z.json`): a simulant reached the terminal, turned and unarmed in 0.3 s, and completed three downloads (`HTM: player 3 download complete at 99.7 s points=1`, then 119.8 and 139.8 s; score 6), with no stuck relocation. Networked, a simulant still scores nothing, for another reason: B-1271.
+
+**Networked, checked in play (c35b35a2, `mp_hacker_central_net_smoke` 86/86, `results-20261116T201815Z.json`):**
+simulant 3's downloads ran to completion on the host four times, with no watchdog move, and the host and the client
+results both show its 8 points. A simulant that reaches range facing away still stands for good: B-1271.
+
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed; snapshot sweep and removal message checked in play, the second once B-1270 was fixed)
+
+Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
+the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20
+times a second. Seen in `network_coop_deepsea_end_smoke` on binary df1734a2 (db7c8b51, base 7,
+`results-20261116T121205Z.json`, 120/126; the Next Mission into Defense itself passed): from the first snapshot
+after Deep Sea loaded, `NET: SVC_NPC_RESYNC rejected incomplete snapshot tick=2698 server_count=51
+local_ready_count=53`, then 52 against 55 until the stage ended, 883 rejections in 42 s, each followed by `SVC_NPC_SYNC
+snapshot mismatch` and `requesting npc resync`. Both machines had the same 290 initial ids, the two chrs the host's
+AI made (syncid 292 and 293) reached the client (`client made the host's chr`), and no chr died. So the host removed
+2 chrs in the stage's first second and one more later, and the client kept all three.
+
+Root cause: every in-stage removal of a chr goes through `chrTick`'s `CHRHFLAG_DELETING` branch (`aiRemoveChr`
+sets the flag; so do a corpse's fade, an off-screen reap and a robot's death), and a co-op client runs no NPC AI or
+actions (`chraTick` returns early for NPCs on a client; B-1191 already keeps a client's fall check from deleting
+one), so nothing removed the client's copy, and no message told it to.
+
+Fix (wire v64, still unreleased, so no bump; ledger in `net.h`): new `SVC_NPC_REMOVE` 0x7f {sync id, flags; bit 0
+= the host's removal dropped the chr's items}. The host writes it in that branch, before the removal, in co-op and
+counter-op (log `NET.NPC: host removed chr syncid=... dropitems=...`). A client removes its copy at once, as the
+host's `chrTick` and prop loop do (`chrRemove`, then `TICKOP_FREE`), dropping the items first only when the host
+did (log `NET.NPC: client removed chr ... (the host removed it)`). A client that is still loading cannot take the
+message (its reader needs `CLSTATE_GAME`), which is when a level script's first removals happen, so
+`netmsgSvcNpcResyncRead` also removes every NPC of the client's that the snapshot does not name, after it has read
+the whole snapshot, and then counts again (log `... (the host's snapshot does not name it)`). Pinned by `[b1206]`
+in `tests/test_net_mission_end_static.cpp`. Pattern SP-85 (its removal case). Not covered by the message: the
+counter-op takeover in `player.c` (the anti player takes a guard's body) removes the guard outside `chrTick`; if
+that ever runs on one machine only, the snapshot sweep removes the other copy at the next snapshot.
+
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `network_coop_deepsea_end_smoke` 126/126
+(`results-20261116T143714Z.json`; 120/126 with 883 refused snapshots before): no snapshot refused. But none of the
+host's four removals reached the client as a message. Each came on a frame where `netEndFrame` throws away the game
+tick's messages: three before the stage replication was active (two guards in Deep Sea's first tick, one in
+Defense's), which the release snapshot covered (the client's sweep removed all three), and the intro's actor
+(syncid 1, chrnum 64) on the frame that published the cutscene END authority packet: its message was dropped and no
+later snapshot came, so the client kept that chr for the rest of Deep Sea. **Follow-up fix (in code, not yet run):**
+`chrTick` queues the removal (`netServerNpcRemoveQueue`, same `host removed chr` line), and `netEndFrame` sends the
+queue from the ACTIVE entity broadcast, after any authority packet and ahead of the frame's spawns, moves and states
+(`NET.NPC: host sent the removal of chr syncid=...`). The release baseline, a new stage, a reset and a rolled-back
+start empty the queue (`N queued chr removal(s) not sent: <why>`); a chr made after the stage start that was never
+announced is skipped (no client has it); a full queue (64) asks for a full NPC snapshot. The pins in `[b1206]`
+follow. The class, every one-shot message written in the game tick, is SP-91.
+
+**The queued removal in play (a669d118, base 7):** in `network_coop_deepsea_end_smoke` (`results-20261116T173916Z.json`) the host queued and sent the intro actor's removal as the intro ended (`NET.NPC: host removed chr syncid=1 chrnum=64 ... action=3`, then `host sent the removal of chr syncid=1`), and the client removed it (`client removed chr syncid=1 ... (the host removed it)`), the first removal message any client has read. The client then crashed in the next NPC move: B-1270.
+
+## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed; checked in play)
+
+Severity medium: the shield or crate a simulant took on the host stays on the client's floor until the client's own
+respawn cycle, so the two worlds disagree about it; no crash. Seen in `mp_combat_net_scorelimit_smoke` on binary
+df1734a2 (db7c8b51, base 7, `results-20261116T120430Z.json`, 75/76, the only failure): `BOT.PICKUP: client skipped
+item 13 for simulant 3, it is not in this world (the item is waiting to respawn; ... objtype=21 timetoregen=21 ...)`
+and the same for item 19 (`objtype=20`, `timetoregen=17`), a shield and a multi-ammo crate. On the host, simulant 3
+took item 13 at 03:10.37 and again at 03:30.93 (host log time), 20.5 s apart, with a 20 s respawn wait
+(`TICKS(1200)`): the second time the moment it was back. The client's copy still had 17 to 21 ticks (about 0.3 s)
+to wait. Item 19 went the same way, and its next pickup 20 s later was replayed fine.
+
+Root cause: each machine starts the respawn wait when it applies the earlier pickup
+(`propExecuteTickOperation(..., TICKOP_FREE)` sets `timetoregen`), so the client's wait ends later than the host's
+by the message's delivery delay plus any difference in counted frame time. `netmsgSvcBotPickupRead` refused any item
+with `timetoregen != 0`. `netmsgSvcPropPickupRead` (a human's pickup on the host) had the same exposure the other
+way: it took the still-respawning item without the respawn's own steps (a shield's charge is refilled when it
+comes back).
+
+Fix (client only, no wire change): `objTick`'s respawn steps moved unchanged into `objTickRegen(prop, elapsed60)`
+(`propobj.c`), and the new `objRegenNow(prop)` runs them to the end: the fade-in start (the item comes back, with
+its respawn sound) and then the finish. Both pickup replays call it first when this client still has the item
+respawning (logs `BOT.PICKUP: client finished item N's respawn for simulant S, T ticks before its own wait ended`
+and `NET: SVC_PROP_PICKUP client finished prop N's respawn ...`), then replay as before, so the wait starts again
+as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`. Seen working once in play
+2026-11-16 (490e8baf, `mp_hold_the_briefcase_net_smoke` 84/84): `BOT.PICKUP: client finished item 6's respawn
+for simulant 3, 27 ticks before its own wait ended`, then `client replayed simulant 3 item 6`; the Combat
+score-limit re-run that failed on it is queued.
+**Checked in play 2026-11-16** on binary 5cd5d0e5 (639c9a8a), `mp_combat_net_scorelimit_smoke` 76/76
+(`results-20261116T143007Z.json`; it failed on this race before): the client finished an item's respawn early
+four times, three simulant pickups (38, 39 and 47 ticks early) and one host-player pickup (`SVC_PROP_PICKUP client
+finished prop 8's respawn for client 0, 54 ticks ...`), replayed all 19 simulant pickups, skipped none, and the
+match ended by score limit 1 on both machines.
+
+## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
+
+**Fixed** by CORE on week-pd/core 9a9cfc9f, cherry-picked here as 0ad19dca: each scenario pad keeps its own
+`PADFLAG_HASBBOXDATA` (the ROM's flags in pads.json), so a boxless pad's six box floats stay unread and
+`padUnpack` gives its usual default, so objects stand on their pads again. No re-extraction (every base pad without the bit
+has exactly that default box); a contract pin refuses the forced bit. **Checked in play 2026-11-16** on binary
+490e8baf (8dafe7f0), base 7: in `mp_hold_the_briefcase_net_smoke` (84/84, `results-20261116T125201Z.json`) the
+case stands on pad 67 at y 4, a simulant takes it at 18.4 s and scores, and simulants collect the upper-floor
+crates and weapons (y 278 to 291) they could never take before; `mp_combat_local_scorelimit_smoke` (24/24,
+`results-20261116T125730Z.json`, no kill in 240 s before) ends by score limit 1 after a simulant's kill.
+
+**Root cause (read from data and source, 10:15 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
+sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
+box of -100..100 (`romextract_pdarena.c`, `f32 bbox[6] = { -100.0f, 100.0f, ... }`). Complex has 226 pads; only 5
+carry the ROM flag, and their boxes start at the pad (y 0 to 105). The other 221 now claim a 200-unit box.
+`setup.c` places a pad's object from `centre`: the pad position when the pad has no box data, otherwise the
+box centre moved down by half its height, so here 100 under the pad. `func0f06a730` (`propobj.c`) then
+looks for a floor from there. Pads sit about 52 above their floor, so the search starts about 48 units under
+it. With another floor below (Complex rooms 24, 26, 39: floors at 0 and 276), the object lands on that one,
+276 units down (the ground-floor weapons at y 2 and 15 from pads at y 328). With no floor below, it stays where
+the search started: weapons at pad - 98, crates at pad - 95, the case at pad - 96. The collision mesh confirms
+each case, for example pad 73 at y 328 over a single floor at 276 put the case at 232. Every observed height
+matches pad - 100 plus the object's own bottom offset. Fix options for CORE: set the flag only when the source pad
+has it (records then vary in length, as in the ROM), or keep the layout and write a zero box for pads without one,
+so `centre` is the pad, as in the original. Either needs no re-extraction. Check B-1113's room assignment and
+anything else that reads pad boxes. Solo stages that load from scenario sources would be affected the same way.
+
+Severity high for every mode with simulants on a multi-level arena (they waste the match fetching items they cannot
+take, and an objective that lands there is never taken); possibly for players too, if a sunken item is hidden. Found
+with the BOT.TEAM, BOT.CMD and BOT.GOAL lines (80bf07b5) in `mp_hold_the_briefcase_local_smoke` and
+`mp_hold_the_briefcase_net_smoke` on base 7 (`results-20261116T094935Z.json`, `results-20261116T100549Z.json`).
+It is not a networking difference. In both runs every simulant has `teamisonlyai`, takes the get-case command at
+2.4 s and starts routes to items and to the case. Some items are never collected, although simulants reach them
+(xz within 1 to 50 units, 135 to 148 units above). On Complex these are the weapons at (-3087,230,-717) room 2,
+(-4888,230,-378) room 22 and (-3642,-321,1334) room 42, and the ammo crate at (-3064,-42,69) room 21; one simulant went
+for the room 22 weapon five times in 150 s. Items at y 2 to 15 on the ground floor, and the raised crate at y 509,
+are collected (`BOT.PICKUP`). The networked case landed at y 232 in all three networked runs (base 3 pad 173; base 7
+pads 74 and 73) and was never taken. The local case landed at y 4 (pads 134 and 58) and was taken at 11 s and at
+64 s. So the local/networked difference was where the case landed (their rng streams differ), not the network.
+An item 42 to 46 units under the floor fails `botTestPropForPickup`'s line of sight (`cdTestLos06`, DOORS|BG) from
+a simulant standing over it. The crate at y 509, 42 under its 551 floor, was collected only from the floor below,
+where that line is clear. (My first guess, a wrong floor from `func0f06a650`, was wrong: that function has no
+callers; the root cause is above.) Next, CORE's call: the fix, then a game check that the briefcase, weapons and
+crates rest on their own floors (on Complex: rooms 2, 21, 22, 24 and 42).
+
+## 2026-11-16 B-1203 Single-process smokes ran against the real user profile (T-NETWORKING-011, fixed in the runner)
+
+Severity high (test isolation; it writes the user's real data). Found when three local smokes on 340eca64
+(`mp_hacker_central_local_smoke`, `mp_capture_the_case_local_smoke`, `mp_combat_local_scorelimit_smoke`;
+`results-20261116T080701Z.json` to `results-20261116T083802Z.json`) each crashed 0.03 s into boot: every one logged
+`save dir: C:/Users/mikeh/AppData/Roaming/perfectdark` and died in `strlen` while loading `input-bindings.ini` from
+there. Cause: `tools/smoke-verify/run.ps1` builds a single-process launch from `--smoke <test>`, the crash-handler
+switch and the fixture's own `boot_args`, and adds `--savedir` only under `-ReuseInstallId`. B-1124 wrongly said this
+path always passes `--savedir`, so its runner guard and `tools/tests/test_smoke_fixture_isolation.py` checked only
+fixtures with a `processes` list. 81 single-process fixtures name neither `--portable` nor `--savedir` (the eight
+`mp_*_local` smokes, `mp_room_flow`, the main-menu Joanna, swarm, stage-sky, vehicle and mission-intro smokes among
+them), so every run of them on this machine, by any session, read and rewrote the real profile's `pd.ini`,
+`input-bindings.ini` and `playerstats.json` (and could migrate an install's `pd.ini` into it, `fsInit`). The last
+such run was CORE's `stage_sky_depth_defection` (week-pd/core 3b303305c, started 07:18:15Z, saved playerstats there
+at 07:19:35Z); MULTIPLAYER's local smokes did the same all week. The crash itself is B-1184, fixed on dev by CRYSTAL
+(6e43ca22) but not yet on this branch: actions 105-120 had no name in `s_ActionNames`, CORE's build (which has the
+names) rewrote the real bindings file with all 123 rows per context, and this branch's loader read a NULL name for
+the first row it did not know (`MenuSkipUp`). Fix on `week-pd/multiplayer`: once both strategy branches have built
+the arguments, `run.ps1` adds `--portable` when the fixture's `boot_args` name neither flag (the game runs from its
+install, so `--portable` keeps the install as base dir and moves the save dir and `$H` into it); `-ReuseInstallId`
+still replaces the arguments with explicit directories. Pinned by `test_runner_isolates_single_process` in
+`tools/tests/test_smoke_fixture_isolation.py`, which fails on the old runner. Nothing in the real profile was
+restored or edited; that is Mike's call. Class: B-1124, the other launch path; SP-90.
+
+## 2026-11-16 B-1202 In a networked match every simulant updates once per player each frame (T-NETWORKING-011, fixed in code)
+
+Severity high for networked matches with simulants (they think, turn, check pickups and earn scenario points twice
+as fast with two players, three times with three; offline is unaffected). Found by reading the Hold the Briefcase
+scores: the networked 150 s run on 21eec732 (`results-20261115T121447Z.json`) gave a simulant 7 points in a 151 s
+match, and a point needs 30 s held (`htbTickChr`, `TICKS(7200)`), so 5 is the most possible. Root cause: `lvRender`
+loops over every player of a networked match (`if (g_NetMode) forcesingleplayer = false;`, "tick all players"), so
+`propsTickPlayer` runs once per player each frame. Its first pass sets `PROPFLAG_NOTYETTICKED` on every prop, and
+the original `botTick` ran its update only while that flag was set (`chrTick`, called later in `botTick`, clears it),
+as `chrTick` still does for its full tick. 41431a3d ("FIX 1", 2026-04-04) changed `botTick` to read
+`g_Vars.lvupdate240` alone, on the belief that `chrTick` cleared the flag before `botTick` ran (it does not: nothing
+ticks a simulant's chr before `botTick`), so every later pass in the frame ran the whole update again: AI
+(`botTickUnpaused`), turning, stuck checks, `scenarioTickChr` (Hold the Briefcase hold time, Hacker Central
+download, Pop a Cap survival) and `botCheckPickups`. Fix: `updateable` again needs the flag as well as a nonzero
+update; a later pass logs `BOT.TICK: simulant N passed again in one frame (players=P)` once per match. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1202]`). Pattern SP-87. Built 2026-11-16, the full suite passes (1993
+cases). Seen in play 2026-11-16 (binary c5a12bca, `mp_simulant_types_net_smoke` PASS 107/107): the host logged `BOT.TICK: simulant 4 passed again in one frame (players=2)`, so the second per-player pass happens and now skips the update; the Hold the Briefcase re-run checks the effect on points. This changes how fast simulants act in networked matches, back to the offline speed.
+Not covered (open, a question for Mike and CORE under SP-87): a prop in the background, in no player's view, still gets
+N times the elapsed time, because `propsTickPlayer` adds the frame's time to every prop's `propupdate240` and every
+slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, and a background tick spends that
+accumulated time (the original split-screen scheduler does the same). So a simulant out of every player's view still
+acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
+view can therefore still beat the 30 s rule in the Hold the Briefcase re-run. **Fixed in code 2026-11-16 with option (b)** (CORE agreed on the hub, 05:59 UTC): in a networked match `propsTickPlayer` counts the frame's time once (`netrepeatpass`: on a pass after the first, no prop or slot gains time, the background slot does not advance and no background prop ticks), so every prop gets real time as offline; local split screen keeps the original per-pass accounting. Background pickups no longer regenerate N times as fast either. Pinned in `tests/test_net_bot_pickup_static.cpp` (`[sp87]`); pd-tests 2,019 cases green; not yet run in game.
+**Checked in play 2026-11-16** on binary 490e8baf (8dafe7f0), `mp_hold_the_briefcase_net_smoke` 84/84
+(`results-20261116T125201Z.json`): the simulant that took the case at 18.4 s scored at 48.4, 78.4, 108.3 and
+138.3 s, one point per 30 s held as in the original (7 points in 151 s before the fix), and the client's points
+and final result lines match the host's.
+
+## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed)
+
+Severity high (client crash). Found by the first run of `network_coop_mission_return_smoke` on binary 0587e908
+(5a1dfcda, 125/129, `results-20261116T042438Z.json`): Return to Room worked on both machines (`GAMELOOP.COOP: host chose
+return to room`, the client's `host returned to room 1; leaving the mission results`, each Room opened), then the
+host's scripted exit came first, the client read `NET: disconnected from server: Server is shutting down`, and 10 ms
+later crashed: ACCESS_VIOLATION in `chrTickAttack` (chraction.c, `chr->act_attack.animcfg`), from `chraTick` <
+`chrTick` < `propsTickPlayer` < `lvRender`. Root cause: since B-1197 a player in the Room after networked results is in
+the lobby state while the ended mission stays loaded behind the Room, so `netDisconnectWithIntent`'s `wasingame` (the
+game state only) was false and the client stayed in that stage, now offline. With `g_NetMode` at `NETMODE_NONE` the
+client's suppression of co-op NPC AI in `chraTick` no longer applied and its global tick ran again, unpaused (the
+results exit unpauses), so a guard the host had left in `ACT_ATTACK`, whose action data a client never sets up, ran its
+attack tick. Same class as SP-84's "safe only by order" note. B-1198 had also removed the results push that paused the
+stage on an in-game disconnect. Fix: the disconnect also leaves for CI when an ended gameplay stage (not CI) is still
+loaded (`leftendedstage`, from `g_MainIsEndscreen`; log `NET: disconnect leaves the ended stage ... behind the Room for
+CI`), and whenever it leaves a stage it first freezes it (`lvSetPaused(true)`, the update zeroed, every prop's catch-up
+time dropped) until CI loads. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1201]`). Built 2026-11-16, the
+full suite passes (1992 cases). **Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3,
+`network_coop_mission_return_smoke` PASS 129/129, `results-20261116T054147Z.json`): after the host's Return to Room
+and its exit, the client logged `NET: disconnect leaves the ended stage 0x30 behind the Room for CI` 20 ms after
+`Server is shutting down`, and did not crash.
+
+## 2026-11-16 B-1200 A second networked Combat match in the same room is refused (T-NETWORKING-011, fixed in code)
+
+Severity high (no rematch in a room after a match with a random spawn weapon, the default). Found by
+`mp_combat_net_rematch_smoke` on binary 30973012 (f8d79928, 79/94, `results-20261116T020226Z.json`), the first run to
+get past B-1195 and B-1197: the host left its results with Return to Room, stayed in the arena behind the Room
+(`MENU.MPENDSCREEN: networked results closed; no local stage change`, `BOT: match chr table retired`), re-armed and
+fired its second match, and the lobby start refused it: `PLAYER.INIT.ROLLBACK lobby-write detail=random/Fiesta spawn
+mode retains a typed ID`, `BOOT: --host-autostart started match 2 of 2 rc=-5`. Root cause: a random spawn weapon is
+rolled per match (`netLobbyStartResolveRandomSpawn`) and the start commit copies the resolved config, roll included,
+into `g_MatchConfig` (`netLobbyStartCommit`; a client stores it too from `SVC_STAGE_START`), which the match reads at
+every spawn; the next `netLobbyStartWritePrepare` refuses a random mode that still holds a typed ID. Fix: the match
+end forgets the roll for random and Fiesta modes (`netMatchConfigForgetSpawnRoll`, from the host's stage end commit
+and a client's stage end read, which may host next; log `NET: match end forgets the rolled spawn weapon ...`); the
+refusal stays for a genuinely mixed configuration. Pinned in `tests/test_host_autostart_rematch_static.cpp`
+(`[b1200]`); the rematch smoke requires the log line. Not yet built or run.
+
+## 2026-11-16 B-1199 The mission-end Agent Profile save is refused in networked co-op and counter-op (T-NETWORKING-011, fixed in code)
+
+Severity medium (mission progress of a networked co-op or counter-op mission may not be saved; no crash). Every
+networked mission end on the host logs `ERROR: SAVE: Agent Profile serialization failed name='Dark'; destination
+preserved` right after `endscreenPushCoop`/`endscreenPushAnti` (co-op run `results-20261116T011832Z.json` and
+counter-op run `results-20261116T014445Z.json`; once on the counter-op client too, in its disconnect teardown,
+B-1198). `saveWriteAgentDocument` (savefile.c) calls `agentProfileWriteJson`, whose `profileDocumentValidate`
+refuses the document (a scalar: auto difficulty, auto stage index, thumbnail, sound mode, control modes; a challenge
+value; or the preferences) and keeps its reason to itself. Diagnostic added (not yet run): the failure path logs
+`SAVE.DIAG: agent document ...` with those scalars and the public preferences validator's verdict. Not checked: whether
+a solo mission end fails the same way. The codec is CORE's; report the diagnostic's first result to CORE.
+Named 2026-11-16 by the diagnostic (co-op run `results-20261116T031858Z.json`): `SAVE.DIAG: agent document
+autodifficulty=0 autostageindex=0 thumbnail=0 soundmode=1 controlmode=8,9 preferences=ok`; the validator allows control
+modes up to 8. Root cause (ours, not the codec's): `saveCaptureAgentDocument` takes player 2's control mode from slot 1
+in co-op and counter-op, but in a networked mission slot 1 is the remote partner, whose control mode is
+`CONTROLMODE_NA` (9, `netPlayersAllocate`). So every networked mission-end save was refused and the progress was not
+saved. Fix in code: `saveAgentPlayer2Slot()` (savefile.c) uses slot 1 only in a local mission and slot 5 otherwise, as
+outside co-op, for both the save and the load. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1199]`). Not yet
+built or run.
+
+## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, fixed in code)
+
+Severity low (a results screen for both players flashes up while the client drops to CI; the agent save attempt in it
+fails, B-1199). Seen in `network_counterop_mission_end_smoke` (`results-20261116T014445Z.json`): the host's scripted
+exit came first, the client read `NET: disconnected from server: Server is shutting down`, and `netDisconnect` ended
+the stage (`mainEndStage`), which pushed `endscreenPushAnti` for player 0 and player 1: by then `g_NetMode` is no
+longer networked (`g_NetMode = NETMODE_NONE` comes first in `netDisconnectWithIntent`), so `mainEndStage`'s skip of
+remote players (B-1193) no longer applies. Fix in code: `netDisconnect` ends the stage with
+`mainEndStageWithoutResults()` (pdmain.c), which pushes no co-op, counter-op or solo results on the way to CI and logs
+`GAMELOOP: stage ended by a disconnect; no mission results`; a networked Combat match still ends through `mpEndMatch`.
+The counter-op smoke checks one push per machine at the mission end and exactly two in all. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1198]`). Not yet built or run.
+
+## 2026-11-16 B-1197 Closing networked Combat results loaded CI on the listen host (T-NETWORKING-011, fixed in code)
+
+Severity high (the host's next match never starts after it leaves its results). Found by `mp_combat_net_rematch_smoke`
+on binary 9078eb6b (3cad23d4, 77/91, `results-20261116T010715Z.json`), right after B-1195 let the host's global tick
+run under the results: Continue (`GAMELOOP.MP: endscreen EXIT_TO_ROOM`) popped the results menus, and the next
+`menuTick` ran the offline close of `MENUROOT_MPENDSCREEN` (`GAMELOOP.CAMPAIGN: MPENDSCREEN → CITRAINING lobby
+return`): it unpaused MP, cleared `mplayerisrunning`, and loaded CI as a networked host, whose player setup rolled
+back to the title (`PLAYER.INIT.ROLLBACK phase=stage stage=0x26; returning to title`), so the host never re-armed its
+second match. The same close never ran before because the host's tick was deferred (B-1195) and a client's too
+(B-1190 part 2). B-1195's simulant gate held through it (`BOT: match chr table retired` once, no crash). Fix: that
+close does nothing while `g_NetMode` is not `NETMODE_NONE` and logs `MENU.MPENDSCREEN: networked results closed; no
+local stage change`; the networked exits decide what follows (Return to Room keeps the stage until the host's next
+match, the host's mission choices start it, Disconnect ends the session first, after which the offline close runs as
+before). `menuReset()` clears the close state at every stage load, so the co-op path, whose tick is deferred after its
+exit, never hits it later. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1197]`); the rematch smoke
+forbids the CI return and `PLAYER.INIT.ROLLBACK` and requires the new line. Not yet run.
+
+## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, fixed in code)
+
+Severity medium until the chr is named (the client cannot see or place that chr; if it is an enemy, the client is
+shot by someone it cannot see). Seen in `network_coop_mission_end_smoke` on binary 8c56ad72 (119/121; both failures
+are this): the client logged `NET: prop with syncid 335 does not exist` 720 times, every 55 ms on average (the
+20 Hz `SVC_NPC_MOVE`), from 1.5 s after Defection's gameplay start until the mission end. Both sides agree on the
+initial ids (`last initial syncid=331 first dynamic syncid=332`), so 335 is the host's fourth prop allocated after
+the stage start: on the host every such prop takes `g_NetNextSyncId++` (`propAllocate`), on a client it stays 0
+unless a spawn message names it, and `SVC_PROP_SPAWN` carries objects only. `SVC_NPC_MOVE` goes to every chr
+`netNpcIsReplicationReady` accepts (`PROPTYPE_CHR`), so 335 is a chr. Not a scripted spawn: Defection's AI lists
+have no `spawn_chr_at_pad`/`spawn_chr_at_chr`, and the co-op buddy spawn (`player.c`) needs `normmplayerisrunning`
+0, which networked co-op is not. The initial NPC snapshots matched (36 and 52 NPCs), and no periodic check compares
+the count, so nothing else notices. Diagnostics added (not yet run): the host logs each chr with a dynamic id once
+when it first sends its move (`NET.NPC: host replicates a chr created after the stage start ...`), and the client
+logs each unknown id once with its nearest local chr (`NET.NPC: client has no chr for syncid=...`). That says
+which chr it is and whether the client holds an unlinked copy (deterministic creation on both sides) or none
+(host-only creation, which needs a spawn message).
+2026-11-16: the re-run on binary 9078eb6b passed 121/121 with no `NET.NPC` line on either side, so the host made no
+chr after the stage start that time: the spawn is conditional. Likely source (by reading, pattern SP-85): the shared
+AI lists (`gailists.c`) have an unalerted guard "create a spawn", a clone of itself searching for the player
+(`try_spawn_clone2(CHR_SELF, GAILIST_SEARCH_FOR_PLAYER, ...)`, opcode 0x00ca, `aiDuplicateChr`, only for a
+`CHRCFLAG_CLONEABLE` guard); in the failing run a guard shot the host as gameplay began. Co-op AI runs only on the
+host, and no message names a chr the host's AI makes, so a co-op client never sees a clone (or a `spawn_chr_at_*`
+guard) while the host's copy can shoot it. Fix needed: a chr spawn message (the host announces a chr with a dynamic
+id, with its held weapons and hat, before its moves; the client makes a puppet with the same ids), plus a host
+debug trigger so a smoke can prove it.
+Fixed in code 2026-11-16 (not yet built or run): new `SVC_NPC_SPAWN` 0x7e (unreleased v62, co-op and counter-op
+only). Each net frame the host announces, once and reliably, every replication-ready chr whose sync id is dynamic
+(`netServerNpcSpawnAnnounce`, net.c), with its chr number, body, head, place, angle, rooms, team, flags, held
+weapons (sync id, weapon, model, left hand, dual) and hat; its moves and states wait 15 ticks after that, since
+ENet does not order the reliable spawn against an unreliable move. The client makes the chr at the host's place
+without a second spot search (`chrSpawnReplicated`, chraction.c, idle list; its AI stays suppressed there), binds
+the host's ids to the chr, weapons and hat, and sets the chr number, team and flags; a spawn for an id it already
+has is ignored. Logs: `NET.NPC: host announced a chr made after the stage start ...`, `NET.NPC: client made the
+host's chr ...`. `--debug-clone-guard <seconds>` (port/src/main.c) clones a living guard once on the host, idle so
+it cannot end a smoke's mission, with the guard's weapons, team and flags; `network_coop_mission_end_smoke` uses it
+at 20 s and requires both NET.NPC lines and no `client has no chr`. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1196]`). Open: a co-op client that reconnects does not get chrs made
+before it rejoined (T-NETWORKING-007); a chr the host makes before the stage's replication release is counted in the
+host's NPC snapshot (`SVC_NPC_RESYNC`) before its spawn is announced (the broadcast starts at the first active
+frame), so that snapshot would still be rejected, as it was before this fix.
+
+## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
+
+Severity high (the host crashes in every networked Combat match with simulants once it presses Continue on its
+results). Seen in `mp_combat_net_rematch_smoke` on binary 8c56ad72 (8a34e695): host `GAMELOOP.MP: endscreen
+EXIT_TO_ROOM`, the Room opens, then `FATAL: EXCEPTION ... CODE=0xc0000094` (integer divide by zero) in
+`botChooseGeneralTarget` (`bot.c`, `% g_MpNumChrs`), called from `lvRender` > `propsTickPlayer` > `botTick` >
+`botTickUnpaused`. Root cause: the host's stage end commit (`netmsgSvcStageEndCommit`, MP branch) unlinked every room
+member's player, the host's own too, so from the results on `playermgrRestoreLocalPlayerContext` failed (`GLOBAL.TICK:
+deferred` right after the results opened) and the host's `lvTick` never ran. `lvSetPaused(true)` from the results push
+never zeroed the update, and `lvRender`'s `propsTickPlayer` kept ticking the simulants with the last live delta, AI
+included. Continue then ran `mpClearRuntimeChrState()` (B-368), which sets `g_MpNumChrs` to 0 while the ended arena
+stays loaded behind the Room, and the next AI tick divided by it. Same class as B-1190 part 2 on the client (SP-84).
+Fix: (1) the commit skips the listen host's own netclient, as the client's stage end read does; the next stage's
+player allocation replaces the link (`netPlayersAllocate`). With its global tick running, the host's results pause
+holds, and after Continue the game-over pause keeps the arena's update at 0 (once B-1197 stopped the offline results
+close from unpausing it and loading CI). (2) `botTick` treats a simulant whose
+match chr table is retired (`g_MpNumChrs <= 0`; a live match always counts its simulants) as scenery: no AI, spawning,
+room recovery or stuck repair, speeds zeroed, `chrTick` kept for the model, and one log line `BOT: match chr table
+retired; simulants are inert until the next stage`. (2) is needed besides (1) because `mpApplyConfig` (presets,
+challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in the Room. Tests: `[b1195]` in
+`tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
+(`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
+
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed)
+
+Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
+`mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
+`BOT.PICKUP: client skipped item 26 for simulant 14, it is not in this world`, and the same for items 23, 25, 29 and
+30, while the host sent all of them (`BOT.PICKUP: host sent simulant 14 item 26 weapon=5 result=1`) and the client
+replayed later ones (items 34 to 43). No `BOT.DROP` lines, so these are not dropped weapons. The skipped ids are the
+lowest, which suggests the arena's starting weapon pickups have no counterpart with the same sync id on the client.
+The 3-simulant runs never took one. Each skipped item was the host's first pickup of it (no earlier pickup on
+either side), so it is not respawn-timer drift: the reader's refusal (`netmsgSvcBotPickupRead`: no prop for the sync
+id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the start. Diagnostic added 2026-11-16
+(not yet run): the host's `BOT.PICKUP: host sent` line now carries the item's object type and position, and the
+client's skip line names the test that refused and what it holds under the id (type, object type, respawn timer,
+position, and the first dynamic id). Initial ids are prop slot index + 1 on each side (`netSyncIdsAllocate`), so a
+"no prop has this sync id" with a low id means the client's setup left that slot free.
+Named 2026-11-16 (`mp_simulant_types_net_smoke` on binary 9078eb6b, 106/107, `results-20261116T013126Z.json`):
+both sides log `last initial syncid=17 first dynamic syncid=18`, so every skipped item (23 to 58, 14 of them) is a
+dynamic prop; the client has no prop under any of those ids, and on the host every one is weapon 8 (`objtype=8`,
+a weapon) that no `BOT.DROP: host announced` line covers (those four, 33, 34, 40 and 53, were replayed fine).
+Root cause: a simulant's held weapon is a prop made when it equips it, after the stage start, so it has a dynamic
+id on the host and none on a client. `chrBeginDeath` drops the held weapons (`objSetDropped`, then `chrTick`'s
+`objDropRecursively`) on both machines: the host's copy lies in the world under an id the client never learns, and
+the client's puppet drops an unnumbered copy, so a later host pickup cannot reach it. Fix in code (pattern SP-85):
+the host announces each held weapon with a dynamic id once the death drop puts it in the world
+(`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`, as `botinvDrop` does; log `NET.DROP: host announced chr ...
+held weapon=... syncid=...`), and a client's puppet retires its own held models at death instead of dropping them
+(`OBJHFLAG_DELETING`, as a weapon switch does). Pinned in `tests/test_net_bot_pickup_static.cpp` (`[b1194]`). Not
+yet built or run.
+2026-11-16, run on binary 732dd2fe (540f12d8, `results-20261116T033141Z.json`, 106/107): that root cause was wrong.
+The host logged no `NET.DROP: host announced chr` line at all, while 27 pickups were still skipped, every one the
+match's rolled spawn weapon (weapon 5 this time, weapon 8 last time), all dynamic ids, the client holding no prop under
+any of them. A simulant's lethal damage goes through `chrDie` (chraction.c), whose `botinvDropAll` makes fresh props
+for its inventory and announces them (`BOT.DROP`, 3 this run, all replayed) and deletes the held models, so held
+weapons never reach the world on that path. About 12 deaths, 24 simulant spawns and 32 host pickups, with the first
+skipped items lying in the world six seconds into the match, so where those weapons come from is still open. The
+held-weapon announcement and the puppet's retire stay (they cover `chrBeginDeath` and `botDisarm` drops of weapons with
+dynamic ids, as a co-op clone's are), but they are not this bug's fix. Diagnostic for the next run: the host's
+`BOT.PICKUP: host sent` line now carries the item's `dynamic`, object `flags` (a drop carries AICANNOTUSE), `hidden2`
+(the regen flag) and setup `pad`. Open.
+Named 2026-11-16 (binary 0587e908, 5a1dfcda, `results-20261116T044504Z.json`, 106/107): every skipped item but one
+carries `flags=0x00004000` (`OBJFLAG_ASSIGNEDTOCHR` alone) and a `pad` of 3 to 13, which are the simulants' chr
+numbers this run (`SIMULANT: allocating chrnum=0..13`); the replayed `BOT.DROP` props carry `0x20004000`. That is a
+simulant's own held model (`weaponCreateForChr` stamps the owner's chrnum in `pad`), and the one path that puts it in
+the world is `botDisarm` (bot.c), run when a simulant takes a hit with `FUNCFLAG_DISARM`: it clears
+`weapons_held[HAND_RIGHT]` and drops that model itself, or, with no held model, makes a fresh one (`AICANNOTUSE`,
+the one outlier, item 36 with `0x20004000` and pad 0). The death-drop announcement only looked at `weapons_held`,
+which `botDisarm` had already cleared, so it never fired. Worse, `SVC_CHR_DAMAGE` runs `chrDamage` on the client, so
+the client's puppet ran the same disarm and dropped an unnumbered copy of its own. Fix (pattern SP-85): the chr drop
+block in `chrTick` notes every weapon with a dynamic sync id the chr carries before `objDropRecursively` and announces
+each one the drop leaves in the world (`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`; log `NET.DROP: host
+announced chr ... dropped weapon=... syncid=... flags=...`), so any drop path is covered, not only the held slots; and
+on a networked client `botDisarm` retires the puppet's held model and drops or makes nothing. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1194]`, two cases). Built 2026-11-16, the full suite passes (1992 cases).
+**Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3, `mp_simulant_types_net_smoke` PASS 107/107,
+`results-20261116T055414Z.json`): no client skip at all (24 host pickups sent, 24 replayed; 23 were skipped on
+0587e908), and the host logged 16 `NET.DROP: host announced chr N dropped weapon=10 ... flags=0x00004000` lines, the
+disarmed simulants' own guns, under low dynamic ids such as 21 and 24 like the ones skipped before.
+
+## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
+
+Severity high for networked co-op and counter-op (the next mission or a retry drops the other player; no mission
+end has ever run in a smoke). Found by a read-only map of the code on 760ba423 (not run; no fixture ends a mission).
+What happens today: (1) each machine pushes a results dialog for both players (`pdmain.c` mainEndStage loops over
+`PLAYERCOUNT()`; `endscreenPushCoop`/`Anti` check nothing), so each shows the other machine's player too, and
+counter-op draws `renderSoloEndscreen` twice a frame; (2) the host's stage end commit leaves the partner in
+`CLSTATE_GAME` (`netmsgSvcStageEndCommit`, co-op branch), so it is not in the next lobby start's roster and
+`netServerMatchInProgress()` stays true (new connections refused); (3) Next Mission, Retry and Main Menu act only on
+the machine where they are pressed (`pdgui_bridge.c`): a host's Next or Retry reloads alone, its player allocation
+finds one of two players and the rollback disconnects the client; a client's reloads alone while connected;
+(4) networked co-op runs with `normmplayerisrunning` 1 (`mpReset`), so the death branch (`player.c`, both players
+dead in co-op, Bond dead in counter-op) and the pause menu's End Match end the stage on a client too, without the
+host; (5) the host's Room draws over the co-op results, as in B-1192, because the 2P results dialogs are not
+registered in the menu pool; (6) inferred: `netServerStageEnd` wipes the outgoing buffers, which can drop an
+`SVC_OBJ_STATUS` queued in the same frame, and a client decides completed or failed from its cached statuses.
+Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `port/src/pdmain.c`. Fix (Mike, 2026-11-15,
+host control), in code: (1) `mainEndStage` pushes results only for this machine's own player (`isremote`, still set
+there; the participant type does not work, the co-op stage load makes both local); the four 2P results dialogs are
+registered as `MENU_TYPE_ENDSCREEN_SOLO`, so the lobby gate (B-1192) and the rematch re-arm also wait on them;
+(2) the co-op/anti stage end commit returns the partner to `CLSTATE_LOBBY` (linkages kept for the results), and
+`g_NetLastCounterOpClientId` keeps the counter-op client past the end; (3) the host's results screen offers Next
+Mission (before Skedar Ruins), Retry Mission and Return to Room (`pdguiEndscreenNetMission*` in `pdgui_bridge.c`):
+Next and Retry go through the Room's lobby start, which takes the other player along; Return to Room sends the new
+`SVC_MISSION_RETURN` 0x7c (unreleased v62) and the client leaves its results for the Room; the other player sees
+"Waiting for the host to choose what comes next" and Disconnect; (4) the both-dead and Bond-dead ends and the pause
+menu's End Game no longer end the mission on a client (End Game there leaves the session); (5) the final objective
+statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`); (6) Mike, 2026-11-15, "in co-op don't
+you want to see stats from all players?": each machine's results show its own player's combat stats and then a
+PARTNER block with the other player's, read by the per-machine `isremote` (`pdguiEndscreenNetMissionStats`, not
+the current player, which on a networked machine can be whichever player was ticked last), and the host sends every
+player's final kills and shots by region with the final objective statuses (`SVC_MISSION_STATS` 0x7d, unreleased
+v62; the host decides hits and kills on the mission's characters, so a client's own count can be off). Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check: `network_coop_mission_end_smoke` (new): the host ends co-op Defection at 40 s with
+`--debug-end-mission 40:complete` (the level script's end, host or offline only), both machines wait for their
+own results (`endscreen_visible` now also sees the solo results type), the host presses its default Next
+Mission and the client, pressing nothing, must be taken into the next mission. First run, binary 91a54a5d
+(`results-20261115T212355Z.json`, 111/119): proven in play: the end at 40 s, the six final objective statuses on
+the client just before `SVC_STAGE_END` (all complete), `NET: mission end returns client=1 to the lobby`, one
+results push per machine (host Bond, client its own player) and both results screens up. Not reached: the host's
+Use press did nothing (no `MENU.GRAPH.FIRE`), so the next mission never started. The solo results screen never took
+window focus and had no default button, and its content child comes before the action bar, so keyboard and
+controller navigation had no button to activate. Fix: `SetWindowFocus` when it appears, as the multiplayer
+results do, and `SetItemDefaultFocus` on the button the comments already call the default (Next Mission, else
+Retry; offline too); the client's Disconnect is not a default. Two assertions also named the test instead of the
+per-process scenarios. Re-run after the current turn.
+
+## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
+
+Severity high (every networked match with simulants: the clients' players could not see them; no
+crash). Proven by the reworked `mp_combat_net_bot_render_smoke` (`results-20261115T154128Z.json`, 64/66): the
+client turned its player straight at the simulant 120 units away (`look_dot=1.000`, a spot the host had checked
+for line of sight), yet the simulant's prop never got an on-screen flag (`prop_flags=0xc` for 20 s), the render
+audit logged `propsSort-scan` but never `propsSort-included` or `chrRender-modelRender`, and its animation frame
+stayed at 4.00. Cause: on a non-authority client `botTick` (`src/game/bot.c`) returned `TICKOP_NONE` before
+`chrTick`, and `chrTick` is what advances a character's animation, places its model and marks it on screen
+(`chr.c`: `PROPFLAG_ONTHISSCREENTHISTICK`). `bot.c` already recorded the same symptom for frozen bots (B-217 v2).
+Fix, after the co-op NPC pattern: the client runs `chrTick` for the simulant as a puppet tick
+(`s_BotPuppetTick`, read through `botIsPuppetTick()`), and `chraTick` (`chraction.c`) skips the AI and the
+action dispatch for it, as it already does for co-op NPCs on a client; the host stays authoritative for
+position, angle and action type (`SVC_CHR_MOVE`). Known limit: the client does not run the simulant's actions,
+so the simulant plays the animation it has (its stand animation) while it moves; running and attacking
+animations would need the host's animation state on the wire. Pinned in `tests/test_mp_chrnum_static.cpp`
+(`[finding3]`). Game check: the render smoke, re-queued. The client view in that run is also black outside one
+doorway (room 33 of Felicity drawn black); recorded separately, not yet explained.
+
+Part 2, 2026-11-15. The render re-run on that fix (`results-20261115T175033Z.json`, 64/66) showed the puppet ticked
+(`prop_flags=0x4`) but never on screen: culling saw the simulant at y -2552 while the host had it at -534 (ground
+-693, room 37), one sample in six read y -30000 (the no-floor value), and the model had no animation
+(`anim=0 frame=-1.00`). Two causes. First, `netmsgSvcChrMoveRead` wrote `prop->pos` (and copied the rooms) only,
+while a character's position is rebuilt every tick from its model root plus `manground` (`chr.c`, the root
+position callback); on a client those stayed stale, so the puppet tick moved the simulant back to the old root and
+let it fall, and at `manground <= -30000` that code can even call `chrDie` on the client. The rematch run shows
+the same: the client's `SVC_CHR_SYNC` checksum never changed (32 `chr desync detected`, local value constant).
+Second, the puppet path skipped `botApplyMovement`, which the host calls before `chrTick` to choose the
+third-person animation (run, strafe, stand, die) from the speeds `SVC_CHR_MOVE` already carries. Fix: the move
+reader applies the host's position through `chrSetPos` (ground, rooms with registration, model root, force to
+ground), as remote players' moves are applied, and keeps the host's look angle; the puppet tick calls
+`botApplyMovement` before `chrTick`; the root position callback no longer kills a puppet for a fall only the client
+saw (the host sends deaths). Pinned in `tests/test_mp_chrnum_static.cpp` (`[b1191]`). Still not on the wire: the
+aiming pose toward a target and which death animation plays (the client picks one). Propagation: the co-op NPC
+reader `netmsgSvcNpcMoveRead` makes the same bare `prop->pos` write; the co-op run verified the NPC snapshot
+(`SVC_NPC_SYNC snapshot verified ... count=36`, idle NPCs), but walking NPCs on a client are unproven, left to the
+co-op step. Propagation done in code 2026-11-16: `netmsgSvcNpcMoveRead` places the NPC through `chrSetPos` (the
+current rooms kept when a move has none), and the root position callback no longer kills a co-op or counter-op NPC
+on a client for a fall only the client saw (the host decides; `chraTick` already suppresses that NPC's AI there).
+Pinned in `tests/test_mp_chrnum_static.cpp` (`[coop][b1191]`). Walking NPCs on a client are still not proven in
+play: no smoke checks an NPC's place on the client. Game check: `mp_combat_net_bot_render_smoke` PASS 66/66 on binary 91a54a5d
+(`results-20261115T214359Z.json`): the client's simulant is on screen (`prop_flags=0xc4`, `propsSort-included`,
+`chrRender-modelRender`), animated (animation 89, frames advancing) and at its height (y -604). Fixed in play.
+Observation: the client still logs some `chr desync detected` (14 in that run, 2 resyncs, against 32 before): the
+`SVC_CHR_SYNC` checksum compares exact positions while a client extrapolates puppets between moves; not acted on.
+
+## 2026-11-15 B-1192 A listen host's Room drew over its own results screen and took focus (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host could not leave its results screen with Use or A, so no rematch;
+no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T174226Z.json`, 71/85, binary 86c1025f) after
+the B-1139 fix: the host had one results dialog, and the harness's Use press reached it (`ENDSCREEN.DIAG: input
+action_bar_visible=1 accept_pressed=1 ... suppressed=0`), but Return to Room never fired. At stage end the host is
+back in the lobby state with `s_InRoom` still set (B-1042 keeps it so the Room returns after a match), so
+`pdguiLobbyRender` drew the Room in the same frame as the results screen (`MENU_IMGUI: room OPEN` straight after
+`MENUPOOL: acquired endscreen_mp`). The Room's first frame calls `SetWindowFocus`, so keyboard and controller
+navigation had no item on the results screen. The offline results screen has no Room beside it, and the same press
+works there (`combat_sim_ui_release_cycle`). Same cause as B-1190 on the client. Fix: `pdguiLobbyRender`
+(`port/fast3d/pdgui_lobby.cpp`) draws neither the Room nor the social lobby while
+`menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)`; Return to Room (`endscreenGraphMpContinue` →
+`pdguiEndscreenExitToRoom`) releases the menu pool and the Room opens on the next frame. The host autostart re-arm
+already waits on the same query. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1192]`). Game check:
+the rematch smoke, queued (q_20261115173307314_394b483c). Co-op and counter-op use the solo results screen; left to
+the co-op end-flow decision.
+
+Part 2, 2026-11-15. The rematch on binary 91a54a5d (`results-20261115T213538Z.json`, 72/90) kept the Room back as
+intended (no `room OPEN` on the host after the end), and Use reached the results screen again (`accept_pressed=1
+suppressed=0`), yet Return to Room still never fired; the co-op mission end smoke showed the same on the solo
+results screen. So the Room was not the whole cause. The input debounce disables the action bar on the frame the
+results window appears, which is when ImGui picks its first focus item, and ImGui skips disabled items there, so
+no button had focus and Use pressed nothing. Fix: `SetItemDefaultFocus` on the primary button of both results
+screens (Return to Room or Play Again; Next Mission or Retry), which names the default even while it is disabled,
+and the solo screen now takes focus when it appears, as the multiplayer one does. Game check: the rematch and the
+co-op mission end smokes, next turn.
+
+## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decided: option A)
+
+Decided by Mike, 2026-11-15: option A. Everyone sees the results and presses Continue to go back to the Room, and
+while a player is still on the results, the others see that player in the lobby as "reviewing match stats". The
+host's next match start takes any player still on the results along (part of option A as proposed). Done the same
+day, in three parts. (1) A client never pushed its own end screen: `mpParticipantsDecodeActiveMask` records every
+player of a client's match as remote, and the B-1139 skip in `menutick.c` (remote participants get no dialog) then
+skipped all of them. The client's stage start now marks its own player local (a client owns runtime slot zero),
+so participant types mean the same on host and client. The player's `isremote` was no alternative: the host's
+stage end commit clears it before the push. (2) `netmsgSvcStageEndRead` holds the lobby UI back
+(`pdguiLobbyHoldForResults`) until the results screen is open; then the B-1192 gate holds it; a 300-frame fallback
+logs `LOBBY: results screen did not open within` and shows the lobby. menuTick also logs `MENU.MATCHEND: end screen
+waits for an open dialog` once if a dialog delays the push. (3) "Reviewing match stats": the host sets
+`netclient.reviewing_results` for everyone in the room at stage end and clears it on that player's Continue
+(`CLC_LOBBY_RESYNC`, or the listen host's local resync) or when the next match takes the player along
+(`LOBBY.REVIEW:` lines); `lobbyUpdate` copies it into the roster in the lobby state only, `SVC_LOBBY_ROSTER` rows end
+with a flags byte (bit 0, unreleased v62, no bump), and the Room and the social lobby show "reviewing match stats".
+Part 2, same day: the rematch on binary 91a54a5d (`results-20261115T213538Z.json`) showed the client still without
+results while connected: its fallback fired (`LOBBY: results screen did not open within 300 frames`) and its end
+screen was pushed only when the host shut down. Cause: `netmsgSvcStageEndRead`'s loop that unlinks the room's peers
+also unlinked the client itself, and without `g_NetLocalClient->player` there is no local player
+(`playermgrGetLocalPlayerNum`), so `mainTick` deferred the whole `lvTick` (`GLOBAL.TICK: deferred`, B-1090) and
+menuTick never pushed the results. The co-op path does not unlink, which is why co-op results appeared at once.
+Fix: the loop skips the local client. (The host also unlinks itself at its commit, but its push runs in the same
+frame before that.)
+Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1190]`) and `tests/test_net_lobby_roster.cpp`. Game
+check: the rematch smoke (its client stays on its results, so the second match has to take it along), queued with
+binary eab25274. Original entry follows.
+
+Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in
+two runs: `mp_king_of_the_hill_net_smoke` (`results-20261115T132151Z.json`) and
+`mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`). At stage end the client logs `MATCH: endscreen
+shown` (that is `mpEndMatch`, not the screen) and in the same frame opens its Room (`MENU_IMGUI: room OPEN`); its
+end screen dialogs appear only minutes later, when the host shuts down and the Room closes. Cause:
+`netmsgSvcStageEndRead` (`port/src/net/netmsg.c`), on the multiplayer path, sets the local client to
+`CLSTATE_LOBBY` before `mainEndStage`, so the lobby UI opens the Room before `menutick.c`'s "match is ending"
+branch can push the end screen. The end screen's networked Continue (`endscreenGraphMpContinue`: exit to room,
+lobby resync) shows the client was meant to pass through it. Earlier status-table entries that read "end screen
+PASS" for networked modes were true for the host only. Not fixed: whether clients should see the results screen
+(and how a client still on it joins the host's next match) changes how the end of a networked match plays, so it
+is Mike's call. Option A: every player sees the results and presses Continue to go back to the Room, as in the
+original and as the Continue code expects; the host's next match start takes any client still on its results
+screen along. Option B: keep the straight return and show the last match's results in the Room.
+
+## 2026-11-15 B-1139 A listen host could not leave its multiplayer end screen with Use (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host is stuck on the end screen with keyboard or controller;
+no rematch; no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`, 70/84 after
+the B-1135 fixture fix): the first match ended on time, the client went straight back to its Room
+(the networked client never shows an end screen), but the host stayed on its end screen although
+the harness pressed Use 4 s after it appeared; the same press leaves the offline end screen
+(`combat_sim_ui_release_cycle`). The host's end screen had two dialogs (`count=2`, the render
+alternating mpindex 0 and 1): `menutick.c`'s "match is ending" branch pushes a dialog for every active
+player participant, which in the original were all local players, and on a listen host the remote
+client's player is a participant too. Fix: that branch skips remote participants for the
+multiplayer end screen (`mpGetParticipant(i)->type == PARTICIPANT_REMOTE`) and still counts them as
+player numbers. Co-op and counter-op keep their branches as they are until Mike decides their end
+flow. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[finding4]`). Game check: the rematch
+smoke, re-queued.
+
+## 2026-11-15 B-1138 Teams past the fourth spawned in team 1's region, and some teams got no respawn sector (T-NETWORKING-011, SP-82)
+
+Severity medium (unfair spawns in team matches with five or more teams, or with team colours that
+are not the first ones in order; no crash). Found by the SP-82 sweep after B-1136, from source. The
+port allows `MAX_TEAMS` (8) teams, but both team spawn paths looked at the first 4 team bits only:
+the PC's match-start orchestrator (`mpspawn_orchestrate.c`: `s_Anchors[4]`, the sector count, the
+4-sector cap and `orch_team_bits_to_sector`, whose fallback put any later team in sector 0, team
+1's) and the respawn helper `playerMpResolveTeamSpawnParams` (`player.c`), which left a team past
+the fourth with no team at all. The respawn helper also passed the raw team number as the sector,
+while `spawnPoolSelect*` (`spawnpool.c`) takes a sector in 0..num_teams-1, so with Red and Blue
+active Blue (team 2 of 2) never got its sector when no teammate was placed yet. Fix: the
+orchestrator has one sector per active team up to `MAX_TEAMS` (`ORCH_MAX_SECTORS`), and the respawn
+helper counts all team bits and gives the team's place among the active teams, as the orchestrator
+already did. Matches with the first two or four contiguous teams are unchanged. Pinned in
+`tests/test_mp_chrnum_static.cpp` (`[sp82]`). Not run in game: no smoke has five or more teams yet.
+
+## 2026-11-15 B-1137 A challenge started from the challenge screen had no player in it (T-NETWORKING-011, finding 10)
+
+Severity high for challenges (the mode does not work from a fresh session; no crash). Seen in the
+first run of `mp_challenge_local_smoke` (`results-20261115T133628Z.json`, 27/30): Challenge 1
+started, ran to its time limit and showed its end screen, but `PARTICIPANTS: 1 active (0 players,
+1 bots)` and the results listed only the simulant. `matchStartFromChallenge`
+(`port/src/net/matchsetup.c`), used by both the ImGui challenge screen and `--launch-challenge`,
+applies the challenge, adds its simulants (`challengePerformSanityChecks`, ea187a63) and calls
+`mpStartMatch`, but the local player becomes a participant only in the Room's match start
+(`matchStartCommit`), which this path skips. So the player spawned in the arena without being in
+the match: no score, no result, and the simulant count was chosen for "one player" only by the
+fallback in the sanity check. Fix: the launch clears the participant table and adds the local
+player in slot 0 on team 0 (`challengeApply` sets every player's team to 0) before the simulants
+are added. Pinned in `tests/test_mp_chrnum_static.cpp` (`[finding10]`). Game check: the challenge
+smoke requires `PARTICIPANTS: 2 active (1 players, 1 bots)` and two result lines.
+
+## 2026-11-15 B-1136 Simulants never scored their Pop a Cap or Hacker Central points (T-NETWORKING-011, SP-82)
+
+Severity medium (wrong scores and rankings in two modes, local and networked; no crash). Seen in
+the 150 s networked Pop a Cap smoke (`results-20261115T130939Z.json`): a simulant was the victim
+for the whole match and the host sent two survival-point changes, yet every final score was 0 on
+both sides. `func0f18d0e8` (`src/game/mplayer/mplayer.c`) turns an mpchrnum into its slot in
+`g_MpAllChrConfigPtrs`. It split players from simulants at the N64's player count, written as a
+literal 4 (`arg0 < 4`, `g_BotConfigsArray[arg0 - 4]`), while the port's mpchrnums put players at
+0 to `MAX_PLAYERS - 1` (8) and simulants after them, as `MPCHR` and the inverse `func0f18d074`
+already do. So simulant 0 (mpchrnum 8) looked up simulant 4's config: not found with fewer than
+five simulants (-1, so no points), the wrong simulant with more. Effects: `pacCalculatePlayerScore`
+dropped every simulant's victim kills and survival points and `htmCalculatePlayerScore` every
+simulant's download points; players 5 to 8 (mpchrnums 4 to 7) took simulant 0 to 3's points
+instead of their own; a JudgeSim's "attack the leader" could not see a simulant in the lead; and
+Capture the Case's team bits (`ctcInitProps` after wrapping teams) went to the wrong character.
+Fix: the boundary is `MAX_PLAYERS`, with a range check. Pinned in `tests/test_mp_chrnum_static.cpp`.
+Game check: the Pop a Cap net smoke's victim should end with its survival points. Related, not
+fixed: the PC's match-start orchestrator (`mpspawn_orchestrate.c`) has 4 spawn sectors, so teams 5
+to 8 start in team 1's sector (`orch_team_bits_to_sector` falls back to 0); see SP-82.
+
+## 2026-11-15 B-1135 Two smoke fixtures could never run: their timeout was shorter than their own waits (T-NETWORKING-011)
+
+Severity low (test tooling; no game effect, but a wasted runtime turn each time). `smokeParseJson`
+(`port/src/smoke_harness.c`) refuses a schedule whose latest event plus every `wait_until` timeout
+(plus 1 s per controller attach or detach) is not strictly below the file's `timeout_seconds`. It
+logs `SMOKE: timeout_ms=... must exceed schedule bound=...` and the run fails on every assertion.
+The refusal happens inside the game, after the runner has built the install, so nothing caught it
+earlier. Seen 2026-11-15: `mp_combat_net_rematch_smoke` (new this week; 640 s against a 730 s
+bound) failed 44/84 in 259 s without starting a match. A sweep of all 180 schedules found one more:
+`combat_sim_defect_cohort` (T-ENGINE-005; 180 s against 195 s), which explains why that gate had
+never produced a result. Fix: the timeouts are now 760 s and 210 s; neither fixture's waits
+changed. Class fix: `tests/test_smoke_schedule_bounds_static.cpp` reads every JSON file under
+`tools/smoke-verify/tests` and `fixtures` with the harness's arithmetic and fails on any schedule
+that does not fit; it also pins that arithmetic in `smoke_harness.c` so the two cannot drift. Checked
+by putting the old 640 s back: the test failed with the harness's exact numbers.
+
+## 2026-11-15 B-1134 Capture the Case teams started the match anywhere instead of at their base (T-NETWORKING-011, finding 8)
+
+Severity medium (the mode starts wrong; respawns were right). The original placed every player on its
+team's base pads at match start (`ctcChooseSpawnLocation`). The PC's match-start orchestrator
+(`mpOrchestrateMatchStartSpawns`, `src/game/mplayer/mpspawn_orchestrate.c`) assigns all
+participants with a Hungarian solve around team anchors that it spreads as far apart as the spawn
+pool allows, and never asked the scenario, so in Capture the Case a team could start next to the
+other team's base. Respawns already went through `ctcChooseSpawnLocation`. Fix: the orchestrator
+asks `scenarioGetTeamSpawnAnchor` for each active team and, for Capture the Case, anchors that
+team's region on its base's home pad (`ctcGetTeamSpawnAnchor`), before the team regions are drawn;
+logged as `SPAWN.ORCH: team N starts at its base`. A team without a base keeps the spread anchor.
+The bases are set by `ctcInitProps` during stage setup, before the orchestrator runs (checked in the
+Capture the Case net smoke logs). Other scenarios are unchanged. Pinned in
+`tests/test_net_team_limit_static.cpp`; game check: the Capture the Case smokes count the line.
+
+## 2026-11-15 B-1133 The capsule sweep classified a hit by geometry its collision test never recorded (T-NETWORKING-011)
+
+Severity high (a crash, intermittent, in any mode; plus wrong hit classification). Seen in
+`mp_hold_the_briefcase_net_smoke` on c3c66668 (2026-11-15, `results-20261115T085746Z.json`,
+receipt `20261115T084611729343Z-mp_hold_the_briefcase_net_smoke-4c39af09`): the host died 2.5 s into
+the match, `FATAL: ACCESS_VIOLATION PC=+0x5f3bdc`, which `addr2line` on the frozen binary puts at
+`cdGetGeoFlags` (`src/lib/collision.c:104`, `switch (g_CdObstacleGeo->type)`), right after the host
+force-moved the client's player. Not related to B-1129 (no simulant pickup or drop had happened).
+Cause: `collision.c` has "Exam" queries, which record the obstacle's geometry
+(`cdSetObstacleVtxColPropFltGeo`), and "Test" queries, which record only its prop
+(`cdSetObstacleProp`). Every original caller reads geometry only after an Exam query. The PC capsule
+sweep (`capsuleSweep`'s stage 1, `src/lib/capsule.c:303-329`) tests the volume with `cdTestVolume`, a
+Test query, and then classifies the hit with `cdGetGeoFlags()`, which reads `g_CdObstacleGeo`: NULL
+until the first Exam query of the process (the crash: a host whose first capsule collision came
+before any Exam query), and afterwards whatever surface an earlier Exam query hit, so a wall hit
+could be classified as floor or ceiling from someone else's flags. Fix: `cdTestVolume` records the
+geometry it hit (it has it, `collisions[0].geo`), and `cdGetGeoFlags` / `cdGetObstacleNormal` answer
+"no flags" / leave the caller's normal when no geometry is recorded, logging that once. Original
+behavior is unchanged: no original caller reads geometry after `cdTestVolume`. The capsule's stage 1
+now classifies by the surface it actually touched, which can change how players and simulants
+respond to wall contact where the leftover flags said floor or ceiling. Propagation: the only other
+readers of the obstacle geometry, `surface_loco.c:378,611` and `propobj.c:4187`, read it after
+`cdExamLos08` / `cdExamLos09`, which are Exam queries. Pinned in
+`tests/test_collision_obstacle_static.cpp`; game check pending (the briefcase smoke re-run).
+
+## 2026-11-15 B-1132 The in-match team switch offered 8 teams in Capture the Case (T-NETWORKING-011, finding 8)
+
+Severity low (gameplay; no crash found). The port's in-match team switch for networked team
+matches (`menuhandlerNetTeamSwitch`, `src/game/mplayer/ingame.c`) offered `MAX_TEAMS` = 8 teams, and
+the host's `netmsgSanitizeClientTeam` (`netmsg.c`) accepted any team below 8. Capture the Case has 4
+bases (`ctcGetMaxTeams`) and 4-entry team arrays; `ctcInitProps` folds teams into 0..3 only at match
+start. A player who switched to team 5 mid-match had no base, spawned anywhere, and every case
+counted as the other team's. Checked for out-of-bounds: `ctcChooseSpawnLocation` bounds the team
+index (B-1126), and the simulant code that indexes by team uses the simulant's own, folded team.
+Fix: the switch offers `scenarioGetMaxTeams()` teams, and the host keeps the current team when a
+client in a match asks for one past that. Propagation: `scenarioGetMaxTeams`,
+`scenarioIsRoomHighlighted` and `scenarioHighlightRoom` indexed `g_MpScenarios` by
+`g_MpSetup.scenario` without the range check the other 21 lookups have; they now check it quietly
+(they run per menu tick or per room).
+
+## 2026-11-15 B-1131 A client stops reading a packet at the first message it rejects (T-NETWORKING-011, SP-81)
+
+Severity medium (silent loss of reliable messages; no instance seen in a log yet). Found reading
+the client receive loop for B-1129: `netClientEvReceive` (`port/src/net/net.c`) runs
+`while (!rc && netbufReadLeft(&cl->in) > 0)`, and 14 read handlers in `port/src/net/netmsg.c`
+return `src->error ? src->error : 1` when they reject a well-formed message (a prop or character
+this client does not have, a stage it is not in). Every message after it in the same packet is then
+dropped with only `NET: malformed or unknown message 0x..` in the log. Before B-1129 the likely
+trigger was `SVC_PROP_PICKUP` for a weapon a simulant dropped, which a client never had under the
+host's sync id. Not fixed as a class: several handlers reject before reading the rest of their
+message (`netmsgSvcPropSpawnRead` returns before the weapon fields), so simply continuing would
+misread the following bytes as new messages. Each handler has to read its whole message first and
+then return 0 on a rejection. The new `netmsgSvcBotPickupRead` does that. Search and checklist in
+SP-81.
+Worse half, found by the SP-81 audit (2026-11-15): four in-match readers returned 0 with part of
+their message unread, so the loop read the tail as the next messages (a stream desync, not just a
+dropped packet): `netmsgSvcPlayerStatsRead` (a player with no prop here: the hand ammo, ammo mask,
+held ammo and attacker id were left), `netmsgSvcPropMoveRead` (a prop this client does not have:
+the projectile tail was left), `netmsgSvcChrDisarmRead` (not in the game yet, or a chr victim: the
+grenade position was left; its writer also skipped the position when given none, which the reader
+cannot see) and `netmsgSvcPropSpawnRead` (no prop allocated: the object fields were left).
+Fixed (2026-11-15, built; pd-tests 1,951 cases green): the first three read their whole message
+into locals before deciding; the disarm writer always sends a position with positive damage; the
+spawn path stops the packet instead of desyncing (it allocates props while it parses, so its
+read-first rewrite is separate); pickup, use and character damage skip a message they cannot apply
+with a warning and return 0. Left failing closed on purpose: the reconnect, auth and vehicle state
+readers (the dispatcher's terminal disconnect for a rejected reconnect message depends on it) and
+the hoverbike raw-use rejection. Pinned in `tests/test_net_reader_consumes_static.cpp`.
+`netmsgSvcPropSpawnRead` second pass (2026-11-15, built; pd-tests 1,953 cases green): it now parses
+the whole row (header, weapon or laptop fields, object block, projectile block) before it decides
+or allocates, skips a declined row with 0 outside a reconnect (not in the game, a sync id it already
+has, an owner it cannot resolve, no prop allocated, a topology mismatch) and still fails closed
+inside one; it also no longer writes `realrot` through a NULL `prop->obj`. Its writer sent the
+projectile block only with a non-NULL projectile, a condition the reader could not see; it now
+clears `OBJHFLAG_PROJECTILE` in the written value when there is no projectile. Simulant drops
+(B-1129) arrive as spawns, so this matters more than before. Open: the lobby, catalog, distribution
+and admin readers the audit lists (`audit_readers.py`, session scratchpad: 27 readers return before
+their last read, most of them on purpose or on a broken buffer).
+Third pass (2026-11-15, the open list): every remaining reader and every writer that announces a row
+count was checked (a second scan, `audit_count_writers.py`, found the writers; the first scan missed
+returns inside row loops). The worst finds are in the resync transaction, which
+`netServerPublishPendingResyncs` (`net.c`) sends as one packet: character, prop, score and NPC
+resyncs, then the NPC digest, stage flags, objective statuses and the v62 scenario baseline. A short
+row anywhere garbles everything after it. Fixed: `netmsgSvcChrResyncWrite` wrote a 4-byte null
+placeholder for a simulant without a prop or aibot while the reader reads a whole row for every
+count; it now counts and writes whole rows only (it is also in the reconnect exact state, where a
+garbled message is a terminal disconnect). `netmsgSvcChrResyncRead` and `netmsgSvcPropResyncRead`
+returned 0 from inside their row loop when the client was not in the game yet, leaving the other
+rows to be read as messages; they now read every row and apply none. `netmsgSvcPlayerScoresWrite`
+wrote `g_MpNumChrs` as the count and then skipped participants without a config; it now writes the
+number of rows it sends. `netmsgSvcNpcResyncRead` declines an incomplete snapshot with 0 (it has
+read every record by then), so the digest, flags, objectives and scenario state after it still
+apply. `netmsgClcAdminRead` returned 0 for an unauthenticated or non-server command without reading
+its arguments (a desync) and 0 for an unknown subcode; it now consumes the arguments by the layout in
+`server_admin.h` and stops the packet on an unknown subcode. Checked and left as they are: the
+catalog and distribution readers (they stop only on a broken count, OOM or an empty id, and those
+are reconnect control messages that fail closed on purpose), `CLC_MANIFEST_STATUS` (every send is
+its own packet, so its early stops lose nothing; its order is a security pin), `CLC_BOT_MOVE` (its
+count check is a security pin and stops without desync), the room list (count and rows use the same
+predicate), room settings and playlist updates and the NPC "not ready" gate (they stop after or
+before a whole message, never inside one). Pinned in `tests/test_net_reader_consumes_static.cpp`
+(11 cases); the 224 `[net]` cases pass.
+
+## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
+
+Severity high for networked Capture the Case. Found reading the pickup path for B-1129: touching
+your own case while carrying the other team's returns `TICKOP_NONE` from `scenarioPickUpBriefcase`
+(`scenarios.c`), and `propPickupByPlayer` (`propobj.c`) sends `SVC_PROP_PICKUP` only for a nonzero
+tick operation. So on the host the capturer scored, dropped the carried case (announced, it goes
+back to its base) and lost it from the inventory, while the capturing client kept the case in its
+own inventory, heard no point sound and saw no capture message. Fix: the host notes whether the
+player carried a case before the pickup and, when a capture took it, sends `SVC_PROP_PICKUP` with
+`TICKOP_NONE`; every client replays the capture (inventory, point, messages) and the touched home
+case stays put. Pinned in `tests/test_net_bot_pickup_static.cpp`; game check pending.
+
+## 2026-11-15 B-1129 Simulant pickups and drops were not sent to clients (T-NETWORKING-011, finding 3)
+
+Severity high for networked play with simulants (every mode; the token modes worst). Simulant AI
+runs only on the host (`botCheckPickups` from the bot tick), and nothing told the clients:
+- A pickup (`botPickupProp`, `bot.c`): the weapon, crate, shield, briefcase, uplink or case stayed
+  where it was in a client's world; a human walking onto it there got nothing, because the host,
+  which decides human pickups, no longer had it.
+- A drop (`botinvDrop`, `botinv.c`, from `chrDie`, which a client also reaches when it applies
+  `SVC_CHR_DAMAGE` through `chrDamage`, `chraction.c:5125`): each client made its own copy
+  of every item a dead simulant dropped. A prop a client allocates gets sync id 0 (`prop.c:211`),
+  so the host's `SVC_PROP_PICKUP` for its own copy (host sync id) could never resolve on the
+  client: the client's player did not get the weapon, the local copy stayed, and the rejected
+  message stopped the rest of the packet (B-1131).
+Fix: the host wraps each simulant pickup (`botPickupPropAndAnnounce`) and sends the new
+`SVC_BOT_PICKUP` 0x4D {simulant, item sync id taken before the pickup} when the pickup took effect
+(a tick operation, a deletion mark for the scenario tokens, which return `TICKOP_NONE`, or a Capture
+the Case capture); a client replays the same `botPickupProp` on its copy of the simulant plus the
+`TICKOP_FREE` that `botCheckPickups` runs, and skips (logs, returns 0) a pickup it cannot apply.
+`botinvDrop` makes drop props on the host only and announces each with `SVC_PROP_SPAWN` and
+`SVC_PROP_MOVE`, after a Capture the Case case went back to its base, as the player drop does, and
+retires a half-dropped prop as the player drop does. The client token searches
+(`htbNetPresent`, `htmNetPresent`, `ctcNetPresent`) skip a copy marked for deletion. Wire stays
+v62 (unreleased when this was added). Pinned in `tests/test_net_bot_pickup_static.cpp`; game check
+pending.
+
+## 2026-11-15 B-1128 A networked client set up the objective scenario on the previous stage (T-NETWORKING-011)
+
+Severity medium (reads and changes the wrong stage's data; harmless so far only because the old
+stage was still loaded). Seen in `mp_king_of_the_hill_net_smoke` (2026-11-15, build 71f23c32,
+install `20261115T065303450187Z-mp_king_of_the_hill_net_smoke-8c2bfc97`): on the client,
+`netmsgSvcStageStartRead` called `scenarioInitProps()` right after `mpStartMatch()`, which only
+requests the stage, so King of the Hill picked "hill 0 of 6 at pad=176 room=84" from the stage
+still loaded; the real stage load then ran it again ("SETUP: calling scenarioInitProps", hill 5 of
+6 at pad 192 room 7, the host's own pick). For Hacker Central, Hold the Briefcase and Capture the
+Case that early call also created objects on the old stage's pads. The comment justifying it (the
+`normmplayerisrunning` guard "can be false" on a client) does not hold: the client's `setup.c` path
+ran. Fix: the early call is removed; the stage load sets the scenario up as on every peer, and the
+host's scenario state (v62) corrects anything a client picked. Propagation: no other
+`scenarioInitProps` caller runs before the stage loads (`setup.c:2900` only).
+
+## 2026-11-15 B-1127 A networked client applies the host's character-slot data to the wrong two players (T-NETWORKING-011)
+
+Severity high (every networked scoreboard). Found reading the code for the scenario state seam;
+the slot swap itself is in the `mp_combat_net_bots_smoke` logs of 2026-11-14
+(receipt `20261114T225327900327Z-mp_combat_net_bots_smoke-2a52b4b2`): the host logs
+`NET: allocated playernum=0` for its own player and `1` for the client, while the client allocates
+the host's player to `playernum=1` and itself to `0`. A client runs its own player as player 0:
+`netPlayersAllocate` (`port/src/net/net.c`) gives the local client player number 0 and gives the
+host's player the slot the host assigned this client (k); everyone else keeps the host's number.
+`g_PlayerConfigsArray`, `g_Vars.playerstats` and `g_MpAllChrPtrs`/`g_MpAllChrConfigPtrs` follow that
+local numbering (`netmsg.c:3715` places each roster config at `runtime_playernum`;
+`player.c:3435`), and `netSyncIdsAllocate` swaps the two players' prop sync ids to match. But
+`SVC_PLAYER_SCORES` writes the host's slot index and the client applies it to its own slot of the
+same number (`netmsgSvcPlayerScoresRead`), with each player's `killcounts[]` indexed the same way,
+so slots 0 and k would trade team, deaths, points and kill counts on the client. Not visible in
+`mp_combat_net_bots_smoke` (2026-11-14) because both humans ended with score 0 and 1 death. Any
+scenario state indexed by character slot (Pop a Cap victims and counts, the briefcase holder) has
+the same exposure.
+Verified in game 2026-11-15 on 4a467190 (networked smokes of all five objective modes, two humans
+and three simulants on Complex; host and client logs compared by `net_compare.py`, session
+scratchpad): after mapping the client's slots 0 and 1, every final result line agrees, including the
+three deaths in Hacker Central (one of them the client's own player, host slot 1), the two in
+Capture the Case and a simulant's hill point in King of the Hill.
+Fix (2026-11-15, built; pd-tests 1,931 cases green): `netChrSlotFromHost`
+(`net.c`, declared in `net.h`) maps a host slot to the client's own (0 <-> k, its own inverse, the
+identity on the host, offline and for simulants); `netmsgSvcPlayerScoresRead` maps the slot and
+every `killcounts[]` index, and `scenarioNetLocalizeSlots` (`scenarios.c`, run on every received
+scenario state) maps every character slot in it: the Pop a Cap victim and per-slot counts, the
+briefcase holder, the uplink holder, download player, player in range and per-slot progress and
+points, and each case holder.
+Propagation: no other message in `netmsg.c` indexes characters by slot (the lobby kill feed
+matches by name). The networked smokes' cross-log score comparison is the check.
+
 ## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
 
 Severity high (engine-wide on PC). `Gtri` in `include/PR/gbi.h` had no
@@ -275,6 +1368,50 @@ places on every arena; asked in the week note); (2) the walkable-pad fallback
 from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
 how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
 
+Fix (Mike, 2026-11-15: "get all the MP modes functional", including the same
+fill-in as Hacker Central for these three). Option (2), used only where the
+arena's own pads are missing; option (1) is still asked of CORE and makes the
+fill-in idle again on the standard arenas. Candidates are the same walkable
+pads as B-1125 (`scenarioCollectFallbackCandidates` in
+`src/game/mplayer/scenarios.c`: navigation waypoints, else every pad in a room;
+in a room and not on a lift). New pure pickers in
+`port/src/scenario_pad_fallback.c`, unit-tested:
+- Capture the Case (`ctcFillMissingPads`, called in `ctcInitProps` after the
+  teams get their base slots): a base in play whose home pad is not a pad in a
+  room gets the walkable pad farthest from the other bases in play
+  (`scenarioPadPickFarthest`; with no usable base at all the first is random,
+  one `rngRandom` call); a base in play with no usable respawn pad gets up to
+  six walkable pads nearest its home pad among those nearer to it than to any
+  other base (`scenarioPadPickNearest`, distance in three dimensions), so its
+  players respawn at their own base. Each team's case placement is logged
+  (`CTC: team T case on base B pad=P room=R respawnpads=N prop=ok`).
+  Hardening found on the way: `baserooms[]` no longer dereferences a NULL case
+  prop, and `ctcChooseSpawnLocation` refuses a team with no base slot (index
+  -1 used to read before the array).
+- King of the Hill (`kohFillMissingHills`, start of `kohInitProps`): with fewer
+  than two usable hills the match gets up to six, one pad per room
+  (`scenarioPadReduceToRooms`: the pad nearest the room's middle, rooms crossed
+  by two or more waypoints when there are enough), in rooms none of the
+  arena's own hills is in, spaced apart (`scenarioPadPickSpaced`). Listed hills
+  that are not in a room are dropped. The original `@bug` (a single hill used
+  the room of pad 0) is fixed in `kohInitProps` and in the hill move in
+  `kohTick`. Logged: `KOH: hill I of N at pad=P room=R` and
+  `KOH: hill moved to I of N pad=P room=R`.
+- Hold the Briefcase (`htbTopUpBank`, start of `htbInitProps`): with no
+  multiplayer ammo crate and no usable bank pad, the bank is reset and gets
+  eight spaced walkable pads (the HTM picker), so the briefcase starts and
+  respawns on a random real pad. Logged:
+  `HTB: briefcase placed pad=P source=crate|bank|pad0 prop=ok|none`.
+Arenas with their own pads keep the original placement and make no extra
+random calls. Picks use `rngRandom`; whether a networked client picks the same
+pads as the host is not established (the client runs `scenarioInitProps` from
+its own stage-start path), so the network work (scenario state sent from the
+host) has to carry these placements, not assume them. The
+three local smokes now assert the outcome, not the fill-in, so they stay
+valid once CORE's extraction carries the arenas' own pads: every team's case
+on a pad in a room with respawn pads, the starting hill a real room chosen
+from two or more hills, the briefcase on a real pad from a crate or the bank.
+
 ## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
 
 Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,
@@ -358,7 +1495,8 @@ carry the run's timestamps (2026-11-14 17:44 local), as do new files under its
 `mod-cache`. Cause: `tools/smoke-verify/run.ps1` (multi-process launch, about
 line 1741) adds `--basedir/--savedir/--moddir/--debug-home-path` only when a
 fixture sets `separate_process_installs`; the single-process path always passes
-`--savedir`. A fixture whose processes share one install and pass neither
+`--savedir` (WRONG, corrected 2026-11-16 by B-1203: only `-ReuseInstallId` did, and 81 single-process fixtures
+also ran against the real profile). A fixture whose processes share one install and pass neither
 `--portable` nor `--savedir` therefore falls back to the game's default save dir
 (`fsInit`, `port/src/fs.c`: `$H` = `%APPDATA%/perfectdark` on Windows). Seven
 fixtures did: `listen_host_match_smoke`, `listen_host_peer_smoke`,
@@ -462,6 +1600,64 @@ week-pd/multiplayer build at 0cc573d4, shared base data): autostart fires, both
 players spawn, scores replicate, time-limit end, end screen on both sides.
 Still to re-run against the fix: the reconnect smoke (its harness events used
 the wrong client slot) and the other two-process smokes.
+
+2026-11-14 week-pd/mods findings while building the in-game mod author (ids B-1140 to B-1159 and B-1230 to B-1249 are the MODS ranges for this week). None of these is fixed yet unless it says so.
+
+B-1140 FIXED 2026-11-14 (d377380f): the parse loop is now `iniParseText` in `port/src/ini_parse.c` (no log, no catalog; `iniParseBuffer` is a logging wrapper) and a line inside a section that is not a comment, a section header or `key = value` is refused with its line number. `tests/test_ini_parse.cpp` links the real loop; its B-1140 case would not return on the old code. Full pd-tests green. Not run in the game. Was: high, found by reading: the shared INI parser hangs on a non-comment line that has no `=` inside a section. `port/src/assetcatalog_scanner.c` `iniParseBuffer`: the `if (!eq) { continue; }` branch does not advance `line`, and the line terminator has already been overwritten with NUL, so the loop re-reads the same line forever. Reachable from any typed archive descriptor or loose `.ini` the scanner, loader walkers, mod manager, packers or netdistrib parse. `tools/asset_archive_conformance.py` `KEY_VALUE_RE` accepts `key: value`, so a descriptor the offline validator accepts can hang the game at scan. No unit test covers the real parser: pd-tests links a different stub (`tests/test_mod_external_archive_static.cpp:133`). Planned fix: advance the line, and move the parser into its own source file so tests link the real one. Propagation check owed: `bodyHeadSourceReadIniBytes` already rejects such lines (it fails the file); other hand-written line loops not yet audited.
+
+B-1141 OPEN, low, found by reading: the mod manager reads `mod.json` strings without decoding JSON escapes (`port/src/modmgr.c` `json_tok_string` copies the raw token), so a name containing a double quote or a backslash is listed with its escape backslashes, and a unicode escape is shown literally. The in-game packers and the mod author write correct JSON; the loader's display is what is wrong.
+
+B-1142 FIXED 2026-11-14 for save and pack (`port/src/mod_asset_validate.cpp`: `modAuthorSave` and both `.pdmod` packers now run one in-game Validate that reads every public `.json`, `.gltf` and `.ini` member strictly, in embedded archives too, and runs the body, head and character readers; 1884 unit cases pass and the base sweep is unchanged at 308 of 349). Still open: the weapon and vehicle families have no content reader in it yet, and the enable path does not call it. Was: medium, proven by a unit run on 2026-11-14: release validation (`assetArchiveValidateFile/Bytes/Opened`) checks layout, forbidden members and references, not member content. A `.pdweapon` whose `behavior/settings.json` is `{ not json` passes it (`modAuthorSave` returned OK with that override and both validators accepted the result). `weaponGraphArchiveValidateRootFile` only checks that members exist. So a save or pack can succeed for an archive its loader then refuses. Planned fix: one in-game Validate that runs each family's real reader (weapon graph compile, strict body/head/character readers, vehicle physics and behavior JSON), called by save, pack and enable.
+
+B-1143 OPEN, low, test tooling, reproduced twice on 2026-11-14: `pd-tests.exe > out.txt` (stdout to a regular file) exits 14 and writes 2 bytes to stdout; with stdout on a pipe the same binary passes all 1874 cases. `pd-tests.exe "[author],[clone]" > out.txt` passes (18 cases), `"~[author]~[clone]"` shows the failure, so it comes from cases older than this branch. Not investigated. Use a pipe (the wrapper and hosted CI do).
+
+B-1144 OPEN, low, found by reading: `theme_archive_authoring.c` and `voice_archive_authoring.c` stage their result as `<name>.candidate.pdtheme` / `.pdvoice`, which still ends in a typed extension, so an interrupted save leaves a second archive the catalog scanner would pick up. The mod author stages as `<name>.pd<kind>.candidate` instead (`ASSET_ARCHIVE_CLONE_STAGING_SUFFIX`).
+
+B-1145 FIXED 2026-11-14 by CORE (c18dce71 on `week-pd/extract-1`, merged here with `week-pd/extract-2` as 40552210; shared base 2 and 3 are re-extracted without the `mtllib` line). Rerun on `D:/PD2-wt/shared-base-3` at 40552210: arenas 47 of 47, all 349 base templates save as release-valid mods. Was: medium, proven by a local run on 2026-11-14 against the shared extraction (5,562 archives, client ee34aaf1): 41 of the 47 base `.pdarena` archives fail the in-game release validator. Each embeds a `.pdscenario` whose `collision.obj` starts with `mtllib scenario.mtl`, and no `scenario.mtl` member exists, so `assetArchiveValidateBytes(..., RELEASE)` reports "references missing internal file in collision.obj: scenario.mtl". The six that pass (attackship, deepsea, extra17, infiltration, mp_random_multi, mp_random_solo) are presumably the ones without that file. Effect for modding: a base arena cannot be used as a template (the rebuild refuses a source that is not release-valid) and cannot be packed. Owner of the fix is the extractor or the policy (CORE): either stop writing the `mtllib` line, write the material file, or stop treating it as a required reference. Reported in the week note. Evidence: `[base-sweep]` case in `tests/test_mod_author.cpp` with `PD2_BASE_TEMPLATE_DIR=D:/PD2-wt/shared-base/data/ntsc-final`: weapons 86 of 86, vehicles 1 of 1, characters 63 of 63, bodies 68 of 68, heads 84 of 84 save as release-valid mods; arenas 6 of 47.
+
+B-1146 FIXED 2026-11-14 (c7d712d5), high, found by reading and proven fixed by a run: the Modding Hub Weapons creator saved every weapon in the retired root layout (root `behavior.graph.json` and `nested_payloads.json`, a `[references]` section, loose import folders, base ids kept on copied payloads), which the release validator and `tools/asset_archive_conformance.py` reject, and it enabled the mod without validating the archive. Save now hands the template and the edits to `modAuthorRuntimeSave`; the creator writes no archive itself. Evidence: `weapon_tool_create_smoke` PASS 26/26 on base 3 at 40552210 (`D:/PD2-wt/mods/.claude/smoke-verify-runs/results-20261114T235226Z.json`).
+
+B-1147 FIXED 2026-11-14 (c7d712d5), high, found by reading and confirmed by the smoke's graph line: the creator read a template's behavior only from a root `behavior.graph.json`. Clean archives (every base weapon) keep it in `behavior/primary.graph.json`, `behavior/secondary.graph.json` and `behavior/shared-context.json`, so every base template was opened with a made-up single-shot graph and saved with it: the mod lost the template's behavior without a word. The three files are now composed into the editor document (`port/src/weapon_graph_editor_io.cpp`) and split back on save; a template whose behavior cannot be read or shown is refused. Evidence: `WEAPONMOD.DEBUG.CREATE.GRAPH nodes=4 links=2 primary=primary_action secondary=secondary_action` for `base:falcon2`.
+
+B-1148 FIXED 2026-11-14 (c7d712d5), high, found by measuring the base data: the weapon graph editor kept each node's settings as text in 512 bytes (`PDGUI_WEAPON_GRAPH_PARAM_LEN`) and cut longer text short, which gives broken JSON; nodes past 48 and links past 96 were dropped silently. The largest base weapon function (`base:reaper` primary) needs 854 bytes, so real guns could not pass through the editor. The limit is 2048 and anything that does not fit is a load error. Settings are shown one per line with numbers in their shortest exact form instead of 18 digits.
+
+B-1149 FIXED 2026-11-15 (8f0ac3a3) and seen in the game: `mod_author_weapon_play_smoke` rerun on shared base 3 (`results-20261115T010040Z.json`, still 20/21 for B-1151 only): the saved `weapon.ini` has `posx = 9`, `posy = -15.7`, `posz = -23.8`, `muzzlez = 2` and the screenshots show the gun held at the lower right instead of filling the view. Detail: `modAuthorSave` copies `posx`, `posy`, `posz` and `muzzlez` from the template's manifest into the saved descriptor unless the descriptor or the creator already gives them. Unit level only (new `modManifestReadNumber`; base sweep still 349 of 349); the play smoke has not been rerun since. Was: high, RUN 2026-11-14 (`mod_author_weapon_play_smoke`, known red 20/21, `results-20261114T215943Z.json`): a weapon mod made from a base template is drawn at the camera because it has no view position. The mod weapon adapter (`loaderPoolInstallPublicWeaponAdapter`, `loader_pool.c` about 375-447) takes `posx`, `posy`, `posz` and `muzzlez` only from `weapon.ini`; base archives keep them in `_meta/manifest.json`. Next (MODS): the mod author copies them into the descriptor when it saves from a base template.
+
+B-1150 FIXED on dev by the crystal pistol work (landed as 361abab8; CRYSTAL PISTOL's week note of 2026-11-16 05:30 UTC lists it), in this branch since the merge of dev 841650c7; `mod_author_weapon_play_smoke` is rerun on the merged build. Was: OPEN, medium, same run: a mod weapon has no name in the HUD or the inventory (`SPAWN.WEAPON ... name=0`). The adapter sets none; the catalog has it in `ext.weapon.name`. Asked of CORE in the week note (crystal pistol ask 8).
+
+B-1151 FIXED on dev by the crystal pistol work (landed as 361abab8; CRYSTAL PISTOL's week note of 2026-11-16 05:30 UTC lists it), in this branch since the merge of dev 841650c7; `mod_author_weapon_play_smoke` is rerun on the merged build. Was: OPEN, high, same run: a mod weapon whose function has `ammo_slot` 0 or 1 fires zero hitscan shots. The adapter sets no ammo definition and `bondgun.c` (about 2286-2300) clamps the shot count to a loaded count that was never set. `ammo_slot` -1 (unlimited) works. Every weapon made from a base gun template is affected. Asked of CORE (crystal pistol ask 1).
+
+B-1152 FIXED on `week-pd/mods-v4`, RUN in the game 2026-11-17 03:18 UTC (MODS; turn q_20261117013646273_5a67705b, build 15837054, base 7: `mod_author_weapon_play_smoke` 22/22, and the log shows the mod's mesh in a slot of its own, `PDWEAPON.NESTED.MESH_SOURCE: owner=mod:weapon_smoke_falcon id=mod:weapon_smoke_falcon__mesh_model_falcon2_hi action=claimed filenum=2016`, where it used to claim 887, and the held model built from the mod's own `held_hi.pdmesh`; not on dev yet. What was written: the clone side: `asset_archive_clone.c` drops `source_filenum_symbol` from a cloned mesh's manifest, unit case `[b1152]`, and the weapon play smoke forbids the mod mesh taking file 887; mods saved before the fix still carry the symbol until they are saved again. The loader guard for those was written afterwards, 2026-11-17 03:40 UTC, READ with source pins `[b1152]` in `tests/test_public_mods_static.cpp`, not compiled or run when this was written: `weaponNestedPrepareMember` takes the owner's bundled flag, plans a non-bundled owner's mesh without a file number, drops the number its manifest resolved to and logs `keeps a slot of its own` once, so the mesh gets a private slot when it is bound; no fixture can prove it in a run, because an archive saved before the fix holds a copy of a base gun's mesh and cannot be committed), medium, cause READ: a weapon mod cloned from a base gun embeds a copy of the base mesh that claims the base mesh's file slot (887), so the base mesh was loaded in its place. Still seen on base 7 in the landing turn's `mod_author_weapon_play_smoke` log (`PDWEAPON.NESTED.MESH_SOURCE: owner=mod:weapon_smoke_falcon id=mod:weapon_smoke_falcon__mesh_model_falcon2_hi action=claimed filenum=887`, where the base rows say `action=kept filenum=887`). Cause: the cloned mesh's `_meta/manifest.json` keeps the base mesh's `source_filenum_symbol`; `loaderWalkerMeshSourcePlanManifest` (`port/src/loader_walker_mesh_source_plan.c:298`) resolves it to the base file number for a row that is new (the mod's own id), and the nested weapon registration (`assetcatalog_scanner.c`, the `has_mesh_source` block before the `PDWEAPON.NESTED.MESH_SOURCE` line) binds the mod's archive to that number. A mesh with no symbol takes a private slot there (`assetCatalogResolveModelPrivateSlot`), which is what a mod-owned mesh should get. Fix planned in two places: the mod author's clone drops `source_filenum_symbol` from a mesh manifest it moves out of the `base:` namespace, and the nested registration never lets a mesh of a non-bundled owner take a file number from its manifest (it gets a private slot, logged), so mods saved before the fix stop claiming base slots too. The mod vehicle path already does this (`meshSourcePreparePrivate`).
+
+B-1153 OPEN, low, RUN 2026-11-15 (`maian_crystal_pistol_play_smoke`, `results-20261115T003916Z.json`): a `.pdmesh` that carries only `mesh.ini` and `model.gltf` (the Needler's needle, the crystal placeholder) loads, but the loader first asks for `model.mtl` and `model.nodes.json` and logs `ERROR: fsFileLoad: could not find file` for each, twice. Members the descriptor does not name should not be reported as errors. Not investigated; CORE's loader or the mesh compiler.
+
+B-1154 FIXED by CORE on `week-pd/core` dcee4202 (not merged here yet; a cloned gun needs a base 7 mesh and a rebuilt clone), medium, seen 2026-11-15 in the same rerun's screenshots (MODS): the held Falcon 2 copy is drawn with a blue and white striped surface that does not look like the Falcon's own texture. Possibly the same cause as B-1152 (the cloned mesh and the base mesh sharing a file slot) or a texture reference that is not followed into the mod's namespace. Cause (CORE, 2026-11-16 01:30 UTC): not the clone. The base Falcon 2 shows the same stripes; every reflection-mapped model did (144 of base 6's 733 meshes). The ROM's display list sets the RSP texture scale (`G_TEXTURE`) before each texture load, the mesh exporter skipped it and the compiler used 0xffff, so each reflection repeated 32 times. `model.render.json` schema v4 adds a `texture` row (`scale_s`, `scale_t`) that the exporter writes and the compiler replays; base 7 carries the re-exported meshes.
+
+B-1155 FIXED on dev by the crystal pistol work (landed as 361abab8; CRYSTAL PISTOL's week note of 2026-11-16 05:30 UTC lists it), in this branch since the merge of dev 841650c7; `mod_author_weapon_play_smoke` is rerun on the merged build. Was: OPEN, low, found by Mike's asset session (crystal pistol asset README, "Scale and frame"), not checked by MODS in a run: the Needler dev mod's held model is authored muzzle toward -Z, while native held models are authored muzzle toward +Z and `bondgun.c` turns every held model 180 degrees about Y, so the Needler is drawn backwards. Fix in `tools/build_needler_mod.py` (it negates z when it writes the held mesh), then regenerate the archive. Owner of the Needler: T-MODDING-009.
+
+B-1156 OPEN, medium, RUN 2026-11-15 19:32 UTC (MODS, coordination hub): under Windows PowerShell 5.1 every hub command (`status`, `wait-turn`, `start`, `finish`, `health`) throws "The property 'Count' cannot be found on this object" while a running `game-runtime` item is past twice its ETA. `tools/CodexCoordination/CodexCoordination.ps1` `Test-ResourceBusy` has no pattern for the resource name `game-runtime` (its game pattern is `^(game|smoke|multiplayer|capture|editor)$`), so the `switch` falls to `default { @() }`, which outputs nothing, and `$patterns.Count` on `$null` is an error under `Set-StrictMode -Version 2` in 5.1 (PowerShell 7 gives 0, so `pwsh` callers see nothing). In both versions a dead `game-runtime` runner is never auto-reaped, because the unknown resource reports busy. Seen: the MODS waiter called the hub through 5.1, got this error on every call once CRYSTAL's smoke (alive, slow) passed 2x its ETA, counted the errors as waits and cancelled its own item (requeued in place; MULTIPLAYER, CORE and CRYSTAL call the hub with `pwsh`). Fix for the hub owner: `$patterns = @(switch -Regex ($ResourceName) { ... })` and `game-runtime` in the game pattern. Workaround: call the hub with `pwsh`. Propagation check: the only other `$x = switch` in the PowerShell tools (`devtools/build-headless.ps1` `$targets`) takes a validated value and is never read with `.Count`.
+
+B-1157 OPEN (the vehicle swap part is fixed on week-pd/mods), medium, READ 2026-11-15 (MODS, while checking vehicle step V1 before its smoke, not seen in a run): a custom model slot (`MODEL_CUSTOM_START` to `MODEL_CUSTOM_END`) has no world scale. `g_ModelStates[slot].scale` is never set and stays 0, and `objInit` (`src/game/propobj.c` 2871) sizes every new object by `g_ModelStates[modelnum].scale / 4096`, so an object created with a private-slot model gets model scale 0 (not drawn, no collision size) unless its caller sets one. Forge sets 1.0 after creation (`port/src/forge/forge_runtime.c` 665, 744, 851); `--debug-swap-vehicle` now gives the mod vehicle the replaced hoverbike's slot scale (`src/game/setup.c`, logged as `VEHICLE.SWAP: modelnum N takes the world scale of modelnum 58 (409/4096)`). Not checked: graph projectiles whose mesh has a private slot are created through `func0f08ae0c` -> `objInitWithModelDef` -> `objInit` and then multiplied by the graph's projectile scale (`src/game/bondgun.c` 6184, 6265), which would keep 0; CRYSTAL reported its crystals in game, so where those get their size is the thing to check. General fix still open: a declared world scale for a custom slot (a mesh or owner key, or one default), which levels that place mod vehicles will need as well. Search: `rg -n "g_ModelStates\[[^]]*\]\.scale" src port`.
+
+B-1158 FIXED AGAIN on week-pd/mods (MODS) 2026-11-16, high for smokes, first fix wrong (see the 07:04 UTC update), RUN 2026-11-15 22:34 and 22:38 UTC (`mod_vehicle_drive_smoke`, `maian_vehicle_drive_smoke`, both on base 3, receipts under `C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/mods/receipts/`): `--debug-mount-bike` crashed the client (ACCESS_VIOLATION in `modelSetRootPosition` <- `chrMoveToPos` <- `bootDebugMountBikeTick`, `port/src/main.c`) on the first gameplay frame. The hook moves Player 0 beside the bike with `chrMoveToPos`, which sets the chr's model root, but Player 0's body model is made by the player tick (`playerTickChrBody`, `src/game/player.c`), not at stage load, so on the first frame `chr->model` was NULL. The hook had no frame settle, although `--debug-spawn-at`'s comment says it uses "the same gate --debug-mount-bike uses" (`lvframenum >= 4`). Fix: the hook waits for `lvframenum >= 4` and a non-NULL Player 0 model. Not caused by the vehicle swap: the swapped vehicle was created at the hoverbike's scale and the crash is on the player's chr; `vehicle_flow` (the same hook on the base hoverbike) is rerun as the control. Update 2026-11-16 07:04 UTC (MODS): the fix above was wrong for solo play, and it stopped `--debug-mount-bike` from ever firing on a campaign stage. A solo player outside a cutscene has no body model at all: the normal tick calls `playerRemoveChrBody` every frame (`src/game/player.c`, the TICKMODE_NORMAL branch), which frees it through `chrRemove` (`chr->model = NULL`), so the model wait never ended. Every vehicle smoke since 2026-11-15 22:38 UTC shows the hook armed, the bike created (`VEHICLE.SWAP`), Player 0 in walk mode with control, and no mount, on CI training and on Escape (receipts `20261116T0517*`, `20261116T064*`). My 05:33 UTC week-note reason (CI training's bike is in the hangar, outside the active props) was wrong too: the active list runs on into the paused list (`propActivate`), so the hook's walk sees every listed prop. Real fix: `chrMoveToPos` (`src/game/chraction.c`) skips the model root, the CHRINFO ground and `chrSetLookAngle` when the chr has no model (and no aibot); the player's position is the prop's and its facing is `vv_theta`, both still set. That also makes `--debug-spawn-at` and any `chrMoveToPos` aimed at a solo first-person player safe (the same latent NULL dereference). The hook keeps the `lvframenum >= 4` settle, drops the model wait, and logs once when it is ready but finds no free hoverbike. Proof: the three Escape vehicle smokes, requeued. Proven 2026-11-16 08:48 UTC (turn q_20261116070701327_eb4de76b, client d21bf9f0, base 3; receipts `20261116T0848*`, `20261116T0852*`, `20261116T0856*`): `--debug-mount-bike consumed ... result=MOUNTED` once in each of the three Escape vehicle smokes, no crash. CORE reviewed and approved the `chrMoveToPos` change (week note 07:31 UTC). The three smokes then failed on a step of their own (an on-foot wait right after the hover bed is let go, which the same-frame mount makes impossible); fixed in the fixtures (3617ffc8), not a game bug.
+
+B-1159 CLOSED, not a bug (answered by CORE 2026-11-16 01:20 UTC: Escape starts in grab mode), was high for vehicle smokes, found by MODS 2026-11-16 00:30-00:45 UTC on shared base 3 with the week-pd/mods client at 0503fe0a (receipts under `C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/mods/receipts/20261116T00*`): on Escape (`--launch-mission base:escape`), after the intro is skipped (the smoke's cutscene-skip assist, action 72), Player 0 never returns to MOVEMODE_WALK. The graph's `end_cutscene` runs at 00:48.71 (it calls `playerEndCutscene`, which sets walk mode for every player through `bwalkInit`), control is granted at 00:48.73, and for the next 130 s the smoke facts read `tick:1 normal:1 update:1 control:1 unpaused:1 alive:1 walk:0 bike:0`, so something after the skip takes the mode away again (not instrumented: no log line names the mode). Effect: `offline_gameplay_ready` never holds and `--debug-mount-bike` (which needs walk mode) never fires, so `vehicle_flow`, `mod_vehicle_drive_smoke` and `maian_vehicle_drive_smoke` all time out (9/20, 21/27, 23/29) with no mount. Not caused by the vehicle work: `vehicle_flow` drives the base hoverbike with no mod. `vehicle_flow` last passed on 2026-07-04 as the 10-assertion CI-training version (`--skip-intro`); the 2026-09-22 Escape rewrite (34b0dee3, 20 assertions) has no recorded pass. The window also lost focus at the first gameplay frame (`INPUTCTX: focus LOST`), which only flushes held input and does not touch the move mode. Unknown: whether a player who skips Escape's intro by hand can walk (if not, this is player-facing). Update 2026-11-16 02:17 UTC: on CI training (`--launch-mission 0x26`) the same skip assist ends the CI camera intro and walk mode does come back (`walk:1`), so this looks particular to Escape's intro (or its level script), not to skipping in general. CI training then forces Agent Select open: at 02:17 UTC because a fresh install has no agent, and at 03:58 UTC still, with the smoke agent loaded by `--launch-load-agent`, because CI training opens it until a game file is chosen there (`g_FileState`, `src/game/menutick.c`), then opens the main menu. So the vehicle smokes now stage the smoke agent profile, load it through Agent Select, close the main menu with Back (injected actions, which need no window focus) and only then wait for walk mode and the mount. Answer (CORE, 2026-11-16 01:20 UTC): not a bug. Area 51 Escape starts with the player pushing the hover bed, as the original does: right after the intro the stage's AI list runs `revoke_control`, `chr_grab_object` (the player, tag 0, `base:model_hoverbed`) and `grant_control`, so the move mode is `MOVEMODE_GRAB` and walk mode comes back only when the player lets go of the bed (the native `aiChrGrabObject` does the same). The smokes' `offline_gameplay_ready` wait and the `--debug-mount-bike` hook need walk mode, so on Escape a smoke has to let go of the bed first (Use), or accept grab mode (`bmoveSetMode(MOVEMODE_BIKE)` leaves a grab cleanly), or use a stage that starts in walk mode, as the mod vehicle smokes now do (CI training). `vehicle_flow` (Escape) needs the same change.
+
+B-1230 ANSWERED by CORE 2026-11-16 05:50 UTC (fix: the boost keys move into the vehicle graph with explicit units, physics v3 has none and v2 is refused after the base re-extract; MODS builds the vehicle graph runner on week-pd/mods), was OPEN for CORE (vehicle schema), low (authoring trap, no gameplay change), found by MODS 2026-11-15 in the vehicle survey, row filed 2026-11-16 at CORE's request: `physics.json` (`pd2.vehicle.physics.v2`) key `boost_time_ticks60` is counted in 240 Hz ticks, not 60 Hz. `hoverbikeUpdateMovement` (`src/game/propobj.c`, the full-throttle bonus) adds `lvupdate240` to `bike->maxspeedtime240` and caps it at `TICKS(boost_time_ticks60)` (NTSC: the value itself), and the bonus is `maxspeedtime240 * boost_speed / TICKS(boost_time_ticks60)`. So the base hoverbike's 2400 is a 10 s ramp, not 40 s (corrected 2026-11-16 per CORE: the 1800 first quoted here is the example template's, `template/tri_vehicle.pdvehicle`, with `boost_speed` 7.0; the base holds 5.0 and 2400, checked on shared base 7); an author who reads the name and writes 240 for 4 s gets 1 s. The game's behavior is the original's, only the key's name is wrong. Fix options (CORE's call, question 3 of `context/designs/modding/vehicle-graph-v1.md`): move the boost keys into the vehicle graph with explicit units (`{1800, ticks240}`), or a physics v3 that renames the key to `boost_time_ticks240` and reads v2 as is. Ends with the extractor task in `vehicle-graph-v1.md` (CORE's review 2026-11-16 09:58 UTC, rule 5): the base hoverbike's v1 graph and v3 physics behind a vehicle export version, then v2 refused at runtime and reported by conformance.
+B-1231 FIXED on week-pd/mods (MODS) 2026-11-16, low (no shipped vehicle forbids dismounting): the PC vehicle exit key (`ACTION_VEHICLE_EXIT`, F) dismounted without asking the vehicle's behavior. `bbikeApplyMoveData` (`src/game/bondbike.c`) ran its directional dismount with no `assetRuntimeVehicleAllows(..., "dismount")` check, while the activate path (`bbikeHandleActivate`) has one, so a vehicle whose behavior says `allow_dismount: false` could still be left with F on PC. Found while routing both dismounts through the vehicle graph. Fix: the exit key's dismount (`bbikeExitToChosenSide`) runs through `event.vehicle.dismount_requested` for a `pd.vehicle_graph.v1` vehicle (`og.vehicle.dismount_seat`) and only with the permission for a v2 vehicle. Propagation: the activate path checks it; the network receivers apply the authority's committed state (`currentPlayerApplyHoverbikeState`) and rightly do not re-check; no other path dismounts.
+B-1232 OPEN (MODS found by CORE's review 2026-11-16 09:58 UTC; the wire is MULTIPLAYER's), medium before the Maian vehicle goes into a networked match: a remote rider's vehicle boost never reaches the host. The move packet has no boost field, and a remote actor skips the input block in `bbikeApplyMoveData` (`src/game/bondbike.c`) that reads `ACTION_VEHICLE_BOOST`, so on a listen host a client's vehicle heats up and hides its crystals on the client while the host's copy stays cool and slower (corrections, and turret lockouts that differ). Older than the vehicle graph commits. The design (`context/designs/modding/vehicle-graph-v1.md`) has the host run the graph and clients predict no heat. Fix options: a boost bit in the move message (the host runs `boost_heat` with the client's input; MODS's preference), with the phase and toggled parts sent in the vehicle state for remote clients; or `boost_heat` on the host only with the phase in the vehicle state. Owner of the wire: MULTIPLAYER.
+B-1233 FIXED on week-pd/mods (MODS) 2026-11-17, before it reached dev; high had it landed: every action added to the game made each player's saved bindings file unreadable. READ and measured, not seen in a run: `actionmap_profile::decode` (`port/src/actionmap_profile.cpp`) required exactly contexts times `ACTION_COUNT` rows ("The complete binding file is missing required rows."), `Store::initialize` then blocked the store, so the saved bindings were ignored (defaults in play) and every later save was refused ("The current binding file is invalid. Load a valid profile to replace it."). The real `%APPDATA%\perfectdark\input-bindings.ini` on the test PC, written by a dev build after the crystal pistol landing, has 12 contexts of 123 actions (last `GunRollRight`); `ACTION_VEHICLE_BOOST` makes `ACTION_COUNT` 124, so the first dev build after the vehicle landing would have refused it. Named profile files (`input-profiles/`) had the same fate. The crystal pistol's two actions did not show it only because every file from before them was already cut off at an unnamed action and went through B-1184's rewrite. Fix: a versioned document that lists, for every context, the same leading run of the action list and nothing after it is a complete file from an older build (saved names are positional, new actions are appended): `decode` accepts it, keeps its bindings and leaves the actions it could not know at their defaults, and reports how many it listed; `Store::initialize` applies it and writes it out complete (a failed rewrite leaves the older file, which reads the same way next time); `actionmapLoadBinds` logs `ACTIONMAP: bindings file from an older build (N of M actions per context): bindings kept, new actions take their defaults, file brought up to date`. Any other missing row (a context cut short, a hole, a missing context, contexts that stop at different actions) is refused as before. Tests: four cases tagged `[upgrade]` in `tests/test_actionmap_profile.cpp`. Not covered, and the same class: a NEW input context (V4b's turret context would be the thirteenth) still makes every saved file invalid, and a file from a NEWER build (an action this build does not know) is still refused; both need a decision before V4b adds its context. Pattern for whoever owns the input pillar's records: a persisted table keyed by a list that only grows must read an older complete file, or every release with a new entry discards the player's settings (no SP number taken here; CORE and MULTIPLAYER number theirs on their branches). A limit of any saved complete file, seen in the same real file: a default that moves does not reach it. It keeps `vehicle.VehicleExit=F,JOY1_X,JOY1_A,0` and `vehicle.VehicleHandbrake=SPACE,JOY1_A,0,0` (older defaults), so after the upgrade the new `vehicle.VehicleBoost` default (`LEFT_SHIFT,JOY1_A`) shares controller A with exit and handbrake in that profile until the Vehicle controls are reset to defaults or remapped; a new profile gets exit on X, handbrake on B and boost on A. The upgrade does not unbind or move anything on its own.
+B-1234 FIXED and PROVEN IN GAME 2026-11-17 (MODS, `week-pd/mods-v4` c2050b8d7; the cause was MEASURED in the running game and so is the fix, at the end of this entry), medium: riding the Maian hover vehicle test mod dropped the frame rate on the test PC (i9-12900KF, RTX 3080; the game window is 2560 by 1440 on a USB virtual display). SYMPTOM, from the client logs of every retained vehicle smoke run (`VEHICLE: input` is logged every 30 frames while a player rides and `BMOVE:` every 120 frames throughout; `vehicle_fps.py` and `vehicle_fps_series.py` in the session scratchpad): the base hoverbike saved as a mod (`mod_vehicle_drive_smoke`) rode at 60 frames a second in every run, while the Maian vehicle on the same stage and route rode at 60 in three of the first nine runs, at 32 to 41 in five and at 16.8 in one, then at 28 and 19 in the landing's rerun (2026-11-17 02:36 UTC). Every slow run is at 60 until the player mounts and slow from the first second of the ride, and holds one speed for the whole ride. `lvupdate240` stops at 8, so below 30 frames a second the game falls behind real time (at 16.8 a 1 s boost ramp took 1.72 s); that is how it was found, when `maian_vehicle_boost_smoke` held boost for 5.5 s of real time, got 3 s of game time and no overheat. CAUSE, measured 2026-11-17 02:43 to 02:54 UTC (turn q_20261117013209684_748edab4, the landing build on base 7, three runs with a read-only sampler on the client's main thread: `rip_sampler.py`, `rip_report.py` and `rip_chain.py` in the session scratchpad, samples in `profile_b1234/`): the shot hit test. With one player the game asks every frame what the player is looking at (`lv.c`: `propFindAimingAt` -> `shotCalculateHits` -> `objTestHit` -> `func0f0849dc` -> `bgTestHitOnObj` in `src/game/bg.c`). That display list walk checks memory before it reads it, with `modelRodataIsReadable` (`port/src/model_rodata_guard.c`), which is a `VirtualQuery` system call: one for every vertex batch and, on the native path, one for every command as well. A compiled mod model has one vertex batch per triangle, so one full test of the vehicle made 5,829 system calls. In the two Maian rides the main thread went from 0.18 and 0.31 CPU-seconds per second on foot to 0.96 and 0.98 mounted, with 90% and 95% of its samples in the one chain `ntdll` <- `modelRodataIsReadable` <- `bgTestHitOnObj`: about 30 ms and 48 ms of every frame, at 29 and 20 frames a second. The base bike's model, walked on the native path, showed the same chain in 35% of samples during its ride and 36% before the mount, about 3 ms a frame; it held 60 only because the model is small. No power throttling was reported and the load stayed on performance cores. The guard's own header estimated 100 ns a call and about 100 calls a tick; in this client a call costs several microseconds and the walk made thousands. Why rides differed in speed is NOT measured; the likely reason is that a test walks parts only until the ray hits one, and walks nothing when the ray misses the model's box, so the cost depends on where the rider's view points. FIX (c2050b8d7): every check stays and the repeated questions go. `model_rodata_guard.h` gains a span (`model_rodata_span_t`), the run of committed, readable pages a walk's last query found, and `modelRodataIsReadableInSpan`: a range inside the span is answered with two compares, any other range is asked of the operating system as before and its run joins or replaces the span. Both hit-test walkers (`bgTestHitOnObj` and `bgTestHitOnChr`) keep one span on their stack for the native per-command check and the vertex batch check, so a walk asks once per run of readable memory. The span lives for one walk only, so memory freed or re-protected between walks is asked about afresh. The probe also now refuses a range that wraps past the top of the address space, which it used to call readable. Tests: `tests/test_model_rodata_guard.cpp` (`[model-rodata-guard]`, four cases over pages laid out for the purpose: readable, no access, never committed; one shows that a span answers from memory, which is why it must not outlive its walk); the two source pins on the walkers in `tests/test_asset_native_source_contract.cpp` follow the new call and also require the span's declaration. PROPAGATION: the two hit-test walkers were the only loops over this probe that run every frame. The model relation updates in `src/lib/model.c` probe once per node (2% to 3% of the samples; left alone). `extractGfxTris` in `src/lib/meshcollision.c` probes once per command while a prop's collision mesh is built, once per prop and not per frame (left alone; told CORE, whose file it is). TO VERIFY: a game turn that builds the fix and rides both vehicles with the sampler attached; expected 60 frames a second and the chain gone from the samples. This is engine code in CORE's area, changed on MODS' branch because the vehicle found it; CORE was told in the week note with the numbers. Ruled out earlier, kept for the record: sharing vertices in `build_vehicle_mesh.py` (the model compiler writes three vertices and one vertex load per triangle whatever the source shares, so the 17,487 vertices are the model's 5,829 triangles), the v1 graph's tick (it fires once per update), other sessions' builds, and the screen saver (`matrix.scr` ran through runs of every speed). `maian_vehicle_boost_smoke` keeps its 10 s boost hold; that is the test's tolerance for a slow machine, not part of this fix. PROVEN 2026-11-17 11:48 to 12:08 UTC (turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9, the same sampler attached; `vehicle_fps_today.py` in the session scratchpad): the Maian vehicle rode at 60 frames a second in all three of its runs (30 frames per 0.50 s between the rider's witness lines: 60.0 as the driver in each, and 58.8 to 61.2 over 13 intervals as the gunner), and so did the base bike's mod. Over the 17 s mounted in `maian_vehicle_seats_smoke` the main thread spent 87% of its samples in the frame limiter's sleep and 0.8% in the hit test chain (it was 90% and 95%); while riding it used 0.12 CPU-seconds per second (it was 0.96 and 0.98).
+B-1235 FIXED in code 2026-11-17 (MODS, week-pd/mods-v4; READ, hosted CI compile only, not run in the game), low until Forge levels exist: a mod arena's `load_mode` was read as a number (`assetcatalog_scanner.c`, the `ASSET_ARENA` case, `iniGetInt`) while `arena.ini` carries the mode's name, as the extractor and the mod author write it (`romextract_pdarena.c`: `load_mode = ARENA_LOADMODE_PLAYABLE` or `ARENA_LOADMODE_CANVAS`). A name read as a number is 0, so every mod arena was playable, and a mod level made from a canvas template (a campaign stage used as a build canvas, B-254) would have run its mission scripts, characters and cutscenes. Base arenas were never affected: they register through the loader pool, which resolves the name. Found by the Forge F1 survey (`forge-mode-scope.md`, item 3). Propagation check: the mod distribution's registrar (`port/src/net/netdistrib.c`, the arena case of a mod received over the network) read it the same way. Fix: one helper, `catalogArenaLoadModeFromIni` (`assetcatalog_scanner.c`), reads the two names and still reads a number, and both readers use it. Proof so far: source pins in `tests/test_public_mods_static.cpp`; the behavior waits for a Forge level made from a canvas template.
+B-1236 FIXED and PROVEN IN GAME 2026-11-17 (MODS, `week-pd/mods-v4`; found by READING the code and the client log while checking B-1234's neighbours; proof at the end of this entry), medium: a compiled model's part with more than 2,044 triangles had no collision for the triangles past that count. `extractGfxTris` (`src/lib/meshcollision.c`), which builds a prop's collision mesh from its model's display lists when the prop is created, read at most 4,096 commands of one list and stopped without a log line. The cap is the guard for a native list, which has no recorded length. The mod asset compiler writes two commands per triangle (a vertex load and a triangle), so the cap ended every compiled part at its 2,044th triangle. Seen in every Maian vehicle run on record: the client log says `MESHCOL: extracted 5192 local-space triangles from model` for a model of 5,829 (the hull part is 2,681 triangles; the other four parts are 600 to 874 and were whole). The missing 637 are the hull's last triangles in file order. What a player would have seen: movement and the jump's ray tests against the vehicle passing through that part of the hull (not confirmed in play; nobody reported it). FIX: a list the compiler generated is read to the length the compiler recorded for it (`modAssetCompilerGeneratedGdlBytesRemaining`, the same bound the shot hit test uses); the 4,096 cap stays for native lists under a name (`MESH_EXTRACT_NATIVE_COMMAND_CAP`); and a list that does not end within what the walk may read is now logged (`MODEL.RODATA.MISS: site=MeshExtract.GfxEnd`, reason `generated-list-without-enddl` or `native-command-cap`) and counted in the `MESHCOL: skipped` summary, so a cut-off mesh can no longer be silent. Tests: `[b1236]` in `tests/test_vehicle_model_parts.cpp` (the hull is longer than the cap; the source pins); `maian_vehicle_drive_smoke` now requires `MESHCOL: extracted 5829 local-space triangles from model`. PROPAGATION: no other runtime display list walker has a fixed command cap that a compiled list can exceed (the shot hit test bounds compiled lists by their recorded length and caps native ones at 65,536; the 8,192 caps in `romextract_pdmesh.c` and `romextract_pdarena.c` read native ROM lists at extraction). TO WATCH in the next game turn: whether any base model's native list reaches the cap, which would now show as `native-command-cap` lines; none is expected (N64 lists are short). The file is CORE's; CORE was told in the week note. PROVEN 2026-11-17 (turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9): all three Maian runs log `MESHCOL: extracted 5829 local-space triangles from model` (it was 5192), and none of the turn's eleven client logs has a `MeshExtract.GfxEnd` line, so no base model's native list reached the cap either.
+B-1237 FIXED and PROVEN IN GAME 2026-11-17 (MODS, `week-pd/mods-v4` 2a193d51; found by an independent READ of the new Forge code; proof: the screenshot of `forge_session_save_smoke` in turn q_20261117041043360_545fad61 shows the mode badge, the grid cue, the reticle, the camera readout and the level file's markers while the camera flies), medium for anyone using Forge: since 2026-05-01 the Forge HUD has drawn nothing while the editor camera flies. `pdguiForgeHudRender` (`port/fast3d/pdgui_forge_hud.cpp`) returns early when `pdguiIsActive()` is true, meant as "a menu is open" (the line is from 2026-04-25). On 2026-05-01 commit 10f29f26 gave the editor an input context of its own, `g_CtxForgeEditor`, pushed for the whole of FREEFLY (`forgemode.c`), and `pdguiIsActive()` is "the top context is not gameplay". So on every FREEFLY frame the HUD returned before its mode badge, and the reticle, the ghost preview, the grid cue and the camera's position and angle readout below it were never reached; only the playtest mode's HUD was drawn. What a player saw: no reticle and no coordinates while editing. Nobody reported it. FIX: the HUD's test now leaves out the editor's own context, the same exemption `gameplayInputSuppressed` has had since 10f29f26 (`inputctx.c`). The new world markers of the level file (`forgehudDrawLevelFile`) sit below that line and would never have been drawn either. PROOF, once a game turn runs: the screenshot `forge_session_save_smoke` takes should show the badge, the reticle and the readout with the markers. PROPAGATION (read 2026-11-17, every caller of `pdguiIsActive()`): one more draws nothing while Forge flies for the same reason, the achievement toast (`pdgui_achievement_toast.cpp`), which does no harm in an editor and is left as it is. The interact prompt is hidden too, which is right there. The rest mean "keep the game's own input away" (`input.c`: pad sticks, mouse deltas, raw keys, the mouse lock and the cursor) or "ImGui may take navigation" (`pdgui_backend.cpp`), and for those the editor's context counting as an overlay is what is wanted: the editor camera reads its input through the action map (`actionAxis`, `actionHeld`), which has had its own exemption for this context since 10f29f26. One consequence, by reading, not a fault of this entry: the mouse does not turn the editor camera (its deltas are zeroed while the editor's context is on top); the right stick and the bound keys do.
+B-1238 FIXED and PROVEN IN GAME 2026-11-17 with B-1240 (MODS; MEASURED the same day: the reading was right about the axes and the run showed a larger fault beside it, B-1240, which is why this entry's own test, `ahead` at the middle, failed). The move and placement axes now are the view's: forward (-sin t, ., cos t), right (-cos t, 0, -sin t) in `forgeUpdateFreefly`, `forgePlaceUpdate` and `forgeHeldUpdateFromCamera`. Proof pending with B-1240's. ORIGINAL ENTRY (found by READING, not seen in play; do not fix before a run measures it), medium if the reading is right: the Forge editor camera's own move and placement math reads its yaw mirrored. The camera's yaw is the player's turn angle t (`forgeApplyFreeflyToPlayer` writes `vv_theta` from it), and a player with turn angle t faces (-sin t, 0, cos t) (`bondmove.c`: `bond2.unk00.x = -vv_sintheta`, `.z = vv_costheta`; `player.c` starts a player with `vv_theta = 360 - atan2(look.x, look.z)` so that this is the pad's look). The view's right is up cross back (`mtx00016874`), which for that forward is (-cos t, 0, -sin t). But `forgeUpdateFreefly` (`src/game/forgemode.c`) moves the camera along forward (+sin t, ., cos t) and right (cos t, 0, -sin t), and `forgePlaceUpdate` and `forgeHeldUpdateFromCamera` (`port/src/forge/forge_core.c`) put the ghost and the held object along the same (+sin t, ., cos t). Both are the true axes mirrored in X. If so: facing north or south, forward and back are right and strafing left and right is swapped; facing east or west, strafing is right and forward and back are swapped; in between, movement slides off the way the camera looks. The older B-255 trace in the same function (a one-shot log of yaw, forward and right on the first move input, added 2026-04-25 "so Mike can verify in playtest that the look-relative transform is reaching the position update") suggests something of the kind was felt. NOT FIXED on purpose: the reading has not been checked against the running game, and a wrong correction would break flying. MEASUREMENT: `--debug-forge-session-save` turns the camera to yaw 217 and logs `FORGE.MARKERS.PROBE`, whose `ahead` point lies along (-sin t, 0, cos t) and whose `other_reading` point lies along (+sin t, 0, cos t); `forge_session_save_smoke` requires `ahead` at the middle of the picture. If that line passes, the reading is right and the fix is two sign changes in each of the three functions; if it fails, this entry is wrong and so is the facing the Level File section gives a new start (which uses the same reading). The Level File section does not depend on the mirrored math: it places at the camera's position, not ahead of it. PROVEN 2026-11-17 12:10 and 12:24 UTC (turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9): with the camera at yaw 217 and 20 degrees down and the forward action held for 1.2 s, `FORGE.FLY.PROBE: moved=(407, -246, -540) distance=720 along_look=1.000 along_right=0.000`, on Complex (`forge_session_save_smoke` 35/35) and on the Blank Room (`forge_blank_room_session_smoke` 38/38) alike. The same run shows the injected forward action is read while the editor camera flies and the game window has no focus.
+B-1239 FIXED and PROVEN 2026-11-17 (MODS, `week-pd/mods-v4` ff231ebb; FOUND BY A RUN, the first run of the base-level sweep in a game turn, shared base 8), low: in the Forge level document, a player start added to a level that has none and then removed did not give back the file that was read. `spawns.json` came out with a line of spaces inside its empty `"rows"` list. 46 of the 132 base archives the sweep reads have no start (7 arenas and 39 scenario archives, among them the unused test levels and `mp_grid2` and `mp_grid6`), and each failed the sweep's one check `text == what was read` after an add and a remove (pd-tests `[forge-level-doc]`: 39,133 of 39,179 assertions passed, 46 failed, all at that line). CAUSE: the first row added to an empty list re-lays the list out (a new line and indent after `[` and before `]`), and `Table::remove` did not undo that when the last row went. EFFECT: none on the game, the text is valid either way; what broke is the document's own rule that an edit taken back leaves the file as it was, so the member counted as changed and would have been written. FIX: a list read with no rows that has none again gives back the text that was read (`Table::text`, `startedEmpty`). A list read with rows that loses them all keeps its rows' layout. Unit case "A start added to a level that had none and taken out again leaves the file as it was read". PROOF PENDING: hosted CI on ff231ebb and the sweep in the next game turn. PROPAGATION: `objects.json` and `setup.fields.json` use the same table code, but nothing removes an object row (objects are left out by a flag), so only the spawns list can go back to empty. Why hosted CI did not find it: the sweep needs the player's own extracted levels, which CI does not have; the unit fixtures all had starts. PROVEN 2026-11-17 11:45 UTC (turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9): the sweep that found it passes on every base level (`[forge-level-doc]` with `PD2_BASE_TEMPLATE_DIR` set: 39,397 assertions in 33 cases).
+B-1240 FIXED and PROVEN IN GAME 2026-11-17 (MODS, `week-pd/mods-v4`; FOUND BY A RUN: the projection probe of `forge_session_save_smoke`, turn q_20261117041043360_545fad61, client 13dd514d, shared base 8), high for anyone using Forge: the editor camera's yaw and pitch do not reach the view. The camera flies (its position is the view's), its readout shows its angles, and it moves along them, but the picture keeps looking one way. MEASURED: with the editor's yaw set to 217 and its pitch to 0 the probe logged `ahead=(-0.146, 0.500) right=(0.142, 0.500) up=(-0.146, 0.068) behind=hidden other_reading=hidden native=320x220 camera=(-3817, 159, 349)`. Solving those numbers for the view's own axes gives a view along +X (forward (1.000, 0, 0.005)), 53 degrees off what yaw 217 means by the game's reading and behind what it means by the mirrored one. The screenshot agrees: the weapon pickup `setup_0000`, which is 1,940 units along +X and 169 above the camera, is marked just left of the middle and 5 degrees up, where a +X view puts it. So the markers' projection is right and the view is not the editor's. CAUSE (READ): the flying camera holds the player in the cutscene move mode (`forgeSetFreeflyMode`: `bondmovemode = MOVEMODE_CUTSCENE`), and `forgeApplyFreeflyToPlayer` writes the editor's yaw and pitch into `vv_theta` and `vv_verta` each tick. Nothing turns those into the view there: the look vectors a view is set from (`bond2.unk1c`, `bond2.unk28`) are refreshed by `bmoveUpdateHead` in the walk, bike and grab ticks, and `bcutsceneTick` is empty; and since Fix 5 of 2026-05-01 gave the observer a body, `playerTickThirdPerson` (`player.c`) overwrites `vv_theta` from the character model's own angle every frame and sets `vv_verta` to 0 when the player's body is shown. Which of the two froze the view in this run was not separated; by either, the editor's angles do not reach it. Before Fix 5 the body had no model, `chrGetInverseTheta` answered from `vv_theta`, and the yaw (never the pitch) may have survived that overwrite, which would be why turning seemed to work in April. Nobody has looked through the editor camera since 2026-05-01: B-1237 (no HUD while flying) dates from the same day and was not reported either. FIX: the editor owns the view while it flies. `forgeCameraOverride` (`forgemode.c`) gives the camera's position and the up and look vectors of its yaw and pitch, by the game's own reading of a turn angle (t faces (-sin t, 0, cos t), `bmoveUpdateVerta`), and `player0f0c1840` (`player.c`), which every way of setting a player's view passes through, uses them in place of what it was handed. The move and placement axes are made the same (B-1238), so the camera flies where it looks and the ghost stands where it looks. PROOF PENDING: the probe now turns the camera to yaw 217 and 20 degrees down and requires the point along that look at the middle of the picture, one along the camera's right right of it and one along its up above it; it also logs the player's own `vv_theta` and `vv_verta`. Queued in q_20261117080550197_5ee34c8d. RELATED, read on the way and fixed in 9107041f: with a keyboard and mouse the camera could not be turned even in principle (the aim axis is the right stick or the aim keys, and the editor's sidebar takes three arrow keys); hold the right mouse button over the world now turns it. PROPAGATION: the playtest mode of Forge (NORMAL) walks with the ordinary walk tick and is not affected. Any other code that parks the player in the cutscene move mode and expects `vv_theta` to steer the view would have the same fault; the observer camera of multiplayer is MULTIPLAYER's to check. PROVEN 2026-11-17 12:10 UTC (turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9): the same probe, now with the camera turned to yaw 217 and 20 degrees down, logs `ahead=(0.500, 0.500) right=(0.646, 0.500) up=(0.500, 0.240) behind=hidden`, with `player_theta=217.0 player_verta=-20.0`: a point ahead of the camera is in the middle of the picture, one to its right is to the right, one above is above, one behind is not drawn. The same numbers on the Blank Room.
+B-1241 FIXED in code 2026-11-17 (MODS, `week-pd/mods-v4`; the new place to drive is NOT run yet; FOUND BY A RUN, turn q_20261117080550197_5ee34c8d, client 0f329f66, shared base 9; a fault of where the vehicle smokes run, not of the vehicle and not of the mission), medium for the vehicle's proofs: `maian_vehicle_boost_smoke` (38/48) and `maian_vehicle_drive_smoke` (37/38) fail on Escape because the mission now ends the ride. Since dev's mission and AI graphs (48667628, in this branch from 22cd4a21) Escape's own script runs as written. From where `--debug-mount-bike` mounts the vehicle, about 0.4 s after it starts to move the log has `MISSION.GRAPH: event.objective.status_changed 'base:mission_escape' objective=2 ... status=complete`, and 0.8 to 0.9 s after that a cutscene loads (`base:animation_cut_tra_mid_cam`), the cutscene controls open and the player is out of the vehicle (`VEHICLE: dismounted player=0`, with no exit input). In the boost run that was 0.6 s after boost was pressed: one phase line (`cool -> ramping`, `ground=14.73`), no overheat, no black crystals, no recovery, so ten checks miss. In the drive run the steering input came 0.4 s after the dismount. `mod_vehicle_drive_smoke` passes (32/32): the objective completes there too, and its script ended before a cutscene began. `maian_vehicle_seats_smoke` passes (56/56): its seat checks come before its last drive, which the cutscene also ends. On 2026-11-16 the same two smokes ran twenty seconds on Escape with no cutscene (46/46 and 34/34). What the failed runs still proved is B-1234 and B-1236. FIX, to do: a place to drive that has no mission. The Blank Room shows an original level loads and plays, so the vehicle smokes move to an original level with a vehicle placed in it; that needs a level to be able to place a vehicle (the level document makes weapon places and ammo crates so far), which the Maian arena needs anyway. Until then the Escape smokes prove the mount, the seats, the frame rate and the collision mesh, and not boost, heat or steering. FIX WRITTEN: a level can now place a hoverbike (`FORGE_LEVEL_NEW_HOVERBIKE` in the level document: the 63-row record all five base hoverbikes share, `base:model_hovbike`, their three flag words; New Hoverbike Here in Forge's editor), `--debug-forge-level-vehicle` adds one to the scripted level edit 600 units in front of the first start, and `maian_vehicle_room_drive_smoke` and `maian_vehicle_room_boost_smoke` run the Escape smokes' inputs and checks on the Blank Room with that hoverbike, in a Combat Simulator match with no simulants, failing on any dismount. The Escape smokes stay for the mount and the seats. FIRST RUN 2026-11-17 (turn q_20261117134802790_ef485e13, client c88a828f, shared base 9): the new place works up to the mount (the hoverbike made from nothing loads on the Blank Room and takes the Maian vehicle's model, `VEHICLE.SWAP: hoverbike modelnum 58 -> 441`), and both room smokes failed there, before any driving (42/50 and 43/60), because the debug mount hook could not place the rider in view: B-1243, fixed. Rerun in the next turn.
+B-1242 FIXED in code 2026-11-17 (MODS, `week-pd/mods-v4`; FOUND IN THE PICTURES of turn q_20261117080550197_5ee34c8d and READ in the code; not run), low: the Forge editor's control legend (the pills at the bottom right, `port/fast3d/pdgui_forge_hud.cpp`) named actions that do nothing while the editor camera flies, so two of its four rows read "Unbound" for every player. Its third row named the menu's tab keys (`ACTION_MENU_TAB_PREV`/`NEXT`), which are not live in FREEFLY, where the editor cycles its tabs with `ACTION_FORGE_TAB_PREV`/`NEXT`; its fourth named use and cancel-use (`ACTION_USE`, `ACTION_CANCEL_USE`), which `actionIsBlockedInFreefly` blocks, where the editor places with `ACTION_FORGE_SIDEBAR_ACTIVATE` and cancels a placement with `ACTION_FORGE_PLACE_CANCEL`. The pill text comes from the binding the resolver finds active (`actionmapGetActiveBindingVk`), and a blocked action has none. FIX: the rows name the editor's own actions, all bound in `g_ImcForge` (`setupForgeDefaults`), and the fourth row also shows the editor's show/hide key (`ACTION_FORGE_SIDEBAR_TOGGLE`). Test: `[forge][editor][static]` in `tests/test_editor_tool_hotkeys.cpp` (each pill names the editor's action in both the measuring and the drawing list, none names the old actions, and each is bound in `setupForgeDefaults`). NOT A BUG, for the record: in a smoke the first two rows read "Unbound" too, because the smoke's game window never has keyboard focus and `gameplayInputSuppressed` reports gameplay actions as suppressed while focus is lost; a player's focused window shows their keys.
+B-1243 FIXED in code 2026-11-17 (MODS, `week-pd/mods-v4` e4532d24; FOUND BY A RUN: the first run of `maian_vehicle_room_drive_smoke`, turn q_20261117134802790_ef485e13, client c88a828f, shared base 9; a fault of a debug hook, not of the game), low (test-only): `--debug-mount-bike` could not put the rider on a vehicle the camera can see. On the Blank Room with the hoverbike the level edit made, everything up to the mount worked (`FORGE.LEVEL.EDIT: made hoverbike setup_0002 at (250, 50, 0) facing (-1.00, 0.00, 0.00)`, the level reloaded with `pads=12 spawns=9 objects=3`, `VEHICLE.SWAP: hoverbike modelnum 58 -> 441`, the match started with no simulants), and two seconds into the match the log said `BOOT: --debug-mount-bike placement failed for Player 0`; the smoke failed 42/50 with no `VEHICLE: mounted`. CAUSE (READ): the hook moves Player 0 beside the vehicle with `chrMoveToPos`, which asks `chrAdjustPosForSpawn`, and that refuses any place a player's camera can see unless the chr carries `CHRHFLAG_WARPONSCREEN`. On Escape the place beside the bike was out of the player's view when the hook ran; in the Blank Room, one open space with nothing between a start and the vehicle, it is in view whenever the player looks toward the vehicle, as in this run. FIX: the hook sets `CHRHFLAG_WARPONSCREEN` around the call and puts the flag back as it was after, as the game's own `chrSetPos` does; the volume test still keeps the rider out of walls and out of the vehicle. PROOF PENDING: the room drive and boost smokes in the next game turn. PROPAGATION: the one other debug placement hook in `main.c`, `--debug-spawn-at` (`bootDebugSpawnAtTick`), passes `chrMoveToPos`'s `force` argument, which in `chrAdjustPosForSpawn` allows a place in view (and also skips the wall test), so it has no such refusal; the mount hook keeps the wall test on purpose and so takes the flag instead. The rider's place is 150 units to the vehicle's side, and the eight places `chrAdjustPosForSpawn` tries when the first is refused are 60 units around it, so they fall in view together unless the first is near the edge of the picture. PROVEN 2026-11-17 (turn q_20261117154917611_f73cf2e8, client de514e91, shared base 9): `maian_vehicle_room_drive_smoke` 50/50 and `maian_vehicle_room_boost_smoke` 60/60 mount on the Blank Room and ride (boost to full, overheat with the crystals black, recovery, the turret lock set and cleared), which also closes B-1241.
+B-1244 OPEN 2026-11-17 (MODS, `week-pd/mods-v4`; FOUND IN THE PICTURES of turn q_20261117154917611_f73cf2e8, client de514e91, shared base 9; cause NOT known yet), medium for vehicles in original levels: riding the Maian vehicle in the Blank Room, the rider's view draws the floor and not the walls or the ceiling. `maian_vehicle_room_drive_smoke`'s picture 1.8 s into accelerating shows the tiled floor up to a straight far edge about 6 degrees below the middle of the picture and dark blue above it, where the west wall and the ceiling should be; its steering picture and all four of `maian_vehicle_room_boost_smoke`'s show only dark blue and the HUD (with the player's held pistol drawn). A plain Combat Simulator match on the same room (`forge_blank_room_smoke`, same turn's base) draws the walls, the ceiling, a pillar and a simulant. Both smokes PASS: they check inputs, phases and the ride, not the picture. MEASURED so far: the renderer accepted the scene as usual (`SCENARIO.RENDER: rendered native source scene ... vertices=384 groups=1 textures=1`, the whole room in one draw); the driver's eye is part 160 at (0, 420, 450) model units on a model drawn at the base hoverbike's world scale (409/4096), about 42 units up and 45 ahead of the vehicle; in the boost run the ground speed fell from 26 to 0 about 1.2 s into full boost, where the vehicle reaches the west wall at that speed, so the wall's collision stopped it. NOT KNOWN: where the camera is and which room it is in while riding. Floor drawn and walls not, in the same draw call, rules out a missing room; a camera outside the room, a view matrix that turns the faces' winding round, or a clip distance are candidates, and none is checked. NEXT: a witness written for the next turn, `VEHICLE: view player=... camera=(x, y, z) camera_room=... vehicle=(x, y, z) vehicle_room=... floor_room=...` every half second beside the input line (`bondbike.c`), and then the rider's camera code (`bbikeTickGunner`'s driver counterpart and `player0f0c1840`).
 
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
 
@@ -1751,6 +2947,49 @@ B-1107's replacement implementation and verification run under T-ASSETS-038.
 | B-919 | Low | confirmed | The collision hit-sound condition in `propobj.c` compares `WEAPON_COMBATKNIFE` twice. The intended second family is not proven, so this must not be fixed by guesswork. | V-010 | Verify intended base behavior from authoritative source, correct the shared mapping, add a focused propagation test, and prove combat-knife plus bolt-family impacts in an ordinary client. |
 | B-1106 | Critical | source_connected | Exact frozen client `36EA05D1...` completed clean 733/733 `.pdmesh` extraction, then `base:sp_body_118` / nested `base:model_cchicrob` failed the runtime render-stream contract and rolled back 64 Main Menu loads. The exact first mismatch is 33 corners across 11 faces in Type-3 groups `node_2_dl`, `node_6_dl`, and `node_10_dl`: the producer resets geometry knowledge between consecutive opaque/translucent lists while retaining the live RSP vertex cache, but flattened schema v2 had no typed cache provenance and the consumer conflated each vertex's earlier `G_VTX` load-time snapshot with later triangle-time geometry. Current schema v3 records every ordered `vertex_load`, every triangle's three exact `vertex_cache_slots`, one Type-3 `vertex_scope` that retains the bounded 64-slot table, and one non-Type-3 `vertex_cache_reset` that clears it. C/Python validators simulate the same table, reject unloaded/false snapshots, malformed arrays, and matrix indices above 32766, and require every flattened load to have a restorable draw-state domain. The compiler's deterministic Type-3 baseline owns inherited lighting and texture-generation state but not caller-owned fog, which remains fail-closed. Schema v2 remains strict; schema-v3 load/draw divergence requires explicit load provenance. Export/cache v25/v28 plus generated-modeldef cache v12 invalidate predecessors. Luna xhigh identified the retained-slot and parser/bounds gaps; Sol integrated the exact source, validators, conformance cases, and propagation contracts. Exact source-frozen client `7EF396C9...` / tests `4D14886D...` pass focused 143/8, complete 67,451/1,231, all conformance/workflow/source/native guards, and zero source overlap. No replacement extraction or visual receipt is claimed yet. | V-010 | Run one clean 733/733 extraction and ordinary 3440-wide smoke proving the Main Menu manifest commits, `base:model_cchicrob` builds, both door models activate exactly once, and Carrington/Campaign/Combat Simulator retain correct visuals plus V-009. |
 | B-1107 | Critical | implemented | Metadata colmesh success bypassed typed runtime activation/hydration, and colmesh unload omitted adapter detach. T-ASSETS-038 now prepares private geometry, activates and hydrates adapters, publishes once, rolls back acquired state on rejection, and detaches before geometry release. The 2026-09-05 ordinary client passes all 19 Scenario transaction cases and match start with strict readiness retained. The corrected V-006 fixture now passes 32/32 including clean exit on unchanged client `2097E1C8...`; source manifest `44186EA3...` is unchanged across the continuation run. | T-ASSETS-038 / V-006 | Retain the original timeout receipt and `.claude/asset0905-continuation/v006-result.json` (32/32 pass). T-TESTS-003 corrected both affected fixture roots to timeout_seconds=125. |
+| B-1109 | High | source_connected | The gun model loader's queue targets were declared `uintptr_t *` while pointing at 4-byte counters (`gunctrl.memloadremaining`, u32, and `gunctrl.handmemloadremaining`, s32). On 64-bit every read and write through `loadmemremaining` covered 8 bytes; for `memloadremaining` the upper half is `masterloadstate`, `gunloadstate` and `loadfilenum`. Two effects in `bgunTickGunLoad`: the capacity clamp `loadsize > remaining` could never fire for gun and cartridge models, because the load-state bytes made `remaining` huge, and an underflow at the end of the texture stage would borrow into those state bytes. Latent on dev a8ab67f3 (`src/game/bondgun.c:4839-4850` and `:4971-4976` there). First found by the paused T-MODDING-011 lane (Workbench note N-0817, never built). Fixed on `week-pd/core` 2026-11-14: targets are `u8 **` and `u32 *`, the signed hand counter is addressed through its unsigned alias, both read-modify-write sites and all four call sites are typed, and a real clamp now logs `BGUN.LOAD.CLAMP`. | T-MODDING-011 / V-010 | `tests/test_gun_load_target_storage.cpp` passes in pd-tests; the campaign auto-runner and a Combat Simulator cycle show no `BGUN.LOAD.CLAMP` line and no gun load failure. If a clamp does fire, raise the gun memory budget rather than restore the unchecked path. |
+| B-1110 | Medium | source_connected | First-launch extraction is about 20 times slower on a hard disk than on NVMe. On 2026-11-14 a windowed first launch from `D:\PD2-wt\shared-base` (D: is a 7200 rpm Seagate ST2000DM008) reached `LOADER.UNIVERSAL.SUMMARY: scanned=5562 registered=5562` after 19 min 33 s; the accepted headless run of 2026-09-23 on C: (NVMe) reached the same line in about 60 s. The 733 meshes alone took over 80 s on D: against 4.7 s on C:. Consequences: `boot_smoke` (clean install, scripted exit at 90 s) cannot pass on a hard disk (7/14 on 2026-11-14, no crash, every miss is a line that had not been reached yet), every clean-install fixture inherits the same cost, and a player installing to a hard disk waits about 20 minutes on first launch. Profiled 2026-11-15: every extracted archive went through `modArchiveFinish`, which forced it to disk (`_commit`) and then renamed it with `MOVEFILE_WRITE_THROUGH`. Timed on 300 new files of 45 KB: on D: 99.3 ms per file with both, 60.5 with the flush only, 44.5 with the write-through rename only, 1.0 with neither; on C: 1.9 against 0.6. Over about 5,600 archives that is about 9 minutes on D:. Fixed the same day: the ROM extractors publish with `modArchiveBeginDerived` (same temp file and atomic replace, no per-file flush, no write-through), and the directory cache stamp, which lets a later launch skip a directory without opening its files, first calls `modArchiveDerivedBarrier` for its directory and is not written if that fails. A deferred flush of files the lazy writer has already written cost 3.6 to 40 ms per file on D:. Crash safety: a stamp never reaches the disk ahead of the archives it describes, and an archive torn by a power cut before its barrier reads back as a written prefix plus zeros, so its end record is missing and the per-file validators reject it and extract it again. Player edits and authored archives keep the durable writer. The flushes of one barrier run side by side on the boot pool (stamps are written on the catalog-work manager thread): 1,000 new files took 17.6 ms each one at a time and 8.3 ms with four at once. Measured live on D:, clean `--extract-assets-only` run in a fresh folder: 3 min 33 s to the loader summary with the barrier one file at a time (15679a9a), 2 min 47 s with it on the boot pool, against 19 min 33 s before; both 5,569 of 5,569 registered, 0 envelope failures, 0 LOUDFAIL, all 23 stamps written. Propagation (SP-89): the mod-transfer extraction `pdcaExtractArchiveBegin` syncs every member the same way (MULTIPLAYER's area, not changed). | V-010 / T-TOOLING-003 | `tests/test_modarchive_derived.cpp` (`[b1110]`: derived publish and atomic replace, barrier per folder, removed intermediates, four publishing threads, stamp written only after its barrier, every extractor derived, durable writer unchanged). Live timing done (above). A clean install on D: still needs about 3 minutes before the title, so `boot_smoke` (fixed 90 s exit) and the other 137 clean-install fixtures keep running from the pre-extracted shared base on D:, as this week already does. Remaining gate: a windowed first launch on a hard disk in Mike's stable-build run. |
+| B-1111 | Critical | source_connected | Objective operands in public scenario and mission source were byte-swapped, and the graph objective path used them as written. `port/src/romextract_pdarena.c` read the second word of `destroy_object`, `collect_object`, `throw_object`, `complete_flags` and `fail_flags` commands through `PD_BE32`, although the setup loader has already converted that word to host order (`port/src/preprocess/filesetup.c`, `PD_CONV_VAL` on `cmd1`). So `setup.fields.json` and `objectives.json` carried tag 6 as `tag_100663296` and flag 0x00002000 as `stage_flag_0x00200000`. `port/src/scenario_source_runtime.c` swapped the `setup.fields.json` values back when it rebuilt the setup stream, which made the native path correct and hid the wrong numbers. The mission graph path did not: `objectiveCheck` takes its status from graph operands when a mission graph is active (`src/game/objectives.c`), and those came from `objectives.json` unswapped. Effect in the 14 missions that have a `.pdmission`: every flag criterion tested the wrong stage flag and every non-zero object tag named an object that does not exist, so `collect_object` criteria read as failed and `destroy_object` criteria as complete. Evidence on 2026-11-14: across all extracted scenarios 226 of 231 objective flag masks match a flag the stage's own AI lists use only after a byte swap (175 as written, by coincidence of twin flags); every non-zero `collect_object` tag in the corpus has the form 0xNN000000; in the campaign run Chicago logged `tag=100663296 present=0`, then `if_objective_failed objective=0 ... branch=1` and `phase=failed` in the first second of play, and Defense did the same. The campaign fixture never saw it because it force-completes objectives; the seven missions without a `.pdmission` were unaffected because they run the native path. Fixed on `week-pd/core` 2026-11-14: the extractor writes the real values, the setup rebuild writes them as they are, the scenario cache kind is bumped so every install re-extracts, and `objectiveCheckGraphSource` now refuses a criterion whose tag or flag differs from the live setup command (fatal with mission source debugging, a warning and the native path otherwise). | T-EXTRACTION-001 / V-010 | After re-extraction no `tag_` reference above 0xffff and no objective flag mask that the stage's AI lists never touch; the campaign run shows Chicago and Defense with `present=1` and no `phase=failed` before the forced end; no `criteria tag or stage flag differs` line in any mission. Then one objective per kind completed by real play (flag, collect, destroy, holograph). |
+| B-1113 | High | source_connected | Props on pads outside the collision-derived room boxes were never created in extracted stages, among them objective objects. The game puts a pad into a room by testing it against the room boxes (`bgFindRoomsByPos` in `setupPreparePads`), and `setupCreateObject` only creates a prop when its pad has a room. The background file carries one authored box per room (the start of section 3). The scenario-source path (`bgBuildScenarioSourceTables` in `src/game/bg.c`) did not have them and bounded each room by its collision triangles instead, which is never larger than the authored box and is empty for a room with no collision (11 of 140 rooms in the Carrington Institute, 18 of 167 at dataDyne). First seen as Defense's "retrieve the RC-P120" objective reading failed two seconds into play (`tag=5 present=0`): the RC-P120 sits on pad 282 at x 1630.0, exactly on the authored edge of room 8 and outside its collision box. Measured on the B-1111 build: 605 pads without a room across the 23 solo stage setups (265 with the authored boxes; those are outside every room in the original game too), and in one Agent campaign run 44 props not created, among them the RC-P120 and the sensitive-info prop in Defense, the 10 hover cars that circle the dataDyne tower in Defection, plants, a desk and chairs in Air Base, a glass in Deep Sea and a classic weapon in the training stage. The multiplayer arenas were not affected (no pad without a room under either rule). Fixed 2026-11-14: the extractor writes a per-room table to a new scenario member `rooms.json` (schema `pd2.scenario.rooms.v1`: authored box, origin and brightness range per room; required for a clean archive; scenario cache kind bumped), stage load applies the boxes before pads are placed, a base scenario without the member logs a warning, and the per-stage count of pads without a room and every prop that is not created are logged (`SETUP.PADS: ... without_room=`, `SETUP: object ... prop not created`). See B-1114 and B-1115 for the origin and the brightness range. | T-EXTRACTION-001 / V-010 | `tests/test_room_table_source_static.cpp`. Offline: all 132 extracted scenario archives carry the member and its 9,393 boxes equal the background files' for every stage compared. Agent campaign on the re-extracted base: pads without a room per stage equal the offline prediction at all 18 stage loads, props not created 44 to 21 (each on a pad outside every authored room), `tag=5 present=1` in Defense with no failed phase, and the Villa light-flood cap warning no longer fires. The campaign fixtures require the room-table line for every stage and the RC-P120's presence. Still to do by hand: pick up the RC-P120 in Defense and see objective 3 complete; look at the hover cars in Defection. |
+| B-1114 | High | source_connected | Room lights could not be shot out in extracted stages: no light had a usable position. Two causes on top of each other. (1) The extractor writes a light's quad as four nested `[x, y, z]` corners (`"bbox": [[..], [..], [..], [..]]`), and the loader added for B-943 read it with a flat-array reader that stops at the first inner `[` and reports failure, which the loader took as "field absent". So no quad was ever read and every light kept an all-zero quad. (2) The background file stores each quad relative to its room's origin: `lightsHandleHit` (`src/game/dlights.c`) subtracts the room origin from the shot before testing the quad, and `lightTickBroken` and the explosion code add it back. The scenario-source path keeps every room origin at zero because its geometry is in world coordinates, so even a correctly read quad would have sat away from its light by the room's origin (in 14 campaign stages 3 of 2,078 quads lie inside their room's authored box as written, all 2,078 once the origin is added). Effect: a shot at a light fixture never broke it, and explosions tested lights at the wrong place. B-943 was verified by source pins only, never by shooting a light. Found 2026-11-14 in the propagation check for B-1113: cause 2 from the data, cause 1 by the new stage-load check on its first run (`149 of 161 room lights ... lie outside their room's box` in every stage). Fixed the same day: the quad is read with a nested-array reader and a light without a readable quad is an error line, each `rooms.json` row carries its room's `origin`, the light loader adds it to all four corners so quads are world coordinates (every light of the 39 stages checked fits the 16-bit storage; one that did not would be dropped with an error), room origins stay zero on this path (documented in `bg.c`, pinned by the test), and stage load counts quads outside their room's box (`outside_room=`) and warns when there are any. Not covered: light glares and the sparks of a broken light are still absent in extracted stages, because that code needs the room graphics data this path does not load (`src/game/artifact.c` returns early without it). | T-EXTRACTION-001 / V-010 | `tests/test_room_table_source_static.cpp` (`[b-1114]`). Offline, over every extracted scenario: origins equal the background file's, no light outside its room's box after adding the origin, none beyond 16-bit range. Campaign run: `outside_room=0` and `without_quad=0` at every stage load; the campaign fixtures forbid the B-1114 warning, an unreadable quad and a dropped light. Still to do by hand: shoot out a light in Defection and see the room darken. |
+| B-1115 | Medium | source_connected | In extracted stages a room with its lights out was about twice as bright as authored. Each room of the background file has a brightness range (`br_light_min`, `br_light_max` in the room table; 128/255 for almost every room, 255/255 for the few sky rooms). `roomInitLights` (`src/game/dlights.c`) takes the level a room keeps without its lights from a quarter of the minimum. The scenario-source path had no such data and gave every room 255/255 (`bgBuildScenarioSourceTables`), so that level was 63 instead of 32 for a room with lights, and 216 instead of 210 for a room with none. It shows when lights are shot out (not possible before B-1114) or switched off by a mission script. Found 2026-11-14 in the same propagation check as B-1114. Fixed the same day: each `rooms.json` row carries `brightness: [minimum, maximum]` as authored, and stage load writes it into the room table before the light setup runs; a pair outside 0 to 255 or with the minimum above the maximum is ignored. A scenario made by hand without the member keeps 255/255. | T-EXTRACTION-001 / V-010 | `tests/test_room_table_source_static.cpp` (`[b-1115]`). Offline: every row's pair equals the background file's for the stages compared. Campaign run: the room-table line reports `brightness=` equal to the number of rooms at every stage load. Still to do by hand: compare a darkened room (lights shot out in Defection) with the original game. |
+| B-1116 | Medium | confirmed | The settings file the client writes contains input lines its own loader rejects. `s_ActionNames` in `port/src/actionmap.cpp` names fewer actions than the `InputAction` enum has (the table stops at `TestScenVisToggle`; `ACTION_COUNT` is 121 and the later entries, among them the vehicle look, handbrake and use actions, have no name), so the writer prints a bound action without a name as `(null)=E` in each of the four player sections of `pd.ini`, and `configLoad` logs `ERROR: configLoad: malformed keyvalue line: (null)=E` four times at the next start. Effect: those actions can never be rebound or keep a saved binding, and every start after the first logs four error lines that hide real ones. Seen 2026-11-14 in the restart process of the campaign fixture (both the B-1111 and the room-table runs); not caused by either. | T-INPUT-008 / V-010 | Give every action a config name (and fail the build when the table and the enum differ in length), then start the client twice on one save folder and see no `configLoad` error and the vehicle-use binding kept. |
+| B-1117 | Medium | source_connected | The PC solo mission menu offers all four special assignments to every agent on Agent difficulty, while the original game unlocks them. `missionIsAccessible` (`port/fast3d/pdgui_menu_solomission.cpp`) asks `isStageDifficultyUnlocked(stage, DIFF_A)`, which for a special assignment only decides the difficulty (its own comment: Agent is gifted "if the bonus mission is available at all") and always answers yes on Agent. Whether an assignment is available at all is decided by `getNumUnlockedSpecialStages` and `func0f104720` (`src/game/mainmenu.c`): one assignment per difficulty Skedar Ruins was completed on (Mr. Blonde's Revenge, then Maian SOS, then WAR!), and The Duel once all 32 firing range weapons have a medal. So a new agent can start WAR! and The Duel from the first menu. Found 2026-11-14 while extending the campaign runner to the special assignments; the runner uses the game's own rule and refuses an assignment that rule does not offer, so its fixture seeds an agent that qualifies. Decision 8, Mike 2026-11-15: "Unlock", as in the original. Fixed the same day: the rule is one function, `soloStageIsOffered` (`src/game/mainmenu.c`), built on the original's `getNumUnlockedSpecialStages` and `func0f104720`; the PC menu's `missionIsAccessible` and the runner's `specialAssignmentOffered` both call it. Players of this port lose the early access they had. | T-RELEASE-002 / decision 8 in the Finish Tracker | `tests/test_debug_campaign_complete_hotkey.cpp` (the one-rule pins). A fresh agent sees no special assignment until Skedar Ruins is done; the special assignments fixture (an agent that qualifies) still passes. |
+| B-1118 | Low | source_connected | Presence showed "in-match" to friends while the player was in the main menu. `mainChangeToStage` (`port/src/pdmain.c`) sets presence to in-match for a gameplay stage when the session looks like multiplayer or a mission is in progress, and tested the second with `g_MissionConfig.stageindex >= 0`. That field is an unsigned byte, so the test was always true, and the Carrington Institute stage, which is also the main menu backdrop, read as a match for any loaded agent: exactly what the 2026-05-17 fix in that block meant to stop. Seen in every campaign log (`PRESENCE: local state -> in-match` at the menu right after the agent loads). Fixed 2026-11-14: a mission is in progress when the stage being entered is one of the 21 solo stages (`soloStageGetIndex`). | T-RELEASE-002 | `tests/test_debug_campaign_complete_hotkey.cpp` (`[b-1118]`). A campaign run shows presence online at the menu and in-match from the first mission's load, and Credits online as before. |
+| B-1119 | High | source_connected | On the behavior-graph path a character told to walk, jog or run to its preset pad did not move. The AI command takes pad 9000 (`PAD_PRESET`) to mean the character's preset pad, which the native `chrGoToPad` resolves itself (`chrResolvePadId`). The graph helper `s_aiGraphExecuteGoToPad` (`port/src/scenario_source_runtime.c`) checked the raw 9000 against the pad table, refused it, and returned "handled", and a graph answer of "handled" skips the native handler (`aiJogToPad` in `src/game/chraicommands.c`), so nothing happened. Seen once in Defense in every campaign run of 2026-11-14, at all three difficulties: `SCENARIO.GRAPH: cannot jog_to_pad AI action for 'base:scenario_defense' (missing runtime pad id 9000)`. Earlier on 2026-11-14 CORE wrote in the week note that the native handler ran instead in this case; that was wrong and is corrected there. Fixed the same day for walk, jog and run to pad (one shared helper): the preset pad is resolved before the check, the native call is unchanged. Propagation check the same day: in base content pad 9000 appears with 7 command kinds (scan of every extracted `ai/ailists.json`): the chr and target distance-to-pad checks (the graph already resolves it there), walk and jog to pad (fixed here), `face_entity` (the graph passes it to the native function) and `chr_move_to_pad` (already resolved). So base play is covered. Eight graph sites were listed here as still refusing 9000; a later audit corrected the list: five do (fixed as B-1164), `if_object_distance_to_pad_less_than` already resolved it, and the room checks were a different defect (B-1163, with B-1162). Same family: `if_natural_anim` refused an animation with no public source and answered "not equal" without comparing (Infiltration, `base:animation_idle`); fixed 2026-11-14 as B-1161. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (the B-1119 pins in its pad action block). Next Agent campaign run: no `cannot jog_to_pad` warning in Defense and an `AI action jog_to_pad ... resolved_pad=N` line. Then the same resolution at the eight mod-only sites, and a public source (or a number-only comparison) for `if_natural_anim`. |
+| B-1160 | High | source_connected | The client wrote outside the folders it was told to use. (1) Thirteen menu saves (the end screen's exits, pause menu, solo mission menu, the agent-select default, options, updater, theme and theme loader) called `configSave("pd.ini")`. A bare name resolves like a read (`fsFullPath`: catalog, mods, then the base folder), so the file landed in `<base>/pd.ini`, while `configInit` reads `$S/pd.ini` (`CONFIG_PATH`): those saves were never read back (the save to `CONFIG_PATH` at a clean exit hid it), and on a read-only install they failed, which the agent-select default reports as an error. (2) `fsInit` then copied that stray `pd.ini` (or an `eeprom.bin`) from the working folder into a fresh explicit `--savedir`, so one run started with another run's settings (seen once: CORE's B-1119 Agent run of 2026-11-14 logged `migrated ./pd.ini`). (3) A `--moddir` folder that did not exist yet was dropped with a warning and modmgr fell back to discovery. From an executable in `D:\PD2-wt\shared-base-*` the first candidate `$E/../mods` is `D:\PD2-wt\mods`, the MODS session's git checkout: it was scanned as a mods folder (4 mods found, none enabled, so no test result changed) and the one-shot migration left its marker file there; a checkout folder with a root `mod.json` would have been packaged and renamed. modmgr also created `./mods` in the working folder on every start. (4) Fonts, themes and the migration bench kept their own copies of the discovery list and ignored `--moddir` entirely (the B-1031 class), and the bench probed each root by creating a file. Found 2026-11-14 by CORE from stray files in `shared-base-3` after its own campaign runs. Pattern: SP-78 (one copy of a path rule fixed, its siblings not). Fixed 2026-11-14: every save names `CONFIG_PATH` and `configSave` refuses a bare name (a `$` placeholder, an absolute path or `./` is required); an explicit `--moddir` is kept before it exists and modmgr creates it; one list of mod roots (`fsModRoots` in `port/src/fs.c`) serves modmgr, fonts, themes and the bench; no save migration into an explicit `--savedir`; the bench's migration creates no probe file and is refused under the native write policy. Seen, not changed (left to their owners): `net.c` and `netmsg.c` send `fsGetModDir()` to peers (with `--moddir` or an enabled mod that is a local path, and the receiver ignores it); `forgeSerializeBuildModDir` puts Forge maps under the first enabled mod's own folder; the client log goes to `./logs` of the working folder, so a direct run started in a shared base writes its log there, and two such runs share one log. | T-RELEASE-002 | `tests/test_save_paths_static.cpp` and `tests/test_config_save.cpp` (`[b1160]`); updated pins in `tests/test_native_reuse_boot_static.cpp` and `tests/test_smoke_input_events_static.cpp`. A campaign run whose `--moddir` does not exist creates it and scans only it, and after an end screen's Main Menu choice the run folder's `pd.ini` is updated and the base gets none. |
+| B-1161 | Low | source_connected | On the behavior-graph path `if_natural_anim` refused an animation slot the ROM leaves empty. The graph resolves both animations it compares to their public `.pdanim` source first (`s_aiGraphResolveAnimationCatalogId` in `port/src/scenario_source_runtime.c`) and refuses when there is none, answering "not equal" without comparing. 257 of the 1,207 character animation slots are empty in the ROM (no frames, no header), so the extractor writes nothing for them (`romextract pdanim_chr: written=950 skipped=257` on a fresh extraction), and ANIM_IDLE (0), where every chr's `naturalanim` starts, is one of them. Seen once in every Agent campaign run: `cannot if_natural_anim AI action for 'base:scenario_infiltration' (current_natural animation base:animation_idle has no public .pdanim source)`. In that case native also answers "not equal", so play did not change; a script testing for the idle animation itself would have. Fixed 2026-11-14: `if_natural_anim` resolves through `s_aiGraphResolveComparableAnimationCatalogId`, which takes an empty base slot as it is (source "(empty base slot)") and otherwise defers to the strict resolver; actions that play an animation keep the strict resolver. A slot a mod fills is not empty. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (B-1161 block next to the B-1119 pins). Next Agent campaign run: no `cannot if_natural_anim` warning in Infiltration, and the `AI condition if_natural_anim` note shows `current_anim_source=(empty base slot)` where the chr is idle. |
+| B-1162 | High | source_connected | On the behavior-graph path lights changed by background scripts never changed. Background AI lists (ids 0x1000 and up) run on a blank chr with no prop (`src/game/game_00b820.c`), and they make 569 of the 590 `set_lights_state` calls in base content (light timers, switches and blackouts). The graph twin `scenarioSourceAiGraphExecuteSetLights` (`port/src/scenario_source_runtime.c`) computed the room only when `chr && chr->prop`, so for those scripts the room was -1, nothing changed, and it still answered "handled", which skips the native `aiSetLights` (which needs no prop: `chrGetPadRoom` uses the chr only for the preset pad). Seen in every campaign run: the first `set_lights` of seven stages logs `chr_rows=0 source_chr=-1 room=-1`. Found 2026-11-14 by an audit of every graph pad check (CORE, read-only subagent), confirmed in code and in the Agent run log. Fixed 2026-11-14: the room is decoded for any chr (B-1163's helper); a missing chr is refused only when the value names the preset pad. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (set_lights block). Campaign fixtures forbid a `set_lights` line with `room=-1`; the next Agent run shows the first light change of each stage with its room. |
+| B-1163 | Medium | source_connected | Five graph room commands checked their room argument as a pad. `if_chr_in_room` (type 0), `if_target_in_room`, `if_room_is_on_screen`, `if_obj_in_room` and `set_lights` take `chrGetPadRoom`'s encoding: below 10000 a room number, from 10000 the room of pad (value - 10000), 19000 the room of the chr's preset pad. The graph passed the raw value to `s_aiGraphRequireRuntimePad`, so a room number passed only while it happened to be below the stage's pad count (always true in base content, which uses plain room numbers: 632 `if_chr_in_room`, 590 `set_lights_state`, 21 `if_object_in_room`, 1 `if_room_onscreen`), and every pad form was refused. A room number past the room table was not caught either, and native then reads or writes past it (`bgRoomIsOnscreen`, the light tables). Fixed 2026-11-14: one helper, `s_aiGraphResolveRoomOrPad`, decodes the value, checks the room (1 to roomcount - 1) or the pad behind it (resolving the preset), and returns the room exactly as `chrGetPadRoom` does. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (the five room blocks). |
+| B-1164 | Low | source_connected | Five graph sites refused pad 9000 (`PAD_PRESET`) where the native helper resolves it to the chr's preset pad: `try_start_alarm`, `set_pad_preset`, `chr_set_pad_preset` (the target's preset was never set), `set_chr_preset_to_chr_near_pad`, `spawn_chr_at_pad`, and `if_chr_in_room` type 2 (G5 Building eyespy check). Base content does not use 9000 there, so only mod content was affected; the B-1119 propagation note listed `if_object_distance_to_pad_less_than` among them by mistake (it has resolved first since 160c149a) and missed the room commands (B-1163). Fixed 2026-11-14: `s_aiGraphRequireResolvedRuntimePad` checks the pad the native call will use; a preset that resolves below zero is the native call's own case and needs only the pad table. The natives still get the raw pad. Seen, not changed: `s_aiGraphRuntimeFailure` returns 1, so several Require helpers that `return` it report success after a failure (the path pads non-loop branches, `s_aiGraphRequireRuntimePathPointer`, `s_aiGraphRequireRuntimeCharacterPointer`, `s_aiGraphRequireRuntimeSceneRooms`); and about a dozen refusals return 1 without advancing, relying on the B-949 guard for their false path. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (the B-1164 order pins). |
+| B-1165 | Low | source_connected | On the behavior-graph path a character made by `duplicate_chr` was not registered as source-spawned. `spawn_chr_at_pad` and `spawn_chr_at_chr` register what they spawn (`s_aiGraphRegisterSourceSpawnedChr`), the `duplicate_chr` twin did not, so every later AI command for the clone failed the "source-derived" character check. Seen in the 60 second soak of 2026-11-14 (receipt `campaign-soak-20261115`), Defense only, where the dataDyne shock troopers are clones: 8 warnings `cannot <action> ... (runtime character pointer is not source-derived)` for `if_alertness`, `if_can_see_target`, `if_check_fov_with_target`, `if_near_miss`, `if_num_arghs_greater_than`, `run_to_pad`, `set_return_list` and `set_target_to_eyespy_if_in_sight`. No play changed only because of SP-79 (the failed check still answers "holds"). Fixed 2026-11-14: the clone is registered the same way. Also seen in that run, expected and not changed: 2 `cannot chr_copy_properties ... missing runtime character id 11 / 15`, a command about a chr that is gone, which native skips too. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (duplicate_chr block). Next soak: no `not source-derived` warning in Defense. |
+| B-1166 | High | source_connected | On the behavior-graph path a character renumbered by `set_chr_num` lost its identity. In Pelagic II, background list 0x1012 gives one of three setup guards (0x3c, 0x3e, 0x3f) list 0x404, which renumbers him to chr 0x60 (96); list 0x401 then waits at label 8 until chr 96 is dead, dying or knocked out before its scripted sequence goes on (lines spoken, stage flags 0x00010000 or 0x00020000 set, a walk and an animation, and stage flag 0x00000002 at the end, which list 0x1012 reads). The graph accepts a chr only if its number is in the setup source or it was registered as spawned, so every reference to chr 96 was refused: alive it is "not source-derived", gone it is "missing runtime character id 96", and both answer the condition false, while native finds him by his new number, and treats a chr that is gone as dead. So on the graph path that wait never ends, in real play only (the forced-completion runner and the 60 second soak never reach it). Found 2026-11-15 by the SP-79 audit (read-only subagent), confirmed in `base_scenario_pelagic.pdscenario` (`ai/ailists.json`). Fixed the same day: when `set_chr_num` renumbers a chr the graph already trusts (a setup chr or a source-spawned one), the new number is recorded as source-assigned, and both character resolvers and the chrnum provenance check accept it. It blocks objective 6 (all difficulties), so Pelagic II could not be finished by real play on the graph path: list 0x401 is a technician whose first pass sets flag 0x00000200 and whose second pass sets 0x00000100, the objective needs both, and the second pass starts only once chr 96 is down. Propagation: five base stages renumber chrs with `set_chr_num` (Carrington training 15 numbers, Infiltration 4, Defense 3, Pelagic II 1, Rescue 1); the fix covers every one, and only the Pelagic II case was traced to an objective. | T-MODDING-011 / V-010 | `tests/test_asset_native_source_contract.cpp` (B-1166 block next to the B-1165 pins). Proof in real play: Pelagic II through the guard's death on the graph path (Mike's play-through, decision 3). |
+| B-1167 | Medium | source_connected | Three behavior-graph twins could crash where the native command does not, all in cases base levels never reach (found by the SP-79 audit). `if_hoverbot_next_step` read `hovercar->path->len` for a hoverbot with no path, which native never reads; `chr_begin_or_end_teleport` and `if_chr_teleport_full_white` asked for player slot -1 when the target chr was not a player and then wrote through a NULL player, where native acts on the current player; `set_chr_special_death_animation` wrote `chr->specialdie` with no chr, where native checks `if (chr)`. Fixed 2026-11-15: the hoverbot twin checks the path only when there is one and compares `nextstep` as native does; both teleport twins start from the current player; the death twin checks chr. Same change, SP-79: the 90 failure returns in 40 requirement helpers now log and return 0 (-1 for the three-way target-movement node), the ten callers of the three -1 node helpers read -1 as a refusal, and the two branches that keep going on purpose say why. | T-MODDING-011 / V-010 | `tests/test_graph_helper_failures_static.cpp` (`[sp79]`, `[b1167]`). Soak on the new client (17 missions x 60 s) to show no new refusals in base play. |
+| B-1168 | Critical | source_connected | `devtools/release.ps1` ships the main checkout's `Build/data` wholesale: the dist step leaves out only `*.z64`, `base/`, `mod source files/` and `README.txt`, and `Test-ReleaseTypedArchiveTree` checks archive format, not where the content came from. A local launch from `Build/` extracts the ROM into `Build/data/ntsc-final`, so a release cut from that folder carries ROM-derived content. Checked read-only 2026-11-15: `Build/data` holds 8,050 `base_*` archives whose `_meta/provenance.json` names a `romextract_*` tool, 4,022 raw extracted ROM files (`files/`) and 52 ROM segments (`segs/`). The public stable release v0.1.102 (2026-06-18) has a 233.6 MB zip against 31.98 MB for v0.1.16, with the two executables about 84.6 MB uncompressed, which fits an extracted tree inside it; the zip's contents are NOT yet confirmed (needs Mike's OK to download it). Breaks the BYOR hard constraint. | T-RELEASE-002 | Script fixed 2026-11-15 on `week-pd/core`: the dist step leaves out raw ROM files and segments (`files/`, `segs/`), extraction cache stamps, and every archive whose provenance tool is `romextract_*` (a `base_` archive with no provenance too), then `Assert-ReleaseHasNoRomDerivedContent` refuses the release if anything ROM-derived or a `.z64` reached the dist. Run over today's `Build/data` (read-only): 12,140 files left out, 22 would ship (15 generated `ui_*.pdui`, 7 built-in palette themes, tool `pdgui_theme_loader`). `devtools/test-release-byor.ps1`: 12 checks, PS 5.1 and 7. Published asset removed 2026-11-15 on Mike's instruction ("go ahead and just remove it", no download to confirm): `PerfectDark-v0.1.102-win64.zip` and its `.sha256` and `.sig` are deleted from the v0.1.102 release; its page, tag, `PerfectDark.exe` and `Updater.exe` remain. Every other release zip, v0.0.34 to v0.1.16, is 27 to 35 MB (client and updater), so only v0.1.102 shipped the extracted tree. |
+| B-1169 | High | source_connected | With no `--moddir`, a player's client takes the first existing folder of `$E/../mods`, `./mods`, `$E/mods` and the base `mods` (`fsModRoots`, `port/src/fs.c`) as its mods folder, runs the one-shot folder migration there (`modMigrateRun`, `port/src/modmigrate.c`: every subfolder with a root `mod.json` is packaged into a `.pdmod` and renamed, and a `.pdmod-migration-done` marker is written) and mounts what it finds. `$E/../mods` is a developer convenience (the executable in `Build/`, mods at the repository root) and is checked first, so a player who unzips the game into `C:\Games\PD2\` gets `C:\Games\mods`, which may belong to another game whose mods also use `mod.json`; those folders would be renamed. `./mods` follows the working folder, which a shortcut can set anywhere. The release text tells players that `mods/` lives next to the executable. Found 2026-11-15 by the decision 3 setup check (code read; no player run). B-1160 fixed only a missing explicit `--moddir`. | T-MODINFRASTRUCTURE-002 | Mike, 2026-11-15: option A, fitted alongside the LocalAppData user mods folder MODS shipped on `week-pd/mods` (91198952; there the migration already runs only in that user folder, but the old install candidates were still scanned and mounted). Fixed: one rule, `modsInstallRoots` (`port/src/mods_install_roots.c`, one-commit branch `week-pd/installmods`, 546263fe on a8ab67f3): the repository-root mods folder when the executable's parent holds `CMakeLists.txt` and `.git`, then `<base>/mods`; nothing beside the install, nothing under the working folder. On `week-pd/core` `fsModRoots` uses it, the mod manager creates the install's own folder instead of `./mods`, and install-from-file and map import fall back to it instead of `./mods`; `[b1169]` plus the B-1160 scan (no file may name `$E/../mods` or `./mods`). Left: MODS wires `modsInstallRoots` into its candidate list after the user folder. |
+| B-1170 | Medium | source_connected | The `menu_settings_keyboard` smoke (settings and keyboard bindings) could not run on any branch: since 6044d0fa it pages with `PageUp` and `PageDown`, which the smoke harness key table (`s_KeyTable`, `port/src/smoke_harness.c`) did not have, so the harness refused the whole fixture at parse time (`SMOKE: key event has unresolved key (key='PageDown', scancode=0)`, a 3.1 s run with no scripted exit). Found 2026-11-15 by the decision 3 setup pack; a scan of every fixture's key names found no other unresolved key. Fixed: both keys added; `[b1170]` in `tests/test_smoke_input_events_static.cpp` fails when any fixture names a key the table lacks. | T-TOOLING-006 | Rerun on the fixed client (4f6ffe57, 2026-11-15 06:00 UTC): the fixture now parses and boots to the agent screen, but the window never got focus (`focus_lost=1`, `menu_key_ready:0`, also with `-MaintainForeground`), most likely because the desktop was locked overnight. Rerun with `-MaintainForeground` on 2026-11-15 17:05 UTC with the desktop unlocked: the window has focus and the menu comes up, so the focus part is resolved; the run now stops at the Tab navigation (B-1174). |
+| B-1174 | Medium | open | `menu_settings_keyboard` cannot move main-menu focus with Tab. Rerun of B-1170 on 2026-11-15 17:05 UTC (base 4, desktop unlocked, `-MaintainForeground`): the window has focus, the agent screen and the main menu come up (`main_menu_play_ready` satisfied; Return works), but four Tab taps leave focus on Play (`play_focus=1 settings_focus=0`) and `main_menu_settings_focused` times out after 5 s; the fixture stops at 8 of 28 events (22/49 assertions). The menu's keyboard navigation is Dear ImGui's (`ImGuiConfigFlags_NavEnableKeyboard`, `pdgui_backend.cpp`), where Tab moves focus; Tab is also bound to `ACTION_SCORECARD` (`actionmap.cpp`). Either the harness's injected Tab does not reach ImGui's key input, or the menu no longer takes Tab, or the fixture (42243a22, T-MENUS-003) expects an order that changed. | T-MENUS-003 | Not fixed: menus are not CORE's this week and no session owns them; logs in `D:\PD2-wt\core\.claude\week-pd-receipts\base4-campaign-20261115\menu_settings_keyboard-*`. |
+| B-1175 | High | source_connected | On every stage built from scenario source the player started without the mission's intro weapons, ammo and outfit. The setup intro script also gives the starting loadout (`INTROCMD_WEAPON`, `INTROCMD_AMMO`), the outfit (`INTROCMD_OUTFIT`) and the watch time, but the extractor wrote only its spawn pads (`spawns.json`, `s_buildIntroSpawnsTable` in `port/src/romextract_pdarena.c`) and `s_setupBuildStageBlock` (`port/src/scenario_source_runtime.c`) rebuilt the intro from those alone, so `playerReset` never saw a weapon command: the Villa log of the base 4 run has `playerReset intro` with no `GAMELOOP.WEAPON ... INTRO gave` line. Read-only census of all 121 ROM setup files: the setups hold 59 weapon, 59 ammo and 79 outfit commands, nearly all in the solo setups (Crash Site in the snow outfit, Pelagic II in the wetsuit, Chicago in the trench coat, Air Force One as the stewardess, Maian SOS as Elvis), none of them reached the game. The campaign runs passed because they finish objectives through the debug path, not by play. Fixed on `week-pd/core`: a new scenario member `intro.json` (`pd2.scenario.intro.v1`, `port/include/scenario_intro.h`, strict reader `port/src/scenario_intro.cpp`) carries every intro command but the spawns, in order, with catalog weapon ids and outfit names; the runtime rebuilds the intro as spawns, then those rows, then the end. An unreadable `intro.json` stops the stage like an unreadable `spawns.json`; an absent one means no such commands (a custom level may have none). Credit offsets point into setup data the scenario does not carry, so the extractor refuses a setup with one (no base setup has one). Scenario cache kind gains `_intro_mpsetup`. | T-MODDING-011 | In game: the release campaign logs an `INTRO gave` line for each mission with an intro weapon, and a play screenshot of Crash Site shows the snow outfit. Propagation: every other `g_StageSetup.intro` reader (`player.c` inventory reset, `mplayer/scenarios.c`, `net/netmanifest.c`) reads the same rebuilt script. |
+| B-1176 | High | source_connected | Multiplayer arenas were extracted from the stage's solo setup file. Every scenario was built from `st->setupfileid`, but a match reads `mpsetupfileid` (`setupLoadFiles`, `src/game/setup.c`), and a multiplayer arena's solo setup is all but empty, so in public source 16 of 18 arenas had no setup objects (no weapons, ammo or shields; Ravine and Sewers had only a lift), and none had their spawn pads, briefcases, case respawns or hills. This is the root of MULTIPLAYER's 01:05 and 03:20 asks and of B-1125 (Hacker Central divided by zero with no crates) and B-1126 (cases off-world, a fixed hill); MULTIPLAYER worked around B-1126 with generated placements. The census: the multiplayer setups hold 241 spawns, 64 cases, 384 case respawns and 75 hills. Fixed on `week-pd/core`: a scenario of kind `mp` (the Dark, Classic and Bonus arenas) is built from the multiplayer setup, so its `objects.json`, `setup.fields.json`, `spawns.json`, AI lists, paths and the new `intro.json` (B-1175) come from the file a match reads; the manifest records `setup_source`. The Solo Missions arenas keep the solo setup, as today. | T-MODDING-011 | In game: an arena match logs its setup objects and intro rows (cases and hills), and MULTIPLAYER's generated placements add nothing on a base arena. Open question for MULTIPLAYER: in a match on a Solo Missions arena the original reads that stage's multiplayer setup (empty), while scenario source loads the solo setup with its guards. |
+| B-1177 | High | source_connected | Every multiplayer arena built from its multiplayer setup (B-1176) failed to load. **Seen in game 2026-11-15 22:25 UTC** (`mp_arena_setup_source` on the base 5 candidate, frozen CORE client 0056eae6): `SCENARIO.SOURCE: invalid public setup.fields.json for 'base:scenario_mp_complex': unsupported setup source field 'multi_ammo_crate.slots[0].model' on 'setup_0001'`, then the asset-chain FATAL, so Complex never started. Root cause: the slots of a multiplayer ammo crate are empty in the setup file (model 0, quantity 0; the match fills them when it starts), the extractor writes model 0 as an empty model catalog id, and the setup reader resolves every slot model through `s_setupResolveModelnum`, which refuses an empty id. All 9,956 crate slots in base 5 are empty (24 scenarios: every multiplayer arena and the extra scenarios). The offline checks missed it: the conformance checker does not compile setup fields against the catalog, and the in-game check was the first to load a multiplayer arena's setup. | T-MODDING-011 / scenario source | Fixed on `week-pd/core` (pd-tests 1,932 cases; in-game rerun queued): an empty crate slot model is model 0, as the setup file has it; a named model that does not resolve is still refused. Base 5's data stays valid, so no re-extraction is needed. Propagation: only this field carries an empty catalog id in base 5 (scan of every scenario's `setup.fields.json`). |
+| B-1178 | Low | fixed on `week-pd/core` | `entity.autogun`'s `beam_interval` counts shots (the deployed Laptop Gun makes a tracer beam when `firecount % beaminterval == 0`, `propobj.c`, the original's literal 4), but the graph compiler's unit rule (`keyNeedsUnit`: a key containing `interval`, `timer`, `duration`, `cooldown` or `_time` needs a unit suffix) refused that documented name, so the only spelling that compiled was `beam_interval_ticks60`, a name that says 60 Hz ticks, which the runtime read as a shot count: an author who wrote 60 for one second got a beam every 60 shots. No data used it. Found by CORE 2026-11-16 in the propagation check for MODS's B-1230 (the vehicle key `boost_time_ticks60` counts 240 Hz ticks); every other `_ticks60` weapon graph field reaches a 60 Hz field or `weaponGraphTicks60To240`. | T-MODDING-011 / weapon graph schema | Fixed on `week-pd/core`: `beam_interval` is exempt from the unit rule (as `timer_starts` is), the field is `autogun_beam_every_shots`, the parser reads only `beam_interval`, and the compiler and the IR validator refuse `beam_interval_ticks60` with a message naming the shot count (refused, not ignored). Every other parsed key the unit rule catches is a time or already exempt; `weapon-graph-module-parameters.md` states the unit. pd-tests case `[b1178]`. Pattern SP-88. |
+| B-1179 | Low | fixed on `week-pd/core` | A chr's surface-normal blend (surface locomotion, `src/game/surface_loco.c`) advanced once per player per frame. `chrTick` runs once per player each frame and only the first call is the frame's full tick, but the blend countdown and `chrSurfaceLocoTick` (the floor and wall raycasts) sat after the fulltick blocks, so with two players the 8-frame blend took 4 frames and the floor was sampled twice. Cosmetic; one player is unchanged. Reported by MULTIPLAYER 2026-11-16 05:25 UTC (the class of their B-1202, SP-87). | T-MODDING-011 / chr tick | Fixed on `week-pd/core`: both run inside `if (fulltick)`. Not changed: the blend counts rendered frames, not 240 Hz time, so it is shorter at higher frame rates. pd-tests case `[b1179]`. |
+| B-1250 | High | fixed on `week-pd/core` | Every launch of a `week-pd/core` client re-extracted all 87 scenarios and 47 arenas (about 3 minutes on D:, and every smoke install at boot). The pdscenario cache kind reached 525 chars with the object rules (3accc882), and the fast-cache stamp readers read at most 511 (`PDEXTRACT_CACHE_KIND_MAX` 512 in `romextract_pd_cache.c`, whose own comment warned of exactly this), so every kind compare failed and the in-place guard forced a rewrite on every run. Seen in CORE's turn q_20261116060755455_2b33c611 (a second extraction pass wrote 87 scenarios again). | T-MODDING-011 / extraction cache | Fixed on `week-pd/core`: the readers hold 2047 chars and the stamp writer refuses, loudly, a kind they could not read back (`EXTRACT.CACHE`). The stamp format is unchanged, so no existing stamp is invalidated. pd-tests case `[b1250]`; SP-86 instance. |
+| B-1251 | High | fixed on `week-pd/core` | Extraction could not load on a scenario-source stage: its `objects.json` was refused (`object rule engine_hum names no sound effect ('base:sfx_ship_hum')`) and the stage hit the legacy-setup FATAL, so the release campaign stopped at its third mission (25/54). The hum resolved in the catalog, but `s_setupResolveHumSound` bounded sound numbers at 0x7fff, and the game's configured sounds are packed 16-bit values with the top bit set (`SFX_SHIP_HUM` 0x810c). Introduced by 3accc882 the same day. | T-MODDING-011 / object rules | Fixed on `week-pd/core`: the bound is 0xffff and the value is kept as the packed s16 the sound code takes, as `effect_gameplay_runtime.c` does (a voice entry is accepted only when it carries a configuration). pd-tests case `[b1251]`. |
+| B-1252 | Low | fixed on `week-pd/core` | A client's `version:` log line, the title screen's version text and the About panel's commit name the commit its build directory was last configured at, not the commit built. `CMakeLists.txt` runs `git rev-parse --short HEAD` and `--abbrev-ref HEAD` with `execute_process` at configure time and writes them into `versioninfo.h`; an incremental build after a commit does not configure again, so the stamp lags behind. Seen 2026-11-16: CORE's frozen client built at 14f8d527 (it carries B-1250's message) logged `version: week-pd/core 576d86ec8`. A receipt that takes the commit from that line records the wrong one; the smoke runner's binary hashes are unaffected. | build / provenance | Fixed on `week-pd/core`: the `pd_versioninfo` target (`CMakeLists.txt`) runs `cmake/versioninfo.cmake` on every build, which reads the commit and branch from git and writes `versioninfo.h` through `configure_file`, leaving it untouched when nothing changed, so only the files that include it rebuild after a commit; every compiling target depends on it. pd-tests case `[b1252]`. |
+| B-1253 | Medium | fixed on `week-pd/core` | In an arena match on a campaign stage built from scenario source, the SP-in-MP transport overlay (`src/game/setup.c`, B-228 Option E) created the stage's lifts a second time. An arena on a campaign stage (the Solo Missions arenas) loads that stage's own scenario (`kind = solo`; no arena-only scenario exists for it), so the main pass already creates its lifts (their `flags2` carry no difficulty or player-count exclusion), and the overlay then loaded a second copy of the same setup and created every lift and escalator step in it again, wired to the second copy's door structs and registered in `g_Lifts` over the first. Affected: Infiltration (4 lifts became 8) and CI Training (2 became 4, where multiplayer runs on it); Chicago, Villa, G5 Building and Pelagic have no lifts. The overlay was written for ROM-era arena setups that had no lifts; scenario source changed what the main pass loads. Found by reading the code while converting B-228's list to an object rule (CORE, 2026-11-16). | T-MODDING-011 / B-228 | Fixed on `week-pd/core`: the overlay runs on a ROM stage only; on scenario source the main pass applies the row rule `"multiplayer": true` (object rules), and the new smoke `combat_sim_infiltration_lifts` requires the 4 lifts created once and no overlay line. SP-80 instance. MULTIPLAYER owns B-228. |
+| B-1254 | Low | fixed on `week-pd/core` | `if_bot_respawning` (0x0176, `aiIfBotRespawning`, `src/game/mplayer/mpaicommands.c`) read `chr->aibot` through a null pointer when the running chr had no aibot: its guard skipped the command but had no return (the original's missing return, noted in the decomp), so the next line read the null pointer. The base game runs the command only in the simulant dead list (global list 0x0028) on simulants, so only a mod or level that runs it on another chr (a guard, a background chr) would crash. Found while writing the command's graph twin (CORE, 2026-11-16). | T-MODDING-011 | Fixed on `week-pd/core`: the native guard returns; the graph twin treats no chr or a chr without an aibot as false (`tests/test_ai_simulant_twins_static.cpp`). |
+| B-1255 | Low | fixed on `week-pd/core` | `mp_init_simulants` (0x0185, `aiMpInitSimulants`, `src/game/mplayer/mpaicommands.c`) never retried an incomplete simulant wave from the AI list. B-174's spawn wave made the handler return false without moving ("leave the opcode in place": the retained wave cursor retries on the next AI pass), but the B-949 guard in `chraiExecute` force-advances any command that returns false without moving, so the command was skipped: the stage's background list 0x1000 ran `rebuild_teams` and `rebuild_squadrons` before every simulant had spawned, and only the host's botTick failsafe retried (it never runs on a non-authority client). Seen only when an initial spawn is refused. Found while writing the command's graph twin; `tests/test_combat_sim_defect_cohort.cpp` still pinned the intended shape (CORE, 2026-11-16). | T-MODDING-011 / B-174 / B-949 | Fixed on `week-pd/core`: the handler and the graph twin end the tick with the cursor on the command (`return true`) while the wave is incomplete; the shadow walk accepts that stop. Propagation: no other handler relies on returning false without moving to retry (the B-949 cases are refusals meant to be skipped). |
+| B-1256 | Low | fixed on `week-pd/core` | The AI edge parity probe of the campaign runner (`port/src/autocampaign.c`, AI lists as graphs slice 2) zeroed its counters only when a mission was queued through `menuhandlerAcceptMission`, which a campaign does for its first mission only; the later missions are queued from the end screen (`pdguiEndscreenNextMission`), so every later line carried the campaign's running totals (the 2026-11-16 soak: `compared` 1.13 million on Defection up to 19.7 million on Skedar Ruins). Detection was not lost (the counts only grow, so the first mission with a difference fails the run), but the per-mission numbers were wrong. Found reading the soak's lines (CORE, 2026-11-16). | T-MODDING-011 | Fixed on `week-pd/core`: the end screen's route resets the counters when it queues the next mission; `tests/test_ai_edge_shadow.cpp` pins both reset points. |
+| B-1257 | Medium | fixed on `week-pd/core` | Typed AI args (ai-typed-operands.md slice 3) wrote every asset argument the extraction-time catalog could not name as a number: animations and sounds (never named), 15 solo weapons (unarmed, the horizon scanner, the suitcase, devices), a spawn's "no head" (-1) and a cutscene's "no weapon" (255); and the dual-use `entity` fields carried an asset key's name. The archive scan refuses a number under an asset key, so conformance failed with 23,762 errors (CORE's turn q_20261116162649494_8c375cad, 2026-11-16), all in AI args; play was unaffected (release 61/61, specials 49/49). Found by that turn's conformance run (CORE). | T-MODDING-011 | Fixed on `week-pd/core` (slice 3b): every asset argument is a catalog id or null; animations and sounds are catalog kinds (a sound's MP3 priority and response are arguments of their own); weapons are named from the base weapon table; `entity` is `target` or `source`; the extractor, the compiler and conformance refuse an asset by number; one naming rule for extractor and compiler (`port/src/ai_catalog_refs.c`). |
+| B-1258 | Low | fixed on `week-pd/core` | The base catalog registered the 380 character animation slots whose symbols are placeholders (ANIM_001B, ...) as `base:animation_unlabeled_<ordinal>` (`assetcatalog_base_extended.c`), while the character animation extractor writes their archives as `base:animation_character_<ordinal>` (`romextract_pdanim_chr.c`), so each such slot had two catalog ids, one with no archive. Found by the slot-id check slice 3b added to conformance (CORE, 2026-11-16). | T-MODDING-011 | Fixed on `week-pd/core`: the base registration uses the extractor's rule ("character"); conformance checks the rule against every authored animation archive on each run (0 of 950 differ). |
+| B-1262 | High | fixed on `week-pd/core` | CORE's dev merge into `week-pd/core` (9f38d6dd) dropped the two lines that start `modmgrScanDirectory` (`port/src/modmgr.c`) from an empty mod registry and root list (`g_ModRegistryCount = 0; g_ModsRootCount = 0;`): both parents had them, and the conflict resolution kept the new fsModRoots body without them. Every rescan (the mod author's save, an Apply) then appended each mod again, so enabling one failed with `MODAUTHOR.ENABLE.FAIL ... Duplicate installed package identity` and the second root could be skipped as already known. Found by MODS's `mods_user_folder_smoke` (20/23) in CORE's merge proof turn q_20261117033645172_617e7a0e (2026-11-17); not on dev. | T-MODDING-011 / merge | Fixed on `week-pd/core`: the two resets are back at the top of the scan. Propagation: a scan of every file the merge changed for lines both parents had and the result lost found only these two and one comment that was reworded on purpose. |
+| B-1259 | Medium | fixed on `week-pd/core` | `setupGetCmdIndexByProp` (`src/game/setuputils.c`) compared each setup command's word `cmd[5]` with the prop pointer: the N64 layout of `struct defaultobj`, whose 32-bit `prop` field sits at byte 0x14. On the 64-bit port the field is an 8-byte pointer at 0x18 and `cmd[5]` is the padding before it, so the lookup never matched and always returned -1. Two callers: the object events' payload (slice 2; every `object=` was empty in CORE's turn q_20261117000144009_bab5471d, 2026-11-17), and `objTick`'s regeneration of an object inside another object (multiplayer only), which looked up its parent at index `pad - 1` instead of its own index plus `pad`: it reparented to the wrong object or, for a negative offset, found none and never came back. Found reading the turn's payloads (CORE). | T-MODDING-011 / SP-94 | Fixed on `week-pd/core`: the lookup reads the object's own `prop` field, on object commands only (`setupCmdObj`, shared with `setupGetObjByCmdIndex`); `tests/test_level_graph_program.cpp` pins it. Propagation: no other code reads a pointer through a fixed `u32` word of a setup command (SP-94's search). |
+| B-1260 | Low | fixed on `week-pd/core-s4` | The extractor wrote an objects.json weapon pickup's `weapon_catalog_id` and `secondary_weapon_catalog_id` from the extraction-time catalog only (`catalogWeaponIdByRuntimeWeaponNum`, `romextract_pdarena.c`), so the device and item weapons it does not know (tracer bugs, key cards, briefcase items, the disguise, flight plans, grenade rounds) came out empty, while `setup.fields.json` names the same weapons through the game's weapon table (`s_setupWeaponCatalogIdByRuntime`). Play was unaffected (the runtime builds pickups from `setup.fields.json`), but the public objects table did not say what 77 or more pickups in 26 archives of base 7 are. Found by the payload check of CORE's turn q_20261117010613172_f7fbd316 (2026-11-17): 6 of the 37 first object event payloads named a weapon their objects.json row did not (CORE). | T-MODDING-011 / B-1257 | Fixed on `week-pd/core-s4`: the row uses the same naming as `setup.fields.json`; conformance checks that every objects.json row names the weapons of its `setup.fields.json` record (`validate_object_weapon_refs`, `tests/test_ai_lists_source_conformance.py`). Takes effect with slice 4's re-extraction (`_ruleevents`). |
+| B-1173 | Medium | source_connected | CORE's C: location policy refused every test install, with a misleading message. Each new copy reserves the larger of its size and `peak_run_gib` (2 GiB in `storage-policy.json`), and CORE had set `max_full_install_gib` 1.5 for C: (Mike: "only one or two at a time"), so `make_room` (`tools/smoke-verify/storage.py`) could never fit one and raised "Full-install budget blocked by active/pinned evidence" in an empty storage. CORE's queued base 4 game run (2026-11-15 14:07 UTC) lost its turn to this: all five tests refused in 4 minutes, nothing ran. The same 1.5 GiB example was in the week note for the other sessions. The earlier C: attempt had been refused at the disk floor first, so the budget was never reached until now. Fixed on `week-pd/core`: outside retained housekeeping, a budget that cannot fit one copy is refused at once with "max_full_install_gib ... cannot fit one install", before anything is written (`test_byte_budget_below_the_run_reserve_says_so`); CORE's C: location uses 3 GiB (two installs of about 0.45 GiB plus one run's 2 GiB reserve; actual use stays one or two installs, each deleted after its run). | T-TOOLING-006 | Propagation: the reserve also applies to reuse profiles (`profile_bytes`), covered by the same check. Week note example corrected to 3 GiB. |
+| B-1171 | Medium | source_connected | A smoke storage location's own limits were undone on every harnessed run. The scripts send the whole checked-in `storage-policy.json` as the run's policy (`Invoke-SmokeStorage` in `tools/smoke-verify/lib/Storage-Harness.ps1`, `lib/Runner-Retention.ps1`; `run-asset-inspection.ps1` always names it with `-StoragePolicy`), and `Storage.__init__` (`tools/smoke-verify/storage.py`) let a sent policy win over the location file's `"policy"` (CORE's d28a28e7, decision 6B). CORE's first smoke with installs on C: (boot_smoke, 2026-11-15 08:12 UTC) was refused at the checked-in 300 GiB floor instead of the location's 200 GiB, and the C: limits Mike asked for ("only one or two at a time": two installs, 1.5 GiB) would have run as five installs and 8 GiB. The unit test built `Storage` directly with no sent policy, so it missed the harness path. Fixed (ec2ba001 on `week-pd/core`, 7a26faf4 on `week-pd/runner`): a location file's limits govern its root whatever policy is sent, the limits it leaves unset follow the sent policy, and the checkout's own drive (builds) keeps the sent policy. `test-storage.py` and a new harness check in `test-storage.ps1` fail on the old rule and pass on the new one; every storage suite passes. | T-TOOLING-006 | No other session had a C: location yet, so no one else's runs were affected. The C: run itself is still refused, now correctly under D-011: C: had 203.7 GiB free and a run needs the 200 GiB floor plus 4 GiB (question to Mike, 2026-11-15 08:30 UTC). |
+| B-1172 | High | fixed on `week-pd/core`, seen in game (base data) | Stages drawn by the scenario scene renderer have no sky, and by the code no starfield and no always-drawn sky rooms. **Seen in game 2026-11-15 16:59 UTC** (`stage_sky_visual_villa`, base 4): in Villa's intro the ground and rock are drawn and everything above them is black where the daytime sky should be (`D:\PD2-wt\core\.claude\week-pd-receipts\base4-campaign-20261115\screenshots\003-villa_play_b.png`); Defection's night frame is too dark to judge the moon and stars. The two fixtures took their first two screenshots during the 90 s boot, so their timings need to move later. Found by reading code during the stage-check survey. `lv.c` skips `skyRender` whenever `scenarioSceneRendererIsActive()` (08d32a45, B-936, written so the held CI menu keeps its room backdrop); `bgRenderScene` (`src/game/bg.c`) skips the pre-pass that draws the moon, the planet, the fake sky and the shaft first with fog off, and the starfield (`starsRender`), whenever `sourcebg` is set; and `port/fast3d/scenario_scene_renderer.cpp` has no sky, stars, fog or sky-room handling of its own. The scene renderer was active on all 18 stages of the 2026-11-15 release campaign ("SCENARIO.RENDER: activated source scene" for each), so an outdoor stage (Villa, Chicago, Crash Site, Air Base) would show the clear colour where its sky should be, and a sky room would sit at its world position instead of moving with the player. Widened 2026-11-15 13:55 UTC (also from code): the scene renderer reads no room state at all (no `g_Rooms` brightness or light state, no dyntex, no flash), so the stage is drawn as a static model: room lights that are shot out or switched by AI, explosion and spark flashes (`roomFlashLighting`) and animated water and power textures (`dyntex.c`) would not show either. That also means the room light rules (B-1114 shootable lights, the `rooms.json` light rules) and any animated-texture or spark rule have no visible effect on these stages until the renderer reads them. | T-MODDING-011 / rendering | Visual check queued with CORE's base 4 run: `stage_sky_visual_villa` and `stage_sky_visual_defection` (new definitions in `tools/smoke-verify/tests/`) take screenshots in the intro and in play. If confirmed, the fix belongs to the scene renderer (sky dome, stars, fog, and the `sky`/`render_always` rows of `rooms.json` for sky rooms), not to the light rules. Owner since 2026-11-15 (Mike): CORE. Root cause of the missing sky, from code: fast3d drew the scene before the frame's display list ran (`gfx_pc.cpp`), so every display-list draw lands on top of it; the sky fill was therefore turned off (B-936), and the frame's own depth clear (`viPrepareZbuf`) then wiped the scene's depth, so props and characters are never depth-tested against stage geometry on these stages (also from code: the scene's depth comes from its own projection, which the game's draws cannot test against, B-936 note in `scenario_scene_renderer.cpp`). Step 1 (built on `week-pd/core`, in-game check queued): a port command `G_SCENE_RENDER_EXT` draws the scene in display-list order after the sky, the stars and the sun, before the props, into the current view with the camera of the player that queued it, and clears depth after it as the frame used to; the sky renders again and the stars draw on these stages. Step 2 (built 2026-11-15 on `week-pd/core`, pd-tests 1,931 cases; in-game check queued with CORE's base 5 turn, `stage_sky_depth_villa` and `stage_sky_depth_defection`): **the B-936 depth mismatch was the stage's BG scale.** The game's matrices work in world units times `bgGetScaleBg2Gfx` (0.5 on Villa, 1 on Defection) relative to the camera room's position (`playerAllocateMatrices`, and `mtxF2L` scales every model matrix's x, y and z columns), and the perspective's near and far planes are in those units, while the scene camera was built in world units with the same planes, so its depth values differed wherever the scale is not 1 (unit-tested in `tests/test_scenario_scene_camera.cpp` against the game's lookat and perspective). Now a world draw uses the game's own BG matrix, the draw space `(p - draw_offset) * world_scale` (`port/src/scenario_scene_camera.c`) times the BG projection loaded just before the command, and keeps its depth, so props and characters are hidden behind the scene's walls; the scene's translucent materials draw after the props' opaque pass, where the BG's translucent room parts drew (`SCENARIO_SCENE_PASS_*` in the command's w0); the held menu and the lock screen draw it as a backdrop and clear depth after it; sky rooms (`rooms.json` `sky`) move with the camera's room as `roomPopulateMtx` places them (the scene's `_PD_ROOM` vertex attribute); and the shader applies `roomHighlight`'s lighting (settled regional brightness, flash, the scenario's room highlight for King of the Hill and Capture the Case, the night-vision greyscale), captured per player view like the camera. `--debug-scene-matrix-probe` logs how far on-screen scene vertices land apart through the game's matrix and the scene camera. Also built (pd-tests 1,932 cases, in the same queued depth smokes): the stage fog (a56adf2a: bgRenderScene starts the fog around each scene pass, fast3d hands its fog state to the renderer, and the scene shader applies gfx_sp_vertex's formula; sky and render-always rooms stay unfogged), and the starfield as a `stage.json` `stars` rule (50db8302). **Animated textures built 2026-11-16 (23a55418):** the `dyntex.c` presets (river, monitor, ocean, arrows, teleportal, powerring, powerjuice) are scene data now, written by the extractor with the stage rules applied and moved each frame by the scene renderer (`context/designs/modding/animated-surfaces.md`); unit-tested against `dyntex.c`, in-game check queued on a private copy of base 6. Still missing on these stages: the per-colour light flag `roomHighlight` reads (a colour whose same-index vertex has `flags & 1` keeps its rgb and only scales its alpha by the room brightness; `dlights.c` marks the index lookup @bug?), which the scene's room lighting does not model yet; the extractor now logs a "B-1172 light-flag census" per scenario (rooms and colours that carry the flag, read as roomHighlight reads it). **Census 2026-11-16 02:45 UTC (CORE client 29238890 on a re-extracted copy of base 6): 0 flagged colours in all 87 scenes**, so for base data the scene lighting already matches roomHighlight; a custom level that sets the flag would still need it modelled (not built). **Animated textures seen in game 2026-11-16 02:46-02:58 UTC** (CORE client 29238890, private re-extracted copy of base 6; release 54/54, Complex 12/12, Villa 16/16): every visited stage logged its animated vertices with no unusable primitive (Attack Ship arrows 894 in 17 groups, Deep Sea river 246 and teleport 336, Villa ocean 219, Chicago river 120, Complex ocean 12, the monitor on Air Force One, Defection, Extraction and Investigation) and the first frame that moved them; Deep Sea's teleport held while its teleports were off. Census of that copy: 16 scenes with animated materials, none mismatched. **Seen in game 2026-11-15 22:26-22:33 UTC** (base 5, step 2 client with fog and stars): Villa's sky is blue with clouds where the base 5 client showed black, and the scene sits exactly where it did (it draws with the game's own matrix); Defection shows its stars and its moon room (6 sky vertices); no shader or upload failure. A few sky pixels now show through hairline cracks between scene polygons that black used to hide. The matrix probe compared nothing: its six frames fell in the intro cutscene (`compared=0`); it now counts only frames with scene vertices on screen (f3dea116), rerun queued on base 6. |
+| B-1112 | Medium | source_connected | The in-game archive validator skips reference checks on text members larger than 4 MiB (`ASSET_ARCHIVE_TEXT_SCAN_LIMIT`, `port/src/asset_archive_policy.c`: `if (!text && size > LIMIT) return 0`). Found through MODS's B-1145: all 45 base arenas with a nested scenario carried the same dangling `mtllib scenario.mtl` line in `collision.obj`, but the four with a collision source over 4 MiB (infiltration, extra17, attackship, deepsea) passed release validation and the other 41 failed. A large member is exactly where a missing reference is most likely to go unseen. The limit protected no memory: the member was already extracted whole before its size was checked. | T-ASSETS-001 / V-006 | Fixed 2026-11-15 on `week-pd/core` (CORE): text members (.ini, .obj, .mtl, .json, the manifest) are checked whole up to 128 MiB, and above that the archive is refused ("too large to check for references") instead of passing; the in-memory manifest check no longer lets a second spelling's read hide an oversized first one. Measured on base 3 first: 83,268 scanned text members in 9,025 archives (819 nested), 19 over 4 MiB (17 `collision.obj`, 2 JSON), largest 5.03 MiB, none over 16 MiB. `[b1112]` (`tests/test_asset_archive_large_text.cpp`): a dangling `mtllib` in a member over 4 MiB is refused through the opened, memory and nested paths, and the same member with its `.mtl` passes. The opt-in sweep `[b1112-sweep]` (set `PD2_VALIDATE_ARCHIVE_ROOT`) ran the validator in the boot catalog's RELEASE mode over all 9,025 typed archives of base 3: 0 refused (13 s). |
 | B-1105 | High | regression_gate | The shared ordered-material planner, request-owned failed-load latch, and SP-74 typed source binder now serve top-level and nested `.pdmesh` ingress with one canonical alias order. Exact client `395D48A6...` passes final focused 132/14, full 67,152/1,223, native-source guard, two-archive verification, fixture validation, 23/23 unchanged source hashes, and strict fresh-cache ordinary receipt `results-20260826T152922Z.json` at 54/54 in 33.8 seconds. The embedded Mauler source owns exactly one 13-material compiler/activation/Bond-gun/render chain, gameplay fires 11 shots, no runtime native/ROM boundary or endscreen occurs, and all four reviewed gameplay captures retain correct silver/green placement and the V-009 no-obstruction gate. | V-010 | Retain the final automation, exact binary hashes, strict receipt, and four reviewed captures. Revalidate this generic source/material contract through representative public mesh families and the V-010/V-013 release matrix; never credit the superseded `D1788982...` client or earlier rejected receipts as final closure. |
 | B-249 | High | repro_required | A prior playtest reported bot-versus-bot deaths credited to player 0. Static tracing found no hardcoded player-0 write and the existing diagnostic must identify the upstream attacker attribution first. | V-010 | Run a controlled bot-only Combat Simulator match with no player damage, capture attribution diagnostics, fix the authoritative damage/death source, and prove player 0 remains at zero kills. |
 | B-242 | Medium | repro_required | Players have previously spawned intersecting walls. Existing pad and ray validation does not prove a complete capsule fits at the committed spawn. | V-010 | Add one shared bounded capsule-placement validator for players and bots, search safe radial candidates or the next pad without infinite retry, then prove representative campaign and Combat Simulator maps. |

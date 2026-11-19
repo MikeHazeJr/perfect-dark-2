@@ -1,0 +1,113 @@
+{
+  "scenario_name": "mods_user_folder_smoke",
+  "description": "Two mods folders (Mike, 2026-11-15): the user mods folder, where the game writes mods and whose copy wins on a clash of mod ids, and the install's own mods folder, which is still read. Normally the user folder is %LOCALAPPDATA%\\perfectdark\\mods; --savedir moves it with the saves, which is how this run isolates it inside the install (user-home/mods). The install's mods folder holds mod.clash_test ('Install Copy') and mod.install_only; the user folder holds mod.clash_test ('User Copy'). One launch must use the user copy of mod.clash_test, still find mod.install_only, and save a new weapon mod made by the mod author into the user folder, then load it through the typed catalog loader.",
+  "tags": [
+    "modding",
+    "mods-folder",
+    "mod-author",
+    "smoke",
+    "pillar:modding",
+    "boot"
+  ],
+  "paths_of_interest": [
+    "port/src/mods_roots.c",
+    "port/src/modmgr.c",
+    "port/src/main.c",
+    "port/src/mod_author_runtime.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "remove_paths": [
+    "user-home",
+    "mods/Test"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/mods_user_folder/install_clash/mod.json",
+      "dst": "mods/Test/clash_test/mod.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mods_user_folder/install_only/mod.json",
+      "dst": "mods/Test/install_only/mod.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mods_user_folder/user_clash/mod.json",
+      "dst": "user-home/mods/Test/clash_test/mod.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "user-home/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/weapon_from_base/recipe.json",
+      "dst": "mod-recipes/weapon_from_base/recipe.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./user-home",
+    "--skip-intro",
+    "--mod-author",
+    "mod-recipes/weapon_from_base/recipe.json",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "weapon=mod:weapon_smoke_falcon"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "The mods scan runs during start-up; the recipe and the catalog probe run as CLI fast paths once the catalog is ready."
+    },
+    {
+      "at_ms": 170000,
+      "type": "exit",
+      "comment": "Fallback only. The launch normally ends itself through --debug-exit-after-catalog-probes."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mods_user_folder_smoke",
+      "modmgr: user mods folder '.*user-home[/\\\\]mods'",
+      "modmgr: scanning '.*user-home[/\\\\]mods' for mods",
+      "modmgr: also scanning '.*mods'",
+      "modmgr: parsed mod\\.json for 'mod\\.clash_test' \\(User Copy v1\\.0\\.0",
+      "modmgr: 'mod\\.clash_test' at '.*mods[/\\\\]Test[/\\\\]clash_test' is already installed from an earlier mods folder; this copy is not used",
+      "modmgr: parsed mod\\.json for 'mod\\.install_only' \\(Install Only v1\\.0\\.0",
+      "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_smoke_falcon mod_id=mod\\.weapon_smoke_falcon updated=0 archives=[1-9]\\d* ids=[1-9]\\d* archive='.*user-home[/\\\\]mods[/\\\\]Weapons[/\\\\]weapon_smoke_falcon[/\\\\]weapon_smoke_falcon\\.pdweapon'",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.weapon_smoke_falcon restart_count=0",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod:weapon_smoke_falcon' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "modmgr: no user mods folder could be named",
+      "modmgr: could not create the user mods folder",
+      "modmgr: could not open mods directory",
+      "modmgr: 'mod\\.clash_test' at '.*user-home.*' is already installed",
+      "modmgr: 'mod\\.install_only' at .* is already installed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "modmgr: parsed mod\\.json for 'mod\\.install_only'",
+        "min": 1,
+        "max": 4
+      },
+      {
+        "pattern": "modmgr: user mods folder ",
+        "min": 1,
+        "max": 4
+      }
+    ]
+  }
+}

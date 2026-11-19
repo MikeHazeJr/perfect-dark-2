@@ -164,6 +164,33 @@ static s32 s_exactWeaponSlot(const char *id, s32 slot)
     return strcmp(s_CustomWeaponCatalogIds[local], id) == 0 ? local : -1;
 }
 
+s32 assetCatalogFindWeaponPrivateSlot(const char *id)
+{
+    if (!id || !id[0]) return -1;
+    for (s32 i = 0; i < MPWEAPON_CUSTOM_COUNT; i++) {
+        if (strcmp(s_CustomWeaponCatalogIds[i], id) == 0) return WEAPON_CUSTOM_START + i;
+    }
+    return -1;
+}
+
+s32 assetCatalogCanRetireWeaponReservation(const char *id, s32 slot)
+{
+    const s32 local = s_exactWeaponSlot(id, slot);
+    return local >= 0 && s_CustomWeaponReserved[local] && !s_CustomWeaponPins[local];
+}
+
+s32 assetCatalogRetireWeaponReservation(const char *id, s32 slot)
+{
+    if (!assetCatalogCanRetireWeaponReservation(id, slot)) return 0;
+    const s32 local = slot - WEAPON_CUSTOM_START;
+    s_CustomWeaponReserved[local] = 0;
+    s_CustomWeaponCatalogIds[local][0] = '\0';
+    struct mpweapon *row = &g_MpWeapons[MPWEAPON_CUSTOM_START + local];
+    memset(row, 0, sizeof(*row));
+    row->weaponnum = WEAPON_DISABLED;
+    return 1;
+}
+
 s32 assetCatalogPinWeaponPrivateSlot(const char *id, s32 slot)
 {
     s32 local = s_exactWeaponSlot(id, slot);

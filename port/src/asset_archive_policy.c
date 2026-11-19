@@ -81,6 +81,7 @@ static const asset_archive_family_rule_t s_FamilyRules[] = {
 	{ ".pdbotprofile", "botprofile.ini", NULL,        ASSET_BOT_PROFILE },
 	{ ".pdhud",        "hud.ini",        NULL,        ASSET_HUD },
 	{ ".pdtheme",      "theme.ini",      NULL,        ASSET_THEME },
+	{ ".pdai",         "ai.ini",         NULL,        ASSET_AI_LISTS },
 };
 
 static void setErr(char *err, size_t err_cap, const char *fmt, ...)

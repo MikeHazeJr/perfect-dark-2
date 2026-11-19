@@ -30,6 +30,8 @@
 #include "asset_archive_policy.h"
 #include "assetcatalog_scanner.h"
 #include "modarchive.h"
+#include "mod_asset_validate.h"
+#include "mod_manifest_validate.h"
 #include "modpack_pdmod.h"
 
 static char s_pdmodLastError[512];
@@ -553,12 +555,34 @@ static const char *packerSidecarTemplate(const char *leaf)
 			"supports_ceiling = true\n";
 	}
 	if (strcmp(leaf, "level.graph.json") == 0) {
+		/* object-events.md slice 4: a level graph wires the level's pickup
+		 * and door rules, or its stage is refused. */
 		return
 			"{\n"
 			"  \"schema\": \"pd2.level.graph.v1\",\n"
 			"  \"source\": \"scene.glb\",\n"
-			"  \"nodes\": [],\n"
-			"  \"links\": []\n"
+			"  \"nodes\": [\n"
+			"    { \"id\": \"object.rules.pickup.touched\", \"kind\": \"event.pickup.touched\" },\n"
+			"    { \"id\": \"object.rules.pickup.native_rules\", \"kind\": \"gate.pickup.native_rules\" },\n"
+			"    { \"id\": \"object.rules.pickup.collect\", \"kind\": \"og.pickup.collect\" },\n"
+			"    { \"id\": \"object.rules.door.use\", \"kind\": \"event.door.use\" },\n"
+			"    { \"id\": \"object.rules.door.use_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate\", \"kind\": \"og.door.activate\" },\n"
+			"    { \"id\": \"object.rules.door.locked_message\", \"kind\": \"og.door.locked_message\" },\n"
+			"    { \"id\": \"object.rules.door.approach\", \"kind\": \"event.door.approach\" },\n"
+			"    { \"id\": \"object.rules.door.approach_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+			"    { \"id\": \"object.rules.door.activate_automatic\", \"kind\": \"og.door.activate_automatic\" }\n"
+			"  ],\n"
+			"  \"links\": [],\n"
+			"  \"edges\": [\n"
+			"    { \"from\": \"object.rules.pickup.touched\", \"to\": \"object.rules.pickup.native_rules\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.pickup.native_rules\", \"to\": \"object.rules.pickup.collect\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use\", \"to\": \"object.rules.door.use_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.activate\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.locked_message\", \"input\": \"exec\", \"output\": \"fail\" },\n"
+			"    { \"from\": \"object.rules.door.approach\", \"to\": \"object.rules.door.approach_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" }\n"
+			"  ]\n"
 			"}\n";
 	}
 	return NULL;
@@ -910,6 +934,10 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	static const char *langKeys[] = {
 		"strings_file", "strings", "file_path"
 	};
+	/* global-ai-lists.md: a .pdai names its rows member in ai.ini. */
+	static const char *aiListsKeys[] = {
+		"ai_lists_file", "file_path"
+	};
 	static const char *materialOptionalKeys[] = {
 		"material_file", "texture_archive", "texture_file", "effect_archive",
 		"file_path"
@@ -951,6 +979,14 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 	if (assetArchiveValidateFile(descriptorAbs, ASSET_ARCHIVE_VALIDATE_RELEASE,
 			policyErr, sizeof(policyErr)) != 0) {
 		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
+	/* Release validation does not read member content; a pack must not carry
+	 * an archive its loader would refuse. This also runs before the
+	 * descriptor is handed to the shared INI parser below. */
+	if (modAssetValidateArchiveFile(descriptorAbs, policyErr, sizeof(policyErr))
+			!= MOD_ASSET_VALIDATE_OK) {
+		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
 		return MODPACK_PDMOD_ERR_LAYOUT;
 	}
 	mod_archive_t *typedArchive = modArchiveOpen(descriptorAbs);
@@ -1152,6 +1188,18 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		}
 		return validateDescriptorSources(srcFolder, descriptorRel,
 			langKeys, (s32)(sizeof(langKeys) / sizeof(langKeys[0])),
+			NULL, 0);
+	case ASSET_AI_LISTS:
+		if (typedArchive) {
+			s32 r = validateArchiveDescriptorSources(typedArchive,
+				archiveIniPtr, descriptorRel, aiListsKeys,
+				(s32)(sizeof(aiListsKeys) / sizeof(aiListsKeys[0])),
+				NULL, 0);
+			modArchiveClose(typedArchive);
+			return r;
+		}
+		return validateDescriptorSources(srcFolder, descriptorRel,
+			aiListsKeys, (s32)(sizeof(aiListsKeys) / sizeof(aiListsKeys[0])),
 			NULL, 0);
 	case ASSET_GAMEMODE:
 	case ASSET_BOT_PROFILE:
@@ -1492,6 +1540,16 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 		return MODPACK_PDMOD_ERR_OPEN;
 	}
 
+	/* T-MODDING-012 in game: no archive is opened for an invalid manifest. */
+	{
+		char manifestErr[192];
+		if (modManifestValidateBytes(manifest_json, manifest_len,
+				manifestErr, sizeof(manifestErr)) != MOD_MANIFEST_OK) {
+			pdmodSetLastError("mod.json: %s", manifestErr);
+			return MODPACK_PDMOD_ERR_BAD_MFST;
+		}
+	}
+
 	for (s32 i = 0; i < entry_count; i++) {
 		const modpack_entry_t *e = &entries[i];
 		if (!e->entry_name || !e->entry_name[0]) continue;
@@ -1516,6 +1574,11 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 					ASSET_ARCHIVE_VALIDATE_RELEASE,
 					policyErr, sizeof(policyErr)) != 0) {
 				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			if (modAssetValidateArchiveBytes(e->data, e->len, e->entry_name,
+					policyErr, sizeof(policyErr)) != MOD_ASSET_VALIDATE_OK) {
+				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
 				return MODPACK_PDMOD_ERR_LAYOUT;
 			}
 			char badNested[FS_MAXPATH + 1];
@@ -1662,7 +1725,7 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 	}
 	fseek(mf, 0, SEEK_END);
 	long mfsize = ftell(mf);
-	if (mfsize <= 0 || mfsize > (long)(8 * 1024 * 1024)) {
+	if (mfsize <= 0 || mfsize > (long)MOD_MANIFEST_MAX_BYTES) {
 		fclose(mf);
 		pdmodSetLastError("mod.json is empty or too large: %s", mfstPath);
 		return MODPACK_PDMOD_ERR_BAD_MFST;
@@ -1682,6 +1745,19 @@ s32 modpackPdmodFromFolder(const char *src_folder, const char *out_path)
 	}
 	fclose(mf);
 	mfBuf[mfsize] = '\0';
+
+	/* T-MODDING-012 in game: refuse an invalid manifest before the layout
+	 * pass, which may write INI templates into the source folder, and
+	 * before any archive is opened. */
+	{
+		char manifestErr[192];
+		if (modManifestValidateBytes(mfBuf, (size_t)mfsize,
+				manifestErr, sizeof(manifestErr)) != MOD_MANIFEST_OK) {
+			free(mfBuf);
+			pdmodSetLastError("%s: %s", mfstPath, manifestErr);
+			return MODPACK_PDMOD_ERR_BAD_MFST;
+		}
+	}
 
 	s32 r = validateExternalFolderLayout(src_folder, out_path);
 	if (r != MODPACK_PDMOD_OK) {

@@ -49,6 +49,13 @@ struct animtableentry;
  */
 void catalogLoadInit(void);
 
+/* Refresh only native sound-number routing after committed temporary catalog
+ * rows are added or retired. Call on the same thread as catalogLoadInit. */
+void catalogRefreshSoundOverrides(void);
+
+/* Refresh only the texture-number index. Callers handle slot cache lifetime. */
+void catalogRefreshTextureOverrides(void);
+
 /* Active typed roots are tracked independently from aggregate child refs.
  * These hooks make child disable/replacement invalidate exact overlapping
  * owners, then reload them only after the complete new closure is valid. */

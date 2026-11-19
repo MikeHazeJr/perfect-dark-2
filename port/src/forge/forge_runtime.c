@@ -41,6 +41,7 @@
 #include "game/bot.h"
 #include "game/chr.h"
 #include "game/mplayer/mplayer.h"
+#include "game/mplayer/participant.h"
 #include "game/prop.h"
 #include "game/propobj.h"
 #include "game/modeldef.h"
@@ -75,6 +76,7 @@ static s32                 s_active;
 static s32                 s_spawn_injected; /* number of points added to pool */
 static s32                 s_bots_spawned;   /* running forge-bot count */
 static u8                  s_forge_bot_slots[MAX_BOTS];
+static struct mpbotconfig  s_previous_bot_configs[MAX_BOTS];
 
 /* Prop pool: defaultobj instances for forge-placed props/geometry.
  * Allocated once from MEMPOOL_STAGE (survives FREEFLY<->NORMAL toggles,
@@ -185,18 +187,21 @@ static forge_prop_handle_t *s_alloc(u32 forge_uid)
  * ================================================================ */
 
 /*
- * Find an unused g_BotConfigsArray slot.  A slot is "free" when
- * body_id is empty -- the match-setup path fills it before use and
- * leaves it non-empty until the next full stage reset.
- * Walks from high indices so we don't stomp on match-setup-reserved
- * low slots.
+ * Bot configs can contain defaults even when no actor uses them. Check
+ * setup's participant roster and the live simulation before borrowing one.
  */
 static s32 s_findFreeBotSlot(void)
 {
     for (s32 i = MAX_BOTS - 1; i >= 0; --i) {
-        if (g_BotConfigsArray[i].base.body_id[0] == '\0') {
-            return i;
+        if (s_forge_bot_slots[i] || mpIsParticipantActive(MAX_PLAYERS + i)) continue;
+        s32 in_use = 0;
+        for (s32 chr = 0; chr < g_MpNumChrs; chr++) {
+            if (g_MpAllChrConfigPtrs[chr] == &g_BotConfigsArray[i].base) {
+                in_use = 1;
+                break;
+            }
         }
+        if (!in_use) return i;
     }
     return -1;
 }
@@ -220,8 +225,7 @@ static void s_releaseForgeBotSlots(void)
 {
     for (s32 i = 0; i < MAX_BOTS; ++i) {
         if (!s_forge_bot_slots[i]) continue;
-        g_BotConfigsArray[i].base.body_id[0] = '\0';
-        g_BotConfigsArray[i].base.head_id[0] = '\0';
+        g_BotConfigsArray[i] = s_previous_bot_configs[i];
         botSetSlotFrozen(i, 0);
         s_forge_bot_slots[i] = 0;
     }
@@ -371,6 +375,7 @@ static s32 s_spawnBot(const forge_object_t *o, s32 difficulty_override, s32 froz
         return -1;
     }
 
+    s_previous_bot_configs[slot] = g_BotConfigsArray[slot];
     s_fillBotSlot(slot, o, difficulty_override);
 
     /* chrnum: use the current bot count as the sequential ID, matching how
@@ -394,8 +399,7 @@ static s32 s_spawnBot(const forge_object_t *o, s32 difficulty_override, s32 froz
         u8 attempted[MAX_BOTS] = {0};
         attempted[slot] = 1;
         s_retireBotSlots(attempted);
-        g_BotConfigsArray[slot].base.body_id[0] = '\0';
-        g_BotConfigsArray[slot].base.head_id[0] = '\0';
+        g_BotConfigsArray[slot] = s_previous_bot_configs[slot];
         sysLogPrintf(LOG_WARNING, "GRID.RUNTIME: bot allocation failed for slot=%d", slot);
         return -1;
     }
@@ -406,6 +410,7 @@ static s32 s_spawnBot(const forge_object_t *o, s32 difficulty_override, s32 froz
     if (h) h->is_bot = 1;
 
     ++s_bots_spawned;
+    sysLogPrintf(LOG_NOTE, "GRID.RUNTIME: bot active uid=%u slot=%d", o->uid, slot);
     return old_bot_count;
 }
 
@@ -940,7 +945,7 @@ static void s_register_zone(const forge_object_t *o)
  * Public API
  * ================================================================ */
 
-void forgeRuntimeEnterPlay(void)
+void forgeRuntimeEnterPlay(s32 include_legacy_map)
 {
     if (s_active) forgeRuntimeExitPlay();
 
@@ -951,6 +956,8 @@ void forgeRuntimeEnterPlay(void)
     s_door_count     = 0;
     s_zone_count     = 0;
     s_active         = 1;
+
+    if (!include_legacy_map) return;
 
     s_ensure_prop_pool();
     s_ensure_door_pool();
@@ -1089,6 +1096,10 @@ void forgeRuntimeExitPlay(void)
     if (bots_removed > 0) sysLogPrintf(LOG_NOTE,
             "GRID.RUNTIME: retired %d live forge bots", bots_removed);
     s_releaseForgeBotSlots();
+    forge_bot_settings_t *bots = forgeBotSettings();
+    bots->active_count = bots->pending_add_active;
+    bots->frozen_count = bots->pending_add_frozen;
+    bots->pending_remove_all = 0;
 
     /* Rebuild the spawn pool without forge-injected points. */
     if (s_spawn_injected > 0) {
@@ -1112,6 +1123,13 @@ void forgeRuntimeExitPlay(void)
     s_prop_count     = 0;
     s_door_count     = 0;
     s_zone_count     = 0;
+}
+
+void forgeRuntimeReleaseStage(void)
+{
+    forgeRuntimeExitPlay();
+    s_prop_pool = NULL;
+    s_door_pool = NULL;
 }
 
 void forgeRuntimeTick(void)

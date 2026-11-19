@@ -18,6 +18,7 @@
 #include "data.h"
 #include "bss.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -28,7 +29,9 @@
 #include "romdata.h"
 #include "modelcatalog.h"
 #include "assetcatalog.h"
+#include "forge_level_io.h"
 #include "asset_runtime.h"
+#include "grid_match_runtime.h"
 #include "player_identity.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
@@ -1090,6 +1093,11 @@ static s32 spawnWeaponBuildPoolFromManifest(const match_manifest_t *m,
 
 s32 spawnWeaponPickFromMatchManifest(void)
 {
+	if (gridMatchRuntimeActive()) {
+		const u8 *pool;
+		const s32 count = gridMatchRuntimeFiestaSlots(&pool);
+		return count > 0 ? (s32)pool[rngRandom() % (u32)count] : 0;
+	}
 	const match_manifest_t *m = spawnWeaponSelectManifest();
 	if (!m) {
 		return spawnWeaponPickFromActiveSet();
@@ -1258,6 +1266,10 @@ static match_start_status_e matchStartPrepare(match_start_plan_t *plan)
 	if (plan->setup.stagenum == 0) {
 		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
 			"stage has no runtime stagenum binding");
+	}
+	if (stageArchiveRepairStatus(plan->setup.stagenum) != 0) {
+		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+			"the selected stage archive is being checked or repaired");
 	}
 	strncpy(plan->setup.stage_id, g_MatchConfig.stage_id,
 		sizeof(plan->setup.stage_id) - 1);
@@ -1551,6 +1563,13 @@ s32 matchStart(void)
 	crashBreadcrumbPush("MATCHSTART preflight stage='%s' slots=%d",
 		g_MatchConfig.stage_id, g_MatchConfig.numSlots);
 
+	const s32 had_variant = forgeLevelVariantDependenciesStage() >= 0;
+	char variant_error[256];
+	if (!forgeLevelMountVariantDependencies(g_MatchConfig.stage_id, variant_error, sizeof(variant_error))) {
+		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.VARIANT.MOUNT: %s", variant_error);
+		return -(s32)MATCH_START_INVALID_STAGE;
+	}
+
 	challengeDetermineUnlockedFeatures();
 	/* Apply the selected scenario's rules before the plan freezes options and
 	 * participant teams. An unresolved ID is rejected by the preflight below. */
@@ -1563,6 +1582,9 @@ s32 matchStart(void)
 		 * side-effect free. */
 		g_RngSeed = rng_seed;
 		g_Rng2Seed = rng2_seed;
+		if (!had_variant && forgeLevelVariantDependenciesStage() >= 0) {
+			(void)forgeLevelRetireVariantDependencies(NULL, 0);
+		}
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK match status=%s globals_published=0",
 			matchStartStatusString(status));
@@ -1643,6 +1665,20 @@ s32 matchStartFromChallenge(s32 slot)
 
 	/* Apply challenge config → sets g_MpSetup (scenario, stage, bots, etc.) */
 	challengeSetCurrentBySlot(slot);
+
+	/* PC (finding 10): the Room's match start (matchStartCommit) is what adds
+	 * the local player as a participant, and this launch bypasses it, so in a
+	 * fresh session a challenge started with its simulants and no player (the
+	 * player spawned but was not in the match or its results). A challenge here
+	 * is offline with one local player: start from an empty table with that
+	 * player in slot 0 on team 0, as challengeApply sets every player's team. */
+	mpClearAllParticipants();
+	mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
+
+	/* PC (finding 10): the legacy menu tick (menutick.c) is what turned the
+	 * challenge's simulants into participants for the number of players; this
+	 * launch never passed through it, so challenges started with no simulants. */
+	challengePerformSanityChecks();
 
 	/* Sync back the challenge's stage into g_MatchConfig so our port-side
 	 * tracking stays consistent (arena picker, etc.).

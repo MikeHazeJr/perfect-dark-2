@@ -22,6 +22,9 @@ s32 objGetTagNum(struct defaultobj *obj);
 s32 objectiveGetCount(void);
 u32 objectiveGetDifficultyBits(s32 index);
 s32 objectiveCheck(s32 index);
+/* Campaign runner: the graph and the native answer for one objective, without
+ * recording either. False when no mission graph evaluates it. */
+bool objectiveGraphParity(s32 index, s32 *out_graph, s32 *out_native);
 bool objectiveIsAllComplete(void);
 /** Dev-only helper: mark all objectives complete until the current mission's
  *  objective state is reset. Returns the number of difficulty-active
@@ -29,6 +32,10 @@ bool objectiveIsAllComplete(void);
 s32 objectivesDebugCompleteCurrentMission(void);
 void objectivesDisableChecking(void);
 void objectivesShowHudmsg(char *buffer, s32 hudmsgtype);
+/** The original "Objective N: <status>" message; `number` is 1-based among the
+ *  objectives that apply at this difficulty. The mission graph module
+ *  og.hud.objective_status_message runs it. */
+void objectivesShowStatusMessage(s32 number, s32 status);
 void objectivesCheckAll(void);
 void objectiveCheckRoomEntered(s32 currentroom);
 void objectiveCheckThrowInRoom(s32 arg0, RoomNum *requiredrooms);

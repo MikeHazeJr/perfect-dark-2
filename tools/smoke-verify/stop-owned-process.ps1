@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/Storage-Harness.ps1')
 . (Join-Path $PSScriptRoot 'lib/Owned-Process.ps1')
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
-$storage = [IO.Path]::GetFullPath((Join-Path $root '.claude/smoke-storage'))
+$storage = Get-SmokeStorageRoot -ProjectRoot $root  # decision 6B: may be on another drive
 $file = ConvertTo-SmokeProcessPath $OwnershipFile
 Assert-SmokePlainTree -Path $file
 if ((Get-Item -LiteralPath $file).Length -gt 8192) { throw 'Oversized process ownership record' }

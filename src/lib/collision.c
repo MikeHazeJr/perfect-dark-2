@@ -92,14 +92,46 @@ void cdGetPos(struct coord *pos, u32 line, char *file)
 	pos->z = g_CdObstaclePos.z;
 }
 
+/*
+ * PC (B-1133): the obstacle's geometry is recorded by the "Exam" queries and,
+ * since B-1133, by cdTestVolume; the other "Test" queries record only the
+ * prop. Before any query has recorded geometry the pointer is NULL. Asked
+ * then, there is no geometry to answer from: the normal stays as the caller
+ * set it and the flags are none. Logged once, since it means a caller reads
+ * geometry after a query that does not record it.
+ */
+static s32 cdObstacleGeoMissing(const char *what)
+{
+	static s32 s_Logged = 0;
+
+	if (g_CdObstacleGeo != NULL) {
+		return 0;
+	}
+
+	if (!s_Logged) {
+		s_Logged = 1;
+		sysLogPrintf(LOG_WARNING, "CD: obstacle %s asked with no obstacle geometry recorded (B-1133)", what);
+	}
+
+	return 1;
+}
+
 void cdGetObstacleNormal(struct coord *normal)
 {
+	if (cdObstacleGeoMissing("normal")) {
+		return;
+	}
+
 	cdGetGeoNormal(g_CdObstacleGeo, normal);
 }
 
 u32 cdGetGeoFlags(void)
 {
 	u32 flags = 0;
+
+	if (cdObstacleGeoMissing("flags")) {
+		return 0;
+	}
 
 	switch (g_CdObstacleGeo->type) {
 	case GEOTYPE_TILE_I:
@@ -129,6 +161,15 @@ void cdClearResults(void)
 	g_CdHasSavedPos = false;
 	g_CdHasSavedBlock = false;
 	var8005f038 = 0;
+}
+
+void cdInstallStageTileBank(u8 *bank)
+{
+	cdClearResults();
+	g_CdObstacleGeo = NULL;
+	g_TileFileData.u8 = bank;
+	g_TileNumRooms = bank ? (s32)*g_TileFileData.u32 : 0;
+	g_TileRooms = bank ? g_TileFileData.u32 + 1 : NULL;
 }
 
 void cdSetObstacleVtxProp(struct coord *vtx1, struct coord *vtx2, struct prop *prop)
@@ -2421,9 +2462,47 @@ s32 cdTestVolume(struct coord *pos, f32 width, RoomNum *rooms, s32 types, bool c
 	if (collisions[0].geo) {
 		result = false;
 		cdSetObstacleProp(collisions[0].prop);
+		// PC (B-1133): record the hit geometry too. The capsule sweep
+		// (capsule.c) classifies a hit by cdGetGeoFlags() right after this
+		// test; without this it read whatever geometry an earlier Exam query
+		// left (NULL before the first one, which crashed a networked host).
+		// Original callers read only the prop after this test.
+		g_CdObstacleGeo = collisions[0].geo;
 	}
 
 	return result;
+}
+
+s32 cdPropVolumeClear(struct coord *pos, f32 radius, RoomNum *rooms, f32 ymax, f32 ymin)
+{
+	const u32 types = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
+	if (!pos || !rooms || rooms[0] < 1 || !g_Vars.props
+			|| !(radius > 0.0f) || !__builtin_isfinite(radius) || !(ymax >= ymin)
+			|| !__builtin_isfinite(ymax) || !__builtin_isfinite(ymin)
+			|| !__builtin_isfinite(pos->x) || !__builtin_isfinite(pos->y) || !__builtin_isfinite(pos->z)) return 0;
+
+	/* Scan the resident prop pool so a saturated room query cannot hide a
+	 * blocker. Object and door geometry is cached and read by these helpers. */
+	for (s32 i = 0; i < g_Vars.maxprops; ++i) {
+		struct prop *prop = &g_Vars.props[i];
+		if (!propGetLifecycleGeneration(prop) || !(prop->flags & PROPFLAG_ENABLED) || prop->parent
+				|| (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_DOOR) || !prop->obj
+				|| !propIsOfCdType(prop, types)) continue;
+		s32 shares_room = 0;
+		for (s32 j = 0; j < ARRAYCOUNT(prop->rooms) && prop->rooms[j] != -1 && !shares_room; ++j) {
+			for (const RoomNum *room = rooms; *room != -1; ++room) {
+				if (*room == prop->rooms[j]) shares_room = 1;
+			}
+		}
+		u8 *start, *end;
+		if (!shares_room || !propUpdateGeometry(prop, &start, &end)) continue;
+		struct collision hit;
+		s32 count = 0;
+		cdCollectGeoForCylFromList(pos, radius, start, end, GEOFLAG_WALL, true,
+			ymax, ymin, prop, &hit, 1, &count, prop->rooms[0]);
+		if (count) return 0;
+	}
+	return 1;
 }
 
 s32 cdExamCylMove01(struct coord *pos, struct coord *pos2, f32 radius, RoomNum *rooms, s32 types, bool checkvertical, f32 ymax, f32 ymin)

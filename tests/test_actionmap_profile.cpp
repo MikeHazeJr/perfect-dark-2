@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 
 namespace {
 namespace profile = actionmap_profile;
@@ -129,6 +130,38 @@ void noCandidates(const fs::path &path)
     for (const auto &entry : fs::directory_iterator(path))
         REQUIRE(entry.path().filename().string().find(".pd2tmp-") == std::string::npos);
 }
+/* A complete document without the rows of some actions in some contexts.
+ * drop(context index, action) says which rows to leave out. */
+template <typename Drop>
+std::string without(Fixture &fixture, const std::string &complete, Drop drop)
+{
+    std::istringstream lines(complete);
+    std::string line, out;
+    while (std::getline(lines, line)) {
+        bool dropped = false;
+        // A binding row is "<context>.<action>=<keys>"; the header rows have
+        // no '.' before their '='.
+        const auto dot = line.find('.');
+        const auto eq = line.find('=');
+        if (dot != std::string::npos && eq != std::string::npos && dot < eq) {
+            const std::string context = line.substr(0, dot);
+            const std::string action = line.substr(dot + 1, eq - dot - 1);
+            for (size_t ci = 0; ci < fixture.contextNames.size(); ++ci) {
+                if (fixture.contextNames[ci] != context) continue;
+                for (int a = 0; a < ACTION_COUNT; ++a)
+                    if (fixture.actionStrings[a] == action) dropped = drop(ci, a);
+            }
+        }
+        if (!dropped) out += line + '\n';
+    }
+    return out;
+}
+/* What a build whose action list ended `fewer` actions earlier wrote: every
+ * context complete up to its own last action. */
+std::string olderDocument(Fixture &fixture, const std::string &complete, int fewer)
+{
+    return without(fixture, complete, [fewer](size_t, int a) { return a >= ACTION_COUNT - fewer; });
+}
 } // namespace
 
 TEST_CASE("Complete profiles preserve every context, four exact slots, holes and explicit empty mappings",
@@ -197,6 +230,48 @@ TEST_CASE("complete profile codec keeps legacy alias and precise controller keys
     std::string repeated;
     REQUIRE(profile::encode(registry, after, repeated, error));
     REQUIRE(repeated == text);
+}
+
+// B-1116: the production name table named 105 of 121 actions. Encoding streamed
+// the first null name, which put the stream into a failed state, so the saved
+// file ended in the middle of the first context and every later start rejected
+// it. A registry with an unnamed action is now refused before anything is
+// written or read.
+TEST_CASE("A registry with an unnamed action is refused instead of writing a truncated file",
+          "[input][profile][persistence][b-1116]")
+{
+    Fixture fixture;
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto good = encoded(fixture, defaults);
+
+    for (const int missing : {0, ACTION_COUNT / 2, ACTION_COUNT - 1}) {
+        Fixture broken;
+        broken.actionNames[missing] = nullptr;
+        std::string text = "untouched";
+        std::string error;
+        REQUIRE_FALSE(profile::encode(broken.registry(), defaults, text, error));
+        REQUIRE(text == "untouched");
+        REQUIRE(error == "The action name table does not name every action.");
+
+        profile::Snapshot decoded;
+        error.clear();
+        REQUIRE_FALSE(profile::decode(broken.registry(), defaults, good, false, decoded, error));
+        REQUIRE(error == "The action name table does not name every action.");
+    }
+
+    Fixture empty;
+    empty.actionStrings[3].clear();
+    empty.actionNames[3] = empty.actionStrings[3].c_str();
+    std::string text;
+    std::string error;
+    REQUIRE_FALSE(profile::encode(empty.registry(), defaults, text, error));
+
+    // A complete table still round-trips every context and every action.
+    size_t rows = 0;
+    for (const char c : good) {
+        if (c == '\n') rows++;
+    }
+    REQUIRE(rows == 3 + fixture.contexts.size() * ACTION_COUNT);
 }
 
 TEST_CASE("Invalid profile documents never partially replace the output or live state",
@@ -421,6 +496,368 @@ TEST_CASE("B-1184 current files cut off at an unnamed action are replaced from t
     REQUIRE_FALSE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
     std::ofstream(current, std::ios::binary) << good.substr(0, good.find(fixture.row(0, ACTION_USE))) + "nosuchcontext.\n";
     REQUIRE_FALSE(profile::isUnnamedActionTruncation(fixture.registry(), current.c_str()));
+}
+
+/* Every action added to the game makes each saved bindings file one row short
+ * per context. Before 2026-11-17 such a file was refused as incomplete, the
+ * player's bindings were ignored and saving was blocked (found before the
+ * Vehicle Boost action reached dev: a real file there had 12 contexts of 123
+ * actions). */
+TEST_CASE("A complete file from a build with fewer actions keeps its bindings; new actions take their defaults",
+          "[input][profile][upgrade]")
+{
+    Fixture fixture;
+    const auto newest = static_cast<InputAction>(ACTION_COUNT - 1);
+    fixture.bind(2, newest, {5}); // the new action's default binding
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    // What the player saved with the older build: their own key on Use. (The
+    // complete document also binds the newest action differently, to show
+    // that an older file's silence about it means the default.)
+    fixture.bind(0, ACTION_USE, {9});
+    fixture.bind(2, newest, {6});
+    const auto saved = profile::capture(fixture.registry(), 4);
+    profile::apply(fixture.registry(), defaults);
+    const auto complete = encoded(fixture, saved);
+    auto expected = saved;
+    for (size_t ci = 0; ci < expected.contexts.size(); ++ci) {
+        expected.contexts[ci].mappings[newest] = defaults.contexts[ci].mappings[newest];
+        expected.contexts[ci].present[newest] = defaults.contexts[ci].present[newest];
+    }
+
+    profile::Snapshot output;
+    std::string error;
+    size_t olderActions = 99;
+    REQUIRE(profile::decode(fixture.registry(), defaults, olderDocument(fixture, complete, 1),
+        false, output, error, &olderActions));
+    REQUIRE(error.empty());
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT - 1));
+    REQUIRE(encoded(fixture, output) == encoded(fixture, expected));
+    REQUIRE(output.activeProfile == 4);
+    REQUIRE(output.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    REQUIRE(output.contexts[2].mappings[newest].triggers[0].vk == 5);
+    // Nothing live changed: decode only fills the candidate.
+    REQUIRE(live(fixture) == encoded(fixture, defaults));
+
+    // A current document is not an older one, and the count is optional.
+    olderActions = 99;
+    REQUIRE(profile::decode(fixture.registry(), defaults, complete, false, output, error, &olderActions));
+    REQUIRE(olderActions == 0);
+    REQUIRE(encoded(fixture, output) == complete);
+    REQUIRE(profile::decode(fixture.registry(), defaults, olderDocument(fixture, complete, 1),
+        false, output, error));
+
+    // Several actions behind works the same way.
+    REQUIRE(profile::decode(fixture.registry(), defaults, olderDocument(fixture, complete, 3),
+        false, output, error, &olderActions));
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT - 3));
+    REQUIRE(output.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+}
+
+/* The same rule for input contexts (2026-11-17): a new context is appended to
+ * the registry's list, so a file from a build without it lists every action
+ * of each context that build knew and nothing of the new one. Before this a
+ * new context (the vehicle turret's was the first one due) would have refused
+ * every saved file, exactly as a new action did in B-1233. */
+TEST_CASE("A complete file from a build with fewer input contexts keeps its bindings; new contexts take their defaults",
+          "[input][profile][upgrade]")
+{
+    Fixture fixture;
+    const size_t lastContext = fixture.contextNames.size() - 1;
+    const auto newest = static_cast<InputAction>(ACTION_COUNT - 1);
+    fixture.bind(2, newest, {5}); // the newest action's default binding
+    // The fixture's default for the last context is CancelUse on key 4.
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    // What the player saved: their own key on Use. (The complete document also
+    // rebinds the last context, to show that an older file's silence about a
+    // context means its defaults.)
+    fixture.bind(0, ACTION_USE, {9});
+    fixture.bind(lastContext, ACTION_CANCEL_USE, {7});
+    const auto saved = profile::capture(fixture.registry(), 4);
+    profile::apply(fixture.registry(), defaults);
+    const auto complete = encoded(fixture, saved);
+    auto expected = saved;
+    expected.contexts[lastContext] = defaults.contexts[lastContext];
+
+    const auto withoutLast =
+        without(fixture, complete, [&](size_t ci, int) { return ci == lastContext; });
+    profile::Snapshot output;
+    std::string error;
+    size_t olderActions = 99;
+    size_t olderContexts = 99;
+    REQUIRE(profile::decode(fixture.registry(), defaults, withoutLast, false, output, error,
+        &olderActions, &olderContexts));
+    REQUIRE(error.empty());
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT));
+    REQUIRE(olderContexts == lastContext);
+    REQUIRE(encoded(fixture, output) == encoded(fixture, expected));
+    REQUIRE(output.activeProfile == 4);
+    REQUIRE(output.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    REQUIRE(output.contexts[lastContext].mappings[ACTION_CANCEL_USE].triggers[0].vk == 4);
+    // Nothing live changed: decode only fills the candidate.
+    REQUIRE(live(fixture) == encoded(fixture, defaults));
+
+    // A current document reports neither count; both are optional.
+    olderActions = olderContexts = 99;
+    REQUIRE(profile::decode(fixture.registry(), defaults, complete, false, output, error,
+        &olderActions, &olderContexts));
+    REQUIRE(olderActions == 0);
+    REQUIRE(olderContexts == 0);
+    REQUIRE(profile::decode(fixture.registry(), defaults, withoutLast, false, output, error));
+
+    // Two contexts behind.
+    REQUIRE(profile::decode(fixture.registry(), defaults,
+        without(fixture, complete, [&](size_t ci, int) { return ci + 2 > lastContext; }),
+        false, output, error, &olderActions, &olderContexts));
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT));
+    REQUIRE(olderContexts == lastContext - 1);
+    REQUIRE(output.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+
+    // A build that was behind in both: fewer contexts, each ending at its own
+    // last action. The newest action takes its default in the contexts kept.
+    REQUIRE(profile::decode(fixture.registry(), defaults,
+        without(fixture, complete,
+            [&](size_t ci, int a) { return ci == lastContext || a >= ACTION_COUNT - 2; }),
+        false, output, error, &olderActions, &olderContexts));
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT - 2));
+    REQUIRE(olderContexts == lastContext);
+    REQUIRE(output.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    REQUIRE(output.contexts[2].mappings[newest].triggers[0].vk == 5);
+    REQUIRE(output.contexts[lastContext].mappings[ACTION_CANCEL_USE].triggers[0].vk == 4);
+
+    // A file with only actions missing still names every context.
+    REQUIRE(profile::decode(fixture.registry(), defaults, olderDocument(fixture, complete, 1),
+        false, output, error, &olderActions, &olderContexts));
+    REQUIRE(olderActions == static_cast<size_t>(ACTION_COUNT - 1));
+    REQUIRE(olderContexts == fixture.contextNames.size());
+}
+
+TEST_CASE("Missing rows that no older build would leave out are still refused",
+          "[input][profile][upgrade]")
+{
+    Fixture fixture;
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto complete = encoded(fixture, defaults);
+    const int last = ACTION_COUNT - 1;
+    const size_t lastContext = fixture.contextNames.size() - 1;
+    const std::vector<std::pair<const char *, std::string>> damaged = {
+        { "the last context cut short by one row",
+          without(fixture, complete, [&](size_t ci, int a) { return ci == lastContext && a == last; }) },
+        { "one context without the newest action",
+          without(fixture, complete, [&](size_t ci, int a) { return ci == 0 && a == last; }) },
+        { "a hole before the newest action in every context",
+          without(fixture, complete, [&](size_t, int a) { return a == last - 1; }) },
+        { "the first context missing",
+          without(fixture, complete, [&](size_t ci, int) { return ci == 0; }) },
+        { "a context missing that later contexts follow",
+          without(fixture, complete, [&](size_t ci, int) { return ci == 5; }) },
+        { "the last context missing and an earlier one cut short",
+          without(fixture, complete,
+              [&](size_t ci, int a) { return ci == lastContext || (ci == 3 && a == last); }) },
+        { "the last context missing and the others without the same actions",
+          without(fixture, complete,
+              [&](size_t ci, int a) { return ci == lastContext || a == (ci == 0 ? last : last - 1); }) },
+        { "only the first row of the last context present",
+          without(fixture, complete, [&](size_t ci, int a) { return ci == lastContext && a > 0; }) },
+        { "contexts that stop at different actions",
+          without(fixture, complete, [&](size_t ci, int a) { return a >= (ci == 0 ? last - 1 : last); }) },
+        { "the same number of rows in every context, but not the same actions",
+          without(fixture, complete, [&](size_t ci, int a) { return a == (ci == 0 ? last : last - 1); }) },
+        { "every row missing",
+          without(fixture, complete, [](size_t, int) { return true; }) },
+    };
+    for (const auto &entry : damaged) {
+        INFO(entry.first);
+        auto output = defaults;
+        std::string error;
+        size_t olderActions = 99;
+        size_t olderContexts = 99;
+        REQUIRE_FALSE(profile::decode(fixture.registry(), defaults, entry.second, false, output, error,
+            &olderActions, &olderContexts));
+        REQUIRE(error == "The complete binding file is missing required rows.");
+        REQUIRE(olderActions == 0);
+        REQUIRE(olderContexts == 0);
+        REQUIRE(encoded(fixture, output) == complete);
+    }
+}
+
+TEST_CASE("Startup brings a current file from an older build up to date instead of refusing it",
+          "[input][profile][startup][upgrade]")
+{
+    TempDirectory directory;
+    Fixture fixture;
+    const auto newest = static_cast<InputAction>(ACTION_COUNT - 1);
+    fixture.bind(2, newest, {5});
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto current = (directory.path / "current.ini").string();
+    fixture.bind(0, ACTION_USE, {9});
+    const auto saved = profile::capture(fixture.registry(), 2);
+    profile::apply(fixture.registry(), defaults); // a fresh start: defaults are live
+    const auto older = olderDocument(fixture, encoded(fixture, saved), 1);
+    std::ofstream(current, std::ios::binary) << older;
+
+    profile::Store store;
+    std::string error;
+    REQUIRE(store.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(error.empty());
+    REQUIRE(store.upgradedFromActions() == static_cast<size_t>(ACTION_COUNT - 1));
+    REQUIRE(store.upgradedFromContexts() == fixture.contextNames.size());
+    REQUIRE(store.activeProfile() == 2);
+    // The player's binding is live, the new action has its default, and the
+    // file on disk is a complete current file.
+    REQUIRE(fixture.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    REQUIRE(fixture.contexts[2].mappings[newest].triggers[0].vk == 5);
+    REQUIRE(bytes(current) == live(fixture, 2));
+    REQUIRE(bytes(current) != older);
+    noCandidates(directory.path);
+    // Saving is not blocked, and the next start reads a current file.
+    fixture.bind(1, ACTION_USE, {8});
+    REQUIRE(store.saveCurrent(fixture.registry(), current.c_str(), error));
+    const auto savedAgain = bytes(current);
+    profile::apply(fixture.registry(), defaults);
+    profile::Store restarted;
+    REQUIRE(restarted.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(restarted.upgradedFromActions() == 0);
+    REQUIRE(restarted.upgradedFromContexts() == 0);
+    REQUIRE(live(fixture, 2) == savedAgain);
+
+    // When the rewrite cannot be committed the bindings are applied all the
+    // same, the older file stays as it was, and a later save completes it.
+    std::ofstream(current, std::ios::binary) << older;
+    profile::apply(fixture.registry(), defaults);
+    profile::Store unlucky;
+    saveAtomicDebugFailNextCommit();
+    REQUIRE(unlucky.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(unlucky.upgradedFromActions() == static_cast<size_t>(ACTION_COUNT - 1));
+    REQUIRE(bytes(current) == older);
+    REQUIRE(fixture.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    noCandidates(directory.path);
+    REQUIRE(unlucky.saveCurrent(fixture.registry(), current.c_str(), error));
+    REQUIRE(bytes(current) == live(fixture, 2));
+
+    // The same start for a file from a build without the last input context:
+    // the player's binding is live, the new context has its defaults (the
+    // fixture's CancelUse on key 4), and the file on disk is complete.
+    const size_t lastContext = fixture.contextNames.size() - 1;
+    const auto fewerContexts = without(fixture, encoded(fixture, saved),
+        [&](size_t ci, int) { return ci == lastContext; });
+    std::ofstream(current, std::ios::binary) << fewerContexts;
+    profile::apply(fixture.registry(), defaults);
+    profile::Store newContext;
+    REQUIRE(newContext.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(error.empty());
+    REQUIRE(newContext.upgradedFromActions() == static_cast<size_t>(ACTION_COUNT));
+    REQUIRE(newContext.upgradedFromContexts() == lastContext);
+    REQUIRE(fixture.contexts[0].mappings[ACTION_USE].triggers[0].vk == 9);
+    REQUIRE(fixture.contexts[lastContext].mappings[ACTION_CANCEL_USE].triggers[0].vk == 4);
+    REQUIRE(bytes(current) == live(fixture, 2));
+    REQUIRE(bytes(current) != fewerContexts);
+    noCandidates(directory.path);
+}
+
+TEST_CASE("A named profile saved by a build with fewer actions still loads",
+          "[input][profile][upgrade]")
+{
+    TempDirectory directory;
+    Fixture fixture;
+    const auto newest = static_cast<InputAction>(ACTION_COUNT - 1);
+    fixture.bind(2, newest, {5});
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto current = (directory.path / "current.ini").string();
+    const auto named = (directory.path / "profile3.ini").string();
+    profile::Store store;
+    std::string error;
+    REQUIRE(store.initialize(fixture.registry(), defaults, current.c_str(), error));
+    REQUIRE(store.upgradedFromActions() == 0);
+
+    auto profileSnapshot = defaults;
+    profileSnapshot.contexts[1].mappings[ACTION_USE].triggers[0].vk = 8;
+    std::ofstream(named, std::ios::binary)
+        << olderDocument(fixture, encoded(fixture, profileSnapshot), 2);
+    REQUIRE(store.loadProfile(fixture.registry(), defaults, named.c_str(), current.c_str(), 3, error));
+    REQUIRE(store.activeProfile() == 3);
+    REQUIRE(fixture.contexts[1].mappings[ACTION_USE].triggers[0].vk == 8);
+    REQUIRE(fixture.contexts[2].mappings[newest].triggers[0].vk == 5);
+    REQUIRE(bytes(current) == live(fixture, 3));
+    noCandidates(directory.path);
+}
+
+TEST_CASE("Merged profiles keep custom Grid editor and turret bindings from both builds",
+          "[input][profile][upgrade]")
+{
+    Fixture fixture;
+    const size_t turretContext = fixture.contexts.size() - 1;
+    fixture.contextNames[turretContext] = "vehicle_turret";
+    fixture.contexts[turretContext].name = fixture.contextNames[turretContext].c_str();
+    fixture.actionStrings[ACTION_FORGE_EDITOR_CONTROLS] = "ForgeEditorControls";
+    fixture.actionNames[ACTION_FORGE_EDITOR_CONTROLS] = fixture.actionStrings[ACTION_FORGE_EDITOR_CONTROLS].c_str();
+    fixture.bind(2, ACTION_FORGE_EDITOR_CONTROLS, {5});
+    fixture.bind(turretContext, ACTION_TURRET_FIRE, {6});
+    fixture.bind(turretContext, ACTION_TURRET_ZOOM, {7});
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    fixture.bind(0, ACTION_USE, {8});
+    fixture.bind(2, ACTION_FORGE_EDITOR_CONTROLS, {9});
+    fixture.bind(turretContext, ACTION_TURRET_FIRE, {10});
+    fixture.bind(turretContext, ACTION_TURRET_ZOOM, {11});
+    const auto complete = live(fixture, 4);
+    profile::apply(fixture.registry(), defaults);
+
+    const auto fromDev = [turretContext](size_t ci, int a) {
+        return ci == turretContext || a == ACTION_TURRET_FIRE || a == ACTION_TURRET_ZOOM;
+    };
+    std::string error;
+    SECTION("Dev current bindings upgrade and named profiles load") {
+        TempDirectory directory;
+        const auto current = (directory.path / "current.ini").string();
+        const auto named = (directory.path / "profile2.ini").string();
+        const auto prior = without(fixture, complete, fromDev);
+        std::ofstream(current, std::ios::binary) << prior;
+        std::ofstream(named, std::ios::binary) << prior;
+        profile::Store store;
+        REQUIRE(store.initialize(fixture.registry(), defaults, current.c_str(), error));
+        REQUIRE(store.activeProfile() == 4);
+        REQUIRE(store.upgradedFromActions() == static_cast<size_t>(ACTION_TURRET_FIRE) + 1);
+        REQUIRE(store.upgradedFromContexts() == turretContext);
+        REQUIRE(fixture.contexts[0].mappings[ACTION_USE].triggers[0].vk == 8);
+        REQUIRE(fixture.contexts[2].mappings[ACTION_FORGE_EDITOR_CONTROLS].triggers[0].vk == 9);
+        REQUIRE(fixture.contexts[turretContext].mappings[ACTION_TURRET_FIRE].triggers[0].vk == 6);
+        REQUIRE(fixture.contexts[turretContext].mappings[ACTION_TURRET_ZOOM].triggers[0].vk == 7);
+        REQUIRE(bytes(current) == live(fixture, 4));
+        REQUIRE(bytes(current) != prior);
+        REQUIRE(store.loadProfile(fixture.registry(), defaults, named.c_str(), current.c_str(), 2, error));
+        REQUIRE(store.activeProfile() == 2);
+        REQUIRE(bytes(current) == live(fixture, 2));
+        REQUIRE(bytes(named) == prior);
+    }
+    SECTION("Grid profiles retain both turret actions and get the editor default") {
+        const auto prior = without(fixture, complete, [](size_t, int a) {
+            return a == ACTION_FORGE_EDITOR_CONTROLS;
+        });
+        profile::Snapshot decoded;
+        size_t olderActions = 0;
+        size_t olderContexts = 0;
+        REQUIRE(profile::decode(fixture.registry(), defaults, prior, false, decoded, error,
+            &olderActions, &olderContexts));
+        REQUIRE(olderActions == ACTION_FORGE_EDITOR_CONTROLS);
+        REQUIRE(olderContexts == fixture.contexts.size());
+        REQUIRE(decoded.activeProfile == 4);
+        REQUIRE(decoded.contexts[0].mappings[ACTION_USE].triggers[0].vk == 8);
+        REQUIRE(decoded.contexts[2].mappings[ACTION_FORGE_EDITOR_CONTROLS].triggers[0].vk == 5);
+        REQUIRE(decoded.contexts[turretContext].mappings[ACTION_TURRET_FIRE].triggers[0].vk == 10);
+        REQUIRE(decoded.contexts[turretContext].mappings[ACTION_TURRET_ZOOM].triggers[0].vk == 11);
+    }
+    SECTION("Partial or mixed Dev profiles still fail") {
+        auto decoded = defaults;
+        const auto partial = without(fixture, complete, [&](size_t ci, int a) {
+            return fromDev(ci, a) || (ci == 2 && a == ACTION_FORGE_EDITOR_CONTROLS);
+        });
+        REQUIRE_FALSE(profile::decode(fixture.registry(), defaults, partial, false, decoded, error));
+        const auto mixed = without(fixture, complete, [&](size_t ci, int a) {
+            if (ci == 2 && a == ACTION_TURRET_FIRE) return false;
+            return fromDev(ci, a) || (ci == 2 && a == ACTION_FORGE_EDITOR_CONTROLS);
+        });
+        REQUIRE_FALSE(profile::decode(fixture.registry(), defaults, mixed, false, decoded, error));
+        REQUIRE(encoded(fixture, decoded) == encoded(fixture, defaults));
+    }
 }
 
 TEST_CASE("Device reset keeps the other device and rejects capacity overflow as one candidate",

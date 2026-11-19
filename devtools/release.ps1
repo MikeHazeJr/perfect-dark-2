@@ -682,6 +682,68 @@ function Test-ReleaseTypedArchiveTree {
     Write-Host "  $Label typed archives validated ($typedCount checked)" -ForegroundColor Green
 }
 
+# B-1168: bring your own ROM is a hard constraint. A local launch from Build/
+# extracts the ROM into Build/data/<romid>/, and the dist step used to copy
+# that tree into the zip. A file is ROM-derived when it is a raw ROM file or
+# segment (files/, segs/), an extraction cache stamp, or an archive whose
+# _meta/provenance.json names a ROM extractor (a base_ archive with no
+# provenance counts too). Returns the reason, or $null for shippable content.
+function Get-ReleaseRomDerivedReason {
+    param([string]$Rel, [string]$FullName)
+    $normalized = $Rel.Replace("\", "/")
+    if ($normalized -match '(^|/)(ntsc|pal|jpn)-[a-z0-9]+/(files|segs)/') { return "raw ROM file or segment" }
+    $leaf = ($normalized -split '/')[-1]
+    if ($leaf -match '^\.pdextract-(?:cache|clean|stage-textures)(?:\.pd2tmp-\d+-\d+)?$') { return "extraction cache stamp" }
+    if ($leaf -match '\.pdscenario\.pd2repair-\d+-\d+\.tmp$') { return "temporary stage repair archive" }
+    $magic = New-Object byte[] 4
+    $stream = [System.IO.File]::OpenRead($FullName)
+    try { $read = $stream.Read($magic, 0, 4) } finally { $stream.Dispose() }
+    if ($read -lt 4 -or $magic[0] -ne 0x50 -or $magic[1] -ne 0x4B -or $magic[2] -ne 3 -or $magic[3] -ne 4) { return $null }
+    $tool = $null
+    try {
+        $zip = [System.IO.Compression.ZipFile]::OpenRead($FullName)
+        try {
+            $entry = $zip.GetEntry("_meta/provenance.json")
+            if ($entry) {
+                $reader = New-Object System.IO.StreamReader($entry.Open())
+                try {
+                    $json = ConvertFrom-Json $reader.ReadToEnd()
+                    $property = $json.PSObject.Properties["tool"]
+                    if ($property) { $tool = [string]$property.Value }
+                } finally { $reader.Dispose() }
+            }
+        } finally { $zip.Dispose() }
+    } catch {
+        return $null   # not a readable archive; Test-ReleaseTypedArchiveTree reports it
+    }
+    if ($tool -and $tool.StartsWith("romextract", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "ROM extraction output ($tool)"
+    }
+    if (-not $tool -and $leaf.StartsWith("base_", [System.StringComparison]::OrdinalIgnoreCase)) {
+        return "base archive without provenance"
+    }
+    return $null
+}
+
+# Refuses the release when anything ROM-derived reached the dist folder.
+function Assert-ReleaseHasNoRomDerivedContent {
+    param([string]$Root)
+    $rootFull = (Resolve-Path -LiteralPath $Root).Path
+    $found = New-Object System.Collections.Generic.List[string]
+    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File)
+    foreach ($file in $files) {
+        $rel = $file.FullName.Substring($rootFull.Length + 1).Replace("\", "/")
+        if ($file.Extension -eq ".z64") { $found.Add("$rel (ROM)"); continue }
+        $reason = Get-ReleaseRomDerivedReason -Rel $rel -FullName $file.FullName
+        if ($reason) { $found.Add("$rel ($reason)") }
+    }
+    if ($found.Count -gt 0) {
+        $found | Select-Object -First 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+        throw "Release refused (B-1168, BYOR): $($found.Count) ROM-derived file(s) in $Root"
+    }
+    Write-Host "  BYOR check: no ROM-derived content among $($files.Count) release files" -ForegroundColor Green
+}
+
 if ($hasClient) { Write-Host "  Client:      FOUND ($ClientExe)" -ForegroundColor Green }
 else            { Write-Host "  Client:      MISSING" -ForegroundColor Yellow }
 
@@ -736,7 +798,10 @@ if ($hasUpdater) {
 if ($hasData) {
     $dataSourceFull = (Resolve-Path $DataSource).Path
     $skippedDirs = @{}
+    $romExcluded = @{}
     $copyPlan = @()
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
 
     foreach ($file in (Get-ChildItem $DataSource -Recurse -File)) {
         # Skip ROM files unconditionally (BYOR; user supplies their own).
@@ -746,6 +811,14 @@ if ($hasData) {
 
         $relativePath = $file.FullName.Substring($dataSourceFull.Length + 1)
         $relForward   = $relativePath -replace '\\', '/'
+
+        # B-1168: nothing extracted from the ROM ships; the player's own
+        # first launch extracts it.
+        $romReason = Get-ReleaseRomDerivedReason -Rel $relForward -FullName $file.FullName
+        if ($romReason) {
+            $romExcluded[$romReason] = 1 + [int]$romExcluded[$romReason]
+            continue
+        }
 
         # Drop legacy / non-shipping trees:
         #   base/              -- Step 5 retired the .pdbase aggregate.
@@ -780,6 +853,9 @@ if ($hasData) {
     foreach ($k in $skippedDirs.Keys) {
         Write-Host "    EXCLUDED: $k (legacy retired or non-shipping)" -ForegroundColor DarkYellow
     }
+    foreach ($k in ($romExcluded.Keys | Sort-Object)) {
+        Write-Host "    EXCLUDED: $($romExcluded[$k]) file(s), $k (BYOR, B-1168)" -ForegroundColor DarkYellow
+    }
     $romFiles = Get-ChildItem $DataSource -Filter "*.z64" -Recurse
     if ($romFiles) {
         foreach ($rom in $romFiles) {
@@ -789,6 +865,23 @@ if ($hasData) {
 } else {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
+
+# --- Original Grid authoring seed ---
+
+$gridSeedRelative = "grid/templates/grid_two_rooms.pdarena"
+$gridSeedSource = Join-Path $ProjectRoot "dev-mods/grid_two_rooms/grid_two_rooms.pdarena"
+$gridSeedBuilt = Join-Path $BuildDir $gridSeedRelative
+if (-not (Test-Path -LiteralPath $gridSeedBuilt -PathType Leaf)) {
+    throw "Release refused: the original Grid room template is missing from the client build."
+}
+$gridSeedDest = Join-Path $DistDir $gridSeedRelative
+New-Item -ItemType Directory -Path (Split-Path -Parent $gridSeedDest) -Force | Out-Null
+Copy-Item -LiteralPath $gridSeedBuilt -Destination $gridSeedDest -Force -ErrorAction Stop
+if ((Get-FileHash -LiteralPath $gridSeedDest -Algorithm SHA256 -ErrorAction Stop).Hash -ne
+        (Get-FileHash -LiteralPath $gridSeedSource -Algorithm SHA256 -ErrorAction Stop).Hash) {
+    throw "Release refused: the built Grid room template differs from the project source."
+}
+Write-Host "  $gridSeedRelative" -ForegroundColor Gray
 
 # --- Modding examples ---
 #
@@ -878,6 +971,7 @@ Set-Content -LiteralPath $readmePath -Value $readmeContent -Encoding UTF8
 Write-Host "  put_your_rom_here.txt (ROM placement instructions)" -ForegroundColor Gray
 
 Test-ReleaseTypedArchiveTree -Root $DistDir -Label "release-dist"
+Assert-ReleaseHasNoRomDerivedContent -Root $DistDir
 
 # ============================================================================
 # Step 2: Create zip archive

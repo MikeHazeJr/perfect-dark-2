@@ -569,7 +569,7 @@ typedef struct weapon_graph_entity_runtime {
 	f32 autogun_turn_speed;
 	f32 autogun_fire_cadence;
 	s32 autogun_alternate_muzzles;
-	s32 autogun_beam_interval_ticks60;
+	s32 autogun_beam_every_shots; /* public beam_interval: a beam every N shots (B-1178) */
 	s32 autogun_ammo_reserve;
 
 	s32 has_sticky_device;
@@ -743,6 +743,22 @@ s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
                                        u32 shared_size,
                                        weapon_graph_ir_t *out,
                                        char *err, size_t err_cap);
+/* weaponGraphCompileWeaponSourceJson with the weapon's variables text as the
+ * $name substitution scope, as weaponGraphCompileArchiveFile uses a variables
+ * member: present text (even an empty table) is an active scope, so an
+ * unresolved $name fails; NULL or empty text means no scope ($ stays
+ * literal). */
+s32 weaponGraphCompileWeaponSourceJsonWithVariables(const char *asset_id,
+                                                    const char *primary_json,
+                                                    u32 primary_size,
+                                                    const char *secondary_json,
+                                                    u32 secondary_size,
+                                                    const char *shared_json,
+                                                    u32 shared_size,
+                                                    const char *variables_json,
+                                                    u32 variables_size,
+                                                    weapon_graph_ir_t *out,
+                                                    char *err, size_t err_cap);
 
 #ifdef __cplusplus
 }

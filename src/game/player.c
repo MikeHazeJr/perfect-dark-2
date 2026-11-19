@@ -27,6 +27,7 @@
 #include "game/game_0b2150.h"
 #include "game/tex.h"
 #include "game/camera.h"
+#include "game/forgemode.h"
 #include "game/player.h"
 #include "game/modeldef.h"
 #include "game/modelmgr.h"
@@ -84,6 +85,8 @@
 #include "net/netmsg.h"
 #include "net/net_cutscene_authority.h"
 #include "net/matchsetup.h"
+#include "grid_match_runtime.h"
+#include "smoke_harness.h"
 #include "game/playerreset.h" /* 2026-04-23 B-219 v2: modelmgrLoadProjectileModeldefs */
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
 #include "assetcatalog.h"
@@ -96,6 +99,8 @@
 #include "scene.h"
 #include "game/spawnpool.h"
 #include "game/setuputils.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -774,18 +779,29 @@ static void playerMpResolveTeamSpawnParams(struct prop *selfprop, s32 *team, s32
 		active_teams |= (u32)g_MpBotChrPtrs[i]->team;
 	}
 
-	for (i = 0; i < 4; i++) {
+	/* SP-82: every team, not only the first four (MAX_TEAMS is 8). The
+	 * spawn pool takes team as a sector in 0..num_teams-1, so it is this
+	 * team's place among the active teams, as in the match-start orchestrator
+	 * (orch_team_bits_to_sector); the raw team number gave a team past the
+	 * count no sector (red and blue: blue is team 2 of 2 active). */
+	for (i = 0; i < MAX_TEAMS; i++) {
 		if (active_teams & (1u << i)) {
 			(*num_teams)++;
 		}
 	}
 
 	if (selfprop && selfprop->chr) {
-		for (i = 0; i < 4; i++) {
+		s32 sector = 0;
+
+		for (i = 0; i < MAX_TEAMS; i++) {
+			if (!(active_teams & (1u << i))) {
+				continue;
+			}
 			if (selfprop->chr->team & (1u << i)) {
-				*team = i;
+				*team = sector;
 				break;
 			}
+			sector++;
 		}
 	}
 
@@ -1697,7 +1713,15 @@ f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *
 	return playerChooseSpawnLocation(chrradius, pos, rooms, prop, g_SpawnPoints, g_NumSpawnPoints);
 }
 
-void playerStartNewLife(void)
+s32 playerSpawnPoseIsValid(const struct player_spawn_pose *pose)
+{
+	return pose && bgRoomIsValid(pose->room)
+		&& __builtin_isfinite(pose->position.x) && __builtin_isfinite(pose->position.y)
+		&& __builtin_isfinite(pose->position.z) && __builtin_isfinite(pose->ground)
+		&& __builtin_isfinite(pose->yaw);
+}
+
+static void playerStartNewLifeAt(const struct player_spawn_pose *pose)
 {
 	struct coord pos = {0, 0, 0};
 	RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
@@ -1736,13 +1760,15 @@ void playerStartNewLife(void)
 
 	hudmsgsSetOn(0xffffffff);
 
-	angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop); // var7f1ad534
+	if (pose) {
+		pos = pose->position;
+		rooms[0] = pose->room;
+		angle = BADDEG2RAD(pose->yaw);
+	} else {
+		angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms, g_Vars.currentplayer->prop);
 
-	/* B-242 (Priority O): post-pick capsule clip check + radial sweep
-	 * before consuming pos. If the picked spawn pad puts the player
-	 * capsule into a wall, sweep radially; if the sweep fails, re-pick
-	 * a different pad and try again (up to 3 attempts). */
-	{
+		/* B-242: check the picked capsule, sweep radially if blocked,
+		 * then pick another pad if necessary. */
 		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
 		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
 		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
@@ -1768,18 +1794,25 @@ void playerStartNewLife(void)
 		}
 	}
 
-	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
+	struct coord floor_probe = pos;
+	if (pose) {
+		/* Probe the accepted floor for local metadata. The probe result can
+		 * differ on a moving platform, so retain the host's ground height. */
+		floor_probe.y = pose->ground + 1.0f;
+		g_Vars.currentplayer->floorflags = 0;
+	}
+	groundy = cdFindGroundInfoAtCyl(&floor_probe, 30, rooms,
 			&g_Vars.currentplayer->floorcol,
 			&g_Vars.currentplayer->floortype,
 			&g_Vars.currentplayer->floorflags,
 			&g_Vars.currentplayer->floorroom,
 			NULL, NULL);
 
-	/* B-247 (2026-04-25): same sentinel guard as the orchestrator path
-	 * above. cdFindGroundFromList returns -2^32 when no ground intersects
-	 * the search cylinder; the resulting pos.y propagates as junk to
-	 * prop->pos. Fall back to the spawn pad's authored Y. */
-	{
+	if (pose) {
+		groundy = pose->ground;
+	} else {
+		/* B-247: fall back to the authored pad Y when no ground intersects
+		 * the search cylinder. */
 		const f32 GROUNDY_BOUND = 100000.0f;
 		if (groundy < -GROUNDY_BOUND || groundy > GROUNDY_BOUND) {
 			sysLogPrintf(LOG_WARNING,
@@ -1787,12 +1820,11 @@ void playerStartNewLife(void)
 				groundy, pos.x, pos.y, pos.z);
 			groundy = pos.y;
 		}
+		pos.y = groundy + g_Vars.currentplayer->vv_eyeheight;
 	}
 
-	pos.y = groundy + g_Vars.currentplayer->vv_eyeheight;
-
 	g_Vars.currentplayer->vv_manground = groundy;
-	g_Vars.currentplayer->vv_theta = angle * 360.0f / M_BADTAU;
+	g_Vars.currentplayer->vv_theta = pose ? pose->yaw : angle * 360.0f / M_BADTAU;
 	g_Vars.currentplayer->vv_ground = groundy;
 
 	playerResetBond(&g_Vars.currentplayer->bond2, &pos);
@@ -1925,6 +1957,16 @@ void playerStartNewLife(void)
 	if (g_Vars.currentplayer->prop->chr) {
 		g_Vars.currentplayer->prop->chr->chrflags &= ~CHRCFLAG_HIDDEN;
 	}
+}
+
+void playerStartNewLife(void)
+{
+	playerStartNewLifeAt(NULL);
+}
+
+void playerStartNewGridFiestaLife(const struct player_spawn_pose *pose)
+{
+	if (playerSpawnPoseIsValid(pose)) playerStartNewLifeAt(pose);
 }
 
 void playerLoadDefaults(void)
@@ -2229,6 +2271,70 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 	return false;
 }
 
+s32 playerGiveSpawnWeapon(s32 mp_slot, s32 weapon)
+{
+	if (!g_Vars.currentplayer || weapon <= WEAPON_NONE || weapon >= WEAPON_CUSTOM_END) {
+		return false;
+	}
+
+	/* Preload the projectile and first-person models before the hand switch. */
+	modelmgrLoadProjectileModeldefs(weapon);
+	invGiveSingleWeapon(weapon);
+	if (mp_slot >= 0) {
+		s32 ammotype = 0;
+		if (mp_slot == MPWEAPON_COMBATBOOST) {
+			ammotype = AMMOTYPE_BOOST;
+		} else {
+			(void)catalogGetMpWeaponPriAmmoTypeChecked(mp_slot, &ammotype);
+		}
+		if (ammotype) {
+			s32 priqty = 0;
+			(void)catalogGetMpWeaponPriAmmoQtyChecked(mp_slot, &priqty);
+			s32 startammo = priqty / 2;
+			if (startammo == 0) {
+				startammo = 1;
+			}
+			bgunSetAmmoQuantity(ammotype, startammo);
+		}
+	}
+	bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+	bgunEquipWeapon2(HAND_RIGHT, weapon);
+
+	const s32 granted = invHasSingleWeaponExcAllGuns(weapon)
+		&& bgunGetSwitchToWeapon(HAND_RIGHT) == weapon;
+	if (smokeHarnessIsActive() && granted) {
+		gridMatchRuntimeTraceFiestaGrant("player", mp_slot, weapon);
+	}
+
+	struct weapon *spawnWeapon = weaponFindById(weapon);
+	const struct weaponfunc *spawnPri = spawnWeapon
+		? (const struct weaponfunc *)spawnWeapon->functions[0] : NULL;
+	const struct weaponfunc *spawnSec = spawnWeapon
+		? (const struct weaponfunc *)spawnWeapon->functions[1] : NULL;
+	char spawnName[64];
+	const char *rawSpawnName = bgunGetShortName(weapon);
+	strncpy(spawnName, rawSpawnName ? rawSpawnName : "", sizeof(spawnName) - 1);
+	spawnName[sizeof(spawnName) - 1] = '\0';
+	for (char *p = spawnName; *p; p++) {
+		if (*p == '\r' || *p == '\n') {
+			*p = '\0';
+			break;
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SPAWN.WEAPON: player=%d weapon=%d shortname=%u name=%u "
+		"primary_name=%u secondary_name=%u",
+		g_Vars.currentplayernum, weapon,
+		spawnWeapon ? (u32)spawnWeapon->shortname : 0u,
+		spawnWeapon ? (u32)spawnWeapon->name : 0u,
+		spawnPri ? (u32)spawnPri->name : 0u,
+		spawnSec ? (u32)spawnSec->name : 0u);
+	sysLogPrintf(LOG_NOTE,
+		"SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
+		g_Vars.currentplayernum, weapon, spawnName);
+	return granted;
+}
+
 enum player_chrbody_result playerSpawn(void)
 {
 	f32 xdiff;
@@ -2247,6 +2353,8 @@ enum player_chrbody_result playerSpawn(void)
 	struct coord sp90;
 	struct coord sp84;
 	struct coord sp78;
+	const s32 grid_fiesta = gridMatchRuntimeFiestaActive();
+	s32 fiesta_weapon = WEAPON_NONE;
 
 	g_Vars.currentplayer->deathanimfinished = false;
 	g_Vars.currentplayer->redbloodfinished = false;
@@ -2416,9 +2524,13 @@ enum player_chrbody_result playerSpawn(void)
 			 * was dropped here, allowing Co-Op / Counter-Op Bond to run BOTH
 			 * INTROCMD_WEAPON (via playerreset.c) AND spawn-with-weapon (via
 			 * this branch), which dual-added inventory. */
-			if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
-			                               g_MpSetup.options,
-			                               MPOPTION_SPAWNWITHWEAPON)) {
+			const s32 spawn_with_weapon = spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+				g_MpSetup.options, MPOPTION_SPAWNWITHWEAPON);
+			if (spawn_with_weapon && grid_fiesta && g_NetMode == NETMODE_CLIENT) {
+				/* The host sends the weapon for this life after the reset. */
+				bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
+				bgunEquipWeapon2(HAND_RIGHT, WEAPON_UNARMED);
+			} else if (spawn_with_weapon) {
 				/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
 				 *
 				 * S482 (2026-04-27) — three spawn-weapon modes:
@@ -2481,67 +2593,8 @@ enum player_chrbody_result playerSpawn(void)
 					}
 				}
 				if (resolvedWeaponNum > 0) {
-					/* B-219 v2 (2026-04-23): load the weapon's projectile / first-person
-					 * modeldef before inventory + equip. The 4-21 B-219 fix skipped
-					 * playerReset's INTROCMD_WEAPON branch when spawn-with-weapon owned
-					 * the loadout, which also skipped modelmgrLoadProjectileModeldefs
-					 * and left the FP model unloaded. Playtest log (4-23) showed
-					 * "spawned with weapon 2 (Falcon 2) -- auto-equipped" yet the
-					 * player saw empty hands and couldn't fire because the Falcon
-					 * modeldef was never loaded into modelmgr. Load it here so the
-					 * subsequent bgunTickSwitch2 has a real model to bind.
-					 * Same fix applies to the no-fallback path where setup.c's map
-					 * pickups would have loaded models but Chicago CS has markers=0. */
-					modelmgrLoadProjectileModeldefs(resolvedWeaponNum);
-					invGiveSingleWeapon(resolvedWeaponNum);
-					if (spawnWeaponIdx >= 0) {
-						s32 ammotype = 0;
-						if (spawnWeaponIdx == MPWEAPON_COMBATBOOST) {
-							ammotype = AMMOTYPE_BOOST;
-						} else {
-							(void)catalogGetMpWeaponPriAmmoTypeChecked(spawnWeaponIdx, &ammotype);
-						}
-						if (ammotype) {
-							s32 priqty = 0;
-							s32 startammo;
-							(void)catalogGetMpWeaponPriAmmoQtyChecked(spawnWeaponIdx, &priqty);
-							startammo = priqty / 2;
-							if (startammo == 0) {
-								startammo = 1;
-							}
-							bgunSetAmmoQuantity(ammotype, startammo);
-						}
-					}
-					bgunEquipWeapon2(HAND_LEFT, WEAPON_NONE);
-					bgunEquipWeapon2(HAND_RIGHT, resolvedWeaponNum);
-					{
-						struct weapon *spawnWeapon = weaponFindById(resolvedWeaponNum);
-						const struct weaponfunc *spawnPri = spawnWeapon
-							? (const struct weaponfunc *)spawnWeapon->functions[0] : NULL;
-						const struct weaponfunc *spawnSec = spawnWeapon
-							? (const struct weaponfunc *)spawnWeapon->functions[1] : NULL;
-						char spawnName[64];
-						const char *rawSpawnName = bgunGetShortName(resolvedWeaponNum);
-						strncpy(spawnName, rawSpawnName ? rawSpawnName : "",
-							sizeof(spawnName) - 1);
-						spawnName[sizeof(spawnName) - 1] = '\0';
-						for (char *p = spawnName; *p; p++) {
-							if (*p == '\r' || *p == '\n') {
-								*p = '\0';
-								break;
-							}
-						}
-						sysLogPrintf(LOG_NOTE,
-							"SPAWN.WEAPON: player=%d weapon=%d shortname=%u name=%u "
-							"primary_name=%u secondary_name=%u",
-							g_Vars.currentplayernum, resolvedWeaponNum,
-							spawnWeapon ? (u32)spawnWeapon->shortname : 0u,
-							spawnWeapon ? (u32)spawnWeapon->name : 0u,
-							spawnPri ? (u32)spawnPri->name : 0u,
-							spawnSec ? (u32)spawnSec->name : 0u);
-						sysLogPrintf(LOG_NOTE,
-							"SPAWN: player %d spawned with weapon %d (%s) -- auto-equipped to right hand",
-							g_Vars.currentplayernum, resolvedWeaponNum, spawnName);
+					if (playerGiveSpawnWeapon(spawnWeaponIdx, resolvedWeaponNum) && grid_fiesta) {
+						fiesta_weapon = resolvedWeaponNum;
 					}
 				} else if (g_DefaultWeapons[HAND_RIGHT] != 0 || g_DefaultWeapons[HAND_LEFT] != 0) {
 					/* Catalog miss BUT INTROCMD_WEAPON gave us defaults (Co-Op,
@@ -2587,6 +2640,9 @@ enum player_chrbody_result playerSpawn(void)
 	playerUpdatePerimInfo();
 
 	if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
+		if (fiesta_weapon != WEAPON_NONE) {
+			netServerRecordGridFiestaSpawn(g_Vars.currentplayer->client, fiesta_weapon);
+		}
 		netmsgSvcPlayerStatsWrite(&g_NetMsgRel, g_Vars.currentplayer->client);
 	}
 
@@ -2779,14 +2835,29 @@ s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, bool *arg2)
 		return 1;
 	}
 
-	if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
-		outfit = OUTFIT_NEGOTIATOR;
-	}
+	/* Decision 3: a stage built from scenario source dresses the player by the
+	 * player rule of its stage.json; the stage checks stay for a ROM stage. */
+	if (bgUsesScenarioSource()) {
+		scenario_stage_player_t rule;
 
-	if (g_Vars.currentplayer->disguised) {
-		switch (g_Vars.stagenum) {
-		case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;
-		case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;
+		if (scenarioSourceStagePlayer(&rule)) {
+			if (rule.perfect_agent_outfit >= 0 && lvGetDifficulty() >= DIFF_PA) {
+				outfit = rule.perfect_agent_outfit;
+			}
+			if (g_Vars.currentplayer->disguised && rule.disguise_outfit >= 0) {
+				outfit = rule.disguise_outfit;
+			}
+		}
+	} else {
+		if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
+			outfit = OUTFIT_NEGOTIATOR;
+		}
+
+		if (g_Vars.currentplayer->disguised) {
+			switch (g_Vars.stagenum) {
+			case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;
+			case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;
+			}
 		}
 	}
 
@@ -5989,7 +6060,7 @@ void playerTick(bool arg0)
 				&& g_MissionConfig.iscoop
 				&& g_Vars.numaibuddies > 0
 				&& !g_Vars.aibuddiesspawned
-				&& g_Vars.stagenum != STAGE_CITRAINING
+				&& !lvStageIsHub()
 				&& g_Vars.lvframenum > 20) {
 			g_Vars.aibuddiesspawned = true;
 
@@ -6423,7 +6494,7 @@ void playerTick(bool arg0)
 				/* CI hub: death should fade and respawn at entry spawn via
 				 * playerStartNewLife (lvTick), not mainEndStage (full reload /
 				 * endscreen path). Solo missions still end on death. */
-				if (g_Vars.stagenum == STAGE_CITRAINING) {
+				if (lvStageIsHub()) {
 					/* no mainEndStage */
 				} else
 				// In network co-op, only the server triggers mission end.
@@ -6440,12 +6511,19 @@ void playerTick(bool arg0)
 						&& g_Vars.coop->isdead
 						&& g_Vars.coop->redbloodfinished
 						&& g_Vars.coop->deathanimfinished) {
-					mainEndStage();
+					/* B-1193: in network co-op the host ends the mission for
+					 * both players (SVC_STAGE_END); a client waits for it. */
+					if (g_NetMode != NETMODE_CLIENT) {
+						mainEndStage();
+					}
 				} else {
 					chrsClearRefsToPlayer(g_Vars.currentplayernum);
 				}
 			} else if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {
-				mainEndStage();
+				/* B-1193: as for co-op, the host ends it. */
+				if (g_NetMode != NETMODE_CLIENT) {
+					mainEndStage();
+				}
 			}
 		}
 	}
@@ -6818,7 +6896,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = playerDrawStoredFade(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
@@ -6839,7 +6917,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = nbombRenderOverlay(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
@@ -6905,6 +6983,12 @@ Gfx *playerRenderHud(Gfx *gdl)
 
 	if (g_Vars.normmplayerisrunning == false) {
 		objectivesCheckAll();
+		/* mission-flow.md: a mission graph's og.mission.end_* asked during
+		 * that check to end the mission; end it now, outside the graph's
+		 * walk, through the AI's end_level path. */
+		if (scenarioSourceMissionGraphTakePendingEnd() && debugAllowEndLevel()) {
+			func0000e990();
+		}
 	}
 
 	if (g_Vars.currentplayer->isdead) {
@@ -7136,7 +7220,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 					 * specifically means we're on STAGE_CITRAINING where
 					 * S440 intentionally skipped `mainEndStage` to keep the
 					 * hub loaded. Handle the respawn here. */
-					if (g_Vars.stagenum == STAGE_CITRAINING) {
+					if (lvStageIsHub()) {
 						struct chrdata *chr = g_Vars.currentplayer->prop
 							? g_Vars.currentplayer->prop->chr
 							: NULL;
@@ -7453,6 +7537,23 @@ void player0f0c1840(struct coord *pos, struct coord *up, struct coord *look, str
 	RoomNum tmp;
 	s32 i;
 	s32 room;
+	struct coord forgepos;
+	struct coord forgeup;
+	struct coord forgelook;
+
+	/* B-1240: while the Forge editor camera flies, the view is the editor's
+	 * own: its position, and the up and look vectors of its yaw and pitch.
+	 * The flying camera holds the player in the cutscene move mode, where
+	 * nothing refreshes the player's look vectors from its turn angle (the
+	 * walk, bike and grab ticks do that; the cutscene tick is empty), and the
+	 * third-person tick takes the turn angle from the character model and
+	 * zeroes the pitch. So the yaw and pitch the editor kept never reached
+	 * the picture. Every way a player's view is set passes through here. */
+	if (forgeCameraOverride(&forgepos, &forgeup, &forgelook)) {
+		pos = &forgepos;
+		up = &forgeup;
+		look = &forgelook;
+	}
 
 	if (rooms2 != NULL && *rooms2 != -1) {
 		portal00018148(pos2, pos, rooms2, sp54, NULL, 0);

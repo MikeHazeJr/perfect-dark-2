@@ -36,6 +36,7 @@
 #include "system.h"
 #include "modmgr.h"
 #include "net/netmanifest.h"
+#include "net/netmsg.h"
 #include "mpsetups.h"
 #include "assetcatalog.h"
 #include "asset_runtime.h"  /* c3849 Wave 6a: botprofile meta-family consumer */
@@ -307,6 +308,17 @@ void mpStartMatch(void)
 	 * local profile, normalize serialized handicaps, or reverse-resolve a typed
 	 * stage. Offline starts retain those setup conveniences before transition. */
 	if (!network_prepared) {
+		/* A Combat Challenge is for 1 to 4 human players (Mike, 2026-11-15).
+		 * A networked challenge would have to refuse at its lobby start, since
+		 * a network-prepared start is not to be changed here. */
+		if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE
+				&& mpGetActivePlayerCount() > CHALLENGE_MAX_PLAYERS) {
+			sysLogPrintf(LOG_ERROR,
+				"CHALLENGE: not started with %d players; a challenge takes 1 to %d",
+				mpGetActivePlayerCount(), CHALLENGE_MAX_PLAYERS);
+			return;
+		}
+
 		if (g_MpSetup.options & MPOPTION_AUTORANDOMWEAPON_START) {
 			if (g_MpWeaponSetNum == WEAPONSET_RANDOM
 					|| g_MpWeaponSetNum == WEAPONSET_RANDOMFIVE) {
@@ -563,6 +575,12 @@ void mpCalculateTeamIsOnlyAi(void)
 				}
 			}
 		}
+
+		/* T-NETWORKING-011: a simulant chooses scenario goals by itself only
+		 * when no human shares its team (bot.c, the commandtimer60 block). */
+		sysLogPrintf(LOG_NOTE, "BOT.TEAM: simulant %d team=%d teamisonlyai=%d players=%d chrs=%d teams=%d netmode=%d",
+			i, (s32)g_MpAllChrPtrs[i]->team, (s32)g_MpAllChrPtrs[i]->aibot->teamisonlyai, playercount,
+			g_MpNumChrs, (g_MpSetup.options & MPOPTION_TEAMSENABLED) ? 1 : 0, (s32)g_NetMode);
 	}
 }
 
@@ -1438,6 +1456,7 @@ static void mpweaponRandomCollectCb(const asset_entry_t *e, void *userdata)
 	s32 mpidx = (s32)e->mp_index;
 	if (mpidx >= 0 && mpidx < (s32)ARRAYCOUNT(g_MpWeaponSetRandomFilters)
 			&& g_MpWeaponSetRandomFilters[mpidx] == 1
+			&& !(e->temporary && netmsgGridModIsProposalOnly(e->id))
 			&& ctx->index < ctx->capacity) {
 		ctx->weapons[ctx->index++] = (u8)ctx->ui_idx;
 	}
@@ -4122,7 +4141,17 @@ s32 func0f18d0e8(s32 arg0)
 {
 	s32 i;
 
-	if (arg0 < 4) {
+	/* PC (B-1136): mpchrnums 0..MAX_PLAYERS-1 are players and simulants follow
+	 * them, as in MPCHR and func0f18d074 above. The N64 had four players and
+	 * wrote that boundary as 4, so every simulant looked up the config four
+	 * slots further on: Pop a Cap and Hacker Central never counted a
+	 * simulant's points, players 5 to 8 took a simulant's, and a JudgeSim
+	 * could not see a simulant in the lead. */
+	if (arg0 < 0 || arg0 >= MAX_MPCHRS) {
+		return -1;
+	}
+
+	if (arg0 < MAX_PLAYERS) {
 		for (i = 0; i < g_MpNumChrs; i++) {
 			if (g_MpAllChrConfigPtrs[i] == &g_PlayerConfigsArray[arg0].base) {
 				return i;
@@ -4130,7 +4159,7 @@ s32 func0f18d0e8(s32 arg0)
 		}
 	} else {
 		for (i = 0; i < g_MpNumChrs; i++) {
-			if (g_MpAllChrConfigPtrs[i] == &g_BotConfigsArray[arg0 - 4].base) {
+			if (g_MpAllChrConfigPtrs[i] == &g_BotConfigsArray[arg0 - MAX_PLAYERS].base) {
 				return i;
 			}
 		}
@@ -4560,6 +4589,24 @@ void mpApplyConfig(struct mpconfigfull *config)
 	 * whole-struct assignment from the challenge template is safe — it
 	 * does not clobber participant state. */
 	g_MpSetup = config->config.setup;
+
+	/* PC (finding 10): the challenge and preset table (mpconfigs.c) names its
+	 * stage by number; everything after this keys on the catalog id. */
+	if (g_MpSetup.stage_id[0] == '\0') {
+		const char *sid = catalogStageIdByStagenum(g_MpSetup.stagenum);
+
+		if (sid) {
+			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPCONFIG: no map catalog entry for config stagenum=0x%02x",
+				g_MpSetup.stagenum);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "MPCONFIG: applied '%s' scenario=%d stage='%s' stagenum=0x%02x limits=%d/%d/%d",
+		g_MpSetup.name, g_MpSetup.scenario, g_MpSetup.stage_id, g_MpSetup.stagenum,
+		g_MpSetup.timelimit, g_MpSetup.scorelimit, g_MpSetup.teamscorelimit);
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		g_BotConfigsArray[i].type = config->config.simulants[i].type;

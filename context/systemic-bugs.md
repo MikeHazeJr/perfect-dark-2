@@ -1,5 +1,40 @@
 # Systemic Bug Patterns - Architectural Issue Catalog
 
+2026-11-18, N-0972. Check the complete archive inventory at both offer
+entry points. The host and a proposing client now use the same typed
+member check as the receiving side before requesting transfer consent.
+Nested packages must have exact supported native member paths.
+
+2026-11-18, N-0973 through N-0979. Reconstruct live placement edits
+from the exact approved draft when applying geometry. Preserve each
+eligible decoration's pad through reopen and check native starts, paths,
+waypoints and links before moving it. Check the resident prop and its
+supporting floor before swapping the prepared layout. The focused native
+fixture verifies only the intended pad and bounds members changed.
+
+2026-11-18, N-0968. Treat an unbound native position as a rigid transform.
+The public hierarchy uses part -1 for a node that follows its parent
+without an animation channel. The native compiler stores that convention
+as unsigned 65535. The optimized animation matrix evaluator used it as a
+decoded-frame index; the same character crashed in the installed and
+temporarily mounted worlds. Keep the static local offset, and validate
+both direct and mirrored channel indices before reading frame scratch.
+
+2026-11-18, N-0955. Check the runtime model slot for typed placements.
+A standalone original mesh can validate and compile while a native setup
+prop still resolves to model -1. Check both installed and leased catalog
+paths through native setup. The shared private model and source-file
+binder now reserves both identities for exact standalone originals.
+Managed receipt 653e2159 shows the placed mesh in different real slots on
+host and guest, then after the guest's offline variant restart.
+
+2026-11-18, T-NETWORKING-013. Check both bounds on archived data spans.
+Extraction and enumeration share the archive's actual byte count. Validate
+the full local header, compressed range, and central directory cursor before
+reading or inflating. Use widened offsets or checked subtraction. Expansion
+budgets limit output size and complement the input range checks. The Grid
+review path applies both checks before probing received native source.
+
 N-0829 Debug-only source guards are not production source enforcement. Inspect default gating and caller continuations: gun loading accepted non-file provider continuation while Debug.AssetSourceOnlyType was ASSET_NONE. Owned route now fails unsupported sources; global provider code unchanged. Dead legacy path cleanup and runtime proof remain open.
 
 N-0826 Budgeted-loop cursor ownership: commit persistent progress before an early budget return; otherwise the last processed entry is revisited. bgunTickGunLoad TEXTURES corrected in source; exact-multiple completion timing preserved. Full-width pointer-union and callback reads must survive graph conversion; regression execution deferred until ALL conversion.
@@ -3473,6 +3508,224 @@ or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
 
 ---
 
+## SP-76: A reader takes a present but unreadable field for an absent one
+
+**Severity: HIGH - the value silently becomes zero and nothing downstream can
+tell, so a whole mechanic can be dead while every load line looks normal.**
+
+Public source readers treat most fields as optional: `if (read(...)) { use }`,
+with a zeroed default otherwise. That is right for a field that is absent. It
+is wrong when the field is present and the read fails, because then the
+author's data is dropped without a word. The failure mode needs no malformed
+file: it is enough that the writer and the reader disagree about the shape of a
+value they both consider valid.
+
+**Known instance (B-1114, 2026-11-14):** the extractor writes a room light's
+quad as four nested corners, `"bbox": [[x, y, z], [x, y, z], ...]`. The loader
+added for B-943 read it with `s_jsonReadIntArrayInRange`, which expects a flat
+array and returns 0 at the first inner `[`. Every one of the 3,398 campaign
+lights kept an all-zero quad, so no light could be shot out. B-943 was accepted
+on source pins that checked the member was written and a loader existed. The
+defect was found by a cross-check between two independent tables (a light quad
+must lie inside its room's authored box), not by any test of the reader.
+
+**Rules:**
+
+- A reader that makes a field optional must tell "absent" from "present but
+  unreadable", and report the second (see `without_quad` in
+  `scenarioSourceLoadRoomLightsForStage`).
+- When an extractor and a loader are written for the same member, check one
+  real extracted value end to end at runtime. A pin that the writer and the
+  reader both exist proves nothing about their agreement.
+- Prefer a load-time consistency check between independent authored tables over
+  a count of rows read. `outside_room=` is the model: it cannot pass by
+  accident.
+
+**Audit:** for every optional read in a public source loader, ask what the
+consumer does with the zero default and whether a present field can fail to
+parse. Start with nested values and values that changed shape in the extractor.
+
+`rg -n "if \(s_jsonRead\w+\(obj_open, obj_close" port/src/scenario_source_runtime.c`
+
+`rg -n "\[%d, %d, %d\]|\[%\.6f, %\.6f, %\.6f\]" port/src/romextract_pdarena.c`
+
+---
+
+## SP-77: The scenario-source path stands in a derived value for an authored table
+
+**Severity: HIGH - play differs from the original in every extracted stage, in
+ways that look like content quirks rather than defects.**
+
+The legacy stage loader (`bgBuildTables` in `src/game/bg.c`) fills its room
+tables from the background file. The scenario-source loader
+(`bgBuildScenarioSourceTables`) rebuilds the same tables from public source.
+Where public source did not carry a table, the rebuild used something
+derivable (or a constant), and the game ran on with it.
+
+**Known instances (2026-11-14):**
+
+- Room boxes derived from collision triangles instead of the authored boxes
+  (B-1113): pads outside the tighter boxes got no room and 44 campaign props
+  were never created, among them an objective object.
+- Room origins left at zero while light quads are stored relative to them
+  (B-1114): every light sat away from its fixture.
+- Room brightness range set to the constant 255/255 instead of the authored
+  128/255 (B-1115): a darkened room stayed about twice as bright.
+
+All three now come from the scenario member `rooms.json`.
+
+**Still open, same class (found by reading, 2026-11-14, not yet measured):**
+
+- `g_BgCommands = NULL`: the background file's command list is not in public
+  source (what it controls on this path is not yet measured).
+- `g_BgStanThings = NULL`.
+- Light glares and the sparks of a broken light: `src/game/artifact.c` needs
+  the room graphics data (`gfxdata`) this path does not load, and returns
+  early without it.
+- Sky rooms: `roomPopulateMtx` (`src/game/room.c`) draws a handful of rooms
+  relative to the camera using the room origin, which is zero on this path.
+
+**Rule:** when the scenario-source loader has no source for a table the legacy
+loader fills, that is a missing public member, not a default. Add the member to
+the extractor, and until it exists log the stand-in at stage load so the gap is
+visible in every run.
+
+**Audit:** walk `bgBuildTables` table by table and find the line in
+`bgBuildScenarioSourceTables` that fills the same field; anything filled with a
+constant, a zero or a value computed from other source is a candidate. Do the
+same for the setup and pad loaders.
+
+`rg -n "g_Bg[A-Za-z]+ = NULL;|= 0xff;|memset\(g_Bg" src/game/bg.c`
+
+---
+
+## SP-78: One copy of a path rule is fixed, its sibling copies are not
+
+**Severity: HIGH - isolation and save bugs that a fix "already closed" keep
+happening through the copies nobody touched.**
+
+The client spells some path rules in several places: the list of `mods/`
+roots, and the name a config save is written to. When one copy was fixed the
+others kept the old rule, and because the fixed copy is the one that gets
+tested, the bug looks closed.
+
+**Known instances (found 2026-11-14, B-1160):**
+
+- B-1031 made an explicit `--moddir` the only mod root in modmgr. The font
+  loader, both theme scanners and the migration bench kept their own copies
+  of the discovery list and still walked `$E/../mods`, `./mods`, `$E/mods`
+  and the base `mods`. Fixed: one list, `fsModRoots` in `port/src/fs.c`.
+- The main menu's settings save was moved to `configSave(CONFIG_PATH)`, and
+  a test forbids the bare name there; thirteen other menu saves kept
+  `configSave("pd.ini")`, which resolves like a read and wrote the base
+  folder. Fixed: every caller names `CONFIG_PATH`, `configSave` refuses a
+  bare name, and a static test scans all of `port/` and `src/`.
+
+**Rule:** a path rule lives in one function, and a test scans the whole tree
+for a second spelling of it, not only the file that was fixed.
+
+**Search:**
+- `rg -n 'configSave\("[^$]' port src`
+- `rg -n '"\$E/\.\./mods"|"\$E/\.\./" MODMGR_MODS_DIR' port src` (only `port/src/fs.c`)
+- `rg -n 'fsFullPath\("[a-z]' port src`, then check each hit is a read, not a write
+- `rg -n 'fsFileOpenWrite\(' port src`, then check each name has a `$` root or is absolute
+
+---
+
+## SP-79: A graph helper returns the failure logger's "handled" as "satisfied"
+
+**Severity: MEDIUM - refusals that are logged but not honoured; mostly benign
+today, occasionally a NULL or out-of-range value carried forward.**
+
+In `port/src/scenario_source_runtime.c` the AI graph twins answer 1 for
+"handled" (skip the native handler) and 0 for "not mine". The failure logger
+`s_aiGraphRuntimeFailure` therefore returns 1, so a twin can write
+`return s_aiGraphRuntimeFailure(...)` to refuse. The `s_aiGraphRequire*` and
+`s_aiGraphResolve*` helpers use the opposite sense: 1 means "the requirement
+holds, go on". Wherever such a helper writes `return
+s_aiGraphRuntimeFailure(...)`, the warning is logged and then the caller is
+told the requirement holds.
+
+**Known instances (found 2026-11-14 by the pad-check audit, counted the same
+day):** 73 such returns in 32 helpers, among them
+`s_aiGraphRequireRuntimeCharacterPointer` (a NULL chr or a chr with no prop
+"passes"), `s_aiGraphRequireRuntimePathPointer`, the non-loop branches of
+`s_aiGraphRequireRuntimePathPads`, `s_aiGraphRequireRuntimeSceneRooms`, the
+vehicle, chopper, player and gun-prop pointer helpers, and the `*Node`
+helpers (a missing graph node "passes"). `s_aiGraphRequireRuntimePad` and
+`s_aiGraphRequireRuntimePadTable` are correct: they log, then return 0.
+
+**Why it is not fixed in one sweep:** making a helper return 0 changes what
+each caller does next (some fall through to native, some refuse), and some
+callers depend on today's behaviour (a background script's blank chr has no
+prop and "passes" the character check, which matches what native does). Each
+helper needs its callers read before its failure sense changes.
+
+**Status (2026-11-15, B-1167): fixed.** All 90 such returns in 40 helpers
+(the 73 counted above, 16 in the seven `s_ai*GraphReady` helpers and one in
+`s_aiGraphRegisterSourceSpawnedChr`) now log and return 0, or -1 for the
+three-way `s_aiGraphRequireTargetMovementNode`; the ten `if (!x)` callers of
+the three -1 node helpers read -1 as a refusal. Two branches keep going on
+purpose and say why: the character pointer's "not source-derived" (co-op AI
+buddies and tiny-mode extras have no provenance yet) and the spawn registry's
+full table (the chr is already spawned; falling to native would spawn it
+twice). `tests/test_graph_helper_failures_static.cpp` fails on any new
+`return s_aiGraphRuntimeFailure(` inside a requirement helper.
+
+**Rule:** inside a requirement helper, log with `s_aiGraphRuntimeFailure(...)`
+and then `return 0;` on its own line; reserve `return
+s_aiGraphRuntimeFailure(...)` for the twins themselves.
+
+**Search:**
+- `awk` over the file tracking the enclosing function, counting `return
+  s_aiGraphRuntimeFailure(` inside `s_aiGraphRequire*` / `s_aiGraphResolve*`
+  (the count above).
+- `rg -n 'return s_aiGraphRuntimeFailure\(' port/src/scenario_source_runtime.c`
+
+---
+
+## SP-86: An export version moves but the folder fast cache that skips it does not
+
+**Severity: HIGH when it hits - the new extractor runs, reports success, and
+writes nothing, so a base made with it silently keeps the old output.**
+
+An extractor that stamps each archive with an export version and also keeps a
+whole-folder fast cache (`romExtractPdFastCacheCanSkip` with its own
+`*_FAST_CACHE_KIND`) checks the folder stamp first. If a change bumps only the
+per-archive version, the folder skip still matches (same kind, same file
+count, sizes and times) and the per-archive check never runs.
+
+**Known instances:**
+
+- B-1154 follow-up (fixed 2026-11-16, `week-pd/core`): the mesh export version
+  gained `_texscale_b1154` but `ROMEXTRACT_PDMESH_FAST_CACHE_KIND` did not, so
+  the first base 7 kept all 733 meshes at render schema v3 (its mesh census
+  showed no texture rows). The kind is now built from the export version
+  label, so they cannot drift again.
+- Checked, not affected: arenas and scenarios share one skip that needs both
+  kinds to match, so a scenario kind bump rewrites the arenas too; bodies,
+  heads, characters and weapons have no folder skip and compare each nested
+  mesh copy with the current mesh archive.
+
+- B-1250 (fixed 2026-11-16, `week-pd/core`), the other direction: the
+  pdscenario kind grew to 525 chars while the stamp readers read 511, so the
+  stored kind never matched and every launch re-extracted every scenario. The
+  readers now hold 2047 chars and the writer refuses a longer kind loudly.
+- P-001 follow-up (2026-11-18): the separate `.pdextract-clean` reader still
+  accepted only 511 characters of a 593-character scenario kind. Both family
+  stamps hit, but every warm launch repeated the expensive content checks.
+  The marker reader and writer now share the complete serialized record.
+
+**Rule:** a folder fast-cache kind must change whenever anything its skip
+vouches for changes, and it must round-trip through its stamp unchanged. Build the kind from the version macros it depends on
+instead of keeping two strings in step by hand, and after any extractor
+change, check the census of what a fresh base actually holds, not just that
+the run passed.
+
+**Search:**
+- `rg -n 'FAST_CACHE_KIND|EXPORT_VERSION' port/src/romextract_*.c`, then for
+  each extractor with both, check that the kind changes with the version.
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
@@ -3528,6 +3781,12 @@ King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
 pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
 (`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
 setup objects.
+- B-1253 (fixed 2026-11-16, `week-pd/core`), the other direction: a bridge for
+  data the old arena setups lacked kept running after the source changed. The
+  SP-in-MP overlay (`setup.c`, B-228) brought a campaign stage's lifts into its
+  arena because the ROM's arena setups had none; on scenario source the arena
+  loads the campaign scenario itself, so the main pass already had them and the
+  overlay created every lift a second time (Infiltration 4 -> 8).
 
 **Rules:**
 - Never `% count` or index a bank without checking the count first; never
@@ -3542,6 +3801,10 @@ setup objects.
   plays on such arenas is Mike's call per mode (approved for Hacker Central).
 - A scenario smoke asserts that its objects were placed on real pads, not only
   that the match started and ended.
+- When what an arena loads changes (ROM setup blob -> scenario source), re-check
+  every bridge that fills in what the old data lacked: once the new data
+  carries it, the bridge duplicates it. A smoke counts the objects the bridge
+  is about.
 
 **Search:**
 - `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`
@@ -3549,9 +3812,664 @@ setup objects.
 - `grep -n "while (padnum <= 0)\|while (.*== previndex)" src/game/mplayer/scenarios/*.inc`
 
 **Audit checklist:** for each scenario, its init and respawn paths with (a) no
-intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
-Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
-open in B-1126.
+intro case or hill pads, (b) no multiplayer ammo crates, (c) both. All four are
+fixed: Hacker Central (B-1125, 86de8e08), Capture the Case, King of the Hill
+and Hold the Briefcase (B-1126, dbc660f1); local smokes on Complex assert
+placement on real pads.
+
+## SP-81: A client read handler rejects a message by stopping the packet
+
+**Severity: MEDIUM - reliable messages are lost without a trace beyond one
+warning, and whichever message follows the rejected one decides the damage.**
+
+The client receive loop (`netClientEvReceive`, `port/src/net/net.c`) reads
+messages while `rc == 0`. A handler that returns nonzero ends the packet, so
+every later message in it is dropped. That is right for malformed bytes,
+because the reader can no longer tell where the next message starts. But
+many handlers also return 1 for a well-formed message they decline: a prop or
+character this client does not have, or a message that arrives before the
+client is in the game. A rejection that should cost one message costs the
+rest of the packet.
+
+**Known instances (2026-11-15):** B-1131. There are 14 handlers with
+`return src->error ? src->error : 1;` in `netmsg.c`, plus plain `return 1;`
+rejections. Before B-1129, the likely live trigger was `SVC_PROP_PICKUP` for
+a weapon a simulant dropped. A client made that weapon itself, with sync id
+0, so the host's sync id never resolved.
+
+**Rules:**
+- A read handler reads its whole message before it decides anything.
+- After a complete read, a declined message returns 0 and logs why. Only
+  `src->error`, or a message whose length cannot be known, stops the packet.
+- A handler that returns early must not have read part of its message.
+  `netmsgSvcPropSpawnRead` does both today: it returns 1 before reading its
+  weapon fields, so it cannot be switched to return 0 as it is.
+
+- Worse than a stop: a return of 0 before the last read leaves the tail to be
+  read as the next messages (a desync). Four in-match readers did that
+  (B-1131).
+- A writer that sends a field only on a condition the reader cannot see
+  (for example, a pointer being non-NULL) breaks the reader the same way.
+  The condition has to be on the wire.
+- The reconnect, auth and vehicle state readers fail closed on purpose: a
+  nonzero return there triggers the dispatcher's terminal disconnect. Do not
+  switch them to 0.
+- A count on the wire is the number of rows that follow. A writer that writes
+  a count and then skips rows (`continue`, `break`), or writes a short
+  placeholder row the reader cannot tell apart, breaks the reader the same
+  way. Count first, then write exactly those rows.
+- A return inside a row loop is a return before the last read, even when it
+  sits after the row's own reads.
+- Several messages can share one packet on purpose: the resync transaction
+  (`netServerPublishPendingResyncs`, `net.c`) sends character, prop, score
+  and NPC resyncs, the NPC digest, stage flags, objective statuses and the
+  scenario baseline together, so one short row garbles all that follow it.
+
+**Search:**
+- `grep -n "src->error ? src->error : 1\|return 1;" port/src/net/netmsg.c`
+- For each hit, check that every field of the message was read before that
+  return.
+- `audit_readers.py` (MULTIPLAYER session scratchpad, 2026-11-15) lists every
+  `netmsg*Read` with a return before its last buffer read: 27 readers, most
+  on purpose or on a broken buffer. It does not see returns inside row loops;
+  list those by looking for `return` at loop depth in each reader.
+- `audit_count_writers.py` (same scratchpad) lists every `netmsg*Write` that
+  writes a count and then has a `continue` or `break` in its row loop.
+
+**Audit checklist:** for every client and server read handler, (a) does it
+read the full message before any return, and (b) does a semantic rejection
+return 0? Done: `netmsgSvcBotPickupRead` (B-1129); `netmsgSvcPlayerStatsRead`,
+`netmsgSvcPropMoveRead` and `netmsgSvcChrDisarmRead` (with its writer) read
+first; `netmsgSvcPropPickupRead`, `netmsgSvcPropUseRead` and
+`netmsgSvcChrDamageRead` skip with 0 (B-1131); `netmsgSvcPropSpawnRead` parses
+its whole row before it decides or allocates, skips outside a reconnect and
+fails closed inside one, and its writer puts the projectile condition on the
+wire (B-1131, second pass). Third pass (B-1131): the character resync writer
+counts and writes whole rows only, the character and prop resync readers read
+every row before skipping, the score writer counts the rows it sends, the NPC
+resync declines an incomplete snapshot with 0, and `CLC_ADMIN` consumes a
+rejected command's arguments and stops on an unknown subcode. Checked and left
+on purpose: the catalog and distribution readers (reconnect control, fail
+closed), `CLC_MANIFEST_STATUS` (always its own packet; security pin),
+`CLC_BOT_MOVE` (security pin; stops without desync), the room list, room
+settings and playlist readers. The only dispatched readers outside `netmsg.c`
+are the two move readers in `net_player_move_ingress.c`; both read their whole
+message first. Nothing open.
+
+## SP-82: The N64 player count is written as a literal 4
+
+**Severity: MEDIUM - wrong participant, silently; the score, target or team
+goes to someone else or to nobody.**
+
+The N64 game had four players, and the decompiled code often writes that
+count as the number 4 instead of `MAX_PLAYERS`. The port has 8 players, and
+its mpchrnums put players at 0 to `MAX_PLAYERS - 1` with simulants after
+them (`MPCHR` in `constants.h`). Code that still splits players from
+simulants at 4, or offsets simulants by 4, reads the wrong config: simulant 0
+becomes simulant 4, and players 5 to 8 become simulants 0 to 3. Nothing
+crashes, so the result just looks like "simulants score nothing" or "player 6
+has someone else's points". Related to SP-1 (player-sized arrays indexed by
+simulant numbers) and SP-2 (modulo aliasing), but the cause is a literal, not
+an array size.
+
+**Known instances (2026-11-15):** B-1136, `func0f18d0e8` (`mplayer.c`):
+Pop a Cap and Hacker Central scores, JudgeSim targeting and Capture the Case
+team bits. Fixed.
+
+**Not fixed (lower impact, recorded 2026-11-15):**
+- `mplayer.c` default player bodies: players 4 to 7 get player 0's default
+  body (cosmetic).
+- `mplayer.c` lock winner and loser (`mpGetPlayerRankings`, `chrnums[j] < 4`):
+  only players 1 to 4 count for the "last winner" and "last loser" locks.
+- `mplayer.c` local awards (`numplayers >= 4` chains): built for up to four
+  local players.
+
+**Fixed later the same day:** the team counts over 4 bits (B-1138): the
+match-start orchestrator now has one sector per active team up to
+`MAX_TEAMS`, and the respawn helper `playerMpResolveTeamSpawnParams` counts
+every team bit and passes the team's place among the active teams as its
+sector.
+
+**Rules:**
+- The player/simulant boundary in an mpchrnum is `MAX_PLAYERS`, and a
+  simulant's config is `g_BotConfigsArray[mpchrnum - MAX_PLAYERS]`. Use
+  `MPCHR()` where it fits.
+- A loop over teams runs to `MAX_TEAMS`, or to `scenarioGetMaxTeams()` when
+  the scenario limits them.
+
+**Search:**
+- `grep -rn "\- 4\]\|< 4)\|>= 4)\|i < 4; i++" src/game/mplayer src/game/bot*.c src/game/mplayer/scenarios`
+- Most hits are 4-vertex or 4-corner loops; read each and keep only those
+  that index players, participants or teams.
+
+**Audit checklist:** for each hit, (a) is the 4 a player count, a
+player/simulant boundary or a team count, and (b) would 8 players or 8 teams
+reach past it? Done: `func0f18d0e8` (B-1136) and the two team spawn paths
+(B-1138). Open: the three lower-impact `mplayer.c` sites above.
+
+## SP-84: A process clears its own player link while its stage is still drawn
+
+**Severity: HIGH - the process's whole global tick stops, and the world can
+keep running from the render pass.**
+
+Since B-1090, `mainTick` (`port/src/pdmain.c`) runs `lvTick`, and with it
+`menuTick`, `scenarioTick`, music and the pause gate, only when
+`playermgrRestoreLocalPlayerContext()` finds this process's player through
+`g_NetLocalClient->player`. `lvRender`'s `propsTickPlayer` and the per-player
+`lvTickPlayer` run either way, with the last `g_Vars.lvupdate240` that
+`lvTick` computed. So a process that clears its own link while its stage is
+still drawn loses its menu tick and pause gate, and when its last `lvTick`
+was not paused, chrs, simulants and objects keep simulating at that rate.
+The log shows `GLOBAL.TICK: deferred; receiver-local player context is not
+committed` once.
+
+**Known instances (2026-11-15):** B-1190 part 2 (a client's MP stage end,
+`netmsgSvcStageEndRead`: its results waited for a disconnect) and B-1195 (the
+listen host's `netmsgSvcStageEndCommit`: simulant AI ran under the results
+and divided by zero after Continue). Both fixed: a process keeps its own link
+at the stage end, and the next stage's player allocation replaces it.
+
+**Safe only by order (recorded 2026-11-15):** `pdguiEndscreenExitToRoom`
+clears every co-op and counter-op link, the local one too, so a networked
+mission's Return to Room defers the global tick until the next stage. The
+last `lvTick` ran under the paused results, so the kept update is 0 and the
+mission stays frozen; a change that unpauses before that clear would run the
+mission behind the Room.
+That happened on 2026-11-16 through a disconnect (B-1201): with `g_NetMode`
+reset, the client's global tick ran again, unpaused, and its suppression
+of co-op NPC AI no longer applied. A disconnect now leaves such a stage
+for CI and freezes it until CI loads.
+
+**Not checked:** a spectator client (`CLFLAG_SPECTATOR`) is never given a
+player; if it loads the stage, its global tick is deferred all match.
+
+**When fixing an instance:** the deferred tick also hid code that runs
+again once the link is kept. Restoring the host's tick (B-1195) brought back
+`menuTick`'s offline results close, which loaded CI as a networked host and
+rolled its player setup back to the title (B-1197). After restoring a
+process's tick, check what `lvTick` and `menuTick` do in that state.
+
+**Rules:**
+- Do not clear `g_NetLocalClient->player` while this process's stage is still
+  loaded and drawn; the next player allocation replaces it.
+- Code that retires match state while the stage stays loaded (for example
+  `mpClearRuntimeChrState` in the results exit, B-368) leaves whatever still
+  ticks inert, not only paused (the `botTick` gate of B-1195).
+
+**Search:**
+- `grep -rn "player = NULL" port/src/net port/fast3d`, then check each loop
+  over `g_NetClients` for an `ncl == g_NetLocalClient` skip.
+- `grep -n "GLOBAL.TICK: deferred" pd-host.log pd-client.log`: one per stage
+  start is normal; one after a stage end or a results exit is this pattern.
+
+**Audit checklist:** for each hit, (a) can it clear this process's own link,
+and (b) is the stage still loaded and drawn afterwards? Done: both MP stage
+end paths (B-1190, B-1195). Open: the co-op and counter-op results exit (safe
+while it stays paused), spectators.
+
+## SP-85: A prop made after the stage start has a sync id only on the host
+
+**Severity: HIGH - the client cannot see, place or pick up what the host
+refers to, and nothing crashes, so it looks like a missing item or an
+invisible enemy.**
+
+`netSyncIdsAllocate` gives every prop that exists at the stage start the same
+id on each machine (slot index + 1). After that, `propAllocate` gives each new
+prop `g_NetNextSyncId++` on the host and 0 on a client (`prop.c`). A host
+message that names such a prop reaches a client only if a spawn message named
+it first (`SVC_PROP_SPAWN`, objects only) or the client gave its own copy the
+same id. Otherwise the client logs `NET: prop with syncid N does not exist`
+(or its reader's own skip line) every time.
+
+**Known instances (2026-11-16):**
+- B-1194: simulants pick up copies of the match's rolled spawn weapon that
+  carry dynamic ids no client knows; a client skips every such pickup.
+  Named and fixed in code: they are disarmed simulants' own held models
+  (`botDisarm` drops the right-hand model after clearing `weapons_held`, so
+  the held-slot announcement missed it), and the client's puppet ran the same
+  disarm through `SVC_CHR_DAMAGE` and dropped an unnumbered copy. The chr drop
+  block now announces every dynamic-id weapon the drop puts in the world,
+  whatever path marked it, and the puppet retires its model instead.
+- B-1196: a guard the host's AI clones or spawns (`try_spawn_clone2` 0x00ca,
+  `spawn_chr_at_pad`/`_at_chr`) exists only on the host; the client got its
+  `SVC_NPC_MOVE` 20 times a second and never saw it. Fixed in code: the host
+  announces such a chr with `SVC_NPC_SPAWN` (its weapons and hat included)
+  before its moves, and the client makes it under the same ids. Open: a
+  reconnecting co-op client does not get chrs made before it rejoined.
+- B-1206 (the removal case): a chr the host removes (`aiRemoveChr`, a faded
+  or reaped corpse, anything through `chrTick`'s `CHRHFLAG_DELETING` branch)
+  stayed on a co-op client, whose NPC AI and actions never run, and every NPC
+  snapshot after that was refused for its count. Fixed in code: the host
+  announces each removal (`SVC_NPC_REMOVE`, with whether the chr's items
+  dropped) and the client removes its copy at once; a snapshot also removes
+  any NPC of the client's that it does not name, for removals made while the
+  client was still loading.
+  Follow-up (SP-91): the message was written in `chrTick` and dropped on
+  frames that discard the game tick's messages; it is now queued and sent
+  from the ACTIVE entity broadcast.
+- B-1209: scenario props the host makes during the match: Hacker Central's
+  new uplink after each carrier's death (`htbCreateUplink` from `htmTick`)
+  and Hold the Briefcase's new case (`htbCreateToken` from `htbTick`). A
+  client runs neither, so it never saw them and skipped every simulant
+  pickup of the uplink. Fixed in code: `scenarioNetAnnounceProp` sends
+  `SVC_PROP_SPAWN` and `SVC_PROP_MOVE` right after the host makes one.
+
+**Rules:**
+- A prop the host creates at run time that clients must see or act on is
+  announced with its id (a spawn message), or made by the client only from
+  that announcement.
+- A prop both machines create at run time (held models, effects) stays local
+  on each, and is never handed to the world under an id; when it becomes a
+  world item, the host announces it and the client retires its own copy.
+- What the host alone decides to remove (a chr whose AI or actions run only
+  on the host) is announced too; a full snapshot is the host's list, so a
+  client drops what it does not name.
+
+**Search:**
+- `grep -n "first dynamic syncid\|does not exist\|client skipped" pd-*.log`:
+  an id at or above the first dynamic id is this pattern.
+- `grep -rn "propAllocate()\|chrGiveWeapon(\|weaponCreateForChr(" src/game`
+  and check each run-time caller: who creates it, and how a client learns its
+  id.
+
+**Audit checklist:** for each run-time prop, (a) is it created on the host
+only, on both, or on the client only, and (b) does any host message name it
+by id? Done: player drops (`weaponCreateForPlayerDrop`), simulant inventory
+drops (`botinvDrop`), every weapon a chr's drop block puts in the world (held
+weapons through `chrBeginDeath`, a disarmed simulant's gun through `botDisarm`,
+concealed items; B-1194, in code), AI chr spawns and clones with their weapons
+and hats (B-1196, in code), chr removals through `chrTick` (B-1206, in code;
+the counter-op takeover in `player.c` removes a guard outside it, covered only
+by the snapshot sweep). Scenario props made during the match (B-1209, in code: Hacker
+Central's uplink, Hold the Briefcase's case; Capture the Case makes its cases
+only at the stage start). Note for new drop paths: the `chrTick` drop block
+covers any weapon marked with `objSetDropped` that is still the chr's child,
+but a path that creates and places a prop itself (as `botinvDrop` does with
+`objDrop`) must announce it. Open: reconnect for B-1196's chrs; a client-side
+run of another host-only effect through `SVC_CHR_DAMAGE` (`chrDamage` runs in
+full on a client); whether a co-op client drops a guard's held weapons at its
+death (not checked; the host's drop of an initial-id weapon names an id the
+client already has, so its spawn is declined and only the move applies).
+
+## SP-87: Per-frame work inside a pass that runs once per player
+
+**Severity: HIGH in networked play - timers, AI and scores run N times as
+fast with N players, and nothing looks broken offline (one player, one
+pass).**
+
+`lvRender` runs its per-player pass for every player of a networked match
+(`if (g_NetMode) forcesingleplayer = false;`), as it does for each
+split-screen viewport, so `propsTickPlayer` and everything it calls runs once
+per player each frame. The original marks every prop `PROPFLAG_NOTYETTICKED`
+on the frame's first pass (`currentplayerindex == 0`) and does per-frame work
+only while the mark is set: `chrTick` and `objTickPlayer` clear it into their
+`fulltick`. Work outside such a gate runs on every pass.
+
+**Known instances (2026-11-16):**
+- B-1202: `botTick` read `lvupdate240` alone (41431a3d), so a simulant's AI,
+  turning, scenario points and pickups ran once per player. Fixed in code:
+  the gate reads the mark again, before `chrTick` clears it.
+- Not fixed, cosmetic: the surface-locomotion blend at the end of `chrTick`
+  (`surface_blend_frames--`, `chrSurfaceLocoTick`) runs outside `fulltick`, so
+  a chr that uses it blends N times as fast on a networked machine (CORE's
+  area; left as it is).
+- Fixed in code 2026-11-16 (option (b), CORE agreed; was open for Mike and CORE): the scheduler's own time accounting.
+  `propsTickPlayer` adds the frame's `lvupdate240` to every prop's
+  `propupdate240` and every slot's `slotupdate240`, and advances
+  `runstateindex`, on every pass, and a background prop's tick spends the
+  accumulated time. So a prop in no player's view gets N times the elapsed
+  time (a simulant out of view acts twice as fast with two players; so does a
+  co-op guard out of view on the host). The original split-screen game works
+  the same way, so this is original behavior there, but a networked match
+  runs a pass for every remote player as well. Options: (a) leave it;
+  (b) in a networked match, add the time and advance the slot on the frame's
+  first pass only, and skip background ticks on later passes, so every prop
+  gets real time as offline (recommended; split screen unchanged); (c) the
+  same for split screen too (departs from the original).
+  Done as (b): `netrepeatpass` in `propsTickPlayer` (`[sp87]` pins it).
+
+**Rules:**
+- Per-frame work in a prop tick waits on `PROPFLAG_NOTYETTICKED` (or the
+  tick's `fulltick`), read before anything in the same tick clears it.
+- Per-player work (what one player sees, that player's HUD) is the only work
+  that belongs on every pass.
+
+**Search:**
+- `grep -n "lvupdate240 != 0\|lvupdate60" src/game/*.c` inside functions that
+  `propsTickPlayer` reaches, and check each against the mark.
+- A networked log with `BOT.TICK: simulant N passed again in one frame` shows
+  the passes; scores or timers that beat the clock (a Hold the Briefcase point
+  in under 30 s held) point here.
+
+---
+
+## SP-88: A public key's name states a unit its consumer does not use
+
+**Severity: LOW to MEDIUM - nothing crashes and the data validates, but an
+author who trusts the name gets a value 4 or 60 times off.**
+
+A public key (a graph param, a physics key, a parser alias) carries its unit in
+its name (`_ticks60`, `_ticks240`, `time60`, `timer60`), and the code that reads
+it meets a counter in another unit, or the value is not a time at all. Base
+data carries the original's literal, so the game behaves as the original; only
+a new author is misled.
+
+**Known instances:**
+
+- B-1230 (MODS's row, open, CORE's call): `physics.json` `boost_time_ticks60`
+  caps `maxspeedtime240`, which adds `lvupdate240`, so the value is in 240 Hz
+  ticks (the base hoverbike's 2400 is the original's 10 s ramp, `TICKS(2400)`).
+- B-1178 (fixed 2026-11-16, `week-pd/core`): `entity.autogun`'s
+  `beam_interval` is a shot count (`firecount % beaminterval`), but the graph
+  compiler's name rule (`keyNeedsUnit`: any key containing `interval`,
+  `timer`, `duration`, `cooldown` or `_time` needs a unit suffix) refused it,
+  so authors had to write `beam_interval_ticks60`. The same trap from the
+  other side: a name heuristic that decides a key is a time.
+- Checked, not affected: every other `_ticks60` field in
+  `weapon_graph_runtime.h` reaches a 60 Hz field (`timer60`, `recoverytime60`,
+  `activatetime60`, `duration60`) or `weaponGraphTicks60To240`.
+
+**Rule:** a key that names a unit is read in that unit and converted in one
+place, and its test uses a value whose unit matters. When a name is wrong,
+rename it in a schema version or refuse the old name; do not document the
+trap. A rule that infers a unit from a key's name lists every key it catches
+and each is checked against its reader (`timer_starts` and `beam_interval` are
+the exemptions today). New public time values take `{value, unit}` (the weapon
+module rule).
+
+**Search:**
+- `rg -o 'heldParam[A-Za-z]*\(ir, node, "[a-z0-9_]+"' port/src/weapon_graph_runtime.c`
+  and keep the keys that match `keyNeedsUnit` without a unit suffix: each must
+  be a time or exempt.
+- `rg -n -o '[a-z_]*(ticks60|ticks240|time60|timer60)' port/include/*.h`, then
+  for each public field `git grep -n -E '(->|\.)<field>\b' -- src port/src` and
+  check the counter it meets (`lvupdate60`, `lvupdate240`, a frame or shot
+  count).
+
+---
+
+## SP-89: A bulk writer forces every file to disk one at a time
+
+(First numbered SP-80 by CORE; MULTIPLAYER had claimed SP-80 first, for
+scenario setup that assumes the arena brings its own placement data, so
+this one was renumbered on 2026-11-16 when dev brought theirs in.)
+
+**Severity: MEDIUM - correct but slow; on a 7200 rpm disk a forced flush plus
+a write-through rename costs about 100 ms per file, so a writer that
+publishes thousands of files takes many minutes.**
+
+The durable publish (write a temp file, `_commit` / `fsync` it, then
+`MoveFileEx(... MOVEFILE_WRITE_THROUGH)`) is right for one file a person
+made: a save, a settings file, an authored mod. Inside a loop over thousands
+of files the game can rebuild, it makes the disk seek for every file. On NVMe
+the same pattern costs about 2 ms per file, so it only shows on a hard disk.
+
+**Known instances:**
+
+- B-1110 (fixed 2026-11-15): first-launch extraction published about 5,600
+  archives through `modArchiveFinish`. Now `modArchiveBeginDerived`, and one
+  `modArchiveDerivedBarrier` per directory before its cache stamp.
+- Open, MULTIPLAYER's area: `pdcaExtractArchiveBegin`
+  (`port/src/pdca_extract_transaction.c`, called from `netdistrib.c`) syncs
+  every member of a received mod archive, so a large transfer pays the same
+  cost per member.
+
+**Rule:** for rebuildable output, publish without the per-file flush and make
+the set durable once, right before anything that vouches for it without
+opening it (a cache stamp, an index). That record must never reach the disk
+ahead of the files it describes.
+
+**Search:**
+- `rg -n '_commit\(|fsync\(|FlushFileBuffers|MOVEFILE_WRITE_THROUGH' port src`,
+  then check whether each runs once per user action or once per file in a loop.
+
+---
+
+## SP-90: A tool launch that names no isolation falls back to the user's real data
+
+**Severity: HIGH - a test run reads and rewrites the player's own settings,
+bindings, statistics and mod cache, and a build that cannot parse what another
+build wrote there crashes at boot.**
+
+The game's defaults are the player's real folders: with neither `--portable`
+nor `--savedir`, `fsInit` (`port/src/fs.c`) sets `$H` and the save dir to
+`%APPDATA%/perfectdark`, and may migrate an install's `pd.ini` or `eeprom.bin`
+into it. Every tool that launches the game must therefore name isolation on
+every launch path, or it shares the player's profile with every other session
+and build on the machine.
+
+**Known instances (2026-11-16):**
+- B-1124: multi-process fixtures on a shared install (no
+  `separate_process_installs`, no `--portable`/`--savedir`). Fixed: seven
+  fixtures pass `--portable`, the runner refuses such a fixture, and
+  `tools/tests/test_smoke_fixture_isolation.py` checks every one.
+- B-1203: the runner's single-process launch added `--savedir` only under
+  `-ReuseInstallId`, so 81 single-process fixtures ran against the real
+  profile. Fixed: `run.ps1` adds `--portable` when the fixture names neither
+  flag (`test_runner_isolates_single_process` pins it).
+
+**Rules:**
+- A test or tool launch of the game names its save dir (`--savedir`) or runs
+  portable from its own install; the runner adds it when the fixture does not.
+- A check that a launch is isolated reads the launch code, not a comment or a
+  bug record about it (B-1124's record said the single-process path was safe).
+- Mike's own play launchers (`devtools/_dev-window.ps1`, the dev windows) use
+  the real profile on purpose; they are not test launches.
+
+**Search:**
+- `grep -n "ProcessStartInfo\|Start-Process" tools/smoke-verify/*.ps1 tools/smoke-verify/lib/*.ps1`
+  and check that every game launch reaches `--portable` or `--savedir`.
+- In a run's game log, `save dir:` must name the run's install or profile
+  folder, never `AppData/Roaming/perfectdark`.
+
+---
+
+## SP-91: A one-shot message written in the game tick is dropped by a frame that discards the shared buffers
+
+**Severity: HIGH - a client never hears of an event the host made once (a
+removal, a pickup, a stage flag, an objective status), and nothing logs the
+loss.**
+
+`netStartFrame` empties `g_NetMsg` and `g_NetMsgRel`; the game tick then writes
+into them (pickups, prop spawns and moves, doors, alarms, stage flags,
+objective status, chr damage, player stats: about 48 call sites in
+`src/game`), and `netEndFrame` normally sends them. It empties both buffers
+instead on three kinds of server frame: (1) the terminal stage-end frame;
+(2) any frame while the stage replication is not ACTIVE (INACTIVE, WAITING;
+RELEASE publishes only its baseline); (3) an ACTIVE frame with a cutscene
+authority event pending (START or END: "Any authority event already pending
+at this boundary supersedes ordinary game messages accumulated since
+netStartFrame"). (1) is harmless, the stage is ending. (2) is covered when the
+release baseline carries the state, and a producer can check
+`netServerStageReplicationBlocked()`. (3) is not covered: no baseline follows,
+and the authority packet and the shared reliable buffer both go reliably on
+`NETCHAN_DEFAULT`, so the frame's messages could have been sent after the
+authority packet in order instead of thrown away.
+
+**Known instance (B-1206, 2026-11-16):** the host's `SVC_NPC_REMOVE` for Deep
+Sea's intro actor was written on the frame that published the intro's cutscene
+END; the client kept that chr for the rest of the stage. Fixed for that
+message: removals are queued (`netServerNpcRemoveQueue`) and written by the
+ACTIVE entity broadcast, after any authority packet.
+
+**Open, not audited:** every other one-shot writer in the game tick is exposed
+on cutscene START and END frames in co-op and counter-op, which are frames where
+level scripts commonly act (end the intro, set objectives and stage flags, open
+doors, remove actors). A class fix would keep the reliable game-tick bytes
+across the authority publish and append them after the authority packet (same
+reliable channel, so ENet keeps the order), discarding only the unreliable
+buffer.
+
+**Class fix (ded9b22f, 2026-11-16, checked in play on c35b35a2; CORE agreed the change and
+gave it to MULTIPLAYER, week note 17:04 UTC):** on (3), `netEndFrame` holds
+the tick's reliable bytes (`netServerAuthorityHoldReliable`) and, once the
+authority packet is out, puts them first in the frame's reliable buffer
+(`netServerAuthorityReleaseHeld`), ahead of the entity broadcast; a client
+applies them after the cutscene state changed, as the host's tick saw them.
+No client handler gates on cutscene state. While the publication retries
+they stay held and later frames' bytes join them in order; the hold is
+emptied only after what was put back went out
+(`netServerAuthorityHeldSettle`), and dropped at a stage boundary or end. A
+full hold (64 KB) drops with a `NET.SP91` warning. (1) and (2) are unchanged.
+Log: `NET.SP91: held N game-tick bytes`, `NET.SP91: N held game-tick bytes go
+out`. Pinned by `[sp91]` in `tests/test_net_mission_end_static.cpp`.
+In play (c35b35a2, base 7): every cutscene authority frame held the
+tick's bytes and sent them right after its packet (co-op Deep Sea end 34
+and 106 bytes, co-op mission end 5 and 98, counter-op mission end 5).
+
+**Rules:**
+- A one-shot reliable message the host decides in the game tick is queued and
+  written by `netEndFrame`'s ACTIVE broadcast, or its writer says what covers
+  its loss before ACTIVE (the release baseline; `netServerStageReplicationBlocked()`).
+- A frame rule that drops buffered messages names what resends each one.
+
+**Search:**
+- `grep -rn "g_NetMsgRel" src/game --include=*.c` lists the game-tick
+  writers; for each, what restores the event if its frame is discarded?
+- In a co-op log pair: a host line for a one-shot event with no client line,
+  in the frame of `CUTSCENE.AUTHORITY: tick-mode START|END queued`.
+
+**Audit checklist:** for each game-tick writer, (a) one-shot or periodic (a
+periodic one is resent next frame), (b) covered by a baseline or snapshot,
+(c) can it run on a frame that publishes authority. Done: `SVC_NPC_REMOVE`
+(queued, B-1206); every reliable writer for (3) by the class fix. Open: (2),
+a one-shot reliable writer that runs before ACTIVE and is not in the release
+baseline.
+
+---
+
+## SP-92: A client applies a host rooms list without moving the prop's room registration
+
+**Severity: HIGH - a crash, later and somewhere else: the first collision or
+room query in an old room after the prop is freed.**
+
+A prop has two records of where it is: `prop->rooms` (its list) and the room
+prop lists (`g_RoomPropListChunks`, which `roomGetProps` reads for collision,
+drawing and room queries). `propRegisterRooms` and `propDeregisterRooms` keep
+them together, and both work from `prop->rooms`. Code that writes
+`prop->rooms` directly, or deregisters and re-registers only under a
+condition that does not match whether the prop is listed, leaves the prop
+listed in rooms its list no longer names. While the prop lives that only adds
+a candidate to some room queries. When it is removed, `chrRemove`, `objFree`
+and `propFree` clear only the rooms in `prop->rooms`, and `propFree` keeps
+`prop->type` but clears `prop->chr` (and so `prop->obj`): the old rooms still
+list a chr or object prop with nothing behind it, and the next
+`propIsOfCdType` or room walk there reads NULL. The game itself always moves
+the two together; the network apply paths, written later, did not. The host
+runs none of them, so only a client crashes.
+
+**Known instance (B-1270, 2026-11-16):** `netmsgNpcResyncRecordApply` wrote
+the host's rooms straight into every NPC's `prop->rooms` (the stage-start
+snapshot included); Deep Sea's intro actor stayed listed in its old room, and
+when the host removed it (SVC_NPC_REMOVE) the client crashed in the next NPC
+move's ground query. Same write in `netmsgSvcChrResyncRead` (bots) and
+`netmsgSvcPropResyncRead` (objects); `netmsgSvcPropMoveRead` and
+`netmsgSvcPropLiftRead` moved the registration only when `prop->active`, and a
+paused prop is listed too. All five now call `propSetRooms` (746d79a7).
+
+**Search:**
+```
+grep -n "prop->rooms\[[a-z]*\] = \|roomsCopy([a-z_>.-]*, *[a-z_>.-]*prop->rooms)" port/src/net/*.c port/src/*.c
+grep -n "if (prop->active) {" port/src/net/netmsg.c
+```
+
+**Rules:**
+- A prop's rooms list changes through `propSetRooms` (moves whatever
+  registration the prop has with the list, copies the list exactly) or
+  through the game's own movers (`chrSetPos`, `chr0f0220ac`), never by a bare
+  write.
+- Whether to move the registration follows whether the prop is listed
+  (`propSetRooms`: active, or listed in its first room), not `prop->active` alone: paused props are
+  listed too.
+
+**Audit checklist:**
+- [x] NPC resync, bot resync, prop resync, SVC_PROP_MOVE, lift move
+  (B-1270).
+- [x] `netmsgSvcReconnectPropStateRead` (reconnect snapshot): moved the
+  registration only when `was_active`, so a paused, listed prop kept its old
+  rooms; now `propSetRooms` (2026-11-16, after ded9b22f).
+- [x] SVC_PROP_SPAWN: `roomsCopy(rooms, prop->rooms)` runs before the prop is
+  registered; no creator registers it first (`objInit` and `laptopDeploy`
+  only allocate and initialise), and the placement block registers it once.
+  Correct as it is.
+- [-] `netmsgClcBotMoveRead` (bot-authority stub): a stub has no room
+  registration; leave it.
+
+---
+
+## SP-93: An asset the match puts on the wire is missing from the match manifest, so clients read the default
+
+**Severity: HIGH - silent: the client shows a different object (no weapon, a fallback model) and nothing logs it.**
+
+Messages name assets by session catalog id, and the session catalog is built from the match manifest. A reader
+that gets id 0 falls back to a default (`netReadWeaponRef` returns `WEAPON_UNARMED`, `netReadModelRef` 0) without a
+word, and the writer sent 0 silently too. So every asset the match can name on the wire must be in the manifest,
+not only the ones the lobby chose: a scenario's own items, what a script or a death can drop, what a simulant can
+carry.
+
+**Known instance (B-1272, 2026-11-16):** the Combat Simulator manifest's weapon pool took only weapons with an MP
+weapon slot; Hacker Central's data uplink and the briefcase of Hold the Briefcase and Capture the Case have none,
+so every message naming one reached clients as no weapon (B-1209's replacement uplink replayed as `weapon=1`).
+Fixed by `scenarioTokenWeaponNum` and the lobby start's token closure.
+
+**Second instance (B-1273, 2026-11-17), found by the new model warning:** the manifest listed weapons but not
+the models their props are drawn with, so a dropped gun, the replacement uplink and a dropped briefcase
+reached clients as model 0 (`MODEL_ROOFGUN`). Fixed by listing every manifest weapon's world model and the
+token's own model; checked in play 2026-11-17 (five dropped guns and a replacement uplink, no warning).
+
+**Search:**
+```
+grep -n "netWriteWeaponRef(\|netWriteModelRef(\|catalogWriteAssetRef(" port/src/net/netmsg.c
+grep -n "s_manifestSkipMpWeaponSlot\|manifestAppendCatalogClosure(" port/src/net/netmanifest.c port/src/net/netmsg.c
+```
+In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
+
+**Rules:**
+- A new message field that names an asset by session id comes with the manifest entry that gives it one, for
+  every value the field can carry.
+- A writer that has no id for a real asset says so (once per asset); a silent 0 hides the gap.
+
+**Audit checklist:**
+- [x] Scenario tokens in the Combat Simulator manifest (B-1272).
+- [ ] Weapons a co-op or counter-op stage can drop that its setup and AI-list scans do not list (watch the new
+  warning in the co-op smokes).
+- [x] `MPWEAPON_SHIELD` (`WEAPON_MPSHIELD`, a weapon prop, slot 5 of every original weapon set): both manifest
+  weapon loops skip it, and the reconnect snapshot's reader writes each weapon prop's number from its session id
+  (`netmsgSvcReconnectPropStateRead`), but it is covered: `matchConfigPrepareExactWeaponIds` gives every slot
+  but `MPWEAPON_NONE` a catalog id, the shield included, and the lobby start adds each `weapon_ids` closure.
+- [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
+  for SVC_PROP_SPAWN's weapon and object models; its first run found B-1273.
+- [ ] Object models in SVC_PROP_SPAWN (thrown laptops and other spawned objects): watch the warning.
+
+---
+
+## SP-94: A struct read by its N64 word offset finds padding on 64-bit
+
+**Severity: MEDIUM. The read gets padding or a neighbouring field, never the
+value it wants, and nothing fails: a lookup returns "not found" every time.**
+
+Code written for the N64 sometimes reads a struct's field as a fixed 32-bit
+word of the raw record (`cmd[5]`, `((u32 *)p)[n]`) instead of through the
+struct. On the N64 a pointer is one word, so the offsets agree. On this
+64-bit port every pointer field is 8 bytes and 8-aligned, so it and every
+field after it move: the fixed word lands on padding or on another field.
+A cast like `(struct prop *)cmd[5]` also drops the pointer's upper half.
+
+**Known instance (B-1259, 2026-11-17):** `setupGetCmdIndexByProp` compared
+`cmd[5]` (padding on 64-bit) with the prop pointer, so it never matched: the
+object events' record ids were empty and multiplayer's regeneration of an
+object inside another looked up the wrong parent.
+
+**Rules:**
+- Read a native struct through its type (`((struct defaultobj *)cmd)->prop`),
+  never by an N64 word offset.
+- A raw ROM record (N64 layout, big-endian) is read with the N64 offsets on
+  purpose: those readers name the N64 layout and byte-swap. Do not mix the two.
+
+**Search:**
+- `rg -n "\(struct [a-z_]+ \*\)\s*(PD_BE32\()?[a-z_]+\[[0-9]+\]" src port`
+  then check each array is pointer-sized (`uintptr_t *`, `struct x *[]`), not `u32 *`.
+- `rg -n "\(u32 \*\)[^;]*\)\[[0-9]+\]" src/game src/lib` for word reads of native structs.
 
 ---
 
@@ -3582,3 +4500,62 @@ read `words.w1` and shift). A unit test should decode a macro-built command
 through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
 
 `rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`
+
+---
+
+## SP-97: An operating system probe sits inside a loop that runs every frame
+
+**Severity: MEDIUM — nothing breaks. The frame rate falls with the size of the
+data, so a small base model hides the cost and a large mod model shows it.**
+
+`modelRodataIsReadable` asks the operating system (`VirtualQuery`) whether a
+range of memory can be read. It was written for about a hundred calls a tick,
+one per model node, and its header estimated 100 ns a call. In this client a
+call costs several microseconds. Inside a loop over display list commands or
+vertex batches it becomes thousands of system calls per walk.
+
+**Known instance (B-1234, 2026-11-17):** the shot hit test (`bgTestHitOnObj`,
+`bgTestHitOnChr` in `src/game/bg.c`) probed every vertex batch, and on the
+native path every command. The game runs that test every frame to find what
+the player is looking at. A compiled mod model has one vertex batch per
+triangle: 5,829 system calls for one test of the Maian vehicle, 30 to 48 ms of
+every frame while its rider's view passed through it. The base hoverbike paid
+about 3 ms a frame the same way and held 60 only because it is small.
+
+**Fix shape:** keep the check and drop the repeated question. A walk carries a
+`model_rodata_span_t` on its stack and calls `modelRodataIsReadableInSpan`,
+which asks once per run of readable memory and answers the rest with two
+compares. The span never outlives its walk: memory can be freed or
+re-protected between walks, and a kept span would go on answering "readable".
+Where the owner of the data knows its extent (the mod asset compiler's
+generated display list spans), a bound check against that extent is better
+still than a page probe.
+
+**Left alone, not per frame:** `extractGfxTris` in `src/lib/meshcollision.c`
+probes once per command while a prop's collision mesh is built (once per
+prop). The model relation updates in `src/lib/model.c` probe once per node,
+2% to 3% of the main thread's samples.
+
+**Audit checklist:** for every probe call, read the loop it sits in and how
+often that loop runs: per node is fine, per command, per vertex or per
+triangle of a per-frame walk is this pattern. Measure before trusting a cost
+estimate in a comment: a sampler on the running client found this in one run
+(`rip_sampler.py`, `rip_report.py`, `rip_chain.py`, described in B-1234), after
+reading the code had produced a wrong guess.
+
+`rg -n "modelRodataIsReadable(InSpan)?\(" src port`
+
+## Scripted pickup can clear the object-to-prop link
+
+A scripted grant must hold the incoming prop through
+`propPickupByPlayer` and pass it to the returned tick operation. For a
+successful untagged weapon pickup without regeneration, `objFree` uses
+`freeprop=false`, clears `obj->prop`, and leaves the original prop slot
+for `TICKOP_FREE`. Touch pickup already carries the incoming pointer.
+
+The Grid fixed-pickup case 5fe63674 reproduced a crash in
+`propExecuteTickOperation` when `og.pickup.give` read the cleared link.
+The Grid module now keeps the incoming prop. Source review found the
+same expression in `aiGiveObjectToChr` and
+`scenarioSourceAiGraphExecuteGiveObjectToChr`. Their production paths
+need separate AI ownership and runtime verification.

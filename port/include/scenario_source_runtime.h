@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "sha256.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -16,6 +17,7 @@ struct gset;
 struct bgportal;
 struct room;
 struct bgroom;
+struct colmesh;
 
 typedef struct scenario_source_objective_operand {
 	u8 type;
@@ -34,6 +36,13 @@ typedef struct scenario_source_objective_operand {
 
 const asset_entry_t *scenarioSourceFindEntryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp);
+
+/* Verify that the current native graph reads the conventional Level File
+ * members from this exact typed archive root. */
+s32 scenarioSourceUsesLevelFileMembers(const char *scenario_id, const char *archive_root);
+/* Verify the exact conventional covers member selected by the active graph. */
+s32 scenarioSourceUsesGridCoverMember(const char *scenario_id, const char *archive_root);
+s32 scenarioSourceUsesGridPathMember(const char *scenario_id, const char *archive_root);
 s32 scenarioSourceApplyTexturePropertiesForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp);
 /* Borrowed typed catalog ID for the currently active public mission graph.
@@ -52,6 +61,24 @@ s32 scenarioSourceLevelGraphCheckPadRoom(s32 pad, s32 room,
 s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	s32 target0, s32 target1, s32 target2, s32 aux0, s32 aux1);
 s32 scenarioSourceObjectiveGraphIsActive(void);
+/* Mission graph runner (decision 2): whether the active mission graph owns
+ * objective status events (it compiled, or it was refused and so runs
+ * nothing), and firing event.objective.status_changed for an objective that
+ * applies at this difficulty (`number` is 1-based among those). Returns the
+ * number of native modules run, or -1 when the graph does not own the event,
+ * was refused, or a module refused it. */
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void);
+/* Mission events (MISSION_GRAPH_EVENT_MISSION_*, mission_graph_runner.h):
+ * whether the active mission graph owns them, whether its continue event runs
+ * anything, whether it reaches og.mission.start_next_stage, and firing one
+ * (returns the modules run, or -1). */
+s32 scenarioSourceMissionGraphOwnsEvents(void);
+s32 scenarioSourceMissionGraphHandlesContinue(void);
+s32 scenarioSourceMissionGraphContinueStartsNextStage(void);
+s32 scenarioSourceMissionGraphContinueStartsCredits(void);
+s32 scenarioSourceMissionGraphMissionEvent(s32 kind, s32 seam);
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous);
 s32 scenarioSourceObjectiveGraphRecordInsert(const struct objective *objective);
 s32 scenarioSourceObjectiveGraphRecordCriterionStatus(const void *criteria,
 	s32 status);
@@ -61,6 +88,61 @@ s32 scenarioSourceObjectiveGraphRecordStageFlags(u32 flags);
 s32 scenarioSourceObjectiveGraphHasStageFlag(u32 flag, s32 *out_has_flag);
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason);
+/* mission-flow.md: 0 when the active mission graph leaves objective `index`
+ * out of the mission's outcome ("required": false on its objectives.json
+ * row); 1 otherwise, also with no mission graph or an objective it does not
+ * know (that one stays incomplete, so the mission cannot complete). */
+s32 scenarioSourceMissionObjectiveRequired(s32 index);
+/* mission-flow.md: deliver a recorded phase change as
+ * event.mission.phase_changed (only objectivesCheckAll calls it); end the
+ * mission from its graph (og.mission.end_*); the outcome a graph forced; and
+ * whether the stage must end now (taken once, after the objectives check). */
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void);
+/* trigger-volume-events.md: players going into or out of the volumes the
+ * mission graph names; called from the objectives check after the phase
+ * with every player's position (present[p] 0 when it has no prop). */
+struct coord;
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
+/* object-events.md slice 1: players going into or out of the volumes the
+ * level graph's own program names, on every stage; called from lvTick after
+ * scenarioTick on the host (present[p] 0 when a player has no prop). */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
+/* object-events.md slice 2: an object event from a native seam
+ * (MISSION_GRAPH_EVENT_PICKUP_COLLECTED, _DOOR_OPENED, _DOOR_CLOSED,
+ * _OBJECT_USED), after the native decision and effect: the object's
+ * objects.json record_id ("" when it has none), its tag (-1 when none), its
+ * object type, its catalog id (a pickup's weapon, else its model; may be
+ * NULL) and the player who caused it (-1 when none). Fired on the host only.
+ * Returns the modules run. The totals are logged once per stage. */
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+void scenarioSourceGraphObjectEventsReport(const char *reason);
+/* object-events.md slice 4: whether the pickup and door rules are the level
+ * program's on this stage (a scenario-source stage, whose level program must
+ * handle every rule event or it is refused at activation). When they are,
+ * the native seams fire the rule events and decide nothing themselves. */
+s32 scenarioSourceGraphObjectRulesActive(void);
+/* A rule event from a native seam (MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
+ * _DOOR_USE, _DOOR_APPROACH) with the object events' payload, into the level
+ * program only, inside the seam's mission_graph_object_rule_t
+ * (missionGraphModulesRuleBegin). Returns the modules run, -1 when one
+ * refused. The first of each kind on a stage is logged, and all are counted
+ * in the stage totals. On the host only. */
+s32 scenarioSourceGraphObjectRuleEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+/* The parity probe: the seam compared the original rule's decision (native)
+ * with the graph's (graph); differ when they are not the same. Counted per
+ * stage; the first differences are logged. */
+void scenarioSourceGraphObjectRuleCompared(s32 kind, const char *object, const char *native,
+	const char *graph, s32 differ);
+/* This stage's comparisons and differences so far (the campaign runner reads
+ * them at each mission's end). */
+void scenarioSourceGraphObjectRuleParity(s32 *compared, s32 *differ);
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
+s32 scenarioSourceMissionGraphTakePendingEnd(void);
 s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	struct chopperobj *hovercar);
 s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr);
@@ -272,6 +354,9 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteRebuildTeams(void);
+/* ai-list-graphs.md: the two simulant commands (host only). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label);
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void);
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void);
 s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	s32 chrnum, s32 listening);
@@ -768,8 +853,60 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 u32 *scenarioSourcePadsGetWideOffsets(const u8 *padfiledata, s32 *out_count);
 u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size);
+/* Resolve an eligible native decoration in the active Grid stage's exact setup.
+ * Refusal leaves command_index unchanged. The caller checks the live prop's
+ * identity and lifetime before moving it. */
+s32 scenarioSourceGridDecorationCommand(const char *scenario_id, const u32 *setup_props,
+	const char *record_id, u32 *command_index);
 u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size, s32 *out_rooms, s32 *out_tiles);
+
+typedef struct scenario_grid_tiles scenario_grid_tiles_t;
+/* Compile the native stage tile bank from validated detached collision.
+ * The output must start NULL and stays unchanged on failure. */
+s32 scenarioSourcePrepareGridTiles(const struct colmesh *collision, s32 room_count,
+	scenario_grid_tiles_t **out, char *err, size_t err_cap);
+/* Main-thread commit with a non-NULL prepared bank. Exchanges ownership with
+ * the resident bank. The returned bank is NULL for an ordinary stage-pool
+ * bank, which remains owned by the stage allocator. The swap cannot fail. */
+void scenarioSourceSwapGridTiles(scenario_grid_tiles_t **prepared);
+/* Release a detached or superseded bank. Pass NULL when none is owned. */
+void scenarioSourceReleaseGridTiles(scenario_grid_tiles_t *tiles);
+/* Drop the resident Grid bank after its world stops, or before tilesReset
+ * replaces it. An ordinary stage-pool bank is unaffected. */
+void scenarioSourceClearGridTiles(void);
+
+/* Resolve the portal member the native stage consumes, without activating it. */
+s32 scenarioSourcePortalPath(const asset_entry_t *scenario, char *out, size_t out_cap);
+/* Resolve the native room sidecar path used by bounds and light origins. */
+s32 scenarioSourceRoomTablePath(const asset_entry_t *scenario, char *out, size_t out_cap);
+
+/* Candidate bounds use exact compiled collision fallback for omitted rows.
+ * Pass NULL/0 only for an absent member. No active stage state is changed. */
+s32 scenarioSourcePreflightRoomTable(const char *text, size_t size, s32 room_count,
+	const struct colmesh *collision, s32 *out_authored, char *err, size_t err_cap);
+
+/* Check an exact candidate portal table without catalog, stage, or FS state. */
+s32 scenarioSourcePreflightPortals(const char *text, size_t size, s32 declared_rooms, s32 mesh_max_room,
+	s32 *out_room_count, char *err, size_t err_cap);
+
+/* A candidate reader returns an owned, NUL-terminated exact archive member,
+ * with size excluding the terminator. It must never fall back to live FS. */
+typedef char *(*scenario_source_read_candidate_t)(void *ctx, const char *path, u32 *size);
+#define SCENARIO_SOURCE_NATIVE_PAD_COUNT 0x4000u
+typedef struct scenario_source_navigation_probe {
+	s32 pads, spawns, waypoints, waygroups, covers, paths, bytes;
+	s32 checked_starts, checked_links;
+	u8 digest[SHA256_DIGEST_SIZE];
+	/* Exact starts, authored route pads, and generated link endpoints. */
+	u8 protected_pads[SCENARIO_SOURCE_NATIVE_PAD_COUNT / 8];
+} scenario_source_navigation_probe_t;
+/* A room-extension collision mesh also requests static proof for the Forge
+ * two-room walking network. General scenarios only check native bindings. */
+s32 scenarioSourcePreflightNavigation(const asset_entry_t *scenario, scenario_source_read_candidate_t read,
+	void *ctx, s32 room_count, size_t native_budget, const struct colmesh *room_extension_collision,
+	scenario_source_navigation_probe_t *out,
+	char *err, size_t err_cap);
 s32 scenarioSourceResolveRoomCountForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp,
 	s32 mesh_max_room, s32 *out_room_count);
@@ -796,12 +933,82 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
  * Loading the room table and the portal table fills them; each query answers
  * 0 when the stage sets no such rule. */
 void scenarioSourceStageRulesReset(void);
+void scenarioSourceReleaseStageGraphs(void);
 s32 scenarioSourceRoomRenderAlways(s32 roomnum);
 s32 scenarioSourceRoomSky(s32 roomnum);
-s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level);
+s32 scenarioSourceRoomHasBrightnessRange(s32 roomnum);
+/* Query rooms.json without the stage-wide ambient fallback. */
+s32 scenarioSourceRoomExplicitBaseBrightness(s32 roomnum, s32 *out_level);
+s32 scenarioSourceRoomBaseBrightness(s32 stagenum, s32 roomnum, s32 *out_level);
 s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);
 s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);
 s32 scenarioSourcePortalOpenToLight(s32 portalnum);
+
+/* Stage-wide rules (decision 3): the stage's stage.json, loaded with its
+ * scenario tables (1 loaded, 0 none, -1 refused and logged). The weather query
+ * answers 1 and fills out when the stage has a weather rule. */
+struct scenario_stage_weather;
+struct scenario_stage_player;
+struct scenario_stage_ai;
+struct scenario_stage_ending;
+struct scenario_stage_stars;
+struct scenario_stage_sparks;
+struct scenario_stage_gas;
+struct scenario_stage_atmosphere;
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp);
+s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
+s32 scenarioSourceStageAtmosphere(s32 stagenum, struct scenario_stage_atmosphere *out);
+s32 scenarioSourceStagePrimaryMusic(s32 stagenum);
+s32 scenarioSourceStagePlayer(struct scenario_stage_player *out);
+s32 scenarioSourceStageAi(struct scenario_stage_ai *out);
+s32 scenarioSourceStageEnding(struct scenario_stage_ending *out);
+s32 scenarioSourceStageIsHub(void);
+/* B-1172 / decision 1: the loaded stage's starfield rule; 0 when it has none.
+ * out may be NULL. */
+s32 scenarioSourceStageStars(struct scenario_stage_stars *out);
+/* The loaded stage's sparks rule; 0 when it has none. out may be NULL. */
+s32 scenarioSourceStageSparks(struct scenario_stage_sparks *out);
+/* The loaded stage's gas rule; 0 when it has none. out may be NULL. */
+s32 scenarioSourceStageGas(struct scenario_stage_gas *out);
+
+/* A pd2.scenario.ai.lists.v1 document compiled to the AI interpreter's
+ * bytes by the same reader and compiler as a scenario's ai/ailists.json
+ * (catalog ids resolved to their numbers): one entry per list in document
+ * order. Returns 1, or 0 with a reason in error. scenarioSourceAiListsFree
+ * releases the lists. Global AI lists: context/designs/modding/global-ai-lists.md.
+ * edges (AI lists as graphs, slice 2): the list's edge table for the shadow
+ * walk, built from the same commands (NULL when they give none). The owner of
+ * lists that run hands it to aiEdgeShadowRegister (ai_edge_shadow.h) and
+ * clears the field; scenarioSourceAiListsFree frees one still there. */
+struct ai_edge_table;
+typedef struct scenario_ai_compiled_list {
+	s32 id;
+	u8 *bytes;
+	u32 size;
+	u32 commands;
+	struct ai_edge_table *edges;
+} scenario_ai_compiled_list_t;
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size);
+typedef s32 (*scenario_ai_asset_visitor_t)(const char *id, asset_type_e type, void *userdata);
+s32 scenarioSourceVisitAiAssets(const char *json, size_t len, scenario_ai_asset_visitor_t visit,
+	void *userdata, char *error, size_t error_size);
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count);
+
+/* Visit the typed operands consumed by the native setup compiler, using a
+ * scratch table. An absent objects member is NULL/0. Visitors should collect
+ * into a caller-owned candidate and discard it on refusal. */
+s32 scenarioSourceVisitSetupAssets(const char *setup, size_t setup_size,
+	const char *objects, size_t objects_size, scenario_ai_asset_visitor_t visit,
+	void *ctx, char *err, size_t err_cap);
+
+/* Check the exact pinned graph bindings against the members being visited. */
+s32 scenarioSourceSetupAssetMembersMatch(const char *graph, size_t graph_size,
+	const char *setup_member, const char *objects_member, const char *ai_member,
+	char *err, size_t err_cap);
+
 
 #ifdef __cplusplus
 }

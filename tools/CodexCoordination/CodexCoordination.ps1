@@ -511,19 +511,39 @@ function Get-OverdueMinutes($Item) {
 
 # Can we observe a live process for this resource? Unknown resources report busy
 # so the health sweep never auto-reaps a queue it cannot prove dead.
+# B-1156: @(...) keeps $patterns an array when no branch matches; without it the
+# empty default branch leaves $null, and Windows PowerShell 5.1 (strict mode)
+# throws on $null.Count, so every hub command failed while a game-runtime item
+# was overdue. game-runtime (the agreed FIFO name for anything that launches the
+# game) is observable: a game process, or a smoke runner still seeding, waiting
+# or discarding installs between launches (run.ps1, storage.py), keeps it busy,
+# so waiters reap only a runner that is gone.
+function Test-SmokeRunnerAlive {
+    try {
+        $runners = @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop | Where-Object {
+            $_.CommandLine -and $_.CommandLine -match 'smoke-verify[\\/](run\.ps1|storage\.py)'
+        })
+        return $runners.Count -gt 0
+    } catch {
+        # Cannot list command lines: report alive, never reap on a guess.
+        return $true
+    }
+}
+
 function Test-ResourceBusy([string]$ResourceName) {
-    $patterns = switch -Regex ($ResourceName) {
+    $patterns = @(switch -Regex ($ResourceName) {
         "^(build|compiler)$" { @("ninja", "make", "cmake", "cc1", "cc1plus", "gcc", "g++") }
         "^(test|test-runner)$" { @("pd-tests", "PerfectDark") }
-        "^(game|smoke|multiplayer|capture|editor)$" { @("PerfectDark", "pd-tests", "WerFault") }
+        "^(game|game-runtime|smoke|multiplayer|capture|editor)$" { @("PerfectDark", "pd-tests", "WerFault") }
         "^(deployment|release)$" { @("git", "gh") }
         "^(asset-import|extractor)$" { @("PerfectDark", "pd-tests") }
         default { @() }
-    }
+    })
     if ($patterns.Count -eq 0) { return $true }
     foreach ($name in $patterns) {
         if (Get-Process -Name $name -ErrorAction SilentlyContinue) { return $true }
     }
+    if ($ResourceName -eq "game-runtime" -and (Test-SmokeRunnerAlive)) { return $true }
     return $false
 }
 

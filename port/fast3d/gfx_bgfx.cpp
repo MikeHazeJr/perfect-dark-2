@@ -871,6 +871,34 @@ static void gfx_bgfx_set_use_alpha(bool use_alpha, bool modulate, bool additive)
     }
 }
 
+/* The GL scissor test as fast3d left it: while it is on, the next submit is
+ * clipped to the scissor box. Returns false when the box is empty, where GL
+ * draws nothing. */
+static bool applyScissor(void)
+{
+    if (!s_scissorSet) return true;
+    const int targetH = (int)s_fbs[s_currentFb].height;
+    int x0 = s_scissor[0];
+    int t0 = targetH - s_scissor[1] - s_scissor[3];
+    int x1 = x0 + s_scissor[2];
+    int t1 = t0 + s_scissor[3];
+    x0 = std::max(0, x0);
+    t0 = std::max(0, t0);
+    x1 = std::min(x1, 0xffff);
+    t1 = std::min(t1, 0xffff);
+    if (x1 <= x0 || t1 <= t0) return false;
+    const int rect[4] = { x0, t0, x1 - x0, t1 - t0 };
+    if (s_cachedScissorValid && memcmp(rect, s_cachedScissor, sizeof(rect)) == 0) {
+        bgfx::setScissor(s_cachedScissorIdx);
+    } else {
+        s_cachedScissorIdx = bgfx::setScissor((uint16_t)rect[0], (uint16_t)rect[1], (uint16_t)rect[2],
+                                              (uint16_t)rect[3]);
+        memcpy(s_cachedScissor, rect, sizeof(rect));
+        s_cachedScissorValid = true;
+    }
+    return true;
+}
+
 static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris)
 {
     if (!s_program || buf_vbo_num_tris == 0) return;
@@ -913,27 +941,7 @@ static void gfx_bgfx_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t 
         else if (cull == 2) state |= BGFX_STATE_CULL_CCW;
     }
 
-    if (s_scissorSet) {
-        const int targetH = (int)s_fbs[s_currentFb].height;
-        int x0 = s_scissor[0];
-        int t0 = targetH - s_scissor[1] - s_scissor[3];
-        int x1 = x0 + s_scissor[2];
-        int t1 = t0 + s_scissor[3];
-        x0 = std::max(0, x0);
-        t0 = std::max(0, t0);
-        x1 = std::min(x1, 0xffff);
-        t1 = std::min(t1, 0xffff);
-        if (x1 <= x0 || t1 <= t0) return; /* empty scissor: GL draws nothing */
-        const int rect[4] = { x0, t0, x1 - x0, t1 - t0 };
-        if (s_cachedScissorValid && memcmp(rect, s_cachedScissor, sizeof(rect)) == 0) {
-            bgfx::setScissor(s_cachedScissorIdx);
-        } else {
-            s_cachedScissorIdx = bgfx::setScissor((uint16_t)rect[0], (uint16_t)rect[1], (uint16_t)rect[2],
-                                                  (uint16_t)rect[3]);
-            memcpy(s_cachedScissor, rect, sizeof(rect));
-            s_cachedScissorValid = true;
-        }
-    }
+    if (!applyScissor()) return; /* empty scissor: GL draws nothing */
 
     for (int i = 0; i < 2; i++) {
         if (!prg.used_textures[i]) continue;
@@ -1589,6 +1597,11 @@ extern "C" uint16_t gfxBgfxBeginPass(int x, int y, int width, int height, uint32
 extern "C" void gfxBgfxEndPass(void)
 {
     s_viewOpen = false;
+}
+
+extern "C" int gfxBgfxApplyScissor(void)
+{
+    return applyScissor() ? 1 : 0;
 }
 
 extern "C" uint16_t gfxBgfxOverlayView(uint32_t *targetHeight)

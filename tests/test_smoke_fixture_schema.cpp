@@ -147,6 +147,19 @@ TEST_CASE("virtual controller event schema separates lifecycle and typed state f
     REQUIRE(std::string(smokeFixtureEventFieldName(SMOKE_FIXTURE_FIELD_VALUE)) == "value");
 }
 
+TEST_CASE("the scenario token kill takes only the common fields",
+    "[smoke][schema][b1209]")
+{
+    const smoke_fixture_field_mask_t common = SMOKE_FIXTURE_FIELD_AT_MS
+        | SMOKE_FIXTURE_FIELD_TYPE | SMOKE_FIXTURE_FIELD_COMMENT;
+    smoke_fixture_field_mask_t unsupported = 0;
+
+    REQUIRE(smokeFixtureEventTypeKnown("kill_token_holder"));
+    REQUIRE(smokeFixtureEventFieldsValid("kill_token_holder", common, &unsupported));
+    REQUIRE_FALSE(smokeFixtureEventFieldsValid("kill_token_holder",
+        common | SMOKE_FIXTURE_FIELD_CLIENT_ID, &unsupported));
+}
+
 TEST_CASE("virtual controller axis values are checked before narrowing",
     "[smoke][schema][controller]")
 {

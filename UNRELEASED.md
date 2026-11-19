@@ -1,7 +1,134 @@
 # Unreleased Changes
 
+- Repairs affected stage archives individually and preserves valid edits. Normal startup can check or repair standalone campaign missions while the menu is available. Bundled weapon registration also spends less time preparing rollback.
+
+- Stock bank audio plays at the original PC rate, including the Carrington
+  Institute typing cues. Existing unedited stock WAV archives update on boot.
+- Create Agent takes over menu input when it opens, so first-time players
+  can navigate the form and return to Agent Select.
+- The Carrington Institute opening camera has time to finish at high
+  frame rates before the agent picker opens.
+- The Carrington Institute intro preserves the original camera angles so
+  Joanna and her workstation are in view.
+- Online play requires protocol 65. A new match in the same Room gets a fresh
+  stage ID. Grid matches verify the pinned level and every required original
+  mod. Guests approve one download for missing packages. Room members can
+  propose mods, and approved proposals are shared when the match uses them.
+  Placed assets include any required owning package. Original effects can
+  include their native texture archives.
+- Grid matches keep final scores and the played revision in the same Room.
+  Reconnect can reuse exact packages approved for the match. Temporary
+  packages retire after play. An expired or changed offer can be retried
+  from the Room. Grid Fiesta, Random, damage, and weapon switching use the
+  host's exact weapon choices across local slot differences.
+- Save a variant from Level File, a shared draft, or a played Grid match.
+  Choose which packages to retain. Omitted pickups can become Falcon 2s or
+  Slayers, and omitted props or hoverbikes use stock equivalents. Reopening
+  a variant restores the exact retained sources. The listen host can use
+  Save Played Variant, and the Room displays library refresh errors.
+  Hosts can save local variants of installed base-derived Shared Drafts.
+- Create original two-room arenas with adjustable rooms and a connecting
+  doorway. Level File supports precise placement, custom hoverbikes, mode
+  markers, bot waypoints and cover, door and pickup triggers, and Logic
+  Zones. Edit sky, fog, rain or snow, room lighting, and sequenced music.
+- Level File validates native sources before saving. Save As creates a copy.
+  Pin, fork, and restore exact revisions or recover a placement checkpoint.
+  Use Play Draft from the controller sidebar to play unsaved edits with
+  normal controls and return to the same document and undo history.
+- Invite a creator to a Shared Draft and private bot playtest. Players and
+  creators have separate visibility controls. The creator can move starts
+  and decorations on the plan, and reconnect to the ongoing draft.
+- Stage and review a two-room extension in the Room or private playtest
+  pause menu. Apply verified geometry while keeping the current timer and
+  scores. Compatible live decoration moves and ambient edits carry over.
+  Actors move to safe positions if needed.
+- Set `DisplayName` in the `[Forge]` section of `pd.ini` to rename The Grid.
+
+- Shortened startup by validating head and body archives in parallel, skipping stage-texture migration for unchanged archives, and avoiding repeated bot-profile searches during challenge setup.
+
+- Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
+
+- Networked objective modes now follow the host: King of the Hill hills and
+  hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
+  the Case holders, uplink downloads and bases. Final scores and rankings are
+  the same for every player.
+
+- After a networked match the Room no longer opens on top of the host's
+  results screen.
+
+- Every player of a networked Combat Simulator match now sees the results,
+  and the Room shows who is still reviewing match stats. The host's Return
+  to Room no longer crashes or reloads the training stage, and its next
+  match in the same Room starts and takes along anyone still on their
+  results.
+
+- In networked co-op and counter-op, each player now sees only their own
+  mission results, and co-op results show both players' stats. The host
+  chooses what comes next: its Next Mission takes the other player along
+  into the next mission, its Retry Mission restarts the mission for both,
+  and in counter-op that player stays the enemy agent.
+
+- Networked co-op and counter-op missions now save your agent's progress at
+  the end; the save used to be refused.
+
+- A networked co-op partner no longer crashes when the host quits after
+  both have gone back to the Room from a mission.
+
+- A networked co-op partner now sees the guards that appear during a
+  mission, such as a guard calling in a copy of itself.
+
+- Networked clients now see the simulants: they are drawn, animated and stay
+  on the ground instead of disappearing.
+
+- Simulants that pick up the briefcase or the uplink now do so on every
+  player's screen in networked matches.
+
+- A gun knocked out of a simulant's hands in a networked match now lies in
+  the same place for every player, and disappears for everyone when someone
+  picks it up.
+
+- A player who drops out of a networked King of the Hill, Hold the
+  Briefcase, Hacker Central, Pop a Cap or Capture the Case match and rejoins
+  gets the match's current state back from the host: the hill, the
+  briefcase, the uplink, the victim, the bases and who holds what.
+
+- Simulants now score their Pop a Cap points (surviving as the victim, and
+  killing the victim) and their Hacker Central download points. Players 5 to
+  8 no longer receive a simulant's points in those modes.
+
+- Fix a host crash a few seconds into some networked matches.
+
+- Capture the Case teams start the match at their own base again.
+
+- Hacker Central no longer crashes on arenas without case pads, and arenas
+  that lack hill, briefcase or case positions get walkable ones.
+
+- Networked clients no longer drop or misread the rest of a packet after
+  declining one message.
+
 - Reject unsupported required glTF features and sparse or normalized accessor
   data before conversion, with clear authoring limits and refreshed caches.
+
+- Create weapon mods inside the game: the Modding Hub's Weapons creator saves a
+  complete, validated mod from any weapon and keeps that weapon's own behavior.
+  A behavior graph the game cannot run is refused when a mod is saved or packed
+  instead of failing later at load.
+
+- Fix a hang when a mod's descriptor file had a line that was not `key = value`.
+
+- Keep your mods through updates: mods you make or install live in
+  `%LOCALAPPDATA%\perfectdark\mods` and are no longer erased when the game or
+  its caches are rebuilt. The game's own `mods` folder is still read, and your
+  copy wins when both hold the same mod.
+
+- Vehicles can be mods. A vehicle mod brings its own model and a behavior graph
+  that decides how it is mounted, driven and boosted. Adds a Vehicle Boost
+  control (Shift, or A on a controller, where the vehicle handbrake moves to
+  B); both can be remapped.
+
+- Keep saved key bindings when an update adds a control: a bindings file or
+  input profile from an older version loads, and the new control takes its
+  default.
 
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
@@ -405,6 +532,7 @@
   coordination/queue hub.
 - Fixed the end credits rendering dust motes and text as solid opaque squares, and fixed glow/gradient textures that rendered as opaque black boxes: extracted textures now decode with N64-accurate alpha and channel order (I4/I8 intensity-alpha, IA16 byte order, RGBA32 channel order). Existing installs re-extract affected textures and scenes once automatically.
 - Fixed a bug that silently re-extracted all 87 level scenarios on every game launch (a binary-file probe always reported them stale). Warm boots now skip straight past extraction, cutting roughly 40 seconds off every launch after the first.
+- Fixed repeated arena and scenario validation on warm launches and removed full-archive reads used only to identify ZIP files during catalog startup.
 - Dev Window v2 and v3 now open the Workbench and treat its roadmap, notes,
   changelog, Codex memory mirror, and release notes as live project state.
 - Git Pull in Dev Window v2 now fetches remote commits first and lets the operator choose the exact commit to fast-forward to.

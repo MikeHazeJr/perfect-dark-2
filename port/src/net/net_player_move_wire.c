@@ -85,7 +85,7 @@ bool netPlayerMoveCommit(struct netclient *client,
     return true;
 }
 
-u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
+static u32 writePlayerMove(struct netbuf *buf, const struct netplayermove *in, bool grid, u16 weapon_ref)
 {
 	netbufWriteU32(buf, in->tick);
 	netbufWriteU32(buf, in->ucmd);
@@ -97,7 +97,11 @@ u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
 	netbufWriteF32(buf, in->angles[1]);
 	netbufWriteF32(buf, in->crosspos[0]);
 	netbufWriteF32(buf, in->crosspos[1]);
-	netbufWriteS8(buf, in->weaponnum);
+	if (grid) {
+		netbufWriteU16(buf, weapon_ref);
+	} else {
+		netbufWriteS8(buf, in->weaponnum);
+	}
 	netbufWriteCoord(buf, &in->pos);
 	if (in->ucmd & UCMD_AIMMODE) {
 		netbufWriteF32(buf, in->zoomfov);
@@ -105,10 +109,21 @@ u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
 	return buf->error;
 }
 
-u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *out)
+u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
+{
+    return writePlayerMove(buf, in, false, 0);
+}
+
+u32 netbufWriteGridPlayerMove(struct netbuf *buf, const struct netplayermove *move, u16 weapon_ref)
+{
+    return writePlayerMove(buf, move, true, weapon_ref);
+}
+
+static u32 readPlayerMove(struct netbuf *buf, struct netplayermove *out, u16 *weapon_ref)
 {
     struct netplayermove candidate;
     struct netplayermove *in = &candidate;
+    u16 candidate_ref = 0;
     if (!buf || !out) return 1;
     memset(&candidate, 0, sizeof(candidate));
 	in->tick = netbufReadU32(buf);
@@ -121,10 +136,15 @@ u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *out)
 	in->angles[1] = netbufReadF32(buf);
 	in->crosspos[0] = netbufReadF32(buf);
 	in->crosspos[1] = netbufReadF32(buf);
-	in->weaponnum = netbufReadS8(buf);
-	/* M-6: Clamp weaponnum to valid range to prevent OOB from malicious packets. */
-	if (in->weaponnum < WEAPON_NONE || in->weaponnum >= WEAPON_CUSTOM_END) {
-		in->weaponnum = WEAPON_UNARMED;
+	if (weapon_ref) {
+		candidate_ref = netbufReadU16(buf);
+		in->weaponnum = -1;
+	} else {
+		in->weaponnum = netbufReadS8(buf);
+		/* M-6: Keep the legacy numeric weapon in its local array domain. */
+		if (in->weaponnum < WEAPON_NONE || in->weaponnum >= WEAPON_CUSTOM_END) {
+			in->weaponnum = WEAPON_UNARMED;
+		}
 	}
 	netbufReadCoord(buf, &in->pos);
 	if (in->ucmd & UCMD_AIMMODE) {
@@ -147,7 +167,19 @@ u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *out)
         }
     }
     *out = candidate;
+    if (weapon_ref) *weapon_ref = candidate_ref;
     return 0;
+}
+
+u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *out)
+{
+    return readPlayerMove(buf, out, NULL);
+}
+
+u32 netbufReadGridPlayerMove(struct netbuf *buf, struct netplayermove *out, u16 *weapon_ref)
+{
+    if (!weapon_ref) return 1;
+    return readPlayerMove(buf, out, weapon_ref);
 }
 
 u32 netbufReadRooms(struct netbuf *buf, s16 *rooms, const s32 num)

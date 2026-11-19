@@ -48,11 +48,13 @@ typedef struct forge_prop_handle {
  * Lifecycle -- called from forgemode.c at mode transition points.
  * ------------------------------------------------------------------ */
 
-/* FREEFLY -> NORMAL: instantiate all enabled placed objects. */
-void forgeRuntimeEnterPlay(void);
+/* Start playtest bot controls, optionally with the legacy loose map. */
+void forgeRuntimeEnterPlay(s32 include_legacy_map);
 
 /* NORMAL -> FREEFLY: clean up all forge-instantiated engine state. */
 void forgeRuntimeExitPlay(void);
+/* Forget stage-pool storage before reloading a native Grid playtest. */
+void forgeRuntimeReleaseStage(void);
 
 /* Per-tick: consume pending bot-add / bot-remove from the Bots tab. */
 void forgeRuntimeTick(void);

@@ -1737,23 +1737,12 @@ static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
 
 static void s_scanModChromeStyles(void)
 {
-    if (nativeWritePolicyActive()) {
-        char root[FS_MAXPATH + 1];
-        s_scanChromeStylesInDir(fsFullPath("$B/mods", root, sizeof(root)), 1);
-        return;
-    }
-    char buf0[FS_MAXPATH + 1];
-    char buf2[FS_MAXPATH + 1];
-    char buf3[FS_MAXPATH + 1];
-    const char *roots[] = {
-        fsFullPath("$E/../mods", buf0, sizeof(buf0)),
-        "mods",
-        fsFullPath("$E/mods",    buf2, sizeof(buf2)),
-        fsFullPath("mods",       buf3, sizeof(buf3)),
-    };
-
-    for (int ri = 0; ri < 4; ri++) {
-        s_scanChromeStylesInDir(roots[ri], 1);
+    /* B-1160: the same mods/ roots modmgr walks (only the explicit
+     * --moddir when one is given). */
+    fs_mod_roots_t roots;
+    fsModRoots(&roots);
+    for (int ri = 0; ri < roots.count; ri++) {
+        s_scanChromeStylesInDir(roots.path[ri], 1);
     }
 }
 
@@ -1871,7 +1860,7 @@ s32 pdguiThemeRegisterChromeModDir(const char *mod_dir, s32 activate_now)
         pdguiThemeSetUiChromeEnabled(1);
         pdguiSetPanelNineSlice(style_id);
         pdguiChromeSetEnabled(1);
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
         sysLogPrintf(LOG_NOTE,
             "UI.CHROME: activated newly-registered style '%s'", style_id);
     }

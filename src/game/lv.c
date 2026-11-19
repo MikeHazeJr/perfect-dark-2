@@ -117,6 +117,7 @@
 #include "net/net.h"
 #include "net/netmanifest.h"
 #include "net/netmsg.h"
+#include "net/grid_match_result.h"
 #include "video.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
@@ -125,7 +126,9 @@
 #include "assetcatalog_load.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
+#include "scenario_scene_renderer.h"
 #include "smoke_harness.h"
+#include "vehicle_graph_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -472,6 +475,20 @@ static s32 lvRollbackCommittedPlayers(
 	return rolled_back;
 }
 
+/* The hub rule (CORE, 2026-11-15): whether the current stage is a hub the
+ * player spends time in between missions. A scenario-source stage says so in
+ * its stage.json ("hub": true); a ROM stage is a hub when it is the Carrington
+ * Institute, as the game checked. See scenario_stage_rules.h for what a hub
+ * changes. */
+bool lvStageIsHub(void)
+{
+	if (bgUsesScenarioSource()) {
+		return scenarioSourceStageIsHub() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_CITRAINING;
+}
+
 bool lvReset(s32 stagenum)
 {
 	s32 i;
@@ -795,6 +812,8 @@ bool lvReset(s32 stagenum)
 	varsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");
 	propsReset();
+	/* pd.vehicle_graph.v1: no vehicle's graph instance outlives its stage. */
+	vehicleGraphRuntimeReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
 	/* PC (c132): re-acquire the frozen corpse store from the fresh stage pool so
@@ -814,15 +833,23 @@ bool lvReset(s32 stagenum)
 	weatherReset();
 	lvResetMiscSfx();
 
-	switch (g_Vars.stagenum) {
-	case STAGE_ESCAPE:
-	case STAGE_EXTRACTION:
-	case STAGE_INFILTRATION:
-	case STAGE_DEFECTION:
-	case STAGE_ATTACKSHIP:
-	case STAGE_TEST_OLD:
-		starsReset();
-		break;
+	/* Decision 1: a stage built from scenario source has a starfield when its
+	 * stage.json has a stars rule; a ROM stage keeps the stage list. */
+	if (bgUsesScenarioSource()) {
+		if (scenarioSourceStageStars(NULL)) {
+			starsReset();
+		}
+	} else {
+		switch (g_Vars.stagenum) {
+		case STAGE_ESCAPE:
+		case STAGE_EXTRACTION:
+		case STAGE_INFILTRATION:
+		case STAGE_DEFECTION:
+		case STAGE_ATTACKSHIP:
+		case STAGE_TEST_OLD:
+			starsReset();
+			break;
+		}
 	}
 
 	func0f0099a4();
@@ -1579,7 +1606,7 @@ Gfx *lvRender(Gfx *gdl)
 				(viGetViewLeft() + viGetViewWidth()) * 4.0f,
 				(viGetViewTop() + viGetViewHeight()) * 4.0f);
 
-		gdl = titleRender(gdl);
+		if (!mainGridRoomBackdropActive()) gdl = titleRender(gdl);
 		gdl = lvRenderFade(gdl);
 	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
@@ -1788,12 +1815,24 @@ Gfx *lvRender(Gfx *gdl)
 			}
 
 			if (g_Vars.lockscreen) {
+				/* B-1172: the scene backdrop draws in display-list order. */
+				if (scenarioSceneRendererIsActive()) {
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(),
+						SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);
+				}
 				gdl = bviewDrawMotionBlur(gdl, 0xffffffff, 255);
 				g_Vars.lockscreen--;
 			} else if (var8009dfc0) {
 				gdl = viRenderViewportEdges(gdl);
 				gdl = bgScissorToViewport(gdl);
 				mtx00016748(1);
+				/* B-1172: the held menu keeps the scene as its backdrop (the CI room
+				 * behind the main menu), now queued in display-list order, under
+				 * the menus, with the last camera the stage set. */
+				if (scenarioSceneRendererIsActive()) {
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(),
+						SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);
+				}
 
 				if (g_Vars.currentplayer->menuisactive) {
 					gdl = menuRender(gdl);
@@ -1843,12 +1882,10 @@ Gfx *lvRender(Gfx *gdl)
 				 * the backdrop. Outside the scene-renderer backdrop the sky fill is
 				 * unchanged; during the playable range the live-world room fills the
 				 * frame, so the skipped fill is not visible. */
-				{
-					extern s32 scenarioSceneRendererIsActive(void);
-					if (!scenarioSceneRendererIsActive()) {
-						gdl = skyRender(gdl);
-					}
-				}
+				/* B-1172: the scenario scene now draws in display-list order (its
+				 * G_SCENE_RENDER_EXT in bgRenderScene, after this), so the sky fill
+				 * no longer covers it and renders on every stage again. */
+				gdl = skyRender(gdl);
 				gSPSetGeometryMode(gdl++, G_ZBUFFER);
 				bgTick();
 				lightsTick();
@@ -1856,7 +1893,10 @@ Gfx *lvRender(Gfx *gdl)
 				scenarioTickChr(NULL);
 				{
 					extern s32 bootDebugPlaceBotNearPlayerPreRenderTick(void);
+					extern void bootDebugPlaceBotNearPlayerRestorePlayer(void);
 					(void)bootDebugPlaceBotNearPlayerPreRenderTick();
+					/* Back to this viewport's player if the hook targeted another */
+					bootDebugPlaceBotNearPlayerRestorePlayer();
 				}
 				propsSort();
 				autoaimTick();
@@ -2805,7 +2845,8 @@ void lvTick(void)
 		g_Vars.players[j]->hands[HAND_RIGHT].hasdotinfo = false;
 	}
 
-	if (lvIsPaused()) {
+	/* A Grid match owns no elapsed time until the initial roster is released. */
+	if (lvIsPaused() || netGridMatchHoldingInitialFrame()) {
 		g_Vars.lvupdate240 = 0;
 	} else if (mpIsPaused()) {
 		g_Vars.lvupdate240 = 0;
@@ -2948,6 +2989,7 @@ void lvTick(void)
 					 * (and solo); the networked client ends via SVC_STAGE_END
 					 * because its own time-limit gate is NETMODE_CLIENT-guarded. */
 					sysLogPrintf(LOG_NOTE, "MATCH: stage end reason=timelimit");
+					netGridMatchNoteEndReason(GRID_MATCH_END_TIME);
 					mainEndStage();
 				}
 			}
@@ -3028,6 +3070,8 @@ void lvTick(void)
 					scorelimit_reached ? "scorelimit"
 						: (teamscorelimit_reached ? "teamscorelimit" : "limit"),
 					g_MpScoreLimit, g_MpTeamScoreLimit);
+				netGridMatchNoteEndReason(scorelimit_reached ? GRID_MATCH_END_SCORE
+					: teamscorelimit_reached ? GRID_MATCH_END_TEAM_SCORE : GRID_MATCH_END_OTHER);
 				mainEndStage();
 			}
 		}
@@ -3044,7 +3088,7 @@ void lvTick(void)
 	}
 
 	if (g_Vars.stagenum == STAGE_TITLE) {
-		titleTick();
+		if (!mainGridRoomBackdropActive()) titleTick();
 		langTick();
 		musicTick();
 	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {
@@ -3094,6 +3138,23 @@ void lvTick(void)
 
 		if (!g_MainIsEndscreen) {
 			propsTick();
+		}
+
+		/* object-events.md slice 1: players going into or out of a box the
+		 * level graph's own program names, on every stage; the host's graph
+		 * decides on a network game. */
+		if (!g_MainIsEndscreen && g_NetMode != NETMODE_CLIENT) {
+			struct coord positions[MAX_PLAYERS];
+			s32 present[MAX_PLAYERS];
+			const s32 count = PLAYERCOUNT() < MAX_PLAYERS ? PLAYERCOUNT() : MAX_PLAYERS;
+
+			for (i = 0; i < count; i++) {
+				present[i] = g_Vars.players[i] && g_Vars.players[i]->prop;
+				if (present[i]) {
+					positions[i] = g_Vars.players[i]->prop->pos;
+				}
+			}
+			scenarioSourceLevelGraphDeliverVolumeEvents(positions, present, count);
 		}
 
 		musicTick();

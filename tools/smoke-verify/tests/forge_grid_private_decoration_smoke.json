@@ -1,0 +1,287 @@
+{
+  "scenario_name": "forge_grid_private_decoration_smoke",
+  "description": "A creator in the Room attempts an out-of-bounds move of one authored decoration, then translates it safely in the same room. The private host verifies the exact native object, refusal with no revision or position change, and the successful edit in the same three-bot stage epoch. Continue returns to the Room with revision 3 and both peers still connected.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "shared-draft",
+    "private-playtest",
+    "smoke",
+    "decoration"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/bg.c",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "src/game/propobj.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-decoration-host",
+    "grid-decoration-creator",
+    "grid-decoration-ordinary"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-decoration-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-decoration-creator/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-decoration-ordinary/mods/.pdmod-migration-done"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-decoration-host",
+        "--moddir",
+        "$E/grid-decoration-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-prop",
+        "base:model_crate2_cq",
+        "--debug-forge-level-decoration",
+        "--debug-forge-level-atmosphere",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27487",
+        "--launch-mp-room",
+        "mod:arena_grid_playtest_draft",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--host-autostart-peers",
+        "2",
+        "--debug-grid-private-draft",
+        "host",
+        "--debug-grid-private-decoration"
+      ],
+      "wait_for": "NET: created server on port 27487",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host-verifies-refusal-native-move-and-same-room-return",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "FORGE\\.LEVEL\\.EDIT: made decoration setup_[0-9]{4} drawn with base:model_crate2_cq",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_playtest_draft sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "GRID\\.PLAYTEST: prepared room=[0-9]+ arena=mod:arena_grid_playtest_draft",
+              "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_playtest_draft epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "SCENARIO\\.GRID\\.DECORATION: bound scenario=mod:arena_grid_playtest_draft__[a-zA-Z0-9_]+ records=1",
+              "GRID\\.PLAYTEST: active room=[0-9]+ epoch=[1-9][0-9]* arena=mod:arena_grid_playtest_draft",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=1 enabled=1 brightness=104",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=104 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: release_creator room=[0-9]+ generation=1 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=2 enabled=1 brightness=137",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=137 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: rendered edit epoch=[1-9][0-9]* revision=2 before=[0-9.]+ native=[0-9.]+ after=[0-9.]+",
+              "SMOKE\\.GRID\\.DECORATION: release_invalid room=[0-9]+ generation=1 epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2",
+              "SMOKE\\.GRID\\.DECORATION: verified refusal epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2 intact=1",
+              "SMOKE\\.GRID\\.DECORATION: release_valid room=[0-9]+ generation=1 epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2",
+              "NET\\.GRID\\.EDIT: committed revision=3 author=2",
+              "GRID\\.PLAYTEST\\.DECORATION: epoch=[1-9][0-9]* draft_revision=3 record=setup_[0-9]{4} x=-?[0-9]+\\.[0-9] z=-?[0-9]+\\.[0-9] applied=1",
+              "SMOKE\\.GRID\\.DECORATION: native moved epoch=[1-9][0-9]* record=setup_[0-9]{4} command=[0-9]+ room=[1-9][0-9]* lifecycle=[1-9][0-9]* x=-?[0-9]+\\.[0-9] z=-?[0-9]+\\.[0-9]",
+              "NET: SVC_STAGE_END published and committed, returning to lobby",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.PLAYTEST: continued in room=[0-9]+",
+              "SMOKE\\.GRID\\.DECORATION: retained room=[0-9]+ epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=3 x=-?[0-9]+\\.[0-9] z=-?[0-9]+\\.[0-9]",
+              "SMOKE\\.GRID\\.PLAYTEST: returned room=[0-9]+ epoch=[1-9][0-9]* revision=3 ambient=137",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-decoration-host",
+          "SCENARIO\\.SOURCE: resolved room domain 'mod:arena_grid_playtest_draft__[a-zA-Z0-9_]+' rooms=3 declared=3 mesh_max=2 portal_max=2",
+          "PLAYER\\.INIT\\.COMMIT lobby-start room=[0-9]+ mode=0 players=1 bots=3",
+          "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+          "SIMULANT: spawning done total=3"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited|granted) client=2",
+          "GRID\\.PLAYTEST\\.DECORATION: .*applied=0",
+          "GRID\\.PLAYTEST\\.DECORATION: .*draft_revision=2"
+        ],
+        "required_counts": [
+          {
+            "pattern": "GRID\\.PLAYTEST\\.DECORATION:",
+            "min": 1,
+            "max": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-decoration-creator",
+        "--moddir",
+        "$E/grid-decoration-creator/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-prop",
+        "base:model_crate2_cq",
+        "--debug-forge-level-decoration",
+        "--debug-forge-level-atmosphere",
+        "--connect-host",
+        "127.0.0.1:27487",
+        "--debug-grid-private-draft",
+        "creator",
+        "--debug-grid-private-decoration"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "creator-observes-refusal-retries-same-sequence-and-receives-inverse",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.PLAYTEST: creator sent ambient=137 host_epoch=[1-9][0-9]* room=[0-9]+ lobby=1",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.DECORATION: creator sent out_of_bounds epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2",
+              "SMOKE\\.GRID\\.DECORATION: creator refused room=[0-9]+ generation=1 epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2 next_sequence=2 intact=1 lobby=1",
+              "SMOKE\\.GRID\\.DECORATION: creator sent same_room epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=2",
+              "NET\\.GRID\\.EDIT: observed revision=3 author=2",
+              "SMOKE\\.GRID\\.DECORATION: creator accepted epoch=[1-9][0-9]* record=setup_[0-9]{4} revision=3 undo=1",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-decoration-creator",
+          "FORGE\\.LEVEL\\.EDIT: made decoration setup_[0-9]{4} drawn with base:model_crate2_cq"
+        ],
+        "required_counts": [
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x84",
+            "min": 4,
+            "max": 4
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x85",
+            "min": 2,
+            "max": 2
+          }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-decoration-ordinary",
+        "--moddir",
+        "$E/grid-decoration-ordinary/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27487",
+        "--debug-grid-private-draft",
+        "ordinary",
+        "--debug-grid-private-decoration"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-stays-through-normal-host-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-decoration-ordinary"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT\\.WIRE: received",
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

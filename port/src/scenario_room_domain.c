@@ -1,5 +1,7 @@
 #include "scenario_room_domain.h"
 
+#include <float.h>
+
 scenario_room_domain_result_t scenarioRoomDomainResolve(
 	int32_t declared_room_count,
 	int32_t mesh_max_room,
@@ -68,4 +70,54 @@ const char *scenarioRoomDomainResultName(scenario_room_domain_result_t result)
 	default:
 		return "unknown";
 	}
+}
+
+int scenarioRoomBoundsValid(const scenario_room_bounds_t *box, int authored)
+{
+	if (!box) return 0;
+	float diagonal_squared = 0.0f;
+	for (int axis = 0; axis < 3; ++axis) {
+		const float low = box->minimum[axis];
+		const float high = box->maximum[axis];
+		if (!__builtin_isfinite(low) || !__builtin_isfinite(high) || low > high || (authored && low == high)) return 0;
+		/* Same float intermediates the native background uses. */
+		const float center_sum = low + high;
+		const float extent = high - low;
+		if (!__builtin_isfinite(center_sum)) return 0;
+		diagonal_squared += extent * extent;
+	}
+	return __builtin_isfinite(diagonal_squared) && (!authored || diagonal_squared > 0.0f);
+}
+
+static int scenarioRoomEdgeCovers(float outer, float inner, int maximum)
+{
+	/* Bounds can round at six decimal places during export. A few float
+	 * ULPs also cover independent rounding in the native collision source. */
+	const double largest = __builtin_fmax(__builtin_fabs((double)outer), __builtin_fabs((double)inner));
+	const double tolerance = 1.0e-6 + 4.0 * FLT_EPSILON * largest;
+	const double outside = maximum ? (double)inner - outer : (double)outer - inner;
+	return outside <= tolerance;
+}
+
+int scenarioRoomBoundsContain(const scenario_room_bounds_t *outer,
+	const scenario_room_bounds_t *inner)
+{
+	if (!outer || !inner) return 0;
+	for (int axis = 0; axis < 3; ++axis) {
+		if (!scenarioRoomEdgeCovers(outer->minimum[axis], inner->minimum[axis], 0)
+				|| !scenarioRoomEdgeCovers(outer->maximum[axis], inner->maximum[axis], 1)) return 0;
+	}
+	return 1;
+}
+
+int scenarioRoomOriginValid(const float origin[3])
+{
+	if (!origin) return 0;
+	for (int axis = 0; axis < 3; ++axis) {
+		const double rounded = __builtin_roundf(origin[axis]);
+		/* The light loader rounds to s32, then adds a native s16 local corner. */
+		if (!__builtin_isfinite(rounded) || rounded < (double)INT32_MIN - INT16_MIN
+				|| rounded > (double)INT32_MAX - INT16_MAX) return 0;
+	}
+	return 1;
 }

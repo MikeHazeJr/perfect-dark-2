@@ -21,6 +21,7 @@
 
 /* PD-authentic drawing functions */
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_scaling.h"
 
 /* Logging */
@@ -111,7 +112,6 @@ u32 mempPCGetNumAllocations(void);
 
 } /* extern "C" */
 
-#define PDGUI_CONFIG_PATH "$S/pd.ini"
 
 /* -----------------------------------------------------------------------
  * Safe accessors for netclient data.
@@ -383,7 +383,7 @@ static void pdguiDebugFlagsSection(void)
     bool jumpLog = g_JumpLoggingEnabled != 0;
     if (ImGui::Checkbox("Jump/Move Logging", &jumpLog)) {
         g_JumpLoggingEnabled = jumpLog ? 1 : 0;
-        configSave(PDGUI_CONFIG_PATH);
+        configSave(CONFIG_PATH);
         sysLogPrintf(LOG_NOTE, "DEBUG_MENU: JumpLogging -> %d", g_JumpLoggingEnabled);
     }
 
@@ -405,7 +405,7 @@ static void pdguiDebugFlagsSection(void)
     bool castDebug = g_InteractCastDebugDraw != 0;
     if (ImGui::Checkbox("Interact Cast Debug Draw", &castDebug)) {
         g_InteractCastDebugDraw = castDebug ? 1 : 0;
-        configSave(PDGUI_CONFIG_PATH);
+        configSave(CONFIG_PATH);
         sysLogPrintf(LOG_NOTE, "DEBUG_MENU: InteractCastDebugDraw -> %d", g_InteractCastDebugDraw);
     }
 

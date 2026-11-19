@@ -19,20 +19,28 @@ int modelRodataIsNonNull(const void *rodata)
 	return rodata != NULL ? 1 : 0;
 }
 
-int modelRodataIsReadable(const void *rodata, size_t bytes)
-{
-	if (rodata == NULL || bytes == 0) {
-		return 0;
-	}
-
 #ifdef _WIN32
-	/* Walk the address range one VirtualQuery at a time.  A single
-	 * heap allocation can span multiple MEMORY_BASIC_INFORMATION
-	 * regions if the OS coalesced or reserved them differently, so we
-	 * keep advancing until the entire requested range is committed and
-	 * readable, or one segment fails the check. */
-	const unsigned char *cur = (const unsigned char *)rodata;
-	const unsigned char *end = cur + bytes;
+/*
+ * Ask the operating system about [start, end), one VirtualQuery at a
+ * time.  A single heap allocation can span multiple
+ * MEMORY_BASIC_INFORMATION regions if the OS coalesced or reserved them
+ * differently, so we keep advancing until the entire requested range is
+ * committed and readable, or one segment fails the check.
+ *
+ * On success *run_lo and *run_hi receive the bounds of the regions that
+ * were walked.  Every byte of [*run_lo, *run_hi) is committed and
+ * readable; *run_lo is the base of the page that holds `start` (a query
+ * reports from the queried page onward, not from the start of the
+ * allocation) and *run_hi is at or past `end`.
+ *
+ * The caller has already refused a NULL start, an empty range and a range
+ * that wraps past the top of the address space.
+ */
+static int rodataQueryRun(uintptr_t start, uintptr_t end,
+                          uintptr_t *run_lo, uintptr_t *run_hi)
+{
+	uintptr_t cur = start;
+	uintptr_t lo = start;
 
 	while (cur < end) {
 		MEMORY_BASIC_INFORMATION mbi;
@@ -53,22 +61,100 @@ int modelRodataIsReadable(const void *rodata, size_t bytes)
 			return 0;
 		}
 
-		const unsigned char *region_end = (const unsigned char *)mbi.BaseAddress + mbi.RegionSize;
-		if (region_end <= cur) {
+		const uintptr_t region_lo = (uintptr_t)mbi.BaseAddress;
+		const uintptr_t region_hi = region_lo + mbi.RegionSize;
+		if (region_hi <= cur || region_lo > cur) {
 			/* Pathological: VirtualQuery returned a region that does
 			 * not contain `cur`.  Treat as failure. */
 			return 0;
 		}
-		cur = region_end;
+		if (cur == start) {
+			lo = region_lo;
+		}
+		cur = region_hi;
 	}
+
+	*run_lo = lo;
+	*run_hi = cur;
 	return 1;
+}
+#endif
+
+int modelRodataIsReadable(const void *rodata, size_t bytes)
+{
+	const uintptr_t start = (uintptr_t)rodata;
+
+	if (rodata == NULL || bytes == 0) {
+		return 0;
+	}
+	if (start + bytes < start) {
+		/* The range wraps past the top of the address space. */
+		return 0;
+	}
+
+#ifdef _WIN32
+	uintptr_t lo;
+	uintptr_t hi;
+
+	return rodataQueryRun(start, start + bytes, &lo, &hi);
 #else
 	/* Non-Windows fallback: NULL is the only check we can do cheaply
 	 * without installing a per-call SIGSEGV handler.  PD2 is
 	 * Windows-only at HEAD, so this branch exists for portability /
 	 * future-proofing only. */
-	(void)bytes;
-	return rodata != NULL ? 1 : 0;
+	return 1;
+#endif
+}
+
+int modelRodataIsReadableInSpan(model_rodata_span_t *span,
+                                const void *rodata, size_t bytes)
+{
+	const uintptr_t start = (uintptr_t)rodata;
+
+	if (span == NULL) {
+		return modelRodataIsReadable(rodata, bytes);
+	}
+	if (rodata == NULL || bytes == 0) {
+		return 0;
+	}
+	if (start + bytes < start) {
+		/* The range wraps past the top of the address space. */
+		return 0;
+	}
+
+	/* Inside what this walk already knows to be readable: no system
+	 * call.  This is the whole point of the span (B-1234). */
+	if (span->hi != 0 && start >= span->lo && start + bytes <= span->hi) {
+		return 1;
+	}
+
+#ifdef _WIN32
+	uintptr_t lo;
+	uintptr_t hi;
+
+	if (!rodataQueryRun(start, start + bytes, &lo, &hi)) {
+		/* What the span already holds was verified earlier in this
+		 * walk and is still true, so it stays. */
+		return 0;
+	}
+
+	if (span->hi != 0 && lo <= span->hi && span->lo <= hi) {
+		/* The new run touches or overlaps the old one: together they
+		 * are one run of readable memory. */
+		if (span->lo < lo) {
+			lo = span->lo;
+		}
+		if (span->hi > hi) {
+			hi = span->hi;
+		}
+	}
+	span->lo = lo;
+	span->hi = hi;
+	return 1;
+#else
+	/* Non-Windows fallback, as in modelRodataIsReadable.  Nothing was
+	 * verified, so the span learns nothing. */
+	return 1;
 #endif
 }
 

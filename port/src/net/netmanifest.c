@@ -37,6 +37,7 @@
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
 #include "assetcatalog.h"
+#include "grid_match_sources.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "modmgr.h"
@@ -119,6 +120,42 @@ static void s_manifestAppendWeaponPool(match_manifest_t *out)
     sysLogPrintf(LOG_NOTE,
         "manifest: weapon pool enumeration -- added=%d filtered=%d invalid=%d",
         ctx.added, ctx.skipped_filtered, ctx.skipped_invalid);
+}
+
+typedef struct manifest_spawn_weapon_collection {
+    grid_match_source_root_t *roots;
+    size_t capacity;
+    size_t count;
+    s32 overflow;
+} manifest_spawn_weapon_collection_t;
+
+static void s_collectSpawnWeaponId(const asset_entry_t *entry, void *userdata)
+{
+    manifest_spawn_weapon_collection_t *pool = userdata;
+    if (!entry || !entry->id[0] || s_manifestSkipMpWeaponSlot(entry->ext.weapon.weapon_id)
+            || (entry->temporary && netmsgGridModIsProposalOnly(entry->id))) return;
+    if (pool->count == pool->capacity) {
+        pool->overflow = 1;
+        return;
+    }
+    grid_match_source_root_t *root = &pool->roots[pool->count++];
+    memcpy(root->id, entry->id, sizeof(root->id));
+    root->type = ASSET_WEAPON;
+}
+
+s32 manifestCollectSpawnWeaponPool(grid_match_source_root_t *roots, size_t capacity, size_t *count)
+{
+    if (!count) return 0;
+    *count = 0;
+    if (!roots || !capacity) return 0;
+
+    /* The catalog visits under its lock. Copy IDs here and expand closures
+     * only after enumeration returns. */
+    manifest_spawn_weapon_collection_t pool = { .roots = roots, .capacity = capacity };
+    assetCatalogIterateUnlockedByType(ASSET_WEAPON, s_collectSpawnWeaponId, &pool);
+    if (pool.overflow || !pool.count) return 0;
+    *count = pool.count;
+    return 1;
 }
 
 s32 manifestGetMaxEntries(void)
@@ -767,6 +804,7 @@ void manifestBuild(match_manifest_t *out, struct hub_room_s *room,
                     (int)mod->has_modjson, (int)mod->has_audioini);
                 continue;
             }
+            if (netDistribLegacyPackageWithheld(mod->id)) continue;
             manifestAddModEntry(out, mod->id,
                                 MANIFEST_SLOT_MATCH, mod->sha256);
         }
@@ -1097,6 +1135,7 @@ void manifestBuildForHost(match_manifest_t *out)
                     (int)mod->has_modjson, (int)mod->has_audioini);
                 continue;
             }
+            if (netDistribLegacyPackageWithheld(mod->id)) continue;
             manifestAddModEntry(out, mod->id,
                                 MANIFEST_SLOT_MATCH, mod->sha256);
         }
@@ -1415,8 +1454,13 @@ static void s_manifestAddHead(match_manifest_t *out, s32 headnum, s32 slot_tag,
     const asset_entry_t *he;
     s32 was_present;
 
-    if (headnum < 0 || headnum >= 256) {
-        return; /* negative = hologram / special */
+    if (headnum <= 0 || headnum >= 256) {
+        /* negative = hologram / special. 0 = no separate head: the body
+         * model carries its own (body.c treats headnum 0 the same way), and
+         * entry 0 of the body and head table is a body. Looking it up only
+         * produced a "not in catalog" warning per character, 58 in one
+         * campaign run. */
+        return;
     }
     hcan = catalogHeadIdByHeadnum(headnum);
     he   = hcan ? assetCatalogResolve(hcan) : NULL;
@@ -1892,6 +1936,22 @@ static s32 s_manifestDiffEntryHasExactType(
             entry->type, entry->slot_index, asset->type);
 }
 
+static void s_manifestReleaseEntry(u8 type, asset_type_e asset_type, const char *id)
+{
+    if (type == MANIFEST_TYPE_COMPONENT) return;
+    catalogReleaseTypedAsset(asset_type, id);
+    sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'", id);
+}
+
+void manifestReleaseCurrent(void)
+{
+    for (u16 i = 0; i < g_CurrentLoadedManifest.num_entries; ++i) {
+        const match_manifest_entry_t *entry = &g_CurrentLoadedManifest.entries[i];
+        s_manifestReleaseEntry(entry->type, s_manifestEntryCatalogAssetType(entry), entry->id);
+    }
+    manifestClear(&g_CurrentLoadedManifest);
+}
+
 s32 manifestApplyDiff(const match_manifest_t *needed,
                       manifest_diff_t *diff)
 {
@@ -1966,14 +2026,8 @@ s32 manifestApplyDiff(const match_manifest_t *needed,
      * registered deps are cascade-decremented. Detailed "freed / retained"
      * logging is emitted inside the catalog lifecycle implementation. */
     for (i = 0; i < diff->num_to_unload; i++) {
-        if (diff->to_unload[i].type == MANIFEST_TYPE_COMPONENT) {
-            continue;
-        }
-        catalogReleaseTypedAsset(
-                (asset_type_e)diff->to_unload[i].asset_type,
-                diff->to_unload[i].id);
-        sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
-                     diff->to_unload[i].id);
+        const manifest_diff_entry_t *entry = &diff->to_unload[i];
+        s_manifestReleaseEntry(entry->type, (asset_type_e)entry->asset_type, entry->id);
     }
 
     /* Deep-copy needed into g_CurrentLoadedManifest so it becomes the new
@@ -2167,6 +2221,34 @@ void manifestSPTransition(s32 stagenum)
     manifestDiffFree(&s_SpLastDiff);
 }
 
+s32 manifestGridVariantTransition(s32 stagenum, const grid_match_sources_t *sources)
+{
+    if (g_Vars.normmplayerisrunning && g_ClientManifest.num_entries > 0) {
+        s_manifestCopyInto(&s_SpNeededManifest, &g_ClientManifest);
+        if (s_SpNeededManifest.num_entries != g_ClientManifest.num_entries
+                || !manifestAppendCatalogClosure(&s_SpNeededManifest, g_MpSetup.stage_id, MANIFEST_SLOT_MATCH)) {
+            return 0;
+        }
+    } else {
+        manifestBuildMission(stagenum, &s_SpNeededManifest);
+    }
+    for (size_t i = 0; i < sources->entry_count; ++i) {
+        const grid_match_source_root_t *asset = &sources->entries[i].asset;
+        if (!manifestAppendCatalogClosure(&s_SpNeededManifest, asset->id, MANIFEST_SLOT_MATCH)) {
+            sysLogPrintf(LOG_WARNING, "MANIFEST.GRID.VARIANT: unavailable source %s", asset->id);
+            return 0;
+        }
+    }
+    manifestComputeHash(&s_SpNeededManifest);
+    manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
+    const s32 active = manifestValidate(&s_SpLastDiff) == 0
+        && manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    manifestDiffFree(&s_SpLastDiff);
+    if (active) sysLogPrintf(LOG_NOTE, "MANIFEST.GRID.VARIANT: active stage=0x%02x sources=%lu",
+        (u32)stagenum, (unsigned long)sources->entry_count);
+    return active;
+}
+
 void manifestSPRescanSetup(s32 stagenum)
 {
     s32 pre_count;
@@ -2283,7 +2365,7 @@ s32 manifestMPTransitionEntryCount(void)
     return (s32)s_manifestMPTransitionNeeded(NULL)->num_entries;
 }
 
-void manifestMPTransition(void)
+s32 manifestMPTransition(void)
 {
     const char *source_name = NULL;
     const match_manifest_t *needed = s_manifestMPTransitionNeeded(&source_name);
@@ -2292,20 +2374,23 @@ void manifestMPTransition(void)
         sysLogPrintf(LOG_WARNING,
                      "MANIFEST-MP: no %s manifest available, skipping transition",
                      source_name);
-        return;
+        return 0;
     }
 
     sysLogPrintf(LOG_NOTE,
                  "MANIFEST-MP: transition — %d entries in authoritative %s manifest",
                  (int)needed->num_entries, source_name);
 
+    s32 applied = 1;
     manifestDiff(&g_CurrentLoadedManifest, needed, &s_SpLastDiff);
     if (manifestValidate(&s_SpLastDiff) != 0
             || !manifestApplyDiff(needed, &s_SpLastDiff)) {
         sysLogPrintf(LOG_WARNING,
                      "MANIFEST-MP: transition rejected; current manifest preserved");
+        applied = 0;
     }
     manifestDiffFree(&s_SpLastDiff);
+    return applied;
 }
 
 /* =========================================================================

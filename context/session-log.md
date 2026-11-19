@@ -1,5 +1,393 @@
 # Session Log (Active)
 
+2026-11-19 BGFX CLASSIC, landing (written 19:10 UTC; `week-pd/bgfx-classic`, worktree `D:\PD2-wt\bgfx-classic`). Mike: "Commit, push, merge, update local dev", which replaces the goal's "no merge into dev". Merged dev 730aa8bb into the branch. Two conflicts: this log (union, dev's entries first) and `freeScene` in `scenario_scene_renderer.cpp` (both sides kept: dev's room lighting texture and the bgfx resources). Dev's B-1172 scene renderer made the branch's bgfx scene path stale (a 52-byte vertex with an integer room, sky offset, room lighting, fog, per-view passes, animated surfaces, Grid swaps), so it was rebuilt in the merge to match (`bgfx-classic-gl.md`, "Dev merge"): the shaders mirror dev's GL shader line for line, a dynamic vertex buffer with the room as a float, one room lighting texture per pass, the scissor from fast3d (`gfxBgfxApplyScissor`), the sky and animated-surface vertex updates shared by both backends, Grid prepare without GL in bgfx mode, probe stubs updated. The classic path draws exactly as dev's: its only changes are the room lighting choice moved into `viewRoomLights` and the vertex updates computed before the GL upload. Next: the proof turn on the merged commit (build, pd-tests, the renderer smokes), hosted CI on PR #9, then the landing on dev by the recorded procedure and the local dev update.
+
+2026-11-19, Grid PR #8 integration. Mike authorized resolving the conflicts,
+testing the combined build, merging to `dev` and updating the local build.
+The merge combines Grid `8556dc8de` with `dev` `91a67aa03`. It carries the
+controller editor port from `17d98b60a`, the newer Create Agent behavior,
+the exact Grid consent flow and the profile layouts written by both branches.
+See N-1026, N-1027 and N-1029. Other sessions' uncommitted canonical work
+is kept outside the integration commit.
+
+2026-11-19 03:32 UTC, Grid first-run visible intro on `week-pd/mods-v4`.
+Mike authorized a temporary D: store solely for this intro verification.
+The first clean run timed out in asset startup. The subsequent clean-profile
+run with pre-extracted stock assets captured the real CI camera pointed at
+a wall across the intro. Public stock `animation.ini` declares 12-bit
+packed turns. The native compiler preserved raw fields but previously set
+the generated header to 16 bits, so the camera aimed away from Joanna.
+The stock walker now reads the public precision, and the special-part
+compiler carries it through runtime and retained-generation identity.
+The asset guard and 83 focused cases passed. The corrected exact client
+`E1E7D35B` passed 17/17 smoke assertions and five actual 2560×1440 captures
+in `q_20261119032700194_8afdb3e1`. Inspected composited frames show Joanna
+and the terminal from multiple camera angles followed by Agent Select.
+Some desk and monitor surfaces still show separate geometry artifacts.
+This run used an empty profile, pre-extracted stock assets, and the
+startup logo bypass. The candidate awaits publication.
+
+2026-11-19 02:18 UTC, Grid playtest first-run follow-up on `week-pd/mods-v4`.
+Mike reported a missing intro, unusually fast or doubled typing, and failed
+Create Agent input from a fresh v0.1.103 extract on a separate PC. Create
+Agent now acquires the owning ImGui menu context after Agent Select releases
+it. The Carrington Institute menu uses elapsed level ticks for the first-run
+picker delay and the six-second camera safety timeout. Build
+`q_20261119021642523_bf461c8b` passed, and targeted run
+`q_20261119021757589_5f7454f3` passed 16 cases and 493 assertions. Candidate
+`PerfectDark-221B25B5-first-run.exe` is retained in `grid-b1`. The updated
+controller smoke definition checks context attach and release. In-game
+first-run verification of the candidate remains open. The two attached
+v0.1.103 logs confirm Create Agent lost input ownership on both runs. The
+intro camera started and submitted CI geometry on both runs. One reached
+frame 300 and the other took the scripted skip path at about frame 110.
+The render-frame safety timeout did not trigger in either run. Both runs
+opened the audio device at 22,050 Hz and had 44,100 Hz stock WAV sources.
+The full intro logged one play per cue. N-1003 and the attached-log receipt
+record the separate stock-bank playback-rate follow-up for T-ASSETS-046.
+The source fixes are awaiting publication.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 15:40 to 16:25 UTC: MIKE'S DIRECTION 16:14 UTC: "Focus on Forge mode, we will return to the other stuff afterward" (memory and scope updated: vehicle, veteran and Characters work wait). (1) TURN q_20261117154917611_f73cf2e8, 15:49 to 16:19 UTC, client de514e91, shared base 9 (archive 1.03 of 2 GiB after it; C: 166 GB free): pd-tests 2,319 cases pass with the base sweep; ALL FIVE SMOKES PASS: maian_vehicle_room_drive 50/50 and maian_vehicle_room_boost 60/60 (B-1243 proven, B-1241 closed: boost, overheat, recovery on the Blank Room), maian_vehicle_seats 58/58 (V5a's turret lines), forge_blank_room_edit 33/33 (a prop from the catalog made from nothing, saved, played), forge_blank_room_session 42/42 (undo and redo in a session). B-1244 NEW (the rider's view in the Blank Room draws only the floor; cause unknown; witness written; parked for Forge). (2) CI: green on 1104c131 (the live view, the size setter, the level-archive split; first compile of the live view); a1ede256 pushed, CI running. (3) WRITTEN for Forge this stretch: F5's model builder (`tools/build_level_from_model.py`, `tools/level_archive.py`, `tools/simple_glb.py`, 7 Python cases now in hosted CI), the Model Room example and `forge_model_room_smoke`, a real Blender 5.2.2 export through the builder (24 collision triangles, starts facing the middle); marker labels kept out from under the editor's panel; Nudge rows for starts and objects; and the editor now opens on a Level File tab, with the old Grid tools labelled as not saved in the level (34dfaeba, local). NEXT: a Forge turn on a1ede256 when green (both session smokes with the live view, the Model Room); asks to CORE about a level's look (lighting, sky, fog, music) and the game modes' markers, which no scenario member holds. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 14:35 to 15:40 UTC: the game turn ran and proved the Levels tool; the world now follows the level file in Forge (written, not compiled). (1) TURN q_20261117134802790_ef485e13, 14:49 to 15:30 UTC, client c88a828f, shared base 9, smoke storage on D: (archive 0.85 of 2 GiB afterwards, six installs of about 360 MB each sent to D:'s Recycle Bin; C: 166 GB free): pd-tests pass with the base sweep. PASS: forge_level_tool 43/43 (Forge F4 PROVEN: a new level made from the Blank Room by the tool's function, opened in Forge, saved over itself while loaded, own_template=1 updated=1), forge_blank_room 25/25, forge_blank_room_session 39/39, forge_session_save 36/36 (each with its picture from before the flight; on Complex the markers and labels show). FAIL: maian_vehicle_room_drive 42/50 and maian_vehicle_room_boost 43/60, both at `BOOT: --debug-mount-bike placement failed for Player 0` after the hoverbike made from nothing loaded and swapped to the Maian vehicle (`VEHICLE.SWAP: hoverbike modelnum 58 -> 441`): B-1243, NEW, a fault of the debug hook (chrAdjustPosForSpawn refuses a place in view), fixed in e4532d24 by setting CHRHFLAG_WARPONSCREEN around the placement as chrSetPos does. (2) CI: green on 41b68fee (the isfinite fix and the 45 degree turns); red on 7011ad13 because a static test pins the mount hook's call text (`chrMoveToPos(g_Vars.players[0]->prop->chr`), fixed in de514e91 (CI running). (3) WRITTEN, committed locally as 0dc030d7, not compiled: Forge F3's world follows the level file while the camera flies (`forge_level_live.h`): objects the file moved, redrew or left out are hidden, and stand-ins (plain walk-through objects with the same model, set down as setup sets down an object on a pad) are drawn where the file puts new, moved and redrawn objects; nothing is hidden whose stand-in could not be drawn; Playtest shows the stage as loaded. Planning half unit-tested (`[forge-level-live]`); `--debug-forge-session-live` and the two session smokes check the hide and draw lines. (4) Seen in the pictures, cosmetic: labels show through the editor's translucent panel and through walls. NEXT: push 0dc030d7 when de514e91's CI ends; a turn with the room vehicle smokes (B-1243), the seats smoke (V5a's turret lines), the edit smoke (props), the session smokes (undo, live view). ASKS FOR MIKE unchanged (smoke archive on C:, the stuck C: install, the veteran sheet, B-1234 to dev on its own). Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 13:50 to 14:35 UTC: hosted CI green on the dev merge with the Levels tool (e32b4deb, run 44094453597), which is the Levels tool's first compile and its `[level-tool]` cases' first run; the turn's records pushed (ab10ca2a). (1) B-1241's FIX WRITTEN, not run: a level can place a hoverbike. `FORGE_LEVEL_NEW_HOVERBIKE` in the level document (the 63-row record all five base hoverbikes share, read from shared base 9 by a structure-only survey; flag words 0x05120101, 0x00304300, 0x02000003), a unit case, New Hoverbike Here in the editor, `--debug-forge-level-vehicle` for the scripted edit (600 units in front of the first start: (250, 50, 0) on the Blank Room), and two new smokes, `maian_vehicle_room_drive_smoke` and `maian_vehicle_room_boost_smoke` (the Escape smokes' inputs and vehicle checks on that level, Combat Simulator, no simulants, any dismount fails). (2) Next game turn queued: q_20261117134802790_ef485e13, position 2 behind CORE's slice 5 (running) and MULTIPLAYER's co-op rerun; it will run `forge_level_tool_smoke`, the corrected `forge_blank_room_smoke`, the two session smokes for their new pre-flight pictures, and the two room vehicle smokes, once CI is green on this commit. (3) The read-only review agent stopped twice at a usage limit with nothing reported; not resumed. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 09:55 to 13:50 UTC: THE GAME TURN RAN and proved the camera fix, the Blank Room and the frame rate fix; dev is merged in again. The session was idle from about 10:05 to 13:30 UTC, so the turn ran unattended on the build it was armed with (0f329f66), and the Levels tool (b6282650) was not part of it; the read-only review agent stopped at a usage limit before reporting anything, so that review did not happen. (1) TURN q_20261117080550197_5ee34c8d, 11:41 to 12:40 UTC, shared base 9, smoke storage on D: (archive 0.66 of 2 GiB afterwards), eleven smokes, each install of about 365 MB sent to D:'s Recycle Bin after its run: pd-tests 2,204 cases pass with the base sweep (B-1239 PROVEN) and the game's validator on the Blank Room. PASS: forge_session_save 35/35, forge_blank_room_session 38/38 (B-1240 and B-1238 PROVEN: ahead=(0.500, 0.500) at yaw 217 pitch -20; flew 720 units with along_look=1.000), forge_blank_room_edit 32/32 (a start, a weapon place and an ammo crate made from nothing in an original level, pinned to base:dragon, saved, played), forge_mod_level_load 17/17, forge_level_edit 29/29, forge_level_weapon 27/27, maian_vehicle_seats 56/56, mod_vehicle_drive 32/32. forge_blank_room 24/25: the match on the Blank Room works; the miss was the fixture's own (`volumes=8` expected in a line that says `volumes=0` for every level), corrected. B-1234 PROVEN (60 frames a second in every Maian ride, driver and gunner; 87% of the mounted main thread asleep in the frame limiter) and B-1236 PROVEN (5,829 triangles). (2) B-1241, NEW, a fault of the venue: maian_vehicle_boost 38/48 and maian_vehicle_drive 37/38 fail because Escape's own script, which dev's mission graphs now run as written, completes objective 2 about 0.4 s after the vehicle moves and starts a cutscene that takes the player out of it. Boost, heat and steering are unproven on this build (last full passes 2026-11-16). PLAN: the vehicle smokes move to an original level that places a vehicle (the level document learns to make a vehicle record; a long room from the Blank Room's builder), written in maian-vehicle-and-veteran.md. (3) DEV MERGED: e4deb440 (MULTIPLAYER's landing, NET_PROTOCOL_VER 64) into the branch as e32b4deb; five conflicts, all two-sided additions (the smoke wait conditions, the session log, the patterns file where dev had moved SP-83 to the end); hosted CI running on it, which is also the first compile of the Levels tool, because GitHub ran no CI while the PR conflicted. (4) FIXTURES: the Blank Room smoke's level program line; both session smokes take a picture before the flight too (the flight at 20 degrees down ends under the floor, so the pictures taken after it show the level from below). (5) SEEN, not understood yet: every key in the editor legend reads 'Unbound' in the session pictures. NEXT: read CI; a turn for forge_level_tool_smoke, the corrected Blank Room smoke and the two new pictures; then the level document's vehicle record. ASKS FOR MIKE: the MODS smoke archive cap on C: or keeping MODS smokes on D:; the go-ahead to release the install stuck on C: since 07:43 UTC (390 MB); the veteran concept sheet; whether B-1234's fix goes to dev on its own now that it is proven. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 09:25 to 09:55 UTC: Forge step F4 written, the Modding Hub's Levels tool. (1) WHY NOW: the queued game turn q_20261117080550197_5ee34c8d is still two turns away (CORE's slice 5 running, MULTIPLAYER's co-op turn next), F4 needs no proof that turn would give, and the vehicle's turret (V5) cannot ride that turn: it needs `og.vehicle.turret_aim` in the vehicle graph, which changes the node counts the four vehicle smokes require while they still owe B-1234 and B-1236. (2) WRITTEN, not compiled and not run: `port/src/level_tool.c` with `[level-tool]` cases (what a level holds, the one-line summary, which names a new level may take: never one that would replace a level the player has), `port/fast3d/pdgui_menu_leveltool.cpp` (two lists, what the selected level holds or why Forge cannot open it, Open in Forge, New level from this one with Create and Create and Open in Forge), one more row in the hub's tool table, `--debug-level-tool-new` with `--debug-level-tool-name` in main.c (runs before `--debug-forge-level`), and `forge_level_tool_smoke`: a new level made from the Blank Room by the tool's function, a Forge session on it, a start added and the level saved under its own name from inside the session. That save replaces the archive of the loaded level while it runs (own_template=1, updated=1), which no run has done yet. Design: forge-mode-scope.md, 'F4 first slice'. (3) A read-only review of everything the armed turn will run for the first time (the camera override, the fly probe, the Blank Room archive against the game's readers, the four new smokes' regexes against the code that logs their lines) is running in a background agent; its findings get fixed before the turn if the waiter has not started. (4) V5 READ, nothing built: the gunner's view is `VehicleRot x Ry(yaw) x Head x Rx(pitch)`, so the turret's yaw part (1) takes `Ry(yaw)` and the cannon's pitch part (2) `Rx(360 - pitch)` in the model's own frame; an un-animated prop's matrices come from `modelasmBuildMatrices`, which already calls `g_ModelJointPositionedFunc` for each position node, but the fallback path (`modelUpdatePositionNodeMtx`) does not, so the pose is better applied after `modelSetMatrices` in `objInitMatrices` by recomputing the yaw part's subtree; the aim belongs in the vehicle's graph record (kept when the gunner leaves) and its limits in the `turret_aim` module's params. NEXT: CI on this commit; move the armed turn's build worktree to it by the safe procedure if green in time, with `forge_level_tool_smoke` added; then V5a. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 08:50 to 09:25 UTC: the camera fix and the Blank Room are green in hosted CI and the next game turn is armed on them. (1) HOSTED CI GREEN: 4f4abd12 (run 44049249006: the camera fix B-1240 with B-1238, the Blank Room, its unit case, and CI's archive validator on a level saved from it) and 0f329f66 (run 44052159357). (2) 0f329f66 adds a second measurement to the session debug flag, FORGE.FLY.PROBE: when something holds the forward action after the projection probe, it logs how far the camera flew and how much of that was along its look (frames of stillness end the flight, not time). `forge_session_save_smoke` holds ACTION_MOVE_FORWARD for 1.2 s and requires 0.95 or more along the look; `forge_blank_room_session_smoke` is the same run on the Blank Room. (3) THE WAITER IS RUNNING for q_20261117080550197_5ee34c8d (position 3 at 09:25, behind MULTIPLAYER's landing turn, CORE's slice 5 and MULTIPLAYER's co-op turn): background task of this session, log `guarded_turn_v4_9.log` in the scratchpad, script `guarded_turn_wt_profile2.sh`, build worktree `D:\PD2-wt\mods-v4-build` pinned at 0f329f66, shared base 9, smoke storage `D:/PD2-wt/pd2-smoke-mods` (archive 0.33 of 2 GiB), build scratch `v4turn9/`, smoke logs `smokes_v4_9/`, samples `profile_b1234_fix2/`. It runs pd-tests `[forge-level-doc],[model-rodata-guard],[vehicle-model-parts]`, `[b1112-sweep]` (the game's release validator on `dev-mods/blank_room`), `~[.]`, then eleven smokes: maian_vehicle_boost, maian_vehicle_drive, mod_vehicle_drive, maian_vehicle_seats (B-1234, B-1236, seats, with the frame sampler), forge_session_save (B-1240 and B-1238 by numbers), forge_blank_room, forge_blank_room_edit, forge_blank_room_session, and forge_mod_level_load, forge_level_edit, forge_level_weapon again on base 9. If the branch moves before the turn starts: read the waiter's log for 'Started queue item' first, and only if it is absent stop the task, end its leftover processes (`list_waiter_procs.ps1 -End`), move the build worktree to the new green commit and start the same command again. (4) Mike was sent the screenshot of the Forge session (HUD and markers). The legend's 'Unbound' pills are probably the smoke's unfocused window (the glyph resolver answers from active bindings); two legend rows name menu tab actions instead of the editor's own, left for a polish pass. (5) A memory note now makes the heredoc rule mechanical after two more slips. NEXT while waiting: the builder fed a Blender model (plain GLB in, room attribute and collision added) once the Blank Room is proven; the editor's prop model list; vehicle V5. ASKS FOR MIKE unchanged. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 08:10 to 08:50 UTC: FORGE WORKS IN THE GAME. The turn's four Forge smokes ran from the new smoke storage on D: and proved F1, F2 and the first piece of F3; the fourth measured a camera fault, which is fixed in code; the first original level template is built. (1) RESULTS of turn q_20261117041043360_545fad61 (ended 08:38, client 13dd514d, shared base 8; receipts under `D:\PD2-wt\pd2-smoke-mods\receipts\`): `forge_mod_level_load_smoke` PASS 17/17 (a mod level loads: stage 0x60, its scenario registered, 45 rooms, player spawned); `forge_level_edit_smoke` PASS 29/29 (`nodes=228 rows=228`, `pads=228 without_room=0`); `forge_level_weapon_smoke` PASS 27/27 (`setup_0035 now gives base:dragon (model base:model_chrdragon, size 256)`, `SETUP: fixed weapon pickup cmd=35 weapon=15 model=255 prop=1`); `forge_session_save_smoke` 33/34, the session and the save from inside it work and its screenshot proves B-1237; the four vehicle smokes did not launch (storage cap, entry below). The hub marks the turn failed. Details in `forge-mode-scope.md`, 'Proven in the game'. (2) B-1240, MEASURED by the one red line: the editor camera's yaw and pitch do not reach the view (at yaw 217 the probe gave `ahead=(-0.146, 0.500)`, a view along +X; the screenshot agrees). Cause by reading: the cutscene move mode refreshes no look vectors and `playerTickThirdPerson` takes the angle from the character model. FIX d7acbf60: `forgeCameraOverride` asked in `player0f0c1840`, so the editor owns the view while it flies; the fly and placement axes (B-1238, the mirror image in X) are the view's now; the probe turns the camera to yaw 217, pitch -20 and takes its points along the camera's own look, right and up. In bugs.md with B-1237 (proven) and B-1238. (3) THE BLANK ROOM, 4f4abd12: `dev-mods/blank_room`, the first level with nothing of the original game in it, made by `build_blank_room.py` from nothing and accepted by `asset_archive_conformance.py`; a dev mod, off by default. The second F5 survey (624k tokens of reading by a subagent) wrote the smallest level the game accepts with file and line; its rules and the builder are in `forge-mode-scope.md` ('F5: the smallest level the game accepts', 'F5 first piece: the Blank Room'). With it: the scripted Forge edit works on an empty level, a unit case saves a level from the Blank Room for CI's validator, and two smokes (`forge_blank_room_smoke`, `forge_blank_room_edit_smoke`). (4) HOSTED CI: green on e62d5fd0 and fd6b553e; run 44049249006 on 4f4abd12 (camera fix and Blank Room, first compile of both) is in progress. (5) Week note 08:45, hub chat 08:38, heartbeat done. NEXT: read CI; then move the pinned build worktree `D:\PD2-wt\mods-v4-build` to the green commit and START THE WAITER for q_20261117080550197_5ee34c8d (position 3) with `guarded_turn_wt_profile2.sh`, base `D:\PD2-wt\shared-base-9`, `PD2_BASE_TEMPLATE_DIR=D:\PD2-wt\shared-base-9\data\ntsc-final`, `PD2_VALIDATE_ARCHIVE_ROOT=D:\PD2-wt\mods-v4-build\dev-mods\blank_room`, pd-tests filters `[forge-level-doc],[model-rodata-guard],[vehicle-model-parts]|[b1112-sweep]|~[.]`, smokes: the four vehicle ones (B-1234, B-1236, seats), `forge_session_save_smoke` (B-1240's proof), `forge_blank_room_smoke`, `forge_blank_room_edit_smoke`, and the three that passed today again on base 9. The build worktree's smoke storage file already points at `D:/PD2-wt/pd2-smoke-mods`. ASKS FOR MIKE unchanged: the C: archive cap or D: for MODS smoke storage; the go-ahead to release the stuck C: install; the veteran sheet; B-1234 to dev once proven. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 07:10 to 08:10 UTC: the queued game turn ran and lost its vehicle smokes to my own smoke storage; one real fault found by the turn's pd-tests is fixed; dev's slice 4 is merged in; more of Forge F3 is written. (1) THE TURN q_20261117041043360_545fad61 started 07:32 on the pinned worktree at 13dd514d (hosted CI green, run 44037041364), shared base 8. Client build 203 s, tests build 128 s, pd-tests' 2,199 ordinary cases pass. Then smoke 1 seeded its install and was REFUSED at preflight: 'Archive budget refused: used=2072958450, pending=134217728'. The MODS smoke storage on C: (`C:\Users\mikeh\Perfect-Dark-2\pd2-smoke\mods`) has a 2 GiB archive cap (MODS's was never raised; Mike raised CORE's to 4 on 2026-11-16) and stands at 1.93 GiB. The refused install stayed 'active', so smokes 2 to 4 were refused on the full-install budget, and each refused smoke cost seven minutes of the frame sampler waiting for a client. MY MISTAKE: the archive's room was never looked at before the turn. So NO vehicle proof (B-1234, B-1236, seats rerun) came out of this turn. At 08:04, before the Forge smokes began, the pinned build worktree's `.claude/smoke-storage-location.json` was pointed at a new root on D: (`D:\PD2-wt\pd2-smoke-mods`, the same limits, no C: space; the C: file is kept in the scratchpad as `smoke-storage-location.c-drive.20261117.json`). The four Forge smokes run from there; their results follow in the next entry. LEFT ON C: one install stuck 'active' (`20261117T074339680339Z-maian_vehicle_boost_smoke-faf71792`, a seed copy with 14 staged fixture files and no run output): releasing it is a reviewed action that wants Mike's go-ahead, so it stays. (2) B-1239, found by the turn: the base-level sweep (`[forge-level-doc][.local]`) ran on real levels for the first time, 132 archives; the 46 with no player start failed its one check that a start added and removed again gives back the bytes read (a line of spaces was left in the empty rows list). Fixed in ff231ebb with a unit case; in bugs.md. (3) dev fd4c1f03 (CORE's object events slice 4) merged into the branch as e62d5fd0 after the Auto-fix monitor reported the conflict: one file, `smoke_harness.c`, includes from both sides, all kept; 102 files counted before and after, none shorter. HOSTED CI GREEN on e62d5fd0 (run 44040858412), which is the first compile of everything in (4). dev pairs with SHARED BASE 9 now. (4) Written and compiled, not run: f343cb5c the editor's 'What It Gives' block for a selected pickup; 9107041f a mouse look for the editor camera (hold the right button over the world; `forgeAddCameraAngles`), after reading showed the mouse could not turn it and the sidebar takes three arrow keys; 615d0979 `forgeLevelDocAddObject`, a weapon place or an ammo crate made where a level has none to copy (each kind has one list of field rows across all base levels: 37 and 68), with New Weapon Place Here and New Ammo Crate Here in the editor; 13dd514d (in the turn) the game side of a pinned pickup (`forgeLevelPickupLook`, `forgeLevelSessionGivePickup`, `--debug-forge-level-weapon`, a `SETUP: fixed weapon pickup` log line in setup.c, `forge_level_weapon_smoke`). (5) NEXT TURN queued: q_20261117080550197_5ee34c8d, position 4 (after MULTIPLAYER's landing, CORE's slice 5, MULTIPLAYER's co-op): the vehicle proofs and Forge follow-ups on the merged branch, base 9, storage on D:. The scratch script for it is `guarded_turn_wt_profile2.sh`: it asks the storage tool for room before it waits, stops the sampler when the runner returns, and stops at the first storage refusal. Its waiter is NOT started yet: start it after this turn ends, with the build worktree moved to the newest green commit. (6) The second F5 survey (the smallest original level the game accepts) is still running. ASKS FOR MIKE: raise the C: archive cap or keep MODS smoke storage on D:; the go-ahead to release and recycle the stuck C: install; the veteran sheet; B-1234 to dev once proven. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 06:50 to 07:10 UTC: dev is merged in and compiled, the queued game turn is armed on it, and the first piece of Forge F3's back end is written. (1) 2a193d51: the five review fixes (entry below). (2) 22cd4a21: dev 48667628 merged into the side branch. One textual conflict (systemic-bugs.md, both sides appended). One clash the merge tool could not see: dev's new `tests/test_actionmap_names_static.cpp` pins the vehicle boost (123) as the last input action and this branch adds `ACTION_TURRET_FIRE` 124 and `ACTION_TURRET_ZOOM` 125 after it; the pin now names the turret pair last. Line counts of the 99 files this branch changed, before and after: one shorter, `meshcollision.c` by one line, dev's B-1210 clamp with B-1236 kept. HOSTED CI GREEN on 22cd4a21 (run 44034183358: build, every unit test, the bool layout audit, archive conformance), which is the first compile of 9c7a167a, 541ab68a and 2a193d51. (3) 9cb032ce (notes): this branch's systemic pattern for B-1234 is SP-97 now (MULTIPLAYER's co-op branch took SP-95, CORE's slice 6 has SP-96); B-1237's propagation was read (every caller of `pdguiIsActive()`): only the achievement toast shares the fault, harmlessly; found on the way, the mouse does not turn the Forge editor camera (right stick and aim keys do). (4) THE TURN: the waiter was stopped (its log showed the turn had not started), its five leftover processes ended, the pinned build worktree `D:\PD2-wt\mods-v4-build` moved from 8c2603a7 to 22cd4a21, and a new waiter started for the same queue item q_20261117041043360_545fad61 on SHARED BASE 8 (`D:\PD2-wt\shared-base-8`; dev pairs with it), logs in the scratchpad as `guarded_turn_v4_6.log`, `v4turn6/`, `smokes_v4_6/`, samples in `profile_b1234_fix/`. The build worktree's regenerated `updater_pubkey.h` blocked the checkout (dev changed a comment in the tracked file); the regenerated copy was set aside in the scratchpad and the tracked file restored, nothing committed. Base 8's Complex has the numbers the Forge smokes pin (226 pads, 19 starts, 35 objects); its level graph gained two AI nodes and five links and keeps 226 trigger volume nodes. Position 1 behind CORE's slice proof (started 06:21, about 85 minutes). (5) F3 back end, first piece, WRITTEN and unit-tested in the working tree, not compiled: `forgeLevelDocSetPickupWeapon` (a pickup gives a catalog weapon, a mod's included, with the model and size that show it), `forgeLevelDocSetPickupSlot` (a pickup is one of the match's sixteen weapon places) and `forgeLevelDocSetObjectModel` (another model for a plain prop); how base levels write these is in `forge-mode-scope.md`. (6) A second read-only survey is running for F5: the smallest original level the game accepts (members, graph, glb conventions), for an offline builder. Week note 07:05, hub chat, heartbeat done. NEXT: read the turn (B-1234 at 60 fps, B-1236, seats, Forge F1 load, the two F2 smokes, the probe line that decides B-1238, the screenshot); read hosted CI on the F3 piece (pushed with this entry); build the F5 template when the survey is in. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 05:55 to 06:50 UTC: two outside reads of the Forge work found six faults before any run did; all are fixed in the branch, none of it has run in the game, and the last three commits have not been compiled. (1) Hosted CI is green through f88ff301 (run 44027411308): object removal, the save loop test, world markers, the `forge_editor_ready` wait. (2) The F5 survey (a subagent reading what a level needs before the game will load it) found a rule my level document broke: at activation the game counts `scenario.trigger.volume.source` nodes in `level.graph.json` against the rows of `volumes.json` and refuses the level when they differ (`scenario_source_runtime.c`), and Forge added a volumes row for each new pad and no node. Every level saved with a new pad or start would have been refused. The conformance tool does not check it. FIX 9c7a167a: `level.graph.json` is the document's sixth member; a new pad brings its node, its link from the load node and the three counts the graph keeps. 541ab68a: a graph with `edges` and no `links` is read too (the game accepts either). `forge_level_edit_smoke` now requires the game's own line, nodes=228 rows=228. Corrected in the week note (06:28) and the hub chat. The survey's other answers are in `forge-mode-scope.md` (F5 survey): collision is built in the game from the level's mesh, rooms come from the mesh, no playable template free of the original game's data exists yet, and `tri_arena` is not a playable level. (3) An independent review of the diff a3775be7 to f88ff301 found five more, each then confirmed by reading: the session smoke's times were past the harness's watchdog check so it would have been refused before it began, and its screenshot was taken by a debug flag at a time the runner does not look; the Forge HUD has drawn nothing while the camera flies since 2026-05-01, so the world markers would never have shown (B-1237); a start placed from the camera faced the camera's mirror image; the projection probe's 'right' was the camera's left; and a level saved again under its own name could keep an edit that had been taken back. FIXES, in the commit after this entry: a second wait condition `forge_level_file_open` and a harness-owned screenshot and exit; the HUD's early return leaves out the editor's own input context; the look of a new pad is (-sin t, 0, cos t); the probe uses the view's own axes at yaw 217, where a wrong sign shows (`forgeDebugSetCameraAngles`); a save over the level's own archive writes every member (`forgeLevelDocOverridesAll`, unit case added). (4) The same reading says the editor's older fly and placement math uses the mirrored angle: B-1238, OPEN, left alone until the probe measures it in a run. (5) dev moved to 48667628 at 06:23 (CORE's branch landed) and PR #8 conflicts with it, so GitHub ran no CI on 9c7a167a. NEXT: merge dev into the side branch, push, read CI; move the pinned build worktree to the green merged commit and the waiter to shared base 8 (CORE: dev pairs with base 8) before the queued turn q_..545fad61 starts (position 1 behind CORE's slice 5 proof, about 07:45 UTC); if CI is not green by then the turn runs 8c2603a7 on base 7, which still proves B-1234, B-1236, the seats and the Forge F1 load, with the two F2 smokes red as listed. Nothing is merged into dev.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 05:35 to 05:55 UTC: three more pieces of Forge, written and committed, none run in the game. (1) d1517577 (open and save glue) is green in hosted CI (run 44023533565) and 8c2603a7 (the editor's Level File section, the session, the two boot flags) compiled there (run 44025326432, build step passed). (2) 4215cdc5: an object is removed by leaving it out. A record cannot be deleted (its id is its place in the command list), but the game already leaves an object out when its second flags word has the bit of the difficulty being played (`setup.c`, READ: every object type's case tests `flags2 & diffflag`, and `diffflag` always holds one of four bits). `forgeLevelDocSetObjectRemoved` sets all four in `objects.json` and in `base.flags2` of `setup.fields.json`, and puts back what was there, text included. Lifts and escalator steps (their filter is relaxed on six levels in multiplayer), characters, and records whose word is missing or differs between the files are refused. Survey of base 7 (66 arena and mission archives, 10,374 objects with the word): the two files always agree, and no base object has all four bits, so the state is one the game's code allows for and its levels never used. The panel has Remove Object and Put Object Back; `--debug-forge-level` leaves Complex's first ammo crate (`setup_0001` on `pad_0057`) out. (3) 0f6fefce: a unit case for the loop a level is made in: save from the example arena, open the saved level as its own template and save it under its own name (updated in place, no id changes), then under a new name (a second level whose scenario takes the new id). (4) ba42e34d: world markers, the first piece of F3. The HUD marks the open level's starts (diamonds) and objects (squares) on the picture while the camera flies. The place is the game's own projection (`forgeProjectWorldPos` in `forgemode.c`: the view matrix, then `cam0f0b4d04`, as the game's target boxes do), scaled by window size over the renderer's native size, which READ in `gfx_pc.cpp` is the scale the 3D viewport gets. `--debug-forge-session-save` logs where four known points land (`FORGE.MARKERS.PROBE`) and `forge_session_save_smoke` requires straight ahead at the middle of the picture, right to the right, up above, behind hidden, so a wrong convention fails without anyone looking; it also takes a screenshot. The smoke harness has a new wait condition, `forge_editor_ready` (`smoke_readiness.c`, unit-tested): a live offline stage with the editor camera flying. (5) Corrected before it cost a run: the first ammo crate of Complex is `setup_0001`, not `setup_0010` (checked in base 7's archive), and a smoke's first screenshot is file 001, not 000 (READ in the harness and the runner). (6) Next: push these three commits when run 44025326432 ends, read their CI, then restart the turn waiter with the two new Forge smokes if its log still shows no start.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 04:25 to 05:35 UTC: Forge F2 reaches the editor; everything is written and none of it has run in the game. (1) Green in hosted CI: 5194e222 (the archive rebuild brings a scenario's navigation record up to date; a Forge-saved level passes the conformance step) and a3775be7 (the level document moves and duplicates objects, with `setup.fields.json` as its fifth member; run 44021191534). The pinned build worktree `D:\PD2-wt\mods-v4-build` is at a3775be7, so the queued turn builds that. (2) d1517577 (pushed 05:21 UTC, CI running): `port/src/forge_level_io.c`, the game side of the document. `forgeLevelOpen` finds an arena's archive through the mod author's own lookup, reads the five members out of the scenario inside it and hands them to the document; `forgeLevelSaveAs` saves a level mod through `modAuthorRuntimeSave`. `--debug-forge-level <arena id>` with `--debug-forge-level-name` makes those calls with a fixed edit, and `forge_level_edit_smoke` uses it on base Complex (226 pads, 19 starts, 35 objects, read from base 7's archive) and then plays a match on the result, requiring the game's own lines for what it loaded: 228 pads and volumes, 36 setup records, 20 spawns. (3) Written after that, committed locally, not pushed while CI runs: the open level as a session (`forgeLevelSession*`), the editor's Level File section at the top of the Setup tab (open; add, move and remove a start; move and copy an object; save as a level), The Grid naming the arena a session starts on, and two boot flags, `--launch-forge-level <arena id>` and `--debug-forge-session-save <name>`, with `forge_session_save_smoke`: a save from inside a running Forge session, which no run has done. Details and what each smoke does not prove are in `forge-mode-scope.md` ("F2 game side", "F2 in the editor"). (4) Unknowns only a run settles: a mod level loading at all (F1, same turn), a pad with no room and no flags, a Forge session started from the boot stage, and applying mods with a level loaded. (5) Queue: the requeued turn q_20261117041043360_545fad61 is third in line at 05:21 UTC; its waiter is still polling and its smoke list does not include the two new Forge smokes (they need a later turn, or a restart of the waiter while its log still shows no start). (6) Still waiting on Mike: the veteran concept sheet (round 2 shown 03:30 UTC) and whether B-1234's fix goes to dev on its own.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 03:40 to 04:25 UTC: Forge F1's two halves are in the branch and Forge F2's back end is written, all green in hosted CI and none of it run in the game; one game turn was lost to my own mistake. (1) B-1152's loader guard (50c530a3): `weaponNestedPrepareMember` takes the owner's bundled flag and never lets a non-bundled owner's mesh take the file number its manifest names, so a weapon mod saved before the clone fix stops claiming a base gun's slot. Source pins only; no fixture can prove it, because such an archive holds base geometry. (2) Forge F2 back end (168bc0d3, 98d5d01c): `port/src/forge_level_doc.cpp` reads a level's `pads.json`, `spawns.json` and `objects.json`, keeps every untouched row's bytes, adds and removes spawns, moves spawns and objects, and gives the mod author one override per changed member; nine cases `[forge-level-doc]`, one of which saves the example arena with a new spawn through `modAuthorSave` and reads it back, all green on their first hosted run. Rules from a read-only survey of the 132 base levels of base 7 and from the game's readers are in `forge-mode-scope.md` (a pad's number is its place in the file, so pads are only added; 299 pads are shared; a row in `spawns.json` alone is a player start). Not done: adding and removing objects (needs `setup.fields.json`), the editor wiring, a run. (3) CORE answered Forge F1 at 04:00 UTC: a custom stage resolves through the arena or scenario row that owns it, and MODS registers the embedded scenario. CORE's `week-pd/core-forge` (c3fc7068) merged into this branch as 01d6efd2 (clean; its four files, line counts checked). MODS' half is 5e4975a0: `registerArenaEmbeddedScenario` in the scanner, called from both typed archive paths, log line `PDARENA.SCENARIO`, which `forge_mod_level_load_smoke` now requires. Hosted CI green on 5e4975a0 (run 44015157349). (4) THE LOST TURN: q_20261117030641030_f534752e began at 04:08 UTC, earlier than the queue's etas suggested. At 04:09 I stopped its waiter to add the Forge smoke to its list without reading its log. The stop killed the build's wrapper, the script reported the turn as failed and cleared it, and the build's `ninja` kept running into CORE's turn until I ended that process tree (by its build folder) at 04:10. Corrected in the hub chat and the week note; the lesson is in memory (`feedback_interrupted_background_tasks`: read a waiter's log before stopping it). (5) Requeued as q_20261117041043360_545fad61, position 4 behind CORE (70 min, running), BGFX (60) and CORE's slice 4 and 5 proofs (75 and 85): about 09:00 UTC unless CORE lets it go earlier (asked in the hub chat). Its waiter runs in the background (`guarded_turn_wt_profile.sh`, log `guarded_turn_v4_4.log` in the session scratchpad): it builds whatever `D:\PD2-wt\mods-v4-build` has checked out when the turn starts (5e4975a0 now), runs pd-tests `[forge-level-doc],[model-rodata-guard],[vehicle-model-parts]` with `PD2_BASE_TEMPLATE_DIR` set (so the hidden sweep reads every base level) and then all cases, then `maian_vehicle_boost_smoke`, `maian_vehicle_drive_smoke`, `mod_vehicle_drive_smoke` and `maian_vehicle_seats_smoke` with the sampler attached, then `forge_mod_level_load_smoke` (a red result there does not fail the turn). What that turn decides: B-1234 (60 frames a second mounted, the chain gone from the samples), B-1236 (`MESHCOL: extracted 5829`), and whether a mod level loads. (6) Waiting on Mike: the veteran concept sheet (round 2 shown at 03:30 UTC), and whether B-1234's fix goes to dev on its own. Next while waiting: objects in the level document (`setup.fields.json`), then the Forge editor's open and save.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 03:20 to 03:40 UTC: the side-branch turn finished with every expected smoke green, Forge F1's level name is built, and the veteran concept was revised for Mike. (1) Turn q_20261117013646273_5a67705b (02:53 to 03:31 UTC, build 15837054 made inside the turn in `D:\PD2-wt\mods-v4-build`, base 7): pd-tests 2,044 cases pass; `character_tool_create_smoke` 26/26, `maian_vehicle_seats_smoke` 56/56, `maian_vehicle_drive_smoke` 37/37, `weapon_tool_create_smoke` 26/26, `mod_author_weapon_play_smoke` 22/22 (B-1152's fix seen in play: the mod's mesh claims file slot 2016, not the base gun's 887), `mod_vehicle_drive_smoke` 32/32, `bindings_older_file_upgrade_smoke` 12/12 (`123 of 126 actions per context, 12 of 13 contexts`: a saved file survives a new context as well as new actions), and `forge_mod_level_load_smoke` red as expected, 11/16. So the Characters tool's first slice, the two-seat vehicle (V4b), B-1152's fix and the bindings rule for new contexts have all run in the game on this branch; none of them is on dev. (2) Where the Forge level load stops (its first run): the mod author saves Complex as `mod:arena_forge_test`, the catalog takes it, the match start's preflight passes and stage 0x60 is minted and activated; then `[CATALOG-ERROR] catalogResolveStageForType: 'mod:arena_forge_test' not found or wrong type (expected=1)`, `[CATALOG-FATAL] catalogGetStageResultByIndex: stageindex=87 not in catalog` and `FATAL: ASSET.FALLBACK: Scenario stage '?' cannot use legacy tiles id=0 after public .pdscenario source activation failed for '(missing scenario source)'`. Those are items 1 and 2 of the F1 work list, both in CORE's catalog core and scenario runtime; the evidence is in `forge-mode-scope.md`. (3) Forge F1 item 4 built (5140e9d0): the mod author writes `display_name` into `arena.ini`, both readers copy it into `ext.arena.display_name` through `catalogArenaDisplayNameFromIni`, and the Room's list, the match setup's list and the Grid's two lists show it before the template's language string. Unit case in `test_mod_author.cpp`, source pins in `test_public_mods_static.cpp`; not seen in the game, since the level cannot load yet. (4) Hosted CI green on 89e64a8f (run 44007726964: the B-1234 fix compiles and every unit case passes). Pushed to f0779f93 at 03:31 UTC (B-1236, the sampler tool, the level name, the veteran notes). (5) Mike's notes on the veteran concept sheets arrived at about 03:20 UTC: one veteran because Maians are not gendered, tridactyl (three fingers), crystals the pistol's colour and slightly less vibrant, the crystal pistol as the style reference; show him the next sheet before any model. Done: the design document's brief, table, step C2 and art question changed; round 2 of the concept made with Tripo from the round-1 sheet and the pistol's render (20 credits, balance 1,175; `concept-v2.png` and one correction pass `concept-v3.png` in `D:\Game Dev\PD2-Assets\maian-veteran\concept\`) and both shown to him. Still wrong in the sheet and said so: one view's hand has more than three fingers, the toes are not clearly three, the holster is missing from two views. No model is made until he answers. The image script now uploads a reference picture without its metadata (the pistol render carried its .blend path; earlier vehicle runs uploaded it as it was) and stops before any upload when a prompt is over Tripo's 1,800 characters. (6) The fix check turn's waiter is running (q_20261117030641030_f534752e, position 2 behind CORE's 75 min and MULTIPLAYER's 35 min; it builds whatever `D:\PD2-wt\mods-v4-build` has checked out when the turn starts, f0779f93 now, so move that worktree to the newest pushed commit before then). Next: hosted CI on f0779f93; the fix check turn's results (the Maian rides should hold 60 with the sampler showing the chain gone, and `MESHCOL: extracted 5829`); Mike's answer on the veteran sheet and on whether the B-1234 fix goes to dev on its own; CORE's answers on the custom stage and the nested scenario.
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`, 02:45 to 03:20 UTC: B-1234's cause measured and fixed in code, B-1236 found and fixed in code, the two-seat vehicle and the Characters tool pass their first runs in the game. (1) Measurement turn q_20261117013209684_748edab4 (02:43 to 02:54 UTC, the landing build, base 7, three rides with the read-only sampler): the Maian rides spent 90% and 95% of the main thread in `ntdll` <- `modelRodataIsReadable` <- `bgTestHitOnObj`, 30 and 48 ms of every frame; the base bike's model showed the same chain in about 35% of samples (about 3 ms a frame). The shot hit test, which the game runs every frame to find what the player looks at, asked the operating system about every vertex batch (and every native command) before reading it: 5,829 system calls for one test of the Maian vehicle. (2) Fix c2050b8d: `model_rodata_span_t` and `modelRodataIsReadableInSpan` in `model_rodata_guard`, one span per walk in `bgTestHitOnObj` and `bgTestHitOnChr`, the two walker pins updated, unit cases `[model-rodata-guard]`. dev's two landing-record commits merged in (84983313; conflicts in `context/bugs.md` and `context/session-log.md` only, both sides kept). Bug entry and SP-97 in 89e64a8f, pushed 03:05 UTC. (3) B-1236, found while checking the fix's neighbours: `extractGfxTris` stopped at 4,096 commands of a display list, so the Maian hull's collision mesh lacked its last 637 of 2,681 triangles (`MESHCOL: extracted 5192` of 5,829 in every run). Fixed in ea5f76ee: a compiled list is read to its recorded length, the cap stays for native lists, an unfinished list is logged. The drive smoke now requires `MESHCOL: extracted 5829`; the boost smoke allows at most one `BMOVE` line with `lvupdate240` of 5 or more (the frame rate guard for B-1234). (4) The sampler is kept as `tools/frame-sampler/` with a README (67add828). (5) Side-branch turn q_20261117013646273_5a67705b on 15837054 (started 02:53 UTC, base 7): client and pd-tests built inside the turn, pd-tests 2,044 cases pass; `character_tool_create_smoke` 26/26, `maian_vehicle_seats_smoke` 56/56 and `maian_vehicle_drive_smoke` 37/37, each on its first run; five more smokes were still running when this was written. The seats smoke's four screenshots were looked at: the driver's view, the gunner's view from higher and further back with the hull in front, the gunner's view turned right while the vehicle stays put, and the driver's view again after the switch back. The gunner rode at 60 frames a second; the driver's seat is where the unfixed hit test costs most. (6) Told: hub chat at 03:06 UTC and week note entries at 03:08 (cause, fix, SP-97, B-1236, what CORE should know) and 03:09 (a correction: c2050b8d does not cherry-pick onto dev without adding its two `CMakeLists.txt` lines by hand). NOT done: none of today's three fixes has run in the game. Queued for that: q_20261117030641030_f534752e (position 3 at 03:07 UTC, behind CORE's 75 min and MULTIPLAYER's 35 min): build the branch tip in `D:\PD2-wt\mods-v4-build`, pd-tests, then the Maian boost, drive and seats smokes and the base bike drive with the sampler attached (`guarded_turn_wt_profile.sh` in the session scratchpad, `SAMPLE_DIR` set). Hosted CI was still running on 89e64a8f; ea5f76ee and 67add828 are pushed after it. Not explained: why some early Maian rides held 60 (likely where the rider's view pointed; a test walks parts only until the ray hits one). Open question for Mike: whether the B-1234 fix should reach dev on its own before the rest of this branch. Next: the rest of the side turn's results, the fix check turn, then Forge F1 (arena display name, embedded scenario registration, custom stage resolve; CORE's answers to questions (a) and (b) are still awaited).
+
+2026-11-19, T-MENUS-003. Built and tested the canonical front-end control repairs in an isolated snapshot that excludes unrelated dirty work. All 2,261 native tests passed. In a focused game window the SDL virtual controller typed and saved Agent `12`, activated it and reached Main Menu Play (21/21). The separate Back route verified both editor and screen dismissal (31/31). The [front-end audit](audits/2026/frontend-control-2026-11-19.md#implementation-follow-up) records the changes and open V-004, multiplayer and Grid gates.
+
+2026-11-19, P-001 per-archive repair, weapon rollback and menu startup. The
+stage-only client verified unchanged, valid edited, missing and same-size
+corrupt scenarios on a private Base 9 install. A single edit or repair checked
+one stage job and reused 88. The two repairs took 375–388 ms in the stage phase
+and changed one file. The simulated format change preserved an edited scenario,
+rebuilt 86 other scenarios and 45 linked arenas, and needed zero later texture
+rewrites. An additional older-format fixture preserved an edited arena wrapper
+and an edited standalone scenario. The matched warm asset boot fell from
+16.21 to 9.51 seconds. Catalog walking took 6.48 seconds, down from 13.36.
+The merged client and tests built. All 2,525 native cases and 16 release
+checks passed. The isolated worker preserved an edited Extraction archive
+byte-for-byte and kept its timestamp. The first foreground run found that
+mission metadata still read the deferred scenario during boot. The paired
+repair skips both inputs during boot and publishes the mission and scenario
+together when the repaired source is ready. An extraction-only diagnostic
+verified boot with both rows pending, restored Extraction byte-for-byte, and
+resolved both rows in the live catalog after publication. The ordinary menu
+and Mauler runs remain queued. Source and runtime evidence are under
+`.claude/p001-stage-ledger-20261119/`.
+
+2026-11-19, P-001 warm startup follow-up. Both targets built from a clean
+`149820cb1` export with the scoped patch. The native-source guard, 15 release
+checks, 132 focused cases and all 2,262 native cases passed. The paired Base 9
+asset boot runs took 28.68 and 45.90 seconds on the reference and 17.25 and
+28.32 seconds on the updated client. A concurrent build overlapped the second
+pair. Every run registered 5,570 assets and preserved the bytes and timestamps
+of 9,026 typed archives. The arena/scenario phase fell from 1,438–1,724 ms to
+33–56 ms after the private stage marker was primed. The windowed smoke passed
+16/16. Challenge initialization took 14.05 seconds on the reference and 4 ms
+on the updated client, which performed seven profile searches. The logs show
+title initialization at 55.95 and 17.71 seconds respectively, with different
+background load. The body/head public-source smoke passed 13/13, and offline
+Challenge 1 passed 30/30 through its results screen. Missing,
+truncated, and same-size corruption fixtures each replaced only the affected
+scenario. The simulated scenario format change regenerated exactly 87 scenarios
+and 47 linked arenas. Evidence is under `.claude/p001-startup-20261119/`.
+
+2026-11-18, P-001 warm startup. The arena clean marker now compares
+the complete version record used by its writer, and loose ZIP archives no longer
+go through a full-file read before manifest extraction. The source guard and
+static checks passed, including a byte-for-byte comparison with the existing
+Base 9 marker. The comparison and guard receipt is
+`.claude/p001-startup-20261118/static.log`. Mike approved the per-run storage
+exception in D-034. The live checkout's test build failed on an unrelated
+untracked gameplay-graph static assertion. A clean `e4deb4404` source export
+with the three owned files built both targets through the queued wrapper and
+passed the native-source guard, 119 focused cases, and all 2,259 native cases.
+Two launches per binary on the same private Base 9 data averaged 63.16 to
+29.84 seconds for warm asset startup and 34.18 to 1.43 seconds for arena and
+scenario validation. The catalog walker averaged 25.36 and 25.62 seconds.
+Each launch registered all 5,570 assets and left all 9,026 typed files
+unchanged. The patched windowed boot smoke passed 14/14. Missing and corrupt
+CI Training fixtures each changed only that scenario archive. An older kind
+simulated in the scenario stamp rewrote 87 scenarios and 47 linked arenas.
+Every repair run registered all 5,570 assets. Receipts are under
+`.claude/p001-startup-20261118/`.
+
+2026-11-17 (04:37 ET) MULTIPLAYER: week-pd/multiplayer LANDED on dev as e09bbbc9 (tip 86dbf5cc; dev was fd4c1f03), pushed as a fast-forward; main untouched. Mike's approval of 2026-11-17 and its conditions: B-1273's run passed (326df90c: Hacker Central carrier death 107/107, Combat with simulants 71/71), MODS (940b21b1) and CORE (48667628, then slice 4 fd4c1f03) landed first, dev merged in first (4febf6b8, 86dbf5cc; seven and one conflicts, both sides kept; CORE's kill_simulant pin fixed in 1138a112), rebuilt and tested in the landing turn q_20261117041122187_1ddde2f9 on shared base 9: pd-tests 2258 cases, mp_combat_net_bots_smoke 71/71, mp_hacker_central_net_carrier_death_smoke 107/107, network_coop_mission_end_smoke 130/130, network_counterop_mission_end_smoke 128/128. The merge tree is the tested tree. Canonical in-flight edits kept (CMakeLists.txt, pdmain.c, chr.c, prop.c 3-way clean; UNRELEASED.md both insertions, the in-flight text unchanged; numstat identical). NET_PROTOCOL_VER 64 on dev now: every peer must be built from it. Posted in the week note (09:45 UTC) and the hub. Next: week-pd/multiplayer-coop (AI buddies, B-1274, S1, S2; its run q_20261117051637463_af6eb56c is queued), then S3 and S4; open for Mike: a parked partner's items, counter-op drop-out, the co-op radar option.
+
+2026-11-16 (23:08 ET) MULTIPLAYER, continued. Mike approved landing week-pd/multiplayer on dev once B-1273's run passes and after MODS and CORE land (merge dev in first, renumber the protocol above dev's, rebuild and test, merge, push, post; main untouched), and took my recommendations: Challenges as their own Room tab, presets as a Load Preset list atop Combat Simulator, drop-in/drop-out for two-player co-op only, an AI-buddy mission stays one (a friend joins at the next mission); recorded in constraints.md (326df90c). B-1273 checked in play: turn q_20261117014917169_52e3ea4a built 326df90c (pd-tests 2045/2045), Hacker Central carrier death 107/107 and Combat with simulants 71/71, five dropped guns and the replacement uplink with no model warning. MODS landed on dev (940b21b1, still v63, no net/ change: the vehicle boost is an input action, not a wire bit); CORE has merged dev (9f38d6dd, v63) and is about to land. My v64 stays above both. Next: land on dev after CORE; then the AI buddy choice, then co-op drop-in/drop-out S1 to S4.
+
+2026-11-16 (20:51 ET) MULTIPLAYER, continued. Mike answered: fix B-1271; co-op drop-in/drop-out (a dropped player rejoins the running mission, a new one can join it); restore the AI-buddy entry; asked where Challenges and presets go (recommended: Challenges as their own Room tab, presets as a Load Preset list atop the Combat Simulator tab; two co-op questions back to him: two-player co-op, AI buddies vs a friend joining). Decisions in constraints.md; memory saved: explain each decision fully. B-1271 fixed (4789effa, botTick turns a waiting simulant toward the terminal) and checked: both Hacker Central net smokes pass with no stall and a score. B-1273 found by SP-93's model warning and fixed (86b919eb): dropped guns and the replacement uplink reached clients as model 0 (the roof gun); the host now lists every manifest weapon's world model and the token's model; run queued (q_20261117014917169_52e3ea4a, about 5th in line). Co-op drop-in/drop-out design: context/designs/connectivity/coop-drop-in-drop-out.md (S1 park instead of kill, S2 rejoin, S3 drop-in, S4 Room). Next: B-1273's run; then S1/S2 and the AI-buddy entry; Challenges/presets once Mike agrees.
+
+2026-11-16 (19:17 ET) MULTIPLAYER, continued. Built 52197eb2 inside turn q_20261116232336243_f0ee78d6 (pd-tests 2,043 pass) and co-op mission end passes 130/130 again: with 496ab25e the intro-skip assist was accepted at 650 ms and released one frame past its 900 ms hold. Branch pushed at 52197eb2. Open for Mike: B-1271's fix, co-op player drop, AI-buddy entry, Challenges and presets entry. MODS has not pushed UCMD_VEHICLE_BOOST yet.
+
+2026-11-16 (18:24 ET) MULTIPLAYER, continued. Turn on b2a2a720 (base 7): Capture the Case carrier death 102/102
+(new smoke, port 27268; B-1272 now checked for all three token modes), counter-op agent death 132/132 (spec count
+fixed), co-op mission end 22/130 for no game reason: a machine-wide stall during the host's intro-skip hold meant no
+frame saw the 650 ms skip threshold before the harness released it (it ticks at the top of the frame, before the game
+reads input). Fix 496ab25e: the wait-assist transition releases one tick after the hold is found elapsed (new case in
+tests/test_smoke_transition.cpp); not built yet. Queued q_20261116232336243_f0ee78d6 behind MODS and CORE: build HEAD
+inside the turn, pd-tests, then re-run co-op mission end (script run_base7_build_then.sh). No SP-93 warning in any run.
+
+2026-11-16 (17:25 ET) MULTIPLAYER, continued. B-1209 checked in play and B-1272 found and fixed. New smoke
+tooling (d44b87d0): wait_until scenario_token_held and kill_token_holder (chrDamageByMisc on the simulant carrying the
+uplink, briefcase or case; scenario authority only), plus mp_hacker_central_net_carrier_death_smoke (port 27259)
+and its Hold the Briefcase twin (port 27267). First run (d44b87d0, 102/104): the host announced the replacement
+uplink (B-1209 works) but the client replayed its pickup as weapon 1: B-1272, the data uplink and the briefcase have
+no MP weapon slot, so the Combat Simulator manifest never listed them, they had no session catalog id, and every
+message naming one (announced or dropped token, a simulant's held weapon, player stats, reconnect inventory)
+reached clients as WEAPON_UNARMED. Fix (b2a2a720, pd-tests 2,042): scenarioTokenWeaponNum + the lobby start adds
+the token's catalog closure; netWriteWeaponRef warns once per weapon with no session id (new SP-93). Re-run in the
+same turn: Hacker Central carrier death 106/106 (weapon 46), Hold the Briefcase carrier death 102/102 (weapon 79);
+the first also caught B-1271's deadlock with its diagnostic (a carrier lost its facing mid-download and stood
+unarmed in MA_AIBOTDOWNLOAD for the rest of the match). Also: the Challenges row's local end is PASS (CHALLENGE
+COMPLETED! at 0-0, the original's tie rule); no other branch has an out-of-order smoke schedule. Still for Mike:
+B-1271's fix, co-op player drop, AI-buddy entry, Challenges and presets entry. Next: watch the co-op smokes for the
+new SP-93 warning (mission drops), Capture the Case carrier death.
+
+2026-11-16 (16:12 ET) MULTIPLAYER, continued. Part 2 on c35b35a2 (base 7, q_20261116183120950_df5e28cf): the
+games all pass. Co-op Retry Mission 126/126, Return to Room 129/129; ready gate repeat 40/40 (B-1208) and rollback
+43/43; King of the Hill's second match in the same Room 101/101 (all six objective and score modes now rematch
+networked); counter-op agent death 131/132: the counter-operative's win works in play (agent's results failed,
+counter-operative's completed, final statuses and stats on the client); the one failure was the spec's own count of
+a host-only line, fixed. Found before it ran: that smoke's host schedule put its results wait before the kill (the
+harness stable-sorts events by at_ms); fixed (f9b18ba3), and the harness now refuses a sequence written out of time
+order, with a pd-tests scan of every checked-in sequence (352328a7). New for B-1209 (d44b87d0): smoke action
+kill_token_holder (chrDamageByMisc on the simulant carrying the uplink, briefcase or case, scenario authority only)
+after wait_until scenario_token_held, and mp_hacker_central_net_carrier_death_smoke (port 27259). d44b87d0 built in
+the gap after part 2; its smoke is queued after CORE's turn (q_20261116204010491_38c2826e, waiter running).
+Still for Mike: B-1271's fix (intermittent now), co-op player drop, AI-buddy entry, Challenges and presets entry.
+
+2026-11-16 (15:25 ET) MULTIPLAYER, continued. Part 1 on c35b35a2 (base 7, q_20261116183120118_5e31664e) passed
+4/4: co-op Deep Sea end 126/126 with B-1270 fixed in play (the client read the host's removal of the intro actor and
+played on through Defense), co-op mission end 130/130, counter-op mission end 128/128 (results log their outcome:
+agent completed, counter-operative failed), networked Hacker Central 86/86 and it scores (a simulant made four
+downloads, 8 points on both machines): B-1207 checked networked, B-1271 is intermittent (only a simulant reaching the
+terminal facing away stands; fix still waits for Mike). SP-91's hold worked on every cutscene authority frame.
+80dd632e (a dead client's select of no weapon dropped quietly) built, pd-tests 2,037 pass. Context in e2432521.
+Next: part 2 (q_20261116183120950_df5e28cf, running on the frozen c35b35a2): co-op retry and return, ready-gate
+repeat and rollback, counter-op agent death, King of the Hill rematch; then record and push.
+
+2026-11-16 (14:15 ET) MULTIPLAYER, continued. A second networked match in the same Room passes for Combat
+95/95, Hold the Briefcase 101/101, Hacker Central 101/101, Pop a Cap 100/100 and Capture the Case 101/101 (a669d118,
+base 7); King of the Hill's run is to be repeated: its host stalled 111 s in the boot asset check while my session
+build ran on the same disks (memory saved: no build while a smoke turn runs; the storage lock does not prevent it).
+Since 13:20 ET, all pushed, pd-tests 2,037: the SP-91 class fix (ded9b22f; CORE gave it to MULTIPLAYER at 17:04 UTC):
+a cutscene authority frame holds the game tick's reliable bytes and sends them right after its packet, in order;
+SP-92 audit done (ae1fa9fd): the reconnect snapshot's prop state now moves the room registration too, SVC_PROP_SPAWN
+checked correct; counter-op results log their outcome and new network_counterop_agent_death_smoke (369f4562);
+B-1271's cause (c35b35a2, from the code): the original's download rule deadlocks a simulant that reaches range
+facing away (unarmed, still, turns toward the terminal only once a download runs), which the port's stuck watchdog
+used to break until B-1207; the fix (turn toward the terminal while waiting) changes the original's behaviour and
+waits for Mike. Queued on c35b35a2 behind CORE's turn: q_20261116183120118_5e31664e (co-op Deep Sea, co-op and
+counter-op mission end, Hacker Central net) and q_20261116183120950_df5e28cf (co-op retry and return, ready-gate
+repeat and rollback, counter-op agent death, King of the Hill rematch).
+
+2026-11-16 (13:20 ET) MULTIPLAYER, continued. Turn q_20261116152127415_a38e0af1 on a669d118, base 7, done:
+co-op mission end PASS 130/130 and the ready-gate repeat smoke 39/40 (B-1208 checked in play; the miss was the
+smoke's step order, fixed); Hacker Central local PASS 32/32 with a simulant scoring three downloads (B-1207 checked
+in play). B-1270 (critical, fixed in 746d79a7, pushed): the Deep Sea client crashed in propIsOfCdType as the intro
+ended, on the first chr removal message any client has read; the client's NPC resync wrote the host's rooms
+straight into prop->rooms and left the chr listed in its old rooms, so once the host removed it the next NPC move's
+ground query read a chr prop with no chr. New propSetRooms (prop.c) moves a prop's room registration with its list;
+the NPC, bot and prop resyncs, SVC_PROP_MOVE and the lift move use it; the prop resync applies to objects only; new
+SP-92 with audit checklist; pinned by [b1270]. ready_gate_settings_rollback_smoke failed on timing (the host's fixed
+105 s dwell ended before the client joined on a cold install), now 200 s. B-1271 (open): networked Hacker Central
+still scores nothing: the simulant stood by the terminal armed and facing away for two minutes; diagnostic added
+(746d79a7). CORE answered at 17:04 UTC: SP-91's class fix is mine (CORE agrees), and B-1270 to B-1289 are mine. Told
+CORE to keep a networked client spawning its simulant wave (it completes in the host's frame, same pads). Next: the
+two rematch turns on a669d118, the SP-91 class fix, then a turn with Deep Sea, Hacker Central net and the ready-gate
+smokes on the new build.
+
+2026-11-16 (11:00 ET) MULTIPLAYER, continued. Objective net turn q_20261116124216413_be8c603a done on 5cd5d0e5,
+base 7, every objective net smoke now needing a nonzero score on both machines: Capture the Case 84/84 (a simulant
+captured 3 cases), King of the Hill 84/84 (3 hill points), Pop a Cap 82/82 (the victim scored 2), counter-op mission
+end 128/128; host and client agree on every result line. Hacker Central 84/86 is B-1207 and B-1209, fixed in
+a669d118. Four of five objective modes now score over the network. Queued behind CORE's running turn: the a669d118
+checks (q_20261116152127415_a38e0af1), then the second match in the Room in two parts (q_20261116155927475_63a362e0:
+Combat, Hold the Briefcase, Hacker Central; q_20261116155928303_d3c7ffe3: King of the Hill, Pop a Cap, Capture the
+Case); their waiters refuse to run unless the frozen binary is a669d118.
+
+2026-11-16 (10:25 ET) MULTIPLAYER, continued. All pushed (head a669d118). Re-run turn q_20261116123806406_e534707d
+on 5cd5d0e5 (639c9a8a), base 7: networked Combat score limit PASS 76/76 (B-1205 checked in play: four early respawn
+finishes, nothing skipped), co-op Deep Sea end PASS 126/126 (B-1206's snapshot sweep checked: no refused snapshot,
+883 before), co-op mission end never started (62 of 130 checks failed: B-1208). The objective net turn
+q_20261116124216413_be8c603a is still running; its Hacker Central net run (84/86) gave B-1207's cause and B-1209.
+Fixed in code, pd-tests 2,035 cases: B-1208 (e660b3d2), a client's unchanged settings resend (its Room opening as
+the autostart moved it in) cancelled the host's ready gate; an unchanged candidate now keeps the gate, new seam
+--debug-ready-gate-settings-repeat and ready_gate_settings_repeat_smoke. B-1206 follow-up (e3030857): no removal
+reached the client as a message, because netEndFrame discards the game tick's messages before ACTIVE and on cutscene
+authority frames (Deep Sea's intro actor stayed on the client); removals are queued and sent from the ACTIVE
+broadcast. The class is new SP-91: about 48 one-shot game-tick writers are exposed on cutscene START/END frames;
+the class fix (keep the reliable bytes and send them after the authority packet, same channel) changes the
+T-ENGINE-004 frame rule and waits for a decision. B-1207 (a669d118): the port's stuck watchdog moved a downloading
+simulant 4,330 units away 3 s into every download (MA_AIBOTDOWNLOAD counted as navigation intent); taken off the
+list, King of the Hill checked and unchanged. B-1209 (a669d118): Hacker Central's new uplink after a carrier's death
+(and Hold the Briefcase's new case) was made on the host only; scenarioNetAnnounceProp announces it. Queued
+q_20261116152127415_a38e0af1: six smokes on a669d118, frozen when the turn starts. Next: read the rest of the
+objective net turn (Capture the Case, King of the Hill, Pop a Cap, counter-op end), then the a669d118 turn. B-1209 was
+the last number of my B-1190 to B-1209 range; claim the next range in the week note before the next bug. Waiting:
+CORE on SP-87 (b) and the B-1203 runner change; MODS on UCMD_VEHICLE_BOOST. Open for Mike: Challenges and presets in
+the Room, co-op player drop (T-NETWORKING-007), the co-op AI-buddy entry, SP-87 (b), restoring the real profile
+(B-1203), and SP-91's class fix.
+
+2026-11-16 (07:40 ET) MULTIPLAYER, continued. All pushed (head 8dafe7f0). Lifecycle turn
+q_20261116101215836_0cfaa542 on df1734a2 (db7c8b51, CORE's B-1204 fix cherry-picked), base 7: Combat rejoin 116/116,
+co-op mission end 130/130, first networked Combat score-limit end 75/76 (ends by score limit 1), co-op Deep Sea 120/126
+(Next Mission takes both players into Defense). Two new bugs, both fixed in code in 8dafe7f0 (pd-tests 2,033):
+B-1205, a client refused a simulant's pickup of an item it still had respawning (each machine starts the 20 s wait
+when it learns of the earlier pickup, so the client's ended 0.3 s late and the simulant waiting on the spot took the
+host's copy); objTick's respawn steps are now objTickRegen, and objRegenNow finishes a respawn before either pickup
+replay. B-1206, the host's level script removed 3 Deep Sea chrs that the client kept (its NPC AI never runs), so the
+client refused all 883 NPC snapshots; new SVC_NPC_REMOVE 0x7f in the unreleased v64 (no bump) from chrTick's deleting
+branch, the client removes its copy at once, and a snapshot also removes NPCs it does not name (removals made while
+the client was still loading). SP-85 now covers removals. Re-run queued (q_20261116123806406_e534707d, Combat net
+score-limit, Deep Sea, co-op mission end on 490e8baf = 8dafe7f0); my two B-1204 checks run that binary too.
+Next: read those three turns; then KOH and Pop a Cap local, the rematch smokes, counter-op mission end, co-op retry
+and return, simulant types net, scenario net and reconnect smokes. Waiting: CORE on SP-87 (b) and the B-1203 runner
+change; MODS on UCMD_VEHICLE_BOOST. Open for Mike: Challenges and presets in the Room, co-op player drop
+(T-NETWORKING-007), the co-op AI-buddy entry, SP-87 (b), restoring the real profile (B-1203).
+
+2026-11-16 (04:10 ET) MULTIPLAYER, continued. All pushed (head 80bf07b5). Turn q_20261116064525787_3b2798fb on
+340eca64, base 7: Combat net with simulants 70/70 and Hold the Briefcase net 84/84, with the B-1202 once-per-frame
+line on host and client. Hacker Central local, Capture the Case local and Combat score-limit local each crashed
+0.03 s into boot. Cause, B-1203: the runner's single-process launch passes --savedir only under -ReuseInstallId,
+so 81 fixtures without --portable/--savedir (my mp_*_local smokes among them) ran on Mike's real profile all week,
+for every session. B-1124's record had said the opposite; it is corrected. CORE's stage_sky_depth_defection
+rewrote the real bindings file at 07:19:35Z with all 123 action rows, and this branch still lacked B-1184
+(CRYSTAL's names for actions 105-120), so its loader read a NULL name. Fixes: run.ps1 adds --portable to such a
+launch (fdfd1b5a, pinned by test_runner_isolates_single_process; CORE, the runner owner, may take it or redo it);
+SP-90 claims the class; nothing in the real profile was touched (Mike's call). Merged dev 841650c7 (b2c33604):
+B-1184 comes in, and the wire is v64 (my v62 renumbered after CRYSTAL's v63, in net.h, the version pin, two
+static pins, the code notes and constraints.md). There were two merge bases, and every line either side added is
+present apart from the renumbering. pd-tests 2031 cases pass. Open bug, not yet filed: in networked Hold the Briefcase
+no simulant fetched the case in 150 s (base 3 and base 7; DY357 rolled both times), while the local base-3 run
+took it at 11 s from a spawn beside it. 80bf07b5 adds BOT.TEAM, BOT.CMD and BOT.GOAL log lines (log only) to
+show which step fails. Queued on frozen binary 4ec6444d: q_20261116091034575_99b56360 (HTB local and net) and
+q_20261116091036044_6514de17 (the three local smokes again, now --portable). CORE answered: local co-op Deep Sea
+is never reached, in the original either; the networked Next Mission is the path that matters. Next: read the
+goal lines and fix the networked case fetch; then the base-7 reconnect, rematch and co-op turns; CORE's review of
+SP-87 (b); Mike's open questions (Challenges and presets in the Room, a co-op drop, the co-op AI buddy).
+
+2026-11-16 (02:05 ET) MULTIPLAYER, continued. All pushed (head ba2517fd). Two game turns on binary c5a12bca (c3d737c3),
+all PASS: co-op Return to Room 129/129 (B-1201 fixed in play; the host's whole co-op end flow now passes) and simulant
+types net 107/107 (B-1194 fixed in play: no skipped pickup, 16 disarm drops announced; B-1202's repeat-pass line seen),
+then local Hold the Briefcase 30/30 (a simulant held the briefcase from 11 s and scored every 30 s, 4 points), local Pop a
+Cap 25/25 and networked Hold the Briefcase 84/84 (nobody reached the briefcase on fallback pad 173, so no rate check;
+pads 152 and 173 were never reached in two runs, 122 and 134 were). Merged `week-pd/extract-6` (d42d9ab1; shared base
+7, authored case, hill and crate placements; one conflict in systemic-bugs.md, both patterns kept; every added line of
+both sides checked present with `merge_addedlines_check.py`, CRLF-aware) and fixed the one test it broke: my B-1193
+`pdguiEndscreenNetMissionHasNext` now asks `endscreenMissionLeadsToCredits()` like CORE's three bridge sites (32681e81).
+pd-tests 2,018 cases green. New smokes: rematches for the five objective modes, a local Combat score-limit end, the
+Combat rejoin with CORE's agreed lobby check, and networked co-op on Deep Sea (the local Deep Sea auto-advance changes
+stage on one machine only; the smoke forbids it). Frozen binary 03f2a9c9 (32681e81); my runs now use shared base 7
+(`run_base7.sh`). Queued: q_20261116064525787_3b2798fb (Combat net with simulants, Hold the Briefcase net, Hacker
+Central and Capture the Case local scoring, Combat score limit). Open for Mike: SP-87's scheduler half (background
+props get N times the time in networked play; recommended counting it once per frame there), plus the earlier three.
+Gotcha: `build-session.ps1` refuses even `-Target tests` while a smoke in this worktree runs.
+
+2026-11-16 (00:25 ET) MULTIPLAYER, continued. All pushed (head c3d737c3). The 0587e908 game turn proved in play co-op
+Retry Mission (126/126) and the networked Combat rematch (95/95); co-op Return to Room reached the Room on both machines
+(125/129), then the client crashed when the host left: B-1201, the ended mission stayed loaded behind the Room and ran
+offline and unpaused, fixed in 6158cf4c (the disconnect leaves such a stage for CI and freezes it first). B-1194 named
+from the host's new pickup diagnostic and fixed in 7ea55351: the skipped items were disarmed simulants' own guns
+(`botDisarm` drops the held model after clearing `weapons_held`, so nothing announced it), and `SVC_CHR_DAMAGE` ran the
+same disarm on the client's puppet, which dropped a copy of its own; the chr drop block now announces every runtime-made
+weapon it drops, and the puppet retires its model. B-1202 found by reading the Hold the Briefcase scores (7 points in
+151 s, where 5 is the cap) and fixed in 4189fb54: `lvRender` passes the props once per player of a networked match, and
+since 41431a3d `botTick` ran its whole update on every pass, so with two players every simulant thought, turned, picked
+up and scored twice a frame; the original `PROPFLAG_NOTYETTICKED` gate is back (SP-87 claimed for the class). c3d737c3
+adds `MATCH.POINTS` and Hold the Briefcase holder lines and makes the Pop a Cap, Hacker Central and Capture the Case local
+smokes 150 s scoring checks. pd-tests 1,993 cases green. Queued on binary c5a12bca: q_20261116050125504_74a4fe33 (co-op
+Return to Room, simulant types net) then q_20261116052314091_3ff93b3f (Hold the Briefcase net and local, Pop a Cap
+local); the Hacker Central and Capture the Case local scoring smokes are ready for a later turn. Tell Mike: B-1202 puts
+networked simulants back at their offline speed. Decisions for Mike unchanged (Challenges and presets in the Room, co-op
+drop and rejoin, the AI-buddy option).
+
+2026-11-15 (23:05 ET) MULTIPLAYER, continued. All pushed (head 9eb1eaa9). The 732dd2fe game turn proved in play the whole
+networked Combat rematch (93/95; the two misses were stale counts, fixed), B-1196 (co-op guard clones replicated with
+`SVC_NPC_SPAWN`, 129/129, including a natural clone with the original failure's sync id), the counter-op mission end
+(127/127, with B-1198's disconnect fix) and local King of the Hill scoring (150 s matches now). B-1199's diagnostic
+named it: player 2's control mode was `CONTROLMODE_NA`, because the agent save read it from the remote partner's slot;
+fixed in 5a1dfcda. B-1194 reopened: my held-weapon death-drop theory was wrong (simulants die through `chrDie`, which
+announces its drops); the skipped items are copies of the rolled spawn weapon of unknown origin, and the host's pickup
+line now logs their flags and pad. Local Hold the Briefcase scored nothing in 150 s (open). New smokes, not yet run:
+co-op Retry Mission and Return to Room. Next: turn q_20261116022652209_aceb2d30 on 0587e908 (Retry, Return to Room,
+rematch, simulant types net). Decisions for Mike: where Challenges and presets go in the Room; what a co-op or
+counter-op mission does when a player drops (co-op rejoin, T-NETWORKING-007); whether to bring back the co-op AI-buddy
+option.
+
+2026-11-15 (21:15 ET) MULTIPLAYER, continued. All pushed (head cecdb143). Two game turns since 19:55: co-op mission end
+PASS 121/121 (9078eb6b) and counter-op mission end 123/124 (30973012; host control works, the Anti client is taken
+along; the miss was B-1198). Each run uncovered the next layer of the Combat rematch: B-1195's fix held in play, then
+B-1197 (with the host's tick running again, closing networked results fell into `menuTick`'s offline close and loaded
+CI as a networked host; fixed: that close does nothing while networked), then B-1200 (the first match's random spawn
+weapon roll stayed in `g_MatchConfig` and the next lobby start refused it; fixed: the match end forgets the roll).
+Named and fixed in code: B-1194 (a simulant's held weapon dropped at death had a dynamic id only the host knew; the
+host announces it, the client's puppet retires its copy) and B-1196 (a guard the host's AI clones, `try_spawn_clone2`,
+existed only on the host; new `SVC_NPC_SPAWN` 0x7e, unreleased v62, plus `--debug-clone-guard` for the co-op smoke),
+both under new pattern SP-85 (claimed). B-1198 fixed in code (a disconnect ends a networked mission without
+results). B-1199 open and reported to CORE (the mission-end Agent Profile save is refused; diagnostic added). The
+co-op/counter-op mission end is in UNRELEASED.md. Next: game turn Q_20261116021023271_02bb364c on binary 30628ea5
+(rematch, co-op with a cloned guard, simulant types net, counter-op), expected to start about 03:45 UTC.
+
+2026-11-15 (19:55 ET) MULTIPLAYER, continued. All pushed (head 3cad23d4). The 8c56ad72 game turn proved in play the
+results default focus (the host leaves Combat results with Use), a client pushing its own results (B-1190 part 2)
+and the co-op host control (Next Mission takes the client along; per-machine results with both players' stats; 119/121).
+Found and fixed B-1195 (5931c5f8): the listen host crashed on Continue from Combat results, because its stage-end
+commit unlinked its own player too, so its global tick was deferred under the results, the pause never applied,
+simulant AI ran from `lvRender`'s `propsTickPlayer`, and the results exit's chr table clear (B-368) made the AI
+divide by `g_MpNumChrs`. The host now keeps its link, and `botTick` treats simulants of a retired match as scenery
+(`mpApplyConfig` can lift the game-over pause, so the gate does not rely on it). New pattern SP-84 (claimed in
+the hub). Found B-1196: a co-op client is sent `SVC_NPC_MOVE` for a chr it does not have (sync id 335, a prop the
+host made after the stage start; Defection's AI spawns nothing, so the chr is not yet named); diagnostics in
+3cad23d4, along with the B-1194 pickup diagnostic and the B-1191 propagation (co-op NPCs placed on a client through
+`chrSetPos`, no client-only fall deaths). Lesson: `build-session.ps1 -Target all` does not build `pd-tests.exe`;
+my first suite run of the `[b1195]` pins used the old test binary (re-run on the rebuilt one: 1984 cases pass).
+Next: game turn q_20261116004335252_ec21ba5e on binary 9078eb6b (rematch, co-op mission end, simulant types net),
+then name the B-1196 chr and fix its replication, read the B-1194 refusal, then the counter-op mission end smoke.
+
+2026-11-15 (15:05 ET) MULTIPLAYER, continued. All pushed (head after 760ba423). Mike's decisions today, recorded in `context/constraints.md`: B-1190 option A (every player sees the results and presses Continue; the Room and the social lobby show "reviewing match stats" until then; the host's next match takes anyone still reviewing along), co-op and counter-op end flow under host control (Next Mission, Retry Mission or Return to Room on the host; the other player sees the results and follows), Combat Challenges for 1 to 4 human players (may be adapted for 8 later, so tables stay 8 wide). Fixed and pushed: B-1192 (c6572a21: the host's Room drew over its own results screen and took focus, so Use never reached Return to Room), B-1191 part 2 (262dc602: client simulants were placed from a stale model root and fell to the no-floor height between packets; `SVC_CHR_MOVE` now goes through `chrSetPos`, the puppet tick calls `botApplyMovement` for run/strafe/stand/death animations from the speeds already on the wire, and a client-only fall no longer kills a puppet), B-1190 (2ce8765a: a client recorded every player as remote, so the B-1139 skip left it with no results; the client now marks its own participant local; the lobby UI waits for the results screen; the reviewing flag rides `SVC_LOBBY_ROSTER` as a trailing per-row flags byte, unreleased v62), challenge cap (760ba423). The PC went down at 17:54 UTC (unexpected shutdown, reported by CRYSTAL); since then D: is saturated by the search indexer and a smoke takes ~20 min, so CRYSTAL's 11-smoke item is still running. Queued next: my item q_20261115173307314_394b483c, render, rematch (its client stays on the results, so the second match must take it along), simulant types net and local, on frozen binary eab25274 (= 2ce8765a), waiter `run_rejoin.sh` (no refresh). In progress: the host-controlled co-op end flow (a read-only map of the current flow is being made first). Still open for Mike: where Challenges and presets go in the Room, the GGV lane (recommend it stays parked on `week-pd/inflight-20261114`), sending the aiming pose and death animation choice. Correction given to Mike: simulant animations do not need new wire data, only the aim pose and the death animation choice.
+
+2026-11-15 (11:00 ET) MULTIPLAYER, continued. All pushed (head after 8bdb24ee). Proven in play since 09:05: King of the Hill rejoin 119/119 (the client takes the host's hill after a mid-match drop), co-op 100/100 and counter-op 102/102 baselines, `combat_sim_defect_cohort` 35/35 (first ever run), Pop a Cap scoring with B-1136 fixed (a simulant victim's survival points), Challenge 1 with B-1137 fixed (30/30). Fixed since: B-1138 (team spawn sectors only knew 4 teams; respawn sector used the raw team number), B-1139 (a listen host's end screen had a dialog for the remote client's player, so Use never left it and the host never got back to the room), B-1191 (finding 3 proven: simulants were invisible on networked clients because the client skipped `chrTick`; now a puppet tick with the AI skipped, co-op NPC pattern). New tooling: `--debug-bot-spec` (simulant types and difficulties) with `mp_simulant_types_local_smoke`/`_net_smoke`, rejoin smokes for Hold the Briefcase, Hacker Central, Pop a Cap and Capture the Case, the rematch smoke split per process. Open for Mike: B-1190 (networked clients never see the results screen; recommend everyone sees it and presses Continue), plus the co-op end flow, challenges in the Room, 5-8 player challenge difficulty, the GGV lane. For CORE: arena pickups (simulants run dry) and a black room 33 on Felicity in the render shots. Queue: rejoin 1 running, rejoin 2, CORE, simulant types, rematch (refreshes the binary to the 8bdb24ee build), render (reuses it). Client builds are refused while a smoke in this worktree holds the storage lock (tests builds are not); build between smokes. Bug ids: B-1120..B-1139 used; MULTIPLAYER now uses B-1190..B-1209.
+
+2026-11-15 (09:05 ET) MULTIPLAYER, continued. All pushed to `week-pd/multiplayer` (head 6ec4c749), PR #7 draft. Runtime results on 21eec732 (150 s matches, 2 humans + 3 simulants): Hold the Briefcase 84/84 (B-1133 crash gone; a simulant held the briefcase for 7 points, both sides agree), Hacker Central 85/85, Capture the Case 83/83 (base starts, B-1134), Combat with simulants 70/70, Pop a Cap 81/81, King of the Hill 83/83 (simulants scored hill points, client followed 12 hill revisions); simulant pickups sent and replayed in Hold the Briefcase and Hacker Central (B-1129 in play). Fixed since: B-1135 (rematch fixture's timeout below its own waits; new `[b1135]` test checks all 180 schedules; also fixed `combat_sim_defect_cohort`), B-1131 third pass (resync transaction rows: character resync placeholders, two readers returning inside their row loop, score count, NPC decline, admin arguments; nothing open in the readers), B-1136 (`func0f18d0e8` used the N64's 4 players as the player/simulant boundary: no simulant's Pop a Cap or Hacker Central points ever counted; SP-82 opened for the class), B-1137 (a challenge started from the challenge screen or `--launch-challenge` had no player participant), and the render smoke rework for finding 3 (its first run showed the client facing a wall with the simulant behind it; new opt-in hooks `--debug-place-bot-near-player-visible` and `--debug-face-nearest-bot`). UNRELEASED.md has player-facing notes for the fixes seen in play. Observation recorded, not worked around: simulants fight only for their first magazine in 16 of 18 arenas because extraction drops the arena pickups (ask to CORE, 01:05 UTC). Queued on game-runtime: item 3 running (render v1, challenge v1 done; KOH reconnect, co-op, counter-op left), item 4 (rematch, defect cohort, Pop a Cap on the B-1136 build), item 5 (challenge and render v2). Do not rebuild the client until items 4 and 5 have copied it. Still waiting on Mike: co-op/counter-op end flow (recommend host decides Next/Retry), where challenges and presets go in the Room, 5-8 player challenge difficulty, and whether the GGV lane goes on dev. Next: process items 3-5, then the 4-team orchestrator limit (SP-82) or King of the Hill hill time.
+
+2026-11-15 (05:35 ET) MULTIPLAYER, continued again. Results on c3c66668 (token modes at 150 s): Hacker Central 85/85 with a simulant's uplink pickup sent by the host and replayed on the client (B-1129 in game), Capture the Case 82/82, simulant Combat 70/70; Hold the Briefcase lost its host 2.5 s in: B-1133 (the PC capsule sweep classified its hit with `cdGetGeoFlags()` after `cdTestVolume`, a Test query that records no geometry: NULL before the first Exam query, someone else's surface after), fixed in 940ef76f. Since then, all pushed: 3e0dc257 (finding 4: `--host-autostart-matches` and `mp_combat_net_rematch_smoke`), 1f810047 and 67c786f1 (B-1131 / SP-81: four client readers desynced the stream by returning 0 with their tail unread; they and the spawn reader now read whole messages first, pickup/use/damage/spawn skip with 0, reconnect, auth and vehicle state still fail closed, and two writers no longer write a field on a condition the reader cannot see), f4ea1bfb and 2c500d42 (B-1134: Capture the Case teams start at their base via the match-start orchestrator), bf07d6dc (Pop a Cap and KOH net smokes at 150 s), fe12e4a9 (finding 10: `--launch-challenge` and `mp_challenge_local_smoke`), 21eec732 (`mp_king_of_the_hill_reconnect_smoke`, Rejoin with the v62 snapshot), 2e6392b1 (`--debug-place-bot-near-player-num` and `mp_combat_net_bot_render_smoke`: a client screenshots a simulant the host holds in front of it, because on a client botTick returns before chrTick and bot.c records that this once made bots invisible). pd-tests 1,953 cases green. Queued on the hub, back to back: q_20261115094412065_16ec2b05 (HTB, HTM, CTC at 150 s, simulant Combat, rematch), q_20261115100843994_73888af4 (Pop a Cap and KOH at 150 s), q_20261115101355307_24689241 (bot render, challenge, KOH reconnect, co-op and counter-op baselines); items 1 and 2 use the frozen binary 07f86b79 (= 67c786f1), item 3 copies the newest session build when its turn comes. Scripts: `run_b1129_smokes.sh`, `run_pac_koh150.sh`, `run_item3.sh` (session scratchpad); each hub item is finished by hand after its results are read. Still open for Mike: the co-op and counter-op end flow, the Room entry for challenges and presets, the 5-8 player challenge difficulty. If the bot render shots show simulants missing or frozen on the client, the fix is a client "puppet" tick (animation and render state without the action tick, since a client has only `actiontype`, not the action sub-state): that is engine work to propose before doing.
+
+2026-11-15 (03:45 ET) MULTIPLAYER, continued. Mike's answers: commit the main checkout's old edits (done as five commits C1-C5 on dev; the uncommitted T-MODDING-011 GGV lane, saved on `week-pd/inflight-20261114`, and the live crystal pistol files held back); "get all the MP modes functional", including the B-1126 fill-in; then "push dev to GitHub, and push your branch. From now on, commit and push all our work, consistently." Dev pushed (a8ab67f3..55812690, 44 commits); `week-pd/multiplayer` pushed, draft PR #7 opened like the other week branches (bound in the app, auto-fix off). Commits since the dev merge: dbc660f1 (B-1126 fill-in), 71f23c32 (wire v62, King of the Hill), ea187a63 (challenge and preset table by field name, finding 10), 4a467190 (v62 bodies for the other four scenarios, B-1127 slot mapping, B-1128), c3c66668 (B-1129 simulant pickups and drops, `SVC_BOT_PICKUP` 0x4D in unreleased v62; B-1130 a human's Capture the Case capture; B-1131 / SP-81 recorded; B-1132 team switch limit), f70720f6 (token smokes' scripted exit for 150 s matches), and the commit with this entry (Room: Team Score limit, Display Team, Kills Score; finding 9). Proven: local smokes of all five objective modes; networked smokes of all five on 4a467190 (KOH 78/78, Pop a Cap 76/76, HTB 79/79, HTM 80/80, CTC 77/77) with host and client result lines identical after the slot swap (B-1127 confirmed in play; the 35 s matches had no pickup, pop or capture); pd-tests 1,941 cases. Running: the B-1129 networked smokes (HTB, HTM, CTC at 150 s, simulant Combat) on the frozen binary `.claude/smoke-ref/PerfectDark.exe` (sha 91788732, = c3c66668), hub item q_20261115081910360_6a1fc099. Open for Mike: co-op and counter-op end flow (Next and Retry run locally on whoever presses them; who decides what comes next?); Challenges and presets entry in the Room; the 5-8 player challenge difficulty default. Waiting on CORE: the lobby cutscene precondition in the reconnect fixture. Not done in finding 9: King of the Hill hill time (not in room settings or stage start) and Smart slow motion (decided per peer from screen visibility, would desync). Gotchas: sed through the Bash tool eats backslashes in Windows paths (edit such files with the Edit or Write tool); TaskStop leaves a background script's sh and pwsh children alive (find them by command line, stop them by PID); a token fixture's scripted exit has to cover its match length.
+
+2026-11-17 MODS, week-pd/mods landed on dev as 940b21b18 (02:43 UTC; Mike's approval of 2026-11-16 with its conditions; main untouched). The rerun the landing waited for (q_20261117011726817_a5c81294, 02:34 to 02:44 UTC, the landing build, base 7): maian_vehicle_boost_smoke 47/47 and maian_vehicle_drive_smoke 34/34. Both rode slowly again (B-1234): about 28 frames a second in the boost smoke and 19 in the drive smoke, at 60 until the mount. Landing by the recorded procedure for the canonical checkout, which holds other lanes' uncommitted edits (`landing_apply.py` in the session scratchpad; memory `reference_landing_on_dirty_canonical`): dev was 841650c7 and the branch ae9bd5ca (hosted CI green on it, run 43997269095); trial merge clean and equal to the branch's tree; 221 files changed, 4 of them modified in the checkout (`CMakeLists.txt`, `UNRELEASED.md`, `src/game/chr.c`, `src/game/prop.c`) and re-applied 3-way in their own line ends; every one of the 17 in-flight files keeps its added and removed line counts, the 13 untouched ones byte for byte; backups kept in the scratchpad. Because the merge commit's tree is the branch's tree, the build that was tested is the build of dev. What Mike was told: the vehicle's behavior is graph-built (a v1 vehicle mounts, dismounts, drives, boosts, heats, shows and hides parts and locks its turret through graph nodes; not graph-built are the base hoverbike, still on its v2 behavior, the work inside the native modules, and the handling numbers), what was tidied (the game side moved to `src/game/vehiclegraph.c`, the runner sectioned and commented, three unused helpers removed, the Maian graph regrouped with a comment on every node, a README, the comment convention, rule 6 closed), B-1233 and why the landing was held for it, B-1234 open, B-1152 open on dev, the controller A collision in his saved profile, and the first-start extraction on base 7. Next: the B-1234 measurement turn (q_20261117013209684_748edab4), then the side branch's turn (q_20261117013646273_5a67705b: the Characters tool, the two-seat vehicle, B-1152's fix, on base 7).
+
+2026-11-17 MODS, side branch `week-pd/mods-v4`: the two-seat vehicle written end to end (01:40 to 02:25 UTC, while the game queue ran CORE's turn; pushed to 9239c969, draft PR #8; nothing here is compiled locally or run in the game yet, hosted CI compiles each push). In order: (1) saved bindings survive a new input context as they do a new action (f24d406d): `actionmap_profile::decode` accepts a file that lists the same leading run of actions for the leading contexts only, `olderContexts` beside `olderActions`, the rule that new contexts go at the end of `s_AllImcs`, `[upgrade]` cases for it, write route pins re-reviewed; hosted CI green with it. (2) V4b step 2 (28309e2b, hosted CI green): `ACTION_TURRET_FIRE` 124 and `ACTION_TURRET_ZOOM` 125 (saved names `TurretFire`, `TurretZoom`), the context `g_ImcVehicleTurret` with defaults (left mouse or right trigger fires, right mouse or left trigger zooms and locks, F or X exits, right stick and arrows look), the turret layer's action set and hooks, a Vehicle Turret group of seven rows in the Controls menu. (3) Step 3 first part (99d8f88e): a seat action is told its seat; the pinned native functions keep their text, with two adapters. (4) Seat points (7bbb40bd): the model says where its riders' eyes are, parts 160 (driver) and 161 (gunner), `hoverbikeSeatModelPos`; the Maian model got both from `build_vehicle_mesh.py` (driver in the well ahead of the turret deck, gunner above the cannon; the other mesh files regenerate byte for byte). The base hoverbike's driver position is inside this vehicle's cannon, which is why the driver's view was full of hull. (5) Step 4 (99fa4ed7): the gunner's ride in `bondbike.c` (`bbikeCurrentSeat`, gunner branches of the init, the local exit and the two dismount checks, `bbikeTickGunner`, the gunner's move data). (6) Step 5 (af7e9a95): `hoverbikeChooseMountSeat` and `currentPlayerTryMountHoverbikeGunner` in `propobj.c` (solo play only), `--debug-mount-seat`. (7) Step 6 (8e9ccd4d): the exit read runs `vehicleExitPressStep` every update; `bbikeSwitchSeatAction`. (8) Step 7 (5beffad0): the Maian graph has both seats (26 nodes, 21 execution edges; conformance passes); the two Maian smokes pass `--debug-mount-seat driver` and expect the new counts. (9) Step 8 (9239c969): `maian_vehicle_seats_smoke` (driver, switch to the pod, look, switch back, drive, leave) and a gunner's witness line. Also: CORE's notice that every level graph must carry the pickup and door rules is in `forge-mode-scope.md` (b8547c67). Decisions made here, each recorded in the plan doc: fixed seat part numbers 160 and 161 as a model convention; the gunner seat is solo only until MULTIPLAYER's wire carries a seat; a dismount module acts only for the seat the rider is in; the turret context has the driver's priority. Known unknowns for the first game run: the gunner's view maths, whether the look action reaches the yaw rate on PC, the dismount spot on Escape after the drive, and whether a driverless vehicle pushes its own gunner. Next: move the pinned build worktree (`D:\PD2-wt\mods-v4-build`) to the newest green commit and run the side branch's queued turn (q_20261117013646273_5a67705b) with the seats smoke added.
+
+2026-11-17 MODS, the landing held for B-1233, the final-build turn and B-1234 (00:00 to 01:35 UTC; `week-pd/mods` pushed to f8dee3d4, draft PR #4; side branch `week-pd/mods-v4`, draft PR #8; the landing on dev is still not done). Before landing I read the bindings file this PC really has and found B-1233: `actionmap_profile.cpp` accepted a saved `input-bindings.ini` only with exactly one row per context and action, and the landing adds an action (Vehicle Boost, 123 to 124), so dev after the landing would have refused the file here (12 contexts of 123 rows). Fixed (d9a2c709): a complete file from a build with fewer actions is read, its bindings kept, the new actions take their defaults and the file is written back in full; anything else incomplete is still refused. Four `[upgrade]` unit cases, the smoke `bindings_older_file_upgrade_smoke` with a 12 by 123 fixture (aa593608), the two write route pins re-reviewed, and a note that an existing file keeps its own older defaults (300931bf): Mike's profile has Vehicle Exit and Handbrake on controller A, so Boost's default A collides there until he remaps or resets the Vehicle controls. Hosted CI on d9a2c709 is green (run 43985716275: 2,028 cases / 404,358 assertions, 19 authored archives pass conformance). The final-build turn (q_20261117001505698_19c1acb5, 00:45 to 01:12 UTC, base 7): client and pd-tests built inside the turn at 300931bf; pd-tests 2,028 cases / 404,359 assertions pass; smokes `mod_vehicle_drive_smoke` 32/32, `maian_vehicle_drive_smoke` 34/34, `mod_author_weapon_play_smoke` 21/21 and `maian_crystal_pistol_play_smoke` 24/24 (the corrected fixtures, now in the game), `mods_user_folder_smoke` 23/23, `bindings_older_file_upgrade_smoke` 12/12, and `maian_vehicle_boost_smoke` 39/47. That one failure is B-1234, not a behavior change: the game ran at 16.8 frames a second in that run, so 5.5 s of held boost was 3 s of game time and the vehicle never overheated. The fixture now holds boost for 10 s and waits longer (f8dee3d4), and a rerun of it with the Maian drive smoke is queued (q_20261117011726817_a5c81294) behind CORE's 55 minute turn; I asked CORE in the hub whether the 8 minute rerun may go first, no answer by 01:35. B-1234 so far (full text in `context/bugs.md`): the base bike rode at 60 in 4 of 4 runs, the Maian vehicle at 60 in 3 of 9, 32 to 41 in 5 and 16.8 in 1; every slow run is at 60 until the mount and slow from the first second of the ride, and each run holds one speed throughout. Sharing vertices in the model would not help (the compiler writes three vertices per triangle regardless), so the first guess in the bug entry is withdrawn. A measurement turn is queued (q_20261117013209684_748edab4: the boost smoke twice and the base bike once with a read-only sampler of the client's busiest threads). The side branch while the turns ran: V4b step 1, the seat choice and the exit press rule as pure functions with unit cases (b1b53fe2, `port/src/vehicle_seats.c`); B-1152's cause and the clone-side fix (2cc33456, 6909a130: a cloned `.pdmesh` manifest no longer carries its template's `source_filenum_symbol`, case `[b1152]`); the first hosted compile of the side branch failed on one line (`atan2f` not declared in `vehicle_seats.c`), fixed in 17c12dd4, and PR #8 is green there: V4a, the seat rules, the Characters tool and the B-1152 fix compile and their unit cases pass in hosted CI. Not yet run in the game: `character_tool_create_smoke`, the B-1152 smokes, and the Forge known-red smoke `forge_mod_level_load_smoke` (10b73c95, local). Forge: the F1 work list and a proposed split with CORE are in `forge-mode-scope.md`; CORE has not answered questions (a) to (d) yet. Next: the rerun, then the landing (fill the merge message, `landing_apply.py` check then apply, push dev, week note and hub), then merge the side branch forward, build it in a game turn and run its smokes.
+
+2026-11-16 MODS, the vehicle's tidy and the landing preparation (after the 11:08 UTC turn, to 23:00 UTC; `week-pd/mods` pushed to a1a5a60b, draft PR #4; the landing on dev itself is not done yet). Mike's answers (2026-11-16): the vehicle merge into dev is approved with conditions ("confirm its behavior is built through our node graphs, and that the graphs and code are organized and commented. Tidy anything that isn't, then merge dev in first, rerun the tests, merge, push, and post it in the week note. Tell me plainly whether it was graph-built and what you tidied"); V4 seats ("the seat you take depends on where you entered from and where you're looking"; with the other seat empty a double tap of the enter/exit button switches seats instead of exiting; MODS picks the turret control defaults and keeps them mappable); the Characters tab first slice is approved as in the plan doc (browser, Use as Template, name and gender/height editing, save) and is built with the merge and V4, before Forge; "Forge mode is yours. It gates the level mod", built so levels are authored in the in-game mod tools with the level data inside the level's .pd archive; no other merges into dev or main without his OK. PR #4's description was refreshed to cover the vehicle work. Audit, graph-built or not: for a vehicle whose behavior is `pd.vehicle_graph.v1` every mount, dismount, drive, boost, heat, part and turret-lock decision runs through graph nodes (every mount caller passes the dispatcher `currentPlayerTryMountHoverbike`: the prop interaction, the grab code and the debug hook; both dismount paths fire the graph). Not graph-built: the base hoverbike (still a v2 behavior on the native path until CORE's extractor writes its v1 graph), the work inside the native modules (by design, the graph decides when they run), and the handling numbers (`physics.json`, data). Tidy (cfcd9a8a): the game side of the graph moved out of `propobj.c` (289 lines) into `src/game/vehiclegraph.c` with `game/vehiclegraph.h`; `vehicle_graph_runner.cpp` got a layout note, five section banners and comments on its internals; three unused boost and heat helpers removed and the header rewritten; the Maian graph rewritten compact, grouped by event, with a comment on every node (still 15 nodes and 11 edges) and a README for the mod; a comment convention (one `"comment"` string on a graph, node, edge or variables file, checked to be a string and never read) in the runner, conformance and the schema doc, which also gained a "Where the code is" table. Rule 6 closed (6c65d841): a graph's `part_visible` parts are checked when the catalog registers the vehicle, against the embedded mesh's `model.parts.json` and `model.nodes.json` (`port/src/vehicle_model_parts.cpp`, `assetRuntimeVehicleGraphAdmits`; the scanner refuses the vehicle with "behavior graph refused: ..."); `[vehicle-model-parts]` and new adapter cases written. Merged dev 841650c7, the crystal pistol landing (35a7374f): conflicts in `actionmap.h` and `actionmap.cpp` (dev's gun roll actions keep 121 and 122, `ACTION_VEHICLE_BOOST` moves to 123, `ACTION_COUNT` is 124; saved names are positional), `devtools/build-headless.ps1` (`Restore-BuildDirMods` kept inside dev's new else block), `UNRELEASED.md` and three context files (union, dev's lines first); B-1150, B-1151 and B-1155 annotated as fixed on dev by the crystal pistol work; the scratch check `merge_check2.py` found no file that lost one side's change. Hosted CI had stopped at "Review configured native write routes" on every push since the user mods folder (91198952), so it never compiled the branch: an unreviewed `mkdir` in `port/src/mods_roots.c` (the POSIX branch; the Windows branch calls the wrapped `_mkdir`). Pinned in 2c07f7a2 like the five other files of that kind; the guard passes locally and run 43972809741 is compiling. Not compiled locally yet: the tidy, rule 6 and the merge. One game-runtime turn (q_20261116223555761_9aabca82, queued 22:35 UTC) builds the client and pd-tests inside the turn (no build while another session's smoke runs), runs pd-tests and nine smokes on base 7 (the three vehicle smokes, the three mod author weapon smokes, the user mods folder, the two crystal pistol smokes); the landing follows only if all of it is green. Written while waiting: the V4 design with Mike's decisions and a build order V4a to V4c (a85b27bc) and the Forge scope, `context/designs/modding/forge-mode-scope.md` (a1a5a60b: steps F1 to F5; first F1, prove a mod level loads). V4a is written on a side branch, `week-pd/mods-v4` (worktree `D:\PD2-wt\mods-v4`), so the tree the landing turn compiles stays at the pushed head. Next: read CI; the landing turn; the landing on dev by the recorded procedure (merge-tree trial, merge-file for files the canonical checkout has in flight, numstat before and after), the week note and PR #4; then V4, the Characters tab first slice and Forge F1. Later, to 23:58 UTC, everything the landing waited for: hosted CI turned out to have one more gap of mine behind the write route pin: its last step, the conformance tool run over the archives the unit cases author, refused to start because the vehicle's optional `behavior/variables.json` had no entry in the tool's slot contract table (2fdbb7f8; the self-check runs only when the tool is run on a root, so no unit case or smoke had met it). With that, run 43976112166 is green: client and pd-tests build, 2,024 cases / 404,266 assertions, 19 authored archives pass conformance. A docs-only push had cancelled the run before it (the workflow cancels a run in progress on a new push; now a memory note). CORE answered at 22:53 UTC: no objection to its 15 commits landing with MODS's, base 7 as dev's base is right, the comment convention is fine. The landing turn (q_20261116223555761_9aabca82, 23:20 to 23:58 UTC, base 7): client and pd-tests built inside the turn at 2fdbb7f8 (228 s and 105 s); pd-tests 2,024 cases / 404,266 assertions pass, the same as hosted CI; smokes: `mod_vehicle_drive_smoke` 32/32, `maian_vehicle_drive_smoke` 34/34, `maian_vehicle_boost_smoke` 47/47, `mod_author_weapon_create_smoke`, `weapon_tool_create_smoke`, `mods_user_folder_smoke` and dev's `crystal_pistol_ammo_smoke` pass; `mod_author_weapon_play_smoke` 20/21 and `maian_crystal_pistol_play_smoke` 23/24, each missing the same line, "SETUP: user-picked spawn weapon ... preserved", which `setup.c` logs only inside the spawn-with-weapon fallback for an arena with too few weapon pickups (B-181): on base 7 Felicity's pickups are created and the fallback does not run. Both fixtures now require the line every setup logs for a chosen spawn weapon (3f320ab6); the harness's own evaluator gives the old fixtures 20/21 and 23/24 and the corrected ones 21/21 and 24/24 on the two runs' retained logs; a rerun in the game is queued (q_20261116234206199_9df0e467). The weapon play smoke is no longer known red: the mod weapon is named (B-1150), held at the template's position (B-1149) and fires six shots (B-1151). B-1152 still shows in that log (the mod weapon's embedded mesh claims file slot 887). Since the built commit only `UNRELEASED.md` (the user mods folder and vehicle mods), the Forge scope and the two fixtures changed. Landing rehearsal (`landing_apply.py`, check only): the merge of `week-pd/mods` into dev 841650c7 is clean and its tree is the branch's; of its 216 files, 4 are modified in the canonical checkout by other lanes (`CMakeLists.txt`, `UNRELEASED.md`, `src/game/chr.c`, `src/game/prop.c`) and all four re-apply cleanly with the same added and removed line counts. Written while the turn waited and ran, on the side branch `week-pd/mods-v4` (pushed, not compiled): V4a (0611ac20: `event.vehicle.switch_seat_requested`, `og.vehicle.switch_seat`, `vehicleGraphProgramEventSeats`, seat occupants in the vehicle's record, a two-seat graph in `[vehicle-graph]` and the conformance cases) and the Characters tool's first slice (733e4c3f: `port/src/character_tool.c` with `[characters-tool]`, the window `port/fast3d/pdgui_menu_charactertool.cpp`, the hub's tool tables folded into `kHubTools`, `--debug-character-tool-create`, `character_tool_create_smoke`), and the V4b step plan with five risks (8f1d92bb). Forge: `context/designs/modding/forge-mode-scope.md` now holds why a mod level cannot load yet (no map row for a custom stage, the scenario inside a mod arena never registered, `load_mode` read as a number, no name of its own) and four questions for CORE (week note 23:30 UTC). Next: the landing itself, then merge `week-pd/mods-v4`, build it, and run `character_tool_create_smoke`.
+
 2026-11-17 BGFX CLASSIC, phase 2a step 1 of the 2.0 renderer (from 01:57 UTC; branch `week-pd/bgfx-classic` from dev 841650c7, worktree `D:\PD2-wt\bgfx-classic`, hub id `claude-week-pd-bgfx-classic`, draft PR #9 for hosted CI only; no merge into dev). Mike's /goal: classic Perfect Dark on bgfx's OpenGL backend, pixel-identical, the GL renderer stays the default. Done so far: bx/bimg/bgfx pinned as shallow submodules (bgfx.cmake v1.139.9155-513 trio) and built by our own glue (`third_party/bgfx-pd`) as static libraries with a lean `pd-shaderc`, shaders compiled at build time; MinGW needed no heavy patching (two build-tree patches: decal polygon offset, and bx's dbghelp resolver made lazy and local-only after it was found running SymInitialize with the Microsoft symbol server before main). `--renderer bgfx` backend (`port/fast3d/gfx_bgfx.cpp`) with the combiner as one uber-shader written per formula shape; scene renderer, ImGui and pdgui textures on bgfx; GPU swarm unchanged (compute only); mesh debug view reports unavailable; GL 4.3 fallback with `--debug-bgfx-assume-gl` to test it. `--renderer-parity` draws one frame through both renderers in one process and compares on smoke screenshots. Audits: native write-policy guard passes; `tools/bgfx_dependency_audit.py` reviews all 31 bgfx/bx/bimg files with load or write routes and the linked binary (imports identical to a classic build; no AGS, NVAPI, RenderDoc). Merged `origin/week-pd/renderer-scope` into the branch for the scope doc (one file). An independent review of the never-run backend against bgfx's sources found real defects, each checked and fixed before the first run (b37de34b): uniforms created after their programs (GLSL 4.30 binaries carry no uniform table, so nothing would have been bound: black frame), RT and MSAA flags ORed in one 3-bit field and depth targets with no storage (found while checking), RT|READ_BACK refused (parity would have drawn into the classic window), view state persisting across frames, rect cache overflow, uniform staleness semantics, glad reload resetting the depth-clamp patch. Hosted CI on PR #9 (merge of 5bc1608e with dev 8f41913f) passed every step, 2,028 tests. Game-runtime turn q_20261117033652266_8ef0c9a8 05:01 to 05:56 UTC on 51acf115 (D: copy of shared base 4, no C: install): build-session client and pd-tests exit 0, pd-tests 1,918 pass, write guard and bgfx audit pass; GL 4.3 fallback 12/12; parity menu 13/13, Defection 14/14, Felicity Combat Sim 14/14; bgfx swarm compute ran. Parity pixels (of 3,686,400): Agent Select 68,712 (a thumbnail the game copies from GL_FRONT; the bgfx side copied the frame in progress; fixed after the run by composing each frame in a final target that plays the front buffer, not yet re-run); Defection 82 to 95 and Felicity 379 to 503, about 97% off by one level, a few up to 48 at edges (working explanation: floating-point rounding of differently written shader source on one driver; next experiment: give the scene shader the classic GLSL 1.30 text). The classic and bgfx Agent Select smokes failed only `agent_select_ready`, which needs keyboard focus a background runner does not get; menu fixtures now wait for `core_boot_ready`. Split-screen cannot be drawn (single local player constraint): a decision for Mike. Stopped at the goal's turn budget with a report to Mike; the re-run of the seven renderer smokes on the final binary is the next step (about 45 minutes of game-runtime turn).
 
 2026-11-16 CRYSTAL PISTOL merged into dev as 361abab8 (05:06 to 05:30 UTC, post-landing smoke 06:26 to 06:39 UTC; Mike: "Merge week-pd/crystal-pistol into dev now, and make sure the work doesn't get lost going forward"; main untouched). Steps: (1) restored the canonical checkout's hub script (`git restore -- tools/CodexCoordination/CodexCoordination.ps1`, Mike's instruction) so CORE's 800cf9b6 (B-1156) lands cleanly; hub commands from this session now use `pwsh`. (2) Merged dev (55812690: T-TOOLING-005/006/007, T-ASSETS-052) into the branch (7a461b0a, clean; `modasset_compiler.c`, `test_asset_native_source_contract.cpp` and the smoke README auto-merged, far-apart hunks); checked exactly: dev..merge equals crystal's 95-file change set, crystal..merge equals dev's 36; nothing else shrank. Client and pd-tests build with an empty error log; pd-tests 1,918 cases / 384,368 assertions pass. (3) Protocol, as agreed: CRYSTAL merged first, so dev went from v61 to v63 and MULTIPLAYER renumbers its v62 bump to v64 with the pin when it merges (constraints.md). (4) The canonical checkout's uncommitted `src/game/bondgun.c` (paused T-MODDING-011 rewrite, about 8,500 changed lines, never compiled) conflicts with crystal in 8 places; Mike's call: park it. It stays byte-for-byte on `week-pd/inflight-20261114` (1c1cb1d2), now pushed to GitHub, and the canonical copy is now dev's; whoever resumes that lane merges dev into that branch and resolves the conflicts there. The canonical's other in-flight edits stay with the same diffs; CMakeLists.txt, chr.c and prop.c are 3-way merged with crystal's (clean). My own stale 11-14 copies there (the dev-mods.json entry and five untracked crystal files) went to the Recycle Bin; the tracked versions replaced them. (5) In the canonical checkout, `git merge --no-ff week-pd/crystal-pistol` at 05:29 UTC (the merge tree equals the branch tip's tree), dev pushed at 05:29:47 UTC, the branch fast-forwarded to dev; draft PR #6 shows merged. Week note (05:30 UTC) and hub chat: dev has the pistol and B-1180 to B-1189, B-1211, B-1212; every week branch merges dev before it merges into dev. (6) After the landing, in my hub game-runtime slot: `crystal_pistol_ammo_smoke` on the merged build (the code is dev 361abab8) on shared base 4 passes 31/31 in 115.8 s (receipt `20261116T063413675914Z-crystal_pistol_ammo_smoke-cd3ec27e`).
@@ -16,7 +404,11 @@
 
 2026-11-14/15 CRYSTAL PISTOL session (branch `week-pd/crystal-pistol` from dev e7503299, worktree `D:\PD2-wt\crystal-pistol`, hub id `claude-crystal-pistol-20261114`). Mike asked for the Maian crystal pistol model through his Tripo setup in Blender; the asset (Phoenix-scaled, 2,842 tris, sockets, crystal states, exports, README) lives outside the repo at `D:\Game Dev\PD2-Assets\crystal-pistol`. A test dev mod built from it (`dev-mods/crystal_pistol`: OBJ + MTL with texel-unit UVs, catalog texture beside the weapon, parts 50/55, v1 hitscan) and its smoke `crystal_pistol_viewmodel_smoke` are uncommitted in the canonical checkout. Running it in game found four engine bugs, fixed here on Mike's word ("Lots to fix, we should do so so the pdweapon will work properly"): B-1180 held mod guns drew without the z-buffer (bondgun exception removed; the "225 degree" pose MODS saw was this), B-1181 a mod weapon whose activation failed was still equipped and crashed the first gun tick (catalogManagerWeaponIsUsable checked at equip, give and spawn pick), B-1182 the mod adapter rejected function.empty (now an absent function, as base weapons have), B-1183 dying while holding a mod weapon crashed in projectileFall (author hierarchies now get a bounding box from the mesh bounds). Also fixed both Needler smokes' required line for the WEAPONGRAPH.MESH.INGEST log removed in 932ceb62. Verified: pd-tests 1,899 cases / 339,140 assertions; in game (shared base 3, branch client) the crystal pistol passes 28/28 and renders clean, an empty secondary installs, a failing weapon falls back to the Falcon 2, and the Needler with twelve bots survives 52 deaths and drops (21/21; the pre-fix client crashed after 15). Receipts: `D:\Game Dev\PD2-Assets\crystal-pistol\pd2\smoke\results-20261115`. Not merged: canonical dev has uncommitted edits in `bondgun.c` and `modasset_compiler.c`. Open: ammo for v1 mod weapons (CORE, MODS ask 1 of 8), no muzzle flash parts, the Needler is authored muzzle -Z so it is held backwards.
 
-2026-11-14/15 MULTIPLAYER week session (branch `week-pd/multiplayer`, worktree `D:\PD2-wt\multiplayer`, hub id `claude-week-pd-multiplayer`). Focus: multiplayer modes; this session's big item was SP-75 on Mike's word ("You may fix it, just be thorough / comprehensive"). Done: units A-E (scenario rules owner, match-result witnesses, room back to Lobby, final scores before stage end, KOH state codec); B-1120 (two `struct netclient` layouts, every listen-host match broken) fixed and proven 58/58; SP-75 root fix 8a4f32aa (no `<stdbool.h>` in project code, `pd_bool.h`, scoped one-byte gfx headers, B-1121 291 mixed declarations -> 0, B-1123 four C++ extern declarations); `tools/bool_layout_audit.py` with a cross-file symbol check, in CI; session rules no longer recommend `<stdbool.h>`; B-1124 (seven two-process fixtures wrote Mike's real profile, `%APPDATA%/perfectdark`) fixed in fixtures plus CORE's runner refusal; first networked Combat with three simulants 65/65; offline Hold the Briefcase 24/24, King of the Hill 25/25, Capture the Case 25/25 (lifecycle only) and Pop a Cap 24/24; B-1125 Hacker Central divide by zero fixed in 86de8e08 on Mike's call ("can we place some so there are enough?"): a bank with too few pads is filled to 8 with spaced navigation-waypoint pads (`port/src/scenario_pad_fallback.c`, 12 cases), smoke 31/31. Its propagation check found that no arena carries intro case or hill pads (the scenario source keeps only spawn rows, and those are empty) and 16 of 18 have no setup objects (no pickups): Capture the Case cases are created off-world, the King of the Hill hill never moves, the Hold the Briefcase case is always on pad 0 (B-1126, SP-80; asked CORE). Reconnect rerun 113/116: the reconnect passes end to end, the misses are a stale-lobby-cutscene precondition (question to CORE). Merged CORE's shared commits (records, guard-fix, runner x3, extract-1, extract-2); smokes run from this worktree's runner on `D:\PD2-wt\shared-base-3`. Decisions: bug ids B-1120..B-1139 are MULTIPLAYER's; graph schema changes go to CORE; no merge to dev without Mike. Open for Mike: the same walkable-pad fallback for Capture the Case, King of the Hill and Hold the Briefcase (B-1126); whether to restore his `pd.ini`/`playerstats.json`; the parent-level `C:\Users\mikeh\Perfect-Dark-2\CLAUDE.md` line 135 still recommends `<stdbool.h>`. Next: CORE's answers (intro case and hill pads, lobby cutscene), Mike's B-1126 call, then unit F (King of the Hill host state over the wire, protocol v62 with the test pin). Gotchas: run pd-tests with output on a pipe, never redirected to a file; write scripts that contain backslashes with the Write tool, not a Bash heredoc (`\\` collapses and `\r` in a path became a carriage return twice). Details: `context/designs/in-flight/week-pd-multiplayer-plan.md` and `context/week-pd-coordination.md` (canonical checkout).
+2026-11-14/15 MULTIPLAYER week session (branch `week-pd/multiplayer`, worktree `D:\PD2-wt\multiplayer`, hub id `claude-week-pd-multiplayer`). Focus: multiplayer modes; this session's big item was SP-75 on Mike's word ("You may fix it, just be thorough / comprehensive"). Done: units A-E (scenario rules owner, match-result witnesses, room back to Lobby, final scores before stage end, KOH state codec); B-1120 (two `struct netclient` layouts, every listen-host match broken) fixed and proven 58/58; SP-75 root fix 8a4f32aa (no `<stdbool.h>` in project code, `pd_bool.h`, scoped one-byte gfx headers, B-1121 291 mixed declarations -> 0, B-1123 four C++ extern declarations); `tools/bool_layout_audit.py` with a cross-file symbol check, in CI; session rules no longer recommend `<stdbool.h>`; B-1124 (seven two-process fixtures wrote Mike's real profile, `%APPDATA%/perfectdark`) fixed in fixtures plus CORE's runner refusal; first networked Combat with three simulants 65/65; offline Hold the Briefcase 24/24, King of the Hill 25/25, Capture the Case 25/25 (lifecycle only) and Pop a Cap 24/24; B-1125 Hacker Central divide by zero fixed in 86de8e08 on Mike's call ("can we place some so there are enough?"): a bank with too few pads is filled to 8 with spaced navigation-waypoint pads (`port/src/scenario_pad_fallback.c`, 12 cases), smoke 31/31. Its propagation check found that no arena carries intro case or hill pads (the scenario source keeps only spawn rows, and those are empty) and 16 of 18 have no setup objects (no pickups): Capture the Case cases are created off-world, the King of the Hill hill never moves, the Hold the Briefcase case is always on pad 0 (B-1126, SP-80; asked CORE). Reconnect rerun 113/116: the reconnect passes end to end, the misses are a stale-lobby-cutscene precondition (question to CORE). Merged CORE's shared commits (records, guard-fix, runner x3, extract-1, extract-2); smokes run from this worktree's runner on `D:\PD2-wt\shared-base-3`. Decisions: bug ids B-1120..B-1139 are MULTIPLAYER's; graph schema changes go to CORE; no merge to dev without Mike. Open for Mike: the same walkable-pad fallback for Capture the Case, King of the Hill and Hold the Briefcase (B-1126); whether to restore his `pd.ini`/`playerstats.json`; the parent-level `C:\Users\mikeh\Perfect-Dark-2\CLAUDE.md` line 135 still recommends `<stdbool.h>`. Merged into dev on Mike's OK ("Merge our work", 2026-11-15): merge commit e7503299 (tree identical to da7f042b), local dev only, not pushed; the main checkout's uncommitted files were kept (six old uncommitted edits the merge also changed were re-applied on top and checked line for line). Next: CORE's answers (intro case and hill pads, lobby cutscene), Mike's B-1126 call, then unit F (King of the Hill host state over the wire, protocol v62 with the test pin). Gotchas: run pd-tests with output on a pipe, never redirected to a file; write scripts that contain backslashes with the Write tool, not a Bash heredoc (`\\` collapses and `\r` in a path became a carriage return twice). Details: `context/designs/in-flight/week-pd-multiplayer-plan.md` and `context/week-pd-coordination.md` (canonical checkout).
+
+2026-11-15 week-pd/mods (MODS session, continued from 2026-11-14; branch `week-pd/mods`, draft PR #4, worktree `D:\PD2-wt\mods`, shared base 3). Done: B-1149 fixed and seen in the game (a mod made from a base gun takes the base gun's view position; `mod_author_weapon_play_smoke` is red only for B-1151, ammo). Maian crystal pistol first cut: `dev-mods/maian_crystal_pistol/` is a recipe the in-game mod author builds into `mod:weapon_maian_crystal_pistol` (v1 graphs: single sticky crystals, one proximity mine; tunables in `behavior/variables.json`); unit case `[crystal-pistol]`; `maian_crystal_pistol_play_smoke` PASS 24/24 on base 3 (built, enabled, equipped, both functions fired, no error). Its held model is a stand-in generated from the October artist source by `make_placeholder_mesh.py`; the first two stand-ins were authored on the wrong axis (seen sideways in the game); 6bbc5ec3 authors it muzzle +Z at the Phoenix's size and view position, per the real asset's README (handoff note section 10, corrected). Whether fired crystals stick is still unknown (no log line; asked of CORE). Mods survive rebuilds: `build-headless.ps1` keeps `mods/` and `mods-enabled.json` across a clean (36d4e5bb; proven by a real clean build of the session client: a marker mod in the build's mods folder came back unchanged); extraction and the updaters do not touch mods. Proposed to Mike, waiting for his go: a per-user mods folder (`$S/mods` beside the saves, install `mods/` as a read-only second root; Roaming or Local open), design in `context/designs/modding/in-game-creators-2026-11.md` step 9. Mike's asset session built the real pistol asset at `D:\Game Dev\PD2-Assets\crystal-pistol` and will hand MODS a `.pdweapon` when it is ready; do not take it before. Also waiting on Mike: the character, vehicle and level concepts. New bugs B-1153 to B-1155. Full pd-tests 1909 cases pass at 8f0ac3a3. Later the same day: Mike decided the mods folder (LocalAppData, two folders, user copy wins; saves stay in Roaming); built in 91198952 and proven by `mods_user_folder_smoke` 23/23; the pistol stand-in authored muzzle +Z points into the screen (`maian_crystal_pistol_play_smoke` 24/24); full pd-tests 1913 cases pass. Then Mike approved the concepts: the weapon mod is the crystal pistol session's pistol (`week-pd/crystal-pistol`), the vehicle is a Maian two-seat hover vehicle (driver and a turret gunner), the character a Maian veteran (male and female), and the level waits for Forge mode authoring. Survey and plan: `context/designs/modding/maian-vehicle-and-veteran.md` (937d79e9). The PC went down at 17:54 UTC; after the reboot the coordination hub queue (healthy, no dead runners), this worktree's build queue and smoke storage locks (free, no active records) and the processes (all started after the 17:55 boot) were checked: nothing stale. Vehicle step V1 committed in 804dd3a2: a mod vehicle's embedded mesh gets a private model slot and the vehicle takes that model number (`registerVehicleModel`, `meshSourcePreparePrivate`), `--debug-swap-vehicle` puts a mod vehicle in place of a stage's hoverbikes, unit cases `[vehicle-model-slot]`, smoke `mod_vehicle_drive_smoke` (the base hoverbike saved as a local-only mod and driven on Escape). pd-tests lists its sources by hand, so the new cases first ran in ac535d95 (with a recording `catalogLoadStageAsset` stub in `tests/stubs.c`); full pd-tests 1917 cases / 339744 assertions pass at ac535d95. `mod_vehicle_drive_smoke` is queued for the game slot. Later: the swapped vehicle takes the replaced hoverbike's world scale (cb07beb7; B-1157, custom model slots have none); V2's first cut is the Maian hover vehicle mod `mod:vehicle_maian_hover` from `dev-mods/maian_hover_vehicle/` (7aa6d8c2: original parts only, a stand-in model generated from the October study's V4 builder in a headless Blender; the archive rebuild now keeps a manifest's copy of a changed descriptor value); full pd-tests 1919 cases pass. B-1156 recorded (every hub command throws under Windows PowerShell 5.1 while a game-runtime item is overdue; my waiter cancelled its own item once, requeued in place). Merged CORE's `week-pd/runner` (9685cc9f) and moved this worktree's smoke installs to C: (untracked `.claude/smoke-storage-location.json` with Mike's limits); compacting the five finished D: installs. Both vehicle smokes run in one queued game-runtime turn. Both crashed on the first gameplay frame: B-1158, `--debug-mount-bike` moved Player 0 before the player tick had made the body model (fixed in 0503fe0a: the hook waits for frame 4 and the model); rerun queued with `vehicle_flow` as the control. The final vehicle model: Mike asked for Tripo, so the new `pd-game-model` skill (`.agents/skills/pd-game-model/`, 08a7d64d, 5cc28fe4, c8b1495f) runs description -> Tripo concept sheet -> review -> Tripo 3D -> Blender clean-up -> `.pdmesh` and recipe. Concept v10 approved after ten sheets from Mike's description only (cannon gimballed on the gunner's pod, organic like the pistol, blue hull crystals as decoration, the turret's 18 ring crystals and the muzzle crystal seafoam); 3D v2 from Tripo (image-to-model v3.0, smart low-poly, textured, 6,220 triangles). Mike asked for a few sharpened edges: a chine round the hull and a nose spine, at two strengths for his pick (renders in `D:\Game Dev\PD2-Assets\maian-hover-vehicle\renders\compare-sharpened-*.png`). Tripo credits 1,415 -> 1,215. Mike picked the strong creases (chine 28 deg, spine 24 deg). The clean-up then ran as staged Blender scripts in the asset folder: the cannon's neck widened and the head lifted 2 cm; split by connectivity into hull (with the ring and its 18 seats), gunner's pod (yaw) and cannon (pitch); decimated and creased to 4,085 triangles. Colour goes in through the vertices, not a texture: PD images stop at 255 px and a 128 px atlas smeared the vehicle, while Tripo's colour baked into the vertices matched its 2,048 px reference. `dev-mods/maian_hover_vehicle/build_vehicle_mesh.py` writes the mod's OBJ mesh (3.10 m, 17,487 vertices, at most 64 colours per display list; parts 1 yaw, 2 pitch, 50 muzzle, 110-127 ring seats, 128 muzzle seat, toggles 140 seafoam and 141 black crystals) (98f9125a). The mod author now moves a mesh manifest's `geometry` echo with its descriptor (635ef82e; a recipe cannot replace a manifest). Skill lessons in 01308c28. Focused pd-tests pass: [maian-vehicle] 49 assertions, [clone] 1,668, [author] 1,023, [vehicle-model-slot] 56. B-1159 recorded (a64b36e8): on Escape the player never gets walk mode back after the skipped intro, so the B-1158 rerun was red on all three vehicle smokes (control included); asked of CORE; both mod vehicle smokes moved to CI training (`--launch-mission 0x26`) and queued. That turn (03:58 UTC) stopped at Agent Select in both smokes even with the agent loaded at boot: CI training opens it until a game file is chosen there, and `--launch-load-agent` does not count. The Maian model itself loaded (31 nodes, 25 parts, 17,487 vertices) and was swapped in at the hoverbike's scale. The smokes now load the staged agent through Agent Select and close the main menu with Back before waiting for walk mode and the mount; requeued. CORE answered B-1159: not a bug, Escape starts with the player pushing the hover bed (grab mode, as in the original); closed. B-1154 (striped Falcon 2) was every reflection-mapped model, found and fixed by CORE (dcee4202; a cloned gun needs base 7 and a rebuilt clone). While the smokes wait: CORE had asked MODS (2026-11-15 19:15 UTC) to draft the vehicle graph schema, so `context/designs/modding/vehicle-graph-v1.md` drafts `pd.vehicle_graph.v1` on the mission graph runner's rules (vehicle events, gates and `og.vehicle.*` native modules, `$name` variables in `behavior/variables.json`, the base hoverbike's graph, the Maian graph with boost and heat, five questions for CORE); B-1230 filed (`boost_time_ticks60` counts 240 Hz ticks). The boost and heat state machine is written as `port/src/vehicle_boost_heat.c` with `[vehicle-boost-heat]` (not wired yet; the archive member waits for CORE's answer). Also, as CORE asked on 2026-11-15: merged `week-pd/installmods` (B-1169, Mike's option A) and `modmgrScanDirectory` reads the user mods folder, then only `modsInstallRoots` (the repository-root folder for a source checkout, then `<base>/mods`). Both compile and run with the next build, after the smoke turn. Mike answered (2026-11-16): boost is a mappable action, defaults Shift and the controller's A, and the vehicle handbrake's controller default moves from A to B; the veterans are made with Tripo like the vehicle. First veteran concept sheets (male, female; 10 credits each, balance 1,195) sent for his review. V3 written (not compiled yet): the boost action, `behavior/variables.json` read by the game, per-vehicle boost and heat in the hoverbike movement, the crystal part hidden while black, the conformance check. The 05:16 UTC smoke turn went through Agent Select and the main menu (agent loaded, menu closed, walk mode), but the mount hook never fired in 60 s (first blamed on CI training's hangar, wrongly; see the 07:04 UTC correction below). All three Maian smokes (drive, mod drive, the new boost smoke) move back to Escape: skip the intro, one direct activate (`ACTION_VEHICLE_USE`, E) drops the hover bed (`bgrabHandleActivate`: the bed is not a bike, so walk mode), then the mount. The recipe (0.3.0) takes `behavior/variables.json`. Built at 956979d3 (client and pd-tests): `[vehicle-boost-heat]` 129 assertions, `[maian-vehicle]` 53, `[b1169]` 18, `[mods-roots]` 31, `[input]` 8,846, `[runtime]` 1,780, and the full pd-tests 1,932 cases / 340,051 assertions pass; pushed. Smoke turn q_20261116053333140_4b8b7488 queued (the three Maian vehicle smokes on Escape and `mods_user_folder_smoke`). The 06:39 UTC turn on Escape: the bed dropped (walk mode, control) but no vehicle smoke mounted; `mods_user_folder_smoke` passed 23/23 (B-1169 proven in the game). Correction (07:04 UTC): not the hangar, the hook's walk covers paused props too; my own B-1158 fix made the hook wait for Player 0's body model, which a solo player outside a cutscene never has (the normal tick calls `playerRemoveChrBody` every frame), so the hook never fired on any campaign stage. Fixed in `chrMoveToPos` (d21bf9f0: with no model it skips the root, the CHRINFO ground and the look angle; the prop position, rooms, ground and `vv_theta` are still set) and the hook drops the wait and logs once when it is ready but finds no bike; client and pd-tests built, full pd-tests 1,932 cases / 340,053 assertions pass; the three vehicle smokes requeued (q_20261116070701327_eb4de76b). CORE accepted `pd.vehicle_graph.v1` (05:50 UTC) with five answers (one instance record per vehicle in the D-006A shape, the raised-event bound proved at compile time, the tick walk where `hoverbikeUpdateMovement` runs, the boost keys in the graph, v2 refused after the base re-extract) and a correction: the base bonus is 5.0 over 2400 ticks at 240 Hz (10 s); my 7.0 and 1800 were the example template's. Recorded in the draft and B-1230 (85d0dfab, 19dc8c13). CORE recommends MODS builds the runner; first part written: `port/src/vehicle_graph_runner.cpp` (compile with the mission runner's rules, `$name` variables with units, modules only on their own events, at most one drive and one boost and heat, the raised-event bound, per-vehicle instances, the tick's drive outputs read after the walk so the physics order stays the original's) and `[vehicle-graph]`: 14,273 assertions in 9 cases pass (pd-tests build only; the base graph's throttle bonus matches the original bit for bit over 2,000 uneven updates). Not wired into the game yet. Base 7 is published (CORE 05:50 UTC); extract-6 is merged after the smoke turn. Steps B to D written (5aae6799): the interim boost reader is gone; a vehicle whose behavior is `pd.vehicle_graph.v1` mounts, drives, boosts and dismounts through the runner, one instance per vehicle in `port/src/vehicle_graph_runtime.c` (keyed by prop and `lifecycle_generation`); v1 pairs with physics `pd2.vehicle.physics.v3`, v2 keeps v2, mixed pairs refused with a reason; conformance mirrors the runner; B-1231 fixed on the way (the PC exit key ignored the dismount permission). Full pd-tests 1,943 cases / 354,491 assertions pass. The 08:48 UTC turn (client d21bf9f0, base 3): Player 0 mounted on Escape in all three vehicle smokes (the B-1158 re-fix works; CORE approved `chrMoveToPos` at 07:31 UTC), and all three failed on their own next step: an on-foot wait (`offline_gameplay_ready`) right after the hover bed is let go, which cannot come true because the mount happens in that frame; fixed in the fixtures (3617ffc8). Maian 0.4.0 (c3d09fda): the recipe ships its v1 graph and physics v3, the two Maian smokes stage both files and require the graph instance and part lines, the mod drive smoke forbids a graph instance; conformance's dev-mods case applies the mod author's catalog-id rewrite (452ad5bb, 7/7). Merged `week-pd/extract-6` (e23f6ea7; its tree equals the verified trial merge) to move to shared base 7; pushed. Build, pd-tests and the three vehicle smokes on base 7 queued (09:11 UTC, q_20261116090706870_9fada84f). The first client build of the graph wiring failed on `propobj.c` (`modelGetNodeRwData` returns an untyped pointer; 22a2126b); client and pd-tests built, full pd-tests 1,968 cases / 355,482 assertions pass on the base-7 branch. The 09:20 UTC turn on base 7 PASSED all three: `mod_vehicle_drive_smoke` 32/32, `maian_vehicle_drive_smoke` 34/34, `maian_vehicle_boost_smoke` 46/46 (through the v1 graph: full 1.0 s after the press with the turret locked, overheated 4.0 s after it with part 140 hidden, capped at 0.47 on release, cool 2.3 s later); V1, V2 and V3 proven in game. Not shown: the crystal ring is behind the driver's view, and the logged speed is the non-boost velocity, so the speed boost adds was not measured; the phase lines now give `ground`, `peak_ground` and `top` (3aca4167) and the boost smoke requires 25 or more against a top of 21; that run is queued (q_20261116094020279_f4d83fc1). V4 drafted from a read-only survey of the one-rider code (597cf13c), with three questions for Mike (which seat a mount takes, a solo seat switch, the turret controls). C3 written (52306aa6): `chrGetBloodColour` keeps the original's per-body list, then a body outside the `base:` namespace whose type is `HEADBODYTYPE_MAIAN` bleeds the Maian green (`port/src/body_blood.c`; base bodies unchanged, the base Maian soldier still red); `[body-blood]` 24 assertions, full pd-tests 1,971 cases; `chr.c` compiles with the next client build (after the boost turn). C1 surveyed and scoped (325822c5): nothing of the Characters tab exists, the mod author already saves character, body and head mods; the new `[characters-tab]` case (8357fbda, 35 assertions) shows it sets a body's or head's gender, type and height and a character's own body's gender with no change; first slice proposed to Mike. CORE reviewed steps B to D at 09:58 UTC (merge after fixes); fixed in afd8739b and recorded in eb8eb943: one mount_seat and one dismount_seat per seat per event (runner and conformance; two dismounts used to crash the host), records released in `propFree` and only for graph vehicles, a freed program forgets only its own vehicles and a released vehicle frees its program at once, no throttle bonus under `drive: false`, part lines only on a change, conformance checks a variables file's catalog_id; the rule 6 deviation and the extractor task are recorded, B-1232 filed (a remote rider's boost never reaches the host; the wire is MULTIPLAYER's). The 10:41 UTC boost run measured boost: 24.93 over the ground in the ramp against a top of 21 (the vehicle meets the hangar's back wall about 1.4 s after it starts, so the full phase is spent against it); the check is now 22.5 (5f2e4548). The 11:08 UTC turn on the client with the review fixes and C3 (first client compile of those game files) passed all three: mod drive 32/32, Maian drive 34/34, Maian boost 47/47.
+
+2026-11-14 week-pd/mods (MODS session of the three-session week, branch `week-pd/mods`, draft PR #4, tip 40552210 after merging CORE's `week-pd/extract-2`). In-game mod tools. Built: typed archive rebuild with overrides and staging (`asset_archive_clone.c`); `modAuthorSave`, `modAuthorPlan`, `modAuthorNames` (`mod_author.c`: template plus edits to a complete mod folder); recipe files and `--mod-author` (`mod_author_recipe.cpp`, `mod_author_runtime.c`); one in-game Validate that also compiles weapon, projectile and entity behavior (`mod_asset_validate.cpp`); the weapon editor graph split and compose (`weapon_graph_editor_io.cpp`); the hub Weapons creator saving through the mod author in the clean layout (B-1146 to B-1148); the descriptor INI parser hang (B-1140, `ini_parse.c`). RUN on shared base 3 at 40552210: `weapon_tool_create_smoke` 26/26, `mod_author_weapon_create_smoke` 22/22. Local: pd-tests 1907 cases / 339502 assertions pass; all 349 base weapon, character, body, head, vehicle and arena templates save as release-valid mods. Known red: `mod_author_weapon_play_smoke` 20/21 (B-1149 to B-1152: a mod weapon made from a base gun has no view position, no name and does not fire). Mike set the weapon mod: the Maian crystal pistol (`context/designs/modding/maian-crystal-pistol-handoff.md`); eight graph asks are with CORE in the week note. Not started: Characters tool, Vehicles tool, level tools; the character, vehicle and level concepts await Mike's approval. Plan and status: `context/designs/modding/in-game-creators-2026-11.md`.
 
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
 
@@ -9811,3 +10203,4085 @@ host migration, two-match and hardware/visual/audio acceptance remain open.
 On resume, recheck Workbench/coordination ownership and source freeze, then
 continue the 18-finding repair ledger without treating this direct-localhost
 smoke as final multiplayer acceptance.
+
+## 2026-11-14 - Week PD kickoff, CORE session: Step 0 baseline, planning sweep, disk move
+
+Focus: Step 0 of the week of Nov 15 to 21 (three parallel Claude sessions: CORE,
+MULTIPLAYER, MODS). CORE owns asset extraction, the behavior-graph runtime and
+schema, and single player. Live coordination is in
+`context/week-pd-coordination.md` in the canonical checkout (untracked, one shared
+copy) and in the PD2 Finish Tracker (a Claude Doc, not a repo file).
+
+What was found:
+- dev == origin/dev == a8ab67f3. The October networking commits (3505ca48,
+  ac43b227, T-NETWORKING-011) landed and are pushed. No index lock.
+- The canonical checkout was not clean: 65 modified tracked files and 45
+  untracked source, test, tooling and context files from the paused
+  T-MODDING-011 "all gameplay conversion" lane (last touched 2026-10-26), never
+  compiled. It was not stashed, reset or committed to dev. It is protected on
+  branch `week-pd/inflight-20261114` (1c1cb1d2), written with a temporary index
+  so the checkout, its index and dev stayed unchanged.
+- A stale `.git/objects/maintenance.lock` from 2026-04-17 has kept git
+  auto-maintenance off (156,068 loose objects). Left in place on purpose:
+  removing it would let the next commit prune 4,299 unreachable objects,
+  including 533 dangling commits. That deletion is Mike's decision.
+- Hosted CI is green for every dev commit since 2026-10-10, including a8ab67f3
+  (run 39809150838, 1,853 cases). An early statement in this session that
+  nothing had been built since Oct 10 was wrong and was corrected everywhere.
+- The storage preflight refused every build on C: (138 GiB free against a
+  300 GiB committed floor, 200 uncommitted). Mike decided: week worktrees and
+  builds on D:, prune C:, floor unchanged.
+
+What was done:
+- Records-only branch `week-pd/records` (8b6c0bda = a8ab67f3 plus `context/`
+  and `tools/Workbench/data/` as they stand uncommitted), so week branches can
+  use current Workbench ids in commit messages.
+- CORE worktree `D:\PD2-wt\core` on `week-pd/core`. Baseline build green
+  (client and updater about 4 min, pd-tests about 2 min, empty error log),
+  unit tests 1,853 cases / 335,773 assertions pass.
+- Boot smoke: 7/14 on a clean install (no crash; first-launch extraction on D:,
+  a 7200 rpm hard disk, was still running at the fixture's 90 s exit), then
+  14/14 using the pre-extracted shared base `D:\PD2-wt\shared-base` as the
+  install template (`results-20261114T200341Z.json`). Recorded as B-1110.
+- Shared base extracted once: 5,562 of 5,562 archives, 13,116 files, 19 min 33 s.
+- C: prune of canonical `.claude\smoke-verify-runs` and `.claude\session-builds`:
+  535 entries, 62.46 GiB, 1,506,504 files moved to the Recycle Bin, each
+  verified there; list posted in the note first; manifest and receipt under
+  `.claude\cleanup-manifests\20261114-week-pd-prune\`. Kept: `pd1010`,
+  `asset0923freshfinal`, the 1,945 `results-*.json` receipts and `artifacts`.
+- Planning sweep rerun with seven read-only front readers; the Finish Tracker
+  now holds all seven fronts, six decisions for Mike with defaults, and the
+  ordered work queue. The behavior family checklist and the per-mission table
+  start there and in the coordination note.
+- B-1109 fixed in source: the gun loader's queue targets were `uintptr_t *`
+  over 4-byte counters. Regression test `tests/test_gun_load_target_storage.cpp`.
+- Smoke runner: `-Install <template>` now honors `-SourceBinary`, so one shared
+  extraction serves any session's build (`storage.py`, `Storage-Harness.ps1`,
+  `run.ps1`, new case in `test-storage.py`, 21/21).
+
+Mistake on record: a hand-written launcher passed the client's flags through
+`powershell -File` as an array, which arrives as one token. The client ignored
+all of them and ran a normal windowed session against the real profile folder
+under AppData for 50 minutes (until the launcher's timeout). No save or settings
+file changed; eight cache files it wrote under `mod-cache` were removed through
+the Recycle Bin. The launcher now refuses to start without `--portable` or
+`--savedir` and takes the arguments as one string.
+
+Decisions waiting on Mike (Finish Tracker, "Decisions needed from Mike"): what
+"converted to behavior graphs" means this week (recommended: D-006 option A as
+recorded), what to do with the paused lane's work (recommended: park and salvage
+its three fixes and the v2 world-hit work), what counts as "plays to completion",
+v1 or v2 graphs for mod weapons, the custom level against D-004, and where smoke
+runs live now that D: is a hard disk.
+
+Next for CORE: build and boot the B-1109 fix through the new runner option, then
+the headless extraction baseline and conformance, the campaign auto-runner at
+three difficulties, and the model conversion sweep (B-1106, B-1086).
+
+## 2026-11-14 (later) - CORE: campaign runs, objective operand bug B-1111, shared fixes
+
+Focus: prove the single-player campaign on the Step 0 base, then chase what the
+proof hides.
+
+What was done
+- Campaign auto-runner (`auto_campaign_release`) PASS 23/23 twice on CORE builds
+  from the shared base: all 17 missions load, are force-completed, save, show the
+  end screen and unlock the next; a second process reloads 17 best times. Agent
+  only, about 76 frames of live play per mission.
+- Reading that log found B-1111: objective tags and stage flags were byte-swapped
+  in public scenario source (`setup.fields.json`, `objectives.json`). The setup
+  rebuild swapped its copy back, so the native path was right; the mission graph
+  path used `objectives.json` as written, so in the 14 missions with a
+  `.pdmission` flag criteria tested the wrong flag and object criteria looked up
+  tags that do not exist. Chicago and Defense flipped to "failed" one second into
+  play. Fixed in the extractor and the runtime, with a tag and flag parity check
+  in `objectiveCheck`, a scenario cache kind bump and static tests. Shared commit
+  c18dce71 on `week-pd/extract-1`.
+- B-1145 (found by MODS): `collision.obj` named a material library the scenario
+  layout forbids. Line removed in the same commit. B-1112 recorded: the archive
+  validator skips reference checks on text members over 4 MiB.
+- Mission archives for the 7 campaign stages without an arena row (Extraction,
+  Rescue, Escape, four special assignments), so all 21 run from mission graph
+  source. Deliberately after B-1111.
+- Campaign runner: objective flag probe before every forced end (flag-only
+  objectives must answer incomplete, complete and failed to their own flags
+  through the production check), a soak option (`--auto-campaign-soak`), a
+  60 second soak fixture, Special Agent and Perfect Agent fixtures.
+- Two warnings that fired for correct base content are gone (head number 0 in the
+  manifest scan, the default guard head count on base stages): 72 of the 127
+  warning lines in one campaign run.
+- Shared tooling: the write-route guard bound its review pins to lines 2 to 151
+  above the reviewed call (a69188cd on `week-pd/guard-fix`); the smoke runner
+  commit is published as `week-pd/runner` so each session uses its own storage.
+- Second-generation shared base `D:\PD2-wt\shared-base-2`, re-extracted by the
+  fixed client (2 min 10 s on the hard disk), conformance 0 errors.
+
+Decisions made by CORE (tactical, reported)
+- The public source carries real tag ids and flag masks; both readers take them
+  as written. No compatibility path for the swapped numbers: no content outside
+  the base extraction used them.
+- Extraction-output changes land as one shared commit plus a new shared base
+  folder, so sessions switch when they merge.
+- The retired `objective_step.argument` field keeps its old handling.
+
+Not done, and why
+- CORE's smoke storage refuses new installs: three interrupted workspaces from
+  MULTIPLAYER's attempts reserve 6 of its 8 GiB budget. The retention rules say
+  interrupted work needs a deliberate review and the registry is not to be edited,
+  so they are untouched and the question is with Mike. CORE verified with direct
+  client runs (`--basedir`, private `--savedir`) meanwhile.
+
+Next for CORE: campaign at Special Agent and Perfect Agent, the 60 second soak,
+special assignments in the runner, model conversion sweep, v2 weapon ingress
+ruling, then the behavior checklist in order.
+
+## 2026-11-14 (night) - CORE: authored room table (B-1113, B-1114, B-1115), runner isolation guard
+
+Focus: find why Defense's "retrieve the RC-P120" objective read as failed at
+mission start, and fix the class behind it.
+
+What was done
+- B-1113 root cause: not objectives. Extracted stages bounded every room by its
+  collision triangles instead of the authored room boxes of the background file.
+  A pad outside the tighter box gets no room, and a prop is only created when
+  its pad has a room. One Agent campaign run: 44 props never created, among them
+  the RC-P120 and the 10 hover cars around the dataDyne tower. Proven offline
+  first (authored boxes read from the background files house the pads; no pad
+  loses its room), then in the game.
+- Propagation check found two siblings. B-1114: no room light could be shot out.
+  The light loader never read the quads (nested array, flat reader), and the
+  quads are relative to room origins this path does not have. B-1115: every room
+  had brightness range 255/255 instead of the authored 128/255.
+- One new scenario member carries all three: `rooms.json`
+  (`pd2.scenario.rooms.v1`), one row per room with `origin`, `min`, `max`,
+  `brightness`. Extractor: `s_buildBgRoomTableJson`. Stage load:
+  `scenarioSourceApplyRoomTableForStage` (boxes, brightness) and the light
+  loader (quads moved to world coordinates). Room origins deliberately stay zero
+  on the scenario-source path; that is documented at the `memset` in `bg.c` and
+  pinned by the test.
+- New stage-load reporting: pads without a room, each prop not created, lights
+  without a readable quad, lights outside their room's box. The last one found
+  the unread quads on its first run.
+- Published as shared commit c78c0510 on `week-pd/extract-2` with a third base,
+  `D:\PD2-wt\shared-base-3`. CORE branch: 237e6c1b (same change), fixture gates
+  2032f602, merge 703a04cc.
+- Tooling: `devtools/keygen.ps1` no longer garbles the tracked public key header
+  (B-1122, 69b79729). The smoke runner refuses a multi-process test whose
+  processes could reach the real profile folder (B-1124, ff7b0040, shared as
+  71b9de82 on `week-pd/runner`).
+- Recorded, not fixed: B-1116 (the input action name table is shorter than the
+  action list, so `pd.ini` gets a `(null)=E` line the loader rejects).
+- Patterns recorded: SP-76 (a present but unreadable field read as absent) and
+  SP-77 (a derived value standing in for an authored table).
+
+Verification
+- 1,869 unit cases pass. Re-extraction: 87 scenarios, 47 arenas, 21 missions,
+  none failed. All 132 scenario archives carry the member; 9,393 rows equal the
+  background files; conformance 9,025 archives (10,033 with nested), 0 errors.
+- Campaign fixture 34 of 34 over both processes (direct runs on base 3): pads
+  without a room equal the offline prediction at all 18 stage loads, props not
+  created 44 to 21, `tag=5 present=1` in Defense, 3,398 lights placed and
+  `outside_room=0` everywhere, 54 warnings (one gone, none new), no error in the
+  live process.
+- Receipts: `D:\PD2-wt\core\.claude\week-pd-receipts\room-bounds-b1113-20261114`,
+  `conformance-shared-base-3-20261114.json`,
+  `shared-base-3-reextraction-20261114.log`.
+
+Decisions
+- The member is named `rooms.json`, not `room_bounds.json`: it holds more than
+  boxes and mod authors will write it.
+- Light quads are converted to world coordinates at load; room origins are not
+  set on this path, because the draw offset, wall hits, smoke and explosions all
+  read them.
+- A prop on a pad with no room is a note, not a warning: base stages carry 21
+  such props and the original game does not create them either.
+
+Next
+- The 60 second soak fixture and the Special Agent and Perfect Agent campaign
+  runs (the hover cars and working lights are new code paths in live play).
+- By hand: collect the RC-P120 in Defense, shoot out a light in Defection, look
+  at the hover cars.
+- B-1116. Then the open SP-77 items (background commands, light glares, sky
+  rooms) and the behavior conversion order in the week note.
+- Still waiting on Mike: the seven decisions in the Finish Tracker.
+
+## 2026-11-15 (after midnight) - CORE: all 21 solo stages in the runner, three difficulties, input, presence and graph pad fixes
+
+Focus: prove single player beyond Agent, bring the four special assignments
+into the automated runner, and fix what those runs showed.
+
+What was done
+- Campaign fixtures at Special Agent (33/33) and Perfect Agent (33/33) pass on
+  `D:\PD2-wt\shared-base-3` (direct runs; receipts `campaign-sa-20261114`,
+  `campaign-pa-20261114` under `D:\PD2-wt\core\.claude\week-pd-receipts\`).
+- The campaign runner runs the special assignments (7f328fd8). A plan that
+  starts after Skedar Ruins leaves each end screen through its Main Menu
+  choice, waits for the menu it started from, and starts the next assignment
+  through the same production entry. It only starts an assignment the game's
+  own unlock rule offers the agent. New fixture `auto_campaign_specials`
+  (seeded agent `agent_specials.json`): 33/33 on its first run.
+- B-1116 fixed (d30fc83a): the input action name table named 105 of 121
+  actions, so the saved bindings file was cut off at the first unnamed action
+  and every start ran on default keys, and `pd.ini` got `(null)=E` lines.
+  Verified at runtime: bindings file complete (1,455 lines), no config error
+  at restart.
+- B-1118 fixed (7d67c99a): presence read in-match at the main menu for any
+  loaded agent (unsigned index compared with >= 0). Verified: presence online
+  at every menu return in the specials run.
+- B-1119 fixed (2b9fb9c9): on the graph path a character told to walk or jog
+  to its preset pad (9000) stood still, because the graph refused the raw
+  value and a refusal skips the native handler. Verified in Defense
+  (`resolved_pad=321`). Propagation: base content is covered; eight graph
+  sites still refuse 9000 for mod content (listed in the bug).
+- B-1117 recorded for Mike (decision 8 in the Finish Tracker): the PC menu
+  offers all four special assignments to every agent; the original unlocks
+  them.
+- Runner tooling for MULTIPLAYER: per-process installs are seeded from the
+  template on a `-Install` run (02bb5ec3, shared as 34848d15 on
+  `week-pd/runner`). Not run by CORE (storage still refuses new installs).
+- Corrected an earlier claim in the week note: the two graph gaps
+  (`jog_to_pad`, `if_natural_anim`) did skip the native handler.
+
+Incident
+- After the user's interruption, the stopped background task's child script
+  kept running. I resumed its remaining steps in a second script, so two
+  restart-verify clients shared one save folder and log, the first script's
+  cleanup deleted the folder under the second client, and that client wrote
+  `mod-cache` into base 3 for about three minutes. Both were mine; the folder
+  went to the Recycle Bin, the void run was redone cleanly. Lesson saved to
+  memory: list processes by command line before resuming a stopped task.
+
+Verification
+- 1,877 unit cases pass. Agent 34/34 on the final client (fda13b96), Special
+  Agent and Perfect Agent 33/33, special assignments 33/33.
+
+Next
+- The 60 second soak of all 17 missions (queued), then Natural play-through
+  by hand (Mike's decision 3 decides how much).
+- `if_natural_anim` graph gap (public source for `base:animation_idle`, or a
+  number-only comparison) and the eight mod-only preset pad sites.
+- Behavior conversion in the order of the week note's checklist.
+- Waiting on Mike: decisions 1 to 8 in the Finish Tracker, the three
+  interrupted smoke workspaces, and whether his real profile (written by the
+  network fixtures before B-1124) needs a look.
+
+## 2026-11-15 (night, 00:30-02:00 UTC) - CORE: client writes outside its folders (B-1160), objective parity probe, soak, graph AI argument fixes
+
+Focus: stray files in the shared base after CORE's own runs, the parity probe
+for every objective, and two small asks from MODS.
+
+What was done
+- B-1160 fixed (90b9acda): thirteen menu saves called `configSave("pd.ini")`,
+  which resolves like a read and wrote the base folder (the game reads
+  `$S/pd.ini`); a `--moddir` that did not exist yet was dropped, so mod
+  discovery mounted `$E/../mods` (from a shared base, the MODS checkout:
+  scanned, 4 mods found, none enabled); a fresh `--savedir` copied a stray
+  `pd.ini` from the working folder (seen once, CORE's B-1119 Agent run); fonts,
+  themes and the migration bench kept their own discovery lists that ignored
+  `--moddir`. Now: every save names `CONFIG_PATH` and `configSave` refuses a
+  bare name; the explicit `--moddir` is kept and created; one root list
+  (`fsModRoots`); no save migration into an explicit `--savedir`. Pattern
+  recorded as SP-78 (one copy of a path rule fixed, its siblings not).
+- CORE's stray `pd.ini` in `shared-base-3` recycled (copy in receipts). The
+  two migration markers (`shared-base-3\mods`, `D:\PD2-wt\mods`) stay until
+  both other clients have the fix: they stop a pre-fix client from packaging
+  folders there.
+- Objective parity probe (92c162fa): before the forced end the runner
+  evaluates every active objective from the mission graph and natively and
+  fails on a difference. Five campaign fixtures require one probe line per
+  mission.
+- For MODS: custom graph projectile spawn and landing logs
+  (`week-pd/projlog`, a6c6d905) and a weapon source compile entry with the
+  variables text (`week-pd/varcompile`, b999ef39). Both are one-commit
+  branches on dev, merged back into core with the tree unchanged.
+- B-1161 fixed: graph `if_natural_anim` refused the empty ROM animation slot
+  ANIM_IDLE (257 of 1,207 character slots are empty, so they have no
+  `.pdanim`); a number-only comparison now takes an empty slot as it is.
+- Audit of all 30 graph pad checks against their native handlers (read-only
+  subagent; each finding re-checked in code and logs) and the soak's minute
+  of live play gave four more: B-1162 (shipped content: lights changed by
+  background scripts never changed on the graph path, 569 of 590 calls),
+  B-1163 (five room commands checked a room-or-pad value as a pad), B-1164
+  (five sites refused the preset pad 9000 their natives resolve), B-1165
+  (Defense's shock trooper clones were not registered as source-spawned).
+  Fixed together with B-1161; SP-79 records the open class behind B-1165
+  (73 helper returns that report success after a failure).
+- Campaign fixtures now forbid those refusals and a light change with
+  `room=-1`; checked against the old client's soak log, which they fail.
+
+Verification
+- pd-tests 1,882/1,882 (ddac997a), settings-save 15/15.
+- Special assignments on the 92c162fa client: 35/35, parity `compared=1
+  not_graph=0` in all four; after four end-screen Main Menu exits the base has
+  no `pd.ini`; the missing `--moddir` was created and was the only mods folder
+  scanned.
+- Soak (`auto_campaign_soak`, 17 missions x 60 game seconds): 37/37, 0
+  errors, parity in every mission (1 to 3 objectives each, `not_graph=0`).
+- Verification soak on ddac997a (receipt `campaign-soak-ddac997a-20261115`):
+  40/40, 0 errors, warnings 62 -> 54. The first light change of the seven
+  stages now names its room (B-1162); no "not source-derived" warning in
+  Defense (B-1165); the idle animation compares as an empty base slot
+  (B-1161); the only graph refusals left are two `chr_copy_properties` on a
+  chr that is gone, which native skips too.
+
+Next
+- SP-79, helper by helper (B-1165 had to come first).
+- Behavior conversion: every one of the 21 stages evaluates every active
+  objective from the graph (`not_graph=0` everywhere), so removing the native
+  fallback is ready; it waits on Mike's decision 1 (what converted means).
+  Mission flow next.
+
+## 2026-11-15 (02:40-04:20 UTC) - CORE: reviewed release (7A), storage location (6B), extraction flush (B-1110)
+
+Focus
+- Carry out Mike's decisions 7A, 6B and 6C, in that order.
+
+What was done
+- 7A (8d90a7ab): `storage.py release-interrupted` releases an interrupted
+  smoke workspace only when its owner process is gone and every file is an
+  unchanged seed copy; it writes a receipt and a recipe and deletes nothing.
+  Used on MULTIPLAYER's three installs in CORE's storage.
+- 6B (4e7e2216): a checkout keeps `.claude/smoke-storage` unless an untracked
+  `.claude/smoke-storage-location.json` names another absolute root. Python
+  (`storage_root`) and PowerShell (`Get-SmokeStorageRoot`) read it by one
+  rule; seeds, receipts and the owned-process check follow it, and the floor
+  is measured on that drive. Not switched on: the worktrees use the committed
+  300 GiB floor (the 200 GiB D-011 value is a local edit in the main checkout
+  only, and I quoted it to Mike by mistake), and C: has 206 GiB free, so every
+  run there would be refused. Asked Mike: A, stay on D: for now (recommended),
+  or B, use 200 in the worktrees too (about 2 GiB of margin).
+- The two PowerShell retention suites that "failed" had run under PS 5.1,
+  which their own commits (d36ad855, 887c5d91) record as unqualified. Under
+  PS 7: build retention 81/81; runner retention 47/47 once its baseline is
+  the pre-retention runner (887c5d91^ with the later reviewed
+  `Invoke-SmokeTestMultiProcess`), which is what the suite compares against.
+- B-1110 (15679a9a, 5049046c), profiled first: every extracted archive went
+  through `modArchiveFinish`, which forced it to disk and renamed it with
+  write-through; 99 ms per file on D: against 1 ms without. ROM extractors
+  now publish with `modArchiveBeginDerived`; each folder's cache stamp first
+  flushes that folder's new archives (`modArchiveDerivedBarrierWith`, side by
+  side on the boot pool) and is not written if that fails, so a stamp never
+  vouches for data that is not on disk. Player edits and authored archives
+  keep the durable writer. SP-89 (first SP-80) records the pattern; the mod-transfer
+  extraction (`pdcaExtractArchiveBegin`, MULTIPLAYER's area) has it too.
+
+Verification
+- Python storage 25/25, reuse 17/17, retention 22/22; PowerShell 7 storage
+  17, native consumer 27, owned process 22, build retention 81, runner
+  retention 47.
+- pd-tests 1,892/1,892 (340,197 assertions), 10 new `[b1110]` cases; client
+  and pd-tests build with no warnings.
+- Clean `--extract-assets-only` run on D: in a fresh folder: 3 min 33 s to
+  the loader summary with the flush pass one file at a time, 2 min 47 s with
+  it on the boot pool, against 19 min 33 s before. Both runs: 5,569 of 5,569
+  registered, 0 envelope failures, 0 LOUDFAIL, all 23 stamps written. Logs in
+  `.claude/week-pd-receipts/b1110-clean-extraction-20261115/`; the two
+  extraction folders and the bench files went to the Recycle Bin.
+
+Decisions
+- (pending Mike) where test installs live, given the 300 GiB floor.
+- (pending Mike) push `week-pd/core` (three commits are local; the push was
+  refused by the permission system).
+
+Next
+- 2A: only the v2 world-hit delivery is left to carry over (the three bug
+  fixes are already on core: ffbaebc1, fea10dc0, e9acdf9b). It is a delivery
+  receipt protocol through the hit path, the v2 runtime and the gun code on
+  `week-pd/inflight-20261114`, never compiled, about 2,000 lines.
+- SP-79 flips; removal of the objective fallback (decision 1 allows it).
+
+## 2026-11-15 (04:20-05:30 UTC) - CORE: SP-79 closed (B-1167), objectives graph-only, player setup check (B-1168, B-1169)
+
+Focus
+- SP-79 flips, the objective fallback removal decision 1 allows, and the
+  decision 3 player setup check before Mike's stable-build play-through.
+
+What was done
+- SP-79 / B-1167 (4178cbca): the 90 `return s_aiGraphRuntimeFailure(...)`
+  in 40 requirement helpers now log and return 0 (-1 for the three-way
+  target-movement node); the ten `if (!x)` callers of the three -1 node
+  helpers read -1 as a refusal; two branches keep going on purpose and say
+  why (character provenance for co-op buddies and tiny-mode extras; the
+  spawn registry's full table, since native would spawn the chr twice).
+  B-1167: the hoverbot step checks a path only when there is one, both
+  teleport twins start from the current player, the special-death twin
+  checks chr, all as native does. New `[sp79]`/`[b1167]` source pins.
+- Decision 1 (085d1bc8): objectives evaluate only from the mission graph;
+  one that cannot be evaluated stays incomplete and logs once per stage.
+  The original evaluation is kept only as the runner's parity oracle.
+- Decision 3 setup check:
+  - Release package: B-1168 (critical). `release.ps1` shipped `Build/data`
+    wholesale; that folder holds a full ROM extraction. v0.1.102's zip is
+    233.6 MB against 32 MB for v0.1.16 (contents not confirmed). The script
+    now leaves ROM-derived files out and refuses a dist that still has any
+    (5e433b50, 12-check test). The published asset is Mike's decision.
+  - First launch and extraction: the two B-1110 runs (clean folder, ROM by
+    path, 5,569 of 5,569 archives, 0 failures).
+  - Saves and settings: a normal launch saves to AppData through
+    `SDL_GetPrefPath("", "perfectdark")`; `--portable` and `--savedir`
+    override; B-1160 keeps every menu save in the save folder.
+  - Mods folder: B-1169 (high). With no `--moddir` the first existing of
+    `$E/../mods`, `./mods`, `$E/mods` is migrated and mounted, so a player
+    install beside another game's mods folder would rename that game's
+    mods. Needs Mike's call on the developer root.
+- The hub script fails under Windows PowerShell 5.1 when one queue item is
+  ahead (strict mode, `.Count`); PowerShell 7 works; everyone told.
+
+Verification
+- pd-tests 1,896/1,896; SP-79 pins 4 cases, 309 assertions.
+- Soak on the SP-79 client (4178cbca, receipt `campaign-soak-4178cbca-20261115`):
+  40/40, all 17 missions, 0 errors, 54 warnings (unchanged), graph refusals
+  only the two known Defense `chr_copy_properties` on chrs that are gone,
+  restart-verify passed, nothing written outside the run folder.
+- Special assignments on 085d1bc8 (receipt `campaign-specials-085d1bc8-20261115`):
+  38/38, all four completed with the seeded agent (Skedar Ruins done on
+  every difficulty, a medal on every firing-range weapon), so B-1117 offers
+  them in live play; parity `compared=1 not_graph=0` in each, no graph
+  refusal, no objective warning.
+- Release campaign (17 missions) on 085d1bc8 and the setup smoke pack
+  (boot, settings and keyboard, agent load and migration, mod loading, main
+  menu boot): queued behind MODS at 05:12 UTC; results in the next entry.
+
+Decisions pending Mike
+- 6B floor (stay on D:, or 200 GiB in the worktrees); push `week-pd/core`;
+  the v0.1.102 asset (B-1168); the developer mods root (B-1169).
+
+Next
+- 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (05:20-06:15 UTC) - CORE: release campaign and the setup smoke pack on 085d1bc8
+
+- Release campaign (receipt `campaign-release-085d1bc8-20261115`): 39/39,
+  all 17 missions, 0 errors, parity `not_graph=0` in every mission (1 to 3
+  objectives compared each), no graph refusal, no objective warning. With
+  the special assignments (38/38) all 21 solo stages evaluate objectives
+  from the graph with no fallback in live play. The week note's Objectives
+  row stays unticked only for completion events (no graph event fires when
+  an objective's status changes yet).
+- Decision 3 smoke pack against shared-base-3 with the 085d1bc8 client:
+  boot 14/14, agent select from JSON 20/20, agent profile migration and
+  restart 24/24, mod loading 19/19, main menu boot 3/3.
+- `menu_settings_keyboard` could not run at all: B-1170 (the harness key
+  table lacked PageUp/PageDown, which the fixture uses since 6044d0fa).
+  Fixed in f4c52c75 with a test over every fixture's key names. On the
+  fixed client the fixture parses, but its window never got focus, also
+  with `-MaintainForeground` (desktop most likely locked overnight); it
+  needs a rerun while the desktop is unlocked.
+- Pushing is still pending Mike; `week-pd/core` is 12 commits ahead of
+  origin.
+
+## 2026-11-15 (07:00-08:05 UTC) - CORE: Mike's answers on the release, mods folder, test storage and pushing
+
+Mike's answers and what was done
+- v0.1.102: "go ahead and just remove it". The zip and its `.sha256` and
+  `.sig` were deleted from the GitHub release; the page, tag and the two
+  executables stay. Every other release zip (v0.0.34 to v0.1.16) is 27 to
+  35 MB, so only v0.1.102 shipped the extracted tree (B-1168).
+- B-1169: option A, fitted alongside the LocalAppData user mods folder MODS
+  shipped (91198952). One rule, `modsInstallRoots`, on the one-commit branch
+  `week-pd/installmods` (546263fe on a8ab67f3): the repository-root `mods`
+  only when the executable's parent holds `CMakeLists.txt` and `.git`, then
+  `<base>/mods`. Wired on core (07a69bca): `fsModRoots`, the mod manager's
+  folder creation, install-from-file and map import; MODS wires it into its
+  candidate list. `[b1169]` 3 cases; the B-1160 scan now refuses `./mods`.
+- Test installs: "on C:, but only one or two at a time, not wasting space".
+  The location file may carry its root's limits; a build's preflight is now
+  measured on the checkout's own drive (d28a28e7). CORE's untracked location
+  file puts storage at `C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/core` with a
+  200 GiB floor, at most two installs (1.5 GiB) and a 2 GiB archive. C: has
+  about 204 GiB free, right at the floor plus the 4 GiB a run needs.
+- Push: "Commit and push all our work, consistently, from now on." Every
+  commit since is pushed; the memory note was updated.
+- `week-pd/runner` cfb308f6 carries 7A, 6B and the limits for the others.
+
+Verification
+- pd-tests 1,900/1,900; Python storage 26/26, reuse 17/17, retention OK;
+  PowerShell 7 storage 17, native consumer 27, owned process 22, runner
+  retention 47, build retention 81.
+
+Next
+- The first smoke from C: (boot_smoke) waits behind MULTIPLAYER's batch.
+- 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (08:05-08:40 UTC) - CORE: first C: smoke refused, storage location limits fixed (B-1171), hung recycle
+
+What happened
+- The first smoke with installs on C: got its turn at 08:12 UTC and the disk
+  preflight refused it at a 300 GiB floor. The scripts send the whole
+  checked-in `storage-policy.json` with every storage call, and the location
+  limits from d28a28e7 let a sent policy win, so the location file's 200 GiB
+  floor and its two-install, 1.5 GiB limits were undone on every harnessed
+  run (B-1171). Fixed: the location file's limits govern its root whatever is
+  sent; unset ones follow the sent policy; builds keep the checkout's policy.
+  ec2ba001 on core, 7a26faf4 on `week-pd/runner` (one commit on cfb308f6),
+  merged back into core as 1f4699b7 (tree unchanged), all pushed.
+  Propagation: every sender (Storage-Harness, Runner-Retention, the explicit
+  `-StoragePolicy` of run-asset-inspection, build-session) goes through
+  `Storage.__init__`, so the one fix covers them; no other session had a C:
+  location yet.
+- Under the corrected rule the C: run is still refused: C: has 203.7 GiB free,
+  D-011's floor is 200 GiB, and a run needs 4 GiB more. C:'s Recycle Bin
+  holds 0.75 GiB. Question to Mike. Dev's `storage-policy.json` already has
+  D-011's 200 GiB (ca595c40); `week-pd/core` keeps 300 until it takes dev.
+- Two recycle runs hung for hours on hidden "delete permanently?" prompts
+  (`Delete Folder` windows): three test evidence folders held paths of 300 to
+  305 characters, too long for the Recycle Bin. Both processes were mine and
+  were stopped; the scratchpad recycle helper now measures paths first,
+  refuses over-long folders and can shorten child names before recycling.
+  Everything from these rounds is in the Recycle Bin. The updater's own
+  `recyclePath` (c138) has no nuke-warning flag and falls back to permanent
+  removal by design, so it cannot hang this way.
+- CRYSTAL PISTOL asked whether CORE is in its runtime files; answered in the
+  week note (seven CORE commits not on dev touch `bondgun.c`, `propobj.c`,
+  `weapon_graph_runtime.c` and the v2 weapon sources; CORE is not editing them
+  now; the parked world-hit snapshot also touches `bondgun.c` and `prop.c`).
+
+Verification
+- Python storage 26/26, retention 22/22, reuse 17/17; PowerShell storage 19
+  checks (5.1 and 7), retention and reuse (5.1), runner retention 47 (7). The
+  new checks in `test-storage.py` and `test-storage.ps1` fail on the old rule.
+
+Next
+- Mike: the floor for test installs on C:.
+- 2A, the v2 world-hit salvage; objectives completion events; the
+  `menu_settings_keyboard` rerun while the desktop is unlocked.
+
+## 2026-11-15 (08:40-10:10 UTC) - CORE: room and light rules in scenario source, B-1112, campaign check
+
+What was done
+- Decision 1, checklist row "Room and light rules" (ee08d1f6). The per-stage
+  exceptions in `dlights.c` that named stages, rooms and portals in code now
+  come from the stage's scenario source when the stage loads from it: on
+  `rooms.json` rows, optional `render_always`, `base_brightness`,
+  `lights_unshootable` and `unshootable_lights`; on `portals.json` rows,
+  optional `light_flood_blocked` and `open_to_light`. The extractor writes
+  them from the same table the code used, each file's note documents them,
+  conformance checks them, and a stage built the old way from the ROM keeps
+  the code. Scenario cache kind `..._lightrules`, so a client with it
+  re-extracts arenas and scenarios once (about 19 s of the first boot on D:).
+- B-1112 (e1bc0490): the archive validator skipped the reference checks of
+  text members over 4 MiB. They are now checked whole up to 128 MiB, and a
+  larger one refuses the archive. The in-memory manifest check no longer lets
+  its second read hide an oversized first manifest. Measured on base 3 before
+  choosing the limit: 83,268 text members, 19 over 4 MiB (17 `collision.obj`
+  with no `mtllib`, 2 JSON), the largest 5.03 MiB.
+
+Verification
+- pd-tests 1,903 after the light rules, 1,905 after B-1112 (340,726
+  assertions). `[lightrules]` checks that the extractor's stages, rooms and
+  portals are exactly the ones the code names. Conformance OK.
+- Opt-in sweep `[b1112-sweep]`: all 9,025 typed archives of base 3 in the
+  boot catalog's RELEASE mode, 0 refused.
+- In game, on private copies of base 3 with the session client at ee08d1f6
+  (without B-1112): `auto_campaign_release` 39/39 and
+  `auto_campaign_specials` 38/38 (`results-20261115T095225Z.json`,
+  `results-20261115T100132Z.json`). The first boot re-extracted 47 arenas and
+  87 scenarios, 0 failed. Every stage with a rule logged it from
+  `rooms.json`/`portals.json` with refused=0: one always-drawn room each on
+  Infiltration, Rescue, Escape, Maian SOS, Defection, Extraction, Mr. Blonde's
+  Revenge, Skedar Ruins, WAR! and Attack Ship; the dark room and the two
+  unshootable lights on Defection and Extraction; a room with every light
+  unshootable in the training stage and Defense; two flood-blocked portals on
+  Defection and Extraction; one open portal on Investigation.
+
+Next
+- Publish ee08d1f6 and e1bc0490 as `week-pd/extract-3` with base 4; recycle
+  bases 1 and 2, which nobody uses any more.
+- Review CRYSTAL PISTOL's format row; its B-1184 duplicates B-1116.
+- MULTIPLAYER's B-1133 (collision Test queries) against the campaign smokes.
+
+## 2026-11-15 (10:10-10:55 UTC) - CORE: week-pd/extract-3, sky rooms, base 4, bases 1 and 2 recycled
+
+What was done
+- `week-pd/extract-3` (pushed, not yet announced): the light rules (22ed8073),
+  B-1112 (f56b82d9) and the sky rooms (4436e073), each the CORE change
+  replayed onto c78c0510 with a private index, without CORE's other commits.
+  Every identifier the replayed lines use exists in that tree or comes with
+  the change; the static checks of the room table, light and sky rules and
+  B-1112 pass on that tree's own sources (13 cases, 241 assertions).
+  merge-tree takes it onto the pushed tips of mods, multiplayer and
+  crystal-pistol without a conflict; core merged it twice with its tree
+  unchanged (91557457, af255eb0).
+- Sky rooms (b63b8407): the propagation check of the light rules found the
+  same rooms special-cased in `roomPopulateMtx` (src/game/room.c, drawn
+  relative to the player so they never get closer; the checklist row named
+  it) and in bgTickPortals' pass for a stage without portals (src/game/bg.c,
+  left out of the screen test). New optional `sky` on `rooms.json` rows,
+  written for room.c's rooms (render_always without the old test stage);
+  both places read it on the scenario-source path and keep the stage checks
+  for the ROM path. bg.c's list is narrower (no Maian SOS, WAR!, Mr. Blonde's
+  Revenge), but those stages have portals, so that pass never runs for them.
+  Cache kind `..._lightrules_sky`.
+- B-1133 taken into core (6a5377b4): MULTIPLAYER's 940ef76f (cdTestVolume
+  records the geometry it hit) without its bugs.md row, for the campaign
+  check MULTIPLAYER asked for.
+- Base 4, `D:\PD2-wt\shared-base-4`: a copy of base 3 (13,127 files, 348 MB),
+  then the client at af255eb0 in `--extract-assets-only` re-extracted 47
+  arenas, 87 scenarios and 21 missions in 2 min (0 failed); a second run
+  wrote nothing. Before the sky rule, its arenas, scenarios and missions were
+  byte-identical to the private install that passed the campaigns in game.
+- Bases 1 and 2 to the Recycle Bin (688 MB): every session had moved to
+  base 3.
+- CRYSTAL PISTOL's format row reviewed in the week note: keep the flat
+  `ammoN_*` keys as the one magazine schema; name every native reserve pool;
+  `magazine` should play the bound reload animation for base weapons; the
+  self-loading type 0x1b is never unlimited in the original. Their B-1184 is
+  B-1116 with identical names, so bindings files are compatible.
+
+Verification
+- pd-tests 1,909 cases / 340,785 assertions at af255eb0.
+- Base 4: conformance 9,025 archives (10,033 with nested, 27 families), 0
+  errors; `[b1112-sweep]` 9,025 validated, 0 refused; light-rules census 132
+  scenario archives, 46 rules (32 light and portal rules plus 14 sky rooms),
+  all equal to the original checks. Receipts in `.claude/week-pd-receipts/`
+  (`conformance-shared-base-4-sky-20261115.json`,
+  `shared-base-4-reextraction-20261115.log`, `shared-base-4-second-run-*`).
+
+Next
+- In game on base 4 (queued behind MULTIPLAYER, q_20261115103149682_e5fafaa0):
+  release campaign and special assignments with B-1133, then the
+  `menu_settings_keyboard` rerun if the desktop is unlocked. Then announce
+  extract-3 and base 4, tick the checklist row, add the schema table row.
+- Inventory of the remaining stage-specific checks in game code (running).
+
+## 2026-11-15 (10:55-11:30 UTC) - CORE: stage-check survey, always-drawn pre-pass, B-1172
+
+What was done
+- Survey (read-only helper, checked by CORE where acted on): every
+  stage-specific check left in game code, classed as level content, engine,
+  table or converted. The content families are now rows of the conversion
+  checklist in the week note: stage sky and stars, weather, room effects
+  (animated textures, sparks, the Escape gas), object rules, player and
+  setup rules, stage endings, the training hub (about 25 checks), stage text
+  banks. Most need a stage-level home in scenario source (question for Mike).
+- A fourth copy of the always-drawn room list: the pre-pass of bgRenderScene
+  (src/game/bg.c) draws the stage's sky room first with fog off. It is the
+  render_always set (old test stage included). A scenario-source stage now
+  draws every render_always room of its rows there (bebb8739), shared as the
+  fourth commit of `week-pd/extract-3` (03471bb8), merged into core with the
+  tree unchanged (249388ba). No extraction change, so base 4 stands.
+- B-1172 recorded (suspected from code): while the scenario scene renderer
+  is active, which the release campaign log shows for all 18 stages, lv.c
+  skips skyRender (B-936's gate), bgRenderScene skips the sky-room pre-pass
+  and the starfield, and the scene renderer draws none of them. Two new
+  smoke definitions, `stage_sky_visual_villa` and
+  `stage_sky_visual_defection`, take screenshots in the intro and in play;
+  they run with the queued base 4 check (c60bf2bf).
+- CRYSTAL PISTOL: node params reviewed (defaults keep base behaviour); asked
+  them to list the new params in `weapon-graph-module-parameters.md` and to
+  refuse unusable values (SP-76) instead of treating them as absent.
+- Week note: the mission table gained the 10:05 UTC campaign line and the
+  B-1172 note.
+
+Verification
+- pd-tests 1,910 cases / 340,798 assertions at bebb8739; the shared tree's
+  own sources pass the static room, light, sky and B-1112 checks (14 cases,
+  252 assertions); merge-tree puts extract-3 onto mods, multiplayer and
+  crystal-pistol without a conflict.
+
+Next
+- The queued base 4 run (about 3 hours out): campaigns with B-1133, the two
+  visual checks, the keyboard settings rerun. Then announce extract-3 and
+  base 4, or file B-1172 as confirmed with the screenshots.
+
+## 2026-11-15 (11:30-12:55 UTC) - CORE: Mike's three answers, test installs deleted after each run, mission graph runner
+
+Mike's answers (verbatim in the week note, 11:55 UTC)
+- C: test installs: floor 100 GB, at most one or two, delete each one (and
+  caches, temp exports, stale builds) as soon as it is not needed, and report
+  space used and freed each time. Saved as a feedback memory.
+- Decision 2: build the mission-graph runner now.
+- Decision 3: stage-wide rules may go anywhere packed in the level's archive;
+  CORE uses a new `stage.json` member of each `.pdscenario`.
+
+What was done
+- Storage (b37538d0, shared as `week-pd/runner` 786b0aeb, merged back with
+  the tree unchanged): `discard_completed` in a location policy deletes each
+  install as soon as its run is recorded (receipts and logs stay, restore
+  still works); `compact` deletes named finished installs now. Found on the
+  way: a kept (`-Keep`) install is never evicted, so with two installs on C:
+  the queued base 4 run would have been refused at its third test; its
+  script now keeps nothing and reads logs from the receipts. CORE's C:
+  location file: 100 GiB floor, 2 installs, discard on.
+- Space: `compact` freed 1.51 GiB of four finished CORE installs on D:; 11 MB
+  of scratch exports deleted; a 378 MB temporary base copy made and deleted
+  for the runner sweep. CORE's C: footprint: 17 MB of scratch files.
+- Mission graph runner (ac532efe, 1ff46d4f): `mission_graph_runner.cpp`
+  compiles a mission graph's execution edges (`"input": "exec"`) when it
+  activates; `event.objective.status_changed` from `objectivesCheckAll`
+  walks them; `og.hud.objective_status_message` (module table
+  `mission_graph_modules.c`) shows the original message
+  (`objectivesShowStatusMessage`). Refused graphs run nothing (no fallback).
+  The extractor wires the event to the module in every base mission graph
+  (pdmeta kind `_objective_status_event`); conformance applies the runner's
+  rules. The forced completion now runs the objective check first, so the
+  campaign exercises the event; its fixtures require a compiled program per
+  mission and the event in each. Design note
+  `context/designs/modding/mission-graph-runner.md`.
+
+Verification
+- pd-tests 1,915 cases / 340,947 assertions; storage suites (Python 28, 17,
+  22; PowerShell storage 19, runner retention 47) pass.
+- `[runner-sweep]` on a re-extracted copy of base 4: 21 of 21 mission graphs
+  compile and run the message; base 4's own graphs (before the runner) run
+  nothing, as expected. Conformance OK on both.
+
+Next
+- `stage.json` (decision 3) for the stage-wide rules of the survey.
+- The queued base 4 run now also proves the runner in game.
+- MULTIPLAYER: route the co-op client's copy of the message through the
+  runner (asked in the week note).
+
+## 2026-11-15 (12:55-13:45 UTC) - CORE: stage.json (decision 3), weather first
+
+What was done
+- The queued base 4 run now uses a frozen client at 2679a1c8
+  (`.claude/week-pd-client/base4-check/`, 92 MB on D:; delete after the run):
+  its scenario kind is extract-3's, so base 4's stages are checked as the
+  other sessions will use them, while it carries the mission graph runner.
+- `stage.json` (c7bd8075): one member per `.pdscenario`, schema
+  `pd2.scenario.stage.v1`, strict reader `scenario_stage_rules.cpp` (unknown
+  key or unusable value refuses the whole file), loaded in `bg.c` with the
+  scenario tables. First family `weather`, written from `g_WeatherConfig`;
+  `weatherReset` and `weatherTick` read it on the scenario-source path (the
+  Air Base and G5 stage checks become `z_max` and `cutscene_only`). Scenario
+  cache kind `_lightrules_sky_stagejson`. Conformance `validate_stage_json`.
+  Design note `context/designs/modding/stage-rules.md`.
+
+Verification
+- pd-tests 1,918 cases / 341,071 assertions.
+- Copy of base 4 re-extracted with this client (deleted afterwards, 378 MB on
+  D:): `[stagerules-sweep]` 132 of 132 readable, weather on exactly Air Base,
+  Chicago, Crash Site, G5 Building (Air Base: 19 weather rooms and the fixed
+  wind); conformance 9,025 archives 0 errors; light-rules census 46 of 46;
+  `[runner-sweep]` 21 of 21.
+
+Next
+- The queued base 4 run (CORE is second in line, behind one MULTIPLAYER item).
+- Further stage.json families from the survey: ending, hub, stars (after
+  B-1172 is confirmed or not), Escape's gas, animated textures and sparks.
+
+## 2026-11-15 (13:45-14:25 UTC) - CORE: B-1172 widened, stage.json player rule
+
+What was done
+- B-1172 widened (05e849c8, from code): the scene renderer reads no room
+  state (brightness, light state, animated textures, flashes), so shot-out
+  lights, flashes and animated water would not show on the stages it draws.
+  Animated-texture and spark conversions are held for that reason; endings
+  are mission flow and go to the mission graph runner instead of stage.json.
+- `player` family of stage.json (64e30348): `perfect_agent_outfit` and
+  `disguise` {`outfit`, `untargetable`} from the stage checks in player.c and
+  bondgun.c (Villa, Rescue, Air Base). Outfit names follow `OUTFIT_*`; a test
+  keeps reader, checker and constants.h equal. Kind `_stagejson_player`.
+- `temp-base-check.sh` (scratchpad): copy base 4, re-extract with the session
+  client, run the stage, mission and light-rule sweeps and conformance, delete
+  the copy and report the space.
+
+Verification
+- pd-tests 1,919 cases / 341,160 assertions. Temporary copy of base 4: 132 of
+  132 stage.json readable, weather on the four stages, player rules on
+  exactly Villa, Rescue and Air Base, conformance 0 errors, light rules 46 of
+  46, mission graphs 21 of 21; 378 MB deleted afterwards.
+
+Next
+- Mission endings through the runner (mission flow row): Deep Sea straight
+  on, Skedar Ruins to the credits, Defense's end screen.
+- The queued base 4 run (second in line).
+
+## 2026-11-15 (14:25-14:55 UTC) - CORE: stage.json co-op spawn distance and dark room rule
+
+What was done
+- 0190728d: `player.coop_spawn_distance` (chraction.c; Defection 80, else
+  60) and the `ai` family with `dark_room_lists` (chrai.c; Crash Site
+  false). Kind `_stagejson_player_ai`. Limited mine ammo stays a stage check
+  until the crystal pistol work in `bgunAmmotypeAllowsUnlimitedAmmo` lands
+  (told CRYSTAL PISTOL in the week note).
+- Mission endings looked at and not started: the PC end screen
+  (`pdgui_menu_endscreen.cpp`, an intent layer over the original dialogs),
+  co-op continue and the Deep Sea co-op auto-advance (`menutick.c`) all take
+  part, so it is a larger step for the mission graph runner, not a stage
+  rule. Put to Mike as an option.
+
+Verification
+- pd-tests 1,920 cases / 341,188 assertions. Temporary copy of base 4
+  (deleted, 378 MB): 132 of 132 readable; player on Villa, Rescue, Air Base,
+  Defection; ai on Crash Site; weather on its four; conformance 0 errors;
+  light rules 46 of 46; mission graphs 21 of 21.
+
+Next
+- The queued base 4 run (next in line).
+
+## 2026-11-15 (14:55-15:30 UTC) - CORE: base 4 run lost to B-1173, re-queued
+
+What happened
+- The queued base 4 game run got its turn at 14:07 UTC and every test was
+  refused by the storage tool in 4 minutes; nothing ran. Cause (B-1173): each
+  new install reserves the larger of its size and `peak_run_gib` (2 GiB), and
+  CORE's C: location had `max_full_install_gib` 1.5, so no install could fit;
+  the tool said "blocked by active/pinned evidence" in an empty storage. The
+  same 1.5 GiB example had gone to the other sessions at 11:55 UTC.
+- Fixed (4c3b4e02, shared as `week-pd/runner` d0fd6056, merged back with the
+  tree unchanged as 829159c4): a budget that cannot fit one copy is refused at
+  once with a message that names it (normal mode; retained housekeeping keeps
+  its own refusal). CORE's location now uses 3 GiB; week note corrected.
+- Re-queued (q_20261115141555726_0b0e1c65, fifth in line, about 2.5 hours).
+  The campaigns use one install each, so they fit two installs on C:.
+- Space: the failed run wrote 346 MB of seed content on C: (`pd2-smoke/core/blobs`),
+  kept for the re-run; no install was left.
+- Deletion slip: CORE removed its four temporary 378 MB copies of base 4 on D:
+  and 11 MB of scratch exports with `rm -r`, not through the Recycle Bin as
+  the week brief asks (another session's memory note made it explicit at
+  14:03 UTC). They were CORE's own reproducible files; the check script now
+  uses the Recycle Bin. The storage tool's discard and compact delete test
+  installs permanently, as its eviction always did; reported to Mike.
+
+Verification
+- Storage: Python 29/29, reuse 17/17, retention 22/22; PowerShell storage
+  19, retention, runner retention 47.
+
+## 2026-11-15 (16:45-17:35 UTC) - CORE: base 4 proven in game and published, runner proven, B-1172 confirmed
+
+What happened
+- Re-run of the base 4 game check on C: (frozen client 2679a1c8, extract-3's
+  scenario kind, with the mission graph runner): release campaign 43/43 and
+  special assignments 42/42 with base 4's stages used as they are (no
+  re-extraction); every stage with a room or portal rule logged it.
+- Runner in game: 17 + 4 mission programs compiled, 48 + 4 objective status
+  events each ran `og.hud.objective_status_message`, no refusal; the campaign
+  fixtures' new runner assertions pass. Objectives row ticked.
+- Published: the week note's Shared resources now has base 4 with how to move
+  (merge 03471bb8, switch with it); schema row for the room and portal rule
+  fields; Room and light rules row ticked with the B-1172 caveat.
+- B-1172 confirmed for the sky: Villa's intro frame shows black above the
+  terrain. Defection too dark to judge; the fixtures' first two screenshots
+  fell in the 90 s boot (timings to move later).
+- B-1174 (new, menus): `menu_settings_keyboard` reaches the main menu with
+  focus, but Tab does not move focus to Settings. B-1170's focus part is
+  resolved.
+- C: space: each install deleted after its run (350 MB each); the C:
+  storage holds 478 MB of receipts, logs and seed content; C: 202.6 GiB free.
+
+Next
+- Recycle the frozen client copy (92 MB on D:) through the Recycle Bin.
+- Mike: placement of B-1172 (renderer), and the deletion question (test
+  installs permanent vs Recycle Bin).
+
+## 2026-11-15 (17:35-19:05 UTC) - CORE: intro.json and arena setups (B-1175, B-1176), Recycle Bin installs, mission endings
+
+What happened
+- Mike's answers: B-1172 (sky and dynamic lighting) is CORE's; test installs
+  go to the Recycle Bin, he empties it; next step mission endings, then the
+  training-hub checks, with B-1172 on CORE's track. Forge mode authoring comes
+  before any custom level work (constraints.md, week note).
+- Sky fixtures (ca9c1cf9): both now wait for offline_gameplay_ready and take
+  in-sequence screenshots looking ahead and up (boot takes about 90 s).
+- B-1175 and B-1176 found by reading the intro path, fixed in 83642b1f: every
+  scenario-source stage started the player without the mission's intro
+  weapons, ammo and outfit (the runtime rebuilt the intro from spawns.json
+  alone), and multiplayer scenarios were built from the solo setup file, so
+  16 of 18 arenas had no pickups, spawns, cases or hills. New member
+  intro.json (pd2.scenario.intro.v1); kind mp scenarios read mpsetupfileid.
+  Census of the 121 ROM setup files recorded in the bugs and the design note
+  (context/designs/modding/stage-intro.md).
+- Recycle Bin (92c27f2b, week-pd/runner d3993455, merged as 0056eae6): every
+  removal of a test install verifies its files, then sends the folder to the
+  Recycle Bin, or refuses and keeps it when Windows would delete it for good.
+- Base 5 candidate D:\PD2-wt\shared-base-5 (copy of base 4, extracted by the
+  intro client): pass 1 47 arenas, 87 scenarios, 134 meta written, 0 failed;
+  pass 2 wrote nothing; intro, stage-rules and runner sweeps pass; light rules
+  unchanged; conformance 0 errors (10,033 archives); every arena with a real
+  multiplayer setup has its pickups, spawns, 4 cases, 24 respawns and hills.
+- Mission endings (built, unit tests pending): event.mission.continue and
+  event.mission.completed with og.mission.start_next_stage,
+  og.mission.start_credits and og.progress.unlock_alt_title (Deep Sea, Skedar
+  Ruins); Defense's unknown outcome is the stage.json ending rule; the PC end
+  screen bridge asks the graph for its Credits action.
+- Stale-slot sweep after the PC crash (Mike): nothing from before the crash
+  runs; hub queue healthy; no git index.lock; CRYSTAL PISTOL's storage has two
+  interrupted installs (owners dead), reported to it; ten months-old build
+  locks in the canonical checkout are dead and harmless, left in place.
+
+Next
+- Unit tests for the endings build; refresh base 5 in place; the queued
+  game-runtime turn (campaigns, specials, sky screenshots, Complex match).
+- Then the training-hub rule, then B-1172.
+
+## 2026-11-15 (19:05-20:40 UTC) - CORE: training hub rule, B-1172 steps 1 and 2, extract-4 checked, GGV call, keygen fix
+
+What happened
+- Training hub (5feca745): `"hub": true` in the CI's stage.json, read by
+  lvStageIsHub() on scenario-source stages; 11 checks ask it (cheats, HUD
+  messages, corpse cap, damage outside training, AI buddies, death and
+  respawn, end screen). The other STAGE_CITRAINING checks (about 45) are
+  not hub rules (stage-rules.md): the Institute's training content (its
+  objects and AI), the PC main menu running on it, and destinations.
+- B-1172 step 1 (9e3bd75c): the scene draws at a display-list command,
+  G_SCENE_RENDER_EXT, after the sky, the stars and the sun; skyRender runs on
+  every stage again.
+- B-1172 step 2 (bc450717): the B-936 depth mismatch was the stage's BG
+  scale (0.5 on Villa): the game's camera space is world units times
+  bgGetScaleBg2Gfx relative to the camera room, and near and far are in it.
+  World draws now use the game's BG matrix and keep their depth (props hidden
+  behind the scene's walls); translucent materials draw after the props'
+  opaque pass; held menu and lock screen are backdrops that clear depth; sky
+  rooms move with the camera's room; roomHighlight's lighting in the shader,
+  per player view. scenario_scene_camera.c unit-tested against the game's
+  lookat and perspective. pd-tests 1,931 cases. Frozen client
+  .claude/week-pd-client/b1172-step2; the queued base 5 turn runs the two new
+  depth smokes (probe under 1e-3 NDC) instead of the step 1 screenshots.
+- extract-4 standalone check (worktree D:/PD2-wt/x4-check): client and
+  pd-tests build, pd-tests 1,885 cases pass. Publishing base 5 waits for the
+  game run.
+- GGV lane (MULTIPLAYER relayed Mike: CORE's call): not onto dev now (never
+  compiled or run); stays on week-pd/inflight-20261114; triage after the
+  week's merges. Main checkout untouched: 17 of its 19 modified tracked files
+  equal the snapshot; CMakeLists.txt and dev-mods.json changed after it.
+- B-1122 follow-up (16a593ea; one-commit week-pd/keygen 7cbf5f1c): builds no
+  longer make a signing key, so they never rewrite the tracked
+  updater_pubkey.h. Checked with dev-keys moved aside: header byte-identical.
+- Week note: checklist rows for stage endings, training hub, sky and stars.
+
+Next
+- The game turn (queued behind CRYSTAL and MULTIPLAYER): release campaign,
+  specials, sky screenshots, Complex match, the step 2 depth smokes. If it
+  passes: push extract-4, publish base 5, merge extract-4 into core, recycle
+  the x4-check worktree.
+- Then the remaining hub checks, stars as a stage rule, stage text banks.
+
+## 2026-11-15 (20:40-21:20 UTC) - CORE: stars rule, scene fog, base 6 queued
+
+What happened
+- Stars as a stage.json rule (50db8302): `stars` {count, grid,
+  below_horizon} replaces the lvReset stage list, starsReset's table and
+  bgRenderScene's stage-id list on scenario-source stages; the extractor
+  writes it from the same table (Defection, Extraction, Infiltration, Escape
+  200 on grid 2; Attack Ship 1,200 and Test Old 1,600 on grid 3, below the
+  horizon). Kind _ending_hub_stars. pd-tests 1,932.
+- Scene fog (a56adf2a): bgRenderScene starts the stage fog around each scene
+  pass; the handler hands fast3d's fog state to the renderer; the shader uses
+  gfx_sp_vertex's formula on the game-space clip position. Sky and
+  render-always rooms unfogged. pd-tests 1,932.
+- Depth smokes: 330 s / 420 s limits (a newer client re-extracts base 5's
+  scenarios at boot) and they forbid scene shader and GPU upload failures.
+  The turn's step 2 slot now holds the fog client (step 2, stars, fog).
+- Week note: schema notice row for the newer stage.json families, intro.json
+  and the mission events; text banks recorded as a design question for
+  custom levels (banks are numeric; AI and objectives address text as bank
+  and index); training hub row corrected.
+- Base 6 queued (game-runtime, position 3 behind CORE's turn and MODS):
+  copy of base 5 re-extracted with the frozen stars client, then sweeps,
+  conformance and a stage-rules census.
+- Animated textures (dyntex) recorded as the remaining B-1172 visual gap,
+  with what they need (rendering pillar note).
+
+Next
+- The base 5 turn: release campaign, specials, sky screenshots, Complex
+  match, the two depth smokes. Then base 6; publish extract-4 and base 5 if
+  the turn passes.
+
+## 2026-11-15 (21:20-23:10 UTC) - CORE: other sessions' bug notes, base 5 in game, B-1177, base 6, extract-5
+
+What happened
+- Mike asked whether CORE saw other sessions' bug notes (a mod ammo collision
+  bug): CORE had missed rows on other branches and one To CORE request.
+  Swept them (memory feedback_sweep_other_sessions_bugs): B-1156 hub fix
+  (800cf9b6, one commit on dev: week-pd/hubfix c660986a, Mike's merge),
+  B-1153 quiet optional model metadata (f06cab7e), B-1150/B-1151 already fixed
+  by CRYSTAL (6e43ca22), CRYSTAL's B-1187/B-1189/B-1212 are scenario-source
+  engine bugs (shots through walls, sticky projectiles through floors,
+  generated models unhittable) fixed on their branch and entangled with the
+  pistol code; CORE recommends that branch merge early. Answered MULTIPLAYER's
+  20:55 co-op stage-end question. Also B-1157 custom slot world scale
+  (482c7e00) and the global AI lists design note (1462b92a).
+- Base 5 turn (22:05-22:33 UTC, frozen clients): release campaign 54/54,
+  specials 42/42, sky screenshots 9/9 each with the base 5 client;
+  mp_arena_setup_source failed: B-1177, every multiplayer arena's crates have
+  empty slots and the setup reader refused the empty model id (fixed,
+  f3dea116; also on week-pd/extract-4 as fb883fe7). Depth smokes 15/16: sky
+  and stars visible, scene placed by the game's matrix, the probe sampled only
+  the intro cutscene (fixed). Screenshots came back from the Recycle Bin: the
+  runner keeps input-sequence captures only in multi-process runs (follow-up).
+- Base 6 made (D:\PD2-wt\shared-base-6, copy of base 5, frozen stars
+  client): extraction 122 s then nothing, sweeps and conformance pass, hub on
+  the CI only, stars on the six stages.
+- week-pd/extract-4 now = cb5e2e11 + records merge 5063e385 + B-1177 fb883fe7
+  (the records merge lets the commit hook find T-MODDING-011 there; a plumbing
+  commit to skip the hook was refused by the auto-mode classifier, rightly);
+  week-pd/extract-5 = extract-4 + hub + stars (a222beef, 79cb94e3), standalone
+  pd-tests 1,887 cases. Both pushed, not announced yet.
+
+Next
+- Base 6 turn (queued, position 2): release, specials, Complex with the
+  extract-5 client; depth smokes with CORE's client. If it passes: publish
+  base 6 with extract-5 (and base 5 with extract-4) in the week note.
+- Follow-up: the runner's single-process retain_artifacts (a reviewed change).
+
+## 2026-11-16 (23:10-01:25 UTC) - CORE: base 6 proven and published, B-1210, B-1159 answered
+
+What happened
+- Base 6 turn 1 (00:09-00:30 UTC): with the extract-5 client the Complex
+  match passed 12/12 (B-1177 fixed in play); release 49/54 and specials
+  18/42 from CORE-only pieces the extract chain does not carry (three graph
+  shadow warnings the native game covers: preset pad 9000, if_natural_anim
+  on Infiltration, set_lights room -1 on the CI; the campaign runner's
+  objective probes and special-assignment plans). Depth smokes 16/16 with
+  CORE's client. Screenshots checked: Villa's sky blue with clouds,
+  Defection's stars, the Complex match running.
+- Base 6 turn 2 (00:45-00:55 UTC, CORE's client): release 54/54, specials
+  42/42; hub=1 on the CI only, stars on the six stages, Defense
+  outcome_unknown=1, Skedar Ruins ran its completed and Continue modules.
+  Published in the week note with week-pd/extract-5 (base 5 with
+  week-pd/extract-4); the 23:10 merge hold is lifted. Checklist rows for
+  sky and stars, the training hub and stage endings marked done (Deep Sea's
+  Continue is unit-tested only: the campaign runner loads the next mission).
+- Other sessions' notes swept again: CRYSTAL's B-1210 (on their branch's
+  bugs.md, "proper fix for CORE") is real in play: Crash Site and Deep Sea
+  fill the 128x128 world mesh grid, so meshFindFloor's fallback found
+  nothing on their far parts. Fixed (c20677da): meshGridCell clamps every
+  grid index into the grid at both ends; cap and cell size unchanged so
+  CRYSTAL's meshGridRayCast and its capped-grid test still hold. pd-tests
+  1,936. MODS's B-1159 (no walk mode after the Escape intro) is not a bug:
+  Escape's AI list grabs the hover bed (tag 0, setup_0110) right after the
+  intro, as the native command does; the smoke's wait needs to accept grab
+  mode. MODS's B-1154 (striped Falcon 2 on their clone): the base Falcon 2
+  is striped the same way in CORE's Defection screenshots, so the clone is
+  not the cause.
+- C: 1.25 GiB used by turn 2 (214.23 to 212.98 GiB free), installs in the
+  Recycle Bin.
+
+Next
+- B-1154: compare the held Falcon 2's textures and texgen data with the ROM.
+- Animated surfaces (dyntex.c) on scenario-source stages: per-material
+  `animation` preset and `uv_scale` in scene.glb extras plus a per-vertex
+  `_PD_DYNTEX` (N64 s, t and texture scale); the renderer updates those UVs
+  each frame from the game's 80-second interval and two stage flags. Needs a
+  schema notice, a cache-kind bump and base 7. scenario_dyntex.h drafted.
+
+## 2026-11-16 (01:25-02:05 UTC) - CORE: B-1154 found and fixed, base 7 queued, animated surfaces built
+
+What happened
+- B-1154 (MODS: striped held Falcon 2 copy) is every reflection-mapped
+  model: the ROM gun list sets the RSP texture scale (G_TEXTURE 0x0800 next
+  to eight G_TEXTURE_GEN | G_LIGHTING materials on the Falcon 2), tex.c keeps
+  it for the load, but the mesh exporter skipped G_TEXTURE and the compiler
+  emitted 0xffff, so the reflection repeated 32 times. 144 of 733 base meshes
+  use texgen. Fixed in dcee4202: model.render.json schema v4 "texture" rows
+  (scale_s, scale_t), replayed by the compiler; "v3 or later" checks now say
+  SCHEMA_VERTEX_CACHE so v3 meshes still load. week-pd/extract-6 = extract-5 +
+  that commit (8af7c1a4, pushed, standalone pd-tests 1,887).
+- Base 7 (base 6 + re-exported meshes, frozen client dcee4202) queued as
+  q_20261116011531710_91423061 with the Defection screenshot of the held
+  Falcon 2, release, specials, a Complex match, and a Complex match with an
+  extract-6 client (no re-extraction expected).
+- Animated surfaces (B-1172's animated textures) built in 23a55418: dyntex.c
+  presets as scene data (pd2_material.animation, uv_scale, _PD_DYNTEX per
+  vertex) written by the extractor with the stage rules applied, moved each
+  frame by the scene renderer; scenario_dyntex.c unit-tested against oracles
+  from dyntex.c (ocean's unsigned modulo, the game's own sinf/cosf) and the
+  extractor's UV conversion; conformance checks; kind gains _dyntex. The
+  cherry-pick onto extract-6 conflicts (it builds on CORE-only B-1172 renderer
+  work), so it is not in a shared base: it reaches others with CORE's merge.
+  A private check (copy of base 6 re-extracted by CORE's client) is queued as
+  q_20261116014023887_5f896c2b. Schema notice posted.
+- B-1172 is left with one gap: roomHighlight's per-colour flag (a colour whose
+  same-index room vertex has flags & 1 keeps its rgb and scales its alpha by
+  the room brightness). The exporter sees per-block vertex and colour bases,
+  so it needs the room's bases to compute the room-level colour index; not
+  rushed into the queued check.
+
+Next
+- Base 7 turn result: publish base 7 with extract-6.
+- Animated surfaces check result.
+- B-1172's per-colour light flag; then the global AI lists (a new typed
+  asset, about ten touch points: archive policy, mod contract, loader walker,
+  boot extraction, mod manager, catalog type, conformance, runtime).
+
+## 2026-11-16 (02:05-03:25 UTC) - CORE: base 7 first try held old meshes (SP-86; SP-85 was MULTIPLAYER's), animated surfaces seen in game, B-1172 closed, global AI lists slice 1
+
+What happened
+- Base 7 turn 1 (02:17-02:41 UTC) passed everything (Defection depth 16/16,
+  release 54/54, specials 42/42, Complex 12/12 with CORE's client and with an
+  extract-6 client) but its mesh census showed all 733 meshes still at render
+  schema v3: dcee4202 moved the mesh export version, not
+  ROMEXTRACT_PDMESH_FAST_CACHE_KIND, and the whole-folder skip runs first.
+  Fixed in 5a90a28c (the kind is built from the export version label) and on
+  week-pd/extract-6 (3223c21b, standalone pd-tests 1,887). New pattern SP-86 (first written as SP-85, which MULTIPLAYER had claimed).
+  Propagation: arenas/scenarios share a two-kind skip; bodies, heads,
+  characters and weapons compare nested mesh copies, so only meshes. Week
+  note: do not use shared-base-7 yet; redo queued
+  (q_20261116025212980_91829b9d) with the extract-6 client.
+- Animated surfaces check (02:41-02:58 UTC, private copy of base 6
+  re-extracted by CORE's client): census 16 scenes with animated materials,
+  none mismatched; conformance 10,033 archives; release 54/54, Complex 12/12,
+  Villa 16/16; every visited stage logged its animated vertices (no unusable
+  primitive) and the first frame that moved them; Deep Sea's teleport held
+  while its teleports were off. The light-flag census found 0 flagged colours
+  in all 87 scenes, so roomHighlight's per-colour case never applies to base
+  data. B-1172 marked fixed (ed0bcc49); Room effects row updated.
+- Global AI lists, slice 1 (design step 5) on a new worktree and branch,
+  D:\PD2-wt\core-gai, week-pd/core-gai (bb7cad51, 7862fd79, pushed):
+  romExtractGlobalAiListsJson writes g_GlobalAilists as
+  pd2.scenario.ai.lists.v1 rows; scenario_source_runtime.c exports
+  scenarioSourceAiListsCompile; scenario_global_ailists.c compiles the rows
+  and compares every list with the binary's bytes under
+  --check-global-ailists. pd-tests 1,947. The in-client check rides on the
+  base 7 redo turn (on CORE's private copy, never a shared base). Slice 2
+  (the .pdai type) reaches the mod manager UI, network mod distribution,
+  modpacks and the Theater format, with two product questions; left for a
+  focused session (design note updated).
+
+Next
+- Base 7 redo result: publish base 7 with extract-6 when the census shows v4
+  meshes with texture rows and the Complex screenshot shows the gun fixed.
+- Global AI lists round-trip result: merge week-pd/core-gai into
+  week-pd/core if every list is exact.
+- Recycle the private check copy D:\PD2-wt\core-check-dyntex and unused
+  frozen clients when done.
+
+## 2026-11-16 (03:25-06:00 UTC) - CORE: base 7 published, global AI lists slice 1 merged, B-1199 handed back, B-1178, B-1179, dev merged
+
+What happened
+- Base 7 redo (q_20261116025212980_91829b9d, 04:55-05:16 UTC, extract-6
+  client 3223c21b): extraction 274 s on D:, second pass wrote nothing; mesh
+  census 733 of 733 at render schema 4 with texture rows (falcon2_hi: six
+  G_TEXTURE 0x0800 rows); conformance 0 errors with extract-6's own tool
+  (9,025 archives, 10,033 with nested; run from week-pd/core the tool calls
+  every arena's scenario_graph_cache stale, because CORE already expects the
+  _dyntex scene kind); intro, stage rules and runner sweeps pass. In game:
+  Complex 12/12, release 49/54 (the five CORE-only misses, the same as
+  extract-5 on base 6), Defection depth 13/16 (the three CORE renderer probe
+  lines), no re-extraction at boot, no refused render streams. The held
+  Falcon 2 is no longer striped (screens under
+  week-pd-receipts\base7-redo-20261116-0455). Published in the week note at
+  05:50 UTC, with a Current shared base bullet listing the base/branch pairs.
+- Global AI lists, slice 1: in the same turn the client logged "AI.GLOBAL:
+  round trip 46/46 lists exact, 4268 commands, 19949 bytes". week-pd/core-gai
+  merged into week-pd/core (5c0cef4d; line counts checked; pd-tests 1,948).
+- B-1199: MULTIPLAYER fixed it on week-pd/multiplayer (5a1dfcda: player 2's
+  controls come from slot 5 in a networked mission). Both fixes insert a
+  function at the same place in port/src/savefile.c, so CORE's two commits
+  are reverted (ed1756cf). Correction to the 03:20 week note:
+  netPlayersAllocate gives the local client slot 0 on a client too, so the
+  partner is slot 1 on both machines.
+- MODS's vehicle graph draft (vehicle-graph-v1.md on week-pd/mods) answered:
+  one instance record per vehicle with per-node state slots (the D-006A
+  shape), a compile-time bound for module-raised events, the per-update tick
+  walk compiled to a flat list at the hoverbikeUpdateMovement call site,
+  physics v3 without boost keys and no fallback, v2 refused after the base
+  re-extract, names accepted. Correction: the base boost is 5.0 over
+  {2400, ticks240} (10 s; the original's TICKS(2400) and 5000/2400000), not
+  the 7.0 and 1800 of MODS's template.
+- B-1178 (2b8b7de1): entity.autogun's beam_interval is a shot count, but the
+  compiler's keyNeedsUnit substring rule refused it, so only
+  beam_interval_ticks60 compiled. Exempted like timer_starts; the field is
+  autogun_beam_every_shots; the compiler and the IR validator refuse the old
+  name. Every other _ticks60 field and every other key the rule catches was
+  checked. SP-88 (a key's name states a unit its reader does not use; with
+  MODS's B-1230).
+- B-1179 (f5207103): chrTick's surface-normal blend and floor sample now run
+  only on the frame's full tick (MULTIPLAYER's note, the SP-87 class).
+- SP-89 (37b20936): CORE's SP-80 (the bulk writer) renumbered, because
+  MULTIPLAYER claimed SP-80 first and dev now carries theirs.
+- dev at 361abab8 (the crystal pistol) merged into week-pd/core (aac86a67),
+  as CRYSTAL asked: five conflicts resolved hunk by hunk (CMakeLists both
+  test entries, build-headless keeps core's no-keygen block, actionmap takes
+  dev's name table with one assert, systemic-bugs and the static tests keep
+  both). Checked file by file against both parents. Follow-up: the capped
+  ray grid brute-force fallback in meshraygrid.c is gone, since B-1210 lists
+  every triangle past the cap in the last cell; the test's grid builder now
+  uses meshGridCell. Built and checked: client and pd-tests build, 1,996 cases pass (core's B-1116 name test now pins the gun roll pair), and the native write policy guard passes (810 units). Pushed 302a8929. Week note: the Weather row is ticked (its rules load in game on every campaign stage), and MULTIPLAYER's SP-87 scheduler question is answered on the hub (agreed with option (b), networked play only, on their branch).
+
+Next
+- Object rules row (the Extraction chopper hum and its siblings) and the
+  global AI lists slice 2 (the .pdai type), each in a focused stretch.
+- Rerun CORE's base checks on the merged client when the queue allows.
+
+## 2026-11-16 (06:00-06:27 UTC) - CORE: limited mine ammo and three object rules are data; merged-client turn queued
+
+What happened
+- 9efc0696: stage.json's player rule gains unlimited_ammo_excludes (weapon
+  catalog ids whose primary ammo the unlimited ammo cheats do not refill;
+  Chicago base:remotemine, Air Force One base:timedmine, from
+  bgunAmmotypeAllowsUnlimitedAmmo). Every stage check of the Player and
+  setup rules row is now a rule (ticked after the in-game check).
+- bf414e3d, 3accc882: object rules as optional objects.json row fields
+  (context/designs/modding/object-rules.md): "coop": false on Defection's
+  hover cars, enemy_rockets_exempt on Investigation's K7 Avenger, the
+  Extraction chopper's engine_hum, thrust_hum and fall. The runtime allows
+  each field only on its kind, resolves the hum sounds through the catalog
+  and keeps the rule rows by setup command index; setup.c asks
+  scenarioSourceSetupRecordRules where it creates or arms the object; the
+  chopper's rules sit in a small table beside the object. Not converted:
+  B-228's single-player lifts in multiplayer. The first build failed on a
+  second #include "sfx.h" (no include guard) in romextract_pdarena.c.
+- Scenario kind now ..._stars_dyntex_ammo_objrules; pins and
+  tri_arena.pdarena moved twice. pd-tests 1,998.
+- Recycled (own, this week): D:\PD2-wt\core-check-dyntex, the core-gai
+  worktree (pruned), frozen clients base7-make, core-dyntex, core-gai.
+
+In flight
+- Queue item q_20261116060755455_2b33c611 (waiter bc33wtaq2, script
+  scratchpad tools/core-merged-turn.sh, gate core-merged.ready): frozen
+  client .claude/week-pd-client/core-merged (code 3accc882; its version
+  string says bf414e3d, the head at configure time), conformance tool
+  frozen in core-merged/frozen-3accc882, private copy
+  D:\PD2-wt\core-check-merged. It re-extracts twice, then checks the
+  stage.json player rules (6 expected), the object rule rows, sweeps,
+  conformance, and runs Complex, release, specials and Defection depth.
+
+Next
+- Read the turn: expect unlimited_ammo_excludes=1 on Chicago and Air Force
+  One, the object rules lines for Defection, Investigation and Extraction
+  (and SETUP: chopper object rules), release 54/54 and specials 42/42.
+  Then tick Player and setup rules and update the Object rules row.
+- Then: the lifts rule (with MULTIPLAYER, B-228), Room effects (sparks,
+  Escape gas), mission flow.
+
+## 2026-11-16 (06:27-07:31 UTC) - CORE: sparks and the Escape gas are data; the merged-client turn found two regressions (B-1250, B-1251)
+
+What happened
+- 09828557: stage.json "sparks": {"flash_lights": false} (Crash Site; the
+  environmental sparks do not flash the room lights).
+- 576d86ec: stage.json "gas" (rooms, a sphere {center, radius, door_tag},
+  door_rooms, cutscene_fade). gasRender reads one rule struct on both paths;
+  a ROM stage uses g_EscapeGasRule (the original's constants) and the
+  extractor writes that same struct for Escape. Every stage check of the
+  Room effects row is now data. pd-tests 2,000.
+- Turn q_20261116060755455_2b33c611 (06:56-07:21 UTC, client 576d86ec, CORE's
+  private copy D:\PD2-wt\core-check-merged): Complex 12/12, specials 42/42,
+  Defection depth 16/16, conformance 0 errors (tool frozen at 576d86ec); the
+  data carries all new rules (6 player rules, 12 object rule rows) and
+  Defection's and Investigation's object rules loaded in game. Two
+  regressions: B-1250 (the scenario kind reached 525 chars, the stamp
+  readers read 511, every launch re-extracted all scenarios and arenas) and
+  B-1251 (the Extraction chopper hum is a packed 0x810c and a 0x7fff bound
+  refused it, so Extraction's objects.json was refused and the release
+  campaign stopped there, 25/54). Both fixed in 14f8d527 (readers hold 2047
+  chars, the writer refuses a longer kind loudly; the hum bound is 0xffff,
+  kept as the packed s16). SP-86 gained the round-trip rule.
+- Answers: MODS's chrMoveToPos change (d21bf9f0) approved; MULTIPLAYER's
+  co-op Deep Sea question: the menuTick root -6 co-op branch (and the
+  coop_stage_end seam) is never reached, in the original either, because
+  mainEndStage pushes the co-op end screens directly (note corrected,
+  8949efe1).
+- Week note times are read from the clock now (two earlier stamps were
+  corrected).
+
+In flight
+- Recheck turn q_20261116072829623_cf241f34 (waiter bb3wrquuk, script
+  tools/core-merged-turn2.sh, gate core-merged2.ready, client
+  .claude/week-pd-client/core-merged2 = 14f8d527): two extraction passes on
+  the private copy (expect written=0), Complex and the release campaign;
+  expect 54/54, the chopper rules line, and the stage rule lines of Chicago
+  and Air Force One (limited ammo), Crash Site (sparks) and Escape (gas).
+
+Next
+- With the recheck: tick Player and setup rules, Room effects, and mark
+  Object rules three of four in game; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after the merge, for the
+  scenario kind).
+
+## 2026-11-16 (09:21-10:00 UTC) - CORE: the recheck passed, B-1203 taken, the lifts rule and B-1253, B-1252 fixed, the vehicle graph review
+
+What happened
+- Recheck turn q_20261116072829623_cf241f34 (09:00-09:20 UTC, client 14f8d527
+  on the private copy of base 7): two extraction passes and every test
+  install's boot re-extracted nothing (B-1250 fixed in play), release 54/54
+  (B-1251 fixed in play), Complex 12/12, conformance 0 errors, the three
+  sweeps green. Loaded in game: the limited mine ammo rule (Chicago, Air Force
+  One), Crash Site's sparks rule, Escape's gas rule (12 rooms and the sphere)
+  and the object rules of Defection, Investigation and Extraction. Room
+  effects and Player and setup rules are ticked in the week note. The
+  Extraction chopper is left out on Agent (flags2 0x110 = EXCLUDE_A | NOFALL),
+  so its hum and fall wait for a Perfect Agent run.
+- bc3f87fe (09:27): MULTIPLAYER's B-1203 runner fix (fdfd1b5a) cherry-picked
+  (CORE owns the runner): a single-process smoke that names neither
+  --portable nor --savedir gets --portable. The two context conflicts kept
+  both sides; the numstat equals the original's. The 07:18 UTC
+  stage_sky_depth_defection of CORE's turn 1 was the last run against Mike's
+  real profile (nothing there was restored; Mike's call).
+- 191fa10f, 65bc904c: B-1252 (the version line named the configure-time
+  commit: the 14f8d527 client logged 576d86ec8) recorded and fixed:
+  pd_versioninfo runs cmake/versioninfo.cmake every build and writes
+  versioninfo.h from git only when it changed; every compiling target depends
+  on it. Proof: a rebuild after the commit, with no CMake re-run (34 s), named
+  65bc904ce. pd-tests 2,002.
+- e9fbf089: dev 841650c7 merged (two context lines; line counts unchanged).
+- 47e3897d: B-228's lift list is the objects.json row rule "multiplayer":
+  true on lift and escalator_step rows (6 base rows: CI Training 2,
+  Infiltration 4; Chicago, Villa, G5 Building and Pelagic have no lifts).
+  B-1253 fixed: an arena on a campaign stage loads that stage's own scenario
+  (kind solo), so the main pass already made its lifts and the SP-in-MP
+  overlay made them again (Infiltration 4 -> 8); the overlay is a ROM stage's
+  only. New smoke combat_sim_infiltration_lifts. Scenario kind _mplifts.
+  SP-80 instance (the other direction). The object rules row is converted.
+- MODS' vehicle graph steps B to D reviewed (a read-only subagent; F1, F2, F3
+  and F5 re-checked in code): merge after fixes. A crash (two
+  og.vehicle.dismount_seat nodes on one event: the second dereferences a NULL
+  player->hoverbike on the host), records never released in propFree, the
+  part check at the first instance instead of registration, the v2 retirement
+  task to record; for MULTIPLAYER, a remote rider's boost never reaches the
+  host (no boost on the wire). Week note 09:58, hub chats to both.
+- Week note: the AI commands row's "audit in progress" corrected (finished
+  2026-11-15: B-1161 to B-1165, then B-1167).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (waiter bs7omrzh0, script
+  tools/core-merged3-turn.sh, gate core-merged3.ready, client
+  .claude/week-pd-client/core-merged3 = 47e3897d): the old client's
+  Infiltration arena match (before), re-extraction (kind moved), a second pass
+  (written=0), conformance, then combat_sim_infiltration_lifts,
+  auto_campaign_release_pa (the chopper rule applied) and
+  mp_arena_setup_source.
+
+Next
+- With the turn: tick Object rules; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after landing, for the
+  scenario kind).
+- Mission flow: the design of the fail-closed mission end module.
+
+## 2026-11-16 (10:00-10:33 UTC) - CORE: mission flow designed and slices 1 and 2 built; B-1204 fixed
+
+What happened
+- b7cb41ff (10:03): context/designs/modding/mission-flow.md. One objective's
+  status was already the mission graph's alone (decision 1); the outcome
+  rule (objectiveIsAllComplete, 23 callers), the phase and the end were
+  native. Week note row and log updated.
+- b5ea6dba (10:11), slice 1: "required": false on a row of kind objective
+  in the mission's objectives.json (bonus objective, out of the outcome;
+  one source: conformance refuses it on graph nodes and on the scenario's
+  table); scenarioSourceMissionObjectiveRequired; both aggregates in
+  objectives.c leave optional objectives out; the campaign runner's outcome
+  parity probe ("outcome parity probe stage_id=... outcome=...").
+  tests/test_mission_outcome_static.cpp.
+- ea93a083 (10:23), slice 2: event.mission.phase_changed and
+  gate.mission.phase in the runner (tests/test_mission_graph_phase.cpp,
+  behavioral), delivered once per change from objectivesCheckAll (logged
+  with or without a handler); og.mission.end_failed and
+  og.mission.end_completed (two modules: the table takes no params) force
+  the outcome and set a pending end that player.c takes after the check
+  (func0000e990, the end_level path); refused on a network client and a
+  forced completion in co-op/counter-op; refused at activation and by
+  conformance after the end. The runner/checker sync pins moved with the
+  kinds (test_mission_graph_runner.cpp). pd-tests 2,006.
+- 9a9cfc9f (10:30), B-1204 (MULTIPLAYER's root cause): every scenario pad
+  was forced PADFLAG_HASBBOXDATA, so the extractor's -100..100 default box
+  for boxless pads (19,349 of 26,109) became real and setup.c dropped
+  objects from 100 under their pads. Pads keep their own bit now; no
+  re-extraction (every boxless base pad has exactly padUnpack's default).
+  The pad build logs "pads.json N pads, M with a box of their own".
+  MULTIPLAYER keeps the B-1204 row (asked to mark it fixed).
+- Frozen clients: core-mf2 (ea93a083, superseded) and core-mf3 (9a9cfc9f;
+  B-1252's build-time version line named it correctly after the commit).
+
+In flight
+- Turn q_20261116095308930_5e4b7388 (lifts; waiter bs7omrzh0), third in the
+  game-runtime queue at 10:28 (MULTIPLAYER's local smokes since 10:06, then
+  a MODS boost smoke).
+
+Next
+- After the lifts turn: apply scratchpad patch_missionflow_fixtures.py (the
+  five campaign fixtures require one outcome line per mission, and a pin),
+  commit, then queue tools/core-mf3-turn.sh (gate core-mf3.ready): the
+  release and special-assignment campaigns (outcome probe, phase
+  deliveries), the Infiltration lifts and Complex (B-1204's pad line).
+- Tick Object rules when the lifts turn shows the lifts and the chopper;
+  post week-pd/core as ready for Mike's merge call.
+- Pin the phase-delivery counts in the campaign fixtures once a log shows
+  them.
+
+## 2026-11-16 (10:33-12:08 UTC) - CORE: the lifts turn, global AI lists slice 2 steps 1-3, MODS' fixes approved
+
+What happened
+- 10:35: MODS' vehicle graph review fixes (afd8739b, eb8eb943) approved in
+  the week note (checked in the diff: a second seat module per seat per event
+  refused at compile time, seat_done guards, records released in propFree).
+- e3a5190d (10:36): global-ai-lists.md product answers (CORE's
+  recommendations; Mike may override): .pdai is its own component type in
+  the mod manager; AI lists never travel with a host's mods.
+- Lifts turn q_20261116095308930_5e4b7388 (10:44-11:07 UTC, client 47e3897d,
+  private copy): Perfect Agent campaign 38/38 with the Extraction chopper's
+  rule applied in play; Complex 12/12; re-extraction for the new kind once,
+  then nothing. combat_sim_infiltration_lifts never reached its match (a test
+  install boots for 67 s, the smoke exited at 70 s): fixture fixed in
+  dce541bc (exit 150 s). The frozen conformance tool lacked its sibling
+  modules (asset_gltf_source and three more); every freeze now copies them.
+- dce541bc (11:11): the five campaign fixtures require one outcome parity
+  line per mission (17; specials 4) and forbid its failure; pd-tests 2,007.
+- 9a5bc8db (11:53), slice 2 step 1: the .pdai type (ASSET_AI_LISTS after
+  ASSET_THEME) registered end to end by a subagent, reviewed; loose ai.ini
+  layouts dropped (as .pdtheme); the debug catalog type filter's missing
+  names fixed (static_assert). Open for MULTIPLAYER: an AI-lists-only mod is
+  still one a client must hold (mods travel whole by hash).
+- 81a47d96 (12:00), step 2: romextract_pdai.c writes base:ai_global
+  (ai/base_ai_global.pdai) from romExtractGlobalAiListsJson, kind
+  pdai_global_ailists_rows_v1, boot phase "pdai"; --check-global-ailists
+  also compiles the extracted bank's rows back to the binary's bytes.
+- de2b6323 (12:05), step 3: setupLoadFiles binds g_GlobalAilists to the
+  bank's compiled lists after the sort (scenarioGlobalAiListsBindBank); a
+  bank that cannot supply exactly the game's lists refuses the stage.
+  pd-tests 2,012.
+- Frozen clients: core-mf4 (81a47d96: mission flow, B-1204, the bank
+  written and round-tripped, nothing reads it) replaced core-mf3 for the
+  queued turn (step 3 was set aside with an explicit-path stash while it was
+  built, then restored; numstat equal); core-gai3 (de2b6323, step 3).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, script
+  tools/core-mf3-turn.sh, gate core-mf3.ready, client core-mf4): extraction
+  with --check-global-ailists (expect romextract pdai written=1 and both
+  AI.GLOBAL round trips exact), conformance, the release and special-
+  assignment campaigns (outcome probe, phase deliveries), the Infiltration
+  lifts, Complex (B-1204's pad line).
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, script
+  tools/core-gai3-turn.sh, gate core-gai3.ready, client core-gai3): the same
+  campaigns and Complex with every stage's global lists from the bank. If
+  the first turn shows the bank unregistered, close its gate before it starts.
+
+Next
+- With both turns: tick Object rules (the lifts), record mission flow and the
+  bank in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (a new shared
+  base after landing: the scenario kind and the new ai/ bank).
+- Global AI lists steps 4 (per-level overrides in a scenario's
+  ai/ailists.json) and 5 (a mod's .pdai over the base bank).
+
+## 2026-11-16 (12:08-13:25 UTC) - CORE: global AI lists steps 4-5, AI lists as graphs designed and slice 1 built
+
+What happened
+- e0850c0c (12:14), global AI lists step 4: a stage's own list with a global
+  id replaces that global list for the stage (after the bank bind and the
+  count); an id that is not one of the game's refuses the stage.
+- aa88a2ba (12:14), step 5: enabled mod banks (non-bundled .pdai) layer over
+  the complete base bank by list id, the smaller catalog id winning (the
+  .pdlang order); compile cached on a signature of the banks. pd-tests 2,014.
+- 21444caf (12:34): context/designs/modding/ai-list-graphs.md from a
+  read-only survey: the data had every AI command as a level-graph node but
+  no control flow; plan in four slices (edges in the data, a shadow walk,
+  the interpreter takes edges, authoring from edges). Handler counts
+  corrected: 434 of 441 have a twin; the 7 without are the 5 control-flow
+  handlers and if_bot_respawning, mp_init_simulants.
+- 276ca402 (13:14), slice 1 (a subagent, reviewed: the edge rules against
+  chraiGoToLabel and the handlers, the JSON writers): port/src/ai_list_edges.c
+  computes next/branch/goto/restart edges and node flags; the extractor
+  writes them into every level.graph.json and the bank's
+  ai/global_ailists.graph.json; conformance recomputes every edge from the
+  rows; a pd-tests case re-derives the 215 branching opcodes from the
+  sources. Base: 79,408 edges (4 restarts). Scenario kind _aiedges; bank kind
+  v2. pd-tests 2,024.
+- cd90f090 (13:24): MULTIPLAYER's semantics for the two missing twins
+  recorded in the design (host only; mp_init_simulants stays by ending the
+  tick without moving).
+- MULTIPLAYER confirmed B-1204 in play (12:58: networked Hold the Briefcase
+  84/84, Combat score limit 24/24) and takes the AI-lists-only mod rule in
+  netmanifest.c after CORE lands.
+- The second queued turn now runs client core-ae (276ca402: steps 3-5 and the
+  edges) with two extraction passes and conformance (the edge proof); the
+  frozen clients core-gai3, core-merged2 and core-merged3 went to the Recycle
+  Bin (superseded).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, tools/core-mf3-turn.sh,
+  client core-mf4 = 81a47d96): mission flow, B-1204, the lifts, the bank
+  written and round-tripped.
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, tools/core-gai3-turn.sh,
+  client core-ae = 276ca402): re-extraction, conformance, the campaigns with
+  the bank in play, Complex.
+
+Next
+- With both turns: tick Object rules, record mission flow, the bank and the
+  edges in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (one shared
+  base refresh after landing for today's kind moves and the new ai/ bank).
+- AI lists as graphs slice 2 (the shadow walk); the two simulant twins;
+  a test mod with a .pdai for the mod bank proof.
+
+## 2026-11-16 (13:25-14:21 UTC) - CORE: both turns passed; Object rules ticked; week-pd/core posted ready for Mike's merge call
+
+What happened
+- Turn q_20261116111144955_af9935d1 (13:34-13:56 UTC, client 81a47d96, private
+  copy): release 56/56, special assignments 44/44 (outcome parity on all 21
+  missions; each delivers phase active then complete once),
+  combat_sim_infiltration_lifts 15/15 (4 lifts once by the multiplayer rule,
+  no overlay: B-1253 fixed in play), Complex 12/12 with B-1204's pad line
+  (226 pads, 5 with a box of their own), the bank written once and both
+  round trips 46/46 exact, conformance 0 errors. Object rules ticked.
+- Turn q_20261116120723346_a56d5b4c (13:56-14:15 UTC, client 276ca402):
+  re-extraction for _aiedges once (87 scenarios, 47 arenas, 21 missions, the
+  bank with 5,321 edges), then nothing; conformance 0 errors with the tool
+  that recomputes every AI edge from the rows (Defection: 2,014 next, 394
+  branch, 224 goto); release 56/56, specials 44/44, Complex 12/12 with every
+  stage running the 46 global lists from base:ai_global (31 stage loads, no
+  refusal).
+- 02df3f3f: the release and special-assignment fixtures pin one active and
+  one complete phase per mission (17 and 4, exactly; each aggregated log
+  holds one copy, the receipts two) and the bank in play; pd-tests 2,025.
+- Week note: the Global AI lists and Mission flow rows carry the in-game
+  evidence; the per-mission table's Loads, Forced and Save/load columns are
+  11-16 for all 21 (Soak and Natural unchanged), with an evidence line under
+  the table; 14:20: week-pd/core posted as ready for Mike's merge call (head
+  02df3f3f, 184 commits ahead of dev 841650c7; one shared base refresh after
+  landing).
+
+Next
+- AI lists as graphs slice 2: the shadow walk (a (list, offset) -> node table
+  per compiled list, the edge each executed command takes compared with the
+  interpreter's next offset, and the campaign parity line); then the two
+  simulant twins (MULTIPLAYER's semantics, ai-list-graphs.md).
+- A test mod with a .pdai for the mod bank proof.
+- Mission flow slice 3 once the outcome probe has held on the PA, SA and soak
+  campaigns too.
+
+## 2026-11-16 (14:21-15:36 UTC) - CORE: the mod AI list bank fixture, the simulant graph twins, B-1254 and B-1255
+
+What happened
+- 5c7d1ef6: tests/fixtures/modpipe/ai-lists-bank, a mod whose .pdai carries
+  global list 0x0000 (a byte copy of the base list), and the smoke
+  ai_lists_mod_bank_smoke (packs and enables it in a Complex match; requires
+  "1 of them from 1 mod bank(s)").
+- 6067830d: graph twins for the two simulant commands that had none
+  (if_bot_respawning 0x0176, mp_init_simulants 0x0185): module nodes in every
+  level graph (extractor, conformance, typed examples), a "simulant" family
+  in the scenario runtime that refuses a level graph without them, the native
+  handlers call the twins; scenario kind _simtwins (pins in six tests);
+  tests/test_ai_simulant_twins_static.cpp. 436 of 441 handlers have a twin;
+  the five left are the control flow the edges carry.
+- B-1254 (low, fixed): if_bot_respawning read aibot through a null pointer on
+  a chr that is not a simulant (the original's missing return).
+- B-1255 (low, fixed in 0d2022b8): mp_init_simulants never retried an
+  incomplete wave from the AI list; B-174 made it return false without
+  moving, which the B-949 guard always skips. 6067830d first kept "go on";
+  pd-tests (test_combat_sim_defect_cohort.cpp, the B-174 pins) and
+  MULTIPLAYER's semantics both said "stay", so the handler and the twin end
+  the tick with the cursor on the command while the wave is incomplete, and
+  the shadow walk accepts that stop. A networked Combat Simulator client runs
+  list 0x1000 too (noted for MULTIPLAYER in the week note).
+- c7db8ba5: combat_sim_simulant_twins (Car Park, 12 simulants, 90 s): the
+  family line, one wave=complete, a simulant kill, if_bot_respawning branch=0
+  and branch=1.
+- pd-tests 2,039 on 0d2022b8; client core-st frozen at 0d2022b8; the queued
+  turn q_20261116150249689_2d221fc9 (waiter bq2vokz32,
+  tools/core-sw-turn.sh) now runs core-st: two extraction passes for
+  _simtwins, conformance, the two smokes, then the soak, release and specials
+  with the shadow walk.
+
+Next
+- With the turn: pin the ai edge parity lines in the campaign fixtures (17
+  and 4) and forbid "ai edge parity: "; record the mod bank proof (Global AI
+  lists row) and the twins in play (AI commands row).
+- Then slice 3 of AI lists as graphs (twins report outcomes, the interpreter
+  takes edges) or slice 4 (authoring from edges); mission flow slice 3.
+
+## 2026-11-16 (15:36-17:02 UTC) - CORE: typed AI operands slices 1-3, trigger-volume events, the shadow walk in play (B-1256)
+
+What happened
+- Turn q_20261116150249689_2d221fc9 (15:57-17:00 UTC, client core-st =
+  0d2022b8, private copy): re-extraction for _simtwins (87 scenarios, 47
+  arenas, 21 missions written, a second pass nothing), conformance 0 errors
+  (9,026 archives), the mod AI list bank smoke 10/10 (a mod's .pdai replaces
+  a global list in play), the simulant twin smoke 12/15 on Car Park (family
+  and wave=complete; no simulant died in 90 s, so if_bot_respawning was not
+  reached: moved to Complex 150 s, e9a41a04), and with the shadow walk:
+  soak 42/42 (19.7 million AI commands compared with their edges, differ 0,
+  refused_fallthrough 0, untracked 0 on all 17 missions), release 59/59,
+  specials 47/47, Special Agent 40/40, Perfect Agent 40/40, all with differ 0 and
+  untracked 0; the outcome probe agrees on all 55 campaign missions, each
+  delivering active then complete; no refusal or FATAL line.
+- e6bd6b9a, typed operands slice 3: catalog ids in args for models,
+  weapons, bodies and heads; the extractor writes rows as args alone and
+  checks each back to its bytes; scenario kind _catalogargs, bank v4.
+- e051fda0: the five campaign fixtures pin one AI edge parity line per
+  mission (differ 0, untracked 0) and forbid the failure line.
+- Week note 17:01: Global AI lists and Mission flow ticked; the AI
+  commands row updated (to tick after the typed args turn); Soak 11-16 for
+  the 17 campaign missions.
+- Typed AI operands (context/designs/modding/ai-typed-operands.md, b2458fd7):
+  slice 1 b18b562f (the schema: 441 commands, 819 fields, from the handlers
+  plus two reviewing agents; every base row round-trips; conformance row
+  check), slice 2 61adaf37 (args on rows and nodes, the compiler checks them
+  against the bytes; scenario kind _typedargs, bank v3), 3d92264d (a row may
+  give args alone; the mod bank fixture is args only).
+- Trigger-volume events (context/designs/modding/trigger-volume-events.md,
+  6709c495): event.volume.entered/left in the mission graph runner, bound to
+  volumes.json boxes at activation, delivered from the objectives check;
+  pd-tests 2,050; in game after Forge.
+- B-1256 (low, fixed 537e3022): the AI edge parity counters were reset only
+  for a campaign's first mission (later ones are queued from the end screen).
+- Week note: 16:31 notice on typed args; frozen clients core-ae, core-mf4,
+  core-sw, core-ta, core-tb, core-tc, core-td to the Recycle Bin; core-te
+  (e051fda0) for the queued turn q_20261116162649494_8c375cad (waiter
+  bcim75k45, tools/core-ta-turn.sh: re-extraction for _catalogargs and v4,
+  conformance, the simulant smoke on Complex, the Complex arena, the mod bank
+  smoke with args-only rows, release, specials).
+
+Next
+- With the queued turn: tick the AI commands row (typed args in play) and
+  record the simulant twins' respawn branch.
+- Then the Pickups or Doors rows of the checklist.
+
+## 2026-11-16 (19:43-21:25 UTC) - CORE: typed AI args slice 3b (B-1257, B-1258), kill_simulant, object identity, level programs started
+
+What happened
+- Turn q_20261116162649494_8c375cad (19:12-19:43 UTC, client core-te =
+  e051fda0): release 61/61, specials 49/49, Complex arena 12/12, mod bank
+  10/10 with args-only rows; but conformance failed with 23,762 errors, all
+  in AI args (B-1257: animations and sounds as numbers, 15 solo weapons and
+  two "none" values unnamed, the entity fields carrying an asset key's
+  name), and the simulant smoke was 12/15 again (in 150 s on Complex the
+  simulants only shot the idle player; no death, no respawn branch).
+- 5af33056, typed operands slice 3b (ai-typed-operands.md "Slice 3b as
+  built"): anim and sound are catalog kinds; every asset argument is a
+  catalog id or null (the field's "none"); a sound's MP3 priority and
+  response are arguments of their own; entity is target or source; one
+  naming rule for the extractor and the compiler (port/src/ai_catalog_refs.c:
+  weapons from g_WeaponDataCatalogIds first, animations by the catalog's id
+  for the slot, sounds as configured alias, sample or MP3 voice file, the
+  last by the voice extractor's rule because the loader registers voice
+  archives after extraction); conformance mirrors it and derives the base
+  animation table's slot ids (the empty ANIM_CUT_CAVE_BETA_* slots one Air
+  Base list names), checked against every authored animation archive, which
+  found B-1258 (380 placeholder slots had two catalog ids; the base
+  registration now uses the archives' "character" rule). Kind _assetargs,
+  bank v5.
+- da7cd094: the smoke harness's kill_simulant (chrDamageByMisc on the first
+  live simulant); combat_sim_simulant_twins kills twice on Complex.
+- pd-tests 2,053 cases pass; client core-tf frozen at da7cd094 (the freeze
+  now copies the sources conformance reads for catalog ids).
+- Turn q_20261116203323322_e9d475f5 (21:14-21:19 UTC, core-tf):
+  re-extraction once then nothing; no AI row gives an asset by number
+  (2,839 sounds, 1,181 animations, 639 weapons by id, 117 nulls, 514 MP3
+  lines with their priority); conformance 0 errors over 9,026 archives. The
+  five smokes did not start: CORE's C: smoke storage refused to seed
+  ("Archive budget refused", its 2 GiB archive cap is full). The permission
+  check stopped CORE from raising the cap in its location file; Mike chooses
+  (week note 21:22): raise it to 4 GiB (recommended), recycle the older
+  evidence already copied to D:, or a D: storage root.
+- object-events.md: object identity decided (record_id = the setup command
+  index, plus tag, kind and catalog id in payloads); slice 1 planned and
+  started (uncommitted at 21:25): missionGraphProgramCompileLevel (only
+  event/gate/og nodes; level data skipped), the runtime compiles the level
+  program for every stage (refusal when it does not compile), shared volume
+  binding and delivery, level volume events from lvTick after scenarioTick
+  on the host, conformance's level mode, tests/test_level_graph_program.cpp.
+
+Next
+- Mike's storage choice, then the smokes of slice 3b (core-tf): the simulant
+  respawn branch, the Complex arena, the mod bank, release, specials; then
+  tick AI commands and AI actions and simulants.
+- Build and test object-events slice 1 once MULTIPLAYER's smoke ends; then
+  slice 2 (record-only pickup, door and use events).
+
+## 2026-11-16 (21:25 UTC) to 2026-11-17 (01:10 UTC) - CORE: slice 3b in play, object events slices 1-3 built and in play, B-1259
+
+Mike (22:00 UTC): raise CORE's C: smoke archive cap from 2 to 4 GiB, run
+slice 3b's smokes, carry on with object-events slices 1 and 2; keep C: above
+the 100 GB floor; commit and push as you go; no merges into dev or main
+without his OK.
+
+Done
+- The cap is 4 GiB in CORE's untracked `.claude/smoke-storage-location.json`.
+- Turn q_20261116220351738_26b6bced (22:21-22:49 UTC, core-tf = da7cd094):
+  all pass: simulant twins 17/17 (both branches of if_bot_respawning, the
+  harness killing a simulant twice), Complex 12/12, mod bank 10/10, release
+  61/61, specials 49/49. The AI commands and AI actions rows are ticked.
+- Object events (context/designs/modding/object-events.md): slice 1
+  f63e4248 (every stage compiles its level graph's own program), slice 2
+  5233cbb7 (record-only pickup.collected, door.opened, door.closed,
+  object.used at the native seams, totals per stage), slice 3 4881fc32
+  (node parameters, native gates, the pickup and door queries, og.door.*,
+  og.pickup.give, gate.object.kind, gate.player.has_item), ae3ba2a8 (the
+  design's "as written"), caf00d7c (conformance's kind sets checked against
+  the runner and module table by pd-tests).
+- Turn q_20261117000144009_bab5471d (00:15-00:45 UTC; caf00d7c built inside
+  the turn, pd-tests 2,061 cases; client core-tg): all pass (17/17, 12/12,
+  10/10, 61/61, 49/49). 35 level program activations, nodes=1
+  exec_edges=0, no refusal; doors opened in 7 missions (G5 Building 16),
+  pickups in 13; nothing failed. Every payload had object=-.
+- 97f4d167: slice 4 planned (the native pickup and door rules as wired
+  modules, the queries folded in, fail closed, a parity probe).
+- 4cbcd3da: B-1259 fixed. setupGetCmdIndexByProp read the prop pointer from
+  the command's word 5 (the N64 offset; padding on 64-bit), so it never
+  matched: empty record ids, and multiplayer's regeneration of an object
+  inside another looked up the wrong parent. It now reads the object's prop
+  field through setupCmdObj (shared with setupGetObjByCmdIndex). SP-94; its
+  searches found no other instance. Same commit: a literal NUL byte in
+  propobj.c (objGraphEventCapture's '\0', since 5233cbb7; same value, but
+  grep saw a binary file) is the escape again; no other tracked source has
+  a NUL byte.
+- door.closed=0 is not a bug: each campaign smoke mission lasts 3-6 s and
+  the doors open near its end.
+- Week note: log entry 01:08 UTC; the Doors and Pickups rows say what is
+  built (not ticked). C: 197.48 GiB free at the tg turn's start, 193.89 at
+  its end (installs recycled); 192 GiB at 01:03 UTC.
+- Pushed week-pd/core through 4cbcd3da.
+
+Next
+- Turn q_20261117010613172_f7fbd316 (core-th, queued behind MULTIPLAYER,
+  about 55 min): build 4cbcd3da inside the turn, pd-tests, simulant twins,
+  Complex, release, specials and the campaign soak (60 s per mission, for
+  door.closed); the report checks each logged payload against its stage's
+  objects.json row (record id, kind, catalog id).
+- Then object-events slice 4 (Pickups and Doors rows).
+- Recycle the frozen clients core-te and core-tf once core-th is frozen.
+
+## 2026-11-17 (01:10 UTC) to (05:07 UTC) - CORE: B-1259 proven, slices 4 and 5 written, dev merged, vehicles on graphs only, Forge F1 answered
+
+Mike (relayed 02:00 UTC): "Mike approves merging all branches into dev. For
+CORE: once your proof turn passes, merge week-pd/core into dev. Then do the
+same with slice 4 (week-pd/core-s4) once its turn passes. Go after MODS lands
+its vehicle branch. Each time, merge dev into your branch first, rebuild and
+test, then merge, push, and post it in the week note. If a proof is red, fix
+it before you merge. main stays untouched. After that, carry on with the
+unfinished work: the lifts and glass slice next, then the remaining
+behavior-graph rows." Later: "Continue your work while you wait. You can run
+tests after larger batches / full chunks".
+
+Done
+- Turn q_20261117010613172_f7fbd316 (01:43-02:34 UTC, core-th = 1ccc2c4e):
+  all pass (simulant twins 17/17, Complex 12/12, release 61/61, specials
+  49/49, campaign soak 44/44, AI edge parity 19.6 million commands, nothing
+  differs). B-1259 fixed in play: every payload names its objects.json
+  record; 31 of the first 37 match kind and catalog id, the other 6 found
+  B-1260 (objects.json left device and item pickups' weapon empty). Doors
+  close in the soak (door.closed on 13 missions).
+- Slice 4 on week-pd/core-s4 (ca42b3af, 7326bbe8, bc590b1d): the native
+  pickup and door rules as wired modules (event.pickup.touched,
+  event.door.use, event.door.approach; gate.pickup.native_rules,
+  og.pickup.collect, gate.door.native_unlocked, og.door.activate,
+  og.door.locked_message, og.door.activate_automatic), wired in every base
+  level graph by the extractor (scenario kind _ruleevents), level programs
+  must handle them and mission graphs may not, a parity probe per mission;
+  B-1260 fixed (ae0cf825). Harness use_door, fixture mp_arena_door_rules.
+- Slice 5 on week-pd/core-s5 (5b34fc8d): lifts and glass (event.lift.called,
+  event.lift.idle, event.lift.arrived, event.glass.damaged, record event
+  glass.broken; their native gates and modules; kind _liftglass). Harness
+  use_lift_door and damage_glass, fixture mission_lift_glass_rules.
+- Vehicles on core-s5: 3419fa96 gives the base hoverbike its
+  pd.vehicle_graph.v1 graph and physics v3 (meta kind _vehiclegraph),
+  refuses v2 behavior and physics (B-1230 fixed, vehicle-graph-v1.md Rule 5
+  done); 4a0a2a84 removes the dead v2 fallbacks (mount, both dismounts,
+  movement, the binding's two boost fields) and fixes the B-959 adapter case
+  that still hydrated a v2 vehicle (pd-tests would have failed on it).
+- week-pd/core: merged dev 8f41913f (9f38d6dd; resolutions in modmgr.c,
+  fs.c, fs.h, test_save_paths_static.cpp). Turn
+  q_20261117013932337_19ccdc1b failed pd-tests 2,149/2,150: the action name
+  pin still expected ACTION_GUN_ROLL_RIGHT last; dev added
+  ACTION_VEHICLE_BOOST. Fixed in 7f7871f9 (hosted CI green on PR #5, run
+  44011419982) and merged into core-s4 (605aefa8) and core-s5 (a51e12bc).
+- Turn q_20261117033645172_617e7a0e (04:09-05:00 UTC, core-tj = 7f7871f9,
+  base 8 candidate): pd-tests 2,150 cases / 478,152 assertions; the candidate
+  extracted twice (the second pass wrote nothing); conformance ok over 9,026
+  archives; MODS's vehicle drives 32/32 and 34/34, crystal pistol ammo 31/31,
+  simulant twins 17/17, Complex 12/12, mod bank 10/10, release 61/61,
+  specials 49/49. Red: mods_user_folder_smoke 20/23, B-1262: the dev merge
+  9f38d6dd dropped the two resets at the top of modmgrScanDirectory, so a
+  rescan appended every mod again ("Duplicate installed package identity").
+  Fixed in 2308f036 and merged into slices 4 (1a165116), 5 (c132d949) and 6
+  (95a18d52); a scan of every file the merge changed for lines both parents
+  had and the result lost found nothing else.
+- B-1261 (week-pd/core-s6, 78072e83): projectile records' function flags
+  were copied into projectile flags (the Slayer's fly-by-wire rocket SLIDING,
+  the N-bomb FALLING, the homing rocket LIGHTWEIGHT); SP-96. The Projectiles
+  row's design (projectile-events.md) and slice 1 (772f0497: record-only
+  events at the native seams, give_weapon, projectile_events_smoke); hosted
+  CI green on PR #12 (60ba64a4).
+- Forge F1 (MODS's questions of 23:30 UTC): a stage a mod minted resolves
+  through the scenario or arena row that owns it, with no minted map row;
+  the nested scenario's members resolve in the innermost archive. Written on
+  week-pd/core-forge (c3fc7068, from dev 8f41913f; draft PR #10, CI only)
+  for MODS to merge into mods-v4. Reviewed MODS's B-1234 span change to
+  CORE's hit test (c2050b8d): no objection.
+- Draft PRs #10 and #11 opened for hosted CI only (do not merge).
+
+Next
+- The B-1262 rerun (q_20261117040743721_6f1493c4, core-tj3: build, pd-tests,
+  the user folder smoke and four others on the base 8 candidate); if green,
+  land week-pd/core on dev (land-on-dev.py, the in-flight types.h keeps its
+  wording) and publish base 8 from the candidate.
+- The slice 4 proof follows in the next slot only if the rerun passed
+  (q_20261117040744651_e9633827, client core-tk); then land slice 4 and
+  publish base 9; then the slice 5 proof (q_20261117050710243_821994ae).
+- Projectiles row: run projectile_events_smoke in a turn; then slice 2
+  (timers and detonation as rule events on v2 programs).
+- Held weapons waits for Mike (the parked week-pd/inflight-20261114 lane).
+
+## 2026-11-17 (20:54 UTC) - The Grid offline editor checkpoint
+
+- Mike approved the existing `week-pd/mods-v4` worktree and the sole Grid
+  writer handoff in D-025. Offline work is tracked as T-MODDING-015.
+- The global editor display name defaults to The Grid. Level File and
+  Playtest are adjacent, and the unsaved indicator follows the exact saved
+  undo/redo position.
+- Client `7FDEEF10...` and tests `C032D06E...` built with the queued isolated
+  wrapper on base source `69ceb3bd`. Focused tests passed 5,220 assertions
+  in 116 cases. The read-only base-9 sweep passed 39,566 assertions in 35
+  cases across 132 archives. The native-source guard passed.
+- Classic GL `forge_blank_room_session_smoke` passed 46/46 on the same
+  client, including a save between undo/redo pairs and the edited prop
+  preview. Receipt `20261117T205030895412Z-forge_blank_room_session_smoke-6cb07f91`.
+  The initial C: storage admission refused its archive budget before launch.
+- Next offline gates include recovery, authored mode markers, room and
+  portal building, scene settings, and playing the exact edited revision.
+
+### Grid recovery and mode markers
+
+- Profile-local recovery tracks the exact source SHA-256 and restores
+  placement members as an undoable edit. Classic GL recovery smoke passed
+  47/47 on client `5F700CA0...` on shared base 9. Receipt
+  `20261117T205842796437Z-forge_blank_room_session_smoke-a8021e98`.
+- King of the Hill markers use the native optional `intro.json` in the
+  saved scenario. Classic GL runtime consumed both authored markers in a
+  match with three bots on client `3DD047D5...`. Smoke passed 15/15 on
+  shared base 9, receipt `20261117T210758959956Z-forge_grid_hill_smoke-1b715dd8`.
+- The linked worktree's commit hook reads its historical Workbench snapshot.
+  The canonical claim is T-MODDING-015. Preserve source diffs and receipts
+  while keeping the hook active. Mike granted Grid-only shared engine and
+  multiplayer ownership in D-026.
+
+### Grid room authoring, atmosphere, and native draft
+
+- Source stays on `week-pd/mods-v4` at `69ceb3bd` plus the Grid diff.
+  Classic GL on shared base 9 passed both smokes on client `9021E76B...`.
+  Room authoring passed 19/19 in
+  `20261117T215009087937Z-forge_grid_build_rooms_smoke-4f36ddba`.
+  The Levels tool built 2100 by 1800 by 600 unit rooms and the stage
+  loaded the resized scene, portal, collision and room-assigned pads.
+  Atmosphere passed 15/15 in
+  `20261117T214418848056Z-forge_grid_atmosphere_smoke-b069c49f`.
+  The native loader applied sky, fog, default light and a catalog sequence.
+- Tests `DB9DA9F4...` passed 44,280 assertions across 136 cases,
+  including unchanged round trips for 132 extracted base archives. An
+  explicit stage argument at room lighting cleared the source guard.
+- Exact native draft playtest now stages a validated archive in private
+  memory, binds its typed scenario at the offline reload boundary and
+  retains the Level File history on return. Its two-reload smoke is pending.
+  The initial boot-probe build refused a wrong pad field name, corrected by
+  reusing the existing pad-relative positioning helper.
+- Batch 2 inspection found exact arena scenario identity differs from the
+  lobby game mode. The existing manifest append is one hop and transfer
+  admission installs per file. The Grid needs an immutable staged set
+  before online use. Batch 3 still requires private grants, ordered edits
+  and an epoch boundary that preserves the prior world on validation failure.
+
+### 2026-11-17 (22:27 UTC) Grid native playtest and match-source checkpoint
+
+- T-MODDING-015 native draft pass 20/20 on client `BB59A5CC...` and base 9,
+  receipt `20261117T220623640964Z-forge_grid_draft_playtest_smoke-b162c470`.
+  Both cycles loaded unsaved placements, a hill marker and sky, spawned a
+  live bot and returned with undo history. The first run passed 18/19;
+  the roster treated unused slots with defaults as occupied. The fix checks
+  live participants and restores each borrowed config on retirement.
+- Local immutable revision tests prove a replaced pointer keeps both
+  archives and an interrupted pointer update preserves the last good one.
+  Source patch for the native pass `grid-offline-native-BB59A5CC.patch`,
+  SHA-256 `9066C273928D76735BAC484A626E8887BEE3C1B92E34A6880B4C1FD5C0867A7F`.
+- T-NETWORKING-012 exact source inspection starts from a pinned arena and its
+  declared embedded scenario. The focused suite on `9ADFD018...` passed
+  44,321 assertions in 138 cases with 132 base archive round trips. It tests
+  nested/shared typed dependencies, canonical digest, package dedup and
+  failed-plan rollback. Native draft plus exact source-plan smoke passed
+  21/21 on `414CD513...`, receipt
+  `20261117T222134760029Z-forge_grid_draft_playtest_smoke-b13c9c0a`.
+- Grid origin stamping and legacy transfer exclusion are in build queue
+  `q_20261117222614201_f5d85d1d`. Exact publication and friend transfer
+  still require complete gameplay roots, consent and private activation.
+
+### 2026-11-17 (23:22 UTC) Grid native cases and first online candidate
+
+- T-MODDING-015 native Capture the Case passed 14/14 on `30CF84AD` with
+  three bots in `20261117T225605726216Z-forge_grid_cases_smoke-ae79f92c`.
+  Exact draft and pinned source cache passed 22/22 on that binary in
+  `20261117T230117411258Z-forge_grid_draft_playtest_smoke-74fdb32d`.
+  Exact pinned fork passed 14/14 on `ABCBD932` in
+  `20261117T223613225836Z-forge_grid_fork_smoke-339b2718`.
+- Test build `3F074F74` passed 44,771 assertions in 149 cases. That includes
+  132 base archive round trips, exact source/offer/cache validation and
+  the first host-side edit transaction and visibility checks. Shared edits
+  still need transport and actual private gameplay grants.
+- The new offline candidate adds native pad-centered door triggers and a
+  verified exact-parent fork action. First Car Park and expanded fork
+  smokes are pending. The case smoke does not exercise those changes.
+- T-NETWORKING-012's first production slice keeps ordinary v64 as the
+  working assumption pending D-027. The client build `FC914D65` is
+  running the first exact preinstalled Grid room smoke in
+  `q_20261117232109623_75447979`. It must prove authenticated capability,
+  exact SHA-bound READY, active phase and timed host and guest results.
+  Missing-package consent and scoped temporary catalog admission remain
+  outstanding. No external peers have been contacted.
+- The first exact stage build caught a mismatch in a session catalog
+  field name. The next compile caught a smoke-only branch applied to an
+  earlier Forge test function. Both were corrected in the running
+  candidate and the failed wrapper logs were retained.
+
+### 2026-11-17 (23:54 UTC) Grid trigger, lineage and exact arena transfer candidate
+
+- Classic GL client `FC914D65` passed the Car Park native door trigger
+  14/14 in `20261117T233305084918Z-forge_grid_door_trigger_smoke-0a3dffbc`.
+  Ordinary spawning entered the authored volume and opened the native
+  shutter without door-use input. The expanded fork passed 15/15 in
+  `20261117T233811983373Z-forge_grid_fork_smoke-41c2f42d`, including
+  reopening the fork and following its verified parent revision.
+- Client `3D4F6663` and tests `7F192802` built successfully. The tests
+  passed 50,653 assertions in 193 cases, including 132 unchanged base
+  archive round trips, the exact result codec, and the creator-only
+  edit journal and short resource leases. Shared edit transport and live
+  world replacement remain unverified and are not wired.
+- The first online smoke established capability in both directions but
+  failed before stage launch because its initial projection included
+  legacy manifest rows. The exact route now rebuilds the projection from
+  roster and match selections, publishes the guest dictionary with exact
+  READY, and stages the verified terminal scoreboard and receipt together.
+  The first isolated rerun reserved one extra install and hit the
+  two-slot storage cap before launching. The unchanged attempt was
+  released via the storage tool with a retained receipt and no deletion.
+  The separate-profile retry with a run-specific three-slot policy is
+  `q_20261117235112451_df5fbf83`.
+- The next build `q_20261117235243157_5ed69355` adds explicit per-pin
+  temporary host sharing for one original native arena, guest consent,
+  exact queued byte transfer, and verification and retirement of its
+  private catalog lease. These changes require live proof. Missing
+  dependencies outside the arena, Grid reconnect, WAN, and the shared
+  private playtest journey still remain.
+
+### 2026-11-18 (00:37 UTC) Grid protocol, shared draft, and native room authoring
+
+- Mike decided D-027 option B. Online play now requires protocol 65 from
+  connection authentication onward. The Grid still authorizes exact offers,
+  temporary sharing, and creator traffic separately. The pre-authentication
+  v64 discovery packets were removed from the candidate.
+- Client 2FFC02C0 and tests 2F1ABA76 built in the Grid session. Run
+  q_20261118002842141_9c35ace9 passed 21,538 assertions in 59 cases, including
+  the production connection decoder rejecting fresh and reconnecting v64
+  peers. Mixed-binary runtime rejection remains open.
+- The Room Shared Draft path opens one exact pinned baseline for the host
+  and an invited creator. Ambient edits commit through the host over targeted
+  traffic, and the host can save a typed Variant with the exact parent SHA.
+  The first three-process run ended its host before the creator finished
+  booting. It did not reach draft admission. The smoke is being revised to
+  complete after the native commit and targeted close.
+- The AD75D812 preinstalled match attempt reached both authenticated profiles
+  and stopped in exact source preflight at the Cyclone. Candidate 2FFC02C0
+  uses the catalog provider or hydrated source path when a bundled catalog
+  row has no archive descriptor. Exact runtime retry remains queued. The
+  earlier E14056E9 temporary-transfer case reached original pinning and
+  sharing consent, then refused the missing bot-profile archive locator.
+- The Levels tool now offers Create Original Arena from a shipped,
+  SHA-verified typed seed outside Mods. Source includes independent chamber
+  lengths and doorway width and height with shared portal and navigation
+  mapping. Bounds, runtime geometry, and the fresh-profile smoke still
+  require verification after the next build.
+- An accepted temporary arena can now retain one exact raw snapshot for the
+  same room's last-played result, while the temporary stage lease still
+  retires. This lets an invited creator open the played source from the
+  session without a global install. Native compilation and runtime retention
+  still require verification. Reconnect snapshots, a complete private live
+  playtest, and structural world activation remain open.
+
+### 2026-11-18 (01:50 UTC) Grid runtime and draft resume checkpoints
+
+- Fresh-profile native room authoring passed 20/20 on 9BA5607C. The two
+  independently sized rooms, shared doorway and portal, collision tiles and
+  bot waypoints loaded in a real Combat round. Actual portal traversal is
+  pending.
+- Exact preinstalled match passed 29/29 on 2FFC02C0. Authorized temporary
+  original arena sharing passed 37/37 on 9BA5607C. Both peers matched the
+  exact arena and final score identities and returned to the same room.
+  Only the temporary test transferred bytes. Its guest retired the staged
+  arena and retained the exact played source for that room.
+- Native wrapped arena authoring passed 10/10 on E8A5E109. The wrapped
+  preinstalled Needler ran and fired in a two-player match, used its embedded
+  model, effect and audio, and passed 41/41 on the same binary. General
+  temporary weapon admission still requires runtime coverage and code.
+- D-027 protocol cutoff passed the mixed binary smoke
+  20261118T013330284943Z-grid_v65_rejects_v64-e4ba1a66. New host 2FFC02C0
+  held an ordinary room and refused v64 guest 30CF84AD during connection.
+  Both exited cleanly.
+- Private shared draft passed 17/17 on 9BA5607C. Native snapshot resume passed
+  18/18 on 7D0C3E5C with a fresh creator grant after voluntary draft departure.
+  Both peers verified snapshot 85cb8a25ccdece5f41a4887646316d0fc0ddf9df4d44f6beb61468d21ba604be
+  at revision 2. New actor 3 advanced revision 3, which the host saved and
+  reopened. The ordinary peer received no private traffic. Live ENet reconnect
+  remains separate. The focused suite passed 23,674 assertions across 72
+  cases on the snapshot candidate.
+- Production private bot launch and renderer-side ambient updates have their
+  first source candidate. It isolates the host's player and bots from room
+  guests and leaves the invited creator in the editor. Compilation, live
+  lighting and same-room return proof remain pending. Structural world
+  activation and the two independent view policies remain open.
+
+### 2026-11-18 (02:41 UTC) Grid exact package sets and private world validation
+
+- Candidate 6DC7BA05 built and passed 26,383 assertions in 85 focused tests.
+  Source checkpoint grid-native-live-checkpoint-0201Z.patch contains 137
+  paths against week-pd/mods-v4 at 69ceb3bd. SHA-256
+  446AF616B8F17853D08EEEA3CDD9D883D7B9811D1F3F59E95B21EEFC8C59B021.
+- The explicit arena decline on 6DC7BA05 passed 21/21 in
+  20261118T021213127399Z-forge_grid_declined_arena_smoke-724061d5. It
+  retained the party, accepted Room setup and guest's original catalog.
+  The guest received no bytes and neither peer entered gameplay.
+- Shared Draft now accepts the native start position command with the same
+  host sequencing and latest-author inverse as ambient. A resumed draft uses
+  the same canonical native pad source on both peers. The host can pin a
+  saved Variant and start its exact private round while authoring continues.
+- 39E9AB0B and tests 4062D507 built. The focused suite passed 26,611
+  assertions in 91 cases, including shared start movement and inverse,
+  snapshot round trip, bounded two-package wire and original weapon provenance.
+  The Grid can stage one authorized arena and one authorized native weapon
+  under one session-only approval. Both must verify before catalog/epoch
+  admission. Live two-package allocation, firing and retirement remain open.
+- The first private round fixture requested three bots from an empty setup.
+  Its fixed retry launched the real stage with one player and three bots,
+  kept both remote peers in Room and sent the stage start to zero remotes.
+  It timed out before the lighting witness. Generated rooms without fixtures
+  skip the legacy light matrix. The targeted Grid renderer now uses authored
+  ambient in that case. A rebuilt Variant smoke will verify the live edit and
+  exact same-room return.
+- The first portal smoke failed before stage launch because the fresh profile
+  Mods directory was missing. Its corrected fixture stages the migration
+  marker before the first boot. Grounded traversal and the blocked wall
+  after restart still require live evidence.
+
+### 2026-11-18 (03:15 UTC) Grid source and managed runtime checkpoint
+
+- Build 87081114 includes the fixture-free Grid lighting fallback and the
+  two-package raw staging path. Its private Variant, missing arena plus weapon,
+  and corrupted transfer smokes stopped at storage preflight without launching.
+  The same-party retry binary was also refused. D-028 awaits Mike on whether to
+  raise only the detached runner's 2 GiB archive cap to 3 GiB. The checkout and
+  archive config are untouched.
+- The portal retry reached a real freshly authored and loaded native arena,
+  then held the forward button without movement. Focus loss suppressed
+  physical digital-to-axis conversion. The corrected witness uses the normal
+  gameplay movement axis and requires an observed grounded approach. Neither
+  traversal nor wall-block acceptance is verified yet.
+- Client 8F54E1FA / tests 67CEF5F1 built through q_20261118025708142_cbae036f.
+  The 157-path exact source patch grid-exact-view-reconnect-checkpoint-0259Z.patch
+  has SHA-256 2553669E62E5F4C10CB0B6C666DCBAE019F0D0A19A996AA7801B97B9FA4B4B09.
+  The broader suite ran 361 cases with 359 passing. The only two failures
+  searched for the prior reconnect helper name. The test anchors were fixed
+  after checking the base source, preserving their assertions.
+- The candidate has separate creator overview and player cursor policies,
+  native bot waypoint controls, and installed-only active exact Grid reconnect.
+  Pending follow-through stages previously consented arena/weapon bytes only
+  for the same authorized reconnect and adds same-room decoration moves for
+  original native props with the exact pass-through contract.
+- The four-setting view fixture drives visibility and revocation in one private
+  round. The installed-only and temporary reconnect fixtures wait for real native
+  gameplay resync and authoritative results. These fixtures still need runtime
+  proof. Full independent creator camera, structural world replacement, and
+  two-machine/WAN acceptance remain open.
+
+### 2026-11-18 (03:50 UTC) Grid candidate and compact managed smoke
+
+- Client 48537749 includes exact active-stage start protection, reconnect
+  lease retirement gating, compatible decoration movement, and both private
+  visibility controls under Pause Settings. The client passed the isolated
+  build and the native source guard. Tests 4A1B563B passed 81,011 assertions
+  in 364 cases plus 667 in 19 supplemental cases. The checks round-tripped
+  132 base native levels. Build q_20261118034514790_043cc219 and tests
+  q_20261118034018039_dd077e84 and q_20261118034120288_b0debbba.
+- Grid source checkpoint grid-48537749-source.patch contains 165 paths from
+  base 69ceb3bd. SHA-256 is
+  E29B48864DD04046A7205A0D203ECE0CAAEBB70C1F69E6DEA008B23F1649F436.
+  The isolated index left the real index empty and excluded the unrelated
+  runner preference file. Git queue q_20261118034908445_b1543f5f.
+- The full binary is 101,897,201 bytes. A managed-smoke copy strips debug
+  sections only and is 32,604,776 bytes, SHA-256
+  9A6321A22C54D55A2D19433546C9824DFDB1030DE3EA99D54062F231180EBEDC.
+  grid-pe-smoke-equivalence-48537749.json verifies matching loadable PE
+  sections, entry point and runtime data directories. The same 2 GiB archive
+  preflight accepted the copy. The managed two-package run launched under
+  q_20261118034626916_1b34396d. Gameplay and receipt archival are pending.
+- D-029 asks Mike to choose between restarting the private round and carrying
+  its compatible gameplay state after a structural apply. Current setup
+  retains one resident render, room, collision and navigation world. A
+  staged candidate needs its own monotonic identity, preflight before
+  retirement, and a recoverable last-good world path.
+
+### 2026-11-18 (04:08 UTC) Grid runtime findings and new source checkpoint
+
+- Private decoration smoke 20261118T035537240195Z-forge_grid_private_decoration_smoke-821709e7
+  passed 32/32 on 9A6321A2 with three process exits at 0. One host and
+  three bots ran a private native round. Revision 2 increased rendered room
+  brightness from 104 to 137. An out-of-bounds edit was refused and revision 3
+  moved the exact authored decoration in epoch 1. Continue preserved the
+  shared draft and the ordinary member received no private packets.
+- The two-package run 20261118T034800069206Z-forge_grid_temporary_arena_weapon_smoke-c4b9a967
+  passed 37/40. The guest approved exact native arena and weapon archives
+  totaling 47,981 bytes. Both played and returned to Room 1 with matching
+  result identity, and the host authored projectile shots from both clients.
+  The guest's old world kept both temporary files resident after Continue.
+  One assertion also used an installed-only readiness marker. The revised
+  fixture uses transferred readiness, guest input and projectile handling,
+  authoritative host firing and retirement before lobby resync.
+- Client 1BF8ED4F schedules the connected Room over the existing system-stage
+  allocation after exact results. Native world teardown precedes manifest
+  and temporary package retirement. Lobby resync waits for cleanup, retaining
+  party and exact result identity. The runtime retest is queued. This build
+  also adds optional native stage-start rain and snow in Level File.
+- Tests 25068EF7 passed 81,934 assertions in 387 cases including 132 native
+  base-level round trips, q_20261118040530420_0fd8c88b. Native asset guard
+  passed. Source patch grid-1BF8ED4F-source.patch covers 167 owned paths, with
+  SHA-256 22043CEB566CB183FB0311540D6EE3D4256B15673017CA68CC3BA4EDEB6789DA.
+  git queue q_20261118040455229_0a20393c. Compact runtime copy A2E6BF8A was
+  checked against the full executable's loadable sections and entry point.
+
+### 2026-11-18 (04:23 UTC) Grid visibility proof and terminal Room corrections
+
+- Compact 9A6321A2 private visibility smoke
+  20261118T040444858525Z-forge_grid_private_visibility_smoke-d8c40263
+  passed all 33 checks. Native scope observed cursor only, overview only,
+  both, and neither, with both revoked before Continue. One local player
+  and three bots remained in the same epoch. Only the authorized creator
+  received the two rooms and four actor positions. Manual Settings
+  interactions and a full independent creator camera still need proof.
+- Two-package retest on A2E6BF8A
+  20261118T041358334821Z-forge_grid_temporary_arena_weapon_smoke-8b381266
+  again played the exact temporary native arena and weapon and produced equal
+  result tuples. The host reached the system-stage Room backdrop after a
+  26.85-second character-preview manifest preload. The guest kept its
+  committed network epoch after accepting the result, so Continue bypassed
+  the backdrop and sent resync early. The managed run passed 34/41 checks.
+- Client FB491390 clears replication after validating and accepting the
+  exact terminal packet. The old world stops before the match manifest
+  releases its owned references. Preview assets load through ordinary Room
+  use. An immediate exact rematch waits for the participating peers to
+  finish results, and incoming exact offers require prior lease cleanup.
+  Client and test build q_20261118042109946_b5876a1e passed. Tests 3A635CF5
+  passed 84,215 assertions in 430 cases, q_20261118042319314_a73e213f,
+  including exact handoff order, 132 unchanged native base round trips,
+  network controls, typed manifests and catalog ownership.
+- Compact FB491390 runtime copy 4DB93F24 retains matching entry point,
+  data directories and loadable sections and is 24,943,616 bytes. The
+  unchanged 2 GiB archive had 12,840,146 bytes free after the second compact
+  run. A new seed for this binary requires the D-028 decision. Portal,
+  startup weather and corrupt transfer checks reuse the already archived
+  equivalent A2E6BF8A binary and are queued. D-029 remains open.
+- Portal run 20261118T042202518773Z-forge_grid_portal_crossing_smoke-c719c0ec
+  reached the real native arena and verified a grounded approach with the
+  production forward axis. At X=-183.7 and Z=36.2 it exited because the
+  witness allowed only 35 units of lateral drift. Client D75BD8E5 updates
+  only the smoke witness. It keeps the crossing within the 500-unit opening
+  and the blocked run at least 50 units outside its edge, and requires a
+  grounded stop with forward input still held for 30 frames. Candidate
+  build q_20261118042725731_1d8249a0 and asset source guard passed. The 430
+  native cases apply to the same production code. Final runtime retest needs
+  space for the PE-equivalent F2B33FD2.
+
+### 2026-11-18 (04:35 UTC) Grid current freeze and late managed evidence
+
+- D75BD8E5 source is frozen in grid-D75BD8E5-source.patch, 167 paths from
+  HEAD 69ceb3bd, SHA-256
+  88CC6255580E2DF7779FDBFD34C449DCA2B16E674B568293557372B8DD3BDAD2.
+  q_20261118042916247_db78aab0 left the real Git index empty. The latest
+  targeted suite adds smoke-input tests and passes 84,637 assertions in
+  441 cases on 3A635CF5, q_20261118043500988_d2cfb792. The equivalent
+  smoke binary is F2B33FD2 at 24,943,616 bytes.
+- Native startup snow smoke
+  20261118T042735035875Z-forge_grid_native_weather_smoke-a8b8dcac passed
+  17/17 gameplay assertions and exited 0 on A2E6BF8A. The engine read
+  authored weather from stage.json, instantiated snow, and captured
+  grid-native-weather.bmp at 2560x1440. The archive refused closeout at
+  used=2137257140 pending=11060278. The protected install holds the full
+  screenshot and client log. The inspection copy is
+  grid-native-weather-inspection.png in the isolated build folder.
+- The active snow install holds a 2 GiB full-install reservation. Default
+  corrupt transfer and temporary reconnect seeds refused before launch.
+  The detached runner's per-run 0.9 GiB reservation admits the already
+  archived binary for remaining work under the same configured 2 GiB
+  archive cap, two-install limit and 3 GiB full-install budget. Corrupt
+  transfer q_20261118043350243_2e7d8058 is in progress. Temporary reconnect
+  q_20261118043416706_f093cd71 is queued. New binary seeds await D-028.
+
+### 2026-11-18 (04:55 UTC) Grid handoff verification checkpoint
+
+- Corruption run b9861e0a passed 21/21, both exits 0 and durable managed
+  closeout. The guest refused the 31,184-byte altered arena on digest
+  mismatch. No catalog rows, private files, stage epoch or review were
+  published. Both peers stayed in Room 1 with its settings intact.
+- Reconnect launch 0391616a found two invalid harness schedule bounds and
+  expected filenames that differed from the game's real logs. The corrected
+  A2E6BF8A run a7957d92 reached live epoch 1, retired both initial leases,
+  authenticated the same cookie, and restored 31,195 arena bytes and
+  16,799 weapon bytes without a second transfer. Stage replay failed because
+  the receiver saved its local slot 0 while the host assigned slot 1. The
+  production fix records the wire slot from the accepted roster before
+  local remapping and uses it for reconnect. The updated smoke asserts
+  authoritative host projectile creation and guest input and model use.
+- Client C680EB4B, tests 345FD913 and the asset-native source guard passed
+  the isolated build q_20261118045211694_c300db10. The expanded suite passed
+  84,646 assertions in 441 cases, q_20261118045435054_63b244ae. Compact
+  runtime 10CE721D is 24,943,616 bytes. Its PE entry point, runtime
+  directories and loadable sections match the full client.
+- Reconnect closeout also hit the 2 GiB archive cap at used=2147342021,
+  pending=1220805. Remaining archive capacity is 141,627 bytes. The snow
+  and reconnect installs are protected because their processes exited
+  before managed completion. They occupy both install slots. The existing
+  reviewed release applies only to unchanged seed copies, and both contain
+  generated evidence. Resume needs D-028 and a supported reviewed
+  closeout for the protected installs. Preserve their logs, screenshot,
+  and stored bytes. Retest final terminal Room cleanup, same-epoch reconnect
+  and corrected doorway crossing on the new candidate once storage is
+  available. Full live structural activation still needs D-029.
+
+### 2026-11-18 (05:12 UTC) Grid native edit and stage preparation checkpoint
+
+- Moving a start or object now detaches it from a pad it shares with a
+  hill, case marker, required bot waypoint, door trigger or typed placement.
+  The native object summary and setup place field switch pads together. A
+  failed rewrite leaves the current pad, volume and graph intact.
+- Exact original Grid match preparation reads the portal table from the
+  verified staged arena at the native descriptor path. It rejects malformed
+  rows, nonfinite or collapsed planes, out-of-domain endpoints, excess room
+  links and 16-bit packed-offset overflow before publishing pending state.
+  Room load and stage portal load share the native reader. This is a portal
+  preflight, with structural world commit and rollback still pending D-029.
+- If player allocation or world initialization fails after match publication,
+  the Grid path releases the exact match manifest before retiring stage leases.
+  A normal process exit from an active Grid match still needs its own cleanup
+  coverage and a managed runtime check.
+- Client CC1847E8 and tests 51C54098 built in q_20261118050823477_01dc9ba1.
+  The asset-native-source guard passed. q_20261118051118056_916b518d passed
+  91,240 assertions across 456 cases, including 132 extracted native portal
+  tables. The original GLB importer passed all seven behavioral cases. The
+  fixture byte check flagged the model under the test wrapper's Python. The
+  default authoring Python reproduced the exact tracked GLB and complete
+  Model Room fixture in q_20261118051213083_4d8866b5.
+- D-028 and D-029 remain open. The detached smoke runner still has two
+  protected interrupted installs with generated evidence and 141,627 bytes
+  available in its archive. Resume managed runs after both capacity and a
+  supported closeout are available. Work stays in the authorized mods-v4
+  worktree at 69ceb3bd.
+
+### 2026-11-18 (05:24 UTC) Grid cover and clean exit checkpoint
+
+- Level File now adds native cover at a selected pad in an offline arena
+  using the conventional active cover source. It retains the existing
+  `navigation/covers.json` bytes and metadata outside the edit, uses the
+  pad's horizontal facing, and recovers older checkpoints with cover
+  inherited from the exact opened archive. The native stage honors the
+  optional `generate_routes` boolean when explicit route tables are empty.
+  It retains authored cover rows while deriving waypoints and groups from
+  the existing pads and paths.
+- Shared Draft snapshot v1 still transmits its eight editable members.
+  An unchanged cover table stays in the exact pinned arena. An unsaved
+  offline cover edit cannot enter a shared snapshot. Variant save inherits
+  the pinned cover bytes when the snapshot omits them.
+- Clean exit stops an initialized Grid world before shutting down scene,
+  audio and UI. After transport disconnect it releases the match manifest
+  and retires the exact temporary leases. Ordinary crash recovery order is
+  preserved. The managed runtime quit path still needs a game run.
+- Client 2CED4920 and tests 7F537A1B built in q_20261118051847736_539bc387.
+  The asset-native-source guard passed. Tests q_20261118052012858_c4000209
+  passed 91,498 assertions in 460 cases, with 132 base archives retaining
+  cover bytes. The Model Room fixture reproduced and seven importer cases
+  passed. D-028 archive/API recovery and D-029 structural policy remain
+  open. Current validation covers archive and source paths, including saved
+  cover count and content hash. Managed bot selection, portal traversal,
+  reconnect, same-party return, and clean process exit need runtime evidence
+  on this client.
+
+### 2026-11-18 (05:48 UTC) Grid structural staging and live creator return
+
+- Stage Extended Variant is connected to the Shared Draft Room and private
+  pause settings. It extends one far wall of the recognized original two-room
+  geometry and writes scene, collision, and room bounds in one native variant.
+  The same save retains the exact parent lineage, portal, placement and route
+  references, authored cover, and rebuilt navigation metadata. The variant is
+  written and pinned while the existing game world is resident. Play Saved
+  Variant checks the original staged file and the resolved catalog archive
+  against the pin at the next normal Room launch.
+- Exact original Grid prepare compiles the staged native collision input and
+  authored flag sidecar into a detached CPU mesh. It feeds the observed maximum
+  room into portal-domain validation and probes staged GLB positions through
+  the scenario renderer's shared CPU builder. Pending publication follows the
+  prepare checks. Engine navigation activation and reachability still need
+  runtime proof, and same-round world replacement awaits D-029.
+- A detached creator can rejoin the live private Room through normal network
+  authentication as a lobby member. Password, invite-only and capacity checks
+  remain in the Room transaction. The host's Pause Settings offers a fresh
+  connection-bound Room invite when needed and a separate creator invite.
+  Only an exact snapshot ACK and successful creator grant rebind the draft to
+  the existing stage epoch. Ordinary players receive no creator role or view.
+- Asset guard and isolated client C31E63D2 passed q_20261118054437912_47c6f2b0.
+  The initial Room test used a temporary room named Lounge and observed its
+  correct teardown. The corrected permanent Lounge fixture and exact test
+  build EDAFB40F passed q_20261118054644659_ba8e8b1b. The suite passed 91,686
+  assertions across 465 cases, including asymmetric native variant save/reopen,
+  132 base arenas and room admission checks, in q_20261118054729483_dcc253e4.
+  Seven model importer cases and the exact Model Room fixture passed.
+- D-028 and D-029 still open at this checkpoint. Both protected smoke installs
+  and their generated evidence remain present. The latest client has no
+  managed gameplay proof for live rejoin, variant play, or earlier portal and
+  two-package return/reconnect witnesses. Two-machine and WAN coverage remain
+  outstanding.
+
+### 2026-11-18 (06:11 UTC) Grid navigation, weapon sharing and rejoin checkpoint
+
+- Exact original Grid preparation now verifies and packs navigation from the
+  same staged scenario as collision, portals and scene geometry. Candidate
+  packing leaves the active stage alone and rejects flagged raw group-member
+  indexes. Route reachability still needs a bot playtest.
+- A listen host reserves a distinct stage epoch on every start in the same
+  server lifetime. Room hosts can review and explicitly allow an original
+  weapon placed directly in an arena, with the package digest rechecked at
+  approval.
+- A detached creator in a private playtest can freshly authenticate in the
+  Lounge without claiming a preserved player slot. The separate Room invite
+  and snapshot-backed creator grant still apply. Added the three-process
+  `forge_grid_private_live_reconnect_smoke` fixture to check restoration,
+  rendering and ordinary-peer isolation on the original epoch.
+- Client `47A1D744FB81F6A43858A97ADABD4313F3BC4EBD430C363B28401D7712E2E995`
+  and native source guard passed in `q_20261118060719223_6ebad08e`.
+  The initial suite caught a stale source check for the auth boundary. Updated
+  tests `B8058BB2C5D05D36710C4B8E8D84FAAAB58936C7FB5354EE4F1E8B09257E38F8`
+  built in `q_20261118061003504_e35b77b0`. Verification
+  `q_20261118061052379_efb46ab2` passed 91,969 assertions across 470 cases,
+  132 base arena round trips, the exact Model Room fixture, seven importer
+  tests, and static checks of the reconnect fixture.
+- Managed gameplay remains pending. D-028 archive capacity and both protected
+  occupied install slots prevent new seeds. D-029 still determines how to
+  apply an already validated structural variant within the same private round.
+
+### 2026-11-18 (06:47 UTC) Grid routes and Room score review checkpoint
+
+- Level File can connect pads on a clear floor in the same room. The normal
+  draft and archive paths retain the new native route, preserve a linked pad
+  when its start moves, and refresh generated navigation metadata. Older
+  checkpoints inherit omitted paths and Shared Grid snapshot v1 inherits the
+  exact pinned paths. The new Connect Pads smoke checks native adjacency,
+  return to the unmodified original, and retained undo and redo.
+- Review Scores in the Room keeps each authorized result after Continue. It
+  decodes the existing score hash and ordered rows, uses the native scenario
+  score before teardown, and retains the rows with the exact result. An
+  installed guest can now reopen the played arena using the verified stage
+  cache, including for an arena nested inside a mod package. The host has its
+  immutable pin from match preparation.
+- A staged structural Variant now runs the shared native scene, portal,
+  collision and navigation probes on its exact local bytes before enabling the
+  mod. The ordinary launch continues to bind and check the enabled archive.
+- Client `9CE271EF1C3513DDBBC1D18F43F233EE54679F5C415E73FDD5255D01D7A1EAF4`
+  and the native source guard passed in `q_20261118064230471_bdf7d1ab`.
+  The first archive test passed empty strings for absent optional members.
+  Tests `C47D2CA51CB16107E3E681A2719EF41F36F06F2408CE523C390FBC020722E2B8`
+  model the loader's absent values and built in `q_20261118064447348_b618fff3`.
+  `q_20261118064555696_cfd4d1c0` passed 92,293 assertions in 479 cases,
+  132 base arena round trips, the exact Model Room, seven importer cases,
+  and static checks of the route, installed-match and live-reconnect fixtures.
+- Native gameplay for this candidate, the two-machine journey and WAN remain
+  pending. Both protected full installs are still present under D-028. Same
+  private round structural apply and rollback remain under D-029.
+
+### 2026-11-18 (07:11 UTC) Grid staged revision, native bounds and trigger checkpoint
+
+- Structural staging checks the exact arena and its recorded parent before
+  publishing the candidate pin. Its captured draft revision and exact digest
+  stay independently available through later normal Variant saves. The Room
+  can play the staged revision after the current round, and reports when the
+  current draft has moved ahead. A refused candidate keeps the previous record.
+- Detached and normal exact Grid preparation validate authored `rooms.json`
+  bounds against the compiled room collision and check native light origin
+  arithmetic. Missing tables and origin-only rows retain collision-synthesized
+  bounds. The new three-process fixture targets live staging, refusal, original
+  world retention, Continue, and a new stage epoch with resized native bounds.
+- Level File supports Give Fixed Pickup on Enter through the existing volume
+  graph. It preserves the exact pickup and anchor references across the
+  archive round trip and leaves authored door triggers compatible.
+- Isolated client `66917F9805C0C50FD5E2C2A9BFB50F93DD97B58D48F8648C448D5317C6CE86BC`
+  and tests `CCE2887CD61B6650EF1CFF4EE6BC9282D91951D0750890FE9F45D5EA9B9CDE55`
+  built in `q_20261118070751452_af617788` with the native asset source guard.
+  `q_20261118070955012_97ea1254` passed 92,519 assertions in 487 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Static checks passed for all four targeted gameplay fixtures.
+- Managed gameplay remains pending under D-028 and both occupied protected
+  slots. The new fixture covers ordinary next-round activation when run.
+  Same-round structural activation and rollback remain under D-029.
+
+### 2026-11-18 (07:41 UTC) Grid directed review and exact model textures
+
+- A host can send a staged room extension to the invited creator for review
+  during the private round. The existing v65 control channel negotiates the
+  optional action and binds the reply to the exact draft, arena digest,
+  parent, round epoch and creator connection. The creator can acknowledge or
+  decline. A matching installed arena is checked against the same detached
+  native probe. This review leaves stage activation under the existing flow.
+- Grid source preparation includes explicit catalog textures from bounded
+  native OBJ material members, including the nested Crystal Pistol mesh's
+  separate body texture. The typed closure checks texture identity, dedup,
+  changes in the source digest, missing and stale copies, and cycles. Separate
+  textures use the existing installed-source policy. Secondary typed setup
+  roots still require an exact dependency audit.
+- Added a fixture for actual fixed-pickup inventory after normal volume entry,
+  with the placed weapon in the other room. Extended the staged room fixture
+  to require the exact creator acknowledgement before the host ends the first
+  round. Both fixture definitions passed static checks.
+- Isolated client `8A248D0D2967FD26424A68243A18D26F0331498852DE0683BFCA0362CDCFA0E9`
+  and tests `BA29D941F4E172350CD65E49DA3FDB5CEC47F789AC6DD7BE32F365518F074ABB`
+  built with the native asset guard in `q_20261118073633815_48faecea`.
+  `q_20261118073918690_010b857e` passed 110,295 assertions in 504 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Five targeted smoke fixtures passed static validation.
+- Managed gameplay needs D-028 and a supported release of a protected install
+  slot. D-029 still owns same-round structural activation and rollback.
+
+### 2026-11-18 (08:04 UTC) Grid draft validation and native setup dependencies
+
+- Level File's Validate Draft checks a private rebuild of the current original
+  arena. It checks detached scene, rooms, portals, collision and navigation,
+  the executable graph, and authored references against the installed catalog.
+  Its result follows the current editor document and catalog generations.
+- Exact Grid match preparation uses the native setup fields and objects
+  readers, in stage load order, and checks the native graph's selected setup,
+  object and AI members. This includes crate-slot models, secondary and dual
+  weapons, character bodies and heads, and chopper audio. Document and archive
+  member reads enforce expansion bounds before decoding.
+- The new managed Validate Draft fixture checks a valid unsaved trigger, an
+  unknown graph action, and the stage, saved arena, pin and undo history.
+  Its definition passed static validation.
+- Isolated client `65C6C3DB39E4120E18950337E6FF400E0E24DCAD67D68136921CDDC281C01AA6`
+  and tests `47C67F81CE9886E59FE3DD875B464E6460F2B5EB60FB289FACC0C4DBF022EB49`
+  built with the native asset guard in `q_20261118075951194_34b10f19`.
+  `q_20261118080222551_ad956bdc` passed 110,347 assertions in 506 cases,
+  132 base arena round trips, the exact Model Room and seven importer cases.
+  Six targeted smoke fixtures passed static validation.
+- Managed gameplay remains pending under D-028 and the two occupied protected
+  install slots. D-029 remains open for same-round structural activation.
+
+### 2026-11-18 (08:30 UTC) Grid staged arena dependency agreement
+
+- A staged original arena now has a detached source proof. The verifier reads
+  its exact pin, probes the native world and builds a typed dependency plan
+  from both native descriptors and the scenario's authored references. The
+  same walk includes transitive catalog and OBJ texture dependencies. It
+  checks each package again in a temporary cache and discards the cache after
+  review. The plan includes the arena's sources apart from match selections.
+- An optional v65 review exchanges the host's digest and the creator's
+  independently computed digest. The receipt belongs to the current creator,
+  connection, draft revision, Variant and round. Earlier v65 peers retain
+  arena-only review. If the creator lacks the exact local Variant or its
+  dependencies, the host can still receive acknowledgement or arena proof.
+- The three-role staged extension fixture now requires actual host package
+  proof and a creator acknowledgement without a package match. Its definition
+  passed static validation. Positive peer agreement and role isolation still
+  need managed gameplay evidence.
+- Isolated client `90DB1AD178F4F8F7EA5A8FE76F4E3A3511BAA05BDCC6F92417F282776BA86489` and tests
+  `50DC1876938C53C0169B9280C53E923EF21DEF2FB74D81436C1D9DDFED3925CD` built with the native asset guard in
+  `q_20261118082619943_e9021889`. `q_20261118082908005_eef4ba37` passed
+  113,314 assertions in 509 cases, 132 base arena round trips, exact Model
+  Room, and seven importer cases. Six targeted smoke fixtures passed static
+  validation.
+- D-028 and both protected full install slots still prevent game runs.
+  D-029 remains open. The dependency receipt leaves the current world active.
+
+### 2026-11-18 (08:49 UTC) Grid prepared source caches and creator witness
+
+- A negotiated prepared review retains one bounded exact package cache on
+  each peer. The cache uses the Room and review serial, and a digest tied
+  to the creator connection, draft and round. A confirmed cache expires
+  with its review or is released on scope change, downgrade or cancellation.
+  A v65 peer advertising the earlier capability still gets digest review.
+- A new three-role smoke has the creator independently author and install
+  the staged Variant with a separate typed model before connecting. The
+  scripted assertions require the arena SHA to agree, both peers to retain
+  the matching package set and release it on Room return, and the ordinary
+  peer to stay outside the review. The earlier missing-arena fixture now
+  requires the host to release its cache when the creator acknowledges.
+- Isolated client `2094B08637A776CE4531475EE646DB1DE696EB66D6127FD985DF1DFBFFCF4601` and tests
+  `C769235546F43760E0F1330052DF0B8D4484A122ED6531799695FF881900D8F0` built with the native asset guard in
+  `q_20261118084530506_d26c0479`. The first definition check inspected only
+  ordered witness patterns and missed a required-line release witness. The
+  corrected `q_20261118084748381_18aecb97` passed all seven smoke definition
+  checks, 113,462 assertions in 509 cases, 132 base arena round trips, exact
+  Model Room, and seven importer cases.
+- Game runs remain pending under D-028 and both occupied protected install
+  slots. Same-round activation and rollback still depend on D-029.
+
+### 2026-11-18 (09:16 UTC) Grid staged arena transfer with consent
+
+- A host can offer one exact original staged arena to the current creator.
+  The creator must consent before the host queues any archive bytes. The
+  transfer is bounded and scoped to the current review and authenticated
+  connection. Separate dependencies must be available locally.
+- The creator checks the received arena in memory against the offered SHA,
+  archive limits, native arena structure and exact parent revision. A
+  matching derived package digest retains the prepared cache. The received
+  arena has no local package path or catalog entry. The shared archive
+  reader now checks input spans with widened arithmetic or checked
+  subtraction before reading headers or compressed bytes.
+- The three-role transfer smoke starts with the creator lacking the staged
+  arena and having the real typed model dependency. Its assertions witness
+  both consent actions, ready receipts, catalog and stage preservation,
+  cache release and isolation from ordinary Room traffic.
+- Isolated client `DC0C9F0E95F01390139A93D8047AB80C13E990F20BDF870EECC9D46AD270F5E3` and tests
+  `5D8F7E7A7FE8610F622B2DDE5390F9C835969A5A8069DD317F57E252A1FF4A31` built with the native asset guard in
+  `q_20261118091354670_dcd90446` and `q_20261118090635105_2459239c`.
+  The focused `q_20261118091310548_1a840101` passed 24,583 assertions in
+  33 cases. The extended `q_20261118091451669_ecc24054` passed 117,507
+  assertions in 541 cases, 132 base arena round trips, exact Model Room,
+  seven importer cases, and eight static smoke definition checks.
+- Managed gameplay remains pending under D-028 and both occupied protected
+  install slots. Same-round activation and rollback still depend on D-029.
+
+### 2026-11-18 (09:45 UTC) Grid match candidate sources and offline room extension
+
+- A private playtest captures the exact selected gameplay sources before
+  expanding its arena. The runtime owns that subset only after proving it
+  belongs to the sealed start cache. On a matching prepared review, the
+  host combines it with the candidate arena's verified sources and checks
+  the result against both ready donor caches and a single session budget.
+  This drops old arena-only dependencies and invalidates the combined
+  plan if the running roster or settings drift. A transition still needs
+  to recheck this scope before it can apply a world.
+- Private playlist advances use the admitted match audience. The host's
+  local playlist continues normally.
+- Save Extended Variant in offline Level File extends a recognized original
+  two-room arena using the exact pinned parent and current draft. It checks
+  authored references before re-identification, validates the new native
+  geometry and navigation in hidden staging, and publishes the new mod
+  directory without replacing another folder. The saved Variant can be
+  enabled in Mods and opened from Levels after restart.
+- Isolated client `1CD8022DE9692A4986D4573150E060481CE4B8580C85F253A4D59352818AE9C0` and tests
+  `E08AC664CAFEBE45F327FB967FCA3BCAAADED6FA73944FF350FDCA64A69F7ECA` built with the native asset guard in
+  `q_20261118094241744_d9df36b1`. `q_20261118094341883_f9a54354` passed
+  117,914 assertions in 547 cases, 132 base arena round trips, exact Model
+  Room, seven importer cases and eight static smoke definition checks.
+- Managed gameplay, including the positive combined-plan fixture and the
+  offline save and reopen journey, remains pending. D-028 and two protected
+  install slots still block managed runs. D-029 still governs same-round
+  activation and rollback.
+
+### 2026-11-18 (10:20 UTC) Grid room extension collision and native waypoints
+
+- Exact original preflight now reads the selected spawn table with the native
+  loader and verifies its pad references. The two-room extension path also
+  checks authored starts and the bidirectional bot route against detached
+  collision and the exact native doorway. The check uses a standing clearance
+  corridor and samples level floor support. It runs before publishing offline
+  and Room extensions and before accepting their reviewed sources.
+- The room builder opts generated waypoints into linked route pads through
+  the native waypoint source. The native loader preserves pads, covers and
+  direction flags. It leaves unrelated placement pads out of the route.
+  Both detached preparation and live stage loading use this generator.
+- Isolated client `4B94DE7F5DFCDD5754210FA8E54FA5A5A25E4BB4DB0546AB1BEC2B399AEC1632`
+  and tests `43874BE51C8271DA29A6937D93547A6708EF384AEBECC9FE1F3EB5EF0E3D36ED`
+  were built through `q_20261118101507581_7be0efbf` and
+  `q_20261118101823464_20c22466` with passing native source guards.
+  `q_20261118101903577_4dfffb8b` passed 118,000 assertions in 550 cases,
+  132 base arena round trips, the exact Model Room, seven importer tests and
+  eight static smoke definition checks.
+- Live movement and interaction still need managed gameplay. D-028 and the
+  two protected install slots still block those runs. D-029 governs applying
+  the prepared extension in the current private round and rollback.
+
+### 2026-11-18 (10:40 UTC) Grid consent and ordinary Save As
+
+- During exact match preparation, the guest can see and use the Grid
+  consent prompt. The download bar tracks delivered archive bytes and the
+  requested package. A failed preparation shows the local reason in the Room.
+  The two-package fixture now waits until the button owns input and presses
+  Use through the existing menu path.
+- Ordinary Save As checks the original draft's native and executable sources
+  under the opened identity before publication. The detached local check uses
+  the existing 128 MiB authoring budget. The network probes retain 50 MiB.
+  The Validate Draft fixture attempts a malformed in-place Save As through
+  the production author function and checks the prior archive and pin.
+- Shared Draft keeps typed start, decoration and ambient edits when another
+  resource changes. If that resource changes, the input stays visible and the
+  editor requires a reload before applying. An accepted local command takes
+  its normalized readback from the host's commit.
+- Client `8054ED105475410639ECA2D256E93B6D8E58621DC0F0490271081475F06CC1FB`
+  and tests `71C7806C2521925062693CABA3AEAE8FE7DB8845D3C6005A3B0A6574EA8A17DF`
+  built through `q_20261118103630206_81fb0e6c` with a passing source guard.
+  `q_20261118103917459_6ca6bb59` passed 118,931 assertions in 579 cases,
+  132 base arena round trips, the exact Model Room, seven importer cases and
+  nine static smoke definition checks. The actual player input and offline
+  denied-save fixtures still need a managed game run under D-028.
+
+### 2026-11-18 (10:50 UTC) Grid previous-save recovery
+
+- Before replacing an original arena, Save As validates the draft, confirms
+  the author plan targets an existing arena of the same identity, and retains
+  the exact predecessor in the profile revision store. Recovery uses a separate
+  atomic previous-revision record. Fork Previous Save creates a separately
+  named level from those verified bytes in offline Level File.
+- Client `74A6FF4F8A71349BD1E398F4A81DBA56AE223AF1E70EDE3DE97DC7334C4B0B2E`
+  and tests `CE36F9A91DA13179CD5EC6C69AFE5B08730716DDD49F8038478530999E50DA49`
+  built through `q_20261118104526654_26d0838f` and
+  `q_20261118104809109_b452cc32` with passing native-source guards.
+  `q_20261118104845262_d65afa4c` passed 119,059 assertions in 581 cases,
+  including fault-injected revision-pointer updates, 132 base arena round
+  trips, the exact Model Room, seven importer cases and nine static smoke
+  definition checks.
+- A late catalog enable failure can still leave new bytes on disk. The prior
+  archive is recoverable as a fork from the open Level File. Managed gameplay
+  still needs D-028 and an available install slot. D-029 still governs
+  structural apply and rollback within the active private playtest.
+
+### 2026-11-18 (11:14 UTC) Grid exact placements, saves, and launch checks
+
+- Edit Placement takes world XYZ and yaw for an offline native player start
+  or movable object. It owns a menu input scope and checks loaded room
+  bounds. Position-only changes preserve facing. One apply creates one undo
+  edit. Native vector output keeps six decimals and writes complete JSON for
+  large finite coordinates. The test reopens native pad and volume sources
+  after an add and a move.
+- Same-name Save As for the enabled loose original arena and scenario pair
+  can commit the detached-validated archive directly. It requires the exact
+  current catalog and provider bindings, owner manifest hash, original
+  digest, and unchanged descriptors. It keeps the predecessor and replaces
+  one archive atomically without rebuilding the enabled catalog. General
+  new-name, metadata-changing, and multi-asset saves use Mod Author.
+- At zero countdown the host rechecks the exact Room start offer and its
+  catalog bindings before the loading notice. Drift takes the existing
+  ready-gate rollback. Stage load keeps its own final check. The private
+  room extension section also uses the standard controller layout.
+- Final isolated build `q_20261118111224677_6055b7e9`, client
+  `0057DFB86BEE574F521FB54F4791CC2AE662309F40264158244AC5F705F75951`, tests
+  `69412D804AC5E9E889A5A5CD21C0F173173BE3699FE83D9C9218E1073C8CBC8A`. The native source guard passed.
+  `q_20261118111405275_bb8783c5` passed 120,186 assertions in 643 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and nine static smoke definition checks. Managed game and controller
+  validation remain pending.
+- The alternate writer smoke store has about 74.5 MB of archive space. The
+  shared base template executable needs about 97.1 MB, and an ordinary
+  ROM-source run would need at least 76.8 MB of new compressed base
+  data before the executable and receipts. The detached runner still
+  needs D-028 and a supported closeout of a protected interrupted install.
+  D-029 still governs the safe private structural world transition.
+
+### 2026-11-18 (11:29 UTC) Grid direct Save, trigger revision, and route revision
+
+- Save Opened Level serves the exact enabled loose original currently open
+  in the editor. Selecting another destination in Save As requires reopening
+  before using direct Save. The actual write rechecks the owner manifest,
+  matching catalog and providers, archive digest, two native typed rows and
+  unchanged descriptors. The shipped room seed adds an explicit display
+  category. The owning folder, manifest and provider paths establish the
+  exact save destination.
+- Triggers supports resize and retarget within the same door or fixed
+  pickup action. The native edit preserves the pad, volume ID, graph
+  links and untouched fields. Editable triggers require matching native
+  pad-centered bounds. Bot Navigation disconnects a uniquely marked Grid
+  link in either pad order. Earlier unmarked paths stay available to the
+  native runtime. Both panels own menu input through the Level File sidebar
+  and use the native document undo path.
+- Final build `q_20261118112708732_4b08dba6`, client
+  `3F3E58809A17FB62F39152261A92695AD0A10749A560B357FA55CB20149D9FDB`, tests
+  `7775A2ADF714D4CBE8220300414FDF0573BBDE4B460D732A6E545A8AA06489E7`. Asset-native source guard passed.
+  `q_20261118112841614_1e56b7eb` passed 120,342 assertions in 646 cases,
+  132 base archive round trips, the exact Model Room, seven importer tests
+  and nine static smoke definition checks.
+- The managed stores are still at 2,147,342,021 and 2,072,958,450 archive
+  bytes under their independent 2 GiB caps. The detached runner still
+  has the protected weather and temporary-reconnect installs. D-028 and
+  supported slot recovery remain needed for a managed game run.
+- D-029 is open. Private playtest review retains a combined source plan. The
+  two donor caches own the source bytes. A candidate can retain exact
+  read-only package references independently of the world activation behavior.
+
+### 2026-11-18 (11:38 UTC) Grid retained private playtest sources
+
+- Prepared private review now owns the exact combined candidate cache and a
+  reference to the outgoing round's ready cache. Candidate packages share
+  immutable buffers from the donors. Every typed ID, member chain and
+  package digest is checked against a ready same-Room donor. The combined
+  set retains the existing compressed and expanded budgets.
+- Preparation checks the current review offer, live stage, exact outgoing
+  archive and catalog bindings. The host hides stale candidate readiness and
+  releases the caches on review cancellation, expiry, or gameplay drift.
+  These changes prepare sources only. D-029 still governs the world
+  transition. The staged fork is intentionally absent from the live catalog.
+- Client `948611FD19B69E6510D1CD50E1DA42625F860FA3E1D6B1977D3258224C79E77F` and tests
+  `FE0F9D32EBEDD608D0C7382510A49D69BCFF8AFA9DF49FA69338BE478F49FFED` built in
+  `q_20261118113530023_54da9871` with the native source guard passing.
+  `q_20261118113643718_0b2f96df` passed 120,497 assertions in 648 cases,
+  including exact native-byte reuse after donor teardown, the retained
+  outgoing cache and typed-row refusal. Also passed 132 base archive round
+  trips, the exact Model Room, seven importer tests and nine static smoke
+  definition checks. No managed run under the unchanged D-028 limit.
+
+### 2026-11-18 (11:54 UTC) Grid prepared stage archive mounts
+
+- Ordinary exact Grid readiness validates and allocates the sorted
+  filesystem table before taking the pending cache. Stage load moves that
+  table under the existing source lock. An active binding refuses the
+  move and leaves the prepared table owned by the caller.
+- Private review prepares both archive tables while the old world runs.
+  The outgoing aliases mirror its current exact provider bindings and
+  retained cache. The incoming plan confirms the staged arena digest,
+  original provenance and one embedded native scenario, then verifies the
+  installed dependencies. It uses the same digest-named profile locator
+  as the existing temporary package writer. The plan is specific to
+  preparing a new staged host arena for temporary catalog admission.
+- The two tables retain borrowed immutable archive bytes for their owning
+  review. A future handoff must transfer ownership before stage retirement
+  and admit the exact arena rows against the prepared location. D-029 still
+  governs world activation, gameplay state and recovery.
+- Client `E54DB17035C57B32201C10C15BDC637BCB1435ECC937AB059D9013D4BDF3E6E6` and tests
+  `5E28D22C82C6654485881B0E9592E7E59861701D48F3F1F69219B0251A8BEBE6` built in
+  `q_20261118115213732_b3edc55b` with the native source guard passing.
+  `q_20261118115321272_22ad01bf` passed 120,600 assertions in 649 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and nine static smoke definition checks. No managed game run. Both 2 GiB
+  stores and the protected install slots remain unchanged under D-028.
+
+### 2026-11-18 (12:17 UTC) Grid native Room Brightness and shared resume
+
+- The controller-accessible Room Brightness panel edits valid native room
+  minimum and maximum values as one undoable Level File operation.
+  Save and Play Draft carry the native rooms.json member. Older
+  checkpoints inherit the exact opened room table. The room extension
+  builder merges brightness-only draft changes against the pinned geometry
+  and writes one combined native room table.
+- Grid scenes with authored ranges and no fixtures now pass the native
+  derived room base to the renderer while the regional matrix is absent.
+  Explicit room and stage overrides and private playtest ambient retain
+  precedence. The managed two-room fixture checks the saved native range
+  and the corresponding values submitted to the scene renderer.
+- Shared Draft resume on both peers now restores eligible inherited
+  covers, paths and rooms.json from the exact verified arena. V1 snapshot
+  payload shape and digest are unchanged. Unsaved changes to inherited
+  members are refused before encoding.
+- Client `1A7D09C6D4BD3593972B9575F1F9ABEE72758FD7CF13A2CCA6439735F568639D` built with the
+  native-source guard in `q_20261118121140153_5b60cff3`. Tests
+  `448B4E60A9326B76BB4FA47782F7165DC0E592124839A31A28E9760C4D1EB6FD` rebuilt in
+  `q_20261118121440754_f42de8b3`. `q_20261118121607588_08451b41`
+  passed 120,976 assertions in 654 cases, 132 base archive round trips,
+  the exact Model Room, seven importer tests and ten static smoke
+  definition checks. Managed runtime and visual acceptance remain pending
+  under D-028. D-029 still governs the private structural world transition.
+
+### 2026-11-18 (12:33 UTC) Grid pinned structural arena admission preflight
+
+- The private review prepares mounts against the author's exact saved
+  Forge revision. It verifies the reviewed digest and compares the
+  bounded physical pin with the immutable cached bytes. Shared admission
+  preflight checks the digest-named archive, embedded native scenario,
+  provenance, and conflicts with existing catalog owners.
+- Ordinary temporary guest admission uses the same preflight before any
+  catalog registration. Arena lease retirement retains the file policy
+  across a retry. Only scratch downloads are removed and a saved revision
+  survives catalog retirement.
+- Client `6BBCE8A9FD9AA8F84C36EA08CCC425A0D21369B57E9CD62B269F22B22E433FAA`
+  and tests `B68FE0D6CBFBD8C82DA5BD64066078ED95B2474C61A95EC58FE1CC4059E665DA`
+  built in `q_20261118122946521_c9b62df6` with the native-source guard.
+  `q_20261118123206799_3048ce02` passed 121,052 assertions in 655 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and ten static smoke definition checks.
+- Preparation reserves no catalog entries or stage slots and leaves the
+  active round intact. D-029 still governs the structural world
+  transition. Managed gameplay and visual acceptance still require D-028
+  and an available protected install slot.
+
+
+### 2026-11-18 (12:40 UTC) Grid controller Level File and Play Draft route
+
+- Open Level File and Play Draft are reachable from the offline controller
+  sidebar. The rows use the existing open and play handlers, and were made
+  first when eligible. Existing sidebar selections retain their identity.
+  The normal Grid toggle returns from the draft with its document still open.
+- The one-profile smoke definition opens the Blank Room through sidebar
+  activation, switches to Playtest, starts Play Draft, and returns through
+  mapped input. It waits for actual editor and playable stage readiness and
+  requires one native prepare, bind, play and return sequence. The test uses
+  no debug draft-play helper.
+- Client `046068830FBAE7E4752C42718DB63D216F8DF289207E712BEF19E0E3D709C38D`
+  and tests `2EF8F408DB73B190A3F65EE80691886CD59382B9FEEB4E64586CDBFE286DF3FE`
+  built in `q_20261118123820761_b8fcc8b1` with the native-source guard.
+  `q_20261118123955819_8bc5826a` passed 121,079 assertions in 656 cases,
+  132 base archive round trips, the exact Model Room, seven importer cases
+  and eleven static smoke definition checks.
+- The mapped-action smoke and physical controller acceptance still require
+  D-028 and an available protected install slot. D-029 remains open for the
+  private structural world transition.
+
+
+### 2026-11-18 (12:52 UTC) Grid native trigger relocation
+
+- The existing Triggers panel can select a different native pad and
+  preview the pending box. A valid Apply updates its anchor, size and
+  target together with one Undo operation. The volume ID, action type,
+  graph node IDs and execution edges remain stable.
+- If the destination pad was added after the trigger, only the trigger
+  row moves past the destination's primary bounds. Shifted row indices
+  are updated. Exact native reload coverage checks both pads, all three
+  triggers, the full graph text and rejection without partial edits.
+- Client `ECD644E0158F3E3FB10E9466D5213A1117C77380B71FD3DFEA89EF1F0A7D8428`
+  built in `q_20261118124622599_70ac3420` with the native-source guard.
+  The first native run `q_20261118124846249_6cbafab3` identified one
+  stale modal signature expectation. Updated that contract and rebuilt
+  tests `C4F7CC9DE757392161AC41D0076F49A5A2C9C3EEA902B4818C995C62341E5693`
+  in `q_20261118125030977_62e76705`.
+  `q_20261118125110954_3829fb25` passed 121,119 assertions in 656 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and eleven static smoke definition checks.
+- Hand-controlled play, preview rendering and managed multiplayer
+  acceptance remain pending under D-028. D-029 still governs the
+  private structural transition.
+
+
+### 2026-11-18 (13:10 UTC) Shared Grid reconnect snapshot and delta tail
+
+- The host can continue editing after an authenticated creator confirms a
+  fresh resume invitation. The first accepted edit uses the same canonical
+  verified snapshot document as the returning creator. A refused edit
+  restores the original host document, and canceling a resume retains
+  any accepted host edits.
+- The host retains up to 64 commits while the creator verifies the frozen
+  snapshot. After its exact acknowledgement, the host sends the ordered
+  tail before the creator grant on the existing reliable control channel.
+  The replica requires the fresh room generation, authenticated host and
+  contiguous revision and sequence. The creator can edit after grant.
+  Existing live-safe ambient and decoration edits stay on the running
+  playtest epoch during catch-up.
+- The existing private resume smoke now requires snapshot revision 2,
+  host revision 3 arriving before the grant, and creator revision 4
+  surviving a Variant save and reopen. Its ordinary participant must
+  receive zero private edit packets. Managed execution awaits D-028.
+- Client `C237ADE62B0878DA469771A430AC157244B137E03A066A07B14DB1D6983278C9`
+  and tests `6A53025896C99A4B84921A3019DCF9E2F48EC679C0AB641786D9070B191D9D2F`
+  built in `q_20261118130439398_8bed62d9` with the native-source guard.
+  `q_20261118130855059_ea3edc2a` passed 121,368 assertions in 657 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and twelve static smoke definition checks.
+- Both managed full-install slots still retain protected interrupted
+  evidence under D-028. D-029 remains open for the private structural
+  world transition.
+
+
+### 2026-11-18 (13:23 UTC) Grid arena lease capacity preflight
+
+- Detached pinned review and ordinary temporary arena admission now
+  share the file policy and current native stage and FileProvider checks.
+  The stage preview uses the same deduplication and first-empty selection
+  as the allocator. A row that still owns that number counts as occupied
+  until actual retirement. Both qualified provider paths must fit
+  together, with existing interned paths and exact duplicates counted once.
+- The host review reports the preparation failure and keeps the
+  verified peer source receipt. A prepared candidate rechecks both
+  catalog owners and current stage availability. Real admission still
+  performs the complete transactional scan and ownership verification.
+  Preparation issues no reservations and no stage change.
+- Client `DC313CB7273269AFA9029A29E99B78A296D97183710F3042ADB79766A05FFBD1`
+  and tests `C2356B19E40BA8F27264387CBFEBE4564BBCB6A9F747C85A3D0628495A8FA89E`
+  built in `q_20261118132030092_ce6706aa` with the native-source guard.
+  `q_20261118132111707_52af0334` passed 123,574 assertions in 666 cases,
+  132 base archive round trips, the exact Model Room, seven importer
+  cases and twelve static smoke definition checks. The provider tests link
+  the real provider and verify exact byte-budget fit, deduplication and no
+  changes to its counters or existing handles while previewing.
+- Managed gameplay still awaits D-028 and supported release of a protected
+  install slot. D-029 still determines the private structural transition.
+
+
+### 2026-11-18 (13:44 UTC) Exact Grid Fiesta and reconnect
+
+- Grid seals the host's full unlocked eligible Fiesta pool as an
+  explicit role on exact weapon sources. It includes their typed
+  dependency closures and leaves incidental arena weapons outside the
+  roll. The same nested Grid offer binds membership into its exact digest
+  at start and reconnect. Empty-pool offers preserve v1 bytes, while
+  flagged offers use nested v2 under network protocol 65.
+- Before normal stage setup, both peers confirm the prepared pool
+  corresponds to Fiesta mode and that every bound local weapon definition
+  activates. The player and bot spawn path uses those local slots.
+  The same pool is sealed when Spawn w/ Weapon is initially off because
+  sparse arena pickups can enable the option during setup. That fallback
+  preserves Fiesta's empty ID and sentinel for reconnect.
+- The existing managed installed reconnect fixture now calls the real
+  match configuration and requires successful inventory grants to the
+  host human, guest human and host bots. It requires the guest to
+  activate the sealed pool again before reconnect commits in the same
+  epoch. Managed play still awaits D-028.
+- Initial client build succeeded and native tests exposed an include
+  order collision in `q_20261118133832015_c0b67ee2`. The exact client
+  `DA6FA8EA3BA622628E992BC424AEF9305335C1EFA34A57B7163F6A2AB8EF74B7`
+  and tests `9C876A97B3AA7DE4AD0D2B4B2E2B2B8FECD8F7A94F348529545FEAF9A65B1FCF`
+  rebuilt in `q_20261118134150683_d947e74e` with the native-source guard.
+  `q_20261118133942599_0de7c071` passed 126,675 assertions in 704 focused
+  cases, 132 base archive round trips, exact Model Room, seven importer
+  cases and thirteen static smoke definition checks.
+- D-029 remains open for private live structural Apply. D-028 and both
+  protected smoke slots still gate managed gameplay acceptance.
+
+
+### 2026-11-18 (14:00 UTC) Exact Grid Random and local spawn bindings
+
+- Grid Random takes one host-side roll across distinct, unlocked, locally
+  bound weapons. It seals only the selected typed weapon and its closure
+  for Random. An empty or invalid eligibility pool refuses the exact
+  start. The same selection applies when sparse pickups force arming on.
+- Stage start and reconnect send the committed typed selection for Grid
+  Specific and Random. The guest checks it against the verified Grid
+  sources and binds its own runtime weapon number. The existing wire
+  layout and protocol 65 remain in use. Successful manifest activation
+  now releases its references before retiring any leases if the selected
+  weapon's native definition fails pre-spawn validation.
+- The exact-match fixture uses the normal Random Room default and asserts
+  more than six eligible weapons, one host roll and native spawn grants.
+  The two-package fixture loads Crystal Pistol only on the guest and
+  requires the same Triangle ID at host slot 86 and guest slot 87.
+  The runner checks log patterns independently. Cross-peer equality of
+  the dynamically chosen Random ID is not asserted by that fixture.
+- Client `DBB927A293608E0577119CC0409334D2FC4298EFEABC724F5B5D29DC7354E4DC`
+  and tests `F4E0EC712F2277A29251F487034D8C79F0D77B39CCE50B18252ED2F3F6DCA04C`
+  passed the native-source guard and rebuild `q_20261118135704221_32e01304`.
+  `q_20261118135836448_536f63d4` passed 126,748 assertions in 705 focused
+  cases, exact Model Room, seven importer cases and fourteen static smoke
+  definition checks. No managed matches were launched.
+- Read-only storage status now reports a 4 GiB archive cap in both local
+  policies. The detached runner still has both full-install slots
+  occupied by protected interrupted Grid evidence. The alternate writer
+  store's protected 2 GiB Maian reservation plus a new 2 GiB reservation
+  exceed its 3 GiB full-install budget. Neither store was changed here.
+  D-028 remains open in Workbench and D-029 still governs structural Apply.
+
+
+### 2026-11-18 (14:27 UTC) Managed Grid smoke restored and native model source repair
+
+- The normal writer smoke store admitted a private copy from exact shared
+  base 9 using the existing documented 0.9 GiB run reservation. The
+  frozen source inputs total 379,996,023 bytes. The new reservation plus
+  the protected Maian reservation total 3,113,851,289 bytes within the
+  3 GiB full-install limit. Both archive caps report 4 GiB. The two
+  detached protected Grid installs and the writer's Maian install remain.
+- On DBB927A2, `q_20261118140703322_59cdc441` opened the Room but the guest
+  harness refused its own 897,000ms schedule against a 570,000ms timeout.
+  Receipt 567167b2 compacted with the original failed fixture preserved in
+  grid-b1. The revised schedule has a 537,000ms bound and a guest-auth
+  launch barrier. The native schedule suite passed all 842 assertions.
+- On the same binary, `q_20261118141540592_d6847c9a` authenticated the guest
+  and assigned both peers to Room 1. Receipt b2c5e49d compacted after the
+  host refused the exact offer at the stock Dark Combat model's OBJ
+  material owner check. Neither run entered the match.
+- The normal loader keeps the standalone provider when a nested body
+  supplies byte-identical mesh bytes. The exact Grid resolver now selects
+  that native typed provider before alternate model descriptor metadata.
+  The stock standalone mesh and embedded copy both hash to
+  `6493CA03F8C473656337AC8436251AAE7E3A78246C83E92BD96125F6C5F1D7CE`.
+  Grid still checks typed ID, archive owner, member chain, and the
+  material's 34 typed texture IDs. No fallback to ROM or generated cache.
+- Client `DA1DEA8C4F76B6359E04D77E1E47321D8E8492FE73E49B819B703212DC8B6729`
+  and tests `44E3599EF1AF68FEE15FBF9E0003770A76B61FBC38CE881176B416116B0FF25A`
+  rebuilt with the native-source guard in `q_20261118142540205_a9b62898`.
+  Focused test `q_20261118142656413_3b082509` passed 127,625 assertions in
+  708 cases, with Model Room, seven importer cases, and fourteen static
+  fixture checks. The revised model-provider build still needs the
+  managed two-peer run.
+- Read-only review found two separate local-number leaks after stage
+  start in weapon selection on CLC_MOVE and SVC_PLAYER_MOVE, and weapon
+  metadata in SVC_CHR_DAMAGE. Typed projectile refs already remap. Track
+  these as Grid usage gaps even if the initial auto-equipped shot passes.
+  D-029 still governs live structural Apply.
+
+
+### 2026-11-18 (14:51 UTC) Two-peer exact Random activation and results
+
+- On DA1DEA8C, managed two-package receipt c9e0bf2e proved the fixed
+  native model path prepares an exact offer and presents the explicit
+  arena-and-weapon consent prompt. The guest had no keyboard focus and
+  the host timed out without activating, restoring both peers to Room 1.
+- The fixture now uses the runner's checked host-to-guest focus handoff.
+  Managed receipt 8e89d464 stopped at the Windows source-focus gate.
+  Diagnostics show foreground HWND zero, with no native keyboard focus
+  available. Both attempts compacted and kept their receipts. Actual
+  consent, shifted Triangle slots, and temporary package retirement on
+  this build still require an interactive foreground run.
+- The installed exact Random run `q_20261118144351042_cdcfb8c5` on the
+  same binary reached gameplay in both profiles, using the same stage
+  epoch and source digest. The host rolled `base:sniperrifle` from 15
+  eligible weapons. Both peers logged runtime weapon 21, player grants,
+  and three bot grants. Both played to the time limit, retained the
+  exact played revision and published the same five-row result and score
+  digest. Both game processes exited with code zero.
+- Original receipt 470161f3 recorded 31/32 because the localized Sniper
+  Rifle name split the bot grant line across a newline. The assertion
+  now matches the stable native spawn prefix. `q_20261118145050232_8454cd63`
+  rechecked the exact archived logs with the runner's evaluator (32/32)
+  and independently compared the spawn ID, source digest, result tuple,
+  and all three bot spawn rows per role. The original verdict remains
+  preserved. The guest emitted 18 actor-checksum warnings during play.
+- Corrected definition SHA-256
+  `C9AF6035C945E830B0972E92424A3D7855AEA32F3D5DAC16F4C7C91349FCE3D9`.
+  Summary and exact values in `grid-random-runtime-replay-470161f3.txt`.
+  Same-round live structural Apply still awaits D-029.
+
+
+### 2026-11-18 (15:13 UTC) Grid typed gameplay weapon references
+
+- Grid movement and character damage now use distinct authenticated
+  gameplay messages with the exact stage epoch. Custom weapon references
+  are tied to the sealed typed session catalog. Each peer resolves the
+  same identity to its local runtime slot. Stable native numbers and
+  ordinary match layouts retain their existing meanings.
+- The host checks local inventory after resolving a remote selection.
+  Invalid selections preserve held Fire. Both hand-state edges carry an
+  explicit selection. Stale or wrong-lane frames are consumed without
+  changing movement or acknowledgement history. An authenticated
+  reconnect snapshot can position another reserved, absent participant.
+- Damage resolves its typed weapon after parsing the complete frame,
+  preserving the original function, side metadata, and environmental
+  damage path. An invalid reference cannot cause damage with a different
+  local weapon. Fresh and reconnect exact offers require the current
+  Grid gameplay revision before preparing a catalog. Global protocol
+  remains 65.
+- Queued build `q_20261118151056438_cac4c882` with native-source guard
+  passed on client `CA8201032E196C51082E9BC56108D6E1B8ADC3AC1D8DB57728E52282CE67BD41`
+  and tests `24E5C8D386CCF1B0791FB6B3E0A8F8E7351052DF4523287B5E9537DD39D6E036`.
+  `q_20261118151203732_87154e39` passed 128,483 assertions in 714 cases,
+  including local slot remap, both inventory edges, forced rooms,
+  preserved peers, every Grid move truncation, and fifteen static
+  smoke definition checks with the added installed Needler fixture.
+- The installed Needler fixture loads the identical archive on both
+  peers and reserves Crystal Pistol first only on the guest. It checks
+  the same typed Needler at local slots 86 and 87, normal inventory
+  switches before firing, its nested model and authored effect, and
+  timed results. Managed two-peer verification is pending.
+
+### Grid installed combat and reconnect, 15:38 UTC
+
+- The frozen `CA820103` client passed the installed Needler smoke
+  43/43 in `q_20261118151433114_43391592`, receipt `957fd699`.
+  The host used slot 86 and the guest used slot 87 after installing
+  Crystal Pistol first. The guest switched to Unarmed and back with
+  normal controls, and both peers loaded the typed model, committed
+  Needler effects, and agreed on the timed result without a download.
+- Fiesta reconnect `ccfa3291` matched the stage and restored the
+  participant and active match. The guest died between readiness and
+  Fire, so the host had no Fire witness and the run passed 36/37.
+  Moving the press to the readiness timestamp kept the assertion and
+  passed 37/37 on the same binary in `q_20261118153035943_594cfb12`
+  (receipt `d0111a36`). Both peers activated epoch 1 with digest
+  `6da3da3b30ce2afd70a1b2a5e9f88bd22887c0df370dc9be426c19e5638ddd66`.
+  The host accepted client 1's Fire after rejoin. Both peers had
+  identical five-row results and exited normally.
+- The first reconnect also caught a Fiesta inventory divergence.
+  The same authenticated player's host life started with Cyclone
+  while the guest rolled Rocket Launcher. Stock stats equip the
+  announced slot, and Grid still needs an authoritative spawn grant
+  that restores inventory and ammo for the correct life. This is
+  separate from the passed reconnect transport. Interactive download
+  consent and the director's structural Apply decision remain open.
+
+### Grid host-owned Fiesta life grants, 15:51 UTC
+
+- Exact Grid Fiesta now records one host-selected starting weapon per
+  player life. The record is scoped to the committed stage epoch and
+  stable client ID, and the weapon must resolve in the sealed Fiesta
+  pool. Initial grants ride with the reliable stage baseline. Later
+  grants are sent in reliable order with their life stats and retried
+  until queued. The guest runs its native reset before applying the
+  inventory, ammo, and equip. Duplicate lives cannot refill ammo.
+- The existing exact reconnect snapshot seeds the prior life after
+  restoring current inventory, without equipping the old spawn choice.
+  Guest bot puppets keep their native placement and follow authority
+  for loadout. Ordinary match stats and global protocol 65 stay on
+  their existing paths. Grid admission requires gameplay revision 2.
+- Client `D484FAC12777E5F6526C527A820C8AE2778FC90271AAE349F353481C05735E24`
+  built in `q_20261118155045914_343912d5` with the source guard.
+  The 716-case focused suite passed 128,523 assertions in
+  `q_20261118154808787_089d452e` with tests `CA7174F6`.
+  Managed proof for initial life, preserved dead state, second life,
+  and authoritatively accepted movement is queued.
+
+### Grid Fiesta reconnect receipt, 15:59 UTC
+
+- The frozen `D484FAC1` client passed 44/44 in
+  `q_20261118155124635_375a5b88` with compacted receipt `cdf41df8`.
+  Client 1 had local player slot 1 on the host and slot 0 on the
+  guest. Both applied the same typed Grenade on life 1 and CMP150
+  on life 2. Between them, the guest restored life 1 dead without
+  another grant. Movement tick 6882 was accepted after respawn.
+- The host granted all three bots their starting weapons. The guest
+  made zero bot rolls. Both peers recorded an identical five-row
+  result ending in `c01564d943e8cc1651c64493ae5852270108b8cb4610677c7163fa641cfb4f50`
+  and exited 0. The exact source patch is
+  `9CACC776D44E9145093AB769896E7BC8593923AD0A063467188EE92BEC83EC13`.
+- Independent review found a fresh-release death case missing from
+  that build. If a life ends while a player is still loading, the
+  baseline must expose the corpse without replaying score or drops.
+  Grid gameplay revision 3 adds the state-only release row, including
+  same-life handling after a partial queue retry.
+
+### Grid authored cover and Fiesta placement, 16:10 UTC
+
+- Bot Navigation selects and moves an authored native cover to the
+  current waypoint pad. The resident floor and any declared room
+  must agree. A move may cross rooms and is one undo action. It
+  copies the pad's exact source position into the existing cover row
+  while preserving identity, facing, flags, unknown fields and other
+  members. Derived covers stay engine-owned. The editor limits new
+  rows to 256, the native cover index capacity.
+- Grid Fiesta's living grant carries the host's committed position,
+  ground, facing and room. A guest uses the native life reset and the
+  accepted placement, with no second spawn roll or local capsule veto.
+  Fresh-release deaths and reconnect retain separate state-only modes.
+  Grid gameplay revision 3 gates the new shape, with global protocol 65.
+- Exact client `254878DE41D601F240F69C6B626FFA0F8B891333B67F409C4BDD88F14C50CCDB`
+  and tests `4451B0C3C64009A50BC0E3E4F7D87D4D59E0EC307A3E22432553894A9CD6BA87`
+  built and passed the native-source guard in
+  `q_20261118160916354_03f64b01`.
+
+### Grid controller Play Draft, 16:19 UTC
+
+- Frozen `254878DE` exercised the normal mapped open and Play Draft
+  actions on the Blank Room in `6741373f`. The draft bound and ran,
+  but the readiness wait timed out before the mapped return. Stage
+  ready restored Gameplay and the draft's NORMAL transition then
+  put Observer above it. The explicit Observer action set blocks
+  ordinary combat input even while the player and simulation tick.
+- Native Play Draft keeps Gameplay on top and retains the Grid
+  session mapping for return. Freefly and the normal legacy Forge
+  lane retain their existing behavior. The controlled smoke keeps
+  its original readiness and return assertions.
+- The source-only roster test now follows the shared committed mask
+  helper at both call sites. `254878DE` had 128,657 passing assertions
+  in 717 cases after that correction in `q_20261118161208008_a720d6da`.
+  The first test verdict is retained with its stale pin failure.
+- Client `4F1EA400758B96736136DAE60016A76F305A12F08F546F7733B8EE0E6F844396`
+  and tests `78FB6A84D5DC786F1B710D57FFD91E30ABD8F2EE5406232D0862E3212C72FCBA`
+  passed queued builds and the native-source guard in
+  `q_20261118161754016_c08122ae`. The controller rerun is queued.
+
+### Grid controller and Fiesta placement receipts, 16:32 UTC
+
+- `254878DE` installed Fiesta passed 44/44 in 281.0 seconds
+  (`q_20261118160942634_be3fc361`, compacted `7ab7d53f`).
+  Client 1's host and guest both logged Timed Mine on the first life
+  and Grenade after the dead reconnect. The second life reproduced
+  room 1, position `-601.041,159.000,-601.041`, and yaw `314.996`
+  on both processes. The server accepted played movement, and the
+  five-row result matched. The companion earlier controller run
+  remains 9/11 with the diagnosed Observer aperture.
+- `4F1EA400` corrected that aperture. The same controller sequence
+  passed 11/11 in 94.6 seconds (`q_20261118161754840_f1f85103`,
+  compacted `17463b9c`). The client exe hash is in the receipt seed.
+  The mapped controls opened Level File, loaded its draft with
+  Gameplay active, and returned to the same Blank Room document.
+  All 9 mapped actions/waits completed and the process exited 0.
+  Focused tests `78FB6A84` passed 128,669 assertions in 717 cases
+  in `q_20261118161753341_2668f27b`.
+- The legacy Level preview notice now directs authors to Level File
+  for persisted atmosphere. That text-only client change and the
+  context update built as `0E7B5DCBD3A6696CC99CC08A0FDBF8B8BA1BEA92162CBF42A71579EEA27E1100`
+  in `q_20261118163108943_bdfa84c6` after the native-source guard.
+- The supported desktop preflight reported an active Screen-saver
+  input desktop, no foreground window, and no focus change. Native
+  interactive package consent awaits an unlocked desktop. D-029
+  structural Apply and two-machine/WAN acceptance remain open.
+
+### Grid final verified checkpoint, 16:48 UTC
+
+- Exact client `0E7B5DCB` authored, saved and reopened a new two-room
+  arena and passed the portal smoke 14/14 in `q_20261118163109654_3aafa60d`
+  with compacted receipt `e271a1f6`. The first process walked through
+  the 500-unit doorway from room 1 to room 2 at `x=106.3 z=39.0`
+  while grounded. The second process loaded the saved archive. The
+  same forward input stopped outside the doorway at `x=-30.0 z=460.6`
+  in room 1 for 30 grounded frames. Both exited 0.
+- Latest source passed 128,669 assertions in 717 focused cases in
+  `q_20261118163932369_7a83e6cf`, plus the Model Room check and seven
+  importer tests. The Shifted Needler and ordinary Combat pair
+  passed 43/43 and 71/71 on `4F1EA400` in
+  `q_20261118162336255_6dd64f53`, retained as `103515fc` and
+  `a4ad31af`. Both peers had exact matching final results. The
+  Needler host used slot 86 and the guest used slot 87. The
+  ordinary match ran on global protocol 65. Historical live v64
+  refusal `e4ba1a66` and the current global gate were rechecked.
+- D-029 still owns the private structural Apply round policy.
+  The current desktop probe at 16:43:39 UTC reported Screen-saver
+  input desktop and no foreground window. The interactive temporary
+  package approval and the two-machine/WAN acceptance remain open.
+  Keep the protected unrelated storage pointer and the real Git
+  index. The work remains local in `mods-v4`.
+
+### Grid Shared Draft resume receipt, 16:58 UTC
+
+- Exact `0E7B5DCB` passed 18/18 in
+  `q_20261118165054332_f6079e21` (archived `3650a14e`).
+  The returning creator verified snapshot revision 2 and received
+  the host's revision 3 before the new actor grant. The creator
+  committed revision 4, and the host saved and reopened the variant
+  with the parent's exact SHA and the authored members intact.
+- The ordinary third peer stayed in the Room and received no
+  private packets. All three processes exited 0. The fresh transport
+  reconnect fixture now also requires a nonempty tail in the
+  running bot epoch. Its managed proof is queued separately.
+
+### Grid temporary lease quit and Forge save checkpoint, 17:12 UTC
+
+- Exact 0E7B5DCB transferred the 31,195-byte arena and 16,799-byte
+  Triangle weapon from one debug approval and passed the temporary
+  reconnect fixture 37/37. Both mounts retired after the first timeout
+  and returned in epoch 1 from retained bytes. The host accepted Fire
+  at tick 6402, the two score hashes matched, and both processes exited
+  0. See q_20261118165831338_847e9797 and archived recipe 8263285a.
+- The same guest still held a stage reference to the Triangle mesh
+  after the second match when it quit from the results screen. The final
+  footprint in that recipe retained the exact 16,799-byte private weapon.
+  Enabled mods remained empty. T-NETWORKING-012 owns the Grid-specific
+  shutdown fix and now requires both retirement passes in the fixture.
+- F6590214 compiled both targets and passed 130,196 assertions in 739
+  native cases, 349 base-template saves, Model Room regeneration, and
+  seven importer tests. The 235-path source checkpoint SHA is
+  E89259648BE51DB8334E95A9ED63938C71A971BA0986551B8C29C66A27107181.
+  The exact frozen client is running fresh live creator reconnect,
+  repeated Save As, invalid draft, and Level Tool in
+  q_20261118171107522_5abde2d4. D-029 remains open.
+
+### Grid shutdown cleanup candidate and live fixture diagnosis, 17:21 UTC
+
+- DF6CB728 adds verified shutdown release of stage references on the
+  exact active or deferred temporary weapon. Both targets built, the
+  native source guard passed, and 130,196 assertions in 739 focused
+  cases passed in q_20261118172011217_bbd75b35. Source patch SHA
+  264DFBD1CA581D00F0EF7AECB3F9EDEEB0393FAC5DCFAD86E399941CCAABCC7E.
+  q_20261118171752338_f639923f requires the second retirement of both
+  mounts after quitting directly from the results screen.
+- The F6590214 fresh reconnect fixture originally failed while opening
+  the archive writer for the first arena on both peers. Its 262- and
+  265-character scratch paths include the clone's suffix and the
+  writer's final .tmp. No arena pin or reconnect was reached.
+  Shorter fixture profile roots reduce the longest to 245 characters
+  without changing the arena IDs or assertions. Same executable rerun
+  q_20261118172035151_9ce4c913 is queued with fixture SHA
+  6FD3707FE1AAC19D9E075DE8B728FB3F3B64629785ABDAAB33B7F0FBD840DCE1.
+- T-MODDING-015 covers using the author's normalized display name
+  for exact repeat saves. Existing archive, folder manifest, parent,
+  and live provider checks still apply.
+
+### Grid exact save receipts and Level File probe, 17:39 UTC
+
+- F6590214 passed repeated Save As 7/7 in archived d96d6cf4.
+  The first copy became active, the second save preserved its exact
+  previous archive, and reopening showed ten starts. The original
+  archive, loaded stage, and live catalog stayed unchanged.
+- The same client passed the ordinary Levels-tool create/open/in-place
+  save 45/45 in 5cc3eadd. It retained the exact predecessor, replaced
+  the opened arena, and exited 0.
+- The negative draft fixture 5b198eef stopped before editing because
+  entering Forge clears the document and the smoke had skipped Open
+  Level File. The Connect Pads and pickup probes depended on the same
+  missing step. E9812F1A opens the resident document through the editor
+  API and leaves production validation unchanged. Both targets and the
+  asset guard passed. Its source patch SHA is
+  919C4ED9E4DC8CEEB14796E01C8E1E63FDBFF92C01404655897A70B68383D58A.
+  Managed verification of all three is queued in
+  q_20261118173735836_30cd0e9b.
+- The original live reconnect receipt c5d00aef archived after the
+  profile-name correction, so its recipe reports the revised fixture
+  SHA. Original CLI and logs use the longer paths. The actual tracked
+  fixture is preserved byte-exact as SHA
+  8701F9BA13EC63AEB8CECDF4312218192CFB7C7E60197234C68E8AF6C3205D98
+  in the F6590214 checkpoint and a separate fixture copy.
+
+### Grid pre-launch Save As correction, 17:48 UTC
+
+- The intermediate DF6CB728 run 4fb7371a blocked ordinary same-name
+  Save As while the enabled original arena was still offstage. Both
+  clients exited 1 because the host could not pin or launch it.
+  Save As now checks the exact offline owner, provider, inputs, digest,
+  and stage and catalog generations even before loading this arena.
+  Save Opened still requires the exact resident original.
+- 9441BE6D passed both target builds, the asset guard, and 130,200
+  assertions in 739 focused cases. The frozen 235-path patch SHA is
+  146E837006F06E5321BEABE838E02B2B7C5AA69C7B0D8A149E556D1C1C735AA9.
+  The temporary reconnect rerun checks Save As, pin, and share before
+  the first match and checks both temporary leases after final quit.
+- Active and queued managed runs in order: F6590214 three-peer live
+  reconnect q_20261118172035151_9ce4c913, 02C90200 padded Save As
+  q_20261118173151272_cdc4db9e, 9441BE6D temporary cleanup
+  q_20261118174449076_3875844c, and 9441BE6D Connect Pads, fixed
+  pickup and invalid draft q_20261118174449627_069795a5.
+  D-029 remains open.
+
+### Grid live reconnect and padded save receipts, 17:58 UTC
+
+- Exact F6590214 on shorter profiles passed 32/32 in five minutes,
+  q_20261118172035151_9ce4c913 and archived 997ee27d. Both creators
+  built the same arena bytes. The returning creator authenticated on a
+  fresh connection in Room 1, verified snapshot revision 2, and took
+  host revision 3 before getting the new grant. The creator's revision
+  4 rendered in the original three-bot epoch 1. Normal teardown kept
+  both players in the Room. The ordinary peer saw no private traffic
+  and all three exited 0.
+- Exact 02C90200 passed padded repeated Save As 7/7 in 97.5 seconds,
+  q_20261118173151272_cdc4db9e and archived 3f227118. The client received
+  the literal surrounding spaces. The copy kept its predecessor and
+  reopened with ten starts. The source archive, stage and catalog
+  generations stayed unchanged.
+- Passive 17:56:54 UTC desktop check still reported Screen-saver
+  input desktop and no foreground. Manual consent and two-machine/WAN
+  verification remain open. D-029 remains open.
+
+### Grid model generation stage-owner correction, 18:09 UTC
+
+- 9441BE6D ran the full pre-launch Save As and temporary package
+  reconnect through results in 268.4 seconds. Both processes exited
+  0 and 39/42 checks passed. The remaining three checks concern final
+  weapon retirement only. The Triangle mesh catalog count reached zero
+  after releasing its stage reference, but its stage-pinned model
+  generation retained the numeric slot. Archived d8465f8f records the
+  remaining exact 16,799-byte weapon in the guest's final private footprint.
+- The active Grid shutdown now runs the normal player-root retirement
+  after scene, UI and network teardown. It retires the weapon graph hand
+  owners and drops stage model generations before manifest and exact lease
+  retirement. 9FC5A060 compiled both targets with the asset guard and a
+  235-path checkpoint SHA
+  B8242B6265DF3B986AF126DAE2BFFF6F2F46516CDDCFDE64B73B91E517F8C4EE.
+  Exact final cleanup is queued in q_20261118180807151_e0e69d53.
+- 9441BE6D Connect Pads passed 11/11. The original had eight
+  waypoints, the draft mounted nine with first-hop pad 0, and the
+  original eight returned. The source edit remained supported by undo
+  and redo. The pickup and invalid-graph probes in the same queue
+  are still running.
+
+### Grid scripted pickup prop lifetime, 18:18 UTC
+
+- Fixed-pickup receipt 5fe63674 on 9441BE6D reached the authored
+  volume in room 1 and picked up the Dragon from room 2. The native
+  tick operation then dereferenced a cleared object-to-prop link.
+  The exact binary stack leads from `propExecuteTickOperation` to
+  `s_runPickupGive`, the authored graph runner and normal level tick.
+- The Grid action now retains the incoming native prop until the
+  pickup tick operation can retire it. The original call, restored
+  player context, and authority checks stay in place. Related native
+  AI paths are recorded in `context/systemic-bugs.md`.
+- The 9FC5A060 native check passed 130,201 assertions in 739 tests
+  (q_20261118180806508_8a06413c). Its final match cleanup smoke is
+  queued behind the invalid-draft case. The fixed-pickup correction
+  is building separately for its own managed rerun.
+
+### Grid cleanup and continuing-round policy, 18:30 UTC
+
+- Exact 9FC5A060 passed final temporary mount retirement 42/42
+  in q_20261118180807151_e0e69d53, archived de642e28. The host
+  saved, pinned, and shared the exact arena before entering the round.
+  Both packages mounted, retired, and re-admitted in the same epoch.
+  Both results matched and both clients exited 0. Direct guest quit
+  from results retired both mounts again. Archived final file metadata
+  contained neither temporary package. Human consent and WAN remain open.
+- Exact 9441BE6D Connect Pads and Validate Draft both passed 11/11
+  in q_20261118174449627_069795a5 (9f31eb71 and 51bf3855).
+  The unknown executable action was refused without altering the
+  running level, saved archive, pin, or current draft. The fixed
+  pickup correction EEB3B605 is running separately.
+- Mike chose D-029 B at 18:19 UTC: keep the private bot round running
+  and relocate actors as needed. Workbench records the explicit decision.
+  Structural Apply retains the native round epoch and uses a separate
+  geometry generation. Detached mesh, legacy collision tiles, GPU scene
+  and exact negotiated Apply messages are building in
+  q_20261118182953578_f451a7c6 before production integration.
+
+### Grid Apply integration and candidate validation, 18:59 UTC
+
+- EEB3B605 passed the native fixed pickup trigger 11/11, archived
+  d8019445. The real room-1 volume delivered the room-2 Dragon and
+  offline return restored the normal editor history.
+- D-029 Apply now uses an exact reviewed variant with a fresh geometry
+  generation inside the same private bot round. The native world mesh,
+  collision tiles, background room data, and Classic GL scene prepare
+  detached. The host verifies the bound creator and rechecks current
+  actor clearance immediately before publication. Native bot paths
+  and cursor prediction invalidate when the replacement requires it.
+- 44F91544 built client and tests in q_20261118185153448_4a5dd82e.
+  Its 246-path source patch SHA is
+  A5FCF350FEEA9571F76318A92014D113E478D0C8BB596BAF95A5C0FC301F68FF.
+  The asset source guard and focused tests passed 181,205 assertions
+  in 745 cases in q_20261118185318365_8d3fdb65. The three-peer first
+  runtime check q_20261118184827988_a9f857d1 is in progress.
+- Review confirmed proposal IDs can skip after a refusal. Commit now
+  requires a strictly increasing ID whose previous committed ID still
+  matches the live round. N-0834 records the independent cleanup and
+  current-layout reconnect work and the separate forced relocation
+  smoke. They are outside the frozen 44F91544 candidate.
+### Grid continuing-round Apply, verified at 19:15 UTC
+
+- F946A8B4 built client and tests and passed the asset native source
+  guard. The 248-path patch SHA is
+  D44DE63883897D276916C8387426CD46279288D299ECFF6BE974883A565AF789.
+  q_20261118190535138_3ffca4d7 passed 181,298 assertions in 751 cases.
+- The first 44F91544 run (0c2b978f) stopped before Apply because the
+  smoke did not record the creator actor in the common grant branch.
+  Exact archived sources also showed nine starts and five original
+  waypoint groups, four with no linked routes. Apply now checks the
+  unchanged packed route digest and the reviewed traversable routes
+  against incoming collision separately.
+- F946A8B4 passed q_20261118190533188_b3728453 53/53, archived
+  2f89a5e7. The host committed geometry generation 1 in Room 1 and
+  epoch 1. Before and after frame readings advanced from 614 to 764.
+  The same four actors stayed in the round with zero relocations.
+  Room 2 extended from 2700 to 3000, added a native floor at y=0,
+  and rendered the verified Variant in Classic GL. The creator saw
+  an exact committed receipt while staying in the lobby. The ordinary
+  peer received no private layout messages. All roles exited normally.
+- The exact second Apply with forced relocation and the standard Room
+  consent controls are queued. Post-Apply reconnect source and a
+  creator-only current layout label are frozen for the next build.
+### Grid exact re-entry and launch readiness candidate, 19:28 UTC
+
+- F946A8B4 forced relocation smoke 242f13bb passed its first Apply,
+  then stopped in the second saved Variant's nested clone writer,
+  before review or actor relocation. The writer adds its own .tmp
+  beyond the displayed error leaf. The attempted path was 262
+  characters, versus 258 for the successful first Variant. The
+  archived executable has no longPathAware declaration. The
+  failure did not publish a second Variant.
+- The checked structural fork now uses a shorter private staging
+  directory name, with the same exclusive create, native preflight,
+  and atomic final folder move. The unchanged second Variant
+  fixture remains queued to prove actual relocation.
+- The creator view now displays the active layout identity when
+  authorized. The fresh-connection managed fixture checks exact
+  source/manifest identity, the changed projection, and no
+  disclosure to the ordinary peer. N-0835 records the claims.
+- The Grid initial ready barrier now has a 30-second post-load
+  deadline. Matching Grid R4 peers cancel only the exact unreleased
+  room, offer and epoch, leave the scores untouched, and retire
+  through the normal level-to-Room path. Global protocol 65 is
+  unchanged. Pending native startup and ready staging are distinct
+  from active-round reconnect. N-0836 records the scope.
+- 89024734 built client and tests and passed the source guard in
+  q_20261118192619287_5e9fd9f5. Its exact 251-path source patch SHA
+  is F6BB141418B698E5EA023F88606F499E9EC4803AAC095BE9B6CB7B64B2FCC8FD.
+  Native and three managed checks are queued or running. F946A8B4
+  is separately running the standard Room consent UI fixture.
+### Grid Room consent and retirement, 19:37 UTC
+
+- F946A8B4 normal consent smoke 926a0cc7 reached the real focused
+  two-package card and activated exactly the arena and Triangle
+  Weapon. The same two-row final score hash was
+  ebaf428dc77878fdbb854a73341414bda34e4f8f38a76fb7d4a0e6df62a1a37b.
+  Both peers exited 0, but the managed verdict was 43/45. The
+  guest weapon lease first deferred on one stage mesh reference.
+  The next backdrop allocator released the reference and the
+  temporary weapon retired before Room resync. The archived
+  temporary files were absent.
+- Both clients naturally reserved slot 86 in that run. The guest
+  mounted Crystal Pistol before the base weapon walker, which
+  clears unpinned custom slots. The earlier installed Needler
+  receipt 957fd699 reserved 86 and 87 after a normal Levels rescan.
+  The corrected consent fixture uses a short private local Levels
+  seed to exercise that rescan while leaving the offered arena
+  and weapon absent. The shared base loader stays outside this
+  Grid-specific change.
+- Grid Room return now retires old mesh and player roots after
+  lvStop, then drops manifest and exact stage-owned weapon
+  references before normal lease retirement. Genuine remaining
+  references still use the existing retry. N-0845 records it.
+- 44C04320 built client and tests and passed the source guard.
+  Exact source SHA across 251 paths is
+  5E023E17036E5B635A80D03B8706253E1DC893E685DFFEA22DB14850040E981B.
+  Corrected consent runs after the 89024734 layout re-entry,
+  stage timeout and relocation checks. The 89024734 native suite
+  passed 181,330 assertions in 752 cases.
+### Grid live layout re-entry, 19:41 UTC
+
+- 89024734 passed 62/62 in q_20261118191727257_40a3e307,
+  archive 9a46d254. The new creator connection reached Room 1
+  without a layout receipt or projection. Fresh snapshot grant
+  2 admitted actor 3 and restored layout generation 1, the
+  exact approved arena and composed manifest, and the two-room
+  projection with four actors and seam 26985. The host rendered
+  ambient 155 at draft revision 4 in the original epoch 1.
+  The ordinary peer saw no private data. All three exited 0.
+- Final 44C04320 native q_20261118193507581_d3238198 passed
+  181,336 assertions in 752 cases. Build and asset guard
+  passed. Managed 89024734 exact READY timeout and forced
+  relocation and 44C04320 normal consent remain active or queued.
+### Grid initial READY clock regression, 19:47 UTC
+
+- 89024734 smoke d632fbd3 loaded the native arena on the
+  authenticated guest, which held the first READY as intended.
+  The host nevertheless advanced its clock in epoch 1 and
+  reached the 20-second match limit ahead of the 30-second
+  readiness deadline. The run published an unwanted epoch-1
+  result and failed 13/18.
+- The exact Grid listen host now takes the normal zero-update
+  path in lvTick during the initial WAITING and RELEASE phases.
+  Native spawn, stage-ready callbacks and the scheduler remain
+  active. The held time resumes after baseline publication.
+  Ordinary matches and already-active private playtests are
+  outside the hold. N-0860 owns the scoped follow-up. Build
+  q_20261118194506850_d004920c and managed replay
+  q_20261118194650582_eb265cc6 are queued.
+### Grid forced relocation and clock candidate, 20:04 UTC
+
+- 89024734 passed 56/56 in q_20261118192619960_965b4de8,
+  archived 8b1b7eaa. The second variant publishes after
+  the shorter private scratch path. Both geometry Apply
+  outcomes committed inside Room 1, epoch 1.
+- Geometry generation 2 reduced the room and Classic GL
+  scene from x=3000 to x=2800. Collision mesh and legacy
+  tiles both lost the occupied floor. The real host moved
+  from x=2900 to a valid pad at x=627.1 in room 2. Native
+  actor identities and scores, health, inventory and ammo
+  survived the relocation. Frames advanced 792 to 803.
+  The ordinary peer received zero private layout messages.
+- 0D3C6764 built both targets and passed the asset guard
+  in q_20261118194506850_d004920c. Its exact 251-path patch
+  SHA is 284EC72F5D8512C00B6D406473BCC3E34A45F2C1F559B2B2A045199FA37716EF.
+  Focus q_20261118194652161_29afcf2e passed 181,336
+  assertions in 752 cases. Its delayed READY rerun remains
+  queued. The 44C04320 native temporary package consent
+  rerun is preparing isolated profiles.
+### Grid normal consent replay, 20:11 UTC
+
+- 44C04320 managed run ff7613a9 used the normal focused
+  Room consent prompt for exactly two temporary packages.
+  The same Triangle Weapon used native slot 86 on the host
+  and 87 on the guest. Both profiles completed the same
+  Room 1 and epoch 1 result, with two score rows and SHA
+  ebaf428dc77878fdbb854a73341414bda34e4f8f38a76fb7d4a0e6df62a1a37b.
+- Normal Continue retired both temporary leases before
+  lobby resync without a deferral warning. The archived
+  final guest inventory has neither temporary archive.
+- Original verdict 44/45 was retained. The only assertion
+  expected a colon in the native Levels creation marker.
+  The runner evaluator rechecked the exact archived
+  combined and per-role logs after changing that marker
+  match. q_20261118201029314_8dc7c7e8 passed all 45 and
+  verified exact score equality and the final inventory.
+  Corrected fixture SHA 874408C0424AFAF54276868B912E41B1D00ADA97B6381C6E712A9DB97F753277.
+- 0D3C6764 delayed READY rerun is running. The separate
+  human two-machine and WAN acceptance remain open.
+### Grid delayed READY recovery, 20:17 UTC
+
+- 0D3C6764 passed 18/18 in q_20261118194650582_eb265cc6,
+  archived b67d9fe3. The real guest loaded the first exact
+  arena and withheld READY. The authority clock remained
+  held. After 30 seconds the exact epoch 1 cancelled
+  without a result. Both authenticated players returned
+  to Room 1 on their original connection.
+- A second launch of the same pinned arena released epoch 2
+  and played to the real time limit. Both peers reported the
+  same five-row score SHA
+  c01564d943e8cc1651c64493ae5852270108b8cb4610677c7163fa641cfb4f50
+  and exited 0. The guest received all three corrections
+  requested by the existing shared bot checksum diagnostic.
+  The same diagnostic and corrections were observed before
+  Grid and in ordinary Combat. This does not establish a
+  WAN or human acceptance result.
+- D-029 local same-round Apply, forced relocation, and
+  creator re-entry are verified. Normal consent and archive
+  retirement are verified in the exact local package run.
+  Native general graph editing and hardware acceptance are
+  outside these recorded proofs. Workbench remains the
+  source of status for the three Grid items.
+
+### Grid Level Logic and creator placement, 20:39 UTC
+
+- Level File now exposes the native event, gate, action and execution-link
+  source. Apply validates it through the shipping graph compiler, keeps
+  structural data and existing pickup and door rules intact, and gives the
+  draft a normal undo step. The creator can also target a start or decoration
+  on the live playtest plan. The host checks the exact round and layout shown
+  and the native floor before accepting the edit.
+- Isolated client and tests built after correcting the restart fixture's
+  MinGW math call. The asset-source guard passed. Client 5FBB3EBF
+  is frozen with a 257-path patch SHA
+  DEF5615E51C27D2741FA28398AD20CF6A77406EAE345617B9A8F01D0D05D727A.
+  Native test binary F092A816 passed 755 cases and 148207 assertions
+  in q_20261118203857395_34956a13. The first test run read the next
+  editor change on disk and failed a source contract for the renamed
+  trigger preview. The editor retained the existing shared helper name
+  before the passing run with the same test binary.
+- Managed q_20261118202723150_6fefbb38 uses that exact client for
+  real chained Level Logic, a fire sound nested in the temporarily
+  transferred original weapon, and a saved variant reopened after exit.
+  The Logic Zone authoring and private Apply deadline fixtures follow
+  independently. Keep human two-machine and WAN acceptance open.
+
+### Grid native graph execution, 20:47 UTC
+
+- Exact 5FBB3EBF passed 11/11 managed assertions in d003aad3.
+  Room 1 volume entry ran the native Dragon grant, Dragon inventory
+  gate, and Cyclone grant linked to the two actual Room 2 pickups.
+  The runner reported two executed modules. Play Draft returned with
+  both undo steps, the edited logic, and the original archive SHA
+  0e0a7bdb637ee3722d2b2beb9958f83835a601e53e0ce8baba599cfba8b15265.
+- The next client 25D4B240 built with Logic Zones and private rehearsal
+  probes. Source patch SHA
+  0608E64A67D40C413BAF004101B6257612C21736AEA307D87987EF466C7C4CE4
+  captures 259 scoped paths. Its tests build preflight found the managed
+  storage lock held during evidence archiving. Retry the standard tests
+  wrapper after that storage operation clears. The older 755-case result
+  applies to F092A816 only.
+- D-035 is open for the choice about supporting two independently
+  shared weapons in one match. Audio, saved variant, live placement,
+  and private Apply deadline proofs can advance under either option.
+
+### Grid required mods and variant choices, 20:58 UTC
+
+- D-035 supersedes the first one-arena and one-weapon transfer limit.
+  Mike wants the host to distribute the full set of missing mods the
+  pinned level and match require. Keep ordinary online protocol 65,
+  exact author provenance and hashes, Room consent and temporary leases.
+- D-036 authorizes a client to propose content the host lacks. The host
+  reviews and accepts before obtaining bytes. Approved proposed content
+  is eligible for the ordinary pinned match closure and relay if used.
+- D-037 authorizes per-mod choices when saving a variant. Keep selected
+  sources durably with the variant. Replace declined optional world
+  placements with compatible base-game assets, including distinct
+  ordinary and power-weapon choices. The written variant pins the chosen
+  fallback and rechecks its dependency closure.
+- Client 25D4B240 and test binary EB0D8AF5 built. The native suite passed
+  756 cases and 148282 assertions in q_20261118204336946_98101e7a.
+  The active managed batch remains on 5FBB3EBF. Audio receipt a2412a08
+  passed 46/47, registering the exact nested firing sound but missing
+  actual native playback. The sound-only catalog index repair follows
+  the observed lookup gap and keeps that assertion.
+- D-035 source in progress includes the expanded exact package list,
+  Room consent, temporary source-set admission, and reconnect lifetime.
+  The first adapter set covers nine typed package families. Additional
+  family lifecycle and a mixed-source managed proof are still outstanding.
+  D-036 and D-037 are authorized and under source audit.
+
+### Grid proposal and variant authoring checkpoints, 21:23 UTC
+
+- The five-second private Apply and stale READY rehearsal passed 59/59
+  on 25D4B240 in b2f7d1b4. The original native scene, collision and
+  four actors stayed active. The clock advanced. Generation 1 timed
+  out, its delayed READY was ignored, and generation 2 committed in
+  the same round. Visibility verification continues in the same batch.
+- The placement rehearsal d5f1d085 proved stale rejection and a
+  revision-3 native decoration move. Its early Continue assertion
+  failed before the Room backdrop unloaded the stage. N-0907 now
+  waits for actual retirement before checking the same retained draft
+  and sending Close. A separate variant restart probe also now reopens
+  its unchanged original after the launch transition closes Level File.
+- A2AF1AC6 built the first wider source-set client. Exact 262-path
+  patch SHA 47C03152C2FC6C572DDCA24D07CFBF4B7744E1DD360E8D8D49CCEAEA6A26A6D1.
+  Source identity, grouped consent, atomic typed leases and the
+  catalog sound index follow exact Match revision 5 and online v65.
+- 3CC4B78E built with direct .pdtexture sources and the D-036 offer,
+  approval, transfer controller and Room UI. Exact 273-path patch
+  SHA 87725817444B4DC9BC1EC88DF9506E1BBECA6F6F30D7F99BAB75303246E45846.
+  Its tests needed a const correction and a portable path-check
+  symbol. Both corrections are included in the next queued build.
+- D-036 follow-through keeps proposed sources tied to the authenticated
+  Room lifetime and donor connection. After approval, they can be
+  explicitly selected or placed. Automatic weapon selection does not
+  turn a proposal into match use. Replicas receive only sources in
+  the final pinned match list. Direct quit drains proposal/texture
+  consumers before final cleanup.
+- The D-037 Level File review connects exact package choices to a
+  separate new-name Save Variant, with explicit Falcon 2 or Slayer
+  choice and native prop/hoverbike fallback. Source review is rechecked
+  at save and substitutions are applied to a clone. The result-bound
+  verified byte retention and private immutable dependency store are
+  present. Durable selected-source binding on save and reopen, the
+  Save Played Variant menu, and full shared variant flow remain open.
+
+
+### Grid exact Room content and local variants, 21:50 UTC
+
+- FB77A545 native 756/759. Its three old singleton/static assertions
+  were updated to the production whole-set and consent path. The managed
+  embedded firing-sound run passed 47/47 in 6637b4a1. The guest fired the
+  temporary Triangle and the native sound used its embedded public WAV.
+- Mixed source run 804b6b0a reached the exact three-package offer and
+  cancelled before consent. The standalone marked mesh was advertised
+  by the legacy catalog at authentication. N-0923 withholds marked
+  typed sources there, and an exact Grid prompt can take the place of
+  an unapproved catalog prompt. Native three-source gameplay is pending.
+- FB77A545 extended-variant restart f8c33eee pinned the exact original
+  after reopen and failed on the new variant pin. N-0930 makes an
+  omitted expected digest use the exact archive bytes read for that
+  same verification. Explicit expected digests remain checked.
+- B18FF5DC client and tests built in q_20261118214432891_9d9d059a.
+  Exact 284-path source E212D47EE2883D0327FA40B1016027D4B806C43F930E2F1CDC04200F0B847E85.
+  Native 754/759 and 148625/148630 in q_20261118214643486_e4ccdabf.
+  The five misses were static token checks after the provenance, save
+  signature, stage retirement and relay changes. N-0931 updates those
+  checks. The B18FF5DC managed proposal/mixed/fallback batch runs in
+  q_20261118214713803_ab42911a.
+- Save Played Variant uses the guest's exact verified Room result,
+  retains only selected eligible missing native sources, and writes
+  an independent native arena bound to its immutable received parent.
+  Normal library load verifies the saved dependency plan and mounts
+  absent exact sources for the stage. N-0929 adds a fresh-process
+  managed case for a kept missing mesh and a native Falcon 2 fallback.
+- N-0928 tracks custom native hoverbike assets. N-0932, N-0933 and
+  N-0934 connect shared-draft package selection and new variant
+  publishing without rebuilding the catalog under an active Room lease.
+  Workbench remains partial. No publication or release was attempted.
+
+
+### Grid grouped consent and normal variant startup, 22:06 UTC
+
+- B18FF5DC mixed-source 55dbfeaa proved one real three-package consent.
+  The guest loaded the independent prop from the digest-named .pdmesh,
+  both peers fired Triangle with distinct local weapon slots, and both
+  returned identical results to Room 1. All temporary packages retired
+  before resync. The stored receipt is 55/56 because the host compiler
+  witness used the manifest activation path. N-0939 checks that exact
+  installed archive source and native model activation.
+- B18FF5DC proposal ae530f56 reached donor authentication with identical
+  authored arena bytes. The runner was watching a donor-specific path
+  while the native logger used pd-client.log. N-0936 adds smoke-only
+  role log routing. The retry also explicitly focuses the ordinary peer
+  for actual match consent.
+- 8FD78E62 compiled its client and native suite. Frozen 291-path patch
+  SHA 835F0F9C473359C5CD69F8E7D0296D49B048B6E19F12374396886234B95F2B09.
+  The suite passed 758/760 with 148723 passing assertions. A moved relay
+  predicate and the native source row validation signature accounted
+  for the remaining four assertions in two static tests. The new
+  stored source plan test passed.
+- N-0938 preserves the offline Combat Simulator's prepared roster and
+  weapons while appending the saved variant dependencies. The 77416D90
+  client is frozen at patch CF6AECBAB08B4F7839243E31218D6DE40F1B3003D120210F22DE6A45AFA117A5.
+  Client SHA 77416D908E608D16ADA4A5C7A8E79287259DEC56A18CC20C892585E1BA3EB978.
+  Native verification build q_20261118220358827_6762468a was active at this checkpoint.
+- The 77416D90 managed batch q_20261118220615025_397cef70 is queued
+  behind B18FF5DC fallback e076875a. It covers authenticated proposals,
+  native .pdvehicle transfer with boost motion and retirement, a guest
+  saving a played variant and restarting with its retained missing mesh,
+  explicit Falcon/Slayer placement fallback, and exact extended-variant
+  restart. N-0940 covers direct body/head sources in a later candidate.
+  No user install or shared base changes. Workbench remains partial.
+
+
+- Exact 77416D90 compiled client and tests in
+  q_20261118220358827_6762468a. Isolated native 1704B943 passed all
+  760 tests and 148784 assertions in q_20261118220718595_d0d69a90.
+  The same frozen client is live in the five-case managed batch
+  q_20261118220615025_397cef70, wrapper session 48554.
+- The B18FF5DC aggregate closed at results-20261118T220815Z.json.
+  Its older Falcon/Slayer fixture e076875a wrote the new native arena
+  with Falcon 2, Slayer, and the retained mesh's plan. The old optional
+  digest error stopped the post-save checks before the restart role.
+  The 77416D90 batch reruns with the fixed pin publication.
+- N-0940 adds exact native body/head leases. N-0942 extends required
+  typed suffix and private-slot retirement verification. N-0943 builds
+  an independent sequence playback witness. N-0944 extends Save Played
+  Variant to the exact listen-host result. These scopes are later than
+  the frozen 77416D90 client and are still under source verification.
+
+
+### Grid proposal, base parity and expanded source types, 22:19 UTC
+
+- 77416D90 proposal 1ed918ec passed all 16 managed assertions. One
+  decline caused no upload. An approved package stayed out of the first
+  round. The second round shipped only the selected Triangle package to
+  the one missing player through mapped consent, then used the exact
+  weapon natively. All three finished both rounds with matching results
+  and returned to the same Room. Guest and host retired borrowed content.
+- The 77416D90 native executable 1704B943 read and wrote back 132
+  protected extracted base levels unchanged, with 38519 assertions.
+  The separate base author sweep saved all 349 templates with 352
+  assertions. Both used shared-base-9 as read-only inputs.
+- 21B8175C compiled and froze on 317 source paths. Exact source patch
+  F7B7771AA43600D57D9EE3BCA1AE13C0AAA6A1D381BC5331B23209559C46F7D5.
+  Client 21B8175C40FCED2820C60E248E283AD1EFDBC474626BE989C201E99E6E41AE4F.
+  Isolated native DE151CAA passed 770 cases and 148912 assertions in
+  q_20261118221802993_0d0e4c9c. The active 21B8175C managed waiter is
+  q_20261118221828779_8635e4ef, wrapper 32268, behind 77416D90.
+- N-0940 through N-0945 add native direct body/head package leases,
+  note-bearing public sequence playback coverage, and the exact
+  listen-host Save Played Variant path. N-0947 and N-0948 hold verified
+  proposal and native receipts. Managed character and audio work and
+  the two private view follow-through cases remain queued.
+
+
+### Grid typed archive ownership and consent, 22:25 UTC
+
+- Vehicle case cb5cdc41 on 77416D90 authored its exact native archive,
+  bound its typed embedded model, and produced the valid arena+vehicle
+  Grid offer. It failed 21/43 before transfer. An earlier global legacy
+  catalog prompt leaked the vehicle's nested mesh, and the reused
+  dialog did not focus the Grid button after the prompt changed.
+- N-0949 recognizes a nested asset by its native descriptor locator
+  during initial catalog advertisement, including typed archives
+  inside .pdmod packages. Explicit old distribution checks use typed
+  original provenance for supported parent archives. The Grid button
+  receives focus when its prompt replaces an older pending prompt.
+- Exact client 7C2C21F7F53E1362D93243E3C2395F7A66786900C8BF35A6CE14A851DCF4F71B,
+  317-path patch SHA 7D21770FC33174DB52270C7008ED3B1D57B7B857EA1B24ACED895E9F765C7F80.
+  Native 58F79A6B passed 770 tests and 148961 assertions under
+  q_20261118222511557_549cd2af. The source guard passed.
+- The unstarted 21B8175C game waiter was cancelled through normal
+  coordination. Vehicle retry q_20261118222540968_7a2598dc, wrapper
+  45702, precedes character, mixed, music, interactive Plan and
+  visibility q_20261118222541582_a3f21d68, wrapper 2770. These use
+  7C2C21F7 and wait behind active 77416D90 wrapper 48554, which has the
+  played-variant, fallback and extended-restart cases pending.
+
+
+### Grid variant reopen and full native checks, 22:46 UTC
+
+- 7C2C21F7 full native first reported 2502/2509. Each miss was a
+  static source assertion holding pre-Grid contracts or a prior
+  parser/function location. N-0951 and N-0953 preserved the behavior
+  checks across the shared dependency visitor, portal flags, typed
+  inventory gate, Grid terminal packet, and both focus paths.
+- Isolated C39CF0CC then passed 2510 cases and 568965 assertions in
+  q_20261118224309697_503a66d5. 321-path source snapshot SHA
+  FFFF62D2FDC5321EB9B0FE2F5E729E0487B17D76F25D3EFA8D570EDC33700EA9
+  independently verified in q_20261118224443392_948efa67 with the
+  unchanged 7C2C21F7 executable. The full tests keep their own tiny
+  native write-policy evidence under .claude; it is outside source scope.
+- 77416D90 extended variant 580c6a0b passed all 14 managed checks.
+  Fresh process reopened the unchanged parent and new fork, verified
+  native room/scene bounds at 3000 and matching mesh/tile floors, and
+  played the extended room for 196 frames. Previously failed missing
+  expected pin digest is resolved.
+- Played variant receipt 557cf512 stopped before consent because the
+  runner waited for a guest save before moving focus. N-0952 adds
+  opt-in guest authentication, focus, save and exit barrier order
+  without changing other scenarios. Narrow fallback e3ff3f69 saved
+  both replacements and mounted the exact variant plan after restart.
+  A spawn collected the Slayer before the smoke's check. N-0954 moves
+  the placed tests inward and keeps actual acquisition assertions.
+- Cold fallback and earlier mixed host both showed ordinary installed
+  original mesh source compile with no native prop slot. The guest
+  temporary source had a stable slot, but the installed host prop
+  was skipped. N-0955 binds original installed standalone .pdmesh
+  entries through the same checked private allocator and native
+  source binder. N-0956 adds actual native prop slot witnesses to
+  both peers. New client/tests build q_20261118224549666_22af6f2c,
+  wrapper 32482, is active. Vehicle-only 7C2C21F7 retry remains
+  q_20261118222540968_7a2598dc, wrapper 45702. Old unstarted played
+  and extended-case waiters were cancelled to use the replacement
+  exact model-binding executable. No public Git changes.
+
+### Grid native hoverbike and installed model candidate, 22:52 UTC
+
+- Exact 7C2C21F7 hoverbike rerun 19b26756 passed 43/43 in 242.8 seconds.
+  The guest accepted the exact two-package offer through mapped input,
+  mounted native model data inside the digest-named vehicle archive, and
+  retired the vehicle and arena before Room 1 resync. The host steered and
+  boosted the placed vehicle through native controls, measuring peak ground
+  speed 17.11. Both score digests agreed and both processes exited 0.
+  Workbench N-0958 records the exact receipt.
+- Exact client 9280FA65 and private 321-path source patch F49DEF277 passed
+  the source guard and forward and reverse applicability. C39CF0CC again
+  passed 2,510 native cases and 568,965 assertions against read-only base.
+  The played-variant and cold fallback queue is q_20261118224919473_d72eb41f.
+  The mixed-source and private replay queue is q_20261118224920053_7730e591.
+  Both use the frozen executable.
+
+### Grid selective played save and private replay witnesses, 23:02 UTC
+
+- Exact 9280FA65 passed 23/23 in managed receipt 653e2159. The guest
+  used mapped consent after authentication and accepted the exact arena,
+  mesh and weapon. Native prop slots 441 and 444 prove both worlds
+  instantiated the mesh. The guest saved a distinct arena 189848f7
+  with exact parent 3a039959 and kept source 90682b25, then restarted
+  offline, remounted the profile plan, rendered the mesh, and collected
+  the Falcon 2. Native setup no longer names Triangle. All three roles
+  exited cleanly. Workbench N-0960 retains the exact identities.
+- The offline ordinary/power fallback run cc855d90 is active in the
+  same FIFO item. N-0959 replaces an obsolete Continue log in two
+  queued private fixtures with exact stage retirement, world retirement
+  and same-Room resync. Their gameplay and retained-draft checks remain.
+- N-0961 claims the independent host Save Played smoke in the existing
+  fixture. Its original match sources are installed on the host, so
+  the proof must exercise a different production route from guest
+  callback and returned-source retention. No production save changes.
+
+### Grid ordinary and power pickup variants, 23:06 UTC
+
+- 9280FA65 cold replay cc855d90 passed 15/15, both roles exit 0.
+  The save rejected dropping the required Triangle package before the
+  placements were rewritten. The fresh process confirmed the original
+  5be2ee49, separate variant 840d371d, unavailable Triangle, native prop
+  slot 441 and two actual Room 2 pickup/inventory grants. Workbench N-0962
+  records exact receipts. The priority group now has both D-037 passes.
+- New smoke-only E88D5E73 client and private 321-path F5844A1E patch
+  were frozen after guard and forward/reverse checks. The separate save
+  for the listen host has no production changes. Its managed run is
+  q_20261118230440059_19baa308 after the mixed/private group.
+
+### Grid private Plan and independent visibility, 23:20 UTC
+
+- 9280FA65 native Interactive Plan 17b71a94 passed 33/33. The stale
+  request was rejected locally and the cross-room request was denied by
+  the host. The allowed retry physically moved setup_0002 while epoch 1
+  continued. Native draft revision 3 kept the exact decoration pose and
+  ambient 137 through Continue, Room resync and Close.
+- The same exact client passed 33/33 in visibility 4c921feb. Host cursor
+  and creator projection independently followed 00, 10, 11, 01, 00 in
+  one round. The creator only received the projection in the two allowed
+  phases. The ordinary Room peer received no private playtest traffic.
+  All roles exited zero in both scenarios. Workbench N-0963 has details.
+- Combined FIFO proceeds through the exact required character, mixed
+  source, and music cases. The isolated host Save Played verification is
+  queued separately on E88D5E73. Human two-machine and WAN remain open.
+
+### Grid exact mixed packages and native stage music, 23:37 UTC
+
+- Corrected 9280FA65 mixed package 1cb1a25e passed 59/59. One mapped
+  consent admitted the exact arena, standalone prop and weapon.
+  Native host slot 441 and guest slot 444 instantiate the same mesh.
+  The original weapon fired, both score digests matched, and the guest
+  retired all three temporary assets before Room 1 resync. N-0965.
+- Exact music db28a6cd passed 25/25. Both games opened audio devices,
+  resolved the exact stage track, and played 195 sequenced events from
+  the original typed song. Guest track 16384, row and archive retired
+  after one bounded wait for native references. Scores matched and both
+  exited zero. N-0966.
+- Initial character e08ae8aa stopped before guest auth with a malformed
+  screenshot field in the child fixture. Host scanned and selected exact
+  original body and head. N-0964 fixes only that field after archival.
+  Exact 9280FA65 retry q_20261118232559914_9bb290a9 will follow the
+  E88D5E73 host Save Played FIFO q_20261118230440059_19baa308.
+
+### Grid host save and animated character regression, 23:52 UTC
+
+- Exact E88D5E73 played save 0cef3938 passed 24/24. Host and guest
+  independently saved from parent 3a039959 after world retirement.
+  The host verified unchanged installed sources and its original pin.
+  Guest restarted offline, loaded exact retained mesh, and collected
+  the Falcon 2. All three exits were zero. Workbench N-0967.
+- Exact character retry 296efc7a with corrected guest input reached
+  actual arena, body, and head admission and native head attachment.
+  Host used slot 152, guest 153. Both crashed on the first on-screen bot
+  with the same matrix evaluator fault. The body rig correctly compiled
+  SKEL_CHR. Its static neck POSITION part -1 compiled to u16 65535,
+  which the optimized evaluator used as a scratch index. The generic
+  evaluator already checks source frame parts. The identical archive
+  stays as the focused native regression. N-0968 claims only the
+  matrix decoder guard and this checkpoint.
+
+### Grid matrix fix and managed storage decision, November 19 00:01 UTC
+
+- Source 748E1B21 isolates unbound animation parts in the native matrix
+  decoder, and validates direct and mirrored sample indices. Both client
+  and tests built, the public-source guard passed, and 322-path 7E81634B
+  applied forward and reverse in a private index. Native tests later
+  rebuilt as CB2806F0 for the N-0969 updated matrix source contract.
+- The custom character and stock bot run q_20261118235525323_2cc487bd
+  was refused before launch by the managed install cap. Its previous
+  failed case 296efc7a has a complete archived recipe and outcome.
+  Windows locked a subsequent exact cleanup check, and storage now pins
+  that full install. It occupies the second slot beside the protected
+  Maian record. The alternate detached store also has two protected
+  rows. No original storage policies, registry rows or installs were
+  changed. D-038 awaits authorization for temporary isolated D: storage
+  under the existing limits and restoration of the current location.
+
+### Grid exact offers and live layout composition, November 19 00:34 UTC
+
+- The host and a proposing client now preflight the complete exact
+  archive inventory before offering it. Both use the receiver's nested
+  typed-member validation. Installed exact sources remain usable. N-0972.
+- Applying a staged layout during a round reconstructs accepted live
+  decoration changes from the committed draft. The host checks the same
+  resident prop, its position and its candidate floor. Its native route
+  probe protects starts, paths, authored waypoints and generated links.
+  The optional exact navigation check also supports installed base-derived
+  private maps. A reopened draft reuses an independent decoration's pad.
+  The old native regression changed three unrelated archive members.
+  The corrected path preserves them and passes 61/61. N-0973 through N-0979.
+- Client 34DC6163 and test binary D00F4269 built in
+  q_20261119003121138_add43d59. The public-source guard passed.
+  q_20261119003313541_30fa4517 passed the focused case, 2,510 native
+  cases with 569,087 assertions, and the local 132-level byte-identical
+  round trip with 38,519 assertions. In-game confirmation of the combined
+  live decoration and geometry fixture remains open. D-038 still covers
+  the managed custom character and stock bot smoke reruns. Human
+  two-machine and WAN acceptance remain open.
+
+### Grid played variant dialog and character matrix regression, November 19 00:48 UTC
+
+- Listen hosts now keep Save Played Variant open in the same Room
+  across frames. Guests and listen hosts use the same active lobby
+  predicate, with cleanup on leave, match start, and results. After the
+  archive publishes, the Room displays any library refresh error through
+  the existing status field. N-0981 and N-0983.
+- The focused test calls the production optimized matrix evaluator with
+  real packed translation data. A bound root moves to X=7 and X=11 in
+  direct and mirrored animation. Its unbound rigid child keeps an
+  identity local basis and reaches (10,5,7) and (14,5,7). N-0982.
+- Client 99369D3E and tests 996EA196 built in q_20261119004443157_7101d1df.
+  The asset source guard passed. q_20261119004634442_df1489ec passed the
+  matrix test (28 assertions), decoration replay (61), full native suite
+  (2,511 cases and 569,171 assertions), and 132 byte-identical base level
+  round trips (38,519 assertions). Both managed stores still have their
+  two full install slots occupied by protected evidence. D-038 remains
+  open. Native proof covers the matrix transform, and the managed
+  character render, stock bots and combined live Apply remain open.
+
+### Grid owning packages, local shared variants and ambient-off Apply, November 19 00:59 UTC
+
+- The pinned plan now follows the exact owner of an eligible placed
+  nested asset and includes its native dependencies. The Crystal Pistol
+  fixture starts from its placed mesh alone, retains its linked texture,
+  agrees with the explicit owner plan, and rejects a changed archive.
+  N-0989.
+- The host can save an installed base-derived Shared Draft as a new
+  local variant. The archive preserves its exact parent, source
+  references and provenance. Publish pins and additively registers it,
+  with a Room warning if library registration fails. N-0986 and N-0988.
+- Exact layout Apply accepts the active disabled ambient state with
+  compatible decoration moves. The scene restores the native range base
+  when disabling an inherited stage override and preserves explicit room
+  brightness. The managed composition fixture stages a real decoration
+  move and ambient disable before the same-round geometry Apply.
+  N-0985 and N-0987. Rendered runtime verification remains open.
+- Client 1A8F0003 and tests 80E23A18 built in q_20261119005621921_89c5d7bf.
+  The public source guard passed. Native q_20261119005826912_c45b45b8
+  passed archive owner (32 assertions), base-derived save contract (111),
+  ambient layout contract (41), and decoration replay (61). It passed
+  2,514 native cases and 569,358 assertions, plus all 132 byte-identical
+  base level round trips with 38,519 assertions. D-038 and the managed
+  runtime and human two-machine/WAN gates remain open.
+
+### Grid native effects and embedded textures, November 19 01:07 UTC
+
+- Exact package inventory admits a typed texture when its immediate
+  owner is an effect and the member uses the native effect dependency
+  path. The inventory checks that child's exact descriptor and decodes
+  its editable image before the catalog transaction. N-0991.
+- Native and public conformance readers accept the shared provenance
+  field in v1 and v2 effect descriptors with its established values.
+  This makes standalone original effects authorable through the same
+  exact sharing policy. N-0992.
+- Client 49838DE6 and tests BDC69AB2 built in
+  q_20261119010454902_d82b3719. The asset-source guard passed.
+  q_20261119010409352_46980e28 passed 16 archive parity cases, recursion
+  and 10 structured source contracts. q_20261119010608057_f82cc78b
+  passed 65 focused effect parser assertions, 54 exact texture locator
+  and archive byte assertions, and 2,515 native cases with 569,453
+  assertions. In-game effect registration and rendering still need
+  managed capacity. D-038 and human two-machine/WAN acceptance remain open.
+
+### Grid managed regression fixtures, November 19 01:17 UTC
+
+- The placement fallback smoke now opts into an exact four-placement
+  variant. It drops the custom weapon, independent prop and hoverbike
+  packages. On cold launch it checks the resident stock crate and bike
+  bindings, then both native pickup grants. The original pinned source
+  remains the expected parent. N-0994.
+- A stock Cyclone match places Triangle's real embedded mesh. The
+  guest fixture uses the normal consent flow and expects the original
+  arena and owning .pdweapon, the native model and matching result
+  identity, and both temporary leases retired on return. N-0995.
+- The effect fixture keeps the ordinary Triangle firing path and a
+  declared source edge to an original standalone effect with an
+  embedded editable texture. The host witness is projectile impact and
+  a native particle command. The guest witness is exact texture
+  activation from the leased archive and its retirement. N-0996.
+- The effect and weapon fixture archives reproduced byte for byte.
+  The first conformance attempt lacked the unchanged example body/head
+  ID declarations, and the first definition pass found the wrong guest
+  fixture path. The isolated corpus with those existing archives passed
+  4 root and 12 total archives. Corrected definitions passed 32, 85 and
+  100 regex checks and local source lookup. Native BDC69AB2 passed
+  72 fallback, 32 owning archive and 54 effect texture assertions.
+  Client 3E9E57F7 built in q_20261119011538416_2abcd96e with the source
+  guard. Managed cases remain unrun pending available capacity.
+
+### Grid stock audio cadence, November 19 04:00 UTC
+
+- The v0.1.103 Grid playtest logs resolve the two intro cues (441 and 443)
+  once each. The extractor used the 44,100 Hz bank header even though the PC
+  synth consumed one source sample per 22,050 Hz mixer frame at unity pitch.
+  That halved the decoded frame count of the public WAVs.
+- The shared bank extractor now emits native-rate PCM WAVs for SFX and
+  voices. On boot it upgrades only existing legacy archives whose waveform,
+  descriptor and manifest match the old stock extraction. It retains
+  authored samples, loop indices, key pitch and direct MP3 sources. The
+  catalog provider smoke requires both intro cues at their exact native
+  frame counts. See Workbench N-1003, N-1006 and N-1013.

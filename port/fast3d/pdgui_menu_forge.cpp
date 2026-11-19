@@ -27,6 +27,11 @@ extern s32 g_StageNum;
  * situation. */
 extern "C" s32 stageGetIndex(s32 stagenum);
 
+/* forge_level_io.h: a session starts with no level file open and no arena
+ * named. A caller that knows which arena it started the session on (The
+ * Grid's Enter, forgeLevelStartForge) names it right after a start succeeds. */
+extern "C" void forgeLevelSessionBegin(const char *arena_id);
+
 static s32 forgeStageIsGridEligible(s32 stagenum)
 {
 	/* STAGE_TITLE=0x5a, STAGE_BOOTPAKMENU=0x5b, STAGE_CREDITS=0x5c.
@@ -65,6 +70,7 @@ s32 pdguiForgeStartSessionOn(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage 0x%02x)",
 			(u32)target);
 
+	forgeLevelSessionBegin("");
 	forgeRequestEnterSession();
 	/* B-216: re-entering the same stage used to queue a full stage transition
 	 * (inputCtxShutdown + reload), breaking menus. Skip redundant
@@ -104,6 +110,7 @@ s32 pdguiForgeStartSessionOnCanvas(s32 stagenum)
 	sysLogPrintf(LOG_NOTE, "GRID: launching CANVAS session (base stage 0x%02x)",
 			(u32)stagenum);
 
+	forgeLevelSessionBegin("");
 	forgeRequestEnterSessionCanvas();
 	if (g_StageNum != stagenum) {
 		mainChangeToStage(stagenum);

@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <stdatomic.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -36,6 +37,7 @@
 #include <io.h>
 #include <windows.h>
 #else
+#include <pthread.h>
 #include <unistd.h>
 #endif
 #include <zlib.h>
@@ -543,7 +545,7 @@ void *modArchiveExtractAlloc(mod_archive_t *arc, s32 idx, u32 *outSize)
 	}
 
 	s64 dataOff = lfhDataOffset(arc->fp, e->lfh_offset);
-	if (dataOff < 0 || (u32)dataOff + e->size_compressed > arc->file_size) {
+	if (dataOff < 0 || (u64)dataOff + e->size_compressed > arc->file_size) {
 		setError(MODARCHIVE_ERR_FORMAT);
 		return NULL;
 	}
@@ -697,12 +699,12 @@ static s64 findEocdOffsetMem(const u8 *bytes, u32 size)
 
 static s64 lfhDataOffsetMem(const u8 *bytes, u32 size, u32 lfhOffset)
 {
-	if (!bytes || lfhOffset + 30 > size) return -1;
+	if (!bytes || (u64)lfhOffset + 30u > size) return -1;
 	const u8 *lfh = bytes + lfhOffset;
 	if (readU32LE(lfh) != LFH_SIG) return -1;
 	u16 nameLen  = readU16LE(&lfh[26]);
 	u16 extraLen = readU16LE(&lfh[28]);
-	u32 dataOff = lfhOffset + 30u + (u32)nameLen + (u32)extraLen;
+	u64 dataOff = (u64)lfhOffset + 30u + nameLen + extraLen;
 	return (dataOff <= size) ? (s64)dataOff : -1;
 }
 
@@ -754,7 +756,7 @@ static s32 walkMemCentralDirectory(const void *archiveBytes, u32 archiveSize,
 	u32 walked = 0;
 	u32 foundTarget = 0;
 	const u8 *cd = bytes + cdOffset;
-	while (walked + 46 <= cdSize) {
+	while (cdSize - walked >= 46) {
 		const u8 *p = cd + walked;
 		if (readU32LE(p) != CDH_SIG) {
 			break;
@@ -770,7 +772,7 @@ static s32 walkMemCentralDirectory(const void *archiveBytes, u32 archiveSize,
 		u16 cmtLen    = readU16LE(&p[32]);
 		u32 lfhOffset = readU32LE(&p[42]);
 		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
-		if (walked + recordLen > cdSize) {
+		if (recordLen > cdSize - walked) {
 			break;
 		}
 
@@ -843,6 +845,13 @@ void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
 		return NULL;
 	}
 
+	s64 dataOff = lfhDataOffsetMem((const u8 *)archiveBytes, archiveSize,
+		e.lfh_offset);
+	if (dataOff < 0 || (u64)dataOff + e.size_compressed > archiveSize) {
+		setError(MODARCHIVE_ERR_FORMAT);
+		return NULL;
+	}
+
 	if (e.size_uncompressed == 0) {
 		void *empty = malloc(1);
 		if (!empty) {
@@ -853,13 +862,6 @@ void *modArchiveExtractMemAlloc(const void *archiveBytes, u32 archiveSize,
 		if (outSize) *outSize = 0;
 		setError(MODARCHIVE_OK);
 		return empty;
-	}
-
-	s64 dataOff = lfhDataOffsetMem((const u8 *)archiveBytes, archiveSize,
-		e.lfh_offset);
-	if (dataOff < 0 || (u32)dataOff + e.size_compressed > archiveSize) {
-		setError(MODARCHIVE_ERR_FORMAT);
-		return NULL;
 	}
 
 	u8 *out = (u8 *)malloc(e.size_uncompressed);
@@ -954,7 +956,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 	u32 walked = 0;
 	s32 delivered = 0;
 	const u8 *cd = bytes + cdOffset;
-	while (walked + 46 <= cdSize) {
+	while (cdSize - walked >= 46) {
 		const u8 *p = cd + walked;
 		if (readU32LE(p) != CDH_SIG) {
 			break;
@@ -969,7 +971,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 		u16 cmtLen    = readU16LE(&p[32]);
 		u32 lfhOffset = readU32LE(&p[42]);
 		u32 recordLen = 46u + (u32)nameLen + (u32)extraLen + (u32)cmtLen;
-		if (walked + recordLen > cdSize) {
+		if (recordLen > cdSize - walked) {
 			break;
 		}
 
@@ -983,7 +985,7 @@ s32 modArchiveMemForEachEntry(const void *archiveBytes, u32 archiveSize,
 		}
 
 		s64 dataOff = lfhDataOffsetMem(bytes, archiveSize, lfhOffset);
-		if (dataOff < 0 || (u32)dataOff + csize > archiveSize) {
+		if (dataOff < 0 || (u64)dataOff + csize > archiveSize) {
 			walked += recordLen;
 			continue;
 		}
@@ -1051,7 +1053,177 @@ struct mod_archive_writer {
 	char *comment;       /* malloc'd, NUL-terminated, or NULL */
 	u32   commentLen;    /* clamped to 65535 */
 	int   aborted;
+	int   derived;       /* modArchiveBeginDerived: flushed by the barrier */
 };
+
+/* B-1110: derived archives (first-launch extraction output, which the game
+ * rebuilds from the ROM when one is missing or broken) are published without
+ * forcing each file to disk. On a 7200 rpm disk the per-file flush plus the
+ * write-through rename cost about 100 ms per file against 1 ms without them.
+ * The published paths wait in this list until modArchiveDerivedBarrier makes
+ * them durable; an extraction cache stamp calls it before it vouches for a
+ * directory. Extractors publish from boot-pool workers, so the list is locked. */
+static char **s_derivedPending;
+static s32 s_derivedCount;
+static s32 s_derivedCap;
+#if defined(_WIN32)
+static SRWLOCK s_derivedLock = SRWLOCK_INIT;
+#define DERIVED_LOCK() AcquireSRWLockExclusive(&s_derivedLock)
+#define DERIVED_UNLOCK() ReleaseSRWLockExclusive(&s_derivedLock)
+#else
+static pthread_mutex_t s_derivedLock = PTHREAD_MUTEX_INITIALIZER;
+#define DERIVED_LOCK() pthread_mutex_lock(&s_derivedLock)
+#define DERIVED_UNLOCK() pthread_mutex_unlock(&s_derivedLock)
+#endif
+
+/* Force one published file to disk. A file that no longer exists (an
+ * intermediate its owner already removed) needs nothing and counts as done. */
+static s32 derivedFlushPath(const char *path)
+{
+	FILE *fp = fopen(path, "r+b");
+	if (!fp) {
+		struct stat st;
+		return stat(path, &st) != 0 ? 0 : -1;
+	}
+	s32 ok = fflush(fp) == 0;
+#if defined(_WIN32)
+	if (ok && _commit(_fileno(fp)) != 0) ok = 0;
+#else
+	if (ok && fsync(fileno(fp)) != 0) ok = 0;
+#endif
+	if (fclose(fp) != 0) ok = 0;
+	return ok ? 0 : -1;
+}
+
+/* 1 when `path` lies under directory `dir`: case-insensitive, with '/' and
+ * '\\' treated alike, and the match must end at a separator. NULL dir: all. */
+static s32 derivedPathUnder(const char *path, const char *dir)
+{
+	if (!dir) return 1;
+	size_t n = strlen(dir);
+	while (n > 0 && (dir[n - 1] == '/' || dir[n - 1] == '\\')) n--;
+	if (n == 0) return 0;
+	for (size_t i = 0; i < n; i++) {
+		char a = path[i], b = dir[i];
+		if (a == '\0') return 0;
+		if (a == '\\') a = '/';
+		if (b == '\\') b = '/';
+		if (tolower((unsigned char)a) != tolower((unsigned char)b)) return 0;
+	}
+	return path[n] == '/' || path[n] == '\\';
+}
+
+/* Absolute form of `path` (malloc'd), so a relative archive path and an
+ * absolute stamp directory still match. Falls back to a plain copy. */
+static char *derivedCanonical(const char *path)
+{
+#if defined(_WIN32)
+	char *full = _fullpath(NULL, path, 0);
+#else
+	char *full = realpath(path, NULL);
+#endif
+	if (full) return full;
+	char *copy = (char *)malloc(strlen(path) + 1);
+	if (copy) strcpy(copy, path);
+	return copy;
+}
+
+/* Remember a published derived archive. Returns 0, or -1 when out of memory
+ * (the caller then flushes the file itself). */
+static s32 derivedRecord(const char *path)
+{
+	char *copy = derivedCanonical(path);
+	if (!copy) return -1;
+	DERIVED_LOCK();
+	if (s_derivedCount == s_derivedCap) {
+		s32 cap = s_derivedCap ? s_derivedCap * 2 : 256;
+		char **next = (char **)realloc(s_derivedPending, (size_t)cap * sizeof(*next));
+		if (!next) {
+			DERIVED_UNLOCK();
+			free(copy);
+			return -1;
+		}
+		s_derivedPending = next;
+		s_derivedCap = cap;
+	}
+	s_derivedPending[s_derivedCount++] = copy;
+	DERIVED_UNLOCK();
+	return 0;
+}
+
+typedef struct {
+	char **paths;
+	atomic_int failed;
+} derived_flush_batch;
+
+static void derivedFlushOne(int index, void *ctx)
+{
+	derived_flush_batch *batch = (derived_flush_batch *)ctx;
+	if (derivedFlushPath(batch->paths[index]) != 0) {
+		sysLogPrintf(LOG_WARNING, "modarchive: could not flush derived archive \"%s\"",
+			batch->paths[index]);
+		atomic_store(&batch->failed, 1);
+	}
+}
+
+s32 modArchiveDerivedBarrier(const char *dir)
+{
+	return modArchiveDerivedBarrierWith(dir, NULL);
+}
+
+s32 modArchiveDerivedBarrierWith(const char *dir_in, mod_archive_range_runner runner)
+{
+	s32 result = 0;
+	char *dir = dir_in ? derivedCanonical(dir_in) : NULL;
+	if (dir_in && !dir) return -1;
+	DERIVED_LOCK();
+	char **batch = s_derivedCount > 0
+		? (char **)malloc((size_t)s_derivedCount * sizeof(*batch)) : NULL;
+	s32 count = 0, kept = 0;
+	for (s32 i = 0; i < s_derivedCount; i++) {
+		char *path = s_derivedPending[i];
+		if (!derivedPathUnder(path, dir)) {
+			s_derivedPending[kept++] = path;
+		} else if (batch) {
+			batch[count++] = path;
+		} else {
+			/* No memory to take the paths out: flush this one under the
+			 * lock so none is forgotten unflushed. Slower, still correct. */
+			if (derivedFlushPath(path) != 0) result = -1;
+			free(path);
+		}
+	}
+	s_derivedCount = kept;
+	DERIVED_UNLOCK();
+	if (count > 0) {
+		/* Several flushes in flight let a hard disk serve them together. */
+		derived_flush_batch flush = { batch, 0 };
+		if (runner) {
+			runner(0, count, derivedFlushOne, &flush);
+		} else {
+			for (s32 i = 0; i < count; i++) derivedFlushOne(i, &flush);
+		}
+		if (atomic_load(&flush.failed)) result = -1;
+	}
+	for (s32 i = 0; i < count; i++) free(batch[i]);
+	free(batch);
+	free(dir);
+	return result;
+}
+
+s32 modArchiveDerivedPendingCount(const char *dir_in)
+{
+	char *dir = dir_in ? derivedCanonical(dir_in) : NULL;
+	if (dir_in && !dir) return -1;
+	s32 count = 0;
+	DERIVED_LOCK();
+	for (s32 i = 0; i < s_derivedCount; i++) {
+		if (derivedPathUnder(s_derivedPending[i], dir)) count++;
+	}
+	DERIVED_UNLOCK();
+	free(dir);
+	return count;
+}
 
 static int writerGrowEntries(mod_archive_writer_t *w)
 {
@@ -1063,7 +1235,7 @@ static int writerGrowEntries(mod_archive_writer_t *w)
 	return 1;
 }
 
-mod_archive_writer_t *modArchiveBegin(const char *path)
+static mod_archive_writer_t *writerBegin(const char *path, int derived)
 {
 	if (!path || !path[0]) {
 		setError(MODARCHIVE_ERR_OPEN);
@@ -1074,6 +1246,7 @@ mod_archive_writer_t *modArchiveBegin(const char *path)
 		setError(MODARCHIVE_ERR_MEM);
 		return NULL;
 	}
+	w->derived = derived;
 	strncpy(w->finalPath, path, FS_MAXPATH);
 	w->finalPath[FS_MAXPATH] = '\0';
 	snprintf(w->tempPath, sizeof(w->tempPath), "%s.tmp", path);
@@ -1086,6 +1259,16 @@ mod_archive_writer_t *modArchiveBegin(const char *path)
 	}
 	setError(MODARCHIVE_OK);
 	return w;
+}
+
+mod_archive_writer_t *modArchiveBegin(const char *path)
+{
+	return writerBegin(path, 0);
+}
+
+mod_archive_writer_t *modArchiveBeginDerived(const char *path)
+{
+	return writerBegin(path, 1);
 }
 
 /* Validate a candidate entry name for the writer. Same rules as the reader's
@@ -1412,19 +1595,26 @@ s32 modArchiveFinish(mod_archive_writer_t *w)
 	if (w->commentLen > 0 && !writerWrite(w, w->comment, w->commentLen)) goto fail;
 
 	if (fflush(w->fp) != 0) goto fail;
+	/* A derived archive is not forced to disk here: modArchiveDerivedBarrier
+	 * does that later, before any cache stamp vouches for it (B-1110). */
+	if (!w->derived) {
 #if defined(_WIN32)
-	if (_commit(_fileno(w->fp)) != 0) goto fail;
+		if (_commit(_fileno(w->fp)) != 0) goto fail;
 #else
-	if (fsync(fileno(w->fp)) != 0) goto fail;
+		if (fsync(fileno(w->fp)) != 0) goto fail;
 #endif
+	}
 	if (fclose(w->fp) != 0) goto fail_after_close;
 	w->fp = NULL;
 
 	/* Replace the existing target atomically. Never unlink the good archive
-	 * before the new temp file has been durably written and moved. */
+	 * before the new temp file has been written and moved. A durable archive
+	 * is on disk before the move and the move is written through; a derived
+	 * one keeps the atomic replace and is flushed later by the barrier. */
 #if defined(_WIN32)
-	if (!MoveFileExA(w->tempPath, w->finalPath,
-			MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+	if (!MoveFileExA(w->tempPath, w->finalPath, w->derived
+			? MOVEFILE_REPLACE_EXISTING
+			: MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
 #else
 	if (rename(w->tempPath, w->finalPath) != 0) {
 #endif
@@ -1437,10 +1627,18 @@ s32 modArchiveFinish(mod_archive_writer_t *w)
 		return MODARCHIVE_ERR_IO;
 	}
 
+	/* Track a derived archive for the barrier. Without memory to track it,
+	 * make it durable now, so no stamp can ever vouch for unflushed bytes. */
+	s32 derived_failed = w->derived && derivedRecord(w->finalPath) != 0
+		&& derivedFlushPath(w->finalPath) != 0;
 	for (s32 i = 0; i < w->entry_count; i++) free(w->entries[i].name);
 	free(w->entries);
 	free(w->comment);
 	free(w);
+	if (derived_failed) {
+		setError(MODARCHIVE_ERR_IO);
+		return MODARCHIVE_ERR_IO;
+	}
 	setError(MODARCHIVE_OK);
 	return MODARCHIVE_OK;
 

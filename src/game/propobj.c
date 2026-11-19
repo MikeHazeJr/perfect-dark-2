@@ -6,6 +6,9 @@
 #include "game/bondmove.h"
 #include "game/bondbike.h"
 #include "game/bondwalk.h"
+#include "game/vehiclegraph.h"
+#include "vehicle_seats.h"
+#include "vehicle_debug.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
@@ -60,6 +63,7 @@
 #include "game/options.h"
 #include "actionmap.h"
 #include "game/propobj.h"
+#include "forge_level_doc.h"
 #include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/wallhit.h"
 #include "game/shards.h"
@@ -99,6 +103,11 @@ extern void statIncrement(const char *key, u64 amount);
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "scene.h"
+#include "mission_graph_runner.h"
+#include "mission_graph_modules.h"
+#include "scenario_source_runtime.h"
+#include "weapondata_authored.h"
+#include <stdio.h>
 
 void rng2SetSeed(u32 seed);
 
@@ -207,7 +216,7 @@ struct thrownlaptoplatch {
 	s32 valid;            /* 0 = no entity graph at deploy; every consumer reverts to OG */
 	s32 fireinterval;     /* weaponGraphAutogunFireInterval(rpm); 1 = OG cadence */
 	s32 alternate;        /* autogun_alternate_muzzles; -1 sentinel = OG modelGetPart gate */
-	s32 beaminterval;     /* authored beam_interval_ticks60 > 0, else OG literal 4 */
+	s32 beaminterval;     /* authored beam_interval (shots) > 0, else OG literal 4 */
 	s32 ffsuppress;       /* autogun_friendly_fire_suppression; -1 sentinel = OG (suppress) */
 	s32 pickuprecover;    /* autogun_pickup_recover; -1 sentinel = OG (recoverable) */
 	s32 recoverweaponnum; /* weapon given on recover; gset->weaponnum fallback */
@@ -5208,10 +5217,76 @@ bool objEmbed(struct prop *prop, struct prop *parent, struct model *model, struc
 	return false;
 }
 
+/* A custom (graph) projectile leaves one line when it lands: what it hit and
+ * whether it attached, was deleted because the prop it hit was off screen
+ * this tick, or rests on the background (MODS ask in the week note,
+ * 2026-11-15). Base weapons never log. Capped per process. */
+#define OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP 64
+static s32 s_ObjCustomProjectileLandLogs = 0;
+
+static const char *objLandTargetName(const struct prop *target)
+{
+	if (target == NULL) {
+		return "background";
+	}
+
+	switch (target->type) {
+	case PROPTYPE_CHR: return "chr";
+	case PROPTYPE_PLAYER: return "player";
+	case PROPTYPE_OBJ: return "object";
+	case PROPTYPE_DOOR: return "door";
+	case PROPTYPE_WEAPON: return "weapon";
+	default: return "prop";
+	}
+}
+
+static void objLogCustomProjectileLanding(struct defaultobj *obj,
+		const struct coord *pos, s32 attached)
+{
+	const weapon_graph_projectile_runtime_t *landgraph;
+	struct weaponobj *weapon;
+	const char *outcome;
+
+	if (obj->type != OBJTYPE_WEAPON
+			|| s_ObjCustomProjectileLandLogs >= OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		return;
+	}
+
+	weapon = (struct weaponobj *)obj;
+	landgraph = weaponGetCustomProjectileGraph(weapon);
+
+	if (landgraph == NULL) {
+		return;
+	}
+
+	if (g_EmbedProp == NULL) {
+		outcome = "rests on the background";
+	} else if (attached) {
+		outcome = "attached";
+	} else if (obj->hidden & OBJHFLAG_DELETING) {
+		outcome = "deleted (the prop it hit was not on screen this tick)";
+	} else {
+		outcome = "not attached (no embedment slot)";
+	}
+
+	s_ObjCustomProjectileLandLogs++;
+	sysLogPrintf(LOG_NOTE,
+		"WEAPON.GRAPH: custom projectile landed weapon=%d asset='%s' on=%s: %s pos=(%.1f, %.1f, %.1f) model_scale=%.4f",
+		weapon->weaponnum, landgraph->asset_id, objLandTargetName(g_EmbedProp), outcome,
+		pos->x, pos->y, pos->z, obj->model ? obj->model->scale : 0.0f);
+
+	if (s_ObjCustomProjectileLandLogs == OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: %d custom projectile landing lines logged; later landings are not logged",
+			OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP);
+	}
+}
+
 void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *embedded)
 {
 	struct defaultobj *obj = prop->obj;
 	struct prop *ownerprop = NULL;
+	s32 attached = false;
 
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
@@ -5291,6 +5366,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
 			if (objEmbed(prop, g_EmbedProp, g_EmbedModel, g_EmbedNode)) {
 				*embedded = true;
+				attached = true;
 			}
 		} else {
 			obj->hidden |= OBJHFLAG_DELETING;
@@ -5300,6 +5376,8 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 		bgunPlayBgHitSound(&weapon->gset, arg1, -1, prop->rooms);
 	}
+
+	objLogCustomProjectileLanding(obj, arg1, attached);
 }
 
 s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
@@ -7455,6 +7533,9 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	s32 i;
 	u32 stack[6];
 	f32 tmp;
+	vehicle_graph_instance_t *graph = NULL;
+	vehicle_graph_drive_t drive;
+	f32 steerscale = 1.0f;
 
 	if (!bike) {
 		return;
@@ -7466,11 +7547,32 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->base.modelnum);
 		return;
 	}
-	if (!source->vehicle_allow_drive) {
+	if (source->vehicle_graph) {
+		/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here,
+		 * where the original movement runs, and its modules say what the
+		 * movement does: hover or not, take the driver's inputs or not, the
+		 * extra forward speed (replacing the original bonus below) and the
+		 * steering scale. A vehicle with no instance (refused, logged) does
+		 * not move. */
+		graph = hoverbikeGraphInstance(bike, source);
+		if (!graph) {
+			return;
+		}
+		hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
+		if (!drive.hover) {
+			return;
+		}
+		if (!drive.drive) {
+			speedforwards = 0;
+			speedsideways = 0;
+			speedtheta = 0;
+		}
+		steerscale = drive.steer_scale;
+	} else if (!source->vehicle_allow_drive) {
 		return;
 	}
 
-	tmp = speedtheta * source->vehicle_turn_input_scale;
+	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
 
 	if (speedforwards < 0) {
 		tmp *= 1.0f - speedforwards * source->vehicle_reverse_turn_gain;
@@ -7587,7 +7689,10 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (speedforwards >= 0.99f) {
+	if (graph) {
+		/* The graph's og.vehicle.throttle_boost keeps its own timer. */
+		bike->maxspeedtime240 = 0;
+	} else if (speedforwards >= 0.99f) {
 		bike->maxspeedtime240 += g_Vars.lvupdate240;
 
 		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
@@ -7607,9 +7712,13 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		}
 	}
 
-	bike->speedrel[1] = bike->maxspeedtime240 *
-		source->vehicle_boost_speed /
-		TICKS(source->vehicle_boost_time_ticks60);
+	if (graph) {
+		bike->speedrel[1] = drive.extra_speed;
+	} else {
+		bike->speedrel[1] = bike->maxspeedtime240 *
+			source->vehicle_boost_speed /
+			TICKS(source->vehicle_boost_time_ticks60);
+	}
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;
@@ -7646,6 +7755,10 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->leanspeed = 0;
 			bike->leandiff = 0;
 			bike->maxspeedtime240 = 0;
+			if (graph) {
+				/* The original rest reset, for the graph's timers. */
+				vehicleGraphInstanceRest(graph);
+			}
 			bike->speedabs[0] = 0;
 			bike->speedabs[1] = 0;
 			bike->speedrel[0] = 0;
@@ -11116,8 +11229,9 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct coord hitpos;
 				RoomNum hitrooms[8];
 				/* c3849 Wave 5 Unit 7: the OG beam literal 4 routes through
-				 * the deploy latch (autogun_beam_interval_ticks60; deploy
-				 * defaults the latch to 4, bit-identical for base). */
+				 * the deploy latch (autogun_beam_every_shots, a beam every N
+				 * shots; deploy defaults the latch to 4, bit-identical for
+				 * base). */
 				bool makebeam = (autogun->firecount
 						% (latch != NULL && latch->beaminterval > 0 ? latch->beaminterval : 4)) == 0;
 				struct prop *targetprop = autogun->target;
@@ -11884,6 +11998,87 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->fireslotthing->unk00++;
 }
 
+/* Object rules (object-rules.md): a chopper's hums and fall from its
+ * objects.json row on a stage built from scenario source, kept beside the
+ * object (struct chopperobj does not grow; the B-323 stride class). A ROM
+ * stage keeps the original's Extraction checks. */
+#define CHOPPER_RULES_MAX 8
+
+static struct {
+	struct chopperobj *chopper;
+	s16 engine_hum;
+	s16 thrust_hum;
+	bool drop;
+} s_ChopperRules[CHOPPER_RULES_MAX];
+static s32 s_ChopperRuleCount;
+
+void chopperClearRules(void)
+{
+	s_ChopperRuleCount = 0;
+}
+
+void chopperSetRules(struct chopperobj *chopper, s16 engine_hum, s16 thrust_hum, bool drop)
+{
+	if (s_ChopperRuleCount >= CHOPPER_RULES_MAX) {
+		sysLogPrintf(LOG_ERROR, "SETUP: more than %d choppers carry object rules; this one keeps the defaults",
+			CHOPPER_RULES_MAX);
+		return;
+	}
+	s_ChopperRules[s_ChopperRuleCount].chopper = chopper;
+	s_ChopperRules[s_ChopperRuleCount].engine_hum = engine_hum;
+	s_ChopperRules[s_ChopperRuleCount].thrust_hum = thrust_hum;
+	s_ChopperRules[s_ChopperRuleCount].drop = drop;
+	s_ChopperRuleCount++;
+	sysLogPrintf(LOG_NOTE, "SETUP: chopper object rules engine_hum=0x%04x thrust_hum=0x%04x fall=%s",
+		(u16)engine_hum, (u16)thrust_hum, drop ? "drop" : "crash");
+}
+
+static s32 chopperRuleIndex(struct chopperobj *chopper)
+{
+	s32 i;
+
+	for (i = 0; i < s_ChopperRuleCount; i++) {
+		if (s_ChopperRules[i].chopper == chopper) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static s32 chopperEngineHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].engine_hum ? s_ChopperRules[i].engine_hum : SFX_810F;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+}
+
+static s32 chopperThrustHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].thrust_hum ? s_ChopperRules[i].thrust_hum : SFX_8110;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+}
+
+static bool chopperFallsAsDrop(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].drop;
+	}
+
+	return stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION;
+}
+
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing)
 {
 	struct defaultobj *obj = prop->obj;
@@ -12019,7 +12214,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	mtx3Copy(rotmtx3, chopper->base.realrot);
 
 	if (chopper->power > 0.45f && !firing && (chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+		soundnum = chopperThrustHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM2);
 	} else {
@@ -12056,7 +12251,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	chopperIncrementBarrel(prop, firing);
 
 	if ((chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+		soundnum = chopperEngineHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM1);
 	} else {
@@ -12137,7 +12332,7 @@ void chopperTickFall(struct prop *chopperprop)
 
 	goalroty = chopper->roty + *x + *z;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION) {
+	if (chopperFallsAsDrop(chopper)) {
 		// The Extraction chopper falls without any collision checks and is
 		// reaped once it reaches the lower barrier
 		if (chopperprop->pos.y < -30000) {
@@ -12821,6 +13016,8 @@ void hoverbikeTick(struct prop *prop, bool arg1)
 
 		if (obj->base.flags & OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY) {
 			hoverbikeUpdateMovement(obj, 0, 0, 0);
+		} else {
+			hoverbikeGraphIdleTick(obj);
 		}
 	}
 }
@@ -12912,6 +13109,51 @@ void hangingmonitorInitMatrices(struct prop *prop)
 	mtx00015be0(matrices, &matrices[4]);
 }
 
+s32 objGridDecorationMove(struct defaultobj *obj, u64 generation, f32 x, f32 z, s32 apply)
+{
+	if (!obj || !generation || obj->type != OBJTYPE_BASIC
+			|| !forgeLevelDecorationFlagsMatch(obj->flags, obj->flags2, obj->flags3)
+			|| obj->projectile || !obj->model
+			|| (obj->hidden & (OBJHFLAG_DELETING | OBJHFLAG_GONE | OBJHFLAG_EMBEDDED | OBJHFLAG_PROJECTILE))
+			|| !__builtin_isfinite(x) || !__builtin_isfinite(z)) return 0;
+	struct prop *prop = obj->prop;
+	if (!prop || prop->obj != obj || prop->type != PROPTYPE_OBJ || prop->child || prop->parent
+			|| !(prop->flags & PROPFLAG_ENABLED) || propGetLifecycleGeneration(prop) != generation
+			|| !g_Rooms || prop->rooms[0] <= 0 || prop->rooms[0] >= g_Vars.roomcount
+			|| prop->rooms[1] != -1) return 0;
+
+	struct coord origin = prop->pos;
+	struct coord target = prop->pos;
+	target.x = x;
+	target.z = z;
+	const RoomNum room = prop->rooms[0];
+	const struct room *bounds = &g_Rooms[room];
+	if (x <= bounds->bbmin[0] || x >= bounds->bbmax[0]
+			|| z <= bounds->bbmin[2] || z >= bounds->bbmax[2]
+			|| target.y < bounds->bbmin[1] || target.y > bounds->bbmax[1]) return 0;
+
+	RoomNum rooms[] = { room, -1 };
+	struct prop *origin_floor = NULL;
+	struct prop *target_floor = NULL;
+	struct coord floor_normal;
+	f32 origin_y = 0.0f;
+	f32 target_y = 0.0f;
+	const RoomNum source_room = cdFindFloorRoomYColourNormalPropAtPos(
+		&origin, rooms, &origin_y, NULL, &floor_normal, &origin_floor);
+	const RoomNum target_room = cdFindFloorRoomYColourNormalPropAtPos(
+		&target, rooms, &target_y, NULL, &floor_normal, &target_floor);
+	if (source_room != room || target_room != room || origin_floor || target_floor
+			|| !__builtin_isfinite(origin_y) || !__builtin_isfinite(target_y)
+			|| target_y - origin_y > 2.0f || origin_y - target_y > 2.0f
+			|| cdTestCylMove02(&origin, rooms, &target, rooms, CDTYPE_BG, 0, 0.0f, 0.0f)
+				!= CDRESULT_NOCOLLISION) return 0;
+
+	/* Normal object rendering rebuilds matrices from prop->pos and realrot.
+	 * General placement also fires proximity triggers; this edit must not. */
+	if (apply) prop->pos = target;
+	return 1;
+}
+
 void objInitMatrices(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -12946,6 +13188,12 @@ void objInitMatrices(struct prop *prop)
 				thing.unk00 = &sp28;
 
 				modelSetMatrices(&thing, obj->model);
+
+				/* A vehicle's turret points where its gunner aims (V5a;
+				 * nothing happens for a vehicle with no aim recorded). */
+				if (obj->type == OBJTYPE_HOVERBIKE) {
+					hoverbikeApplyTurretAim(prop);
+				}
 			}
 		}
 	}
@@ -12956,7 +13204,13 @@ bool propCanRegen(struct prop *prop)
 	return true;
 }
 
-u32 objTick(struct prop *prop)
+/**
+ * Advance a taken or destroyed object's respawn wait by elapsed60 ticks. This
+ * is objTick's respawn handling, moved here unchanged so objRegenNow can run
+ * the same steps: the object starts fading in when the wait drops below a
+ * second and is available again when it reaches zero.
+ */
+static void objTickRegen(struct prop *prop, s32 elapsed60)
 {
 	struct defaultobj *obj = prop->obj;
 	bool silent = false;
@@ -12965,7 +13219,7 @@ u32 objTick(struct prop *prop)
 	u32 padnum;
 	struct defaultobj *newparent;
 
-	if (prop->timetoregen > 0) {
+	{
 		// Prop is taken/unavailable
 		regenning = true;
 
@@ -12973,7 +13227,7 @@ u32 objTick(struct prop *prop)
 			regenning = false;
 		}
 
-		prop->timetoregen -= g_Vars.lvupdate60;
+		prop->timetoregen -= elapsed60;
 
 		// If ready to start fading in but propCanRegen returns false, wait
 		// another second and try again. In practice propCanRegen will always
@@ -13040,6 +13294,43 @@ u32 objTick(struct prop *prop)
 						-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 			}
 		}
+	}
+}
+
+/**
+ * B-1205: finish an object's respawn now, the way objTick does once the wait
+ * runs out: start the fade-in if it has not started (the object comes back,
+ * with its respawn sound unless it goes back inside its parent object), then
+ * complete it, so the object can be taken again.
+ *
+ * A networked client calls this when the host reports that a player or a
+ * simulant took an item this client still has respawning. Each machine starts
+ * the wait when it learns of the earlier pickup, so the client's wait can end
+ * a few frames after the host's, and a simulant waiting on the spot takes the
+ * host's copy the moment it is back.
+ */
+void objRegenNow(struct prop *prop)
+{
+	if (prop == NULL || prop->obj == NULL || prop->timetoregen <= 0) {
+		return;
+	}
+
+	if (prop->timetoregen >= TICKS(60)) {
+		// Bring the wait just under a second, which starts the fade-in
+		objTickRegen(prop, prop->timetoregen - (TICKS(60) - 1));
+	}
+
+	if (prop->timetoregen > 0) {
+		objTickRegen(prop, prop->timetoregen);
+	}
+}
+
+u32 objTick(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (prop->timetoregen > 0) {
+		objTickRegen(prop, g_Vars.lvupdate60);
 	}
 
 	if (obj->type == OBJTYPE_AUTOGUN) {
@@ -18487,7 +18778,7 @@ bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted)
 	return true;
 }
 
-bool currentPlayerTryMountHoverbike(struct prop *prop)
+static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct defaultobj *obj;
@@ -18598,11 +18889,275 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	return false;
 }
 
+/* The gunner seat's mount (Maian vehicle V4). The gunner seat is new, so this
+ * is not a copy of the original mount: it asks for the same stance and the
+ * same press, records the player in the seat (the vehicle's graph record) and
+ * enters the bike mode, whose init, update and exit know a gunner
+ * (bondbike.c). Solo play only: the vehicle state message carries no seat
+ * yet, so a networked game takes no gunner. The vehicle is not marked
+ * mounted; that flag is the driver seat's. */
+static bool currentPlayerTryMountHoverbikeGunner(struct prop *prop)
+{
+	struct player *player = g_Vars.currentplayer;
+	const s32 playernum = g_Vars.currentplayernum;
+	struct defaultobj *obj;
+	struct prop *previousbike;
+	bool hasMountIntent;
+
+	if (g_NetMode != NETMODE_NONE
+			|| !player || !g_Vars.currentplayerstats || !player->prop || !prop
+			|| prop->type != PROPTYPE_OBJ || !prop->obj || player->isdead
+			|| player->isremote
+			|| playernum < 0 || playernum >= MAX_PLAYERS
+			|| player->bondmovemode != MOVEMODE_WALK
+			|| bmoveGetCrouchPos() != CROUCHPOS_STAND
+			|| player->crouchoffset != 0) {
+		return false;
+	}
+
+	obj = prop->obj;
+	if (obj->type != OBJTYPE_HOVERBIKE || obj->prop != prop || !obj->model
+			|| obj->model->scale == 0.0f
+			|| (obj->hidden & OBJHFLAG_GRABBED) != 0) {
+		return false;
+	}
+
+	/* The press that mounts: the driver mount's rule (the PC's explicit
+	 * use, or a controller's double tap). */
+	hasMountIntent = player->pcinteractusekind == 2;
+	if (!hasMountIntent && player->pcinteractusekind == 0
+			&& bmoveIsLocalControllerVehicleIntent()) {
+		hasMountIntent = g_Vars.lvframe60 - player->activatetimelast < TICKS(30);
+	}
+	if (!hasMountIntent || !assetRuntimeVehicleAllows(obj->modelnum, "mount")
+			|| !sceneVehicleDriverCanBoard()) {
+		return false;
+	}
+
+	if (!vehicleGraphRuntimeSetSeatOccupant(prop, prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER, playernum)) {
+		return false;
+	}
+	previousbike = player->hoverbike;
+	player->hoverbike = prop;
+	if (!bmoveSetMode(MOVEMODE_BIKE)
+			|| player->bondmovemode != MOVEMODE_BIKE
+			|| player->hoverbike != prop) {
+		/* The mode change failed and restored the walk; take the seat
+		 * record and the pointer back too. */
+		vehicleGraphRuntimeSetSeatOccupant(prop, prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER, -1);
+		player->hoverbike = previousbike;
+		sysLogPrintf(LOG_WARNING, "VEHICLE.SEAT: gunner mount failed in the mode change player=%d",
+			playernum);
+		return false;
+	}
+	return true;
+}
+
+/* What og.vehicle.mount_seat does for the seat it names: the driver seat's is
+ * the native candidate and commit above, the gunner seat's the mount just
+ * above. */
+static s32 hoverbikeMountDriverAction(void *context, s32 seat)
+{
+	if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return currentPlayerTryMountHoverbikeGunner((struct prop *)context) ? 1 : 0;
+	}
+	if (seat != VEHICLE_GRAPH_SEAT_DRIVER) {
+		return 0;
+	}
+	return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;
+}
+
+/* --debug-mount-seat: the seat every mount asks for, or
+ * VEHICLE_GRAPH_SEAT_NONE to let the player's place and view choose. */
+static s32 s_HoverbikeDebugMountSeat = VEHICLE_GRAPH_SEAT_NONE;
+
+void hoverbikeDebugSetMountSeat(s32 seat)
+{
+	s_HoverbikeDebugMountSeat = seat;
+}
+
+/* The seat a mount asks for on this vehicle (Mike, 2026-11-16: "the seat you
+ * take depends on where you entered from and where you're looking"). A
+ * vehicle has a gunner seat when its graph's mount request can reach a mount
+ * module for it; every other vehicle has the driver seat only. For each seat
+ * the game measures here, from the seat's eye point on the model, how far it
+ * is from the player and how far off the player's view; vehicleSeatChoose
+ * (port/src/vehicle_seats.c) decides. With no free seat in range the answer
+ * is the driver seat, whose mount then refuses as it always did. */
+static s32 hoverbikeChooseMountSeat(struct prop *prop)
+{
+	struct player *player = g_Vars.currentplayer;
+	const asset_runtime_binding_t *source;
+	vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_COUNT];
+	struct defaultobj *obj;
+	u32 mountable;
+	f32 range;
+	s32 choice;
+	s32 seat;
+
+	if (g_NetMode != NETMODE_NONE || !player || !player->prop || !prop
+			|| prop->type != PROPTYPE_OBJ || !prop->obj
+			|| prop->obj->type != OBJTYPE_HOVERBIKE) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	obj = prop->obj;
+	source = assetRuntimeVehicleForModelnum(obj->modelnum);
+	if (!source || !source->vehicle_graph) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	mountable = vehicleGraphProgramEventSeats(source->vehicle_graph,
+		VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED);
+	if ((mountable & (1u << VEHICLE_GRAPH_SEAT_GUNNER)) == 0) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	if (s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_DRIVER
+			|| s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		sysLogPrintf(LOG_NOTE, "VEHICLE.SEAT: mount asks for the %s seat (--debug-mount-seat)",
+			s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver");
+		return s_HoverbikeDebugMountSeat;
+	}
+
+	range = (obj->flags3 & OBJFLAG3_INTERACTSHORTRANGE) ? 100.0f : 200.0f;
+	for (seat = 0; seat < VEHICLE_GRAPH_SEAT_COUNT; seat++) {
+		struct coord eye;
+		f32 dx;
+		f32 dz;
+
+		if (!hoverbikeSeatWorldPos(obj, seat, &eye)) {
+			/* A model without this seat's part: the vehicle itself. */
+			eye.x = prop->pos.x;
+			eye.y = prop->pos.y;
+			eye.z = prop->pos.z;
+		}
+		dx = eye.x - player->prop->pos.x;
+		dz = eye.z - player->prop->pos.z;
+		seats[seat].exists = (mountable & (1u << seat)) != 0;
+		seats[seat].dist = sqrtf(dx * dx + dz * dz);
+		seats[seat].in_range = seats[seat].dist < range;
+		seats[seat].view_angle = vehicleSeatViewAngle(dx, dz, player->vv_theta);
+		seats[seat].free = 0;
+	}
+	seats[VEHICLE_GRAPH_SEAT_DRIVER].free = (obj->hidden & OBJHFLAG_MOUNTED) == 0;
+	seats[VEHICLE_GRAPH_SEAT_GUNNER].free = vehicleGraphRuntimeSeatOccupant(prop,
+		prop->lifecycle_generation, VEHICLE_GRAPH_SEAT_GUNNER) < 0;
+
+	choice = vehicleSeatChoose(seats, VEHICLE_SEAT_TIE_ANGLE, VEHICLE_SEAT_DRIVER_MARGIN);
+	sysLogPrintf(LOG_NOTE,
+		"VEHICLE.SEAT: mount choice=%s driver(dist=%.0f angle=%.2f free=%d range=%d) gunner(dist=%.0f angle=%.2f free=%d range=%d)",
+		choice == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner"
+			: choice == VEHICLE_GRAPH_SEAT_DRIVER ? "driver" : "none",
+		seats[VEHICLE_GRAPH_SEAT_DRIVER].dist, seats[VEHICLE_GRAPH_SEAT_DRIVER].view_angle,
+		seats[VEHICLE_GRAPH_SEAT_DRIVER].free, seats[VEHICLE_GRAPH_SEAT_DRIVER].in_range,
+		seats[VEHICLE_GRAPH_SEAT_GUNNER].dist, seats[VEHICLE_GRAPH_SEAT_GUNNER].view_angle,
+		seats[VEHICLE_GRAPH_SEAT_GUNNER].free, seats[VEHICLE_GRAPH_SEAT_GUNNER].in_range);
+	return choice == VEHICLE_GRAPH_SEAT_GUNNER
+		? VEHICLE_GRAPH_SEAT_GUNNER : VEHICLE_GRAPH_SEAT_DRIVER;
+}
+
+/* A vehicle with a pd.vehicle_graph.v1 graph mounts through it (vehiclegraph.c):
+ * the request is event.vehicle.mount_requested, and og.vehicle.mount_seat runs
+ * the native mount. A v2 vehicle takes the native path directly. On a vehicle
+ * whose graph has a gunner seat the request names the seat the player's place
+ * and view chose. */
+bool currentPlayerTryMountHoverbike(struct prop *prop)
+{
+	s32 result;
+
+	if (hoverbikeChooseMountSeat(prop) == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+			VEHICLE_GRAPH_SEAT_GUNNER, hoverbikeMountDriverAction, prop) == 1;
+	}
+	result = hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);
+
+	if (result >= 0) {
+		return result == 1;
+	}
+	return currentPlayerTryMountHoverbikeNative(prop);
+}
+
+/* object-events.md slice 2: an object event's payload, captured from the
+ * object before a pickup or a free can retire it: its objects.json record_id
+ * (its setup command index; "" for an object the setup did not place), its
+ * tag, its type and its catalog id (a weapon pickup's weapon, else its
+ * model). */
+struct objgraphevent {
+	char object[24];
+	s32 tag;
+	s32 type;
+	const char *catalog_id;
+};
+
+static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out)
+{
+	u32 cmdindex = obj && obj->prop ? setupGetCmdIndexByProp(obj->prop) : 0xffffffff;
+
+	out->object[0] = '\0';
+	out->tag = -1;
+	out->type = -1;
+	out->catalog_id = NULL;
+	if (!obj) {
+		return;
+	}
+	if (cmdindex != 0xffffffff) {
+		snprintf(out->object, sizeof(out->object), "setup_%04u", (unsigned)cmdindex);
+	}
+	out->tag = objGetTagNum(obj);
+	out->type = obj->type;
+	if (obj->type == OBJTYPE_WEAPON) {
+		const s32 weaponnum = ((struct weaponobj *)obj)->weaponnum;
+
+		if (weaponnum >= 0 && weaponnum < g_WeaponDataCount) {
+			out->catalog_id = g_WeaponDataCatalogIds[weaponnum];
+		}
+	} else {
+		out->catalog_id = catalogModelIdByModelnum(obj->modelnum);
+	}
+}
+
+/* Fires the event on the host: a networked client fires none (the host's
+ * graphs decide). */
+static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 playernum)
+{
+	if (g_NetMode == NETMODE_CLIENT || ev->type < 0) {
+		return;
+	}
+	scenarioSourceGraphObjectEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id, playernum);
+}
+
+/* object-events.md slice 4: fires a rule event about prop for user (the
+ * player, or the eyespy) into the level program, which decides through the
+ * rule gates and modules; rule holds what they did. Only on a stage whose
+ * rules are the level program's (scenarioSourceGraphObjectRulesActive). */
+static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user,
+	mission_graph_object_rule_t *rule, struct objgraphevent *ev)
+{
+	mission_graph_object_rule_t *outer;
+
+	memset(rule, 0, sizeof(*rule));
+	rule->prop = prop;
+	rule->user = user;
+	rule->tickop = TICKOP_NONE;
+	objGraphEventCapture(prop->obj, ev);
+	if (ev->type < 0) {
+		return;
+	}
+	outer = missionGraphModulesRuleBegin(rule);
+	scenarioSourceGraphObjectRuleEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id,
+		g_Vars.currentplayernum);
+	missionGraphModulesRuleEnd(outer);
+}
+
 bool propobjInteract(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
 	bool result = false;
 	u32 tag_id = propobjGetCiTagId(prop);
+	struct objgraphevent used;
+
+	objGraphEventCapture(obj, &used);
 
 	if (tag_id) {
 		// CI object - terminals etc
@@ -18757,6 +19312,8 @@ bool propobjInteract(struct prop *prop)
 	}
 
 	doorCallLift(prop, false);
+	/* object-events.md slice 2: the use button on an object, handled. */
+	objGraphEventFire(MISSION_GRAPH_EVENT_OBJECT_USED, &used, g_Vars.currentplayernum);
 
 	return result;
 }
@@ -19775,6 +20332,10 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 			if (g_Vars.normmplayerisrunning) {
 				if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+					// PC (T-NETWORKING-011): a Capture the Case capture (touching
+					// your own case while carrying theirs) returns TICKOP_NONE
+					const s32 hadcase = g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE && invHasBriefcase();
+
 					sp64 = scenarioPickUpBriefcase(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -19782,6 +20343,12 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 						if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
 							netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, sp64);
 						}
+					} else if (hadcase && !invHasBriefcase()
+							&& g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
+						// The capture took the carried case; clients replay it
+						// (the capturer's inventory, the point and the messages).
+						// The touched home case stays where it is.
+						netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, TICKOP_NONE);
 					}
 
 					return sp64;
@@ -20003,8 +20570,17 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		}
 	}
 
+	/* object-events.md slice 2: what was collected, captured before a free
+	 * retires the object, and fired once it is given or freed. */
+	struct objgraphevent collected;
+
+	if (result != TICKOP_NONE) {
+		objGraphEventCapture(obj, &collected);
+	}
+
 	if (result == TICKOP_FREE && (obj->hidden & OBJHFLAG_TAGGED) == 0) {
 		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 		return TICKOP_FREE;
 	}
 
@@ -20012,11 +20588,40 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 		if (!given) {
 			invGiveProp(prop);
 		}
+		objGraphEventFire(MISSION_GRAPH_EVENT_PICKUP_COLLECTED, &collected, g_Vars.currentplayernum);
 
 		return TICKOP_GIVETOPLAYER;
 	}
 
 	return TICKOP_NONE;
+}
+
+/* Whether the object's flags make it a pickup at all: the first of the
+ * original pickup tests. */
+static bool objPickupIsCandidate(struct defaultobj *obj)
+{
+	if (func0f085194(obj) && obj->type != OBJTYPE_HAT) {
+		return (obj->flags & OBJFLAG_UNCOLLECTABLE) == 0;
+	}
+	return (obj->flags & OBJFLAG_COLLECTABLE) != 0;
+}
+
+static bool objPickupIsTouching(struct prop *prop);
+
+/* object-events.md slice 4: the player touches a pickup; the level program
+ * decides (gate.pickup.native_rules, og.pickup.collect). The parity probe
+ * compares the original rules, computed first, with what the graph did. */
+static s32 objPickupTouched(struct prop *prop)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = objPickupRulesAllow(prop);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, prop, g_Vars.currentplayer->prop, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, ev.object,
+		native ? "collect" : "refuse", rule.collected ? "collect" : "refuse",
+		(rule.collected != 0) != native);
+	return rule.tickop;
 }
 
 s32 objTestForPickup(struct prop *prop)
@@ -20032,18 +20637,30 @@ s32 objTestForPickup(struct prop *prop)
 		return TICKOP_NONE;
 	}
 
-	if (func0f085194(obj) && obj->type != OBJTYPE_HAT) {
-		if (obj->flags & OBJFLAG_UNCOLLECTABLE) {
-			return TICKOP_NONE;
-		}
-	} else {
-		if ((obj->flags & OBJFLAG_COLLECTABLE) == 0) {
-			return TICKOP_NONE;
-		}
+	if (!objPickupIsCandidate(obj)) {
+		return TICKOP_NONE;
 	}
 
-	if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+	/* object-events.md slice 4: on a scenario-source stage the level program
+	 * decides once the player touches the object. */
+	if (scenarioSourceGraphObjectRulesActive()) {
+		return objPickupIsTouching(prop) ? objPickupTouched(prop) : TICKOP_NONE;
+	}
+
+	if (!objPickupRulesAllow(prop) || !objPickupIsTouching(prop)) {
 		return TICKOP_NONE;
+	}
+	return propPickupByPlayer(prop, true);
+}
+
+/* The original pickup rules for the current player, after the candidate
+ * test and before the touch (gate.pickup.native_rules). */
+bool objPickupRulesAllow(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+
+	if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+		return false;
 	}
 
 	// For disarmed weapons that are falling, picktimer timer is 1 second and
@@ -20055,17 +20672,17 @@ s32 objTestForPickup(struct prop *prop)
 	if ((obj->hidden & OBJHFLAG_PROJECTILE) && obj->projectile->pickuptimer240 > 0) {
 		if (obj->projectile->pickupby == NULL) {
 			if (obj->projectile->bouncecount == 0) {
-				return TICKOP_NONE;
+				return false;
 			}
 		} else {
 			if (obj->projectile->pickupby != g_Vars.currentplayer->prop) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 	}
 
 	if (!objCanPickupFromSafe(obj)) {
-		return TICKOP_NONE;
+		return false;
 	}
 
 	if (obj->type == OBJTYPE_WEAPON) {
@@ -20079,7 +20696,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_NBOMB
 				|| weapon->weaponnum == WEAPON_SKROCKET) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20092,7 +20709,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_COMMSRIDER
 				|| weapon->weaponnum == WEAPON_ECMMINE) {
 			if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20106,7 +20723,7 @@ s32 objTestForPickup(struct prop *prop)
 
 			if (stickydevice != NULL && stickydevice->sticky_pickup_none) {
 				if (weapon->timer240 >= 0 || (obj->hidden & OBJHFLAG_DELETING)) {
-					return TICKOP_NONE;
+					return false;
 				}
 			}
 		}
@@ -20116,7 +20733,7 @@ s32 objTestForPickup(struct prop *prop)
 				|| weapon->weaponnum == WEAPON_BOLT
 				|| weapon->weaponnum == WEAPON_COMBATKNIFE) {
 			if (obj->hidden & OBJHFLAG_PROJECTILE) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 
@@ -20148,7 +20765,7 @@ s32 objTestForPickup(struct prop *prop)
 					}
 
 					if (invHasDoubleWeaponExcAllGuns(leftweaponnum, rightweaponnum)) {
-						return TICKOP_NONE;
+						return false;
 					}
 				} else {
 					if (g_Vars.normmplayerisrunning
@@ -20157,10 +20774,10 @@ s32 objTestForPickup(struct prop *prop)
 						struct invitem *item = invFindSingleWeapon(weapon->weaponnum);
 
 						if ((item && item->type_weap.pickuppad == weapon->base.pad) || weapon->base.pad < 0) {
-							return TICKOP_NONE;
+							return false;
 						}
 					} else {
-						return TICKOP_NONE;
+						return false;
 					}
 				}
 			}
@@ -20177,7 +20794,7 @@ s32 objTestForPickup(struct prop *prop)
 					&& (crate->ammotype != AMMOTYPE_PROXY_MINE || invHasSingleWeaponExcAllGuns(WEAPON_PROXIMITYMINE))
 					&& (crate->ammotype != AMMOTYPE_TIMED_MINE || invHasSingleWeaponExcAllGuns(WEAPON_TIMEDMINE))
 					&& (crate->ammotype != AMMOTYPE_KNIFE || invHasSingleWeaponExcAllGuns(WEAPON_COMBATKNIFE))) {
-				return TICKOP_NONE;
+				return false;
 			}
 		}
 	} else if (obj->type == OBJTYPE_MULTIAMMOCRATE) {
@@ -20186,7 +20803,7 @@ s32 objTestForPickup(struct prop *prop)
 		s32 i;
 
 		if (objGetDestroyedLevel(obj)) {
-			return TICKOP_NONE;
+			return false;
 		}
 
 		for (i = 0; i <= AMMOTYPE_NBOMB; i++) {
@@ -20213,7 +20830,7 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (ignore) {
-			return TICKOP_NONE;
+			return false;
 		}
 	} else if (obj->type == OBJTYPE_SHIELD) {
 		struct shieldobj *shield = (struct shieldobj *) prop->obj;
@@ -20228,15 +20845,24 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (ignore) {
-			return TICKOP_NONE;
+			return false;
 		}
 	}
 
 	if (g_Vars.currentplayer->vv_verta * M_BADTAU / 360.0f < -60.0f * M_BADTAU / 360.0f) {
 		if (g_Vars.currentplayer->magnetattracttime < 0) {
-			return TICKOP_NONE;
+			return false;
 		}
 	}
+
+	return true;
+}
+
+/* Whether the current player is in pickup range of the object (the magnet's
+ * and the Elvis shelf's ranges included) and sees it: the touch. */
+static bool objPickupIsTouching(struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
 
 	{
 		struct prop *playerprop = g_Vars.currentplayer->prop;
@@ -20272,12 +20898,8 @@ s32 objTestForPickup(struct prop *prop)
 			pickup = false;
 		}
 
-		if (pickup) {
-			return propPickupByPlayer(prop, true);
-		}
+		return pickup;
 	}
-
-	return TICKOP_NONE;
 }
 
 bool func0f0899dc(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3)
@@ -21379,8 +22001,8 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 					latch->pickuprecover = entitygraph->has_autogun
 						? entitygraph->autogun_pickup_recover : -1;
 					latch->beaminterval = entitygraph->has_autogun
-						&& entitygraph->autogun_beam_interval_ticks60 > 0
-						? entitygraph->autogun_beam_interval_ticks60 : 4;
+						&& entitygraph->autogun_beam_every_shots > 0
+						? entitygraph->autogun_beam_every_shots : 4;
 
 					/* recover weapon (impact U6, binding spec B4): the
 					 * registration-resolved projectile pickup record wins,
@@ -21916,16 +22538,47 @@ bool doorIsRangeEmpty(struct doorobj *door)
 /**
  * Find automatic doors and open them if the player is close to them.
  */
+/* An automatic door opens for the player (og.door.activate_automatic). */
+void doorOpenAutomatic(struct doorobj *door)
+{
+	doorsRequestMode(door, DOORMODE_OPENING);
+	/* PC: persistent door stat — fires only when transitioning from
+	 * a closed/closing state (the caller's player-range + unlock checks
+	 * filtered it). Gated on local player. */
+	if (g_Vars.currentplayernum < PLAYERCOUNT()) {
+		statIncrement("doors.opened", 1);
+	}
+}
+
+/* object-events.md slice 4: the player approaches an automatic door; the
+ * level program decides (gate.door.native_unlocked,
+ * og.door.activate_automatic), compared with the original rule. */
+static void doorApproached(struct prop *doorprop)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = doorIsUnlocked(g_Vars.currentplayer->prop, doorprop);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_APPROACH, doorprop, g_Vars.currentplayer->prop, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_APPROACH, ev.object,
+		native ? "open" : "stay", rule.activated ? "open" : "stay", (rule.activated != 0) != native);
+}
+
 void doorsCheckAutomatic(void)
 {
 	struct prop *doorprop;
 	s16 *propnumptr;
 	s16 propnums[256];
+	bool graphrules;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		// don't do anything if we're not the authority
 		return;
 	}
+
+	/* object-events.md slice 4: on a scenario-source stage the level
+	 * program decides whether an approached door opens. */
+	graphrules = scenarioSourceGraphObjectRulesActive();
 
 	roomGetProps(g_Vars.currentplayer->prop->rooms, propnums, 256);
 	propnumptr = propnums;
@@ -21937,7 +22590,7 @@ void doorsCheckAutomatic(void)
 			struct doorobj *door = doorprop->door;
 
 			if ((door->doorflags & DOORFLAG_AUTOMATIC)
-					&& doorIsUnlocked(g_Vars.currentplayer->prop, doorprop)
+					&& (graphrules || doorIsUnlocked(g_Vars.currentplayer->prop, doorprop))
 					&& (door->mode == DOORMODE_CLOSING || (door->mode == DOORMODE_IDLE && door->frac <= 0))) {
 				bool canopen = false;
 				struct defaultobj *obj = NULL;
@@ -21974,12 +22627,10 @@ void doorsCheckAutomatic(void)
 				}
 
 				if (canopen) {
-					doorsRequestMode(door, DOORMODE_OPENING);
-					/* PC: persistent door stat — fires only when transitioning from
-					 * a closed/closing state (canopen gate above already filtered
-					 * the player-range + unlock checks).  Gated on local player. */
-					if (g_Vars.currentplayernum < PLAYERCOUNT()) {
-						statIncrement("doors.opened", 1);
+					if (graphrules) {
+						doorApproached(doorprop);
+					} else {
+						doorOpenAutomatic(door);
 					}
 				}
 			}
@@ -22617,6 +23268,14 @@ void doorStartOpen(struct doorobj *door)
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 255;
 	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent opened;
+
+		objGraphEventCapture(&door->base, &opened);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_OPENED, &opened, -1);
+	}
 }
 
 /**
@@ -22633,6 +23292,14 @@ void doorStartClose(struct doorobj *door)
 
 	if (door->doortype == DOORTYPE_LASER) {
 		door->laserfade = 0;
+	}
+
+	/* object-events.md slice 2: every start, whoever caused it. */
+	{
+		struct objgraphevent closed;
+
+		objGraphEventCapture(&door->base, &closed);
+		objGraphEventFire(MISSION_GRAPH_EVENT_DOOR_CLOSED, &closed, -1);
 	}
 }
 
@@ -23671,16 +24338,11 @@ void doorsChooseSwingDirection(struct prop *chrprop, struct doorobj *door)
 	}
 }
 
-bool propdoorInteract(struct prop *doorprop)
+/* The original refusal of a used door that is locked (og.door.locked_message):
+ * the locked message while it is shut, who tried, the pending activation. */
+void doorShowLocked(struct doorobj *door)
 {
-	struct doorobj *door = doorprop->door;
-	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
-	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
-
-	if (doorIsUnlocked(playerprop, doorprop)) {
-		doorsChooseSwingDirection(playerprop, door);
-		doorsActivate(doorprop, true);
-	} else if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {
+	if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {
 		if ((door->base.flags2 & OBJFLAG2_SKIPDOORLOCKEDMSG) == 0) {
 			struct textoverride *override = invGetTextOverrideForObj(&door->base);
 			u8 intraining = false;
@@ -23710,6 +24372,35 @@ bool propdoorInteract(struct prop *doorprop)
 		}
 
 		door->base.flags2 |= OBJFLAG2_DOOR_PENDINGACTIVATION;
+	}
+}
+
+bool propdoorInteract(struct prop *doorprop)
+{
+	struct doorobj *door = doorprop->door;
+	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
+	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
+
+	/* object-events.md slice 4: on a scenario-source stage the level program
+	 * decides (gate.door.native_unlocked, og.door.activate,
+	 * og.door.locked_message), compared with the original rule. A network
+	 * client keeps its local prediction (the host corrects it). */
+	if (g_NetMode != NETMODE_CLIENT && scenarioSourceGraphObjectRulesActive()) {
+		mission_graph_object_rule_t rule;
+		struct objgraphevent ev;
+		const bool native = doorIsUnlocked(playerprop, doorprop);
+
+		objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_USE, doorprop, playerprop, &rule, &ev);
+		scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_USE, ev.object,
+			native ? "activate" : "locked",
+			rule.activated ? (rule.locked_message ? "both" : "activate")
+				: (rule.locked_message ? "locked" : "nothing"),
+			native ? (!rule.activated || rule.locked_message) : (rule.activated || !rule.locked_message));
+	} else if (doorIsUnlocked(playerprop, doorprop)) {
+		doorsChooseSwingDirection(playerprop, door);
+		doorsActivate(doorprop, true);
+	} else {
+		doorShowLocked(door);
 	}
 
 	return TICKOP_NONE;

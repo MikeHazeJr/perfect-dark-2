@@ -1,0 +1,164 @@
+# Global AI lists as public source (design, CORE, 2026-11-15)
+
+Status: plan written 2026-11-16 (below). Slice 1 built on `week-pd/core-gai`: step 5's proof (rows, compile, byte comparison with `--check-global-ailists`), no asset type or runtime switch yet. Checklist row "Global AI lists" (week note,
+CORE's behavior conversion checklist). Decision 1: "Players should be able to
+recreate any existing game behavior with the nodes."
+
+## Where they are today
+
+`src/game/gailists.c` (6,152 lines) holds the 46 global AI lists as C byte
+arrays, indexed by `g_GlobalAilists[]` (ids below 0x0401: idle, the unalerted
+and alerted guard loops, wake-up, the end-cinema list and the rest). Every
+stage's characters fall back to them; stage AI lists jump into them. Unlike the
+per-stage lists, they are compiled into the binary, so no player can read or
+change them.
+
+The per-stage lists are already public: each scenario carries
+`ai/ailists.json` (`pd2.scenario.ai.lists.v1`), one row per command
+(`list_id`, `command_index`, `offset`, `opcode`, `opcode_name`, `operands`,
+the `model`/`weapon`/`body`/`head` catalog ids, a `graph_node` name), and the
+runtime compiles those rows into the interpreter's byte lists at stage load
+(`scenario_source_runtime.c`, "AI list source").
+
+## Proposal
+
+1. **Same schema, same compiler.** The global lists are written as
+   `pd2.scenario.ai.lists.v1` rows with their own ids (below 0x0401). Nothing
+   new to learn for a player, and one compiler for both.
+2. **One base asset, written from the game's own table.** The extractor
+   serialises `g_GlobalAilists` into one public file in a base asset (working
+   name `base:ai_global`, a typed archive holding `ai/global_ailists.json`),
+   the same way `stage.json` is written from the game's tables. A mod may ship
+   its own copy; the catalog picks it over the base one, as it picks `.pdlang`
+   banks.
+3. **Per-level override.** A scenario's own `ai/ailists.json` may also hold
+   rows with a global list id; for that level they replace the global list of
+   that id. This lets a custom level change a shared behaviour (say, how its
+   guards wake up) without touching every other level.
+4. **Fail closed.** On a stage built from scenario source, the global lists
+   come from the source: a missing or invalid global asset refuses the stage
+   with the same fatal path as other required members
+   (`scenarioSourceFatalRuntimeFallbackForStage`), never a silent fall back to
+   the compiled table. A ROM stage keeps the compiled table.
+5. **Proof.** The extracted rows must compile back to the exact bytes of
+   `gailists.c` for every list (a unit test, like the setup round trips), and
+   the release campaign must run unchanged.
+
+## Implementation plan (CORE, 2026-11-16; recommendation taken, not started)
+
+Asset type: a new typed archive `.pdai` (`ASSET_AI_LISTS`), one base
+asset `base:ai_global` in `data/<romid>/ai/` holding `ai.ini` and
+`ai/global_ailists.json` (the same `pd2.scenario.ai.lists.v1` rows; ids
+below 0x0401). A new type touches about twenty places, the ones
+`ASSET_LANG` is wired through: the enum (`assetcatalog.h`), type names
+(`assetcatalog_load.c`, `asset_archive_writer.c`,
+`asset_fallback_telemetry.c`, `asset_source_debug.c`, `main.c` both
+ways), the scanner's folder, section and descriptor tables
+(`assetcatalog_scanner.c`), the archive policy row (`asset_archive_policy.c`),
+the mod contract row (`asset_mod_utility_contract.c`), the runtime switches
+(`asset_runtime.c`), a loader walker (`loader_walker_ai.c`, like
+`loader_walker_lang.c`), the mod manager and modpack lists
+(`modmgr_component_catalog.cpp`, `modpack.c`), plus the conformance family
+and its tests.
+
+Measured 2026-11-16 by the places `ASSET_THEME` (the newest type) is wired:
+beyond the list above, the mod manager and modding hub UI
+(`pdgui_menu_modmgr.cpp`, `pdgui_menu_moddinghub.cpp`,
+`pdgui_menu_mainmenu.cpp` type lists), network mod distribution
+(`net/netdistrib.c` descriptor-to-type and `net/netmsg.c` type list),
+`modpack_pdmod.c`, and the Theater format (`theater.c` asserts its highest
+stored catalog type is `ASSET_THEME`; append the new type after it so no
+stored number moves). Two product questions come with them: how the mod
+manager shows AI list mods, and whether they travel with a host's mods in
+multiplayer (the host runs the AI, so probably not). Slice 2 is a focused
+session of its own.
+
+1. Extraction: a writer next to `s_buildAiListsTable` that walks
+   `g_GlobalAilists` (pointer and id per list, commands up to `endlist` by
+   `chraiGetCommandLength`) into the same rows, with its own fast-cache kind
+   and a boot phase in `main.c`.
+2. Proof, in the client (the writer and the row compiler live in
+   game-dependent files, so pd-tests cannot link them): a boot check that
+   compiles the extracted rows back and compares them byte for byte with
+   every list of `g_GlobalAilists`, logging one line per list on a mismatch
+   and a total (`AI.GLOBAL: 46 lists round-trip exact`). The release
+   campaign must run unchanged.
+3. Runtime: in `setupLoadFiles` (`setup.c`), after the global lists are
+   sorted, a stage built from scenario source points each
+   `g_GlobalAilists[i].list` at the list compiled from the source (ids and
+   order unchanged, so `ailistFindById` and the pointer-to-id lookup in
+   `chrai.c` keep working); a ROM stage keeps the compiled table. A missing
+   or invalid global asset refuses the stage through
+   `scenarioSourceFatalRuntimeFallbackForStage`. The graph twins of the AI
+   commands already run on any list's commands, so global lists need no new
+   graph handlers.
+4. Per-level override: rows in a scenario's own `ai/ailists.json` with a
+   global id replace that global list for that level only.
+5. Mods: the catalog picks a mod's `.pdai` over the base one, as it picks
+   `.pdlang` banks.
+
+## Product answers for slice 2 (CORE's recommendations, taken 2026-11-16; Mike may override)
+
+- **Mod manager:** a mod's `.pdai` shows as its own component type ("AI
+  lists") in the mod manager, the modding hub and modpacks, as language banks
+  do, and counts toward the mod's `contents` tags (green-dot sub-type
+  indicators).
+- **Multiplayer:** AI lists do not travel with a host's mods. The host runs
+  every AI list and clients never do, so network mod distribution leaves
+  `.pdai` out of the set a client must hold; a host with an AI list mod plays
+  it for everyone. The Theater stores the new type after `ASSET_THEME`, so no
+  stored type number moves.
+
+## Slice 2 progress
+
+- **Step 1 built on `week-pd/core` (2026-11-16): the `.pdai` type is
+  registered, nothing produces or reads it yet.** `ASSET_AI_LISTS` (after
+  `ASSET_THEME`, so no stored type number moves; the Theater's ceiling stays
+  `ASSET_THEME`), `.pdai` with `ai.ini` (`[ai_lists]` `catalog_id`,
+  `ai_lists_file` = `ai/global_ailists.json`) in `data/<romid>/ai/` or a
+  mod's `ai/`, the meta walker (kind `ai_lists`; the public `ai.ini` is the
+  authority, a bank without its rows member is refused), the runtime
+  binding (rows member required), the mod contract, mod manager, modding
+  hub, modpacks and `.pdmod` validation, and conformance (`.pdai` family,
+  list ids below 0x0401; exempt from `--require-all-families` until the
+  writer and an example exist). `.pdai` is the only public unit: a loose
+  `ai.ini` is not read, as for `.pdtheme`. Network: the type is left out of
+  what a host advertises and a direct request is refused.
+- Open for MULTIPLAYER (distribution is theirs): a mod travels whole by its
+  hash, so a mod that holds only AI lists is still one a client must hold;
+  per the product answer such a mod should not be required of clients (a
+  mixed mod may travel whole; its `.pdai` is inert on a client).
+- **Step 2 (81a47d96):** boot extraction writes `base:ai_global`
+  (`data/<romid>/ai/base_ai_global.pdai`) from `romExtractGlobalAiListsJson`
+  (kind `pdai_global_ailists_rows_v1`, boot phase `pdai`), and
+  `--check-global-ailists` also compiles the extracted bank's rows back to the
+  binary's exact bytes.
+- **Step 3 (de2b6323):** `setupLoadFiles`, after sorting the global lists,
+  points every entry of `g_GlobalAilists` at the list of the same id compiled
+  from the bank (`scenarioGlobalAiListsBindBank`); ids and order unchanged. A
+  bank that is missing or cannot supply exactly the game's lists refuses the
+  stage. Every stage logs `AI.GLOBAL: stage 0xNN runs the 46 global lists of
+  'base:ai_global'`.
+- **Step 4 (e0850c0c):** a stage's own list with a global id (its
+  scenario's `ai/ailists.json`) replaces that global list for the stage; an id
+  that is not one of the game's refuses the stage.
+- **Step 5:** an enabled mod bank (a non-bundled `.pdai`) may carry any of the
+  game's global lists; its lists replace the base's by id, and when two mod
+  banks carry the same list the smaller catalog id wins (the order `.pdlang`
+  banks use). The base bank stays complete; a mod bank list that is not one of
+  the game's refuses the stage, naming the bank. The compile is cached on the
+  set of banks and their rows members.
+- In game: the bank written and round-tripped (CORE's turn
+  q_20261116111144955_af9935d1), the campaigns on the bank (q_20261116120723346_a56d5b4c).
+  Overrides and mod banks need a level or a mod that carries one; the proof
+  waits for a test mod (mods are not custom levels; a `.pdmod` fixture with a
+  `.pdai` replacing one list is enough).
+
+## Open questions
+
+- The asset type: a new typed archive (`.pdai`) or a member of an existing
+  base archive. A new type keeps mod overrides simple and is the
+  recommendation.
+- Whether the 5 interpreter control-flow handlers (`aiGoToNext`,
+  `aiGoToFirst`, `aiLabel`, `aiYield`, `aiEndList`) become graph edges first
+  (checklist row "AI commands"); the rows above do not need them to.

@@ -3,6 +3,7 @@
 #include "lib/sched.h"
 #include "lib/str.h"
 #include "game/camdraw.h"
+#include "game/lv.h"
 #include "game/cheats.h"
 #include "game/inv.h"
 #include "game/playermgr.h"
@@ -232,7 +233,7 @@ void cheatsReset(void)
 
 	// Copy enabled cheats to active cheats, unless in CI training
 	// or weapon cheats not in solo
-	if (g_Vars.stagenum != STAGE_CITRAINING) {
+	if (!lvStageIsHub()) {
 		g_CheatsActiveBank0 = g_CheatsEnabledBank0;
 		g_CheatsActiveBank1 = g_CheatsEnabledBank1;
 

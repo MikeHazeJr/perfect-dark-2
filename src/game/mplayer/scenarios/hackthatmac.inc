@@ -160,9 +160,95 @@ void htmAddPad(s16 padnum)
 	}
 }
 
+/* PC (T-NETWORKING-011): a networked client's copy of the host's uplink and of
+ * its own player's last download (see htmNetPresent). */
+static s32 s_HtmNetHolder = -1;
+static s32 s_HtmNetPresent;
+static struct coord s_HtmNetPos;
+static s32 s_HtmNetWasDownloading;
+static s32 s_HtmNetPrevTerminal = -1;
+static s32 s_HtmNetPrevPoints;
+
+/* PC (T-NETWORKING-011): the uplink's holder and each change in a carrier's
+ * download, logged offline as well, so a match that ends without a point
+ * shows whether anyone carried the uplink to a terminal and what stopped the
+ * download (range, facing or the gun in hand). */
+#define HTM_DL_LOG_CAP 300
+static s32 s_HtmLoggedHolder = -2;
+static s8 s_HtmLoggedDlState[MAX_MPCHRS];
+static s32 s_HtmDlLogLines;
+
+/* B-1271 diagnostic: the lvframe60 of each simulant's last stall line */
+static s32 s_HtmBotStallLogFrame[MAX_MPCHRS];
+
+static void htmLogDownloadReset(void)
+{
+	s32 i;
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		s_HtmLoggedDlState[i] = -1;
+		s_HtmBotStallLogFrame[i] = 0;
+	}
+}
+
+/* B-1271 diagnostic: while a simulant holds the uplink without downloading,
+ * say every 10 s what it is doing: its action and action type, whether the
+ * scenario counts it in range, and its target. A networked simulant stood
+ * 240 units from the terminal, armed and facing away, for two minutes, where
+ * a local one turns and starts within a second. */
+static void htmLogBotStall(struct chrdata *chr, s32 playernum, s32 state, f32 rangexz, f32 relangle)
+{
+	static const char *const names[] = { "", "out of range", "not facing the terminal",
+		"not holding the uplink", "in progress" };
+
+	if (chr == NULL || chr->aibot == NULL || playernum < 0 || playernum >= MAX_MPCHRS
+			|| state < 1 || state > 3 || s_HtmDlLogLines >= HTM_DL_LOG_CAP
+			|| g_Vars.lvframe60 - s_HtmBotStallLogFrame[playernum] < 600) {
+		return;
+	}
+
+	s_HtmBotStallLogFrame[playernum] = g_Vars.lvframe60;
+	s_HtmDlLogLines++;
+	sysLogPrintf(LOG_NOTE,
+		"HTM: simulant player %d holds the uplink, not downloading (%s) at %.1f s xz=%.0f angle=%.0f action=%d actiontype=%d inrange=%d target=%d weapon=%d netmode=%d",
+		playernum, names[state], g_Vars.lvframe60 / 60.0f, rangexz, relangle,
+		chr->myaction, chr->actiontype, g_ScenarioData.htm.playernuminrange, chr->target,
+		chr->aibot->weaponnum, g_NetMode);
+}
+
+static void htmLogDownloadState(s32 playernum, s32 state, f32 rangexz, f32 rangey, f32 relangle,
+		s32 weaponnum, s32 action)
+{
+	static const char *const names[] = { "", "out of range", "not facing the terminal",
+		"not holding the uplink", "in progress" };
+
+	if (playernum < 0 || playernum >= MAX_MPCHRS || s_HtmLoggedDlState[playernum] == state
+			|| s_HtmDlLogLines >= HTM_DL_LOG_CAP) {
+		return;
+	}
+
+	s_HtmLoggedDlState[playernum] = state;
+	s_HtmDlLogLines++;
+	sysLogPrintf(LOG_NOTE, "HTM: player %d download %s at %.1f s xz=%.0f y=%.0f angle=%.0f weapon=%d action=%d",
+		playernum, names[state], g_Vars.lvframe60 / 60.0f, rangexz, rangey, relangle, weaponnum, action);
+}
+
 void htmReset(void)
 {
 	s32 i;
+
+	s_HtmLoggedHolder = -2;
+	s_HtmDlLogLines = 0;
+	htmLogDownloadReset();
+
+	s_HtmNetHolder = -1;
+	s_HtmNetPresent = false;
+	s_HtmNetPos.x = 0;
+	s_HtmNetPos.y = 0;
+	s_HtmNetPos.z = 0;
+	s_HtmNetWasDownloading = false;
+	s_HtmNetPrevTerminal = -1;
+	s_HtmNetPrevPoints = 0;
 
 	osSyncPrintf("HackThatMacReset -> Working\n");
 
@@ -518,12 +604,190 @@ void htmInitProps(void)
 	osSyncPrintf("HackThatMacInitProps -> End\n");
 }
 
+/* Host: the uplink holder's slot, or -1 when it lies on the ground. */
+static s32 htmUplinkHolderSlot(struct prop *uplink)
+{
+	s32 i;
+
+	if (uplink == NULL || (uplink->type != PROPTYPE_PLAYER && uplink->type != PROPTYPE_CHR) || uplink->chr == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		if (g_MpAllChrPtrs[i] == uplink->chr) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+/* Host: the state a client needs to show the uplink, the download and the points. */
+static void htmNetCapture(net_scenario_htm_state_t *out)
+{
+	struct scenariodata_htm *data = &g_ScenarioData.htm;
+	s32 downloading = data->dlplayernum >= 0 && data->dlplayernum < MAX_MPCHRS
+		&& data->dlterminalnum >= 0 && data->dlterminalnum < NET_SCENARIO_HTM_MAX_TERMINALS;
+	s32 i;
+
+	out->uplink_present = data->uplink != NULL;
+	out->uplink_holder = data->uplink != NULL ? htmUplinkHolderSlot(data->uplink) : -1;
+
+	if (data->uplink) {
+		out->uplink_pos[0] = data->uplink->pos.x;
+		out->uplink_pos[1] = data->uplink->pos.y;
+		out->uplink_pos[2] = data->uplink->pos.z;
+	}
+
+	out->dl_player = downloading ? data->dlplayernum : -1;
+	out->dl_terminal = downloading ? data->dlterminalnum : -1;
+	out->player_in_range = data->playernuminrange >= 0 && data->playernuminrange < MAX_MPCHRS
+		? data->playernuminrange : -1;
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		s32 time = data->dltime240[i];
+
+		out->dltime240[i] = time < 0 ? 0 : (time > NET_SCENARIO_HTM_DOWNLOAD240 ? NET_SCENARIO_HTM_DOWNLOAD240 : time);
+		out->numpoints[i] = data->numpoints[i] > 0 ? data->numpoints[i] : 0;
+	}
+}
+
+/**
+ * Client: Hacker Central as the host decides it. Applies the newest state the
+ * host sent: the uplink (the holder's prop, the local uplink prop on the
+ * ground, or the host's position), the download in progress, every player's
+ * progress and points. For its own player (slot 0 on a client) it plays what
+ * the host plays for that player: "Starting download." with the terminal's
+ * sound, then "Download successful." or "Connection broken.".
+ */
+static void htmNetPresent(void)
+{
+	struct scenariodata_htm *data = &g_ScenarioData.htm;
+	net_scenario_state_t state;
+	struct prop *uplink = NULL;
+	s32 i;
+
+	if (scenarioNetTakePending(&state)) {
+		const net_scenario_htm_state_t *in = &state.body.htm;
+		s32 holder = in->uplink_holder;
+		s32 dlplayer = in->dl_player;
+		s32 downloading;
+
+		// Slots index g_MpAllChrPtrs, so they must be characters of this match
+		if (holder >= g_MpNumChrs || (holder >= 0 && g_MpAllChrPtrs[holder] == NULL)) {
+			sysLogPrintf(LOG_WARNING, "HTM: client uplink holder from host chr=%d is not a character of this match (%d)",
+				holder, g_MpNumChrs);
+			holder = -1;
+		}
+
+		if (dlplayer >= g_MpNumChrs || in->dl_terminal >= HTM_NUM_TERMINALS
+				|| (in->dl_terminal >= 0 && data->terminals[in->dl_terminal].prop == NULL)) {
+			dlplayer = -1;
+		}
+
+		if (holder != s_HtmNetHolder || in->uplink_present != s_HtmNetPresent) {
+			sysLogPrintf(LOG_NOTE, "HTM: client uplink from host holder=%d present=%d rev=%u",
+				holder, in->uplink_present, (unsigned)state.revision);
+		}
+
+		s_HtmNetHolder = holder;
+		s_HtmNetPresent = in->uplink_present;
+		s_HtmNetPos.x = in->uplink_pos[0];
+		s_HtmNetPos.y = in->uplink_pos[1];
+		s_HtmNetPos.z = in->uplink_pos[2];
+
+		data->dlplayernum = dlplayer >= 0 ? dlplayer : -1;
+		data->dlterminalnum = dlplayer >= 0 ? in->dl_terminal : -1;
+		data->playernuminrange = in->player_in_range < g_MpNumChrs ? in->player_in_range : -1;
+
+		for (i = 0; i < MAX_MPCHRS; i++) {
+			data->dltime240[i] = in->dltime240[i];
+			data->numpoints[i] = in->numpoints[i];
+		}
+
+		// This client's own player is slot 0
+		downloading = data->dlplayernum == 0 && data->dlterminalnum >= 0;
+
+		if (downloading != s_HtmNetWasDownloading) {
+			u32 prevplayernum = g_Vars.currentplayernum;
+
+			setCurrentPlayerNum(0);
+
+			if (downloading) {
+				s_HtmNetPrevTerminal = data->dlterminalnum;
+				s_HtmNetPrevPoints = data->numpoints[0];
+#if VERSION >= VERSION_JPN_FINAL
+				hudmsgCreateWithFlags(langGet(L_MPWEAPONS_018), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP); // "Starting download."
+#else
+				hudmsgCreateWithFlags(langGet(L_MPWEAPONS_018), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE); // "Starting download."
+#endif
+				psCreate(NULL, data->terminals[data->dlterminalnum].prop, SFX_01BF, -1,
+						-1, PSFLAG_REPEATING, PSFLAG2_MPPAUSABLE, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
+			} else {
+				if (s_HtmNetPrevTerminal >= 0 && data->terminals[s_HtmNetPrevTerminal].prop) {
+					psStopSound(data->terminals[s_HtmNetPrevTerminal].prop, PSTYPE_GENERAL, 0xffff);
+				}
+
+				if (data->numpoints[0] > s_HtmNetPrevPoints) {
+					// "Download successful."
+#if VERSION >= VERSION_JPN_FINAL
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_016), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+#else
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_016), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+#endif
+					snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_01C1, 1, 1, -1, 1);
+				} else {
+					// "Connection broken."
+#if VERSION >= VERSION_JPN_FINAL
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_017), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+#else
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_017), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+#endif
+					snd00010718(NULL, 0, AL_VOL_FULL, AL_PAN_CENTER, SFX_01CC, 1, 1, -1, 1);
+				}
+
+				s_HtmNetPrevTerminal = -1;
+			}
+
+			setCurrentPlayerNum(prevplayernum);
+			s_HtmNetWasDownloading = downloading;
+		}
+	}
+
+	if (s_HtmNetPresent) {
+		if (s_HtmNetHolder >= 0) {
+			uplink = g_MpAllChrPtrs[s_HtmNetHolder]->prop;
+		} else {
+			struct prop *prop = g_Vars.activeprops;
+
+			while (prop) {
+				// A copy a replayed simulant pickup marked for deletion is not on the ground
+				if (prop->type == PROPTYPE_WEAPON && prop->weapon->weaponnum == WEAPON_DATAUPLINK
+						&& (prop->obj->hidden & OBJHFLAG_DELETING) == 0) {
+					uplink = prop;
+				}
+
+				prop = prop->next;
+			}
+		}
+	}
+
+	data->uplink = uplink;
+}
+
 void htmTick(void)
 {
 	u8 stack[8];
 	s32 i;
 	u32 prevplayernum = g_Vars.currentplayernum;
 	struct prop *prop;
+
+	// PC (T-NETWORKING-011): a networked client shows the host's uplink and
+	// download and never makes an uplink of its own during the match
+	if (!scenarioNetIsAuthority()) {
+		htmNetPresent();
+		return;
+	}
 
 	if (var800869ec && var800869ec->prop) {
 		if (g_ScenarioData.htm.uplink == NULL || g_ScenarioData.htm.uplink->type != PROPTYPE_WEAPON) {
@@ -579,6 +843,24 @@ void htmTick(void)
 
 	if (g_ScenarioData.htm.uplink == NULL) {
 		htbCreateUplink();
+
+		// PC (B-1209): clients learn the uplink made during the match
+		scenarioNetAnnounceProp(g_ScenarioData.htm.uplink, "uplink");
+	}
+
+	// PC (T-NETWORKING-011): log each change of holder (-1 = on the ground)
+	{
+		struct prop *uplink = g_ScenarioData.htm.uplink;
+		const s32 holder = htmUplinkHolderSlot(uplink);
+
+		if (holder != s_HtmLoggedHolder) {
+			sysLogPrintf(LOG_NOTE, "HTM: uplink holder %d -> %d at %.1f s pos=(%.0f,%.0f,%.0f) netmode=%d",
+				s_HtmLoggedHolder, holder, g_Vars.lvframe60 / 60.0f,
+				uplink ? uplink->pos.x : 0.0f, uplink ? uplink->pos.y : 0.0f, uplink ? uplink->pos.z : 0.0f,
+				(s32)g_NetMode);
+			s_HtmLoggedHolder = holder;
+			htmLogDownloadReset();
+		}
 	}
 }
 
@@ -589,6 +871,12 @@ void htmTickChr(struct chrdata *chr)
 	s32 playernum;
 	s32 i;
 	s32 *time;
+
+	// PC (T-NETWORKING-011): the host runs every download and awards the
+	// points; a client shows them (htmNetPresent)
+	if (!scenarioNetIsAuthority()) {
+		return;
+	}
 
 	if (chr) {
 		hasuplink = chr->aibot->hasuplink;
@@ -703,6 +991,15 @@ void htmTickChr(struct chrdata *chr)
 		osSyncPrintf("HTM : Player %d - Range Y  = %d", playernum, rangey);
 		osSyncPrintf("HTM : Player %d - Angle XZ = %d", playernum, relangle);
 
+		htmLogDownloadState(playernum,
+			(rangexz > 250 || rangey > 200) ? 1 : relangle > 45 ? 2 : !holdinguplink ? 3 : 4,
+			rangexz, rangey, relangle,
+			chr ? chr->aibot->weaponnum : bgunGetWeaponNum(HAND_RIGHT),
+			chr ? chr->myaction : -1);
+		htmLogBotStall(chr, playernum,
+			(rangexz > 250 || rangey > 200) ? 1 : relangle > 45 ? 2 : !holdinguplink ? 3 : 4,
+			rangexz, relangle);
+
 		if (rangexz > 250 || rangey > 200 || relangle > 45 || !holdinguplink) {
 			if (rangexz < 250 && rangey < 200) {
 				data->playernuminrange = playernum;
@@ -730,6 +1027,13 @@ void htmTickChr(struct chrdata *chr)
 			if (*time > 20 * TICKS(240)) {
 				data->numpoints[playernum]++;
 				data->playernuminrange = playernum;
+
+				sysLogPrintf(LOG_NOTE, "HTM: player %d download complete at %.1f s points=%d",
+					playernum, g_Vars.lvframe60 / 60.0f, data->numpoints[playernum]);
+
+				if (playernum >= 0 && playernum < MAX_MPCHRS) {
+					s_HtmLoggedDlState[playernum] = -1;
+				}
 
 				if (chr == NULL) {
 					// "Download successful."

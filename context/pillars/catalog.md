@@ -1,5 +1,12 @@
 # Catalog System
 
+2026-11-19, P-001. Startup workers validate loose head and body archives and
+prepare their public descriptors before the serialized catalog walk publishes
+them. Refreshing an existing bundled slot checkpoints its catalog rows,
+dependencies and FileProvider state. Custom admission and slot allocation
+use the full rollback path. Full row checkpoints now capture the pool under a
+single lock.
+
 2026-10-12 T-ASSETS-052 candidate: glTF public-source admission now rejects
 unsupported required features before provider reference walks or conversion;
 scene/animation diagnostics and Python conformance share the policy. Cache

@@ -1,0 +1,97 @@
+{
+  "scenario_name": "mp_challenge_local_smoke",
+  "description": "Offline challenge 1 started through the ImGui challenge launch (matchStartFromChallenge) by --launch-challenge 0 (finding 10 of the multiplayer week plan). Challenge 1 is Combat on Skedar with teams on and, for one player, one MeatSim; the table was positional for the N64 structs until ea187a63, so every value after stage_id and head_id landed in the wrong field and slots 8 to 31 were enabled MeatSims, and the ImGui launch added no simulants. Proves the applied config (stage, scenario, limits), the simulant count for one player, and a full match to its end screen. The time limit is forced to 35 s.",
+  "tags": [
+    "combatsim",
+    "challenges",
+    "bots",
+    "match-lifecycle",
+    "multiplayer-modes"
+  ],
+  "paths_of_interest": [
+    "src/game/mpconfigs.c",
+    "src/game/challenge.c",
+    "port/src/net/matchsetup.c",
+    "src/game/mplayer/mplayer.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 260,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-challenge",
+    "0",
+    "--match-timelimit-sec",
+    "35"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "The boot drops into CI, --launch-challenge fires matchStartFromChallenge(0) once the CI player exists, the 35 s match runs to its time limit and the end screen."
+    },
+    {
+      "at_ms": 200000,
+      "type": "exit",
+      "comment": "Scripted clean exit; the boot, the Skedar load, the 35 s match and the end screen fit well inside, as in the local scenario smokes."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_challenge_local_smoke",
+      "BOOT: --launch-challenge armed: slot=0",
+      "BOOT: --launch-challenge firing: slot=0",
+      "MATCHSETUP: starting challenge slot 0",
+      "MPCONFIG: applied '' scenario=0 stage='base:[a-z0-9_]+' stagenum=0x[0-9a-f]+ limits=4/100/3",
+      "MATCHSETUP: challenge match started",
+      "PARTICIPANTS: 2 active \\(1 players, 1 bots\\)",
+      "MATCH: player spawned slot=",
+      "MATCH: timelimit override applied seconds=35",
+      "MATCH: stage end reason=timelimit",
+      "MATCH\\.RESULT: scenario=0 teams=1 chrs=2 netmode=0",
+      "MATCH: endscreen shown",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject",
+      "SCENARIO\\.MISS:",
+      "HTB: briefcase placed pad=0 ",
+      "HTB: briefcase placed pad=-?[0-9]+ source=pad0",
+      "HTB: briefcase placed pad=-?[0-9]+ source=[a-z0-9]+ prop=none",
+      "SCENARIO: object model=",
+      "MPCONFIG: no map catalog entry for config stagenum",
+      "BOOT: --launch-challenge expects a slot"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MATCH: endscreen shown",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MATCHSETUP: starting challenge slot",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

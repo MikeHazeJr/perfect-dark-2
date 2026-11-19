@@ -14,6 +14,7 @@
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/participant.h"
+#include "game/mplayer/scenarios.h"
 #include "game/mplayer/setup.h"
 #include "game/options.h"
 #include "game/game_1531a0.h"
@@ -260,6 +261,8 @@ extern struct menudialogdef g_NetPauseControlsMenuDialog;
 
 MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	s32 numteams;
+
 	if (g_NetMode == NETMODE_NONE) {
 		if (operation == MENUOP_CHECKHIDDEN) {
 			return true;
@@ -274,17 +277,25 @@ MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menuitem *i
 		return 0;
 	}
 
+	// PC (B-1132): only the running scenario's teams (Capture the Case has 4
+	// bases and keeps 4-entry team arrays); the host enforces the same limit
+	numteams = scenarioGetMaxTeams();
+
+	if (numteams < 1 || numteams > MAX_TEAMS) {
+		numteams = MAX_TEAMS;
+	}
+
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
-		data->dropdown.value = MAX_TEAMS;
+		data->dropdown.value = numteams;
 		break;
 	case MENUOP_GETOPTIONTEXT:
-		if (data->dropdown.value >= MAX_TEAMS) {
+		if (data->dropdown.value >= numteams) {
 			data->dropdown.value = 0;
 		}
 		return (uintptr_t) &g_BossFile.teamnames[data->dropdown.value];
 	case MENUOP_SET:
-		if (g_NetLocalClient && data->dropdown.value < MAX_TEAMS) {
+		if (g_NetLocalClient && data->dropdown.value < numteams) {
 			g_NetLocalClient->settings.team = data->dropdown.value;
 			// update local player config
 			if (g_NetLocalClient->config) {
@@ -296,7 +307,7 @@ MenuItemHandlerResult menuhandlerNetTeamSwitch(s32 operation, struct menuitem *i
 	case MENUOP_GETSELECTEDINDEX:
 		if (g_NetLocalClient) {
 			data->dropdown.value = g_NetLocalClient->settings.team;
-			if (data->dropdown.value >= MAX_TEAMS) {
+			if (data->dropdown.value >= numteams) {
 				data->dropdown.value = 0;
 			}
 		}

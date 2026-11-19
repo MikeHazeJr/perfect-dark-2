@@ -38,6 +38,33 @@ void *fsFileLoad(const char *name, u32 *outSize);
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize);
 s32 fsFileSize(const char *name);
 
+/* Bind a validated typed scenario to its exact nested member root for a
+ * local stage lifetime. Storage remains owned by the caller through clear.
+ * Pass NULL to clear the binding before releasing its bytes. */
+s32 fsBindScenarioSource(const char *root, void *archive, u32 size);
+
+typedef struct fs_stage_archive {
+	const char *root;
+	const void *bytes;
+	u32 size;
+} fs_stage_archive_t;
+
+typedef struct fs_stage_archive_set fs_stage_archive_set_t;
+
+/* Prepare a private archive table in an empty output handle. Roots are copied
+ * and must match lookup paths exactly, including case and separators. Supply
+ * any aliases explicitly. A root may be a file or a typed archive member.
+ * The caller keeps the bytes immutable and alive until release or stage clear. */
+s32 fsPrepareStageArchives(fs_stage_archive_set_t **prepared,
+	const fs_stage_archive_t *archives, size_t count);
+
+/* Install without allocating. An active set or draft scenario binding blocks
+ * publication and leaves the handle intact. Success consumes the handle.
+ * Reads use the longest matching archive boundary. */
+s32 fsPublishPreparedStageArchives(fs_stage_archive_set_t **prepared);
+void fsReleasePreparedStageArchives(fs_stage_archive_set_t **prepared);
+void fsClearStageArchives(void);
+
 FILE *fsFileOpenWrite(const char *name);
 FILE *fsFileOpenRead(const char *name);
 void fsFileFree(FILE *f);
@@ -45,6 +72,25 @@ void fsFileFree(FILE *f);
 const char *fsGetBaseDir(void);
 const char *fsGetModDir(void);
 s32 fsCreateDir(const char *path);
+
+/* B-1160: the mods/ roots every mod scanner walks, in priority order, so
+ * modmgr, fonts, themes, map import and the migration bench cannot disagree.
+ *   - native write policy: $B/mods only (reuse mounts the verified base);
+ *   - explicit --moddir: exactly that folder, even before it exists
+ *     (B-1031: an isolation contract, never one more candidate);
+ *   - otherwise the user mods folder (mods_roots.h; the only folder the
+ *     game writes mods to), then the install's own folders (B-1169,
+ *     mods_install_roots.h), which are only read.
+ * explicit_dir is 1 only in the --moddir case; user_dir is 1 when path[0]
+ * is the user mods folder (named, not yet created: modmgr creates it). */
+#define FS_MOD_ROOTS_MAX 4
+typedef struct fs_mod_roots {
+	s32 count;
+	s32 explicit_dir;
+	s32 user_dir;
+	char path[FS_MOD_ROOTS_MAX][FS_MAXPATH + 1];
+} fs_mod_roots_t;
+void fsModRoots(fs_mod_roots_t *out);
 
 /* Phase 3 Pass A.1 (2026-05-02): data/<romid>/ tier accessors.
  *

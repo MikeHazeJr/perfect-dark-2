@@ -51,12 +51,26 @@ bool resetDevice(const Registry &, const Snapshot &defaults, const Snapshot &bef
                  Snapshot &out, std::string &error);
 bool encode(const Registry &registry, const Snapshot &snapshot,
             std::string &text, std::string &error);
+/* A versioned document lists every context/action pair, with one exception:
+ * a complete document from a build with a shorter action list, a shorter
+ * context list, or both. Saved names are positional, and new actions and new
+ * contexts are both appended (to the action list, and to the registry's
+ * context list), so such a document lists the same leading run of the action
+ * list for each of the leading contexts and nothing else. decode accepts it,
+ * keeps its bindings and leaves the actions and contexts it could not know at
+ * their defaults; *olderActions (optional) then receives how many actions per
+ * context it lists and *olderContexts (optional) how many contexts, and both
+ * receive 0 for a current document. Any other missing row is damage and is
+ * refused. Without this, every added action or context turned each player's
+ * saved bindings into a file that could not load. */
 bool decode(const Registry &registry, const Snapshot &defaults,
             const std::string &text, bool allowLegacy,
-            Snapshot &out, std::string &error);
+            Snapshot &out, std::string &error, size_t *olderActions = nullptr,
+            size_t *olderContexts = nullptr);
 ReadResult read(const Registry &registry, const Snapshot &defaults,
                 const char *absolutePath, bool allowLegacy,
-                Snapshot &out, std::string &error);
+                Snapshot &out, std::string &error, size_t *olderActions = nullptr,
+                size_t *olderContexts = nullptr);
 bool write(const Registry &registry, const Snapshot &snapshot,
            const char *absolutePath, std::string &error);
 
@@ -72,6 +86,12 @@ class Store {
 public:
     bool initialized() const { return initialized_; }
     int activeProfile() const { return accepted_.activeProfile; }
+    /* How many actions per context, and how many contexts, the current file
+     * listed when initialize read it as a complete file from an older build
+     * (and brought it up to date); both 0 when it was current, missing or
+     * refused. */
+    size_t upgradedFromActions() const { return upgradedFromActions_; }
+    size_t upgradedFromContexts() const { return upgradedFromContexts_; }
     bool initialize(const Registry &, const Snapshot &defaults,
                     const char *currentPath, std::string &error);
     bool saveCurrent(const Registry &, const char *currentPath, std::string &error);
@@ -83,6 +103,8 @@ private:
     Snapshot accepted_;
     bool initialized_ = false;
     bool blocked_ = false;
+    size_t upgradedFromActions_ = 0;
+    size_t upgradedFromContexts_ = 0;
 };
 } // namespace actionmap_profile
 #endif // __cplusplus

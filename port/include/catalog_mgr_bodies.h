@@ -142,6 +142,8 @@ void catalogManagerResetAllBodyModeldefs(void);
 void catalogManagerBodyInit(void);
 void catalogManagerRegisterBody(const char *id, const body_data_t *data);
 void catalogManagerUnregisterBody(const char *id);
+/* Clear an idle custom mirror after its exact loader row has been removed. */
+s32 catalogManagerRetireCustomBody(const char *id, s32 bodynum, s32 commit);
 
 /* B-1043: exact rollback for body-manager mirrors changed during external
  * multi-descriptor admission. */

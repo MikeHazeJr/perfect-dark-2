@@ -1385,7 +1385,8 @@ void bwalkUpdateVertical(void)
 						&& prop->type == PROPTYPE_OBJ) {
 					obj = prop->obj;
 
-					if (obj->modelnum == MODEL_HOVBIKE) {
+					/* A mod vehicle has its own model number. */
+					if (obj->modelnum == MODEL_HOVBIKE || obj->type == OBJTYPE_HOVERBIKE) {
 						amount = (obj->maxdamage - obj->damage + 1) / 250.0f;
 						obj->flags &= ~OBJFLAG_INVINCIBLE;
 						objDamage(obj, amount, &obj->prop->pos, WEAPON_REMOTEMINE, -1);

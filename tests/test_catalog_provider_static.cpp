@@ -1343,7 +1343,7 @@ TEST_CASE("base menu hudpiece model has a catalog provider handle", "[catalog][p
 	REQUIRE(baseExtended.find("weapon/menu-pipeline model files") != std::string::npos);
 	REQUIRE(meshExtractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") != std::string::npos);
 	REQUIRE(meshExtractor.find("(u16)FILE_GHUDPIECE, \"menu\"") != std::string::npos);
-	REQUIRE(meshExtractor.find("pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache") != std::string::npos);
+	REQUIRE(meshExtractor.find("pdmesh_fastcache_v29_allmodels_menuhud_") != std::string::npos);
 	REQUIRE(menu.find("MENUMODELPARAMS_SET_FILENUM(FILE_GHUDPIECE)") != std::string::npos);
 }
 
@@ -1850,4 +1850,29 @@ TEST_CASE("RomProvider-specific checks stay in approved bridge code", "[catalog]
 
 	INFO("RomProvider-specific checks outside bridge code:\n" << joinLines(violations));
 	REQUIRE(violations.empty());
+}
+
+TEST_CASE("B-1179: a chr's surface-normal blend advances once per frame, not once per player",
+          "[testscenarios][static][b1179]") {
+	// chrTick runs once per player per frame and only the first call is the
+	// frame's full tick (SP-87). The blend countdown and the floor sample are
+	// per-chr work, so they sit inside a fulltick block at the end of chrTick.
+	const std::string chr = readTextFile("src/game/chr.c");
+	const size_t tick = chr.find("s32 chrTick(struct prop *prop)\n{");
+	REQUIRE(tick != std::string::npos);
+	const size_t gate = chr.find(
+		"\tif (fulltick) {\n\t\tif (chr->surface_blend_frames > 0) {\n"
+		"\t\t\tchr->surface_blend_frames--;", tick);
+	REQUIRE(gate != std::string::npos);
+	const size_t gate_end = chr.find("\n\t}\n", gate);
+	REQUIRE(gate_end != std::string::npos);
+	const size_t sample = chr.find("chrSurfaceLocoTick(chr);", tick);
+	REQUIRE(sample != std::string::npos);
+	REQUIRE(sample > gate);
+	REQUIRE(sample < gate_end);
+	// No second, ungated call or countdown in chrTick
+	const size_t tick_end = chr.find("\nvoid chrDropConcealedItems(", tick);
+	REQUIRE(tick_end != std::string::npos);
+	REQUIRE(chr.find("chrSurfaceLocoTick(chr);", sample + 1) > tick_end);
+	REQUIRE(chr.find("chr->surface_blend_frames--;", gate_end) > tick_end);
 }

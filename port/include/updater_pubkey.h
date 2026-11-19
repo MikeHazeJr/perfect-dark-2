@@ -10,7 +10,7 @@
  * Trust properties:
  *   - The public key does NOT rotate with the distribution channel (GitHub
  *     Releases). Compromising the GitHub account cannot forge a valid
- *     signature â€” only compromise of the private key can.
+ *     signature -- only compromise of the private key can.
  *   - SHA-256 verification is independent (SEC-5). This binds the signature
  *     to the exact bytes of the ZIP.
  *   - The tag string is part of the signed message, so an attacker cannot

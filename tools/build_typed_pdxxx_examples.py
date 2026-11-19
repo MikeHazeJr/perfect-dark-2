@@ -27,7 +27,7 @@ ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -848,6 +848,7 @@ def update_scenario() -> bytes:
                 "opcode": "0x0004",
                 "opcode_name": "end",
                 "operands": [],
+                "args": {},
                 "model_catalog_id": "",
                 "weapon_catalog_id": "",
                 "body_catalog_id": "",
@@ -877,12 +878,22 @@ def update_scenario() -> bytes:
         "  },\n"
         "  \"nodes\": [\n"
         "    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
+        "    { \"id\": \"object.rules.pickup.touched\", \"kind\": \"event.pickup.touched\" },\n"
+        "    { \"id\": \"object.rules.pickup.native_rules\", \"kind\": \"gate.pickup.native_rules\" },\n"
+        "    { \"id\": \"object.rules.pickup.collect\", \"kind\": \"og.pickup.collect\" },\n"
+        "    { \"id\": \"object.rules.door.use\", \"kind\": \"event.door.use\" },\n"
+        "    { \"id\": \"object.rules.door.use_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+        "    { \"id\": \"object.rules.door.activate\", \"kind\": \"og.door.activate\" },\n"
+        "    { \"id\": \"object.rules.door.locked_message\", \"kind\": \"og.door.locked_message\" },\n"
+        "    { \"id\": \"object.rules.door.approach\", \"kind\": \"event.door.approach\" },\n"
+        "    { \"id\": \"object.rules.door.approach_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
+        "    { \"id\": \"object.rules.door.activate_automatic\", \"kind\": \"og.door.activate_automatic\" },\n"
         "    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
         "    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": 0 },\n"
         "    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.json\", \"pads\": 1 },\n"
         "    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.json\", \"paths\": 1 },\n"
         "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\", \"lists\": 1 },\n"
-        "    { \"id\": \"scenario.ai.ailist_0000.command.0000\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": \"ailist_0000\", \"list_id\": \"0x0000\", \"command_index\": 0, \"offset\": 0, \"opcode\": \"0x0004\", \"opcode_name\": \"end\", \"semantic_kind\": \"scenario.ai.control.end\" },\n"
+        "    { \"id\": \"scenario.ai.ailist_0000.command.0000\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": \"ailist_0000\", \"list_id\": \"0x0000\", \"command_index\": 0, \"offset\": 0, \"opcode\": \"0x0004\", \"opcode_name\": \"end\", \"semantic_kind\": \"scenario.ai.control.end\", \"args\": {}, \"ends\": true },\n"
         "    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"example:tri_scenario\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"collision.obj\", \"navigation\": \"navigation.ini\", \"pads\": 1, \"volumes\": 1 },\n"
         "    { \"id\": \"scenario.ai.action.set_list\", \"kind\": \"scenario.ai.action.set_list\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0005\" },\n"
         "    { \"id\": \"scenario.ai.action.set_return_list\", \"kind\": \"scenario.ai.action.set_return_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aireturnlist\", \"opcode\": \"0x0006\" },\n"
@@ -1304,6 +1315,8 @@ def update_scenario() -> bytes:
         "    { \"id\": \"scenario.ai.action.set_pad_preset\", \"kind\": \"scenario.ai.action.set_pad_preset\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x00b2\" },\n"
         "    { \"id\": \"scenario.ai.action.chr_set_pad_preset\", \"kind\": \"scenario.ai.action.chr_set_pad_preset\", \"source\": \"ai/ailists.json\", \"pads\": \"pads.json\", \"opcode\": \"0x00b3\" },\n"
         "    { \"id\": \"scenario.ai.action.chr_copy_pad_preset\", \"kind\": \"scenario.ai.action.chr_copy_pad_preset\", \"source\": \"ai/ailists.json\", \"pad\": \"source_chr.padpreset1\", \"opcode\": \"0x00b4\" },\n"
+        "    { \"id\": \"scenario.ai.condition.if_bot_respawning\", \"kind\": \"scenario.ai.condition.if_bot_respawning\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aibot.respawning\", \"opcode\": \"0x0176\" },\n"
+        "    { \"id\": \"scenario.ai.action.mp_init_simulants\", \"kind\": \"scenario.ai.action.mp_init_simulants\", \"source\": \"ai/ailists.json\", \"target\": \"simulants.spawn_wave\", \"opcode\": \"0x0185\" },\n"
         "    { \"id\": \"trigger.volume.0000\", \"kind\": \"scenario.trigger.volume.source\", \"table\": \"volumes.json\", \"volume\": \"volume_pad_0000\", \"pad\": \"pad_0000\" }\n"
         "  ],\n"
         "  \"links\": [\n"
@@ -1798,6 +1811,8 @@ def update_scenario() -> bytes:
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.set_pad_preset\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_set_pad_preset\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_copy_pad_preset\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_bot_respawning\" },\n"
+        "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.mp_init_simulants\" },\n"
         "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
         "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
         "    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
@@ -1855,6 +1870,15 @@ def update_scenario() -> bytes:
         "    { \"from\": \"navigation.generate\", \"to\": \"scenario.ai.action.set_pad_preset_to_target_quadrant\" },\n"
         "    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.ailist_0000.command.0000\" }\n"
+        "  ],\n"
+        "  \"edges\": [\n"
+        "    { \"from\": \"object.rules.pickup.touched\", \"to\": \"object.rules.pickup.native_rules\", \"input\": \"exec\", \"output\": \"out\" },\n"
+        "    { \"from\": \"object.rules.pickup.native_rules\", \"to\": \"object.rules.pickup.collect\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+        "    { \"from\": \"object.rules.door.use\", \"to\": \"object.rules.door.use_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+        "    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.activate\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+        "    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.locked_message\", \"input\": \"exec\", \"output\": \"fail\" },\n"
+        "    { \"from\": \"object.rules.door.approach\", \"to\": \"object.rules.door.approach_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+        "    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" }\n"
         "  ],\n"
         "  \"counts\": { \"rooms\": 2, \"triangles\": 1, \"portals\": 0, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"ai_commands\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
         "}\n"

@@ -14,17 +14,42 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "body_head_source.h"
 #include "fs.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2 */
 #include "loader_walker_common.h"
 #include "system.h"
+
+static s32 s_readRotationBits(const char *archive_path, s32 *rotation_bits)
+{
+    char *text = NULL;
+    size_t size = 0;
+    ini_section_t *ini = calloc(1, sizeof(*ini));
+    s32 valid = ini && loaderWalkerArchiveTextMember(archive_path,
+        "animation.ini", &text, &size) && size <= UINT32_MAX
+        && bodyHeadSourceReadIniBytes(text, (u32)size, "animation", ini, NULL, 0);
+
+    if (valid) {
+        const char *value = iniGet(ini, "framelen", NULL);
+        if (value) {
+            char *end = NULL;
+            long width = strtol(value, &end, 10);
+            valid = end != value && *end == '\0' && width >= 0 && width <= 16;
+            if (valid) *rotation_bits = (s32)width;
+        }
+    }
+    if (text) sysMemFree(text);
+    free(ini);
+    return valid;
+}
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -36,13 +61,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     s64 source_index = -1;
     s64 bytes_per_frame = 0;
     s64 header_len = 0;
-    s64 framelen = 0;
+    s32 rotation_bits = 0;
     s64 flags = 0;
     loaderWalkerEnvelopeInt(manifest, manifest_len, "frame_count", &frame_count);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "source_index", &source_index);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "bytes_per_frame", &bytes_per_frame);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "header_len", &header_len);
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "framelen", &framelen);
     loaderWalkerEnvelopeInt(manifest, manifest_len, "flags", &flags);
 
     char category[32];
@@ -53,6 +77,11 @@ static s32 s_register(const char *manifest, size_t manifest_len,
                                  category, sizeof(category));
     s32 uses_character_clip =
         assetCatalogAnimationCategoryUsesCharacterClip(category);
+    if (uses_character_clip && !s_readRotationBits(file_path, &rotation_bits)) {
+        sysLoudFailf("LOADER.ANIMATION.SOURCE",
+            "invalid packed rotation precision in '%s::animation.ini'", file_path);
+        return -1;
+    }
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "target_body",
                                  target_body, sizeof(target_body));
     if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "animation",
@@ -117,7 +146,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         e->ext.anim.frame_count = (s32)frame_count;
         e->ext.anim.bytes_per_frame = (s32)bytes_per_frame;
         e->ext.anim.header_len = (s32)header_len;
-        e->ext.anim.framelen = (s32)framelen;
+        e->ext.anim.framelen = rotation_bits;
         e->ext.anim.flags = (s32)flags;
         if (!loaderWalkerArchiveMemberPath(file_path, source_member,
                                           source_path, sizeof(source_path))) return -1;

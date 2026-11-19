@@ -7,6 +7,8 @@
 #include "crashbreadcrumb.h"
 #include "assetcatalog.h" /* SA-5d/SA-5e: catalogGetBodyHeight, catalogGetMpWeaponNum */
 #include "catalog_mgr_weapons.h" /* S484 F7: catalogManagerGetWeaponBotPref */
+#include "grid_match_runtime.h"
+#include "smoke_harness.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -46,6 +48,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/netmsg.h"
 #include "net/matchsetup.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
@@ -77,6 +80,35 @@ void botToggleUpdatesDisabled(void)
 s32 botGetUpdatesDisabled(void)
 {
 	return g_BotUpdatesDisabled;
+}
+
+/* T-NETWORKING-011 (finding 3): set while a non-authority client runs chrTick
+ * for a simulant the host owns (a puppet tick). chraTick then skips the AI and
+ * the action dispatch, as it does for co-op NPCs on a client, while chrTick
+ * still advances the animation, places the model and marks the simulant on
+ * screen. A client that skipped chrTick never drew a simulant: B-217 v2 below
+ * records the same for frozen bots, and the networked render smoke saw it. */
+static s32 s_BotPuppetTick = 0;
+
+/* B-1195: one log line per retired match (see the botTick gate). */
+static bool s_BotRetiredLogged = false;
+
+/* B-1202: one log line per match when a frame passes a simulant twice. */
+static bool s_BotRepeatPassLogged = false;
+
+/* T-NETWORKING-011: the goals a simulant chooses, for the objective smokes (a
+ * networked simulant never fetched the briefcase). BOT.CMD when its command
+ * changes; BOT.GOAL when it starts or fails a route to an item or a scenario
+ * prop other than the last one logged for it, or with the other outcome.
+ * Capped per match so a simulant that keeps failing cannot flood the log. */
+#define BOT_GOAL_LOG_CAP 200
+static s32 s_BotGoalLogLines = 0;
+static struct prop *s_BotGoalLastProp[MAX_MPCHRS];
+static s8 s_BotGoalLastRouted[MAX_MPCHRS];
+
+s32 botIsPuppetTick(void)
+{
+	return s_BotPuppetTick;
 }
 
 /* F.5: Stuck detection — periodic position snapshot per bot slot.
@@ -117,6 +149,10 @@ void botSpawnWaveReset(void)
 	s_BotSpawnWaveNextUncommitted = 0;
 	s_BotSpawnFailsafeDone = false;
 	s_BotSpawnFailsafeRetryPending = false;
+	s_BotRepeatPassLogged = false;
+	s_BotGoalLogLines = 0;
+	memset(s_BotGoalLastProp, 0, sizeof(s_BotGoalLastProp));
+	memset(s_BotGoalLastRouted, -1, sizeof(s_BotGoalLastRouted));
 	memset(s_BotSlotFrozen, 0, sizeof(s_BotSlotFrozen));
 }
 
@@ -711,7 +747,12 @@ static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 		 * gate. Pre-INV-2 the inner normmplayer guard was dropped here too;
 		 * Co-Op simulants would equip both their AI loadout AND the
 		 * spawn-with-weapon, dual-arming the chr's inventory. */
-		if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+		/* A Grid Fiesta puppet inherits the host's weapon through bot state.
+		 * Its local spawn still initializes the actor and its placement. */
+		const bool grid_fiesta_puppet = g_NetMode == NETMODE_CLIENT
+			&& !g_NetLocalBotAuthority && !g_NetPendingBotAuthority
+			&& gridMatchRuntimeFiestaActive();
+		if (!grid_fiesta_puppet && spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
 		                               g_MpSetup.options,
 		                               MPOPTION_SPAWNWITHWEAPON)) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
@@ -800,7 +841,11 @@ static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 						botactGiveAmmoByType(aibot, ammotype, startammo);
 					}
 				}
-				botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				const bool switched = botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				if (smokeHarnessIsActive() && switched && aibot->weaponnum == resolvedWeaponNum
+						&& botinvGetItem(chr, resolvedWeaponNum)) {
+					gridMatchRuntimeTraceFiestaGrant("bot", spawnWeaponIdx, resolvedWeaponNum);
+				}
 				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
 						(void *)chr, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
 			} else {
@@ -1176,6 +1221,52 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 	return 0;
 }
 
+/**
+ * PC (T-NETWORKING-011, finding 3): botPickupProp on the host, telling clients
+ * about each pickup that took effect (SVC_BOT_PICKUP) so they replay it on
+ * their copy of the simulant. A pickup takes effect when it returns a tick
+ * operation, when it marks the prop for deletion (a scenario briefcase, uplink
+ * or case, which return TICKOP_NONE), or when a Capture the Case capture drops
+ * the case the simulant carried. The sync id is taken first because the
+ * pickup may free the prop.
+ */
+static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
+{
+	struct defaultobj *obj = prop->obj;
+	const u32 syncid = prop->syncid;
+	const struct coord pos = prop->pos;
+	const s32 objtype = obj ? obj->type : -1;
+	/* B-1194: where the item came from (a drop carries AICANNOTUSE, a setup
+	 * pickup its pad and the regen flag), read before the pickup frees it. */
+	const u32 objflags = obj ? obj->flags : 0;
+	const u32 objhidden2 = obj ? obj->hidden2 : 0;
+	const s32 objpad = obj ? obj->pad : -1;
+	const s32 weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
+	const s32 wasdeleting = obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0;
+	const s32 hadcase = chr->aibot->hascase;
+	const u32 result = botPickupProp(prop, chr);
+
+	if (g_NetMode == NETMODE_SERVER && syncid != 0) {
+		// After a nonzero result the prop may be freed, so the object is read
+		// only when the pickup returned none
+		const s32 tookeffect = result != 0
+			|| (!wasdeleting && obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0)
+			|| hadcase != chr->aibot->hascase;
+
+		if (tookeffect) {
+			netmsgSvcBotPickupWrite(&g_NetMsgRel, chr, syncid);
+			/* B-1194: the item's place and type, to match the client's view of
+			 * the same sync id when it skips the replay. */
+			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u objtype=%d pos=(%.0f,%.0f,%.0f) dynamic=%d flags=0x%08x hidden2=0x%02x pad=%d",
+				mpPlayerGetIndex(chr), (unsigned)syncid, weaponnum, (unsigned)result,
+				objtype, pos.x, pos.y, pos.z, syncid >= g_NetFirstDynamicSyncId ? 1 : 0,
+				(unsigned)objflags, (unsigned)objhidden2, objpad);
+		}
+	}
+
+	return result;
+}
+
 bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 {
 	struct defaultobj *obj = prop->obj;
@@ -1363,7 +1454,7 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 
 	if (sp3c) {
 		dprint();
-		return botPickupProp(prop, chr);
+		return botPickupPropAndAnnounce(prop, chr);
 	}
 
 	return false;
@@ -1614,6 +1705,36 @@ bool botIsAboutToAttack(struct chrdata *chr, bool arg1)
 	return result;
 }
 
+/* PC (B-1271): the Hacker Central terminal nearest this simulant, or NULL
+ * outside Hacker Central. */
+static struct prop *botHtmNearestTerminal(struct chrdata *chr)
+{
+	struct prop *best = NULL;
+	f32 bestdist = 0;
+	s32 i;
+
+	if (g_MpSetup.scenario != MPSCENARIO_HACKERCENTRAL || chr->prop == NULL) {
+		return NULL;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.htm.terminals); i++) {
+		struct prop *terminal = g_ScenarioData.htm.terminals[i].prop;
+
+		if (terminal) {
+			f32 dx = terminal->pos.x - chr->prop->pos.x;
+			f32 dz = terminal->pos.z - chr->prop->pos.z;
+			f32 dist = dx * dx + dz * dz;
+
+			if (best == NULL || dist < bestdist) {
+				best = terminal;
+				bestdist = dist;
+			}
+		}
+	}
+
+	return best;
+}
+
 s32 botTick(struct prop *prop)
 {
 	struct chrdata *chr = prop->chr;
@@ -1626,10 +1747,23 @@ s32 botTick(struct prop *prop)
 	f32 targetangle;
 	f32 oldangle;
 	f32 newangle;
-	/* FIX 1: PROPFLAG_NOTYETTICKED is cleared by chrTick before botTick runs,
-	 * so using it here made updateable=false after frame 0 — bots never ticked.
-	 * Use g_Vars.lvupdate240 directly: bots should tick every update frame. */
-	updateable = g_Vars.lvupdate240 != 0;
+	/* B-1202: the bot's update (AI, turning, scenario points, pickups) runs
+	 * once per frame, as in the original. propsTickPlayer runs once for each
+	 * player in a frame (each viewport, and every player of a networked
+	 * match: lvRender loops over all of them), and the frame's first pass
+	 * sets PROPFLAG_NOTYETTICKED on every prop. chrTick clears it later in
+	 * this function, so it is read here, before that, and a later pass in
+	 * the same frame skips the update. 41431a3d ("FIX 1") read lvupdate240
+	 * alone, so a networked match with two players ran every simulant's
+	 * update twice a frame (a Hold the Briefcase simulant took 7 points in a
+	 * 151 s match; a point needs 30 s held). */
+	updateable = g_Vars.lvupdate240 != 0 && (prop->flags & PROPFLAG_NOTYETTICKED) != 0;
+
+	if (g_Vars.lvupdate240 != 0 && !updateable && aibot && !s_BotRepeatPassLogged) {
+		sysLogPrintf(LOG_NOTE, "BOT.TICK: simulant %d passed again in one frame (players=%d); its update runs once a frame (B-1202)",
+			(s32)aibot->aibotnum, PLAYERCOUNT());
+		s_BotRepeatPassLogged = true;
+	}
 
 	if (aibot) {
 		/* U-10: Promote pending bot authority once stage load is confirmed.
@@ -1644,10 +1778,44 @@ s32 botTick(struct prop *prop)
 		/* Non-authority clients defer to server-authoritative positions received via
 		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
 		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
-		 * On a listen server (NETMODE_SERVER) bots always run locally. */
+		 * On a listen server (NETMODE_SERVER) bots always run locally.
+		 * T-NETWORKING-011 (finding 3): the client still runs chrTick as a puppet
+		 * tick, without the AI (see s_BotPuppetTick), so the simulant is animated,
+		 * placed and drawn; returning TICKOP_NONE here made every simulant
+		 * invisible on clients. */
 		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
-			return TICKOP_NONE;
+			s32 puppetresult;
+
+			s_BotPuppetTick = 1;
+			/* B-1191: choose the third-person animation from the host's
+			 * speeds and action (SVC_CHR_MOVE), as the host does before its
+			 * chrTick; without it the client's model had no animation. */
+			botApplyMovement(chr);
+			puppetresult = chrTick(prop);
+			s_BotPuppetTick = 0;
+			return puppetresult;
 		}
+
+		/* B-1195: a networked results exit to the Room retires the match's
+		 * runtime chr table (mpClearRuntimeChrState, B-368) while the ended
+		 * arena stays loaded behind the Room until the next stage. Its
+		 * simulants are scenery from then on (a client already puppets
+		 * them above): the AI divides by g_MpNumChrs
+		 * (botChooseGeneralTarget), and spawning, room recovery and stuck
+		 * repair would act on a finished match. chrTick still runs so the
+		 * model keeps its per-frame state (B-217 v2). A live match always
+		 * counts its simulants here (botmgrAllocateBot). */
+		if (g_MpNumChrs <= 0) {
+			if (!s_BotRetiredLogged) {
+				sysLogPrintf(LOG_NOTE,
+					"BOT: match chr table retired; simulants are inert until the next stage");
+				s_BotRetiredLogged = true;
+			}
+			aibot->speedmultforwards = 0;
+			aibot->speedmultsideways = 0;
+			return chrTick(prop);
+		}
+		s_BotRetiredLogged = false;
 
 		/* PC failsafe: On solo mission maps used as MP arenas, the AI script
 		 * doesn't contain aiMpInitSimulants so botSpawnAll() never fires.
@@ -1787,13 +1955,15 @@ s32 botTick(struct prop *prop)
 
 					s32 frames_since = g_Vars.lvframe60 - bs->snapshot_frame;
 					if (frames_since >= STUCK_CHECK_FRAMES) {
-						/* Active pathfinding: bot is trying to navigate */
+						/* Active pathfinding: bot is trying to navigate. Not
+						 * MA_AIBOTDOWNLOAD (B-1207): a Hacker Central download
+						 * is 20 s standing at the terminal, and moving the bot
+						 * away 3 s in cancelled every download a simulant began. */
 						bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP
 							|| chr->myaction == MA_AIBOTGOTOPOS
 							|| chr->myaction == MA_AIBOTGETITEM
 							|| chr->myaction == MA_AIBOTGOTOPROP
-							|| chr->myaction == MA_AIBOTRUNAWAY
-							|| chr->myaction == MA_AIBOTDOWNLOAD);
+							|| chr->myaction == MA_AIBOTRUNAWAY);
 						if (bs->relocating) {
 							/* A relocation suppresses only the immediately following
 							 * audit. Clear the latch so continued AI intent can recover
@@ -1880,6 +2050,15 @@ s32 botTick(struct prop *prop)
 				targetangle = oldangle + targetangle + aibot->extraangle;
 			} else if (chr->myaction == MA_AIBOTDOWNLOAD && g_ScenarioData.htm.dlterminalnum != -1) {
 				targetangle = chrGetAngleToPos(chr, &g_ScenarioData.htm.terminals[g_ScenarioData.htm.dlterminalnum].prop->pos);
+				targetangle = oldangle + targetangle;
+			} else if (chr->myaction == MA_AIBOTDOWNLOAD && botHtmNearestTerminal(chr) != NULL) {
+				/* PC (B-1271, Mike 2026-11-16): a download starts only while the
+				 * simulant faces the terminal (within 45 degrees), and the branch
+				 * above turns it only once a download runs, so one that reached
+				 * range facing away, or lost its facing, stood unarmed for the
+				 * rest of the match. Turn toward the terminal while waiting, at
+				 * the normal turning speed below. */
+				targetangle = chrGetAngleToPos(chr, &botHtmNearestTerminal(chr)->pos);
 				targetangle = oldangle + targetangle;
 			} else if (chr->myaction == MA_AIBOTFOLLOW
 					&& aibot->followingplayernum >= 0
@@ -2334,8 +2513,46 @@ void botApplyHold(struct chrdata *chr, struct coord *pos, RoomNum *room, f32 ang
 
 void botApplyScenarioCommand(struct chrdata *chr, u32 command)
 {
+	if (chr->aibot->command != command && s_BotGoalLogLines < BOT_GOAL_LOG_CAP) {
+		s_BotGoalLogLines++;
+		sysLogPrintf(LOG_NOTE, "BOT.CMD: simulant %d command %d -> %d at %.1f s scenario=%d teamisonlyai=%d netmode=%d",
+			mpPlayerGetIndex(chr), (s32)chr->aibot->command, (s32)command, g_Vars.lvframe60 / 60.0f,
+			(s32)g_MpSetup.scenario, (s32)chr->aibot->teamisonlyai, (s32)g_NetMode);
+	}
+
 	chr->aibot->command = command;
 	chr->aibot->forcemainloop = true;
+}
+
+/* T-NETWORKING-011: log a simulant's new item or scenario goal and whether
+ * chrGoToProp gave it a route (ACT_GOPOS); see s_BotGoalLogLines. */
+static void botLogGoal(struct chrdata *chr, struct prop *goal, const char *what)
+{
+	const s32 slot = mpPlayerGetIndex(chr);
+	const s8 routed = chr->actiontype == ACT_GOPOS ? 1 : 0;
+	s32 objtype = -1;
+
+	if (goal == NULL || slot < 0 || slot >= MAX_MPCHRS || s_BotGoalLogLines >= BOT_GOAL_LOG_CAP) {
+		return;
+	}
+
+	if (s_BotGoalLastProp[slot] == goal && s_BotGoalLastRouted[slot] == routed) {
+		return;
+	}
+
+	s_BotGoalLastProp[slot] = goal;
+	s_BotGoalLastRouted[slot] = routed;
+	s_BotGoalLogLines++;
+
+	if ((goal->type == PROPTYPE_OBJ || goal->type == PROPTYPE_WEAPON) && goal->obj) {
+		objtype = goal->obj->type;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BOT.GOAL: simulant %d %s prop %u type=%d obj=%d at (%.0f,%.0f,%.0f) room=%d from (%.0f,%.0f,%.0f) room=%d: route %s at %.1f s cmd=%d netmode=%d",
+		slot, what, (unsigned)goal->syncid, (s32)goal->type, objtype,
+		goal->pos.x, goal->pos.y, goal->pos.z, (s32)goal->rooms[0],
+		chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z, (s32)chr->prop->rooms[0],
+		routed ? "started" : "refused", g_Vars.lvframe60 / 60.0f, (s32)chr->aibot->command, (s32)g_NetMode);
 }
 
 void botDisarm(struct chrdata *chr, struct prop *attackerprop)
@@ -2351,7 +2568,18 @@ void botDisarm(struct chrdata *chr, struct prop *attackerprop)
 			chr->weapons_held[HAND_LEFT] = NULL;
 		}
 
-		if (chr->weapons_held[HAND_RIGHT]) {
+		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			/* B-1194: on a networked client a simulant is the host's puppet,
+			 * and SVC_CHR_DAMAGE brings the host's disarm here too. The host
+			 * drops the real gun and announces it (the chr.c drop block); a
+			 * copy dropped or made here would carry no sync id the host
+			 * knows, so no host pickup of the real one could reach it. Retire
+			 * this client's held model instead, as chrBeginDeath does. */
+			if (chr->weapons_held[HAND_RIGHT]) {
+				chr->weapons_held[HAND_RIGHT]->obj->hidden |= OBJHFLAG_DELETING;
+				chr->weapons_held[HAND_RIGHT] = NULL;
+			}
+		} else if (chr->weapons_held[HAND_RIGHT]) {
 			prop = chr->weapons_held[HAND_RIGHT];
 			weaponSetGunfireVisible(prop, false, -1);
 			chr->weapons_held[HAND_RIGHT] = NULL;
@@ -4527,6 +4755,7 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->gotoprop) {
 					chrGoToProp(chr, aibot->gotoprop, GOPOSFLAG_RUN);
 					chr->myaction = newaction;
+					botLogGoal(chr, aibot->gotoprop, "fetches item");
 				}
 			} else if (newaction == MA_AIBOTATTACK) {
 				if (chr->myaction != MA_AIBOTATTACK) {
@@ -4577,6 +4806,7 @@ void botTickUnpaused(struct chrdata *chr)
 				if (aibot->gotoprop) {
 					chr->myaction = newaction;
 					chrGoToProp(chr, aibot->gotoprop, GOPOSFLAG_RUN);
+					botLogGoal(chr, aibot->gotoprop, "goes for");
 				}
 			} else if (newaction == MA_AIBOTDOWNLOAD) {
 				chr->myaction = newaction;

@@ -24,6 +24,8 @@ const char *catalogModelGenerationHash(const catalog_model_generation_t *generat
 struct modeldef *catalogModelGenerationModeldef(catalog_model_generation_t *generation);
 /* Borrowed lookup for the ordinary catalog unload path. */
 catalog_model_generation_t *catalogModelGenerationForModeldef(const struct modeldef *modeldef);
+/* True while a client-thread generation still owns this catalog identity. */
+int catalogModelGenerationHasLiveIdentity(const char *id);
 /* Native held models and their cached command lists borrow pointers for the
  * stage lifetime. Pin the exact source generation once, independently of a
  * mutable catalog row. Repeated pins are idempotent and allocate nothing.

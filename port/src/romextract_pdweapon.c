@@ -1903,7 +1903,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			((flags & FUNCFLAG_STICKTOWALL) ? "wall_hugger" : "motion")));
 	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
 
-	mod_archive_writer_t *aw = modArchiveBegin(p->temp_fullpath);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(p->temp_fullpath);
 	if (!aw) return -1;
 	asset_archive_writer_t asset_writer;
 	if (assetArchiveWriterInit(&asset_writer, aw, "projectile",
@@ -2025,7 +2025,7 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		archetype);
 	if (bindings_len <= 0 || (size_t)bindings_len >= sizeof(bindings)) return -1;
 
-	mod_archive_writer_t *aw = modArchiveBegin(p->temp_fullpath);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(p->temp_fullpath);
 	if (!aw) return -1;
 	asset_archive_writer_t asset_writer;
 	if (assetArchiveWriterInit(&asset_writer, aw, "entity",
@@ -2709,7 +2709,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);

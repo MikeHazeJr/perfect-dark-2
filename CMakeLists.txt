@@ -135,13 +135,36 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 1 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 102 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 105 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
 message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSION_HASH}, branch ${VERSION_BRANCH}")
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
+
+# B-1252: the commit and branch above are read once, at configure time, and an
+# incremental build after a commit does not configure again, so a binary's
+# version line named an older commit. pd_versioninfo writes versioninfo.h again
+# at build time (cmake/versioninfo.cmake); configure_file leaves the header
+# untouched when nothing changed, so only the files that include it rebuild
+# after a commit. Every target depends on it (the loop at the end of this file).
+add_custom_target(pd_versioninfo ALL
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC_DIR=${CMAKE_SOURCE_DIR}"
+    "-DOUT_FILE=${CMAKE_BINARY_DIR}/port/include/versioninfo.h"
+    "-DVERSION_TARGET=${VERSION_TARGET}"
+    "-DVERSION_ARCH=${VERSION_ARCH}"
+    "-DVERSION_ROMID=${VERSION_ROMID}"
+    "-DVERSION_BUILD=${VERSION_BUILD}"
+    "-DVERSION_SEM_MAJOR=${VERSION_SEM_MAJOR}"
+    "-DVERSION_SEM_MINOR=${VERSION_SEM_MINOR}"
+    "-DVERSION_SEM_PATCH=${VERSION_SEM_PATCH}"
+    -P "${CMAKE_SOURCE_DIR}/cmake/versioninfo.cmake"
+  BYPRODUCTS "${CMAKE_BINARY_DIR}/port/include/versioninfo.h"
+  COMMENT "versioninfo.h: the commit and branch at build time (B-1252)"
+  VERBATIM
+)
 
 # Embed Mozilla CA bundle for libcurl (D13 updater TLS).
 # Testers hit "SSL peer certificate or SSH remote key was not OK" because the
@@ -614,9 +637,22 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game client target
 
+# Stage the original native authoring seed beside the client.
+set(PD_GRID_ROOM_SEED "${CMAKE_SOURCE_DIR}/dev-mods/grid_two_rooms/grid_two_rooms.pdarena")
+set(PD_GRID_ROOM_SEED_DIR "${CMAKE_CURRENT_BINARY_DIR}/grid/templates")
+set(PD_GRID_ROOM_SEED_OUTPUT "${PD_GRID_ROOM_SEED_DIR}/grid_two_rooms.pdarena")
+add_custom_command(
+  OUTPUT "${PD_GRID_ROOM_SEED_OUTPUT}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${PD_GRID_ROOM_SEED_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PD_GRID_ROOM_SEED}" "${PD_GRID_ROOM_SEED_OUTPUT}"
+  DEPENDS "${PD_GRID_ROOM_SEED}"
+  VERBATIM
+)
+add_custom_target(pd_grid_room_seed DEPENDS "${PD_GRID_ROOM_SEED_OUTPUT}")
+
 set(BIN_NAME "PerfectDark")
 add_executable(pd ${SRC})
-add_dependencies(pd pd_headers)
+add_dependencies(pd pd_headers pd_grid_room_seed)
 target_link_libraries(pd PRIVATE ${LIBS})
 
 # The bgfx backend (port/fast3d/gfx_bgfx.cpp) and its ahead-of-time shaders.
@@ -701,6 +737,8 @@ add_executable(scenario-scene-probe
   "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stubs.cpp"
   "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stb.cpp"
   "${CMAKE_SOURCE_DIR}/port/fast3d/scenario_scene_renderer.cpp"
+  "${CMAKE_SOURCE_DIR}/port/src/scenario_scene_camera.c"
+  "${CMAKE_SOURCE_DIR}/port/src/scenario_dyntex.c"
   "${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c"
   "${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor/crude_json.cpp"
   "${CMAKE_SOURCE_DIR}/port/src/modarchive.c"
@@ -897,7 +935,25 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/gdl_span.c
   ${CMAKE_SOURCE_DIR}/tests/test_anim_bits.cpp
   ${CMAKE_SOURCE_DIR}/src/lib/anim_bits.c
+  ${CMAKE_SOURCE_DIR}/tests/modelasm_character_fixture.c
+  ${CMAKE_SOURCE_DIR}/src/game/acosasin.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
+  # Simulant pickups and drops in networked play (v62, finding 3).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
+  # In-match team switches stay within the scenario's teams (B-1132).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_team_limit_static.cpp
+  # The collision obstacle's geometry for the capsule sweep (B-1133).
+  ${CMAKE_SOURCE_DIR}/tests/test_collision_obstacle_static.cpp
+  # A second match in the same room on a listen host (finding 4).
+  ${CMAKE_SOURCE_DIR}/tests/test_host_autostart_rematch_static.cpp
+  # Client read handlers read their whole message before deciding (B-1131).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_reader_consumes_static.cpp
+  # Every smoke schedule fits inside its own timeout (B-1135).
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_schedule_bounds_static.cpp
+  # An mpchrnum resolves with the port's player count, not the N64's (B-1136).
+  ${CMAKE_SOURCE_DIR}/tests/test_mp_chrnum_static.cpp
+  # The host decides what follows a networked co-op or counter-op mission (B-1193).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_mission_end_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp
@@ -908,6 +964,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bool_layout_static.cpp
   # B-1111: objective tags and stage flags stay in host order end to end.
   ${CMAKE_SOURCE_DIR}/tests/test_objective_operand_order_static.cpp
+  # Every campaign stage gets a mission archive, not only the 14 with an arena row.
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_archive_coverage_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_campaign_run.cpp
@@ -918,11 +976,48 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/campaign_evidence.c
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_room_domain.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_room_domain.c
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_portal_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_portal_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
   # B-1113: authored room boxes reach public source and are used at stage load.
   ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
   # Decision 1: per-stage room and light rules travel in scenario source.
   ${CMAKE_SOURCE_DIR}/tests/test_stage_light_rules_static.cpp
+  # Decision 2: the mission graph runner (events, gates, native modules).
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/mission_graph_runner.cpp
+  # Mission flow slice 1: required objectives and the outcome probe.
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_outcome_static.cpp
+  # Mission flow slice 2: the phase event and gate in the runner.
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_phase.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_volume.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_level_graph_program.cpp
+  # Global AI lists slice 2, step 2: the base:ai_global writer.
+  ${CMAKE_SOURCE_DIR}/tests/test_global_ailists_bank_static.cpp
+  # Decision 3: stage-wide rules in stage.json (weather first).
+  ${CMAKE_SOURCE_DIR}/tests/test_stage_rules.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_stage_rules.cpp
+  # The stage intro in intro.json (starting loadout, multiplayer cases and hills).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_intro.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_intro.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_scene_camera.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_scene_camera.c
+  # Animated surfaces of scenario-source scenes (dyntex.c presets).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_dyntex.cpp
+  # Global AI lists as public rows (design step 5, source pins).
+  ${CMAKE_SOURCE_DIR}/tests/test_global_ailists_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_dyntex.c
+  # AI lists as graphs, slice 1: control-flow edges from the rows' bytes.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_list_edges.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_list_edges.c
+  # AI lists as graphs, slice 2: the runtime's edge tables and the shadow walk.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_edge_shadow.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_edge_shadow.c
+  # AI lists as graphs: the two simulant commands' graph twins.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_simulant_twins_static.cpp
+  # Typed AI operands, slice 1: the command schema.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_command_schema.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_command_schema.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
@@ -977,6 +1072,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
   # B-1125: spaced fallback placement pads for multiplayer scenarios (pure).
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_pad_fallback.cpp
+  # Challenge and preset table lands each value in its own field (finding 10).
+  ${CMAKE_SOURCE_DIR}/tests/test_mpconfig_table.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/mpconfig_table_probe.c
+  ${CMAKE_SOURCE_DIR}/src/game/mpconfigs.c
   ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp
@@ -1004,6 +1103,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_pdgui_menu_readiness.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_menu_readiness.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_profile.cpp
+  # B-1116: every input action has a config name, so saved bindings are complete.
+  ${CMAKE_SOURCE_DIR}/tests/test_actionmap_names_static.cpp
+  # B-1160: config saves name their folder; one list of mod roots.
+  ${CMAKE_SOURCE_DIR}/tests/test_save_paths_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/actionmap_profile.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_input_device_identity.cpp
   ${CMAKE_SOURCE_DIR}/port/src/input_device_identity.cpp
@@ -1031,6 +1134,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_settings_input_tab_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdgui_input_profile_state.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
+  # Custom (graph) projectiles log their spawn and their landing.
+  ${CMAKE_SOURCE_DIR}/tests/test_custom_projectile_log_static.cpp
+  # Weapon source compile with the variables text ($name scope, MODS ask).
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_source_variables.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
   ${CMAKE_SOURCE_DIR}/port/src/action_read_authority.c
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_readiness.cpp
@@ -1067,6 +1174,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/scene_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_scene_dispatch.cpp
 
+  # B-1169: the install's own mods folders (Mike 2026-11-15, option A).
+  ${CMAKE_SOURCE_DIR}/port/src/mods_install_roots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mods_install_roots.cpp
+
   # Cohort 4 (input universality and transitions, 2026-04-27): cutscene
   # flash fix invariants (K.2 + K.6). Mission 1 obj 2 bug repro.
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
@@ -1093,6 +1204,10 @@ set(SRC_TESTS
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  # B-1110: extraction archives wait for one flush before their cache stamp.
+  ${CMAKE_SOURCE_DIR}/tests/test_modarchive_derived.cpp
+  # SP-79 / B-1167: graph requirement helpers honour their failures.
+  ${CMAKE_SOURCE_DIR}/tests/test_graph_helper_failures_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_json.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json_document.cpp
@@ -1114,17 +1229,37 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_loader_walker_mesh_source_plan.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  # Typed archive clone to a new catalog id, shared by the in-game creators.
+  ${CMAKE_SOURCE_DIR}/port/src/asset_archive_clone.c
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_clone.cpp
   ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/character_head_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/body_head_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/body_blood.c
+  ${CMAKE_SOURCE_DIR}/port/src/character_tool.c
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_seats.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_properties.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_stage_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_body_blood.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_character_tool.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_seats.cpp
+  # The readable-memory probe and one walk's span of it (B-1234).
+  ${CMAKE_SOURCE_DIR}/port/src/model_rodata_guard.c
+  ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
+  # A level's pads, spawns and objects as Forge edits them (Forge F2).
+  ${CMAKE_SOURCE_DIR}/port/src/forge_level_doc.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_room_builder.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_level_live.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc.cpp
+  # The rules of the Modding Hub's Levels tool (Forge F4).
+  ${CMAKE_SOURCE_DIR}/port/src/level_tool.c
+  ${CMAKE_SOURCE_DIR}/tests/test_level_tool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
@@ -1133,6 +1268,69 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modarchive.c
   ${CMAKE_SOURCE_DIR}/port/src/modpack_pdmod.c
+  # In-game root mod.json admission used by both .pdmod packers.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_manifest_validate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_manifest_validate.cpp
+  # Template archive plus edits to a complete mod folder: the creators' Save.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author.cpp
+  # A mod described in a file: the same request, read strictly from JSON.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author_recipe.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author_recipe.cpp
+  # One in-game Validate: release validation plus the content of every member.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_asset_validate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_asset_validate.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_revision_store.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_archive_policy.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_edit_session.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_cache.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_sources.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_result.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_wire.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_transfer.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_transfer.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_cache.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_package_io.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_package_io.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_session.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_playtest_view.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_playtest_view.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_room.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_room_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_room.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_snapshot.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_snapshot_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_snapshot.cpp
+  # The descriptor INI parser the game uses (the scanner's own loop).
+  ${CMAKE_SOURCE_DIR}/port/src/ini_parse.c
+  ${CMAKE_SOURCE_DIR}/tests/test_ini_parse.cpp
+  # The Weapons creator's graph document to and from the clean behavior files.
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_editor_io.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_editor_io.cpp
+  # Where the game keeps mods: the user mods folder and the install's.
+  ${CMAKE_SOURCE_DIR}/port/src/mods_roots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mods_roots.cpp
+  # A mod vehicle's own model number and --debug-swap-vehicle (Maian vehicle V1).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_debug.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_slot.cpp
+  # The Maian vehicle's boost and heat state machine (V3), the
+  # og.vehicle.boost_heat module of the vehicle graph.
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
+  # pd.vehicle_graph.v1: the vehicle behavior graph runner and its one instance
+  # per vehicle (accepted by CORE 2026-11-16,
+  # context/designs/modding/vehicle-graph-v1.md).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_model_parts.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_parts.cpp
+  # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
+  ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp
+  # The Maian crystal pistol recipe, built the way --mod-author builds it.
+  ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
@@ -1148,6 +1346,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_native.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_equipped.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_command_source.cpp
+  # Gun loader queue targets must have the width of the fields they point at.
+  ${CMAKE_SOURCE_DIR}/tests/test_gun_load_target_storage.cpp
   # c3849 Wave 6b Unit 8: full .pdeffect runtime (compiler, records, bridges)
   # plus the custom spark-row registry it allocates tinted rows from.
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
@@ -1204,6 +1404,8 @@ set(SRC_TESTS
   # pure checks for normal classification.
   ${CMAKE_SOURCE_DIR}/tests/test_jump_two_stage_design.cpp
 
+  # B-1210: the world mesh grid keeps triangles past its 128-cell cap.
+  ${CMAKE_SOURCE_DIR}/tests/test_mesh_grid_cell.cpp
   # B-1189: the grid-walked mesh ray cast used for background hits on
   # scenario-source stages, checked against a brute-force cast.
   ${CMAKE_SOURCE_DIR}/tests/test_mesh_ray_grid.cpp
@@ -1262,6 +1464,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_stage_ownership.cpp
   ${CMAKE_SOURCE_DIR}/port/src/pdca_extract_transaction.c
   ${CMAKE_SOURCE_DIR}/tests/test_pdca_extract_transaction.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/assetprovider_file.c
   ${CMAKE_SOURCE_DIR}/tests/test_asset_path_contract.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).
@@ -1440,6 +1643,8 @@ add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/tests/test_settings_save_status.cpp
   ${CMAKE_SOURCE_DIR}/tests/support/settings_save_support.c
   ${CMAKE_SOURCE_DIR}/port/src/config.c
+  # B-1160: configSave refuses bare names with the production path checks.
+  ${CMAKE_SOURCE_DIR}/port/src/fs_path.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_settings_save_status.cpp
@@ -1517,3 +1722,16 @@ endforeach()
 # Wrapper defaults and FIFO remain unchanged: -Target tests builds all four.
 # build-headless.ps1 -Target all still selects only client and updater.
 add_dependencies(pd-tests pd-settings-save-tests pd-training-renderer-tests pd-catalog-mutation-tests)
+
+# B-1252: every target that compiles builds after versioninfo.h is written for
+# this build (pd_versioninfo, next to the configure_file above), so no object
+# compiles against an older commit.
+get_property(_pd_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_pd_target IN LISTS _pd_all_targets)
+  if(NOT _pd_target STREQUAL "pd_versioninfo")
+    get_target_property(_pd_target_type ${_pd_target} TYPE)
+    if(NOT _pd_target_type STREQUAL "UTILITY" AND NOT _pd_target_type STREQUAL "INTERFACE_LIBRARY")
+      add_dependencies(${_pd_target} pd_versioninfo)
+    endif()
+  endif()
+endforeach()

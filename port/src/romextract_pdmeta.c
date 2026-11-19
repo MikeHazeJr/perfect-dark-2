@@ -30,9 +30,10 @@
 #include "modarchive.h"
 #include "pdeffect_source.h"
 #include "romextract_pd.h"
+#include "stage_archive_repair.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -146,7 +147,7 @@ static s32 s_openWriter(const char *relpath, const char *family,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDMETA",
 			"modArchiveBegin failed for \"%s\"", full);
@@ -695,6 +696,27 @@ static s32 s_buildMissionObjectivesJson(const char *scenario_file,
 	return s_textbufAppend(out, "\n  ]\n}\n");
 }
 
+/* The stage a mission's slug names, through the campaign stage table's
+ * catalog ids ("base:deepsea" names STAGE_DEEPSEA), the rule the missions are
+ * named by; -1 when no campaign stage has it. */
+static s32 s_missionStagenum(const char *slug)
+{
+	s32 i;
+
+	if (!slug || !slug[0]) {
+		return -1;
+	}
+	for (i = 0; i < NUM_SOLOSTAGES; i++) {
+		const char *id = g_SoloStages[i].catalog_id;
+		const char *colon = id ? strchr(id, ':') : NULL;
+
+		if (colon && strcmp(colon + 1, slug) == 0) {
+			return (s32)g_SoloStages[i].stagenum;
+		}
+	}
+	return -1;
+}
+
 static s32 s_buildMissionGraph(const char *mission_id,
 	const char *scenario_id, const char *scenario_file, const char *slug,
 	const pdmeta_objective_row_t *rows, s32 row_count,
@@ -702,6 +724,8 @@ static s32 s_buildMissionGraph(const char *mission_id,
 {
 	s32 i;
 	char current_objective[96] = "";
+	s32 ending_continue = 0;
+	s32 ending_completed = 0;
 
 	if (!mission_id || !scenario_id || !scenario_file || !slug ||
 			!rows || row_count <= 0 || !out) {
@@ -747,7 +771,38 @@ static s32 s_buildMissionGraph(const char *mission_id,
 		}
 	}
 
+	/* Decision 2, the first executable part (port/include/mission_graph_runner.h):
+	 * when an objective that applies at this difficulty changes status, the
+	 * event runs the native module that shows the original "Objective N:
+	 * Completed" message. The edge is an execution edge ("input": "exec"); the
+	 * others are structural and are not walked. */
+	/* Mission endings (CORE, 2026-11-15): what a completed mission leads to
+	 * and what its completion unlocks, written from the stages the game checks
+	 * (src/game/endscreen.c, menutick.c): Deep Sea goes straight into the next
+	 * stage, Skedar Ruins to the credits and unlocks the alternate title. */
+	{
+		const s32 stagenum = s_missionStagenum(slug);
+		const char *continue_module = stagenum == STAGE_DEEPSEA ? "og.mission.start_next_stage"
+			: stagenum == STAGE_SKEDARRUINS ? "og.mission.start_credits" : NULL;
+
+		if (continue_module && s_textbufAppendf(out,
+				"    { \"id\": \"mission.continue\", \"kind\": \"event.mission.continue\" },\n"
+				"    { \"id\": \"mission.continue.action\", \"kind\": \"%s\" },\n",
+				continue_module) != 0) {
+			return -1;
+		}
+		if (stagenum == STAGE_SKEDARRUINS && s_textbufAppend(out,
+				"    { \"id\": \"mission.completed\", \"kind\": \"event.mission.completed\" },\n"
+				"    { \"id\": \"mission.completed.alt_title\", \"kind\": \"og.progress.unlock_alt_title\" },\n") != 0) {
+			return -1;
+		}
+		ending_continue = continue_module != NULL;
+		ending_completed = stagenum == STAGE_SKEDARRUINS;
+	}
+
 	if (s_textbufAppendf(out,
+			"    { \"id\": \"objective.status_changed\", \"kind\": \"event.objective.status_changed\", \"objective\": \"any\" },\n"
+			"    { \"id\": \"objective.status_message\", \"kind\": \"og.hud.objective_status_message\" },\n"
 			"    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.%s\" }\n"
 			"  ],\n"
 			"  \"edges\": [\n"
@@ -787,9 +842,19 @@ static s32 s_buildMissionGraph(const char *mission_id,
 			"    { \"from\": \"mission.objectives\", \"to\": \"mission.phase.failed\" },\n"
 			"    { \"from\": \"mission.phase.complete\", \"to\": \"mission.phase.end\" },\n"
 			"    { \"from\": \"mission.phase.failed\", \"to\": \"mission.phase.end\" },\n"
-			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" }\n"
-			"  ]\n"
-			"}\n") != 0) {
+			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" },\n"
+			"    { \"from\": \"objective.status_changed\", \"output\": \"out\", \"to\": \"objective.status_message\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (ending_continue && s_textbufAppend(out,
+			",\n    { \"from\": \"mission.continue\", \"output\": \"out\", \"to\": \"mission.continue.action\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (ending_completed && s_textbufAppend(out,
+			",\n    { \"from\": \"mission.completed\", \"output\": \"out\", \"to\": \"mission.completed.alt_title\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(out, "\n  ]\n}\n") != 0) {
 		return -1;
 	}
 
@@ -1611,13 +1676,22 @@ static void s_scenarioIdFromSlug(const char *slug, char *out, size_t out_n)
 	snprintf(out, out_n, "base:scenario_%s", slug);
 }
 
-static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
-	const char *scenarios_dir, s32 arena_index, s32 force_rewrite)
+#define PDMETA_MISSION_CATEGORY "Solo Missions"
+
+/* Where one base mission archive comes from. Most campaign stages have an
+ * arena row; Extraction, Rescue, Escape and the special assignments do not,
+ * and are described by the campaign's own stage table instead. */
+typedef struct pdmeta_mission_source {
+	const char *slug;              /* "defection": names the mission and its scenario */
+	const char *provenance_source; /* table the mission was derived from */
+	s32 provenance_index;          /* row in that table */
+	s32 arena_index;               /* arena row, or -1 when the stage has none */
+} pdmeta_mission_source_t;
+
+static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *out_dir,
+	const char *scenarios_dir, s32 force_rewrite, s32 register_catalog)
 {
-	if (!a || !a->category || strcmp(a->category, "Solo Missions") != 0) {
-		return 0;
-	}
-	if (stageGetIndex(a->stagenum) < 0) {
+	if (!a || !a->slug || !a->slug[0]) {
 		return 0;
 	}
 
@@ -1627,7 +1701,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	s_idToFilenameSlug(mission_id, mission_file, sizeof(mission_file));
 	char relpath[FS_MAXPATH];
 	s_archiveRelPath(out_dir, mission_id, ".pdmission", relpath, sizeof(relpath));
-	s32 archive_current = (!force_rewrite && fsFileSize(relpath) > 0 &&
+	const s32 archive_size = fsFileSize(relpath);
+	s32 archive_current = (!force_rewrite && archive_size > 0 &&
 		s_existingArchiveHasEntry(relpath, "mission.ini") &&
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
 		s_existingArchiveHasEntry(relpath, "objectives.json") &&
@@ -1644,6 +1719,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			"mission.objectives.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.objective.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"\"input\": \"exec\"") &&
 		s_existingArchiveEntryContains(relpath, "mission.ini",
 			"scenario_graph_cache = " PDMETA_SCENARIO_DEP_CACHE_KIND) &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
@@ -1654,6 +1731,13 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			"\"nodes\": []") &&
 		!s_existingArchiveEntryContains(relpath, "objectives.json",
 			"original_perfect_dark_setup"));
+	if (!register_catalog && archive_size >= 0 && !archive_current &&
+			!romExtractPdArchivePublicUnmodified(relpath)) {
+		sysLoudFailf("EXTRACT.PDMETA",
+			"mission scenario conflict in %s; preserving edited/unreadable public archive",
+			relpath);
+		return -1;
+	}
 
 	char scenario_id[CATALOG_ID_LEN];
 	s_scenarioIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
@@ -1679,12 +1763,12 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		return -1;
 	}
 
-	asset_entry_t *entry = assetCatalogRegister(mission_id, ASSET_MISSION);
+	asset_entry_t *entry = register_catalog ? assetCatalogRegister(mission_id, ASSET_MISSION) : NULL;
 	if (entry) {
 		strncpy(entry->category, "base", CATALOG_CATEGORY_LEN - 1);
 		entry->bundled = 1;
 		entry->enabled = 1;
-		entry->runtime_index = arena_index;
+		entry->runtime_index = a->arena_index;
 	snprintf(entry->ext.mission.scenario_archive,
 		sizeof(entry->ext.mission.scenario_archive),
 		"%s/%s.pdmission::dependencies/assets/scenarios/%s.pdscenario",
@@ -1730,7 +1814,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"objectives_file = objectives.json\n"
 		"category = %s\n",
 		mission_id, scenario_id, scenario_file,
-		PDMETA_SCENARIO_DEP_CACHE_KIND, a->category);
+		PDMETA_SCENARIO_DEP_CACHE_KIND, PDMETA_MISSION_CATEGORY);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
 	pdmeta_textbuf_t graph = { 0 };
@@ -1766,7 +1850,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	mod_archive_writer_t *aw;
 	asset_archive_writer_t writer;
 	if (s_openWriter(relpath, "mission", mission_id, "romextract_pdmeta",
-			"arenadata_authored", arena_index, &aw, &writer) != 0) {
+			a->provenance_source, a->provenance_index, &aw, &writer) != 0) {
 		return -1;
 	}
 	char dep_name[FS_MAXPATH];
@@ -1790,6 +1874,101 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	s_textbufFree(&graph);
 	s_textbufFree(&objectives);
 	return s_finishWriter(aw, &writer, relpath);
+}
+
+static s32 s_arenaRowIsSoloMission(const arena_authored_record_t *a)
+{
+	return a && a->category && strcmp(a->category, PDMETA_MISSION_CATEGORY) == 0 &&
+		stageGetIndex(a->stagenum) >= 0;
+}
+
+static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
+	const char *scenarios_dir, s32 arena_index, s32 force_rewrite)
+{
+	if (!s_arenaRowIsSoloMission(a)) {
+		return 0;
+	}
+	const pdmeta_mission_source_t source = {
+		a->slug, "arenadata_authored", arena_index, arena_index,
+	};
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite, 1);
+}
+
+/* The arena table lists 14 of the 21 campaign stages. The other seven
+ * (Extraction, Rescue, Escape and the four special assignments) have their
+ * own stage and scenario but were never given a mission archive, so their
+ * objectives and phases stayed on the native path. The campaign stage table
+ * is the authority on what a mission is; emit the ones the arena loop did
+ * not. The slug is the stage's catalog id without its namespace, the same
+ * rule the standalone scenario for that stage is named by. */
+static s32 s_soloStageNeedsOwnMission(s32 solo_index)
+{
+	if (solo_index < 0 || solo_index >= NUM_SOLOSTAGES) {
+		return 0;
+	}
+	const struct solostage *stage = &g_SoloStages[solo_index];
+	if (!stage->catalog_id || !stage->catalog_id[0] ||
+			stageGetIndex((s32)stage->stagenum) < 0) {
+		return 0;
+	}
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		if (s_arenaRowIsSoloMission(&g_ArenaData[i]) &&
+				(s32)g_ArenaData[i].stagenum == (s32)stage->stagenum) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static const char *s_soloStageMissionSlug(s32 solo_index)
+{
+	const struct solostage *stage = &g_SoloStages[solo_index];
+	const char *colon = strchr(stage->catalog_id, ':');
+	return (colon && colon[1]) ? colon + 1 : stage->catalog_id;
+}
+
+static s32 s_emitMissionForSoloStage(s32 solo_index, const char *out_dir,
+	const char *scenarios_dir, s32 force_rewrite, s32 register_catalog)
+{
+	const pdmeta_mission_source_t source = {
+		s_soloStageMissionSlug(solo_index),
+		"solostages", solo_index, -1,
+	};
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite, register_catalog);
+}
+
+s32 romExtractStandaloneMissionPath(s32 stagenum, char *out, size_t capacity)
+{
+	if (!out || !capacity) return -1;
+	out[0] = '\0';
+	if (stagenum < 0) return -1;
+	const s32 solo_index = soloStageGetIndex(stagenum);
+	if (!s_soloStageNeedsOwnMission(solo_index)) return 0;
+
+	char mission_id[CATALOG_ID_LEN], missions_dir[FS_MAXPATH];
+	const int length = snprintf(mission_id, sizeof(mission_id), "base:mission_%s",
+		s_soloStageMissionSlug(solo_index));
+	if (length <= 0 || (size_t)length >= sizeof(mission_id)) return -1;
+	fsDataPathFor("missions", missions_dir, sizeof(missions_dir));
+	const size_t bytes = strlen(missions_dir) + strlen(mission_id) + sizeof("/.pdmission");
+	if (bytes > capacity || bytes > FS_MAXPATH) return -1;
+	s_archiveRelPath(missions_dir, mission_id, ".pdmission", out, capacity);
+	return 1;
+}
+
+s32 romExtractRefreshStandaloneMission(s32 stagenum)
+{
+	if (stagenum < 0) return -1;
+	const s32 solo_index = soloStageGetIndex(stagenum);
+	if (!s_soloStageNeedsOwnMission(solo_index)) return 0;
+
+	char missions_dir[FS_MAXPATH], scenarios_dir[FS_MAXPATH];
+	fsDataPathFor("missions", missions_dir, sizeof(missions_dir));
+	fsDataPathFor("scenarios", scenarios_dir, sizeof(scenarios_dir));
+	if (s_emitMissionForSoloStage(solo_index, missions_dir, scenarios_dir, 0, 0) < 0) return -1;
+	char abs_buf[FS_MAXPATH + 1];
+	const char *abs_dir = fsFullPath(missions_dir, abs_buf, sizeof(abs_buf));
+	return abs_dir && abs_dir[0] ? modArchiveDerivedBarrier(abs_dir) : -1;
 }
 
 typedef struct pdmeta_ctx {
@@ -2007,6 +2186,25 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 		bootProgressUpdate(total + i + 1, total + g_ArenaDataCount);
 	}
 
+	/* Campaign stages without an arena row. Runs after the arena loop so a
+	 * stage that has a row is always described by it. */
+	s32 deferred_missions = 0;
+	for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
+		if (!s_soloStageNeedsOwnMission(i)) {
+			continue;
+		}
+		if (stageArchiveRepairStatus(g_SoloStages[i].stagenum) != 0) {
+			deferred_missions++;
+			SDL_AtomicAdd(&ctx.skipped, 1);
+			continue;
+		}
+		s32 r = s_emitMissionForSoloStage(i, missions_dir, scenarios_dir,
+			force_rewrite, 1);
+		if (r > 0) SDL_AtomicAdd(&ctx.written, 1);
+		else if (r == 0) SDL_AtomicAdd(&ctx.skipped, 1);
+		else SDL_AtomicAdd(&ctx.failed, 1);
+	}
+
 	s32 written = SDL_AtomicGet(&ctx.written);
 	s32 skipped = SDL_AtomicGet(&ctx.skipped);
 	s32 failed = SDL_AtomicGet(&ctx.failed);
@@ -2022,8 +2220,10 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 			".pdbotprofile");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, hud_dir,
 			".pdhud");
-		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, missions_dir,
-			".pdmission");
+		if (!deferred_missions) {
+			romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, missions_dir,
+				".pdmission");
+		}
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, materials_dir,
 			".pdmaterial");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, skins_dir,

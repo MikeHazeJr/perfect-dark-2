@@ -29,10 +29,18 @@
 #include "pdgui_scaling.h"
 #include "pdgui_glyphs.h"
 
+#include "forge_level_doc.h"   /* the open level's starts and objects (world markers) */
+#include "inputctx.h"          /* which input context is on top (the editor's is not a menu) */
+
 extern "C" {
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
 #include "actionmap.h"
+/* forge_level_io.h: the level file Forge has open, or NULL. */
+forge_level_doc_t *forgeLevelSessionDoc(void);
+/* video.h: the size the renderer maps the game's framebuffer units from. */
+s32 videoGetNativeWidth(void);
+s32 videoGetNativeHeight(void);
 }
 
 /* Local mirror of struct coord for the readout.  Same memory layout as the
@@ -78,6 +86,184 @@ static void forgehudDrawReticle(ImDrawList *dl, float cx, float cy, float scale)
 }
 
 /* ============================================================
+ * The open level's player starts and objects, marked in the world
+ * (Forge F3, first piece). Each stands on a pad; the pad's position is
+ * projected by the game's own projection (forgeProjectWorldPos) and scaled
+ * from the renderer's native size to the window. Markers are drawn on the
+ * background list: over the game's picture, under every window. They are
+ * not hidden by walls.
+ * ============================================================ */
+
+static bool s_LevelMarkers          = true;
+static char s_LevelMarkerStart[32]  = "";
+static char s_LevelMarkerObject[32] = "";
+
+/* A marker the player clicked in the world, waiting for the editor's Level
+ * File section to take it into its own selection. */
+static bool s_LevelPickPending      = false;
+static char s_LevelPickStart[32]    = "";
+static char s_LevelPickObject[32]   = "";
+static s32  s_LevelPickObjectIndex  = -1;
+
+s32 pdguiForgeLevelMarkersTakePick(char *start_id, size_t start_cap, char *object_id, size_t object_cap,
+		s32 *object_index)
+{
+	if (!s_LevelPickPending) return 0;
+	s_LevelPickPending = false;
+	if (start_id && start_cap) snprintf(start_id, start_cap, "%s", s_LevelPickStart);
+	if (object_id && object_cap) snprintf(object_id, object_cap, "%s", s_LevelPickObject);
+	if (object_index) *object_index = s_LevelPickObjectIndex;
+	return 1;
+}
+
+s32 pdguiForgeLevelMarkersGet(void)
+{
+	return s_LevelMarkers ? 1 : 0;
+}
+
+void pdguiForgeLevelMarkersSet(s32 on)
+{
+	s_LevelMarkers = on != 0;
+}
+
+void pdguiForgeLevelMarkersSelect(const char *start_id, const char *object_id)
+{
+	snprintf(s_LevelMarkerStart, sizeof(s_LevelMarkerStart), "%s", start_id ? start_id : "");
+	snprintf(s_LevelMarkerObject, sizeof(s_LevelMarkerObject), "%s", object_id ? object_id : "");
+}
+
+/* A world position as a point on the window. False when it is behind the
+ * camera or well outside the picture. */
+static bool forgehudProject(const f32 world[3], float winW, float winH, ImVec2 *out, f32 *distance)
+{
+	const f32 nativeW = (f32)videoGetNativeWidth();
+	const f32 nativeH = (f32)videoGetNativeHeight();
+	f32 x = 0.0f;
+	f32 y = 0.0f;
+
+	if (nativeW <= 0.0f || nativeH <= 0.0f) return false;
+	if (!forgeProjectWorldPos(world, &x, &y, distance)) return false;
+	out->x = x / nativeW * winW;
+	out->y = y / nativeH * winH;
+	const float margin = 48.0f;
+	return out->x > -margin && out->x < winW + margin && out->y > -margin && out->y < winH + margin;
+}
+
+static void forgehudMarkerLabel(ImDrawList *dl, ImVec2 at, ImU32 col, const char *text)
+{
+	dl->AddText(ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 200), text);
+	dl->AddText(at, col, text);
+}
+
+static void forgehudDrawLevelFile(float winW, float winH, float scale)
+{
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	if (!doc || !s_LevelMarkers) return;
+
+	ImDrawList *dl = ImGui::GetBackgroundDrawList();
+	/* World units. A marker further than markerRange is left out, and one
+	 * further than labelRange is drawn without its name, so a big level
+	 * does not fill the picture with text. The selected one always has it. */
+	const f32 markerRange = 15000.0f;
+	const f32 labelRange  = 2500.0f;
+
+	/* A left click on the world (not on a window of the editor) picks the
+	 * marker nearest the pointer, within a few pixels of it, for the editor
+	 * to select. */
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	const bool click = ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+		&& !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) && !ImGui::IsAnyItemHovered();
+	const float pickRadius = 12.0f * scale;
+	float pickBest = pickRadius * pickRadius;
+	char pickStart[32] = "";
+	char pickObject[32] = "";
+	s32 pickIndex = -1;
+	const auto consider = [&](ImVec2 at, const char *start_id, const char *object_id, s32 index) {
+		if (!click) return;
+		const float dx = at.x - mouse.x;
+		const float dy = at.y - mouse.y;
+		const float d2 = dx * dx + dy * dy;
+		if (d2 > pickBest) return;
+		pickBest = d2;
+		snprintf(pickStart, sizeof(pickStart), "%s", start_id);
+		snprintf(pickObject, sizeof(pickObject), "%s", object_id);
+		pickIndex = index;
+	};
+
+	/* Labels are not drawn under the editor's translucent panel, where they
+	 * would show through its text; the markers are. */
+	float panel[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	const bool havePanel = pdguiForgeEditorPanelRect(&panel[0], &panel[1], &panel[2], &panel[3]) != 0;
+	const auto underPanel = [&](ImVec2 at) {
+		return havePanel && at.x >= panel[0] && at.x <= panel[2] && at.y >= panel[1] && at.y <= panel[3];
+	};
+
+	const s32 objects = forgeLevelDocObjectCount(doc);
+	for (s32 i = 0; i < objects; i++) {
+		forge_level_object_t object;
+		forge_level_pad_t pad;
+		ImVec2 at;
+		f32 distance = 0.0f;
+
+		if (!forgeLevelDocGetObject(doc, i, &object) || !object.pad_ref[0]) continue;
+		if (!forgeLevelDocFindPad(doc, object.pad_ref, &pad)) continue;
+		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+		consider(at, "", object.record_id, i);
+
+		const bool selected = s_LevelMarkerObject[0] && strcmp(object.record_id, s_LevelMarkerObject) == 0;
+		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255)
+			: object.removed ? IM_COL32(160, 160, 160, 150) : IM_COL32(120, 220, 255, 220);
+		const float half = (selected ? 6.0f : 4.0f) * scale;
+		dl->AddRect(ImVec2(at.x - half, at.y - half), ImVec2(at.x + half, at.y + half), col, 0.0f, 0,
+			(selected ? 2.5f : 1.5f) * scale);
+		if (selected || distance < labelRange) {
+			char label[112];
+			snprintf(label, sizeof(label), "%s %s%s", object.kind, object.record_id,
+				object.removed ? " (removed)" : "");
+			const ImVec2 labelAt(at.x + half + 4.0f * scale, at.y - half);
+			if (!underPanel(labelAt)) forgehudMarkerLabel(dl, labelAt, col, label);
+		}
+	}
+
+	const s32 spawns = forgeLevelDocSpawnCount(doc);
+	for (s32 i = 0; i < spawns; i++) {
+		forge_level_spawn_t spawn;
+		forge_level_pad_t pad;
+		ImVec2 at;
+		f32 distance = 0.0f;
+
+		if (!forgeLevelDocGetSpawn(doc, i, &spawn)) continue;
+		if (!forgeLevelDocFindPad(doc, spawn.pad_ref, &pad)) continue;
+		if (!forgehudProject(pad.position, winW, winH, &at, &distance) || distance > markerRange) continue;
+		consider(at, spawn.spawn_id, "", -1);
+
+		const bool selected = s_LevelMarkerStart[0] && strcmp(spawn.spawn_id, s_LevelMarkerStart) == 0;
+		const ImU32 col = selected ? IM_COL32(255, 230, 120, 255) : IM_COL32(140, 240, 150, 230);
+		const float half = (selected ? 7.0f : 5.0f) * scale;
+		/* A diamond, so a start is not taken for an object. */
+		dl->AddQuad(ImVec2(at.x, at.y - half), ImVec2(at.x + half, at.y), ImVec2(at.x, at.y + half),
+			ImVec2(at.x - half, at.y), col, (selected ? 2.5f : 1.5f) * scale);
+		if (selected || distance < labelRange) {
+			char label[96];
+			snprintf(label, sizeof(label), "start %s%s", spawn.spawn_id, pad.added ? " (new)" : "");
+			const ImVec2 labelAt(at.x + half + 4.0f * scale, at.y - half);
+			if (!underPanel(labelAt)) forgehudMarkerLabel(dl, labelAt, col, label);
+		}
+	}
+
+	/* The pick shows at once; the editor takes it into its lists when its
+	 * Level File section next draws. */
+	if (pickStart[0] || pickObject[0]) {
+		if (pickStart[0]) snprintf(s_LevelMarkerStart, sizeof(s_LevelMarkerStart), "%s", pickStart);
+		if (pickObject[0]) snprintf(s_LevelMarkerObject, sizeof(s_LevelMarkerObject), "%s", pickObject);
+		snprintf(s_LevelPickStart, sizeof(s_LevelPickStart), "%s", pickStart);
+		snprintf(s_LevelPickObject, sizeof(s_LevelPickObject), "%s", pickObject);
+		s_LevelPickObjectIndex = pickIndex;
+		s_LevelPickPending = true;
+	}
+}
+
+/* ============================================================
  * Public API
  * ============================================================ */
 
@@ -86,8 +272,16 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	if (!forgeSessionIsActive()) {
 		return;
 	}
-	/* Suppress reticle and ghost preview while any menu is open. */
-	if (pdguiIsActive()) return;
+	/* Suppress the HUD while a menu is open. The editor's own input context
+	 * is not a menu: it is on top for the whole of FREEFLY (pushed there
+	 * since 2026-05-01, forgemode.c), and while this line counted it as one,
+	 * pdguiIsActive() was true on every FREEFLY frame and nothing below was
+	 * ever drawn while the camera flew: no badge, no reticle, no camera
+	 * readout (B-1237). */
+	{
+		const InputContext *top = inputCtxGetTop();
+		if (top && top != &g_CtxGameplay && top != &g_CtxForgeEditor) return;
+	}
 
 	const forge_session_state_t state = forgeGetSessionState();
 	const float scale = pdguiScale(1.0f);
@@ -98,7 +292,12 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 	{
 		const float pad = 14.0f * scale;
 		const float badgeH = 28.0f * scale;
-		const float badgeW = 220.0f * scale;
+		char label[FORGE_DISPLAY_NAME_CAP + 32];
+		snprintf(label, sizeof(label), "%s  --  %s", forgeDisplayName(), forgehudModeLabel(state));
+		const ImVec2 ts = ImGui::CalcTextSize(label);
+		const float minWidth = 220.0f * scale;
+		const float textWidth = ts.x + 2.0f * pad;
+		const float badgeW = textWidth > minWidth ? textWidth : minWidth;
 		const float x = pad;
 		const float y = pad;
 
@@ -107,9 +306,6 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		fg->AddRect(ImVec2(x, y), ImVec2(x + badgeW, y + badgeH),
 				forgehudModeColor(state), 4.0f * scale, 0, 1.5f * scale);
 
-		char label[64];
-		snprintf(label, sizeof(label), "THE GRID  --  %s", forgehudModeLabel(state));
-		const ImVec2 ts = ImGui::CalcTextSize(label);
 		fg->AddText(ImVec2(x + (badgeW - ts.x) * 0.5f,
 		                   y + (badgeH - ts.y) * 0.5f),
 				IM_COL32(240, 248, 255, 240), label);
@@ -211,6 +407,9 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 		}
 		return;
 	}
+
+	/* ---- World: the open level file's starts and objects ---- */
+	forgehudDrawLevelFile((float)winW, (float)winH, scale);
 
 	/* ---- Center: freefly placement reticle ---- */
 	forgehudDrawReticle(fg, (float)winW * 0.5f, (float)winH * 0.5f, scale);
@@ -352,13 +551,17 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 			{ ACTION_FORGE_BOOST, "boost" },
 			{ ACTION_FORGE_PRECISION, "precision" },
 		});
+		/* B-1242: the editor's own actions (g_ImcForge). The menu's tab keys
+		 * are not live in FREEFLY, and use / cancel-use are blocked there
+		 * (actionIsBlockedInFreefly), so naming those showed "Unbound". */
 		float row2W = measureRow({
-			{ ACTION_MENU_TAB_PREV, "prev tab" },
-			{ ACTION_MENU_TAB_NEXT, "next tab" },
+			{ ACTION_FORGE_TAB_PREV, "prev tab" },
+			{ ACTION_FORGE_TAB_NEXT, "next tab" },
 		});
 		float row3W = measureRow({
-			{ ACTION_USE, "select / place" },
-			{ ACTION_CANCEL_USE, "cancel" },
+			{ ACTION_FORGE_SIDEBAR_TOGGLE, "editor" },
+			{ ACTION_FORGE_SIDEBAR_ACTIVATE, "select / place" },
+			{ ACTION_FORGE_PLACE_CANCEL, "cancel" },
 		});
 
 		float contentW = row0W;
@@ -392,12 +595,13 @@ void pdguiForgeHudRender(s32 winW, s32 winH)
 			{ ACTION_FORGE_PRECISION, "precision" },
 		});
 		drawRow(y + 4.0f * scale + rowH * 2.0f, {
-			{ ACTION_MENU_TAB_PREV, "prev tab" },
-			{ ACTION_MENU_TAB_NEXT, "next tab" },
+			{ ACTION_FORGE_TAB_PREV, "prev tab" },
+			{ ACTION_FORGE_TAB_NEXT, "next tab" },
 		});
 		drawRow(y + 4.0f * scale + rowH * 3.0f, {
-			{ ACTION_USE, "select / place" },
-			{ ACTION_CANCEL_USE, "cancel" },
+			{ ACTION_FORGE_SIDEBAR_TOGGLE, "editor" },
+			{ ACTION_FORGE_SIDEBAR_ACTIVATE, "select / place" },
+			{ ACTION_FORGE_PLACE_CANCEL, "cancel" },
 		});
 	}
 }

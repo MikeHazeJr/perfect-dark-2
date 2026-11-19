@@ -168,6 +168,11 @@ static s32 s_register(const char *manifest, size_t manifest_len,
      * stores runtime WEAPON_* ids, while ext.weapon.weapon_id remains the
      * MPWEAPON_* slot; keep those domains separated. */
     e = (asset_entry_t *)assetCatalogResolve(id);
+    /* The nested transaction starts after a new owner has been bound.
+     * A disabled prior row still counts as an existing catalog identity. */
+    const s32 ordinary_owner = e
+        ? e->type == ASSET_WEAPON && e->bundled && !e->temporary && !e->grid_offer_only
+        : assetCatalogResolveAny(id) == NULL;
     if (e == NULL) {
         e = assetCatalogRegisterWeapon(
             id, mp_weapon_id,
@@ -190,8 +195,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     {
         char nested_err[256];
         nested_err[0] = '\0';
-        if (assetCatalogRegisterWeaponNestedDependencies(id, file_path,
-                /* bundled: */ 1, nested_err, sizeof(nested_err)) < 0) {
+        const s32 nested_result = ordinary_owner
+            ? assetCatalogRegisterBootWeaponNestedDependencies(id, file_path,
+                nested_err, sizeof(nested_err))
+            : assetCatalogRegisterWeaponNestedDependencies(id, file_path,
+                /* bundled: */ 1, nested_err, sizeof(nested_err));
+        if (nested_result < 0) {
             sysLogPrintf(LOG_WARNING,
                 "PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
                 id ? id : "<unknown>", file_path ? file_path : "<unknown>",

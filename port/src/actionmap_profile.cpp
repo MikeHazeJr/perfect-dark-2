@@ -77,6 +77,13 @@ void normalize(InputMapping &mapping, InputAction action)
 
 bool valid(const Registry &registry, const Snapshot &snapshot, std::string &error)
 {
+    // B-1116: every action needs a name. A null name was streamed and compared as
+    // a C string, which cut the saved file off at the first unnamed action and
+    // made every later start reject it.
+    for (int a = 0; a < ACTION_COUNT; ++a) {
+        if (!registry.actionNames || !registry.actionNames[a] || !registry.actionNames[a][0])
+            return fail(error, "The action name table does not name every action.");
+    }
     if (snapshot.contexts.size() != registry.count
         || snapshot.activeProfile < -1 || snapshot.activeProfile >= 6)
         return fail(error, "The binding snapshot has an invalid shape or profile slot.");
@@ -244,8 +251,11 @@ bool encode(const Registry &registry, const Snapshot &snapshot,
 
 bool decode(const Registry &registry, const Snapshot &defaults,
             const std::string &text, bool allowLegacy,
-            Snapshot &out, std::string &error)
+            Snapshot &out, std::string &error, size_t *olderActions,
+            size_t *olderContexts)
 {
+    if (olderActions) *olderActions = 0;
+    if (olderContexts) *olderContexts = 0;
     if (text.size() > kMaxDocumentBytes || text.find('\0') != std::string::npos)
         return fail(error, "The binding file is too large or contains binary data.");
     std::istringstream lines(text);
@@ -321,9 +331,40 @@ bool decode(const Registry &registry, const Snapshot &defaults,
         normalize(mapping, static_cast<InputAction>(a));
         context.mappings[a] = mapping;
     }
-    if (!mappingRows || (versioned && (!sawActive || mappingRows != registry.count * ACTION_COUNT)))
+    if (!mappingRows || (versioned && !sawActive))
         return fail(error, "The complete binding file is missing required rows.");
-    if (!valid(registry, candidate, error)) return false;
+    if (versioned && mappingRows != registry.count * ACTION_COUNT) {
+        // Older builds normally wrote the same leading actions in each of
+        // the leading contexts. Anything they lacked keeps its default.
+        int listed = 0;
+        while (listed < ACTION_COUNT && seen[0][listed]) ++listed;
+        size_t known = 0;
+        while (known < registry.count && seen[known][0]) ++known;
+
+        // Dev saved ForgeEditorControls before the Grid branch added the
+        // turret actions and context. Check that exact layout as well.
+        const bool devBeforeGridMerge = listed == ACTION_TURRET_FIRE
+            && seen[0][ACTION_FORGE_EDITOR_CONTROLS]
+            && known < registry.count
+            && std::strcmp(registry.contexts[known]->name, "vehicle_turret") == 0;
+        const size_t savedActions = static_cast<size_t>(listed) + devBeforeGridMerge;
+        if (!savedActions || !known || mappingRows != known * savedActions)
+            return fail(error, "The complete binding file is missing required rows.");
+        for (size_t ci = 0; ci < registry.count; ++ci) {
+            for (int a = 0; a < ACTION_COUNT; ++a) {
+                const bool saved = a < listed || (devBeforeGridMerge && a == ACTION_FORGE_EDITOR_CONTROLS);
+                if (seen[ci][a] != (ci < known && saved))
+                    return fail(error, "The complete binding file is missing required rows.");
+            }
+        }
+        if (olderActions) *olderActions = savedActions;
+        if (olderContexts) *olderContexts = known;
+    }
+    if (!valid(registry, candidate, error)) {
+        if (olderActions) *olderActions = 0;
+        if (olderContexts) *olderContexts = 0;
+        return false;
+    }
     out = std::move(candidate);
     error.clear();
     return true;
@@ -331,8 +372,11 @@ bool decode(const Registry &registry, const Snapshot &defaults,
 
 ReadResult read(const Registry &registry, const Snapshot &defaults,
                 const char *absolutePath, bool allowLegacy,
-                Snapshot &out, std::string &error)
+                Snapshot &out, std::string &error, size_t *olderActions,
+                size_t *olderContexts)
 {
+    if (olderActions) *olderActions = 0;
+    if (olderContexts) *olderContexts = 0;
     if (!absolutePath || !*absolutePath) {
         fail(error, "The binding file path is empty.");
         return ReadResult::Invalid;
@@ -356,7 +400,7 @@ ReadResult read(const Registry &registry, const Snapshot &defaults,
         fail(error, "The binding file could not be read completely.");
         return ReadResult::Invalid;
     }
-    return decode(registry, defaults, text, allowLegacy, out, error)
+    return decode(registry, defaults, text, allowLegacy, out, error, olderActions, olderContexts)
         ? ReadResult::Ok : ReadResult::Invalid;
 }
 
@@ -420,7 +464,10 @@ bool Store::initialize(const Registry &registry, const Snapshot &defaults,
     // profile from Input.ActiveProfile: older UI used that as a selection only.
     accepted_ = capture(registry, -1);
     Snapshot candidate;
-    const auto result = read(registry, defaults, currentPath, false, candidate, error);
+    size_t olderActions = 0;
+    size_t olderContexts = 0;
+    const auto result = read(registry, defaults, currentPath, false, candidate, error,
+                             &olderActions, &olderContexts);
     initialized_ = true;
     if (result == ReadResult::Invalid) {
         if (isUnnamedActionTruncation(registry, currentPath)) {
@@ -432,6 +479,17 @@ bool Store::initialize(const Registry &registry, const Snapshot &defaults,
     if (result == ReadResult::Missing) return write(registry, accepted_, currentPath, error);
     apply(registry, candidate);
     accepted_ = std::move(candidate);
+    if (olderActions) {
+        // A complete file from a build with fewer actions or contexts: its
+        // bindings are live now, with defaults for what was added since.
+        // Write it out complete, so the next start reads a current file. If
+        // that write fails the older file stays and reads the same way next
+        // time.
+        upgradedFromActions_ = olderActions;
+        upgradedFromContexts_ = olderContexts;
+        std::string writeError;
+        (void)write(registry, accepted_, currentPath, writeError);
+    }
     error.clear();
     return true;
 }

@@ -30,6 +30,8 @@
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
+#include "mods_install_roots.h"
+#include "mods_roots.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
@@ -84,6 +86,28 @@ static char g_ModPathBuf[FS_MAXPATH + 1];
 
 // Resolved mods directory path (set by modmgrScanDirectory)
 static char g_ModsDirPath[FS_MAXPATH + 1] = "";
+
+/* Every mods folder the last scan read (mods_roots.h): [0] is the folder
+ * the game writes mods to (g_ModsDirPath), normally the user mods folder
+ * in LocalAppData; the install's own folders follow and are read only. */
+static char g_ModsRoots[MODS_ROOTS_MAX][FS_MAXPATH + 1];
+static s32 g_ModsRootCount = 0;
+
+static s32 modmgrModsRootKnown(const char *path)
+{
+	for (s32 i = 0; i < g_ModsRootCount; i++) {
+		if (modsRootsSameDir(g_ModsRoots[i], path)) return 1;
+	}
+	return 0;
+}
+
+static void modmgrAddModsRoot(const char *path)
+{
+	if (g_ModsRootCount >= MODS_ROOTS_MAX || !path || !path[0]) return;
+	strncpy(g_ModsRoots[g_ModsRootCount], path, FS_MAXPATH);
+	g_ModsRoots[g_ModsRootCount][FS_MAXPATH] = '\0';
+	g_ModsRootCount++;
+}
 
 // ---------------------------------------------------------------------------
 // Catalog-backed accessor caches (D3R-5 rewire)
@@ -1085,7 +1109,11 @@ static s32 modmgrTryRegisterModEntry(const char *fullpath, const char *display_i
 		for (s32 k = 0; k < g_ModRegistryCount; k++) {
 			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
 				/* Duplicate — rewind slot and skip. memset above means we
-				 * haven't leaked anything. */
+				 * haven't leaked anything. The earlier folder wins: the
+				 * user mods folder is read first (mods_roots.h). */
+				sysLogPrintf(LOG_NOTE,
+					"modmgr: '%s' at '%s' is already installed from an earlier mods folder; this copy is not used",
+					mod->id, fullpath);
 				memset(mod, 0, sizeof(*mod));
 				return 0;
 			}
@@ -1305,6 +1333,7 @@ static int modmgrArchiveEntryIsTypedPdAssetArchive(const char *name)
 		".pdsfx", ".pdvoice", ".pdsong", ".pdui", ".pdfont", ".pdlang",
 		".pdscenario", ".pdskin", ".pdeffect", ".pdprop", ".pdvehicle",
 		".pdmission", ".pdgamemode", ".pdbotprofile", ".pdhud", ".pdtheme",
+		".pdai",
 		NULL
 	};
 	size_t n = strlen(name);
@@ -1573,7 +1602,11 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	 * scanned mods root (e.g. mods/shared/, mods/inbox/). The scan walker
 	 * already skips these names; this is the second line so any future
 	 * code path that calls this function directly cannot bypass the rule. */
-	if (g_ModsDirPath[0] && !modmgrArchivePathIsTrusted(archivePath, g_ModsDirPath)) {
+	s32 trusted = !(g_ModsDirPath[0] && !modmgrArchivePathIsTrusted(archivePath, g_ModsDirPath));
+	for (s32 root = 0; trusted && root < g_ModsRootCount; root++) {
+		trusted = modmgrArchivePathIsTrusted(archivePath, g_ModsRoots[root]);
+	}
+	if (!trusted) {
 		sysLogPrintf(LOG_ERROR,
 			"modmgr: REFUSING to register archive '%s' -- under reserved trust-gate directory; manual install required",
 			archivePath);
@@ -1648,6 +1681,9 @@ static s32 modmgrTryRegisterArchive(const char *archivePath, const char *display
 	if (dedupe_by_id) {
 		for (s32 k = 0; k < g_ModRegistryCount; k++) {
 			if (strcmp(g_ModRegistry[k].id, mod->id) == 0) {
+				sysLogPrintf(LOG_NOTE,
+					"modmgr: '%s' at '%s' is already installed from an earlier mods folder; this copy is not used",
+					mod->id, archivePath);
 				memset(mod, 0, sizeof(*mod));
 				return 0;
 			}
@@ -1734,53 +1770,51 @@ static void modmgrScanCategoryFolder(const char *catPath, const char *catName,
 
 static void modmgrScanDirectory(void)
 {
+	/* B-1262: a scan starts from an empty registry and root list (the dev
+	 * merge 9f38d6dd dropped these two, so every rescan appended each mod
+	 * again and enabling one failed: "Duplicate installed package
+	 * identity"). */
 	g_ModRegistryCount = 0;
+	g_ModsRootCount = 0;
 
-	// Ensure mods directory exists on fresh install
-	if (!nativeWritePolicyActive()) fsCreateDir("./" MODMGR_MODS_DIR);
-
-	// PC: multiple roots are valid depending on launch dir:
-	// - $E/../mods (repo root when exe is in Build/)
-	// - ./mods (current working directory)
-	// - $E/mods (mods alongside exe)
-	// - base-dir fallback (often data/mods)
+	/* The folders one scan reads come from fsModRoots (B-1160), the list the
+	 * font, theme, map import and migration scanners use too, so none of
+	 * them can disagree:
+	 *   - the existing-install reuse policy: $B/mods only;
+	 *   - --moddir (B-1031: an isolation contract, never one more
+	 *     candidate): exactly that folder, created here when missing;
+	 *   - otherwise the user mods folder first (Mike, 2026-11-15,
+	 *     mods_roots.h: the only folder the game writes mods to, and on a
+	 *     clash of mod ids its copy wins), created here when missing, then
+	 *     the install's own folders, only read (B-1169).
+	 * No folder is created under the working folder. */
+	fs_mod_roots_t roots;
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	char candidateBufs[4][512];
-	const char *candidates[4];
+	const char *candidates[FS_MOD_ROOTS_MAX];
 
-	const char *explicitModsDir = fsGetModDir();
-
-	/* B-1031: --moddir is an explicit isolation/override contract, not one
-	 * more discovery candidate. fsInit has already resolved and validated it.
-	 * The prior dynamic scanner ignored fsGetModDir() and still walked every
-	 * executable/CWD/base root, which made two canonical-executable peers see
-	 * each other's mods even with distinct base/save directories. */
-	if (nativeWritePolicyActive()) {
-		/* Reuse may only mount mods from the exact verified asset base. */
-		fsFullPath("$B/" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else if (explicitModsDir && explicitModsDir[0]) {
-		strncpy(candidateBufs[0], explicitModsDir, sizeof(candidateBufs[0]) - 1);
-		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else {
-		fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
-		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
-		fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
-		fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
+	fsModRoots(&roots);
+	if (roots.explicit_dir && !nativeWritePolicyActive()) {
+		fsCreateDir(roots.path[0]);
 	}
-	candidates[0] = candidateBufs[0];
-	candidates[1] = candidateBufs[1];
-	candidates[2] = candidateBufs[2];
-	candidates[3] = candidateBufs[3];
+	if (roots.user_dir) {
+		if (modsRootsEnsureDir(roots.path[0])) {
+			sysLogPrintf(LOG_NOTE, "modmgr: user mods folder '%s'", roots.path[0]);
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not create the user mods folder '%s'; only the install's mods folders are used",
+				roots.path[0]);
+			roots.path[0][0] = '\0';
+		}
+	} else if (!roots.explicit_dir && !nativeWritePolicyActive()) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: no user mods folder could be named; only the install's mods folders are used");
+	}
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
+		candidates[i] = i < roots.count ? roots.path[i] : "";
+	}
 
-	for (s32 i = 0; i < 4; i++) {
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
 		if (!candidates[i][0]) continue;
 		dir = opendir(candidates[i]);
 		if (dir) {
@@ -1790,12 +1824,12 @@ static void modmgrScanDirectory(void)
 	}
 
 	if (!dir) {
-		if (explicitModsDir && explicitModsDir[0]) {
+		if (roots.explicit_dir) {
 			sysLogPrintf(LOG_WARNING,
-				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
+				"modmgr: could not open explicit mod directory '%s'", roots.path[0]);
 		} else {
-			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
-				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not open a mods folder (tried the user mods folder and the install's mods folders)");
 		}
 		return;
 	}
@@ -1803,6 +1837,7 @@ static void modmgrScanDirectory(void)
 	// Store resolved path for assetCatalogScanComponents() to use later
 	strncpy(g_ModsDirPath, modsdir, sizeof(g_ModsDirPath) - 1);
 	g_ModsDirPath[sizeof(g_ModsDirPath) - 1] = '\0';
+	modmgrAddModsRoot(modsdir);
 
 	/* Priority M / B-238 / M-4.1: one-shot folder->.pdmod migration. Runs
 	 * before the iteration loop below so the scan picks up freshly-created
@@ -1878,15 +1913,18 @@ static void modmgrScanDirectory(void)
 
 	closedir(dir);
 
-	/* Scan remaining candidate directories for mods not in the primary dir.
-	 * This catches mods placed in data/mods/ when ./mods/ was the primary,
-	 * or vice versa. Duplicate mod IDs are skipped. */
-	for (s32 ci = 0; ci < 4 && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
+	/* Scan the remaining folders (the install's, after the user mods folder)
+	 * for mods not in the primary one. Duplicate mod IDs are skipped, so the
+	 * user copy of a mod wins. */
+	for (s32 ci = 0; ci < FS_MOD_ROOTS_MAX && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
 		if (!candidates[ci][0]) continue;
-		if (strcmp(candidates[ci], modsdir) == 0) continue; /* skip primary */
+		/* The primary, or a folder already read under another spelling
+		 * (the user folder is the install's own with --portable). */
+		if (modmgrModsRootKnown(candidates[ci])) continue;
 
 		DIR *altdir = opendir(candidates[ci]);
 		if (!altdir) continue;
+		modmgrAddModsRoot(candidates[ci]);
 
 		sysLogPrintf(LOG_NOTE, "modmgr: also scanning '%s'", candidates[ci]);
 
@@ -2442,8 +2480,10 @@ static int modmgrRebuildCatalogChecked(modmgr_apply_result_t *result)
             "Catalog retirement failed; runtime changes may remain.");
         goto rebuild_caches;
     }
-    const char *modsdir = modmgrGetModsDir();
-    if (modsdir && modsdir[0]) {
+    /* Every mods folder, the user folder last: the catalog keeps the last
+     * registration of an id, so on a clash the user's copy wins. */
+    for (s32 root = modmgrGetModsRootCount() - 1; root >= 0; --root) {
+        const char *modsdir = modmgrGetModsRoot(root);
         if (assetCatalogScanComponents(modsdir) < 0) {
             modmgrApplyFailure(result, MODMGR_APPLY_COMPONENT_SCAN, NULL,
                 "Some components could not be admitted; runtime changes may remain.");
@@ -2604,6 +2644,62 @@ s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 	sysLogPrintf(LOG_NOTE,
 		"modmgr: admitted session-only package '%s' from %s",
 		expected_id, dirpath);
+	return 1;
+}
+
+s32 modmgrEnableAuthoredGridVariant(const char *folder, const char *mod_id, const char *arena_id,
+		const char *archive_sha256, char *error, size_t error_capacity)
+{
+	if (error && error_capacity) error[0] = '\0';
+	const char *slug = arena_id && strncmp(arena_id, "mod:arena_", 10) == 0 ? arena_id + 4 : NULL;
+	if (!folder || !slug || !mod_id || strncmp(mod_id, "mod.", 4) != 0 || strcmp(slug, mod_id + 4) != 0
+			|| strspn(slug, "abcdefghijklmnopqrstuvwxyz0123456789_") != strlen(slug)
+			|| !archive_sha256 || !g_ModsDirPath[0]) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid variant has an invalid library identity.");
+		return 0;
+	}
+
+	char expected[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], digest[SHA256_HEX_SIZE];
+	int length = snprintf(expected, sizeof(expected), "%s/MP Maps/%s", g_ModsDirPath, slug);
+	if (length <= 0 || (size_t)length >= sizeof(expected) || !modsRootsSameDir(folder, expected)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid variant is outside the local library.");
+		return 0;
+	}
+	length = snprintf(archive, sizeof(archive), "%s/%s.pdarena", folder, slug);
+	u8 hash[SHA256_DIGEST_SIZE];
+	if (length <= 0 || (size_t)length >= sizeof(archive) || modArchiveSha256(archive, hash) != 0) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid arena could not be read.");
+		return 0;
+	}
+	sha256ToHex(hash, digest);
+	if (strcmp(digest, archive_sha256) != 0) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid arena changed before enabling it.");
+		return 0;
+	}
+
+	if (modmgrFindMod(mod_id) || assetCatalogResolveAny(arena_id)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved variant conflicts with an existing library entry.");
+		return 0;
+	}
+	const s32 index = g_ModRegistryCount;
+	if (!modmgrTryRegisterModEntry(folder, slug, "grid-variant", true)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The local library could not register the saved variant.");
+		return 0;
+	}
+	modinfo_t *mod = &g_ModRegistry[index];
+	mod->enabled = 1;
+	if (!mod->valid || !mod->has_modjson || strcmp(mod->id, mod_id) != 0 || !modmgrLoadMod(mod)) {
+		memset(mod, 0, sizeof(*mod));
+		g_ModRegistryCount = index;
+		if (error && error_capacity) snprintf(error, error_capacity, "The local library could not load the saved variant.");
+		return 0;
+	}
+
+	modmgrCatalogChanged();
+	if (!modmgrBuildEnabledList() || !modmgrSaveModsEnabledJson()) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The variant is enabled for this process. The library setting could not be saved.");
+		return 0;
+	}
 	return 1;
 }
 
@@ -3455,6 +3551,17 @@ const char *modmgrGetModsDir(void)
 	return g_ModsDirPath[0] ? g_ModsDirPath : NULL;
 }
 
+s32 modmgrGetModsRootCount(void)
+{
+	return g_ModsRootCount;
+}
+
+const char *modmgrGetModsRoot(s32 index)
+{
+	if (index < 0 || index >= g_ModsRootCount) return NULL;
+	return g_ModsRoots[index];
+}
+
 s32 modmgrInstallArchiveFile(const char *archive_path,
                              char *out_error,
                              s32 error_len)
@@ -3467,7 +3574,17 @@ s32 modmgrInstallArchiveFile(const char *archive_path,
 	const char *modsdir = modmgrGetModsDir();
 	char fallback_mods[FS_MAXPATH + 1];
 	if (!modsdir || !modsdir[0]) {
-		fsFullPath("./" MODMGR_MODS_DIR, fallback_mods, sizeof(fallback_mods));
+		/* B-1169: the install's own folder, never a mods/ under the
+		 * working folder. */
+		fs_mod_roots_t roots;
+		fsModRoots(&roots);
+		if (roots.count <= 0) {
+			if (out_error && error_len > 0) {
+				snprintf(out_error, (size_t)error_len, "No mods folder is available.");
+			}
+			return -1;
+		}
+		snprintf(fallback_mods, sizeof(fallback_mods), "%s", roots.path[roots.count - 1]);
 		fsCreateDir(fallback_mods);
 		modsdir = fallback_mods;
 	}

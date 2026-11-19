@@ -174,6 +174,10 @@ modinfo_t  *modmgrFindMod(const char *id);
 s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 		const u8 expected_sha256[SHA256_DIGEST_SIZE]);
 
+/* Enable a newly authored exact arena while existing Grid source leases stay loaded. */
+s32 modmgrEnableAuthoredGridVariant(const char *folder, const char *mod_id, const char *arena_id,
+		const char *archive_sha256, char *error, size_t error_capacity);
+
 /**
  * Retire every network-session package, then rebuild the installed-mod
  * catalog and runtime caches from the user's persistent selection. This is
@@ -287,6 +291,14 @@ const char *modmgrGetModDep(s32 index, s32 depIndex);
 // Get resolved mods directory path (set by modmgrInit).
 // Returns NULL if no mods directory was found.
 const char *modmgrGetModsDir(void);
+
+/* Every mods folder the last scan read. 0 is the folder the game writes
+ * mods to (modmgrGetModsDir): normally the user mods folder,
+ * %LOCALAPPDATA%\perfectdark\mods. The install's own folders follow and
+ * are only read. On a clash of mod ids the earlier folder wins
+ * (mods_roots.h). */
+s32 modmgrGetModsRootCount(void);
+const char *modmgrGetModsRoot(s32 index);
 
 // --- S196: Base-Game Template Mod accessors (for UI) ---
 

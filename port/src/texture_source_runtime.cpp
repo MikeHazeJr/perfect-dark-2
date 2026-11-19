@@ -16,6 +16,7 @@ extern "C" int g_NotLoadMod;
 namespace {
 struct Cached { bool loaded = false; bool suppress_overlays = false; struct texture definition{}; };
 Cached cache[TEXTURE_CUSTOM_END];
+bool stage_reads[TEXTURE_CUSTOM_COUNT];
 std::map<int, texture_source_properties_t> stage_properties;
 void apply(struct texture &out, const texture_source_properties_t &p, unsigned mask) {
     if (mask & 1) out.surfacetype = p.surface_type;
@@ -56,13 +57,31 @@ int collectStage(const char *id, const texture_source_properties_t *properties, 
 }
 }
 extern "C" int textureSourceRuntimeCatalogIndex(int number) {
-    return number >= 0 && number < TEXTURE_CUSTOM_END ? indexForNumber(number) : -1;
+    if (number < 0 || number >= TEXTURE_CUSTOM_END) return -1;
+    const int index = indexForNumber(number);
+    if (number >= TEXTURE_CUSTOM_START) {
+        const auto *entry = assetCatalogGetByIndex(index);
+        if (entry && entry->temporary && entry->grid_offer_only && entry->source_texnum == number) {
+            stage_reads[number - TEXTURE_CUSTOM_START] = true;
+        }
+    }
+    return index;
 }
 extern "C" void textureSourceRuntimeInvalidate(void) {
     for (auto &entry : cache) entry = Cached{};
 }
 extern "C" void textureSourceRuntimeResetStage(void) {
+    for (auto &read : stage_reads) read = false;
     stage_properties.clear(); textureSourceRuntimeInvalidate();
+}
+extern "C" int textureSourceRuntimeHasStageRead(int number) {
+    return number >= TEXTURE_CUSTOM_START && number < TEXTURE_CUSTOM_END
+        && stage_reads[number - TEXTURE_CUSTOM_START];
+}
+extern "C" void textureSourceRuntimeInvalidateSlot(int number) {
+    if (number < 0 || number >= TEXTURE_CUSTOM_END) return;
+    cache[number] = Cached{};
+    stage_properties.erase(number);
 }
 extern "C" int textureSourceRuntimeReadSelected(const asset_entry_t *entry, const char *image_path,
     texture_source_properties_t *properties, char *error, size_t cap) {

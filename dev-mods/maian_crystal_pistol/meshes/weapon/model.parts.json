@@ -1,0 +1,9 @@
+{
+  "schema": "pd2.mesh.parts.v1",
+  "parts": [
+    {
+      "partnum": 0,
+      "node": 0
+    }
+  ]
+}

@@ -1889,7 +1889,7 @@ s32 updaterGetShowDevReleases(void)
 void updaterSetShowDevReleases(s32 show)
 {
 	updaterApplyShowDevReleases(show);
-	configSave("pd.ini");
+	configSave(CONFIG_PATH);
 	if (prefsAgentGetActive()[0] && prefsAgentSave() != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"UPDATER: active Agent Profile did not persist prerelease visibility");

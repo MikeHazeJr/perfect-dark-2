@@ -1,0 +1,96 @@
+{
+  "scenario_name": "forge_grid_build_rooms_smoke",
+  "description": "Start from the packaged original Grid room template on a clean profile. Author 21 m and 27 m rooms, 18 m wide and 6 m high, with a 5 m by 3.9 m doorway. Save the typed arena, open its placements and start Combat with three simulants.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "CMakeLists.txt",
+    "devtools/release.ps1",
+    "dev-mods/grid_two_rooms/build_grid_two_rooms.py",
+    "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+    "tools/level_archive.py",
+    "port/src/scenario_source_runtime.c",
+    "src/game/bg.c",
+    "port/src/forge_room_builder.cpp",
+    "port/fast3d/pdgui_menu_leveltool.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/grid_two_rooms",
+    "mods/MP Maps/arena_grid_built_rooms"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "original",
+    "--debug-level-tool-name",
+    "Grid_Built_Rooms",
+    "--debug-grid-room-size",
+    "2100,2700,1800,600,500,390",
+    "--launch-mp-room",
+    "mod:arena_grid_built_rooms",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_build_rooms_smoke",
+      "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0 path='[^']*[/\\\\]grid[/\\\\]templates[/\\\\]grid_two_rooms\\.pdarena'",
+      "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_built_rooms opens=1",
+      "PDARENA\\.SCENARIO: owner=mod:arena_grid_built_rooms id=mod:arena_grid_built_rooms__",
+      "SCENARIO\\.SOURCE: resolved room domain 'mod:arena_grid_built_rooms__[a-zA-Z0-9_]+' rooms=3 declared=3 mesh_max=2 portal_max=2",
+      "SCENARIO\\.SOURCE: compiled portals\\.json '[^']*' for stage '[^']*' as 1 portals across 3 rooms ",
+      "SCENARIO\\.SOURCE: compiled scene tiles 'mod:arena_grid_built_rooms__[a-zA-Z0-9_]+' for stage '[^']*' as 3 rooms, 28 tiles ",
+      "SCENARIO\\.SOURCE: compiled pads\\.json '[^']*grid_built_rooms[^']*' for stage '[^']*' as 8 pads, 8 waypoints, \\d+ waygroups, 8 covers ",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=8 without_room=0",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "SCENARIO\\.SOURCE: invalid",
+      "LEVELTOOL\\.[A-Z.]* .*result=FAIL"
+    ]
+  }
+}

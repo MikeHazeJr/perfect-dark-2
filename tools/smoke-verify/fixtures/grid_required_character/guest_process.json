@@ -1,0 +1,50 @@
+{
+  "scenario_name": "forge_grid_required_character_smoke",
+  "log_channel_mask": "all",
+  "verbose": 1,
+  "timeout_seconds": 570,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "grid_consent_ready",
+      "timeout_ms": 235000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 250,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 205000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 7000,
+      "type": "screenshot",
+      "path": "grid_character_guest.bmp"
+    },
+    {
+      "at_ms": 10000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 100000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 12000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 22000,
+      "type": "exit"
+    }
+  ]
+}

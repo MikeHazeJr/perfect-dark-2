@@ -1,0 +1,72 @@
+{
+  "scenario_name": "lobby_ui_guest_countdown_cancel",
+  "description": "A joining guest clicks its visible countdown Cancel button and the localhost authority restores both clients to the Room without starting a match.",
+  "tags": ["menus", "input", "mouse", "network", "lobby-ui"],
+  "log_channel_mask": "all",
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "window_focus_target": "guest",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": ["--no-update-check", "--portable", "--host", "--listen-bind", "27292", "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0", "--host-autostart"],
+      "wait_for": "NET: created server on port 27292",
+      "wait_timeout_seconds": 180,
+      "smoke_path": "tools/smoke-verify/fixtures/lobby_ui_host_countdown_cancel.json",
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "guest cancellation returns host to its Room",
+            "patterns": [
+              "SMOKE.WAIT: satisfied condition=lobby_countdown_active",
+              "NET: ready gate aborted by",
+              "MENU_IMGUI: room OPEN \\(solo=0\\)",
+              "SMOKE.WAIT: satisfied condition=network_lobby_ready"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": ["--no-update-check", "--portable", "--connect-host", "127.0.0.1:27292"],
+      "wait_for": "NET: connected to server, sending CLC_AUTH",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "guest pointer cancels its visible countdown",
+            "patterns": [
+              "MENU_STACK: countdown START",
+              "SMOKE.WAIT: satisfied condition=lobby_countdown_ready",
+              "SMOKE: mouse tap-press btn=1 xy=\\(320,298\\)",
+              "BRIDGE: sent CLC_LOBBY_CANCEL",
+              "MENU_STACK: countdown CANCEL by local player",
+              "NET: SVC_MATCH_CANCELLED .*cancelled by",
+              "MENU_IMGUI: room OPEN \\(solo=0\\)",
+              "SMOKE.WAIT: satisfied condition=network_lobby_ready"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "lobby_countdown_ready", "timeout_ms": 220000 },
+    { "at_ms": 150, "type": "mouse_move", "x": 320, "y": 298, "comment": "Set actual SDL hover on Cancel for the fixture's 640 by 480 client window." },
+    { "at_ms": 350, "type": "mouse", "x": 320, "y": 298, "button": "left", "action": "click" },
+    { "at_ms": 700, "type": "wait_until", "condition": "network_lobby_ready", "timeout_ms": 8000, "stable_ms": 1000 },
+    { "at_ms": 8000, "type": "exit" }
+  ],
+  "assertions": {
+    "forbidden_patterns": ["MATCH: server stage start", "MATCH: client stage start received", "EXCEPTION_ACCESS_VIOLATION", "SMOKE: result=timeout"],
+    "required_counts": [{ "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }]
+  }
+}

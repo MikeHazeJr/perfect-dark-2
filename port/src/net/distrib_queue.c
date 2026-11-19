@@ -22,7 +22,8 @@ int distribQueuePush(distrib_queue *queue, const distrib_request *request)
                 request->peer, request->connection)) continue;
         ++connection_count;
         /* Preserve the originally admitted storage choice on retransmission. */
-        if (pending->kind == request->kind && strcmp(pending->id, request->id) == 0)
+        if (pending->kind == request->kind && pending->offer_generation == request->offer_generation
+                && pending->package_index == request->package_index && strcmp(pending->id, request->id) == 0)
             return DISTRIB_QUEUE_DUPLICATE;
     }
     if (connection_count >= DISTRIB_QUEUE_MAX_PER_CONNECTION

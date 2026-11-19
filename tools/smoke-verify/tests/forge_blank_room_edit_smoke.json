@@ -1,0 +1,125 @@
+{
+  "scenario_name": "forge_blank_room_edit_smoke",
+  "description": "Forge steps F3 and F5 together: a level that can be shared is made in Forge from the Blank Room and played. The Blank Room (dev-mods/blank_room: an original one-room level with eight starts and no objects) is staged as a mod. One ordinary client launch opens its placements through --debug-forge-level, adds a player start 40 units in front of the first one, makes a weapon place from nothing 160 units in front of it (an empty level has no pickup to copy), gives that place the catalog weapon base:dragon through --debug-forge-level-weapon, makes an ammo crate from nothing 280 units in front, makes a plain prop drawn with the game's base:model_crate2_cq 420 units in front through --debug-forge-level-prop, and saves the result as the mod level 'Forge_Room'. The same launch then starts an offline Combat Simulator match on mod:arena_forge_room with three simulants. What this proves: the level document's new objects (the 37 field rows of a weapon place, the 68 of an ammo crate and the 30 of a plain prop, with the values such objects of the base levels share) compile in the game as three setup records; the four pads Forge added, which name no room as base pads do, are each found inside the room's box from rooms.json (pads=12, none without a room); the level graph keeps a trigger volume node for each of the twelve bounds rows; the game makes the pinned weapon pickup at command 0; and the player spawns and stays live. What it does not prove: that the pickup, the crate and the prop are drawn where they were put (the screenshot may show them) or can be collected (nothing here looks at the world or walks to them). The saved level holds only the Blank Room's own data plus three model ids of the game's, so it is a level that can be shared.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "mod-author",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/blank_room/build_blank_room.py",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "src/game/setup.c",
+    "port/src/scenario_source_runtime.c",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_forge_room"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Forge_Room",
+    "--debug-forge-level-weapon",
+    "base:dragon",
+    "--debug-forge-level-prop",
+    "base:model_crate2_cq",
+    "--launch-mp-room",
+    "mod:arena_forge_room",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 3000,
+      "name": "forge-room"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the ordinary Combat Simulator player is continuously spawned, live, controllable and walking on the level made from the Blank Room. The level was made by the first CLI fast paths, before the room launch flags."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Eight seconds on the level (the screenshot is taken at three), then a scripted exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_blank_room_edit_smoke",
+      "PDARENA\\.SCENARIO: owner=mod_blank_room:arena_blank_room id=mod_blank_room:scenario_blank_room stagenum=0x[0-9a-f]+ source=",
+      "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room pads=8 spawns=8 objects=0 field_rows=0 archive='.*blank_room\\.pdarena' scenario='dependencies/assets/scenarios/scenario_blank_room\\.pdscenario'",
+      "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0008 at \\(810, 50, 0\\), in front of spawn_0000 on pad_0000",
+      "FORGE\\.LEVEL\\.EDIT: made weapon place setup_0000 at \\(690, 50, 0\\): the level had no weapon pickup to copy",
+      "FORGE\\.LEVEL\\.EDIT: setup_0000 now gives base:dragon \\(model base:model_[a-z0-9_]+, size [1-9]\\d*\\)",
+      "FORGE\\.LEVEL\\.EDIT: made ammo crate setup_0001 at \\(570, 50, 0\\): the level had none to leave out",
+      "FORGE\\.LEVEL\\.EDIT: made prop setup_0002 drawn with base:model_crate2_cq at \\(430, 50, -?0\\)",
+      "FORGE\\.LEVEL\\.EDIT: the level now has pads=12 spawns=9 objects=3",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_room mod_id=mod\\.arena_forge_room updated=0",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_forge_room changed_members=6 restart_count=\\d+ archive='.*arena_forge_room\\.pdarena' own_template=0",
+      "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=OK catalog=mod:arena_forge_room",
+      "BOOT: --debug-forge-level arena=mod_blank_room:arena_blank_room name='Forge_Room' weapon=base:dragon result=OK",
+      "PDARENA\\.SCENARIO: owner=mod:arena_forge_room id=mod:arena_forge_room__\\S+ stagenum=0x[0-9a-f]+ source=",
+      "BOOT: --launch-mp-room direct match start",
+      "SCENARIO\\.GRAPH: trigger volume nodes '[^']*arena_forge_room[^']*' nodes=12 rows=12 ",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_forge_room[^']*'.* as 3 setup records, 9 spawns,",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=12 without_room=0",
+      "SETUP: fixed weapon pickup cmd=0 weapon=[1-9]\\d* model=[1-9]\\d* prop=1",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "MATCH: player spawned slot=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}

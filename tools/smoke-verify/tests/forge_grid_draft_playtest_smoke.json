@@ -1,0 +1,69 @@
+{
+  "scenario_name": "forge_grid_draft_playtest_smoke",
+  "description": "Play the unsaved Blank Room document twice through the native stage loader, run a bot, and return to the editor with the original undo and redo history.",
+  "tags": ["modding", "forge", "arena", "pdarena", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/fs.c",
+    "port/src/pdmain.c",
+    "src/game/forgemode.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/blank_room"],
+  "fixtures": [
+    { "src": "dev-mods/blank_room/mod.json", "dst": "mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-draft-playtest",
+    "--debug-grid-match-sources"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_level_file_open",
+      "timeout_ms": 240000,
+      "stable_ms": 25000
+    },
+    { "at_ms": 1000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_draft_playtest_smoke",
+      "GRID\\.MATCH\\.SOURCES: arena=mod_blank_room:arena_blank_room revision=[0-9a-f]{64} entries=2 packages=1 digest=[0-9a-f]{64}",
+      "GRID\\.MATCH\\.CACHE: ready packages=1 digest=[0-9a-f]{64}",
+      "FORGE\\.DRAFT\\.PREPARED: arena=mod_blank_room:arena_blank_room revision=[0-9a-f]{64} bytes=[1-9][0-9]* unsaved=1",
+      "FORGE\\.DRAFT\\.BIND: stage=0x[0-9a-f]+",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*blank_room[^']*'.* as 1 setup records, 9 spawns,",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*blank_room[^']*'.* as 0 setup records, 8 spawns,",
+      "SCENARIO\\.SOURCE: intro for .*hills=1 .*source=intro.json",
+      "ENV\\.ATMOSPHERE: stage=0x[0-9a-f]+ sky=30,61,104 fog=0",
+      "FORGE\\.DRAFT\\.PLAYING: stage=0x[0-9a-f]+",
+      "GRID\\.RUNTIME: bot active uid=",
+      "FORGE\\.DRAFT\\.RETURNED: stage=0x[0-9a-f]+ unsaved=1 undo=1",
+      "FORGE\\.DRAFT\\.DEBUG\\.OK: return=1 history=retained",
+      "FORGE\\.DRAFT\\.DEBUG\\.OK: return=2 history=retained",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "FORGE\\.DRAFT\\.DEBUG\\.FAIL",
+      "GRID\\.RUNTIME: (no bot/character capacity|bot allocation failed)",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "SAVE\\.OK: template=mod_blank_room",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

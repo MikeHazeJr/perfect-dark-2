@@ -1,0 +1,77 @@
+{
+  "scenario_name": "forge_grid_fixed_pickup_trigger_smoke",
+  "description": "Author a native Give Fixed Pickup on Enter rule on an original asymmetric arena. Verify the entering player receives a Dragon in room 1 while the physical pickup starts in room 2, then return to the unmodified original with the trigger draft retained.",
+  "tags": ["modding", "forge", "arena", "graph", "weapon", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mission_graph_modules.c",
+    "src/game/lv.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/grid_two_rooms", "mods/MP Maps/arena_grid_fixed_pickup_trigger"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "original",
+    "--debug-level-tool-name",
+    "Grid_Fixed_Pickup_Trigger",
+    "--debug-grid-room-size",
+    "2100,2700,1800,600,500,390",
+    "--launch-forge-level",
+    "mod:arena_grid_fixed_pickup_trigger",
+    "--debug-forge-fixed-pickup-trigger"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_fixed_pickup_trigger_smoke",
+      "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0 path='[^']*[/\\\\]grid[/\\\\]templates[/\\\\]grid_two_rooms\\.pdarena'",
+      "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00"
+    ],
+    "required_sequences": [
+      {
+        "name": "Normal volume entry grants the weapon across rooms and the unsaved draft returns to Forge",
+        "patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_fixed_pickup_trigger opens=1",
+          "BOOT: --launch-forge-level arena=mod:arena_grid_fixed_pickup_trigger result=OK",
+          "SMOKE\\.GRID\\.PICKUP: authored arena=mod:arena_grid_fixed_pickup_trigger provenance=original archive_sha256=[0-9a-f]{64} spawn=pad_0000 trigger=volume_pad_9999 pad=pad_0001 fixed=setup_0000 weapon=base:dragon pickup_pad=pad_0008",
+          "FORGE\\.DRAFT\\.PREPARED: arena=mod:arena_grid_fixed_pickup_trigger revision=[0-9a-f]{64} bytes=[1-9][0-9]* unsaved=1",
+          "FORGE\\.DRAFT\\.BIND: stage=0x[0-9a-f]+",
+          "SCENARIO\\.GRAPH: level program '[^']*grid_fixed_pickup_trigger[^']*' .*volumes=1 backend=graph\\.level\\.runner",
+          "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*grid_fixed_pickup_trigger[^']*'.* as 1 setup records, 1 spawns,",
+          "FORGE\\.DRAFT\\.PLAYING: stage=0x[0-9a-f]+",
+          "SMOKE\\.GRID\\.PICKUP: before player=0 player_room=1 pickup_room=2 has_dragon=0 separation_x=[1-9][0-9]{3,}\\.[0-9]",
+          "SCENARIO\\.GRAPH: event\\.volume\\.entered '[^']*grid_fixed_pickup_trigger[^']*' volume=volume_pad_9999 player=0 modules=1 backend=graph\\.level\\.runner",
+          "SMOKE\\.GRID\\.PICKUP: after player=0 player_room=1 pickup_room=2 has_dragon=1 separation_x=[1-9][0-9]{3,}\\.[0-9] volume=volume_pad_9999",
+          "FORGE\\.DRAFT\\.RETURNED: stage=0x[0-9a-f]+ unsaved=1 undo=1",
+          "SMOKE\\.GRID\\.PICKUP: returned arena=mod:arena_grid_fixed_pickup_trigger archive_sha256=[0-9a-f]{64} draft_trigger=retained",
+          "SMOKE: result=grid_fixed_pickup_trigger_complete"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.PICKUP\\.FAIL",
+      "SMOKE: result=(timeout|grid_fixed_pickup_trigger_(failed|missing_arena|start_failed))",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

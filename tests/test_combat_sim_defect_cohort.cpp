@@ -381,10 +381,14 @@ TEST_CASE("B-174 initial bot move rejects before spawn publication",
 		!= std::string::npos);
 	REQUIRE(header.find("void botSpawnWaveReset(void);")
 		!= std::string::npos);
+	// The handler leaves the opcode in place while the wave is incomplete:
+	// it ends the tick without moving (B-1255: returning false without
+	// moving is skipped by the B-949 guard), on the graph twin's path too.
 	REQUIRE(ai.find(
-		"if (botSpawnAll() != BOT_SPAWN_WAVE_COMPLETE)")
+		"(graph_result == 0 && botSpawnAll() != BOT_SPAWN_WAVE_COMPLETE)")
 		!= std::string::npos);
-	REQUIRE(ai.find("return false;") < ai.find("g_Vars.aioffset += 2;"));
+	REQUIRE(ai.find("if (graph_result == 2") != std::string::npos);
+	REQUIRE(ai.find("return true;") < ai.find("g_Vars.aioffset += 2;"));
 	REQUIRE(botmgr.find("botSpawnWaveReset();") != std::string::npos);
 	REQUIRE(botmgr.find("botSpawnWaveReset();") < botmgr.find("g_BotCount = 0;"));
 	const size_t reset_begin = source.find("void botSpawnWaveReset(void)");

@@ -1,0 +1,217 @@
+{
+  "scenario_name": "mp_hacker_central_net_smoke",
+  "description": "Networked hacker central with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_combat_net_bots_smoke. Baseline for the scenario state seam (T-NETWORKING-011): proves the objective scenario starts over the network, the host places its objective on a real pad (B-1125/B-1126 fill-in on extracted arenas) and both sides end with a match result for all five characters. Wire v64: the host sends the uplink, the download in progress and every player's progress and points in the stage baseline and on every change, and the client shows them instead of running downloads or making an uplink of its own. Written 2026-11-15; port 27244. Net scoring (T-NETWORKING-011, 2026-11-16): the 150 s match must end with a nonzero score in both machines' result lines (the client's follow the host's), as the local smokes require.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "match-lifecycle",
+    "multiplayer-modes",
+    "scenario"
+  ],
+  "paths_of_interest": [
+    "src/game/bot.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "src/game/mplayer/mplayer.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 520,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27244",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:hacker_central",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "150"
+      ],
+      "wait_for": "NET: created server on port 27244",
+      "wait_timeout_seconds": 120
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27244"
+      ]
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit."
+    },
+    {
+      "at_ms": 445000,
+      "type": "exit",
+      "comment": "Scripted clean exit at 445s. Budget on the D: hard disk: the host reached --host-autostart at about 194s in the first runs (the client needs about 130s to boot and register the catalog), then the ~2s settle, the 3s countdown, the Complex load on both sides, the 150s match (long enough for simulants to reach the token; the 35s runs never did) and the end screen: about 375s, so 445s leaves a 70s margin; timeout_seconds=520 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_hacker_central_net_smoke",
+      "BOOT: --listen-bind armed: port=27244",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27244'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:hacker_central' bots=3",
+      "BOOT: --listen-bind consumed: port=27244 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27244' result=OK rc=0",
+      "NET: created server on port 27244",
+      "NET: connecting to 127\\.0\\.0\\.1:27244",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=timelimit",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "HTM: terminal 0 placed pad=[1-9][0-9]* prop=ok",
+      "SCENARIO\\.STATE: sent scenario=2 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=2 rev=[0-9]+",
+      "HTM: client uplink from host holder=-?[0-9]+ present=1 rev=[0-9]+",
+      "MANIFEST-HOST: scenario 2 token weapon 46 as '[^']+'"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27244 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27244' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "HTM: no pad for terminal",
+      "HTM: bank holds",
+      "HTM: uplink placed pad=0 ",
+      "SCENARIO\\.MISS:",
+      "SCENARIO: object model=",
+      "SCENARIO\\.STATE: rejected malformed state",
+      "SCENARIO\\.STATE: dropped scenario=",
+      "SCENARIO\\.STATE: send failed",
+      "HTM: client uplink holder from host chr=-?[0-9]+ is not a character of this match",
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27244",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=2 teams=0 chrs=5 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=2",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]",
+        "min": 2
+      }
+    ]
+  }
+}

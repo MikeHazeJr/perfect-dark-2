@@ -40,6 +40,7 @@ static const smoke_fixture_field_entry_t k_event_fields[] = {
 	{ "hand", SMOKE_FIXTURE_FIELD_HAND },
 	{ "axis", SMOKE_FIXTURE_FIELD_AXIS },
 	{ "value", SMOKE_FIXTURE_FIELD_VALUE },
+	{ "slot", SMOKE_FIXTURE_FIELD_SLOT },
 };
 
 static void smokeJsonSkipWhitespace(smoke_json_cursor_t *cursor)
@@ -323,7 +324,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"network_assert_retired_prop_absent",
 		"network_timeout_client", "network_reconnect",
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
-		"kill_player",
+		"kill_player", "kill_simulant", "use_door", "kill_token_holder",
 	};
 
 	if (!type) {
@@ -348,19 +349,22 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 	if (!strcmp(type, "modmgr_apply_retry_probe") ||
 			!strcmp(type, "file_transfer_socket_probe")) return common;
 	if (!strcmp(type, "controller_attach") || !strcmp(type, "controller_detach")) {
-		return common;
+		return common | SMOKE_FIXTURE_FIELD_SLOT;
 	}
 	if (!strcmp(type, "controller_button")) {
-		return common | SMOKE_FIXTURE_FIELD_BUTTON | SMOKE_FIXTURE_FIELD_ACTION;
+		return common | SMOKE_FIXTURE_FIELD_SLOT | SMOKE_FIXTURE_FIELD_BUTTON | SMOKE_FIXTURE_FIELD_ACTION;
 	}
 	if (!strcmp(type, "controller_axis")) {
-		return common | SMOKE_FIXTURE_FIELD_AXIS | SMOKE_FIXTURE_FIELD_VALUE;
+		return common | SMOKE_FIXTURE_FIELD_SLOT | SMOKE_FIXTURE_FIELD_AXIS | SMOKE_FIXTURE_FIELD_VALUE;
 	}
 	if (!type[0] || !strcmp(type, "wait") || !strcmp(type, "exit")
 			|| !strcmp(type, "unclean_exit")
 			|| !strcmp(type, "network_assert_retired_prop_absent")
 			|| !strcmp(type, "network_reconnect")
-			|| !strcmp(type, "kill_player")) {
+			|| !strcmp(type, "kill_player")
+			|| !strcmp(type, "kill_token_holder")
+			|| !strcmp(type, "kill_simulant")
+			|| !strcmp(type, "use_door")) {
 		return common;
 	}
 	if (!strcmp(type, "network_timeout_client")) {

@@ -57,9 +57,42 @@ meshtri makeTri(const coord &a, const coord &b, const coord &c, u16 flags)
     return t;
 }
 
+void addWalkFloor(std::vector<meshtri> &tris, RoomNum room, float xmin, float xmax,
+                  float zmin, float zmax, float y, u16 flags = GEOFLAG_FLOOR1)
+{
+    const coord a = makeCoord(xmin, y, zmin);
+    const coord b = makeCoord(xmin, y, zmax);
+    const coord c = makeCoord(xmax, y, zmax);
+    const coord d = makeCoord(xmax, y, zmin);
+    auto &first = tris.emplace_back(makeTri(a, b, c, flags));
+    first.roomnum = room;
+    auto &second = tris.emplace_back(makeTri(a, c, d, flags));
+    second.roomnum = room;
+}
+
+void addWalkPartition(std::vector<meshtri> &tris, float zmin, float zmax, float ymin, float ymax)
+{
+    const coord a = makeCoord(0, ymin, zmin);
+    const coord b = makeCoord(0, ymax, zmin);
+    const coord c = makeCoord(0, ymax, zmax);
+    const coord d = makeCoord(0, ymin, zmax);
+    tris.push_back(makeTri(a, b, c, GEOFLAG_WALL));
+    tris.push_back(makeTri(a, c, d, GEOFLAG_WALL));
+}
+
+s32 checkWalk(std::vector<meshtri> &tris, const coord &from, RoomNum fromRoom,
+              const coord &to, RoomNum toRoom)
+{
+    colmesh mesh{};
+    mesh.tris = tris.data();
+    mesh.numtris = static_cast<s32>(tris.size());
+    return meshCheckFlatWalk(&mesh, &from, fromRoom, &to, toRoom, 30.0f, 185.0f);
+}
+
 // Mirrors meshWorldFinalize (src/lib/meshcollision.c): origin at the mesh
 // minimum, MESHGRID_CELL_SIZE cells capped at MESHGRID_MAX_DIM per axis, and
-// each triangle listed in every cell its XZ bounds overlap, indices clamped.
+// each triangle listed in every cell its XZ bounds overlap, both ends of the
+// range clamped into the grid by meshGridCell (B-1210).
 void buildGrid(TestGrid &g)
 {
     float minx = g.tris[0].v0.x, maxx = minx, minz = g.tris[0].v0.z, maxz = minz;
@@ -84,14 +117,10 @@ void buildGrid(TestGrid &g)
         const float txmax = std::max({t.v0.x, t.v1.x, t.v2.x});
         const float tzmin = std::min({t.v0.z, t.v1.z, t.v2.z});
         const float tzmax = std::max({t.v0.z, t.v1.z, t.v2.z});
-        s32 cx0 = static_cast<s32>((txmin - minx) / MESHGRID_CELL_SIZE);
-        s32 cx1 = static_cast<s32>((txmax - minx) / MESHGRID_CELL_SIZE);
-        s32 cz0 = static_cast<s32>((tzmin - minz) / MESHGRID_CELL_SIZE);
-        s32 cz1 = static_cast<s32>((tzmax - minz) / MESHGRID_CELL_SIZE);
-        cx0 = std::max(cx0, 0);
-        cz0 = std::max(cz0, 0);
-        cx1 = std::min(cx1, g.grid.cellsx - 1);
-        cz1 = std::min(cz1, g.grid.cellsz - 1);
+        const s32 cx0 = meshGridCell(txmin, minx, g.grid.cellsx);
+        const s32 cx1 = meshGridCell(txmax, minx, g.grid.cellsx);
+        const s32 cz0 = meshGridCell(tzmin, minz, g.grid.cellsz);
+        const s32 cz1 = meshGridCell(tzmax, minz, g.grid.cellsz);
         for (s32 cz = cz0; cz <= cz1; cz++) {
             for (s32 cx = cx0; cx <= cx1; cx++) {
                 g.lists[static_cast<size_t>(cz * g.grid.cellsx + cx)].push_back(i);
@@ -263,9 +292,9 @@ TEST_CASE("B-1189 ray cast on a capped grid still finds every triangle",
           "[meshcollision][raycast][b1189]")
 {
     // 40000 units across: more than MESHGRID_MAX_DIM cells. meshWorldFinalize
-    // (mirrored by buildGrid) lists no cell for a triangle wholly past the cap
-    // (B-1210), so meshGridRayCast tests every triangle on such a grid; this
-    // case found that gap.
+    // (mirrored by buildGrid) lists a triangle wholly past the cap in the last
+    // row or column (B-1210), and meshGridRayCast walks such a grid like any
+    // other; before B-1210 that triangle was in no cell, which this case found.
     std::mt19937 rng(11890);
     TestGrid g;
     addRandomTriangles(g, rng, 500, 20000.0f);
@@ -292,4 +321,108 @@ TEST_CASE("B-1189 ray cast on a capped grid still finds every triangle",
     }
 
     REQUIRE(counts.hits > 200);
+}
+
+TEST_CASE("Detached flat walk clears the Grid doorway and rejects obstruction",
+          "[meshcollision][grid][navigation]")
+{
+    std::vector<meshtri> tris;
+    addWalkFloor(tris, 1, -1550, 0, -820, 820, 0);
+    addWalkFloor(tris, 2, 0, 1550, -820, 820, 0);
+    addWalkPartition(tris, -820, -220, 0, 520);
+    addWalkPartition(tris, 220, 820, 0, 520);
+    addWalkPartition(tris, -220, 220, 340, 520);
+
+    const coord left = makeCoord(-360, 50, -120);
+    const coord right = makeCoord(360, 50, -120);
+    REQUIRE(checkWalk(tris, left, 1, right, 2));
+
+    SECTION("An oblique route and a standing footprint span the room seam")
+    {
+        const coord offset = makeCoord(415, 50, 60);
+        CHECK(checkWalk(tris, offset, 2, left, 1));
+        const coord seam = makeCoord(-12, 50, 0);
+        CHECK(checkWalk(tris, seam, 1, seam, 1));
+        CHECK_FALSE(checkWalk(tris, left, 2, right, 1));
+    }
+
+    SECTION("The diagonal between bundled starts clears the far outer wall")
+    {
+        // The wall overlaps both projected ranges on this diagonal. The
+        // actual wall at x = -1550 stays outside the swept footprint.
+        const coord a = makeCoord(-1550, 0, -820);
+        const coord b = makeCoord(-1550, 520, -820);
+        const coord c = makeCoord(-1550, 520, 820);
+        const coord d = makeCoord(-1550, 0, 820);
+        tris.push_back(makeTri(a, b, c, GEOFLAG_WALL));
+        tris.push_back(makeTri(a, c, d, GEOFLAG_WALL));
+        const coord first = makeCoord(-880, 50, 400);
+        const coord second = makeCoord(-1150, 50, 0);
+        CHECK(checkWalk(tris, first, 1, second, 1));
+        CHECK(checkWalk(tris, second, 1, first, 1));
+    }
+
+    SECTION("The wall and even a thin lateral graze stop the walk")
+    {
+        CHECK_FALSE(checkWalk(tris, makeCoord(-360, 50, -420), 1,
+            makeCoord(360, 50, -420), 2));
+        addWalkPartition(tris, -90, -89, 0, 80);
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+    }
+
+    SECTION("The actual pad also needs standing headroom")
+    {
+        addWalkFloor(tris, 1, -410, -310, -170, -70, 210, GEOFLAG_WALL);
+        CHECK_FALSE(checkWalk(tris, left, 1, left, 1));
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+    }
+
+    SECTION("An overlapping same-level hazard is unsafe")
+    {
+        addWalkFloor(tris, 2, 90, 170, -160, -80, 0, GEOFLAG_FLOOR2 | GEOFLAG_DIE);
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+    }
+}
+
+TEST_CASE("Detached flat walk requires level floor at its ends and across the footprint",
+          "[meshcollision][grid][navigation]")
+{
+    std::vector<meshtri> tris;
+    const coord left = makeCoord(-360, 50, -120);
+    const coord right = makeCoord(360, 50, -120);
+
+    SECTION("A gap between valid room floors has no support")
+    {
+        addWalkFloor(tris, 1, -1550, 0, -820, 820, 0);
+        addWalkFloor(tris, 2, 64, 1550, -820, 820, 0);
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+    }
+
+    SECTION("A supported center line still needs both lateral rails")
+    {
+        addWalkFloor(tris, 1, -1550, 0, -820, 820, 0);
+        addWalkFloor(tris, 2, 0, 1550, -130, 820, 0);
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+    }
+
+    SECTION("Unequal ground levels and excessive drop are outside the flat profile")
+    {
+        addWalkFloor(tris, 1, -1550, 0, -820, 820, 0);
+        addWalkFloor(tris, 2, 0, 1550, -820, 820, 40);
+        CHECK_FALSE(checkWalk(tris, left, 1, right, 2));
+        const coord high = makeCoord(-360, 501, -120);
+        CHECK_FALSE(checkWalk(tris, high, 1, high, 1));
+    }
+
+    SECTION("An endpoint requires an upward, nonlethal floor")
+    {
+        addWalkFloor(tris, 1, -1550, 0, -820, 820, 0, GEOFLAG_FLOOR1 | GEOFLAG_DIE);
+        CHECK_FALSE(checkWalk(tris, left, 1, left, 1));
+        for (auto &tri : tris) {
+            tri.flags = GEOFLAG_FLOOR1;
+            std::swap(tri.v1, tri.v2);
+            tri.normal.y = -1.0f;
+        }
+        CHECK_FALSE(checkWalk(tris, left, 1, left, 1));
+    }
 }

@@ -15,6 +15,10 @@ struct netclient;
 /* Existing v61 payload layout. Decoder publishes only a complete finite record. */
 u32 netbufWritePlayerMove(struct netbuf *, const struct netplayermove *);
 u32 netbufReadPlayerMove(struct netbuf *, struct netplayermove *);
+/* Grid replaces the local s8 weapon number with a u16 session reference.
+ * Decoding leaves weaponnum at -1 and publishes neither output on refusal. */
+u32 netbufWriteGridPlayerMove(struct netbuf *buf, const struct netplayermove *move, u16 weapon_ref);
+u32 netbufReadGridPlayerMove(struct netbuf *buf, struct netplayermove *out, u16 *weapon_ref);
 /* Shared existing room decoder used by snapshots and other net messages. */
 u32 netbufReadRooms(struct netbuf *, s16 *rooms, s32 num);
 /* Commit a decoded, policy-checked record atomically. Stale/duplicate records

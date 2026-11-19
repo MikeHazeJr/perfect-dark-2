@@ -21,13 +21,16 @@
 #include "data.h"
 #include "system.h"
 
+#include "game/chraction.h"
 #include "game/lv.h"
 #include "game/mainmenu.h"
 #include "game/objectives.h"
 #include "game/player.h"
+#include "game/setuputils.h"
 #include "game/stagetable.h"
 #include "lib/main.h"
 
+#include "ai_edge_shadow.h"
 #include "assetcatalog.h"
 #include "autocampaign.h"
 #include "autocampaign_cli_plan.h"
@@ -36,6 +39,7 @@
 #include "pdgui_campaign_bridge.h"
 #include "presence.h"
 #include "savefile.h"
+#include "scenario_source_runtime.h"
 #include "smoke_harness.h"
 
 extern struct solostage g_SoloStages[];
@@ -55,6 +59,7 @@ enum acState {
 	AC_STATE_DWELL_END,
 	AC_STATE_ADVANCE,
 	AC_STATE_WAIT_CREDITS,
+	AC_STATE_WAIT_MENU,
 	AC_STATE_DONE,
 	AC_STATE_FAILED,
 	AC_STATE__COUNT
@@ -71,6 +76,7 @@ static const char *const kStateName[AC_STATE__COUNT] = {
 	"DWELL_END",
 	"ADVANCE",
 	"WAIT_CREDITS",
+	"WAIT_MENU",
 	"DONE",
 	"FAILED",
 };
@@ -84,16 +90,27 @@ static const char *const kStateName[AC_STATE__COUNT] = {
 #define AC_CUTSCENE_TIMEOUT      7200u
 #define AC_ENDSCREEN_TIMEOUT      600u
 #define AC_CREDITS_TIMEOUT       3600u
+#define AC_MENU_TIMEOUT          7200u
+#define AC_SOAK_MAX_SECONDS       900
+#define AC_SOAK_STALL_FRAMES     1800u
 
 static enum acState s_state = AC_STATE_IDLE;
 static u32 s_frames_in_state;
 static u32 s_dwell_frames;
 static s32 s_cutscene_skip_requested;
+static u32 s_cutscene_frames;
+static s32 s_soak_seconds;
+static s32 s_soak_start60;
+static s32 s_soak_last60;
+static u32 s_soak_stall_frames;
 static u32 s_flags;
 static s32 s_target_start_idx;
 static s32 s_target_final_idx;
 static s32 s_stop_after_final_load;
 static s32 s_difficulty;
+/* Presence at the menu the plan started from; the menu reached between
+ * special assignments must read the same. */
+static s32 s_menu_presence = -1;
 static campaign_run_t s_run;
 static u16 s_persisted_besttimes[CAMPAIGN_RUN_MAX_MISSIONS];
 static char s_report_path[512];
@@ -116,6 +133,10 @@ static void setState(enum acState state)
 	s_frames_in_state = 0;
 	if (state == AC_STATE_WAIT_LOAD) {
 		s_cutscene_skip_requested = 0;
+		s_cutscene_frames = 0;
+		s_soak_start60 = -1;
+		s_soak_last60 = -1;
+		s_soak_stall_frames = 0;
 	}
 }
 
@@ -200,21 +221,44 @@ static s32 resolvePlannedStage(s32 plan_index, catalog_stage_result_t *out)
 		g_SoloStages[s_run.start_solo_index + plan_index].stagenum;
 }
 
+/* A plan of special assignments: solo indices after Skedar Ruins. They have
+ * no next mission, so each one ends at the main menu and the next is started
+ * from there, as a player would. */
+static s32 planIsSpecialAssignments(void)
+{
+	return s_target_start_idx > SOLOSTAGEINDEX_SKEDARRUINS;
+}
+
+/* Whether the game's own unlock rule offers this special assignment to the
+ * loaded agent: one assignment per difficulty Skedar Ruins was completed on,
+ * and The Duel once every firing range weapon has a medal. The rule lives in
+ * soloStageIsOffered (mainmenu.c), which the PC mission menu uses too
+ * (B-1117), so the runner and the menu cannot disagree. */
+static s32 specialAssignmentOffered(s32 solo_index)
+{
+	return soloStageIsOffered(solo_index) ? 1 : 0;
+}
+
 static s32 buildCampaignPlan(void)
 {
 	const char *ids[CAMPAIGN_RUN_MAX_MISSIONS];
 	s32 mission_count;
 	s32 i;
+	const s32 special = planIsSpecialAssignments();
+	const s32 last_index = special ? NUM_SOLOSTAGES - 1 : SOLOSTAGEINDEX_SKEDARRUINS;
 
 	if (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning) {
 		failRun(CAMPAIGN_RUN_FAILURE_INVALID_PLAN,
 			"release campaign runner is offline solo only");
 		return 0;
 	}
+	/* A plan is either campaign missions or special assignments, never both:
+	 * they leave their end screens in different ways. */
 	if (s_target_start_idx < 0
-			|| s_target_start_idx > SOLOSTAGEINDEX_SKEDARRUINS
+			|| s_target_start_idx > last_index
 			|| s_target_final_idx < s_target_start_idx
-			|| s_target_final_idx > SOLOSTAGEINDEX_SKEDARRUINS
+			|| s_target_final_idx > last_index
+			|| (special && s_stop_after_final_load)
 			|| (s_stop_after_final_load
 				&& s_target_final_idx == s_target_start_idx)
 			|| (s_stop_after_final_load
@@ -254,40 +298,69 @@ static s32 buildCampaignPlan(void)
 		stopFailed();
 		return 0;
 	}
-	ACLOG("plan profile='%s' difficulty=%d start=%d final=%d missions=%d",
+	if (special && !campaignRunSetTerminalMenu(&s_run)) {
+		stopFailed();
+		return 0;
+	}
+	ACLOG("plan profile='%s' difficulty=%d start=%d final=%d missions=%d terminal=%s",
 		s_run.profile, s_run.difficulty, s_run.start_solo_index,
-		s_run.final_solo_index, s_run.mission_count);
+		s_run.final_solo_index, s_run.mission_count,
+		campaignRunTerminalName(s_run.terminal));
 	return publishEvidenceOrFail("running");
 }
 
-static s32 queueFirstMission(void)
+/* Starts planned mission plan_index through the production mission-start
+ * entry, as the solo mission menu's Start does. */
+static s32 queuePlannedMission(s32 plan_index)
 {
 	catalog_stage_result_t stage;
-	if (!resolvePlannedStage(0, &stage)) {
+	const char *which = plan_index == 0 ? "first" : "next";
+	const s32 solo_index = s_run.start_solo_index + plan_index;
+	if (plan_index < 0 || plan_index >= s_run.mission_count
+			|| !resolvePlannedStage(plan_index, &stage)) {
 		failRun(CAMPAIGN_RUN_FAILURE_STAGE_ID,
-			"first catalog mission no longer resolves exactly");
+			"%s catalog mission no longer resolves exactly", which);
 		return 0;
 	}
 
-	g_MissionConfig.stageindex = (u8)s_run.start_solo_index;
+	g_MissionConfig.stageindex = (u8)solo_index;
 	g_MissionConfig.difficulty = (u8)s_run.difficulty;
 	g_MissionConfig.iscoop = 0;
 	g_MissionConfig.isanti = 0;
 	g_MissionConfig.pdmode = 0;
-	strncpy(g_MissionConfig.stage_id, s_run.expected_ids[0],
+	strncpy(g_MissionConfig.stage_id, s_run.expected_ids[plan_index],
 		sizeof(g_MissionConfig.stage_id) - 1);
 	g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
 	g_MissionConfig.stagenum = (u8)stage.stagenum;
 
+	/* A special assignment is started only when the game offers it to this
+	 * agent at this difficulty. The runner unlocks nothing. */
+	if (solo_index > SOLOSTAGEINDEX_SKEDARRUINS
+			&& (!specialAssignmentOffered(solo_index)
+				|| !isStageDifficultyUnlocked(solo_index, s_run.difficulty))) {
+		failRun(CAMPAIGN_RUN_FAILURE_UNLOCK,
+			"special assignment '%s' is not offered to agent '%s' at difficulty %d",
+			s_run.expected_ids[plan_index], s_run.profile, s_run.difficulty);
+		return 0;
+	}
+	if (plan_index == 0) {
+		s_menu_presence = (s32)presenceGetLocalState();
+	}
+
 	menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
 	if (g_MainChangeToStageNum != stage.stagenum) {
 		failRun(CAMPAIGN_RUN_FAILURE_ROUTE,
-			"production mission-start entry did not queue first stage '%s'",
-			s_run.expected_ids[0]);
+			"production mission-start entry did not queue %s stage '%s'",
+			which, s_run.expected_ids[plan_index]);
 		return 0;
 	}
-	ACLOG("queued first mission through menuhandlerAcceptMission plan=0 idx=%d stage_id='%s' stagenum=0x%02x",
-		s_run.start_solo_index, s_run.expected_ids[0], (u32)stage.stagenum);
+	ACLOG("queued %s mission through menuhandlerAcceptMission plan=%d idx=%d stage_id='%s' stagenum=0x%02x",
+		which, plan_index, solo_index, s_run.expected_ids[plan_index],
+		(u32)stage.stagenum);
+	/* The mission starts here: the AI edge parity probe counts from now. The
+	 * queued stage change runs no more of the current stage's AI (mainTick
+	 * ticks the stage only while no stage change is queued). */
+	aiEdgeShadowResetCounters();
 	return 1;
 }
 
@@ -353,10 +426,13 @@ static void verifyPersistedCampaign(void)
 			i, s_run.start_solo_index + i, s_run.expected_ids[i],
 			s_run.difficulty, (u32)s_persisted_besttimes[i]);
 	}
-	if (g_GameFile.autostageindex != SOLOSTAGEINDEX_SKEDARRUINS) {
+	/* The end screen leaves the auto-selected stage at the mission after the
+	 * one completed, capped at Skedar Ruins, and at the assignment itself for a
+	 * special assignment: either way the plan's final mission. */
+	if (g_GameFile.autostageindex != s_run.final_solo_index) {
 		failRun(CAMPAIGN_RUN_FAILURE_UNLOCK,
 			"restart verification expected autostageindex=%d but found %d",
-			SOLOSTAGEINDEX_SKEDARRUINS, g_GameFile.autostageindex);
+			s_run.final_solo_index, g_GameFile.autostageindex);
 		return;
 	}
 	if (!publishEvidenceOrFail("verify_complete")) {
@@ -397,11 +473,287 @@ static void armCampaignPlanAtDifficulty(int start_solo_index,
 		s_difficulty, s_flags, s_report_path);
 }
 
+static void probeSetStageFlags(u32 want)
+{
+	/* Through the production setters, so the graph objective state follows. */
+	chrUnsetStageFlag(NULL, ~want);
+	chrSetStageFlag(NULL, want);
+}
+
+static const char *probeStatusName(s32 status)
+{
+	return status == OBJECTIVE_COMPLETE ? "complete"
+		: status == OBJECTIVE_FAILED ? "failed"
+		: status == OBJECTIVE_INCOMPLETE ? "incomplete" : "unknown";
+}
+
+/*
+ * Objective flag probe (B-1111).
+ *
+ * Before the forced end, every objective that is active at this difficulty
+ * and is made only of stage-flag criteria must answer to its own flags
+ * through the production check: incomplete with its completion flags clear,
+ * complete with them set, failed with a fail flag set. The masks are read
+ * from the live setup commands, which are what the stage's scripts set. The
+ * flags are put back before this tick ends, so no script sees the change.
+ *
+ * Forced completion alone cannot see a mission whose objectives listen to the
+ * wrong flags; that is how byte-swapped operands in the graph objective
+ * source went unnoticed. Returns the number of objectives proven, or -1
+ * after failing the run.
+ */
+static s32 probeFlagObjectives(const char *stage_id)
+{
+	const u32 saved = g_StageFlags;
+	s32 proven = 0;
+	s32 skipped = 0;
+	s32 i;
+
+	for (i = 0; i < objectiveGetCount() && i < MAX_OBJECTIVES; i++) {
+		u32 *cmd = (u32 *)g_Objectives[i];
+		u32 complete_mask = 0;
+		u32 fail_mask = 0;
+		s32 other_criteria = 0;
+		s32 clear_status;
+		s32 set_status;
+		s32 fail_status = OBJECTIVE_FAILED;
+
+		if (!cmd || !(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
+			continue;
+		}
+		cmd = cmd + setupGetCmdLength(cmd);
+		while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+			const u8 type = (u8)PD_BE32(cmd[0]);
+			if (type == OBJECTIVETYPE_COMPFLAGS) {
+				complete_mask |= cmd[1];
+			} else if (type == OBJECTIVETYPE_FAILFLAGS) {
+				fail_mask |= cmd[1];
+			} else {
+				other_criteria = 1;
+			}
+			cmd = cmd + setupGetCmdLength(cmd);
+		}
+		if (other_criteria || complete_mask == 0 || (complete_mask & fail_mask)) {
+			skipped++;
+			continue;
+		}
+
+		probeSetStageFlags(saved & ~(complete_mask | fail_mask));
+		clear_status = objectiveCheck(i);
+		probeSetStageFlags((saved | complete_mask) & ~fail_mask);
+		set_status = objectiveCheck(i);
+		if (fail_mask) {
+			probeSetStageFlags(saved | complete_mask | fail_mask);
+			fail_status = objectiveCheck(i);
+		}
+		probeSetStageFlags(saved);
+
+		if (clear_status != OBJECTIVE_INCOMPLETE
+				|| set_status != OBJECTIVE_COMPLETE
+				|| fail_status != OBJECTIVE_FAILED
+				|| g_StageFlags != saved) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"objective flag probe: '%s' objective %d does not answer to its flags "
+				"(complete=0x%08x fail=0x%08x: clear->%s set->%s fail->%s)",
+				stage_id, i, complete_mask, fail_mask,
+				probeStatusName(clear_status), probeStatusName(set_status),
+				fail_mask ? probeStatusName(fail_status) : "n/a");
+			return -1;
+		}
+		proven++;
+	}
+
+	ACLOG("objective flag probe stage_id='%s' proven=%d skipped=%d flags_restored=0x%08x",
+		stage_id, proven, skipped, g_StageFlags);
+	return proven;
+}
+
+/*
+ * Objective parity probe.
+ *
+ * Every objective that is active at this difficulty and evaluated from the
+ * mission graph must give the same answer as the original evaluation of its
+ * setup commands, whatever its criteria: objects, rooms, holographs and
+ * flags alike. The flag probe drives flag objectives through their states;
+ * this one covers the criteria it cannot drive, in the state they are in.
+ * Neither answer is recorded. Returns the number compared, or -1 after
+ * failing the run.
+ */
+static s32 probeObjectiveParity(const char *stage_id)
+{
+	s32 compared = 0;
+	s32 not_graph = 0;
+	s32 graph_complete = 1;
+	s32 native_complete = 1;
+	s32 i;
+
+	for (i = 0; i < objectiveGetCount() && i < MAX_OBJECTIVES; i++) {
+		s32 graph = OBJECTIVE_INCOMPLETE;
+		s32 native = OBJECTIVE_INCOMPLETE;
+
+		if (!(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
+			continue;
+		}
+		if (!objectiveGraphParity(i, &graph, &native)) {
+			not_graph++;
+			continue;
+		}
+		if (graph != native) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"objective parity probe: '%s' objective %d graph=%s native=%s",
+				stage_id, i, probeStatusName(graph), probeStatusName(native));
+			return -1;
+		}
+		/* mission-flow.md: the graph's outcome takes the required
+		 * objectives; the original rule takes every active one. */
+		if (scenarioSourceMissionObjectiveRequired(i) && graph != OBJECTIVE_COMPLETE) {
+			graph_complete = 0;
+		}
+		if (native != OBJECTIVE_COMPLETE) {
+			native_complete = 0;
+		}
+		compared++;
+	}
+
+	ACLOG("objective parity probe stage_id='%s' compared=%d not_graph=%d",
+		stage_id, compared, not_graph);
+
+	/* Outcome parity: no base objective is optional, so on every base
+	 * mission the mission graph's outcome equals the original rule's. */
+	if (not_graph == 0) {
+		if (graph_complete != native_complete) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"outcome parity probe: '%s' graph=%s native=%s",
+				stage_id, graph_complete ? "complete" : "incomplete",
+				native_complete ? "complete" : "incomplete");
+			return -1;
+		}
+		ACLOG("outcome parity probe stage_id='%s' outcome=%s",
+			stage_id, graph_complete ? "complete" : "incomplete");
+	}
+	return compared;
+}
+
+/*
+ * AI edge parity probe (ai-list-graphs.md, slice 2).
+ *
+ * Since the mission started, the shadow walk has checked every AI command
+ * the interpreter ran against the command's control-flow edges: none may have
+ * moved where its edges and flags do not say (differ), and none may have run
+ * from a list or offset without an edge table (untracked). A refused command
+ * that fell through without a next edge (B-949) is counted, not failed.
+ * Returns the number compared, or -1 after failing the run.
+ */
+static s32 probeAiEdgeParity(const char *stage_id)
+{
+	ai_edge_shadow_counters_t counters;
+
+	aiEdgeShadowGetCounters(&counters);
+	ACLOG("ai edge parity stage_id='%s' compared=%d differ=%d refused_fallthrough=%d untracked=%d",
+		stage_id, counters.compared, counters.differ,
+		counters.refused_fallthrough, counters.untracked);
+	if (counters.differ > 0 || counters.untracked > 0) {
+		failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+			"ai edge parity: '%s' differ=%d untracked=%d of %d compared (AI.EDGES lines name them)",
+			stage_id, counters.differ, counters.untracked, counters.compared);
+		return -1;
+	}
+	return counters.compared;
+}
+
+/*
+ * Object rule parity probe (object-events.md slice 4).
+ *
+ * On this stage every rule event (a pickup touched, a door used or
+ * approached) compared the original rule's decision, computed first, with
+ * what the level program did; none may differ. Returns the number compared,
+ * or -1 after failing the run.
+ */
+static s32 probeObjectRuleParity(const char *stage_id)
+{
+	s32 compared = 0;
+	s32 differ = 0;
+
+	scenarioSourceGraphObjectRuleParity(&compared, &differ);
+	ACLOG("object rule parity stage_id='%s' compared=%d differ=%d", stage_id, compared, differ);
+	if (differ > 0) {
+		failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+			"object rule parity: '%s' differ=%d of %d compared (the object rule differs lines name them)",
+			stage_id, differ, compared);
+		return -1;
+	}
+	return compared;
+}
+
+/*
+ * Soak (--auto-campaign-soak <seconds>).
+ *
+ * Holds the mission in live play for that many game seconds before the
+ * forced end, so stage scripts, guards and props run long enough to show a
+ * crash, a stall or a mission that ends by itself. The player does nothing,
+ * so it is kept invincible for the duration; a death anyway is a finding.
+ * Returns 1 when the soak is over, 0 while it runs or after failing the run.
+ */
+static s32 soakTick(void)
+{
+	const s32 plan_index = s_run.current_plan_index;
+	const char *stage_id = (plan_index >= 0 && plan_index < s_run.mission_count)
+		? s_run.expected_ids[plan_index] : "?";
+	s32 elapsed60;
+
+	if (s_soak_start60 < 0) {
+		s_soak_start60 = g_Vars.lvframe60;
+		s_soak_last60 = g_Vars.lvframe60;
+		s_soak_stall_frames = 0;
+		ACLOG("soak start plan=%d stage_id='%s' seconds=%d lvframenum=%u",
+			plan_index, stage_id, s_soak_seconds, (u32)g_Vars.lvframenum);
+	}
+	elapsed60 = g_Vars.lvframe60 - s_soak_start60;
+
+	if (g_MainIsEndscreen || g_MainChangeToStageNum >= 0
+			|| !currentStageMatchesPlan(plan_index, NULL, NULL)) {
+		failRun(CAMPAIGN_RUN_FAILURE_COMPLETION,
+			"soak: mission '%s' ended by itself %d game seconds in",
+			stage_id, elapsed60 / 60);
+		return 0;
+	}
+	if (g_Vars.bond && g_Vars.bond->isdead) {
+		failRun(CAMPAIGN_RUN_FAILURE_COMPLETION,
+			"soak: the player died %d game seconds into '%s' while invincible",
+			elapsed60 / 60, stage_id);
+		return 0;
+	}
+	g_PlayerInvincible = true;
+
+	if (g_Vars.lvframe60 == s_soak_last60) {
+		if (++s_soak_stall_frames > AC_SOAK_STALL_FRAMES) {
+			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
+				"soak: game time stopped advancing %d game seconds into '%s'",
+				elapsed60 / 60, stage_id);
+			return 0;
+		}
+	} else {
+		s_soak_last60 = g_Vars.lvframe60;
+		s_soak_stall_frames = 0;
+	}
+
+	if (elapsed60 < s_soak_seconds * 60) {
+		return 0;
+	}
+
+	g_PlayerInvincible = false;
+	ACLOG("soak done plan=%d stage_id='%s' game_seconds=%d frames=%u",
+		plan_index, stage_id, elapsed60 / 60, s_frames_in_state);
+	return 1;
+}
+
 void autocampaignArmAtDifficulty(int start_solo_index, int difficulty,
 	unsigned int flags)
 {
 	armCampaignPlanAtDifficulty(start_solo_index,
-		SOLOSTAGEINDEX_SKEDARRUINS, 0, difficulty, flags);
+		start_solo_index > SOLOSTAGEINDEX_SKEDARRUINS
+			? NUM_SOLOSTAGES - 1 : SOLOSTAGEINDEX_SKEDARRUINS,
+		0, difficulty, flags);
 }
 
 void autocampaignArmThroughLoadAtDifficulty(int start_solo_index,
@@ -457,7 +809,7 @@ void autocampaignTick(void)
 		break;
 
 	case AC_STATE_BOOT:
-		if (queueFirstMission()) {
+		if (queuePlannedMission(0)) {
 			setState(AC_STATE_WAIT_LOAD);
 		}
 		break;
@@ -541,9 +893,18 @@ void autocampaignTick(void)
 					s_run.start_solo_index + s_run.current_plan_index,
 					s_run.expected_ids[s_run.current_plan_index]);
 			}
-			if (s_frames_in_state > AC_CUTSCENE_TIMEOUT) {
+			/* Counted per cutscene, not per state: with a soak the state
+			 * lasts minutes and a cutscene may start in the middle of it. */
+			if (++s_cutscene_frames > AC_CUTSCENE_TIMEOUT) {
 				failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
-					"intro cutscene did not finish before timeout");
+					"cutscene did not finish before timeout");
+			}
+			break;
+		}
+		s_cutscene_frames = 0;
+		if (s_soak_seconds > 0) {
+			if (soakTick()) {
+				setState(AC_STATE_FORCE_END);
 			}
 			break;
 		}
@@ -573,6 +934,20 @@ void autocampaignTick(void)
 		if (g_Vars.bond) {
 			g_Vars.bond->isdead = false;
 			g_Vars.bond->aborted = false;
+		}
+		/* Must run before the forced completion, which makes every later
+		 * objective check answer "complete". */
+		if (probeFlagObjectives(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeObjectiveParity(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeAiEdgeParity(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeObjectRuleParity(mission->stage_id) < 0) {
+			break;
 		}
 		forced_count = objectivesDebugCompleteCurrentMission();
 		completed_count = completedObjectiveCount();
@@ -637,6 +1012,30 @@ void autocampaignTick(void)
 		const char *route_to;
 		catalog_stage_result_t next_stage;
 		plan_index = s_run.current_plan_index;
+		if (s_run.terminal == CAMPAIGN_RUN_TERMINAL_MENU) {
+			if (plan_index < 0 || plan_index >= s_run.mission_count
+					|| !g_MainIsEndscreen
+					|| pdguiEndscreenHasNextMission()) {
+				failRun(CAMPAIGN_RUN_FAILURE_ROUTE,
+					"special assignment endscreen is not the one without a next mission");
+				break;
+			}
+			mission = &s_run.missions[plan_index];
+			/* The end screen's Main Menu choice, as a player leaves it. */
+			pdguiEndscreenExitToMainMenu();
+			if (!campaignRunRecordRoute(&s_run, mission->solo_index,
+					mission->stage_id, "system:menu", 0, 0)) {
+				stopFailed();
+				break;
+			}
+			ACLOG("routed plan=%d idx=%d stage_id='%s' route_to='system:menu' unlocked=0",
+				plan_index, mission->solo_index, mission->stage_id);
+			if (!publishEvidenceOrFail("running")) {
+				break;
+			}
+			setState(AC_STATE_WAIT_MENU);
+			break;
+		}
 		if (plan_index < 0 || plan_index >= s_run.mission_count
 				|| !g_MainIsEndscreen
 				|| !pdguiEndscreenHasNextMission()) {
@@ -681,6 +1080,12 @@ void autocampaignTick(void)
 			stopFailed();
 			break;
 		}
+		/* B-1256: the next mission is queued from the end screen, so the AI
+		 * edge parity probe counts it from here, as the first mission counts
+		 * from menuhandlerAcceptMission. */
+		if (!final) {
+			aiEdgeShadowResetCounters();
+		}
 		ACLOG("routed plan=%d idx=%d stage_id='%s' route_to='%s' unlocked=%d",
 			plan_index, mission->solo_index, mission->stage_id,
 			route_to, next_unlocked);
@@ -711,6 +1116,47 @@ void autocampaignTick(void)
 		} else if (s_frames_in_state > AC_CREDITS_TIMEOUT) {
 			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
 				"Credits did not become live before timeout");
+		}
+		break;
+
+	case AC_STATE_WAIT_MENU:
+		/* The menu the plan started from: the Carrington Institute backdrop,
+		 * live and settled, with no stage change pending. */
+		if (!g_MainIsEndscreen && g_MainChangeToStageNum < 0
+				&& g_Vars.stagenum == STAGE_CITRAINING
+				&& g_Vars.lvframenum > 30u) {
+			const s32 presence = (s32)presenceGetLocalState();
+			plan_index = s_run.current_plan_index;
+			if (!campaignRunRecordMenu(&s_run, 1, presence == s_menu_presence)) {
+				stopFailed();
+				break;
+			}
+			ACLOG("menu reached plan=%d idx=%d stage_id='%s' stagenum=0x%02x presence=%d",
+				plan_index, s_run.missions[plan_index].solo_index,
+				s_run.missions[plan_index].stage_id, (u32)g_Vars.stagenum,
+				presence);
+			if (s_run.phase == CAMPAIGN_RUN_PHASE_COMPLETE) {
+				if (!publishEvidenceOrFail("complete")) {
+					break;
+				}
+				setState(AC_STATE_DONE);
+				ACLOG("menu verified live profile='%s' missions=%d difficulty=%d",
+					s_run.profile, s_run.mission_count, s_run.difficulty);
+				if (smokeHarnessIsActive()) {
+					smokeHarnessExit(0, "campaign_complete");
+				}
+				break;
+			}
+			if (!publishEvidenceOrFail("running")) {
+				break;
+			}
+			if (queuePlannedMission(s_run.completed_count)) {
+				setState(AC_STATE_WAIT_LOAD);
+			}
+		} else if (s_frames_in_state > AC_MENU_TIMEOUT) {
+			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
+				"main menu did not become live after the end screen (stage 0x%02x)",
+				(u32)g_Vars.stagenum);
 		}
 		break;
 
@@ -752,6 +1198,17 @@ void autocampaignInitFromCli(void)
 		? sysArgGetInt("--auto-campaign-verify", 0)
 		: sysArgGetInt("--auto-campaign", 0);
 	difficulty = sysArgGetInt("--auto-campaign-difficulty", DIFF_A);
+	s_soak_seconds = 0;
+	if (sysArgCheck("--auto-campaign-soak")) {
+		s_soak_seconds = sysArgGetInt("--auto-campaign-soak", 0);
+		if (verify_requested || s_soak_seconds < 1
+				|| s_soak_seconds > AC_SOAK_MAX_SECONDS) {
+			failRun(CAMPAIGN_RUN_FAILURE_INVALID_PLAN,
+				"--auto-campaign-soak takes 1..%d seconds and requires --auto-campaign",
+				AC_SOAK_MAX_SECONDS);
+			return;
+		}
+	}
 	if (sysArgCheck("--auto-campaign-fast")) {
 		flags |= AUTOCAMPAIGN_FLAG_FAST;
 	}

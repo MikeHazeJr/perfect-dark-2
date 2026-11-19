@@ -1,0 +1,15 @@
+{
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "example:tri_weapon",
+  "graph_id": "primary",
+  "nodes": [
+    { "id": "trigger_primary", "kind": "event.trigger_pressed", "subgraph": "primary", "params": { "mode": "primary" } },
+    { "id": "fire_crystal", "kind": "spawn.fired_projectile", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_projectile", "projectile_ref": "example:tri_projectile", "ammo_slot": -1, "damage": "$crystal_damage" } }
+  ],
+  "edges": [
+    { "from": "trigger_primary", "to": "fire_crystal" }
+  ],
+  "exports": [
+    { "name": "primary", "node": "fire_crystal" }
+  ]
+}

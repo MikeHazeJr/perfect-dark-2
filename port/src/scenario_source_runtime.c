@@ -1,6 +1,8 @@
 #include <ctype.h>
+#include <float.h>
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,20 +10,36 @@
 #include <PR/ultratypes.h>
 
 #include "constants.h"
+#include "asset_archive_policy.h"
+#include "asset_runtime.h"
+#include "grid_match_package_io.h"
+#include "asset_path_contract.h"
 #include "types.h"
 #include "platform.h"
 #include "system.h"
 #include "fs.h"
 #include "asset_source_debug.h"
 #include "assetcatalog.h"
+#include "mod.h"
+#include "scenario_object_rules.h"
 #include "assetcatalog_load.h"
+#include "modasset_json.h"
+#include "grid_match_runtime.h"
 #include "voice_locale_source.h"
+#include "mission_graph_runner.h"
+#include "mission_graph_modules.h"
+#include "scenario_stage_rules.h"
+#include "scenario_intro.h"
+#include "ai_command_schema.h"
+#include "ai_catalog_refs.h"
+#include "ai_edge_shadow.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
 #include "game/atan2f.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"
+#include "game/bot.h"
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/chrai.h"
@@ -49,24 +67,29 @@
 #include "game/propsnd.h"
 #include "game/setuputils.h"
 #include "game/smoke.h"
+#include "game/spawnpool.h"
 #include "game/stagetable.h"
 #include "game/title.h"
 #include "game/training.h"
 #include "game/weather.h"
 #include "lib/ailist.h"
 #include "lib/anim.h"
+#include "lib/collision.h"
 #include "lib/lib_317f0.h"
 #include "lib/main.h"
 #include "lib/model.h"
 #include "lib/music.h"
 #include "lib/mtx.h"
 #include "lib/meshcollision.h"
+#include "lib/meshraygrid.h"
 #include "lib/memp.h"
 #include "lib/rng.h"
 #include "../../src/lib/naudio/n_sndp.h"
 #include "lib/snd.h"
+#include "scenario_portal_source.h"
 #include "scenario_room_domain.h"
 #include "scenario_source_runtime.h"
+#include "smoke_harness.h"
 #include "texture_source_runtime.h"
 #include "langmanifest.h"
 #include "romdata.h"
@@ -81,6 +104,7 @@
 		|| (soundnum) == SFX_F_STAND_STILL)
 
 #define SCENARIO_SOURCE_SPAWNED_CHR_MAX 512
+#define SCENARIO_SOURCE_RENUMBERED_CHR_MAX 64
 #define SCENARIO_SOURCE_SETUP_CHR_REF_MAX 2048
 #define SCENARIO_SOURCE_SETUP_RECORD_REF_MAX 4096
 
@@ -110,21 +134,6 @@ typedef struct scenario_source_pad_row {
 	f32 look[3];
 	f32 bbox[6];
 } scenario_source_pad_row_t;
-
-#define SCENARIO_SOURCE_PORTAL_MAX_VERTICES 32
-
-typedef struct scenario_source_portal_row {
-	s32 room1;
-	s32 room2;
-	u32 flags;
-	s32 vertex_count;
-	struct coord vertices[SCENARIO_SOURCE_PORTAL_MAX_VERTICES];
-	u8 light_rules; /* SCENARIO_PORTAL_RULE_* */
-} scenario_source_portal_row_t;
-
-/* Optional portals.json row rules (see scenarioSourceStageRulesReset). */
-#define SCENARIO_PORTAL_RULE_FLOOD_BLOCKED 0x01u
-#define SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT 0x02u
 
 typedef struct scenario_source_segment_list {
 	u32 *values;
@@ -182,6 +191,8 @@ typedef struct scenario_source_navigation {
 	s32 waygroup_count;
 	scenario_source_cover_row_t *covers;
 	s32 cover_count;
+	s32 generated_from_paths;
+	s32 generated_waypoints;
 } scenario_source_navigation_t;
 
 typedef struct scenario_source_setup_record {
@@ -191,14 +202,38 @@ typedef struct scenario_source_setup_record {
 	s32 order;
 	u8 *bytes;
 	u32 len;
+	scenario_object_rules_t rules; /* object-rules.md */
 } scenario_source_setup_record_t;
 
 typedef struct scenario_source_setup_table {
 	scenario_source_setup_record_t *records;
 	s32 count;
 	s32 capacity;
+	scenario_ai_asset_visitor_t visit_asset;
+	void *visit_userdata;
 	char error[192];
 } scenario_source_setup_table_t;
+
+#define GRID_DECORATION_COMMANDS_MAX 64u
+
+typedef struct scenario_grid_decoration_command {
+	char id[32];
+	u32 index;
+} scenario_grid_decoration_command_t;
+
+static struct {
+	const u32 *props;
+	char scenario_id[CATALOG_ID_LEN];
+	u32 count;
+	scenario_grid_decoration_command_t rows[GRID_DECORATION_COMMANDS_MAX];
+} s_GridDecorationCommands;
+
+static void s_clearGridDecorationCommands(void)
+{
+	s_GridDecorationCommands.props = NULL;
+	s_GridDecorationCommands.scenario_id[0] = '\0';
+	s_GridDecorationCommands.count = 0;
+}
 
 typedef struct scenario_source_ai_command {
 	u16 opcode;
@@ -220,6 +255,8 @@ typedef struct scenario_source_ai_table {
 	s32 count;
 	s32 capacity;
 	u32 byte_count;
+	scenario_ai_asset_visitor_t visit_asset;
+	void *visit_userdata;
 	char error[192];
 } scenario_source_ai_table_t;
 
@@ -244,6 +281,7 @@ typedef struct scenario_source_objective_node {
 	s32 criteria_start;
 	s32 criteria_count;
 	s32 inserted;
+	s32 optional; /* mission-flow.md: the row's "required": false */
 } scenario_source_objective_node_t;
 
 typedef struct scenario_source_objective_criteria {
@@ -314,6 +352,15 @@ typedef struct scenario_nav_source_hashes {
 	char paths[SHA256_HEX_SIZE];
 } scenario_nav_source_hashes_t;
 
+/* trigger-volume-events.md: a box a program's event.volume.* nodes name,
+ * bound at activation, and which players are inside it (a bit per player). */
+typedef struct scenario_source_bound_volume {
+	const char *id; /* the program's string */
+	f32 min[3];
+	f32 max[3];
+	u32 inside;
+} scenario_source_bound_volume_t;
+
 typedef struct scenario_source_graph_state {
 	char scenario_id[CATALOG_ID_LEN];
 	char level_graph_path[FS_MAXPATH + 1];
@@ -336,6 +383,7 @@ typedef struct scenario_source_graph_state {
 	char navmesh_cache_path[FS_MAXPATH + 1];
 	scenario_nav_source_counts_t nav_source_counts;
 	scenario_nav_source_hashes_t nav_source_hashes;
+	s32 nav_generated_from_paths;
 	u32 level_graph_size;
 	u32 mission_graph_size;
 	scenario_source_setup_link_t *setup_links;
@@ -350,6 +398,9 @@ typedef struct scenario_source_graph_state {
 	s32 source_setup_record_refs[SCENARIO_SOURCE_SETUP_RECORD_REF_MAX];
 	struct chrdata *source_spawned_chrs[SCENARIO_SOURCE_SPAWNED_CHR_MAX];
 	s32 source_spawned_chr_count;
+	/* B-1166: numbers set_chr_num gave to source-derived chrs. */
+	s32 source_renumbered_chrnums[SCENARIO_SOURCE_RENUMBERED_CHR_MAX];
+	s32 source_renumbered_chr_count;
 	s32 level_volume_node_count;
 	s32 level_pad_node_count;
 	s32 level_navigation_generate_node_count;
@@ -776,6 +827,8 @@ typedef struct scenario_source_graph_state {
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	char level_global_settings_scenario[CATALOG_ID_LEN];
 	char level_global_settings_kind[32];
 	scenario_source_objective_node_t *mission_objectives;
@@ -785,6 +838,12 @@ typedef struct scenario_source_graph_state {
 	s32 level_graph_active;
 	s32 mission_graph_active;
 	s32 mission_objective_runtime_active;
+	/* The executable part of mission.graph.json (decision 2): compiled when
+	 * the mission graph activates. A refused program still owns the events,
+	 * so they run nothing instead of falling back to native code. */
+	mission_graph_program_t *mission_program;
+	s32 mission_program_refused;
+	char mission_program_error[160];
 	s32 mission_objective_insert_logged;
 	s32 mission_objective_evaluate_logged;
 	s32 mission_objective_check_logged;
@@ -1210,6 +1269,8 @@ typedef struct scenario_source_graph_state {
 	s32 ai_action_say_ci_staff_quip_logged;
 	s32 ai_action_shuffle_ruins_pillars_logged;
 	s32 ai_action_shuffle_pelagic_switches_logged;
+	s32 ai_condition_if_bot_respawning_logged; /* bit per branch outcome */
+	s32 ai_action_mp_init_simulants_logged; /* bit per wave result */
 	s32 level_volume_eval_logged;
 	s32 level_volume_missing_logged;
 	s32 level_graph_tick_logged;
@@ -1219,6 +1280,31 @@ typedef struct scenario_source_graph_state {
 	s32 mission_objective_range_warning_logged;
 	s32 mission_phase_node_count;
 	char mission_phase_state[32];
+	s32 mission_phase_delivered; /* MISSION_GRAPH_PHASE_* last delivered as an event */
+	/* trigger-volume-events.md: the boxes event.volume.* names, bound at
+	 * activation, and which players are inside each (a bit per player). */
+	s32 mission_volume_count;
+	scenario_source_bound_volume_t mission_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 1: the executable part of level.graph.json
+	 * (its event.*, gate.* and og.* nodes), compiled for every stage, and
+	 * the boxes its event.volume.* nodes name. */
+	mission_graph_program_t *level_program;
+	char level_program_error[160];
+	s32 level_program_volume_count;
+	scenario_source_bound_volume_t level_program_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 2: object events delivered on this stage, by
+	 * kind (pickup.collected, door.opened, door.closed, object.used), and
+	 * whether their totals were logged. */
+	s32 object_event_counts[4];
+	s32 object_events_reported;
+	/* object-events.md slice 4: rule events fired on this stage
+	 * (pickup.touched, door.use, door.approach), and the parity probe's
+	 * comparisons and differences. */
+	s32 object_rule_counts[3];
+	s32 object_rule_compared;
+	s32 object_rule_differ;
+	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
+	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
 
 typedef struct scenario_source_mission_match {
@@ -1230,7 +1316,7 @@ typedef struct scenario_source_mission_match {
 
 #define SCENARIO_SEGMENT_FLAG_OUTWARD 0x4000u
 #define SCENARIO_SEGMENT_FLAG_INWARD 0x8000u
-#define SCENARIO_SEGMENT_ID_MASK 0x3fffu
+#define SCENARIO_SEGMENT_ID_MASK (SCENARIO_SOURCE_NATIVE_PAD_COUNT - 1u)
 
 static scenario_source_graph_state_t s_ActiveScenarioGraphs;
 
@@ -1253,13 +1339,42 @@ static s32 s_objectiveCriterionUsesObjectState(u8 type)
 		type == OBJECTIVETYPE_HOLOGRAPH;
 }
 
+/* object-events.md slice 2: a stage's object event totals, logged once:
+ * at the stage's end, or when the next stage replaces it. */
+static void s_reportObjectEvents(const char *reason)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || s_ActiveScenarioGraphs.object_events_reported) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_events_reported = 1;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.touched=%d door.use=%d door.approach=%d rules.compared=%d rules.differ=%d reason=%s backend=graph.level.runner",
+		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
+		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
+		s_ActiveScenarioGraphs.object_event_counts[3],
+		s_ActiveScenarioGraphs.object_rule_counts[0],
+		s_ActiveScenarioGraphs.object_rule_counts[1],
+		s_ActiveScenarioGraphs.object_rule_counts[2],
+		s_ActiveScenarioGraphs.object_rule_compared,
+		s_ActiveScenarioGraphs.object_rule_differ, reason);
+}
+
 static void s_resetActiveScenarioGraphs(void)
 {
+	s_reportObjectEvents("next_stage");
 	free(s_ActiveScenarioGraphs.setup_links);
 	free(s_ActiveScenarioGraphs.level_volumes);
 	free(s_ActiveScenarioGraphs.mission_objectives);
 	free(s_ActiveScenarioGraphs.mission_objective_criteria);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.level_program);
 	memset(&s_ActiveScenarioGraphs, 0, sizeof(s_ActiveScenarioGraphs));
+}
+
+void scenarioSourceReleaseStageGraphs(void)
+{
+	s_clearGridDecorationCommands();
+	s_resetActiveScenarioGraphs();
 }
 
 static char *s_nextField(char **cursor)
@@ -1488,83 +1603,97 @@ static s32 s_parseU32Value(const char *value, u32 *out)
 	return 1;
 }
 
+/* objects.json's record kinds and their object types (the setup loader's,
+ * and object-events.md slice 2's event payloads, both ways). */
+typedef struct scenario_source_kind_map {
+	const char *kind;
+	u8 type;
+} scenario_source_kind_map_t;
+
+static const scenario_source_kind_map_t s_SetupKindMaps[] = {
+	{ "door", OBJTYPE_DOOR },
+	{ "door_scale", OBJTYPE_DOORSCALE },
+	{ "prop", OBJTYPE_BASIC },
+	{ "key", OBJTYPE_KEY },
+	{ "alarm", OBJTYPE_ALARM },
+	{ "cctv", OBJTYPE_CCTV },
+	{ "ammo_crate", OBJTYPE_AMMOCRATE },
+	{ "weapon_pickup", OBJTYPE_WEAPON },
+	{ "character_spawn", OBJTYPE_CHR },
+	{ "single_monitor", OBJTYPE_SINGLEMONITOR },
+	{ "multi_monitor", OBJTYPE_MULTIMONITOR },
+	{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
+	{ "autogun", OBJTYPE_AUTOGUN },
+	{ "linked_guns", OBJTYPE_LINKGUNS },
+	{ "debris", OBJTYPE_DEBRIS },
+	{ "hat", OBJTYPE_HAT },
+	{ "grenade_probability", OBJTYPE_GRENADEPROB },
+	{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
+	{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
+	{ "shield", OBJTYPE_SHIELD },
+	{ "tag", OBJTYPE_TAG },
+	{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
+	{ "objective_end", OBJTYPE_ENDOBJECTIVE },
+	{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
+	{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
+	{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
+	{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
+	{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
+	{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
+	{ "objective_marker", OBJECTIVETYPE_1F },
+	{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
+	{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
+	{ "objective_marker_22", OBJTYPE_22 },
+	{ "briefing", OBJTYPE_BRIEFING },
+	{ "gas_bottle", OBJTYPE_GASBOTTLE },
+	{ "rename_object", OBJTYPE_RENAMEOBJ },
+	{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
+	{ "truck", OBJTYPE_TRUCK },
+	{ "heli", OBJTYPE_HELI },
+	{ "tank", OBJTYPE_TANK },
+	{ "camera_position", OBJTYPE_CAMERAPOS },
+	{ "glass", OBJTYPE_GLASS },
+	{ "safe", OBJTYPE_SAFE },
+	{ "safe_item", OBJTYPE_SAFEITEM },
+	{ "tinted_glass", OBJTYPE_TINTEDGLASS },
+	{ "lift", OBJTYPE_LIFT },
+	{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
+	{ "blocked_path", OBJTYPE_BLOCKEDPATH },
+	{ "hoverbike", OBJTYPE_HOVERBIKE },
+	{ "hover_prop", OBJTYPE_HOVERPROP },
+	{ "fan", OBJTYPE_FAN },
+	{ "hover_car", OBJTYPE_HOVERCAR },
+	{ "pad_effect", OBJTYPE_PADEFFECT },
+	{ "chopper", OBJTYPE_CHOPPER },
+	{ "mine", OBJTYPE_MINE },
+	{ "escalator_step", OBJTYPE_ESCASTEP },
+};
+
 static s32 s_setupKindToObjType(const char *kind, u8 *out_type)
 {
-	struct kind_map {
-		const char *kind;
-		u8 type;
-	};
-	static const struct kind_map maps[] = {
-		{ "door", OBJTYPE_DOOR },
-		{ "door_scale", OBJTYPE_DOORSCALE },
-		{ "prop", OBJTYPE_BASIC },
-		{ "key", OBJTYPE_KEY },
-		{ "alarm", OBJTYPE_ALARM },
-		{ "cctv", OBJTYPE_CCTV },
-		{ "ammo_crate", OBJTYPE_AMMOCRATE },
-		{ "weapon_pickup", OBJTYPE_WEAPON },
-		{ "character_spawn", OBJTYPE_CHR },
-		{ "single_monitor", OBJTYPE_SINGLEMONITOR },
-		{ "multi_monitor", OBJTYPE_MULTIMONITOR },
-		{ "hanging_monitors", OBJTYPE_HANGINGMONITORS },
-		{ "autogun", OBJTYPE_AUTOGUN },
-		{ "linked_guns", OBJTYPE_LINKGUNS },
-		{ "debris", OBJTYPE_DEBRIS },
-		{ "hat", OBJTYPE_HAT },
-		{ "grenade_probability", OBJTYPE_GRENADEPROB },
-		{ "lift_door_link", OBJTYPE_LINKLIFTDOOR },
-		{ "multi_ammo_crate", OBJTYPE_MULTIAMMOCRATE },
-		{ "shield", OBJTYPE_SHIELD },
-		{ "tag", OBJTYPE_TAG },
-		{ "objective_begin", OBJTYPE_BEGINOBJECTIVE },
-		{ "objective_end", OBJTYPE_ENDOBJECTIVE },
-		{ "objective_destroy_object", OBJECTIVETYPE_DESTROYOBJ },
-		{ "objective_complete_flags", OBJECTIVETYPE_COMPFLAGS },
-		{ "objective_fail_flags", OBJECTIVETYPE_FAILFLAGS },
-		{ "objective_collect_object", OBJECTIVETYPE_COLLECTOBJ },
-		{ "objective_throw_object", OBJECTIVETYPE_THROWOBJ },
-		{ "objective_holograph", OBJECTIVETYPE_HOLOGRAPH },
-		{ "objective_marker", OBJECTIVETYPE_1F },
-		{ "objective_enter_room", OBJECTIVETYPE_ENTERROOM },
-		{ "objective_throw_in_room", OBJECTIVETYPE_THROWINROOM },
-		{ "objective_marker_22", OBJTYPE_22 },
-		{ "briefing", OBJTYPE_BRIEFING },
-		{ "gas_bottle", OBJTYPE_GASBOTTLE },
-		{ "rename_object", OBJTYPE_RENAMEOBJ },
-		{ "padlocked_door", OBJTYPE_PADLOCKEDDOOR },
-		{ "truck", OBJTYPE_TRUCK },
-		{ "heli", OBJTYPE_HELI },
-		{ "tank", OBJTYPE_TANK },
-		{ "camera_position", OBJTYPE_CAMERAPOS },
-		{ "glass", OBJTYPE_GLASS },
-		{ "safe", OBJTYPE_SAFE },
-		{ "safe_item", OBJTYPE_SAFEITEM },
-		{ "tinted_glass", OBJTYPE_TINTEDGLASS },
-		{ "lift", OBJTYPE_LIFT },
-		{ "conditional_scenery", OBJTYPE_CONDITIONALSCENERY },
-		{ "blocked_path", OBJTYPE_BLOCKEDPATH },
-		{ "hoverbike", OBJTYPE_HOVERBIKE },
-		{ "hover_prop", OBJTYPE_HOVERPROP },
-		{ "fan", OBJTYPE_FAN },
-		{ "hover_car", OBJTYPE_HOVERCAR },
-		{ "pad_effect", OBJTYPE_PADEFFECT },
-		{ "chopper", OBJTYPE_CHOPPER },
-		{ "mine", OBJTYPE_MINE },
-		{ "escalator_step", OBJTYPE_ESCASTEP },
-	};
-
 	if (!kind || !out_type) {
 		return 0;
 	}
 
-	for (u32 i = 0; i < ARRAYCOUNT(maps); i++) {
-		if (strcmp(kind, maps[i].kind) == 0) {
-			*out_type = maps[i].type;
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (strcmp(kind, s_SetupKindMaps[i].kind) == 0) {
+			*out_type = s_SetupKindMaps[i].type;
 			return 1;
 		}
 	}
 
 	return 0;
+}
+
+/* The objects.json kind of an object type, or NULL. */
+static const char *s_setupObjTypeToKind(u8 type)
+{
+	for (u32 i = 0; i < ARRAYCOUNT(s_SetupKindMaps); i++) {
+		if (s_SetupKindMaps[i].type == type) {
+			return s_SetupKindMaps[i].kind;
+		}
+	}
+	return NULL;
 }
 
 static s32 s_setupObjTypeHasDefaultBase(u8 type)
@@ -1788,6 +1917,10 @@ static scenario_source_setup_record_t *s_setupFindOrAddRecord(
 	}
 
 	if (table->count >= table->capacity) {
+		if (table->capacity > INT32_MAX / 2) {
+			s_setupTableSetError(table, "too many source setup records", "", "");
+			return NULL;
+		}
 		s32 new_capacity = table->capacity ? table->capacity * 2 : 32;
 		scenario_source_setup_record_t *new_records =
 			(scenario_source_setup_record_t *)realloc(table->records,
@@ -2366,6 +2499,14 @@ static s32 s_aiParseOperandsJsonArray(const char *start, const char *end,
 	return 1;
 }
 
+static s32 s_aiVisitAsset(scenario_source_ai_table_t *table, const char *id)
+{
+	if (!table->visit_asset) return 1;
+	const asset_entry_t *entry = assetCatalogResolve(id);
+	return entry && strcmp(entry->id, id) == 0
+		&& table->visit_asset(id, entry->type, table->visit_userdata);
+}
+
 static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 	scenario_source_ai_command_t *cmd, const char *model_id,
 	const char *weapon_id, const char *body_id, const char *head_id)
@@ -2379,7 +2520,7 @@ static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 	if ((cmd->opcode == AICMD_DROPITEM || cmd->opcode == AICMD_EQUIPHAT) &&
 			model_id && model_id[0]) {
 		if (cmd->operand_count < 2 ||
-				!s_setupResolveModelnum(model_id, &value)) {
+				!s_setupResolveModelnum(model_id, &value) || !s_aiVisitAsset(table, model_id)) {
 			s_aiTableSetError(table, "bad AI model catalog id '%s'",
 				model_id, "");
 			return 0;
@@ -2391,7 +2532,7 @@ static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 	if (cmd->opcode == AICMD_EQUIPWEAPON) {
 		if (model_id && model_id[0]) {
 			if (cmd->operand_count < 2 ||
-					!s_setupResolveModelnum(model_id, &value)) {
+					!s_setupResolveModelnum(model_id, &value) || !s_aiVisitAsset(table, model_id)) {
 				s_aiTableSetError(table, "bad AI weapon model catalog id '%s'",
 					model_id, "");
 				return 0;
@@ -2401,7 +2542,7 @@ static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 		}
 		if (weapon_id && weapon_id[0]) {
 			if (cmd->operand_count < 3 ||
-					!s_setupResolveWeaponnum(weapon_id, &value)) {
+					!s_setupResolveWeaponnum(weapon_id, &value) || !s_aiVisitAsset(table, weapon_id)) {
 				s_aiTableSetError(table, "bad AI weapon catalog id '%s'",
 					weapon_id, "");
 				return 0;
@@ -2414,7 +2555,7 @@ static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 			cmd->opcode == AICMD_SPAWNCHRATCHR)) {
 		if (body_id && body_id[0]) {
 			if (cmd->operand_count < 1 ||
-					!s_setupResolveBodyNum(body_id, &value)) {
+					!s_setupResolveBodyNum(body_id, &value) || !s_aiVisitAsset(table, body_id)) {
 				s_aiTableSetError(table, "bad AI body catalog id '%s'",
 					body_id, "");
 				return 0;
@@ -2423,7 +2564,7 @@ static s32 s_aiApplyCatalogOperands(scenario_source_ai_table_t *table,
 		}
 		if (head_id && head_id[0]) {
 			if (cmd->operand_count < 2 ||
-					!s_setupResolveHeadNum(head_id, &value)) {
+					!s_setupResolveHeadNum(head_id, &value) || !s_aiVisitAsset(table, head_id)) {
 				s_aiTableSetError(table, "bad AI head catalog id '%s'",
 					head_id, "");
 				return 0;
@@ -2460,6 +2601,101 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	list->byte_count += 2u + cmd->operand_count;
 	table->byte_count += 2u + cmd->operand_count;
 	memset(cmd, 0, sizeof(*cmd));
+	return 1;
+}
+
+/* ai-typed-operands.md slices 3-3b: a model, weapon, body, head, animation
+ * or sound argument names a catalog id; it resolves exactly as the
+ * extractor checked it when it wrote the row (ai_catalog_refs.c). user
+ * counts the references a row's args resolved. */
+typedef struct scenario_source_ai_args {
+	s32 references;
+	scenario_source_ai_table_t *table;
+} scenario_source_ai_args_t;
+
+static int s_aiArgsResolveRef(ai_operand_kind_t kind, const char *id, int64_t *out_value,
+	void *user)
+{
+	if (!aiCatalogRefResolve(kind, id, out_value)) {
+		return 0;
+	}
+	scenario_source_ai_args_t *args = user;
+	args->references++;
+	return s_aiVisitAsset(args->table, id);
+}
+
+/* context/designs/modding/ai-typed-operands.md, slice 2: a row gives its
+ * operand bytes as "operands" (the v1 form), as "args" (named, typed,
+ * encoded through the command schema), or both, which must agree exactly
+ * (checked before catalog ids patch the bytes). A row with neither, or
+ * whose args the schema refuses, refuses the list. */
+static s32 s_aiRowOperands(scenario_source_ai_table_t *table,
+	const char *ailist_ref, u32 command_index, char *row_start, char *row_end,
+	scenario_source_ai_command_t *cmd)
+{
+	const char *args = s_jsonValueAfterKey(row_start, row_end, "args");
+	const s32 has_operands = s_jsonValueAfterKey(row_start, row_end, "operands") != NULL;
+	const ai_command_schema_t *schema;
+	char *args_end;
+	u8 bytes[512];
+	char error[160];
+	char where[64];
+	s32 count;
+	scenario_source_ai_args_t refs = {0, table};
+
+	snprintf(where, sizeof(where), "%s command %u", ailist_ref, (unsigned)command_index);
+	if (has_operands && !s_aiParseOperandsJsonArray(row_start, row_end, "operands",
+			&cmd->operands, &cmd->operand_count)) {
+		s_aiTableSetError(table, "AI row '%s' has unreadable operands%s", where, "");
+		return 0;
+	}
+	if (!args) {
+		if (!has_operands) {
+			s_aiTableSetError(table, "AI row '%s' has neither operands nor args%s",
+				where, "");
+			return 0;
+		}
+		return 1;
+	}
+	schema = aiCommandSchemaFind(cmd->opcode);
+	args_end = *args == '{' ? s_jsonFindObjectEnd((char *)args, row_end) : NULL;
+	if (!schema || !args_end) {
+		s_aiTableSetError(table, "AI row '%s' has args the command schema cannot read",
+			where, "");
+		return 0;
+	}
+	count = aiCommandArgsEncodeRefs(schema, args, (u32)(args_end - args + 1), bytes,
+		sizeof(bytes), s_aiArgsResolveRef, &refs, error, sizeof(error));
+	if (count < 0) {
+		s_aiTableSetError(table, "AI row '%s' args: %s", where, error);
+		return 0;
+	}
+	/* Slice 3: catalog ids resolve to this game's numbers, which raw
+	 * operands cannot follow; such a row gives args alone. */
+	if (refs.references > 0 && has_operands) {
+		s_aiTableSetError(table, "AI row '%s' names catalog ids in its args and also gives operands%s",
+			where, "");
+		return 0;
+	}
+	if (has_operands) {
+		if ((u32)count != cmd->operand_count
+				|| (count > 0 && memcmp(bytes, cmd->operands, (size_t)count) != 0)) {
+			s_aiTableSetError(table, "AI row '%s' args do not give its operands%s",
+				where, "");
+			return 0;
+		}
+		return 1;
+	}
+	/* Args alone: they are the row's bytes. */
+	if (count > 0) {
+		cmd->operands = (u8 *)malloc((size_t)count);
+		if (!cmd->operands) {
+			s_aiTableSetError(table, "AI row '%s' is out of memory%s", where, "");
+			return 0;
+		}
+		memcpy(cmd->operands, bytes, (size_t)count);
+	}
+	cmd->operand_count = (u32)count;
 	return 1;
 }
 
@@ -2565,8 +2801,8 @@ static s32 s_loadAiListSourceJson(char *text,
 			"body_catalog_id", body_id, sizeof(body_id));
 		(void)s_jsonReadStringValue(cursor, object_end + 1,
 			"head_catalog_id", head_id, sizeof(head_id));
-		if (!s_aiParseOperandsJsonArray(cursor, object_end + 1,
-				"operands", &cmd.operands, &cmd.operand_count) ||
+		if (!s_aiRowOperands(table, ailist_ref, command_index,
+				cursor, object_end + 1, &cmd) ||
 				!s_aiApplyCatalogOperands(table, &cmd, model_id,
 				weapon_id, body_id, head_id) ||
 				!s_aiAppendCommand(table, list, &cmd)) {
@@ -2577,6 +2813,184 @@ static s32 s_loadAiListSourceJson(char *text,
 	}
 
 	return table->error[0] == '\0';
+}
+
+/* AI lists as graphs, slice 2 (ai-list-graphs.md): the edge table of one
+ * compiled list, built from the commands its bytes were written from, for
+ * the shadow walk (ai_edge_shadow.h). NULL with the reason in error when the
+ * commands give no edges: the list then runs without a table (untracked). */
+static ai_edge_table_t *s_aiBuildEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, char *error, u32 error_size)
+{
+	ai_list_command_t *commands;
+	ai_edge_table_t *edge_table;
+
+	if (!list || list->count <= 0 || !bytes) {
+		snprintf(error, error_size, "%s", "the list has no commands");
+		return NULL;
+	}
+	commands = (ai_list_command_t *)malloc((size_t)list->count *
+		sizeof(*commands));
+	if (!commands) {
+		snprintf(error, error_size, "%s", "out of memory");
+		return NULL;
+	}
+	for (s32 j = 0; j < list->count; j++) {
+		commands[j].opcode = list->commands[j].opcode;
+		commands[j].operands = list->commands[j].operands;
+		commands[j].operand_len = list->commands[j].operand_count;
+	}
+	edge_table = aiEdgeTableBuild(list->id, bytes, commands,
+		(uint32_t)list->count, error, error_size);
+	free(commands);
+	return edge_table;
+}
+
+/* A stage list's table, registered under its bytes in the stage's setup
+ * block. Those bytes live in the stage pool until the main loop resets it
+ * for the next stage, and it clears the stage's tables first. Returns 1 when
+ * the list has a table. */
+static s32 s_aiRegisterStageEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, const char *scenario_id)
+{
+	char error[128];
+	ai_edge_table_t *edge_table = s_aiBuildEdgeTable(list, bytes, error,
+		sizeof(error));
+	const s32 built = edge_table != NULL;
+
+	if (built && aiEdgeShadowRegister(AI_EDGE_SHADOW_OWNER_STAGE, edge_table)) {
+		return 1;
+	}
+	aiEdgeShadowForget(bytes);
+	sysLogPrintf(LOG_WARNING,
+		"AI.EDGES: list 0x%04x of '%s' has no edge table (%s); its commands run untracked",
+		list ? (unsigned)list->id : 0u, scenario_id ? scenario_id : "?",
+		built ? "out of memory" : error);
+	return 0;
+}
+
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count)
+{
+	if (!lists) {
+		return;
+	}
+	for (s32 i = 0; i < count; i++) {
+		free(lists[i].bytes);
+		aiEdgeTableFree(lists[i].edges);
+	}
+	free(lists);
+}
+
+s32 scenarioSourceVisitAiAssets(const char *json, size_t len, scenario_ai_asset_visitor_t visit,
+	void *userdata, char *error, size_t error_size)
+{
+	scenario_source_ai_table_t table = {0};
+	if (error && error_size) error[0] = '\0';
+	if (!json || !len || len == SIZE_MAX || !visit || memchr(json, '\0', len)) return 0;
+	char *text = malloc(len + 1);
+	if (!text) return 0;
+	memcpy(text, json, len);
+	text[len] = '\0';
+	table.visit_asset = visit;
+	table.visit_userdata = userdata;
+	s32 ok = s_loadAiListSourceJson(text, &table);
+	if (!ok && error && error_size) {
+		snprintf(error, error_size, "%s", table.error[0] ? table.error : "AI assets could not be read");
+	}
+	s_aiFreeTable(&table);
+	free(text);
+	return ok;
+}
+
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size)
+{
+	scenario_source_ai_table_t table;
+	scenario_ai_compiled_list_t *lists = NULL;
+	char *text;
+	size_t len;
+
+	if (out_lists) *out_lists = NULL;
+	if (out_count) *out_count = 0;
+	if (error && error_size) error[0] = '\0';
+	if (!json_text || !out_lists || !out_count) {
+		return 0;
+	}
+	len = strlen(json_text);
+	text = (char *)malloc(len + 1);
+	if (!text) {
+		return 0;
+	}
+	memcpy(text, json_text, len + 1);
+	memset(&table, 0, sizeof(table));
+	if (!s_loadAiListSourceJson(text, &table)) {
+		if (error && error_size) {
+			snprintf(error, error_size, "%s",
+				table.error[0] ? table.error : "AI list rows could not be read");
+		}
+		s_aiFreeTable(&table);
+		free(text);
+		return 0;
+	}
+	if (table.count > 0) {
+		lists = (scenario_ai_compiled_list_t *)calloc((size_t)table.count,
+			sizeof(*lists));
+		if (!lists) {
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+	}
+	for (s32 i = 0; i < table.count; i++) {
+		const scenario_source_ai_list_t *list = &table.lists[i];
+		u32 size = 0;
+		u32 cursor = 0;
+
+		for (s32 j = 0; j < list->count; j++) {
+			size += 2u + list->commands[j].operand_count;
+		}
+		lists[i].id = list->id;
+		lists[i].commands = (u32)list->count;
+		lists[i].size = size;
+		lists[i].bytes = (u8 *)malloc(size ? size : 1u);
+		if (!lists[i].bytes) {
+			scenarioSourceAiListsFree(lists, table.count);
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+		/* As the stage setup compiler lays a list out: each command's
+		 * big-endian opcode, then its operand bytes. */
+		for (s32 j = 0; j < list->count; j++) {
+			const scenario_source_ai_command_t *cmd = &list->commands[j];
+			lists[i].bytes[cursor++] = (u8)((cmd->opcode >> 8) & 0xff);
+			lists[i].bytes[cursor++] = (u8)(cmd->opcode & 0xff);
+			if (cmd->operand_count) {
+				memcpy(lists[i].bytes + cursor, cmd->operands,
+					cmd->operand_count);
+				cursor += cmd->operand_count;
+			}
+		}
+		/* Slice 2 (ai-list-graphs.md): the list's edge table, from the same
+		 * commands; the owner of lists that run registers it. */
+		{
+			char edge_error[128];
+
+			lists[i].edges = s_aiBuildEdgeTable(list, lists[i].bytes,
+				edge_error, sizeof(edge_error));
+			if (!lists[i].edges) {
+				sysLogPrintf(LOG_WARNING,
+					"AI.EDGES: compiled list 0x%04x has no edge table (%s)",
+					(unsigned)list->id, edge_error);
+			}
+		}
+	}
+	*out_lists = lists;
+	*out_count = table.count;
+	s_aiFreeTable(&table);
+	free(text);
+	return 1;
 }
 
 static s32 s_parseSpawnTeam(const char *value)
@@ -2697,10 +3111,8 @@ static s32 s_jsonReadStringValue(const char *start, const char *end,
 	return 0;
 }
 
-static s32 s_jsonReadFloatArray3Value(const char *start, const char *end,
-	const char *key, f32 out[3])
+static s32 s_jsonReadFloatArray3At(const char *cursor, const char *end, f32 out[3])
 {
-	const char *cursor = s_jsonValueAfterKey(start, end, key);
 	s32 i;
 
 	if (!out || !cursor || cursor >= end || *cursor != '[') {
@@ -2734,6 +3146,12 @@ static s32 s_jsonReadFloatArray3Value(const char *start, const char *end,
 		cursor++;
 	}
 	return cursor < end && *cursor == ']';
+}
+
+static s32 s_jsonReadFloatArray3Value(const char *start, const char *end,
+	const char *key, f32 out[3])
+{
+	return s_jsonReadFloatArray3At(s_jsonValueAfterKey(start, end, key), end, out);
 }
 
 static s32 s_jsonReadS32Value(const char *start, const char *end,
@@ -2930,7 +3348,14 @@ static s32 s_loadSpawnSourceRows(char *text,
 	return table->error[0] == '\0';
 }
 
-static s32 s_setupApplyDefaultField(scenario_source_setup_record_t *record,
+static s32 s_setupResolveAssetOperand(scenario_source_setup_table_t *table,
+	const char *id, asset_type_e type, s32 (*resolve)(const char *, s32 *), s32 *out)
+{
+	return resolve(id, out) && (!table->visit_asset || table->visit_asset(id, type, table->visit_userdata));
+}
+
+static s32 s_setupApplyDefaultField(scenario_source_setup_table_t *table,
+	scenario_source_setup_record_t *record,
 	const char *field, const char *type, const char *value,
 	const char *catalog_id)
 {
@@ -2958,7 +3383,7 @@ static s32 s_setupApplyDefaultField(scenario_source_setup_record_t *record,
 		if (!catalog_id || !catalog_id[0]) {
 			return 1;
 		}
-		if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
+		if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_MODEL, s_setupResolveModelnum, &ivalue)) {
 			return 0;
 		}
 		return s_setupWriteS16(record, (u32)offsetof(struct defaultobj, modelnum), ivalue);
@@ -3021,7 +3446,8 @@ static s32 s_setupApplyDefaultField(scenario_source_setup_record_t *record,
 	return 0;
 }
 
-static s32 s_setupApplyCharacterField(scenario_source_setup_record_t *record,
+static s32 s_setupApplyCharacterField(scenario_source_setup_table_t *table,
+	scenario_source_setup_record_t *record,
 	const char *field, const char *type, const char *value,
 	const char *catalog_id)
 {
@@ -3049,7 +3475,7 @@ static s32 s_setupApplyCharacterField(scenario_source_setup_record_t *record,
 		return s_setupWriteU16(record, (u32)offsetof(struct packedchr, padnum), ivalue);
 	}
 	if (strcmp(field, "character.body") == 0) {
-		if (!s_setupResolveBodyNum(catalog_id, &ivalue)) {
+		if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_BODY, s_setupResolveBodyNum, &ivalue)) {
 			return 0;
 		}
 		return s_setupWriteU8(record, (u32)offsetof(struct packedchr, bodynum), ivalue);
@@ -3067,7 +3493,7 @@ static s32 s_setupApplyCharacterField(scenario_source_setup_record_t *record,
 		if (!catalog_id || !catalog_id[0]) {
 			return s_setupWriteS8(record, (u32)offsetof(struct packedchr, headnum), -1);
 		}
-		if (!s_setupResolveHeadNum(catalog_id, &ivalue)) {
+		if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_HEAD, s_setupResolveHeadNum, &ivalue)) {
 			return 0;
 		}
 		return s_setupWriteS8(record, (u32)offsetof(struct packedchr, headnum), ivalue);
@@ -3160,13 +3586,13 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 
 	if (s_setupObjTypeHasDefaultBase(record->type)
 			&& strncmp(field, "base.", 5) == 0) {
-		return s_setupApplyDefaultField(record, field, type, value,
+		return s_setupApplyDefaultField(table, record, field, type, value,
 			catalog_id);
 	}
 
 	if (record->type == OBJTYPE_CHR
 			&& strncmp(field, "character.", 10) == 0) {
-		return s_setupApplyCharacterField(record, field, type, value,
+		return s_setupApplyCharacterField(table, record, field, type, value,
 			catalog_id);
 	}
 
@@ -3330,7 +3756,7 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 				return s_setupWriteU8(record, (u32)offsetof(struct weaponobj, weaponnum),
 					ivalue);
 			}
-			if (!s_setupResolveWeaponnum(catalog_id, &ivalue)) {
+			if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_WEAPON, s_setupResolveWeaponnum, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteU8(record, (u32)offsetof(struct weaponobj, weaponnum), ivalue);
@@ -3367,7 +3793,7 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 			if (!catalog_id || !catalog_id[0]) {
 				return s_setupWriteS8(record, (u32)offsetof(struct weaponobj, dualweaponnum), -1);
 			}
-			if (!s_setupResolveWeaponnum(catalog_id, &ivalue)) {
+			if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_WEAPON, s_setupResolveWeaponnum, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteS8(record, (u32)offsetof(struct weaponobj, dualweaponnum), ivalue);
@@ -3586,7 +4012,13 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 		slot_base = (u32)offsetof(struct multiammocrateobj, slots)
 			+ index * (u32)sizeof(struct multiammocrateslot);
 		if (strcmp(member, "model") == 0) {
-			if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
+			/* An empty slot (no model id) is model 0, as the setup file has
+			 * it: a multiplayer crate's slots are filled when the match
+			 * starts, so every slot in base content is empty. A named model
+			 * that does not resolve is still refused. */
+			if (!catalog_id || !catalog_id[0]) {
+				ivalue = 0;
+			} else if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_MODEL, s_setupResolveModelnum, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteU16(record,
@@ -3738,7 +4170,7 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 				return s_setupWriteS32(record,
 					(u32)offsetof(struct textoverride, weapon), ivalue);
 			}
-			if (!s_setupResolveWeaponnum(catalog_id, &ivalue)) {
+			if (!s_setupResolveAssetOperand(table, catalog_id, ASSET_WEAPON, s_setupResolveWeaponnum, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteS32(record,
@@ -4592,6 +5024,286 @@ static void s_jsonReadOptionalStringValue(const char *start, const char *end,
 	(void)s_jsonReadStringValue(start, end, key, out, out_n);
 }
 
+/* Object rules (context/designs/modding/object-rules.md): optional fields on
+ * an objects.json row. Each is allowed only on the kind of row whose code
+ * reads it, so a field the game would ignore is refused instead. */
+static const char *const s_ObjectRuleDifficulties[] = {
+	"agent", "special_agent", "perfect_agent", "perfect_dark",
+};
+
+const char *scenarioObjectRuleDifficultyName(s32 diff)
+{
+	if (diff < 0 || diff >= (s32)(sizeof(s_ObjectRuleDifficulties) /
+			sizeof(s_ObjectRuleDifficulties[0]))) {
+		return NULL;
+	}
+	return s_ObjectRuleDifficulties[diff];
+}
+
+/* "enemy_rockets_exempt": a list of difficulty names, at least one. */
+static s32 s_setupReadDifficultyMask(const char *start, const char *end,
+	const char *key, u32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 count = 0;
+
+	*out = 0;
+	if (!cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (;;) {
+		char name[32];
+		size_t len = 0;
+		s32 diff;
+		s32 found = -1;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) || *cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		if (*cursor == ']') {
+			break;
+		}
+		if (*cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		while (cursor < end && *cursor != '"' && len + 1 < sizeof(name)) {
+			name[len++] = *cursor++;
+		}
+		if (cursor >= end || *cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		name[len] = '\0';
+		for (diff = 0; scenarioObjectRuleDifficultyName(diff); diff++) {
+			if (strcmp(name, scenarioObjectRuleDifficultyName(diff)) == 0) {
+				found = diff;
+			}
+		}
+		if (found < 0 || (*out & (1u << found))) {
+			return 0;
+		}
+		*out |= 1u << found;
+		count++;
+	}
+	return count > 0;
+}
+
+/* A hum's sound effect catalog id, as a playable sound number. B-1251: the
+ * game's sound numbers are packed 16-bit values, and a configured sound sets
+ * the top bit (SFX_SHIP_HUM is 0x810c), so the bound is 0xffff and the value
+ * is kept as the packed s16 the sound code takes, as effect_gameplay_runtime.c
+ * does. */
+static s32 s_setupPackHumSound(s32 sound_id, s32 category, s16 *out)
+{
+	union soundnumhack ref;
+
+	if (sound_id <= 0 || sound_id > 0xffff) {
+		return 0;
+	}
+	ref.packed = (s16)sound_id;
+	if (category != AUDIO_CAT_SFX && !(category == AUDIO_CAT_VOICE && ref.hasconfig)) {
+		return 0;
+	}
+	*out = ref.packed;
+	return 1;
+}
+
+static s32 s_setupResolveHumSound(scenario_source_setup_table_t *table, const char *id, s16 *out)
+{
+	if (!id[0]) return 0;
+	if (table->visit_asset) {
+		/* A setup operand only uses these catalog fields. Reviewing it
+		 * must not read locale-selected voices or their subtitle files. */
+		const asset_entry_t *entry = assetCatalogResolve(id);
+		return entry && entry->type == ASSET_AUDIO
+			&& s_setupPackHumSound(entry->ext.audio.sound_id, entry->ext.audio.category, out)
+			&& table->visit_asset(id, ASSET_AUDIO, table->visit_userdata);
+	}
+	catalog_audio_result_t audio;
+	return catalogResolveAudio(id, &audio) && s_setupPackHumSound(audio.sound_id, audio.category, out);
+}
+
+static s32 s_setupReadObjectRules(const char *start, const char *end,
+	scenario_source_setup_record_t *record,
+	scenario_source_setup_table_t *table)
+{
+	scenario_object_rules_t *rules = &record->rules;
+	char text[CATALOG_ID_LEN];
+	s32 b;
+
+	memset(rules, 0, sizeof(*rules));
+	if (s_jsonFindKeyInRange(start, end, "coop")) {
+		if (record->type != OBJTYPE_HOVERCAR ||
+				!s_jsonReadBoolValue(start, end, "coop", &b)) {
+			s_setupTableSetError(table,
+				"object rule coop needs a hover_car row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->coop_excluded = !b;
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "multiplayer")) {
+		if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||
+				!s_jsonReadBoolValue(start, end, "multiplayer", &b)) {
+			s_setupTableSetError(table,
+				"object rule multiplayer needs a lift or escalator_step row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->multiplayer_kept = b != 0;
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "enemy_rockets_exempt")) {
+		if (record->type != OBJTYPE_WEAPON ||
+				!s_setupReadDifficultyMask(start, end, "enemy_rockets_exempt",
+					&rules->enemy_rockets_exempt_mask)) {
+			s_setupTableSetError(table,
+				"object rule enemy_rockets_exempt needs a weapon row and a list of difficulties on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "engine_hum") ||
+			s_jsonFindKeyInRange(start, end, "thrust_hum") ||
+			s_jsonFindKeyInRange(start, end, "fall")) {
+		if (record->type != OBJTYPE_CHOPPER) {
+			s_setupTableSetError(table,
+				"object rules engine_hum, thrust_hum and fall need a chopper row ('%s')",
+				record->id, "");
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "engine_hum") &&
+				(!s_jsonReadStringValue(start, end, "engine_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(table, text, &rules->engine_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule engine_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "thrust_hum") &&
+				(!s_jsonReadStringValue(start, end, "thrust_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(table, text, &rules->thrust_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule thrust_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "fall")) {
+			if (!s_jsonReadStringValue(start, end, "fall", text, sizeof(text)) ||
+					(strcmp(text, "crash") != 0 && strcmp(text, "drop") != 0)) {
+				s_setupTableSetError(table,
+					"object rule fall must be crash or drop ('%s' on '%s')",
+					text, record->id);
+				return 0;
+			}
+			rules->fall_drop = strcmp(text, "drop") == 0;
+		}
+		rules->present = 1;
+	}
+	return 1;
+}
+
+/* The object rules of the setup built last, by setup command index (the
+ * record's place after sorting; s_setupBuildStageBlock writes the props in
+ * that order). Only the rows that carry one. */
+typedef struct scenario_object_rule_row {
+	s32 index;
+	scenario_object_rules_t rules;
+} scenario_object_rule_row_t;
+
+static scenario_object_rule_row_t s_ObjectRuleRows[SCENARIO_OBJECT_RULE_ROWS_MAX];
+static s32 s_ObjectRuleRowCount;
+
+s32 scenarioSourceSetupRecordRules(s32 index, scenario_object_rules_t *out)
+{
+	if (out) {
+		memset(out, 0, sizeof(*out));
+	}
+	for (s32 i = 0; i < s_ObjectRuleRowCount; i++) {
+		if (s_ObjectRuleRows[i].index == index) {
+			if (out) {
+				*out = s_ObjectRuleRows[i].rules;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
+s32 scenarioSourceGridDecorationCommand(const char *scenario_id, const u32 *setup_props,
+	const char *record_id, u32 *command_index)
+{
+	if (!scenario_id || !record_id || !command_index || !s_GridDecorationCommands.props
+			|| s_GridDecorationCommands.props != setup_props
+			|| strcmp(s_GridDecorationCommands.scenario_id, scenario_id) != 0) return 0;
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	if (!active || strcmp(active->scenario_id, scenario_id) != 0) return 0;
+
+	for (u32 i = 0; i < s_GridDecorationCommands.count; i++) {
+		const scenario_grid_decoration_command_t *row = &s_GridDecorationCommands.rows[i];
+		if (strcmp(row->id, record_id) == 0) {
+			*command_index = row->index;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_setupIsGridDecoration(const scenario_source_setup_record_t *record)
+{
+	if (record->type != OBJTYPE_BASIC || strcmp(record->kind, "prop") != 0
+			|| record->len != sizeof(struct defaultobj) || record->rules.present
+			|| strlen(record->id) != 10 || strncmp(record->id, "setup_", 6) != 0) return 0;
+	for (size_t i = 6; i < 10; i++) {
+		if (record->id[i] < '0' || record->id[i] > '9') return 0;
+	}
+
+	const struct defaultobj *obj = (const struct defaultobj *)record->bytes;
+	return obj->pad >= 0
+		&& obj->flags == (OBJFLAG_INVINCIBLE | OBJFLAG_AISEETHROUGH | OBJFLAG_CANNOT_ACTIVATE | OBJFLAG_UNCOLLECTABLE)
+		&& obj->flags2 == (OBJFLAG2_NOFALL | OBJFLAG2_SHOOTTHROUGH | OBJFLAG2_THROWTHROUGH
+			| OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_IMMUNETOEXPLOSIONS)
+		&& obj->flags3 == OBJFLAG3_WALKTHROUGH;
+}
+
+static void s_bindGridDecorationCommands(const catalog_stage_result_t *stage, const char *scenario_id,
+	const scenario_source_setup_table_t *table, const u8 *setup_data)
+{
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	if (!active || !stage || active->stage != stage->stagenum || strcmp(active->scenario_id, scenario_id) != 0) return;
+
+	/* The table is now in the order emitted into the stage's native prop block. */
+	for (s32 i = 0; i < table->count; i++) {
+		const scenario_source_setup_record_t *record = &table->records[i];
+		if (!s_setupIsGridDecoration(record)) continue;
+		if (s_GridDecorationCommands.count == ARRAYCOUNT(s_GridDecorationCommands.rows)) {
+			s_clearGridDecorationCommands();
+			sysLogPrintf(LOG_WARNING, "SCENARIO.GRID.DECORATION: bound exceeded for scenario=%s", scenario_id);
+			return;
+		}
+		scenario_grid_decoration_command_t *row = &s_GridDecorationCommands.rows[s_GridDecorationCommands.count++];
+		memcpy(row->id, record->id, sizeof(row->id));
+		row->index = (u32)i;
+	}
+	if (!s_GridDecorationCommands.count) return;
+
+	const struct stagesetup *setup = (const struct stagesetup *)setup_data;
+	s_GridDecorationCommands.props = (const u32 *)(setup_data + (uintptr_t)setup->props);
+	snprintf(s_GridDecorationCommands.scenario_id, sizeof(s_GridDecorationCommands.scenario_id), "%s", scenario_id);
+	sysLogPrintf(LOG_NOTE, "SCENARIO.GRID.DECORATION: bound scenario=%s records=%u",
+		scenario_id, s_GridDecorationCommands.count);
+}
+
 static s32 s_setupApplyObjectsJson(char *text,
 	scenario_source_setup_table_t *table)
 {
@@ -4690,6 +5402,9 @@ static s32 s_setupApplyObjectsJson(char *text,
 		if (!record) {
 			return 0;
 		}
+		if (!s_setupReadObjectRules(cursor, object_end + 1, record, table)) {
+			return 0;
+		}
 
 		if (pad_ref[0]) {
 			ivalue = s_parseIndexedRef(pad_ref);
@@ -4708,7 +5423,8 @@ static s32 s_setupApplyObjectsJson(char *text,
 
 		if (model_id[0]
 				&& s_setupObjTypeHasDefaultBase(record->type)) {
-			if (!s_setupResolveModelnum(model_id, &ivalue) ||
+			if (!s_setupResolveAssetOperand(table, model_id, ASSET_MODEL,
+					s_setupResolveModelnum, &ivalue) ||
 					!s_setupWriteS16(record,
 						(u32)offsetof(struct defaultobj, modelnum), ivalue)) {
 				s_setupTableSetError(table,
@@ -4721,7 +5437,8 @@ static s32 s_setupApplyObjectsJson(char *text,
 		if (weapon_id[0]
 				&& (record->type == OBJTYPE_WEAPON
 					|| record->type == OBJTYPE_MINE)) {
-			if (!s_setupResolveWeaponnum(weapon_id, &ivalue) ||
+			if (!s_setupResolveAssetOperand(table, weapon_id, ASSET_WEAPON,
+					s_setupResolveWeaponnum, &ivalue) ||
 					!s_setupWriteU8(record,
 						(u32)offsetof(struct weaponobj, weaponnum), ivalue)) {
 				s_setupTableSetError(table,
@@ -4734,7 +5451,8 @@ static s32 s_setupApplyObjectsJson(char *text,
 		if (secondary_weapon_id[0]
 				&& (record->type == OBJTYPE_WEAPON
 					|| record->type == OBJTYPE_MINE)) {
-			if (!s_setupResolveWeaponnum(secondary_weapon_id, &ivalue) ||
+			if (!s_setupResolveAssetOperand(table, secondary_weapon_id, ASSET_WEAPON,
+					s_setupResolveWeaponnum, &ivalue) ||
 					!s_setupWriteS8(record,
 						(u32)offsetof(struct weaponobj, dualweaponnum), ivalue)) {
 				s_setupTableSetError(table,
@@ -4745,7 +5463,8 @@ static s32 s_setupApplyObjectsJson(char *text,
 		}
 
 		if (body_id[0] && record->type == OBJTYPE_CHR) {
-			if (!s_setupResolveBodyNum(body_id, &ivalue) ||
+			if (!s_setupResolveAssetOperand(table, body_id, ASSET_BODY,
+					s_setupResolveBodyNum, &ivalue) ||
 					!s_setupWriteU8(record,
 						(u32)offsetof(struct packedchr, bodynum), ivalue)) {
 				s_setupTableSetError(table,
@@ -4756,7 +5475,8 @@ static s32 s_setupApplyObjectsJson(char *text,
 		}
 
 		if (head_id[0] && record->type == OBJTYPE_CHR) {
-			if (!s_setupResolveHeadNum(head_id, &ivalue) ||
+			if (!s_setupResolveAssetOperand(table, head_id, ASSET_HEAD,
+					s_setupResolveHeadNum, &ivalue) ||
 					!s_setupWriteS8(record,
 						(u32)offsetof(struct packedchr, headnum), ivalue)) {
 				s_setupTableSetError(table,
@@ -4826,6 +5546,98 @@ static s32 s_setupApplyObjectsJson(char *text,
 	return table->error[0] == '\0';
 }
 
+
+static char *s_copySetupAssetText(const char *text, size_t size)
+{
+	/* These native helpers use NUL-terminated text and track rows in s32. */
+	if (!text || !size || size > INT32_MAX || memchr(text, '\0', size)
+			|| !modAssetJsonValidateObject(text, size)) return NULL;
+	char *copy = malloc(size + 1);
+	if (!copy) return NULL;
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	return copy;
+}
+
+static s32 s_setupReadS16Field(const scenario_source_setup_record_t *record,
+	u32 offset, s32 *out);
+
+/* The public setup stores the actual mesh ID. A custom native hoverbike's
+ * physics and behavior come from the vehicle definition bound to that same
+ * private model slot. Seal that owner alongside the model from the final
+ * object records, after objects.json has applied its edits. */
+static s32 s_setupVisitVehicleOwners(scenario_source_setup_table_t *table)
+{
+	u8 used[MODEL_CUSTOM_COUNT] = {0};
+	s32 have_custom = 0;
+	for (s32 i = 0; i < table->count; i++) {
+		const scenario_source_setup_record_t *record = &table->records[i];
+		s32 modelnum = -1;
+		if (record->type != OBJTYPE_HOVERBIKE
+				|| !s_setupReadS16Field(record, offsetof(struct defaultobj, modelnum), &modelnum)
+				|| modelnum < MODEL_CUSTOM_START || modelnum >= MODEL_CUSTOM_END) continue;
+		used[modelnum - MODEL_CUSTOM_START] = 1;
+		have_custom = 1;
+	}
+	if (!have_custom) return 1;
+
+	const asset_entry_t *owners[MODEL_CUSTOM_COUNT] = {0};
+	const s32 catalog_count = assetCatalogGetPoolSize();
+	for (s32 i = 0; i < catalog_count; i++) {
+		const asset_entry_t *owner = assetCatalogGetByIndex(i);
+		if (!owner || !owner->enabled || owner->type != ASSET_VEHICLE
+				|| owner->runtime_index < MODEL_CUSTOM_START || owner->runtime_index >= MODEL_CUSTOM_END) continue;
+		const s32 index = owner->runtime_index - MODEL_CUSTOM_START;
+		if (!used[index]) continue;
+		const asset_entry_t *model = assetRuntimeVehiclePlacementModel(owner->id);
+		catalog_model_result_t selected;
+		if (!model || !catalogResolveModelByModelnum(owner->runtime_index, &selected) || selected.entry != model) continue;
+		if (owners[index]) {
+			s_setupTableSetError(table, "hoverbike vehicle '%s' shares a model slot with '%s'", owner->id, owners[index]->id);
+			return 0;
+		}
+		owners[index] = owner;
+	}
+	for (s32 i = 0; i < MODEL_CUSTOM_COUNT; i++) {
+		if (!used[i]) continue;
+		if (owners[i]) {
+			if (!table->visit_asset(owners[i]->id, ASSET_VEHICLE, table->visit_userdata)) return 0;
+			continue;
+		}
+		catalog_model_result_t model;
+		char root[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+		if (catalogResolveModelByModelnum(MODEL_CUSTOM_START + i, &model) && model.entry
+				&& gridMatchPackageLocation(model.entry->descriptor_path, root, sizeof(root), chain, sizeof(chain), NULL)
+				&& assetArchiveTypeForPath(root) == ASSET_VEHICLE) {
+			s_setupTableSetError(table, "hoverbike model '%s' has no exact vehicle owner", model.entry->id, "");
+			return 0;
+		}
+	}
+	return 1;
+}
+
+s32 scenarioSourceVisitSetupAssets(const char *setup, size_t setup_size,
+	const char *objects, size_t objects_size, scenario_ai_asset_visitor_t visit,
+	void *ctx, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!visit || (!objects && objects_size)) return 0;
+	char *fields_text = s_copySetupAssetText(setup, setup_size);
+	char *objects_text = objects ? s_copySetupAssetText(objects, objects_size) : NULL;
+	scenario_source_setup_table_t table = { .visit_asset = visit, .visit_userdata = ctx };
+	const s32 ok = fields_text && (!objects || objects_text)
+		&& s_setupParseFieldsJson(fields_text, &table)
+		&& (!objects_text || s_setupApplyObjectsJson(objects_text, &table))
+		&& s_setupVisitVehicleOwners(&table);
+	if (!ok && err && err_cap && !err[0]) {
+		snprintf(err, err_cap, "%s", table.error[0] ? table.error : "native setup asset source could not be read");
+	}
+	s_setupFreeTable(&table);
+	free(objects_text);
+	free(fields_text);
+	return ok;
+}
+
 static int s_setupCompareRecords(const void *a, const void *b)
 {
 	const scenario_source_setup_record_t *ra =
@@ -4862,13 +5674,18 @@ static s32 s_countPathRowsWithFlag(const scenario_source_path_table_t *table,
 
 static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	scenario_source_spawn_table_t *spawn_table,
+	const scenario_intro_t *intro,
 	scenario_source_ai_table_t *ai_table,
 	scenario_source_path_table_t *path_table,
 	const char *scenario_id, s32 *out_size)
 {
 	u32 intro_offset = (u32)sizeof(struct stagesetup);
 	u32 spawn_count = spawn_table ? (u32)spawn_table->count : 0;
-	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) + (u32)sizeof(s32);
+	u32 intro_words = intro ? (u32)intro->word_count : 0u;
+	/* The intro script: the spawn pads (spawns.json), then the other intro
+	 * commands (intro.json) in their authored order, then the end. */
+	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) +
+		intro_words * (u32)sizeof(s32) + (u32)sizeof(s32);
 	u32 props_offset = (intro_offset + intro_size + 3u) & ~3u;
 	u32 props_size = (u32)sizeof(u32);
 	u32 path_count = path_table ? (u32)path_table->count : 0;
@@ -4937,6 +5754,10 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 			cursor += sizeof(cmd);
 		}
 	}
+	if (intro_words) {
+		memcpy(data + cursor, intro->words, (size_t)intro_words * sizeof(s32));
+		cursor += intro_words * (u32)sizeof(s32);
+	}
 	{
 		s32 intro_end = INTROCMD_END;
 		memcpy(data + cursor, &intro_end, sizeof(intro_end));
@@ -4972,7 +5793,11 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	struct ailist *runtime_ailists = (struct ailist *)(data + ailists_offset);
 	u32 list_cursor = ailist_bytes_offset;
 	if (ai_table) {
+		s32 edge_tables = 0;
+
 		for (s32 i = 0; i < ai_table->count; i++) {
+			const u32 list_start = list_cursor;
+
 			runtime_ailists[i].id = ai_table->lists[i].id;
 			runtime_ailists[i].list = (u8 *)(uintptr_t)list_cursor;
 			for (s32 j = 0; j < ai_table->lists[i].count; j++) {
@@ -4986,7 +5811,14 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 					list_cursor += cmd->operand_count;
 				}
 			}
+			/* Slice 2 (ai-list-graphs.md): the shadow walk's table for the
+			 * bytes the interpreter runs, from the same commands. */
+			edge_tables += s_aiRegisterStageEdgeTable(&ai_table->lists[i],
+				data + list_start, scenario_id);
 		}
+		sysLogPrintf(LOG_NOTE,
+			"AI.EDGES: %d of %d AI lists of '%s' have edge tables",
+			edge_tables, ai_table->count, scenario_id ? scenario_id : "?");
 	}
 
 	if (out_size) {
@@ -5927,7 +6759,13 @@ static u32 s_scenarioPadFlags(u32 flags)
 		| PADFLAG_UPALIGNINVERT
 		| PADFLAG_LOOKALIGNTOX | PADFLAG_LOOKALIGNTOY | PADFLAG_LOOKALIGNTOZ
 		| PADFLAG_LOOKALIGNINVERT);
-	flags |= PADFLAG_HASBBOXDATA;
+	/* B-1204: PADFLAG_HASBBOXDATA stays the pad's own (the ROM's flags in
+	 * pads.json). Every record carries the six box floats, and pads are found
+	 * by offset, so padUnpack leaves them unread without the bit and gives
+	 * the -100..100 default it always gave. Forcing the bit on every pad made
+	 * that default a real box: setup.c dropped each object from 100 under its
+	 * pad (into the floor slab or onto the floor below) and scaled the
+	 * objects that fit their pad's bounds to it. */
 	return flags;
 }
 
@@ -5995,8 +6833,14 @@ u32 *scenarioSourcePadsGetWideOffsets(const u8 *padfiledata, s32 *out_count)
 	return NULL;
 }
 
-static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
-	s32 row_count, const scenario_source_navigation_t *nav, s32 *out_size)
+typedef struct scenario_source_padfile_layout {
+	u32 *wide_offsets;
+	size_t pad_records_end;
+} scenario_source_padfile_layout_t;
+
+static u8 *s_buildPadfileForOwner(const scenario_source_pad_row_t *rows,
+	s32 row_count, const scenario_source_navigation_t *nav, size_t native_budget, s32 *out_size,
+	scenario_source_padfile_layout_t *out_layout)
 {
 	size_t header_size;
 	size_t offset_size;
@@ -6079,7 +6923,8 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	cover_offset = total_size;
 	total_size += (size_t)cover_count * sizeof(struct coverdefinition);
 
-	buf = mempAlloc((u32)total_size, MEMPOOL_STAGE);
+	if (total_size > INT32_MAX || (native_budget && total_size > native_budget)) return NULL;
+	buf = native_budget ? malloc(total_size) : mempAlloc((u32)total_size, MEMPOOL_STAGE);
 	if (!buf) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: could not allocate %u bytes for pads.json runtime buffer",
@@ -6099,23 +6944,24 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	wide_offsets = use_wide_offsets ? (u32 *)(buf + header_size) : NULL;
 	records = buf + header_size + offset_size;
 
-	for (i = 0; i < row_count; i++) {
-		if (wide_offsets) {
-			wide_offsets[i] = (u32)(records - buf);
-		} else {
-			offsets[i] = (u16)(records - buf);
-		}
-		s_writePadRecord(records, &rows[i]);
-		records += record_size;
-	}
+	{
+		s32 boxed = 0;
 
-	if (wide_offsets) {
-		g_SourceWidePadFile = buf;
-		g_SourceWidePadOffsets = wide_offsets;
-		g_SourceWidePadOffsetCount = row_count;
-		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.SOURCE: pads.json runtime uses 32-bit source pad offsets for %d pads (%u byte record zone)",
-			row_count, (unsigned)pad_records_end);
+		for (i = 0; i < row_count; i++) {
+			if (wide_offsets) {
+				wide_offsets[i] = (u32)(records - buf);
+			} else {
+				offsets[i] = (u16)(records - buf);
+			}
+			s_writePadRecord(records, &rows[i]);
+			boxed += (rows[i].flags & PADFLAG_HASBBOXDATA) != 0;
+			records += record_size;
+		}
+		if (!native_budget) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: pads.json %d pads, %d with a box of their own (B-1204)",
+				row_count, boxed);
+		}
 	}
 
 	{
@@ -6188,6 +7034,24 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 
 	if (out_size) {
 		*out_size = (s32)total_size;
+	}
+	if (out_layout) *out_layout = (scenario_source_padfile_layout_t){wide_offsets, pad_records_end};
+	return buf;
+}
+
+static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
+	s32 row_count, const scenario_source_navigation_t *nav, s32 *out_size)
+{
+	scenario_source_padfile_layout_t layout = {0};
+	u8 *buf = s_buildPadfileForOwner(rows, row_count, nav, 0, out_size, &layout);
+	u32 *wide_offsets = layout.wide_offsets;
+	if (wide_offsets) {
+		g_SourceWidePadFile = buf;
+		g_SourceWidePadOffsets = wide_offsets;
+		g_SourceWidePadOffsetCount = row_count;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: pads.json runtime uses 32-bit source pad offsets for %d pads (%u byte record zone)",
+			row_count, (unsigned)layout.pad_records_end);
 	}
 	return buf;
 }
@@ -6289,195 +7153,6 @@ static scenario_source_pad_row_t *s_parsePadsJson(char *text,
 		row.bbox[5] = bbox_max[2];
 		if (count >= capacity) {
 			scenario_source_pad_row_t *grown;
-			capacity *= 2;
-			grown = realloc(rows, (size_t)capacity * sizeof(*rows));
-			if (!grown) {
-				free(rows);
-				return NULL;
-			}
-			rows = grown;
-		}
-		rows[count++] = row;
-		cursor = object_end + 1;
-	}
-
-	if (out_count) {
-		*out_count = count;
-	}
-	return rows;
-}
-
-static s32 s_parsePortalVerticesJson(const char *start, const char *end,
-	struct scenario_source_portal_row *out)
-{
-	const char *cursor;
-	s32 count = 0;
-
-	if (!start || !end || !out) {
-		return 0;
-	}
-	cursor = s_jsonValueAfterKey(start, end, "vertices");
-	if (!cursor || cursor >= end || *cursor != '[') {
-		return 0;
-	}
-	cursor++;
-	while (cursor < end) {
-		while (cursor < end && isspace((unsigned char)*cursor)) {
-			cursor++;
-		}
-		if (cursor >= end) {
-			return 0;
-		}
-		if (*cursor == ']') {
-			cursor++;
-			break;
-		}
-		if (*cursor != '[' || count >= SCENARIO_SOURCE_PORTAL_MAX_VERTICES) {
-			return 0;
-		}
-		cursor++;
-		for (s32 axis = 0; axis < 3; axis++) {
-			char *next;
-			while (cursor < end && isspace((unsigned char)*cursor)) {
-				cursor++;
-			}
-			if (cursor >= end) {
-				return 0;
-			}
-			if (axis == 0) {
-				out->vertices[count].x = strtof(cursor, &next);
-			} else if (axis == 1) {
-				out->vertices[count].y = strtof(cursor, &next);
-			} else {
-				out->vertices[count].z = strtof(cursor, &next);
-			}
-			if (next == cursor || next > end) {
-				return 0;
-			}
-			cursor = next;
-			while (cursor < end && isspace((unsigned char)*cursor)) {
-				cursor++;
-			}
-			if (axis < 2) {
-				if (cursor >= end || *cursor != ',') {
-					return 0;
-				}
-				cursor++;
-			}
-		}
-		while (cursor < end && isspace((unsigned char)*cursor)) {
-			cursor++;
-		}
-		if (cursor >= end || *cursor != ']') {
-			return 0;
-		}
-		cursor++;
-		count++;
-		while (cursor < end && isspace((unsigned char)*cursor)) {
-			cursor++;
-		}
-		if (cursor < end && *cursor == ',') {
-			cursor++;
-		}
-	}
-	if (count < 3) {
-		return 0;
-	}
-	out->vertex_count = count;
-	return 1;
-}
-
-static scenario_source_portal_row_t *s_parsePortalsJson(char *text,
-	s32 *out_count)
-{
-	scenario_source_portal_row_t *rows;
-	s32 capacity;
-	s32 count;
-	char schema[64];
-	char *end;
-	char *cursor;
-
-	if (out_count) {
-		*out_count = 0;
-	}
-	if (!text) {
-		return NULL;
-	}
-	end = text + strlen(text);
-	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
-			strcmp(schema, "pd2.scenario.portals.v1") != 0) {
-		return NULL;
-	}
-
-	capacity = 64;
-	count = 0;
-	rows = malloc((size_t)capacity * sizeof(*rows));
-	if (!rows) {
-		return NULL;
-	}
-
-	cursor = (char *)s_jsonValueAfterKey(text, end, "rows");
-	if (!cursor || cursor >= end || *cursor != '[') {
-		free(rows);
-		return NULL;
-	}
-	cursor++;
-	while (cursor && cursor < end) {
-		char *object_end;
-		scenario_source_portal_row_t row;
-		char portal_ref[64];
-		char room_a[64];
-		char room_b[64];
-		while (cursor < end && isspace((unsigned char)*cursor)) {
-			cursor++;
-		}
-		if (cursor >= end || *cursor == ']') {
-			break;
-		}
-		if (*cursor == ',') {
-			cursor++;
-			continue;
-		}
-		if (*cursor != '{') {
-			break;
-		}
-		object_end = s_jsonFindObjectEnd(cursor, end);
-		if (!object_end) {
-			break;
-		}
-		memset(&row, 0, sizeof(row));
-		if (!s_jsonReadStringValue(cursor, object_end + 1, "portal_ref",
-					portal_ref, sizeof(portal_ref)) ||
-				!s_jsonReadStringValue(cursor, object_end + 1, "room_a",
-					room_a, sizeof(room_a)) ||
-				!s_jsonReadStringValue(cursor, object_end + 1, "room_b",
-					room_b, sizeof(room_b)) ||
-				!s_jsonReadU32Value(cursor, object_end + 1, "flags",
-					&row.flags) ||
-				!s_parsePortalVerticesJson(cursor, object_end + 1, &row)) {
-			free(rows);
-			return NULL;
-		}
-		(void)portal_ref;
-		{
-			s32 flag = 0;
-			if (s_jsonReadBoolValue(cursor, object_end + 1,
-					"light_flood_blocked", &flag) && flag) {
-				row.light_rules |= SCENARIO_PORTAL_RULE_FLOOD_BLOCKED;
-			}
-			if (s_jsonReadBoolValue(cursor, object_end + 1,
-					"open_to_light", &flag) && flag) {
-				row.light_rules |= SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT;
-			}
-		}
-		row.room1 = s_parseRoomRef(room_a);
-		row.room2 = s_parseRoomRef(room_b);
-		if (row.room1 <= 0 || row.room2 <= 0 || row.room1 == row.room2) {
-			free(rows);
-			return NULL;
-		}
-		if (count >= capacity) {
-			scenario_source_portal_row_t *grown;
 			capacity *= 2;
 			grown = realloc(rows, (size_t)capacity * sizeof(*rows));
 			if (!grown) {
@@ -6659,9 +7334,47 @@ static void s_freeNavigation(scenario_source_navigation_t *nav)
 	memset(nav, 0, sizeof(*nav));
 }
 
+/* Generated edges are merged by pad pair with reciprocal direction flags.
+ * An edge carrying both bits is unusable in either direction. Remove those
+ * edges before finding the compact indexes, retaining the original pad order. */
+static void s_filterGeneratedWaypointLinks(scenario_source_navigation_t *nav, s32 *new_index)
+{
+	const u32 disabled = SCENARIO_SEGMENT_FLAG_OUTWARD | SCENARIO_SEGMENT_FLAG_INWARD;
+	const s32 previous_count = nav->waypoint_count;
+	s32 kept = 0;
+	for (s32 i = 0; i < previous_count; ++i) {
+		scenario_source_segment_list_t *neighbours = &nav->waypoints[i].neighbours;
+		s32 count = 0;
+		for (s32 j = 0; j < neighbours->count; ++j) {
+			const u32 edge = neighbours->values[j];
+			if ((edge & disabled) != disabled) neighbours->values[count++] = edge;
+		}
+		neighbours->count = count;
+		new_index[i] = count ? kept++ : -1;
+	}
+
+	for (s32 i = 0; i < previous_count; ++i) {
+		scenario_source_waypoint_row_t *row = &nav->waypoints[i];
+		if (new_index[i] < 0) {
+			s_freeSegmentList(&row->neighbours);
+			continue;
+		}
+		for (s32 j = 0; j < row->neighbours.count; ++j) {
+			const u32 edge = row->neighbours.values[j];
+			/* The reciprocal entry kept this neighbour in the compact graph. */
+			const s32 neighbour = new_index[edge & SCENARIO_SEGMENT_ID_MASK];
+			row->neighbours.values[j] = (edge & ~SCENARIO_SEGMENT_ID_MASK) | (u32)neighbour;
+		}
+		nav->waypoints[new_index[i]] = *row;
+	}
+	memset(nav->waypoints + kept, 0, (size_t)(previous_count - kept) * sizeof(*nav->waypoints));
+	nav->waypoint_count = kept;
+}
+
 static s32 s_generateNavigationTablesFromPads(
-	const scenario_source_pad_row_t *pads, s32 pad_count,
+	const scenario_source_pad_row_t *pads, s32 pad_count, s32 only_linked_pads,
 	const scenario_source_path_table_t *path_table,
+	s32 generate_covers,
 	scenario_source_navigation_t *nav)
 {
 	s32 i;
@@ -6723,8 +7436,8 @@ static s32 s_generateNavigationTablesFromPads(
 	}
 
 	nav->waypoints = calloc((size_t)pad_count, sizeof(*nav->waypoints));
-	nav->covers = calloc((size_t)pad_count, sizeof(*nav->covers));
-	if (!nav->waypoints || !nav->covers) {
+	if (generate_covers) nav->covers = calloc((size_t)pad_count, sizeof(*nav->covers));
+	if (!nav->waypoints || (generate_covers && !nav->covers)) {
 		free(pad_order);
 		free(pad_to_waypoint);
 		s_freeNavigation(nav);
@@ -6732,7 +7445,7 @@ static s32 s_generateNavigationTablesFromPads(
 	}
 
 	nav->waypoint_count = pad_count;
-	nav->cover_count = pad_count;
+	nav->cover_count = generate_covers ? pad_count : 0;
 
 	for (i = 0; i < pad_count; i++) {
 		s32 padnum = pad_order[i];
@@ -6742,13 +7455,15 @@ static s32 s_generateNavigationTablesFromPads(
 		nav->waypoints[i].groupnum = 0;
 		nav->waypoints[i].step = 0;
 
-		nav->covers[i].pos[0] = pads[padnum].pos[0];
-		nav->covers[i].pos[1] = pads[padnum].pos[1];
-		nav->covers[i].pos[2] = pads[padnum].pos[2];
-		nav->covers[i].look[0] = pads[padnum].look[0];
-		nav->covers[i].look[1] = pads[padnum].look[1];
-		nav->covers[i].look[2] = pads[padnum].look[2];
-		nav->covers[i].flags = 0;
+		if (generate_covers) {
+			nav->covers[i].pos[0] = pads[padnum].pos[0];
+			nav->covers[i].pos[1] = pads[padnum].pos[1];
+			nav->covers[i].pos[2] = pads[padnum].pos[2];
+			nav->covers[i].look[0] = pads[padnum].look[0];
+			nav->covers[i].look[1] = pads[padnum].look[1];
+			nav->covers[i].look[2] = pads[padnum].look[2];
+			nav->covers[i].flags = 0;
+		}
 	}
 
 	if (path_table && path_table->count > 0) {
@@ -6788,6 +7503,8 @@ static s32 s_generateNavigationTablesFromPads(
 				}
 			}
 		}
+		/* Edge creation is complete, so reuse the dense pad map for compaction. */
+		if (only_linked_pads) s_filterGeneratedWaypointLinks(nav, pad_to_waypoint);
 	} else {
 		for (i = 1; i < pad_count; i++) {
 			if (!s_generatedNavigationAddEdge(nav, i - 1, i, 0)) {
@@ -6799,7 +7516,7 @@ static s32 s_generateNavigationTablesFromPads(
 		}
 	}
 
-	if (!s_generateNavigationWaygroupsFromEdges(nav)) {
+	if (nav->waypoint_count && !s_generateNavigationWaygroupsFromEdges(nav)) {
 		free(pad_order);
 		free(pad_to_waypoint);
 		s_freeNavigation(nav);
@@ -6899,7 +7616,44 @@ static s32 s_countNavigationBranchWaypoints(
 	return count;
 }
 
-static s32 s_parseWaypointsJson(char *text, scenario_source_navigation_t *nav)
+/* Look only at root keys. An absent optional flag leaves its value at -1. */
+static s32 s_readNavigationRootBool(const char *text, const char *end,
+		const char *option, s32 *enabled)
+{
+	s32 depth = 0;
+	*enabled = -1;
+	for (const char *p = text; p < end; ++p) {
+		if (*p == '{' || *p == '[') {
+			++depth;
+		} else if (*p == '}' || *p == ']') {
+			--depth;
+		} else if (*p == '"') {
+			const char *key = p++;
+			while (p < end && *p != '"') {
+				if (*p == '\\') ++p;
+				if (p == end) return 0;
+				++p;
+			}
+			if (p == end) return 0;
+			if (depth != 1) continue;
+			const char *value = p + 1;
+			while (value < end && isspace((unsigned char)*value)) ++value;
+			if (value == end || *value != ':') continue;
+			s32 match = modAssetJsonStringEquals(key, p + 1, option);
+			if (match < 0) return 0;
+			if (match == 0) continue;
+			++value;
+			while (value < end && isspace((unsigned char)*value)) ++value;
+			const char *token_end = NULL;
+			return modAssetJsonParseBoolToken(value, end, enabled, &token_end)
+				&& modAssetJsonTokenHasContainerBoundary(token_end, end, '}');
+		}
+	}
+	return 1;
+}
+
+static s32 s_parseWaypointsJson(char *text, u32 text_size, scenario_source_navigation_t *nav,
+		s32 *only_linked_pads)
 {
 	scenario_source_waypoint_row_t *rows;
 	s32 capacity;
@@ -6912,6 +7666,9 @@ static s32 s_parseWaypointsJson(char *text, scenario_source_navigation_t *nav)
 		return 0;
 	}
 	end = text + strlen(text);
+	s32 linked = -1;
+	if (!s_readNavigationRootBool(text, end, "only_linked_pads", &linked)
+			|| (linked >= 0 && !modAssetJsonValidateObject(text, text_size))) return 0;
 	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
 			strcmp(schema, "pd2.scenario.waypoints.v1") != 0) {
 		return 0;
@@ -6994,6 +7751,7 @@ static s32 s_parseWaypointsJson(char *text, scenario_source_navigation_t *nav)
 
 	nav->waypoints = rows;
 	nav->waypoint_count = count;
+	*only_linked_pads = linked > 0;
 	return 1;
 
 fail:
@@ -7108,7 +7866,8 @@ fail:
 	return 0;
 }
 
-static s32 s_parseCoversJson(char *text, scenario_source_navigation_t *nav)
+static s32 s_parseCoversJson(char *text, u32 text_size, scenario_source_navigation_t *nav,
+	s32 *generate_routes)
 {
 	scenario_source_cover_row_t *rows;
 	s32 capacity;
@@ -7117,10 +7876,12 @@ static s32 s_parseCoversJson(char *text, scenario_source_navigation_t *nav)
 	char *end;
 	char *cursor;
 
-	if (!text || !nav) {
+	if (!nav || !modAssetJsonValidateObject(text, text_size)) {
 		return 0;
 	}
-	end = text + strlen(text);
+	end = text + text_size;
+	s32 generated = 0;
+	if (!s_readNavigationRootBool(text, end, "generate_routes", &generated)) return 0;
 	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
 			strcmp(schema, "pd2.scenario.covers.v1") != 0) {
 		return 0;
@@ -7194,39 +7955,19 @@ static s32 s_parseCoversJson(char *text, scenario_source_navigation_t *nav)
 
 	nav->covers = rows;
 	nav->cover_count = count;
+	*generate_routes = generated > 0;
 	return 1;
 }
 
+/* The path of fallback_member beside archive_member_path, in the innermost
+ * archive of its chain: a scenario nested in a mod level's .pdarena
+ * (dependencies/assets/scenarios/<x>.pdscenario) reads its own members, not
+ * the outer archive's (Forge F1). Empty when there is none. */
 static void s_copyMemberPath(char *out, size_t out_n,
 	const char *archive_member_path, const char *fallback_member)
 {
-	const char *sep;
-	size_t archive_len;
-
-	if (!out || out_n == 0) {
-		return;
-	}
-	out[0] = '\0';
-
-	if (!archive_member_path || !archive_member_path[0]
-			|| !fallback_member || !fallback_member[0]) {
-		return;
-	}
-
-	sep = strstr(archive_member_path, "::");
-	if (!sep) {
-		return;
-	}
-
-	archive_len = (size_t)(sep - archive_member_path);
-	if (archive_len + 2 + strlen(fallback_member) >= out_n) {
-		return;
-	}
-
-	memcpy(out, archive_member_path, archive_len);
-	out[archive_len] = '\0';
-	strcat(out, "::");
-	strcat(out, fallback_member);
+	(void)assetPathSiblingMemberChecked(out, out_n, archive_member_path,
+		fallback_member);
 }
 
 static void s_matchScenarioEntry(const asset_entry_t *entry, void *userdata)
@@ -7354,6 +8095,51 @@ const asset_entry_t *scenarioSourceFindEntryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp)
 {
 	return s_findScenarioForStage(stage, prefer_mp);
+}
+
+s32 scenarioSourceUsesLevelFileMembers(const char *scenario_id, const char *archive_root)
+{
+	if (!scenario_id || !archive_root || !s_ActiveScenarioGraphs.level_graph_active
+			|| strcmp(s_ActiveScenarioGraphs.scenario_id, scenario_id) != 0) {
+		return 0;
+	}
+	const char *const names[] = {
+		"level.graph.json", "pads.json", "spawns.json", "objects.json", "setup.fields.json", "volumes.json"
+	};
+	const char *const paths[] = {
+		s_ActiveScenarioGraphs.level_graph_path, s_ActiveScenarioGraphs.pads_path,
+		s_ActiveScenarioGraphs.spawns_path, s_ActiveScenarioGraphs.objects_path,
+		s_ActiveScenarioGraphs.setup_fields_path, s_ActiveScenarioGraphs.volumes_path
+	};
+	for (size_t i = 0; i < ARRAYCOUNT(names); i++) {
+		char expected[FS_MAXPATH + 1];
+		if (!assetPathJoinChecked(expected, sizeof(expected), archive_root, "::", names[i])
+				|| strcmp(paths[i], expected) != 0) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+s32 scenarioSourceUsesGridCoverMember(const char *scenario_id, const char *archive_root)
+{
+	char expected[FS_MAXPATH + 1];
+	return scenario_id && scenario_id[0] && archive_root && archive_root[0]
+		&& s_ActiveScenarioGraphs.level_graph_active && s_ActiveScenarioGraphs.covers_path[0]
+		&& strcmp(s_ActiveScenarioGraphs.scenario_id, scenario_id) == 0
+		&& assetPathJoinChecked(expected, sizeof(expected), archive_root, "::", "navigation/covers.json")
+		&& strcmp(s_ActiveScenarioGraphs.covers_path, expected) == 0;
+}
+
+s32 scenarioSourceUsesGridPathMember(const char *scenario_id, const char *archive_root)
+{
+	char expected[FS_MAXPATH + 1];
+	return scenario_id && scenario_id[0] && archive_root && archive_root[0]
+		&& s_ActiveScenarioGraphs.level_graph_active
+		&& strcmp(s_ActiveScenarioGraphs.scenario_id, scenario_id) == 0
+		&& s_ActiveScenarioGraphs.nav_generated_from_paths
+		&& assetPathJoinChecked(expected, sizeof(expected), archive_root, "::", "navigation/paths.json")
+		&& strcmp(s_ActiveScenarioGraphs.paths_path, expected) == 0;
 }
 
 const char *scenarioSourceActiveMissionId(void)
@@ -7535,7 +8321,7 @@ static s32 s_scenarioDeclaredOrMemberPath(const asset_entry_t *scenario,
 	return s_scenarioMemberPath(scenario, fallback_member, out, out_n);
 }
 
-static s32 s_scenarioPortalsPath(const asset_entry_t *scenario,
+s32 scenarioSourcePortalPath(const asset_entry_t *scenario,
 	char *out, size_t out_n)
 {
 	if (!scenario || !out || out_n == 0) {
@@ -7544,9 +8330,7 @@ static s32 s_scenarioPortalsPath(const asset_entry_t *scenario,
 
 	out[0] = '\0';
 	if (scenario->ext.scenario.portals_file[0]) {
-		strncpy(out, scenario->ext.scenario.portals_file, out_n - 1);
-		out[out_n - 1] = '\0';
-		return out[0] != '\0';
+		return assetPathCopyChecked(out, out_n, scenario->ext.scenario.portals_file);
 	}
 
 	return s_scenarioMemberPath(scenario, "portals.json", out, out_n);
@@ -7604,6 +8388,38 @@ static s32 s_jsonStringValueForKey(const char *text, const char *key,
 	return out[0] != '\0';
 }
 
+#define SCENARIO_GRAPH_TABLE_MEMBER_CAP 160
+
+static s32 s_readLevelGraphTableMember(const char *graph, const char *key,
+	char member[SCENARIO_GRAPH_TABLE_MEMBER_CAP])
+{
+	return s_jsonStringValueForKey(graph, key, member, SCENARIO_GRAPH_TABLE_MEMBER_CAP);
+}
+
+s32 scenarioSourceSetupAssetMembersMatch(const char *graph, size_t graph_size,
+	const char *setup_member, const char *objects_member, const char *ai_member,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	char *text = s_copySetupAssetText(graph, graph_size);
+	struct {
+		const char *key;
+		const char *member;
+	} expected[] = {
+		{ "setup_fields", setup_member }, { "objects", objects_member }, { "ai_lists", ai_member },
+	};
+	s32 ok = text != NULL;
+	if (!text && err && err_cap) snprintf(err, err_cap, "invalid native setup graph");
+	for (size_t i = 0; ok && i < ARRAYCOUNT(expected); i++) {
+		char member[SCENARIO_GRAPH_TABLE_MEMBER_CAP];
+		ok = expected[i].member && s_readLevelGraphTableMember(text, expected[i].key, member)
+			&& strcmp(member, expected[i].member) == 0;
+		if (!ok && err && err_cap) snprintf(err, err_cap, "the native graph selects a different %s member", expected[i].key);
+	}
+	free(text);
+	return ok;
+}
+
 static s32 s_graphMemberPath(const asset_entry_t *scenario,
 	const char *member, char *out, size_t out_n)
 {
@@ -7627,10 +8443,10 @@ static s32 s_bindLevelGraphTablePath(const asset_entry_t *scenario,
 	const char *graph_text, const char *graph_path, const char *key,
 	char *out, size_t out_n)
 {
-	char member[160];
+	char member[SCENARIO_GRAPH_TABLE_MEMBER_CAP];
 	char reason[160];
 
-	if (!s_jsonStringValueForKey(graph_text, key, member, sizeof(member))) {
+	if (!s_readLevelGraphTableMember(graph_text, key, member)) {
 		snprintf(reason, sizeof(reason), "missing level graph table '%s'",
 			key);
 		s_graphFailure(ASSET_SCENARIO,
@@ -7733,7 +8549,7 @@ static void s_hashSourceTextHex(const char *text, u32 size,
 }
 
 static s32 s_hashSourceFileHex(const char *path,
-	char out_hash[SHA256_HEX_SIZE])
+	char out_hash[SHA256_HEX_SIZE], scenario_source_read_candidate_t read, void *ctx)
 {
 	u8 digest[SHA256_DIGEST_SIZE];
 	u8 *data;
@@ -7747,7 +8563,7 @@ static s32 s_hashSourceFileHex(const char *path,
 	}
 
 	size = 0;
-	data = (u8 *)fsFileLoad(path, &size);
+	data = read ? (u8 *)read(ctx, path, &size) : (u8 *)fsFileLoad(path, &size);
 	if (!data || size == 0) {
 		if (data) {
 			free(data);
@@ -7762,7 +8578,7 @@ static s32 s_hashSourceFileHex(const char *path,
 }
 
 static s32 s_countAndHashSourceJsonRows(const char *path, const char *schema_name,
-	s32 *out_rows, char out_hash[SHA256_HEX_SIZE])
+	s32 *out_rows, char out_hash[SHA256_HEX_SIZE], scenario_source_read_candidate_t read, void *ctx)
 {
 	char *text;
 	char *end;
@@ -7782,11 +8598,15 @@ static s32 s_countAndHashSourceJsonRows(const char *path, const char *schema_nam
 	}
 
 	text_size = 0;
-	text = s_loadGraphText(path, &text_size);
+	text = read ? read(ctx, path, &text_size) : s_loadGraphText(path, &text_size);
 	if (!text) {
 		return 0;
 	}
 	s_hashSourceTextHex(text, text_size, out_hash);
+	if (read && !modAssetJsonValidateObject(text, text_size)) {
+		free(text);
+		return 0;
+	}
 
 	end = text + strlen(text);
 	if (!s_jsonReadStringValue(text, end, "schema", schema, sizeof(schema)) ||
@@ -7828,6 +8648,12 @@ static s32 s_countAndHashSourceJsonRows(const char *path, const char *schema_nam
 	return 1;
 }
 
+static void s_navigationBindingFailure(scenario_source_read_candidate_t read,
+	asset_type_e type, const char *asset_id, const char *path, const char *reason)
+{
+	if (!read) s_graphFailure(type, asset_id, path, reason);
+}
+
 static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 	const char *graph_text, const char *graph_path, char *nav_ini_out,
 	size_t nav_ini_out_n, char *nav_cache_out, size_t nav_cache_out_n,
@@ -7836,7 +8662,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 	const char *waypoints_path, const char *waygroups_path,
 	const char *covers_path, const char *paths_path,
 	scenario_nav_source_counts_t *counts_out,
-	scenario_nav_source_hashes_t *hashes_out)
+	scenario_nav_source_hashes_t *hashes_out, scenario_source_read_candidate_t read, void *ctx)
 {
 	char *nav_text;
 	char *cache_text;
@@ -7867,7 +8693,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 			!strstr(graph_text, "\"source\": \"navigation.ini\"") ||
 			!strstr(graph_text,
 				"\"cache\": \"_meta/generated-navmesh.json\"")) {
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			graph_path, "missing navigation.generate source/cache binding");
 		return 0;
@@ -7882,24 +8708,24 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 			"navigation.ini", nav_ini_out, nav_ini_out_n) ||
 			!s_scenarioMemberPath(scenario, "_meta/generated-navmesh.json",
 			nav_cache_out, nav_cache_out_n)) {
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			graph_path, "invalid navigation.generate member paths");
 		return 0;
 	}
 
-	if (!s_hashSourceFileHex(scene_path, hashes.scene) ||
-			!s_hashSourceFileHex(collision_path, hashes.collision)) {
-		s_graphFailure(ASSET_SCENARIO,
+	if (!s_hashSourceFileHex(scene_path, hashes.scene, read, ctx) ||
+			!s_hashSourceFileHex(collision_path, hashes.collision, read, ctx)) {
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			graph_path, "navigation surface/collision source hash load failed");
 		return 0;
 	}
 
 	nav_size = 0;
-	nav_text = s_loadGraphText(nav_ini_out, &nav_size);
+	nav_text = read ? read(ctx, nav_ini_out, &nav_size) : s_loadGraphText(nav_ini_out, &nav_size);
 	if (!nav_text) {
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_ini_out, "navigation.generate source load failed");
 		return 0;
@@ -7916,7 +8742,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 			!strstr(nav_text,
 				"generated_cache = _meta/generated-navmesh.json")) {
 		free(nav_text);
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_ini_out,
 			"navigation.ini missing deterministic nav generation contract");
@@ -7925,49 +8751,51 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 	free(nav_text);
 
 	if (!s_countAndHashSourceJsonRows(portals_path, "pd2.scenario.portals.v1",
-				&rows_ignored, hashes.portals) ||
+				&rows_ignored, hashes.portals, read, ctx) ||
 			!s_countAndHashSourceJsonRows(pads_path,
 				"pd2.scenario.pads.v1", &counts.pads,
-				hashes.pads) ||
+				hashes.pads, read, ctx) ||
 			!s_countAndHashSourceJsonRows(spawns_path,
 				"pd2.scenario.spawns.v1", &rows_ignored,
-				hashes.spawns) ||
+				hashes.spawns, read, ctx) ||
 			!s_countAndHashSourceJsonRows(volumes_path,
 				"pd2.scenario.volumes.v1", &counts.volumes,
-				hashes.volumes) ||
+				hashes.volumes, read, ctx) ||
 			!s_countAndHashSourceJsonRows(waypoints_path,
 				"pd2.scenario.waypoints.v1", &counts.waypoints,
-				hashes.waypoints) ||
+				hashes.waypoints, read, ctx) ||
 			!s_countAndHashSourceJsonRows(waygroups_path,
 				"pd2.scenario.waygroups.v1", &counts.waygroups,
-				hashes.waygroups) ||
+				hashes.waygroups, read, ctx) ||
 			!s_countAndHashSourceJsonRows(covers_path,
 				"pd2.scenario.covers.v1", &counts.covers,
-				hashes.covers) ||
+				hashes.covers, read, ctx) ||
 			!s_countAndHashSourceJsonRows(paths_path,
 				"pd2.scenario.paths.v1", &counts.paths,
-				hashes.paths)) {
-		s_graphFailure(ASSET_SCENARIO,
+				hashes.paths, read, ctx)) {
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			graph_path, "navigation source table hash/count load failed");
 		return 0;
 	}
 
-	cache_text = s_loadGraphText(nav_cache_out, NULL);
+	u32 cache_size = 0;
+	cache_text = read ? read(ctx, nav_cache_out, &cache_size) : s_loadGraphText(nav_cache_out, NULL);
 	if (!cache_text) {
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_cache_out, "generated navmesh cache metadata load failed");
 		return 0;
 	}
-	if (!strstr(cache_text, "\"schema\": \"pd2.generated.navmesh.v1\"") ||
+	if ((read && !modAssetJsonValidateObject(cache_text, cache_size)) ||
+			!strstr(cache_text, "\"schema\": \"pd2.generated.navmesh.v1\"") ||
 			!strstr(cache_text,
 				"\"generator\": \"deterministic.surface_graph.v1\"") ||
 			!strstr(cache_text,
 				"\"capabilities\": [\"walk\", \"jump\", \"drop\", \"wall\", \"ceiling\"]") ||
 			!strstr(cache_text, "\"cache_only\": true")) {
 		free(cache_text);
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_cache_out,
 			"generated navmesh metadata missing deterministic cache contract");
@@ -7980,7 +8808,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 		counts.waygroups, counts.covers, counts.paths);
 	if (!strstr(cache_text, expected_counts)) {
 		free(cache_text);
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_cache_out,
 			"generated navmesh metadata source counts mismatch public navigation tables");
@@ -7994,7 +8822,7 @@ static s32 s_bindNavigationGenerateSource(const asset_entry_t *scenario,
 		hashes.waypoints, hashes.waygroups, hashes.covers, hashes.paths);
 	if (!strstr(cache_text, expected_hashes)) {
 		free(cache_text);
-		s_graphFailure(ASSET_SCENARIO,
+		s_navigationBindingFailure(read, ASSET_SCENARIO,
 			scenario && scenario->id[0] ? scenario->id : "?",
 			nav_cache_out,
 			"generated navmesh metadata source hashes mismatch public navigation inputs");
@@ -8340,6 +9168,32 @@ static s32 s_addMissionObjectiveSourceRow(
 	return 0;
 }
 
+/* mission-flow.md: a row of kind objective in the mission's objectives.json
+ * may carry "required": false, which leaves the objective out of the mission's
+ * outcome (a bonus objective: shown and checked, but its status neither
+ * completes nor fails the mission). Absent means required, the original rule.
+ * Refused on any other kind of row, or as anything but true or false. */
+static s32 s_missionObjectiveReadRequired(const char *object_text,
+	const char *objective_id, const char *kind,
+	scenario_source_objective_node_t *objectives, s32 objective_count)
+{
+	const char *end = object_text + strlen(object_text);
+	s32 required = 1;
+
+	if (!s_jsonFindKeyInRange(object_text, end, "required")) {
+		return 1;
+	}
+	if (strcmp(kind, "objective") != 0 || objective_count <= 0 ||
+			!s_jsonReadBoolValue(object_text, end, "required", &required)) {
+		sysLogPrintf(LOG_ERROR,
+			"MISSION.GRAPH: objectives.json row '%s' (kind %s): required needs an objective row and true or false",
+			objective_id, kind);
+		return 0;
+	}
+	objectives[objective_count - 1].optional = !required;
+	return 1;
+}
+
 static s32 s_loadMissionObjectiveSourceRows(const char *path,
 	const char *graph_text,
 	scenario_source_objective_node_t **out_objectives,
@@ -8430,6 +9284,13 @@ static s32 s_loadMissionObjectiveSourceRows(const char *path,
 					graph_text, &objectives, &objective_count,
 					&objective_capacity, &criteria, &criteria_count,
 					&criteria_capacity, &current_objective)) {
+				free(object_text);
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			if (!s_missionObjectiveReadRequired(object_text, objective_id,
+					kind, objectives, objective_count)) {
 				free(object_text);
 				free(text);
 				s_freeMissionObjectiveSourceRows(objectives, criteria);
@@ -8889,6 +9750,83 @@ static const asset_entry_t *s_findMissionForScenario(
 	return match.archive_match;
 }
 
+/* trigger-volume-events.md: binds every volume a program's event.volume.*
+ * nodes name to its box in the stage's volumes.json: the mission program's,
+ * and (object-events.md slice 1) the level program's. Returns 0 with the
+ * reason when one is missing or not an aabb. */
+static s32 s_graphBindVolumes(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 *bound_count, char *error, size_t error_size)
+{
+	const s32 count = missionGraphProgramVolumeCount(program);
+
+	*bound_count = 0;
+	for (s32 i = 0; i < count && i < MISSION_GRAPH_MAX_VOLUMES; i++) {
+		const char *id = missionGraphProgramVolumeAt(program, i);
+		const scenario_source_volume_row_t *row = NULL;
+
+		for (s32 v = 0; id && s_ActiveScenarioGraphs.level_volumes
+				&& v < s_ActiveScenarioGraphs.level_volume_count; v++) {
+			if (strcmp(s_ActiveScenarioGraphs.level_volumes[v].id, id) == 0) {
+				row = &s_ActiveScenarioGraphs.level_volumes[v];
+				break;
+			}
+		}
+		if (!row || strcmp(row->shape, "aabb") != 0) {
+			snprintf(error, error_size,
+				"event.volume.* names volume '%s', which is not a box of the stage's volumes.json",
+				id ? id : "?");
+			return 0;
+		}
+		bound[i].id = id;
+		memcpy(bound[i].min, row->min, sizeof(row->min));
+		memcpy(bound[i].max, row->max, sizeof(row->max));
+		bound[i].inside = 0;
+		*bound_count = i + 1;
+	}
+	return 1;
+}
+
+static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
+{
+	if (!s_graphBindVolumes(s_ActiveScenarioGraphs.mission_program,
+			s_ActiveScenarioGraphs.mission_volumes, &s_ActiveScenarioGraphs.mission_volume_count,
+			error, error_size)) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_volume_count > 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: bound %d trigger volume(s) of '%s' backend=graph.mission.volume+volumes.json",
+			s_ActiveScenarioGraphs.mission_volume_count, s_ActiveScenarioGraphs.mission_id);
+	}
+	return 1;
+}
+
+/* object-events.md slice 4: a level program must handle every rule event,
+ * or its stage would have no pickups and no doors: it is refused (fails
+ * closed). The extractor writes the wiring into every level graph. */
+static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, char *err,
+	size_t err_cap)
+{
+	static const struct {
+		s32 kind;
+		const char *name;
+	} rules[] = {
+		{ MISSION_GRAPH_EVENT_PICKUP_TOUCHED, "event.pickup.touched" },
+		{ MISSION_GRAPH_EVENT_DOOR_USE, "event.door.use" },
+		{ MISSION_GRAPH_EVENT_DOOR_APPROACH, "event.door.approach" },
+	};
+	size_t i;
+
+	for (i = 0; i < sizeof(rules) / sizeof(rules[0]); i++) {
+		if (!missionGraphProgramHandlesEvent(program, rules[i].kind)) {
+			snprintf(err, err_cap, "it handles no %s: the level's pickup and door rules are not wired",
+				rules[i].name);
+			return 0;
+		}
+	}
+	return 1;
+}
+
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp)
 {
@@ -9330,6 +10268,8 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	scenario_source_volume_row_t *level_volume_rows;
 	scenario_source_objective_node_t *mission_objective_rows;
 	scenario_source_objective_criteria_t *mission_criteria_rows;
@@ -10366,6 +11306,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"\"kind\": \"scenario.ai.action.shuffle_ruins_pillars\"");
 	level_ai_shuffle_pelagic_switches_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.ai.action.shuffle_pelagic_switches\"");
+	level_ai_if_bot_respawning_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.condition.if_bot_respawning\"");
+	level_ai_mp_init_simulants_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.mp_init_simulants\"");
 	if (level_global_settings_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable global settings source node");
@@ -11131,6 +12075,14 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		free(text);
 		return 0;
 	}
+	/* ai-list-graphs.md: the two simulant commands (host only). */
+	if (level_ai_if_bot_respawning_node_count != 1 ||
+			level_ai_mp_init_simulants_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI simulant source nodes");
+		free(text);
+		return 0;
+	}
 	if (!s_jsonStringValueForKey(text, "scenario",
 			s_ActiveScenarioGraphs.level_global_settings_scenario,
 			sizeof(s_ActiveScenarioGraphs.level_global_settings_scenario)) ||
@@ -11203,7 +12155,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 			s_ActiveScenarioGraphs.covers_path,
 			s_ActiveScenarioGraphs.paths_path,
 			&s_ActiveScenarioGraphs.nav_source_counts,
-			&s_ActiveScenarioGraphs.nav_source_hashes)) {
+			&s_ActiveScenarioGraphs.nav_source_hashes, NULL, NULL)) {
 		s_resetActiveScenarioGraphs();
 		free(text);
 		return 0;
@@ -12085,6 +13037,43 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_ai_shuffle_ruins_pillars_node_count;
 	s_ActiveScenarioGraphs.level_ai_shuffle_pelagic_switches_node_count =
 		level_ai_shuffle_pelagic_switches_node_count;
+	s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count =
+		level_ai_if_bot_respawning_node_count;
+	s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count =
+		level_ai_mp_init_simulants_node_count;
+	/* object-events.md slice 1: the level graph's own program (its event.*,
+	 * gate.* and og.* nodes), for every stage. One that does not compile,
+	 * names a volume that is no box of volumes.json, or (slice 4) does not
+	 * handle every rule event refuses the level graph. A base level graph's
+	 * program is the pickup and door rules' wiring. */
+	s_ActiveScenarioGraphs.level_program = missionGraphProgramCompileLevel(text, text_size,
+		missionGraphModuleKnown, s_ActiveScenarioGraphs.level_program_error,
+		sizeof(s_ActiveScenarioGraphs.level_program_error));
+	if (!s_ActiveScenarioGraphs.level_program
+			|| !s_graphBindVolumes(s_ActiveScenarioGraphs.level_program,
+				s_ActiveScenarioGraphs.level_program_volumes,
+				&s_ActiveScenarioGraphs.level_program_volume_count,
+				s_ActiveScenarioGraphs.level_program_error,
+				sizeof(s_ActiveScenarioGraphs.level_program_error))
+			|| !s_levelProgramHandlesRules(s_ActiveScenarioGraphs.level_program,
+				s_ActiveScenarioGraphs.level_program_error,
+				sizeof(s_ActiveScenarioGraphs.level_program_error))) {
+		char reason[200];
+
+		snprintf(reason, sizeof(reason), "level program refused: %s",
+			s_ActiveScenarioGraphs.level_program_error);
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path, reason);
+		s_resetActiveScenarioGraphs();
+		free(text);
+		return 0;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: level program '%s' nodes=%d exec_edges=%d modules=%d volumes=%d backend=graph.level.runner",
+		scenario->id,
+		missionGraphProgramNodeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.level_program),
+		s_ActiveScenarioGraphs.level_program_volume_count);
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -12484,6 +13473,11 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_shuffle_ruins_pillars_node_count,
 		s_ActiveScenarioGraphs
 			.level_ai_shuffle_pelagic_switches_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI simulant commands '%s' if_bot_respawning=%d mp_init_simulants=%d backend=graph.ai.simulant+ai/ailists.json",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count,
+		s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count);
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: AI team maintenance actions '%s' set_chr_preset_to_unalerted_teammate=%d rebuild_teams=%d rebuild_squadrons=%d backend=graph.ai.action.team+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
@@ -12891,6 +13885,18 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s_ActiveScenarioGraphs.mission_objective_runtime_active = 1;
 	s_ActiveScenarioGraphs.mission_stage_flags = 0;
 	s_ActiveScenarioGraphs.mission_stage_flags_valid = 1;
+	{
+		s32 optional = 0;
+
+		for (s32 oi = 0; oi < mission_objectives; oi++) {
+			optional += mission_objective_rows[oi].optional != 0;
+		}
+		if (optional) {
+			sysLogPrintf(LOG_NOTE,
+				"MISSION.GRAPH: %d of %d objectives of '%s' are optional (required false); the outcome leaves them out",
+				optional, mission_objectives, mission->id);
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE,
 		"MISSION.GRAPH: activated mission graph '%s' scenario='%s' path=%s bytes=%u backend=%s",
@@ -12904,6 +13910,53 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"MISSION.GRAPH: phase source '%s' phases=%d backend=graph.mission.phase+mission.graph.nodes",
 		s_ActiveScenarioGraphs.mission_graph_path,
 		s_ActiveScenarioGraphs.mission_phase_node_count);
+	s_ActiveScenarioGraphs.mission_program = missionGraphProgramCompile(text,
+		text_size, missionGraphModuleKnown,
+		s_ActiveScenarioGraphs.mission_program_error,
+		sizeof(s_ActiveScenarioGraphs.mission_program_error));
+	/* mission-flow.md: og.mission.end_* ends the mission while it is played;
+	 * after the end (event.mission.completed, event.mission.continue) it has
+	 * nothing to end, so such a program is refused. */
+	if (s_ActiveScenarioGraphs.mission_program) {
+		static const s32 after_end[] = { MISSION_GRAPH_EVENT_MISSION_COMPLETED,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE };
+		for (s32 ei = 0; ei < 2; ei++) {
+			if (missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_failed")
+					|| missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+						after_end[ei], "og.mission.end_completed")) {
+				snprintf(s_ActiveScenarioGraphs.mission_program_error,
+					sizeof(s_ActiveScenarioGraphs.mission_program_error), "%s",
+					"og.mission.end_* runs on an objective or phase event, not after the mission ended");
+				missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+				s_ActiveScenarioGraphs.mission_program = NULL;
+				break;
+			}
+		}
+	}
+	/* trigger-volume-events.md: every volume an event names must be a box
+	 * of the stage's volumes.json. */
+	if (s_ActiveScenarioGraphs.mission_program && !s_missionGraphBindVolumes(
+			s_ActiveScenarioGraphs.mission_program_error,
+			sizeof(s_ActiveScenarioGraphs.mission_program_error))) {
+		missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+		s_ActiveScenarioGraphs.mission_program = NULL;
+	}
+	if (s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: compiled executable program '%s' nodes=%d exec_edges=%d objective_status_events=%d modules=%d backend=graph.mission.runner",
+			mission->id,
+			missionGraphProgramNodeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramEventNodeCount(s_ActiveScenarioGraphs.mission_program,
+				MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED),
+			missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.mission_program));
+	} else {
+		s_ActiveScenarioGraphs.mission_program_refused = 1;
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: refused the executable program of '%s': %s; its events run nothing",
+			mission->id, s_ActiveScenarioGraphs.mission_program_error);
+	}
 	scenarioSourceMissionGraphRecordPhase("load", "mission.graph.activate");
 	free(text);
 
@@ -12913,6 +13966,113 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 s32 scenarioSourceObjectiveGraphIsActive(void)
 {
 	return s_ActiveScenarioGraphs.mission_objective_runtime_active;
+}
+
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void)
+{
+	return s_ActiveScenarioGraphs.mission_graph_active &&
+		(s_ActiveScenarioGraphs.mission_program != NULL ||
+			s_ActiveScenarioGraphs.mission_program_refused);
+}
+
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous)
+{
+	static const char *const status_names[] = { "incomplete", "complete", "failed" };
+	const char *status_name = status >= 0 && status <= 2 ? status_names[status] : "?";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsObjectiveEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d status=%s ran nothing: the program was refused (%s)",
+			s_ActiveScenarioGraphs.mission_id, index, number, status_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	event.objective_index = index;
+	event.objective_number = number;
+	event.status = status;
+	event.previous_status = previous;
+	if (s_ActiveScenarioGraphs.mission_objectives && index >= 0 &&
+			index < s_ActiveScenarioGraphs.mission_objective_nodes &&
+			s_ActiveScenarioGraphs.mission_objectives[index].graph_node[0]) {
+		event.objective_node = s_ActiveScenarioGraphs.mission_objectives[index].graph_node;
+	}
+
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d node=%s status=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, index, number,
+		event.objective_node ? event.objective_node : "-", status_name, ran);
+	return ran;
+}
+
+/* Mission events (CORE, 2026-11-15): what a completed mission leads to and
+ * what its completion unlocks run from the mission graph. Ownership is the
+ * same as for objective events: a refused program owns them and runs
+ * nothing, so the caller's default flow applies. */
+s32 scenarioSourceMissionGraphOwnsEvents(void)
+{
+	return scenarioSourceMissionGraphOwnsObjectiveEvents();
+}
+
+s32 scenarioSourceMissionGraphHandlesContinue(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE);
+}
+
+s32 scenarioSourceMissionGraphContinueStartsNextStage(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_next_stage");
+}
+
+s32 scenarioSourceMissionGraphContinueStartsCredits(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_credits");
+}
+
+s32 scenarioSourceMissionGraphMissionEvent(s32 kind, s32 seam)
+{
+	const char *name = kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED ? "completed"
+		: kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE ? "continue" : "?";
+	const char *seam_name = seam == MISSION_GRAPH_SEAM_ENDSCREEN ? "endscreen"
+		: seam == MISSION_GRAPH_SEAM_COOP_STAGE_END ? "coop_stage_end" : "none";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.mission.%s '%s' seam=%s ran nothing: the program was refused (%s)",
+			name, s_ActiveScenarioGraphs.mission_id, seam_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.seam = seam;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.%s '%s' seam=%s modules=%d backend=graph.mission.runner",
+		name, s_ActiveScenarioGraphs.mission_id, seam_name, ran);
+	return ran;
 }
 
 static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
@@ -13104,8 +14264,9 @@ static s32 s_countSourceBackedMpParticipantChrs(void);
 static s32 s_aiGraphRequireRuntimeSetupCharacterSource(const char *action)
 {
 	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing setup.fields.json or spawns.json source");
+		return 0;
 	}
 
 	return 1;
@@ -13134,10 +14295,47 @@ static s32 s_aiGraphTryCountRuntimeSetupChrRowsFromSource(s32 *out_chr_count)
 	return 1;
 }
 
+/* B-1166: set_chr_num gives a source-derived chr a new number (Pelagic II
+ * renumbers one of three setup guards to 0x60, and another chr waits for 0x60
+ * to be dead before it goes on). The new number stays source-derived, so a
+ * reference to it resolves the way native chrFindById does. */
+static s32 s_aiGraphChrnumIsSourceAssigned(s32 chrnum)
+{
+	s32 i;
+
+	if (chrnum < 0) {
+		return 0;
+	}
+	for (i = 0; i < s_ActiveScenarioGraphs.source_renumbered_chr_count; i++) {
+		if (s_ActiveScenarioGraphs.source_renumbered_chrnums[i] == chrnum) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_aiGraphRecordSourceAssignedChrnum(const char *action,
+	s32 chrnum)
+{
+	if (chrnum < 0 || s_aiGraphChrnumIsSourceAssigned(chrnum)) {
+		return 1;
+	}
+	if (s_ActiveScenarioGraphs.source_renumbered_chr_count >=
+			SCENARIO_SOURCE_RENUMBERED_CHR_MAX) {
+		s_aiGraphRuntimeFailure(action,
+			"source-assigned character number table is full");
+		return 0;
+	}
+	s_ActiveScenarioGraphs.source_renumbered_chrnums[
+		s_ActiveScenarioGraphs.source_renumbered_chr_count++] = chrnum;
+	return 1;
+}
+
 static s32 s_aiGraphSetupSourceContainsChrnum(s32 chrnum)
 {
 	return s_sourceSetupContainsChrnum(chrnum) ||
-		s_runtimeSetupContainsChrnum(chrnum);
+		s_runtimeSetupContainsChrnum(chrnum) ||
+		s_aiGraphChrnumIsSourceAssigned(chrnum);
 }
 
 static s32 s_aiGraphCountRuntimeSetupChrRowsFromSource(const char *action,
@@ -13172,8 +14370,12 @@ static s32 s_aiGraphRegisterSourceSpawnedChr(const char *action,
 
 	if (s_ActiveScenarioGraphs.source_spawned_chr_count >=
 			SCENARIO_SOURCE_SPAWNED_CHR_MAX) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"source-spawned character provenance table is full");
+		/* The chr is already spawned: answering 0 would make the twin fall
+		 * to native, which would spawn it a second time. It stays
+		 * unregistered, which the character check tolerates (SP-79). */
+		return 1;
 	}
 
 	s_ActiveScenarioGraphs.source_spawned_chrs[
@@ -13300,6 +14502,10 @@ static s32 s_countRuntimeWaygroups(void)
 
 static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 	s32 *out_pad_count);
+static s32 s_aiGraphRequireRuntimePadTable(const char *action,
+	s32 *out_pad_count);
+static s32 s_aiGraphResolveRoomOrPad(const char *action,
+	struct chrdata *chr, s32 value, s32 *out_room, s32 *out_pad_count);
 
 static struct path *s_aiGraphFindRuntimePath(const char *action,
 	s32 path_id, s32 *out_path_count)
@@ -13403,11 +14609,13 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 
 	path_count = s_countRuntimePaths();
@@ -13416,8 +14624,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (path_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime path table");
+		return 0;
 	}
 
 	for (i = 0; i < path_count; i++) {
@@ -13426,8 +14635,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 		}
 	}
 
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime path pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireRuntimePathPads(const char *action,
@@ -13438,17 +14648,20 @@ static s32 s_aiGraphRequireRuntimePathPads(const char *action,
 	char reason[128];
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json source for navigation path pads");
+		return 0;
 	}
 	if (!path->pads || path->len == 0) {
 		snprintf(reason, sizeof(reason),
 			"navigation path id %d has no source pad sequence",
 			path->id);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	for (i = 0; i < path->len; i++) {
@@ -13502,6 +14715,40 @@ static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 		return 0;
 	}
 
+	return 1;
+}
+
+/* B-1164: a pad argument the native command resolves itself, where 9000
+ * (PAD_PRESET) names chr's preset pad (chrResolvePadId). Checks the pad the
+ * native call will actually use. A preset that resolves below zero (no
+ * preset) is the native call's own case, so only the pad table is required
+ * then. Returns the resolved pad in *out_pad (or -1) and 1, or 0 after
+ * logging a refusal. */
+static s32 s_aiGraphRequireResolvedRuntimePad(const char *action,
+	struct chrdata *chr, s32 pad_id, s32 *out_pad, s32 *out_pad_count)
+{
+	s32 resolved = pad_id;
+
+	if (out_pad) {
+		*out_pad = -1;
+	}
+	if (pad_id == PAD_PRESET) {
+		if (!chr) {
+			s_aiGraphRuntimeFailure(action,
+				"preset pad 9000 needs a character to resolve");
+			return 0;
+		}
+		resolved = chrResolvePadId(chr, pad_id);
+		if (resolved < 0) {
+			return s_aiGraphRequireRuntimePadTable(action, out_pad_count);
+		}
+	}
+	if (!s_aiGraphRequireRuntimePad(action, resolved, out_pad_count)) {
+		return 0;
+	}
+	if (out_pad) {
+		*out_pad = resolved;
+	}
 	return 1;
 }
 
@@ -13720,7 +14967,11 @@ static s32 s_aiGraphRequireRuntimeCharacterRefFromBase(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -13819,7 +15070,11 @@ static s32 s_aiGraphResolveRuntimeCharacterRefOrSelector(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -14035,7 +15290,8 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr || !chr->prop) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14051,13 +15307,18 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chr_count = chr_count;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
 	if (chr->prop->type != PROPTYPE_CHR ||
 			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime character pointer is not source-derived");
+		/* SP-79: still passes on purpose. Co-op AI buddies and tiny-mode
+		 * extras are spawned natively and carry no provenance yet, so
+		 * refusing them here would change base play. Log, then go on. */
+		return 1;
 	}
 	return 1;
 }
@@ -14108,7 +15369,8 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14133,11 +15395,13 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		return 0;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime character state pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
@@ -14165,12 +15429,14 @@ static s32 s_aiGraphRequireRuntimePlayerPointer(const char *action,
 	if (!player) {
 		snprintf(reason, sizeof(reason),
 			"missing %s player state", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (player->prop && player->prop->type != PROPTYPE_PLAYER) {
 		snprintf(reason, sizeof(reason),
 			"%s player prop is not a player actor", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	return 1;
 }
@@ -14187,7 +15453,8 @@ static s32 s_aiGraphRequireRuntimePlayerSlot(const char *action,
 	if (playernum < 0 || playernum >= MAX_PLAYERS) {
 		snprintf(reason, sizeof(reason),
 			"player slot %d is outside runtime player table", playernum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	player = g_Vars.players[playernum];
 	if (!s_aiGraphRequireRuntimePlayerPointer(action, player,
@@ -14644,6 +15911,36 @@ static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
 	return NULL;
 }
 
+/* B-1161: a base animation slot the ROM leaves unused (animIsEmptyBaseSlot)
+ * has nothing to publish: the extractor skips it (257 of the 1,207 character
+ * slots, ANIM_IDLE among them), so its catalog row has no .pdanim. It is
+ * still a valid animation number, and the one chr->naturalanim starts at, so
+ * a condition that only compares animation numbers takes it as it is instead
+ * of refusing (which answered "not equal" without comparing). A slot a mod
+ * fills is not empty and resolves through its public source as before. */
+static const char *s_aiGraphResolveComparableAnimationCatalogId(
+	const char *action, s32 anim_id, const char *role,
+	const char **out_source_path, u32 *out_clip_size)
+{
+	if (animIsEmptyBaseSlot(anim_id)) {
+		CatalogResolveResult result = catalogResolveAnim(anim_id);
+		const asset_entry_t *entry = result.catalog_id >= 0
+			? assetCatalogGetByIndex(result.catalog_id) : NULL;
+
+		if (entry && entry->id[0]) {
+			if (out_source_path) {
+				*out_source_path = "(empty base slot)";
+			}
+			if (out_clip_size) {
+				*out_clip_size = 0;
+			}
+			return entry->id;
+		}
+	}
+	return s_aiGraphResolveAnimationCatalogId(action, anim_id, role,
+		out_source_path, out_clip_size);
+}
+
 static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	const char *action, s32 specialdie, const char **out_anim_id,
 	const char **out_alt_anim_id, const char **out_chair_fallback_anim_id)
@@ -14669,7 +15966,8 @@ static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	if (specialdie < SPECIALDIE_FALLBACK || specialdie > SPECIALDIE_ONCHAIR) {
 		snprintf(reason, sizeof(reason),
 			"invalid special death animation mode %d", specialdie);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	if (specialdie == SPECIALDIE_ONCHAIR) {
@@ -14833,11 +16131,13 @@ static s32 s_aiGraphRequireRandomControlNode(const char *kind,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, name);
-		return s_aiGraphRuntimeFailure(name, reason);
+		s_aiGraphRuntimeFailure(name, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(name,
+		s_aiGraphRuntimeFailure(name,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -14853,11 +16153,13 @@ static s32 s_aiGraphRequireDebugNoOpNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -14874,9 +16176,10 @@ s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("stop",
-			s_ActiveScenarioGraphs.level_ai_stop_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("stop",
+			s_ActiveScenarioGraphs.level_ai_stop_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("stop", chr,
 			&chr_count, &source_chr)) {
@@ -14917,9 +16220,10 @@ s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("kneel",
-			s_ActiveScenarioGraphs.level_ai_kneel_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("kneel",
+			s_ActiveScenarioGraphs.level_ai_kneel_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("kneel", chr,
 			&chr_count, &source_chr)) {
@@ -14950,11 +16254,13 @@ static s32 s_aiGraphRequireCharacterLifecycleNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15055,11 +16361,13 @@ static s32 s_aiGraphRequireCombatNode(const char *kind, const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15579,11 +16887,13 @@ static s32 s_aiGraphRequireTargetMovementNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return -1;
 	}
 	return 1;
 }
@@ -16551,13 +17861,15 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 	}
 
 	if (!prop) {
-		return s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		return 0;
 	}
 	if (prop->type != PROPTYPE_WEAPON || !prop->weapon) {
 		snprintf(reason, sizeof(reason),
 			"current gun prop is type %d without weapon payload",
 			prop->type);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	weapon = prop->weapon;
@@ -16565,7 +17877,8 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 		snprintf(reason, sizeof(reason),
 			"current gun prop has invalid runtime weapon %d",
 			weapon->weaponnum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	model_id = s_aiGraphResolveModelCatalogId(action,
@@ -16802,13 +18115,13 @@ s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_room_is_on_screen", pad,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_room_is_on_screen", chr, pad,
+			&room_id, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
 
-	room_id = chr ? chrGetPadRoom(chr, pad) : -1;
 	branch = room_id >= 0 && bgRoomIsOnscreen(room_id);
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged) {
@@ -17363,12 +18676,20 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 		return 1;
 	}
 	if (room_type != 1) {
-		if (!s_aiGraphRequireRuntimePad("if_chr_in_room", padnum,
+		/* B-1163: type 0 takes a room-or-pad value (chrGetPadRoom's
+		 * encoding). Type 2 takes a pad that each eyespy resolves itself
+		 * (B-1164, checked in the loop below); other types take none. */
+		if (room_type == 0) {
+			if (!s_aiGraphResolveRoomOrPad("if_chr_in_room", basechr,
+					padnum, &room, &pad_count)) {
+				s_aiGraphApplyBranch(0, label, 7);
+				return 1;
+			}
+		} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 				&pad_count)) {
 			s_aiGraphApplyBranch(0, label, 7);
 			return 1;
 		}
-		room = chrGetPadRoom(basechr, padnum);
 	} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 			&pad_count)) {
 		s_aiGraphApplyBranch(0, label, 7);
@@ -17391,12 +18712,21 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 			}
 			checked_players++;
 			if (player->eyespy && player->eyespy->prop &&
-					player->eyespy->prop->chr &&
-					chrGetDistanceToPad(
-						player->eyespy->prop->chr, padnum) <
-					150.0f) {
-				branch = 1;
-				break;
+					player->eyespy->prop->chr) {
+				struct chrdata *eyespychr = player->eyespy->prop->chr;
+				s32 resolved = 0;
+
+				/* B-1164: the eyespy resolves 9000 to its own preset,
+				 * as chrGetDistanceToPad does. */
+				if (!s_aiGraphRequireResolvedRuntimePad("if_chr_in_room",
+						eyespychr, padnum, &resolved, &pad_count)) {
+					s_aiGraphApplyBranch(0, label, 7);
+					return 1;
+				}
+				if (chrGetDistanceToPad(eyespychr, padnum) < 150.0f) {
+					branch = 1;
+					break;
+				}
 			}
 		}
 	}
@@ -17427,12 +18757,12 @@ s32 scenarioSourceAiGraphExecuteIfTargetInRoom(struct chrdata *chr,
 	if (prepared <= 0) {
 		return prepared < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_target_in_room", padnum,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_target_in_room", chr, padnum,
+			&room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	room = chrGetPadRoom(chr, padnum);
 	branch = room >= 0 && prop && room == prop->rooms[0];
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged) {
@@ -17716,15 +19046,17 @@ static s32 s_aiGraphRequireObjectInteractionNode(const char *action,
 			snprintf(reason, sizeof(reason),
 				"missing scenario.ai.condition.%s node", action);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			require_pads
 				? "missing ai/ailists.json, objects.json, or pads.json source"
 				: "missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -18255,9 +19587,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_one_hand",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_one_hand",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_one_hand", chr, &chr_count, &source_chr)) {
@@ -18282,9 +19615,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_look_around",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_look_around",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_look_around", chr, &chr_count, &source_chr)) {
@@ -18309,9 +19643,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_surrender",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_surrender",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_surrender", chr, &chr_count, &source_chr)) {
@@ -18479,9 +19814,10 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 	struct chrdata *chr = NULL;
 	s32 chr_count = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_list",
-			s_ActiveScenarioGraphs.level_ai_set_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_list",
+			s_ActiveScenarioGraphs.level_ai_set_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	ailist = ailistFindById(list_id);
@@ -18526,9 +19862,10 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 	s32 source_vehicle_type = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_return_list",
-			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_return_list",
+			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	if (active_chr) {
@@ -18606,9 +19943,10 @@ s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_shot_list",
-			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_shot_list",
+			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_shot_list",
@@ -18642,9 +19980,10 @@ s32 scenarioSourceAiGraphExecuteReturnList(void)
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireListControlNode("return_list",
-			s_ActiveScenarioGraphs.level_ai_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("return_list",
+			s_ActiveScenarioGraphs.level_ai_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("return_list",
@@ -18698,8 +20037,9 @@ static s32 s_aiGraphExecuteSetChrListField(const char *action,
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode(action, node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode(action, node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		s16 *field;
@@ -18781,8 +20121,9 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("try_start_alarm",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("try_start_alarm", pad_id,
-			&pad_count)) {
+	/* B-1164: chrTryStartAlarm resolves 9000 to chr's preset pad itself. */
+	if (!s_aiGraphRequireResolvedRuntimePad("try_start_alarm", chr, pad_id,
+			NULL, &pad_count)) {
 		g_Vars.aioffset += 5;
 		return 1;
 	}
@@ -18862,6 +20203,7 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	s32 chr_count = 0;
 	s32 pad_count = 0;
 	s32 source_chr = -1;
+	s32 resolved_pad;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -18872,7 +20214,13 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action, "missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {
+	/* B-1119: pad 9000 (PAD_PRESET) names the character's preset pad, and
+	 * chrGoToPad resolves it itself (chrResolvePadId). Check the pad the
+	 * character will actually go to: 9000 is not a pad row, and refusing it
+	 * left the character standing, because a refusal also skips the native
+	 * handler. */
+	resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;
+	if (!s_aiGraphRequireRuntimePad(action, resolved_pad, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
@@ -18882,9 +20230,9 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	chrGoToPad(chr, pad, goposflags);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s",
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s resolved_pad=%d",
 			action, chr_count, source_chr, pad, pad_count,
-			s_ActiveScenarioGraphs.pads_path, backend);
+			s_ActiveScenarioGraphs.pads_path, backend, resolved_pad);
 		*logged = 1;
 	}
 	return 1;
@@ -19086,7 +20434,9 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 		return s_aiGraphRuntimeFailure("set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_pad_preset", pad, &pad_count)) {
+	/* B-1164: chrSetPadPreset resolves 9000 (chr keeps its own preset). */
+	if (!s_aiGraphRequireResolvedRuntimePad("set_pad_preset", chr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("set_pad_preset", chr,
@@ -19122,8 +20472,10 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("chr_set_pad_preset", pad,
-			&pad_count)) {
+	/* B-1164: chrSetPadPresetByChrnum resolves 9000 against basechr, so
+	 * the target takes the caller's preset. */
+	if (!s_aiGraphRequireResolvedRuntimePad("chr_set_pad_preset", basechr,
+			pad, NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
@@ -20088,6 +21440,76 @@ s32 scenarioSourceAiGraphExecuteRebuildTeams(void)
 	return 1;
 }
 
+/* AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two
+ * simulant commands, which run only in multiplayer. Semantics from
+ * MULTIPLAYER (week note, 2026-11-16 12:44 UTC) as the game plays today.
+ * if_bot_respawning (0x0176): the current chr is a simulant whose respawn
+ * is pending -> jump to the label and clear the flag; otherwise go on (no
+ * chr, or a chr without an aibot, is false: the original read aibot
+ * regardless and crashed). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label)
+{
+	s32 branch_taken;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count != 1) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing scenario.ai.condition.if_bot_respawning node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing ai/ailists.json source");
+	}
+	branch_taken = chr && chr->aibot && chr->aibot->respawning == true;
+	if (branch_taken) {
+		chr->aibot->respawning = false;
+	}
+	s_aiGraphApplyBranch(branch_taken, label, 3);
+	if (!(s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged & (1 << branch_taken))) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_bot_respawning chr=%d simulant=%d label=%d branch=%d source=%s backend=graph.ai.condition.simulant+ai/ailists.json",
+			chr ? (s32)chr->chrnum : -1, chr && chr->aibot ? 1 : 0, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged |= 1 << branch_taken;
+	}
+	return 1;
+}
+
+/* mp_init_simulants (0x0185): spawns the simulant wave. Returns 1 once the
+ * wave is complete (the caller goes on) and 2 while it is not (the caller
+ * ends the tick without moving, so the next pass retries the retained wave
+ * cursor; a command that returned false without moving would be skipped by
+ * the B-949 guard, B-1255). */
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void)
+{
+	enum bot_spawn_wave_result wave;
+	s32 bit;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count != 1) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing scenario.ai.action.mp_init_simulants node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing ai/ailists.json source");
+	}
+	wave = botSpawnAll();
+	bit = wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : wave == BOT_SPAWN_WAVE_RETRY_PENDING ? 2 : 4;
+	if (!(s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged & bit)) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action mp_init_simulants wave=%s source=%s backend=graph.ai.action.simulant+ai/ailists.json",
+			bit == 1 ? "complete" : bit == 2 ? "pending" : "invalid",
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged |= bit;
+	}
+	return wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : 2;
+}
+
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void)
 {
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
@@ -20971,8 +22393,10 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("set_chr_preset_to_chr_near_pad",
-			padnum, &pad_count)) {
+	/* B-1164: the native near-pad helper resolves 9000 against chr. */
+	if (!s_aiGraphRequireResolvedRuntimePad(
+			"set_chr_preset_to_chr_near_pad", chr, padnum, NULL,
+			&pad_count)) {
 		return 1;
 	}
 	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
@@ -21049,26 +22473,30 @@ static s32 s_aiGraphRequireRuntimeChopperPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle weapon state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime chopper pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != OBJTYPE_CHOPPER) {
 		snprintf(reason, sizeof(reason),
 			"runtime vehicle pointer is source type %u, expected source type %u for chopper weapon state",
 			(unsigned)obj->type, (unsigned)OBJTYPE_CHOPPER);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21096,20 +22524,23 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime vehicle pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != expected_type_a &&
 			(expected_type_b < 0 || obj->type != expected_type_b)) {
@@ -21123,7 +22554,8 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 				"runtime vehicle pointer is source type %u, expected source vehicle type %d",
 				(unsigned)obj->type, expected_type_a);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21225,24 +22657,28 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 				&vehicle_count, &source_vehicle_type)) {
 			return 1;
 		}
-		if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
-				hovercar->path, &path_count) ||
-				!s_aiGraphRequireRuntimePathPads(
-					"if_hoverbot_next_step",
-					hovercar->path, &pad_count)) {
-			return 1;
+		/* Native compares nextstep and needs no path (B-1167): check the
+		 * path only when the hoverbot has one. */
+		if (hovercar->path) {
+			if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
+					hovercar->path, &path_count) ||
+					!s_aiGraphRequireRuntimePathPads(
+						"if_hoverbot_next_step",
+						hovercar->path, &pad_count)) {
+				return 1;
+			}
+			if (hovercar->nextstep < 0 ||
+					hovercar->nextstep >= hovercar->path->len) {
+				snprintf(reason, sizeof(reason),
+					"hoverbot nextstep %d outside path id %d length %u",
+					hovercar->nextstep, hovercar->path->id,
+					(unsigned)hovercar->path->len);
+				return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
+					reason);
+			}
+			path_id = hovercar->path->id;
+			path_pads = hovercar->path->len;
 		}
-		if (hovercar->nextstep < 0 ||
-				hovercar->nextstep >= hovercar->path->len) {
-			snprintf(reason, sizeof(reason),
-				"hoverbot nextstep %d outside path id %d length %u",
-				hovercar->nextstep, hovercar->path->id,
-				(unsigned)hovercar->path->len);
-			return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
-				reason);
-		}
-		path_id = hovercar->path->id;
-		path_pads = hovercar->path->len;
 		nextstep = hovercar->nextstep;
 	}
 	branch_taken = hovercar &&
@@ -22225,8 +23661,11 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("if_natural_anim",
-		anim, "natural", &anim_source_path, &anim_clip_size);
+	/* Both animations are only compared by number, so an empty base slot
+	 * (ANIM_IDLE, where every chr's natural animation starts) is valid. */
+	anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
+		"if_natural_anim", anim, "natural", &anim_source_path,
+		&anim_clip_size);
 	if (!anim_catalog_id) {
 		s_aiGraphApplyBranch(0, label, 4);
 		return 1;
@@ -22236,7 +23675,7 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 		return 1;
 	}
 	if (chr && chr->naturalanim >= 0) {
-		current_anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+		current_anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
 			"if_natural_anim", chr->naturalanim, "current_natural",
 			&current_anim_source_path, &current_anim_clip_size);
 		if (!current_anim_catalog_id) {
@@ -23973,8 +25412,18 @@ s32 scenarioSourceAiGraphExecuteSetChrNum(struct chrdata *chr, s32 chrnum)
 		return required < 0 ? 1 : 0;
 	}
 	if (chr && chr->prop) {
+		/* B-1166: a source-derived chr keeps its provenance under its new
+		 * number. */
+		const s32 was_source = s_aiGraphRuntimeChrIsSourceSpawned(chr) ||
+			(chr->prop->type == PROPTYPE_CHR &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum));
+
 		chrSetChrnum(chr, chrnum);
 		chr->chrnum = (s16)chrnum;
+		if (was_source &&
+				!s_aiGraphRecordSourceAssignedChrnum("set_chr_num", chrnum)) {
+			return 1;
+		}
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_num_logged) {
 		sysLogPrintf(LOG_NOTE,
@@ -25033,12 +26482,14 @@ static s32 s_aiGraphRequireDoorNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25288,13 +26739,15 @@ static s32 s_aiGraphRequireLiftNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json, objects.json, or pads.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25587,12 +27040,14 @@ static s32 s_aiGraphRequireWeatherNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.level_global_settings_node_count) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or scenario.ini source");
+		return 0;
 	}
 	return 1;
 }
@@ -25640,11 +27095,13 @@ static s32 s_aiGraphRequireSkyNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25701,14 +27158,20 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 		return s_aiGraphRuntimeFailure("set_lights",
 			"missing ai/ailists.json or pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_lights", padnum, &pad_count)) {
-		return 1;
-	}
 	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("set_lights",
 			chr, &chr_count, &source_chr)) {
 		return 1;
 	}
-	roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1;
+	/* B-1162: background scripts run on a blank chr with no prop, and they
+	 * make 569 of the 590 light changes in base content. The room used to be
+	 * computed only for a chr with a prop, so on the graph path those lights
+	 * never changed. Like native, any chr (or none, unless the value names
+	 * the preset pad) decodes the room. B-1163: the value is chrGetPadRoom's
+	 * room-or-pad encoding, checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("set_lights", chr, padnum, &roomnum,
+			&pad_count)) {
+		return 1;
+	}
 	if (roomnum >= 0) {
 		switch (operation) {
 		case LIGHTOP_TURNOFF:
@@ -25741,8 +27204,9 @@ static s32 s_aiGraphRequireRuntimeSceneRooms(const char *action,
 		*out_room_count = 0;
 	}
 	if (!g_Rooms || g_Vars.roomcount <= 1) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built scene room table");
+		return 0;
 	}
 	if (out_room_count) {
 		*out_room_count = g_Vars.roomcount;
@@ -25767,6 +27231,62 @@ static s32 s_aiGraphResolveRuntimeSceneRoom(const char *action,
 	return 1;
 }
 
+/* B-1163: the room argument of the room commands (if_chr_in_room type 0,
+ * if_target_in_room, if_room_is_on_screen, if_obj_in_room, set_lights) is
+ * chrGetPadRoom's encoding: below 10000 it is a room number, from 10000 it is
+ * the room of pad (value - 10000), and 19000 is the room of chr's preset pad.
+ * The graph used to check the raw value against the pad table, which passed a
+ * room number only while it happened to be below the stage's pad count and
+ * refused every pad form. This decodes the value, checks what native will
+ * index (a runtime room, or the pad behind it), and returns the room exactly
+ * as chrGetPadRoom(chr, value) does. chr may be NULL (a background script's
+ * blank chr is not NULL, but a missing chr is) unless the value names the
+ * preset pad. Returns 1 with *out_room set, or 0 after logging a refusal. */
+static s32 s_aiGraphResolveRoomOrPad(const char *action, struct chrdata *chr,
+	s32 value, s32 *out_room, s32 *out_pad_count)
+{
+	char reason[112];
+
+	if (out_room) {
+		*out_room = -1;
+	}
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (value >= 10000) {
+		s32 pad = 0;
+
+		if (!s_aiGraphRequireResolvedRuntimePad(action, chr, value - 10000,
+				&pad, out_pad_count)) {
+			return 0;
+		}
+		if (out_room) {
+			*out_room = pad >= 0 ? chrGetPadRoom(chr, value) : -1;
+		}
+		return 1;
+	}
+	{
+		s32 room_count = 0;
+		s32 room_available = 0;
+
+		if (!s_aiGraphResolveRuntimeSceneRoom(action, value, &room_count,
+				&room_available)) {
+			return 0;
+		}
+		if (!room_available) {
+			snprintf(reason, sizeof(reason),
+				"room %d is not a runtime room (rooms=%d)", value,
+				room_count);
+			s_aiGraphRuntimeFailure(action, reason);
+			return 0;
+		}
+	}
+	if (out_room) {
+		*out_room = value;
+	}
+	return 1;
+}
+
 static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 	s32 *out_portal_count, s32 *out_portal_available)
 {
@@ -25777,12 +27297,14 @@ static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 		*out_portal_available = 0;
 	}
 	if (!s_ActiveScenarioGraphs.portals_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing portals.json source");
+		return 0;
 	}
 	if (!g_BgPortals) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built portal table");
+		return 0;
 	}
 	if (out_portal_count) {
 		*out_portal_count = g_BgNumPortalCameraCacheItems > 0
@@ -26105,11 +27627,13 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -26696,11 +28220,13 @@ static s32 s_aiMusicTrackGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -26897,11 +28423,13 @@ static s32 s_aiPlayerWeaponStateGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27300,11 +28828,13 @@ static s32 s_aiPlayerCutsceneGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27856,11 +29386,13 @@ static s32 s_aiSetupSpawnGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27885,7 +29417,9 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("spawn_chr_at_pad",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("spawn_chr_at_pad", pad, &pad_count)) {
+	/* B-1164: chrSpawnAtPad resolves 9000 against basechr. */
+	if (!s_aiGraphRequireResolvedRuntimePad("spawn_chr_at_pad", basechr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	body_id = s_aiGraphResolveBodyCatalogId("spawn_chr_at_pad",
@@ -28354,11 +29888,13 @@ static s32 s_aiEntityLifecycleGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -28514,6 +30050,14 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 			rebuildSquadrons();
 			pass = 1;
 		}
+	}
+	/* B-1165: a clone is created from graph source like the spawn_chr_at_*
+	 * characters, so it is registered the same way. Without it every later
+	 * AI command for the clone (Defense's shock troopers) refused it as
+	 * "not source-derived". */
+	if (pass && !s_aiGraphRegisterSourceSpawnedChr("duplicate_chr",
+			cloneprop)) {
+		return 0;
 	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -29045,19 +30589,23 @@ static s32 s_aiGunInteractionGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.level_graph_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing level.graph.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -29438,13 +30986,13 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_obj_in_room", room_id,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_obj_in_room", basechr, room_id,
+			&resolved_room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
 	obj = objFindByTagId(tag_id);
-	resolved_room = chrGetPadRoom(basechr, room_id);
 	pass = resolved_room >= 0 && obj && obj->prop &&
 		resolved_room == obj->prop->rooms[0];
 	if (pass) {
@@ -29477,15 +31025,18 @@ static s32 s_aiGraphRequirePerceptionNode(const char *action, s32 node_count,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (needs_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30006,11 +31557,13 @@ static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30047,11 +31600,13 @@ static s32 s_aiGraphRequireMissionGlobalConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -31088,17 +32643,20 @@ static s32 s_aiGraphRequireQuadrantPresetNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
 			!s_ActiveScenarioGraphs.waypoints_path[0] ||
 			!s_ActiveScenarioGraphs.waygroups_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json or navigation waypoint/waygroup source");
+		return 0;
 	}
 	return 1;
 }
@@ -31514,6 +33072,9 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 		}
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31580,6 +33141,9 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 		return 1;
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31742,11 +33306,13 @@ static s32 s_aiGraphRequireCutscenePresentationNode(const char *action,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32094,12 +33660,14 @@ static s32 s_aiGraphRequireModelPartNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32169,12 +33737,14 @@ static s32 s_aiGraphRequireObjectHealthNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32271,7 +33841,9 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 			&anim_id, &alt_anim_id, &chair_fallback_anim_id)) {
 		return 1;
 	}
-	chr->specialdie = animation;
+	if (chr) {
+		chr->specialdie = animation;
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
 			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.json",
@@ -33027,11 +34599,13 @@ static s32 s_aiGraphRequireHudNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -33231,15 +34805,18 @@ static s32 s_aiGraphRequireVehicleNode(const char *action, s32 node_count,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (require_paths && !s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -33486,6 +35063,17 @@ s32 scenarioSourceObjectiveGraphReportRuntimeMismatch(s32 index,
 	return s_missionObjectiveGraphRuntimeFailure(action, index, reason);
 }
 
+s32 scenarioSourceMissionObjectiveRequired(s32 index)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_objectives
+			|| index < 0
+			|| index >= s_ActiveScenarioGraphs.mission_objective_nodes) {
+		return 1;
+	}
+	return !s_ActiveScenarioGraphs.mission_objectives[index].optional;
+}
+
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason)
 {
@@ -33500,6 +35088,11 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		return s_missionObjectiveGraphRuntimeFailure("phase", -1,
 			"missing mission phase source nodes");
 	}
+	/* Once a graph ended the mission (og.mission.end_*), its outcome is the
+	 * phase until the stage ends. */
+	if (s_ActiveScenarioGraphs.mission_forced_outcome && strcmp(phase, "end") != 0) {
+		phase = s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "complete" : "failed";
+	}
 	if (strcmp(s_ActiveScenarioGraphs.mission_phase_state, phase) == 0) {
 		return 1;
 	}
@@ -33511,6 +35104,332 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 		s_ActiveScenarioGraphs.mission_graph_path,
 		phase,
 		reason && reason[0] ? reason : "runtime");
+	return 1;
+}
+
+/* mission-flow.md: the phase the objectives check just recorded reaches the
+ * mission graph as event.mission.phase_changed, once per change, after the
+ * objectives' own events and never inside another event's walk (only
+ * objectivesCheckAll calls this). load and end are not delivered. */
+/* trigger-volume-events.md: from the objectives check, after the phase
+ * event: each player who went into or out of a bound volume since the last
+ * check fires event.volume.entered or event.volume.left. The caller passes
+ * the players' positions (present[p] 0 for a player with no prop) and
+ * delivers nothing on a networked client (the host's graph decides).
+ * Returns the modules run. */
+/* One program's volume events: each player who went into or out of one of
+ * its bound volumes since the last call fires event.volume.entered or
+ * event.volume.left on it. Returns the modules run. */
+static s32 s_graphDeliverVolumeEvents(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 bound_count, const char *channel,
+	const char *owner, const char *backend, const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	s32 total = 0;
+
+	for (s32 v = 0; v < bound_count; v++) {
+		for (s32 p = 0; p < count && p < 32; p++) {
+			const u32 bit = 1u << p;
+			mission_graph_event_t event;
+			s32 inside = 0;
+			s32 ran;
+
+			if (present[p]) {
+				const struct coord *pos = &positions[p];
+				const f32 *min = bound[v].min;
+				const f32 *max = bound[v].max;
+
+				inside = pos->x >= min[0] && pos->x <= max[0] && pos->y >= min[1]
+					&& pos->y <= max[1] && pos->z >= min[2] && pos->z <= max[2];
+			}
+			if (inside == ((bound[v].inside & bit) != 0)) {
+				continue;
+			}
+			if (inside) {
+				bound[v].inside |= bit;
+			} else {
+				bound[v].inside &= ~bit;
+			}
+			memset(&event, 0, sizeof(event));
+			event.kind = inside ? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
+			event.objective_index = -1;
+			event.volume = bound[v].id;
+			event.player = p;
+			ran = missionGraphProgramFire(program, &event, missionGraphModuleRun, NULL);
+			sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+				"%s: %s '%s' volume=%s player=%d modules=%d backend=%s",
+				channel, inside ? "event.volume.entered" : "event.volume.left",
+				owner, event.volume, p, ran, backend);
+			if (ran > 0) {
+				total += ran;
+			}
+		}
+	}
+	return total;
+}
+
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program
+			|| s_ActiveScenarioGraphs.mission_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.mission_program,
+		s_ActiveScenarioGraphs.mission_volumes, s_ActiveScenarioGraphs.mission_volume_count,
+		"MISSION.GRAPH", s_ActiveScenarioGraphs.mission_id, "graph.mission.runner",
+		positions, present, count);
+}
+
+/* object-events.md slice 1: the level program's volume events, on every
+ * stage (lvTick, after scenarioTick); the caller passes the players'
+ * positions and delivers nothing on a networked client. */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || !s_ActiveScenarioGraphs.level_program
+			|| s_ActiveScenarioGraphs.level_program_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.level_program,
+		s_ActiveScenarioGraphs.level_program_volumes,
+		s_ActiveScenarioGraphs.level_program_volume_count, "SCENARIO.GRAPH",
+		s_ActiveScenarioGraphs.scenario_id, "graph.level.runner", positions, present, count);
+}
+
+/* object-events.md slice 2: an object event from a native seam, after the
+ * native decision and effect (the caller builds the payload and fires
+ * nothing on a networked client). It goes to the level program on every
+ * stage and to the mission program on a mission. The base game's graphs
+ * wire none, so for them it is recorded only: the first event of each kind
+ * on a stage is logged with its payload, every one that ran a module or
+ * failed is logged, and the totals are logged once per stage. Returns the
+ * modules run. */
+/* How deep object events and queries may nest (a module causing another). */
+#define SCENARIO_OBJECT_EVENT_MAX_DEPTH 4
+static s32 s_ObjectEventDepth;
+
+s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	static const char *const names[] = { "pickup.collected", "door.opened", "door.closed",
+		"object.used" };
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_COLLECTED;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	mission_graph_event_t event;
+	s32 level_ran = 0;
+	s32 mission_ran = 0;
+
+	if (index < 0 || index >= 4 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	/* slice 3: a module may cause another object event (og.pickup.give
+	 * collects an object); a chain deeper than this is cut. */
+	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s not delivered: object events nested %d deep",
+			names[index], s_ActiveScenarioGraphs.scenario_id, object && object[0] ? object : "-",
+			s_ObjectEventDepth);
+		return 0;
+	}
+	s_ObjectEventDepth++;
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	if (s_ActiveScenarioGraphs.level_program) {
+		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	if (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program) {
+		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	s_ObjectEventDepth--;
+	s_ActiveScenarioGraphs.object_event_counts[index]++;
+	if (s_ActiveScenarioGraphs.object_event_counts[index] == 1 || level_ran != 0 || mission_ran != 0) {
+		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s catalog_id=%s player=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
+			names[index], s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-",
+			tag, object_kind ? object_kind : "-", catalog_id && catalog_id[0] ? catalog_id : "-",
+			player, level_ran, mission_ran);
+	}
+	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
+}
+
+static const char *const s_ObjectRuleEventNames[] = { "pickup.touched", "door.use", "door.approach" };
+
+s32 scenarioSourceGraphObjectRulesActive(void)
+{
+	return s_ActiveScenarioGraphs.level_graph_active && s_ActiveScenarioGraphs.level_program != NULL;
+}
+
+/* object-events.md slice 4: a rule event, into the level program only (a
+ * mission graph cannot name one). The seam holds the rule the gates and
+ * modules decide on (missionGraphModulesRuleBegin). */
+s32 scenarioSourceGraphObjectRuleEvent(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_TOUCHED;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (index < 0 || index >= 3 || !scenarioSourceGraphObjectRulesActive()) {
+		return 0;
+	}
+	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s not delivered: object events nested %d deep",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			object && object[0] ? object : "-", s_ObjectEventDepth);
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	s_ObjectEventDepth++;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+		missionGraphModuleRun, NULL);
+	s_ObjectEventDepth--;
+	s_ActiveScenarioGraphs.object_rule_counts[index]++;
+	if (ran < 0 || s_ActiveScenarioGraphs.object_rule_counts[index] == 1) {
+		sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s catalog_id=%s player=%d level_modules=%d backend=graph.level.runner",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			event.object[0] ? event.object : "-", tag, object_kind ? object_kind : "-",
+			catalog_id && catalog_id[0] ? catalog_id : "-", player, ran);
+	}
+	return ran;
+}
+
+void scenarioSourceGraphObjectRuleCompared(s32 kind, const char *object, const char *native,
+	const char *graph, s32 differ)
+{
+	const s32 index = kind - MISSION_GRAPH_EVENT_PICKUP_TOUCHED;
+
+	if (index < 0 || index >= 3 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_rule_compared++;
+	if (!differ) {
+		return;
+	}
+	s_ActiveScenarioGraphs.object_rule_differ++;
+	if (s_ActiveScenarioGraphs.object_rule_differ <= 8) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: object rule differs: event.%s '%s' object=%s native=%s graph=%s backend=graph.level.runner",
+			s_ObjectRuleEventNames[index], s_ActiveScenarioGraphs.scenario_id,
+			object && object[0] ? object : "-", native ? native : "-", graph ? graph : "-");
+	}
+}
+
+void scenarioSourceGraphObjectRuleParity(s32 *compared, s32 *differ)
+{
+	if (compared) {
+		*compared = s_ActiveScenarioGraphs.object_rule_compared;
+	}
+	if (differ) {
+		*differ = s_ActiveScenarioGraphs.object_rule_differ;
+	}
+}
+
+void scenarioSourceGraphObjectEventsReport(const char *reason)
+{
+	s_reportObjectEvents(reason && reason[0] ? reason : "stage_end");
+}
+
+s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
+{
+	mission_graph_event_t event;
+	s32 phase;
+	s32 ran;
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program) {
+		return 0;
+	}
+	phase = missionGraphPhaseFromText(s_ActiveScenarioGraphs.mission_phase_state);
+	if (phase < 0 || phase == s_ActiveScenarioGraphs.mission_phase_delivered) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_phase_delivered = phase;
+	if (!missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED)) {
+		/* Logged without a handler too: the campaign logs show every base
+		 * mission's phases arrive (active, then complete). */
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=0 (no handler) backend=graph.mission.runner",
+			s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state);
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED;
+	event.objective_index = -1;
+	event.phase = phase;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.phase_changed '%s' phase=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, s_ActiveScenarioGraphs.mission_phase_state, ran);
+	return ran;
+}
+
+/* og.mission.end_failed / og.mission.end_completed (mission_graph_modules.c,
+ * which refuses them on a network client and a forced completion in co-op
+ * and counter-op): from now on the outcome is the graph's, and the stage ends
+ * through the AI's end_level path once the objectives check that ran the
+ * module has returned (scenarioSourceMissionGraphTakePendingEnd). The first
+ * request wins. */
+s32 scenarioSourceMissionGraphRequestEnd(s32 completed)
+{
+	const char *what = completed ? "completed" : "failed";
+
+	if (!s_ActiveScenarioGraphs.mission_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_forced_outcome) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: og.mission.end_%s ignored: '%s' is already ending %s",
+			what, s_ActiveScenarioGraphs.mission_id,
+			s_ActiveScenarioGraphs.mission_forced_outcome == 2 ? "completed" : "failed");
+		return 1;
+	}
+	s_ActiveScenarioGraphs.mission_forced_outcome = completed ? 2 : 1;
+	s_ActiveScenarioGraphs.mission_end_pending = 1;
+	scenarioSourceMissionGraphRecordPhase(completed ? "complete" : "failed", "og.mission.end");
+	sysLogPrintf(LOG_NOTE,
+		"MISSION.GRAPH: og.mission.end_%s: '%s' ends %s from its mission graph",
+		what, s_ActiveScenarioGraphs.mission_id, what);
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_forced_outcome) {
+		return 0;
+	}
+	if (out_complete) {
+		*out_complete = s_ActiveScenarioGraphs.mission_forced_outcome == 2;
+	}
+	return 1;
+}
+
+s32 scenarioSourceMissionGraphTakePendingEnd(void)
+{
+	if (!s_ActiveScenarioGraphs.mission_end_pending) {
+		return 0;
+	}
+	s_ActiveScenarioGraphs.mission_end_pending = 0;
 	return 1;
 }
 
@@ -34223,42 +36142,45 @@ s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 		"runtime link record was not present in setup.fields.json");
 }
 
-static s32 s_loadNavigationTables(const asset_entry_t *scenario,
-                                  const scenario_source_pad_row_t *pads,
-                                  s32 pad_count,
-                                  const char *pads_path,
-                                  scenario_source_navigation_t *nav)
+typedef struct scenario_source_navigation_paths {
+	char waypoints[FS_MAXPATH + 1];
+	char waygroups[FS_MAXPATH + 1];
+	char covers[FS_MAXPATH + 1];
+	char paths[FS_MAXPATH + 1];
+} scenario_source_navigation_paths_t;
+
+static char *s_readNavigationRows(const char *path, u32 *size,
+	scenario_source_read_candidate_t read, void *ctx)
 {
-	char waypoints_path[FS_MAXPATH + 1];
-	char waygroups_path[FS_MAXPATH + 1];
-	char covers_path[FS_MAXPATH + 1];
-	char paths_path[FS_MAXPATH + 1];
-	scenario_source_path_table_t path_table;
+	if (!read) return s_loadOptionalText(path, size);
+	char *text = read(ctx, path, size);
+	if (text && !modAssetJsonValidateObject(text, *size)) {
+		free(text);
+		return NULL;
+	}
+	return text;
+}
+
+static void s_protectCandidateNavigationPad(scenario_source_navigation_probe_t *probe, s32 pad)
+{
+	probe->protected_pads[pad / 8] |= 1u << (pad % 8);
+}
+
+static s32 s_loadNavigationTablesWithSources(const asset_entry_t *scenario,
+	const scenario_source_pad_row_t *pads, s32 pad_count, const char *pads_path,
+	const scenario_source_navigation_paths_t *paths, scenario_source_read_candidate_t read,
+	void *ctx, scenario_source_navigation_t *nav, scenario_source_navigation_probe_t *probe)
+{
+	const char *waypoints_path = paths->waypoints;
+	const char *waygroups_path = paths->waygroups;
+	const char *covers_path = paths->covers;
+	const char *paths_path = paths->paths;
+	scenario_source_path_table_t path_table = {0};
 	char *text;
 	u32 text_size;
-	s32 path_table_loaded;
-
-	if (!scenario || !nav) {
-		return 0;
-	}
-
 	memset(nav, 0, sizeof(*nav));
-	memset(&path_table, 0, sizeof(path_table));
-	paths_path[0] = '\0';
-	path_table_loaded = 0;
 
-	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.waypoints_path, waypoints_path,
-			sizeof(waypoints_path))
-			|| s_scenarioDeclaredOrMemberPath(scenario,
-			scenario->ext.scenario.navigation_waypoints_file,
-			"navigation/waypoints.json", waypoints_path,
-			sizeof(waypoints_path))) {
-		text = s_loadOptionalText(waypoints_path, &text_size);
-	} else {
-		text = NULL;
-		waypoints_path[0] = '\0';
-	}
+	text = s_readNavigationRows(waypoints_path, &text_size, read, ctx);
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: missing public navigation table 'navigation/waypoints.json' for '%s'",
@@ -34266,7 +36188,8 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 		s_freeNavigation(nav);
 		return 0;
 	}
-	if (!s_parseWaypointsJson(text, nav)) {
+	s32 only_linked_pads = 0;
+	if (!s_parseWaypointsJson(text, text_size, nav, &only_linked_pads)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public navigation table '%s'",
 			waypoints_path);
@@ -34276,18 +36199,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	free(text);
 
-	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.waygroups_path, waygroups_path,
-			sizeof(waygroups_path))
-			|| s_scenarioDeclaredOrMemberPath(scenario,
-			scenario->ext.scenario.navigation_waygroups_file,
-			"navigation/waygroups.json", waygroups_path,
-			sizeof(waygroups_path))) {
-		text = s_loadOptionalText(waygroups_path, &text_size);
-	} else {
-		text = NULL;
-		waygroups_path[0] = '\0';
-	}
+	text = s_readNavigationRows(waygroups_path, &text_size, read, ctx);
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: missing public navigation table 'navigation/waygroups.json' for '%s'",
@@ -34305,18 +36217,7 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	free(text);
 
-	if (s_activeGraphPathForScenario(scenario,
-			s_ActiveScenarioGraphs.covers_path, covers_path,
-			sizeof(covers_path))
-			|| s_scenarioDeclaredOrMemberPath(scenario,
-			scenario->ext.scenario.navigation_covers_file,
-			"navigation/covers.json", covers_path,
-			sizeof(covers_path))) {
-		text = s_loadOptionalText(covers_path, &text_size);
-	} else {
-		text = NULL;
-		covers_path[0] = '\0';
-	}
+	text = s_readNavigationRows(covers_path, &text_size, read, ctx);
 	if (!text) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: missing public navigation table 'navigation/covers.json' for '%s'",
@@ -34324,7 +36225,8 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 		s_freeNavigation(nav);
 		return 0;
 	}
-	if (!s_parseCoversJson(text, nav)) {
+	s32 generate_routes = 0;
+	if (!s_parseCoversJson(text, text_size, nav, &generate_routes)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public navigation table '%s'",
 			covers_path);
@@ -34334,35 +36236,49 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 	}
 	free(text);
 
-	if (nav->waypoint_count == 0 && nav->waygroup_count == 0 &&
-			nav->cover_count == 0) {
-		if (s_activeGraphPathForScenario(scenario,
-				s_ActiveScenarioGraphs.paths_path, paths_path,
-				sizeof(paths_path))
-				|| s_scenarioDeclaredOrMemberPath(scenario,
-				scenario->ext.scenario.navigation_paths_file,
-				"navigation/paths.json", paths_path,
-				sizeof(paths_path))) {
-			text = s_loadOptionalText(paths_path, &text_size);
-			if (text) {
-				if (!s_loadPathSourceRows(text, &path_table)) {
-					sysLogPrintf(LOG_ERROR,
-						"SCENARIO.SOURCE: invalid public navigation path table '%s'",
-						paths_path);
-					free(text);
-					s_freeNavigation(nav);
-					s_freePathTable(&path_table);
-					return 0;
-				}
-				path_table_loaded = 1;
-				free(text);
-			}
-		} else {
-			paths_path[0] = '\0';
+	const s32 keep_authored_covers = generate_routes && nav->cover_count > 0;
+	const s32 generate = nav->waypoint_count == 0 && nav->waygroup_count == 0 &&
+		(nav->cover_count == 0 || keep_authored_covers);
+	const s32 load_paths = read || generate;
+	s32 path_table_loaded = 0;
+	if (load_paths) {
+		text = s_readNavigationRows(paths_path, &text_size, read, ctx);
+		const s32 present = text != NULL;
+		if (text) {
+			path_table_loaded = s_loadPathSourceRows(text, &path_table);
+			free(text);
 		}
-
-		if (!s_generateNavigationTablesFromPads(pads, pad_count,
-				path_table_loaded ? &path_table : NULL, nav)) {
+		if ((read || present) && !path_table_loaded) {
+			sysLogPrintf(LOG_ERROR, "SCENARIO.SOURCE: invalid public navigation path table '%s'", paths_path);
+			s_freeNavigation(nav);
+			s_freePathTable(&path_table);
+			return 0;
+		}
+	}
+	if (read) {
+		u8 seen[256] = {0};
+		for (s32 i = 0; i < path_table.count; ++i) {
+			const scenario_source_path_row_t *row = &path_table.rows[i];
+			s32 valid = row->id >= 0 && row->id < (s32)sizeof(seen) && !seen[row->id];
+			if (valid) seen[row->id] = 1;
+			for (s32 j = 0; valid && j < row->pad_count; ++j) {
+				valid = row->pads[j] >= 0 && row->pads[j] < pad_count;
+			}
+			if (!valid) {
+				s_freeNavigation(nav);
+				s_freePathTable(&path_table);
+				return 0;
+			}
+			if (probe) {
+				for (s32 j = 0; j < row->pad_count; ++j) s_protectCandidateNavigationPad(probe, row->pads[j]);
+			}
+		}
+	}
+	if (probe) probe->paths = path_table.count;
+	if (generate) {
+		scenario_source_navigation_t generated = {0};
+		if (!s_generateNavigationTablesFromPads(pads, pad_count, only_linked_pads,
+				path_table_loaded ? &path_table : NULL, !keep_authored_covers, &generated)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: could not generate deterministic public navigation tables from pads.json for '%s'",
 				scenario->id);
@@ -34370,13 +36286,34 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 			s_freePathTable(&path_table);
 			return 0;
 		}
-		if (path_table_loaded && path_table.count > 0) {
+		if (only_linked_pads && path_table.count > 0 && !generated.waypoint_count) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: only_linked_pads requires at least one traversable path edge for '%s'",
+				scenario->id);
+			s_freeNavigation(&generated);
+			s_freeNavigation(nav);
+			s_freePathTable(&path_table);
+			return 0;
+		}
+		if (keep_authored_covers) {
+			generated.covers = nav->covers;
+			generated.cover_count = nav->cover_count;
+			nav->covers = NULL;
+		}
+		generated.generated_from_paths = path_table_loaded && path_table.count > 0 && generated.waypoint_count > 0;
+		generated.generated_waypoints = 1;
+		s_freeNavigation(nav);
+		*nav = generated;
+		const char *inputs = keep_authored_covers
+			? "through empty waypoint and waygroup sources with authored covers"
+			: "through empty waypoint, waygroup, and cover sources";
+		if (!read && path_table_loaded && path_table.count > 0) {
 			s32 directional_segments =
 				s_countNavigationDirectionalSegments(nav);
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' and navigation/paths.json '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers, %d path edges, %d branch waypoints backend=source.navigation.generated+pads.json+navigation/paths.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' and navigation/paths.json '%s' %s as %d waypoints, %d waygroups, %d covers, %d path edges, %d branch waypoints backend=source.navigation.generated+pads.json+navigation/paths.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
 				(pads_path && pads_path[0]) ? pads_path : "pads.json",
-				paths_path,
+				paths_path, inputs,
 				nav->waypoint_count, nav->waygroup_count,
 				nav->cover_count,
 				s_countNavigationWaypointEdges(nav),
@@ -34386,24 +36323,414 @@ static s32 s_loadNavigationTables(const asset_entry_t *scenario,
 					"SCENARIO.SOURCE: generated directional path segments from public navigation/paths.json '%s' as %d flagged neighbour refs backend=source.navigation.generated+navigation/paths.json+waypoint-segment-flags",
 					paths_path, directional_segments);
 			}
-		} else {
+		} else if (!read) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' through empty waypoint, waygroup, and cover sources as %d waypoints, %d waygroups, %d covers backend=source.navigation.generated+pads.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
-				(pads_path && pads_path[0]) ? pads_path : "pads.json",
+				"SCENARIO.SOURCE: generated deterministic navigation tables from public pads.json '%s' %s as %d waypoints, %d waygroups, %d covers backend=source.navigation.generated+pads.json+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
+				(pads_path && pads_path[0]) ? pads_path : "pads.json", inputs,
 				nav->waypoint_count, nav->waygroup_count,
 				nav->cover_count);
 		}
-		s_freePathTable(&path_table);
+		if (!read && keep_authored_covers) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: generated navigation routes with authored covers from '%s' waypoints=%d waygroups=%d covers=%d",
+				covers_path, nav->waypoint_count, nav->waygroup_count, nav->cover_count);
+		}
+	}
+	s_freePathTable(&path_table);
+
+	if (!read) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: compiled navigation tables waypoints '%s', waygroups '%s', covers '%s' as %d waypoints, %d waygroups, %d covers, waypoint_neighbour_refs=%d, waygroup_neighbour_refs=%d backend=source.navigation.tables+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
+			waypoints_path, waygroups_path, covers_path,
+			nav->waypoint_count, nav->waygroup_count, nav->cover_count,
+			s_countNavigationWaypointNeighbourRefs(nav),
+			s_countNavigationWaygroupNeighbourRefs(nav));
 	}
 
-	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled navigation tables waypoints '%s', waygroups '%s', covers '%s' as %d waypoints, %d waygroups, %d covers, waypoint_neighbour_refs=%d, waygroup_neighbour_refs=%d backend=source.navigation.tables+navigation/waypoints.json+navigation/waygroups.json+navigation/covers.json",
-		waypoints_path, waygroups_path, covers_path,
-		nav->waypoint_count, nav->waygroup_count, nav->cover_count,
-		s_countNavigationWaypointNeighbourRefs(nav),
-		s_countNavigationWaygroupNeighbourRefs(nav));
-
 	return 1;
+}
+
+static void s_liveNavigationPath(const asset_entry_t *scenario, const char *active,
+	const char *declared, const char *member, char out[FS_MAXPATH + 1])
+{
+	if (!s_activeGraphPathForScenario(scenario, active, out, FS_MAXPATH + 1)) {
+		s_scenarioDeclaredOrMemberPath(scenario, declared, member, out, FS_MAXPATH + 1);
+	}
+}
+
+static s32 s_loadNavigationTables(const asset_entry_t *scenario, const scenario_source_pad_row_t *pads,
+	s32 pad_count, const char *pads_path, scenario_source_navigation_t *nav)
+{
+	if (!scenario || !nav) return 0;
+	scenario_source_navigation_paths_t paths = {0};
+	s_liveNavigationPath(scenario, s_ActiveScenarioGraphs.waypoints_path,
+		scenario->ext.scenario.navigation_waypoints_file, "navigation/waypoints.json", paths.waypoints);
+	s_liveNavigationPath(scenario, s_ActiveScenarioGraphs.waygroups_path,
+		scenario->ext.scenario.navigation_waygroups_file, "navigation/waygroups.json", paths.waygroups);
+	s_liveNavigationPath(scenario, s_ActiveScenarioGraphs.covers_path,
+		scenario->ext.scenario.navigation_covers_file, "navigation/covers.json", paths.covers);
+	s_liveNavigationPath(scenario, s_ActiveScenarioGraphs.paths_path,
+		scenario->ext.scenario.navigation_paths_file, "navigation/paths.json", paths.paths);
+	return s_loadNavigationTablesWithSources(scenario, pads, pad_count, pads_path, &paths, NULL, NULL, nav, NULL);
+}
+
+static s32 s_exactNavigationPath(const asset_entry_t *scenario, const char *graph,
+	const char *key, char out[FS_MAXPATH + 1])
+{
+	char member[160];
+	return s_jsonStringValueForKey(graph, key, member, sizeof(member))
+		&& s_graphMemberPath(scenario, member, out, FS_MAXPATH + 1);
+}
+
+static s32 s_checkNavigationSegments(const scenario_source_segment_list_t *list, s32 count)
+{
+	for (s32 i = 0; i < list->count; ++i) {
+		if ((list->values[i] & SCENARIO_SEGMENT_ID_MASK) >= (u32)count) return 0;
+	}
+	return 1;
+}
+
+static s32 s_checkCandidateNavigation(const scenario_source_pad_row_t *pads, s32 pad_count,
+	const scenario_source_navigation_t *nav, s32 room_count)
+{
+	const s32 index_count = (s32)SCENARIO_SEGMENT_ID_MASK + 1;
+	if (pad_count > index_count || nav->waypoint_count > index_count || nav->waygroup_count > index_count) return 0;
+	for (s32 i = 0; i < pad_count; ++i) {
+		const scenario_source_pad_row_t *pad = &pads[i];
+		/* Native padUnpack sign-extends the 10-bit room. -1 keeps the
+		 * existing runtime lookup of the room at this pad position. */
+		if (pad->room < -1 || pad->room > 511 || pad->room >= room_count || pad->liftnum < -1 || pad->liftnum > 15) return 0;
+		for (s32 axis = 0; axis < 3; ++axis) {
+			if (!__builtin_isfinite(pad->pos[axis]) || !__builtin_isfinite(pad->up[axis])
+					|| !__builtin_isfinite(pad->look[axis]) || !__builtin_isfinite(pad->bbox[axis * 2])
+					|| !__builtin_isfinite(pad->bbox[axis * 2 + 1])) return 0;
+		}
+	}
+	for (s32 i = 0; i < nav->waypoint_count; ++i) {
+		const scenario_source_waypoint_row_t *row = &nav->waypoints[i];
+		if (row->padnum < 0 || row->padnum >= pad_count || row->groupnum < 0 || row->groupnum >= nav->waygroup_count
+				|| !s_checkNavigationSegments(&row->neighbours, nav->waypoint_count)) return 0;
+	}
+	u8 grouped[SCENARIO_SEGMENT_ID_MASK + 1u] = {0};
+	for (s32 i = 0; i < nav->waygroup_count; ++i) {
+		const scenario_source_waygroup_row_t *row = &nav->waygroups[i];
+		if (!s_checkNavigationSegments(&row->neighbours, nav->waygroup_count)) return 0;
+		for (s32 j = 0; j < row->waypoints.count; ++j) {
+			/* The native group member list stores plain waypoint indexes. */
+			const u32 waypoint = row->waypoints.values[j];
+			if (waypoint >= (u32)nav->waypoint_count || grouped[waypoint]
+					|| nav->waypoints[waypoint].groupnum != i) return 0;
+			grouped[waypoint] = 1;
+		}
+	}
+	for (s32 i = 0; i < nav->waypoint_count; ++i) {
+		if (!grouped[i]) return 0;
+	}
+	for (s32 i = 0; i < nav->cover_count; ++i) {
+		const scenario_source_cover_row_t *cover = &nav->covers[i];
+		if (cover->flags > UINT16_MAX) return 0;
+		for (s32 axis = 0; axis < 3; ++axis) {
+			if (!__builtin_isfinite(cover->pos[axis]) || !__builtin_isfinite(cover->look[axis])) return 0;
+		}
+	}
+	return 1;
+}
+
+/* Bound detached work to the small, flat Forge room extension profile. */
+enum {
+	ROOM_EXTENSION_MAX_WAYPOINTS = 64,
+	ROOM_EXTENSION_MAX_LINKS = 4 * ROOM_EXTENSION_MAX_WAYPOINTS,
+	ROOM_EXTENSION_MAX_TRIANGLES = 64,
+	ROOM_EXTENSION_MAX_STARTS = 64,
+	/* Standing fallback height plus the native spawn headroom margin. */
+	ROOM_EXTENSION_STANDING_CLEARANCE = 185 + 16,
+};
+
+static struct coord s_candidatePadPosition(const scenario_source_pad_row_t *pad)
+{
+	return (struct coord){.x = pad->pos[0], .y = pad->pos[1], .z = pad->pos[2]};
+}
+
+static s32 s_checkRoomExtensionLink(const struct colmesh *mesh,
+	const scenario_source_pad_row_t *from, RoomNum from_room,
+	const scenario_source_pad_row_t *to, RoomNum to_room)
+{
+	const struct coord origin = s_candidatePadPosition(from);
+	const struct coord destination = s_candidatePadPosition(to);
+	return meshCheckFlatWalk(mesh, &origin, from_room, &destination, to_room,
+		SPAWNPOOL_CAPSULE_RADIUS, ROOM_EXTENSION_STANDING_CLEARANCE);
+}
+
+/* Match native forward discovery and backward route reconstruction, which
+ * read the neighbour lists with different direction masks. */
+static s32 s_roomExtensionVisitsAll(const scenario_source_navigation_t *nav, u32 ignore)
+{
+	u8 seen[ROOM_EXTENSION_MAX_WAYPOINTS] = {1};
+	s32 queue[ROOM_EXTENSION_MAX_WAYPOINTS] = {0};
+	s32 end = 1;
+	for (s32 i = 0; i < end; ++i) {
+		const scenario_source_segment_list_t *neighbours = &nav->waypoints[queue[i]].neighbours;
+		for (s32 j = 0; j < neighbours->count; ++j) {
+			const u32 edge = neighbours->values[j];
+			const u32 target = edge & SCENARIO_SEGMENT_ID_MASK;
+			if ((edge & ignore) || seen[target]) continue;
+			seen[target] = 1;
+			queue[end++] = (s32)target;
+		}
+	}
+	return end == nav->waypoint_count;
+}
+
+static s32 s_roomExtensionStartConnects(const struct colmesh *mesh,
+	const scenario_source_pad_row_t *pads, const scenario_source_navigation_t *nav, s32 padnum)
+{
+	const scenario_source_pad_row_t *start = &pads[padnum];
+	for (RoomNum room = 1; room <= 2; ++room) {
+		if (start->room != -1 && start->room != room) continue;
+		const scenario_source_pad_row_t *nearest = NULL;
+		f32 nearest_dist_sq = FLT_MAX;
+		for (s32 i = 0; i < nav->waypoint_count; ++i) {
+			const scenario_source_pad_row_t *waypoint = &pads[nav->waypoints[i].padnum];
+			if (waypoint->room != room) continue;
+			const f32 dx = waypoint->pos[0] - start->pos[0];
+			const f32 dy = waypoint->pos[1] - start->pos[1];
+			const f32 dz = waypoint->pos[2] - start->pos[2];
+			const f32 dist_sq = dx * dx + dy * dy + dz * dz;
+			if (dist_sq < nearest_dist_sq) {
+				nearest = waypoint;
+				nearest_dist_sq = dist_sq;
+			}
+		}
+		if (nearest && s_checkRoomExtensionLink(mesh, start, room, nearest, room)) return 1;
+	}
+	return 0;
+}
+
+static s32 s_roomExtensionPortal(const scenario_source_portal_row_t *portal,
+	const scenario_source_pad_row_t *from, const scenario_source_pad_row_t *to)
+{
+	if (from->room == to->room) return 1;
+	if (from->pos[0] == to->pos[0]) return 0;
+	const f32 fraction = -from->pos[0] / (to->pos[0] - from->pos[0]);
+	if (fraction <= 0.0f || fraction >= 1.0f) return 0;
+	const f32 z = from->pos[2] + fraction * (to->pos[2] - from->pos[2]);
+	const f32 top = MAX(from->pos[1], to->pos[1]) + ROOM_EXTENSION_STANDING_CLEARANCE;
+	f32 min_z = FLT_MAX, max_z = -FLT_MAX, max_y = 0.0f;
+	for (s32 i = 0; i < portal->vertex_count; ++i) {
+		const f32 *point = portal->vertices[i];
+		if (point[0] != 0.0f) return 0;
+		min_z = MIN(min_z, point[2]);
+		max_z = MAX(max_z, point[2]);
+		max_y = MAX(max_y, point[1]);
+	}
+	u8 corners = 0;
+	for (s32 i = 0; i < portal->vertex_count; ++i) {
+		const f32 *point = portal->vertices[i];
+		if ((point[1] != 0.0f && point[1] != max_y) || (point[2] != min_z && point[2] != max_z)) return 0;
+		corners |= 1u << ((point[1] == max_y ? 2 : 0) + (point[2] == max_z ? 1 : 0));
+	}
+	return corners == 15 && top <= max_y
+		&& z - SPAWNPOOL_CAPSULE_RADIUS >= min_z && z + SPAWNPOOL_CAPSULE_RADIUS <= max_z;
+}
+
+static s32 s_checkRoomExtensionWalk(const struct colmesh *mesh, s32 room_count,
+	const scenario_source_pad_row_t *pads, const scenario_source_spawn_table_t *spawns,
+	const scenario_source_navigation_t *nav, const scenario_source_portal_row_t *portal,
+	scenario_source_navigation_probe_t *summary,
+	char *error, size_t error_size)
+{
+	if (room_count != 3 || mesh->numtris > ROOM_EXTENSION_MAX_TRIANGLES
+			|| spawns->count <= 0 || spawns->count > ROOM_EXTENSION_MAX_STARTS
+			|| nav->waygroup_count != 1 || nav->waypoint_count < 2
+			|| nav->waypoint_count > ROOM_EXTENSION_MAX_WAYPOINTS) {
+		snprintf(error, error_size, "the extension does not fit the two-room walking profile");
+		return 0;
+	}
+	s32 rooms = 0;
+	s32 link_count = 0;
+	for (s32 i = 0; i < nav->waypoint_count; ++i) {
+		const scenario_source_waypoint_row_t *waypoint = &nav->waypoints[i];
+		if (!waypoint->neighbours.count) {
+			snprintf(error, error_size, "bot waypoint %d is isolated from the extension route", i);
+			return 0;
+		}
+		const scenario_source_pad_row_t *from = &pads[waypoint->padnum];
+		if (from->room < 1 || from->room > 2) {
+			snprintf(error, error_size, "bot waypoint %d is outside the extension rooms", i);
+			return 0;
+		}
+		rooms |= 1 << from->room;
+		for (s32 j = 0; j < waypoint->neighbours.count; ++j) {
+			const u32 edge = waypoint->neighbours.values[j];
+			const u32 target = edge & SCENARIO_SEGMENT_ID_MASK;
+			const scenario_source_waypoint_row_t *other = &nav->waypoints[target];
+			const u32 trace_back = (u32)i | s_reverseSegmentFlags(edge & ~SCENARIO_SEGMENT_ID_MASK);
+			s32 can_trace_back = 0;
+			for (s32 k = 0; k < other->neighbours.count; ++k) {
+				if (other->neighbours.values[k] == trace_back) {
+					can_trace_back = 1;
+					break;
+				}
+			}
+			if (!can_trace_back) {
+				snprintf(error, error_size, "bot link %d to %u cannot be reconstructed by native routing", i, target);
+				return 0;
+			}
+			if (edge & SCENARIO_SEGMENT_FLAG_INWARD) continue;
+			if (++link_count > ROOM_EXTENSION_MAX_LINKS) {
+				snprintf(error, error_size, "the extension has too many bot links for the walking check");
+				return 0;
+			}
+			const scenario_source_pad_row_t *to = &pads[other->padnum];
+			if (to->room < 1 || to->room > 2
+					|| !s_roomExtensionPortal(portal, from, to)
+					|| !s_checkRoomExtensionLink(mesh, from, (RoomNum)from->room, to, (RoomNum)to->room)) {
+				snprintf(error, error_size, "bot link %d to %u has no clear supported walk", i, target);
+				return 0;
+			}
+		}
+	}
+	if (rooms != ((1 << 1) | (1 << 2))
+			|| !s_roomExtensionVisitsAll(nav, SCENARIO_SEGMENT_FLAG_INWARD)
+			|| !s_roomExtensionVisitsAll(nav, SCENARIO_SEGMENT_FLAG_OUTWARD)) {
+		snprintf(error, error_size, "the extension has no connected bot route in both directions");
+		return 0;
+	}
+	for (s32 i = 0; i < spawns->count; ++i) {
+		if (!s_roomExtensionStartConnects(mesh, pads, nav, spawns->rows[i].padnum)) {
+			snprintf(error, error_size, "start %d has no clear supported walk to the bot route", i + 1);
+			return 0;
+		}
+	}
+	summary->checked_links = link_count;
+	summary->checked_starts = spawns->count;
+	return 1;
+}
+
+s32 scenarioSourcePreflightNavigation(const asset_entry_t *scenario, scenario_source_read_candidate_t read,
+	void *ctx, s32 room_count, size_t native_budget, const struct colmesh *room_extension_collision,
+	scenario_source_navigation_probe_t *out,
+	char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!scenario || !read || !native_budget || !out || room_count < SCENARIO_ROOM_DOMAIN_MIN_COUNT) return 0;
+	char graph_path[FS_MAXPATH + 1];
+	char pads_path[FS_MAXPATH + 1], portals_path[FS_MAXPATH + 1];
+	char spawns_path[FS_MAXPATH + 1], volumes_path[FS_MAXPATH + 1];
+	char nav_ini[FS_MAXPATH + 1], nav_meta[FS_MAXPATH + 1];
+	scenario_source_navigation_paths_t paths = {0};
+	scenario_source_navigation_probe_t summary = {0};
+	scenario_nav_source_counts_t counts;
+	scenario_nav_source_hashes_t hashes;
+	scenario_source_pad_row_t *pads = NULL;
+	scenario_source_spawn_table_t spawns = {0};
+	scenario_source_portal_row_t *extension_portals = NULL;
+	scenario_source_navigation_t nav = {0};
+	char *graph = NULL, *text = NULL;
+	u8 *packed = NULL;
+	u32 size = 0;
+	const char *failure = "unreadable exact level graph navigation sources";
+	char walk_error[192];
+	if (!s_scenarioDeclaredOrMemberPath(scenario, scenario->ext.scenario.level_graph_file,
+			"level.graph.json", graph_path, sizeof(graph_path))) goto done;
+	graph = s_readNavigationRows(graph_path, &size, read, ctx);
+	if (!graph || !s_exactNavigationPath(scenario, graph, "pads", pads_path)
+			|| !s_exactNavigationPath(scenario, graph, "portals", portals_path)
+			|| !s_exactNavigationPath(scenario, graph, "spawns", spawns_path)
+			|| !s_exactNavigationPath(scenario, graph, "volumes", volumes_path)
+			|| !s_exactNavigationPath(scenario, graph, "waypoints", paths.waypoints)
+			|| !s_exactNavigationPath(scenario, graph, "waygroups", paths.waygroups)
+			|| !s_exactNavigationPath(scenario, graph, "covers", paths.covers)
+			|| !s_exactNavigationPath(scenario, graph, "paths", paths.paths)) goto done;
+	failure = "exact navigation metadata does not match its native source inputs";
+	if (!s_bindNavigationGenerateSource(scenario, graph, graph_path, nav_ini, sizeof(nav_ini), nav_meta,
+			sizeof(nav_meta), portals_path, pads_path, spawns_path, volumes_path,
+			paths.waypoints, paths.waygroups, paths.covers, paths.paths, &counts, &hashes, read, ctx)) goto done;
+	failure = "invalid exact navigation pads, paths, or route tables";
+	if (counts.pads > (s32)SCENARIO_SEGMENT_ID_MASK + 1
+			|| counts.waypoints > (s32)SCENARIO_SEGMENT_ID_MASK + 1
+			|| counts.waygroups > (s32)SCENARIO_SEGMENT_ID_MASK + 1 || counts.paths > 256) goto done;
+	text = s_readNavigationRows(pads_path, &size, read, ctx);
+	pads = text ? s_parsePadsJson(text, &summary.pads) : NULL;
+	if (!pads || summary.pads > (s32)SCENARIO_SOURCE_NATIVE_PAD_COUNT
+			|| !s_loadNavigationTablesWithSources(scenario, pads, summary.pads, pads_path,
+				&paths, read, ctx, &nav, &summary)) goto done;
+	if (!s_checkCandidateNavigation(pads, summary.pads, &nav, room_count)) goto done;
+	for (s32 i = 0; i < nav.waypoint_count; ++i) {
+		const scenario_source_waypoint_row_t *row = &nav.waypoints[i];
+		/* Generation can emit a waypoint for every pad. Only linked generated
+		 * rows participate in routes, whereas explicit rows are all authored. */
+		if (!nav.generated_waypoints) {
+			s_protectCandidateNavigationPad(&summary, row->padnum);
+			continue;
+		}
+		if (row->neighbours.count) s_protectCandidateNavigationPad(&summary, row->padnum);
+		for (s32 j = 0; j < row->neighbours.count; ++j) {
+			const u32 target = row->neighbours.values[j] & SCENARIO_SEGMENT_ID_MASK;
+			s_protectCandidateNavigationPad(&summary, nav.waypoints[target].padnum);
+		}
+	}
+
+	free(text);
+	text = s_readNavigationRows(spawns_path, &size, read, ctx);
+	failure = "unreadable exact native spawn table";
+	if (!text) goto done;
+	if (!s_loadSpawnSourceRows(text, &spawns)) {
+		failure = spawns.error[0] ? spawns.error : "invalid exact native spawn table";
+		goto done;
+	}
+	for (s32 i = 0; i < spawns.count; ++i) {
+		const s32 padnum = spawns.rows[i].padnum;
+		if (padnum < 0 || padnum >= summary.pads) {
+			snprintf(spawns.error, sizeof(spawns.error),
+				"native spawn row %d references missing pad %d", i, padnum);
+			failure = spawns.error;
+			goto done;
+		}
+		s_protectCandidateNavigationPad(&summary, padnum);
+	}
+	summary.spawns = spawns.count;
+	if (room_extension_collision) {
+		char native_portals[FS_MAXPATH + 1];
+		s32 portal_count = 0;
+		failure = "the extension needs one open native portal between its rooms";
+		if (!scenarioSourcePortalPath(scenario, native_portals, sizeof(native_portals))
+				|| strcmp(native_portals, portals_path) != 0) goto done;
+		free(text);
+		text = s_readNavigationRows(portals_path, &size, read, ctx);
+		if (!text || !scenarioPortalSourceRead(text, size, &extension_portals, &portal_count, NULL, 0)
+				|| portal_count != 1 || extension_portals[0].vertex_count != 4) goto done;
+		const scenario_source_portal_row_t *portal = extension_portals;
+		if (!((portal->room1 == 1 && portal->room2 == 2) || (portal->room1 == 2 && portal->room2 == 1))
+				|| (portal->flags & PORTALFLAG_SKIP)
+				|| ((portal->flags & PORTALFLAG_CLOSED) && !(portal->flags & PORTALFLAG_FORCEOPEN))) goto done;
+		if (!s_checkRoomExtensionWalk(room_extension_collision, room_count, pads, &spawns,
+				&nav, portal, &summary, walk_error, sizeof(walk_error))) {
+			failure = walk_error;
+			goto done;
+		}
+	}
+
+	failure = "exact navigation does not fit the native padfile budget";
+	packed = s_buildPadfileForOwner(pads, summary.pads, &nav, native_budget, &summary.bytes, NULL);
+	if (!packed) goto done;
+	summary.waypoints = nav.waypoint_count;
+	summary.waygroups = nav.waygroup_count;
+	summary.covers = nav.cover_count;
+	sha256Hash(packed, (size_t)summary.bytes, summary.digest);
+	*out = summary;
+	failure = NULL;
+
+done:
+	free(packed);
+	free(text);
+	free(graph);
+	free(pads);
+	free(extension_portals);
+	s_freeNavigation(&nav);
+	if (failure && err && err_cap) snprintf(err, err_cap, "%s", failure);
+	s_spawnFreeTable(&spawns);
+	return failure == NULL;
 }
 
 static s32 s_scenarioSetupFieldsPath(const asset_entry_t *scenario,
@@ -34521,6 +36848,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	char spawns_path[FS_MAXPATH + 1];
 	char ai_lists_path[FS_MAXPATH + 1];
 	char paths_path[FS_MAXPATH + 1];
+	char intro_path[FS_MAXPATH + 1];
 	u32 text_size;
 	char *setup_text;
 	char *objects_text;
@@ -34531,6 +36859,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	scenario_source_spawn_table_t spawn_table;
 	scenario_source_ai_table_t ai_table;
 	scenario_source_path_table_t path_table;
+	scenario_intro_t intro;
 	u8 *setup_data;
 	const char *stageid;
 
@@ -34538,6 +36867,8 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		*out_size = 0;
 	}
 
+	s_ObjectRuleRowCount = 0;
+	s_clearGridDecorationCommands();
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !s_scenarioSetupFieldsPath(scenario, setup_path,
 			sizeof(setup_path))) {
@@ -34559,6 +36890,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	memset(&spawn_table, 0, sizeof(spawn_table));
 	memset(&ai_table, 0, sizeof(ai_table));
 	memset(&path_table, 0, sizeof(path_table));
+	memset(&intro, 0, sizeof(intro));
 	if (!s_setupParseFieldsJson(setup_text, &table)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public setup.fields.json for '%s': %s",
@@ -34614,6 +36946,37 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	free(spawns_text);
 
+	/* The rest of the intro script (intro.json): what the player starts
+	 * with and the multiplayer placements. Optional, an authored scenario
+	 * may have none; an unreadable one stops the stage like spawns.json. */
+	memset(&intro, 0, sizeof(intro));
+	intro_path[0] = '\0';
+	if (s_scenarioMemberPath(scenario, "intro.json", intro_path, sizeof(intro_path))) {
+		char *intro_text = s_loadOptionalText(intro_path, &text_size);
+		if (intro_text) {
+			char intro_error[192];
+			const s32 intro_ok = scenarioIntroParse(intro_text, text_size,
+				s_setupResolveWeaponnum, &intro, intro_error, sizeof(intro_error));
+			free(intro_text);
+			if (!intro_ok) {
+				sysLogPrintf(LOG_ERROR,
+					"SCENARIO.SOURCE: invalid public intro.json for '%s': %s",
+					scenario->id, intro_error);
+				s_setupFreeTable(&table);
+				s_spawnFreeTable(&spawn_table);
+				s_freePathTable(&path_table);
+				s_aiFreeTable(&ai_table);
+				return NULL;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: intro for '%s': rows=%d weapons=%d ammo=%d outfits=%d watch_times=%d cases=%d case_respawns=%d hills=%d legacy=%d source=intro.json",
+				scenario->id, intro.row_count, intro.counts.weapons,
+				intro.counts.ammo, intro.counts.outfits, intro.counts.watch_times,
+				intro.counts.cases, intro.counts.case_respawns, intro.counts.hills,
+				intro.counts.legacy);
+		}
+	}
+
 	paths_text = NULL;
 	if (s_scenarioPathsPath(scenario, paths_path, sizeof(paths_path))) {
 		paths_text = s_loadOptionalText(paths_path, &text_size);
@@ -34626,6 +36989,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadPathSourceRows(paths_text, &path_table)) {
@@ -34638,6 +37002,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(paths_text);
@@ -34654,6 +37019,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadAiListSourceJson(ai_text, &ai_table)) {
@@ -34665,6 +37031,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(ai_text);
@@ -34673,19 +37040,62 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		qsort(table.records, (size_t)table.count, sizeof(table.records[0]),
 			s_setupCompareRecords);
 	}
+	{
+		s32 ruled = 0;
+		s32 coop = 0;
+		s32 rockets = 0;
+		s32 choppers = 0;
+		s32 multiplayer = 0;
+
+		for (s32 i = 0; i < table.count; i++) {
+			ruled += table.records[i].rules.present != 0;
+		}
+		if (ruled > SCENARIO_OBJECT_RULE_ROWS_MAX) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: objects.json of '%s' carries object rules on %d rows; at most %d are allowed",
+				scenario->id, ruled, SCENARIO_OBJECT_RULE_ROWS_MAX);
+			s_setupFreeTable(&table);
+			s_spawnFreeTable(&spawn_table);
+			s_freePathTable(&path_table);
+			s_aiFreeTable(&ai_table);
+			scenarioIntroFree(&intro);
+			return NULL;
+		}
+		for (s32 i = 0; i < table.count; i++) {
+			const scenario_object_rules_t *rules = &table.records[i].rules;
+
+			if (!rules->present) {
+				continue;
+			}
+			s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;
+			s_ObjectRuleRows[s_ObjectRuleRowCount].rules = *rules;
+			s_ObjectRuleRowCount++;
+			coop += rules->coop_excluded != 0;
+			rockets += rules->enemy_rockets_exempt_mask != 0;
+			choppers += table.records[i].type == OBJTYPE_CHOPPER;
+			multiplayer += rules->multiplayer_kept != 0;
+		}
+		if (ruled) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: object rules for '%s': %d rows (coop %d, enemy_rockets_exempt %d, chopper %d, multiplayer %d) source=objects.json",
+				scenario->id, ruled, coop, rockets, choppers, multiplayer);
+		}
+	}
 	if (!s_setupCollectBehaviorLinkSource(scenario, setup_path, &table)) {
 		s_setupFreeTable(&table);
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 
-	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &ai_table,
+	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &intro, &ai_table,
 		&path_table, scenario->id, out_size);
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	if (setup_data) {
+		if (prefer_mp) s_bindGridDecorationCommands(stage, scenario->id, &table, setup_data);
 		s_activeGraphSetSourceSetupChrRefs(&table);
 		sysLogPrintf(LOG_NOTE,
 			"SCENARIO.SOURCE: compiled setup.fields.json '%s', spawns.json '%s', navigation/paths.json '%s', and ai/ailists.json '%s' for stage '%s' as %d setup records, %d spawns, %d paths, %d AI lists (%d bytes) path_flags=circular:%d,flying:%d",
@@ -34705,6 +37115,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s_spawnFreeTable(&spawn_table);
 	s_freePathTable(&path_table);
 	s_aiFreeTable(&ai_table);
+	scenarioIntroFree(&intro);
 	return setup_data;
 }
 
@@ -34731,6 +37142,45 @@ static s32 s_portalRowsMaxRoom(const scenario_source_portal_row_t *rows,
 	return max_room;
 }
 
+_Static_assert(sizeof(((scenario_source_portal_row_t *)0)->vertices[0]) == sizeof(struct coord),
+	"portal source coordinates must match native portal vertices");
+
+static size_t s_portalRowsPackedSize(const scenario_source_portal_row_t *rows, s32 count)
+{
+	size_t size = sizeof(struct bgportal);
+	for (s32 i = 0; i < count; ++i) {
+		size += sizeof(struct bgportal) + offsetof(struct portalvertices, vertices)
+			+ (size_t)rows[i].vertex_count * sizeof(struct coord);
+		if (size > 0xffffu) return 0;
+	}
+	return size;
+}
+
+s32 scenarioSourcePreflightPortals(const char *text, size_t size, s32 declared_rooms, s32 mesh_max_room,
+	s32 *out_room_count, char *err, size_t err_cap)
+{
+	scenario_source_portal_row_t *rows = NULL;
+	s32 count = 0;
+	if (!scenarioPortalSourceRead(text, size, &rows, &count, err, err_cap)) return 0;
+	s32 valid = scenarioPortalSourceCheckCandidate(rows, count, declared_rooms, err, err_cap);
+	s32 room_count = 0;
+	if (valid) {
+		scenario_room_domain_result_t result = scenarioRoomDomainResolve(declared_rooms,
+			mesh_max_room, s_portalRowsMaxRoom(rows, count), &room_count);
+		if (result != SCENARIO_ROOM_DOMAIN_OK) {
+			if (err && err_cap) snprintf(err, err_cap, "native collision/portal room domain: %s", scenarioRoomDomainResultName(result));
+			valid = 0;
+		}
+	}
+	if (valid && !s_portalRowsPackedSize(rows, count)) {
+		if (err && err_cap) snprintf(err, err_cap, "native portal table exceeds the stage's 16-bit offsets");
+		valid = 0;
+	}
+	free(rows);
+	if (valid && out_room_count) *out_room_count = room_count;
+	return valid;
+}
+
 s32 scenarioSourceResolveRoomCountForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp,
 	s32 mesh_max_room, s32 *out_room_count)
@@ -34739,7 +37189,7 @@ s32 scenarioSourceResolveRoomCountForStage(
 	char portals_path[FS_MAXPATH + 1];
 	u32 text_size = 0;
 	char *text;
-	scenario_source_portal_row_t *rows;
+	scenario_source_portal_row_t *rows = NULL;
 	s32 row_count = 0;
 	s32 portal_max_room;
 	s32 resolved_count = 0;
@@ -34755,7 +37205,7 @@ s32 scenarioSourceResolveRoomCountForStage(
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0]
 			|| !catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)
-			|| !s_scenarioPortalsPath(scenario, portals_path,
+			|| !scenarioSourcePortalPath(scenario, portals_path,
 				sizeof(portals_path))) {
 		return 0;
 	}
@@ -34768,9 +37218,9 @@ s32 scenarioSourceResolveRoomCountForStage(
 		return 0;
 	}
 
-	rows = s_parsePortalsJson(text, &row_count);
+	s32 valid = scenarioPortalSourceRead(text, text_size, &rows, &row_count, NULL, 0);
 	free(text);
-	if (!rows) {
+	if (!valid) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: cannot resolve room domain for '%s': invalid public portals source %s",
 			scenario->id, portals_path);
@@ -34824,6 +37274,111 @@ static void s_sourceTileSetBounds(struct geotilef *tile)
 	}
 }
 
+static s32 s_measureSourceTiles(const struct colmesh *mesh, s32 *max_room,
+	s32 *tile_count)
+{
+	*max_room = 0;
+	*tile_count = 0;
+	if (!mesh || !mesh->tris || mesh->numtris <= 0) return 0;
+	for (s32 i = 0; i < mesh->numtris; i++) {
+		const s32 room = mesh->tris[i].roomnum;
+		/* The codec includes the native room-zero bucket. */
+		if (room >= 0) (*tile_count)++;
+		if (room > *max_room) *max_room = room;
+	}
+	return *max_room > 0;
+}
+
+static u32 s_sourceTileBankSize(s32 room_count, s32 tile_count)
+{
+	const u32 header_size = ((u32)room_count + 2) * (u32)sizeof(u32);
+	const u32 tile_stride = s_sourceTileStride();
+	if ((u32)tile_count > (INT32_MAX - header_size) / tile_stride) return 0;
+	return header_size + (u32)tile_count * tile_stride;
+}
+
+static void s_packSourceTiles(u8 *data, u32 size, const struct colmesh *mesh,
+	s32 room_count)
+{
+	const u32 tile_stride = s_sourceTileStride();
+	u32 *header = (u32 *)data;
+	u32 *rooms = header + 1;
+	u32 cursor = ((u32)room_count + 2) * (u32)sizeof(u32);
+
+	memset(data, 0, size);
+	*header = (u32)room_count;
+	for (s32 room = 0; room < room_count; room++) {
+		rooms[room] = cursor;
+		for (s32 i = 0; i < mesh->numtris; i++) {
+			const struct meshtri *src = &mesh->tris[i];
+			if (src->roomnum != room) continue;
+			struct geotilef *tile = (struct geotilef *)(data + cursor);
+			tile->header.type = GEOTYPE_TILE_F;
+			tile->header.numvertices = 3;
+			/* B-943: preserve authored collision flags and floor material. */
+			tile->header.flags = src->flags;
+			tile->floortype = src->floortype;
+			tile->floorcol = src->floorcol;
+			tile->vertices[0] = src->v0;
+			tile->vertices[1] = src->v1;
+			tile->vertices[2] = src->v2;
+			s_sourceTileSetBounds(tile);
+			cursor += tile_stride;
+		}
+	}
+	rooms[room_count] = cursor;
+}
+
+struct scenario_grid_tiles {
+	u32 room_count;
+	u32 room_offsets[];
+};
+
+static scenario_grid_tiles_t *s_ResidentGridTiles;
+
+s32 scenarioSourcePrepareGridTiles(const struct colmesh *collision, s32 room_count,
+	scenario_grid_tiles_t **out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	s32 max_room, tile_count;
+	if (!out || *out || room_count <= 1 || room_count > SCENARIO_ROOM_DOMAIN_MAX_COUNT
+			|| !s_measureSourceTiles(collision, &max_room, &tile_count)
+			|| max_room >= room_count || tile_count != collision->numtris) {
+		if (err && err_cap) snprintf(err, err_cap, "invalid Grid collision tile domain");
+		return 0;
+	}
+	const u32 size = s_sourceTileBankSize(room_count, tile_count);
+	scenario_grid_tiles_t *tiles = size ? malloc(size) : NULL;
+	if (!tiles) {
+		if (err && err_cap) snprintf(err, err_cap, "could not allocate the Grid collision tile bank");
+		return 0;
+	}
+	s_packSourceTiles((u8 *)tiles, size, collision, room_count);
+	*out = tiles;
+	return 1;
+}
+
+void scenarioSourceSwapGridTiles(scenario_grid_tiles_t **prepared)
+{
+	scenario_grid_tiles_t *outgoing = s_ResidentGridTiles;
+	s_ResidentGridTiles = *prepared;
+	cdInstallStageTileBank((u8 *)s_ResidentGridTiles);
+	*prepared = outgoing;
+}
+
+void scenarioSourceReleaseGridTiles(scenario_grid_tiles_t *tiles)
+{
+	free(tiles);
+}
+
+void scenarioSourceClearGridTiles(void)
+{
+	if (!s_ResidentGridTiles) return;
+	cdInstallStageTileBank(NULL);
+	scenarioSourceReleaseGridTiles(s_ResidentGridTiles);
+	s_ResidentGridTiles = NULL;
+}
+
 u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size, s32 *out_rooms, s32 *out_tiles)
 {
@@ -34832,13 +37387,10 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	s32 max_room = 0;
 	s32 room_count = 0;
 	s32 source_tiles = 0;
-	u32 header_size;
 	u32 tile_stride = s_sourceTileStride();
 	u32 total_size;
 	u8 *data;
-	u32 *u32data;
 	u32 *rooms;
-	u32 cursor;
 	const char *stageid;
 	const char *source_path;
 
@@ -34867,7 +37419,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	}
 
 	mesh = catalogGetLoadedColmesh(scenario->id);
-	if (!mesh || mesh->numtris <= 0) {
+	if (!mesh || !mesh->tris || mesh->numtris <= 0) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: no scene colmesh available for tile cache '%s'",
@@ -34876,17 +37428,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		return NULL;
 	}
 
-	for (s32 i = 0; i < mesh->numtris; i++) {
-		s32 room = mesh->tris[i].roomnum;
-		if (room > 0) {
-			if (room > max_room) {
-				max_room = room;
-			}
-			source_tiles++;
-		}
-	}
-
-	if (max_room <= 0 || source_tiles <= 0) {
+	if (!s_measureSourceTiles(mesh, &max_room, &source_tiles)) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: scene source '%s' has no room-tagged triangles for tile cache",
@@ -34899,16 +37441,14 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		return NULL;
 	}
 
-	header_size = (u32)(room_count + 2) * (u32)sizeof(u32);
-	if (source_tiles > 0
-			&& (u32)source_tiles > (0xffffffffu - header_size) / tile_stride) {
+	total_size = s_sourceTileBankSize(room_count, source_tiles);
+	if (!total_size) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: tile cache too large for '%s' tiles=%d",
 			scenario->id, source_tiles);
 		return NULL;
 	}
 
-	total_size = header_size + (u32)source_tiles * tile_stride;
 	data = mempAlloc(total_size, MEMPOOL_STAGE);
 	if (!data) {
 		sysLogPrintf(LOG_ERROR,
@@ -34916,41 +37456,8 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 			scenario->id, (unsigned)total_size);
 		return NULL;
 	}
-	memset(data, 0, total_size);
-
-	u32data = (u32 *)data;
-	*u32data = (u32)room_count;
-	rooms = u32data + 1;
-	cursor = header_size;
-
-	for (s32 room = 0; room < room_count; room++) {
-		rooms[room] = cursor;
-		for (s32 i = 0; i < mesh->numtris; i++) {
-			const struct meshtri *src = &mesh->tris[i];
-			struct geotilef *tile;
-			if (src->roomnum != room) {
-				continue;
-			}
-			tile = (struct geotilef *)(data + cursor);
-			tile->header.type = GEOTYPE_TILE_F;
-			tile->header.numvertices = 3;
-			/* B-943: carry the authoritative GEOFLAGs + floortype/floorcol from
-			 * the colmesh (loaded from collision.flags.json). Previously flags
-			 * came only from classifyTriFlags (FLOOR1/FLOOR2/WALL) and
-			 * floortype/floorcol were hardcoded 0, so extracted stages lost
-			 * DIE death-floors, LADDERs, footstep materials, and AI sight/shoot
-			 * blocking. */
-			tile->header.flags = src->flags;
-			tile->floortype = src->floortype;
-			tile->floorcol = src->floorcol;
-			tile->vertices[0] = src->v0;
-			tile->vertices[1] = src->v1;
-			tile->vertices[2] = src->v2;
-			s_sourceTileSetBounds(tile);
-			cursor += tile_stride;
-		}
-	}
-	rooms[room_count] = cursor;
+	s_packSourceTiles(data, total_size, mesh, room_count);
+	rooms = (u32 *)data + 1;
 
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
@@ -34960,7 +37467,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.SOURCE: compiled scene tiles '%s' for stage '%s' as %d rooms, %d tiles (%u bytes) source=%s",
 		scenario->id, stageid, room_count, source_tiles,
-		(unsigned)cursor,
+		(unsigned)total_size,
 		source_path && source_path[0] ? source_path : "(none)");
 
 	/* B-943 round-trip diagnostic: prove the runtime tiles now carry the real
@@ -35004,7 +37511,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	}
 
 	if (out_size) {
-		*out_size = (s32)cursor;
+		*out_size = (s32)total_size;
 	}
 	if (out_rooms) {
 		*out_rooms = room_count;
@@ -35029,6 +37536,7 @@ typedef struct {
 	u8 render_always;
 	u8 sky;                 /* drawn relative to the player (roomPopulateMtx) */
 	u8 all_lights_unshootable;
+	u8 has_brightness_range;
 	s16 base_brightness;    /* -1: keep the base level roomInitLights derives */
 	u64 unshootable_lights; /* bit n: light n of the room */
 } scenario_stage_room_rule_t;
@@ -35052,10 +37560,211 @@ static void s_stagePortalRulesClear(void)
 	s_StagePortalRuleCount = 0;
 }
 
+/* Stage-wide rules from stage.json (decision 3), loaded with the stage's
+ * scenario tables and dropped with the other stage rules. */
+static scenario_stage_rules_t s_StageWideRules;
+static s32 s_StageAtmosphereStage = -1;
+static s32 s_StagePrimaryMusic = -1;
+
 void scenarioSourceStageRulesReset(void)
 {
+	s_clearGridDecorationCommands();
 	s_stageRoomRulesClear();
 	s_stagePortalRulesClear();
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+	s_StageAtmosphereStage = -1;
+	s_StagePrimaryMusic = -1;
+}
+
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp)
+{
+	const asset_entry_t *scenario;
+	char path[FS_MAXPATH + 1];
+	char error[192];
+	u32 text_size = 0;
+	char *text;
+	s32 ok;
+
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+	s_StageAtmosphereStage = -1;
+	s_StagePrimaryMusic = -1;
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0] ||
+			!s_scenarioMemberPath(scenario, "stage.json", path, sizeof(path))) {
+		return 0;
+	}
+	text = s_loadOptionalText(path, &text_size);
+	if (!text) {
+		return 0; /* an authored scenario may have no stage-wide rules */
+	}
+	ok = scenarioStageRulesParse(text, text_size, &s_StageWideRules, error,
+		sizeof(error));
+	free(text);
+	if (!ok) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: stage.json of '%s' refused: %s; the stage runs without stage-wide rules",
+			scenario->id, error);
+		return -1;
+	}
+	/* The weapons named by player.unlimited_ammo_excludes must be in the
+	 * catalog, or the rule could not say which ammo it keeps. */
+	for (s32 i = 0; i < s_StageWideRules.player.unlimited_ammo_exclude_count; i++) {
+		catalog_weapon_result_t weapon;
+
+		if (!catalogResolveWeapon(s_StageWideRules.player.unlimited_ammo_excludes[i], &weapon)
+				|| weapon.weapon_num <= 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.SOURCE: stage.json of '%s' refused: player.unlimited_ammo_excludes names %s, which is not a weapon; the stage runs without stage-wide rules",
+				scenario->id, s_StageWideRules.player.unlimited_ammo_excludes[i]);
+			memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+			return -1;
+		}
+	}
+	if (s_StageWideRules.atmosphere.present) {
+		const scenario_stage_atmosphere_t *look = &s_StageWideRules.atmosphere;
+		if (look->primary_music[0]) {
+			catalog_audio_result_t audio;
+			if (catalogResolveAudio(look->primary_music, &audio) && audio.category == AUDIO_CAT_MUSIC) {
+				s_StagePrimaryMusic = audio.sound_id;
+				if (s_StagePrimaryMusic < 0) {
+					s_StagePrimaryMusic = modSequenceVirtualTrackForCatalogId(look->primary_music);
+				}
+			}
+			if (s_StagePrimaryMusic < 0) {
+				sysLogPrintf(LOG_WARNING, "SCENARIO.SOURCE: stage.json of '%s' refused: song '%s' cannot play as a stage track",
+					scenario->id, look->primary_music);
+				memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+				return -1;
+			}
+		}
+		s_StageAtmosphereStage = stage->stagenum;
+		sysLogPrintf(LOG_NOTE, "SCENARIO.SOURCE: atmosphere for '%s' sky=%d rgb=%u,%u,%u fog=%d range=%d,%d ambient=%d level=%d music='%s' track=%d source=stage.json",
+			scenario->id, look->has_sky, (u32)look->sky_rgb[0], (u32)look->sky_rgb[1],
+			(u32)look->sky_rgb[2], look->has_fog, look->fog_start, look->fog_end,
+			look->has_ambient, look->ambient_light, look->primary_music, s_StagePrimaryMusic);
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f unlimited_ammo_excludes=%d no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d sparks_no_light_flash=%d gas_rooms=%d gas_sphere=%d source=stage.json",
+		scenario->id, s_StageWideRules.weather.present,
+		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
+		s_StageWideRules.weather.room_count,
+		s_StageWideRules.weather.cutscene_only,
+		s_StageWideRules.weather.has_wind_direction,
+		s_StageWideRules.player.present,
+		scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit) : "-",
+		scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
+		s_StageWideRules.player.disguise_untargetable,
+		(double)s_StageWideRules.player.coop_spawn_distance,
+		s_StageWideRules.player.unlimited_ammo_exclude_count,
+		s_StageWideRules.ai.no_dark_room_lists,
+		s_StageWideRules.ending.outcome_unknown,
+		s_StageWideRules.hub.present && s_StageWideRules.hub.hub,
+		s_StageWideRules.stars.present ? s_StageWideRules.stars.count : 0,
+		s_StageWideRules.sparks.no_light_flash,
+		s_StageWideRules.gas.present ? s_StageWideRules.gas.room_count : 0,
+		s_StageWideRules.gas.has_sphere);
+	return 1;
+}
+
+s32 scenarioSourceStageWeather(scenario_stage_weather_t *out)
+{
+	if (!s_StageWideRules.weather.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.weather;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageAtmosphere(s32 stagenum, scenario_stage_atmosphere_t *out)
+{
+	if (!s_StageWideRules.atmosphere.present || stagenum != s_StageAtmosphereStage) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.atmosphere;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStagePrimaryMusic(s32 stagenum)
+{
+	return stagenum == s_StageAtmosphereStage ? s_StagePrimaryMusic : -1;
+}
+
+s32 scenarioSourceStagePlayer(scenario_stage_player_t *out)
+{
+	if (!s_StageWideRules.player.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.player;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageAi(scenario_stage_ai_t *out)
+{
+	if (!s_StageWideRules.ai.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ai;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageIsHub(void)
+{
+	return s_StageWideRules.hub.present && s_StageWideRules.hub.hub;
+}
+
+s32 scenarioSourceStageStars(struct scenario_stage_stars *out)
+{
+	if (!s_StageWideRules.stars.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.stars;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageGas(struct scenario_stage_gas *out)
+{
+	if (!s_StageWideRules.gas.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.gas;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageSparks(struct scenario_stage_sparks *out)
+{
+	if (!s_StageWideRules.sparks.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.sparks;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)
+{
+	if (!s_StageWideRules.ending.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ending;
+	}
+	return 1;
 }
 
 static const scenario_stage_room_rule_t *s_stageRoomRule(s32 roomnum)
@@ -35078,16 +37787,32 @@ s32 scenarioSourceRoomSky(s32 roomnum)
 	return rule && rule->sky;
 }
 
-s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level)
+s32 scenarioSourceRoomHasBrightnessRange(s32 roomnum)
 {
 	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->has_brightness_range;
+}
 
-	if (!rule || rule->base_brightness < 0) {
+s32 scenarioSourceRoomExplicitBaseBrightness(s32 roomnum, s32 *out_level)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	if (!rule || rule->base_brightness < 0) return 0;
+	if (out_level) *out_level = rule->base_brightness;
+	return 1;
+}
+
+s32 scenarioSourceRoomBaseBrightness(s32 stagenum, s32 roomnum, s32 *out_level)
+{
+	if (scenarioSourceRoomExplicitBaseBrightness(roomnum, out_level)) return 1;
+	const scenario_stage_atmosphere_t *look = &s_StageWideRules.atmosphere;
+	if (roomnum <= 0 || stagenum != s_StageAtmosphereStage || !look->has_ambient) {
 		return 0;
 	}
 	if (out_level) {
-		*out_level = rule->base_brightness;
+		*out_level = look->ambient_light;
 	}
+	sysLogPrintf(LOG_NOTE, "SCENARIO.SOURCE: atmosphere default room=%d brightness=%d",
+		roomnum, look->ambient_light);
 	return 1;
 }
 
@@ -35127,7 +37852,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	char portals_path[FS_MAXPATH + 1];
 	u32 text_size;
 	char *text;
-	scenario_source_portal_row_t *rows;
+	scenario_source_portal_row_t *rows = NULL;
 	s32 row_count;
 	size_t total_size;
 	u8 *data;
@@ -35142,7 +37867,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
-			!s_scenarioPortalsPath(scenario, portals_path,
+			!scenarioSourcePortalPath(scenario, portals_path,
 				sizeof(portals_path))) {
 		return NULL;
 	}
@@ -35157,10 +37882,9 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 		return NULL;
 	}
 
-	rows = s_parsePortalsJson(text, &row_count);
+	s32 valid = scenarioPortalSourceRead(text, text_size, &rows, &row_count, NULL, 0);
 	free(text);
-	if (!rows) {
-		free(rows);
+	if (!valid) {
 		if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
 			sysLogPrintf(LOG_ERROR,
 				"SCENARIO.SOURCE: no usable portal rows in public source '%s'",
@@ -35182,15 +37906,11 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 		}
 	}
 
-	total_size = (size_t)(row_count + 1) * sizeof(struct bgportal);
-	for (s32 i = 0; i < row_count; i++) {
-		total_size += offsetof(struct portalvertices, vertices) +
-			(size_t)rows[i].vertex_count * sizeof(struct coord);
-	}
-	if (total_size > 0xffffu) {
+	total_size = s_portalRowsPackedSize(rows, row_count);
+	if (!total_size) {
 		sysLogPrintf(LOG_ERROR,
-			"SCENARIO.SOURCE: portal table too large for '%s' portals=%d bytes=%u",
-			scenario->id, row_count, (unsigned)total_size);
+			"SCENARIO.SOURCE: portal table too large for '%s' portals=%d",
+			scenario->id, row_count);
 		free(rows);
 		return NULL;
 	}
@@ -35328,6 +38048,9 @@ u8 *scenarioSourceLoadPadsForStage(const catalog_stage_result_t *stage,
 	waypoint_count = nav.waypoint_count;
 	waygroup_count = nav.waygroup_count;
 	cover_count = nav.cover_count;
+	if (padfile && s_ActiveScenarioGraphs.level_graph_active && strcmp(s_ActiveScenarioGraphs.scenario_id, scenario->id) == 0) {
+		s_ActiveScenarioGraphs.nav_generated_from_paths = nav.generated_from_paths;
+	}
 	free(rows);
 	s_freeNavigation(&nav);
 
@@ -35405,6 +38128,205 @@ static s32 s_jsonReadIntArrayInRange(const char *start, const char *end,
 	return cursor < end && *cursor == ']';
 }
 
+s32 scenarioSourceRoomTablePath(const asset_entry_t *scenario, char *out, size_t out_cap)
+{
+	return s_scenarioMemberPath(scenario, "rooms.json", out, out_cap);
+}
+
+static char *s_roomJsonSkipSpace(char *cursor, const char *end)
+{
+	while (cursor < end && isspace((unsigned char)*cursor)) cursor++;
+	return cursor;
+}
+
+static char *s_roomJsonQuoteEnd(char *quote, const char *end)
+{
+	for (char *p = quote + 1; p < end; p++) {
+		if (*p == '\\') {
+			if (++p == end) return NULL;
+		} else if (*p == '"') {
+			return p;
+		}
+	}
+	return NULL;
+}
+
+static char *s_roomJsonArrayEnd(char *open, const char *end)
+{
+	s32 depth = 0;
+	for (char *p = open; p < end; p++) {
+		if (*p == '"') {
+			p = s_roomJsonQuoteEnd(p, end);
+			if (!p) return NULL;
+		} else if (*p == '[') {
+			depth++;
+		} else if (*p == ']' && --depth == 0) {
+			return p;
+		}
+	}
+	return NULL;
+}
+
+/* The complete document has passed the shared JSON validator. Select only
+ * direct native fields and refuse duplicate names used by the room table. */
+static s32 s_roomJsonField(char *open, const char *end, const char *key, char **value)
+{
+	const size_t length = strlen(key);
+	s32 depth = 0;
+	*value = NULL;
+	for (char *p = open; p < end; p++) {
+		if (*p == '"') {
+			char *quote_end = s_roomJsonQuoteEnd(p, end);
+			if (!quote_end) return 0;
+			if (depth == 1 && (size_t)(quote_end - p - 1) == length
+					&& memcmp(p + 1, key, length) == 0) {
+				char *colon = s_roomJsonSkipSpace(quote_end + 1, end);
+				if (colon < end && *colon == ':') {
+					if (*value) return 0;
+					*value = s_roomJsonSkipSpace(colon + 1, end);
+				}
+			}
+			p = quote_end;
+		} else if (*p == '{' || *p == '[') {
+			depth++;
+		} else if (*p == '}' || *p == ']') {
+			depth--;
+		}
+	}
+	return 1;
+}
+
+typedef struct scenario_room_candidate_box {
+	scenario_room_bounds_t collision;
+	u8 has_collision;
+	u8 seen;
+} scenario_room_candidate_box_t;
+
+static s32 s_roomCandidateCollision(const struct colmesh *collision,
+	scenario_room_candidate_box_t *boxes, s32 room_count)
+{
+	for (s32 i = 0; i < collision->numtris; i++) {
+		const struct meshtri *triangle = &collision->tris[i];
+		const s32 roomnum = triangle->roomnum;
+		if (roomnum <= 0) continue; /* The live background skips unassigned triangles. */
+		if (!scenarioRoomDomainContains(room_count, roomnum)) return 0;
+		scenario_room_candidate_box_t *box = &boxes[roomnum];
+		const struct coord *verts[] = {&triangle->v0, &triangle->v1, &triangle->v2};
+		for (s32 corner = 0; corner < ARRAYCOUNT(verts); corner++) {
+			for (s32 axis = 0; axis < 3; axis++) {
+				const f32 value = verts[corner]->f[axis];
+				if (!__builtin_isfinite(value)) return 0;
+				if (!box->has_collision || value < box->collision.minimum[axis]) box->collision.minimum[axis] = value;
+				if (!box->has_collision || value > box->collision.maximum[axis]) box->collision.maximum[axis] = value;
+			}
+			box->has_collision = 1;
+		}
+	}
+	for (s32 roomnum = 1; roomnum < room_count; roomnum++) {
+		if (boxes[roomnum].has_collision && !scenarioRoomBoundsValid(&boxes[roomnum].collision, 0)) return 0;
+	}
+	return 1;
+}
+
+static char *s_roomCandidateRows(char *document, const char *end)
+{
+	char *schema = NULL;
+	char *rows = NULL;
+	if (!s_roomJsonField(document, end, "schema", &schema)
+			|| !s_roomJsonField(document, end, "rows", &rows) || !rows || *rows != '['
+			|| rows != s_jsonValueAfterKey(document, end, "rows")
+			|| !strstr(document, "pd2.scenario.rooms.v1")) return NULL;
+	/* The live readers accept the version marker outside a schema field. */
+	if (!schema) return rows;
+	if (*schema != '"') return NULL;
+	const char *schema_end = s_roomJsonQuoteEnd(schema, end);
+	return schema_end && modAssetJsonStringEquals(schema, schema_end + 1, "pd2.scenario.rooms.v1") == 1
+		? rows : NULL;
+}
+
+static s32 s_roomCandidateReadRow(char *row, const char *end, s32 *roomnum,
+	scenario_room_bounds_t *bounds, s32 *has_bounds)
+{
+	char *id = NULL, *low = NULL, *high = NULL, *origin_value = NULL;
+	f32 origin[3];
+	const char *number_end = NULL;
+	if (!s_roomJsonField(row, end, "roomnum", &id) || !s_roomJsonField(row, end, "min", &low)
+			|| !s_roomJsonField(row, end, "max", &high) || !s_roomJsonField(row, end, "origin", &origin_value)
+			|| id != s_jsonValueAfterKey(row, end, "roomnum") || low != s_jsonValueAfterKey(row, end, "min")
+			|| high != s_jsonValueAfterKey(row, end, "max") || origin_value != s_jsonValueAfterKey(row, end, "origin")) {
+		return 0;
+	}
+	if ((low != NULL) != (high != NULL)
+			|| !modAssetJsonParseS32Token(id, end, roomnum, &number_end)
+			|| !modAssetJsonTokenHasContainerBoundary(number_end, end, '}')
+			|| (origin_value && (!s_jsonReadFloatArray3At(origin_value, end, origin)
+				|| !scenarioRoomOriginValid(origin)))) {
+		return 0;
+	}
+	*has_bounds = low != NULL;
+	return !*has_bounds || (s_jsonReadFloatArray3At(low, end, bounds->minimum)
+		&& s_jsonReadFloatArray3At(high, end, bounds->maximum));
+}
+
+s32 scenarioSourcePreflightRoomTable(const char *text, size_t size, s32 room_count,
+	const struct colmesh *collision, s32 *out_authored, char *err, size_t err_cap)
+{
+	char *document = NULL;
+	scenario_room_candidate_box_t *boxes = NULL;
+	const char *error = "invalid candidate room domain";
+	s32 authored = 0;
+	s32 roomnum = 0;
+	if (!collision || collision->numtris < 0 || (collision->numtris && !collision->tris)
+			|| !scenarioRoomDomainContains(room_count, 0) || (!text && size)) goto done;
+	boxes = calloc((size_t)room_count, sizeof(*boxes));
+	error = "invalid collision-derived room bounds";
+	if (!boxes || !s_roomCandidateCollision(collision, boxes, room_count)) goto done;
+	if (text) {
+		error = "invalid native rooms.json table";
+		if (size == SIZE_MAX || memchr(text, '\0', size) || !modAssetJsonValidateObject(text, size)) goto done;
+		document = malloc(size + 1);
+		if (!document) goto done;
+		memcpy(document, text, size);
+		document[size] = '\0';
+		char *rows = s_roomCandidateRows(document, document + size);
+		char *rows_end = rows ? s_roomJsonArrayEnd(rows, document + size) : NULL;
+		if (!rows_end) goto done;
+
+		for (char *cursor = s_roomJsonSkipSpace(rows + 1, rows_end); cursor < rows_end; ) {
+			char *row_end = s_jsonFindObjectEnd(cursor, rows_end);
+			scenario_room_bounds_t bounds;
+			s32 has_bounds = 0;
+			roomnum = 0;
+			error = "invalid native room row, bounds, or origin";
+			if (!row_end || !s_roomCandidateReadRow(cursor, row_end, &roomnum, &bounds, &has_bounds)
+					|| roomnum <= 0 || !scenarioRoomDomainContains(room_count, roomnum)
+					|| boxes[roomnum].seen || (has_bounds && !scenarioRoomBoundsValid(&bounds, 1))) goto done;
+			boxes[roomnum].seen = 1;
+			if (has_bounds) {
+				error = "native room bounds exclude their collision geometry";
+				if (boxes[roomnum].has_collision && !scenarioRoomBoundsContain(&bounds, &boxes[roomnum].collision)) goto done;
+				authored++;
+			}
+			cursor = s_roomJsonSkipSpace(row_end + 1, rows_end);
+			if (cursor < rows_end) cursor = s_roomJsonSkipSpace(cursor + 1, rows_end);
+		}
+	}
+	error = NULL;
+
+done:
+	free(document);
+	free(boxes);
+	if (error) {
+		if (err && err_cap) {
+			if (roomnum > 0) snprintf(err, err_cap, "room %d: %s", roomnum, error);
+			else snprintf(err, err_cap, "%s", error);
+		}
+		return 0;
+	}
+	if (out_authored) *out_authored = authored;
+	return 1;
+}
+
 /*
  * B-1114: room origins from the rooms.json sidecar.
  *
@@ -35427,6 +38349,7 @@ static struct coord *s_loadRoomOrigins(const asset_entry_t *scenario,
 	char *text;
 	char *rows_open;
 	char *text_end;
+	char *rows_end;
 	char *cursor;
 	struct coord *origins;
 	s32 max_room = 0;
@@ -35436,8 +38359,7 @@ static struct coord *s_loadRoomOrigins(const asset_entry_t *scenario,
 		*out_count = 0;
 	}
 	if (!scenario || !out_count ||
-			!s_scenarioMemberPath(scenario, "rooms.json", bounds_path,
-				sizeof(bounds_path))) {
+			!scenarioSourceRoomTablePath(scenario, bounds_path, sizeof(bounds_path))) {
 		return NULL;
 	}
 	text = s_loadOptionalText(bounds_path, &text_size);
@@ -35454,6 +38376,8 @@ static struct coord *s_loadRoomOrigins(const asset_entry_t *scenario,
 		free(text);
 		return NULL;
 	}
+	rows_end = s_roomJsonArrayEnd(rows_open, text_end);
+	if (!rows_end) rows_end = text_end;
 
 	origins = NULL;
 	for (pass = 0; pass < 2; pass++) {
@@ -35467,16 +38391,16 @@ static struct coord *s_loadRoomOrigins(const asset_entry_t *scenario,
 			}
 		}
 		cursor = rows_open + 1;
-		while (cursor < text_end) {
+		while (cursor < rows_end) {
 			char *obj_open = strchr(cursor, '{');
 			char *obj_close;
 			s32 roomnum = 0;
 			f32 origin[3];
 
-			if (!obj_open || obj_open >= text_end) {
+			if (!obj_open || obj_open >= rows_end) {
 				break;
 			}
-			obj_close = s_jsonFindObjectEnd(obj_open, text_end);
+			obj_close = s_jsonFindObjectEnd(obj_open, rows_end);
 			if (!obj_close) {
 				break;
 			}
@@ -35937,6 +38861,7 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 	char *text;
 	char *rows_open;
 	char *text_end;
+	char *rows_end;
 	char *cursor;
 	s32 applied = 0;
 	s32 rejected = 0;
@@ -35953,8 +38878,7 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
-			!s_scenarioMemberPath(scenario, "rooms.json", bounds_path,
-				sizeof(bounds_path))) {
+			!scenarioSourceRoomTablePath(scenario, bounds_path, sizeof(bounds_path))) {
 		return 0;
 	}
 
@@ -35983,6 +38907,8 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 		free(text);
 		return -1;
 	}
+	rows_end = s_roomJsonArrayEnd(rows_open, text_end);
+	if (!rows_end) rows_end = text_end;
 
 	/* The rooms' render and light rules (see scenarioSourceStageRulesReset):
 	 * a room no row names, or whose row sets none, keeps the defaults. */
@@ -36000,18 +38926,19 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 	}
 
 	/* Row objects are the only '{' after "rows", as in room_lights.json. */
+	const s32 log_brightness = smokeHarnessIsActive() && sysArgCheck("--debug-forge-level-room-brightness");
 	cursor = rows_open + 1;
-	while (cursor < text_end) {
+	while (cursor < rows_end) {
 		char *obj_open = strchr(cursor, '{');
 		char *obj_close;
 		s32 roomnum = 0;
 		f32 bmin[3];
 		f32 bmax[3];
 
-		if (!obj_open || obj_open >= text_end) {
+		if (!obj_open || obj_open >= rows_end) {
 			break;
 		}
-		obj_close = s_jsonFindObjectEnd(obj_open, text_end);
+		obj_close = s_jsonFindObjectEnd(obj_open, rows_end);
 		if (!obj_close) {
 			rejected++;
 			break;
@@ -36054,7 +38981,12 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 					&& brightness[1] >= brightness[0] && brightness[1] <= 255) {
 				bgrooms[roomnum].br_light_min = (u8)brightness[0];
 				bgrooms[roomnum].br_light_max = (u8)brightness[1];
+				if (s_StageRoomRules) s_StageRoomRules[roomnum].has_brightness_range = 1;
 				brightness_rooms++;
+				if (log_brightness) {
+					sysLogPrintf(LOG_NOTE, "SCENARIO.SOURCE: native room brightness for '%s' room=%d min=%d max=%d",
+						scenario->id, roomnum, bgrooms[roomnum].br_light_min, bgrooms[roomnum].br_light_max);
+				}
 			}
 		}
 

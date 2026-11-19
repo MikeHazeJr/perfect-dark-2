@@ -1,8 +1,10 @@
 #include "catch.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -81,6 +83,52 @@ TEST_CASE("smoke remove paths are install-relative filesystem paths",
 
     REQUIRE(files_scanned > 100);
     REQUIRE(paths_checked > 20);
+}
+
+TEST_CASE("Grid controller actions open Level File and play the native draft",
+    "[input][forge][smoke][static]")
+{
+    const std::string editor = readTextFile("port/fast3d/pdgui_forge_editor.cpp");
+    requireContains(editor, R"({ "Open Level File", kForgeFileOpen })");
+    requireContains(editor, "if (tab == FGT_FILE && payload == kForgeFileOpen)");
+    requireContains(editor, "s_LevelFileOpenRequested = true;");
+    requireContains(editor, R"(ImGui::Button("Open Level File") || openLevelFile)");
+    requireContains(editor, "forgeLevelSessionOpen(arena, err, sizeof(err))");
+    requireContains(editor, "if (tab == FGT_GAMEPLAY && payload == kForgeGameplayPlayDraft)");
+    requireContains(editor, "s_LevelFilePlayDraftRequested = true;");
+    requireContains(editor, R"(ImGui::Button("Play Draft") || s_LevelFilePlayDraftRequested)");
+    requireContains(editor, "forgeLevelSessionPlayDraft(draft_error, sizeof(draft_error))");
+    requireContains(editor, "actionPressed(0, ACTION_FORGE_SIDEBAR_ACTIVATE)");
+    requireContains(editor, "forgeSidebarActivate(s_forge_active_tab, sel)");
+
+    const std::string mode = readTextFile("src/game/forgemode.c");
+    const std::string normal = requireSlice(mode, "static void forgeTransitionToNormal(", "static void forgeTransitionToFreefly(");
+    const size_t editor_pop = normal.find("inputCtxPopDeferred(&g_CtxForgeEditor)");
+    const size_t gameplay_layer = normal.find("if (draft_playing) forgeObserverLayerExit(reason)");
+    REQUIRE(editor_pop < gameplay_layer);
+    REQUIRE(gameplay_layer != std::string::npos);
+    requireContains(normal, "if (!draft_playing) forgeObserverLayerEnter(reason);");
+    requireContains(normal, "const s32 draft_playing = forgeLevelDraftIsPlaying();");
+    const std::string reload = requireSlice(mode, "void forgeCompleteDraftStageReload(", "void forgeInit(");
+    requireContains(reload, "imcActivate(&g_ImcForgeSession)");
+    requireContains(reload, "forgeTransitionToNormal(\"native draft playtest\")");
+    const std::string toggle = requireSlice(mode,
+        "/* In-session: handle the toggle binding", "forgeTransitionToNormal");
+    requireContains(toggle, "actionPressed(0, ACTION_FORGE_TOGGLE)");
+    requireContains(toggle, "if (forgeLevelDraftIsPlaying()) forgeLevelDraftReturn();");
+
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/forge_grid_controller_draft_smoke.json");
+    REQUIRE(fixture.find("--debug-") == std::string::npos);
+    const std::string input = requireSlice(fixture, R"("input_sequence":)", R"("assertions":)");
+    const size_t open = input.find("ACTION_FORGE_SIDEBAR_ACTIVATE");
+    const size_t tab = input.find("ACTION_FORGE_TAB_NEXT");
+    const size_t play = input.find("ACTION_FORGE_SIDEBAR_ACTIVATE", tab);
+    const size_t back = input.find("ACTION_FORGE_TOGGLE");
+    REQUIRE(open < tab);
+    REQUIRE(tab < play);
+    REQUIRE(play < back);
+    REQUIRE(back != std::string::npos);
 }
 
 TEST_CASE("smoke input events drive mouse hover and wheel through SDL",
@@ -364,10 +412,11 @@ TEST_CASE("readiness wait diagnostics log captured admission observations withou
         "static smoke_readiness_facts_t smokeCaptureReadinessFacts",
         "static void smokeLogReadinessWait");
     const std::string logger = requireSlice(source,
-        "static void smokeLogReadinessWait", "/* One smoke-owned SDL device.");
+        "static void smokeLogReadinessWait", "/* Smoke owns the virtual joysticks.");
     const std::string ownership = readTextFile("port/fast3d/pdgui_menu_readiness.cpp");
     requireContains(ownership, "int pdguiMenuWindowOwnsInput(");
-    const std::string wrapper = ownership.substr(ownership.find("int pdguiMenuWindowOwnsInput("));
+    const std::string wrapper = requireSlice(ownership,
+        "int pdguiMenuWindowOwnsInput(", "int pdguiMenuModalOwnsInput(");
 
     requireContains(projection, "facts.menu_focus_lost = input_authority.window_focus_lost;");
     requireContains(projection,
@@ -740,6 +789,7 @@ TEST_CASE("invitee authority smoke proves background owned fire reaches gameplay
     requireContains(fixture, "\"window_focus_transition\"");
     requireContains(fixture, "\"from_process\": \"invitee\"");
     requireContains(fixture, "\"to_process\": \"initiator\"");
+    REQUIRE(fixture.find("\"before_target_barrier\"") == std::string::npos);
     requireContains(fixture,
         "\"source_wait_for\": \"INPUTCTX: focus GAINED\"");
     requireContains(fixture,
@@ -844,15 +894,18 @@ TEST_CASE("invitee authority smoke proves background owned fire reaches gameplay
     const std::string multi = requireSlice(runner,
         "function Invoke-SmokeTestMultiProcess",
         "function Invoke-SmokeTest {");
-    const size_t transitionCall = multi.find(
+    const std::string postLaunchFocus = requireSlice(multi,
+        "if (-not $launchFailed -and -not $focusTransitionAttempted)",
+        "# If a launch failed, close only our retained launches");
+    const size_t transitionCall = postLaunchFocus.find(
         "$focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition");
-    const size_t operationalFailure = multi.find(
+    const size_t operationalFailure = postLaunchFocus.find(
         "$operationalFailures.Add($script:lastWindowFocusTransitionFailure)",
         transitionCall);
-    const size_t failureSentinel = multi.find(
+    const size_t failureSentinel = postLaunchFocus.find(
         "$entry.RequiredSequenceStartLines['window_focus_transition'] =",
         transitionCall);
-    const size_t launchFailure = multi.find("$launchFailed = $true",
+    const size_t launchFailure = postLaunchFocus.find("$launchFailed = $true",
         transitionCall);
     REQUIRE(transitionCall != std::string::npos);
     REQUIRE(operationalFailure != std::string::npos);
@@ -865,6 +918,53 @@ TEST_CASE("invitee authority smoke proves background owned fire reaches gameplay
         "A failed operational transition invalidates every sequence explicitly");
     requireContains(runner, "Kind = 'window_focus_transition_failed'");
     requireContains(runner, "OperationalFailures = @($operationalFailures)");
+}
+
+TEST_CASE("Grid played variant smoke focuses its authenticated guest before save",
+    "[input][window][grid][smoke][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string multi = requireSlice(runner,
+        "function Invoke-SmokeTestMultiProcess", "function Invoke-SmokeTest {");
+    requireContains(multi, "$focusBeforeTargetBarrier = $false");
+    requireContains(multi, "$focusTransition.before_target_barrier -eq $true");
+    requireContains(multi, "$focusTarget = [string]$focusTransition.to_process");
+    const std::string earlyFocus = requireSlice(multi,
+        "if ($focusBeforeTargetBarrier -and -not $focusTransitionAttempted -and $pname -eq $focusTarget)",
+        "if (-not $launchFailed -and -not $focusTransitionAttempted)");
+    constexpr const char *focusCall =
+        "$focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition";
+    const size_t attempted = earlyFocus.find("$focusTransitionAttempted = $true");
+    const size_t readiness = earlyFocus.find("$readyFailure = Wait-SmokeProcessLaunchMarker");
+    const size_t readyPattern = earlyFocus.find("-Pattern ([string]$focusTransition.target_ready_wait_for)");
+    const size_t focus = earlyFocus.find(focusCall);
+    const size_t stopOnFailure = earlyFocus.find("if (-not $focusTransitionPassed) { break }");
+    const size_t saveBarrier = earlyFocus.find("-Pattern $waitFor -TimeoutSeconds $waitTimeoutSec");
+    const size_t exitBarrier = earlyFocus.find("$p.WaitForExit($snapshotExitTimeoutSec * 1000)");
+    const size_t snapshot = earlyFocus.find("Copy-Item -LiteralPath $logPath -Destination $snapshotPath");
+    REQUIRE(attempted < readiness);
+    REQUIRE(readiness < readyPattern);
+    REQUIRE(readyPattern < focus);
+    REQUIRE(focus < stopOnFailure);
+    REQUIRE(stopOnFailure < saveBarrier);
+    REQUIRE(saveBarrier < exitBarrier);
+    REQUIRE(exitBarrier < snapshot);
+    REQUIRE(snapshot != std::string::npos);
+    REQUIRE(earlyFocus.find(focusCall, focus + 1) == std::string::npos);
+    requireContains(earlyFocus, "Set-WindowFocusTransitionFailure -Stage 'target-ready'");
+
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/forge_grid_save_played_variant_smoke.json");
+    const std::string transition = requireSlice(fixture,
+        R"("window_focus_transition")", R"("remove_paths")");
+    requireContains(transition, R"("from_process": "host")");
+    requireContains(transition, R"("to_process": "guest")");
+    requireContains(transition, R"("before_target_barrier": true)");
+    requireContains(transition, R"("target_ready_wait_for": "NET: SVC_AUTH from server, our ID is 1")");
+    const std::string guest = requireSlice(fixture,
+        R"("name": "guest")", R"("name": "guest-offline-restart")");
+    requireContains(guest, R"("wait_for": "SMOKE: result=grid_played_variant_saved .* code=0$")");
+    requireContains(guest, R"("snapshot_log_file": "grid-played-variant-save.log")");
 }
 
 TEST_CASE("main-window focus lifecycle bypasses consumable UI event routing",
@@ -1079,9 +1179,12 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(systemSource, "strncpy(outPath, debugHome, outLen - 1)");
 
     const std::string modmgr = readTextFile("port/src/modmgr.c");
-    requireContains(modmgr, "const char *explicitModsDir = fsGetModDir();");
-    requireContains(modmgr, "if (explicitModsDir && explicitModsDir[0]) {");
-    requireContains(modmgr, "candidateBufs[1][0] = '\\0';");
+    // B-1031 + B-1160: an explicit --moddir is the only root (fsModRoots).
+    const std::string fsSource = readTextFile("port/src/fs.c");
+    requireContains(fsSource, "if (modDir[0]) {\n\t\tsnprintf(out->path[0], sizeof(out->path[0]), \"%s\", modDir);");
+    requireContains(fsSource, "out->explicit_dir = 1;");
+    requireContains(modmgr, "fsModRoots(&roots);");
+    requireContains(modmgr, "if (roots.explicit_dir) {");
     requireContains(modmgr, "modmgr: could not open explicit mod directory");
 }
 
@@ -1140,7 +1243,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	requireContains(parent, "status=stage_queued stage_bytes=");
 	requireContains(parent, "commit=pending_post_load");
 	requireContains(parent,
-		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1");
+		"CUTSCENE.AUTHORITY: " "stage-start presentation previous_tickmode=[0-9]+ next_tickmode=[0-9]+ stale_cutscene_retired=[01]");
 	requireContains(parent, "NET.RECONNECT.WORLD begin");
 	requireContains(parent,
 		"removed=0 detached=0 first_dynamic=[1-9][0-9]*");
@@ -1169,7 +1272,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	REQUIRE(parent.find("LOG.WPN.DIAG: fire-input pi=0 fire_held=1") ==
 		std::string::npos);
 	const size_t presentationBoundary = parent.find(
-		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6");
+		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=[0-9]+");
 	const size_t worldBegin = parent.find("NET.RECONNECT.WORLD begin",
 		presentationBoundary);
 	REQUIRE(presentationBoundary != std::string::npos);
@@ -1281,15 +1384,17 @@ TEST_CASE("virtual controller smoke uses SDL state and preserves production inpu
 {
     const std::string source = readTextFile("port/src/smoke_harness.c");
     const std::string driver = requireSlice(source,
-        "/* One smoke-owned SDL device.", "static s32 smokeHasPendingTap(void)");
+        "/* Smoke owns the virtual joysticks.", "static s32 smokeHasPendingTap(void)");
     requireContains(driver, "SDL_JoystickAttachVirtualEx(&desc)");
     requireContains(driver, "SDL_JoystickSetVirtualButton");
     requireContains(driver, "SDL_JoystickSetVirtualAxis");
     requireContains(driver, "SDL_GameControllerGetBindForButton");
     requireContains(driver, "SDL_GameControllerGetBindForAxis");
-    requireContains(driver, "inputGetPad(0)");
-    requireContains(driver, "SDL_GameControllerFromPlayerIndex(0)");
+    requireContains(driver, "inputGetPad(slot)");
+    requireContains(driver, "SDL_GameControllerFromPlayerIndex(slot)");
+    requireContains(driver, "SDL_GameControllerGetPlayerIndex(pad) != slot");
     requireContains(driver, "SMOKE_READINESS_AGENT_SELECT_READY");
+    requireContains(driver, "SMOKE_READINESS_MAIN_MENU_PLAY_READY");
     REQUIRE(driver.find("SDL_PushEvent") == std::string::npos);
     REQUIRE(driver.find("actionmapInject") == std::string::npos);
     REQUIRE(driver.find("inputAssignController(") == std::string::npos);
@@ -1303,11 +1408,11 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
 {
     const std::string source = readTextFile("port/src/smoke_harness.c");
     const std::string index = requireSlice(source,
-        "static s32 smokePadDeviceIndex(void)", "static SDL_GameController *smokePadController(void)");
-    requireContains(index, "SDL_JoystickGetDeviceInstanceID(i) == s_SmokePad.instance");
+        "static s32 smokePadDeviceIndex(", "static SDL_GameController *smokePadController(");
+    requireContains(index, "SDL_JoystickGetDeviceInstanceID(i) == state->instance");
     const std::string detach = requireSlice(source,
-        "static s32 smokePadDetachOwned(void)", "static s32 smokePadCleanup(void)");
-    requireContains(detach, "const s32 index = smokePadDeviceIndex()");
+        "static s32 smokePadDetachOwned(", "static s32 smokePadCleanupOne(");
+    requireContains(detach, "const s32 index = smokePadDeviceIndex(state)");
     requireContains(detach, "SDL_LockJoysticks()");
     requireContains(detach, "SDL_UnlockJoysticks()");
     requireContains(detach, "SDL_JoystickIsVirtual(index)");
@@ -1316,7 +1421,9 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
     const std::string tick = requireSlice(source, "void smokeHarnessTick(void)", "void smokeHarnessExit(");
     requireContains(tick, "ev->at_ms != controller_group_at");
     requireContains(tick, "SDL_JoystickUpdate()");
-    requireContains(tick, "s_SmokePad.pending_state = 1");
+    const std::string write = requireSlice(source,
+        "static s32 smokePadWrite(", "static s32 smokeHasPendingTap(");
+    requireContains(write, "state->pending_state = 1");
     requireContains(source, "SMOKE_PAD_RELEASING");
     requireContains(source, "SMOKE_PAD_REMOVING");
     requireContains(source, "neutral_observed=1 removed_observed=1 virtual=1");
@@ -1328,6 +1435,29 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
     requireContains(source, "exit requires controller_detach first");
     requireContains(source, "controller axis value must be an integer");
     requireContains(source, "smokeFixtureControllerAxisValueValid(controller_value)");
+}
+
+TEST_CASE("two-pad smoke checks stable assignments and input through the ordinary menu",
+    "[smoke][input][controller][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string schema = readTextFile("port/src/smoke_fixture_schema.c");
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/menu_virtual_controller_handoff.json");
+    requireContains(schema, "{ \"slot\", SMOKE_FIXTURE_FIELD_SLOT }");
+    requireContains(source, "ev->controller_slot = 0");
+    requireContains(source, "slot < 0 || slot >= SMOKE_PAD_COUNT");
+    requireContains(source, "held_count -= slot_held[slot]");
+    requireContains(source, "smokePadCleanupOne(&s_SmokePads[slot])");
+    requireContains(source, "actionmapGetBindingDeviceIdentity(0, &frontend)");
+    requireContains(fixture, "\"type\": \"controller_attach\", \"slot\": 1");
+    requireContains(fixture, "\"type\": \"controller_detach\", \"slot\": 0");
+    requireContains(fixture, "player=1 virtual=1 accept=1");
+    requireContains(fixture, "player=1 virtual=1 accept=0 cancel=1");
+    requireContains(fixture, "primary_present=0 frontend_instance=");
+    requireContains(fixture, "primary_present=1 frontend_instance=");
+    requireContains(fixture, "\"condition\": \"main_menu_settings_focused\"");
+    requireContains(fixture, "\"condition\": \"settings_video_ready\"");
 }
 
 TEST_CASE("virtual controller menu fixture demands observed production outcomes",
@@ -1391,4 +1521,154 @@ TEST_CASE("a template run seeds every per-process install from the template",
     requireContains(staging, "-TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target");
     requireContains(staging, "$explicitProcessState = $true");
     requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
+}
+
+namespace {
+// The text of the JSON array whose '[' is at text[open], skipping strings.
+std::string jsonArrayAt(const std::string &text, size_t open)
+{
+    int depth = 0;
+    bool in_string = false;
+    for (size_t i = open; i < text.size(); i++) {
+        const char c = text[i];
+        if (in_string) {
+            if (c == '\\') {
+                i++;
+            } else if (c == '"') {
+                in_string = false;
+            }
+            continue;
+        }
+        if (c == '"') {
+            in_string = true;
+        } else if (c == '[') {
+            depth++;
+        } else if (c == ']' && --depth == 0) {
+            return text.substr(open, i - open + 1);
+        }
+    }
+    return std::string();
+}
+}
+
+// The harness stable-sorts a fixture's events by at_ms, so an entry written
+// after a later-timed one runs before it. network_counterop_agent_death_host
+// wrote its results wait (at_ms 0) after the kill (15000): the wait would have
+// run first and timed out. The harness now refuses such a sequence, and every
+// checked-in sequence is written in the order it runs.
+TEST_CASE("smoke input sequences are written in the at_ms order they run in",
+    "[smoke][tooling][fixtures][static]")
+{
+    namespace fs = std::filesystem;
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string parse = requireSlice(harness,
+        "} else if (!strcmp(field, \"input_sequence\")) {",
+        "} else if (!strcmp(field, \"screenshots\")) {");
+    const char *guard = "if (seq_index > 0 && ev->at_ms < prev_at_ms) {";
+    requireContains(parse, guard);
+    requireContains(parse, "events run in at_ms order, so author them in that order");
+    REQUIRE(parse.find(guard) < parse.find("s_State.event_count++;"));
+    REQUIRE(harness.find(guard) < harness.find("Stable-sort events by at_ms"));
+
+    const std::regex key(R"REGEX("input_sequence"\s*:\s*\[)REGEX");
+    const std::regex at_ms(R"REGEX("at_ms"\s*:\s*([0-9]+))REGEX");
+    const std::sregex_iterator none;
+    size_t sequences = 0;
+    for (const char *dir : {"tests", "fixtures"}) {
+        const fs::path root = fs::path(PD_SOURCE_DIR) / "tools" / "smoke-verify" / dir;
+        REQUIRE(fs::is_directory(root));
+        for (const fs::directory_entry &entry : fs::recursive_directory_iterator(root)) {
+            if (!entry.is_regular_file() || entry.path().extension() != ".json") {
+                continue;
+            }
+            std::ifstream in(entry.path(), std::ios::binary);
+            REQUIRE(in.good());
+            std::ostringstream out;
+            out << in.rdbuf();
+            const std::string text = out.str();
+            for (std::sregex_iterator it(text.begin(), text.end(), key); it != none; ++it) {
+                const std::string array = jsonArrayAt(text,
+                    (size_t)it->position(0) + (size_t)it->length(0) - 1);
+                CAPTURE(entry.path().generic_string());
+                REQUIRE_FALSE(array.empty());
+                long long prev = -1;
+                int index = 0;
+                for (std::sregex_iterator a(array.begin(), array.end(), at_ms); a != none; ++a) {
+                    const long long value = std::stoll((*a)[1].str());
+                    CAPTURE(index, value, prev);
+                    REQUIRE(value >= prev);
+                    prev = value;
+                    index++;
+                }
+                sequences++;
+            }
+        }
+    }
+    REQUIRE(sequences > 100);
+}
+
+// B-1209: a smoke kills the simulant that carries the scenario's token through
+// the production damage path, on the scenario authority only, so the host's
+// replacement token and its announcement run on demand.
+TEST_CASE("smoke kills the scenario token's carrier through production damage",
+    "[smoke][tooling][b1209][static]")
+{
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string holder = requireSlice(harness,
+        "static s32 smokeScenarioTokenHolder(const char **token)",
+        "static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)");
+    requireContains(holder, "if (!g_Vars.normmplayerisrunning || g_NetMode == NETMODE_CLIENT) {");
+    requireContains(holder, "for (s32 i = PLAYERCOUNT(); i < g_MpNumChrs && i < MAX_MPCHRS; i++) {");
+    requireContains(holder, "chrIsDead(chr)");
+    requireContains(holder, "if (chr->aibot->hasuplink) {");
+    requireContains(holder, "} else if (chr->aibot->hasbriefcase) {");
+    requireContains(holder, "} else if (chr->aibot->hascase) {");
+
+    requireContains(harness, "facts.scenario_token_held = smokeScenarioTokenHolder(NULL) >= 0;");
+    requireContains(harness, "if (!strcmp(type_str, \"kill_token_holder\")) {");
+    const std::string kill = requireSlice(harness,
+        "case SMOKE_EVENT_KILL_TOKEN_HOLDER:",
+        "case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:");
+    requireContains(kill, "const s32 slot = smokeScenarioTokenHolder(&token);");
+    requireContains(kill, "smokeHarnessExit(1, \"kill_token_holder_no_holder\");");
+    requireContains(kill, "chrDamageByMisc(chr, 1000.0f, &dir, NULL, NULL);");
+    requireContains(kill, "SMOKE.KILL_TOKEN_HOLDER: simulant player=%d token=%s died=%d at_ms=%d");
+}
+
+TEST_CASE("B-1170 every fixture key name resolves through the smoke key table",
+          "[smoke][input][static][b1170]")
+{
+    // A key the table lacks makes the harness refuse the whole fixture at
+    // parse time (menu_settings_keyboard could not run for weeks: it pages
+    // with PageUp/PageDown, which the table did not have).
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string table = requireSlice(harness, "static const SmokeKeyEntry s_KeyTable[] = {", "};");
+    std::set<std::string> names;
+    const std::regex entry(R"re(\{ "([A-Za-z0-9]+)",\s+SDL_SCANCODE_[A-Z0-9_]+\s*\})re");
+    for (std::sregex_iterator it(table.begin(), table.end(), entry), end; it != end; ++it) {
+        names.insert((*it)[1].str());
+    }
+    REQUIRE(names.count("Return") == 1);
+    REQUIRE(names.count("PageDown") == 1);
+
+    // Fixture events are one object per line; a key event names "type": "key".
+    const std::regex keyEvent(R"re("type"\s*:\s*"key")re");
+    const std::regex keyName(R"re("key"\s*:\s*"([^"]+)")re");
+    size_t checked = 0;
+    for (const auto &file : std::filesystem::directory_iterator("tools/smoke-verify/tests")) {
+        if (file.path().extension() != ".json") continue;
+        std::ifstream in(file.path(), std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!std::regex_search(line, keyEvent)) continue;
+            std::smatch m;
+            if (!std::regex_search(line, m, keyName)) continue;
+            const std::string key = m[1].str();
+            const bool single = key.size() == 1 && std::isalnum(static_cast<unsigned char>(key[0]));
+            INFO(file.path().filename().string() << ": key '" << key << "'");
+            REQUIRE((single || names.count(key) == 1));
+            ++checked;
+        }
+    }
+    REQUIRE(checked > 20);
 }

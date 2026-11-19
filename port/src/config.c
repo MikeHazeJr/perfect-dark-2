@@ -346,6 +346,15 @@ s32 configSave(const char *fname)
     union configsavevalue values[CONFIG_MAX_SETTINGS];
     const s32 count = numSettings;
     if (!fname || !fname[0]) return 0;
+    /* B-1160: a save must say where it goes: a $X placeholder (CONFIG_PATH
+     * is $S/pd.ini), an absolute path, or ./ for the working folder. A bare
+     * name resolves like a read (catalog, mods, then the base folder), so
+     * configSave("pd.ini") wrote the install folder, which configInit never
+     * reads, and a fresh profile started there inherited it. */
+    if (fname[0] != '$' && !fsPathIsAbsolute(fname) && !fsPathIsCwdRelative(fname)) {
+        sysLogPrintf(LOG_ERROR, "configSave: refusing bare file name '%s' (save to CONFIG_PATH)", fname);
+        return 0;
+    }
     fsFullPath(fname, destination, sizeof(destination));
     configCaptureSaveValues(values, count);
     if (saveAtomicBegin(&transaction, destination) != 0) return 0;

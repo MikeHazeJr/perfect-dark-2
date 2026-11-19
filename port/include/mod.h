@@ -39,4 +39,17 @@ s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id);
 const char *modSequenceVirtualTrackId(s32 tracknum);
 s32 modSequenceIsVirtualTrack(s32 tracknum);
 
+/* Grid standalone sequence packages use the native public source compiler.
+ * Shareable checks the exact sequenced archive shape without reserving a slot. */
+s32 modSequenceGridSourceShareable(const char *name, const void *bytes, u32 size);
+s32 modSequenceValidateGridSource(const char *name, const void *bytes, u32 size,
+    char *err, size_t err_cap);
+
+/* Temporary sequence reservations are separate from installed playlist IDs.
+ * Retire only after the native stage, its cached tracks and its players stop. */
+s32 modSequenceReserveGridTrack(const char *catalog_id);
+s32 modSequenceCanRetireGridTrack(const char *catalog_id, s32 tracknum);
+void modSequenceForgetGridStageTracks(void);
+s32 modSequenceRetireGridTrack(const char *catalog_id, s32 tracknum);
+
 #endif

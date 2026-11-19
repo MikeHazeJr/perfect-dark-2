@@ -1,0 +1,577 @@
+{
+  "schema": "pd2.test.mod_manifest_cases.v1",
+  "about": [
+    "Shared verdict table for root mod.json admission.",
+    "offline = validate_manifest() in tools/verify_pdxxx_modder_workflow.py.",
+    "game = modManifestValidateBytes() in port/src/mod_manifest_validate.cpp.",
+    "Verdicts: ok, unreadable, not_object, or field:<failing fields in id,name,version order>.",
+    "A case gives its payload as text (UTF-8) or as hex (raw bytes).",
+    "Where the columns differ, stricter says why. The game may refuse what offline accepts, never the reverse."
+  ],
+  "cases": [
+    {
+      "name": "valid_minimal",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_padded_text_is_not_trimmed",
+      "text": "{\"id\": \" author.sample \", \"name\": \"\u6b66\u5668 \ud83c\udf1f\", \"version\": \" 1.0 \"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_escaped_unicode",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\\u6b66\\u5668 \\ud83c\\udf1f\", \"version\": \"1.0\"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_extra_fields_ignored",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\", \"author\": \"PD2\", \"tags\": [\"weapon\", \"sample\"], \"contents\": [\"weapon\"], \"assets\": [{\"catalog_id\": \"mod_sample:carbine\", \"kind\": \"weapon\", \"archive\": \"carbine.pdweapon\"}], \"requires_restart\": false, \"priority\": 3, \"ratio\": 0.5, \"nothing\": null}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_surrounding_json_whitespace",
+      "text": "\n\t {\n  \"id\": \"author.sample\",\n  \"name\": \"Sample Mod\",\n  \"version\": \"1.0.0\"\n} \r\n",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_zero_width_space_counts_as_text",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\u200b\", \"version\": \"1.0.0\"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_bom_character_escape_in_value_counts_as_text",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\\ufeff\", \"version\": \"1.0.0\"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_delete_character_in_value",
+      "hex": "7b226964223a22617f62222c226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "valid_fields_in_any_order",
+      "text": "{\"version\":\"2\",\"name\":\"n\",\"id\":\"i\"}",
+      "offline": "ok",
+      "game": "ok"
+    },
+    {
+      "name": "not_object_null",
+      "text": "null",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_false",
+      "text": "false",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_true",
+      "text": "true",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_zero",
+      "text": "0",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_integer",
+      "text": "42",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_float",
+      "text": "1.25",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_string",
+      "text": "\"mod\"",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_empty_array",
+      "text": "[]",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "not_object_array_of_manifest",
+      "text": "[{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}]",
+      "offline": "not_object",
+      "game": "not_object"
+    },
+    {
+      "name": "field_id_null",
+      "text": "{\"id\": null, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_false",
+      "text": "{\"id\": false, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_true",
+      "text": "{\"id\": true, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_zero",
+      "text": "{\"id\": 0, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_float",
+      "text": "{\"id\": 1.25, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_array",
+      "text": "{\"id\": [], \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_object",
+      "text": "{\"id\": {}, \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_empty",
+      "text": "{\"id\": \"\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_space",
+      "text": "{\"id\": \" \", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_tab_newline",
+      "text": "{\"id\": \"\\t\\n\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_id_missing",
+      "text": "{\"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_name_null",
+      "text": "{\"id\": \"author.sample\", \"name\": null, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_false",
+      "text": "{\"id\": \"author.sample\", \"name\": false, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_true",
+      "text": "{\"id\": \"author.sample\", \"name\": true, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_zero",
+      "text": "{\"id\": \"author.sample\", \"name\": 0, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_float",
+      "text": "{\"id\": \"author.sample\", \"name\": 1.25, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_array",
+      "text": "{\"id\": \"author.sample\", \"name\": [], \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_object",
+      "text": "{\"id\": \"author.sample\", \"name\": {}, \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_empty",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\", \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_space",
+      "text": "{\"id\": \"author.sample\", \"name\": \" \", \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_tab_newline",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\\t\\n\", \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_name_missing",
+      "text": "{\"id\": \"author.sample\", \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_version_null",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": null}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_false",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": false}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_true",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": true}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_zero",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": 0}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_float",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": 1.25}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_array",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": []}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_object",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": {}}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_empty",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"\"}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_space",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \" \"}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_tab_newline",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"\\t\\n\"}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_version_missing",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\"}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_all_missing",
+      "text": "{}",
+      "offline": "field:id,name,version",
+      "game": "field:id,name,version"
+    },
+    {
+      "name": "field_two_missing",
+      "text": "{\"name\": \"only a name\"}",
+      "offline": "field:id,version",
+      "game": "field:id,version"
+    },
+    {
+      "name": "field_id_no_break_space_only",
+      "text": "{\"id\": \"\u00a0\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_name_ideographic_space_only",
+      "text": "{\"id\": \"author.sample\", \"name\": \"\u3000\u3000\", \"version\": \"1.0.0\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_version_mixed_unicode_spaces",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \" \u2003\u205f\u1680\u2028\u2029\u202f\u0085\"}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "field_id_escaped_separator_controls",
+      "text": "{\"id\":\"\\u001c\\u001d\\u001e\\u001f\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "field:id",
+      "game": "field:id"
+    },
+    {
+      "name": "field_name_wrong_case_key",
+      "text": "{\"id\":\"a\",\"Name\":\"n\",\"version\":\"1\"}",
+      "offline": "field:name",
+      "game": "field:name"
+    },
+    {
+      "name": "field_version_number_not_coerced",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":1.0}",
+      "offline": "field:version",
+      "game": "field:version"
+    },
+    {
+      "name": "unreadable_open_brace",
+      "text": "{",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_unterminated_string",
+      "text": "\"unterminated",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_missing_value",
+      "text": "{\"id\":}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_invalid_utf8_byte",
+      "hex": "ff",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_utf8_bom_prefix",
+      "hex": "efbbbf7b226964223a2022617574686f722e73616d706c65222c20226e616d65223a202253616d706c65204d6f64222c202276657273696f6e223a2022312e302e30227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_trailing_text",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"} x",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_two_values",
+      "text": "{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_trailing_comma",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_single_quotes",
+      "text": "{'id':'a','name':'n','version':'1'}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_line_comment",
+      "text": "// mod\n{\"id\": \"author.sample\", \"name\": \"Sample Mod\", \"version\": \"1.0.0\"}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_unquoted_key",
+      "text": "{id:\"a\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_invalid_utf8_in_string",
+      "hex": "7b226964223a2261c328222c226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_overlong_utf8_in_string",
+      "hex": "7b226964223a2261c0af222c226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_utf8_encoded_surrogate",
+      "hex": "7b226964223a2261eda080222c226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_utf16_file",
+      "hex": "fffe7b0022006900640022003a002000220061007500740068006f0072002e00730061006d0070006c00650022002c00200022006e0061006d00650022003a0020002200530061006d0070006c00650020004d006f00640022002c0020002200760065007200730069006f006e0022003a002000220031002e0030002e00300022007d00",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_raw_control_character_in_string",
+      "hex": "7b226964223a22610162222c226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_raw_newline_in_string",
+      "text": "{\"id\":\"a\nb\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_nul_byte_between_tokens",
+      "hex": "7b226964223a2261222c00226e616d65223a226e222c2276657273696f6e223a2231227d",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_leading_zero_number",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"n\":01}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_bad_escape",
+      "text": "{\"id\":\"a\\x\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "unreadable_only_whitespace",
+      "text": " \n\t ",
+      "offline": "unreadable",
+      "game": "unreadable"
+    },
+    {
+      "name": "stricter_duplicate_key_last_valid",
+      "text": "{\"id\":\"\",\"id\":\"a\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "duplicate object keys are refused; json.loads keeps the last one"
+    },
+    {
+      "name": "stricter_duplicate_key_last_invalid",
+      "text": "{\"id\":\"a\",\"id\":\"\",\"name\":\"n\",\"version\":\"1\"}",
+      "offline": "field:id",
+      "game": "unreadable",
+      "stricter": "duplicate object keys are refused before any field is checked"
+    },
+    {
+      "name": "stricter_duplicate_key_in_nested_object",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"meta\":{\"k\":1,\"k\":2}}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "duplicate object keys are refused at every depth"
+    },
+    {
+      "name": "stricter_nul_escape",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"note\":\"\\u0000\"}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "the NUL escape is refused"
+    },
+    {
+      "name": "stricter_lone_high_surrogate_escape",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"note\":\"\\ud800\"}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "unpaired surrogate escapes are refused"
+    },
+    {
+      "name": "stricter_lone_low_surrogate_escape",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"note\":\"\\udc00\"}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "unpaired surrogate escapes are refused"
+    },
+    {
+      "name": "stricter_nan_literal",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":NaN}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "NaN is not JSON"
+    },
+    {
+      "name": "stricter_infinity_literal",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":Infinity}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "Infinity is not JSON"
+    },
+    {
+      "name": "stricter_negative_infinity_literal",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":-Infinity}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "-Infinity is not JSON"
+    },
+    {
+      "name": "stricter_number_overflows_double",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":1e999}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "numbers must be finite doubles"
+    },
+    {
+      "name": "stricter_integer_overflows_double",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":10000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "numbers must be finite doubles"
+    },
+    {
+      "name": "stricter_nesting_deeper_than_64",
+      "text": "{\"id\":\"a\",\"name\":\"n\",\"version\":\"1\",\"x\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
+      "offline": "ok",
+      "game": "unreadable",
+      "stricter": "nesting deeper than 64 levels is refused"
+    }
+  ]
+}

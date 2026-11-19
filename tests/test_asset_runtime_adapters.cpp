@@ -4,12 +4,14 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 
 #include "catch.hpp"
 
 extern "C" {
 #include "asset_runtime.h"
 #include "prop_graph_runtime.h"
+#include "vehicle_graph_runtime.h"
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
 void testStubAssetCatalogResolvePair(const asset_entry_t *first, const asset_entry_t *second);
 void testStubCatalogCompleteBodyNum(s32 bodynum);
@@ -990,6 +992,41 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	REQUIRE(assetRuntimeCount(ASSET_NONE) == 20);
 }
 
+TEST_CASE("global AI list bank binds its rows member and fails closed without it",
+          "[modding][pdxxx][runtime][adapters][global_ailists]") {
+	assetRuntimeReset();
+	REQUIRE(assetRuntimeSupportsType(ASSET_AI_LISTS) == 1);
+
+	/* global-ai-lists.md: a bank without its rows member never binds. */
+	asset_entry_t empty;
+	initEntry(empty, ASSET_AI_LISTS, "mod:ai_lists_empty");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&empty,
+		"mods/demo/ai/empty.pdai::ai/global_ailists.json") == 0);
+	REQUIRE(assetRuntimeFind("mod:ai_lists_empty") == nullptr);
+
+	asset_entry_t bank;
+	initEntry(bank, ASSET_AI_LISTS, "base:ai_global");
+	std::strncpy(bank.ext.ai_lists.lists_file,
+		"data/ntsc-final/ai/base_ai_global.pdai::ai/global_ailists.json",
+		sizeof(bank.ext.ai_lists.lists_file) - 1);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&bank,
+		bank.ext.ai_lists.lists_file) == 1);
+	const asset_runtime_binding_t *binding =
+		assetRuntimeFindByTypeAndId(ASSET_AI_LISTS, "base:ai_global");
+	REQUIRE(binding != nullptr);
+	REQUIRE(binding->type == ASSET_AI_LISTS);
+	REQUIRE(str(binding->authored_file) ==
+		"data/ntsc-final/ai/base_ai_global.pdai::ai/global_ailists.json");
+	REQUIRE(str(binding->primary_path) == str(binding->authored_file));
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&bank) == 1);
+	REQUIRE(assetRuntimeCount(ASSET_AI_LISTS) == 1);
+
+	assetRuntimeReleaseCatalogEntry("base:ai_global");
+	REQUIRE(assetRuntimeFindByTypeAndId(ASSET_AI_LISTS, "base:ai_global") ==
+		nullptr);
+	assetRuntimeReset();
+}
+
 TEST_CASE("asset runtime bindings grow past the old fixed table size",
           "[modding][pdxxx][runtime][c3838][adapters]") {
 	assetRuntimeReset();
@@ -1755,4 +1792,359 @@ TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped input
 	}
 
 	assetRuntimeReset();
+}
+
+/* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): a
+ * .pdvehicle's behavior.graph.json compiles with its behavior/variables.json
+ * when the catalog hydrates the vehicle; v1 pairs with physics v3 (no boost
+ * keys) and v2 with physics v2, never mixed. */
+static const char *const kAdapterPhysicsCommon =
+	"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
+	"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
+	"\"turn_visual_scale\":10,\"input_response\":0.4,"
+	"\"forward_input_scale\":0.7,\"lateral_input_scale\":0.3,"
+	"\"lean_response\":4,\"forward_base\":0.25,"
+	"\"forward_accel_gain\":0.75,\"reverse_base\":0.45,"
+	"\"drag_ntsc\":0.96,\"drag_pal\":0.95,"
+	"\"forward_thrust\":1.2,\"lateral_thrust\":0.8,"
+	"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
+	"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
+	"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
+	"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
+	"0.01,0.02,0.00002,0.0006]";
+
+static std::string adapterPhysics(const char *schema, bool boost_keys)
+{
+	std::string json = std::string("{\"schema\":\"") + schema +
+		"\",\"catalog_id\":\"mod:vehicle_boosted\",";
+	if (boost_keys) json += "\"boost_speed\":7,\"boost_time_ticks60\":1800,";
+	return json + kAdapterPhysicsCommon + "}";
+}
+
+static const char *const kAdapterV2Behavior =
+	"{\"schema\":\"pd2.vehicle.behavior.v2\","
+	"\"catalog_id\":\"mod:vehicle_boosted\","
+	"\"allow_mount\":true,\"allow_drive\":true,"
+	"\"allow_dismount\":true}";
+
+static std::string adapterGraph(const char *replaceKey = nullptr, const char *with = nullptr)
+{
+	std::string json =
+		"{\"schema\":\"pd.vehicle_graph.v1\",\"catalog_id\":\"mod:vehicle_boosted\","
+		"\"nodes\":["
+		"{\"id\":\"mount\",\"kind\":\"event.vehicle.mount_requested\"},"
+		"{\"id\":\"dismount\",\"kind\":\"event.vehicle.dismount_requested\"},"
+		"{\"id\":\"tick\",\"kind\":\"event.vehicle.tick\"},"
+		"{\"id\":\"heat\",\"kind\":\"event.vehicle.heat_changed\"},"
+		"{\"id\":\"driver_free\",\"kind\":\"gate.vehicle.seat_free\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"mount_driver\",\"kind\":\"og.vehicle.mount_seat\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"dismount_driver\",\"kind\":\"og.vehicle.dismount_seat\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"drive\",\"kind\":\"og.vehicle.hover_drive\"},"
+		"{\"id\":\"boost\",\"kind\":\"og.vehicle.boost_heat\",\"params\":{"
+		"\"boost_speed\":\"$boost_speed\",\"ramp_time\":\"$boost_ramp\","
+		"\"overheat_after\":\"$overheat_after\",\"overheated_boost\":\"$overheated_boost\","
+		"\"steer_limit\":\"$steer_limit\",\"steer_limit_time\":\"$steer_limit_time\","
+		"\"recover_time_stopped\":\"$recover_time_stopped\","
+		"\"recover_speed_scale\":\"$recover_speed_scale\"}},"
+		"{\"id\":\"black\",\"kind\":\"gate.vehicle.heat_phase\",\"params\":{\"phases\":[\"overheated\",\"recovering\"]}},"
+		"{\"id\":\"hide\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":false}},"
+		"{\"id\":\"show\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":true}}"
+		"],\"edges\":["
+		"{\"from\":\"mount\",\"output\":\"out\",\"to\":\"driver_free\",\"input\":\"exec\"},"
+		"{\"from\":\"driver_free\",\"output\":\"pass\",\"to\":\"mount_driver\",\"input\":\"exec\"},"
+		"{\"from\":\"dismount\",\"output\":\"out\",\"to\":\"dismount_driver\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"drive\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"boost\",\"input\":\"exec\"},"
+		"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"},"
+		"{\"from\":\"black\",\"output\":\"pass\",\"to\":\"hide\",\"input\":\"exec\"},"
+		"{\"from\":\"black\",\"output\":\"fail\",\"to\":\"show\",\"input\":\"exec\"}"
+		"]}";
+	if (replaceKey && with) {
+		size_t at = json.find(replaceKey);
+		REQUIRE(at != std::string::npos);
+		json.replace(at, std::strlen(replaceKey), with);
+	}
+	return json;
+}
+
+static std::string adapterVariables(const char *replaceKey = nullptr, const char *with = nullptr)
+{
+	std::string json =
+		"{\"schema\":\"pd.vehicle_variables.v1\",\"boost_speed\":7.0,"
+		"\"boost_ramp\":{\"value\":60,\"unit\":\"ticks60\"},"
+		"\"overheat_after\":{\"value\":240,\"unit\":\"ticks60\"},"
+		"\"overheated_boost\":0.5,\"steer_limit\":0.5,"
+		"\"steer_limit_time\":{\"value\":45,\"unit\":\"ticks60\"},"
+		"\"recover_time_stopped\":{\"value\":120,\"unit\":\"ticks60\"},"
+		"\"recover_speed_scale\":2.0,\"cool_crystal_part\":140}";
+	if (replaceKey && with) {
+		size_t at = json.find(replaceKey);
+		REQUIRE(at != std::string::npos);
+		json.replace(at, std::strlen(replaceKey), with);
+	}
+	return json;
+}
+
+/* The model's part tables, written beside the test vehicle's loose model the
+ * way a typed mesh holds them. Part 140 is a toggle node, part 5 a position
+ * node. */
+enum AdapterParts { ADAPTER_PARTS_NONE, ADAPTER_PARTS_TOGGLE_140, ADAPTER_PARTS_NO_TOGGLE };
+
+static void adapterWritePartTables(TempRuntimeDir &dir, AdapterParts parts)
+{
+	if (parts == ADAPTER_PARTS_NONE) return;
+	dir.write("model.nodes.json",
+		"{\"schema\":\"pd2.mesh.nodes.v1\",\"nodes\":["
+		"{\"id\":0,\"type\":2},{\"id\":1,\"type\":18}]}");
+	dir.write("model.parts.json", parts == ADAPTER_PARTS_TOGGLE_140
+		? "{\"schema\":\"pd2.mesh.parts.v1\",\"parts\":["
+			"{\"partnum\":5,\"node\":0},{\"partnum\":140,\"node\":1}]}"
+		: "{\"schema\":\"pd2.mesh.parts.v1\",\"parts\":["
+			"{\"partnum\":5,\"node\":0},{\"partnum\":140,\"node\":0}]}");
+}
+
+static int hydrateGraphVehicle(const char *dirName, const std::string &physics,
+	const std::string &behavior, const char *variables,
+	AdapterParts parts = ADAPTER_PARTS_TOGGLE_140)
+{
+	TempRuntimeDir dir(dirName);
+	asset_entry_t vehicle;
+	initEntry(vehicle, ASSET_VEHICLE, "mod:vehicle_boosted");
+	vehicle.runtime_index = 0x1b9;
+	std::strncpy(vehicle.ext.vehicle.model_file, "model.gltf",
+		sizeof(vehicle.ext.vehicle.model_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.physics_file, "physics.json",
+		sizeof(vehicle.ext.vehicle.physics_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.behavior_graph, "behavior.graph.json",
+		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
+	std::string modelPath = dir.write("model.gltf", "{}");
+	dir.write("physics.json", physics.c_str());
+	dir.write("behavior.graph.json", behavior.c_str());
+	adapterWritePartTables(dir, parts);
+	if (variables) {
+		std::filesystem::path folder =
+			std::filesystem::path(modelPath).parent_path() / "behavior";
+		std::filesystem::create_directories(folder);
+		std::ofstream out(folder / "variables.json", std::ios::binary);
+		out << variables;
+	}
+	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, modelPath.c_str()) == 1);
+	return assetRuntimeHydrateCatalogEntry(&vehicle);
+}
+
+/* The catalog's registration check for a vehicle laid out like the one above. */
+static int admitGraphVehicle(const char *dirName, const std::string &behavior,
+	const char *variables, AdapterParts parts, std::string &why)
+{
+	TempRuntimeDir dir(dirName);
+	std::string modelPath = dir.write("model.gltf", "{}");
+	dir.write("behavior.graph.json", behavior.c_str());
+	adapterWritePartTables(dir, parts);
+	if (variables) {
+		std::filesystem::path folder =
+			std::filesystem::path(modelPath).parent_path() / "behavior";
+		std::filesystem::create_directories(folder);
+		std::ofstream out(folder / "variables.json", std::ios::binary);
+		out << variables;
+	}
+	char err[320] = { 0 };
+	const int ok = assetRuntimeVehicleGraphAdmits(modelPath.c_str(), "behavior.graph.json",
+		"mod:vehicle_boosted", err, sizeof(err));
+	why = err;
+	return ok;
+}
+
+TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrates the vehicle",
+          "[modding][pdxxx][runtime][vehicle-graph]") {
+	SECTION("a v2 behavior keeps its booleans and the original bonus keys") {
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_v2",
+			adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, nullptr) == 1);
+		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
+		REQUIRE(b != nullptr);
+		REQUIRE(b->vehicle_graph == nullptr);
+		REQUIRE(b->vehicle_allow_mount == 1);
+		REQUIRE(b->vehicle_allow_drive == 1);
+		REQUIRE(b->vehicle_allow_dismount == 1);
+		REQUIRE(b->vehicle_boost_speed == Approx(7.0f));
+		REQUIRE(b->vehicle_boost_time_ticks60 == 1800);
+	}
+	SECTION("a v1 graph compiles with its variables; the booleans come from the graph") {
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_v1",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str()) == 1);
+		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
+		REQUIRE(b != nullptr);
+		REQUIRE(b->vehicle_graph != nullptr);
+		REQUIRE(std::string(assetRuntimeVehicleGraphError()).empty());
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "mount") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "drive") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "dismount") == 1);
+		const vehicle_boost_heat_params_t *heat = vehicleGraphProgramBoostHeatParams(b->vehicle_graph);
+		REQUIRE(heat != nullptr);
+		REQUIRE(heat->boost_speed == Approx(7.0f));
+		REQUIRE(heat->ramp_ticks240 == Approx(240.0f));
+		REQUIRE(heat->overheat_ticks240 == Approx(960.0f));
+		REQUIRE(heat->overheated_boost == Approx(0.5f));
+		REQUIRE(heat->steer_limit == Approx(0.5f));
+		REQUIRE(heat->steer_limit_ticks240 == Approx(180.0f));
+		REQUIRE(heat->recover_ticks240 == Approx(480.0f));
+		REQUIRE(heat->recover_speed_scale == Approx(2.0f));
+		REQUIRE(vehicleGraphProgramPartCount(b->vehicle_graph) == 1);
+		REQUIRE(vehicleGraphProgramPart(b->vehicle_graph, 0) == 140);
+		REQUIRE(b->vehicle_boost_time_ticks60 == 0);
+
+		/* Releasing the vehicle's catalog entry frees its program now, and the
+		 * instances made from it first (CORE's review, 2026-11-16); a vehicle
+		 * of another program keeps its instance. */
+		vehicleGraphRuntimeReset();
+		int vehicle = 0, other = 0;
+		REQUIRE(vehicleGraphRuntimeInstance(&vehicle, 1, b->vehicle_graph, nullptr) != nullptr);
+		const std::string otherGraph = adapterGraph();
+		const std::string otherVariables = adapterVariables();
+		char otherErr[256] = { 0 };
+		vehicle_graph_program_t *otherProgram = vehicleGraphProgramCompile(otherGraph.c_str(),
+			otherGraph.size(), otherVariables.c_str(), otherVariables.size(),
+			"mod:vehicle_boosted", nullptr, nullptr, otherErr, sizeof(otherErr));
+		INFO(otherErr);
+		REQUIRE(otherProgram != nullptr);
+		REQUIRE(vehicleGraphRuntimeInstance(&other, 1, otherProgram, nullptr) != nullptr);
+		REQUIRE(vehicleGraphRuntimeCount() == 2);
+		assetRuntimeReleaseCatalogEntry("mod:vehicle_boosted");
+		CHECK(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
+		CHECK(vehicleGraphRuntimeCount() == 1);
+		s32 created = 0;
+		CHECK(vehicleGraphRuntimeInstance(&other, 1, otherProgram, &created) != nullptr);
+		CHECK(created == 0);
+		vehicleGraphRuntimeReset();
+		vehicleGraphProgramFree(otherProgram);
+	}
+	SECTION("a graph without the dismount edge cannot be dismounted") {
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_nodismount",
+			adapterPhysics("pd2.vehicle.physics.v3", false),
+			adapterGraph("{\"from\":\"dismount\",\"output\":\"out\",\"to\":\"dismount_driver\",\"input\":\"exec\"},", ""),
+			adapterVariables().c_str()) == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "mount") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "dismount") == 0);
+	}
+	SECTION("a part the model lacks, or one that is not a toggle, refuses the vehicle") {
+		// CORE's rule (answer 5): og.vehicle.part_visible is checked against the
+		// model's part tables when the graph compiles, not when the vehicle is
+		// first used.
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_part_not_toggle",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NO_TOGGLE) == 0);
+		CHECK(std::string(assetRuntimeVehicleGraphError()).find(
+			"names part 140, which the vehicle's model does not have") != std::string::npos);
+
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_part_missing",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables("\"cool_crystal_part\":140", "\"cool_crystal_part\":141").c_str(),
+			ADAPTER_PARTS_TOGGLE_140) == 0);
+		CHECK(std::string(assetRuntimeVehicleGraphError()).find("names part 141") !=
+			std::string::npos);
+
+		// A model with no part tables has no parts to toggle; the reason says so.
+		assetRuntimeReset();
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_no_tables",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE) == 0);
+		const std::string noTables = assetRuntimeVehicleGraphError();
+		CHECK(noTables.find("names part 140") != std::string::npos);
+		CHECK(noTables.find("its model has no model.parts.json") != std::string::npos);
+
+		// A graph that toggles no part needs no tables.
+		assetRuntimeReset();
+		const std::string noParts = adapterGraph(
+			"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"},"
+			"{\"from\":\"black\",\"output\":\"pass\",\"to\":\"hide\",\"input\":\"exec\"},"
+			"{\"from\":\"black\",\"output\":\"fail\",\"to\":\"show\",\"input\":\"exec\"}",
+			"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"}");
+		std::string partless = noParts;
+		for (const char *node : {
+				",{\"id\":\"hide\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":false}}",
+				",{\"id\":\"show\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":true}}" }) {
+			const size_t at = partless.find(node);
+			REQUIRE(at != std::string::npos);
+			partless.erase(at, std::strlen(node));
+		}
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_partless",
+			adapterPhysics("pd2.vehicle.physics.v3", false), partless,
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE) == 1);
+	}
+	SECTION("the catalog's registration check answers the same, before anything hydrates") {
+		std::string why;
+		assetRuntimeReset();
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_ok", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_TOGGLE_140, why) == 1);
+		CHECK(why.empty());
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_not_toggle", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NO_TOGGLE, why) == 0);
+		CHECK(why.find("names part 140, which the vehicle's model does not have") !=
+			std::string::npos);
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_no_tables", adapterGraph(),
+			adapterVariables().c_str(), ADAPTER_PARTS_NONE, why) == 0);
+		CHECK(why.find("its model has no model.parts.json") != std::string::npos);
+		// Any other compile refusal refuses the registration too.
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_bad_graph",
+			adapterGraph("og.vehicle.hover_drive", "og.vehicle.fly"),
+			adapterVariables().c_str(), ADAPTER_PARTS_TOGGLE_140, why) == 0);
+		CHECK(why.find("native module 'og.vehicle.fly' does not exist") != std::string::npos);
+		// A v2 behavior file is not a graph: nothing to check here.
+		CHECK(admitGraphVehicle("pd2_vehicle_admit_v2", kAdapterV2Behavior, nullptr,
+			ADAPTER_PARTS_NONE, why) == 1);
+		// The check binds nothing.
+		CHECK(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
+	}
+	SECTION("sources that do not pair are refused, with the reason") {
+		struct Case {
+			std::string physics;
+			std::string behavior;
+			bool variables;
+			const char *why;
+		};
+		const Case cases[] = {
+			{ adapterPhysics("pd2.vehicle.physics.v2", true), adapterGraph(), true,
+				"needs pd2.vehicle.physics.v3" },
+			{ adapterPhysics("pd2.vehicle.physics.v3", false), kAdapterV2Behavior, false,
+				"needs a pd.vehicle_graph.v1 behavior" },
+			{ adapterPhysics("pd2.vehicle.physics.v3", true), adapterGraph(), true,
+				"has no boost keys" },
+			{ adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, true,
+				"read only with a pd.vehicle_graph.v1" },
+			{ adapterPhysics("pd2.vehicle.physics.v9", false), adapterGraph(), true,
+				"physics.json needs" },
+		};
+		for (const Case &c : cases) {
+			assetRuntimeReset();
+			INFO(c.why);
+			REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_pair", c.physics, c.behavior,
+				c.variables ? adapterVariables().c_str() : nullptr) == 0);
+			REQUIRE(std::string(assetRuntimeVehicleGraphError()).find(c.why) != std::string::npos);
+		}
+	}
+	SECTION("a graph that does not compile refuses the vehicle, with the runner's reason") {
+		const std::pair<std::string, std::string> broken[] = {
+			{ adapterGraph("og.vehicle.hover_drive", "og.vehicle.fly"), adapterVariables() },
+			{ adapterGraph("\"catalog_id\":\"mod:vehicle_boosted\"", "\"catalog_id\":\"mod:other\""),
+				adapterVariables() },
+			{ adapterGraph(), adapterVariables("\"overheated_boost\":0.5", "\"overheated_boost\":1.5") },
+			{ adapterGraph(), adapterVariables(",\"recover_speed_scale\":2.0", "") },
+			{ adapterGraph(), adapterVariables("\"cool_crystal_part\":140", "\"cool_crystal_part\":-3") },
+		};
+		for (const auto &edit : broken) {
+			assetRuntimeReset();
+			INFO(edit.first.substr(0, 60));
+			REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_bad",
+				adapterPhysics("pd2.vehicle.physics.v3", false), edit.first,
+				edit.second.c_str()) == 0);
+			REQUIRE_FALSE(std::string(assetRuntimeVehicleGraphError()).empty());
+		}
+	}
+	assetRuntimeReset();
+	REQUIRE(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
 }

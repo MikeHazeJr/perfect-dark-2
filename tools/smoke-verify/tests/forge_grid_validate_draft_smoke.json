@@ -1,0 +1,75 @@
+{
+  "scenario_name": "forge_grid_validate_draft_smoke",
+  "description": "Validate an original Grid draft with a native fixed pickup trigger. Refuse an otherwise identical copy with an unknown executable module through both Validate Draft and ordinary Save As targeting the existing arena. Check the enabled catalog, exact archive and pin, running stage, and editor history after the refusal.",
+  "tags": ["modding", "forge", "arena", "graph", "validation", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_io.c",
+    "port/fast3d/pdgui_forge_editor.cpp",
+    "port/src/grid_match_runtime.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/mission_graph_runner.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/grid_two_rooms", "mods/MP Maps/arena_grid_validate_draft"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "original",
+    "--debug-level-tool-name",
+    "Grid_Validate_Draft",
+    "--debug-grid-room-size",
+    "2100,2700,1800,600,500,390",
+    "--launch-forge-level",
+    "mod:arena_grid_validate_draft",
+    "--debug-forge-validate-draft"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_validate_draft_smoke",
+      "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0"
+    ],
+    "required_sequences": [
+      {
+        "name": "Validate Draft and ordinary Save As refuse an invalid executable graph before publication",
+        "patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_validate_draft opens=1",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_validate_draft sha256=[0-9a-f]{64}",
+          "SMOKE\\.GRID\\.PICKUP: authored arena=mod:arena_grid_validate_draft provenance=original archive_sha256=[0-9a-f]{64} .*fixed=setup_0000",
+          "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_validate_draft .*sha256=[0-9a-f]{64}",
+          "SMOKE\\.GRID\\.VALIDATE: valid unsaved=1 archive_sha256=[0-9a-f]{64}",
+          "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_validate_draft .*sha256=[0-9a-f]{64}",
+          "SMOKE\\.GRID\\.VALIDATE: rejected .*native module 'og\\.pickup\\.fake' does not exist",
+          "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_validate_draft .*sha256=[0-9a-f]{64}",
+          "FORGE\\.LEVEL\\.SAVE\\.FAIL: template=mod:arena_grid_validate_draft name='Grid_Validate_Draft' code=-4 reason='.*native module 'og\\.pickup\\.fake' does not exist",
+          "SMOKE\\.GRID\\.VALIDATE: ordinary save refused arena=mod:arena_grid_validate_draft reason='.*native module 'og\\.pickup\\.fake' does not exist",
+          "SMOKE\\.GRID\\.VALIDATE: unchanged arena=mod:arena_grid_validate_draft stage=0x[0-9a-f]+ undo=1 source_sha256=[0-9a-f]{64} pin_sha256=[0-9a-f]{64} enabled=1 catalog=[1-9][0-9]*",
+          "SMOKE: result=grid_validate_draft_complete"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.VALIDATE\\.FAIL",
+      "SMOKE: result=(timeout|grid_validate_draft_(failed|missing_arena|start_failed))",
+      "FORGE\\.DRAFT\\.(PREPARED|BIND|PLAYING)",
+      "FORGE\\.LEVEL\\.SAVE\\.OK",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

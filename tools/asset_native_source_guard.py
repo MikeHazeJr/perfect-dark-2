@@ -269,7 +269,7 @@ CONTRACT_SENTINELS = {
     "tools/pdmesh_render_stream.py": [
         "Shared validation for editable",
         "SCHEMA_GEOMETRY = 2",
-        "SCHEMA_CURRENT = 3",
+        "SCHEMA_CURRENT = 4",
         "pd2.mesh.render.v1",
         "VERTEX_LOAD_GEOMETRY_MASK",
         "VERTEX_CACHE_SLOTS = 64",
@@ -1194,11 +1194,15 @@ SCENARIO_STAGE_NUM_SOURCE_PROVEN_FUNCTIONS = {
         "pre": (
             's_aiGraphPrepareRoomObjectWeaponBranch("if_chr_in_room"',
             's_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_in_room"',
-            's_aiGraphRequireRuntimePad("if_chr_in_room"',
+            # B-1163/B-1164: the stage-specific type 2 branch is reached
+            # after the pad table is proven; its pad is then checked per
+            # eyespy (s_aiGraphRequireResolvedRuntimePad, required below).
+            's_aiGraphRequireRuntimePadTable("if_chr_in_room"',
         ),
         "required": (
             "stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING",
             's_aiGraphRequireRuntimePlayerSlot("if_chr_in_room"',
+            's_aiGraphRequireResolvedRuntimePad("if_chr_in_room"',
             "AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d",
         ),
     },

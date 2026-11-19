@@ -206,7 +206,7 @@ once the GL context exists.
 
 | User | bgfx mode |
 |---|---|
-| Scenario scene renderer (`scenario_scene_renderer.cpp`) | `scenario_scene_renderer_bgfx.cpp` draws the same vertex buffer and textures with `vs_pdscene.sc`/`fs_pdscene.sc` (the same arithmetic as the GL shader) and the same state, as views placed in fast3d's sequence where the GL path draws. Scene loading is shared. |
+| Scenario scene renderer (`scenario_scene_renderer.cpp`) | `scenario_scene_renderer_bgfx.cpp` draws the same vertices and textures with `vs_pdscene.sc`/`fs_pdscene.sc` (the GL shader's arithmetic line for line: B-1172's sky offset, roomHighlight's room lighting and the stage fog) and the same state, as views placed in fast3d's sequence where the GL path draws: the viewport, scissor, camera, light slot and passes of each `G_SCENE_RENDER_EXT` command. Scene loading, the sky flags and the animated surfaces' UVs are shared; each frame's changed vertices go to both backends. The vertices sit in a dynamic buffer with the room as a float (bgfx has no 32-bit integer attributes; the value equals GL's conversion of the integer). Each pass gets its own room lighting texture, because bgfx applies texture updates before a frame's first view and one texture updated per view would light every view like the last. Grid layout revisions prepare bgfx resources too. |
 | ImGui | `imgui_impl_bgfx.cpp`, chosen by `pdgui_render_backend.cpp`: the same matrix, separate blend, scissor rounding and viewport as `imgui_impl_opengl3.cpp`. ImGui texture ids are tagged integers `(index << 3) | kind` resolved at draw time. |
 | pdgui textures (theme, character portrait, skin canvas, skin editor, modding hub preview, character preview bake, skin capture) | Each GL branch is unchanged; a `gfxBgfxActive()` branch uses `gfxBgfxPdguiTex*` with the same filtering and wrap. |
 | GPU swarm (`swarm_gpu.cpp`) | Unchanged. It only computes (dispatch, then CPU readback) and draws nothing, between frames on the same context; bgfx sets all the state it needs at the start of each frame. Its pixel-store resets do not matter to bgfx's RGBA8 uploads. |
@@ -331,6 +331,20 @@ A next experiment can settle it: bgfx's GL renderer compiles shader text
 that starts with `#version` verbatim, so the scene shader can be given the
 classic GLSL 1.30 text (with uniforms bgfx can bind) and the Felicity
 capture compared again.
+
+## Dev merge (2026-11-19)
+
+Merging dev 730aa8bb into the branch brought CORE's B-1172 scene renderer:
+the scene now draws at its display-list command into each player's view,
+with a 52-byte vertex (a sky flag and an integer room), sky rooms drawn
+relative to the camera's room, roomHighlight's lighting from a per-view room
+texture, the stage fog, animated surfaces and Grid layout swaps. The bgfx
+scene path was rebuilt to match (the table above); the classic GL path is
+dev's, with two refactors that change nothing it draws: the room lighting
+choice moved into `viewRoomLights`, and the sky and animated-surface vertex
+updates are computed once per draw for both backends before the GL upload.
+`gfxBgfxApplyScissor` gives the scene's bgfx draws fast3d's scissor, which
+dev's call site now sets before the scene draws.
 
 ## Next steps (phase 2a, from section 11 of the scope doc)
 

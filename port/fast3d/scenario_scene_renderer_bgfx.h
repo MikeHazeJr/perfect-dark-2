@@ -12,13 +12,36 @@
 extern "C" {
 #endif
 
+/* Floats per vertex in the bgfx layout: position, two UV sets, colour, sky,
+ * room. bgfx has no 32-bit integer attributes, so the room is a float. */
+#define SCENE_BGFX_VERTEX_FLOATS 13
+
+/* One scenarioSceneRendererRenderPasses call, as the GL path draws it. */
+typedef struct scene_bgfx_pass {
+	int x; /* glViewport(x, y, width, height): x, y from the bottom left */
+	int y;
+	int width;
+	int height;
+	const float *view_projection; /* 16 floats, as glUniformMatrix4fv takes them */
+	float sky_offset[3];
+	int fog_enabled;
+	float fog_mul;
+	float fog_offset;
+	float fog_color[3];
+	/* This view's room lighting: rooms x 2 RGBA texels, row 0 then row 1. */
+	const float *room_texels;
+	int rooms;
+} scene_bgfx_pass_t;
+
 int gfxBgfxActive(void);
 int gfxBgfxRunning(void);
-uint32_t sceneBgfxCreateVertexBuffer(const void *vertices, uint32_t vertexCount, uint32_t vertexSize);
+/* A dynamic buffer: sky flags and animated surfaces change vertices. */
+uint32_t sceneBgfxCreateVertexBuffer(const float *vertices, uint32_t vertexCount);
+void sceneBgfxUpdateVertices(uint32_t vb, uint32_t firstVertex, const float *vertices, uint32_t vertexCount);
 void sceneBgfxDestroyVertexBuffer(uint32_t vb);
 uint32_t sceneBgfxCreateTexture(int width, int height, const uint8_t *rgba);
 void sceneBgfxDestroyTexture(uint32_t tex);
-int sceneBgfxBeginPass(int width, int height, const float viewProjection[16]);
+int sceneBgfxBeginPass(const scene_bgfx_pass_t *pass);
 void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
                    uint32_t tex, int wrapS, int wrapT,
                    uint32_t tex2, int wrap2S, int wrap2T,

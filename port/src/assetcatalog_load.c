@@ -55,7 +55,7 @@
  * ======================================================================== */
 
 #define LOAD_MAX_FILES   2048   /* matches ROMDATA_MAX_FILES in romdata.c */
-#define LOAD_MAX_TEXTURES 4096
+#define LOAD_MAX_TEXTURES TEXTURE_CUSTOM_END
 #define LOAD_MAX_ANIMS   ANIM_CUSTOM_END_SLOT
 /* source_soundnum contains either a leaf slot or a complete unsigned packed
  * configuration reference. The admission contract accepts all 16 bits. */
@@ -107,15 +107,64 @@ static s32 s_catalogLedgerReload(
  * Initialization
  * ======================================================================== */
 
+static s32 s_catalogIndexableRow(const asset_entry_t *entry)
+{
+    return entry && entry->occupied && (entry->bundled || entry->enabled);
+}
+
+static void s_catalogClearTextureOverrides(void)
+{
+    for (s32 i = 0; i < LOAD_MAX_TEXTURES; i++) s_TexnumOverride[i] = -1;
+}
+
+static s32 s_catalogIndexTextureOverride(const asset_entry_t *entry, s32 index)
+{
+    if (entry->source_texnum < 0 || entry->source_texnum >= LOAD_MAX_TEXTURES) return 0;
+    s_TexnumOverride[entry->source_texnum] = index;
+    return 1;
+}
+
+void catalogRefreshTextureOverrides(void)
+{
+    s_catalogClearTextureOverrides();
+    const s32 total = assetCatalogGetPoolSize();
+    for (s32 i = 0; i < total; i++) {
+        const asset_entry_t *entry = assetCatalogGetByIndex(i);
+        if (s_catalogIndexableRow(entry)) s_catalogIndexTextureOverride(entry, i);
+    }
+}
+
+static void s_catalogClearSoundOverrides(void)
+{
+    for (s32 i = 0; i < LOAD_MAX_SOUNDS; i++) s_SoundnumOverride[i] = -1;
+}
+
+static s32 s_catalogIndexSoundOverride(const asset_entry_t *entry, s32 index)
+{
+    if (entry->source_soundnum < 0 || entry->source_soundnum >= LOAD_MAX_SOUNDS) return 0;
+    s_SoundnumOverride[entry->source_soundnum] = index;
+    return 1;
+}
+
+void catalogRefreshSoundOverrides(void)
+{
+    s_catalogClearSoundOverrides();
+    const s32 total = assetCatalogGetPoolSize();
+    for (s32 i = 0; i < total; i++) {
+        const asset_entry_t *entry = assetCatalogGetByIndex(i);
+        if (s_catalogIndexableRow(entry)) s_catalogIndexSoundOverride(entry, i);
+    }
+}
+
 void catalogLoadInit(void)
 {
     extern void textureSourceRuntimeInvalidate(void);
     textureSourceRuntimeInvalidate();
     /* Reset all reverse-index arrays to "no entry" */
     for (s32 i = 0; i < LOAD_MAX_FILES;    i++) { s_FilenumOverride[i]   = -1; }
-    for (s32 i = 0; i < LOAD_MAX_TEXTURES; i++) { s_TexnumOverride[i]    = -1; }
+    s_catalogClearTextureOverrides();
     for (s32 i = 0; i < LOAD_MAX_ANIMS;    i++) { s_AnimnumOverride[i]   = -1; }
-    for (s32 i = 0; i < LOAD_MAX_SOUNDS;   i++) { s_SoundnumOverride[i]  = -1; }
+    s_catalogClearSoundOverrides();
 
     s32 bundled_count  = 0;
     s32 override_count = 0;
@@ -123,16 +172,13 @@ void catalogLoadInit(void)
 
     for (s32 i = 0; i < total; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
-        if (!e || !e->occupied) {
-            continue;
-        }
         /* Index bundled (base-game) entries regardless of enabled state.
          * Skip disabled non-bundled (mod) entries — a disabled mod should
          * fall through to ROM, not appear in the reverse-index at all.
          * Because base-game entries are registered first (lower pool indices)
          * and mod entries second (higher pool indices), a mod entry that maps
          * to the same source_filenum will overwrite the bundled entry and win. */
-        if (!e->bundled && !e->enabled) {
+        if (!s_catalogIndexableRow(e)) {
             continue;
         }
 
@@ -143,8 +189,7 @@ void catalogLoadInit(void)
         }
 
         /* C-5: texture reverse-index */
-        if (e->source_texnum >= 0 && e->source_texnum < LOAD_MAX_TEXTURES) {
-            s_TexnumOverride[e->source_texnum] = i;
+        if (s_catalogIndexTextureOverride(e, i)) {
             if (e->bundled) { bundled_count++; } else { override_count++; }
         }
 
@@ -155,8 +200,7 @@ void catalogLoadInit(void)
         }
 
         /* C-7: sound reverse-index */
-        if (e->source_soundnum >= 0 && e->source_soundnum < LOAD_MAX_SOUNDS) {
-            s_SoundnumOverride[e->source_soundnum] = i;
+        if (s_catalogIndexSoundOverride(e, i)) {
             if (e->bundled) { bundled_count++; } else { override_count++; }
         }
 
@@ -587,6 +631,7 @@ static const char *s_catalogPayloadKind(asset_type_e type)
     case ASSET_FONT:      return "font";
     case ASSET_SCENARIO:  return "scenario";
     case ASSET_THEME:     return "theme";
+    case ASSET_AI_LISTS:  return "ai_lists";
     default:              return "generic";
     }
 }
@@ -783,7 +828,8 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type)
         || type == ASSET_MATERIAL
         || type == ASSET_FONT
         || type == ASSET_SCENARIO
-        || type == ASSET_THEME;
+        || type == ASSET_THEME
+        || type == ASSET_AI_LISTS;
 }
 
 static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type)

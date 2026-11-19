@@ -1,6 +1,7 @@
 #ifndef PD_ASSETPROVIDER_CHECKPOINT_H
 #define PD_ASSETPROVIDER_CHECKPOINT_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 /* Internal file-source admission checkpoints, independent of ROM bridges. */
@@ -19,6 +20,10 @@ typedef struct file_provider_checkpoint {
  * the same catalog transaction. */
 s32 fileProviderCheckpointCreate(file_provider_checkpoint_t *checkpoint);
 s32 fileProviderCheckpointRestore(const file_provider_checkpoint_t *checkpoint);
+
+/* Check whether a batch fits current path and byte capacity. Exact existing
+ * and repeated spellings consume no extra capacity. This is a query only. */
+s32 fileProviderCanInternPaths(const char *const *paths, size_t count);
 
 #ifdef __cplusplus
 }

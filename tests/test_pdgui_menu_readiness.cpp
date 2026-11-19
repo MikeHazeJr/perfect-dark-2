@@ -2,6 +2,9 @@
 #include "pdgui_menu_readiness.h"
 #include "../port/fast3d/imgui/imgui.h"
 #include "../port/fast3d/imgui/imgui_internal.h"
+#include <fstream>
+#include <iterator>
+#include <string>
 
 namespace {
 /* Independent pre-diagnostic admission oracle: keep the original predicates
@@ -229,6 +232,61 @@ TEST_CASE("menu readiness denies a popup owner and physical focus loss",
     }
 }
 
+TEST_CASE("Room assignment preserves the current selection on a global lobby consent modal",
+    "[smoke][readiness][menus][imgui][lobby-ui]")
+{
+    MenuReadinessContext fixture;
+    const char *consent = "##distrib_prompt";
+    const auto frame = [&](const char *background, bool open, bool selectSession) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize(ImVec2(400, 300));
+        ImGui::Begin(background);
+        const bool appearing = ImGui::IsWindowAppearing();
+        if (appearing) {
+            ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
+        }
+        ImGui::Button("Leave");
+        ImGui::End();
+
+        // Distribution submits the same top-level popup after either lobby window.
+        if (open) ImGui::OpenPopup(consent);
+        if (ImGui::BeginPopupModal(consent)) {
+            if (selectSession) ImGui::SetKeyboardFocusHere();
+            ImGui::Button("This Session");
+            ImGui::SameLine();
+            ImGui::Button("Skip");
+            ImGui::SetItemDefaultFocus();
+            ImGui::EndPopup();
+        }
+        ImGui::Render();
+        return appearing;
+    };
+
+    frame("##social_lobby", true, false);
+    frame("##social_lobby", false, false);
+    frame("##social_lobby", false, true);
+    frame("##social_lobby", false, false);
+    REQUIRE(pdguiMenuModalOwnsInput(consent, "This Session", 1));
+    REQUIRE_FALSE(pdguiMenuModalOwnsInput(consent, "Skip", 1));
+
+    REQUIRE(frame("##room_interior", false, false));
+    REQUIRE(pdguiMenuModalOwnsInput(consent, "This Session", 1));
+    REQUIRE_FALSE(pdguiMenuModalOwnsInput(consent, "Skip", 1));
+}
+
+TEST_CASE("Lobby and Room focus requests respect native modal ownership",
+    "[smoke][readiness][menus][lobby-ui][static]")
+{
+    for (const char *path : {"port/fast3d/pdgui_menu_lobby.cpp", "port/fast3d/pdgui_menu_room.cpp"}) {
+        CAPTURE(path);
+        std::ifstream file(path);
+        REQUIRE(file.good());
+        const std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        REQUIRE(source.find("ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);")
+            != std::string::npos);
+    }
+}
+
 TEST_CASE("manual Agent Select rows admit their focused rendered window without explicit item focus",
     "[smoke][readiness][menus][imgui]")
 {
@@ -313,5 +371,77 @@ TEST_CASE("Main Menu readiness follows native keyboard focus and only fresh obse
         context.viewFrame(2, 3, false, true, true);
         REQUIRE(ImGui::IsAnyItemActive());
         REQUIRE_FALSE(pdguiMenuViewReadiness("##main_menu", 1, &facts));
+    }
+}
+
+TEST_CASE("recorded menu readiness admits the focused topmost modal",
+    "[smoke][readiness][menus][imgui]")
+{
+    MenuReadinessContext fixture;
+    const char *room = "##room";
+    const char *consent = "##distrib_prompt";
+    const char *nested = nullptr;
+    const auto draw = [&](bool coverConsent, bool recordConsent) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize(ImVec2(400, 300));
+        ImGui::Begin(room);
+        ImGui::Button("Room controls");
+        pdguiMenuRecordView(0, -1, ImGui::GetItemID(), 0, 0);
+        if (!ImGui::IsPopupOpen(consent)) ImGui::OpenPopup(consent);
+        ImGui::SetNextWindowSize(ImVec2(280, 160));
+        if (ImGui::BeginPopupModal(consent)) {
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            ImGui::Button("Receive for Match");
+            const ImGuiID receive = ImGui::GetItemID();
+            ImGui::SetItemDefaultFocus();
+            ImGui::Button("Decline");
+            const ImGuiID decline = ImGui::GetItemID();
+            if (recordConsent) pdguiMenuRecordView(2, -1, receive, decline, 0);
+
+            if (coverConsent && !ImGui::IsPopupOpen("More details")) ImGui::OpenPopup("More details");
+            if (ImGui::BeginPopup("More details")) {
+                nested = ImGui::GetCurrentWindow()->Name;
+                if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+                ImGui::Button("Dismiss details");
+                ImGui::SetItemDefaultFocus();
+                pdguiMenuRecordView(3, -1, ImGui::GetItemID(), 0, 0);
+                ImGui::EndPopup();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::End();
+        ImGui::SetNavCursorVisible(true);
+        ImGui::Render();
+    };
+
+    for (int frame = 0; frame < 3; ++frame) draw(false, true);
+    pdgui_menu_view_readiness_t facts{};
+    REQUIRE(pdguiMenuObserveInput(consent, 1).rejection_mask == PDGUI_MENU_INPUT_POPUP);
+    REQUIRE_FALSE(pdguiMenuWindowOwnsInput(consent, 1));
+    REQUIRE(pdguiMenuViewReadiness(consent, 1, &facts));
+    REQUIRE(facts.view == 2);
+    REQUIRE(facts.play_focused);
+    REQUIRE_FALSE(facts.settings_focused);
+    REQUIRE_FALSE(pdguiMenuViewReadiness(room, 1, &facts));
+    REQUIRE_FALSE(pdguiMenuViewReadiness("##another_prompt", 1, &facts));
+    REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 0, &facts));
+
+    SECTION("a nested non-modal popup blocks both observations") {
+        for (int frame = 0; frame < 3; ++frame) draw(true, true);
+        REQUIRE(nested != nullptr);
+        REQUIRE(pdguiMenuObserveInput(nested, 1).rejection_mask == PDGUI_MENU_INPUT_POPUP);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+        REQUIRE_FALSE(pdguiMenuViewReadiness(nested, 1, &facts));
+    }
+    SECTION("the modal must keep recording its view") {
+        draw(false, false);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+    }
+    SECTION("the modal must keep a visible navigation target") {
+        ImGui::SetNavCursorVisible(false);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+        ImGui::SetNavCursorVisible(true);
+        ImGui::GetCurrentContext()->NavId = 0;
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
     }
 }

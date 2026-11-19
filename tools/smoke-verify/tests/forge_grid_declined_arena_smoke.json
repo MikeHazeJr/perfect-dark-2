@@ -1,0 +1,128 @@
+{
+  "scenario_name": "forge_grid_declined_arena_smoke",
+  "description": "A listen host offers an exact original Grid arena to a guest that lacks it. The guest declines temporary sharing, so no match loads and both peers keep their party and accepted room configuration.",
+  "tags": ["modding", "forge", "network", "consent", "match-lifecycle"],
+  "paths_of_interest": [
+    "port/src/net/netdistrib.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 480,
+  "install_state": "clean",
+  "remove_paths": ["grid-decline-host", "grid-decline-guest"],
+  "fixtures": [
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-decline-host/mods/.pdmod-migration-done"},
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-decline-guest/mods/.pdmod-migration-done"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-decline-host/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-decline-guest/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-decline-host/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-decline-guest/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-decline-host/mods-enabled.json"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-decline-guest/mods-enabled.json"}
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-decline-host",
+        "--moddir", "$E/grid-decline-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "mod_grid_two_rooms:arena_grid_two_rooms",
+        "--debug-level-tool-name", "Grid_Declined_Arena",
+        "--debug-grid-room-size", "2100,1800,600",
+        "--debug-forge-level", "mod:arena_grid_declined_arena",
+        "--debug-forge-level-name", "Grid_Declined_Arena",
+        "--debug-forge-level-pin", "--debug-forge-level-share",
+        "--host", "--listen-bind", "27479",
+        "--launch-mp-room", "mod:arena_grid_declined_arena", "base:combat", "3",
+        "--debug-spawn-weapon", "base:cyclone",
+        "--host-autostart",
+        "--debug-grid-decline-witness"
+      ],
+      "wait_for": "NET: created server on port 27479",
+      "wait_timeout_seconds": 230,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-decline-host",
+          "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_declined_arena sha256=[0-9a-f]{64}"
+        ],
+        "required_sequences": [
+          {
+            "name": "offer-abort-keeps-the-authoritative-room",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_declined_arena generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "NET: ready gate aborted by 'A player lacks the exact Grid sources'",
+              "PLAYER\\.INIT\\.ROLLBACK lobby-start room=[0-9]+ .*globals_restored=1",
+              "SMOKE\\.GRID\\.DECLINED: role=host room=[0-9]+ members=2 settings_revision=[0-9]+ playlist_revision=[0-9]+ retained=1 epoch=0 review=0",
+              "SMOKE\\.WAIT: satisfied condition=network_declined_lobby",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-decline-guest",
+        "--moddir", "$E/grid-decline-guest/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-decline-manifest",
+        "--debug-grid-decline-witness",
+        "--connect-host", "127.0.0.1:27479"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-decline-guest"
+        ],
+        "required_sequences": [
+          {
+            "name": "explicit-decline-keeps-the-authenticated-lobby",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_declined_arena bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest declined arena=mod:arena_grid_declined_arena",
+              "NET: SVC_MATCH_CANCELLED .*A player lacks the exact Grid sources",
+              "SMOKE\\.GRID\\.DECLINED: role=guest room=[0-9]+ retained=1 received_bytes=0 epoch=0 review=0",
+              "SMOKE\\.WAIT: satisfied condition=network_declined_lobby",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {"at_ms": 0, "type": "wait_until", "condition": "network_declined_lobby", "timeout_ms": 410000, "stable_ms": 1200},
+    {"at_ms": 2500, "type": "exit"}
+  ],
+  "assertions": {
+    "required_counts": [
+      {"pattern": "SMOKE: result=scripted_exit scenario=forge_grid_declined_arena_smoke", "min": 2, "max": 2}
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (guest ready|host recorded ready)",
+      "NET\\.GRID\\.TRANSFER: (guest approved|admitted exact temporary)",
+      "GRID\\.MATCH\\.LEASE:",
+      "GRID\\.MATCH\\.STAGE: active",
+      "NET\\.STAGE\\.REPLICATION ready",
+      "MATCH: (server stage start|client stage start received)",
+      "LOBBY\\.REVIEW: .*reviewing=1",
+      "NET\\.GRID\\.RESULT:",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "DISTRIB: (recv begin|sending )",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

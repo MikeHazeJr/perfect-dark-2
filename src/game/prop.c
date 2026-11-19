@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "effect_instance_runtime.h"
+#include "vehicle_graph_runtime.h"
 #include "constants.h"
 #include "system.h"
 #include "../lib/naudio/n_sndp.h"
@@ -248,6 +249,9 @@ void propFree(struct prop *prop)
 {
 	effectInstanceRuntimeCancelEntity(prop);
 	meshDetachFromProp(prop);
+	/* A vehicle's graph record goes with its prop (keyed by the generation
+	 * this prop is about to lose). */
+	vehicleGraphRuntimeRelease(prop, prop->lifecycle_generation);
 
 	if (prop->type == PROPTYPE_CHR) {
 		g_Vars.propstates[prop->propstateindex].chrpropcount--;
@@ -2239,6 +2243,7 @@ void propsTickPlayer(bool islastplayer)
 	s32 roomidx;
 	s32 roomnum;
 	bool done;
+	bool netrepeatpass;
 	struct chrdata *chr1;
 	struct chrdata *chr2;
 
@@ -2266,14 +2271,25 @@ void propsTickPlayer(bool islastplayer)
 	savedlvupdate60f = g_Vars.lvupdate60f;
 	savedlvupdate60freal = g_Vars.lvupdate60freal;
 
-	for (i = 0; i < g_Vars.numpropstates; i++) {
-		g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;
-	}
+	/* SP-87 (B-1202; CORE agreed 2026-11-16): a networked match passes the
+	 * props once per player each frame (lvRender ticks every player, local
+	 * and remote). Its time is counted once, on the frame's first pass: only
+	 * there do the slots and the props gain the frame's time and the
+	 * background slot advance, and a later pass ticks no background prop, so
+	 * a prop in no player's view gets real time, as offline. Local split
+	 * screen keeps the original per-pass accounting. */
+	netrepeatpass = g_NetMode != NETMODE_NONE && g_Vars.currentplayerindex != 0;
 
-	g_Vars.runstateindex++;
+	if (!netrepeatpass) {
+		for (i = 0; i < g_Vars.numpropstates; i++) {
+			g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;
+		}
 
-	if (g_Vars.runstateindex >= g_Vars.numpropstates) {
-		g_Vars.runstateindex = 0;
+		g_Vars.runstateindex++;
+
+		if (g_Vars.runstateindex >= g_Vars.numpropstates) {
+			g_Vars.runstateindex = 0;
+		}
 	}
 
 	runstateindex = g_Vars.runstateindex;
@@ -2434,7 +2450,10 @@ void propsTickPlayer(bool islastplayer)
 			}
 		}
 
-		prop->propupdate240 += g_Vars.lvupdate240;
+		/* SP-87: a networked repeat pass adds no time (see netrepeatpass) */
+		if (!netrepeatpass) {
+			prop->propupdate240 += g_Vars.lvupdate240;
+		}
 
 		if (i > 0) {
 			// The prop is in the foreground, so it must be ticked on this frame
@@ -2501,7 +2520,9 @@ void propsTickPlayer(bool islastplayer)
 				g_Vars.propstates[prop->propstateindex].propcount++;
 			}
 
-			if (prop->propstateindex == runstateindex) {
+			/* SP-87: the background slot runs on the frame's first pass only
+			 * in a networked match; a repeat pass would tick it again */
+			if (prop->propstateindex == runstateindex && !netrepeatpass) {
 				if (prop->lastupdateframe != g_Vars.propstates[runstateindex].lastupdateframe) {
 					g_Vars.lvupdate240 = prop->propupdate240;
 					g_Vars.lvupdate60 = prop->propupdate240 + prop->propupdate60err;
@@ -3689,6 +3710,74 @@ void propRegisterRooms(struct prop *prop)
 			"PROP.ROOMS: register room list missing terminator prop=%p type=%d",
 			(void *)prop, prop ? prop->type : -1);
 		prop->rooms[ARRAYCOUNT(prop->rooms) - 1] = -1;
+	}
+}
+
+/* True if the room's prop list holds this prop. */
+static bool propIsListedInRoom(struct prop *prop, RoomNum room)
+{
+	s16 propnum;
+	s32 chunkindex;
+	s32 i;
+
+	if (room < 0 || room >= g_Vars.roomcount) {
+		return false;
+	}
+
+	propnum = prop - g_Vars.props;
+	chunkindex = g_RoomPropListChunkIndexes[room];
+
+	while (chunkindex >= 0) {
+		for (i = 0; i < MAX_PROPSPERROOMCHUNK; i++) {
+			if (g_RoomPropListChunks[chunkindex].propnums[i] == propnum) {
+				return true;
+			}
+		}
+
+		chunkindex = g_RoomPropListChunks[chunkindex].propnums[MAX_PROPSPERROOMCHUNK];
+	}
+
+	return false;
+}
+
+/**
+ * Give a prop a new rooms list, moving its room registration with it
+ * (B-1270, SP-92).
+ *
+ * A prop in the world (active, or listed in its first room) leaves its old
+ * rooms and joins the new ones; any other prop (held, attached, not placed)
+ * only takes the list. The list is copied up to and including its
+ * terminator, at most ARRAYCOUNT(prop->rooms) entries, so it matches the
+ * source exactly. Writing prop->rooms directly instead leaves a registered
+ * prop listed in its old rooms: harmless while it lives, but once it is
+ * freed, those rooms list a prop with no chr or obj, and the next collision
+ * or room query there reads it.
+ */
+void propSetRooms(struct prop *prop, const RoomNum *rooms)
+{
+	bool registered;
+	s32 i;
+
+	if (prop == NULL || rooms == NULL) {
+		return;
+	}
+
+	registered = prop->active || propIsListedInRoom(prop, prop->rooms[0]);
+
+	if (registered) {
+		propDeregisterRooms(prop);
+	}
+
+	for (i = 0; i < ARRAYCOUNT(prop->rooms); i++) {
+		prop->rooms[i] = rooms[i];
+
+		if (rooms[i] < 0) {
+			break;
+		}
+	}
+
+	if (registered) {
+		propRegisterRooms(prop);
 	}
 }
 

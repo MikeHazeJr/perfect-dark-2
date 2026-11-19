@@ -19,6 +19,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netbuf.h"
+#include "net/netdistrib.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/lobby_view.h"
@@ -38,10 +39,12 @@
 #include "files.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "forge_level_io.h"
 #include "modelcatalog.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "scene_transition.h"
+#include "lib/main.h"
 #include "config.h"
 #include "lib/vi.h"
 #include "game/activemenu.h"
@@ -359,6 +362,18 @@ s32 netLocalClientInLobby(void)
 {
     if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) return 0;
     return (g_NetLocalClient->state == CLSTATE_LOBBY) ? 1 : 0;
+}
+
+s32 netLocalClientIsPreparing(void)
+{
+    return g_NetMode != NETMODE_NONE && g_NetLocalClient
+        && g_NetLocalClient->state == CLSTATE_PREPARING;
+}
+
+s32 netLocalClientPreparingGridTransfer(void)
+{
+    return g_NetMode == NETMODE_CLIENT && netLocalClientIsPreparing()
+        && netPeerHasGridCapability(g_NetLocalClient) && netDistribClientIsGridArena();
 }
 
 u32 netGetClientPing(s32 clientId)
@@ -790,7 +805,9 @@ s32 pdguiEndscreenHasNextMission(void)
 {
     s32 stageindex = (s32)g_MissionConfig.stageindex;
 
-    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+    /* Mission endings (CORE, 2026-11-15): the mission graph says whether the
+     * completed mission leads to the credits (Skedar Ruins on a ROM stage). */
+    if (endscreenMissionLeadsToCredits()) {
         return 1;
     }
 
@@ -804,7 +821,7 @@ s32 pdguiEndscreenHasNextMission(void)
  */
 void pdguiEndscreenNextMission(void)
 {
-    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+    if (endscreenMissionLeadsToCredits()) {
         sysLogPrintf(LOG_NOTE,
             "GAMELOOP.CAMPAIGN: endscreen CREDITS (from final campaign stageindex=%d stage=0x%02x)",
             g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum);
@@ -864,7 +881,7 @@ void pdguiEndscreenExitToMainMenu(void)
      * the match froze while results displayed. Release the pause before
      * the stage transition so the next level doesn't boot paused. */
     lvSetPaused(false);
-    configSave("pd.ini");
+    configSave(CONFIG_PATH);
     /* F-0.4: Clear client manifest before stage transition.
      * STAGE_CITRAINING is a gameplay stage, so mainChangeToStage() won't
      * hit the !STAGE_IS_GAMEPLAY branch that normally calls manifestClear.
@@ -921,7 +938,7 @@ void pdguiEndscreenExitToRoom(void)
         "GAMELOOP.MP: endscreen EXIT_TO_ROOM (manifest=%d netmode=%d)",
         g_ClientManifest.num_entries, (int)g_NetMode);
     lvSetPaused(false);
-    configSave("pd.ini");
+    configSave(CONFIG_PATH);
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
         "endscreen exit to room");
     if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {
@@ -935,6 +952,7 @@ void pdguiEndscreenExitToRoom(void)
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
         "endscreen exit to room");
     func0f0f8120();
+    mainQueueGridRoomReturn();
 }
 
 /**
@@ -943,7 +961,7 @@ void pdguiEndscreenExitToRoom(void)
  */
 const char *pdguiEndscreenNextMissionLabel(void)
 {
-    return (g_Vars.stagenum == STAGE_SKEDARRUINS) ? "Credits" : "Next Mission";
+    return endscreenMissionLeadsToCredits() ? "Credits" : "Next Mission";
 }
 
 /* ========================================================================
@@ -1153,7 +1171,8 @@ s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id)
             assignBuf.size = sizeof(assignData);
             netbufStartWrite(&assignBuf);
             netmsgSvcRoomAssignWrite(&assignBuf, room->id);
-            netSend(cl, &assignBuf, true, NETCHAN_DEFAULT);
+            /* Match normal Room assignment ordering before Room-specific controls. */
+            netSend(cl, &assignBuf, true, NETCHAN_CONTROL);
         }
 
         sysLogPrintf(LOG_NOTE,
@@ -1191,6 +1210,21 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         return -3;
     }
 
+    char stable_stage_id[CATALOG_ID_LEN];
+    const s32 previous_variant = forgeLevelVariantDependenciesStage();
+    if (isListenHost) {
+        if (!stage_id || strlen(stage_id) >= sizeof(stable_stage_id)) return -3;
+        strcpy(stable_stage_id, stage_id);
+        stage_id = stable_stage_id;
+        char error[256];
+        if (!forgeLevelMountVariantDependencies(stage_id, error, sizeof(error))) {
+            sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.VARIANT.MOUNT: %s", error);
+            return -3;
+        }
+    }
+
+    const s32 new_variant = previous_variant < 0 && forgeLevelVariantDependenciesStage() >= 0;
+
     /* Refresh/publish the initiating player's complete typed settings first.
      * On a listen host this updates the authoritative cache in place; on a
      * remote leader it queues CLC_SETTINGS on the same reliable control
@@ -1198,6 +1232,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
     if (netClientSettingsChanged() != 0) {
         sysLogPrintf(LOG_ERROR,
                      "BRIDGE: local client settings preflight failed before match start");
+        if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
         return -4;
     }
 
@@ -1207,6 +1242,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
             difficulty, antiClientId, numSims, simType, timelimit, options,
             scenario, scorelimit, teamscorelimit, weaponSetIndex) != 0) {
         netbufStartWrite(&g_NetLocalClient->out);
+        if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
         return -5;
     }
 
@@ -1223,6 +1259,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         const u32 replayResult = netmsgClcLobbyStartRead(&rb, g_NetLocalClient);
         netbufStartWrite(&g_NetLocalClient->out);
         if (replayResult != 0) {
+            if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
             return -6;
         }
     }
@@ -1236,6 +1273,130 @@ s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 {
     /* timelimit=60 (unlimited), options=0, no scenario/score limits for non-Combat-Sim modes */
     return netLobbyRequestStartWithSims(gamemode, stage_id, difficulty, NET_NULL_CLIENT, 0, 0, 60, 0, 0, 0, 0, 0xFF);
+}
+
+/* ========================================================================
+ * B-1193 (Mike, 2026-11-15): after a networked co-op or counter-op mission the
+ * host decides what follows, for both players. Next Mission and Retry Mission
+ * start the chosen mission through the same lobby start as the Room's Start
+ * Match, which takes the other player along from its results screen; Return
+ * to Room tells the other player to leave its results (SVC_MISSION_RETURN).
+ * ======================================================================== */
+
+void pdguiSetInRoom(s32 inRoom); /* pdgui_lobby.cpp */
+
+/* Next Mission for a networked mission: when the mission's continue starts
+ * the credits (Skedar Ruins, or whatever a scenario-source mission graph
+ * says), there is no mission to play together next. Asks the same question
+ * as the end screen's Credits label. */
+s32 pdguiEndscreenNetMissionHasNext(void)
+{
+    const s32 stageindex = (s32)g_MissionConfig.stageindex;
+
+    if (endscreenMissionLeadsToCredits()) {
+        return 0;
+    }
+
+    return (stageindex >= 0 && stageindex < SOLOSTAGEINDEX_SKEDARRUINS) ? 1 : 0;
+}
+
+void pdguiEndscreenNetMissionStart(s32 next)
+{
+    /* The lobby start's game modes are co-op 1 and counter-op 2, the same
+     * numbers as NETGAMEMODE_COOP and NETGAMEMODE_ANTI. */
+    const s32 anti = g_NetGameMode == NETGAMEMODE_ANTI;
+    const u8 difficulty = (u8)g_MissionConfig.difficulty;
+    char stage_id[64];
+    s32 rc;
+
+    if (g_NetMode != NETMODE_SERVER || g_NetDedicated) {
+        return;
+    }
+
+    stage_id[0] = '\0';
+    if (next) {
+        const s32 index = (s32)g_MissionConfig.stageindex + 1;
+
+        if (!pdguiEndscreenNetMissionHasNext() || index >= NUM_SOLOSTAGES
+                || !g_SoloStages[index].catalog_id) {
+            sysLogPrintf(LOG_WARNING,
+                "GAMELOOP.%s: no next mission after stageindex=%d",
+                anti ? "COUNTEROP" : "COOP", (s32)g_MissionConfig.stageindex);
+            return;
+        }
+        strncpy(stage_id, g_SoloStages[index].catalog_id, sizeof(stage_id) - 1);
+    } else if (g_MissionConfig.stage_id[0]) {
+        strncpy(stage_id, g_MissionConfig.stage_id, sizeof(stage_id) - 1);
+    } else {
+        const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum);
+        if (cid) {
+            strncpy(stage_id, cid, sizeof(stage_id) - 1);
+        }
+    }
+    stage_id[sizeof(stage_id) - 1] = '\0';
+    if (!stage_id[0]) {
+        sysLogPrintf(LOG_WARNING, "GAMELOOP.%s: %s has no stage id",
+            anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry");
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE, "GAMELOOP.%s: host chose %s stage=%s difficulty=%u",
+        anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry",
+        stage_id, (unsigned)difficulty);
+    pdguiEndscreenExitToRoom();
+    pdguiSetInRoom(1);
+    rc = anti
+        ? netLobbyRequestStartWithSims(NETGAMEMODE_ANTI, stage_id, difficulty,
+            g_NetLastCounterOpClientId, 0, 0, 60, 0, 0, 0, 0, 0xFF)
+        : netLobbyRequestStart(NETGAMEMODE_COOP, stage_id, difficulty);
+    if (rc != 0) {
+        sysLogPrintf(LOG_WARNING, "GAMELOOP.%s: %s start request failed rc=%d",
+            anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry", rc);
+    }
+}
+
+/* B-1193 (Mike: in co-op you want to see stats from all players): a networked
+ * mission's results show both players. which 0 is this machine's own player,
+ * 1 the other player; isremote is per machine and the co-op stage end leaves
+ * it set. shots holds the seven SHOTREGION counts. Returns 0 without one. */
+s32 pdguiEndscreenNetMissionStats(s32 which, s32 *kills, s32 *shots, char *name, s32 namelen)
+{
+    for (s32 i = 0; i < MAX_PLAYERS; i++) {
+        const struct player *player = g_Vars.players[i];
+        if (!player || (player->isremote != 0) != (which != 0)) {
+            continue;
+        }
+        if (kills) {
+            *kills = g_Vars.playerstats[i].killcount;
+        }
+        if (shots) {
+            for (s32 r = 0; r < 7; r++) {
+                shots[r] = g_Vars.playerstats[i].shotcount[r];
+            }
+        }
+        if (name && namelen > 0) {
+            snprintf(name, (size_t)namelen, "%s", g_PlayerConfigsArray[i].base.name);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+void pdguiEndscreenNetMissionReturnToRoom(void)
+{
+    u8 room;
+
+    if (g_NetMode != NETMODE_SERVER || g_NetDedicated || !g_NetLocalClient) {
+        return;
+    }
+
+    room = g_NetLocalClient->room_id;
+    sysLogPrintf(LOG_NOTE, "GAMELOOP.%s: host chose return to room room=%u",
+        g_NetGameMode == NETGAMEMODE_ANTI ? "COUNTEROP" : "COOP", (unsigned)room);
+    pdguiEndscreenExitToRoom();
+    pdguiSetInRoom(1);
+    netSendLobbyResync();
+    netServerSendMissionReturn(room);
 }
 
 /* ========================================================================
@@ -1280,7 +1441,7 @@ s32 netLobbyRequestCancel(void)
 /* Returns 1 when the MANIFEST_PHASE_LOADING countdown is active (3-2-1 visible). */
 s32 pdguiCountdownIsActive(void)
 {
-    return (g_MatchCountdownState.active &&
+    return (netLocalClientIsPreparing() && g_MatchCountdownState.active &&
             g_MatchCountdownState.phase == MANIFEST_PHASE_LOADING) ? 1 : 0;
 }
 

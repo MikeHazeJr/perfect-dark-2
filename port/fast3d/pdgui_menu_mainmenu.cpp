@@ -1743,6 +1743,7 @@ enum BindableGroup {
     BG_HUD,            /* PAUSE, SCORECARD (tap)                                        */
     BG_HUD_CS,         /* SCORECARD_HOLD                                                */
     BG_VEHICLE,
+    BG_VEHICLE_TURRET, /* the gunner seat: TURRET_FIRE, TURRET_ZOOM, look, exit         */
     BG_CBUTTONS,
     BG_DPAD,
     BG_FORGE_SESSION,  /* FORGE_TOGGLE                                                  */
@@ -1771,9 +1772,10 @@ static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
     { BG_HUD,            "HUD",             "Pause and scoreboard peek (shared baseline)." },
     { BG_HUD_CS,         "Scoreboard hold", "Combat Simulator hold-to-show scoreboard." },
     { BG_VEHICLE,        "Vehicle",         "Drive + exit bindings for pilotable props." },
+    { BG_VEHICLE_TURRET, "Vehicle Turret",  "The gunner's seat of a two-seat vehicle: aim, fire, zoom, exit." },
     { BG_CBUTTONS,       "C-Buttons",       "Legacy C-stick directions (GEX / Dark Noon)." },
     { BG_DPAD,           "D-Pad",           "Directional pad. Doubles as radial." },
-    { BG_FORGE_SESSION,  "Forge Session",   "Active for the entire Grid session." },
+    { BG_FORGE_SESSION,  "Session",   "Active while editing or playtesting." },
     { BG_FORGE_EDITOR,   "Forge Editor",    "Active in Freefly only." },
     { BG_SKIN_EDITOR,    "Skin Editor",     "Brush, tool, view, undo/redo, and save commands." },
     { BG_OBSERVER,       "Observer",        "Spectator overlay and freefly camera controls." },
@@ -1868,11 +1870,21 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_VEHICLE_LOOK_X,      "Vehicle Look X",     BG_VEHICLE,       "Mounted camera yaw axis/direction.",                                                                   &g_ImcVehicle },
     { ACTION_VEHICLE_LOOK_Y,      "Vehicle Look Y",     BG_VEHICLE,       "Mounted camera pitch axis/direction.",                                                                 &g_ImcVehicle },
     { ACTION_VEHICLE_HANDBRAKE,   "Handbrake",          BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_BOOST,       "Boost",              BG_VEHICLE,       "Hold to boost a vehicle that has one. The Maian vehicle's crystals overheat after a few seconds.",    &g_ImcVehicle },
     { ACTION_PAUSE,               "Pause",              BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
     { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
 
+    /* --- Vehicle Turret (turret IMC, the gunner's seat only) --- */
+    { ACTION_TURRET_FIRE,         "Fire Turret",        BG_VEHICLE_TURRET, "Hold to fire the vehicle's turret from the gunner's seat.",                                           &g_ImcVehicleTurret },
+    { ACTION_TURRET_ZOOM,         "Zoom / Lock Turret", BG_VEHICLE_TURRET, "Hold to zoom the gunner's view and lock the turret on what it points at.",                            &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_EXIT,        "Exit / Switch Seat", BG_VEHICLE_TURRET, "Press once to leave the vehicle. Press twice quickly to move to the other seat when it is free.",     &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_X,      "Turret Look X",      BG_VEHICLE_TURRET, "Gunner's view yaw axis/direction (the mouse always aims).",                                           &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_Y,      "Turret Look Y",      BG_VEHICLE_TURRET, "Gunner's view pitch axis/direction (the mouse always aims).",                                         &g_ImcVehicleTurret },
+    { ACTION_PAUSE,               "Pause",              BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
+
     /* --- Forge Session (entire Grid session) --- */
-    { ACTION_FORGE_TOGGLE,        "Mode Toggle (Forge / Playtest)", BG_FORGE_SESSION, "Enter or leave Freefly. Active for the entire Grid session.",                              &g_ImcForgeSession },
+    { ACTION_FORGE_TOGGLE,        "Switch Edit / Playtest", BG_FORGE_SESSION, "Switch between the free-fly editor and first-person playtest.",                                   &g_ImcForgeSession },
 
     /* --- Forge Editor (Freefly only) --- */
     { ACTION_FORGE_ASCEND,        "Camera Ascend",      BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
@@ -1880,6 +1892,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_FORGE_BOOST,         "Speed Boost",        BG_FORGE_EDITOR,  "Hold for 3x freefly speed.",                                                                          &g_ImcForge },
     { ACTION_FORGE_PRECISION,     "Speed Precision",    BG_FORGE_EDITOR,  "Hold for 0.25x freefly speed.",                                                                       &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_TOGGLE,"Sidebar Toggle",     BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_EDITOR_CONTROLS,"Editor Controls",    BG_FORGE_EDITOR,  "Move focus from the freefly camera to the Grid editor controls.",                                     &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_UP,    "Sidebar Up",         BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_DOWN,  "Sidebar Down",       BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_ACTIVATE,"Sidebar Activate", BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
@@ -2005,7 +2018,7 @@ struct ImcTabDesc {
 
 static InputMappingContext *s_ResetImcsMission[]   = { &g_ImcGameplay, &g_ImcMission };
 static InputMappingContext *s_ResetImcsCombatSim[] = { &g_ImcGameplay, &g_ImcCombatSim };
-static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle };
+static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle, &g_ImcVehicleTurret };
 static InputMappingContext *s_ResetImcsGrid[]      = { &g_ImcForgeSession, &g_ImcForge };
 static InputMappingContext *s_ResetImcsObserver[]  = { &g_ImcObserver };
 static InputMappingContext *s_ResetImcsMenu[]      = { &g_ImcMenu, &g_ImcPauseMenu };
@@ -2028,13 +2041,13 @@ static const ImcTabDesc s_ImcTabs[] = {
     },
     {
         "Vehicle",
-        "Hoverbike controls. Active only while mounted.",
-        (1u << BG_VEHICLE),
-        s_ResetImcsVehicle, 1,
+        "Vehicle controls: the driver's seat and, on a two-seat vehicle, the gunner's turret. Active only while mounted.",
+        (1u << BG_VEHICLE) | (1u << BG_VEHICLE_TURRET),
+        s_ResetImcsVehicle, 2,
     },
     {
-        "The Grid",
-        "Forge level editor. Session toggle plus Freefly-only camera and editor bindings.",
+        nullptr,
+        "Level editor and playtest toggle, plus free-fly camera and editing controls.",
         (1u << BG_FORGE_SESSION) | (1u << BG_FORGE_EDITOR),
         s_ResetImcsGrid, 2,
     },
@@ -2058,6 +2071,11 @@ static const ImcTabDesc s_ImcTabs[] = {
     },
 };
 #define NUM_IMC_TABS (sizeof(s_ImcTabs) / sizeof(s_ImcTabs[0]))
+
+static const char *imcTabName(const ImcTabDesc *tab)
+{
+    return tab->label ? tab->label : forgeDisplayName();
+}
 
 /* Format a row's display name with optional hold-threshold suffix. The
  * SCORECARD_HOLD row reads its threshold live from
@@ -2141,6 +2159,24 @@ static s32 findFreeTriggerSlot(InputMappingContext *imc, InputAction action)
         if (m->triggers[i].vk == 0) return i;
     }
     return -1;
+}
+
+static bool removingLastMenuControllerBinding(const InputMappingContext *imc,
+        InputAction action, s32 slot, u32 vk)
+{
+    if ((imc != &g_ImcMenu && imc != &g_ImcPauseMenu) || !isVkController(vk)) return false;
+    if (action != ACTION_MENU_ACCEPT && action != ACTION_MENU_CANCEL &&
+            (action < ACTION_MENU_UP || action > ACTION_MENU_RIGHT)) return false;
+    input_vk_control_t removed;
+    if (!inputVkDecodeController(vk, &removed) || removed.player != 0) return false;
+
+    const InputMapping &mapping = imc->mappings[action];
+    for (s32 i = 0; i < mapping.num_triggers; ++i) {
+        input_vk_control_t other;
+        if (i != slot && inputVkDecodeController(mapping.triggers[i].vk, &other) &&
+                other.player == 0) return false;
+    }
+    return true;
 }
 
 /* Trigger slot index for controller Bind 1 / Bind 2 columns (matches renderBindTable). */
@@ -2363,8 +2399,14 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
         && (pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed());
     if (!s_CaptureActive && (ImGui::IsItemClicked(ImGuiMouseButton_Right) || focusedClear)
             && vk != 0 && slot >= 0) {
-        actionmapBind(imc, 0, action, slot, 0);
-        if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        if (removingLastMenuControllerBinding(imc, action, slot, vk)) {
+            snprintf(s_CaptureStatus, sizeof(s_CaptureStatus),
+                "Keep one controller binding for %s. Replace this one or add another first.", rowName);
+        } else {
+            s_CaptureStatus[0] = '\0';
+            actionmapBind(imc, 0, action, slot, 0);
+            if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        }
     }
 }
 
@@ -2421,6 +2463,18 @@ static void handleCaptureInput(void)
 
     s32 newKey = inputGetLastKey();
     if (newKey > 0) {
+        input_vk_control_t control;
+        if (s_CaptureColumn == 1 && inputVkDecodeController((u32)newKey, &control) &&
+                control.player != 0) {
+            InputDeviceIdentity device = {};
+            if (actionmapGetBindingDeviceIdentity(control.player, &device) &&
+                    device.instance_id == s_CaptureControllerInstance) {
+                newKey = control.kind == INPUT_VK_BUTTON ? inputVkRawButton(0, control.index) :
+                    inputVkDigitalAxis(0, control.index, control.direction);
+            } else {
+                newKey = 0;
+            }
+        }
         bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
                   || (s_CaptureColumn == 1 && isVkController((u32)newKey));
         if (valid && s_CaptureImc != NULL) {
@@ -3202,14 +3256,14 @@ static void renderControlsKbmInner(const ImcTabDesc *tab)
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Key bindings -- %s", tab->label);
+    ImGui::TextDisabled("Key bindings -- %s", imcTabName(tab));
     ImGui::Separator();
 
     renderBindTable(0, "##mkb_binds", tab->shownGroups);
 
     ImGui::Spacing();
     char btnLabel[96];
-    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Keyboard & Mouse to Defaults", tab->label);
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Keyboard & Mouse to Defaults", imcTabName(tab));
     if (PdButton(btnLabel)) {
         resetTabDeviceToDefaults(tab, 0);
     }
@@ -3228,7 +3282,7 @@ static void renderControlsControllerInner(float scale, const ImcTabDesc *tab)
     }
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Controller map -- %s", tab->label);
+    ImGui::TextDisabled("Controller map -- %s", imcTabName(tab));
     ImGui::Separator();
     ImGui::TextDisabled(
         "Gamepad: use the binding table below to rebind with the controller. Drag and drop on the visual "
@@ -3243,14 +3297,14 @@ static void renderControlsControllerInner(float scale, const ImcTabDesc *tab)
 
     ImGui::Spacing();
     ImGui::Spacing();
-    ImGui::TextDisabled("Button bindings -- %s", tab->label);
+    ImGui::TextDisabled("Button bindings -- %s", imcTabName(tab));
     ImGui::Separator();
 
     renderBindTable(1, "##ctrl_binds", tab->shownGroups);
 
     ImGui::Spacing();
     char btnLabel[96];
-    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Controller to Defaults", tab->label);
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Controller to Defaults", imcTabName(tab));
     if (PdButton(btnLabel)) {
         resetTabDeviceToDefaults(tab, 1);
     }
@@ -3822,10 +3876,15 @@ static void renderInputBindingsSection(float scale)
     const ImcTabDesc *tab = &s_ImcTabs[s_InputSchemeIndex];
 
     ImGui::SetNextItemWidth(pdguiScale(240.0f));
-    if (ImGui::BeginCombo("Scheme", tab->label)) {
+    if (ImGui::BeginCombo("Scheme", imcTabName(tab))) {
         for (s32 i = 0; i < (s32)NUM_IMC_TABS; i++) {
             bool selected = (s_InputSchemeIndex == i);
-            if (ImGui::Selectable(s_ImcTabs[i].label, selected)) {
+            const ImcTabDesc *item = &s_ImcTabs[i];
+            char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###imc_grid")];
+            if (!item->label) {
+                snprintf(gridLabel, sizeof(gridLabel), "%s###imc_grid", forgeDisplayName());
+            }
+            if (ImGui::Selectable(item->label ? item->label : gridLabel, selected)) {
                 if (s_InputSchemeIndex != i) {
                     inputUiCancelCapture();
                 }
@@ -4435,6 +4494,7 @@ static const DebugAssetSourceFamily s_DebugAssetSourceFamilies[] = {
     { ASSET_BOT_PROFILE, "Bot Profile (.pdbotprofile)" },
     { ASSET_HUD,         "HUD (.pdhud)" },
     { ASSET_THEME,       "Theme (.pdtheme)" },
+    { ASSET_AI_LISTS,    "AI Lists (.pdai)" },
 };
 
 static void renderSettingsDebug(float scale)
@@ -4634,15 +4694,18 @@ static void renderSettingsDebug(float scale)
     ImGui::Spacing();
 
     /* Forward declaration -- defined non-static in pdgui_menu_room.cpp,
-     * used here for the arena selector localized names. */
-    extern const char *arenaGetName(u16 textId);
+     * used here for the arena selector names (a mod level's own name, else
+     * the localized one). */
+    extern const char *arenaEntryName(const asset_entry_t *e);
 
     {
         /* Mode picker -- 3 radios */
         static int s_TestScenChoice = 1; /* default to CPU Bots; first-run friendly for benchmark */
         ImGui::Text("Mode:");
         ImGui::SameLine();
-        ImGui::RadioButton("The Grid##testscen_mode", &s_TestScenChoice, 0);
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###testscen_mode")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###testscen_mode", forgeDisplayName());
+        ImGui::RadioButton(gridLabel, &s_TestScenChoice, 0);
         ImGui::SameLine();
         ImGui::RadioButton("CPU Bots##testscen_mode", &s_TestScenChoice, 1);
         ImGui::SameLine();
@@ -4702,12 +4765,12 @@ static void renderSettingsDebug(float scale)
                      * entry (defensive against broken catalog state). */
                     const char *stage_id = catalogStageIdByStagenum((s32)e->ext.arena.stagenum);
                     if (!stage_id || !stage_id[0]) return;
-                    /* Arena name: prefer the localised display name from
-                     * arenaGetName(); fall back to the catalog id when
-                     * the langid isn't resolvable. Append "(solo)" to
-                     * canvas-loadmode arenas so the user sees they're
-                     * not swarm-compatible. */
-                    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+                    /* Arena name: a mod level's own name, else the
+                     * localised display name (arenaEntryName); fall back
+                     * to the catalog id when neither resolves. Append
+                     * "(solo)" to canvas-loadmode arenas so the user sees
+                     * they're not swarm-compatible. */
+                    const char *name = arenaEntryName(e);
                     if (!name || !name[0]) name = e->id;
                     const u8 is_canvas =
                         (e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) ? 1 : 0;
@@ -4900,7 +4963,9 @@ static void renderSettingsDebug(float scale)
  * Catalog tab helpers
  * ----------------------------------------------------------------------- */
 
-static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
+/* One name per asset_type_e value, in enum order. Unsized so the assert below
+ * catches a new type: a missing row was a NULL label for the combo. */
+static const char *s_AssetTypeNames[] = {
     "None",          /* ASSET_NONE */
     "Map",           /* ASSET_MAP */
     "Character",     /* ASSET_CHARACTER */
@@ -4929,7 +4994,14 @@ static const char *s_AssetTypeNames[ASSET_TYPE_COUNT] = {
     "Bot Profile",   /* ASSET_BOT_PROFILE */
     "Projectile",    /* ASSET_PROJECTILE */
     "Entity",        /* ASSET_ENTITY */
+    "Material",      /* ASSET_MATERIAL */
+    "Font",          /* ASSET_FONT */
+    "Scenario",      /* ASSET_SCENARIO */
+    "Theme",         /* ASSET_THEME */
+    "AI Lists",      /* ASSET_AI_LISTS: global AI list bank */
 };
+static_assert(sizeof(s_AssetTypeNames) / sizeof(s_AssetTypeNames[0]) == ASSET_TYPE_COUNT,
+    "s_AssetTypeNames needs one name per asset_type_e value");
 
 static const char *s_LoadStateNames[] = {
     "Registered", "Enabled", "Loaded", "Active"
@@ -5647,10 +5719,15 @@ static void gridArenaCollect(const asset_entry_t *e, void *userdata)
         return;
     }
 
-    char *langText = langSafe((s32)e->ext.arena.name_langid);
+    /* A mod level carries its own name (arena.ini display_name, Forge F1);
+     * every other arena is named by its langbank string. */
+    const char *langText = e->ext.arena.display_name[0]
+        ? e->ext.arena.display_name
+        : langSafe((s32)e->ext.arena.name_langid);
     if (!langText || !langText[0]) {
         /* Catalog registration contract: every registered arena must have
-         * a resolvable langbank name. Hit = data bug, not a soft reject. */
+         * a name of its own or a resolvable langbank name. Hit = data bug,
+         * not a soft reject. */
         sysLogPrintf(LOG_ERROR,
             "GRID.MENU: arena id=\"%s\" stagenum=0x%02x langid=0x%04x has no "
             "langbank name -- catalog registration bug, entry skipped",
@@ -5805,6 +5882,9 @@ static void gridScenarioListEnsure(void)
     }
 }
 
+/* forge_level_io.h: names the arena a Forge session was started on. */
+extern "C" void forgeLevelSessionBegin(const char *arena_id);
+
 /* Apply the submenu state to g_MatchConfig and call
  * pdguiForgeStartSessionOn(stagenum).  Returns true on success. */
 static bool gridCommitEnter(void)
@@ -5910,10 +5990,16 @@ static bool gridCommitEnter(void)
      * load_mode == ARENA_LOADMODE_CANVAS route to the canvas variant so
      * setup-time chr / AI / script paths suppress mission state.
      * Default (PLAYABLE) is unchanged. */
-    if (a->load_mode == ARENA_LOADMODE_CANVAS) {
-        return pdguiForgeStartSessionOnCanvas(a->stagenum) != 0;
+    const bool started = (a->load_mode == ARENA_LOADMODE_CANVAS)
+        ? pdguiForgeStartSessionOnCanvas(a->stagenum) != 0
+        : pdguiForgeStartSessionOn(a->stagenum) != 0;
+    /* Forge F2: tell the editor which level this session is on, so its
+     * Level File section can open that level's own placements. The blank
+     * map and a random pick have no arena to name. */
+    if (started) {
+        forgeLevelSessionBegin((a->is_blank || !commit_id[0]) ? "" : commit_id);
     }
-    return pdguiForgeStartSessionOn(a->stagenum) != 0;
+    return started;
 }
 
 static s32 pdguiMainMenuGraphEnterGrid(void *userdata)
@@ -5931,10 +6017,7 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
         gridArenaListBuild();
     }
 
-    ImGui::TextWrapped(
-        "The Grid is a live-bot-test and edit facility.  Pick a base map, "
-        "configure the variant (gametype + rules), then Enter The Grid to "
-        "spin up the session.");
+    ImGui::TextWrapped("Choose a level and match rules for editing and bot playtest.");
     ImGui::Spacing();
 
     /* ----------------------------------------------------------------
@@ -6022,7 +6105,9 @@ static void renderGridSubmenu(float scale, float buttonW, float buttonH,
 
     const bool canEnter = (s_GridArenaCount > 0);
     if (!canEnter) ImGui::BeginDisabled();
-    if (PdButton("Enter The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
+    char enterLabel[FORGE_DISPLAY_NAME_CAP + sizeof("Enter ###grid_enter")];
+    snprintf(enterLabel, sizeof(enterLabel), "Enter %s###grid_enter", forgeDisplayName());
+    if (PdButton(enterLabel, ImVec2(buttonW, buttonH * 1.2f))) {
         if (menuGraphFireSceneOp(MENU_TYPE_GRID_SUBMENU, "enter",
                                  pdguiMainMenuGraphEnterGrid, NULL) == 0) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -6175,7 +6260,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
     else if (s_MenuView == 2) windowTitle = "Settings";
     else if (s_MenuView == 3) windowTitle = "Modding";
     else if (s_MenuView == 5) windowTitle = "Player Statistics";
-    else if (s_MenuView == 6) windowTitle = "The Grid";
+    else if (s_MenuView == 6) windowTitle = forgeDisplayName();
 
     float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
 
@@ -6366,7 +6451,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * "The Grid" is the unified user-facing facility (Forge and
          * Playtest are modes inside it).  Priority 2 will wire the
          * in-session Halo-Back-style mode toggle. */
-        if (PdButton("The Grid", ImVec2(buttonW, buttonH * 1.2f))) {
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###grid")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###grid", forgeDisplayName());
+        if (PdButton(gridLabel, ImVec2(buttonW, buttonH * 1.2f))) {
             if (pdguiMainMenuFireSubviewEdge("grid", 6, "open-grid") == 0) {
                 sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
             }

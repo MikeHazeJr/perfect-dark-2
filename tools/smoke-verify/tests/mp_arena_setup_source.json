@@ -1,0 +1,61 @@
+{
+  "scenario_name": "mp_arena_setup_source",
+  "description": "B-1176 and B-1175: a Combat Simulator match on Complex loads the arena's multiplayer setup from scenario source (its weapons, ammo crates and lifts, its 19 spawn pads) and its intro.json (four briefcases, 24 case respawns, five hills), then takes a play screenshot. Before the fix the arena was built from Complex's empty solo setup, so a match there had no pickups.",
+  "tags": ["multiplayer", "arena", "scenario", "setup"],
+  "paths_of_interest": [
+    "port/src/romextract_pdarena.c",
+    "port/src/scenario_intro.cpp",
+    "port/src/scenario_source_runtime.c",
+    "src/game/setup.c",
+    "src/game/mplayer/scenarios.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 230,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_complex",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "retain_artifacts": [
+    { "src": "complex_match.bmp" }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 160000,
+      "stable_ms": 1000,
+      "comment": "Pause the script until the local player of the Complex match is spawned, live, controllable and walking."
+    },
+    { "at_ms": 2500, "type": "screenshot", "path": "complex_match.bmp", "comment": "a play frame of the arena" },
+    { "at_ms": 4500, "type": "exit", "comment": "scripted exit after the screenshot" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_arena_setup_source",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex'",
+      "SCENARIO\\.SOURCE: intro for 'base:scenario_mp_complex': rows=[0-9]+ weapons=0 ammo=0 outfits=1 watch_times=0 cases=4 case_respawns=24 hills=5 legacy=0 source=intro\\.json",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*mp_complex[^']*'.* as (3[0-9]|[4-9][0-9]) setup records, 19 spawns",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*complex_match\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "invalid public intro\\.json",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject"
+    ],
+    "required_counts": []
+  }
+}

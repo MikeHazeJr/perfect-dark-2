@@ -152,6 +152,8 @@ s32 catalogManagerHeadPickRandomFemale(void);
 void catalogManagerHeadInit(void);
 void catalogManagerRegisterHead(const char *id, const head_data_t *data);
 void catalogManagerUnregisterHead(const char *id);
+/* Clear an idle custom mirror after its exact loader row has been removed. */
+s32 catalogManagerRetireCustomHead(const char *id, s32 headnum, s32 commit);
 
 /* B-1043: exact rollback for head-manager mirrors changed during external
  * multi-descriptor admission. */

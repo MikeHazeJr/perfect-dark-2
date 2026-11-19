@@ -37,6 +37,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -46,6 +47,7 @@
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "actionmap.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
@@ -267,6 +269,9 @@ extern struct sm_briefing g_Briefing;
 s32          isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
+/* B-1117: the C definition returns the project bool (s32); spelled s32 here
+ * because this file does not include types.h (SP-75). */
+s32          soloStageIsOffered(s32 stageindex);
 void         lvSetDifficulty(s32 difficulty);
 s32          lvGetDifficulty(void);
 s32          objectiveGetCount(void);
@@ -453,6 +458,10 @@ static s32 s_OptionsTabIdx    = 0;  /* 0=Audio, 1=Video, 2=Controls */
 static s32 soloMissionGraphStart(void *userdata)
 {
     (void)userdata;
+    catalog_stage_result_t stage;
+    const s32 stagenum = g_MissionConfig.stage_id[0] && catalogResolveStage(g_MissionConfig.stage_id, &stage)
+        ? stage.stagenum : (s32)(u8)g_MissionConfig.stagenum;
+    if (stageArchiveRepairStatus(stagenum) != 0) return 0;
     menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
@@ -651,11 +660,15 @@ static void countSpecialCompletions(s32 *doneOut, s32 *totalOut)
  * All in one screen — no dialog chain.
  */
 
-/** Helper: check if a stage index is accessible (unlocked on Agent, or debug override). */
+/** Helper: check if a stage index is offered (or debug override).
+ *  B-1117: special assignments unlock as in the original (one per difficulty
+ *  Skedar Ruins was completed on, The Duel with every firing range medal);
+ *  every other stage once Agent is unlocked. Same rule as the original's
+ *  special-missions list and the campaign runner (soloStageIsOffered). */
 static bool missionIsAccessible(s32 stageIdx)
 {
     if (s_ShowLockedMissions) return true;
-    return (bool)isStageDifficultyUnlocked(stageIdx, DIFF_A);
+    return soloStageIsOffered(stageIdx) != 0;
 }
 
 /** Helper: set the selected mission and load its briefing data. */
@@ -1398,17 +1411,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         /* PD Mode is gated by pdModeVisible row visibility, not isStageDifficultyUnlocked */
         bool diffLocked = (selDiff == DIFF_PD) ? false
                                                : !isStageDifficultyUnlocked(si, selDiff);
+        const s32 repair = stageArchiveRepairStatus(g_SoloStages[si].stagenum);
+        const char *startLabel = "Start Mission##ms_start";
+        if (repair > 0) startLabel = "Checking mission files##ms_start";
+        if (repair < 0) startLabel = "Mission files unavailable##ms_start";
 
         if (pdguiBeginActionBar("##ms_action_bar")) {
             float barW = ImGui::GetContentRegionAvail().x;
 
-            if (diffLocked) {
+            if (diffLocked || repair != 0) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
             } else {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.4f, 1.0f));
             }
 
-            bool activated = pdguiActionBarButton("Start Mission##ms_start",
+            bool activated = pdguiActionBarButton(startLabel,
                                                    startFocus ? 1 : 0,
                                                    barW);
             ImGui::PopStyleColor();
@@ -1420,7 +1437,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_FocusGroup = FOCUS_START;
             }
 
-            if (activated && !diffLocked) {
+            if (activated && !diffLocked && repair == 0) {
                 if (selDiff == DIFF_PD) {
                     /* PD Mode: set PA as base difficulty and open PD Mode settings */
                     SM_CLEAR_PDMODE(&g_MissionConfig);
@@ -1437,7 +1454,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
                         soloMissionGraphStart, NULL);
                 }
-            } else if (activated && diffLocked) {
+            } else if (activated) {
                 /* Action-bar button already played SND_SELECT; override
                  * with an error cue so the user knows the diff is locked. */
                 pdguiPlaySound(PDGUI_SND_ERROR);
@@ -3481,7 +3498,7 @@ static void renderOptionsControls(void)
         bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
         if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
             inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
-            configSave("pd.ini");
+            configSave(CONFIG_PATH);
         }
     }
 
@@ -3559,7 +3576,7 @@ static s32 renderOptions(struct menudialog *dialog,
     /* B / Escape = back + save config */
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
         prefsAgentSave();
         menuGraphFireSwitchSibling(MENU_TYPE_SOLO_OPTIONS, "back",
                                    &g_SoloMissionPauseMenuDialog);

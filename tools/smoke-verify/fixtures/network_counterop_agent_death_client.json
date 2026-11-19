@@ -1,0 +1,40 @@
+{
+  "scenario_name": "network_counterop_agent_death_client",
+  "description": "Client schedule for network_counterop_agent_death_smoke: the counter-operative's own results, then it leaves first.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "input_sequence": [
+    {
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "at_ms": 0,
+      "comment": "The ordinary ready gate, typed stage publication, load, allocation and spawn are live."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 150000,
+      "stable_ms": 1000,
+      "at_ms": 0,
+      "comment": "The counter-operative's own results, a completed mission, after the host's stage end."
+    },
+    {
+      "at_ms": 4000,
+      "type": "exit",
+      "comment": "Scripted clean exit from the results."
+    }
+  ]
+}

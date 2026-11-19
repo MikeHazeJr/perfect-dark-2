@@ -62,6 +62,7 @@
 #include "system.h"
 #include "weapon_graph_runtime.h"
 #include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -3435,14 +3436,29 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 
 	// Drop items
 	if (race == RACE_HUMAN || race == RACE_SKEDAR) {
-		if (chr->weapons_held[0] && (chr->weapons_held[0]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
-			objSetDropped(chr->weapons_held[0], DROPTYPE_DEFAULT);
-			chr->hidden |= CHRHFLAG_DROPPINGITEM;
-		}
+		/* B-1194: on a networked client a simulant is the host's puppet. The
+		 * host drops the weapons it holds and announces them with its own sync
+		 * ids (chr.c, SVC_PROP_SPAWN); a copy dropped here would carry none,
+		 * so no host pickup of the real one could reach it. Retire this
+		 * client's held models instead, as a weapon switch does
+		 * (botinvSwitchToWeapon). */
+		if (chr->aibot && g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
+			for (s32 i = 0; i < 2; i++) {
+				if (chr->weapons_held[i]) {
+					chr->weapons_held[i]->obj->hidden |= OBJHFLAG_DELETING;
+					chr->weapons_held[i] = NULL;
+				}
+			}
+		} else {
+			if (chr->weapons_held[0] && (chr->weapons_held[0]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
+				objSetDropped(chr->weapons_held[0], DROPTYPE_DEFAULT);
+				chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			}
 
-		if (chr->weapons_held[1] && (chr->weapons_held[1]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
-			objSetDropped(chr->weapons_held[1], DROPTYPE_DEFAULT);
-			chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			if (chr->weapons_held[1] && (chr->weapons_held[1]->obj->flags & OBJFLAG_AIUNDROPPABLE) == 0) {
+				objSetDropped(chr->weapons_held[1], DROPTYPE_DEFAULT);
+				chr->hidden |= CHRHFLAG_DROPPINGITEM;
+			}
 		}
 
 		chrDropConcealedItems(chr);
@@ -4399,7 +4415,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// Don't damage if in CI training outside of training session
 	if (chr->prop == g_Vars.currentplayer->prop
 			&& g_Vars.currentplayer->training == false
-			&& mainGetStageNum() == STAGE_CITRAINING) {
+			&& lvStageIsHub()) {
 		return;
 	}
 
@@ -13786,6 +13802,19 @@ void chraTick(struct chrdata *chr)
 		return;
 	}
 
+	// T-NETWORKING-011 (finding 3): the same for a simulant the host owns. A
+	// client's botTick runs chrTick as a puppet tick so the simulant is drawn
+	// and animated; its AI and actions stay with the host, which sends its
+	// position, angle and action type.
+	if (chr->aibot && botIsPuppetTick()) {
+		static bool s_simAiSuppressed = false;
+		if (!s_simAiSuppressed) {
+			sysLogPrintf(LOG_NOTE, "NET: simulant AI suppressed on client (host-authoritative puppet)");
+			s_simAiSuppressed = true;
+		}
+		return;
+	}
+
 	chr->sleep -= g_Vars.lvupdate60;
 
 	if (chr->sleep < 0
@@ -14122,7 +14151,7 @@ void chraTickBg(void)
 	// the OG caps (netplay parity); CITRAINING keeps them (the firing range
 	// recycles targets). corpsePersistCap < 0 means "OG fading".
 	corpsePersistCap = -1;
-	if (!g_Vars.normmplayerisrunning && g_Vars.stagenum != STAGE_CITRAINING) {
+	if (!g_Vars.normmplayerisrunning && !lvStageIsHub()) {
 		corpsePersistCap = g_NumChrSlots - CHR_CORPSE_PERSIST_HEADROOM;
 		if (corpsePersistCap < 5) {
 			corpsePersistCap = 5;
@@ -15633,8 +15662,19 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
 	}
 
 	// On Defection some floating point precision issues result in P2 being placed in the way of P1's cutscene animation,
-	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that
-	const f32 distance = (g_Vars.stagenum == STAGE_DEFECTION) ? 80.f : 60.f;
+	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that.
+	// A stage built from scenario source sets it with the coop_spawn_distance of
+	// its stage.json player rule (decision 3); the stage check stays for a ROM stage.
+	f32 distance = 60.f;
+	if (bgUsesScenarioSource()) {
+		scenario_stage_player_t rule;
+
+		if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {
+			distance = rule.coop_spawn_distance;
+		}
+	} else if (g_Vars.stagenum == STAGE_DEFECTION) {
+		distance = 80.f;
+	}
 	for (i = 0; i < 8; i++) {
 		testpos.x = pos->x + sinf(curangle) * distance;
 		testpos.y = pos->y;
@@ -15844,6 +15884,60 @@ struct prop *chrSpawnAtCoord(s32 bodynum, s32 headnum, struct coord *pos, RoomNu
 	}
 
 	return NULL;
+}
+
+/**
+ * B-1196 (T-NETWORKING-011): a networked client's copy of a chr the host's AI
+ * made after the stage start (SVC_NPC_SPAWN). The host already found the spot
+ * (chrAdjustPosForSpawn in chrSpawnAtCoord), so this takes the host's place as
+ * it is: a second search could move it, or fail where the client's puppets
+ * stand slightly apart from the host's. The client never runs this chr's AI
+ * (chraTick suppresses co-op NPC AI there), so it gets the idle list.
+ */
+struct prop *chrSpawnReplicated(s32 bodynum, s32 headnum, struct coord *pos, RoomNum *rooms, f32 angle, bool noblood)
+{
+	struct model *model;
+	struct prop *prop;
+	struct chrdata *chr;
+	RoomNum rooms2[8];
+
+	/* The host resolved the head already (bodyChooseHead in chrSpawnAtCoord);
+	 * -1 is a body with its own head, as there. */
+	if (chrsGetNumFree() < 1) {
+		return NULL;
+	}
+
+	roomsCopy(rooms, rooms2);
+	model = bodyAllocateModel(bodynum, headnum, 0);
+
+	if (!model) {
+		return NULL;
+	}
+
+	prop = chrAllocate(model, pos, rooms2, angle, ailistFindById(GAILIST_IDLE));
+
+	if (!prop) {
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	propActivateThisFrame(prop);
+	propEnable(prop);
+
+	chr = prop->chr;
+	chr->headnum = headnum;
+	chr->bodynum = bodynum;
+	chr->race = bodyGetRace(chr->bodynum);
+	bodyInitChrBeams(chr, chr->bodynum);
+	chr->flags = 0;
+	chr->flags2 = 0;
+	chr->hidden2 |= CHRH2FLAG_SPAWNED;
+
+	if (noblood) {
+		chr->noblood = true;
+	}
+
+	return prop;
 }
 
 struct prop *chrSpawnAtPad(struct chrdata *basechr, s32 body, s32 head, s32 pad_id, u8 *ailist, u32 spawnflags)
@@ -16122,17 +16216,27 @@ bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 an
 		propDeregisterRooms(chr->prop);
 		roomsCopy(rooms2, chr->prop->rooms);
 		chr0f0220ac(chr);
-		modelSetRootPosition(chr->model, &pos2);
 
-		nodetype = chr->model->definition->rootnode->type;
+		/* B-1158: a solo player outside a cutscene has no body model (the
+		 * normal tick removes it every frame, playerRemoveChrBody), so there
+		 * is no root node to move or turn. Its position is the prop's and its
+		 * facing is vv_theta, both set here. */
+		if (chr->model) {
+			modelSetRootPosition(chr->model, &pos2);
 
-		if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
-			rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
-			rwdata->chrinfo.ground = ground;
+			nodetype = chr->model->definition->rootnode->type;
+
+			if ((nodetype & 0xff) == MODELNODETYPE_CHRINFO) {
+				rwdata = modelGetNodeRwData(chr->model, chr->model->definition->rootnode);
+				rwdata->chrinfo.ground = ground;
+			}
 		}
 
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
-		chrSetLookAngle(chr, angle);
+
+		if (chr->model || chr->aibot) {
+			chrSetLookAngle(chr, angle);
+		}
 
 		if (chr->prop->type == PROPTYPE_PLAYER) {
 			player = g_Vars.players[playermgrGetPlayerNumByProp(chr->prop)];

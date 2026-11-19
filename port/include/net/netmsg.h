@@ -5,6 +5,7 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmanifest.h"
+#include "sha256.h"
 
 #define SVC_BAD           0x00 // trash
 #define SVC_NOP           0x01 // does nothing
@@ -59,6 +60,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_NPC_SYNC      0x4A // NPC sync checksum for desync detection (co-op only)
 #define SVC_NPC_RESYNC    0x4B // full NPC state correction (co-op only)
 #define SVC_BOT_AUTHORITY 0x4C // server→designated client: you are the bot AI authority (relay positions via CLC_BOT_MOVE)
+#define SVC_BOT_PICKUP    0x4D // v64: a simulant picked up a prop (host decided) {simulant, prop}
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
@@ -69,6 +71,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_RECONNECT_PROP_STATE 0x57 // v57: one announced prop's live state
 #define SVC_RECONNECT_PROP_END   0x58 // v57: exact replicated-prop set terminator
 #define SVC_RECONNECT_INVENTORY  0x59 // v57: one stable client's exact inventory
+#define SVC_SCENARIO_STATE 0x5a // v64: host-authoritative scenario state (net_scenario_state_wire.h)
 #define NET_CUTSCENE_AUTHORITY_EVENT_CAPACITY 64u
 #define NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY 1024u
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
@@ -98,7 +101,41 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
 #define SVC_ROOM_RESULT    0x7a // operation, room_result_t, unchanged/accepted room ID
 #define SVC_LOBBY_ROSTER   0x7b // authenticated presentation roster, stable client IDs
+/* B-1193 (unreleased v64): server→room, the host chose Return to Room after a
+ * co-op or counter-op mission; clients leave their results for the Room. */
+#define SVC_MISSION_RETURN 0x7c
+/* B-1193 (unreleased v64): server→match, every player's final mission stats
+ * (kills and shots by region), so each machine's results show both players
+ * with the host's numbers. */
+#define SVC_MISSION_STATS  0x7d
+/* B-1196 (unreleased v64): server→match, co-op/counter-op only. A chr the
+ * host made after the stage start (an AI clone or spawn) has a dynamic sync
+ * id no client knows (SP-85); the host sends this once, reliably, before the
+ * chr's moves, and the client makes a puppet with the same ids. */
+#define SVC_NPC_SPAWN      0x7e
+/* B-1206 (unreleased v64): server→match, co-op/counter-op only. The host
+ * removed a chr (an AI remove_chr, a corpse that faded out, anything that
+ * reaches chrTick's deleting branch); a client's NPC AI is off, so it never
+ * removes one by itself. The client removes its copy at once. */
+#define SVC_NPC_REMOVE     0x7f
+#define NET_NPC_REMOVE_DROPPEDITEMS 0x01 /* SVC_NPC_REMOVE flags: the chr's items dropped */
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
+#define SVC_GRID_MATCH_OFFER 0x80 /* Grid-capable guest only: exact prepared sources. */
+#define SVC_GRID_STAGE_COMMIT 0x81 /* Exact offer and epoch, for stage start or post-load cancellation. */
+#define SVC_GRID_MATCH_RESULT 0x82 /* Frozen exact content and final score payload identity. */
+#define SVC_GRID_ARENA_CHUNK 0x83 /* Consent-bound native archive bytes. */
+#define SVC_GRID_EDIT_CONTROL 0x84 /* Direct private editor invitation, grant or closure. */
+#define SVC_GRID_EDIT_DELTA 0x85 /* Direct authoritative creator commit. */
+#define SVC_GRID_EDIT_SNAPSHOT 0x86 /* One admitted creator's native catch-up. */
+#define SVC_GRID_EDIT_VIEW 0x88 /* Authorized overview of the private playtest. */
+#define SVC_GRID_EDIT_CURSOR_POLICY 0x89 /* Separate creator cursor permission. */
+#define SVC_GRID_EDIT_REVIEW_CHUNK 0x8a /* The admitted creator's consented staged arena bytes. */
+#define SVC_GRID_RECONNECT_OFFER 0x87 /* Targeted live Grid offer and epoch, without transfer. */
+#define SVC_GRID_PLAYER_MOVE 0x8b /* Epoch and typed weapon selection. */
+#define SVC_GRID_CHR_DAMAGE 0x8c /* Epoch and typed damage weapon metadata. */
+#define SVC_GRID_FIESTA_SPAWN 0x8d /* Exact stage, stable client life and native weapon grant. */
+#define SVC_GRID_MOD_PROPOSAL 0x8e /* Directed Room approval or disposition. */
+#define SVC_GRID_MOD_PROPOSAL_READY 0x8f /* A Grid Room can accept mod proposals. */
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
 #define SVC_ADMIN          0x68 // server→operator-client: response to CLC_ADMIN
@@ -181,6 +218,24 @@ void netSendLobbyResync(void); /* Client helper: fire CLC_LOBBY_RESYNC. */
 /* Phase A: Match Startup Pipeline (protocol v24) */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
 #define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)
+#define CLC_GRID_MATCH_STATUS 0x1a /* Exact offer readiness or decline. */
+#define CLC_GRID_ARENA_REQUEST 0x1b /* Request the permitted exact native arena. */
+#define CLC_GRID_EDIT_CONTROL 0x1c /* Creator accept or leave. */
+#define CLC_GRID_EDIT_COMMAND 0x1d /* Typed private edit from an admitted connection. */
+#define CLC_GRID_EDIT_SNAPSHOT 0x1e /* Exact acknowledgement of a verified catch-up. */
+#define CLC_GRID_EDIT_CURSOR 0x20 /* Nonparticipant cursor in the shared draft. */
+#define CLC_GRID_EDIT_FOCUS 0x21 /* One short lease while a creator edits a resource. */
+#define CLC_GRID_RECONNECT_STATUS 0x1f /* Exact source readiness or refusal for the live epoch. */
+#define CLC_GRID_MOVE 0x22 /* Epoch and typed weapon selection. */
+#define CLC_GRID_MOD_PROPOSAL 0x23 /* Authenticated Room member metadata. */
+#define CLC_GRID_MOD_PROPOSAL_CHUNK 0x24 /* Bytes requested by the Room owner. */
+
+/* Below WEAPON_CUSTOM_START the native numbers are stable. Custom weapons
+ * carry an exact session catalog ID with the high bit set. */
+#define NET_GRID_WEAPON_REF_NO_SELECTION 0xffffu
+u32 netmsgGridGameplayEpoch(void);
+s32 netmsgGridMovePeerReady(const struct netclient *srccl);
+s32 netmsgGridDecodeWeaponRef(u16 ref, s32 *weapon);
 
 /* v57 client reconnect credential lifecycle. The cookie never leaves memory
  * and is emitted only when the newly resolved endpoint exactly matches the
@@ -195,7 +250,7 @@ u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcChatWrite(struct netbuf *dst, const char *str);
 u32 netmsgClcChatRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcMoveWrite(struct netbuf *dst);
-u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl, s32 grid);
 u32 netmsgClcSettingsWrite(struct netbuf *dst);
 u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl);
 
@@ -231,6 +286,7 @@ typedef enum net_reconnect_snapshot_status_e {
 	NET_RECONNECT_SNAPSHOT_SCORES,
 	NET_RECONNECT_SNAPSHOT_COMMIT,
 	NET_RECONNECT_SNAPSHOT_BUFFER,
+	NET_RECONNECT_SNAPSHOT_SCENARIO, /* v64: objective scenario state */
 } net_reconnect_snapshot_status_e;
 
 typedef enum net_reconnect_prop_state_status_e {
@@ -293,14 +349,28 @@ u32 netmsgServerStageStartWrite(struct netbuf *dst, u8 room_id);
 /* Side-effect-free typed/roster preflight used before irreversible host
  * stage-launch work. Returns zero only when a later write can be attempted. */
 u32 netmsgSvcStageStartValidate(void);
+/* Process-local identity of the running private stage's selected match
+ * settings and resolved participant bindings. Leaves the output unchanged
+ * if the host-only roster or typed launch bindings no longer agree. */
+s32 netmsgGridPrivateGameplayFingerprint(u8 room_id, u8 out[SHA256_DIGEST_SIZE]);
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id, u8 mode);
 void netmsgSvcStageEndCommit(u8 room_id, u8 mode);
 u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPlayerMoveWrite(struct netbuf *dst, struct netclient *movecl);
-u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl, s32 grid);
 u32 netmsgSvcPlayerStatsWrite(struct netbuf *dst, struct netclient *actcl);
 u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl);
+enum net_grid_fiesta_spawn_kind {
+	NET_GRID_FIESTA_GRANT,
+	NET_GRID_FIESTA_RECONNECT,
+	NET_GRID_FIESTA_RELEASE_DEAD,
+};
+struct player_spawn_pose;
+u32 netmsgSvcGridFiestaSpawnWrite(struct netbuf *dst, struct netclient *actcl, u32 life,
+	s32 weapon, enum net_grid_fiesta_spawn_kind kind, const struct player_spawn_pose *pose);
+u32 netmsgSvcGridFiestaSpawnRead(struct netbuf *src, struct netclient *srccl);
+void netmsgGridFiestaStageReset(void);
 u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop);
 u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropMoveWrite(struct netbuf *dst, struct prop *prop, struct coord *initrot);
@@ -326,7 +396,7 @@ u32 netmsgSvcPropDoorRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropLiftWrite(struct netbuf *dst, struct prop *prop);
 u32 netmsgSvcPropLiftRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcChrDamageWrite(struct netbuf *dst, struct chrdata *chr, f32 damage, struct coord *vector, struct gset *gset, struct prop *aprop, s32 hitpart, bool damageshield, struct prop *prop2, s32 side, s16 *arg11, bool explosion, struct coord *explosionpos);
-u32 netmsgSvcChrDamageRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcChrDamageRead(struct netbuf *src, struct netclient *srccl, s32 grid);
 u32 netmsgSvcChrDisarmWrite(struct netbuf *dst, struct chrdata *chr, struct prop *attacker, u8 weaponnum, f32 wpndamage, struct coord *wpnpos);
 u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl);
 
@@ -356,6 +426,10 @@ u32 netmsgClcCoopReadyRead(struct netbuf *src, struct netclient *srccl);
 
 u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcNpcSpawnWrite(struct netbuf *dst, struct chrdata *chr);
+u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, u32 syncid, u8 flags);
+u32 netmsgSvcNpcRemoveRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcStateWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcSyncWrite(struct netbuf *dst);
@@ -372,6 +446,13 @@ u32 netmsgSvcObjStatusWrite(struct netbuf *dst, u8 index, u8 status);
 u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
+/* v64: host-authoritative scenario state. The write takes a captured state;
+ * the baseline form captures the running scenario itself and fails (writes
+ * nothing) when the scenario has no network state. */
+struct net_scenario_state;
+u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state *state);
+u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst);
+u32 netmsgSvcScenarioStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum,
@@ -440,6 +521,35 @@ u32 netmsgSvcLobbyKillFeedRead(struct netbuf *src, struct netclient *srccl);
 /* SVC_MATCH_MANIFEST: server→room, complete asset list for the upcoming match */
 u32 netmsgSvcMatchManifestWrite(struct netbuf *dst, const match_manifest_t *manifest);
 u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridMatchOfferRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcGridMatchStatusRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridReconnectOfferRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcGridReconnectStatusRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridReconnectStageCommitWrite(struct netbuf *dst);
+u32 netmsgSvcGridStageCommitWrite(struct netbuf *dst);
+u32 netmsgSvcGridStageCommitRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridStageCancelWrite(struct netbuf *dst);
+void netmsgGridStageCancelConfig(void);
+u32 netmsgClcGridArenaRequestRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridArenaChunkRead(struct netbuf *src, struct netclient *srccl);
+s32 netmsgGridResolveArenaConsent(s32 accept);
+void netmsgGridCancelArenaOffer(void);
+void netmsgGridArenaSendFailed(struct netclient *cl);
+
+struct grid_mod_proposal_control;
+u32 netmsgClcGridModProposalRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcGridModProposalChunkRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridModProposalRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcGridModProposalReadyRead(struct netbuf *src, struct netclient *srccl);
+void netmsgGridModProposalPoll(void);
+s32 netmsgGridCanProposeMod(void);
+s32 netmsgGridProposeMod(const char *id);
+const struct grid_mod_proposal_control *netmsgGridReviewModProposal(void);
+s32 netmsgGridResolveModProposal(s32 accept);
+const char *netmsgGridModProposalNotice(void);
+s32 netmsgGridModIsProposalOnly(const char *id);
+struct grid_match_source_package;
+s32 netmsgGridRoomOwnsProposedPackage(const struct grid_match_source_package *package);
 
 /* CLC_MANIFEST_STATUS: client→server, catalog check result.
  * v27: missing list uses catalog ID strings, not net_hash u32 values. */
@@ -468,6 +578,11 @@ u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst);
 u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcBotMoveWrite(struct netbuf *dst);
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
+
+/* v64: a simulant's pickup, decided on the host (finding 3). itemsyncid is the
+ * picked-up prop's sync id, taken before the pickup, which may free the prop. */
+u32 netmsgSvcBotPickupWrite(struct netbuf *dst, struct chrdata *chr, u32 itemsyncid);
+u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl);
 
 /* U-10: Stage-ready handshake */
 u32 netmsgClcStageReadyWrite(struct netbuf *dst);
@@ -626,6 +741,11 @@ void netSendGpuSwarmState(void);
 void netBroadcastRoomList(void);
 void netmsgPublishLobbyRoster(s32 force);
 u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcMissionReturnWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgSvcMissionReturnRead(struct netbuf *src, struct netclient *srccl);
+s32 netServerSendMissionReturn(u8 room_id);
+u32 netmsgSvcMissionStatsWrite(struct netbuf *dst);
+u32 netmsgSvcMissionStatsRead(struct netbuf *src, struct netclient *srccl);
 /* Rebuild and publish lobby leader plus room-list topology after an
  * authenticated join or reconnect commit. Server mode only. */
 void netmsgServerPublishAuthenticatedTopology(void);

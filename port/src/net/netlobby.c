@@ -97,6 +97,9 @@ void lobbyUpdate(void)
             lp->head_id[sizeof(lp->head_id) - 1] = '\0';
         }
         lp->team = cl->settings.team;
+        /* B-1190: shown while the player is still on the last match's
+         * results; a stale flag never shows outside the lobby state. */
+        lp->reviewing = (cl->reviewing_results && cl->state == CLSTATE_LOBBY) ? 1 : 0;
 
         /* Copy player name — use Agent name from settings.
          * If the name is empty, the player hasn't loaded an agent yet. */

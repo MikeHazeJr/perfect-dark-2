@@ -40,6 +40,7 @@
 #include "input.h"
 #include "assetcatalog.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 
 /* PC port: ImGui room screen (replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
@@ -745,12 +746,6 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 				g_MissionConfig.stageindex, g_MissionConfig.difficulty,
 				g_Vars.stagenum == (s32)g_MissionConfig.stagenum ? " RETRY" : "");
 		}
-		menuStop();
-		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
-
-		g_NotLoadMod = true;
-		romdataFileFreeForSolo();
-
 		/* Resolve stagenum at point of consumption: catalog ID is the identity.
 		 * If stage_id is set (ImGui path), resolve via catalog.
 		 * Fall back to stagenum only if stage_id is empty (legacy menu path).
@@ -764,6 +759,11 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 			}
 			/* else: catalog miss — keep stagenum fallback; investigate via log if needed */
 		}
+		if (stageArchiveRepairStatus(resolved_stagenum) != 0) return 0;
+		menuStop();
+		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
+		g_NotLoadMod = true;
+		romdataFileFreeForSolo();
 		g_MissionConfig.stagenum = (u8)resolved_stagenum;  /* sync for legacy consumers */
 
 		if (g_Vars.stagenum == resolved_stagenum) {
@@ -1951,6 +1951,36 @@ s32 func0f104720(s32 value)
 	}
 
 	return 20;
+}
+
+/**
+ * B-1117: whether the mission list offers this solo stage at all. The four
+ * special assignments follow the original special-missions list: one per
+ * difficulty Skedar Ruins was completed on, and The Duel once every firing
+ * range weapon has a medal (getNumUnlockedSpecialStages, func0f104720).
+ * isStageDifficultyUnlocked only decides which difficulties an offered
+ * special assignment has, and grants Agent to all of them. Every other stage
+ * is offered once its Agent difficulty is unlocked. The PC mission menu and
+ * the campaign runner both ask here.
+ */
+bool soloStageIsOffered(s32 stageindex)
+{
+	s32 count;
+	s32 slot;
+
+	if (stageindex <= SOLOSTAGEINDEX_SKEDARRUINS || stageindex >= NUM_SOLOSTAGES) {
+		return isStageDifficultyUnlocked(stageindex, DIFF_A);
+	}
+
+	count = getNumUnlockedSpecialStages();
+
+	for (slot = 0; slot < count; slot++) {
+		if (func0f104720(slot) == stageindex) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *item, union handlerdata *data)

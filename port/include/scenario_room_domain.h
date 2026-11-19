@@ -29,6 +29,17 @@ scenario_room_domain_result_t scenarioRoomDomainResolve(
 int scenarioRoomDomainContains(int32_t room_count, int32_t roomnum);
 const char *scenarioRoomDomainResultName(scenario_room_domain_result_t result);
 
+typedef struct scenario_room_bounds {
+	float minimum[3];
+	float maximum[3];
+} scenario_room_bounds_t;
+
+/* Authored boxes have volume. Collision-derived boxes may be flat. */
+int scenarioRoomBoundsValid(const scenario_room_bounds_t *box, int authored);
+int scenarioRoomBoundsContain(const scenario_room_bounds_t *outer,
+	const scenario_room_bounds_t *inner);
+int scenarioRoomOriginValid(const float origin[3]);
+
 #ifdef __cplusplus
 }
 #endif

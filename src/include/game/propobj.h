@@ -198,6 +198,8 @@ void chopperFireRocket(struct chopperobj *chopper, bool side);
 void chopperIncrementBarrel(struct prop *prop, bool firing);
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing);
 void chopperTickFall(struct prop *chopper);
+void chopperClearRules(void);
+void chopperSetRules(struct chopperobj *chopper, s16 engine_hum, s16 thrust_hum, bool drop);
 void chopperTickIdle(struct prop *chopper);
 void chopperTickPatrol(struct prop *chopper);
 void chopperTickCombat(struct prop *chopper);
@@ -209,7 +211,10 @@ void glassUpdatePortal(struct prop *glass, s32 playercount, bool *arg2);
 void weaponInitMatrices(struct prop *weapon);
 void hangingmonitorInitMatrices(struct prop *hangingmonitors);
 void objInitMatrices(struct prop *prop);
+/* A private Grid decoration may translate on its current static floor only. */
+s32 objGridDecorationMove(struct defaultobj *obj, u64 generation, f32 x, f32 z, s32 apply);
 bool propCanRegen(struct prop *prop);
+void objRegenNow(struct prop *prop);
 u32 objTick(struct prop *prop);
 s32 objTickPlayer(struct prop *prop);
 Gfx *propsRenderBeams(Gfx *gdl);
@@ -272,6 +277,13 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual);
 void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual);
 s32 propPickupByPlayer(struct prop *prop, bool showhudmsg);
 s32 objTestForPickup(struct prop *prop);
+/* object-events.md slice 4: the original pickup rules for the current player
+ * (gate.pickup.native_rules), the refusal of a locked door
+ * (og.door.locked_message) and an automatic door opening
+ * (og.door.activate_automatic). */
+bool objPickupRulesAllow(struct prop *prop);
+void doorShowLocked(struct doorobj *door);
+void doorOpenAutomatic(struct doorobj *door);
 bool func0f0899dc(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3);
 void modelFreeVertices(s32 vtxstoretype, struct model *model);
 struct prop *hatApplyToChr(struct hatobj *hat, struct chrdata *chr, struct modeldef *modeldef, struct prop *prop, struct model *model);
