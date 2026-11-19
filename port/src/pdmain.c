@@ -48,6 +48,8 @@
 #include "actionmap.h"
 #include "scene.h"
 #include "smoke_harness.h"
+#include "stage_archive_repair.h"
+#include "pdgui.h"
 #include "asset_mp3_harness.h"
 #include "asset_audio_identity_harness.h"
 #include "asset_audio_public_source_harness.h"
@@ -1036,6 +1038,10 @@ void mainTick(void)
 	Gfx *gdlstart = NULL;
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
+	if (stageArchiveRepairHasJobs()) {
+		stageArchiveRepairPump(g_StageNum == STAGE_CITRAINING &&
+			(pdguiIsActive() || g_PlayersWithControl[0]));
+	}
 
 	if (s_GridRoomBackdrop && mainGridRoomReturnPending()) {
 		if (!g_NetLocalClient || g_NetLocalClient->room_id != s_GridRoomReturn) {
@@ -1578,9 +1584,12 @@ s32 mainStageChangePending(void)
 
 void mainChangeToStage(s32 stagenum)
 {
-	pak0f11c6d0();
-
 	stagenum = stageSanitizeLoadStagenum(stagenum);
+	if (stageArchiveRepairStatus(stagenum) != 0) {
+		sysLogPrintf(LOG_WARNING, "EXTRACT.STAGE.BACKGROUND: stage 0x%02x is unavailable", (u32)stagenum);
+		return;
+	}
+	pak0f11c6d0();
 	if (stagenum != STAGE_TITLE) s_GridRoomReturn = 0xff;
 
 	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the

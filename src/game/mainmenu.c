@@ -40,6 +40,7 @@
 #include "input.h"
 #include "assetcatalog.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 
 /* PC port: ImGui room screen (replaces old Match Setup dialog) */
 extern void pdguiSoloRoomOpen(void);
@@ -745,12 +746,6 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 				g_MissionConfig.stageindex, g_MissionConfig.difficulty,
 				g_Vars.stagenum == (s32)g_MissionConfig.stagenum ? " RETRY" : "");
 		}
-		menuStop();
-		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
-
-		g_NotLoadMod = true;
-		romdataFileFreeForSolo();
-
 		/* Resolve stagenum at point of consumption: catalog ID is the identity.
 		 * If stage_id is set (ImGui path), resolve via catalog.
 		 * Fall back to stagenum only if stage_id is empty (legacy menu path).
@@ -764,6 +759,11 @@ MenuItemHandlerResult menuhandlerAcceptMission(s32 operation, struct menuitem *i
 			}
 			/* else: catalog miss — keep stagenum fallback; investigate via log if needed */
 		}
+		if (stageArchiveRepairStatus(resolved_stagenum) != 0) return 0;
+		menuStop();
+		inputLockMouse(1); /* B-92: pdguiIsActive() deferred the SDL lock inside menuStop; force it now */
+		g_NotLoadMod = true;
+		romdataFileFreeForSolo();
 		g_MissionConfig.stagenum = (u8)resolved_stagenum;  /* sync for legacy consumers */
 
 		if (g_Vars.stagenum == resolved_stagenum) {

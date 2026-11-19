@@ -55,7 +55,7 @@ TEST_CASE("the extractor writes the authored room boxes into every base scenario
 
 	// An archive without the member is not clean, so installs extracted
 	// before the correction are re-extracted.
-	REQUIRE(extractor.find("s_existingArchiveHasEntry(relpath, \"rooms.json\")") !=
+	REQUIRE(extractor.find("s_existingArchiveHasEntry(check, \"rooms.json\")") !=
 		std::string::npos);
 	REQUIRE(extractor.find("_objoperands_b1111_roomtable_b1113_b1114_b1115") != std::string::npos);
 }

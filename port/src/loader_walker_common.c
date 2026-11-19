@@ -672,6 +672,7 @@ s32 loaderWalkerScanKind(
         }
         snprintf(paths[count].path, sizeof(paths[count].path),
                  "%s/%s", dir_path, name);
+        if (desc->skip_path && desc->skip_path(paths[count].path)) continue;
         count++;
     }
     closedir(dp);

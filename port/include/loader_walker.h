@@ -101,6 +101,10 @@ void loaderWalkerScanSfx(const char *tier_dir, loader_walker_kind_result_t *out)
 void loaderWalkerScanVoices(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanSongs(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanScenarios(const char *tier_dir, loader_walker_kind_result_t *out);
+/* Main-thread admission for a repaired standalone base scenario at its
+ * canonical data-relative path. Returns 1 only after binding its public source. */
+s32 loaderWalkerPublishScenarioArchive(const char *file_path, const char *expected_id);
+s32 loaderWalkerPublishMissionArchive(const char *file_path, const char *scenario_id);
 void loaderWalkerScanUi(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanFonts(const char *tier_dir, loader_walker_kind_result_t *out);
 void loaderWalkerScanLangs(const char *tier_dir, loader_walker_kind_result_t *out);
