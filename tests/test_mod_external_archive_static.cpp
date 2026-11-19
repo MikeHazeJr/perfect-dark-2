@@ -10166,7 +10166,7 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	        std::string::npos);
 	REQUIRE(audio.find("assetArchiveWriterAddDescriptor(&asset_writer, descriptor_name") !=
 	        std::string::npos);
-	REQUIRE(audio.find("s_existingArchiveHasEntry(dst_rel, \"sample.wav\")") !=
+	REQUIRE(audio.find("s_archiveEntryMatches(arc, \"sample.wav\", wav, wav_size)") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_existingArchiveEntryContains(dst_rel, \"_meta/manifest.json\"") !=
 	        std::string::npos);
@@ -10199,7 +10199,8 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("symbol[len - 1] == 'M'") != std::string::npos);
 	REQUIRE(audio.find("catalogReadableVoiceIdForFile(filenum") !=
 	        std::string::npos);
-	REQUIRE(audio.find("pdvoice_b1018_direct_mp3") != std::string::npos);
+	REQUIRE(audio.find("pdvoice_b1018_direct_mp3_bank22050") != std::string::npos);
+	REQUIRE(audio.find("pdsfx_b943fields_bank22050") != std::string::npos);
 	REQUIRE(audio.find("direct MP3 file archive(s) checked") !=
 	        std::string::npos);
 	REQUIRE(audio.find("\\\"source_reference_kind\\\": \\\"%s\\\"") !=

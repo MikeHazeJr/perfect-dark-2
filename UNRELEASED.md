@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Stock bank audio plays at the original PC rate, including the Carrington
+  Institute typing cues. Existing unedited stock WAV archives update on boot.
 - Create Agent takes over menu input when it opens, so first-time players
   can navigate the form and return to Agent Select.
 - The Carrington Institute opening camera has time to finish at high

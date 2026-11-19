@@ -14201,3 +14201,16 @@ Next
   72 fallback, 32 owning archive and 54 effect texture assertions.
   Client 3E9E57F7 built in q_20261119011538416_2abcd96e with the source
   guard. Managed cases remain unrun pending available capacity.
+
+### Grid stock audio cadence, November 19 04:00 UTC
+
+- The v0.1.103 Grid playtest logs resolve the two intro cues (441 and 443)
+  once each. The extractor used the 44,100 Hz bank header even though the PC
+  synth consumed one source sample per 22,050 Hz mixer frame at unity pitch.
+  That halved the decoded frame count of the public WAVs.
+- The shared bank extractor now emits native-rate PCM WAVs for SFX and
+  voices. On boot it upgrades only existing legacy archives whose waveform,
+  descriptor and manifest match the old stock extraction. It retains
+  authored samples, loop indices, key pitch and direct MP3 sources. The
+  catalog provider smoke requires both intro cues at their exact native
+  frame counts. See Workbench N-1003, N-1006 and N-1013.
