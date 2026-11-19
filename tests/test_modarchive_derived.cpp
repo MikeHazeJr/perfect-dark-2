@@ -306,6 +306,57 @@ TEST_CASE("B-1110 the cache stamp is written only after its archives are flushed
 	REQUIRE(body.find("return;", refusal) < scan);
 }
 
+TEST_CASE("arena clean markers validate the complete version record they write",
+		"[modarchive][pdextract][static]")
+{
+	const std::string source = readSource("port/src/romextract_pdarena.c");
+	const std::string reader = functionBody(source, "static s32 s_pdarenaCleanMarkerIsValid(");
+	const std::string writer = functionBody(source, "static void s_pdarenaCleanMarkerWrite(");
+	REQUIRE(source.find("\"scenario_kind=\" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(reader.find("sizeof(k_PdarenaCleanMarker) - 1") != std::string::npos);
+	REQUIRE(reader.find("fread(record, 1, sizeof(record), f) == sizeof(record)") != std::string::npos);
+	REQUIRE(reader.find("memcmp(record, k_PdarenaCleanMarker, sizeof(record))") != std::string::npos);
+	REQUIRE(reader.find("fgetc(f) == EOF && !ferror(f)") != std::string::npos);
+	REQUIRE(writer.find("fputs(k_PdarenaCleanMarker, f)") != std::string::npos);
+}
+
+TEST_CASE("stage texture migration cache validates the exact paired public archives",
+		"[modarchive][pdextract][static]")
+{
+	const std::string source = readSource("port/src/romextract_pdarena.c");
+	const std::string worker = functionBody(source, "static void s_hashStageTextureSource(");
+	const std::string digest = functionBody(source, "static s32 s_stageTextureDigest(");
+	const std::string upgrade = functionBody(source, "static s32 s_upgradeStageTextureProperties(");
+	const std::string emit = functionBody(source, "s32 romExtractAllPdarena(");
+	REQUIRE(worker.find("s_stageTextureArenaPath(") != std::string::npos);
+	REQUIRE(worker.find("s_scenarioArchiveRelPath(") != std::string::npos);
+	REQUIRE(worker.find("catalogStageIdByStagenum(") != std::string::npos);
+	REQUIRE(functionBody(source, "static s32 s_hashStageTextureArchive(").find("sha256HashFile(") != std::string::npos);
+	REQUIRE(digest.find("PDARENA_STAGE_TEXTURE_REVISION") != std::string::npos);
+	REQUIRE(digest.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(digest.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(digest.find("entry->ext.texture.texture_id") != std::string::npos);
+
+	const auto hash_match = emit.find("memcmp(stage_texture_previous, stage_texture_live");
+	const auto clean_marker = emit.find("s_pdarenaCleanMarkerIsValid(");
+	const auto skip = emit.find("EXTRACT.STAGE.TEXTURE: upgraded=0 failed=0 (fast-cache)");
+	const auto repair = emit.find("s_pdarenaWork(");
+	REQUIRE(hash_match != std::string::npos);
+	REQUIRE(clean_marker != std::string::npos);
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(repair != std::string::npos);
+	REQUIRE(hash_match < clean_marker);
+	REQUIRE(clean_marker < skip);
+	REQUIRE(skip < repair);
+
+	const auto stable = upgrade.find("memcmp(before, after, sizeof(after)) == 0");
+	const auto publish = upgrade.find("s_stageTextureMarkerWrite(");
+	REQUIRE(stable != std::string::npos);
+	REQUIRE(publish != std::string::npos);
+	REQUIRE(upgrade.find("failed == 0 && upgraded == 0 && before") < stable);
+	REQUIRE(stable < publish);
+}
+
 TEST_CASE("B-1110 every extractor publishes derived archives", "[modarchive][b1110][static]")
 {
 	const std::regex durable("\\bmodArchiveBegin\\(");

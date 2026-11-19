@@ -334,28 +334,30 @@ bool decode(const Registry &registry, const Snapshot &defaults,
     if (!mappingRows || (versioned && !sawActive))
         return fail(error, "The complete binding file is missing required rows.");
     if (versioned && mappingRows != registry.count * ACTION_COUNT) {
-        // Not every context/action pair is listed. One shape is still a
-        // complete file: the one a build with a shorter action list, a
-        // shorter context list, or both wrote. Saved names are positional,
-        // new actions are appended to the action list and new contexts to the
-        // registry's context list, so such a file lists the same leading run
-        // of the action list for each of the leading contexts and nothing
-        // else. Its bindings are kept, and the actions and contexts it could
-        // not know keep their defaults (candidate started as defaults).
-        // Anything else (a context cut short, a hole in the middle, a missing
-        // context that later ones follow) is damage and is refused as before.
+        // Older builds normally wrote the same leading actions in each of
+        // the leading contexts. Anything they lacked keeps its default.
         int listed = 0;
         while (listed < ACTION_COUNT && seen[0][listed]) ++listed;
         size_t known = 0;
         while (known < registry.count && seen[known][0]) ++known;
-        bool olderBuild = listed > 0 && known > 0
-            && mappingRows == known * static_cast<size_t>(listed);
-        for (size_t ci = 0; olderBuild && ci < registry.count; ++ci)
-            for (int a = 0; a < ACTION_COUNT; ++a)
-                if (seen[ci][a] != (ci < known && a < listed)) { olderBuild = false; break; }
-        if (!olderBuild)
+
+        // Dev saved ForgeEditorControls before the Grid branch added the
+        // turret actions and context. Check that exact layout as well.
+        const bool devBeforeGridMerge = listed == ACTION_TURRET_FIRE
+            && seen[0][ACTION_FORGE_EDITOR_CONTROLS]
+            && known < registry.count
+            && std::strcmp(registry.contexts[known]->name, "vehicle_turret") == 0;
+        const size_t savedActions = static_cast<size_t>(listed) + devBeforeGridMerge;
+        if (!savedActions || !known || mappingRows != known * savedActions)
             return fail(error, "The complete binding file is missing required rows.");
-        if (olderActions) *olderActions = static_cast<size_t>(listed);
+        for (size_t ci = 0; ci < registry.count; ++ci) {
+            for (int a = 0; a < ACTION_COUNT; ++a) {
+                const bool saved = a < listed || (devBeforeGridMerge && a == ACTION_FORGE_EDITOR_CONTROLS);
+                if (seen[ci][a] != (ci < known && saved))
+                    return fail(error, "The complete binding file is missing required rows.");
+            }
+        }
+        if (olderActions) *olderActions = savedActions;
         if (olderContexts) *olderContexts = known;
     }
     if (!valid(registry, candidate, error)) {

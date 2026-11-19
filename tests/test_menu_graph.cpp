@@ -1914,7 +1914,7 @@ TEST_CASE("Agent popup requests open in the parent scope that renders them",
     REQUIRE(render.find("!confirmActive &&") == std::string::npos);
     REQUIRE(render.find("if (!agentChildOpen && requestCreate)") != std::string::npos);
     REQUIRE(render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))") != std::string::npos);
-    REQUIRE(render.find("!agentChildOpen && pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("!agentChildOpen && !socialOwnsInput && (titleClose || pdguiMenuCancelPressed())") != std::string::npos);
     // Each popup suppresses its opening gesture before submitting its body.
     // Other graph transitions may also suppress activation (including Back).
     REQUIRE(render.find("pdguiNavSuppressActivation()", contextOpens[0]) < contextBegin);
@@ -2013,7 +2013,7 @@ TEST_CASE("Agent Select gives native focus activation authority and defers trans
     REQUIRE(render.find("pdguiMenuUpRepeat()") == std::string::npos);
     REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
     REQUIRE(render.find("ImGui::SetItemDefaultFocus()") != std::string::npos);
-    REQUIRE(render.find("if (!agentChildOpen && pdguiMenuCancelPressed())") < render.find("ImGui::Selectable("));
+    REQUIRE(render.find("if (!agentChildOpen && !socialOwnsInput && (titleClose || pdguiMenuCancelPressed()))") < render.find("ImGui::Selectable("));
     REQUIRE(render.rfind("ImGui::End();") < render.find("if (!agentChildOpen && requestCreate)"));
     REQUIRE(render.rfind("ImGui::End();") < render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))"));
     REQUIRE(render.find("const s32 restoreFocusIndex = s_FocusListPending ? s_SelectedIdx : -1;") != std::string::npos);

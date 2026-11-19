@@ -42,6 +42,10 @@
   Actors move to safe positions if needed.
 - Set `DisplayName` in the `[Forge]` section of `pd.ini` to rename The Grid.
 
+- Shortened startup by validating head and body archives in parallel, skipping stage-texture migration for unchanged archives, and avoiding repeated bot-profile searches during challenge setup.
+
+- Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
+
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
   the Case holders, uplink downloads and bases. Final scores and rankings are
@@ -526,6 +530,7 @@
   coordination/queue hub.
 - Fixed the end credits rendering dust motes and text as solid opaque squares, and fixed glow/gradient textures that rendered as opaque black boxes: extracted textures now decode with N64-accurate alpha and channel order (I4/I8 intensity-alpha, IA16 byte order, RGBA32 channel order). Existing installs re-extract affected textures and scenes once automatically.
 - Fixed a bug that silently re-extracted all 87 level scenarios on every game launch (a binary-file probe always reported them stale). Warm boots now skip straight past extraction, cutting roughly 40 seconds off every launch after the first.
+- Fixed repeated arena and scenario validation on warm launches and removed full-archive reads used only to identify ZIP files during catalog startup.
 - Dev Window v2 and v3 now open the Workbench and treat its roadmap, notes,
   changelog, Codex memory mirror, and release notes as live project state.
 - Git Pull in Dev Window v2 now fetches remote commits first and lets the operator choose the exact commit to fast-forward to.

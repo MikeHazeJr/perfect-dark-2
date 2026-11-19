@@ -58,6 +58,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "native_write_policy.h"
 #include "ai_command_schema.h"
 #include "ai_catalog_refs.h"
 #include "ai_list_edges.h"
@@ -71,6 +72,7 @@
 #include "romextract_texture_stage.h"
 #include "scenario_stage_rules.h"
 #include "scenario_dyntex.h"
+#include "save_atomic.h"
 #include "sha256.h"
 #include "system.h"
 #include "texture_decode_pure.h"
@@ -10174,6 +10176,13 @@ static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
 #define PDARENA_CLEAN_MARKER_NAME ".pdextract-clean"
 #define PDARENA_CLEAN_MARKER_SCHEMA "pdarena-clean-v1"
 
+/* The persisted format is unchanged. Size the read from the same record the
+ * writer uses so growing either kind cannot truncate the comparison. */
+static const char k_PdarenaCleanMarker[] =
+	"schema=" PDARENA_CLEAN_MARKER_SCHEMA "\n"
+	"arena_kind=" ROMEXTRACT_PDARENA_FAST_CACHE_KIND "\n"
+	"scenario_kind=" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "\n";
+
 static s32 s_pdarenaCleanMarkerPath(const char *arenas_dir, char *out,
 	size_t out_n)
 {
@@ -10190,26 +10199,16 @@ static s32 s_pdarenaCleanMarkerPath(const char *arenas_dir, char *out,
 static s32 s_pdarenaCleanMarkerIsValid(const char *arenas_dir)
 {
 	char path[FS_MAXPATH + 1];
-	char schema[64] = {0};
-	char arena_kind[512] = {0};
-	char scenario_kind[512] = {0};
-	FILE *f;
-	int matched;
+	char record[sizeof(k_PdarenaCleanMarker) - 1];
 
 	if (!s_pdarenaCleanMarkerPath(arenas_dir, path, sizeof(path))) return 0;
-	f = fopen(path, "rb");
+	FILE *f = fopen(path, "rb");
 	if (!f) return 0;
-	matched = fscanf(f,
-		"schema=%63s\narena_kind=%511s\nscenario_kind=%511s\n",
-		schema, arena_kind, scenario_kind);
+	s32 matches = fread(record, 1, sizeof(record), f) == sizeof(record) &&
+		memcmp(record, k_PdarenaCleanMarker, sizeof(record)) == 0 &&
+		fgetc(f) == EOF && !ferror(f);
 	fclose(f);
-	if (matched != 3) return 0;
-	if (strcmp(schema, PDARENA_CLEAN_MARKER_SCHEMA) != 0) return 0;
-	if (strcmp(arena_kind, ROMEXTRACT_PDARENA_FAST_CACHE_KIND) != 0) return 0;
-	if (strcmp(scenario_kind, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND) != 0) {
-		return 0;
-	}
-	return 1;
+	return matches;
 }
 
 static void s_pdarenaCleanMarkerWrite(const char *arenas_dir)
@@ -10224,10 +10223,7 @@ static void s_pdarenaCleanMarkerWrite(const char *arenas_dir)
 			"romextract pdarena: could not write clean marker \"%s\"", path);
 		return;
 	}
-	fprintf(f, "schema=%s\narena_kind=%s\nscenario_kind=%s\n",
-		PDARENA_CLEAN_MARKER_SCHEMA,
-		ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
-		ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+	fputs(k_PdarenaCleanMarker, f);
 	fclose(f);
 }
 
@@ -11157,43 +11153,204 @@ static void s_pdarenaWork(int i, void *user)
 }
 
 
+typedef struct {
+    const arena_authored_record_t *arena;
+    char scenario_id[128];
+    s32 stagenum;
+} stage_texture_source_t;
+
+static stage_texture_source_t s_stageTextureSource(s32 i,
+    const pdscenario_stage_specs_t *standalone)
+{
+    stage_texture_source_t source = {0};
+    if (i < g_ArenaDataCount) {
+        source.arena = &g_ArenaData[i];
+        source.stagenum = source.arena->stagenum;
+        if (s_arenaStageIndexForScenario(source.stagenum) >= 0) {
+            s_scenarioCatalogIdFromSlug(source.arena->slug, source.scenario_id,
+                sizeof(source.scenario_id));
+        }
+    } else {
+        const pdscenario_emit_spec_t *spec = &standalone->specs[i - g_ArenaDataCount];
+        source.stagenum = spec->stagenum;
+        snprintf(source.scenario_id, sizeof(source.scenario_id), "%s", spec->scenario_id);
+    }
+    return source;
+}
+
+static void s_stageTextureArenaPath(const arena_authored_record_t *arena,
+    const char *arenas_dir, char *rel, size_t rel_size)
+{
+    char filename[128];
+    s_idToFilename(arena->catalog_id, filename, sizeof(filename));
+    snprintf(rel, rel_size, "%s/%s.pdarena", arenas_dir, filename);
+}
+
+/* Bump this private revision when romextract_texture_stage.cpp's rule table,
+ * stage grouping, or texture_source_upgrade.cpp's migration semantics change.
+ * The revision only invalidates the migration result. */
+#define PDARENA_STAGE_TEXTURE_REVISION "stage-textures-v1"
+#define PDARENA_STAGE_TEXTURE_MARKER ".pdextract-stage-textures"
+
+typedef struct {
+    u8 digest[SHA256_DIGEST_SIZE];
+    s32 valid;
+} stage_texture_digest_t;
+
+typedef struct {
+    const char *arenas_dir, *scenarios_dir;
+    const pdscenario_stage_specs_t *standalone;
+    stage_texture_digest_t *sources;
+} stage_texture_hash_work_t;
+
+static void s_hashStageTextureString(sha256_ctx *hash, const char *value)
+{
+    if (!value) value = "";
+    sha256Update(hash, value, strlen(value) + 1);
+}
+
+static s32 s_hashStageTextureArchive(sha256_ctx *hash, const char *rel)
+{
+    char full_buf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel, full_buf, sizeof(full_buf));
+    u8 digest[SHA256_DIGEST_SIZE];
+    if (!full || sha256HashFile(full, digest) != 0) return 0;
+    s_hashStageTextureString(hash, rel);
+    sha256Update(hash, digest, sizeof(digest));
+    return 1;
+}
+
+static void s_hashStageTextureSource(s32 i, void *arg)
+{
+    stage_texture_hash_work_t *work = arg;
+    const stage_texture_source_t source = s_stageTextureSource(i, work->standalone);
+    char rel[FS_MAXPATH];
+    sha256_ctx hash;
+    sha256Init(&hash);
+    if (source.arena) {
+        /* The complete wrapper hash includes its embedded scenario bytes. */
+        s_stageTextureArenaPath(source.arena, work->arenas_dir, rel, sizeof(rel));
+        if (!s_hashStageTextureArchive(&hash, rel)) return;
+    }
+    if (source.scenario_id[0]) {
+        s_hashStageTextureString(&hash, catalogStageIdByStagenum(source.stagenum));
+        s_scenarioArchiveRelPath(work->scenarios_dir, source.scenario_id, rel, sizeof(rel));
+        if (!s_hashStageTextureArchive(&hash, rel)) return;
+    }
+    sha256Final(&hash, work->sources[i].digest);
+    work->sources[i].valid = 1;
+}
+
+static s32 s_stageTextureDigest(const char *arenas_dir, const char *scenarios_dir,
+    const pdscenario_stage_specs_t *standalone, u8 digest[SHA256_DIGEST_SIZE])
+{
+    const s32 count = g_ArenaDataCount + standalone->count;
+    stage_texture_digest_t *sources = calloc(count, sizeof(*sources));
+    if (!sources) return 0;
+    stage_texture_hash_work_t work = {arenas_dir, scenarios_dir, standalone, sources};
+    bootPoolForRangeBlocking(0, count, s_hashStageTextureSource, &work);
+
+    sha256_ctx hash;
+    sha256Init(&hash);
+    s_hashStageTextureString(&hash, PDARENA_STAGE_TEXTURE_REVISION);
+    s_hashStageTextureString(&hash, ROMEXTRACT_PDARENA_FAST_CACHE_KIND);
+    s_hashStageTextureString(&hash, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+    for (s32 i = 0; i < count; ++i) {
+        if (!sources[i].valid) {
+            free(sources);
+            return 0;
+        }
+        sha256Update(&hash, sources[i].digest, sizeof(sources[i].digest));
+    }
+    free(sources);
+
+    /* The migration resolves ROM texture numbers against bundled public IDs
+     * in catalog order, retaining the first row for each texture number. */
+    for (s32 i = 0; i < assetCatalogGetPoolSize(); ++i) {
+        const asset_entry_t *entry = assetCatalogGetByIndex(i);
+        if (entry && entry->occupied && entry->bundled && entry->type == ASSET_TEXTURE) {
+            sha256Update(&hash, &entry->ext.texture.texture_id,
+                sizeof(entry->ext.texture.texture_id));
+            s_hashStageTextureString(&hash, entry->id);
+        }
+    }
+    sha256Final(&hash, digest);
+    return 1;
+}
+
+static s32 s_stageTextureMarkerPath(const char *arenas_dir, char *path, size_t path_size)
+{
+    if (nativeWritePolicyActive()) {
+        return nativeWritePolicyCachePath("pdextract-stage-textures", arenas_dir, path, path_size);
+    }
+    char rel[FS_MAXPATH + 1];
+    const int length = snprintf(rel, sizeof(rel), "%s/" PDARENA_STAGE_TEXTURE_MARKER, arenas_dir);
+    return length > 0 && (size_t)length < sizeof(rel) &&
+        fsFullPath(rel, path, path_size) && path[0];
+}
+
+static s32 s_stageTextureMarkerRead(const char *arenas_dir, u8 digest[SHA256_DIGEST_SIZE])
+{
+    char path[FS_MAXPATH + 1];
+    if (!s_stageTextureMarkerPath(arenas_dir, path, sizeof(path))) return 0;
+    FILE *file = fopen(path, "rb");
+    if (!file) return 0;
+    const s32 valid = fread(digest, 1, SHA256_DIGEST_SIZE, file) == SHA256_DIGEST_SIZE &&
+        fgetc(file) == EOF && !ferror(file);
+    fclose(file);
+    return valid;
+}
+
+static void s_stageTextureMarkerWrite(const char *arenas_dir,
+    const u8 digest[SHA256_DIGEST_SIZE])
+{
+    char path[FS_MAXPATH + 1];
+    save_atomic_file_t transaction;
+    if (!s_stageTextureMarkerPath(arenas_dir, path, sizeof(path)) ||
+        saveAtomicBegin(&transaction, path) != 0) return;
+    if (fwrite(digest, 1, SHA256_DIGEST_SIZE, saveAtomicStream(&transaction)) == SHA256_DIGEST_SIZE &&
+        saveAtomicCommit(&transaction) == 0) return;
+    saveAtomicAbort(&transaction);
+    sysLogPrintf(LOG_WARNING, "EXTRACT.STAGE.TEXTURE: could not record verified archives");
+}
+
 /* Add public material rules without re-emitting authored geometry/graphs. Also
  * upgrade each arena's own embedded scenario, preserving edits in that copy. */
 static s32 s_upgradeStageTextureProperties(const char *arenas_dir,
-    const char *scenarios_dir, const pdscenario_stage_specs_t *standalone)
+    const char *scenarios_dir, const pdscenario_stage_specs_t *standalone,
+    const u8 *before)
 {
     s32 upgraded = 0, failed = 0;
+    u8 fresh[SHA256_DIGEST_SIZE];
+    if (!before && s_stageTextureDigest(arenas_dir, scenarios_dir, standalone, fresh)) before = fresh;
     for (s32 i = 0; i < g_ArenaDataCount + standalone->count; ++i) {
-        char scenario_id[128], rel[FS_MAXPATH], full_buf[FS_MAXPATH + 1], error[192];
-        s32 stagenum;
-        const arena_authored_record_t *arena = NULL;
-        if (i < g_ArenaDataCount) {
-            arena = &g_ArenaData[i];
-            stagenum = arena->stagenum;
-            if (s_arenaStageIndexForScenario(stagenum) < 0) continue;
-            s_scenarioCatalogIdFromSlug(arena->slug, scenario_id, sizeof(scenario_id));
-        } else {
-            const pdscenario_emit_spec_t *spec = &standalone->specs[i - g_ArenaDataCount];
-            stagenum = spec->stagenum;
-            snprintf(scenario_id, sizeof(scenario_id), "%s", spec->scenario_id);
-        }
-        const char *stage_id = catalogStageIdByStagenum(stagenum);
-        s_scenarioArchiveRelPath(scenarios_dir, scenario_id, rel, sizeof(rel));
+        char rel[FS_MAXPATH], full_buf[FS_MAXPATH + 1], error[192];
+        const stage_texture_source_t source = s_stageTextureSource(i, standalone);
+        if (!source.scenario_id[0]) continue;
+        const char *stage_id = catalogStageIdByStagenum(source.stagenum);
+        s_scenarioArchiveRelPath(scenarios_dir, source.scenario_id, rel, sizeof(rel));
         const char *full = fsFullPath(rel, full_buf, sizeof(full_buf));
         s32 result = romExtractTextureStageProperties(full, NULL, stage_id, error, sizeof(error));
         if (result < 0) { ++failed; sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", rel, error); }
         else upgraded += result;
-        if (arena) {
+        if (source.arena) {
             char filename[128], member[FS_MAXPATH];
-            s_idToFilename(arena->catalog_id, filename, sizeof(filename));
-            snprintf(rel, sizeof(rel), "%s/%s.pdarena", arenas_dir, filename);
-            s_idToFilename(scenario_id, filename, sizeof(filename));
+            s_stageTextureArenaPath(source.arena, arenas_dir, rel, sizeof(rel));
+            s_idToFilename(source.scenario_id, filename, sizeof(filename));
             snprintf(member, sizeof(member), "dependencies/assets/scenarios/%s.pdscenario", filename);
             full = fsFullPath(rel, full_buf, sizeof(full_buf));
             result = romExtractTextureStageProperties(full, member, stage_id, error, sizeof(error));
             if (result < 0) { ++failed; sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", rel, error); }
             else upgraded += result;
         }
+    }
+    /* A warm skip may only vouch for the exact bytes the migration checked.
+     * Leave verification pending after repairs, failed I/O, or concurrent edits. */
+    u8 after[SHA256_DIGEST_SIZE];
+    if (failed == 0 && upgraded == 0 && before &&
+        s_stageTextureDigest(arenas_dir, scenarios_dir, standalone, after) &&
+        memcmp(before, after, sizeof(after)) == 0) {
+        s_stageTextureMarkerWrite(arenas_dir, after);
     }
     sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=%d failed=%d", upgraded, failed);
     return failed ? -1 : upgraded;
@@ -11245,10 +11402,15 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	 * invalidates the fingerprint stamps (count/bytes/mtime), which also
 	 * invalidates the marker, so content re-verification still happens after
 	 * every emit or external modification. */
+	u8 stage_texture_previous[SHA256_DIGEST_SIZE], stage_texture_live[SHA256_DIGEST_SIZE];
+	const s32 has_stage_texture_marker = s_stageTextureMarkerRead(arenas_dir, stage_texture_previous);
 	if (romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir,
 			".pdarena", force_rewrite) &&
 	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir,
 			".pdscenario", force_rewrite) &&
+	    s_stageTextureDigest(arenas_dir, scenarios_dir, &stage_specs, stage_texture_live) &&
+	    (!has_stage_texture_marker ||
+	     memcmp(stage_texture_previous, stage_texture_live, sizeof(stage_texture_live)) == 0) &&
 	    (s_pdarenaCleanMarkerIsValid(arenas_dir) ||
 	     (s_pdarenaOutputsCleanForFastCache(arenas_dir, scenarios_dir,
 			&stage_specs) &&
@@ -11260,7 +11422,12 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdscenario: written=0 skipped=%d failed=0 standalone=%d (fast-cache)",
 			g_ArenaDataCount + stage_specs.count, stage_specs.count);
-		const s32 upgraded = s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs);
+		if (has_stage_texture_marker) {
+			sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=0 failed=0 (fast-cache)");
+			return 0;
+		}
+		const s32 upgraded = s_upgradeStageTextureProperties(arenas_dir, scenarios_dir,
+			&stage_specs, stage_texture_live);
 		if (upgraded > 0) {
 			romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir, ".pdarena");
 			romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir, ".pdscenario");
@@ -11323,7 +11490,7 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		stage_specs.count);
 
 	if (arenas_failed == 0 && scenarios_failed == 0
-			&& s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs) < 0) {
+			&& s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs, NULL) < 0) {
 		scenarios_failed++;
 	}
 

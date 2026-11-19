@@ -781,6 +781,85 @@ TEST_CASE("A named profile saved by a build with fewer actions still loads",
     noCandidates(directory.path);
 }
 
+TEST_CASE("Merged profiles keep custom Grid editor and turret bindings from both builds",
+          "[input][profile][upgrade]")
+{
+    Fixture fixture;
+    const size_t turretContext = fixture.contexts.size() - 1;
+    fixture.contextNames[turretContext] = "vehicle_turret";
+    fixture.contexts[turretContext].name = fixture.contextNames[turretContext].c_str();
+    fixture.actionStrings[ACTION_FORGE_EDITOR_CONTROLS] = "ForgeEditorControls";
+    fixture.actionNames[ACTION_FORGE_EDITOR_CONTROLS] = fixture.actionStrings[ACTION_FORGE_EDITOR_CONTROLS].c_str();
+    fixture.bind(2, ACTION_FORGE_EDITOR_CONTROLS, {5});
+    fixture.bind(turretContext, ACTION_TURRET_FIRE, {6});
+    fixture.bind(turretContext, ACTION_TURRET_ZOOM, {7});
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    fixture.bind(0, ACTION_USE, {8});
+    fixture.bind(2, ACTION_FORGE_EDITOR_CONTROLS, {9});
+    fixture.bind(turretContext, ACTION_TURRET_FIRE, {10});
+    fixture.bind(turretContext, ACTION_TURRET_ZOOM, {11});
+    const auto complete = live(fixture, 4);
+    profile::apply(fixture.registry(), defaults);
+
+    const auto fromDev = [turretContext](size_t ci, int a) {
+        return ci == turretContext || a == ACTION_TURRET_FIRE || a == ACTION_TURRET_ZOOM;
+    };
+    std::string error;
+    SECTION("Dev current bindings upgrade and named profiles load") {
+        TempDirectory directory;
+        const auto current = (directory.path / "current.ini").string();
+        const auto named = (directory.path / "profile2.ini").string();
+        const auto prior = without(fixture, complete, fromDev);
+        std::ofstream(current, std::ios::binary) << prior;
+        std::ofstream(named, std::ios::binary) << prior;
+        profile::Store store;
+        REQUIRE(store.initialize(fixture.registry(), defaults, current.c_str(), error));
+        REQUIRE(store.activeProfile() == 4);
+        REQUIRE(store.upgradedFromActions() == static_cast<size_t>(ACTION_TURRET_FIRE) + 1);
+        REQUIRE(store.upgradedFromContexts() == turretContext);
+        REQUIRE(fixture.contexts[0].mappings[ACTION_USE].triggers[0].vk == 8);
+        REQUIRE(fixture.contexts[2].mappings[ACTION_FORGE_EDITOR_CONTROLS].triggers[0].vk == 9);
+        REQUIRE(fixture.contexts[turretContext].mappings[ACTION_TURRET_FIRE].triggers[0].vk == 6);
+        REQUIRE(fixture.contexts[turretContext].mappings[ACTION_TURRET_ZOOM].triggers[0].vk == 7);
+        REQUIRE(bytes(current) == live(fixture, 4));
+        REQUIRE(bytes(current) != prior);
+        REQUIRE(store.loadProfile(fixture.registry(), defaults, named.c_str(), current.c_str(), 2, error));
+        REQUIRE(store.activeProfile() == 2);
+        REQUIRE(bytes(current) == live(fixture, 2));
+        REQUIRE(bytes(named) == prior);
+    }
+    SECTION("Grid profiles retain both turret actions and get the editor default") {
+        const auto prior = without(fixture, complete, [](size_t, int a) {
+            return a == ACTION_FORGE_EDITOR_CONTROLS;
+        });
+        profile::Snapshot decoded;
+        size_t olderActions = 0;
+        size_t olderContexts = 0;
+        REQUIRE(profile::decode(fixture.registry(), defaults, prior, false, decoded, error,
+            &olderActions, &olderContexts));
+        REQUIRE(olderActions == ACTION_FORGE_EDITOR_CONTROLS);
+        REQUIRE(olderContexts == fixture.contexts.size());
+        REQUIRE(decoded.activeProfile == 4);
+        REQUIRE(decoded.contexts[0].mappings[ACTION_USE].triggers[0].vk == 8);
+        REQUIRE(decoded.contexts[2].mappings[ACTION_FORGE_EDITOR_CONTROLS].triggers[0].vk == 5);
+        REQUIRE(decoded.contexts[turretContext].mappings[ACTION_TURRET_FIRE].triggers[0].vk == 10);
+        REQUIRE(decoded.contexts[turretContext].mappings[ACTION_TURRET_ZOOM].triggers[0].vk == 11);
+    }
+    SECTION("Partial or mixed Dev profiles still fail") {
+        auto decoded = defaults;
+        const auto partial = without(fixture, complete, [&](size_t ci, int a) {
+            return fromDev(ci, a) || (ci == 2 && a == ACTION_FORGE_EDITOR_CONTROLS);
+        });
+        REQUIRE_FALSE(profile::decode(fixture.registry(), defaults, partial, false, decoded, error));
+        const auto mixed = without(fixture, complete, [&](size_t ci, int a) {
+            if (ci == 2 && a == ACTION_TURRET_FIRE) return false;
+            return fromDev(ci, a) || (ci == 2 && a == ACTION_FORGE_EDITOR_CONTROLS);
+        });
+        REQUIRE_FALSE(profile::decode(fixture.registry(), defaults, mixed, false, decoded, error));
+        REQUIRE(encoded(fixture, decoded) == encoded(fixture, defaults));
+    }
+}
+
 TEST_CASE("Device reset keeps the other device and rejects capacity overflow as one candidate",
           "[input][profile][defaults]")
 {

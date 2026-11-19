@@ -1,5 +1,7 @@
 # Menus / UI / UX
 
+Nov 19 T-MENUS-003 restores menu ownership for New Agent, lobby preparation and Grid editor controls. It preserves Social ownership above the picker and lobbies, recovers controller navigation, and uses elapsed first-run timing. Foreground virtual-controller name entry and Back both passed. The remaining device, multiplayer and Grid gates are listed in the [front-end audit](../audits/2026/frontend-control-2026-11-19.md#implementation-follow-up).
+
 Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
 native navigation, Agent Select requests its selected row on entry, and the
 virtual SDL fixture maps every advertised button (including Touchpad) without

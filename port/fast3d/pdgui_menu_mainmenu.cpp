@@ -1892,6 +1892,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_FORGE_BOOST,         "Speed Boost",        BG_FORGE_EDITOR,  "Hold for 3x freefly speed.",                                                                          &g_ImcForge },
     { ACTION_FORGE_PRECISION,     "Speed Precision",    BG_FORGE_EDITOR,  "Hold for 0.25x freefly speed.",                                                                       &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_TOGGLE,"Sidebar Toggle",     BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_EDITOR_CONTROLS,"Editor Controls",    BG_FORGE_EDITOR,  "Move focus from the freefly camera to the Grid editor controls.",                                     &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_UP,    "Sidebar Up",         BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_DOWN,  "Sidebar Down",       BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
     { ACTION_FORGE_SIDEBAR_ACTIVATE,"Sidebar Activate", BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
@@ -2160,6 +2161,24 @@ static s32 findFreeTriggerSlot(InputMappingContext *imc, InputAction action)
     return -1;
 }
 
+static bool removingLastMenuControllerBinding(const InputMappingContext *imc,
+        InputAction action, s32 slot, u32 vk)
+{
+    if ((imc != &g_ImcMenu && imc != &g_ImcPauseMenu) || !isVkController(vk)) return false;
+    if (action != ACTION_MENU_ACCEPT && action != ACTION_MENU_CANCEL &&
+            (action < ACTION_MENU_UP || action > ACTION_MENU_RIGHT)) return false;
+    input_vk_control_t removed;
+    if (!inputVkDecodeController(vk, &removed) || removed.player != 0) return false;
+
+    const InputMapping &mapping = imc->mappings[action];
+    for (s32 i = 0; i < mapping.num_triggers; ++i) {
+        input_vk_control_t other;
+        if (i != slot && inputVkDecodeController(mapping.triggers[i].vk, &other) &&
+                other.player == 0) return false;
+    }
+    return true;
+}
+
 /* Trigger slot index for controller Bind 1 / Bind 2 columns (matches renderBindTable). */
 static s32 pickSlotForControllerBindColumn(InputMappingContext *imc, InputAction action, s32 wantCol)
 {
@@ -2380,8 +2399,14 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
         && (pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed());
     if (!s_CaptureActive && (ImGui::IsItemClicked(ImGuiMouseButton_Right) || focusedClear)
             && vk != 0 && slot >= 0) {
-        actionmapBind(imc, 0, action, slot, 0);
-        if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        if (removingLastMenuControllerBinding(imc, action, slot, vk)) {
+            snprintf(s_CaptureStatus, sizeof(s_CaptureStatus),
+                "Keep one controller binding for %s. Replace this one or add another first.", rowName);
+        } else {
+            s_CaptureStatus[0] = '\0';
+            actionmapBind(imc, 0, action, slot, 0);
+            if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        }
     }
 }
 
@@ -2438,6 +2463,18 @@ static void handleCaptureInput(void)
 
     s32 newKey = inputGetLastKey();
     if (newKey > 0) {
+        input_vk_control_t control;
+        if (s_CaptureColumn == 1 && inputVkDecodeController((u32)newKey, &control) &&
+                control.player != 0) {
+            InputDeviceIdentity device = {};
+            if (actionmapGetBindingDeviceIdentity(control.player, &device) &&
+                    device.instance_id == s_CaptureControllerInstance) {
+                newKey = control.kind == INPUT_VK_BUTTON ? inputVkRawButton(0, control.index) :
+                    inputVkDigitalAxis(0, control.index, control.direction);
+            } else {
+                newKey = 0;
+            }
+        }
         bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
                   || (s_CaptureColumn == 1 && isVkController((u32)newKey));
         if (valid && s_CaptureImc != NULL) {

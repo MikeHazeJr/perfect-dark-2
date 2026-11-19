@@ -50,6 +50,8 @@ and hoverbike packages. The placed nested model and embedded effect
 texture cases have verified fixture sources. The focused native tests
 and archive conformance passed. Managed execution awaits capacity.
 
+2026-11-19, T-MENUS-003. Canonical input ownership repairs and foreground virtual-controller Agent create, save, select and Back passed. V-004 remains partial for physical controllers, device handoff and the related Settings route. Online consent/countdown and the separate Grid prerelease have their own follow-through. See the [front-end audit](audits/2026/frontend-control-2026-11-19.md#implementation-follow-up).
+
 2026-11-14 week PD (Nov 15 to 21): three parallel Claude sessions (CORE, MULTIPLAYER, MODS) work in `D:\PD2-wt\<name>` on branches `week-pd/<name>`. The live plan, the decisions waiting on Mike and the ordered work queue are in the PD2 Finish Tracker (a Claude Doc) and in `context/week-pd-coordination.md` in the canonical checkout (untracked, one shared copy). Step 0 is done: dev a8ab67f3 builds on this PC, 1,853 unit cases pass, and the boot smoke passes 14/14 from the pre-extracted shared base `D:\PD2-wt\shared-base`. The T-MODDING-011 entries below describe uncommitted, never-compiled work that is parked on branch `week-pd/inflight-20261114`; it is not part of any week branch, and whether it continues is decision 2 in the tracker. New this week: B-1109 (gun loader 64-bit queue targets, fixed on `week-pd/core`) and B-1110 (first-launch extraction about 20 times slower on a hard disk). See the 2026-11-14 entry at the end of `session-log.md`.
 
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
@@ -2229,7 +2231,20 @@ Remaining 1.0 work:
 - T-NETWORKING-007: co-op continuity, drop-out/reconnect, and Combat Simulator
   start/return behavior.
 - P-001: explicit cold, warm, validation, rebuild, activation, creator, stage,
-  and match timing budgets with raw artifacts.
+  and match timing budgets with raw artifacts. N-0843 records the warm-start
+  diagnosis. The marker and manifest read fixes are in the canonical checkout
+  and a clean dev export with the patch built both client and tests. The
+  full native suite passed 2,259 cases. Paired Base 9 warm asset startup
+  averaged 63.2 seconds before and 29.8 seconds after. The ordinary boot
+  smoke passed 14/14. Missing and corrupt scenario fixtures each repaired one
+  archive. A simulated scenario version change regenerated its 87 scenarios
+  and 47 linked arenas. The November 19 follow-up parallelizes head and body
+  archive preparation, scopes the bundled checkpoints, and skips verified
+  stage-texture migration. Warm Base 9 asset startup took 28.68 and 45.90 seconds
+  on the previous client and 17.25 and 28.32 seconds on the updated client. A
+  concurrent build overlapped the second pair. Challenge initialization took
+  14.05 seconds on the instrumented reference and 4 ms on the updated client.
+  The other P-001 timing budgets remain open.
 
 Host authority migration after authority departure remains post-1.0 under
 T-NETWORKING-008 unless Mike promotes it.

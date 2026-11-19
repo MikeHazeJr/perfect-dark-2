@@ -469,6 +469,7 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     /* 124-125: vehicle turret, the gunner seat (Maian vehicle V4) */
     "TurretFire",
     "TurretZoom",
+    "ForgeEditorControls",
 };
 /* Every action has a name: a missing one is a null config key (B-1116 on
  * week-pd/core, the same fix as CRYSTAL's B-1184). */
@@ -725,6 +726,32 @@ static InputDeviceIdentityState s_DeviceIdentity;
 static std::unordered_map<uint64_t, int> s_DeviceAxisAnchor;
 static int s_DeviceJoyconVerticalMode;
 
+/* Front-end input can borrow an attached pad without moving its gameplay slot
+ * or changing its SDL player index. Prefer the normal player-one pad. */
+static bool actionmapFrontendContext()
+{
+    const InputContext *top = inputCtxGetTop();
+    return top == &g_CtxImGuiMenu || top == &g_CtxPauseMenu ||
+        top == &g_CtxDebugOverlay || top == &g_CtxForgeEditor;
+}
+
+static SDL_GameController *actionmapFrontendPad()
+{
+    for (s32 slot = 0; slot < ACTIONMAP_MAX_PLAYERS; ++slot) {
+        auto *pad = static_cast<SDL_GameController *>(inputGetPad(slot));
+        if (pad && SDL_GameControllerGetAttached(pad)) return pad;
+    }
+    return nullptr;
+}
+
+static bool actionmapFrontendBorrows(SDL_JoystickID instance)
+{
+    if (!actionmapFrontendContext()) return false;
+    SDL_GameController *pad = actionmapFrontendPad();
+    return pad && SDL_GameControllerGetPlayerIndex(pad) > 0 &&
+        SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == instance;
+}
+
 static void actionmapInitDeviceIdentity()
 {
     inputDeviceIdentityReset(&s_DeviceIdentity);
@@ -880,6 +907,10 @@ void actionmapObserveDeviceEvent(const SDL_Event *event)
         anchor = activity.value;
     }
     inputDeviceIdentityObserve(&s_DeviceIdentity, &identity, &activity);
+    if (identity.player > 0 && actionmapFrontendBorrows(identity.instance_id)) {
+        identity.player = 0;
+        inputDeviceIdentityObserve(&s_DeviceIdentity, &identity, &activity);
+    }
 }
 
 s32 actionmapGetBindingDeviceIdentity(s32 player, InputDeviceIdentity *out)
@@ -890,17 +921,21 @@ s32 actionmapGetBindingDeviceIdentity(s32 player, InputDeviceIdentity *out)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     InputDeviceIdentity current;
     const auto &remembered = s_DeviceIdentity.controller[player];
-    if (remembered.connected &&
-        deviceIdentityFromInstance(remembered.instance_id, &current) && current.player == player) {
-        *out = current;
-        return 1;
+    if (remembered.connected && deviceIdentityFromInstance(remembered.instance_id, &current)) {
+        if (current.player == player || (player == 0 && actionmapFrontendBorrows(current.instance_id))) {
+            current.player = player;
+            *out = current;
+            return 1;
+        }
+    } else if (remembered.connected) {
+        inputDeviceIdentityDisconnect(&s_DeviceIdentity, remembered.instance_id);
     }
-    /* Reconcile unplug without relying on an event reaching this consumer. */
-    if (remembered.connected) inputDeviceIdentityDisconnect(&s_DeviceIdentity, remembered.instance_id);
-    auto *controller = static_cast<SDL_GameController *>(inputGetPad(player));
+    auto *controller = player == 0 && actionmapFrontendContext()
+        ? actionmapFrontendPad() : static_cast<SDL_GameController *>(inputGetPad(player));
     if (!controller || !SDL_GameControllerGetAttached(controller)) return 0;
     SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller);
     if (!joystick || !deviceIdentityFromInstance(SDL_JoystickInstanceID(joystick), out)) return 0;
+    if (player == 0 && actionmapFrontendBorrows(out->instance_id)) out->player = 0;
     return out->player == player;
 }
 
@@ -930,6 +965,52 @@ static void actionmapCaptureBindingContexts(ActionBindingContext *contexts)
     }
 }
 
+static constexpr struct MenuNavigationBinding {
+    InputAction action;
+    u32 vk;
+} s_MenuNavigationBindings[] = {
+    {ACTION_MENU_ACCEPT, JOY_BTN(0, JBTN_A)},
+    {ACTION_MENU_CANCEL, JOY_BTN(0, JBTN_B)},
+    {ACTION_MENU_UP, JOY_BTN(0, JBTN_DPAD_UP)},
+    {ACTION_MENU_DOWN, JOY_BTN(0, JBTN_DPAD_DOWN)},
+    {ACTION_MENU_LEFT, JOY_BTN(0, JBTN_DPAD_LEFT)},
+    {ACTION_MENU_RIGHT, JOY_BTN(0, JBTN_DPAD_RIGHT)},
+};
+
+static s32 actionmapControllerControlPresent(u32 vk, void *userdata)
+{
+    return inputGlyphControllerVkPresent(static_cast<const InputDeviceIdentity *>(userdata), vk);
+}
+
+/* A broken profile must still let a standard pad reach Reset Defaults. Use the
+ * complete basic map while any required action is unreachable so conflicts
+ * cannot make the recovery press steal the last binding for another action. */
+static const InputMappingContext *actionmapMenuRecovery(const ActionBindingContext *contexts)
+{
+    const InputContext *top = inputCtxGetTop();
+    const InputMappingContext *menu = top == &g_CtxImGuiMenu ? &g_ImcMenu :
+        top == &g_CtxPauseMenu ? &g_ImcPauseMenu : nullptr;
+    if (!menu) return nullptr;
+
+    SDL_GameController *controller = actionmapFrontendPad();
+    InputDeviceIdentity identity;
+    if (!controller || !deviceIdentityFromInstance(
+            SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(controller)), &identity)) {
+        return nullptr;
+    }
+    identity.player = 0;
+    for (const auto &binding : s_MenuNavigationBindings) {
+        if (!inputGlyphControllerVkPresent(&identity, binding.vk)) return nullptr;
+    }
+    for (const auto &binding : s_MenuNavigationBindings) {
+        if (!actionBindingFindVkMatching(contexts, s_NumActive, 0, binding.action,
+                ACTIONMAP_DEVICE_GAMEPAD, 1, actionmapControllerControlPresent, &identity)) {
+            return menu;
+        }
+    }
+    return nullptr;
+}
+
 /** Given a VK and direction (pressed=1, released=0), find the action it maps
  *  to in the highest-priority active IMC and update the player's state. */
 static void actionmapReleaseDigitalOwner(const ActionDigitalRelease &release)
@@ -955,14 +1036,36 @@ static void fireVk(u32 vk, s32 is_down, uint64_t source)
     }
     if (vk == 0) return;
 
+    const auto source_kind = static_cast<ActionSourceKind>(source >> 56);
+    if (source_kind == ActionSourceKind::ControllerButton ||
+        source_kind == ActionSourceKind::ControllerAxis) {
+        input_vk_control_t control;
+        const auto instance = static_cast<SDL_JoystickID>(uint32_t(source >> 16));
+        if (inputVkDecodeController(vk, &control) && control.player > 0 &&
+                actionmapFrontendBorrows(instance)) {
+            vk = control.kind == INPUT_VK_BUTTON ? inputVkRawButton(0, control.index) :
+                inputVkDigitalAxis(0, control.index, control.direction);
+        }
+    }
+    if (inputCtxIsFocusLost() && actionmapFrontendContext()) return;
+
     s32 player = playerForVk(vk);
 
     /* Dispatch and visible prompts share this exact priority/trigger winner.
      * A layer-denied winner still consumes its VK without lower fallback. */
     ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
     actionmapCaptureBindingContexts(contexts);
-    const ActionBindingMatch winner = actionBindingResolveVkPair(
+    ActionBindingMatch winner = actionBindingResolveVkPair(
         contexts, s_NumActive, vk, inputVkLegacyAlias(vk));
+    if (player == 0 && source_kind == ActionSourceKind::ControllerButton) {
+        for (const auto &binding : s_MenuNavigationBindings) {
+            if (binding.vk != vk) continue;
+            if (const InputMappingContext *owner = actionmapMenuRecovery(contexts)) {
+                winner = {owner, binding.action, binding.vk};
+            }
+            break;
+        }
+    }
     if (winner.context) {
         const InputMappingContext *ctx = winner.context;
         const s32 best_a = (s32)winner.action;
@@ -1830,6 +1933,7 @@ s32 actionIsGameplayOnly(InputAction a)
     case ACTION_MENU_SKIPUP:
     case ACTION_MENU_SKIPDOWN:
     case ACTION_VOICE_PTT:
+    case ACTION_FORGE_EDITOR_CONTROLS:
     case ACTION_FORGE_PLACE_CANCEL:
     case ACTION_FORGE_BOT_ADD:
     case ACTION_FORGE_BOT_REMOVE_ALL:
@@ -1993,16 +2097,33 @@ s32 actionIsBlockedInFreefly(InputAction a)
     }
 }
 
+static bool actionmapFreeflyBlocks(InputAction action)
+{
+    const bool menuAction = action == ACTION_MENU_ACCEPT || action == ACTION_MENU_CANCEL;
+    if (!menuAction) return forgeIsFreefly() && actionIsBlockedInFreefly(action);
+    const InputContext *top = inputCtxGetTop();
+    const bool uiOwnsAliases = top == &g_CtxImGuiMenu || top == &g_CtxPauseMenu ||
+        top == &g_CtxDebugOverlay;
+    return !uiOwnsAliases && forgeIsFreefly();
+}
+
 u32 actionmapGetActiveBindingVk(s32 player, InputAction action, s32 device)
 {
-    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
-        action < 0 || action >= ACTION_COUNT) return 0;
+    return actionmapGetActiveBindingVkMatching(player, action, device, nullptr, nullptr);
+}
 
-    const s32 allowed = actionLayerAllows(action) &&
-        !(forgeIsFreefly() && actionIsBlockedInFreefly(action));
-    ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
-    actionmapCaptureBindingContexts(contexts);
-    return actionBindingFindVk(contexts, s_NumActive, player, action, device, allowed);
+struct MenuRecoveryBindingSearch {
+    ActionBindingVkPredicate matches;
+    void *userdata;
+};
+
+static s32 actionmapMatchNonRecoveryVk(u32 vk, void *userdata)
+{
+    const auto *search = static_cast<const MenuRecoveryBindingSearch *>(userdata);
+    for (const auto &binding : s_MenuNavigationBindings) {
+        if (binding.vk == vk) return 0;
+    }
+    return !search->matches || search->matches(vk, search->userdata);
 }
 
 u32 actionmapGetActiveBindingVkMatching(s32 player, InputAction action, s32 device,
@@ -2010,10 +2131,20 @@ u32 actionmapGetActiveBindingVkMatching(s32 player, InputAction action, s32 devi
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
         action < 0 || action >= ACTION_COUNT) return 0;
-    const s32 allowed = actionLayerAllows(action) &&
-        !(forgeIsFreefly() && actionIsBlockedInFreefly(action));
+    const s32 allowed = actionLayerAllows(action) && !actionmapFreeflyBlocks(action);
     ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
     actionmapCaptureBindingContexts(contexts);
+    if (allowed && player == 0 && device == ACTIONMAP_DEVICE_GAMEPAD &&
+            actionmapMenuRecovery(contexts)) {
+        for (const auto &binding : s_MenuNavigationBindings) {
+            if (binding.action == action && (!matches || matches(binding.vk, userdata))) {
+                return binding.vk;
+            }
+        }
+        MenuRecoveryBindingSearch search = {matches, userdata};
+        return actionBindingFindVkMatching(contexts, s_NumActive, player, action,
+            device, allowed, actionmapMatchNonRecoveryVk, &search);
+    }
     return actionBindingFindVkMatching(contexts, s_NumActive, player, action,
         device, allowed, matches, userdata);
 }
@@ -2030,7 +2161,8 @@ f32 actionmapMenuScrollAxisY(s32 player)
     if (!menu_authority || authority.window_focus_lost ||
         authority.focus_settle_remaining_ms > 0) return 0.0f;
 
-    SDL_GameController *controller = SDL_GameControllerFromPlayerIndex(player);
+    SDL_GameController *controller = player == 0
+        ? actionmapFrontendPad() : SDL_GameControllerFromPlayerIndex(player);
     if (!controller) return 0.0f;
     return actionBindingMenuScrollY(menu_authority, authority.window_focus_lost,
         authority.focus_settle_remaining_ms > 0,
@@ -2123,7 +2255,7 @@ s32 actionPressed(s32 player, InputAction action)
      * back to the transitional inputctx suppression predicate. */
     if (!actionReadAllows(player, action)) return 0;
     /* Priority D (2026-04-24): FREEFLY observer suppression. */
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     return s_State[player][action].pressed;
 }
 
@@ -2132,7 +2264,7 @@ s32 actionHeld(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     return s_State[player][action].held;
 }
 
@@ -2141,7 +2273,7 @@ s32 actionReleased(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     return s_State[player][action].released;
 }
 
@@ -2150,7 +2282,7 @@ f32 actionValue(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
     if (!actionReadAllows(player, action)) return 0.0f;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
+    if (actionmapFreeflyBlocks(action)) return 0.0f;
     return s_State[player][action].value;
 }
 
@@ -2195,7 +2327,7 @@ s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->held || st->down_time_ms == 0) return 0;
     if (threshold_ms <= 0) return 1;
@@ -2208,7 +2340,7 @@ s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
     if (st->hold_consumed) return 0;
@@ -2222,7 +2354,7 @@ s32 actionLastGestureHoldMs(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
     if (st->down_time_ms == 0) return 0;
@@ -2235,7 +2367,7 @@ void actionConsumeHold(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
     if (!actionReadAllows(player, action)) return;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return;
+    if (actionmapFreeflyBlocks(action)) return;
     {
         ActionState *st = &s_State[player][action];
         st->hold_consumed = 1;
@@ -2249,7 +2381,7 @@ s32 actionHoldConsumed(s32 player, InputAction action)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
     if (!actionReadAllows(player, action)) return 0;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
+    if (actionmapFreeflyBlocks(action)) return 0;
     return s_State[player][action].hold_consumed;
 }
 
@@ -2258,7 +2390,7 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
     if (!actionReadAllows(player, action)) return 0.0f;
-    if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
+    if (actionmapFreeflyBlocks(action)) return 0.0f;
     if (threshold_ms <= 0) return 0.0f;
     ActionState *st = &s_State[player][action];
     u32 now = SDL_GetTicks();
@@ -3410,6 +3542,7 @@ static void setupForgeDefaults(s32 player)
      * half of the lifecycle is what this binding drives. D-pad RIGHT
      * stays bound for keyboard-arrow + dpad parity. */
     addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_FORGE_EDITOR_CONTROLS,  JOY_BTN(0, JBTN_Y));
 
     /* ---- Editor sidebar + tabs (keyboard) ---- */
     /* Scancodes follow the SDL_SCANCODE_* enum mirrored in s_VkNames
@@ -3423,6 +3556,7 @@ static void setupForgeDefaults(s32 player)
     addBind(imc, ACTION_FORGE_SIDEBAR_DOWN,     81);  /* DOWN */
     addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE, 79);  /* RIGHT */
     addBind(imc, ACTION_FORGE_PLACE_CANCEL,     VK_ESCAPE);
+    addBind(imc, ACTION_FORGE_EDITOR_CONTROLS,  VKL_C);
 }
 
 static void setupObserverDefaults(s32 player)
@@ -3956,6 +4090,7 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     /* 124-125: vehicle turret, the gunner seat (Maian vehicle V4) */
     { "ACTION_TURRET_FIRE",          ACTION_TURRET_FIRE },
     { "ACTION_TURRET_ZOOM",          ACTION_TURRET_ZOOM },
+    { "ACTION_FORGE_EDITOR_CONTROLS", ACTION_FORGE_EDITOR_CONTROLS },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

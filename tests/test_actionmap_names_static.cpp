@@ -94,19 +94,18 @@ TEST_CASE("every input action has one unique config name, in enum order",
 			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789") == std::string::npos);
 	}
 
-	// The last action and the last name belong together, so the table has not
-	// merely grown to the right length with an entry missing in the middle
-	// (the gun roll pair, 121-122, came with the crystal pistol; the vehicle
-	// boost, 123, with the Maian vehicle, MODS's landing 940b21b1; the turret
-	// pair, 124-125, with the vehicle's gunner seat on week-pd/mods-v4).
-	REQUIRE(actions.back() == "ACTION_TURRET_ZOOM");
-	REQUIRE(names.back() == "TurretZoom");
-	REQUIRE(actions[actions.size() - 2] == "ACTION_TURRET_FIRE");
-	REQUIRE(names[names.size() - 2] == "TurretFire");
-	REQUIRE(actions[actions.size() - 3] == "ACTION_VEHICLE_BOOST");
-	REQUIRE(names[names.size() - 3] == "VehicleBoost");
-	REQUIRE(actions[actions.size() - 4] == "ACTION_GUN_ROLL_RIGHT");
-	REQUIRE(names[names.size() - 4] == "GunRollRight");
+	// Pin the indices used by the shipped Grid bindings and the merged editor action.
+	REQUIRE(actions.size() >= 127);
+	REQUIRE(actions[122] == "ACTION_GUN_ROLL_RIGHT");
+	REQUIRE(names[122] == "GunRollRight");
+	REQUIRE(actions[123] == "ACTION_VEHICLE_BOOST");
+	REQUIRE(names[123] == "VehicleBoost");
+	REQUIRE(actions[124] == "ACTION_TURRET_FIRE");
+	REQUIRE(names[124] == "TurretFire");
+	REQUIRE(actions[125] == "ACTION_TURRET_ZOOM");
+	REQUIRE(names[125] == "TurretZoom");
+	REQUIRE(actions[126] == "ACTION_FORGE_EDITOR_CONTROLS");
+	REQUIRE(names[126] == "ForgeEditorControls");
 
 	// And the compiler holds the two to the same length from now on.
 	REQUIRE(source.find("static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,") !=

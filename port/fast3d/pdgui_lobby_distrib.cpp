@@ -3,7 +3,7 @@
  *
  * Renders two overlays on top of the existing lobby/game UI:
  *
- * 1. DOWNLOAD PROGRESS (client in CLSTATE_LOBBY, distrib state != IDLE):
+ * 1. DOWNLOAD PROGRESS (client in the lobby or preparing a match):
  *    - Banner across the bottom of the lobby screen.
  *    - Phase 1 (DIFFING): "Comparing mod catalog..." spinner.
  *    - Phase 2 (RECEIVING): Component name, byte progress bar, component counter.
@@ -31,7 +31,10 @@
 
 #include "imgui/imgui.h"
 #include "pdgui_menu_readiness.h"
+#include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_style.h"
+#include "system.h"
 
 /* ========================================================================
  * C declarations (game symbols, no types.h)
@@ -198,17 +201,26 @@ static const char *fmtBytes(u32 bytes, char *buf, s32 bufsz)
     return buf;
 }
 
-extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
+extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH, s32 active)
 {
-    distrib_client_status_t st;
-    netDistribClientGetStatus(&st);
-    const bool gridContent = netDistribClientIsGridArena() != 0;
+    const char *consentPopup = "##distrib_prompt";
+    const ImGuiWindowFlags consentFlags = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    distrib_client_status_t st = {};
+    if (active) netDistribClientGetStatus(&st);
+    const bool gridContent = active && netDistribClientIsGridArena() != 0;
     const bool consentPending = st.state == DISTRIB_CSTATE_DIFFING
         && st.missing_count > 0 && netDistribClientConsentPending();
     const bool gridPrompt = gridContent && consentPending;
     static bool showedGridPrompt;
     const bool focusNewGridPrompt = gridPrompt && !showedGridPrompt;
     showedGridPrompt = gridPrompt;
+
+    if (!consentPending && ImGui::IsPopupOpen(consentPopup) &&
+        ImGui::BeginPopupModal(consentPopup, nullptr, consentFlags)) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 
     if (st.state == DISTRIB_CSTATE_IDLE || st.state == DISTRIB_CSTATE_DONE) {
         return;
@@ -253,18 +265,21 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
      * ------------------------------------------------------------------- */
     if (st.state == DISTRIB_CSTATE_DIFFING) {
         if (consentPending) {
-            const float promptW = fminf(floorf(420.0f * scale), (float)winW);
-            const float promptH = gridContent ? 0.0f : floorf(140.0f * scale);
+            if (!ImGui::IsPopupOpen(consentPopup)) ImGui::OpenPopup(consentPopup);
+            const float promptW = fminf(floorf(440.0f * scale), (float)winW);
+            const float promptH = gridContent ? 0.0f : floorf(158.0f * scale);
             ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, (float)winH * 0.5f),
                                     ImGuiCond_Always, ImVec2(0.5f, 0.5f));
             ImGui::SetNextWindowSize(ImVec2(promptW, promptH), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.92f);
 
-            ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
-                                     ImGuiWindowFlags_NoMove |
-                                     ImGuiWindowFlags_NoSavedSettings;
-            if (gridContent) flags |= ImGuiWindowFlags_AlwaysAutoResize;
-            if (ImGui::Begin("##distrib_prompt", nullptr, flags)) {
+            const ImGuiWindowFlags promptFlags = consentFlags |
+                (gridContent ? ImGuiWindowFlags_AlwaysAutoResize : ImGuiWindowFlags_None);
+            if (ImGui::BeginPopupModal(consentPopup, nullptr, promptFlags)) {
+                if (ImGui::IsWindowAppearing()) {
+                    pdguiNavSuppressOpeningGesture();
+                    sysLogPrintf(LOG_NOTE, "MENU_STACK: lobby content consent OPEN");
+                }
                 float fs = floorf(14.0f * scale);
                 ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
 
@@ -289,18 +304,20 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                     char total[32];
                     ImGui::Text("Total download %s", fmtBytes(st.current_bytes_total, total, sizeof(total)));
                 } else {
-                    ImGui::Text("  This server requires %d mod component%s not installed locally.",
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "  This server requires %d mod component%s not installed locally.",
                                 st.missing_count, st.missing_count == 1 ? "" : "s");
+                    ImGui::TextWrapped("%s", msg);
                 }
                 ImGui::Spacing();
 
                 float btnW = floorf((gridContent ? 150.0f : 120.0f) * scale);
                 float btnH = floorf(22.0f * scale);
 
+                const bool cancel = pdguiMenuCancelPressed();
+                bool download = false;
                 if (!gridContent) {
-                    if (ImGui::Button("Download", ImVec2(btnW, btnH))) {
-                        netDistribClientResolveConsent(1, 0);
-                    }
+                    download = ImGui::Button("Download", ImVec2(btnW, btnH));
                     ImGui::SameLine(0.0f, floorf(6.0f * scale));
                 }
                 if (gridContent && (focusNewGridPrompt || ImGui::IsWindowAppearing())) {
@@ -308,20 +325,29 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                     ImGui::SetKeyboardFocusHere();
                     ImGui::SetNavCursorVisible(true);
                 }
-                const bool receive = ImGui::Button(gridContent ? "Receive for Match" : "This Session", ImVec2(btnW, btnH));
+                const bool session = ImGui::Button(gridContent ? "Receive for Match" : "This Session", ImVec2(btnW, btnH));
                 if (gridContent) {
                     ImGui::SetItemDefaultFocus();
                     pdguiMenuRecordView(0, -1, ImGui::GetItemID(), 0, 0);
                 }
-                if (receive) netDistribClientResolveConsent(1, 1);
                 ImGui::SameLine(0.0f, floorf(6.0f * scale));
-                if (ImGui::Button(gridContent ? "Decline" : "Skip", ImVec2(btnW * 0.6f, btnH))) {
-                    netDistribClientResolveConsent(0, 1);
+                const bool skip = ImGui::Button(gridContent ? "Decline" : "Skip", ImVec2(btnW * 0.6f, btnH));
+                if (!gridContent) ImGui::SetItemDefaultFocus();
+
+                if (cancel || skip || download || session) {
+                    const bool accept = !cancel && !skip;
+                    const bool temporary = gridContent || !download || !accept;
+                    pdguiNavSuppressActivation();
+                    if (netDistribClientResolveConsent(accept, temporary)) {
+                        sysLogPrintf(LOG_NOTE, "MENU_STACK: lobby content consent %s",
+                            !accept ? "SKIP" : download ? "DOWNLOAD" : "SESSION");
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
 
                 ImGui::SetWindowFontScale(1.0f);
+                ImGui::EndPopup();
             }
-            ImGui::End();
         } else {
             /* No missing components or prompt already handled — show spinner */
             float barH = floorf(30.0f * scale);

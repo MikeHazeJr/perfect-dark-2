@@ -2762,7 +2762,9 @@ static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
         if (s_SmokePad.phase == SMOKE_PAD_IDLE) {
             smoke_readiness_facts_t facts = smokeCaptureReadinessFacts();
             if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
-            if (!smokeReadinessConditionMet(SMOKE_READINESS_AGENT_SELECT_READY, &facts)
+            const s32 forge_ready = smokeReadinessConditionMet(SMOKE_READINESS_FORGE_EDITOR_READY, &facts)
+                && inputCtxGetTop() == &g_CtxForgeEditor && facts.menu_keyboard_ready;
+            if ((!forge_ready && !smokeReadinessConditionMet(SMOKE_READINESS_AGENT_SELECT_READY, &facts))
                     || s_SmokePad.instance >= 0 || inputGetPad(0)
                     || !(SDL_WasInit(SDL_INIT_GAMECONTROLLER) & SDL_INIT_GAMECONTROLLER))
                 return smokePadFail("attach_readiness_or_player0_occupied");

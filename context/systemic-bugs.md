@@ -3711,6 +3711,10 @@ count, sizes and times) and the per-archive check never runs.
   pdscenario kind grew to 525 chars while the stamp readers read 511, so the
   stored kind never matched and every launch re-extracted every scenario. The
   readers now hold 2047 chars and the writer refuses a longer kind loudly.
+- P-001 follow-up (2026-11-18): the separate `.pdextract-clean` reader still
+  accepted only 511 characters of a 593-character scenario kind. Both family
+  stamps hit, but every warm launch repeated the expensive content checks.
+  The marker reader and writer now share the complete serialized record.
 
 **Rule:** a folder fast-cache kind must change whenever anything its skip
 vouches for changes, and it must round-trip through its stamp unchanged. Build the kind from the version macros it depends on

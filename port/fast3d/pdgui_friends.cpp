@@ -1040,7 +1040,8 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	pdguiFriendsStatusIndicatorRender(winW, winH);
 
 	/* Keep the IMC restriction and let an active editor/child own Tab first. */
-	if (!childOwnedFrame && pdguiNavActionAllowed(ACTION_MENU_CANCEL) &&
+	if (!childOwnedFrame && !menupoolIsActive(MENU_TYPE_GRID_EDITOR_CONTROLS) &&
+	    pdguiNavActionAllowed(ACTION_MENU_CANCEL) &&
 	    pdguiMenuActionPressed(ACTION_SOCIAL_TOGGLE)) {
 		s_SidebarOpen = !s_SidebarOpen;
 		pdguiNavSuppressOpeningGesture();

@@ -386,9 +386,14 @@ TEST_CASE("production dispatch glyph and menu scroll use shared authoritative se
 {
     const std::string actionmap = source("port/src/actionmap.cpp");
     const std::string glyphs = source("port/fast3d/pdgui_glyphs.cpp");
-    REQUIRE(actionmap.find("const ActionBindingMatch winner = actionBindingResolveVkPair(")
+    REQUIRE(actionmap.find("ActionBindingMatch winner = actionBindingResolveVkPair(")
         != std::string::npos);
-    REQUIRE(actionmap.find("return actionBindingFindVk(contexts, s_NumActive, player, action, device, allowed)")
+    REQUIRE(actionmap.find("return actionBindingFindVkMatching(contexts, s_NumActive, player, action,")
+        != std::string::npos);
+    REQUIRE(actionmap.find("winner = {owner, binding.action, binding.vk}") != std::string::npos);
+    REQUIRE(actionmap.find("device, allowed, actionmapMatchNonRecoveryVk, &search)") != std::string::npos);
+    REQUIRE(actionmap.find("actionmapFrontendBorrows(instance)") != std::string::npos);
+    REQUIRE(actionmap.find("? actionmapFrontendPad() : SDL_GameControllerFromPlayerIndex(player)")
         != std::string::npos);
     REQUIRE(glyphs.find("kAllImcs") == std::string::npos);
     REQUIRE(glyphs.find("actionmapGetActiveBindingVkMatching(0, action, ACTIONMAP_DEVICE_GAMEPAD") != std::string::npos);

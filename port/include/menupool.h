@@ -147,6 +147,8 @@ typedef enum {
     MENU_TYPE_SOCIAL_SHELL,       /* friends sidebar / Social menu / chat / NAT diagnostics */
     MENU_TYPE_GRID_PLACEMENT,     /* native Level File position and yaw editor */
     MENU_TYPE_GRID_LEVEL_TOOLS,   /* native Level File trigger and bot navigation tools */
+    MENU_TYPE_GRID_EDITOR_CONTROLS,
+    MENU_TYPE_GRID_VARIANT_REVIEW,
 
     MENU_TYPE_COUNT
 } menu_type_t;

@@ -39,6 +39,7 @@
 #include "weapon_graph_v2_runtime.h"
 #include "asset_runtime.h"
 #include "catalog_reset_plan.h"
+#include "catalog_entry_snapshot.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
@@ -709,6 +710,26 @@ const asset_entry_t *assetCatalogGetByIndex(s32 index)
 s32 assetCatalogGetPoolSize(void)
 {
     return s_EntryPoolSize;
+}
+
+s32 assetCatalogCaptureEntrySnapshots(catalog_entry_snapshot_t **out, s32 *count)
+{
+    if (!out || !count) return 0;
+    CATALOG_LOCK();
+    const s32 size = s_EntryPoolSize;
+    catalog_entry_snapshot_t *rows = size > 0 ? malloc((size_t)size * sizeof(*rows)) : NULL;
+    if (size > 0 && !rows) {
+        CATALOG_UNLOCK();
+        return 0;
+    }
+    for (s32 i = 0; i < size; ++i) {
+        if (s_EntryPool[i].occupied) catalogEntrySnapshotCapture(&rows[i], &s_EntryPool[i]);
+        else memset(&rows[i], 0, sizeof(rows[i]));
+    }
+    CATALOG_UNLOCK();
+    *out = rows;
+    *count = size;
+    return 1;
 }
 
 /* ========================================================================

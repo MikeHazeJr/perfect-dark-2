@@ -330,7 +330,9 @@ typedef enum InputAction {
     ACTION_TURRET_FIRE,              /* = 124 left mouse button / right trigger */
     ACTION_TURRET_ZOOM,              /* = 125 right mouse button / left trigger */
 
-    ACTION_COUNT                /* = 126, sentinel - keep last */
+    ACTION_FORGE_EDITOR_CONTROLS,    /* = 126 Give focus to Grid editor controls */
+
+    ACTION_COUNT                /* = 127, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
