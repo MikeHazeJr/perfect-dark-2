@@ -1,0 +1,62 @@
+{
+  "scenario_name": "renderer_parity_mp_smoke",
+  "description": "2.0 renderer phase 2a (D5): renderer parity (see renderer_parity_menu_smoke) in a Combat Simulator match on Felicity with two simulants, one placed in view, first person with the match HUD. Three captures after offline gameplay is ready, on the virtual timeline.",
+  "tags": ["render", "bgfx", "parity", "visual", "multiplayer", "smoke"],
+  "paths_of_interest": [
+    "port/fast3d/gfx_bgfx.cpp",
+    "port/fast3d/gfx_tee.cpp",
+    "port/fast3d/gfx_parity.cpp",
+    "port/fast3d/scenario_scene_renderer_bgfx.cpp",
+    "port/fast3d/shaders/fs_fast3d.sc"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "current",
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--debug-force-first-person",
+                "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "2", "--debug-auto-start-match",
+                "--debug-place-bot-near-player", "--renderer-parity"],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 330000, "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900 },
+    { "at_ms": 3000, "type": "screenshot", "path": "parity-mp-a.bmp" },
+    { "at_ms": 6000, "type": "screenshot", "path": "parity-mp-b.bmp" },
+    { "at_ms": 9000, "type": "screenshot", "path": "parity-mp-c.bmp" },
+    { "at_ms": 11000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "parity-mp-a.bmp" },
+    { "src": "parity-mp-a.bmp.bgfx.bmp" },
+    { "src": "parity-mp-a.bmp.diff.bmp" },
+    { "src": "parity-mp-a.bmp.parity.json" },
+    { "src": "parity-mp-b.bmp" },
+    { "src": "parity-mp-b.bmp.bgfx.bmp" },
+    { "src": "parity-mp-b.bmp.diff.bmp" },
+    { "src": "parity-mp-b.bmp.parity.json" },
+    { "src": "parity-mp-c.bmp" },
+    { "src": "parity-mp-c.bmp.bgfx.bmp" },
+    { "src": "parity-mp-c.bmp.diff.bmp" },
+    { "src": "parity-mp-c.bmp.parity.json" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=renderer_parity_mp_smoke",
+      "bgfx: renderer parity mode",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*parity-mp-a\\.bmp",
+      "PARITY: .*parity-mp-a\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-mp-b\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-mp-c\\.bmp size=\\d+x\\d+ differing=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "bgfx: fatal",
+      "SMOKE: result=timeout",
+      "PARITY: .* size mismatch",
+      "PARITY: could not write"
+    ],
+    "required_counts": []
+  }
+}

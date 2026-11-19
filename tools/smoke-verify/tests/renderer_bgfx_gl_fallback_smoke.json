@@ -1,0 +1,48 @@
+{
+  "scenario_name": "renderer_bgfx_gl_fallback_smoke",
+  "description": "2.0 renderer phase 2a (D5): bgfx's OpenGL backend needs OpenGL 4.3. When --renderer bgfx meets an older context, the game logs why and runs the classic GL renderer. --debug-bgfx-assume-gl 3.3 makes the check treat this machine's context as OpenGL 3.3; the game must then boot to Agent Select on the classic renderer (ImGui through imgui_impl_opengl3, no bgfx initialised) and capture the window. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get.",
+  "tags": ["render", "bgfx", "fallback", "menu", "smoke"],
+  "paths_of_interest": [
+    "port/fast3d/gfx_bgfx.cpp",
+    "port/fast3d/gfx_pc.cpp",
+    "port/fast3d/pdgui_render_backend.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "current",
+  "remove_paths": ["fallback-home"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "fallback-home/agent_smoke.json" }
+  ],
+  "boot_args": ["--no-update-check", "--no-sound", "--no-net", "--portable", "--savedir", "./fallback-home",
+                "--main-menu", "--renderer", "bgfx", "--debug-bgfx-assume-gl", "3.3"],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "core_boot_ready", "timeout_ms": 300000 },
+    { "at_ms": 45000, "type": "screenshot", "path": "fallback-agent-select.bmp",
+      "comment": "Agent Select is up about 20 s after boot completes (the menu background stage loads first)." },
+    { "at_ms": 48000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "fallback-agent-select.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=renderer_bgfx_gl_fallback_smoke",
+      "bgfx: --debug-bgfx-assume-gl: treating OpenGL \\d+\\.\\d+ as OpenGL 3\\.3",
+      "bgfx: the bgfx renderer needs OpenGL 4\\.3, but this context is OpenGL 3\\.3 .*; using the classic OpenGL renderer",
+      "MENUPOOL: acquired agent_select",
+      "SMOKE\\.GLSHOT: captured .*fallback-agent-select\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "bgfx: fatal",
+      "SMOKE: result=timeout",
+      "bgfx: using the bgfx renderer",
+      "bgfx: renderer OpenGL"
+    ],
+    "required_counts": []
+  }
+}

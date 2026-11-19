@@ -46,6 +46,7 @@
 
 #include "glad/glad.h"
 #include "imgui/imgui.h"
+#include "gfx_bgfx.h"
 #include "pdgui_theme.h"
 #include "pdgui_style.h"
 #include "pdgui_nineslice.h"
@@ -296,6 +297,11 @@ static GLuint s_uploadGLTex(const uint8_t *rgba32, uint32_t w, uint32_t h)
             "PDGUI theme: texture %ux%u exceeds GL_MAX_TEXTURE_SIZE=%d",
             w, h, (int)s_MaxTextureSize);
         return 0;
+    }
+
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: the same RGBA8 image, GL_LINEAR, GL_REPEAT. */
+        return (GLuint)gfxBgfxPdguiTexCreate((int)w, (int)h, rgba32, 1, 0);
     }
 
     glGenTextures(1, &tex);
@@ -1369,7 +1375,11 @@ static void s_chromeStylesFreeModTextures(void)
         if (it != s_ThemeTexCache.end()) {
             if (it->second) {
                 GLuint tex = it->second;
-                glDeleteTextures(1, &tex);
+                if (gfxBgfxActive()) {
+                    gfxBgfxPdguiTexDestroy(tex);
+                } else {
+                    glDeleteTextures(1, &tex);
+                }
             }
             s_ThemeTexCache.erase(it);
         }
@@ -2224,7 +2234,11 @@ void pdguiThemeShutdown(void)
     for (auto &kv : s_ThemeTexCache) {
         if (kv.second) {
             GLuint id = kv.second;
-            glDeleteTextures(1, &id);
+            if (gfxBgfxActive()) {
+                gfxBgfxPdguiTexDestroy(id);
+            } else {
+                glDeleteTextures(1, &id);
+            }
         }
     }
     s_ThemeTexCache.clear();

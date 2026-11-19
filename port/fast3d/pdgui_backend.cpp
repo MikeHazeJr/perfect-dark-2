@@ -23,6 +23,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
+#include "pdgui_render_backend.h"
 
 /* PD-authentic style — colors, metrics, shimmer effects */
 #include "pdgui_style.h"
@@ -463,7 +464,7 @@ void pdguiInit(void *sdlWindow)
     SDL_GLContext glCtx = SDL_GL_GetCurrentContext();
     ImGui_ImplSDL2_InitForOpenGL(g_PdguiWindow, glCtx);
     ImGui_ImplSDL2_SetGamepadMode(ImGui_ImplSDL2_GamepadMode_Manual, nullptr, 0);
-    ImGui_ImplOpenGL3_Init("#version 130");
+    pdguiRenderBackendInit();
 
     g_PdguiInitialized = true;
 
@@ -697,8 +698,7 @@ void pdguiNewFrame(void)
         ImGuiIO &io = ImGui::GetIO();
         io.Fonts->Clear();
         pdguiLoadFontsIntoAtlas(io);
-        ImGui_ImplOpenGL3_DestroyFontsTexture();
-        ImGui_ImplOpenGL3_CreateFontsTexture();
+        pdguiRenderBackendRebuildFontsTexture();
         sysLogPrintf(LOG_NOTE, "pdgui: font atlas rebuilt");
     }
 
@@ -777,7 +777,7 @@ void pdguiNewFrame(void)
         return;
     }
 
-    ImGui_ImplOpenGL3_NewFrame();
+    pdguiRenderBackendNewFrame();
     ImGui_ImplSDL2_NewFrame();
     pdguiNavCaptureOwners();
     /* SDL clears HasGamepad during its disabled gamepad poll; publish our
@@ -1329,7 +1329,7 @@ void pdguiRender(void)
     pdguiPopupDarkenFlush();
     pdguiTextKeyboardRender();
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    pdguiRenderBackendRenderDrawData(ImGui::GetDrawData());
 }
 
 /**
@@ -1400,7 +1400,7 @@ void pdguiServerFrame(void)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     /* ImGui frame */
-    ImGui_ImplOpenGL3_NewFrame();
+    pdguiRenderBackendNewFrame();
     ImGui_ImplSDL2_NewFrame();
     pdguiPopupDarkenBeginFrame();
     ImGui::NewFrame();
@@ -1429,7 +1429,7 @@ void pdguiServerFrame(void)
     /* Finalize and draw */
     pdguiPopupDarkenFlush();
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    pdguiRenderBackendRenderDrawData(ImGui::GetDrawData());
 
     SDL_GL_SwapWindow(g_PdguiWindow);
 }
@@ -1448,7 +1448,7 @@ void pdguiShutdown(void)
     pdguiThemeShutdown();
     pdguiHotswapShutdown();
 
-    ImGui_ImplOpenGL3_Shutdown();
+    pdguiRenderBackendShutdown();
     ImGui_ImplSDL2_Shutdown();
     pdguiTextKeyboardReset();
     s_TextKeyboardReleaseGate.reset();

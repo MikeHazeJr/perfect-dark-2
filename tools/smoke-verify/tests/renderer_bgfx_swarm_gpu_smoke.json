@@ -1,0 +1,117 @@
+{
+  "scenario_name": "renderer_bgfx_swarm_gpu_smoke",
+  "description": "2.0 renderer phase 2a (D5): with --renderer bgfx, the GPU swarm benchmark (port/fast3d/swarm_gpu.cpp) runs its compute shader on the same SDL GL context bgfx draws with. swarm_gpu draws nothing: it dispatches between frames and reads results back, and bgfx sets all the GL state it uses at the start of each frame. Same launch and endscreen workaround as swarm_gpu_smoke; taps the count cycle three times (the first tap can land while the scenario restarts, so 16 is the level required) and captures the window.",
+  "tags": [
+    "render",
+    "bgfx",
+    "swarm",
+    "gpu",
+    "compute",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/swarm_gpu.cpp",
+    "port/fast3d/gfx_bgfx.cpp",
+    "port/src/testscenarios.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--renderer",
+    "bgfx",
+    "--launch-scenario",
+    "swarm_gpu"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "As swarm_gpu_smoke: the first launch ends at the endscreen; dismiss it so the scenario restarts with the player placed."
+    },
+    {
+      "at_ms": 12000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 18000,
+      "type": "action",
+      "name": "ACTION_CANCEL_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 22000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 40000,
+      "type": "action",
+      "name": "ACTION_TESTSCEN_CYCLE_COUNT",
+      "action": "tap",
+      "comment": "first count tap (can land during the restart)"
+    },
+    {
+      "at_ms": 48000,
+      "type": "action",
+      "name": "ACTION_TESTSCEN_CYCLE_COUNT",
+      "action": "tap",
+      "comment": "8 -> 16"
+    },
+    {
+      "at_ms": 56000,
+      "type": "action",
+      "name": "ACTION_TESTSCEN_CYCLE_COUNT",
+      "action": "tap",
+      "comment": "16 -> 32"
+    },
+    {
+      "at_ms": 66000,
+      "type": "screenshot",
+      "path": "bgfx-swarm-gpu-32.bmp"
+    },
+    {
+      "at_ms": 72000,
+      "type": "exit"
+    }
+  ],
+  "retain_artifacts": [
+    {
+      "src": "bgfx-swarm-gpu-32.bmp"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=renderer_bgfx_swarm_gpu_smoke",
+      "bgfx: using the bgfx renderer \\(OpenGL backend\\)",
+      "TESTSCEN\\.LAUNCH: Swarm-GPU",
+      "BENCHMARK\\.SWARM\\.GPU: compute shaders available",
+      "TESTSCEN\\.SWARM: cycle NEXT .* target=16",
+      "BENCHMARK\\.SWARM\\.GPU\\.VEL: count=",
+      "SMOKE\\.GLSHOT: captured",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "bgfx: fatal",
+      "SMOKE: result=timeout",
+      "using the classic OpenGL renderer",
+      "BENCHMARK\\.SWARM\\.GPU: .*(unavailable|failed|returned 0|missing)"
+    ],
+    "required_counts": [
+      {
+        "pattern": "TESTSCEN\\.SWARM: cycle NEXT",
+        "min": 2
+      }
+    ]
+  }
+}

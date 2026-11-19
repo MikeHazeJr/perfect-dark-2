@@ -5,6 +5,7 @@
 #include "../external/stb_image.h"
 #include "glad/glad.h"
 #include "modasset_gltf_document.h"
+#include "scenario_scene_renderer_bgfx.h"
 #include "modasset_gltf_scene.h"
 #include "modasset_gltf_source.h"
 #include "sha256.h"
@@ -86,6 +87,7 @@ struct Image {
 	int height = 0;
 	unsigned char *rgba = nullptr;
 	GLuint gl = 0;
+	uint32_t bgfx_tex = 0; /* --renderer bgfx (scenario_scene_renderer_bgfx.cpp) */
 	bool has_nonopaque_alpha = false;
 };
 
@@ -141,6 +143,10 @@ struct Scene {
 	GLuint vbo = 0;
 	GLuint shader = 0;
 	GLuint white_tex = 0;
+	/* --renderer bgfx resources (scenario_scene_renderer_bgfx.cpp). */
+	uint32_t bgfx_vb = 0;
+	uint32_t bgfx_white = 0;
+	bool bgfx_ready = false;
 	bool gpu_ready = false;
 	/* B-1172: the sky flags changed after the vertex upload. */
 	bool sky_dirty = false;
@@ -1444,9 +1450,65 @@ static bool ensureShader(Scene &scene)
 	return true;
 }
 
+/* --renderer bgfx: vertices first..first+count in the bgfx layout
+ * (scenario_scene_renderer_bgfx.h). bgfx has no 32-bit integer attributes, so
+ * the room goes as the float that the GL path's glVertexAttribPointer(GL_INT,
+ * GL_FALSE) conversion hands its shader. */
+static std::vector<float> bgfxVertexData(const Scene &scene, size_t first, size_t count)
+{
+	std::vector<float> data(count * SCENE_BGFX_VERTEX_FLOATS);
+	for (size_t i = 0; i < count; i++) {
+		const Vertex &v = scene.vertices[first + i];
+		float *out = &data[i * SCENE_BGFX_VERTEX_FLOATS];
+		out[0] = v.x;
+		out[1] = v.y;
+		out[2] = v.z;
+		out[3] = v.u0;
+		out[4] = v.v0;
+		out[5] = v.u1;
+		out[6] = v.v1;
+		out[7] = v.r;
+		out[8] = v.g;
+		out[9] = v.b;
+		out[10] = v.a;
+		out[11] = v.sky;
+		out[12] = (float)v.room;
+	}
+	return data;
+}
+
+/* --renderer bgfx: the same vertices and textures as bgfx resources. */
+static void ensureGpuBgfx(Scene &scene)
+{
+	if (!scene.bgfx_white) {
+		const uint8_t white[4] = { 255, 255, 255, 255 };
+		scene.bgfx_white = sceneBgfxCreateTexture(1, 1, white);
+	}
+	for (auto &img : scene.images) {
+		if (!img.rgba || img.width <= 0 || img.height <= 0 || img.bgfx_tex) {
+			continue;
+		}
+		img.bgfx_tex = sceneBgfxCreateTexture(img.width, img.height, img.rgba);
+	}
+	if (!scene.bgfx_vb) {
+		const std::vector<float> data = bgfxVertexData(scene, 0, scene.vertices.size());
+		scene.bgfx_vb = sceneBgfxCreateVertexBuffer(data.data(), (uint32_t)scene.vertices.size());
+	}
+	scene.bgfx_ready = scene.bgfx_vb != 0 && scene.bgfx_white != 0;
+}
+
 static void ensureGpu(Scene &scene)
 {
-	if (scene.gpu_ready || scene.vertices.empty()) {
+	if (scene.vertices.empty()) {
+		return;
+	}
+
+	/* bgfx resources whenever bgfx renders (--renderer bgfx or parity mode);
+	 * the GL path's own resources unless bgfx presents. */
+	if (gfxBgfxRunning() && !scene.bgfx_ready) {
+		ensureGpuBgfx(scene);
+	}
+	if (gfxBgfxActive() || scene.gpu_ready) {
 		return;
 	}
 
@@ -1529,7 +1591,10 @@ static void freeScene(Scene &scene)
 	if (scene.room_light_tex) {
 		glDeleteTextures(1, &scene.room_light_tex);
 	}
+	sceneBgfxDestroyVertexBuffer(scene.bgfx_vb);
+	sceneBgfxDestroyTexture(scene.bgfx_white);
 	for (auto &img : scene.images) {
+		sceneBgfxDestroyTexture(img.bgfx_tex);
 		if (img.gl) {
 			glDeleteTextures(1, &img.gl);
 		}
@@ -1542,6 +1607,12 @@ static void freeScene(Scene &scene)
 
 static bool uploadGridScene(Scene &scene)
 {
+	if (gfxBgfxActive()) {
+		/* --renderer bgfx: bgfx resources only, no GL calls (ensureGpu). */
+		ensureGpu(scene);
+		return scene.bgfx_ready && std::all_of(scene.images.begin(), scene.images.end(),
+			[](const Image &image) { return image.bgfx_tex != 0; });
+	}
 	if (!glGetString || !glGetString(GL_VERSION) || glGetError() != GL_NO_ERROR) return false;
 	GLint vao = 0, buffer = 0, texture = 0;
 	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
@@ -1682,7 +1753,8 @@ extern "C" int scenarioSceneRendererProbeGlbBytes(const char *scenario_id, const
 extern "C" int scenarioSceneRendererPrepareGridGeometry(const char *scenario_id, const char *scene_path,
 	const void *bytes, u32 size, scenario_scene_prepared_t **out)
 {
-	if (!out || *out || !scene_path || !scene_path[0] || !g_scene.active || !g_scene.gpu_ready) return 0;
+	if (!out || *out || !scene_path || !scene_path[0] || !g_scene.active
+			|| !(g_scene.gpu_ready || g_scene.bgfx_ready)) return 0;
 	try {
 		auto prepared = std::make_unique<scenario_scene_prepared_t>();
 		Scene &next = prepared->scene;
@@ -1975,6 +2047,105 @@ extern "C" void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fo
 	}
 }
 
+/* B-1172: the room lighting of the view that queued the draw (its camera
+ * slot), else of the last camera. */
+static const std::vector<float> &viewRoomLights(int light_slot)
+{
+	return (light_slot >= 0 && light_slot < g_scene.camera_slot_count && light_slot < 8
+			&& !g_scene.slot_room_lights[light_slot].empty())
+		? g_scene.slot_room_lights[light_slot] : g_scene.room_lights;
+}
+
+/* --renderer bgfx: the GL path below, draw for draw, through bgfx. The
+ * viewport, camera, sky offset, fog, room lighting, material choice and
+ * passes are the same; scenario_scene_renderer_bgfx.cpp applies the same
+ * state. */
+static void renderSceneBgfx(int view_x, int view_y, int width, int height,
+	const float *camera, const float *sky_shift, int light_slot, int passes)
+{
+	const std::vector<float> &texels = viewRoomLights(light_slot);
+	scene_bgfx_pass_t pass = {};
+	pass.x = view_x;
+	pass.y = view_y;
+	pass.width = width;
+	pass.height = height;
+	pass.view_projection = camera;
+	memcpy(pass.sky_offset, sky_shift, sizeof(pass.sky_offset));
+	pass.fog_enabled = g_scene.fog_enabled;
+	pass.fog_mul = g_scene.fog_mul;
+	pass.fog_offset = g_scene.fog_offset;
+	memcpy(pass.fog_color, g_scene.fog_color, sizeof(pass.fog_color));
+	pass.room_texels = texels.empty() ? nullptr : texels.data();
+	pass.rooms = (int)(texels.size() / 8);
+	if (!sceneBgfxBeginPass(&pass)) {
+		return;
+	}
+	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
+		if (!(passes & (scene_pass == 0 ? SCENARIO_SCENE_PASS_OPAQUE : SCENARIO_SCENE_PASS_BLEND))) {
+			continue;
+		}
+		for (const auto &group : g_scene.groups) {
+			bool group_blend = group.material >= 0
+				&& (size_t)group.material < g_scene.materials.size()
+				&& g_scene.materials[(size_t)group.material].alpha_mode
+					== ALPHA_MODE_BLEND;
+			if ((scene_pass == 0) == group_blend) {
+				continue;
+			}
+			uint32_t tex = g_scene.bgfx_white;
+			uint32_t tex2 = g_scene.bgfx_white;
+			int wrap_s = GL_REPEAT;
+			int wrap_t = GL_REPEAT;
+			int wrap2_s = GL_REPEAT;
+			int wrap2_t = GL_REPEAT;
+			int has_tex2 = 0;
+			int primary_texcoord = 0;
+			int secondary_texcoord = 1;
+			float alpha_cutoff = 0.01f;
+			if (group.material >= 0
+					&& (size_t)group.material < g_scene.materials.size()) {
+				const Material &mat = g_scene.materials[(size_t)group.material];
+				primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
+				secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
+				wrap_s = mat.wrap_s;
+				wrap_t = mat.wrap_t;
+				wrap2_s = mat.secondary_wrap_s;
+				wrap2_t = mat.secondary_wrap_t;
+				if (mat.alpha_mode == ALPHA_MODE_MASK) {
+					alpha_cutoff = mat.alpha_cutoff;
+				}
+				if (mat.image >= 0 && (size_t)mat.image < g_scene.images.size()
+						&& g_scene.images[(size_t)mat.image].bgfx_tex) {
+					tex = g_scene.images[(size_t)mat.image].bgfx_tex;
+				}
+				if (mat.has_secondary && mat.secondary_image >= 0
+						&& (size_t)mat.secondary_image < g_scene.images.size()
+						&& g_scene.images[(size_t)mat.secondary_image].bgfx_tex) {
+					tex2 = g_scene.images[(size_t)mat.secondary_image].bgfx_tex;
+					has_tex2 = 1;
+				}
+			}
+			sceneBgfxDraw(g_scene.bgfx_vb, group.first, group.count,
+				tex, wrap_s, wrap_t, tex2, wrap2_s, wrap2_t,
+				has_tex2, primary_texcoord, secondary_texcoord,
+				alpha_cutoff, scene_pass == 1 ? 1 : 0);
+		}
+	}
+	sceneBgfxEndPass();
+
+	if (sysArgCheck("--debug-clear-depth-after-scene")) {
+		sceneBgfxClearDepth();
+	}
+
+	if (!g_scene.logged_render) {
+		g_scene.logged_render = true;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: rendered native source scene '%s' vertices=%zu groups=%zu textures=%zu (bgfx)",
+			g_scene.scenario_id.c_str(), g_scene.vertices.size(),
+			g_scene.groups.size(), g_scene.images.size());
+	}
+}
+
 extern "C" void scenarioSceneRendererRender(int width, int height)
 {
 	scenarioSceneRendererRenderPasses(0, 0, width, height, NULL, NULL, -1,
@@ -2011,7 +2182,9 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	}
 
 	ensureGpu(g_scene);
-	if (!g_scene.gpu_ready || !g_scene.shader) {
+	const bool gl_ready = !gfxBgfxActive() && g_scene.gpu_ready && g_scene.shader;
+	const bool bgfx_ready = gfxBgfxRunning() && g_scene.bgfx_ready;
+	if (!gl_ready && !bgfx_ready) {
 		if (!g_scene.logged_gpu_unavailable) {
 			g_scene.logged_gpu_unavailable = true;
 			sysLogPrintf(LOG_WARNING,
@@ -2023,6 +2196,43 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	}
 
 	logTransformProbe(g_scene);
+
+	/* This frame's vertex changes, uploaded below to each backend that
+	 * draws: B-1172 sky flags set after the upload (every vertex), and the
+	 * animated surfaces' UVs (the range of vertices that moved). */
+	const bool upload_all = g_scene.sky_dirty;
+	bool moved = false;
+	uint32_t moved_first = 0;
+	uint32_t moved_last = 0;
+	g_scene.sky_dirty = false;
+	if (g_scene.dyntex_frame_dirty) {
+		moved = applyDyntexFrame(g_scene, &moved_first, &moved_last);
+		if (moved && !g_scene.logged_dyntex_update) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.RENDER: animated surfaces moved '%s' vertices %u..%u interval80=%.4f teleports_on=%d engines_destroyed=%d",
+				g_scene.scenario_id.c_str(), moved_first, moved_last,
+				g_scene.dyntex_frame.interval80,
+				g_scene.dyntex_frame.teleports_on,
+				g_scene.dyntex_frame.engines_destroyed);
+			g_scene.logged_dyntex_update = true;
+		}
+		g_scene.dyntex_frame_dirty = false;
+	}
+
+	if (bgfx_ready) {
+		if (upload_all) {
+			const std::vector<float> data = bgfxVertexData(g_scene, 0, g_scene.vertices.size());
+			sceneBgfxUpdateVertices(g_scene.bgfx_vb, 0, data.data(), (uint32_t)g_scene.vertices.size());
+		} else if (moved) {
+			const uint32_t moved_count = moved_last - moved_first + 1;
+			const std::vector<float> data = bgfxVertexData(g_scene, moved_first, moved_count);
+			sceneBgfxUpdateVertices(g_scene.bgfx_vb, moved_first, data.data(), moved_count);
+		}
+		renderSceneBgfx(view_x, view_y, width, height, camera, sky_shift, light_slot, passes);
+	}
+	if (!gl_ready) {
+		return;
+	}
 
 	GLint prev_program = 0;
 	GLint prev_texture = 0;
@@ -2094,10 +2304,7 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		g_scene.fog_color[0], g_scene.fog_color[1], g_scene.fog_color[2]);
 	{
 		/* B-1172: this view's room lighting, on texture unit 2. */
-		const std::vector<float> &texels =
-			(light_slot >= 0 && light_slot < g_scene.camera_slot_count && light_slot < 8
-				&& !g_scene.slot_room_lights[light_slot].empty())
-			? g_scene.slot_room_lights[light_slot] : g_scene.room_lights;
+		const std::vector<float> &texels = viewRoomLights(light_slot);
 		const int rooms = (int)(texels.size() / 8);
 		glActiveTexture(GL_TEXTURE2);
 		if (rooms > 0) {
@@ -2124,38 +2331,23 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	glUniform1i(tex2_loc, 1);
 
 	glBindVertexArray(g_scene.vao);
-	if (g_scene.sky_dirty) {
+	if (upload_all) {
 		/* B-1172: the sky flags were set after the upload. The entry
 		 * GL_ARRAY_BUFFER binding is restored below. */
 		glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
 		glBufferSubData(GL_ARRAY_BUFFER, 0,
 			(GLsizeiptr)(g_scene.vertices.size() * sizeof(Vertex)),
 			g_scene.vertices.data());
-		g_scene.sky_dirty = false;
 	}
-	if (g_scene.dyntex_frame_dirty) {
+	if (moved) {
 		/* Animated surfaces: this frame's UVs, uploaded for the range of
 		 * vertices that moved. The entry GL_ARRAY_BUFFER binding is
 		 * restored below. */
-		uint32_t moved_first = 0;
-		uint32_t moved_last = 0;
-		if (applyDyntexFrame(g_scene, &moved_first, &moved_last)) {
-			glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
-			glBufferSubData(GL_ARRAY_BUFFER,
-				(GLintptr)((size_t)moved_first * sizeof(Vertex)),
-				(GLsizeiptr)((size_t)(moved_last - moved_first + 1) * sizeof(Vertex)),
-				g_scene.vertices.data() + moved_first);
-			if (!g_scene.logged_dyntex_update) {
-				sysLogPrintf(LOG_NOTE,
-					"SCENARIO.RENDER: animated surfaces moved '%s' vertices %u..%u interval80=%.4f teleports_on=%d engines_destroyed=%d",
-					g_scene.scenario_id.c_str(), moved_first, moved_last,
-					g_scene.dyntex_frame.interval80,
-					g_scene.dyntex_frame.teleports_on,
-					g_scene.dyntex_frame.engines_destroyed);
-				g_scene.logged_dyntex_update = true;
-			}
-		}
-		g_scene.dyntex_frame_dirty = false;
+		glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
+		glBufferSubData(GL_ARRAY_BUFFER,
+			(GLintptr)((size_t)moved_first * sizeof(Vertex)),
+			(GLsizeiptr)((size_t)(moved_last - moved_first + 1) * sizeof(Vertex)),
+			g_scene.vertices.data() + moved_first);
 	}
 	/* c3844 glass fix: render scene groups via a lambda so we can do two passes --
 	 * opaque first, then translucent (uses_alpha) materials with GL_BLEND on -- so

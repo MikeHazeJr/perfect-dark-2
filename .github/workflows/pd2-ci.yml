@@ -48,6 +48,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # The 2.0 renderer's bgfx, bx and bimg sources: pinned shallow submodules
+      # (context/designs/rendering/bgfx-classic-gl.md). Fetched with the same
+      # Windows git that checked out the repo; tools/recomp is not needed here.
+      - name: Fetch the pinned bgfx sources
+        shell: pwsh
+        run: git submodule update --init --depth 1 -- third_party/bgfx/bx third_party/bgfx/bimg third_party/bgfx/bgfx
+
       - name: Check MinGW dependency resolution
         run: |
           python tools/tests/test_mingw_dependencies.py
@@ -94,6 +101,12 @@ jobs:
       # port/game sources under test.
       - name: Build client + tests
         run: cmake --build Build --target pd pd-tests -j
+
+      # The wrap list above covers bgfx's objects at link time; this reviews
+      # the library loads it cannot, and the linked client's imports and DLL
+      # names (D6: never AMD AGS, NVAPI or RenderDoc).
+      - name: Review the bgfx dependency
+        run: python -B tools/bgfx_dependency_audit.py --compile-commands Build/compile_commands.json --exe Build/PerfectDark.exe
 
       # SP-75 (context/systemic-bugs.md): `bool` is `#define bool s32` in C but
       # one byte after <stdbool.h> and in C++. Preprocess every file of both

@@ -17,6 +17,7 @@
  */
 
 #include "glad/glad.h"
+#include "gfx_bgfx.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -190,7 +191,11 @@ static void skinEditorDismissTransientUi(void)
         s_DownrezPreviewH = 0;
     }
     if (s_DownrezPreviewTex) {
-        glDeleteTextures(1, &s_DownrezPreviewTex);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(s_DownrezPreviewTex);
+        } else {
+            glDeleteTextures(1, &s_DownrezPreviewTex);
+        }
         s_DownrezPreviewTex = 0;
     }
 }
@@ -1351,6 +1356,14 @@ static void downrezGeneratePreview(void)
                  s_DownrezMaxColors, s_DownrezDitherMode);
 
     /* Upload to GL texture for preview */
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: re-specified each time, GL_NEAREST, GL_REPEAT. */
+        if (s_DownrezPreviewTex) {
+            gfxBgfxPdguiTexDestroy(s_DownrezPreviewTex);
+        }
+        s_DownrezPreviewTex = gfxBgfxPdguiTexCreate(cw, ch, (const uint8_t *)s_DownrezPreview, 0, 0);
+        return;
+    }
     if (s_DownrezPreviewTex == 0) {
         glGenTextures(1, &s_DownrezPreviewTex);
     }
@@ -1443,7 +1456,11 @@ static void renderDownrezDialog(float scale)
     if (!s_DownrezDialogOpen) {
         if (s_DownrezPreview) { free(s_DownrezPreview); s_DownrezPreview = NULL; s_DownrezPreviewW = 0; s_DownrezPreviewH = 0; }
         if (s_DownrezPreviewTex) {
-            glDeleteTextures(1, &s_DownrezPreviewTex);
+            if (gfxBgfxActive()) {
+                gfxBgfxPdguiTexDestroy(s_DownrezPreviewTex);
+            } else {
+                glDeleteTextures(1, &s_DownrezPreviewTex);
+            }
             s_DownrezPreviewTex = 0;
         }
     }
