@@ -2033,6 +2033,133 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
         )
 
 
+# Projectile and entity graphs (projectile-events.md slice 2). v1 is the
+# launch and deploy data alone; v2 adds a program of event.*, gate.* and og.*
+# nodes joined by execution edges. Keep in step with
+# port/src/mission_graph_runner.cpp (kProjectileEventKinds, compileProgram's
+# projectile domain) and port/src/weapon_graph_runtime.c
+# (weaponGraphSchemaHasProgram, projectileProgramModuleKnown).
+PROJECTILE_GRAPH_SCHEMAS = {
+    ".pdprojectile": ("pd.projectile_graph.v1", "pd.projectile_graph.v2"),
+    ".pdentity": ("pd.entity_graph.v1", "pd.entity_graph.v2"),
+}
+PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced",
+                           "event.projectile.hit_target", "event.projectile.landed",
+                           "event.projectile.ended", "event.projectile.detonated",
+                           "event.projectile.timer_expired")
+PROJECTILE_GRAPH_MODULES = ("og.projectile.fuse_expired",)
+PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase")
+PROJECTILE_GRAPH_MAX_NODES = 4096
+PROJECTILE_GRAPH_MAX_EDGES = 16384
+
+
+def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
+    """The program of a v2 projectile or entity graph, as the runner compiles
+    it: its event.*, gate.* and og.* nodes (every other node is launch or
+    deploy data), unique ids, only projectile events, only the modules a
+    projectile program has, and execution edges ("input": "exec") from an
+    event, gate or module to a gate or module with the right output port. A
+    program the runner would refuse keeps its archive from registering, so
+    its weapon could not fire."""
+    errors: list[str] = []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return [f"{where} has no nodes array"]
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(nodes):
+        if not (isinstance(node, dict) and _is_graph_program_kind(node.get("kind"))):
+            continue  # launch or deploy data, not the program
+        node_id, kind = node.get("id"), node["kind"]
+        if not isinstance(node_id, str) or not node_id:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+        if kind.startswith("event."):
+            if kind not in PROJECTILE_GRAPH_EVENTS:
+                errors.append(f"{where} event {node_id!r} ({kind}) is not a projectile event")
+            elif "objective" in node:
+                errors.append(f"{where} projectile event {node_id!r} has no objective to filter")
+        elif kind.startswith("og."):
+            if kind not in PROJECTILE_GRAPH_MODULES:
+                errors.append(f"{where} native module {kind!r} does not exist")
+        elif kind == "gate.objective.status":
+            if node.get("status") not in MISSION_GRAPH_STATUSES:
+                errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        elif kind == "gate.mission.phase":
+            if node.get("phase") not in MISSION_GRAPH_PHASES:
+                errors.append(f"{where} gate {node_id!r} needs phase active, complete or failed")
+            if "objective" in node:
+                errors.append(f"{where} gate {node_id!r} is a phase gate; it has no objective to filter")
+        elif kind not in PROJECTILE_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+    if len(kinds) > PROJECTILE_GRAPH_MAX_NODES:
+        errors.append(f"{where} has more than {PROJECTILE_GRAPH_MAX_NODES} program nodes")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > PROJECTILE_GRAPH_MAX_EDGES:
+        errors.append(f"{where} has more than {PROJECTILE_GRAPH_MAX_EDGES} edges")
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if "input" not in edge:
+            if src in kinds and dst in kinds and "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue  # a structural edge of the data, or between program nodes: never walked
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if src_kind.startswith("event.") and src_kind not in PROJECTILE_GRAPH_EVENTS:
+            continue  # already reported: not a projectile event
+        if not dst_kind.startswith(("gate.", "og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind.startswith("gate."):
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    return errors
+
+
+def validate_projectile_entity_graph(label: str, ext: str, text: str) -> list[str]:
+    """behavior.graph.json of a projectile or entity archive: one of its
+    family's two schemas; a v1 graph carries no program nodes (the runtime
+    reads a program from a v2 graph only); a v2 graph's program compiles."""
+    where = f"{label} behavior.graph.json"
+    try:
+        graph = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is invalid JSON: {exc}"]
+    if not isinstance(graph, dict):
+        return [f"{where} is not one JSON object"]
+    v1, v2 = PROJECTILE_GRAPH_SCHEMAS[ext]
+    schema = graph.get("schema")
+    if schema not in (v1, v2):
+        return [f"{where} schema must be {v1} or {v2}"]
+    if schema == v2:
+        return validate_projectile_graph_program(where, graph)
+    errors = []
+    for node in graph.get("nodes") or []:
+        if isinstance(node, dict) and _is_graph_program_kind(node.get("kind")):
+            errors.append(f"{where} node {node.get('id')!r} ({node['kind']}) is a program node: "
+                          f"a program needs schema {v2}")
+    return errors
+
+
 def validate_projectile_entity_source_contract(label: str, ext: str,
                                                zf: zipfile.ZipFile,
                                                name_set: set[str],
@@ -2060,6 +2187,11 @@ def validate_projectile_entity_source_contract(label: str, ext: str,
     for field, expected in expected_fields:
         if expected in name_set and descriptor_values.get(field) != expected:
             errors.append(f"{label} {descriptor} must declare {field} = {expected}")
+
+    # projectile-events.md slice 2: the graph's schema and, for v2, its program.
+    if "behavior.graph.json" in name_set:
+        errors.extend(validate_projectile_entity_graph(
+            label, ext, zf.read("behavior.graph.json").decode("utf-8", errors="replace")))
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -3183,6 +3315,9 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
         if kind in MISSION_GRAPH_RULE_EVENTS and not level:
             errors.append(f"{where} rule event {node_id!r} ({kind}) belongs to the level graph, "
                           "not the mission graph")
+        if kind in PROJECTILE_GRAPH_EVENTS:
+            errors.append(f"{where} projectile event {node_id!r} ({kind}) belongs to a projectile "
+                          "or entity graph")
         if kind in MISSION_GRAPH_OBJECT_EVENTS:
             if "objective" in node:
                 errors.append(f"{where} object event {node_id!r} has no objective to filter")

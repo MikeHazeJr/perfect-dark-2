@@ -173,6 +173,43 @@ run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week
   and what the program ran; the campaigns, `projectile_events_smoke` and the
   soak require differ=0, as the object rule probe does.
 
+## Slice 2 as written (CORE, 2026-11-17 to 2026-11-19; not run in the game yet)
+
+- **Runner** (aa3d21f4): `missionGraphProgramCompileProjectile` compiles a
+  projectile domain: the seven projectile events (kinds 19 to 25) and no
+  other event; data nodes skipped; a projectile event in a mission or level
+  graph is refused. An event carries its instance (`event.instance`).
+- **Registration** (da375c94): a v2 graph keeps its text
+  (`program_json`), and `projectileProgramRegister` compiles it with the
+  module list `og.projectile.fuse_expired`. A program that does not compile
+  refuses its archive, so its weapon cannot fire. A v1 graph has no program.
+- **The fuse rule** (54ab7092): `projectileFuseRule(obj)` at `weaponTick`'s
+  four fuses, on the host. With a program, `event.projectile.timer_expired`
+  decides: the fuse runs when the program reaches
+  `og.projectile.fuse_expired`, and does not when it does not (this differs
+  from the plan above, which refused such an archive at registration: an
+  author may leave a fuse unwired on purpose, and the probe counts it). With
+  no program the native rule decides, so a mod made before this slice (v1:
+  the crystal pistol, the needler, the example weapon) behaves as it did.
+  Parity: `fuse.compared` and `fuse.differ` in the stage totals.
+- **Extractor** (e41fc471): every base projectile and entity archive is v2
+  with `fuse` wired to `fuse_expired`; the weapon export version moved.
+- **Validator** (2026-11-19): `validate_projectile_entity_graph` in
+  `tools/asset_archive_conformance.py`. A projectile or entity graph names
+  one of its family's two schemas; a v1 graph carries no program node; a v2
+  graph's program is held to the runner's rules (only projectile events,
+  only the modules a projectile program has, unique ids, execution edges
+  with the right ports), so a program the game would refuse fails the
+  archive check first. A projectile event in a mission or level graph is an
+  error there too. Test: `tools/tests/test_projectile_program_conformance.py`.
+
+For slice 6 ("the v1 path is refused"): do not refuse v1 archives that mods
+already hold. Slice 5 of the object events met the same question for levels
+(object-events.md, "Levels authored before slice 5") and kept older content
+loading with the rules it was made under; a v1 projectile keeps the native
+rules the same way, and the guards that go are the ones that keep base
+weapons off the program path.
+
 ## Not in scope
 
 - Held weapons (the fire types in `bondgun.c`): the week note's Held weapons
