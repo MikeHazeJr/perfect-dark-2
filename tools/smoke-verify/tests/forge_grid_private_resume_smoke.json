@@ -1,0 +1,170 @@
+{
+  "scenario_name": "forge_grid_private_resume_smoke",
+  "description": "A creator leaves a private Grid draft while staying in the same Room. The host re-invites the creator on the same connection and commits one edit after preparing the native snapshot. The creator receives that edit before grant, commits with a fresh actor, and sees the targeted close after the host saves and reopens the Variant. An ordinary peer stays in the Room through host shutdown and receives no private Grid packets.",
+  "tags": ["modding", "forge", "network", "shared-draft", "resume", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/net.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/grid_edit_room.c",
+    "port/src/net/grid_edit_snapshot_wire.c",
+    "port/src/grid_edit_session.c",
+    "port/src/forge_level_io.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": ["grid-resume-host", "grid-resume-creator", "grid-resume-ordinary"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-resume-host/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-resume-creator/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-resume-ordinary/mods/.pdmod-migration-done" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-resume-host", "--moddir", "$E/grid-resume-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Resume_Source",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_resume_source",
+        "--debug-forge-level-name", "Grid_Resume_Draft",
+        "--debug-forge-level-atmosphere", "--debug-forge-level-hills", "--debug-forge-level-pin",
+        "--host", "--listen-bind", "27477",
+        "--launch-mp-room", "mod:arena_grid_resume_draft", "base:combat", "0",
+        "--host-autostart", "--host-autostart-peers", "2",
+        "--debug-grid-private-draft", "host", "--debug-grid-private-resume"
+      ],
+      "wait_for": "NET: created server on port 27477",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host-preserves-committed-draft-and-regrants-the-creator",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_resume_source opens=1",
+              "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_resume_source catalog=mod:arena_grid_resume_draft",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_resume_draft sha256=[0-9a-f]{64}",
+              "BOOT: --host-autostart: room [0-9]+ ready, added 2 remote client\\(s\\) to it",
+              "NET\\.GRID\\.EDIT: invited client=1 room=[0-9]+ generation=1",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "NET\\.GRID\\.EDIT: host kept the committed draft after creator left",
+              "SMOKE\\.GRID\\.DRAFT: role=host retained revision=2 ambient=137 generation=1 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: invited client=1 room=[0-9]+ generation=2",
+              "SMOKE\\.GRID\\.DRAFT: role=host resume_invite generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: committed revision=3 author=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host resume_tail_commit revision=3 ambient=149 generation=2 can_edit=1 pending_resume=1 ready=0",
+              "NET\\.GRID\\.EDIT: resumed creator=1 revision=3 digest=[0-9a-f]{64} tail=1$",
+              "NET\\.GRID\\.EDIT: committed revision=4 author=3",
+              "FORGE\\.REVISION\\.FORK: original=mod:arena_grid_resume_draft parent=[0-9a-f]{64} fork=mod:arena_grid_resume_draft_variant",
+              "NET\\.GRID\\.EDIT: saved variant=mod:arena_grid_resume_draft_variant revision=4",
+              "SMOKE\\.GRID\\.DRAFT: role=host reopened variant=mod:arena_grid_resume_draft_variant ambient=155 preserved_author_data=1 parent_sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.DRAFT: role=host revision=4 ambient=155",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host close_flushed room=[0-9]+ ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-resume-host"],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited client|granted client|resumed creator)=2",
+          "BOOT: --host-autostart firing",
+          "NET: === STAGE START ==="
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-resume-creator", "--moddir", "$E/grid-resume-creator/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Resume_Source",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_resume_source",
+        "--debug-forge-level-name", "Grid_Resume_Draft",
+        "--debug-forge-level-atmosphere", "--debug-forge-level-hills",
+        "--connect-host", "127.0.0.1:27477",
+        "--debug-grid-private-draft", "creator", "--debug-grid-private-resume"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "creator-stays-in-room-verifies-snapshot-and-commits-with-a-fresh-actor",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_resume_source catalog=mod:arena_grid_resume_draft",
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.DRAFT: role=creator initial_grant generation=1 actor=2 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.DRAFT: role=creator voluntarily_left room=[0-9]+ revision=2 lobby=1",
+              "SMOKE\\.GRID\\.DRAFT: role=creator accepted_resume generation=2 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: verified resume snapshot revision=2 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=3 author=1",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.DRAFT: role=creator resumed revision=3 ambient=149 generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=4 author=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=4 ambient=155 actor=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-resume-creator"],
+        "required_counts": [
+          { "pattern": "NET: SVC_AUTH from server, our ID is 1", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x84", "min": 5, "max": 5 },
+          { "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x85", "min": 3, "max": 3 },
+          { "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x86", "min": 2 }
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-resume-ordinary", "--moddir", "$E/grid-resume-ordinary/mods",
+        "--no-update-check", "--no-sound", "--skip-intro", "--connect-host", "127.0.0.1:27477",
+        "--debug-grid-private-draft", "ordinary"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-stays-until-host-shutdown-without-private-traffic",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-resume-ordinary"],
+        "forbidden_patterns": ["NET\\.GRID\\.EDIT\\.WIRE: received"]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

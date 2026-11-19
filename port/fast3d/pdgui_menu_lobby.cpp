@@ -33,6 +33,8 @@
 #include <string.h>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
+#include "pdgui_friends.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -147,6 +149,11 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
+    const bool socialOwnsInput = pdguiFriendsAnySurfaceIsOpen() != 0;
+    static bool socialOwnedInput = false;
+    const bool restoreLobbyFocus = socialOwnedInput && !socialOwnsInput;
+    socialOwnedInput = socialOwnsInput;
+    if (socialOwnsInput) wflags |= ImGuiWindowFlags_NoInputs;
 
     if (!ImGui::Begin("##social_lobby", nullptr, wflags)) {
         menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);
@@ -156,8 +163,10 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
     menupoolAcquire(MENU_TYPE_SOCIAL_LOBBY, NULL, &g_CtxImGuiMenu);
 
+    if (!socialOwnsInput && (restoreLobbyFocus || ImGui::IsWindowAppearing())) {
+        ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
+    }
     if (ImGui::IsWindowAppearing()) {
-        ImGui::SetWindowFocus();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby OPEN");
     }
 
@@ -486,7 +495,8 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
      * single click / stray keystroke.  The modal fires the graph disconnect
      * edge only when the user confirms. */
     const char *discPopupId = "Disconnect from Server?##lobby_disconnect";
-    if (!roomModalOwnedInput && (wantDisconnect || pdguiMenuCancelPressed()) &&
+    if (!socialOwnsInput && !roomModalOwnedInput &&
+            (wantDisconnect || pdguiMenuCancelPressed()) &&
             !ImGui::IsPopupOpen(discPopupId)
             && !ImGui::IsPopupOpen(createPopupId) && !ImGui::IsPopupOpen(joinPopupId)) {
         sysLogPrintf(LOG_NOTE,

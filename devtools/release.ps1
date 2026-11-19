@@ -693,7 +693,8 @@ function Get-ReleaseRomDerivedReason {
     $normalized = $Rel.Replace("\", "/")
     if ($normalized -match '(^|/)(ntsc|pal|jpn)-[a-z0-9]+/(files|segs)/') { return "raw ROM file or segment" }
     $leaf = ($normalized -split '/')[-1]
-    if ($leaf -eq ".pdextract-cache") { return "extraction cache stamp" }
+    if ($leaf -match '^\.pdextract-(?:cache|clean|stage-textures)(?:\.pd2tmp-\d+-\d+)?$') { return "extraction cache stamp" }
+    if ($leaf -match '\.pdscenario\.pd2repair-\d+-\d+\.tmp$') { return "temporary stage repair archive" }
     $magic = New-Object byte[] 4
     $stream = [System.IO.File]::OpenRead($FullName)
     try { $read = $stream.Read($magic, 0, 4) } finally { $stream.Dispose() }
@@ -864,6 +865,23 @@ if ($hasData) {
 } else {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
+
+# --- Original Grid authoring seed ---
+
+$gridSeedRelative = "grid/templates/grid_two_rooms.pdarena"
+$gridSeedSource = Join-Path $ProjectRoot "dev-mods/grid_two_rooms/grid_two_rooms.pdarena"
+$gridSeedBuilt = Join-Path $BuildDir $gridSeedRelative
+if (-not (Test-Path -LiteralPath $gridSeedBuilt -PathType Leaf)) {
+    throw "Release refused: the original Grid room template is missing from the client build."
+}
+$gridSeedDest = Join-Path $DistDir $gridSeedRelative
+New-Item -ItemType Directory -Path (Split-Path -Parent $gridSeedDest) -Force | Out-Null
+Copy-Item -LiteralPath $gridSeedBuilt -Destination $gridSeedDest -Force -ErrorAction Stop
+if ((Get-FileHash -LiteralPath $gridSeedDest -Algorithm SHA256 -ErrorAction Stop).Hash -ne
+        (Get-FileHash -LiteralPath $gridSeedSource -Algorithm SHA256 -ErrorAction Stop).Hash) {
+    throw "Release refused: the built Grid room template differs from the project source."
+}
+Write-Host "  $gridSeedRelative" -ForegroundColor Gray
 
 # --- Modding examples ---
 #

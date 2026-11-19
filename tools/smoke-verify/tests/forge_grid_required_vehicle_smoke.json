@@ -1,0 +1,397 @@
+{
+  "scenario_name": "forge_grid_required_vehicle_smoke",
+  "description": "The host authors one native Grid hoverbike placement and shares the original arena and exact vehicle package with a clean guest. The guest loads the embedded model from the digest-named temporary .pdvehicle. The host mounts through the existing smoke bootstrap, then native accelerate, boost and steering inputs move the authored vehicle. Both peers finish and the guest retires both archives before returning to the same Room.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "pdvehicle",
+    "gameplay",
+    "temporary-content"
+  ],
+  "paths_of_interest": [
+    "tools/smoke-verify/fixtures/mod_author/grid_hover_vehicle/recipe.json",
+    "dev-mods/maian_hover_vehicle",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/scenario_source_runtime.c",
+    "port/src/asset_runtime.c",
+    "port/src/assetcatalog_scanner.c",
+    "src/game/setup.c",
+    "src/game/bondbike.c",
+    "src/game/vehiclegraph.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 570,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "guest",
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": [
+    "grv-h",
+    "grv-g"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/grid_hover_vehicle/recipe.json",
+      "dst": "grv-h/recipes/hover/recipe.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle",
+      "dst": "grv-h/recipes/hover/template/tri_vehicle.pdvehicle"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh",
+      "dst": "grv-h/recipes/hover/template/tri_mesh.pdmesh"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/mesh.ini"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.obj"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json",
+      "dst": "grv-h/recipes/hover/meshes/vehicle/model.render.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
+      "dst": "grv-h/recipes/hover/behavior/variables.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior.graph.json",
+      "dst": "grv-h/recipes/hover/behavior.graph.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/physics.json",
+      "dst": "grv-h/recipes/hover/physics.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grv-h/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "grv-h/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grv-g/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "grv-g/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grv-h",
+        "--moddir",
+        "$E/grv-h/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--mod-author",
+        "grv-h/recipes/hover/recipe.json",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Vehicle_Proof",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_vehicle_proof",
+        "--debug-forge-level-name",
+        "Grid_Vehicle_Proof",
+        "--debug-forge-level-vehicle",
+        "--debug-grid-level-vehicle",
+        "mod:vehicle_grid_hover",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--debug-mount-bike",
+        "--debug-mount-seat",
+        "driver",
+        "--host",
+        "--listen-bind",
+        "27623",
+        "--launch-mp-room",
+        "mod:arena_grid_vehicle_proof",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27623",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_lines": [
+          "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_grid_hover",
+          "PDVEHICLE\\.MODEL: id=mod:vehicle_grid_hover model=mod:vehicle_grid_hover__[^ ]+ modelnum=[1-9][0-9]* filenum=[1-9][0-9]*$",
+          "FORGE\\.LEVEL\\.EDIT: made hoverbike setup_[0-9]+ at ",
+          "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=[1-9][0-9]* id=mod:vehicle_grid_hover__[^ ]+ path=.*\\.pdvehicle::dependencies/assets/models/maian_hover\\.pdmesh::model\\.obj$",
+          "VEHICLE\\.GRAPH: modelnum=[1-9][0-9]* graph instance made: nodes=[1-9][0-9]* .*boost_heat=1",
+          "VEHICLE\\.SEAT: modelnum=[1-9][0-9]* driver eye from model part 160",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=1"
+        ],
+        "required_sequences": [
+          {
+            "name": "host-drives-native-placed-vehicle-and-observes-real-motion",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_vehicle_proof",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_vehicle_proof epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+              "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+              "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+              "VEHICLE\\.BOOST: modelnum=[1-9][0-9]* phase ramping -> full .*peak_ground=(?:[2-9]|[1-9][0-9]+)\\.[0-9]+ top=21\\.00",
+              "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_vehicle_proof revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "SMOKE: result=scripted_exit scenario=forge_grid_required_vehicle_smoke"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grv-g",
+        "--moddir",
+        "$E/grv-g/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid Slot Seed",
+        "--connect-host",
+        "127.0.0.1:27623"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 235,
+      "assertions": {
+        "required_lines": [
+          "SAVE: initialized .*grv-g",
+          "PDVEHICLE\\.MODEL: id=mod:vehicle_grid_hover model=mod:vehicle_grid_hover__[^ ]+ modelnum=[1-9][0-9]* filenum=[1-9][0-9]*$",
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:arena_grid_vehicle_proof verified=[0-9]+ total=[1-9][0-9]*$",
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:vehicle_grid_hover verified=[0-9]+ total=[1-9][0-9]*$",
+          "NET\\.GRID\\.TRANSFER: admitted exact temporary source=mod:vehicle_grid_hover bytes=[1-9][0-9]*$",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=2"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest-consents-loads-the-digest-pinned-vehicle-and-returns-to-room",
+            "patterns": [
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "DISTRIB\\.GRID: temporary packages await consent count=2 bytes=[1-9][0-9]*",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=24 down=1 .*held_after=1 pressed_after=1",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_vehicle_proof packages=2$",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_vehicle_proof generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MATCH: client stage start received",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_vehicle_proof epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=[1-9][0-9]* id=mod:vehicle_grid_hover__[^ ]+ path=.*grv-g/grid-session/[0-9a-f]{64}\\.pdvehicle::dependencies/assets/models/maian_hover\\.pdmesh::model\\.obj$",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_vehicle_proof revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "NET: CLC_LOBBY_RESYNC sent to server",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "NET: SVC_ROOM_SETTINGS: .* stage='mod:arena_grid_vehicle_proof'",
+              "SMOKE: result=scripted_exit scenario=forge_grid_temporary_arena_weapon_smoke"
+            ]
+          },
+          {
+            "name": "guest-retires-the-arena-before-room-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_vehicle_proof$",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          },
+          {
+            "name": "guest-retires-the-vehicle-before-room-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary source=mod:vehicle_grid_hover type=10$",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "DISTRIB\\.GRID: temporary packages await consent",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: guest approved",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_vehicle_proof$",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary source=mod:vehicle_grid_hover type=10$",
+            "min": 1,
+            "max": 1
+          }
+        ],
+        "forbidden_patterns": [
+          "MODAUTHOR\\.RECIPE\\.RESULT",
+          "modmgr: loading mod 'mod\\.vehicle_grid_hover'"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 410000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 20000,
+      "stable_ms": 500
+    },
+    {
+      "at_ms": 1800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press"
+    },
+    {
+      "at_ms": 2300,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "press"
+    },
+    {
+      "at_ms": 4100,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "release"
+    },
+    {
+      "at_ms": 4300,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "press"
+    },
+    {
+      "at_ms": 5500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "release"
+    },
+    {
+      "at_ms": 5800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release"
+    },
+    {
+      "at_ms": 11000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 75000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 13000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 21000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "MATCH: stage end reason=timelimit"
+    ],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_vehicle_proof epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_vehicle_proof revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit scenario=(?:forge_grid_required_vehicle_smoke|forge_grid_temporary_arena_weapon_smoke)\\b",
+        "min": 2,
+        "max": 2
+      }
+    ],
+    "forbidden_patterns": [
+      "VEHICLE\\.SWAP:",
+      "VEHICLE\\.SOURCE",
+      "PDVEHICLE\\.MODEL\\.REJECT:",
+      "VEHICLE\\.GRAPH: modelnum=[0-9]+ (?:has no graph instance|refused its graph|tick: a module refused)",
+      "NET\\.GRID\\.OFFER: (?:host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: (?:refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "GRID\\.MATCH\\.LEASE: deferred (?:source )?retirement",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "ASSET\\.FALLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

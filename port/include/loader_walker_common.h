@@ -30,6 +30,15 @@
 extern "C" {
 #endif
 
+/* For always-invoked loose archives, prepare a heap-owned result on the
+ * worker and publish it under the catalog registration mutex. The walker
+ * frees the result after publishing. Preparation returns 1 on success,
+ * 0 for an unreadable public descriptor, or -1 for an admission failure. */
+typedef struct loader_walker_archive_preparation {
+    s32 (*prepare)(const char *file_path, void **out);
+    s32 (*publish)(const void *prepared, const char *file_path);
+} loader_walker_archive_preparation_t;
+
 /* Per-kind static descriptor. */
 typedef struct {
     const char *kind_str;     /* "weapon" / "head" / ... (matches pd_kind field) */
@@ -48,6 +57,9 @@ typedef struct {
      * generated provenance and may be absent; existing kinds default NULL. */
     const char *public_descriptor;
     const char *public_section;
+    const loader_walker_archive_preparation_t *archive_preparation;
+    /* Optional filter for immutable boot-time exclusions. Runs during listing. */
+    s32 (*skip_path)(const char *file_path);
 } loader_walker_kind_desc_t;
 
 /* Per-kind result counters. */

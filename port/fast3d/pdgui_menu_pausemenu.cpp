@@ -573,7 +573,7 @@ static void renderRankingsTab(float contentW)
 }
 
 /* ========================================================================
- * Pause Menu — Tab: Match Settings (read-only)
+ * Pause Menu — Tab: Settings
  * ======================================================================== */
 
 static void renderSettingsTab(void)
@@ -642,6 +642,9 @@ static void renderSettingsTab(void)
         inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
         configSave(CONFIG_PATH);
     }
+    pdguiRenderGridPlaytestVisibility(1);
+    pdguiRenderGridPlaytestResume();
+    pdguiRenderGridRoomExtension();
 }
 
 /* ========================================================================

@@ -6,11 +6,14 @@
 #include "net/netbuf.h"
 #include "net/net_client_settings_wire.h"
 #include "assetcatalog.h"
+#include "sha256.h"
 
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 64  /* v64 (2026-11-16, MULTIPLAYER; numbered v62 on
+#define NET_PROTOCOL_VER 65  /* v65 (2026-11-17, D-027): exact Grid match identity,
+                             * native arena transfer and private creator topics.
+                             * v64 (2026-11-16, MULTIPLAYER; numbered v62 on
                              * week-pd/multiplayer and renumbered when dev's
                              * v63 merged in, so no released build ever spoke
                              * v62): SVC_SCENARIO_STATE, host-authoritative
@@ -374,6 +377,8 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 #define NET_RECONNECT_MANIFEST_NONE         0
 #define NET_RECONNECT_MANIFEST_WAITING      1
 #define NET_RECONNECT_MANIFEST_TRANSFERRING 2
+#define NET_RECONNECT_GRID_WAITING          3
+#define NET_RECONNECT_GRID_READY            4
 
 #define NET_MAX_RECENT_SERVERS 8
 #define NET_PRESERVE_TIMEOUT_FRAMES (60 * 60 * 5) // 5 minutes at 60 fps
@@ -422,6 +427,9 @@ struct netpreservedplayer {
 	struct mpplayerconfig config;
 	s32 active; /* 0/1; s32 so the layout cannot depend on include order */
 	u32 preserveframe; // frame number when preserved, for timeout
+	u32 grid_stage_epoch;
+	u64 grid_offer_generation;
+	char grid_manifest_digest[SHA256_HEX_SIZE];
 };
 
 struct netrecentserver {
@@ -566,6 +574,9 @@ struct netclient {
 	s32 reviewing_results;
 	s32 is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
 	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
+	u64 grid_offer_generation;
+	u32 grid_stage_commit_epoch;
+	u8 grid_wire_playernum; /* Server's exact roster slot, before local remapping. */
 
 	struct netbuf out; // outbound messages are written here, except broadcasts
 	struct netbuf in; // incoming packets are fed here
@@ -660,21 +671,36 @@ s32 netClientReconnectAvailable(void);
 s32 netClientReconnect(void);
 void netClientReconnectAuthAccepted(void);
 void netClientReconnectCommitAccepted(void);
+struct grid_match_runtime_identity;
+struct grid_match_reconnect_sources;
+const struct grid_match_runtime_identity *netClientGridReconnectExpected(u32 *epoch, u8 *playernum);
+const struct grid_match_reconnect_sources *netClientGridReconnectSources(void);
+s32 netClientGridReconnectAuthenticated(void);
+void netClientGridReconnectReject(void);
 /* Called at the real SCENE_EVENT_STAGE_READY boundary for both the in-client
  * authority and an ordinary client. The server satisfies its local authority
  * latch; a client sends one epoch-bound CLC_STAGE_READY. */
 void netLocalStageLoaded(void);
+s32 netClientGridStageCancel(u8 room_id, u32 roster);
 void netStartFrame(void);
 void netEndFrame(void);
 /* True unless the server is in the ACTIVE stage-replication phase. Direct
  * gameplay senders must observe this just like netEndFrame's shared gameplay
  * buffers; lobby/control-plane traffic remains independent. */
 bool netServerStageReplicationBlocked(void);
+s32 netGridMatchHoldingInitialFrame(void);
+
+/* An exact Grid Fiesta life belongs to the stable client ID for one stage.
+ * A reconnect can read its last life even when ordinary publication is paused. */
+void netServerRecordGridFiestaSpawn(struct netclient *client, s32 weapon);
+u32 netServerGridFiestaSpawnLife(u8 client_id);
+s32 netServerGridFiestaSpawnPending(const struct netclient *client);
 
 s32 netStartServer(u16 port, s32 maxclients);
 s32 netStartClient(const char *addr);
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
+s32 netPeerHasGridCapability(const struct netclient *cl);
 u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
 /* Match traffic targets the committed roster; connected lobby guests stay out. */
 u32 netSendToMatch(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
@@ -686,6 +712,7 @@ void netChatPrintf(struct netclient *dst, const char *fmt, ...);
 s32 netServerStageStart(void);
 s32 netServerCoopStageStart(u8 stagenum, u8 difficulty);
 void netServerStageEnd(void);
+void netGridMatchNoteEndReason(s32 reason);
 void netServerKick(struct netclient *cl, const u32 reason);
 /* B-1206: queue a co-op or counter-op chr's removal for the frame's broadcast */
 void netServerNpcRemoveQueue(struct chrdata *chr);
@@ -722,6 +749,7 @@ struct netpreservedplayer *netServerFindPreservedByClientId(u8 client_id);
 s32 netServerMatchInProgress(void);
 s32 netServerReconnectSettingsMatch(const struct netpreservedplayer *pp,
 	const net_client_settings_plan_t *plan, u8 sanitized_team);
+s32 netServerGridReconnectMatches(const struct netpreservedplayer *pp);
 enum net_restore_result {
 	NET_RESTORE_OK = 0,
 	NET_RESTORE_INVALID_ARGUMENT = -1,

@@ -32,6 +32,7 @@
 #ifndef _IN_ROMEXTRACT_PD_H
 #define _IN_ROMEXTRACT_PD_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -149,6 +150,19 @@ s32 romExtractAllPdcharacter(s32 force_rewrite);
  * Idempotent. Returns: count of arena files newly written
  * (.pdarena + .pdscenario both count); -1 on infrastructure failure. */
 s32 romExtractAllPdarena(s32 force_rewrite);
+
+/* Resolve the installed source path of one rebuildable standalone stage.
+ * CI Training and stages owned by an arena stay on the normal boot path.
+ * Returns 0 on success or -1 if the stage or buffer is unsuitable. */
+s32 romExtractStandaloneScenarioPath(s32 stagenum, char *relative, size_t capacity);
+
+/* Isolated extraction worker only. The caller supplies verified disk inputs
+ * and an existing private absolute output directory. Emit or retain that
+ * stage's candidate, then validate it before the caller publishes it.
+ * Returns 0 on success or -1 on failure. */
+s32 romExtractStandaloneScenarioCandidate(s32 stagenum, const char *out_dir);
+void romExtractRecordStandaloneScenarioVerified(s32 stagenum, const char *relative_path,
+    const u8 digest[32]);
 
 /* ============================================================
  * Catalog universality pivot Step 3a (2026-05-03).
@@ -418,6 +432,14 @@ s32 romExtractAllPdtexture(s32 force_rewrite);
  * .pdbotprofile, .pdhud, and .pdmission archives with public source files
  * that static base catalog rows bind through FileProvider paths. */
 s32 romExtractAllPdmeta(s32 force_rewrite);
+
+/* Pair a standalone campaign stage with its canonical relative mission path.
+ * Returns 1 for a paired mission, 0 for no pair, or -1 on invalid input. */
+s32 romExtractStandaloneMissionPath(s32 stagenum, char *out, size_t capacity);
+
+/* Refresh the paired mission after adopting its verified scenario. The
+ * caller publishes the catalog rows. Returns 0 on success or -1 on failure. */
+s32 romExtractRefreshStandaloneMission(s32 stagenum);
 
 /* c3843 built-in theme emitter. The implementation lives beside the theme
  * loader because it owns the built-in palette table. Emits .pdtheme archives

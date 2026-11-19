@@ -2,6 +2,7 @@
 #define _IN_SCENARIO_SCENE_RENDERER_H
 
 #include <stddef.h>
+#include <PR/ultratypes.h>
 
 #include "scenario_scene_camera.h"
 
@@ -27,6 +28,20 @@ typedef struct scenario_scene_renderer_probe {
 
 int scenarioSceneRendererProbeSource(const char *scenario_id,
 	const char *scene_path, scenario_scene_renderer_probe_t *out_probe);
+/* Build the native CPU geometry from a borrowed self-contained GLB. This
+ * bounds expanded geometry, performs no external reads or image decode, and
+ * leaves the output unchanged on failure. The resident scene is untouched. */
+int scenarioSceneRendererProbeGlbBytes(const char *scenario_id, const char *scene_path,
+	const void *bytes, u32 size, scenario_scene_renderer_probe_t *out_probe);
+typedef struct scenario_scene_prepared scenario_scene_prepared_t;
+/* Prepare a GPU-ready scene from the verified self-contained GLB on the
+ * render thread. Preparation leaves the resident scene unchanged.
+ * Swap exchanges banks without allocating. Release retires the bank
+ * held by the handle. */
+int scenarioSceneRendererPrepareGridGeometry(const char *scenario_id, const char *scene_path,
+	const void *bytes, u32 size, scenario_scene_prepared_t **out);
+void scenarioSceneRendererSwapGridGeometry(scenario_scene_prepared_t *prepared);
+void scenarioSceneRendererReleaseGridGeometry(scenario_scene_prepared_t *prepared);
 int scenarioSceneRendererActivate(const char *scenario_id,
 	const char *scene_path);
 void scenarioSceneRendererDeactivate(void);

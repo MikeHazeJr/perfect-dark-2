@@ -166,6 +166,10 @@ static const char *const s_TypeNames[MENU_TYPE_COUNT] = {
     [MENU_TYPE_DEBUG_OVERLAY]       = "debug_overlay",
     [MENU_TYPE_GRID_SUBMENU]        = "grid_submenu",
     [MENU_TYPE_SOCIAL_SHELL]        = "social_shell",
+    [MENU_TYPE_GRID_PLACEMENT]      = "grid_placement",
+    [MENU_TYPE_GRID_LEVEL_TOOLS]    = "grid_level_tools",
+    [MENU_TYPE_GRID_EDITOR_CONTROLS] = "grid_editor_controls",
+    [MENU_TYPE_GRID_VARIANT_REVIEW] = "grid_variant_review",
 };
 
 /* ---- Private helpers ---- */
@@ -183,6 +187,10 @@ static s32 menupoolLegacyStackOptional(menu_type_t type)
     case MENU_TYPE_SOCIAL_LOBBY:
     case MENU_TYPE_SOCIAL_SHELL:
     case MENU_TYPE_CRASH_RECOVERY:
+    case MENU_TYPE_GRID_PLACEMENT:
+    case MENU_TYPE_GRID_LEVEL_TOOLS:
+    case MENU_TYPE_GRID_EDITOR_CONTROLS:
+    case MENU_TYPE_GRID_VARIANT_REVIEW:
         return 1;
     default:
         return 0;

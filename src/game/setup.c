@@ -50,6 +50,7 @@
 #include "assetcatalog.h"
 #include "assetload.h"
 #include "asset_source_debug.h"
+#include "grid_match_runtime.h"
 #include "scenario_source_runtime.h"
 #include "scenario_global_ailists.h"
 #include "scenario_object_rules.h"
@@ -1174,6 +1175,15 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 			setupCreateObject(&weapon->base, cmdindex);
 			if (g_Vars.normmplayerisrunning || g_Vars.lvmpbotlevel) {
 				s_SetupMpCreatedWeaponCount++;
+				if (g_SetupCurMpLocation < 0) {
+					/* Not one of the match's weapon places: a pickup its level
+					 * pins to one weapon, drawn with its own record's model. A
+					 * level made in Forge can have these; a run can see here
+					 * that one was made. */
+					sysLogPrintf(LOG_NOTE, "SETUP: fixed weapon pickup cmd=%d weapon=%d model=%d prop=%d",
+						cmdindex, (s32)weapon->weaponnum, (s32)weapon->base.modelnum,
+						weapon->base.prop ? 1 : 0);
+				}
 			}
 		}
 	}
@@ -3578,7 +3588,12 @@ void setupCreateProps(s32 stagenum)
 						(s32)g_MatchConfig.spawnWeaponNum);
 				}
 
-				if (!userPickedSpawnWeapon) {
+				const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+				const s32 gridFiesta = grid && g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA
+					&& gridMatchRuntimeFiestaMatches(&grid->offer, 1);
+				if (gridFiesta) {
+					sysLogPrintf(LOG_NOTE, "SETUP: using the sealed Grid Fiesta pool for sparse pickups");
+				} else if (!userPickedSpawnWeapon) {
 					s32 setSpawnMpw = -1;
 					const char *setSpawnId = NULL;
 					for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {

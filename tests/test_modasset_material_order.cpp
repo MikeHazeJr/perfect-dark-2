@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 extern "C" {
 #include "modasset_material_order.h"
@@ -115,4 +116,32 @@ TEST_CASE("readable cache and runtime modeldef share material reconciliation",
 	REQUIRE(header_contents.str().find(
 		"#define MODASSET_COMPILER_MODELDEF_VERSION 15") !=
 		std::string::npos);
+}
+
+
+TEST_CASE("Grid visits the native explicit catalog texture directives in declared materials",
+	"[modding][model][material-texture][grid]")
+{
+	std::vector<std::string> ids;
+	const auto visit = [](const char *id, void *context) -> s32 {
+		static_cast<std::vector<std::string> *>(context)->push_back(id);
+		return 1;
+	};
+	const std::string valid = "pd_texture_catalog = sample:unbound\r\n"
+		"  newmtl first\r\n"
+		"  pd_texture_catalog = sample:body # diffuse\r\n"
+		"  map_Kd local/colour.png\n"
+		"newmtl unused\n"
+		"pd_secondary_texture_catalog = sample:glow\n";
+	char err[128]{};
+	REQUIRE(modAssetMaterialVisitCatalogTextures(valid.data(), valid.size(), visit, &ids, err, sizeof(err)));
+	CHECK(ids == std::vector<std::string>{"sample:body", "sample:glow"});
+
+	for (const std::string suffix : {"", "sample:", "body", "other:bad/id", "a:b:c"}) {
+		const std::string malformed = "newmtl first\npd_texture_catalog = " + suffix + "\n";
+		ids.clear();
+		CHECK_FALSE(modAssetMaterialVisitCatalogTextures(malformed.data(), malformed.size(), visit, &ids, err, sizeof(err)));
+		CHECK(ids.empty());
+		CHECK(std::strstr(err, "catalog ID") != nullptr);
+	}
 }

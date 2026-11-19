@@ -34,6 +34,7 @@
 #include "loader_walker_common.h"
 #include "asset_path_contract.h"
 #include "modarchive.h"
+#include "modvfs.h"
 #include "system.h"
 
 /* ------------------------------------------------------------------ */
@@ -51,7 +52,8 @@ static const char *s_findKey(const char *json, size_t json_len,
     if (klen == 0 || klen + 2 > json_len) return NULL;
 
     const char *p = json;
-    while (p + klen + 2 <= end) {
+    const char *last = end - (klen + 2);
+    while (p <= last) {
         if (*p == '"') {
             if (memcmp(p + 1, key, klen) == 0 && p[1 + klen] == '"') {
                 return p + klen + 2;
@@ -354,34 +356,47 @@ static s32 s_loadManifest(const char *rel_path,
     *out_len = 0;
     if (out_arc) *out_arc = NULL;
 
-    /* fsFileLoad reads via fsFullPath internally; works for the relative
-     * data/<romid>/<class>/file form we pass in. */
+    char full_buf[FS_MAXPATH + 1];
+    const char *full = fsFullPath(rel_path, full_buf, sizeof(full_buf));
+    if (!full[0]) return 0;
+
+    /* Preserve fsFileLoad's mounted-entry precedence. For a loose file,
+     * read only its signature before choosing the ZIP or legacy JSON path. */
     u32 size = 0;
-    void *raw = fsFileLoad(rel_path, &size);
-    if (!raw || size < 2) {
-        if (raw) sysMemFree(raw);
-        return 0;
+    void *raw = NULL;
+#ifndef PD_SERVER
+    raw = modVfsResolveAnyAlloc(rel_path, &size, NULL, 0);
+#endif
+    u8 bytes[2];
+    if (raw) {
+        if (size < sizeof(bytes)) {
+            sysMemFree(raw);
+            return 0;
+        }
+        memcpy(bytes, raw, sizeof(bytes));
+    } else {
+        FILE *probe = fopen(full, "rb");
+        if (!probe) return 0;
+        size_t bytes_read = fread(bytes, 1, sizeof(bytes), probe);
+        fclose(probe);
+        if (bytes_read != sizeof(bytes)) return 0;
     }
 
-    const u8 *bytes = (const u8 *)raw;
     s32 is_zip = (bytes[0] == 'P' && bytes[1] == 'K');
-    /* Plain JSON: fsFileLoad already null-terminates per its contract; reuse
-     * the buffer. ASCII '{' / '[' both legal JSON top-levels. */
+    /* Plain JSON needs the complete, NUL-terminated source. */
     if (!is_zip) {
+        if (!raw) raw = fsFileLoad(rel_path, &size);
+        if (!raw || size < sizeof(bytes)) {
+            if (raw) sysMemFree(raw);
+            return 0;
+        }
         *out_buf = (char *)raw;
         *out_len = (size_t)size;
         return 1;
     }
 
-    /* ZIP compound: free the raw bytes and re-open via modArchive so we
-     * can extract _meta/manifest.json while still accepting the legacy
-     * root manifest during migration. */
-    sysMemFree(raw);
-
-    char fullBuf[FS_MAXPATH + 1];
-    const char *full = fsFullPath(rel_path, fullBuf, sizeof(fullBuf));
-    if (!full || !full[0]) return 0;
-
+    /* ZIP compound: leave entry selection and validation to modArchive. */
+    if (raw) sysMemFree(raw);
     mod_archive_t *arc = modArchiveOpen(full);
     if (!arc) return 0;
 
@@ -470,6 +485,21 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     char *manifest = NULL;
     size_t manifest_len = 0;
     mod_archive_t *arc = NULL;
+    void *prepared = NULL;
+    const loader_walker_archive_preparation_t *preparation = ctx->desc->archive_preparation;
+    char kind_buf[32];
+    char id_buf[128];
+
+    /* Keep mounted source selection on its existing path. Loose preparation
+     * reads the public source and provenance from a single archive capture. */
+    if (preparation && ctx->desc->always_invoke && !modVfsCanResolve(rel_path)) {
+        s32 r = preparation->prepare(rel_path, &prepared);
+        if (r > 0 && prepared) goto publish;
+        if (r < 0) lregfail++;
+        else lenv++;
+        goto cleanup;
+    }
+
     s32 have_manifest = s_loadManifest(rel_path, &manifest, &manifest_len, &arc);
     if (!have_manifest && !ctx->desc->public_descriptor) {
         sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
@@ -479,8 +509,6 @@ static void s_walkerOneFile(int idx, void *user_ctx)
         goto merge;
     }
 
-    char kind_buf[32];
-    char id_buf[128];
     if (ctx->desc->public_descriptor) {
         char *text = NULL;
         size_t text_len = 0;
@@ -529,6 +557,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     }
     }
 
+publish:
     if (ctx->register_mutex) {
         SDL_LockMutex(ctx->register_mutex);
     }
@@ -540,7 +569,11 @@ static void s_walkerOneFile(int idx, void *user_ctx)
      * binds FileProvider handles. Keep that whole section serialized so a
      * concurrent catalog realloc or provider-pool append cannot invalidate
      * the entry pointer or splice adjacent archive paths together. */
-    if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
+    if (prepared) {
+        s32 r = preparation->publish(prepared, rel_path);
+        if (r > 0)      lreg++;
+        else if (r < 0) lregfail++;
+    } else if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
         lreg++;
     } else {
         s32 r = ctx->register_fn(manifest ? manifest : "", manifest_len, kind_buf, id_buf, rel_path);
@@ -553,6 +586,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     }
 
 cleanup:
+    free(prepared);
     if (arc) modArchiveClose(arc);
     if (manifest) sysMemFree(manifest);
 
@@ -638,6 +672,7 @@ s32 loaderWalkerScanKind(
         }
         snprintf(paths[count].path, sizeof(paths[count].path),
                  "%s/%s", dir_path, name);
+        if (desc->skip_path && desc->skip_path(paths[count].path)) continue;
         count++;
     }
     closedir(dp);

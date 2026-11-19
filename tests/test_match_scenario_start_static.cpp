@@ -294,28 +294,50 @@ TEST_CASE("final scores reach the match roster before the stage end message",
 	const std::string flush = function_block_scenario_start(net,
 		"static bool netServerFlushPendingStageEnd");
 	const std::string end = function_block_scenario_start(net, "void netServerStageEnd");
+	const std::string terminal_packet = function_block_scenario_start(net,
+		"static bool netServerFlushCutsceneAuthorityPacket");
 
-	/* The existing scores message, unchanged, in its own reliable packet on
-	 * the channel the terminal packet uses, so it is delivered first. */
+	/* Ordinary Combat keeps its separate reliable scores packet. */
 	REQUIRE(send.find("netmsgSvcPlayerScoresWrite(&wire)") != std::string::npos);
 	REQUIRE(send.find("netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT)") != std::string::npos);
 	REQUIRE(send.find("\"MATCH: final scores published before stage end room=%u bytes=%u\"") != std::string::npos);
 	/* Sized for every character slot and every opponent kill count. */
-	REQUIRE(send.find("u8 data[2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u)];") != std::string::npos);
+	REQUIRE(net.find("#define NET_SCORE_PAYLOAD_MAX (2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u))")
+		!= std::string::npos);
+	REQUIRE(send.find("u8 data[NET_SCORE_PAYLOAD_MAX];") != std::string::npos);
 
 	/* Combat Simulator only, once per ending match, and a failed send keeps
 	 * the terminal packet back so both are retried together. */
 	const size_t mode_gate = require_position(flush, "s_NetStageEndPending.mode == NETGAMEMODE_MP");
+	const size_t ordinary_gate = require_position(flush, "!s_NetStageEndPending.grid_result.stage_epoch");
 	const size_t once_gate = require_position(flush, "!s_NetStageEndPending.final_scores_sent");
 	const size_t scores = require_position(flush, "netServerSendFinalScores(s_NetStageEndPending.room_id, reason)");
 	const size_t latch = require_position(flush, "s_NetStageEndPending.final_scores_sent = true;");
 	const size_t terminal = require_position(flush, "netServerFlushCutsceneAuthorityPacket(reason, true,");
 	const size_t commit = require_position(flush, "netServerCommitPendingStageEnd();");
-	REQUIRE(mode_gate < scores);
+	REQUIRE(mode_gate < ordinary_gate);
+	REQUIRE(ordinary_gate < once_gate);
 	REQUIRE(once_gate < scores);
 	REQUIRE(scores < latch);
 	REQUIRE(latch < terminal);
 	REQUIRE(terminal < commit);
+
+	/* Grid sends one ordered authority packet with the exact scores and result
+	 * before teardown. A failed roster send leaves the pending result intact. */
+	REQUIRE(terminal_packet.find("+ NET_SCORE_PAYLOAD_MAX") != std::string::npos);
+	REQUIRE(terminal_packet.find("+ 3u + GRID_MATCH_RESULT_WIRE_MAX") != std::string::npos);
+	const size_t grid_gate = require_position(terminal_packet, "if (grid_end)");
+	const size_t grid_scores = require_position(terminal_packet,
+		"netbufWriteData(&wire, end->grid_scores, end->grid_scores_size)");
+	const size_t grid_result = require_position(terminal_packet, "gridMatchResultWrite(&wire, &end->grid_result)");
+	const size_t stage_end = require_position(terminal_packet, "netmsgSvcStageEndWrite(&wire, stage_end_room,");
+	const size_t roster_send = require_position(terminal_packet, "netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT)");
+	const size_t store = require_position(terminal_packet, "netStoreGridResult(&end->grid_result, &end->grid_scorecard)");
+	REQUIRE(grid_gate < grid_scores);
+	REQUIRE(grid_scores < grid_result);
+	REQUIRE(grid_result < stage_end);
+	REQUIRE(stage_end < roster_send);
+	REQUIRE(roster_send < store);
 
 	/* A new ending match starts with the latch clear. */
 	const size_t arm = require_position(end, "s_NetStageEndPending.active = true;");

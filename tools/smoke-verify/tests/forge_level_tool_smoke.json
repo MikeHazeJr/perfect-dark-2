@@ -1,0 +1,143 @@
+{
+  "scenario_name": "forge_level_tool_smoke",
+  "description": "Forge step F4, the Modding Hub's Levels tool, as one player's path from a template to a level of their own. The Blank Room (dev-mods/blank_room) is staged as a mod. One ordinary client launch (1) makes a new level 'Tool_Room' from it through --debug-level-tool-new, the function the tool's Create button calls, (2) starts a Forge session on that new level through --launch-forge-level, the one call the tool's Open in Forge button makes, and (3) two seconds into the level adds a player start where the editor camera is and saves under the level's own name through --debug-forge-session-save, the calls the editor's Level File section makes. What this proves beyond the other Forge smokes: the tool's copy of a template is a level the catalog lists and Forge opens, and a level can be saved over itself while it is the level that is loaded (own_template=1, updated=1), which is what every later Save of a level being worked on is. What it does not prove: the tool's window under a hand (the list, the name field, the buttons), or that the level saved over itself plays in a match afterwards.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "mod-author",
+    "modding-hub",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_leveltool.cpp",
+    "port/src/level_tool.c",
+    "port/fast3d/pdgui_menu_moddinghub.cpp",
+    "dev-mods/blank_room/build_blank_room.py",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/main.c",
+    "port/fast3d/pdgui_menu_forge.cpp",
+    "src/game/forgemode.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/smoke_readiness.c",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_tool_room"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "mod_blank_room:arena_blank_room",
+    "--debug-level-tool-name",
+    "Tool_Room",
+    "--launch-forge-level",
+    "mod:arena_tool_room",
+    "--debug-forge-session-save",
+    "Tool_Room"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 5000,
+      "name": "level-tool-room"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_editor_ready",
+      "timeout_ms": 200000,
+      "comment": "The level was made at boot, before any stage. The launch flag starts the Forge session on it once the boot stage has placed the player. A session that never comes up fails here, with the facts that were missing."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_level_file_open",
+      "timeout_ms": 60000,
+      "stable_ms": 500,
+      "comment": "The save flag opens the level file and saves in one frame, two seconds into the level. Here the save replaces the archive the loaded level came from, then the mod manager rescans and applies. The screenshot and the exit are timed from after that frame."
+    },
+    {
+      "at_ms": 7000,
+      "type": "exit",
+      "comment": "Seven seconds after the level file opened: the game has kept running on a level whose archive was just replaced under it, and the screenshot at five seconds shows it."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_level_tool_smoke",
+      "PDARENA\\.SCENARIO: owner=mod_blank_room:arena_blank_room id=mod_blank_room:scenario_blank_room stagenum=0x[0-9a-f]+ source=",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.BEGIN template=mod_blank_room:arena_blank_room display='Tool_Room'",
+      "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room pads=8 spawns=8 objects=0 field_rows=0 archive='.*blank_room\\.pdarena'",
+      "LEVELTOOL\\.NEW\\.BEGIN template=mod_blank_room:arena_blank_room display='Tool_Room' catalog=mod:arena_tool_room creator='[^']+' template_archive='.*blank_room\\.pdarena'",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_tool_room mod_id=mod\\.arena_tool_room updated=0",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.arena_tool_room restart_count=\\d+",
+      "LEVELTOOL\\.NEW\\.OK template=mod_blank_room:arena_blank_room catalog=mod:arena_tool_room mod_id=mod\\.arena_tool_room archive='.*arena_tool_room\\.pdarena' restart_count=\\d+",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_tool_room opens=1 holds='8 starts'",
+      "BOOT: --debug-level-tool-new template=mod_blank_room:arena_blank_room name='Tool_Room' result=OK",
+      "BOOT: --launch-forge-level arena=mod:arena_tool_room armed",
+      "FORGE\\.LEVEL\\.START: arena=mod:arena_tool_room stagenum=0x[0-9a-f]+ canvas=0",
+      "FORGE\\.LEVEL\\.SESSION: arena=mod:arena_tool_room",
+      "BOOT: --launch-forge-level arena=mod:arena_tool_room result=OK",
+      "GRID: session active stage=0x[0-9a-f]+ \\(starting in FREEFLY\\)",
+      "SMOKE\\.WAIT: satisfied condition=forge_editor_ready ",
+      "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.BEGIN: arena=mod:arena_tool_room name='Tool_Room'",
+      "FORGE\\.LEVEL\\.OPEN: arena=mod:arena_tool_room pads=8 spawns=8 objects=0 field_rows=0 archive='.*arena_tool_room\\.pdarena'",
+      "FORGE\\.LEVEL\\.EDIT: added spawn spawn_0008 at the camera \\(-?\\d+, -?\\d+, -?\\d+\\); the level now has pads=9 spawns=9 objects=0",
+      "FORGE\\.LEVEL\\.PREVIOUS: retained arena=mod:arena_tool_room sha256=[0-9a-f]{64}",
+      "FORGE\\.LEVEL\\.SAVE\\.INPLACE: arena=mod:arena_tool_room archive='[^']*arena_tool_room\\.pdarena'",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_tool_room catalog=mod:arena_tool_room changed_members=\\d+ restart_count=\\d+ archive='.*arena_tool_room\\.pdarena' own_template=1",
+      "FORGE\\.LEVEL\\.DEBUG\\.SESSION\\.RESULT: result=OK catalog=mod:arena_tool_room",
+      "BOOT: --debug-forge-session-save name='Tool_Room' result=OK",
+      "SMOKE\\.WAIT: satisfied condition=forge_level_file_open ",
+      "SMOKE: screenshot at_ms=5000 -> .*level-tool-room\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=FAIL",
+      "BOOT: --debug-level-tool-new .* result=FAIL",
+      "BOOT: --launch-forge-level .* result=FAIL",
+      "BOOT: --debug-forge-session-save .* result=FAIL",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_tool_room .*updated=1",
+      "GRID: start ABORT",
+      "GRID: stagenum diverged",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK"
+    ]
+  }
+}

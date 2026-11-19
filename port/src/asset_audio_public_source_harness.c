@@ -158,12 +158,32 @@ static int basePackedKeymapSource(void)
     u32 count = 0;
     s32 rate = 0;
     s16 *pcm = modMusicLoadAudioPcm22050(route.path, &count, &rate);
-    /* PCM is resampled to 22050; the API reports the original source rate. */
-    s32 ok = pcm && count > 0 && !(count & 1) && rate == 44100;
+    s32 ok = pcm && count > 0 && !(count & 1) && rate == 22050;
     SDL_free(pcm);
     if (ok) sysLogPrintf(LOG_NOTE, "ASSET.AUDIO.PUBLIC: witness=base_packed_keymap "
         "id=%s source_soundnum=%d key_min=5 key_max=0 velocity_min=176 velocity_max=16 "
-        "provider=FileProvider decoded_samples=%u result=PASS", row->id, row->source_soundnum, count);
+        "provider=FileProvider source_rate_hz=%d decoded_samples=%u result=PASS",
+        row->id, row->source_soundnum, rate, count);
+    return ok;
+}
+static int baseIntroTypingCue(s32 soundnum, const char *id, u32 expected_frames)
+{
+    CatalogResolveResult route = catalogResolveSound(soundnum);
+    const asset_entry_t *row = assetCatalogGetByIndex(route.catalog_id);
+    if (!row || !row->bundled || row->type != ASSET_AUDIO ||
+            row->ext.audio.category != AUDIO_CAT_SFX || strcmp(row->id, id) ||
+            row->source_soundnum != soundnum || row->source.primary.provider != fileProvider() ||
+            route.source_only_blocked || !route.is_mod_override || !route.path ||
+            !strstr(route.path, ".pdsfx::sample.wav")) return 0;
+    u32 samples = 0;
+    s32 rate = 0;
+    s16 *pcm = modMusicLoadAudioPcm22050(route.path, &samples, &rate);
+    /* The mixer consumes stereo frames at the original bank playback clock. */
+    int ok = pcm && rate == 22050 && samples == expected_frames * 2;
+    SDL_free(pcm);
+    sysLogPrintf(LOG_NOTE, "ASSET.AUDIO.PUBLIC: witness=base_intro_typing id=%s "
+        "source_soundnum=%d source_rate_hz=%d decoded_frames=%u expected_frames=%u result=%s",
+        id, soundnum, rate, samples / 2, expected_frames, ok ? "PASS" : "FAIL");
     return ok;
 }
 int assetAudioPublicSourceHarnessRun(void)
@@ -173,6 +193,10 @@ int assetAudioPublicSourceHarnessRun(void)
     int passed = 0, active = 0;
     if (!smokeHarnessIsActive()) return -1;
     if (!report("base_packed_keymap_source_controls_and_provider", basePackedKeymapSource())) goto done;
+    passed++;
+    if (!report("base_intro_typing_uses_native_sample_clock",
+        baseIntroTypingCue(441, "base:sfx_unlabeled_pz", 21664) &&
+        baseIntroTypingCue(443, "base:sfx_unlabeled_qb", 112))) goto done;
     passed++;
     fsFullPath("$S/audio-public-source-smoke", root, sizeof(root));
     if (!fsCreateDir(root) || !selectTargets(targets) || !directory(root, "first", tier)) goto done;
@@ -197,6 +221,6 @@ int assetAudioPublicSourceHarnessRun(void)
     passed++;
 done:
     if (active) catalogReleaseStageAsset(ASSET_AUDIO, targets[0].id);
-    sysLogPrintf(LOG_NOTE, "ASSET.AUDIO.PUBLIC: passed=%d cases=6 result=%s", passed, passed == 6 ? "PASS" : "FAIL");
-    return passed == 6 ? 0 : -1;
+    sysLogPrintf(LOG_NOTE, "ASSET.AUDIO.PUBLIC: passed=%d cases=7 result=%s", passed, passed == 7 ? "PASS" : "FAIL");
+    return passed == 7 ? 0 : -1;
 }

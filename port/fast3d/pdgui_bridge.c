@@ -19,6 +19,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netbuf.h"
+#include "net/netdistrib.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/lobby_view.h"
@@ -38,10 +39,12 @@
 #include "files.h"
 #include "modmgr.h"
 #include "assetcatalog.h"
+#include "forge_level_io.h"
 #include "modelcatalog.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "scene_transition.h"
+#include "lib/main.h"
 #include "config.h"
 #include "lib/vi.h"
 #include "game/activemenu.h"
@@ -359,6 +362,18 @@ s32 netLocalClientInLobby(void)
 {
     if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) return 0;
     return (g_NetLocalClient->state == CLSTATE_LOBBY) ? 1 : 0;
+}
+
+s32 netLocalClientIsPreparing(void)
+{
+    return g_NetMode != NETMODE_NONE && g_NetLocalClient
+        && g_NetLocalClient->state == CLSTATE_PREPARING;
+}
+
+s32 netLocalClientPreparingGridTransfer(void)
+{
+    return g_NetMode == NETMODE_CLIENT && netLocalClientIsPreparing()
+        && netPeerHasGridCapability(g_NetLocalClient) && netDistribClientIsGridArena();
 }
 
 u32 netGetClientPing(s32 clientId)
@@ -937,6 +952,7 @@ void pdguiEndscreenExitToRoom(void)
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
         "endscreen exit to room");
     func0f0f8120();
+    mainQueueGridRoomReturn();
 }
 
 /**
@@ -1155,7 +1171,8 @@ s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id)
             assignBuf.size = sizeof(assignData);
             netbufStartWrite(&assignBuf);
             netmsgSvcRoomAssignWrite(&assignBuf, room->id);
-            netSend(cl, &assignBuf, true, NETCHAN_DEFAULT);
+            /* Match normal Room assignment ordering before Room-specific controls. */
+            netSend(cl, &assignBuf, true, NETCHAN_CONTROL);
         }
 
         sysLogPrintf(LOG_NOTE,
@@ -1193,6 +1210,21 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         return -3;
     }
 
+    char stable_stage_id[CATALOG_ID_LEN];
+    const s32 previous_variant = forgeLevelVariantDependenciesStage();
+    if (isListenHost) {
+        if (!stage_id || strlen(stage_id) >= sizeof(stable_stage_id)) return -3;
+        strcpy(stable_stage_id, stage_id);
+        stage_id = stable_stage_id;
+        char error[256];
+        if (!forgeLevelMountVariantDependencies(stage_id, error, sizeof(error))) {
+            sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.VARIANT.MOUNT: %s", error);
+            return -3;
+        }
+    }
+
+    const s32 new_variant = previous_variant < 0 && forgeLevelVariantDependenciesStage() >= 0;
+
     /* Refresh/publish the initiating player's complete typed settings first.
      * On a listen host this updates the authoritative cache in place; on a
      * remote leader it queues CLC_SETTINGS on the same reliable control
@@ -1200,6 +1232,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
     if (netClientSettingsChanged() != 0) {
         sysLogPrintf(LOG_ERROR,
                      "BRIDGE: local client settings preflight failed before match start");
+        if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
         return -4;
     }
 
@@ -1209,6 +1242,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
             difficulty, antiClientId, numSims, simType, timelimit, options,
             scenario, scorelimit, teamscorelimit, weaponSetIndex) != 0) {
         netbufStartWrite(&g_NetLocalClient->out);
+        if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
         return -5;
     }
 
@@ -1225,6 +1259,7 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         const u32 replayResult = netmsgClcLobbyStartRead(&rb, g_NetLocalClient);
         netbufStartWrite(&g_NetLocalClient->out);
         if (replayResult != 0) {
+            if (new_variant) (void)forgeLevelRetireVariantDependencies(NULL, 0);
             return -6;
         }
     }
@@ -1471,7 +1506,7 @@ s32 netLobbyRequestCancel(void)
 /* Returns 1 when the MANIFEST_PHASE_LOADING countdown is active (3-2-1 visible). */
 s32 pdguiCountdownIsActive(void)
 {
-    return (g_MatchCountdownState.active &&
+    return (netLocalClientIsPreparing() && g_MatchCountdownState.active &&
             g_MatchCountdownState.phase == MANIFEST_PHASE_LOADING) ? 1 : 0;
 }
 

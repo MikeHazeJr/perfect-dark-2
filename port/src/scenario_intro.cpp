@@ -67,12 +67,12 @@ s32 padRef(const Json &object, const std::string &where)
 	return static_cast<s32>(pad);
 }
 
-s32 weapon(const Json &row, const char *key, scenario_intro_weapon_resolver_t resolve,
-	const std::string &where)
+s32 weapon(const Json &row, const char *key, scenario_intro_context_resolver_t resolve,
+	void *userdata, const std::string &where)
 {
 	const std::string &id = text(row, key, where);
 	s32 weaponnum = -1;
-	if (id.empty() || !resolve || !resolve(id.c_str(), &weaponnum) || weaponnum < 0) {
+	if (id.empty() || !resolve || !resolve(id.c_str(), &weaponnum, userdata) || weaponnum < 0) {
 		refuse(where + "." + key + " is not a known weapon ('" + id + "')");
 	}
 	return weaponnum;
@@ -130,6 +130,17 @@ extern "C" s32 scenarioIntroParse(const char *json, size_t json_size,
 	scenario_intro_weapon_resolver_t resolve_weapon,
 	scenario_intro_t *out, char *err, size_t err_cap)
 {
+	auto resolve = [](const char *id, s32 *number, void *userdata) -> s32 {
+		const auto fn = *static_cast<const scenario_intro_weapon_resolver_t *>(userdata);
+		return fn && fn(id, number);
+	};
+	return scenarioIntroParseWithContext(json, json_size, resolve, &resolve_weapon, out, err, err_cap);
+}
+
+extern "C" s32 scenarioIntroParseWithContext(const char *json, size_t json_size,
+	scenario_intro_context_resolver_t resolve_weapon, void *userdata,
+	scenario_intro_t *out, char *err, size_t err_cap)
+{
 	if (err && err_cap) err[0] = '\0';
 	if (!out) return 0;
 	std::memset(out, 0, sizeof(*out));
@@ -166,12 +177,12 @@ extern "C" s32 scenarioIntroParse(const char *json, size_t json_size,
 				if (has_id == has_selector) refuse(where + " needs exactly one of weapon_catalog_id and weapon_selector");
 				s32 right = WEAPON_NONE;
 				if (has_id) {
-					right = weapon(row, "weapon_catalog_id", resolve_weapon, where);
+					right = weapon(row, "weapon_catalog_id", resolve_weapon, userdata, where);
 				} else if (text(row, "weapon_selector", where) != "none") {
 					refuse(where + ".weapon_selector must be \"none\"");
 				}
 				const s32 left = row.contains("left_weapon_catalog_id")
-					? weapon(row, "left_weapon_catalog_id", resolve_weapon, where) : -1;
+					? weapon(row, "left_weapon_catalog_id", resolve_weapon, userdata, where) : -1;
 				words.insert(words.end(), { INTROCMD_WEAPON, right, left,
 					integer(row, "player", 0, 255, where) });
 				counts.weapons++;

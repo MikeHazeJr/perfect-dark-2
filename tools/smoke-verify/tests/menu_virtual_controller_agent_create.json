@@ -1,0 +1,80 @@
+{
+  "scenario_name": "menu_virtual_controller_agent_create",
+  "description": "Start with an empty save directory. Use an SDL virtual controller to open Create Agent, type 12 with the on-screen keyboard, save the profile, select it, and reach the focused Main Menu Play button.",
+  "tags": ["menus", "input", "agent", "save", "virtual-controller"],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "remove_paths": ["agent-controller-create-home"],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./agent-controller-create-home",
+    "--main-menu"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 180000, "stable_ms": 250 },
+    { "at_ms": 250, "type": "controller_attach" },
+    { "at_ms": 600, "type": "controller_button", "button": "a", "action": "press", "comment": "Open New Agent from the fresh picker." },
+    { "at_ms": 700, "type": "controller_button", "button": "a", "action": "release" },
+    { "at_ms": 1000, "type": "wait_until", "condition": "agent_create_ready", "timeout_ms": 15000, "stable_ms": 250 },
+    { "at_ms": 1500, "type": "controller_button", "button": "a", "action": "press", "comment": "Type 1 on the on-screen keyboard's initially focused key." },
+    { "at_ms": 1600, "type": "controller_button", "button": "a", "action": "release" },
+    { "at_ms": 1800, "type": "controller_button", "button": "dpright", "action": "press", "comment": "Move to 2." },
+    { "at_ms": 1900, "type": "controller_button", "button": "dpright", "action": "release" },
+    { "at_ms": 2100, "type": "controller_button", "button": "a", "action": "press", "comment": "Type 2." },
+    { "at_ms": 2200, "type": "controller_button", "button": "a", "action": "release" },
+    { "at_ms": 2400, "type": "screenshot", "path": "agent-controller-name-typed.bmp" },
+    { "at_ms": 2600, "type": "controller_button", "button": "dpup", "action": "press", "comment": "Wrap to Shift on the keyboard's action row." },
+    { "at_ms": 2700, "type": "controller_button", "button": "dpup", "action": "release" },
+    { "at_ms": 2900, "type": "controller_button", "button": "dpleft", "action": "press", "comment": "Wrap from Shift to Cancel." },
+    { "at_ms": 3000, "type": "controller_button", "button": "dpleft", "action": "release" },
+    { "at_ms": 3200, "type": "controller_button", "button": "dpleft", "action": "press", "comment": "Move from Cancel to Done." },
+    { "at_ms": 3300, "type": "controller_button", "button": "dpleft", "action": "release" },
+    { "at_ms": 3500, "type": "controller_button", "button": "a", "action": "press", "comment": "Done submits the native name field and saves the Agent." },
+    { "at_ms": 3600, "type": "controller_button", "button": "a", "action": "release" },
+    { "at_ms": 3900, "type": "wait_until", "condition": "agent_select_ready", "timeout_ms": 15000, "stable_ms": 250 },
+    { "at_ms": 4200, "type": "controller_button", "button": "a", "action": "press", "comment": "Activate the newly saved profile from the picker." },
+    { "at_ms": 4300, "type": "controller_button", "button": "a", "action": "release" },
+    { "at_ms": 4600, "type": "wait_until", "condition": "main_menu_play_ready", "timeout_ms": 15000, "stable_ms": 250 },
+    { "at_ms": 4900, "type": "controller_detach" },
+    { "at_ms": 5200, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=menu_virtual_controller_agent_create",
+      "SAVE: initialized .*agent-controller-create-home",
+      "SMOKE\\.PAD: event=attached .*player=0 .*virtual=1",
+      "MENUPOOL: attached ctx to active agent_create .*ctx=imgui_menu",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> agent-controller-name-typed\\.bmp",
+      "MENUPOOL: released agent_create .*ctx=imgui_menu",
+      "SMOKE\\.MENUOBS: satisfied condition=main_menu_play_ready .*agent=\"12\"",
+      "SMOKE\\.PAD: event=detached .*player=0 .*neutral_observed=1 .*removed_observed=1 .*virtual=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(?:timeout|wait_|controller_)",
+      "SMOKE\\.PAD: failure",
+      "MENU\\.GRAPH\\.FIRE .* ok=0",
+      "MENU\\.GRAPH\\.FIRE source=agent_create edge=cancel",
+      "AGENT\\.SESSION: activation rejected"
+    ],
+    "required_counts": [
+      { "pattern": "MENU\\.GRAPH\\.FIRE source=agent_select edge=create .*target=agent_create ok=1", "min": 1, "max": 1 },
+      { "pattern": "pdgui_agentcreate: committed JSON agent '12'", "min": 1, "max": 1 },
+      { "pattern": "MENU\\.GRAPH\\.FIRE source=agent_create edge=save .*ok=1", "min": 1, "max": 1 },
+      { "pattern": "MENU\\.GRAPH\\.RESULT source=agent_select edge=load rc=0 ok=1", "min": 1, "max": 1 },
+      { "pattern": "AGENT\\.SESSION: activation committed name='12' source=json", "min": 1, "max": 1 }
+    ]
+  },
+  "retain_artifacts": [
+    { "src": "agent-controller-name-typed.bmp", "name": "agent-controller-name-typed.bmp" },
+    { "src": "agent-controller-create-home/agent_12.json", "name": "agent_12.json" }
+  ]
+}

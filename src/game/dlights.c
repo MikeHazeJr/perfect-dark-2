@@ -372,6 +372,13 @@ Gfx *lightsSetDefault(Gfx *gdl)
 	return gdl;
 }
 
+s32 roomGetRangeBaseBrightness(s32 roomnum)
+{
+	const struct room *room = &g_Rooms[roomnum];
+	return room->numlights ? room->br_light_min
+		: room->br_light_min + (room->br_light_max - room->br_light_min) * 4 / 5;
+}
+
 void roomInitLights(s32 roomnum)
 {
 	struct room *room = &g_Rooms[roomnum];
@@ -397,11 +404,7 @@ void roomInitLights(s32 roomnum)
 		room->br_light_max = 255;
 	}
 
-	room->br_base = room->br_light_min;
-
-	if (room->numlights == 0) {
-		room->br_base += (room->br_light_max - room->br_light_min) * 4 / 5;
-	}
+	room->br_base = roomGetRangeBaseBrightness(roomnum);
 
 	/* Per-stage room and light rules. A stage built from scenario source takes
 	 * them from the optional rule fields of its rooms.json and portals.json
@@ -410,7 +413,7 @@ void roomInitLights(s32 roomnum)
 	if (bgUsesScenarioSource()) {
 		s32 level;
 
-		if (scenarioSourceRoomBaseBrightness(roomnum, &level)) {
+		if (scenarioSourceRoomBaseBrightness(g_Vars.stagenum, roomnum, &level)) {
 			room->br_base = (u8)level;
 		}
 		renderalways = scenarioSourceRoomRenderAlways(roomnum);

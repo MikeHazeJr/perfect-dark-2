@@ -306,6 +306,98 @@ TEST_CASE("B-1110 the cache stamp is written only after its archives are flushed
 	REQUIRE(body.find("return;", refusal) < scan);
 }
 
+TEST_CASE("arena clean markers validate the complete version record they write",
+		"[modarchive][pdextract][static]")
+{
+	const std::string source = readSource("port/src/romextract_pdarena.c");
+	const std::string reader = functionBody(source, "static s32 s_pdarenaCleanMarkerIsValid(");
+	const std::string writer = functionBody(source, "static void s_pdarenaCleanMarkerWrite(");
+	REQUIRE(source.find("\"scenario_kind=\" ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(reader.find("sizeof(k_PdarenaCleanMarker) - 1") != std::string::npos);
+	REQUIRE(reader.find("fread(record, 1, sizeof(record), f) == sizeof(record)") != std::string::npos);
+	REQUIRE(reader.find("memcmp(record, k_PdarenaCleanMarker, sizeof(record))") != std::string::npos);
+	REQUIRE(reader.find("fgetc(f) == EOF && !ferror(f)") != std::string::npos);
+	REQUIRE(writer.find("fputs(k_PdarenaCleanMarker, f)") != std::string::npos);
+}
+
+TEST_CASE("stage archive verification reuses only the exact verified public bytes",
+		"[modarchive][pdextract][static]")
+{
+	const std::string source = readSource("port/src/romextract_pdarena.c");
+	const std::string worker = functionBody(source, "static void s_hashStageTextureSource(");
+	const std::string hash_archive = functionBody(source, "static s32 s_hashStageTextureArchive(");
+	const std::string hash_version = functionBody(source, "static void s_beginStageTextureHash(");
+	const std::string mapping = functionBody(source, "static void s_hashStageTextureMapping(");
+	const std::string key = functionBody(source, "static void s_stageLedgerKey(");
+	const std::string match = functionBody(source, "static s32 s_stageRecordsMatch(");
+	const std::string reader = functionBody(source, "static s32 s_stageTextureMarkerRead(");
+	const std::string writer = functionBody(source, "static void s_stageTextureMarkerWrite(");
+	const std::string emit = functionBody(source, "s32 romExtractAllPdarena(");
+	REQUIRE(worker.find("s_stageTextureArenaPath(") != std::string::npos);
+	REQUIRE(worker.find("s_scenarioArchiveRelPath(") != std::string::npos);
+	REQUIRE(worker.find("catalogStageIdByStagenum(") != std::string::npos);
+	REQUIRE(hash_archive.find("sha256HashFile(full, digest)") != std::string::npos);
+	REQUIRE(hash_archive.find("s_hashStageTextureString(hash, rel)") != std::string::npos);
+	REQUIRE(hash_version.find("PDARENA_STAGE_TEXTURE_REVISION") != std::string::npos);
+	REQUIRE(hash_version.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(hash_version.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND") != std::string::npos);
+	REQUIRE(mapping.find("entry->bundled && entry->type == ASSET_TEXTURE") != std::string::npos);
+	REQUIRE(mapping.find("entry->ext.texture.texture_id") != std::string::npos);
+	REQUIRE(mapping.find("s_hashStageTextureString(hash, entry->id)") != std::string::npos);
+	REQUIRE(key.find("s_beginStageTextureHash(&hash)") != std::string::npos);
+	REQUIRE(key.find("PDARENA_STAGE_LEDGER_SCHEMA") != std::string::npos);
+	REQUIRE(key.find("s_hashStageTextureMapping(&hash)") != std::string::npos);
+	REQUIRE(match.find("known->valid == 1 && live->valid == 1") != std::string::npos);
+	REQUIRE(match.find("memcmp(known->digest, live->digest, sizeof(known->digest)) == 0") != std::string::npos);
+	REQUIRE(reader.find("memcmp(recorded_key, key, sizeof(recorded_key)) == 0") != std::string::npos);
+	REQUIRE(reader.find("fread(records, sizeof(*records), count, file) == count") != std::string::npos);
+	REQUIRE(reader.find("fgetc(file) == EOF && !ferror(file)") != std::string::npos);
+	REQUIRE(reader.find("if (!*has_ledger) memset(records, 0") != std::string::npos);
+
+	const auto hash_match = emit.find("memcmp(stage_texture_previous, stage_texture_live");
+	const auto clean_marker = emit.find("s_pdarenaCleanMarkerIsValid(");
+	const auto skip = emit.find("EXTRACT.STAGE.TEXTURE: upgraded=0 failed=0 (fast-cache)");
+	const auto repair = emit.find("s_pdarenaWork(i, &actx, verified)");
+	const auto standalone_repair = emit.find("s_pdscenarioStageWork(spec, &actx, verified || deferred)", repair);
+	REQUIRE(repair != std::string::npos);
+	REQUIRE(standalone_repair != std::string::npos);
+	REQUIRE(hash_match < clean_marker);
+	REQUIRE(clean_marker < skip);
+	REQUIRE(skip < repair);
+	REQUIRE(emit.find("!effective_force && s_stageRecordsMatch(&prior[i], &live[i])", skip) < repair);
+	REQUIRE(emit.find("!effective_force && s_stageRecordsMatch(&prior[job], &live[job])", repair) <
+		standalone_repair);
+	const std::string arena = functionBody(source, "static void s_pdarenaWork(");
+	const std::string scenario = functionBody(source, "static void s_pdscenarioStageWork(");
+	const std::string upgrade = functionBody(source, "static s32 s_upgradeStageTextureProperties(");
+	REQUIRE(arena.find("verified ? 0 : s_emitOnePdscenario(") != std::string::npos);
+	REQUIRE(arena.find("verified ? 0 : s_emitOnePdarena(") != std::string::npos);
+	REQUIRE(scenario.find("verified ? 0 : s_emitOnePdscenarioSpec(") != std::string::npos);
+	REQUIRE(upgrade.find("if (!force_rewrite && s_stageRecordsMatch(&prior[i], &live[i])) continue;") != std::string::npos);
+
+	const auto success = emit.find("if (arenas_failed == 0 && scenarios_failed == 0) {", repair);
+	const auto rehash = emit.find("&stage_specs, prior, after);", success);
+	const auto stable = emit.find("!s_stageRecordsMatch(&prior[i], &live[i])", rehash);
+	const auto invalidate = emit.find("prior[i].valid = 0;", stable);
+	const auto no_full_skip = emit.find("if (!all_verified) memset(after, 0, sizeof(after));", invalidate);
+	const auto publish = emit.find("s_stageTextureMarkerWrite(arenas_dir, after, key, prior, total_work)", no_full_skip);
+	REQUIRE(publish != std::string::npos);
+	REQUIRE(success < rehash);
+	REQUIRE(rehash < stable);
+	REQUIRE(stable < invalidate);
+	REQUIRE(invalidate < no_full_skip);
+	REQUIRE(no_full_skip < publish);
+
+	const auto begin = writer.find("saveAtomicBegin(&transaction, path)");
+	const auto records = writer.find("fwrite(records, sizeof(*records), count, file) == count");
+	const auto commit = writer.find("saveAtomicCommit(&transaction) == 0");
+	const auto abort = writer.find("saveAtomicAbort(&transaction)");
+	REQUIRE(abort != std::string::npos);
+	REQUIRE(begin < records);
+	REQUIRE(records < commit);
+	REQUIRE(commit < abort);
+}
+
 TEST_CASE("B-1110 every extractor publishes derived archives", "[modarchive][b1110][static]")
 {
 	const std::regex durable("\\bmodArchiveBegin\\(");

@@ -1,0 +1,71 @@
+{
+  "scenario_name": "lobby_ui_host_countdown_cancel",
+  "description": "A listen host uses SDL Escape on its focused local countdown and both localhost clients return to the Room without starting a match.",
+  "tags": ["menus", "input", "network", "lobby-ui"],
+  "log_channel_mask": "all",
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "separate_process_installs": true,
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "window_focus_target": "host",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": ["--no-update-check", "--portable", "--host", "--listen-bind", "27291", "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0", "--host-autostart"],
+      "wait_for": "NET: created server on port 27291",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host keyboard cancels its visible countdown",
+            "patterns": [
+              "MENU_STACK: countdown START",
+              "SMOKE.WAIT: satisfied condition=lobby_countdown_ready",
+              "SMOKE: tap-press scancode=41",
+              "NET: ready gate aborted by",
+              "BRIDGE: local host cancelled ready-gate countdown",
+              "MENU_STACK: countdown CANCEL by local player",
+              "MENU_IMGUI: room OPEN \\(solo=0\\)",
+              "SMOKE.WAIT: satisfied condition=network_lobby_ready"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": ["--no-update-check", "--portable", "--connect-host", "127.0.0.1:27291"],
+      "wait_for": "NET: connected to server, sending CLC_AUTH",
+      "wait_timeout_seconds": 180,
+      "smoke_path": "tools/smoke-verify/fixtures/lobby_ui_host_countdown_cancel.json",
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host cancellation returns guest to its Room",
+            "patterns": [
+              "SMOKE.WAIT: satisfied condition=lobby_countdown_active",
+              "NET: SVC_MATCH_CANCELLED .*cancelled by",
+              "MENU_IMGUI: room OPEN \\(solo=0\\)",
+              "SMOKE.WAIT: satisfied condition=network_lobby_ready"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "lobby_countdown_ready", "timeout_ms": 220000 },
+    { "at_ms": 250, "type": "key", "key": "Escape", "action": "tap" },
+    { "at_ms": 650, "type": "wait_until", "condition": "network_lobby_ready", "timeout_ms": 8000, "stable_ms": 1000 },
+    { "at_ms": 8000, "type": "exit" }
+  ],
+  "assertions": {
+    "forbidden_patterns": ["MATCH: server stage start", "MATCH: client stage start received", "EXCEPTION_ACCESS_VIOLATION", "SMOKE: result=timeout"],
+    "required_counts": [{ "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }]
+  }
+}

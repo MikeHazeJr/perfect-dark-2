@@ -1,0 +1,8 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template": "base:arena_mp_complex",
+  "name": "Forge Test",
+  "author": "PD2 smoke",
+  "version": "0.1.0",
+  "description": "Complex saved as a mod level by the mod author, for the Forge F1 smoke: a mod level loads."
+}

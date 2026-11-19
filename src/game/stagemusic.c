@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "scenario_source_runtime.h"
 #include "lib/sched.h"
 #include "game/player.h"
 #include "game/mplayer/mplayer.h"
@@ -42,6 +43,11 @@ struct stagemusic g_StageTracks[] = {
 s32 stageGetPrimaryTrack(s32 stagenum)
 {
 	s32 i;
+	const s32 authored = scenarioSourceStagePrimaryMusic(stagenum);
+
+	if (authored >= 0) {
+		return authored;
+	}
 
 	if (g_Vars.normmplayerisrunning) {
 		return mpChooseTrack();

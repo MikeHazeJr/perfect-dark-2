@@ -3,7 +3,7 @@
  *
  * Renders two overlays on top of the existing lobby/game UI:
  *
- * 1. DOWNLOAD PROGRESS (client in CLSTATE_LOBBY, distrib state != IDLE):
+ * 1. DOWNLOAD PROGRESS (client in the lobby or preparing a match):
  *    - Banner across the bottom of the lobby screen.
  *    - Phase 1 (DIFFING): "Comparing mod catalog..." spinner.
  *    - Phase 2 (RECEIVING): Component name, byte progress bar, component counter.
@@ -30,7 +30,11 @@
 #include <math.h>
 
 #include "imgui/imgui.h"
+#include "pdgui_menu_readiness.h"
+#include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_style.h"
+#include "system.h"
 
 /* ========================================================================
  * C declarations (game symbols, no types.h)
@@ -80,6 +84,9 @@ typedef struct {
 void netDistribClientGetStatus(distrib_client_status_t *out);
 s32  netDistribClientGetKillFeed(killfeed_entry_t *out, s32 maxout);
 s32  netDistribClientConsentPending(void);
+s32  netDistribClientIsGridArena(void);
+const char *netDistribClientGridConsentId(s32 index);
+const char *netDistribClientGridArenaError(void);
 s32  netDistribClientResolveConsent(s32 accept, s32 temporary);
 
 /* Server-side per-client download status (v34) */
@@ -194,10 +201,26 @@ static const char *fmtBytes(u32 bytes, char *buf, s32 bufsz)
     return buf;
 }
 
-extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
+extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH, s32 active)
 {
-    distrib_client_status_t st;
-    netDistribClientGetStatus(&st);
+    const char *consentPopup = "##distrib_prompt";
+    const ImGuiWindowFlags consentFlags = ImGuiWindowFlags_NoDecoration |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+    distrib_client_status_t st = {};
+    if (active) netDistribClientGetStatus(&st);
+    const bool gridContent = active && netDistribClientIsGridArena() != 0;
+    const bool consentPending = st.state == DISTRIB_CSTATE_DIFFING
+        && st.missing_count > 0 && netDistribClientConsentPending();
+    const bool gridPrompt = gridContent && consentPending;
+    static bool showedGridPrompt;
+    const bool focusNewGridPrompt = gridPrompt && !showedGridPrompt;
+    showedGridPrompt = gridPrompt;
+
+    if (!consentPending && ImGui::IsPopupOpen(consentPopup) &&
+        ImGui::BeginPopupModal(consentPopup, nullptr, consentFlags)) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 
     if (st.state == DISTRIB_CSTATE_IDLE || st.state == DISTRIB_CSTATE_DONE) {
         return;
@@ -207,19 +230,27 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
         /* Show brief error notice in the bottom bar */
         float scale = (float)winH / 720.0f;
         if (scale < 0.5f) scale = 0.5f;
-        float barH = floorf(36.0f * scale);
-        ImGui::SetNextWindowPos(ImVec2(0.0f, (float)winH - barH), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2((float)winW, barH), ImGuiCond_Always);
+        const char *gridError = netDistribClientGridArenaError();
+        const float barH = floorf(36.0f * scale);
+        ImGui::SetNextWindowPos(ImVec2(0.0f, (float)winH), ImGuiCond_Always, ImVec2(0.0f, 1.0f));
+        ImGui::SetNextWindowSize(ImVec2((float)winW, gridError ? 0.0f : barH), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(0.75f);
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs |
                                  ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove |
                                  ImGuiWindowFlags_NoSavedSettings;
+        if (gridError) flags |= ImGuiWindowFlags_AlwaysAutoResize;
         if (ImGui::Begin("##distrib_err", nullptr, flags)) {
             float fs = floorf(13.0f * scale);
             ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
-            ImGui::SetCursorPosY((barH - fs) * 0.5f - 2.0f);
-            ImGui::TextColored(pdguiVec4TintDanger(),
-                               "  Mod download failed. You may be missing required components.");
+            if (gridError) {
+                ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
+                ImGui::TextWrapped("%s", gridError);
+                ImGui::PopStyleColor();
+            } else {
+                ImGui::SetCursorPosY((barH - fs) * 0.5f - 2.0f);
+                ImGui::TextColored(pdguiVec4TintDanger(),
+                                   "  Mod download failed. You may be missing required components.");
+            }
             ImGui::SetWindowFontScale(1.0f);
         }
         ImGui::End();
@@ -233,55 +264,90 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
      * Phase 1: DIFFING — show initial prompt if components are missing
      * ------------------------------------------------------------------- */
     if (st.state == DISTRIB_CSTATE_DIFFING) {
-        if (st.missing_count > 0 && netDistribClientConsentPending()) {
-            /* Show modal-ish prompt centred on screen */
-            float promptW = floorf(420.0f * scale);
-            float promptH = floorf(140.0f * scale);
-            float px = ((float)winW - promptW) * 0.5f;
-            float py = ((float)winH - promptH) * 0.5f;
-
-            ImGui::SetNextWindowPos(ImVec2(px, py), ImGuiCond_Always);
+        if (consentPending) {
+            if (!ImGui::IsPopupOpen(consentPopup)) ImGui::OpenPopup(consentPopup);
+            const float promptW = fminf(floorf(440.0f * scale), (float)winW);
+            const float promptH = gridContent ? 0.0f : floorf(158.0f * scale);
+            ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, (float)winH * 0.5f),
+                                    ImGuiCond_Always, ImVec2(0.5f, 0.5f));
             ImGui::SetNextWindowSize(ImVec2(promptW, promptH), ImGuiCond_Always);
             ImGui::SetNextWindowBgAlpha(0.92f);
 
-            ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration |
-                                     ImGuiWindowFlags_NoMove |
-                                     ImGuiWindowFlags_NoSavedSettings;
-            if (ImGui::Begin("##distrib_prompt", nullptr, flags)) {
+            const ImGuiWindowFlags promptFlags = consentFlags |
+                (gridContent ? ImGuiWindowFlags_AlwaysAutoResize : ImGuiWindowFlags_None);
+            if (ImGui::BeginPopupModal(consentPopup, nullptr, promptFlags)) {
+                if (ImGui::IsWindowAppearing()) {
+                    pdguiNavSuppressOpeningGesture();
+                    sysLogPrintf(LOG_NOTE, "MENU_STACK: lobby content consent OPEN");
+                }
                 float fs = floorf(14.0f * scale);
                 ImGui::SetWindowFontScale(fs / ImGui::GetFontSize());
 
                 ImGui::Spacing();
                 ImGui::TextColored(pdguiVec4TintInfo(),
-                                   "  SERVER MOD COMPONENTS");
+                                   gridContent ? "  TEMPORARY MATCH CONTENT" : "  SERVER MOD COMPONENTS");
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                char msg[128];
-                snprintf(msg, sizeof(msg),
-                         "  This server requires %d mod component%s not installed locally.",
-                         st.missing_count, st.missing_count == 1 ? "" : "s");
-                ImGui::TextUnformatted(msg);
+                if (gridContent) {
+                    const bool scroll = st.missing_count > 5;
+                    const bool show = !scroll || ImGui::BeginChild("##grid_packages",
+                        ImVec2(320.0f * scale, 5.0f * ImGui::GetTextLineHeightWithSpacing()),
+                        ImGuiChildFlags_Borders);
+                    if (show) {
+                        for (s32 i = 0; i < st.missing_count; i++) {
+                            const char *id = netDistribClientGridConsentId(i);
+                            if (id) ImGui::TextWrapped("%s", id);
+                        }
+                    }
+                    if (scroll) ImGui::EndChild();
+                    char total[32];
+                    ImGui::Text("Total download %s", fmtBytes(st.current_bytes_total, total, sizeof(total)));
+                } else {
+                    char msg[128];
+                    snprintf(msg, sizeof(msg), "  This server requires %d mod component%s not installed locally.",
+                                st.missing_count, st.missing_count == 1 ? "" : "s");
+                    ImGui::TextWrapped("%s", msg);
+                }
                 ImGui::Spacing();
 
-                float btnW = floorf(120.0f * scale);
+                float btnW = floorf((gridContent ? 150.0f : 120.0f) * scale);
                 float btnH = floorf(22.0f * scale);
 
-                if (ImGui::Button("Download", ImVec2(btnW, btnH))) {
-                    netDistribClientResolveConsent(1, 0);
+                const bool cancel = pdguiMenuCancelPressed();
+                bool download = false;
+                if (!gridContent) {
+                    download = ImGui::Button("Download", ImVec2(btnW, btnH));
+                    ImGui::SameLine(0.0f, floorf(6.0f * scale));
+                }
+                if (gridContent && (focusNewGridPrompt || ImGui::IsWindowAppearing())) {
+                    ImGui::SetWindowFocus();
+                    ImGui::SetKeyboardFocusHere();
+                    ImGui::SetNavCursorVisible(true);
+                }
+                const bool session = ImGui::Button(gridContent ? "Receive for Match" : "This Session", ImVec2(btnW, btnH));
+                if (gridContent) {
+                    ImGui::SetItemDefaultFocus();
+                    pdguiMenuRecordView(0, -1, ImGui::GetItemID(), 0, 0);
                 }
                 ImGui::SameLine(0.0f, floorf(6.0f * scale));
-                if (ImGui::Button("This Session", ImVec2(btnW, btnH))) {
-                    netDistribClientResolveConsent(1, 1);
-                }
-                ImGui::SameLine(0.0f, floorf(6.0f * scale));
-                if (ImGui::Button("Skip", ImVec2(btnW * 0.6f, btnH))) {
-                    netDistribClientResolveConsent(0, 1);
+                const bool skip = ImGui::Button(gridContent ? "Decline" : "Skip", ImVec2(btnW * 0.6f, btnH));
+                if (!gridContent) ImGui::SetItemDefaultFocus();
+
+                if (cancel || skip || download || session) {
+                    const bool accept = !cancel && !skip;
+                    const bool temporary = gridContent || !download || !accept;
+                    pdguiNavSuppressActivation();
+                    if (netDistribClientResolveConsent(accept, temporary)) {
+                        sysLogPrintf(LOG_NOTE, "MENU_STACK: lobby content consent %s",
+                            !accept ? "SKIP" : download ? "DOWNLOAD" : "SESSION");
+                        ImGui::CloseCurrentPopup();
+                    }
                 }
 
                 ImGui::SetWindowFontScale(1.0f);
+                ImGui::EndPopup();
             }
-            ImGui::End();
         } else {
             /* No missing components or prompt already handled — show spinner */
             float barH = floorf(30.0f * scale);
@@ -341,9 +407,12 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             }
 
             /* Progress bar */
-            float frac = (st.current_chunks_total > 0)
-                ? (float)st.current_chunks_received / (float)st.current_chunks_total
-                : 0.0f;
+            float frac = 0.0f;
+            if (gridContent && st.current_bytes_total > 0) {
+                frac = (float)st.current_bytes_received / (float)st.current_bytes_total;
+            } else if (!gridContent && st.current_chunks_total > 0) {
+                frac = (float)st.current_chunks_received / (float)st.current_chunks_total;
+            }
             if (frac > 1.0f) frac = 1.0f;
 
             char brecv[32], btotal[32];
@@ -351,7 +420,8 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             fmtBytes(st.current_bytes_total,    btotal, sizeof(btotal));
 
             char overlay[64];
-            snprintf(overlay, sizeof(overlay), "%s downloaded / %s unpacked", brecv, btotal);
+            snprintf(overlay, sizeof(overlay), gridContent ? "%s / %s received" : "%s downloaded / %s unpacked",
+                     brecv, btotal);
 
             ImGui::SetCursorPos(ImVec2(padX, floorf(22.0f * scale)));
             /* S311: download progress bar tracks theme info tint. */

@@ -20,14 +20,19 @@
 #include "game/forgemode.h"
 
 #include <math.h>
+#include <string.h>
 
 #include "PR/ultratypes.h"
 
 #include "forge/forge_runtime.h"
+#include "forge_level_io.h"
+#include "forge_level_live.h"
 
 #include "bss.h"
 #include "constants.h"
+#include "config.h"
 #include "data.h"
+#include "platform.h"
 #include "types.h"
 
 #include "system.h"
@@ -37,6 +42,8 @@
 #include "pdgui.h"  /* B-195 / Fix 2+3: pdguiClearImGuiFocusAndNav on transitions */
 #include "scene.h"
 #include "game/body.h"  /* Fix 5: bodyAllocateModel for chr-body hot-reload at transitions */
+#include "game/camera.h"  /* forgeProjectWorldPos: cam0f0b4d04 */
+#include "lib/mtx.h"      /* forgeProjectWorldPos: mtx4TransformVec */
 #include "game/env.h"
 #include "game/music.h"
 #include "game/sky.h"
@@ -62,6 +69,28 @@
 
 #define FORGE_DEG2RAD                 0.017453292519943f
 #define FORGE_RAD2DEG                 57.295779513082320f
+
+#define FORGE_DEFAULT_DISPLAY_NAME "The Grid"
+static char s_ForgeDisplayName[FORGE_DISPLAY_NAME_CAP] = FORGE_DEFAULT_DISPLAY_NAME;
+
+PD_CONSTRUCTOR static void forgeRegisterConfig(void)
+{
+	configRegisterString("Forge.DisplayName", s_ForgeDisplayName, sizeof(s_ForgeDisplayName));
+}
+
+const char *forgeDisplayName(void)
+{
+	/* Keep ImGui label delimiters and nonprinting bytes out of a display name. */
+	if (!s_ForgeDisplayName[0] || strstr(s_ForgeDisplayName, "##")) {
+		return FORGE_DEFAULT_DISPLAY_NAME;
+	}
+	for (const unsigned char *c = (const unsigned char *)s_ForgeDisplayName; *c; c++) {
+		if (*c < ' ' || *c == 127) {
+			return FORGE_DEFAULT_DISPLAY_NAME;
+		}
+	}
+	return s_ForgeDisplayName;
+}
 
 /* ============================================================
  * Module state
@@ -462,9 +491,12 @@ static void forgeUpdateFreefly(void)
 	if (s_forge.fly.pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
 	if (s_forge.fly.pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
 
-	/* Build the world-space movement vector.  PD yaw 0 looks down +Z and
-	 * increases turning right (CW from above) -- this matches the existing
-	 * bwalkUpdateTheta convention used by the legacy walk code. */
+	/* Build the world-space movement vector, along the axes the view is
+	 * drawn with (forgeCameraOverride): a turn angle t faces (-sin t, 0,
+	 * cos t), which is the game's own reading of a player's turn angle
+	 * (bondmove.c, bmoveUpdateVerta), and the view's right is (-cos t, 0,
+	 * -sin t), the way the angle grows. Until 2026-11-17 this used (+sin t,
+	 * ., cos t) and (cos t, 0, -sin t), the mirror image in X (B-1238). */
 	const f32 yaw_rad   = s_forge.fly.yaw_deg   * FORGE_DEG2RAD;
 	const f32 pitch_rad = s_forge.fly.pitch_deg * FORGE_DEG2RAD;
 	const f32 cos_yaw   = cosf(yaw_rad);
@@ -476,12 +508,12 @@ static void forgeUpdateFreefly(void)
 	 * cos so pitch contributes Y, but we still treat WASD as 6DOF horizontal
 	 * + Q/E vertical -- forward axis still gets vertical contribution from
 	 * pitch for that "look down and fly down" feel). */
-	const f32 fwd_x =  sin_yaw * cos_pitch;
+	const f32 fwd_x = -sin_yaw * cos_pitch;
 	const f32 fwd_y =  sin_pitch;
 	const f32 fwd_z =  cos_yaw * cos_pitch;
 
-	/* Right vector (yaw + 90deg, no pitch). */
-	const f32 right_x =  cos_yaw;
+	/* Right vector (the way the turn angle grows, no pitch). */
+	const f32 right_x = -cos_yaw;
 	const f32 right_y =  0.0f;
 	const f32 right_z = -sin_yaw;
 
@@ -612,13 +644,14 @@ static void forgeObserverLayerExit(const char *reason)
 static void forgeTransitionToNormal(const char *reason)
 {
 	struct player *p = forgeCurrentPlayer();
+	const s32 draft_playing = forgeLevelDraftIsPlaying();
 	if (p) {
 		forgeRestorePlayerMode(p);
 	}
-	forgeObserverLayerEnter(reason);
+	if (!draft_playing) forgeObserverLayerEnter(reason);
 	if (s_forge.state != FORGE_SESSION_NORMAL) {
 		sysLogPrintf(LOG_NOTE, "GRID: -> NORMAL (%s)", reason ? reason : "");
-		forgeRuntimeEnterPlay();
+		forgeRuntimeEnterPlay(!draft_playing);
 	}
 	s_forge.state = FORGE_SESSION_NORMAL;
 
@@ -670,6 +703,9 @@ static void forgeTransitionToNormal(const char *reason)
 	if (inputCtxIsActive(&g_CtxForgeEditor)) {
 		inputCtxPopDeferred(&g_CtxForgeEditor);
 	}
+	/* A native draft reload starts gameplay. Keep the session's mapped
+	 * return action while leaving gameplay as the active scene layer. */
+	if (draft_playing) forgeObserverLayerExit(reason);
 }
 
 static void forgeTransitionToFreefly(const char *reason)
@@ -811,6 +847,47 @@ static void forgeTransitionToInactive(const char *reason)
 	}
 }
 
+static struct {
+	struct coord pos;
+	f32 yaw;
+	f32 pitch;
+} s_DraftCamera;
+
+void forgePrepareStageDeparture(s32 draft_reload)
+{
+	if (!forgeSessionIsActive()) {
+		forgeRuntimeReleaseStage();
+		return;
+	}
+	if (forgeIsFreefly()) {
+		if (draft_reload) {
+			s_DraftCamera.pos = s_forge.fly.pos;
+			s_DraftCamera.yaw = s_forge.fly.yaw_deg;
+			s_DraftCamera.pitch = s_forge.fly.pitch_deg;
+		}
+		forgeLevelLiveTick(0);
+	}
+	const s32 enter = s_forge.request_enter_session;
+	const s32 canvas = s_forge.request_canvas_mode;
+	forgeTransitionToInactive(draft_reload ? "draft stage reload" : "stage departure");
+	s_forge.request_enter_session = enter;
+	s_forge.request_canvas_mode = canvas;
+	forgeRuntimeReleaseStage();
+}
+
+void forgeCompleteDraftStageReload(s32 play)
+{
+	imcActivate(&g_ImcForgeSession);
+	if (play) {
+		forgeTransitionToNormal("native draft playtest");
+	} else {
+		forgeTransitionToFreefly("return from draft playtest");
+		s_forge.fly.pos = s_DraftCamera.pos;
+		s_forge.fly.yaw_deg = s_DraftCamera.yaw;
+		s_forge.fly.pitch_deg = s_DraftCamera.pitch;
+	}
+}
+
 /* ============================================================
  * Public API
  * ============================================================ */
@@ -893,6 +970,116 @@ void forgeGetCameraPos(struct coord *out_pos)
 		return;
 	}
 	*out_pos = s_forge.fly.pos;
+}
+
+s32 forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_distance)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct coord pos;
+	struct coord cam;
+	f32 out[2];
+
+	if (!world || !out_x || !out_y || !player || !player->worldtoscreenmtx) {
+		return 0;
+	}
+
+	pos.x = world[0];
+	pos.y = world[1];
+	pos.z = world[2];
+	mtx4TransformVec(player->worldtoscreenmtx, &pos, &cam);
+
+	/* In the camera's own space the view looks down -Z (cam0f0b4c3c builds
+	 * every screen ray with z = -1). A point at the camera or behind it has
+	 * no place in the picture. */
+	if (!(cam.z < -1.0f)) {
+		return 0;
+	}
+
+	/* The game's own projection, the one its target boxes and menu markers
+	 * use (prop.c, menu.c): the same matrix, then cam0f0b4d04. */
+	cam0f0b4d04(&cam, out);
+	*out_x = out[0];
+	*out_y = out[1];
+	if (out_distance) {
+		*out_distance = -cam.z;
+	}
+	return 1;
+}
+
+void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg)
+{
+	if (s_forge.state != FORGE_SESSION_FREEFLY) {
+		return;
+	}
+
+	/* The same range forgeUpdateFreefly keeps them in. The next tick hands
+	 * them to the player (forgeApplyFreeflyToPlayer), and the view follows. */
+	while (yaw_deg < 0.0f)    yaw_deg += 360.0f;
+	while (yaw_deg >= 360.0f) yaw_deg -= 360.0f;
+	if (pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
+	if (pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
+	s_forge.fly.yaw_deg = yaw_deg;
+	s_forge.fly.pitch_deg = pitch_deg;
+	sysLogPrintf(LOG_NOTE, "GRID: debug camera angles yaw=%.1f pitch=%.1f", yaw_deg, pitch_deg);
+}
+
+s32 forgeCameraOverride(struct coord *pos, struct coord *up, struct coord *look)
+{
+	const struct player *p;
+	f32 yaw_rad;
+	f32 pitch_rad;
+	f32 sin_yaw;
+	f32 cos_yaw;
+	f32 sin_pitch;
+	f32 cos_pitch;
+
+	if (s_forge.state != FORGE_SESSION_FREEFLY || !pos || !up || !look) {
+		return 0;
+	}
+	p = forgeCurrentPlayer();
+	if (!p || p != g_Vars.currentplayer) {
+		return 0;
+	}
+
+	yaw_rad = s_forge.fly.yaw_deg * FORGE_DEG2RAD;
+	pitch_rad = s_forge.fly.pitch_deg * FORGE_DEG2RAD;
+	sin_yaw = sinf(yaw_rad);
+	cos_yaw = cosf(yaw_rad);
+	sin_pitch = sinf(pitch_rad);
+	cos_pitch = cosf(pitch_rad);
+
+	/* The game's reading of a turn angle (bondmove.c, bmoveUpdateVerta): a
+	 * player with turn angle t faces (-sin t, 0, cos t). Pitch tips that
+	 * toward +y, and the up vector tips back with it. */
+	pos->x = s_forge.fly.pos.x;
+	pos->y = s_forge.fly.pos.y;
+	pos->z = s_forge.fly.pos.z;
+	look->x = -sin_yaw * cos_pitch;
+	look->y = sin_pitch;
+	look->z = cos_yaw * cos_pitch;
+	up->x = sin_yaw * sin_pitch;
+	up->y = cos_pitch;
+	up->z = -cos_yaw * sin_pitch;
+	return 1;
+}
+
+void forgeAddCameraAngles(f32 dyaw_deg, f32 dpitch_deg)
+{
+	if (s_forge.state != FORGE_SESSION_FREEFLY) {
+		return;
+	}
+	/* Not a number, or more than a quarter turn in one call (a cursor that
+	 * jumped, not a hand that moved): leave the camera where it is. */
+	if (!(dyaw_deg >= -90.0f && dyaw_deg <= 90.0f) || !(dpitch_deg >= -90.0f && dpitch_deg <= 90.0f)) {
+		return;
+	}
+
+	s_forge.fly.yaw_deg += dyaw_deg;
+	s_forge.fly.pitch_deg += dpitch_deg;
+	while (s_forge.fly.yaw_deg < 0.0f)    s_forge.fly.yaw_deg += 360.0f;
+	while (s_forge.fly.yaw_deg >= 360.0f) s_forge.fly.yaw_deg -= 360.0f;
+	if (s_forge.fly.pitch_deg >  FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg =  FORGE_FREEFLY_PITCH_MAX_DEG;
+	if (s_forge.fly.pitch_deg < -FORGE_FREEFLY_PITCH_MAX_DEG) s_forge.fly.pitch_deg = -FORGE_FREEFLY_PITCH_MAX_DEG;
 }
 
 f32 forgeGetCameraYawDeg(void)
@@ -1043,7 +1230,8 @@ void forgeTick(void)
 	/* In-session: handle the toggle binding (single tap). */
 	if (actionPressed(0, ACTION_FORGE_TOGGLE)) {
 		if (s_forge.state == FORGE_SESSION_NORMAL) {
-			forgeTransitionToFreefly("toggle press");
+			if (forgeLevelDraftIsPlaying()) forgeLevelDraftReturn();
+			else forgeTransitionToFreefly("toggle press");
 		} else if (s_forge.state == FORGE_SESSION_FREEFLY) {
 			forgeTransitionToNormal("toggle press");
 		}

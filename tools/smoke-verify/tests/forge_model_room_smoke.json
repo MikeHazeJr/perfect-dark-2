@@ -1,0 +1,111 @@
+{
+  "scenario_name": "forge_model_room_smoke",
+  "description": "Forge step F5, a level made from a model: the Model Room (dev-mods/model_room), whose walls and floors come from model_room.glb through tools/build_level_from_model.py, is staged as a mod and a Combat Simulator match starts on it with three simulants. What this proves beyond forge_blank_room_smoke, whose level is drawn in code: a level from a model loads and plays: its four textured parts are drawn (Floor, Walls, Stripes and the plain Trim), its 90 collision triangles become the stage's collision and tiles (the ceiling and the strip along the north wall are not among them), its eight starts are pads with a room, and a player spawns. The screenshot is the first look at a level from a model; it should show the tiled floor, the panelled walls, a ramp up to a platform and striped pillars. What it does not prove: that a player can walk up the ramps and stand on the platforms (two starts are on them, so a spawn there would show it), or a level made in Blender itself.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/model_room/make_model_room.py",
+    "dev-mods/model_room/model_room.glb",
+    "dev-mods/model_room/model_room.pdarena",
+    "tools/build_level_from_model.py",
+    "tools/level_archive.py",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/modasset_compiler.c",
+    "port/fast3d/scenario_scene_renderer.cpp",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/model_room"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/model_room/mod.json",
+      "dst": "mods/model_room/mod.json"
+    },
+    {
+      "src": "dev-mods/model_room/model_room.pdarena",
+      "dst": "mods/model_room/model_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/model_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "mod_model_room:arena_model_room",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 3000,
+      "name": "model-room"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the ordinary Combat Simulator player is continuously spawned, live, controllable and walking in the Model Room."
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit",
+      "comment": "Eight seconds in the room (the screenshot is taken at three), then a scripted exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_model_room_smoke",
+      "PDARENA\\.SCENARIO: owner=mod_model_room:arena_model_room id=mod_model_room:scenario_model_room stagenum=0x[0-9a-f]+ source=",
+      "BOOT: --launch-mp-room direct match start",
+      "MODASSET\\.COMPILER: built colmesh source=.*model_room.* format=\\S+ vertices=\\d+ tris=90 skipped_degenerate=0 colflags=sidecar applied=\\d+",
+      "SCENARIO\\.RENDER: activated source scene 'mod_model_room:scenario_model_room' .*vertices=\\d+ groups=\\d+ materials=\\d+ images=4 ",
+      "SCENARIO\\.SOURCE: resolved room domain 'mod_model_room:scenario_model_room' rooms=2 declared=2 mesh_max=1 ",
+      "SCENARIO\\.SOURCE: compiled scene tiles 'mod_model_room:scenario_model_room' for stage '[^']*' as 2 rooms, 90 tiles ",
+      "SCENARIO\\.GRAPH: trigger volume nodes '[^']*model_room[^']*' nodes=8 rows=8 ",
+      "SCENARIO\\.GRAPH: level program 'mod_model_room:scenario_model_room' nodes=11 exec_edges=7 modules=4 volumes=\\d+ backend=graph\\.level\\.runner",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*model_room[^']*'.* as 0 setup records, 8 spawns,",
+      "SCENARIO\\.SOURCE: compiled pads\\.json '[^']*model_room[^']*' for stage '[^']*' as 8 pads, 8 waypoints, \\d+ waygroups, 8 covers ",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=8 without_room=0",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "MATCH: player spawned slot=",
+      "SMOKE: screenshot at_ms=3000 -> .*model-room\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}

@@ -79,13 +79,75 @@ static void s_fillHeadResult(const asset_entry_t *e, catalog_head_result_t *out)
     out->session_id   = sessionCatalogLookupWireId(e->id);
 }
 
+/* -------------------------------------------------------------------------
+ * The catalog row of a stage
+ *
+ * A base stage's row is its map row. A stage a mod minted
+ * (s_mintCustomStagenum in assetcatalog_scanner.c: an arena keys its mint to
+ * its scenario id, so the arena and its scenario share one stagenum in
+ * [STAGENUM_CUSTOM_START, STAGENUM_CUSTOM_END) and one g_Stages row) has no
+ * map row: its scenario row owns it, else its arena row, the order
+ * assetCatalogFindModMapByStagenum uses. No map row is made for it, so the
+ * stage keeps one record (Forge F1, week note 2026-11-17 04:00 UTC).
+ * ------------------------------------------------------------------------- */
+
+/* map, scenario and arena all keep stagenum first in the entry union; read
+ * it by type anyway. */
+static s32 s_entryStagenum(const asset_entry_t *e)
+{
+    switch (e->type) {
+    case ASSET_MAP:      return e->ext.map.stagenum;
+    case ASSET_SCENARIO: return e->ext.scenario.stagenum;
+    case ASSET_ARENA:    return e->ext.arena.stagenum;
+    default:             return -1;
+    }
+}
+
+/* An enabled scenario or arena row whose stagenum a mod minted. */
+static s32 s_ownsMintedStage(const asset_entry_t *e)
+{
+    s32 stagenum;
+
+    if (!e || !e->occupied || !e->enabled
+            || (e->type != ASSET_SCENARIO && e->type != ASSET_ARENA)) {
+        return 0;
+    }
+    stagenum = s_entryStagenum(e);
+    return stagenum >= STAGENUM_CUSTOM_START && stagenum < STAGENUM_CUSTOM_END;
+}
+
+/* The owner of a minted stage, by stagenum (runtime_index < 0) or by its
+ * g_Stages index: the scenario row, then the arena row. NULL for a base
+ * stage, which always has its map row. */
+static const asset_entry_t *s_mintedStageOwner(s32 stagenum, s32 runtime_index)
+{
+    static const asset_type_e owners[] = { ASSET_SCENARIO, ASSET_ARENA };
+    size_t t;
+    s32 i;
+
+    for (t = 0; t < sizeof(owners) / sizeof(owners[0]); t++) {
+        for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(i);
+
+            if (!e || e->type != owners[t] || !s_ownsMintedStage(e)) {
+                continue;
+            }
+            if (runtime_index >= 0 ? e->runtime_index == runtime_index
+                    : s_entryStagenum(e) == stagenum) {
+                return e;
+            }
+        }
+    }
+    return NULL;
+}
+
 static void s_fillStageResult(const asset_entry_t *e, catalog_stage_result_t *out)
 {
     s32 idx;
 
     memset(out, 0, sizeof(*out));
     out->entry      = e;
-    out->stagenum   = e->ext.map.stagenum;
+    out->stagenum   = s_entryStagenum(e);
     out->net_hash   = e->net_hash;
     out->session_id = sessionCatalogLookupWireId(e->id);
 
@@ -293,8 +355,17 @@ s32 catalogResolveStageForType(const char *id, asset_type_e expected_type,
     return 1;
 }
 
+/* A stage by its row: a map row, or the scenario or arena row that owns a
+ * stage a mod minted (see s_mintedStageOwner). The typed
+ * catalogResolveStageForType stays strict. */
 s32 catalogResolveStage(const char *id, catalog_stage_result_t *out)
 {
+    const asset_entry_t *e = (id && id[0]) ? assetCatalogResolve(id) : NULL;
+
+    if (s_ownsMintedStage(e)) {
+        s_fillStageResult(e, out);
+        return 1;
+    }
     return catalogResolveStageForType(id, ASSET_MAP, out);
 }
 
@@ -688,7 +759,14 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
 
 const char *catalogStageIdByStageTableIndex(s32 stage_table_index)
 {
-    return catalogIdByRuntime(ASSET_MAP, stage_table_index);
+    const char *id = catalogIdByRuntime(ASSET_MAP, stage_table_index);
+    const asset_entry_t *owner;
+
+    if (id || stage_table_index < 0) {
+        return id;
+    }
+    owner = s_mintedStageOwner(-1, stage_table_index);
+    return owner ? owner->id : NULL;
 }
 
 const char *catalogStageIdBySoloStageIndex(s32 solo_stage_index)
@@ -710,6 +788,11 @@ const char *catalogStageIdByStagenum(s32 stagenum)
         if (e->ext.map.stagenum == stagenum) return e->id;
     }
 
+    if (stagenum >= STAGENUM_CUSTOM_START && stagenum < STAGENUM_CUSTOM_END) {
+        const asset_entry_t *owner = s_mintedStageOwner(stagenum, -1);
+
+        return owner ? owner->id : NULL;
+    }
     return NULL;
 }
 

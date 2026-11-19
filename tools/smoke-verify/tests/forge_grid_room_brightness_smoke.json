@@ -1,0 +1,99 @@
+{
+  "scenario_name": "forge_grid_room_brightness_smoke",
+  "description": "Author a brightness range of 48 to 112 for room 1 in Grid Test Rooms, save a new arena, and launch it in offline Combat. Check the native room table loads both ranges and the scene renderer receives brightness 92 for room 1 and 210 for room 2.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "src/game/bg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/grid_two_rooms",
+    "mods/MP Maps/arena_grid_room_brightness"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/mod.json",
+      "dst": "mods/grid_two_rooms/mod.json"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "mods/grid_two_rooms/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "mod_grid_two_rooms:arena_grid_two_rooms",
+    "--debug-forge-level-name",
+    "Grid_Room_Brightness",
+    "--debug-forge-level-room-brightness",
+    "--launch-mp-room",
+    "mod:arena_grid_room_brightness",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_room_brightness_smoke",
+      "FORGE\\.LEVEL\\.EDIT: authored room 1 brightness min=48 max=112",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_grid_room_brightness mod_id=mod\\.arena_grid_room_brightness updated=0",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_grid_two_rooms:arena_grid_two_rooms catalog=mod:arena_grid_room_brightness changed_members=[1-9]\\d* restart_count=\\d+ archive='[^']*arena_grid_room_brightness\\.pdarena' own_template=0",
+      "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=OK catalog=mod:arena_grid_room_brightness",
+      "PDARENA\\.SCENARIO: owner=mod:arena_grid_room_brightness id=mod:arena_grid_room_brightness__[^ ]+ stagenum=0x[0-9a-f]+ source=",
+      "SCENARIO\\.SOURCE: native room brightness for 'mod:arena_grid_room_brightness__[^']+' room=1 min=48 max=112$",
+      "SCENARIO\\.SOURCE: native room brightness for 'mod:arena_grid_room_brightness__[^']+' room=2 min=128 max=255$",
+      "GRID\\.ROOM\\.BRIGHTNESS: scenario='mod:arena_grid_room_brightness__[^']+' room1=92\\.0 room2=210\\.0$",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "SCENARIO\\.SOURCE: rooms\\.json .* refused"
+    ]
+  }
+}

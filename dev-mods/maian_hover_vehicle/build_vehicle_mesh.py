@@ -36,6 +36,13 @@ Nodes (the hoverbike's layout first: position root, bounding box, a display list
                  seat's matrix, so the engine can scale a seat to regrow its crystal
   toggle 141 ->  display list "crystals_black": the same crystals, black (overheat), at 97 %
                  inside the seafoam ones: they show only when the engine hides toggle 140
+  23      160    the driver's eye, child of the root: in the well ahead of the turret deck,
+                 looking over the nose
+  24      161    the gunner's eye, child of the yaw (it turns with the turret): above the
+                 cannon, looking along it
+The two eye points carry no geometry. The game reads them for the riders' cameras
+(hoverbikeSeatModelPos, src/game/vehiclegraph.c); a vehicle model without part 160 gets the
+base hoverbike's driver position.
 """
 import json
 import math
@@ -62,6 +69,15 @@ PART_SEAT0, PART_MUZZLE_SEAT = 110, 128
 TOGGLE_CRYSTALS, TOGGLE_BLACK = 140, 141
 MTX_ROOT, MTX_YAW, MTX_PITCH, MTX_MUZZLE, MTX_SEAT0 = 0, 1, 2, 3, 4
 MTX_MUZZLE_SEAT = MTX_SEAT0 + 18
+# Where the riders' eyes are, in model units (+X left, +Y up, +Z forward; the hull's deck
+# is at y 306, the well ahead of it bottoms near y -45 at z 390 to 580, the nose ahead is
+# below y 70, the pod spans y 306 to 511 and the cannon y 511 to 935). The base
+# hoverbike's driver position, 80 world units up and 50 back, is inside this vehicle's
+# cannon, which is why the driver's view was full of hull before these parts existed.
+PART_DRIVER_SEAT, PART_GUNNER_SEAT = 160, 161
+MTX_DRIVER_SEAT, MTX_GUNNER_SEAT = MTX_MUZZLE_SEAT + 1, MTX_MUZZLE_SEAT + 2
+DRIVER_EYE = (0.0, 420.0, 450.0)
+GUNNER_EYE = (0.0, 960.0, -300.0)
 POSITION, TOGGLE, BBOX, DL = 2, 18, 10, 24
 
 
@@ -271,6 +287,13 @@ def build(parts_path, out_dir, preview_path=None):
         tog = put(node(len(nodes), root, TOGGLE, partnum=toggle_part, target=len(nodes) + 1))
         put(node(len(nodes), tog, DL, group=group, render_mtx=MTX_SEAT0, mcount=1, node_bounds=bounds))
         parts.append((toggle_part, tog))
+    # The riders' eye points, last so that no earlier node moves.
+    driver_id = put(node(len(nodes), root, POSITION, partnum=PART_DRIVER_SEAT, part=MTX_DRIVER_SEAT,
+                         mtx0=MTX_DRIVER_SEAT, pos=np.array(DRIVER_EYE)))
+    parts.append((PART_DRIVER_SEAT, driver_id))
+    gunner_id = put(node(len(nodes), yaw_id, POSITION, partnum=PART_GUNNER_SEAT, part=MTX_GUNNER_SEAT,
+                         mtx0=MTX_GUNNER_SEAT, pos=np.array(GUNNER_EYE) - yaw))
+    parts.append((PART_GUNNER_SEAT, gunner_id))
     for i, n in enumerate(nodes):
         assert n["id"] == i and n["parent"] < i
 
@@ -332,6 +355,7 @@ def build(parts_path, out_dir, preview_path=None):
     print("pivots (model units): yaw %s pitch %s muzzle %s" % (
         np.round(yaw, 1).tolist(), np.round(pitch, 1).tolist(), np.round(muzzle, 1).tolist()))
     print("ring seats:", len(seats), "first", np.round(seats[0], 1).tolist())
+    print("eye points (model units): driver %s gunner %s" % (list(DRIVER_EYE), list(GUNNER_EYE)))
     return 0
 
 

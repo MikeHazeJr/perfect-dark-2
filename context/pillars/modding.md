@@ -928,6 +928,30 @@ renderer activation. Those failures now use a shared fatal that identifies the
 stage, payload, legacy id, and public `.pdscenario` source, and the native-source
 guard rejects the old setup/pads/tiles/background fallback signatures.
 
+The arena and scenario warm path accepts an existing `.pdextract-clean` marker
+only when the complete version record and both family stamps match.
+`romextract_pdarena.c` derives the read size from the record it writes. The
+catalog manifest loader in `loader_walker_common.c` probes loose files for a ZIP
+signature before opening the archive. Legacy JSON still loads in full.
+
+The stage-texture migration also checks a private digest of the arena and
+scenario archive bytes, the extractor versions, and the bundled texture-to-ID
+mapping. When that digest and both family stamps match, the migration skips
+reopening the archives to inspect their texture rules. Changes or damaged files
+go through the existing validation and repair path. Releases exclude these
+local extraction markers.
+
+The stage marker holds content digests for standalone scenarios and for arena
+jobs that also check their linked scenario. A failed fingerprint check reopens
+only changed or missing jobs. A single ZIP reader serves the archive's
+validation predicates, and a format update emits texture rules with the level
+graph before wrapping it. Valid edits stay authoritative. Ordinary startup can
+defer nonessential standalone campaign jobs once a prior ledger exists.
+Boot keeps the scenario and any paired mission metadata out of the catalog
+while the isolated worker prepares the scenario. The game refreshes the
+paired metadata, publishes both typed FileProvider sources and makes the
+stage available on the main thread.
+
 The fallback telemetry seen in the first weapon run was classified and fixed as
 extraction-bootstrap instrumentation noise: first-launch ROM reads during
 extraction/verify no longer count as runtime fallback, while post-extraction

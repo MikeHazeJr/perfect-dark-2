@@ -1,0 +1,15 @@
+{
+  "id": "blank_room",
+  "name": "Blank Room (level template)",
+  "version": "0.1.0",
+  "author": "PD2",
+  "description": "A small original level: one room with four pillars and eight player starts, and nothing of the original game in it. Open it in Forge to make a level that can be shared.",
+  "tags": [
+    "arena",
+    "pdarena",
+    "template"
+  ],
+  "contents": [
+    "arena"
+  ]
+}

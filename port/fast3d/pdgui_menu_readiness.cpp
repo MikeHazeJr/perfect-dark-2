@@ -29,9 +29,14 @@ int pdguiMenuViewReadiness(const char *window_name, int application_focused,
 {
     if (!out) return 0;
     *out = {-1, -1, 0, 0};
-    if (!pdguiMenuWindowOwnsInput(window_name, application_focused)) return 0;
+    const unsigned int rejection = pdguiMenuObserveInput(window_name, application_focused).rejection_mask;
+    if (rejection != 0 && rejection != PDGUI_MENU_INPUT_POPUP) return 0;
     ImGuiContext &context = *ImGui::GetCurrentContext();
     ImGuiWindow *window = ImGui::FindWindowByName(window_name);
+    // A recorded modal can report its own focus while blocking every other view.
+    if (rejection == PDGUI_MENU_INPUT_POPUP &&
+        (!(window->Flags & ImGuiWindowFlags_Modal) || context.OpenPopupStack.back().Window != window))
+        return 0;
     ImGuiStorage &storage = window->StateStorage;
     if (context.WithinFrameScope || context.FrameCount != context.FrameCountRendered ||
         storage.GetInt(observationKey(window, "pdgui.readiness.frame"), -1) != context.FrameCountRendered ||
@@ -84,4 +89,17 @@ pdgui_menu_input_observation_t pdguiMenuObserveInput(
 int pdguiMenuWindowOwnsInput(const char *window_name, int application_focused)
 {
     return pdguiMenuObserveInput(window_name, application_focused).rejection_mask == 0;
+}
+
+int pdguiMenuModalOwnsInput(const char *window_name, const char *focused_item,
+    int application_focused)
+{
+    if (!focused_item ||
+        pdguiMenuObserveInput(window_name, application_focused).rejection_mask != PDGUI_MENU_INPUT_POPUP)
+        return 0;
+    const ImGuiContext &context = *ImGui::GetCurrentContext();
+    ImGuiWindow *window = ImGui::FindWindowByName(window_name);
+    return (window->Flags & ImGuiWindowFlags_Modal)
+        && context.OpenPopupStack.back().Window == window
+        && context.ActiveId == 0 && context.NavId == window->GetID(focused_item);
 }

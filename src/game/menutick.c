@@ -62,10 +62,11 @@ static bool ciReadyForMenuOpen(void)
 	 * action is playerRemoveChrBody() -- removing the character -- while the FP camera
 	 * followed the ungrounded body and dropped/bounced. Stay in TICKMODE_CUTSCENE and
 	 * report ready once the fly-in anim has settled (its last frame, camera on Joanna),
-	 * or after a safety timeout so a SkipIntro/stuck cutscene still opens the menu (no
-	 * black-screen) WITHOUT ending the cutscene. */
+	 * or after a safety timeout past the five-second intro. Use elapsed level
+	 * time so a high render rate cannot bring the menu up during the fly-in. */
 	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
-		return !playerCurrentCutsceneInProgress() || g_Vars.lvframenum > 300;
+		return !playerCurrentCutsceneInProgress()
+			|| g_Vars.lvframe60 >= SECSTOTIME60(6);
 	}
 
 	return true;
@@ -516,7 +517,7 @@ void menuTick(void)
 	if (g_FileState == FILESTATE_UNSELECTED && g_Vars.stagenum == STAGE_CITRAINING) {
 		g_PlayersWithControl[0] = false;
 
-		if (g_Vars.lvframenum > 30 && ciReadyForMenuOpen()) {
+		if (g_Vars.lvframe60 >= 30 && ciReadyForMenuOpen()) {
 			g_Menus[0].openinhibit = 0;
 			g_Menus[1].openinhibit = 0;
 			g_Menus[2].openinhibit = 0;

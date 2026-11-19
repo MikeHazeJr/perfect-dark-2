@@ -82,8 +82,9 @@ are data in `physics.json`, and the boost numbers are the graph's params.
   walk that called it. How many one fired event can lead to is proved when the
   graph compiles (at most 64; an event that can raise itself again while it is
   being delivered is refused), and the queue is sized from that proof.
-- One event may reach at most one `og.vehicle.mount_seat` and one
-  `og.vehicle.dismount_seat` per seat, both branches of a gate counted.
+- One event may reach at most one `og.vehicle.mount_seat`, one
+  `og.vehicle.dismount_seat` and one `og.vehicle.switch_seat` per seat, both
+  branches of a gate counted.
 - Comments: a graph, a node, an edge and a variables file may each carry one
   `"comment"` string, for the people who read and edit it. The runner and
   conformance check that it is a string and never read it for behavior; in a
@@ -107,16 +108,57 @@ are data in `physics.json`, and the boost numbers are the graph's params.
 
 | Kind | When | Seam | Carries |
 |---|---|---|---|
-| `event.vehicle.mount_requested` | a player asks to get on | `currentPlayerTryMountHoverbike` (`propobj.c`), today's driver mount | player, seat (`driver` until V4) |
-| `event.vehicle.dismount_requested` | an occupant asks to get off | the bike exit path (`bondbike.c`) | player, seat |
+| `event.vehicle.mount_requested` | a player asks to get on | `currentPlayerTryMountHoverbike` (`propobj.c`), today's driver mount | player, the seat asked for (`driver` until V4b) |
+| `event.vehicle.dismount_requested` | an occupant asks to get off | the bike exit path (`bondbike.c`) | player, the seat left |
+| `event.vehicle.switch_seat_requested` | a rider asks for the other seat (V4: the exit button pressed twice) | the bike exit path (V4b) | player, the seat asked for |
 | `event.vehicle.tick` | once per simulation update while the vehicle exists | the `hoverbikeUpdateMovement` call site | the update's 60 and 240 Hz deltas, occupied seats, the driver's inputs |
 | `event.vehicle.heat_changed` | raised by `og.vehicle.boost_heat` when its phase changes | the module (follow-up queue) | phase, previous phase |
+
+## Seats (V4a)
+
+A vehicle has a driver seat and may have a gunner seat. The graph says which:
+a vehicle has a gunner seat when a mount request can reach an
+`og.vehicle.mount_seat` for it, and a rider can switch to a seat when a switch
+request can reach an `og.vehicle.switch_seat` for it
+(`vehicleGraphProgramEventSeats`). The three seat requests each name one seat:
+the seat a mount asks for, the seat a dismount leaves, the seat a switch asks to
+move to. `gate.vehicle.seat` tests that seat and `gate.vehicle.seat_free` asks
+the host whether a seat is empty.
+
+Who sits where is kept per vehicle in its graph record
+(`vehicleGraphRuntimeSeatOccupant`, `SetSeatOccupant`, `SeatOfPlayer`): one
+player per seat, one seat per player, and a taken seat refuses another player.
+The seats belong to the vehicle, so a program that is freed and compiled again
+leaves the riders where they sit. The driver seat also keeps the original
+`OBJHFLAG_MOUNTED`, which the physics, the doors and the network read.
+
+Where a rider's eye is comes from the vehicle's model, not from its graph: a
+model may carry two seat parts, position nodes with no geometry, part 160 for
+the driver's eye and part 161 for the gunner's (model units;
+`VEHICLE_MODEL_PART_DRIVER_SEAT`, `VEHICLE_MODEL_PART_GUNNER_SEAT`,
+`hoverbikeSeatModelPos` in `src/game/vehiclegraph.c`). A model without part 160
+gets the original hoverbike's driver position, 80 world units up and 50 back.
+The Maian vehicle has both (WRITTEN 2026-11-17 on `week-pd/mods-v4`, the driver's
+used by the ride, the gunner's waiting for the gunner's ride; not seen in the
+game yet): on that model the hoverbike's driver position is inside the cannon,
+which is why its driver's view was full of hull.
+
+A two-seat graph, in outline (the unit cases' `kTwoSeatGraph`):
+
+```
+mount_requested  -> seat is driver? pass -> driver free? pass -> mount_seat driver
+                                    fail -> gunner free? pass -> mount_seat gunner
+dismount_requested -> seat is driver? pass -> dismount_seat driver
+                                      fail -> dismount_seat gunner
+switch_seat_requested -> seat is gunner? pass -> gunner free? pass -> switch_seat gunner
+                                         fail -> driver free? pass -> switch_seat driver
+```
 
 ## Gates
 
 | Kind | Passes when | Params |
 |---|---|---|
-| `gate.vehicle.seat` | the event's seat is `seat` | `seat`: `driver` or `gunner` |
+| `gate.vehicle.seat` | the seat request's seat is `seat` (never on a tick or a heat change) | `seat`: `driver` or `gunner` |
 | `gate.vehicle.seat_free` | `seat` has no occupant | `seat` |
 | `gate.vehicle.heat_phase` | the vehicle's heat phase is one of `phases` | `phases`: list of `cool`, `ramping`, `full`, `overheated`, `recovering` |
 
@@ -126,6 +168,7 @@ are data in `physics.json`, and the boost numbers are the graph's params.
 |---|---|---|
 | `og.vehicle.mount_seat` | the original side mount (proximity, facing, commit; `propobj.c` mount path) into `seat` | `seat` |
 | `og.vehicle.dismount_seat` | the original dismount to the sides | `seat` |
+| `og.vehicle.switch_seat` | moves the requesting rider to `seat` without getting off; only on `event.vehicle.switch_seat_requested` (the runner and the records are built, V4a; the game's move is V4b) | `seat` |
 | `og.vehicle.hover_drive` | the original hover and drive (`hoverbikeUpdateMovement` without its throttle bonus) from `physics.json`; hovers always, drives while the driver seat is occupied | `drive` (bool, default true; `allow_drive: false` in v2 terms) |
 | `og.vehicle.throttle_boost` | the original bonus: full throttle (at least 0.99) ramps extra forward speed up to `boost_speed` over `ramp_time`; at 0.8 or more it holds, from -0.1 it decays, below that it resets | `boost_speed`, `ramp_time` (base: 5.0 and `{2400, ticks240}`, 10 s) |
 | `og.vehicle.boost_heat` | Mike's boost and heat, below | below |
@@ -310,7 +353,7 @@ are v1 already; the conformance tool reports v2 as not clean.
 
 ## Not in v1 (same contract, later)
 
-- Gunner seat and turret (V4, V5): `gate.vehicle.seat` with `gunner`,
+- The gunner seat itself is in v1 now (V4a: "Seats" above). Turret (V5):
   `og.vehicle.turret_aim` (yaw part 1, pitch part 2, rates and limits),
   `og.vehicle.fire_weapon` (the vehicle's embedded `.pdweapon`, muzzle part 50),
   per-shot crystal regrow through the crystal pistol's mod magazine on ring seats

@@ -17,6 +17,8 @@
 #include <stddef.h>
 #include <PR/ultratypes.h>
 #include "assetcatalog.h"
+#include "assetprovider_checkpoint.h"
+#include "grid_match_sources.h"
 #include "modarchive.h"
 
 #ifdef __cplusplus
@@ -144,6 +146,110 @@ s32 assetCatalogScanExternalLayoutFolder(const char *mod_id, const char *mod_dir
 s32 assetCatalogScanExternalLayoutFolderDeferred(const char *mod_id,
 	const char *mod_dir);
 
+typedef struct asset_catalog_grid_arena_source {
+	char scenario_id[CATALOG_ID_LEN];
+	char scenario_member[FS_MAXPATH + 1];
+} asset_catalog_grid_arena_source_t;
+
+/* Interpret bounded root descriptors already extracted from an exact Arena
+ * and its embedded Scenario. scenario_ref is the typed archive chain ending
+ * in .pdscenario. Outputs are caller-owned and remain unchanged on refusal. */
+s32 assetCatalogReadGridArenaSource(const char *text, u32 len, const char *arena_id,
+	asset_catalog_grid_arena_source_t *out);
+s32 assetCatalogBindGridScenarioDescriptor(const char *text, u32 len, const char *scenario_ref,
+	const char *scenario_id, asset_entry_t *out);
+
+typedef enum asset_catalog_grid_arena_file_policy_e {
+	GRID_ARENA_LEASE_TEMPORARY_FILE = 0,
+	GRID_ARENA_LEASE_PINNED_FILE,
+} asset_catalog_grid_arena_file_policy_e;
+
+typedef struct asset_catalog_arena_lease {
+	char arena_id[CATALOG_ID_LEN];
+	char scenario_id[CATALOG_ID_LEN];
+	char archive_path[FS_MAXPATH + 1];
+	char scenario_member[FS_MAXPATH + 1];
+	asset_catalog_grid_arena_file_policy_e file_policy;
+	s32 stagenum;
+	s32 stage_index;
+	file_provider_checkpoint_t provider_before;
+	file_provider_checkpoint_t provider_after;
+} asset_catalog_arena_lease_t;
+
+/* Preview the scanner's next stage for a missing scenario, or -1. This
+ * requires the native table and counts only actually available slots. */
+s32 assetCatalogPreviewGridArenaLeaseStage(const char *scenario_id);
+
+/* Read-only main-thread check of current ownership, stage and provider
+ * capacity, and the exact archive bytes for the requested digest-named path
+ * policy. Success fills source without making any reservation. Failure leaves
+ * source unchanged. */
+s32 assetCatalogPreflightGridArenaLease(const char *archive_path, const char *arena_id,
+	const char *scenario_id, asset_catalog_grid_arena_file_policy_e file_policy, const void *bytes, u32 size,
+	asset_catalog_grid_arena_source_t *source, char *err, size_t err_cap);
+
+/* Main-thread admission. Start with a zeroed lease and a verified, immutable
+ * <sha256>.pdarena under a caller-owned scratch path, or the exact path in
+ * the profile's Forge revision store for PINNED_FILE. The caller keeps
+ * pinned files after retirement. Only a missing original arena and its
+ * missing embedded scenario are registered. */
+s32 assetCatalogAdmitGridArenaLease(const char *archive_path, const char *arena_id,
+	const char *scenario_id, asset_catalog_grid_arena_file_policy_e file_policy,
+	asset_catalog_arena_lease_t *lease, char *err, size_t err_cap);
+
+/* The caller must first detach the world and release stage/manifest payload
+ * references. A failed retirement keeps the lease and private file owned. */
+s32 assetCatalogRetireGridArenaLease(asset_catalog_arena_lease_t *lease,
+	char *err, size_t err_cap);
+
+typedef struct asset_catalog_grid_weapon_lease asset_catalog_grid_weapon_lease_t;
+
+/* Main-thread, exact native weapon package staged at $S/grid-session/<sha>.pdweapon.
+ * The caller owns consent and verified Grid session cache, keeps the file live
+ * through retirement, and must begin with an empty lease pointer. */
+s32 assetCatalogAdmitGridWeaponLease(const char *archive_path, const grid_match_sources_t *plan,
+	size_t package_index, asset_catalog_grid_weapon_lease_t **out, char *err, size_t err_cap);
+const char *assetCatalogGridWeaponLeasePath(const asset_catalog_grid_weapon_lease_t *lease);
+/* Shutdown only, after the world and its consumers have stopped. Release
+ * only stage-owned references rooted in the verified temporary lease. */
+s32 assetCatalogReleaseGridWeaponLeaseStageRefs(const asset_catalog_grid_weapon_lease_t *lease,
+	char *err, size_t err_cap);
+s32 assetCatalogRetireGridWeaponLease(asset_catalog_grid_weapon_lease_t **owned,
+	char *err, size_t err_cap);
+
+typedef struct asset_catalog_grid_source_set asset_catalog_grid_source_set_t;
+
+/* Admit the entire accepted set under one additive catalog transaction. Paths
+ * are caller-owned immutable scratch files. Indices are strictly increasing.
+ * The selected arena/scenario may already be installed. A rejected admission
+ * leaves the output untouched and never takes ownership of the files. */
+s32 assetCatalogAdmitGridSourceSet(const grid_match_sources_t *plan, size_t count,
+	const u16 *indices, const char *const *paths, const char *arena_id, const char *scenario_id,
+	asset_catalog_grid_source_set_t **out, char *err, size_t err_cap);
+/* Inspect verified immutable bytes for the indexed sealed plan before
+ * advertising that package. Uses the guest's strict typed inventory and
+ * expansion limits without opening files or reserving catalog rows. */
+s32 assetCatalogGridPackageInventoryEligible(const grid_match_sources_t *plan, size_t package_index,
+	const void *bytes, u32 size, char *err, size_t err_cap);
+/* Validate the same standalone vehicle source shape used by Grid admission.
+ * Reads only these bounded bytes and does not register any catalog rows. */
+s32 assetCatalogGridVehicleSourceShareable(const char *name, const void *bytes, u32 size);
+/* Inspect a direct original body/head archive without installing catalog rows. */
+s32 assetCatalogGridBodyHeadSourceShareable(const char *name, const void *bytes, u32 size);
+s32 assetCatalogGridSourceSetStage(const asset_catalog_grid_source_set_t *set);
+const char *assetCatalogGridSourceSetPath(const asset_catalog_grid_source_set_t *set, size_t package_index);
+s32 assetCatalogReleaseGridSourceSetStageRefs(const asset_catalog_grid_source_set_t *set, char *err, size_t err_cap);
+/* Keep the files and lease owned until the entire set can be retired. */
+s32 assetCatalogRetireGridSourceSet(asset_catalog_grid_source_set_t **owned, char *err, size_t err_cap);
+
+/* Scanner internals: remove a preflighted pair with no active ownership and
+ * reclaim vacant catalog tail slots without moving surviving rows. */
+s32 assetCatalogRetireUnactivatedArenaPair(const char *arena_id, const char *scenario_id);
+/* Atomically remove strictly ID-ordered unactivated lease rows. */
+s32 assetCatalogRetireUnactivatedGridWeaponRows(const grid_match_source_root_t *rows,
+	size_t count);
+void assetCatalogTrimUnoccupiedTail(void);
+
 /**
  * Scan component descriptors that live inside a mounted/readable .pdmod archive.
  *
@@ -177,6 +283,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
                                                   s32 bundled,
                                                   char *err,
                                                   size_t err_cap);
+
+/* Bundled weapon admission while the universal boot walker holds the
+ * catalog publication lock. Other callers use the general entry above. */
+s32 assetCatalogRegisterBootWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, char *err, size_t err_cap);
 
 /**
  * Register typed archives embedded by a strict public .pdeffect source.
@@ -309,6 +420,13 @@ const char *modiniTemplateForKind(const char *kind);
  */
 const char *iniGet(const ini_section_t *ini, const char *key, const char *defval);
 
+#define ASSET_CATALOG_DECLARED_DEP_BYTES 512
+typedef s32 (*asset_catalog_declared_dep_fn)(const char *id, void *userdata);
+/* Visit the same comma/pipe-delimited list as native catalog registration.
+ * A strict caller must check the byte limit before visiting. */
+s32 assetCatalogVisitDeclaredDependencies(const char *deps,
+	asset_catalog_declared_dep_fn visit, void *userdata);
+
 /**
  * Look up an integer value by key.
  * Supports hex (0xNN) and decimal.
@@ -321,6 +439,24 @@ s32 iniGetInt(const ini_section_t *ini, const char *key, s32 defval);
  * Returns the float, or defval if not found or parse error.
  */
 f32 iniGetFloat(const ini_section_t *ini, const char *key, f32 defval);
+
+/**
+ * An arena's load mode from its arena.ini section (ARENA_LOADMODE_*,
+ * assetcatalog.h). The file carries the mode's name; a number is read too,
+ * and a missing key is the playable mode. Every reader of arena.ini uses
+ * this (the scanner and the mod distribution's registrar), B-1235.
+ */
+u8 catalogArenaLoadModeFromIni(const ini_section_t *ini);
+
+/**
+ * An arena's own name from its arena.ini section (`display_name`), copied
+ * into `out` and always terminated. Empty when the file gives none, which
+ * is every base arena: those are named by `name_langid`. A mod level has no
+ * entry in the game's language files, so its name travels here (the mod
+ * author writes the key). Every reader of arena.ini uses this, like the
+ * load mode above.
+ */
+void catalogArenaDisplayNameFromIni(const ini_section_t *ini, char *out, size_t out_size);
 
 #ifdef __cplusplus
 }

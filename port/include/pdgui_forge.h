@@ -14,6 +14,7 @@
 #ifndef _IN_PDGUI_FORGE_H
 #define _IN_PDGUI_FORGE_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 #ifdef __cplusplus
@@ -35,10 +36,32 @@ s32 pdguiForgeStartSessionOnCanvas(s32 stagenum);
 /** HUD overlay (F0 shell + F1+ live readouts). */
 void pdguiForgeHudRender(s32 winW, s32 winH);
 
+/** The open level file's player starts and objects, marked in the world by
+ *  the HUD while the editor camera flies (Forge F3, first piece). On by
+ *  default; the editor's Level File section has the switch and tells the HUD
+ *  which start and which object are selected so it can pick them out ("" or
+ *  NULL for none). */
+s32  pdguiForgeLevelMarkersGet(void);
+void pdguiForgeLevelMarkersSet(s32 on);
+void pdguiForgeLevelMarkersSelect(const char *start_id, const char *object_id);
+
+/** A marker the player clicked in the world (a left click off the editor's
+ *  windows, within a few pixels of the marker): 1 once per click with the
+ *  start's id or the object's id and row ("" and -1 for the other kind), for
+ *  the Level File section to take into its own selection; 0 when there is
+ *  none waiting. The HUD shows the pick at once. */
+s32  pdguiForgeLevelMarkersTakePick(char *start_id, size_t start_cap, char *object_id, size_t object_cap,
+		s32 *object_index);
+
 /** Full editor overlay -- drawn on top of the HUD when in-session. The
  *  editor is visible regardless of NORMAL vs FREEFLY sub-mode, but the
  *  catalog/placement panels only respond to input in FREEFLY. */
 void pdguiForgeEditorRender(s32 winW, s32 winH);
+
+/** Where the editor's panel was drawn last, in window pixels: 1 with its
+ *  corners while it is shown, 0 when it is hidden or was not drawn. The HUD
+ *  keeps the world markers' labels from showing through it. */
+s32 pdguiForgeEditorPanelRect(float *x0, float *y0, float *x1, float *y1);
 
 /** Per-frame hook called from the game loop (before render) so the
  *  editor runtime can tick (currently a no-op placeholder; room for

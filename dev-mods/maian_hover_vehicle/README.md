@@ -23,8 +23,9 @@ game builds, not a ready mod folder to copy.
 
 | When | Then |
 |---|---|
-| A player asks for a seat | If nobody is driving: the original mount. |
-| The rider asks to get off | The original dismount. |
+| A player asks for a seat | The game names the seat from where the player stands and looks. The driver's seat, if nobody is driving: the original mount. The gunner's seat, if the pod is empty: the gunner's mount (the turret's controls, the vehicle stays put). |
+| A rider asks to get off (the exit key once) | The original dismount, for the driver or for the gunner. |
+| A rider asks for the other seat (the exit key twice quickly) | If that seat is empty: the rider moves to it without getting off. A driver who moves to the pod leaves the vehicle drifting. |
 | Every update | Hover and take the driver's inputs. Run boost and heat. |
 | The heat phase changes | Overheated or cooling: hide the seafoam crystals (part 140), so the black ones show. Any other phase: show them. Full boost, overheated or cooling: lock the turret. Any other phase: unlock it. |
 
@@ -43,6 +44,13 @@ the steering is limited for 0.75 s; cooling takes 2 s when stopped and up to
 | 128 | The muzzle crystal's seat |
 | 140 | Seafoam crystals (a toggle part) |
 | 141 | Black crystals, inside the seafoam ones (a toggle part) |
+| 160 | The driver's eye: in the well ahead of the turret deck (no geometry) |
+| 161 | The gunner's eye: above the cannon, turning with the turret (no geometry) |
+
+Parts 160 and 161 are the seat parts any vehicle model may carry: the game puts
+the rider's camera there. A model without part 160 gets the base hoverbike's
+driver position (80 units up, 50 back), which on this vehicle is inside the
+cannon.
 
 ## Proof
 

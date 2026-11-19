@@ -1,0 +1,303 @@
+{
+  "scenario_name": "forge_grid_private_room_extension_smoke",
+  "description": "A listen host stages an asymmetric original Grid room extension during private Combat. A rejected extension preserves the candidate and resident world. The host verifies its native dependency packages. The creator lacks the exact arena and acknowledges the review. After Continue, the host saves an ordinary variant and plays the staged archive in a fresh round. Both remote peers remain in the Room throughout.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "shared-draft",
+    "private-playtest",
+    "smoke",
+    "structural-staging"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/bg.c",
+    "port/src/forge_room_builder.cpp",
+    "port/src/grid_match_runtime.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-extension-host",
+    "grid-extension-creator",
+    "grid-extension-ordinary"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-extension-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-extension-creator/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-extension-ordinary/mods/.pdmod-migration-done"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-extension-host",
+        "--moddir",
+        "$E/grid-extension-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-atmosphere",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27488",
+        "--launch-mp-room",
+        "mod:arena_grid_playtest_draft",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--host-autostart-peers",
+        "2",
+        "--debug-grid-private-draft",
+        "host",
+        "--debug-grid-private-room-extension"
+      ],
+      "wait_for": "NET: created server on port 27488",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host-stages-while-resident-and-loads-exact-candidate-in-a-fresh-round",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_playtest_draft sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "GRID\\.PLAYTEST: prepared room=[0-9]+ arena=mod:arena_grid_playtest_draft",
+              "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_playtest_draft epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.PLAYTEST: active room=[0-9]+ epoch=[1-9][0-9]* arena=mod:arena_grid_playtest_draft",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=1 enabled=1 brightness=104",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=104 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: release_creator room=[0-9]+ generation=1 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=2 enabled=1 brightness=137",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=137 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: rendered edit epoch=[1-9][0-9]* revision=2 before=[0-9.]+ native=[0-9.]+ after=[0-9.]+",
+              "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_extension_staged scenario=mod:arena_grid_extension_staged__[A-Za-z0-9_]+ sha256=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.PREFLIGHT: extension walk arena=mod:arena_grid_extension_staged sha256=[0-9a-f]{64} starts=8 links=16",
+              "GRID\\.PLAYTEST: staged native variant=mod:arena_grid_extension_staged revision=2 room=2 extension=300 active_epoch=[1-9][0-9]* draft_generation=1 sha256=[0-9a-f]{64} parent=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.EXTENSION: resident unchanged epoch=[1-9][0-9]* catalog=[1-9][0-9]* revision=2 room1_max=0 room2_max=2700 refused_length=1400 sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW: offered creator=1 serial=[1-9][0-9]* epoch=[1-9][0-9]* revision=2 arena=mod:arena_grid_extension_staged",
+              "NET\\.GRID\\.REVIEW: creator=1 replied serial=[1-9][0-9]* result=2",
+              "SMOKE\\.GRID\\.EXTENSION: review acknowledged room=[0-9]+ generation=1 epoch=[1-9][0-9]* revision=2 serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET: SVC_STAGE_END published and committed, returning to lobby",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.PLAYTEST: retired local stage room=[0-9]+ epoch=[1-9][0-9]*",
+              "GRID\\.MATCH\\.ROOM: world retired room=[0-9]+",
+              "NET\\.GRID\\.EDIT: pinned variant=mod:arena_grid_extension_ordinary revision=2 sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.EXTENSION: room saved=mod:arena_grid_extension_ordinary staged=mod:arena_grid_extension_staged revision=2 sha256=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_extension_staged scenario=mod:arena_grid_extension_staged__[A-Za-z0-9_]+ sha256=[0-9a-f]{64}",
+              "GRID\\.PLAYTEST: prepared room=[0-9]+ arena=mod:arena_grid_extension_staged",
+              "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_extension_staged epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "SCENARIO\\.SOURCE: B-1113 room table 'mod:arena_grid_extension_staged__[A-Za-z0-9_]+' authored=2 collision_only=0 unbounded=0 .*rooms=3 source=rooms\\.json",
+              "GRID\\.PLAYTEST: active room=[0-9]+ epoch=[1-9][0-9]* arena=mod:arena_grid_extension_staged",
+              "SMOKE\\.GRID\\.EXTENSION: loaded room=[0-9]+ previous_epoch=[1-9][0-9]* epoch=[1-9][0-9]* arena=mod:arena_grid_extension_staged sha256=[0-9a-f]{64} room1_min=-2100 room2_max=3000 room2_center=1500",
+              "NET: SVC_STAGE_END published and committed, returning to lobby",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.PLAYTEST: retired local stage room=[0-9]+ epoch=[1-9][0-9]*",
+              "GRID\\.MATCH\\.ROOM: world retired room=[0-9]+",
+              "SMOKE\\.GRID\\.EXTENSION: returned room=[0-9]+ epoch=[1-9][0-9]* revision=2 ordinary_lobby=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-extension-host",
+          "SCENARIO\\.SOURCE: resolved room domain 'mod:arena_grid_playtest_draft__[a-zA-Z0-9_]+' rooms=3 declared=3 mesh_max=2 portal_max=2",
+          "PLAYER\\.INIT\\.COMMIT lobby-start room=[0-9]+ mode=0 players=1 bots=3",
+          "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+          "SIMULANT: spawning done total=3",
+          "GRID\\.STAGED\\.SOURCES: verified arena=mod:arena_grid_extension_staged revision=[0-9a-f]{64} entries=[1-9][0-9]* packages=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "NET\\.GRID\\.REVIEW\\.DEPS: offered serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+          "NET\\.GRID\\.REVIEW\\.PREPARED: retained role=host serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+          "NET\\.GRID\\.REVIEW\\.PREPARED: released serial=[1-9][0-9]* reason=downgraded"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited|granted) client=2",
+          "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_extension_ordinary",
+          "GRID\\.PLAYTEST: staged native variant=mod:arena_grid_extension_too_long",
+          "NET\\.GRID\\.REVIEW: creator=[0-9]+ replied serial=[0-9]+ result=[34]",
+          "NET\\.GRID\\.REVIEW\\.DEPS: matched"
+        ],
+        "required_counts": [
+          {
+            "pattern": "GRID\\.PLAYTEST: staged native variant=",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+            "min": 2,
+            "max": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-extension-creator",
+        "--moddir",
+        "$E/grid-extension-creator/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-atmosphere",
+        "--connect-host",
+        "127.0.0.1:27488",
+        "--debug-grid-private-draft",
+        "creator",
+        "--debug-grid-private-room-extension"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "creator-edits-and-acknowledges-exact-review-without-stage-admission",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.PLAYTEST: creator sent ambient=137 host_epoch=[1-9][0-9]* room=[0-9]+ lobby=1",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.EXTENSION: creator acknowledged room=[0-9]+ generation=1 epoch=[1-9][0-9]* revision=2 serial=[1-9][0-9]* sha256=[0-9a-f]{64} installed=0",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-extension-creator"
+        ],
+        "required_counts": [
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x84",
+            "min": 5,
+            "max": 5
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x85",
+            "min": 1,
+            "max": 1
+          }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-extension-ordinary",
+        "--moddir",
+        "$E/grid-extension-ordinary/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27488",
+        "--debug-grid-private-draft",
+        "ordinary",
+        "--debug-grid-private-room-extension"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-stays-through-normal-host-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-extension-ordinary"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT\\.WIRE: received",
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

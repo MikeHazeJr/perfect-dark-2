@@ -296,10 +296,10 @@ void schedStartFrame(OSSched *sc)
 	if (g_Vars.diffframe60) {
 		if (g_NetMode) {
 			videoCapFramerate(120);
-			netStartFrame();
 		} else {
 			videoCapFramerate(0);
 		}
+		netStartFrame();
 	}
 }
 

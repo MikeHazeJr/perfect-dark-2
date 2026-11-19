@@ -49,7 +49,15 @@ void playerCommitValidatedOrchestratedSpawn(
 
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *spawnpads, s32 numspawnpads);
 f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop);
+struct player_spawn_pose {
+	struct coord position;
+	f32 ground;
+	f32 yaw;
+	RoomNum room;
+};
+s32 playerSpawnPoseIsValid(const struct player_spawn_pose *pose);
 void playerStartNewLife(void);
+void playerStartNewGridFiestaLife(const struct player_spawn_pose *pose);
 void playerLoadDefaults(void);
 bool playerSpawnAnti(struct chrdata *chr, s32 param_2);
 
@@ -72,6 +80,9 @@ enum player_chrbody_result {
 
 const char *playerChrBodyResultString(enum player_chrbody_result result);
 enum player_chrbody_result playerChrBodyPreflight(s32 bodynum, s32 headnum);
+/* Grants the current player a native weapon and queues its hand switch.
+ * Pass a negative MP slot when there is no MP ammo definition. */
+s32 playerGiveSpawnWeapon(s32 mp_slot, s32 weapon);
 enum player_chrbody_result playerSpawn(void);
 void playerResetBond(struct playerbond *pb, struct coord *pos);
 void playersTickAllChrBodies(void);

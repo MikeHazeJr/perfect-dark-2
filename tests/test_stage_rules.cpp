@@ -57,6 +57,43 @@ std::string refusal(const std::string &json)
 
 } // namespace
 
+TEST_CASE("stage.json atmosphere has independent validated settings", "[stage][scenario][stagerules]")
+{
+	Parsed stageLook(stage(R"("atmosphere": {
+	    "sky_rgb": [15, 35, 75], "fog": {"start": 120, "end": 480},
+	    "ambient_light": 104, "primary_music": "base:music_defection"
+	})"));
+	INFO(stageLook.error);
+	REQUIRE(stageLook.ok);
+	const auto &look = stageLook.rules.atmosphere;
+	CHECK(look.present);
+	CHECK(look.has_sky);
+	CHECK(look.sky_rgb[2] == 75);
+	CHECK(look.has_fog);
+	CHECK(look.fog_start == 120);
+	CHECK(look.fog_end == 480);
+	CHECK(look.has_ambient);
+	CHECK(look.ambient_light == 104);
+	CHECK(std::string(look.primary_music) == "base:music_defection");
+
+	Parsed onlyAmbient(stage(R"("atmosphere": {"ambient_light": 0})"));
+	REQUIRE(onlyAmbient.ok);
+	CHECK(onlyAmbient.rules.atmosphere.has_ambient);
+	CHECK_FALSE(onlyAmbient.rules.atmosphere.has_sky);
+	CHECK_FALSE(onlyAmbient.rules.atmosphere.has_fog);
+	Parsed absent(stage(""));
+	REQUIRE(absent.ok);
+	CHECK_FALSE(absent.rules.atmosphere.present);
+
+	for (const char *wrong : {R"({})", R"({"sky_rgb":[0,0,256]})", R"({"sky_rgb":[1.5,0,0]})",
+			R"({"fog":{"start":200,"end":200}})", R"({"ambient_light":true})",
+			R"({"primary_music":13})", R"({"primary_music":"base:music:path"})"}) {
+		Parsed rejected(stage(std::string("\"atmosphere\": ") + wrong));
+		CHECK_FALSE(rejected.ok);
+		CHECK_FALSE(rejected.rules.atmosphere.present);
+	}
+}
+
 TEST_CASE("stage.json weather is read into the stage's weather setup", "[stage][scenario][stagerules]")
 {
 	// The shape the extractor writes for the Air Base row of the table.
@@ -133,6 +170,70 @@ TEST_CASE("a stage.json the reader cannot use is refused whole", "[stage][scenar
 		.find("more than 127 rooms") != std::string::npos);
 }
 
+TEST_CASE("Weather startup selects a native kind and intensity without replacing room rules",
+	"[stage][scenario][stagerules]")
+{
+	Parsed snow(stage(R"("weather_start": {"kind": "snow", "intensity": 1})"));
+	INFO(snow.error);
+	REQUIRE(snow.ok);
+	CHECK(snow.rules.weather.present == 1);
+	CHECK(snow.rules.weather.startup_kind == SCENARIO_STAGE_WEATHER_START_SNOW);
+	CHECK(snow.rules.weather.startup_intensity == 1);
+	CHECK(snow.rules.weather.wind_speed == 20.0f);
+	CHECK(snow.rules.weather.y_min == -800.0f);
+	CHECK(snow.rules.weather.y_max == 800.0f);
+	CHECK(snow.rules.weather.rooms_have_weather == 0);
+	CHECK(snow.rules.weather.room_count == 0);
+	CHECK(snow.rules.weather.cutscene_only == 0);
+	CHECK(snow.rules.weather.z_max == 0.0f);
+
+	const std::string roomRules = R"("weather": {
+		"wind_speed": 5.125, "y_min": -400, "y_max": 500, "weather_rooms": [1, 2],
+		"z_max": -60, "cutscene_only": true, "wind_direction": {"angle": 1, "speed_x": 4, "speed_z": 3}
+	})";
+	Parsed legacy(stage(roomRules));
+	REQUIRE(legacy.ok);
+	CHECK(legacy.rules.weather.startup_kind == SCENARIO_STAGE_WEATHER_START_NONE);
+	CHECK(legacy.rules.weather.startup_intensity == 0);
+
+	const std::string rain = R"(, "weather_start": {"kind": "rain", "intensity": 3})";
+	Parsed configured(stage(roomRules + rain));
+	INFO(configured.error);
+	REQUIRE(configured.ok);
+	const auto &weather = configured.rules.weather;
+	CHECK(weather.startup_kind == SCENARIO_STAGE_WEATHER_START_RAIN);
+	CHECK(weather.startup_intensity == 3);
+	CHECK(weather.wind_speed == 5.125f);
+	CHECK(weather.y_min == -400.0f);
+	CHECK(weather.y_max == 500.0f);
+	CHECK(weather.z_max == -60.0f);
+	CHECK(weather.cutscene_only == 1);
+	CHECK(weather.rooms_have_weather == 1);
+	REQUIRE(weather.room_count == 2);
+	CHECK(weather.rooms[0] == 1);
+	CHECK(weather.rooms[1] == 2);
+	CHECK(weather.has_wind_direction == 1);
+	CHECK(weather.wind_angle == 1.0f);
+	CHECK(weather.wind_speed_x == 4.0f);
+	CHECK(weather.wind_speed_z == 3.0f);
+
+	const char *invalid[] = {
+		R"("snow")",
+		R"({"kind": "fog", "intensity": 1})",
+		R"({"kind": "snow", "intensity": 2})",
+		R"({"kind": "rain", "intensity": 4})",
+		R"({"kind": "rain", "intensity": 0})",
+		R"({"kind": "rain", "intensity": 1.5})",
+		R"({"kind": "rain", "intensity": true})",
+		R"({"kind": "snow"})",
+		R"({"kind": "rain", "intensity": 1, "room": 1})",
+	};
+	for (const char *entry : invalid) {
+		INFO(entry);
+		CHECK_FALSE(refusal(stage(roomRules + ", \"weather_start\": " + entry)).empty());
+	}
+}
+
 TEST_CASE("the extractor writes the game's weather table and the weather code reads stage.json",
 	"[stage][scenario][stagerules]")
 {
@@ -152,7 +253,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
 	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
@@ -165,6 +266,14 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(reset.find("if (bgUsesScenarioSource()) {\n\t\t// a stage built from scenario source: the weather of its stage.json") != std::string::npos);
 	REQUIRE(reset.find("cfg->flags = (rule->rooms_have_weather ? WEATHERFLAG_INCLUDE : 0) |") != std::string::npos);
 	REQUIRE(reset.find("if (g_WeatherConfig[i].stagenum == g_Stages[g_StageIndex].id) {") != std::string::npos);
+	const size_t stageWeather = reset.find("if (scenarioSourceStageWeather(&rule)) {");
+	REQUIRE(stageWeather != std::string::npos);
+	const size_t startupValue = reset.find("startup_intensity = rule.startup_intensity;", stageWeather);
+	REQUIRE(startupValue != std::string::npos);
+	const size_t weatherReady = reset.find("g_WeatherActive = true;", startupValue);
+	REQUIRE(weatherReady != std::string::npos);
+	REQUIRE(reset.find("weatherConfigureRain(startup_intensity);", weatherReady) != std::string::npos);
+	REQUIRE(reset.find("weatherConfigureSnow(startup_intensity);", weatherReady) != std::string::npos);
 	REQUIRE(tick.find("if ((g_CurWeatherConfig->zmax && g_Vars.currentplayer->cam_pos.z < g_CurWeatherConfig->zmax)") != std::string::npos);
 	REQUIRE(tick.find("} else if ((g_StageIndex == STAGEINDEX_AIRBASE && g_Vars.currentplayer->cam_pos.z < -2000.0f)") != std::string::npos);
 
@@ -191,6 +300,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	};
 	CHECK(python_set("STAGE_RULES_KEYS") == reader_set("onlyKeys(root, {"));
 	CHECK(python_set("STAGE_WEATHER_KEYS") == reader_set("onlyKeys(weather, {"));
+	CHECK(python_set("STAGE_WEATHER_START_KEYS") == reader_set("onlyKeys(startup, {"));
 	REQUIRE(conformance.find("result.errors.extend(validate_stage_json(") != std::string::npos);
 }
 
@@ -378,7 +488,8 @@ TEST_CASE("object rules travel on objects.json rows and replace the original's o
 	REQUIRE(runtime.find("if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||") != std::string::npos);
 	REQUIRE(runtime.find("rules->multiplayer_kept = b != 0;") != std::string::npos);
 	REQUIRE(runtime.find("s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;") != std::string::npos);
-	REQUIRE(runtime.find("audio.category != AUDIO_CAT_SFX") != std::string::npos);
+	REQUIRE(runtime.find("s_setupResolveHumSound(table, text, &rules->engine_hum_sound)") != std::string::npos);
+	REQUIRE(runtime.find("s_setupResolveHumSound(table, text, &rules->thrust_hum_sound)") != std::string::npos);
 
 	// The game asks the rule on a stage built from scenario source and keeps
 	// the original checks for a ROM stage.
@@ -535,9 +646,27 @@ TEST_CASE("B-1250 and B-1251: cache kinds fit their stamps and packed hum sounds
 
 	// B-1251: a configured sound's packed number (top bit set) is accepted.
 	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
-	REQUIRE(runtime.find("audio.sound_id > 0xffff) {") != std::string::npos);
-	REQUIRE(runtime.find("audio.sound_id > 0x7fff") == std::string::npos);
-	REQUIRE(runtime.find("!(audio.category == AUDIO_CAT_VOICE && ref.hasconfig)") != std::string::npos);
+	const size_t pack = runtime.find("static s32 s_setupPackHumSound(");
+	const size_t resolve = runtime.find("static s32 s_setupResolveHumSound(");
+	const size_t readRules = runtime.find("static s32 s_setupReadObjectRules(");
+	REQUIRE(readRules != std::string::npos);
+	REQUIRE(pack < resolve);
+	REQUIRE(resolve < readRules);
+	const std::string packHum = runtime.substr(pack, resolve - pack);
+	const size_t range = packHum.find("sound_id <= 0 || sound_id > 0xffff");
+	const size_t cast = packHum.find("ref.packed = (s16)sound_id;");
+	const size_t category = packHum.find("category != AUDIO_CAT_SFX && !(category == AUDIO_CAT_VOICE && ref.hasconfig)");
+	const size_t output = packHum.find("*out = ref.packed;");
+	REQUIRE(output != std::string::npos);
+	REQUIRE(range < cast);
+	REQUIRE(cast < category);
+	REQUIRE(category < output);
+	REQUIRE(packHum.find("sound_id > 0x7fff") == std::string::npos);
+	const std::string resolveHum = runtime.substr(resolve, readRules - resolve);
+	REQUIRE(resolveHum.find("catalogResolveAudio(id, &audio) && s_setupPackHumSound(audio.sound_id, audio.category, out)") !=
+		std::string::npos);
+	REQUIRE(resolveHum.find("s_setupPackHumSound(entry->ext.audio.sound_id, entry->ext.audio.category, out)") !=
+		std::string::npos);
 }
 
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")
@@ -570,7 +699,7 @@ TEST_CASE("the stage.json ending rule decides how a stage presents its outcome",
 	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
 	REQUIRE(extractor.find("return stageGetIndex(stagenum) == STAGEINDEX_DEFENSE;") != std::string::npos);
 	REQUIRE(extractor.find(R"(s_textbufAppend(out, ",\n  \"ending\": { \"outcome\": \"unknown\" }"))") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
 	REQUIRE(runtime.find("s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)") != std::string::npos);
 	REQUIRE(endscreen.find("\tif (bgUsesScenarioSource()) {\n"
 		"\t\tscenario_stage_ending_t rule;\n\n"

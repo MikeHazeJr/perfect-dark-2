@@ -50,6 +50,10 @@ try {
         @{ Rel = 'ntsc-final/files/Pa51boardZ.bin'; Kind = 'text'; Expect = 'raw ROM file or segment' },
         @{ Rel = 'data/ntsc-final/segs/fonts.seg'; Kind = 'text'; Expect = 'raw ROM file or segment' },
         @{ Rel = 'ntsc-final/meshes/.pdextract-cache'; Kind = 'text'; Expect = 'extraction cache stamp' },
+        @{ Rel = 'ntsc-final/arenas/.pdextract-clean'; Kind = 'text'; Expect = 'extraction cache stamp' },
+        @{ Rel = 'ntsc-final/arenas/.pdextract-stage-textures'; Kind = 'text'; Expect = 'extraction cache stamp' },
+        @{ Rel = 'ntsc-final/arenas/.pdextract-stage-textures.pd2tmp-4242-7'; Kind = 'text'; Expect = 'extraction cache stamp' },
+        @{ Rel = 'ntsc-final/scenarios/base_scenario_extraction.pdscenario.pd2repair-4242-34.tmp'; Kind = 'text'; Expect = 'temporary stage repair archive' },
         @{ Rel = 'ntsc-final/meshes/base_model_a51board.pdmesh'; Kind = 'zip';
            Entries = @{ 'mesh.ini' = 'x'; '_meta/provenance.json' = '{"tool": "romextract_pdmesh"}' };
            Expect = 'ROM extraction output (romextract_pdmesh)' },
@@ -70,9 +74,9 @@ try {
 
     $refused = $false
     try { Assert-ReleaseHasNoRomDerivedContent -Root $dirty 6>$null } catch {
-        $refused = $_.Exception.Message -match 'Release refused \(B-1168, BYOR\): 5 ROM-derived'
+        $refused = $_.Exception.Message -match 'Release refused \(B-1168, BYOR\): 9 ROM-derived'
     }
-    Check $refused 'a dist with ROM-derived files is refused, naming all 5'
+    Check $refused 'a dist with ROM-derived files is refused, naming all 9'
 
     $clean = Join-Path $root 'clean'
     New-Text (Join-Path $clean 'pd.ini') 'content'

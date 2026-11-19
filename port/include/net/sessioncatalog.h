@@ -90,6 +90,8 @@ extern session_catalog_t g_SessionCatalog;
  * Called server-side after manifestBuild().
  */
 void sessionCatalogBuild(const match_manifest_t *manifest);
+/* The exact Grid offer already validated this manifest and every local row. */
+void sessionCatalogBuildForLocalMatch(const match_manifest_t *manifest);
 
 /**
  * Broadcast the session catalog to all room clients (SVC_SESSION_CATALOG).

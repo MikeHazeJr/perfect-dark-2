@@ -7,6 +7,8 @@
 #include "crashbreadcrumb.h"
 #include "assetcatalog.h" /* SA-5d/SA-5e: catalogGetBodyHeight, catalogGetMpWeaponNum */
 #include "catalog_mgr_weapons.h" /* S484 F7: catalogManagerGetWeaponBotPref */
+#include "grid_match_runtime.h"
+#include "smoke_harness.h"
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
@@ -745,7 +747,12 @@ static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 		 * gate. Pre-INV-2 the inner normmplayer guard was dropped here too;
 		 * Co-Op simulants would equip both their AI loadout AND the
 		 * spawn-with-weapon, dual-arming the chr's inventory. */
-		if (spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
+		/* A Grid Fiesta puppet inherits the host's weapon through bot state.
+		 * Its local spawn still initializes the actor and its placement. */
+		const bool grid_fiesta_puppet = g_NetMode == NETMODE_CLIENT
+			&& !g_NetLocalBotAuthority && !g_NetPendingBotAuthority
+			&& gridMatchRuntimeFiestaActive();
+		if (!grid_fiesta_puppet && spawnWithWeaponShouldApply(g_Vars.normmplayerisrunning,
 		                               g_MpSetup.options,
 		                               MPOPTION_SPAWNWITHWEAPON)) {
 			/* F.6/M0.1c: spawnWeaponNum is DERIVED from spawn_weapon_id at matchStart().
@@ -834,7 +841,11 @@ static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 						botactGiveAmmoByType(aibot, ammotype, startammo);
 					}
 				}
-				botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				const bool switched = botinvSwitchToWeapon(chr, resolvedWeaponNum, FUNC_PRIMARY);
+				if (smokeHarnessIsActive() && switched && aibot->weaponnum == resolvedWeaponNum
+						&& botinvGetItem(chr, resolvedWeaponNum)) {
+					gridMatchRuntimeTraceFiestaGrant("bot", spawnWeaponIdx, resolvedWeaponNum);
+				}
 				sysLogPrintf(LOG_NOTE, "SPAWN: bot chr=%p spawned with weapon %d (%s) -- auto-equipped",
 						(void *)chr, resolvedWeaponNum, bgunGetShortName(resolvedWeaponNum));
 			} else {

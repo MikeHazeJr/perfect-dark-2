@@ -3,9 +3,10 @@
 // 2026-11-16). The compile rules follow the mission graph runner's.
 //
 // A vehicle's behavior is a graph of events, gates and native modules. The game
-// fires an event (a mount or dismount request, the per-update tick), the walk
-// runs the nodes that event reaches, and the modules do the work: the original
-// code for the seat, the drive and the bonus, and the boost and heat machine.
+// fires an event (a mount, dismount or seat switch request, the per-update
+// tick), the walk runs the nodes that event reaches, and the modules do the
+// work: the original code for the seat, the drive and the bonus, and the boost
+// and heat machine.
 //
 // Layout of this file:
 //   1. Kinds     the events, gates and native modules a graph may name
@@ -50,6 +51,7 @@ enum ModuleKind {
 	MOD_NONE,
 	MOD_MOUNT_SEAT,
 	MOD_DISMOUNT_SEAT,
+	MOD_SWITCH_SEAT,
 	MOD_HOVER_DRIVE,
 	MOD_THROTTLE_BOOST,
 	MOD_BOOST_HEAT,
@@ -67,14 +69,24 @@ constexpr u32 eventBit(int kind)
 constexpr u32 kAnyEvent = eventBit(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED)
 	| eventBit(VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED)
 	| eventBit(VEHICLE_GRAPH_EVENT_TICK)
-	| eventBit(VEHICLE_GRAPH_EVENT_HEAT_CHANGED);
+	| eventBit(VEHICLE_GRAPH_EVENT_HEAT_CHANGED)
+	| eventBit(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED);
 
 /* The events a native seam may fire; heat_changed is raised only. */
 constexpr int kFiredEvents[] = {
 	VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
 	VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
 	VEHICLE_GRAPH_EVENT_TICK,
+	VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED,
 };
+
+/* The seat requests: the events that carry a seat and a player. */
+constexpr bool isSeatRequest(int kind)
+{
+	return kind == VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED
+		|| kind == VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED
+		|| kind == VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED;
+}
 
 /* event.vehicle.*: where a walk starts. */
 struct EventSpec {
@@ -87,6 +99,7 @@ const EventSpec kEvents[] = {
 	{ "event.vehicle.dismount_requested", VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED },
 	{ "event.vehicle.tick", VEHICLE_GRAPH_EVENT_TICK },
 	{ "event.vehicle.heat_changed", VEHICLE_GRAPH_EVENT_HEAT_CHANGED },
+	{ "event.vehicle.switch_seat_requested", VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED },
 };
 
 /* gate.vehicle.*: a gate sends the walk down its pass edges or its fail edges.
@@ -119,6 +132,8 @@ const ModuleSpec kModules[] = {
 		eventBit(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED), 0, { "seat", nullptr } },
 	{ "og.vehicle.dismount_seat", MOD_DISMOUNT_SEAT,
 		eventBit(VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED), 0, { "seat", nullptr } },
+	{ "og.vehicle.switch_seat", MOD_SWITCH_SEAT,
+		eventBit(VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED), 0, { "seat", nullptr } },
 	{ "og.vehicle.hover_drive", MOD_HOVER_DRIVE,
 		eventBit(VEHICLE_GRAPH_EVENT_TICK), 0, { "drive", nullptr } },
 	{ "og.vehicle.throttle_boost", MOD_THROTTLE_BOOST,
@@ -159,7 +174,7 @@ struct Node {
 	int module = MOD_NONE;           // module: ModuleKind
 	u32 events = 0;                  // module: the events it may run on (eventBit)
 	int raises = 0;                  // module: the event it raises, 0 for none
-	int seat = VEHICLE_GRAPH_SEAT_NONE; // seat gates, mount_seat, dismount_seat
+	int seat = VEHICLE_GRAPH_SEAT_NONE; // seat gates and the three seat modules
 	u32 phase_mask = 0;              // gate.vehicle.heat_phase: one bit per phase
 	int drive = 1;                   // hover_drive: takes the driver's inputs
 	f32 boost_speed = 0.0f;          // throttle_boost: extra speed at full bonus
@@ -181,6 +196,19 @@ const char *eventName(int kind)
 		if (spec.event == kind) return spec.kind;
 	}
 	return "?";
+}
+
+/* The modules that change who sits where, numbered from 0 (mount, dismount,
+ * switch); -1 for any other module. */
+constexpr int kSeatModuleKinds = 3;
+int seatModuleIndex(int module)
+{
+	switch (module) {
+	case MOD_MOUNT_SEAT: return 0;
+	case MOD_DISMOUNT_SEAT: return 1;
+	case MOD_SWITCH_SEAT: return 2;
+	default: return -1;
+	}
 }
 
 /* 1 to max_len of a-z, 0-9 and _: variable names and lockout reasons. */
@@ -486,6 +514,7 @@ bool readModuleParams(Node &node, Params &read, std::string &error)
 	switch (node.module) {
 	case MOD_MOUNT_SEAT:
 	case MOD_DISMOUNT_SEAT:
+	case MOD_SWITCH_SEAT:
 		return read.seat("seat", node.seat);
 	case MOD_HOVER_DRIVE:
 		return read.boolean("drive", false, 1, node.drive);
@@ -717,6 +746,9 @@ struct vehicle_graph_program {
 	 * its walk can reach (both branches of every gate). */
 	std::vector<int> roots[VEHICLE_GRAPH_EVENT_KIND_END];
 	std::vector<char> reach[VEHICLE_GRAPH_EVENT_KIND_END];
+	/* Per event kind: the seats its walk can reach a seat module for, one bit
+	 * per seat (vehicleGraphProgramEventSeats). */
+	u32 event_seats[VEHICLE_GRAPH_EVENT_KIND_END] = { 0 };
 	int exec_edges = 0;
 	int throttle_slots = 0;          // one timer per throttle_boost node
 	int boost_heat_node = -1;        // the one boost_heat node, -1 without one
@@ -801,8 +833,8 @@ bool pendingBound(const vehicle_graph_program &program, int event_kind, int *sta
  * order: the variables, the graph's schema and catalog_id, every node (one
  * hover_drive and one boost_heat at most, the model's parts when a part check
  * is given, the lockout reasons), the edges, then for each event its reach,
- * the modules that may not run on it, one mount and one dismount per seat, and
- * last the bound on raised events. */
+ * the modules that may not run on it, one mount, one dismount and one switch
+ * per seat, and last the bound on raised events. */
 std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t graph_size,
 	const char *variables_json, size_t variables_size, const char *catalog_id,
 	vehicle_graph_has_part_fn has_part, void *has_part_context, std::string &error)
@@ -908,10 +940,11 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 		for (const Edge &edge : node.out) program->roots[node.event_kind].push_back(edge.target);
 	}
 	for (int kind = 1; kind < VEHICLE_GRAPH_EVENT_KIND_END; kind++) {
-		/* One event mounts or dismounts a seat at most once (CORE's review,
-		 * 2026-11-16): the host's mount and dismount change the rider, so a
-		 * second one for the same seat would act on a rider who has gone. */
-		int seat_modules[2][2] = { { 0, 0 }, { 0, 0 } };
+		/* One event mounts, dismounts or switches to a seat at most once
+		 * (CORE's review, 2026-11-16): the host's seat actions change the
+		 * rider, so a second one for the same seat would act on a rider who
+		 * has gone. */
+		int seat_modules[kSeatModuleKinds][VEHICLE_GRAPH_SEAT_COUNT] = {};
 		program->reach[kind] = reachFrom(*program, kind);
 		for (size_t i = 0; i < program->nodes.size(); i++) {
 			const Node &node = program->nodes[i];
@@ -921,14 +954,15 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 					", which reaches it";
 				return nullptr;
 			}
-			if ((node.module == MOD_MOUNT_SEAT || node.module == MOD_DISMOUNT_SEAT) &&
-					node.seat >= 0 && node.seat < 2 &&
-					++seat_modules[node.module == MOD_DISMOUNT_SEAT][node.seat] > 1) {
+			const int seat_module = seatModuleIndex(node.module);
+			if (seat_module < 0 || node.seat < 0 || node.seat >= VEHICLE_GRAPH_SEAT_COUNT) continue;
+			if (++seat_modules[seat_module][node.seat] > 1) {
 				error = std::string(eventName(kind)) + " reaches a second " + node.kind +
 					" for the " + (node.seat == VEHICLE_GRAPH_SEAT_DRIVER ? "driver" : "gunner") +
-					" seat ('" + node.id + "'); one event mounts or dismounts a seat once";
+					" seat ('" + node.id + "'); one event mounts, dismounts or switches to a seat once";
 				return nullptr;
 			}
+			program->event_seats[kind] |= 1u << node.seat;
 		}
 	}
 
@@ -962,6 +996,7 @@ bool eventValid(const vehicle_graph_event_t &event)
 	switch (event.kind) {
 	case VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED:
 	case VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED:
+	case VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED:
 		return event.seat == VEHICLE_GRAPH_SEAT_DRIVER || event.seat == VEHICLE_GRAPH_SEAT_GUNNER;
 	case VEHICLE_GRAPH_EVENT_TICK:
 		return event.ticks240 >= 0 && std::isfinite(event.ticks60) && event.ticks60 >= 0.0f &&
@@ -971,15 +1006,15 @@ bool eventValid(const vehicle_graph_event_t &event)
 	}
 }
 
-/* A gate's answer for this event: the event's seat, a free seat (the host
- * says), or the heat phase now (cool for a graph with no boost_heat). */
+/* A gate's answer for this event: the seat a seat request is about, a free
+ * seat (the host says), or the heat phase now (cool for a graph with no
+ * boost_heat). */
 bool gatePasses(const vehicle_graph_instance &instance, const Node &node,
 	const vehicle_graph_event_t &event, const vehicle_graph_host_t *host)
 {
 	switch (node.gate) {
 	case GATE_SEAT:
-		return (event.kind == VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED ||
-				event.kind == VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED) && event.seat == node.seat;
+		return isSeatRequest(event.kind) && event.seat == node.seat;
 	case GATE_SEAT_FREE:
 		return host && host->seat_free && host->seat_free(host->context, node.seat);
 	case GATE_HEAT_PHASE: {
@@ -1006,6 +1041,9 @@ int runModule(vehicle_graph_instance &instance, const Node &node,
 	case MOD_DISMOUNT_SEAT:
 		return host && host->dismount_seat &&
 			host->dismount_seat(host->context, node.seat, &event) ? 1 : 0;
+	case MOD_SWITCH_SEAT:
+		return host && host->switch_seat &&
+			host->switch_seat(host->context, node.seat, &event) ? 1 : 0;
 	case MOD_HOVER_DRIVE:
 		instance.drive.hover = 1;
 		if (node.drive) instance.drive.drive = 1;
@@ -1204,6 +1242,13 @@ extern "C" s32 vehicleGraphProgramEventReachesModule(const vehicle_graph_program
 		}
 	}
 	return 0;
+}
+
+extern "C" u32 vehicleGraphProgramEventSeats(const vehicle_graph_program_t *program,
+	s32 event_kind)
+{
+	if (!program || event_kind <= 0 || event_kind >= VEHICLE_GRAPH_EVENT_KIND_END) return 0;
+	return program->event_seats[event_kind];
 }
 
 extern "C" s32 vehicleGraphProgramPendingBound(const vehicle_graph_program_t *program)

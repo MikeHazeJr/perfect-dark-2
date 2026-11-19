@@ -24,19 +24,34 @@
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "net/lobby_view.h"
+#include "net/grid_edit_playtest_view.h"
+#include "net/grid_edit_room_net.h"
+#include "net/grid_match_result.h"
+#include "net/grid_mod_proposal.h"
+#include "forge_level_io.h"
+#include "forge_room_builder.h"
+#include "grid_match_package_io.h"
+#include "grid_match_runtime.h"
+#include <float.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <algorithm>
+#include <cmath>
+#include <vector>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
+#include "pdgui_friends.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav_input.h"
+#include "pdgui_pausemenu.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind */
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
+#include "pdgui_grid_variant_picker.h"
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -56,6 +71,7 @@ extern "C" {
 #include "pdgui_character_portrait.h"
 #include "pdgui_charpreview.h"
 #include "pdgui_nav.h"
+#include "game/forgemode.h"
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
 s32 challengeIsFeatureUnlocked(u32 feature);
@@ -82,10 +98,17 @@ s32 challengeIsFeatureUnlocked(u32 feature);
 
 s32 netGetMode(void);
 s32 netDisconnect(void);
+s32 netmsgGridCanProposeMod(void);
+s32 netmsgGridProposeMod(const char *id);
+const grid_mod_proposal_control_t *netmsgGridReviewModProposal(void);
+s32 netmsgGridResolveModProposal(s32 accept);
+const char *netmsgGridModProposalNotice(void);
+void pdguiRoomClearPlayedVariant(void);
 void pdguiSetInRoom(s32 inRoom);  /* pdgui_lobby.cpp — transition back to social lobby */
 s32 pdguiCountdownIsActive(void); /* pdgui_bridge.c — true during pre-match countdown */
 extern s32 g_NetMode;
 extern s32 g_NetDedicated;
+extern u8 g_NetMatchRoomId;
 extern u8 g_NetCoopDifficulty;
 extern u8 g_NetCoopFriendlyFire;
 extern u8 g_NetCoopAiBuddies;
@@ -99,6 +122,7 @@ const char *netGetPublicIP(void);
 
 /* Lobby state */
 void lobbyUpdate(void);
+s32 lobbyGetPlayerCount(void);
 s32 lobbyRoomGetPlayerCount(void);
 s32 lobbyIsLocalLeader(void);
 
@@ -329,6 +353,23 @@ const char *arenaGetName(u16 textId)
     }
 }
 
+/* An arena's name for a list. A mod level carries its own name in the
+ * catalog entry (arena.ini `display_name`, written by the mod author; Forge
+ * F1): it has no string in the game's language files, and its template's
+ * language id would show it as a second "Complex". Every other arena is
+ * named by its language id, through arenaGetName above.
+ * Non-static: the match setup list and both Grid lists use it too. */
+const char *arenaEntryName(const asset_entry_t *e)
+{
+    if (!e) {
+        return "???";
+    }
+    if (e->ext.arena.display_name[0]) {
+        return e->ext.arena.display_name;
+    }
+    return arenaGetName((u16)e->ext.arena.name_langid);
+}
+
 /* ========================================================================
  * Arena list — built from the asset catalog at room init.
  * Replaces the old hardcoded table: catalog is the single source of truth.
@@ -373,7 +414,7 @@ static void catalogArenaCollect(const asset_entry_t *e, void *userdata)
         s_ArenasCapacity = newCap;
     }
 
-    const char *name = arenaGetName((u16)e->ext.arena.name_langid);
+    const char *name = arenaEntryName(e);
     if (!name || !name[0]) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG: arena stagenum=0x%02x langid=0x%04x has no name, skipping",
@@ -505,9 +546,11 @@ struct spawnweapon_entry {
 #define MAX_SPAWN_WEAPONS 64
 static spawnweapon_entry s_SpawnWeapons[MAX_SPAWN_WEAPONS];
 static int s_NumSpawnWeapons = 0;
+static u32 s_SpawnWeaponCatalogGeneration;
 
 static void buildSpawnWeaponList(void)
 {
+    s_SpawnWeaponCatalogGeneration = assetCatalogGetGeneration();
     s_NumSpawnWeapons = 0;
 
     /* Entry 0: Random (rolled once at match start; every spawn uses that). */
@@ -1207,7 +1250,7 @@ static void roomRememberFocusedRegion(int region)
 static void roomRememberFocusedPlayerRow(void)
 {
     roomRememberFocusedRegion(ROOM_FOCUS_PLAYERS);
-    if (pdguiMenuStartPressed()) {
+    if (!pdguiFriendsAnySurfaceIsOpen() && pdguiMenuStartPressed()) {
         s_StartMatchFocusPending = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
@@ -1249,6 +1292,7 @@ static void roomCsHandlePendingSectionJump(void)
 
 static bool roomContextPopupRequestedForLastItem(void)
 {
+    if (pdguiFriendsAnySurfaceIsOpen()) return false;
     bool requested = false;
     if (ImGui::IsItemFocused() && pdguiMenuSecondaryPressed()) {
         requested = true;
@@ -3621,10 +3665,14 @@ static s32 roomGraphStartMatch(void *userdata)
     return -1;
 }
 
+static void roomResetSharedVariant();
+
 static s32 roomGraphLeaveRoom(void *userdata)
 {
     (void)userdata;
 
+    roomResetSharedVariant();
+    pdguiRoomClearPlayedVariant();
     s_MatchConfigInited = false;
     s_CodeGenerated = false;
     matchConfigRestoreUserOptions("room leave");
@@ -3651,6 +3699,1082 @@ static s32 roomGraphLeaveRoom(void *userdata)
     return 0;
 }
 
+static void roomRenderGridModSharing()
+{
+    if (pdguiCountdownIsActive()) return;
+    if (const grid_mod_proposal_control_t *proposal = netmsgGridReviewModProposal()) {
+        if (ImGui::SmallButton("Review Mod Request")) ImGui::OpenPopup("##grid_mod_request");
+        if (ImGui::BeginPopup("##grid_mod_request")) {
+            ImGui::TextUnformatted("Proposed mod packages");
+            ImGui::TextWrapped("Approved mods become available in this Room. Players receive the sources used by the pinned level or match.");
+            const float width = 400.0f * pdguiScale(1.0f);
+            if (ImGui::BeginChild("##proposed_packages", ImVec2(width, ImGui::GetTextLineHeightWithSpacing() * 6),
+                    ImGuiChildFlags_Borders)) {
+                for (u16 i = 0; i < proposal->packages.count; i++) {
+                    const auto &package = proposal->sources.packages[proposal->packages.indexes[i]];
+                    char hash[SHA256_HEX_SIZE];
+                    sha256ToHex(package.digest, hash);
+                    ImGui::Text("%s  %.12s  %u KiB", package.owner.id, hash, (package.size + 1023u) / 1024u);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", hash);
+                }
+            }
+            ImGui::EndChild();
+            if (ImGui::Button("Approve Mod Request") && netmsgGridResolveModProposal(1)) ImGui::CloseCurrentPopup();
+            ImGui::SameLine();
+            if (ImGui::Button("Decline") && netmsgGridResolveModProposal(0)) ImGui::CloseCurrentPopup();
+            if (const char *notice = netmsgGridModProposalNotice()) ImGui::TextWrapped("%s", notice);
+            ImGui::EndPopup();
+        }
+    }
+    if (netmsgGridCanProposeMod()) {
+        static char filter[64];
+        static char chosen[CATALOG_ID_LEN];
+        if (ImGui::SmallButton("Propose a Mod")) ImGui::OpenPopup("##grid_mod_propose");
+        if (ImGui::BeginPopup("##grid_mod_propose")) {
+            ImGui::InputTextWithHint("##grid_mod_filter", "Search installed mods", filter, sizeof(filter));
+            const float width = 365.0f * pdguiScale(1.0f);
+            if (ImGui::BeginChild("##propose_assets", ImVec2(width, ImGui::GetTextLineHeightWithSpacing() * 8),
+                    ImGuiChildFlags_Borders)) {
+                const s32 count = assetCatalogGetPoolSize();
+                for (s32 i = 0; i < count; i++) {
+                    const asset_entry_t *entry = assetCatalogGetByIndex(i);
+                    if (!entry || !entry->enabled || entry->bundled || entry->temporary || entry->type == ASSET_ARENA
+                            || (filter[0] && !strstr(entry->id, filter))) continue;
+                    char descriptor[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], member[FS_MAXPATH + 1];
+                    if (!gridMatchCatalogArchiveDescriptor(entry, descriptor, sizeof(descriptor))
+                            || !gridMatchPackageLocation(descriptor, archive, sizeof(archive), member, sizeof(member), nullptr)
+                            || member[0] || !gridMatchPackageTypeShareable(entry->type, strrchr(archive, '.'))) continue;
+                    if (ImGui::Selectable(entry->id, strcmp(entry->id, chosen) == 0)) {
+                        snprintf(chosen, sizeof(chosen), "%s", entry->id);
+                    }
+                }
+            }
+            ImGui::EndChild();
+            ImGui::BeginDisabled(!chosen[0]);
+            const bool propose = ImGui::Button("Propose and Allow Sharing");
+            ImGui::EndDisabled();
+            if (propose && netmsgGridProposeMod(chosen)) ImGui::CloseCurrentPopup();
+            if (const char *notice = netmsgGridModProposalNotice()) ImGui::TextWrapped("%s", notice);
+            ImGui::EndPopup();
+        }
+    }
+    if (const char *notice = netmsgGridModProposalNotice()) ImGui::TextWrapped("%s", notice);
+}
+
+static void roomShowDraftSource(const grid_edit_room_invite_t &invite)
+{
+    ImGui::TextWrapped("Arena %s", invite.arena_id);
+    ImGui::Text("Source %.12s", invite.arena_sha256);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", invite.arena_sha256);
+}
+
+void pdguiDrawGridPlaytestMap(ImDrawList *draw, const grid_playtest_view_t &view,
+    ImVec2 origin, float side, const u16 *creatorCursor);
+
+static void roomRenderGridPlaytestView(const grid_playtest_view_t &view)
+{
+    ImGui::SeparatorText("Live Playtest");
+    grid_edit_room_control_t layout = {};
+    if (netGridEditGetObservedLayout(&layout)) {
+        char digest[SHA256_HEX_SIZE];
+        sha256ToHex(layout.review.arena_sha256, digest);
+        ImGui::TextWrapped("Layout %s", layout.review.arena_id);
+        ImGui::Text("Layout source %.12s", digest);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", digest);
+    }
+    const float side = std::min(ImGui::GetContentRegionAvail().x, pdguiScale(165.0f));
+    if (side <= 0.0f) return;
+    pdguiDrawGridPlaytestMap(ImGui::GetWindowDrawList(), view, ImGui::GetCursorScreenPos(), side, nullptr);
+    ImGui::Dummy(ImVec2(side, side));
+    ImGui::TextDisabled("Circle: player   Square: bot");
+}
+
+extern "C" void pdguiRenderGridPlaytestVisibility(s32 livePlaytest)
+{
+    if (livePlaytest && !netGridEditPrivatePlaytestRoom(g_NetMatchRoomId)) return;
+    s32 players, creators;
+    if (!netGridEditGetPlaytestVisibility(&players, &creators)) return;
+
+    if (livePlaytest) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("%s Playtest Visibility", forgeDisplayName());
+    }
+    bool showCursor = players != 0;
+    bool showMatch = creators != 0;
+    const bool cursorChanged = ImGui::Checkbox("Players See Creator Cursor", &showCursor);
+    const bool matchChanged = ImGui::Checkbox("Creator Sees Match", &showMatch);
+    if (cursorChanged || matchChanged) netGridEditSetPlaytestVisibility(showCursor, showMatch);
+}
+
+static s32 roomCollectGridDraftPeers(lobbyplayer_view peers[HUB_MAX_CLIENTS], s32 roomOnly)
+{
+    s32 peerCount = 0;
+    const s32 count = roomOnly ? lobbyRoomGetPlayerCount() : lobbyGetPlayerCount();
+    for (s32 i = 0; i < count && peerCount < HUB_MAX_CLIENTS; ++i) {
+        lobbyplayer_view player = {};
+        if (!lobbyProjectViewIndex(i, roomOnly, &player) || !player.active || player.isLocal) continue;
+        const s32 canInvite = roomOnly ? netGridEditCanInvite(player.clientId)
+            : netGridEditCanInviteToResumeRoom(player.clientId);
+        if (canInvite) peers[peerCount++] = player;
+    }
+    return peerCount;
+}
+
+static void roomRenderGridResumeInvites(const grid_edit_room_invite_t &invite,
+    const lobbyplayer_view *peers, s32 peerCount)
+{
+    for (s32 i = 0; i < peerCount; ++i) {
+        ImGui::PushID(peers[i].clientId);
+        char label[sizeof(peers[i].name) + sizeof("Invite  to Resume###room_resume_invite")];
+        snprintf(label, sizeof(label), "Invite %s to Resume###room_resume_invite", peers[i].name);
+        if (ImGui::Button(label)) netGridEditInvite(peers[i].clientId, invite.arena_id, invite.arena_sha256);
+        ImGui::PopID();
+    }
+}
+
+static void roomRenderStagedReview(bool host)
+{
+    grid_edit_variant_review_info_t review = {};
+    s32 has_review = netGridEditGetStagedReview(&review);
+    if (host && netGridEditCanOfferStagedReview()) {
+        const char *label = has_review ? "Retry Dependency Review" : "Send to Creator for Review";
+        if (ImGui::Button(label) && netGridEditOfferStagedReview()) {
+            has_review = netGridEditGetStagedReview(&review);
+        }
+        if (netGridEditCanOfferStagedReviewTransfer()) {
+            if (ImGui::Button("Offer Arena for Temporary Review")
+                && netGridEditOfferStagedReviewTransfer()) {
+                has_review = netGridEditGetStagedReview(&review);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Lets the invited creator receive the exact staged arena for this review after they agree.");
+            }
+        }
+    }
+    if (!has_review) return;
+    if (!host) {
+        ImGui::SeparatorText("Staged Variant Review");
+        char digest[SHA256_HEX_SIZE];
+        sha256ToHex(review.variant.arena_sha256, digest);
+        ImGui::TextWrapped("%s  %.12s", review.variant.arena_id, digest);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", digest);
+        ImGui::Text("Extend Room %u by %.2f m", (unsigned)review.variant.edited_room, review.variant.extension / 100.0);
+    }
+    if (review.transfer_active && review.arena_bytes) {
+        ImGui::TextUnformatted(host ? "Sending arena for review" : "Receiving arena for review");
+        char progress[48];
+        snprintf(progress, sizeof(progress), "%u / %u bytes", review.transferred_bytes, review.arena_bytes);
+        ImGui::ProgressBar((float)review.transferred_bytes / review.arena_bytes, ImVec2(-1, 0), progress);
+        if (host && review.transferred_bytes == review.arena_bytes) {
+            ImGui::TextDisabled("Waiting for the creator to verify the source packages.");
+        }
+        if (ImGui::Button("Cancel Arena Review")) netGridEditCancelStagedReview();
+        return;
+    }
+    if (host) {
+        switch (review.reply) {
+            case GRID_EDIT_VARIANT_REVIEW_DECLINED: ImGui::TextDisabled("Creator declined the review."); break;
+            case GRID_EDIT_VARIANT_REVIEW_ACKNOWLEDGED:
+                ImGui::TextDisabled("Creator acknowledged the proposal. Their arena is unverified.");
+                break;
+            case GRID_EDIT_VARIANT_REVIEW_SOURCE_VERIFIED:
+                ImGui::TextDisabled(review.includes_dependencies
+                    ? "Creator verified the arena. Dependencies are unverified."
+                    : "Creator verified the local arena.");
+                break;
+            case GRID_EDIT_VARIANT_REVIEW_DEPS_VERIFIED:
+                if (review.match_sources_prepared) {
+                    ImGui::TextDisabled("Arena and private match sources prepared.");
+                    if (review.apply_pending) {
+                        ImGui::TextDisabled("Waiting for the creator to confirm the layout.");
+                    } else if (netGridEditCanApplyStagedLayout()
+                            && ImGui::Button("Apply to Running Playtest")) {
+                        netGridEditApplyStagedLayout();
+                    }
+                } else {
+                    ImGui::TextDisabled(review.sources_prepared
+                        ? "Host and creator prepared the exact arena source packages."
+                        : "Creator verified the arena and matched its dependencies.");
+                    if (review.match_preparation_issue[0]) ImGui::TextWrapped("%s", review.match_preparation_issue);
+                }
+                break;
+            default:
+                ImGui::TextDisabled(review.transfer_offered
+                    ? "Waiting for the creator to review or accept the arena." : "Waiting for creator review.");
+                break;
+        }
+        if (!review.reply && review.transfer_offered && ImGui::Button("Cancel Arena Review")) {
+            netGridEditCancelStagedReview();
+        }
+        return;
+    }
+
+    if (!review.reply) {
+        if (review.transfer_available) {
+            ImGui::TextWrapped("Receive %u bytes from the room host. The arena stays in memory for this review.", review.arena_bytes);
+            if (ImGui::Button("Receive Arena for Review")) netGridEditAcceptStagedReviewTransfer();
+        }
+        if (ImGui::Button("Acknowledge Variant")) netGridEditReplyToStagedReview(1);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(review.includes_dependencies
+            ? "Checks the exact installed arena and compares its dependencies."
+            : "Checks the exact arena if you have it installed.");
+        ImGui::SameLine();
+        if (ImGui::Button("Decline Variant")) netGridEditReplyToStagedReview(0);
+    } else if (review.reply == GRID_EDIT_VARIANT_REVIEW_DEPS_VERIFIED) {
+        if (review.apply_pending) {
+            ImGui::TextDisabled("Layout ready. Waiting for the host to apply it.");
+        } else {
+            ImGui::TextDisabled(review.sources_prepared ? "Exact source packages prepared for this review."
+                : "Local arena verified. Dependencies match.");
+        }
+    } else if (review.reply == GRID_EDIT_VARIANT_REVIEW_SOURCE_VERIFIED) {
+        ImGui::TextDisabled(review.includes_dependencies
+            ? "Local arena verified. Dependencies are unverified." : "Local arena verified.");
+    } else if (review.reply == GRID_EDIT_VARIANT_REVIEW_ACKNOWLEDGED) {
+        ImGui::TextDisabled("Proposal acknowledged. Local arena unverified.");
+    } else {
+        ImGui::TextDisabled("Review declined.");
+    }
+}
+
+extern "C" void pdguiRenderGridRoomExtension(void)
+{
+    if (!netGridEditCanStageRoomExtension()) return;
+    ImGui::SeparatorText("Extend a Room");
+    ImGui::PushID("grid-room-extension");
+    static char name[64];
+    static int room;
+    static int metres = 3;
+    ImGui::InputText("Variant name", name, sizeof(name));
+    const char *const rooms[] = {"Room 1", "Room 2"};
+    ImGui::Combo("Room", &room, rooms, 2);
+    ImGui::InputInt("Extra length (m)", &metres);
+    constexpr int maxMetres = (ForgeRoomSize::MaxLength - ForgeRoomSize::MinLength) / 100;
+    ImGui::BeginDisabled(!name[0] || metres < 1 || metres > maxMetres);
+    if (ImGui::Button("Stage Extended Variant")) {
+        char arena[CATALOG_ID_LEN] = {};
+        if (netGridEditStageRoomExtension(name, room + 1, metres * 100, arena, sizeof(arena))) name[0] = '\0';
+    }
+    ImGui::EndDisabled();
+    grid_edit_staged_variant_info_t staged;
+    if (netGridEditGetStagedVariant(&staged)) {
+        ImGui::TextWrapped("Staged %s  %.12s", staged.arena_id, staged.arena_sha256);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", staged.arena_sha256);
+        if (staged.draft_revision != staged.current_revision) {
+            ImGui::TextWrapped("Staged from draft revision %llu. Current draft is revision %llu.",
+                (unsigned long long)staged.draft_revision, (unsigned long long)staged.current_revision);
+        }
+        if (staged.applied_layout_generation) ImGui::TextDisabled("Layout applied to this running playtest.");
+        roomRenderStagedReview(true);
+    }
+    const char *error = netGridEditError();
+    if (error && error[0]) ImGui::TextWrapped("%s", error);
+    ImGui::PopID();
+}
+
+extern "C" void pdguiRenderGridPlaytestResume(void)
+{
+    grid_edit_room_state_t draft = {};
+    if (!netGridEditPrivatePlaytestRoom(g_NetMatchRoomId) || !netGridEditGetState(&draft)
+            || !draft.is_host || !draft.creator_detached
+            || !netGridEditPrivateResumeRoomOpen(g_NetMatchRoomId)) return;
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Shared Draft");
+    if (draft.pending_resume) {
+        ImGui::TextWrapped("Waiting for the invited creator to verify the draft.");
+    } else {
+        lobbyplayer_view peers[HUB_MAX_CLIENTS];
+        const s32 roomPeerCount = roomCollectGridDraftPeers(peers, 1);
+        roomRenderGridResumeInvites(draft.invite, peers, roomPeerCount);
+        const s32 outsidePeerCount = roomCollectGridDraftPeers(peers, 0);
+        for (s32 i = 0; i < outsidePeerCount; ++i) {
+            ImGui::PushID(peers[i].clientId);
+            char label[sizeof(peers[i].name) + sizeof("Invite  to Room###grid_resume_room_invite")];
+            snprintf(label, sizeof(label), "Invite %s to Room###grid_resume_room_invite", peers[i].name);
+            if (ImGui::Button(label)) netGridEditInviteToResumeRoom(peers[i].clientId);
+            ImGui::PopID();
+        }
+        if (!roomPeerCount && !outsidePeerCount)
+            ImGui::TextWrapped("The creator can rejoin this Room to resume the draft.");
+    }
+    const char *error = netGridEditError();
+    if (error && error[0]) ImGui::TextWrapped("%s", error);
+}
+
+static bool sameDraftValue(const grid_edit_ambient_light_t &a, const grid_edit_ambient_light_t &b)
+{
+    return a.enabled == b.enabled && a.brightness == b.brightness;
+}
+
+static bool sameDraftValue(const grid_edit_move_spawn_t &a, const grid_edit_move_spawn_t &b)
+{
+    return std::equal(a.position, a.position + 3, b.position) && std::equal(a.look, a.look + 3, b.look);
+}
+
+static bool sameDraftValue(const grid_edit_move_decoration_t &a, const grid_edit_move_decoration_t &b)
+{
+    return a.x == b.x && a.z == b.z;
+}
+
+template <typename Value>
+struct SharedDraftInput {
+    Value baseline = {};
+    Value edited = {};
+    u64 submittedSequence = 0;
+    bool conflict = false;
+
+    bool dirty() const { return !sameDraftValue(baseline, edited); }
+
+    void reload(const Value &current)
+    {
+        baseline = edited = current;
+        submittedSequence = 0;
+        conflict = false;
+    }
+
+    void sync(const Value &current, const grid_edit_room_state_t &draft, bool selectionChanged)
+    {
+        /* The local sequence advances only on a matching commit. Read back the
+         * actual value in case the host normalized it. */
+        const bool committed = submittedSequence && draft.next_sequence != submittedSequence;
+        if (selectionChanged || committed || (!conflict && !dirty())) {
+            reload(current);
+            return;
+        }
+        if (!draft.pending_command) submittedSequence = 0;
+        if (!sameDraftValue(baseline, current)) conflict = true;
+    }
+};
+
+static void roomRenderSharedAmbient(const grid_edit_room_state_t &draft, bool newDraft, grid_edit_resource_t &focus)
+{
+    static SharedDraftInput<grid_edit_ambient_light_t> input;
+    const grid_edit_ambient_light_t current = { draft.enabled, draft.brightness };
+    input.sync(current, draft, newDraft);
+
+    if (input.conflict) {
+        ImGui::TextWrapped("Ambient light changed in the shared draft. Reload it before applying.");
+        if (ImGui::Button("Reload Ambient Light")) input.reload(current);
+    }
+    bool enabled = input.edited.enabled != 0;
+    if (ImGui::Checkbox("Ambient light override", &enabled)) input.edited.enabled = enabled;
+    ImGui::SliderInt("Brightness", &input.edited.brightness, 0, 255, "%d", ImGuiSliderFlags_AlwaysClamp);
+    if (ImGui::IsItemActive() && !draft.pending_command) focus.kind = GRID_EDIT_RESOURCE_AMBIENT_LIGHT;
+
+    const bool dirty = input.dirty();
+    ImGui::BeginDisabled(input.conflict || !dirty);
+    if (ImGui::Button("Apply Ambient Light") && netGridEditSetAmbient(input.edited.enabled, input.edited.brightness)) {
+        input.submittedSequence = draft.next_sequence;
+    }
+    ImGui::EndDisabled();
+    if (draft.can_undo_ambient) {
+        ImGui::SameLine();
+        ImGui::BeginDisabled(input.conflict || dirty);
+        if (ImGui::Button("Undo Ambient Edit")) {
+            netGridEditSetAmbient(draft.previous_ambient.enabled, draft.previous_ambient.brightness);
+        }
+        ImGui::EndDisabled();
+    }
+}
+
+struct RoomLivePlanTarget {
+    grid_edit_resource_t resource = {};
+    grid_playtest_target_t layout = {};
+    u64 revision = 0;
+    f32 x = 0, z = 0;
+};
+
+static bool roomPlanContains(const grid_playtest_view_t &view, f32 x, f32 z)
+{
+    return std::isfinite(x) && std::isfinite(z)
+        && x >= view.min_x && x <= view.max_x && z >= view.min_z && z <= view.max_z;
+}
+
+static bool roomRenderLivePlanTarget(const grid_edit_room_state_t &draft, const grid_playtest_view_t *view,
+    const grid_edit_resource_t &resource, bool canTarget, f32 currentX, f32 currentZ,
+    RoomLivePlanTarget &plan, grid_edit_resource_t &focus, f32 creatorCursor[3])
+{
+    const bool spawn = resource.kind == GRID_EDIT_RESOURCE_SPAWN;
+    const char *resourceId = spawn ? resource.spawn_id : resource.record_id;
+    if (plan.resource.kind == resource.kind
+            && (!view || !canTarget || plan.revision != draft.revision
+                || plan.layout.epoch != view->epoch || plan.layout.layout_generation != view->layout_generation
+                || strcmp(spawn ? plan.resource.spawn_id : plan.resource.record_id, resourceId) != 0)) {
+        plan = {};
+    }
+    if (!view || !canTarget || !roomPlanContains(*view, currentX, currentZ)) return false;
+
+    if (plan.resource.kind != resource.kind) {
+        if (ImGui::Button("Target on Live Plan")) {
+            plan.resource = resource;
+            plan.layout = { view->epoch, view->layout_generation };
+            plan.revision = draft.revision;
+            plan.x = currentX;
+            plan.z = currentZ;
+            focus = resource;
+            creatorCursor[0] = plan.x;
+            creatorCursor[2] = plan.z;
+        }
+        return false;
+    }
+
+    const float side = std::min(ImGui::GetContentRegionAvail().x, pdguiScale(225.0f));
+    const float inset = pdguiScale(6.0f);
+    if (side <= inset * 2.0f) return false;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const float extent = side - inset * 2.0f;
+    ImGui::InvisibleButton("##live_plan_canvas", ImVec2(side, side));
+    if (ImGui::IsItemClicked()) {
+        const ImVec2 pointer = ImGui::GetIO().MousePos;
+        const auto world = [&](float pixel, float start, f32 minimum, f32 maximum) {
+            const double fraction = std::clamp((pixel - start - inset) / extent, 0.0f, 1.0f);
+            return static_cast<f32>(minimum + fraction * (static_cast<double>(maximum) - minimum));
+        };
+        plan.x = world(pointer.x, origin.x, view->min_x, view->max_x);
+        plan.z = world(pointer.y, origin.y, view->min_z, view->max_z);
+    }
+    pdguiDrawGridPlaytestMap(ImGui::GetWindowDrawList(), *view, origin, side, nullptr);
+    const auto screen = [&](f32 x, f32 z) {
+        return ImVec2(origin.x + inset + extent * ((x - view->min_x) / (view->max_x - view->min_x)),
+            origin.y + inset + extent * ((z - view->min_z) / (view->max_z - view->min_z)));
+    };
+
+    ImGui::SliderFloat("Plan X", &plan.x, view->min_x, view->max_x, "%.1f",
+        ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+    ImGui::SliderFloat("Plan Z", &plan.z, view->min_z, view->max_z, "%.1f",
+        ImGuiSliderFlags_AlwaysClamp | ImGuiSliderFlags_NoInput);
+    const ImVec2 current = screen(currentX, currentZ);
+    const ImVec2 preview = screen(plan.x, plan.z);
+    const float marker = pdguiScale(5.0f);
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddCircle(current, marker, IM_COL32(219, 231, 239, 255));
+    draw->AddLine(ImVec2(preview.x - marker, preview.y), ImVec2(preview.x + marker, preview.y),
+        IM_COL32(91, 224, 203, 255), 2.0f);
+    draw->AddLine(ImVec2(preview.x, preview.y - marker), ImVec2(preview.x, preview.y + marker),
+        IM_COL32(91, 224, 203, 255), 2.0f);
+    ImGui::TextDisabled("Ring: current   Cross: preview");
+    if (spawn) ImGui::TextWrapped("Player starts change in the draft for a later playtest.");
+
+    const bool moved = plan.x != currentX || plan.z != currentZ;
+    ImGui::BeginDisabled(!moved);
+    const bool submit = ImGui::Button("Apply Plan Target");
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel Target")) {
+        plan = {};
+        return false;
+    }
+    focus = resource;
+    creatorCursor[0] = plan.x;
+    creatorCursor[2] = plan.z;
+    return submit;
+}
+
+static bool roomRenderSharedSpawns(const grid_edit_room_state_t &draft, bool newDraft,
+    const grid_playtest_view_t *view, RoomLivePlanTarget &plan,
+    f32 creatorCursor[3], grid_edit_resource_t &focus)
+{
+    static s32 selected;
+    static SharedDraftInput<grid_edit_move_spawn_t> input;
+    grid_edit_move_spawn_t current = {};
+    const s32 count = netGridEditSpawnCount();
+    if (newDraft || selected < 0 || selected >= count) selected = 0;
+    if (count <= 0 || !netGridEditGetSpawnPose(selected, &current)) {
+        input.reload({});
+        if (plan.resource.kind == GRID_EDIT_RESOURCE_SPAWN) plan = {};
+        return false;
+    }
+    input.sync(current, draft, newDraft || strcmp(input.baseline.spawn_id, current.spawn_id) != 0);
+
+    ImGui::SeparatorText("Player Starts");
+    if (ImGui::BeginCombo("Start", current.spawn_id)) {
+        for (s32 i = 0; i < count; i++) {
+            grid_edit_move_spawn_t spawn = {};
+            if (netGridEditGetSpawnPose(i, &spawn) && ImGui::Selectable(spawn.spawn_id, i == selected)
+                    && i != selected) {
+                selected = i;
+                current = spawn;
+                input.reload(current);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PushID(current.spawn_id);
+    if (input.conflict) {
+        ImGui::TextWrapped("This start changed in the shared draft. Reload it before applying.");
+        if (ImGui::Button("Reload Start")) input.reload(current);
+    }
+    grid_edit_move_spawn_t &edited = input.edited;
+    ImGui::InputFloat3("Position", edited.position, "%.1f");
+    const bool positionActive = ImGui::IsItemActive();
+    const bool editingPosition = positionActive && !draft.is_host && !draft.pending_command
+        && std::isfinite(edited.position[0]) && std::isfinite(edited.position[1])
+        && std::isfinite(edited.position[2]);
+    if (editingPosition) memcpy(creatorCursor, edited.position, sizeof(edited.position));
+    ImGui::InputFloat3("Facing", edited.look, "%.3f");
+    if (!draft.pending_command && (positionActive || ImGui::IsItemActive())) {
+        focus.kind = GRID_EDIT_RESOURCE_SPAWN;
+        memcpy(focus.spawn_id, edited.spawn_id, sizeof(focus.spawn_id));
+    }
+    const bool dirty = input.dirty();
+    ImGui::BeginDisabled(input.conflict || !dirty);
+    if (ImGui::Button("Apply Start Position") && netGridEditMoveSpawn(&edited)) {
+        input.submittedSequence = draft.next_sequence;
+    }
+    ImGui::EndDisabled();
+    if (draft.can_undo_spawn) {
+        ImGui::SameLine();
+        const bool undoSelected = strcmp(current.spawn_id, draft.previous_spawn.spawn_id) == 0;
+        ImGui::BeginDisabled(undoSelected && (input.conflict || dirty));
+        if (ImGui::Button("Undo Start Edit")) netGridEditMoveSpawn(&draft.previous_spawn);
+        ImGui::EndDisabled();
+    }
+    grid_edit_resource_t resource = {};
+    resource.kind = GRID_EDIT_RESOURCE_SPAWN;
+    memcpy(resource.spawn_id, current.spawn_id, sizeof(resource.spawn_id));
+    if (roomRenderLivePlanTarget(draft, view, resource, !input.conflict && !dirty,
+            current.position[0], current.position[2], plan, focus, creatorCursor)) {
+        grid_edit_move_spawn_t move = current;
+        move.position[0] = plan.x;
+        move.position[2] = plan.z;
+        if (netGridEditMoveSpawnOnPlan(&move, &plan.layout)) {
+            input.submittedSequence = draft.next_sequence;
+            plan = {};
+        }
+    }
+    ImGui::PopID();
+    return editingPosition || plan.resource.kind == GRID_EDIT_RESOURCE_SPAWN;
+}
+
+static bool roomRenderSharedDecorations(const grid_edit_room_state_t &draft, bool newDraft,
+    const grid_playtest_view_t *view, RoomLivePlanTarget &plan, f32 cursor[3], grid_edit_resource_t &focus)
+{
+    static s32 selected;
+    static SharedDraftInput<grid_edit_move_decoration_t> input;
+    grid_edit_move_decoration_t current = {};
+    const s32 count = netGridEditDecorationCount();
+    if (newDraft || selected < 0 || selected >= count) selected = 0;
+    if (count <= 0 || !netGridEditGetDecorationPose(selected, &current)) {
+        input.reload({});
+        if (plan.resource.kind == GRID_EDIT_RESOURCE_DECORATION) plan = {};
+        return false;
+    }
+    input.sync(current, draft, newDraft || strcmp(input.baseline.record_id, current.record_id) != 0);
+
+    ImGui::SeparatorText("Decorations");
+    if (ImGui::BeginCombo("Decoration", current.record_id)) {
+        for (s32 i = 0; i < count; ++i) {
+            grid_edit_move_decoration_t pose = {};
+            if (netGridEditGetDecorationPose(i, &pose) && ImGui::Selectable(pose.record_id, i == selected)
+                    && i != selected) {
+                selected = i;
+                current = pose;
+                input.reload(current);
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::PushID(current.record_id);
+    if (input.conflict) {
+        ImGui::TextWrapped("This decoration changed in the shared draft. Reload it before moving it.");
+        if (ImGui::Button("Reload Decoration")) input.reload(current);
+    }
+    grid_edit_move_decoration_t &edited = input.edited;
+    f32 position[2] = { edited.x, edited.z };
+    if (ImGui::InputFloat2("X and Z", position, "%.1f")) {
+        edited.x = position[0];
+        edited.z = position[1];
+    }
+    const bool positionActive = ImGui::IsItemActive() && !draft.pending_command;
+    if (positionActive) {
+        focus.kind = GRID_EDIT_RESOURCE_DECORATION;
+        memcpy(focus.record_id, edited.record_id, sizeof(focus.record_id));
+    }
+    const bool creatorCursor = positionActive && !draft.is_host && std::isfinite(edited.x) && std::isfinite(edited.z);
+    if (creatorCursor) {
+        cursor[0] = edited.x;
+        cursor[1] = 0;
+        cursor[2] = edited.z;
+    }
+    const bool dirty = input.dirty();
+    ImGui::BeginDisabled(input.conflict || !dirty);
+    if (ImGui::Button("Move Decoration") && netGridEditMoveDecoration(&edited)) {
+        input.submittedSequence = draft.next_sequence;
+    }
+    ImGui::EndDisabled();
+    if (draft.can_undo_decoration) {
+        ImGui::SameLine();
+        const bool undoSelected = strcmp(current.record_id, draft.previous_decoration.record_id) == 0;
+        ImGui::BeginDisabled(undoSelected && (input.conflict || dirty));
+        if (ImGui::Button("Undo Decoration Edit")) netGridEditMoveDecoration(&draft.previous_decoration);
+        ImGui::EndDisabled();
+    }
+    grid_edit_resource_t resource = {};
+    resource.kind = GRID_EDIT_RESOURCE_DECORATION;
+    memcpy(resource.record_id, current.record_id, sizeof(resource.record_id));
+    if (roomRenderLivePlanTarget(draft, view, resource, !input.conflict && !dirty,
+            current.x, current.z, plan, focus, cursor)) {
+        grid_edit_move_decoration_t move = current;
+        move.x = plan.x;
+        move.z = plan.z;
+        if (netGridEditMoveDecorationOnPlan(&move, &plan.layout)) {
+            input.submittedSequence = draft.next_sequence;
+            plan = {};
+        }
+    }
+    ImGui::PopID();
+    return creatorCursor || plan.resource.kind == GRID_EDIT_RESOURCE_DECORATION;
+}
+
+struct room_shared_variant_t {
+    grid_edit_wire_identity_t identity = {};
+    net_grid_edit_variant_review_t review = {};
+    forge_level_doc_t *doc = nullptr;
+    grid_match_sources_t sources = {};
+    pdgui_grid_variant_picker_t picker;
+    char name[64] = {};
+    char saved[CATALOG_ID_LEN] = {};
+    char localSaveWarning[256] = {};
+    char error[256] = {};
+};
+
+static room_shared_variant_t s_RoomSharedVariant;
+
+static void roomClearSharedVariantReview()
+{
+    auto &panel = s_RoomSharedVariant;
+    if (panel.doc) forgeLevelDocFree(panel.doc);
+    panel.doc = nullptr;
+    gridMatchSourcesFree(&panel.sources);
+    panel.picker = {};
+    panel.review = {};
+    panel.error[0] = '\0';
+}
+
+static void roomResetSharedVariant()
+{
+    roomClearSharedVariantReview();
+    s_RoomSharedVariant.identity = {};
+    s_RoomSharedVariant.name[0] = '\0';
+    s_RoomSharedVariant.saved[0] = '\0';
+    s_RoomSharedVariant.localSaveWarning[0] = '\0';
+}
+
+static void roomRenderSharedVariantSave(const grid_edit_room_state_t *draft)
+{
+    auto &panel = s_RoomSharedVariant;
+    const char *popup = "Save Draft as Variant###room_grid_shared_variant";
+    const bool idleDraft = draft && !draft->pending_command && !pdguiCountdownIsActive();
+    const bool available = idleDraft && netGridEditCanReviewVariantSources();
+    const bool localByor = idleDraft && netGridEditCanSaveLocalByorVariant();
+    bool opening = false;
+    if (draft) {
+        const auto &identity = draft->invite.identity;
+        if (panel.identity.room_id != identity.room_id || panel.identity.generation != identity.generation) {
+            roomResetSharedVariant();
+            panel.identity = identity;
+        }
+        ImGui::Separator();
+        ImGui::InputText("Variant name", panel.name, sizeof(panel.name));
+        ImGui::BeginDisabled((!available && !localByor) || !panel.name[0]);
+        const bool save = ImGui::Button("Save Draft as Variant");
+        ImGui::EndDisabled();
+        if (save && localByor) {
+            if (netGridEditSaveLocalByorVariant(panel.name, panel.saved, sizeof(panel.saved))) {
+                panel.name[0] = '\0';
+                snprintf(panel.localSaveWarning, sizeof(panel.localSaveWarning), "%s", netGridEditError());
+            }
+        } else if (save && available) {
+            roomClearSharedVariantReview();
+            if (netGridEditReviewVariantSources(&panel.review, &panel.doc, &panel.sources)) {
+                pdguiBeginGridVariantPicker(panel.picker, panel.doc, panel.sources);
+                ImGui::OpenPopup(popup);
+                opening = true;
+            }
+        }
+        if (panel.saved[0]) ImGui::TextWrapped("Saved variant %s", panel.saved);
+        if (panel.localSaveWarning[0] && strcmp(panel.localSaveWarning, netGridEditError()) != 0) {
+            ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(255));
+            ImGui::TextWrapped("%s", panel.localSaveWarning);
+            ImGui::PopStyleColor();
+        }
+    }
+    if (!panel.doc && !ImGui::IsPopupOpen(popup)) return;
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0),
+        ImVec2(pdguiScale(690.0f), ImGui::GetIO().DisplaySize.y * 0.8f));
+    if (!ImGui::BeginPopupModal(popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        roomClearSharedVariantReview();
+        return;
+    }
+    if (opening) pdguiNavSuppressOpeningGesture();
+
+    bool close = !available || !panel.doc || !netGridEditVariantReviewMatches(&panel.review);
+    if (!close) {
+        char err[256] = {};
+        pdgui_grid_variant_selection_t selection;
+        ImGui::Text("Variant %s", panel.name);
+        const bool valid = pdguiDrawGridVariantPicker(panel.picker, panel.doc, panel.sources,
+            selection, err, sizeof(err));
+        if (!valid) ImGui::TextWrapped("%s", err);
+        if (panel.error[0]) ImGui::TextWrapped("%s", panel.error);
+        ImGui::BeginDisabled(!valid || !panel.name[0]);
+        const bool save = ImGui::Button("Save Variant");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        const bool cancel = ImGui::Button("Cancel");
+        if (opening) ImGui::SetItemDefaultFocus();
+        close = cancel || (!opening && pdguiMenuCancelPressed());
+        if (save && !close) {
+            if (netGridEditSaveSelectedVariant(&panel.review, panel.name, &panel.sources,
+                    selection.omitted.data(), selection.omitted.size(), selection.fallbacks.data(),
+                    selection.fallbacks.size(), panel.saved, sizeof(panel.saved))) {
+                panel.name[0] = '\0';
+                close = true;
+            } else {
+                const char *saveError = netGridEditError();
+                snprintf(panel.error, sizeof(panel.error), "%s",
+                    saveError && saveError[0] ? saveError : "Could not save the shared variant.");
+            }
+        }
+    }
+    if (close) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (close) roomClearSharedVariantReview();
+}
+
+static void roomRenderSharedDraft(const grid_match_result_t *played)
+{
+    static bool cursorPublished;
+    static bool focusPublished;
+    static grid_edit_wire_identity_t editedSession = {};
+    static RoomLivePlanTarget plan;
+    grid_edit_room_invite_t invite = {};
+    grid_edit_room_state_t draft = {};
+    const bool invited = netGridEditPendingInvite(&invite) != 0;
+    const bool hasDraft = netGridEditGetState(&draft) != 0;
+    const bool showVariant = !invited && hasDraft && draft.is_host && (draft.ready || draft.creator_detached);
+    if (!hasDraft || !draft.can_edit) editedSession = {};
+    const asset_entry_t *arena = assetCatalogResolve(g_MatchConfig.stage_id);
+    const bool canUseSelected = arena && arena->type == ASSET_ARENA
+        && arena->enabled && !arena->bundled && arena->grid_offer_only
+        && arena->ext.arena.load_mode == ARENA_LOADMODE_PLAYABLE;
+
+    lobbyplayer_view peers[HUB_MAX_CLIENTS];
+    s32 peerCount = 0;
+    const bool choosePeer = hasDraft ? draft.creator_detached && !draft.pending_invite : played || canUseSelected;
+    if (!invited && choosePeer && !pdguiCountdownIsActive()) {
+        peerCount = roomCollectGridDraftPeers(peers, 1);
+    }
+
+    const char *error = netGridEditError();
+    if (invited || hasDraft || peerCount || (error && error[0])) {
+        grid_edit_variant_review_info_t review;
+        const bool needsReview = hasDraft && !draft.is_host && netGridEditGetStagedReview(&review) && !review.reply;
+        const char *label = invited ? "Review Draft Invite###room_shared_draft"
+            : needsReview ? "Review Staged Variant###room_shared_draft" : "Shared Draft###room_shared_draft";
+        if (ImGui::SmallButton(label)) ImGui::OpenPopup("##room_shared_draft_panel");
+    }
+    ImGui::SetNextWindowSizeConstraints(ImVec2(pdguiScale(315.0f), 0),
+        ImVec2(pdguiScale(445.0f), FLT_MAX));
+    if (!ImGui::BeginPopup("##room_shared_draft_panel")) {
+        if (s_RoomSharedVariant.doc) roomClearSharedVariantReview();
+        plan = {};
+        if (cursorPublished) {
+            netGridEditSetCreatorCursor(nullptr);
+            cursorPublished = false;
+        }
+        if (focusPublished) {
+            netGridEditSetResourceFocus(nullptr);
+            focusPublished = false;
+        }
+        return;
+    }
+
+    f32 creatorCursor[3] = {};
+    bool hasCreatorCursor = false;
+    grid_edit_resource_t focus = {};
+    ImGui::SeparatorText("Shared Draft");
+    if (invited) {
+        roomShowDraftSource(invite);
+        ImGui::TextWrapped("Accept to open this exact arena revision in the shared draft.");
+        if (ImGui::Button("Accept Invite")) netGridEditReply(1);
+        ImGui::SameLine();
+        if (ImGui::Button("Decline")) netGridEditReply(0);
+    } else if (hasDraft) {
+        const grid_edit_wire_identity_t &identity = draft.invite.identity;
+        roomShowDraftSource(draft.invite);
+        if (draft.can_edit) {
+            ImGui::Text("Draft revision %llu", (unsigned long long)draft.revision);
+            if (draft.is_host && draft.pending_resume) ImGui::TextDisabled("The creator is catching up.");
+            grid_playtest_view_t liveView = {};
+            const bool observing = draft.ready && !draft.is_host && netGridEditGetPlaytestView(&liveView);
+            if (observing) roomRenderGridPlaytestView(liveView);
+            if (draft.ready && !draft.is_host) roomRenderStagedReview(false);
+            const bool newDraft = editedSession.room_id != identity.room_id
+                || editedSession.generation != identity.generation;
+            editedSession = identity;
+            const grid_playtest_view_t *targetView = observing && liveView.has_world_bounds && !draft.pending_command
+                ? &liveView : nullptr;
+            if (newDraft || !targetView) plan = {};
+            ImGui::BeginDisabled(draft.pending_command != 0);
+            roomRenderSharedAmbient(draft, newDraft, focus);
+            hasCreatorCursor = roomRenderSharedSpawns(draft, newDraft, targetView, plan, creatorCursor, focus);
+            if (roomRenderSharedDecorations(draft, newDraft, targetView, plan, creatorCursor, focus)) {
+                hasCreatorCursor = true;
+            }
+            ImGui::EndDisabled();
+            if (!draft.ready) {
+                hasCreatorCursor = false;
+                focus = {};
+            }
+            if (draft.pending_command) ImGui::TextDisabled("Waiting for the host to apply the edit.");
+        } else if (draft.pending_invite) {
+            ImGui::TextDisabled(draft.pending_resume ? "Waiting for the invited creator to verify the draft."
+                : "Waiting for the invited player.");
+        } else if (draft.creator_detached) {
+            ImGui::Text("Draft revision %llu", (unsigned long long)draft.revision);
+            ImGui::TextWrapped("The creator left. You can save the committed draft as a Variant.");
+            roomRenderGridResumeInvites(draft.invite, peers, peerCount);
+        } else {
+            ImGui::TextDisabled("Waiting for the shared draft to open.");
+        }
+        if (showVariant) {
+            roomRenderSharedVariantSave(&draft);
+            pdguiRenderGridRoomExtension();
+            if (draft.ready) {
+                pdguiRenderGridPlaytestVisibility(0);
+                const s32 bots = countBots();
+                const bool canStart = bots > 0 && strcmp(g_MatchConfig.scenario_id, "base:combat") == 0;
+                ImGui::BeginDisabled(!canStart);
+                if (ImGui::Button("Private Bot Playtest")) {
+                    netGridEditStartPrivatePlaytest(bots, getLeadSimType());
+                }
+                const char *playableVariant = netGridEditSavedVariantId();
+                if (playableVariant[0] && netGridEditHasSavedVariant(playableVariant)) {
+                    if (ImGui::Button("Play Saved Variant")) {
+                        netGridEditStartPrivateVariantPlaytest(playableVariant, bots, getLeadSimType());
+                    }
+                }
+                grid_edit_staged_variant_info_t staged;
+                if (netGridEditGetStagedVariant(&staged) && ImGui::Button("Play Staged Variant")) {
+                    netGridEditStartPrivateVariantPlaytest(staged.arena_id, bots, getLeadSimType());
+                }
+                ImGui::EndDisabled();
+                if (!canStart && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Choose Combat and add at least one bot.");
+                }
+            }
+        }
+        if (ImGui::Button(draft.is_host ? "End Draft" : "Leave Draft")) {
+            hasCreatorCursor = false;
+            focus = {};
+            netGridEditClose();
+        }
+    } else if (peerCount) {
+        static bool useLastPlayed = true;
+        if (played && canUseSelected) {
+            if (ImGui::RadioButton("Last played arena", useLastPlayed)) useLastPlayed = true;
+            if (ImGui::RadioButton("Selected arena", !useLastPlayed)) useLastPlayed = false;
+        }
+        const bool usePlayed = played && (!canUseSelected || useLastPlayed);
+        char digest[SHA256_HEX_SIZE];
+        const char *arenaId = g_MatchConfig.stage_id;
+        if (usePlayed) {
+            arenaId = played->arena_id;
+            sha256ToHex(played->arena_sha256, digest);
+            ImGui::TextWrapped("Arena %s  %.12s", arenaId, digest);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", digest);
+        } else {
+            ImGui::TextWrapped("Arena %s", arenaId);
+        }
+        for (s32 i = 0; i < peerCount; i++) {
+            ImGui::PushID(peers[i].clientId);
+            char label[sizeof(peers[i].name) + sizeof("Invite ###room_shared_draft_invite")];
+            snprintf(label, sizeof(label), "Invite %s###room_shared_draft_invite", peers[i].name);
+            if (ImGui::Button(label)) netGridEditInvite(peers[i].clientId, arenaId, usePlayed ? digest : nullptr);
+            ImGui::PopID();
+        }
+    }
+    if (!showVariant) roomRenderSharedVariantSave(nullptr);
+    error = netGridEditError();
+    if (error && error[0]) {
+        ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning(255));
+        ImGui::TextWrapped("%s", error);
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::Button("Close")) {
+        plan = {};
+        hasCreatorCursor = false;
+        focus = {};
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+    if (hasCreatorCursor || cursorPublished) {
+        netGridEditSetCreatorCursor(hasCreatorCursor ? creatorCursor : nullptr);
+        cursorPublished = hasCreatorCursor;
+    }
+    if (focus.kind || focusPublished) {
+        netGridEditSetResourceFocus(focus.kind ? &focus : nullptr);
+        focusPublished = focus.kind != 0;
+    }
+}
+
+struct room_played_variant_t {
+    grid_match_result_t result = {};
+    forge_level_doc_t *doc = nullptr;
+    grid_match_sources_t sources = {};
+    pdgui_grid_variant_picker_t picker;
+    char name[MOD_AUTHOR_NAME_MAX] = {};
+    char status[256] = {};
+};
+
+static room_played_variant_t s_RoomPlayedVariant;
+
+static void roomClearPlayedVariantReview()
+{
+    auto &panel = s_RoomPlayedVariant;
+    forgeLevelDocFree(panel.doc);
+    panel.doc = nullptr;
+    gridMatchSourcesFree(&panel.sources);
+    panel.picker = {};
+    panel.name[0] = '\0';
+}
+
+extern "C" void pdguiRoomClearPlayedVariant(void)
+{
+    if (!s_RoomPlayedVariant.result.stage_epoch) return;
+    roomClearPlayedVariantReview();
+    s_RoomPlayedVariant.result = {};
+    s_RoomPlayedVariant.status[0] = '\0';
+}
+
+static bool roomPlayedVariantMatches(const grid_match_result_t *played)
+{
+    const auto &reviewed = s_RoomPlayedVariant.result;
+    return played && gridMatchResultMatchesStage(played, &reviewed.offer, reviewed.stage_epoch,
+            reviewed.arena_id, reviewed.arena_sha256)
+        && played->end_tick == reviewed.end_tick && played->reason == reviewed.reason
+        && memcmp(played->score_sha256, reviewed.score_sha256, sizeof(reviewed.score_sha256)) == 0;
+}
+
+static void roomRenderPlayedVariant(const grid_match_result_t *played)
+{
+    auto &panel = s_RoomPlayedVariant;
+    const bool available = played && !pdguiCountdownIsActive() && forgeLevelCanReviewPlayedVariantSources(played);
+    if ((!available || !roomPlayedVariantMatches(played)) && panel.result.stage_epoch) pdguiRoomClearPlayedVariant();
+
+    const char *popup = "Save Played Variant###room_grid_played_variant";
+    bool opening = false;
+    if (available && ImGui::SmallButton("Save Played Variant")) {
+        pdguiRoomClearPlayedVariant();
+        panel.result = *played;
+        if (forgeLevelReviewPlayedVariantSources(&panel.result, &panel.doc, &panel.sources,
+                panel.status, sizeof(panel.status))) {
+            pdguiBeginGridVariantPicker(panel.picker, panel.doc, panel.sources);
+            ImGui::OpenPopup(popup);
+            opening = true;
+        } else if (!panel.status[0]) {
+            snprintf(panel.status, sizeof(panel.status), "Could not review this played revision.");
+        }
+    }
+    if (!panel.doc && panel.status[0]) ImGui::TextWrapped("%s", panel.status);
+
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0),
+        ImVec2(pdguiScale(690.0f), ImGui::GetIO().DisplaySize.y * 0.8f));
+    if (!ImGui::BeginPopupModal(popup, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (panel.doc) roomClearPlayedVariantReview();
+        return;
+    }
+    if (opening) pdguiNavSuppressOpeningGesture();
+
+    bool close = !available || !panel.doc || !roomPlayedVariantMatches(played);
+    if (!close) {
+        char err[256] = {};
+        pdgui_grid_variant_selection_t selection;
+        ImGui::InputText("Variant Name", panel.name, sizeof(panel.name));
+        if (opening) ImGui::SetItemDefaultFocus();
+        const bool valid = pdguiDrawGridVariantPicker(panel.picker, panel.doc, panel.sources,
+            selection, err, sizeof(err));
+        if (!valid) ImGui::TextWrapped("%s", err);
+        if (panel.status[0]) ImGui::TextWrapped("%s", panel.status);
+        const bool cancel = !opening && pdguiMenuCancelPressed();
+        ImGui::BeginDisabled(!valid || !panel.name[0]);
+        const bool save = ImGui::Button("Save Variant");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        close = ImGui::Button("Cancel") || cancel;
+        if (save && !close) {
+            auto *saved = static_cast<mod_author_result_t *>(calloc(1, sizeof(mod_author_result_t)));
+            if (saved && forgeLevelSavePlayedVariant(&panel.result, panel.name, &panel.sources,
+                    selection.omitted.data(), selection.omitted.size(), selection.fallbacks.data(),
+                    selection.fallbacks.size(), saved, err, sizeof(err))) {
+                if (err[0]) {
+                    snprintf(panel.status, sizeof(panel.status), "%s", err);
+                } else {
+                    snprintf(panel.status, sizeof(panel.status), "Saved %s to your local levels.", saved->catalog_id);
+                }
+                close = true;
+            } else {
+                snprintf(panel.status, sizeof(panel.status), "Could not save. %.220s",
+                    !saved ? "Out of memory." : err[0] ? err : "The played revision is unavailable.");
+            }
+            free(saved);
+        }
+    }
+    if (close) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+    if (close) roomClearPlayedVariantReview();
+}
+
+static void roomRenderGridResult(const grid_match_result_t &played)
+{
+    char digest[SHA256_HEX_SIZE];
+    sha256ToHex(played.arena_sha256, digest);
+    ImGui::TextDisabled("Last played revision  %s  %.12s", played.arena_id, digest);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", digest);
+
+    const grid_match_scorecard_t *scores = netGridLastMatchScores();
+    if (!scores || !scores->count) return;
+    if (ImGui::SmallButton("Review Scores")) ImGui::OpenPopup("##grid_result_scores");
+    if (!ImGui::BeginPopup("##grid_result_scores")) return;
+
+    const char *reason = "Match ended";
+    switch (played.reason) {
+        case GRID_MATCH_END_TIME: reason = "Time limit reached"; break;
+        case GRID_MATCH_END_SCORE: reason = "Score limit reached"; break;
+        case GRID_MATCH_END_TEAM_SCORE: reason = "Team score limit reached"; break;
+        case GRID_MATCH_END_MANUAL: reason = "Host ended the match"; break;
+        case GRID_MATCH_END_OTHER: break;
+    }
+    ImGui::TextUnformatted(reason);
+    if (ImGui::BeginTable("##grid_scoreboard", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Player");
+        ImGui::TableSetupColumn("Kills");
+        ImGui::TableSetupColumn("Deaths");
+        ImGui::TableSetupColumn("Score");
+        ImGui::TableHeadersRow();
+        for (u8 i = 0; i < scores->count; ++i) {
+            const grid_match_score_row_t &row = scores->rows[i];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (row.name[0]) ImGui::TextUnformatted(row.name);
+            else ImGui::Text("Participant %u", (unsigned)row.host_slot + 1u);
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%d", row.kills);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%d", (int)row.deaths);
+            ImGui::TableSetColumnIndex(3);
+            if (row.has_score) ImGui::Text("%d", row.score);
+            else ImGui::TextUnformatted("--");
+        }
+        ImGui::EndTable();
+    }
+    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+}
+
 /* ========================================================================
  * Public entry point
  * ======================================================================== */
@@ -3664,7 +4788,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (!s_ArenasBuilt) {
             buildArenaListFromCatalog();
         }
-        if (s_NumSpawnWeapons == 0) {
+        if (s_NumSpawnWeapons == 0 || s_SpawnWeaponCatalogGeneration != assetCatalogGetGeneration()) {
             buildSpawnWeaponList();
         }
         matchConfigInit();
@@ -3698,6 +4822,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
+    const bool socialOwnsInput = pdguiFriendsAnySurfaceIsOpen() != 0;
+    static bool socialOwnedInput = false;
+    const bool restoreRoomFocus = socialOwnedInput && !socialOwnsInput;
+    socialOwnedInput = socialOwnsInput;
+    if (socialOwnsInput) wflags |= ImGuiWindowFlags_NoInputs;
 
     if (!ImGui::Begin("##room_interior", nullptr, wflags)) {
         ImGui::End();
@@ -3717,8 +4846,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * IsWindowAppearing after stage transitions — same class as main menu). */
     menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
 
+    if (!socialOwnsInput && (restoreRoomFocus || ImGui::IsWindowAppearing())) {
+        ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
+    }
     if (ImGui::IsWindowAppearing()) {
-        ImGui::SetWindowFocus();
         /* S352: reset portrait cache on every room open */
         lobbyPortraitsReset();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room OPEN (solo=%d)",
@@ -3786,6 +4917,16 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         curY = ImGui::GetCursorPosY();
     }
 
+    if (!s_IsSoloMode) {
+        const grid_match_result_t *played = netGridLastMatchResult();
+        if (played) roomRenderGridResult(*played);
+        roomRenderPlayedVariant(played);
+        roomRenderSharedDraft(played);
+        roomRenderGridModSharing();
+        contentH -= ImGui::GetCursorPosY() - curY;
+        curY = ImGui::GetCursorPosY();
+    }
+
     /* ---- Tab bar ---- */
     ImGui::SetCursorPosY(curY);
 
@@ -3817,13 +4958,13 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
     }
 
-    if (pdguiMenuTabPrevPressed()) {
+    if (!socialOwnsInput && pdguiMenuTabPrevPressed()) {
         s_ActiveTab--;
         if (s_ActiveTab < 0) s_ActiveTab = s_NumTabs - 1;
         s_BumperPendingTab = s_ActiveTab;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (pdguiMenuTabNextPressed()) {
+    if (!socialOwnsInput && pdguiMenuTabNextPressed()) {
         s_ActiveTab++;
         if (s_ActiveTab >= s_NumTabs) s_ActiveTab = 0;
         s_BumperPendingTab = s_ActiveTab;
@@ -3860,7 +5001,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * (page-jump fallback): if the focused panel has neither groups nor
      * scroll, LT/RT is no-op; LT/RT NEVER crosses panels (D-pad does).
      * Boundary case: clamp, no wrap. */
-    if (s_ActiveTab == 0) {
+    if (!socialOwnsInput && s_ActiveTab == 0) {
         int skipDir = 0;
         if (pdguiMenuSkipUpPressed()) {
             skipDir = -1;
@@ -4003,7 +5144,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * destructive-action rule — Leave Room / Back to Menu tears down the
      * lobby session (and potentially disconnects from the server), so the
      * user must confirm. */
-    const bool roomChildBlocks = roomPopupOwnedFrame || s_ShowChangeCharModal
+    const bool roomChildBlocks = roomPopupOwnedFrame || socialOwnsInput || s_ShowChangeCharModal
         || s_BotModalOpen || s_ShowSaveScenario || s_ShowLoadScenario
         || ImGui::IsPopupOpen(nullptr,
             ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
@@ -4774,7 +5915,7 @@ extern "C" void pdguiRoomScreenAdoptMatchConfig(void)
     if (!s_ArenasBuilt) {
         buildArenaListFromCatalog();
     }
-    if (s_NumSpawnWeapons == 0) {
+    if (s_NumSpawnWeapons == 0 || s_SpawnWeaponCatalogGeneration != assetCatalogGetGeneration()) {
         buildSpawnWeaponList();
     }
 
@@ -4790,6 +5931,8 @@ extern "C" void pdguiRoomScreenAdoptMatchConfig(void)
 
 extern "C" void pdguiRoomScreenReset(void)
 {
+    roomResetSharedVariant();
+    pdguiRoomClearPlayedVariant();
     s_MatchConfigInited = false;
     /* Local-player character override: replay the saved persistent IDs
      * back into mpchrconfig BEFORE any later code that reads the live

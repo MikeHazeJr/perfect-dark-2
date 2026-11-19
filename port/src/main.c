@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -13,6 +14,7 @@
 #include "lib/main.h"
 #include "lib/anim.h"
 #include "lib/mempc.h"
+#include "lib/meshcollision.h"
 #include "bss.h"
 #include "data.h"
 
@@ -24,10 +26,12 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "stage_archive_repair.h"
 #include "scenario_global_ailists.h"
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
+#include "modmgr_save_status.h"
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modelcatalog.h"
@@ -38,11 +42,17 @@
 #include "playerstats.h"
 #include "achievements.h"
 #include "system.h"
+#include "memsizes.h"
 #include "native_write_policy.h"
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "net/netenet.h"
+#include "net/netmsg.h"
+#include "net/grid_edit_room_net.h"
+#include "net/grid_mod_proposal.h"
 #include "room.h"
+#include "net/room_ui.h"
 #include "menupool.h"
 #include "net/netdistrib.h"
 #include "net/p2p.h"
@@ -88,6 +98,16 @@
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
 #include "mod_author_runtime.h"
+#include "forge_level_io.h"
+#include "forge_revision_store.h"
+#include "grid_archive_policy.h"
+#include "grid_match_package_io.h"
+#include "grid_match_runtime.h"
+#include "scenario_scene_renderer.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+#include "forge/forge_core.h"
+#include "game/forgemode.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -95,11 +115,14 @@
 #include "catalog_mgr_arenas.h"
 #include "game/stagetable.h"
 #include "game/chr.h"
+#include "game/inv.h"
 #include "game/music.h"
 #include "game/bondgun.h"
 #include "game/player.h"
+#include "game/pad.h"
 #include "game/prop.h"
 #include "game/propobj.h"
+#include "game/setuputils.h"
 #include "lib/music.h"
 #include "lib/snd.h"
 
@@ -201,6 +224,72 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       from the named weapon as a template and saves it under the display
  *       name, through the same two functions the Create and Save buttons
  *       call. Runs right after --mod-author. Logged as WEAPONMOD.* lines.
+ *
+ *   --debug-character-tool-create <character, body or head catalog id>
+ *   --debug-character-tool-name <display name>
+ *   --debug-character-tool-gender <male|female>
+ *   --debug-character-tool-build <human|guard|maian|template>
+ *   --debug-character-tool-height <number>
+ *       Runs the Modding Hub's Characters creator without the mouse: opens
+ *       the named entry as a template, sets the form (gender, build and
+ *       height apply to a body or a head; each is optional and keeps the
+ *       template's own when left out) and saves it under the display name,
+ *       through the functions the Use as Template and Create + Enable
+ *       buttons call. Runs right after the weapon tool's flags. Logged as
+ *       CHARMOD.* lines.
+ *
+ *   --debug-level-tool-new <arena catalog id>
+ *   --debug-level-tool-name <display name>
+ *       Runs the Modding Hub's Levels tool without the mouse: makes a new
+ *       level from the named level under the display name, through the
+ *       function the Create button calls. Runs right after the character
+ *       tool's flags and before --debug-forge-level, so that flag and
+ *       --launch-forge-level can name the level it made. Logged as
+ *       LEVELTOOL.* lines.
+ *
+ *   --debug-forge-level <arena catalog id>
+ *   --debug-forge-level-name <display name>
+ *   --debug-forge-level-weapon <weapon catalog id>
+ *       Edits a level without the Forge editor: opens the named arena's
+ *       placements (forge_level_io.h), adds a player start a short step in
+ *       front of its first one and another spot for its first weapon pickup,
+ *       leaves its first ammo crate out, and saves the result as a level mod
+ *       under the display name, through the open and save calls the Forge
+ *       editor makes. With a weapon id, the copied pickup gives that weapon
+ *       of the catalog instead of being one of the match's weapon places.
+ *       With --debug-forge-level-vehicle it also makes a hoverbike 600 units
+ *       in front of the level's first start, facing the way it faces: the
+ *       vehicle smokes' own place to drive (B-1241). With
+ *       --debug-forge-level-prop <model catalog id> it also makes a plain prop
+ *       drawn with that model, 420 units in front of the first start.
+ *       Runs right after the level tool's flags, so one launch can make
+ *       the level and then start a match on it. Logged as FORGE.LEVEL.*
+ *       lines.
+ *
+ *   --launch-forge-level <arena catalog id>
+ *       Starts a Forge session on the named level once the boot stage has
+ *       placed the player: a clean match setup on that level and the stage
+ *       change, as choosing it in The Grid does (forgeLevelStartForge). The
+ *       editor's Level File section then knows which level it is on.
+ *
+ *   --debug-forge-session-save <display name>
+ *       With --launch-forge-level: two seconds into that level, with the
+ *       editor camera flying, opens the level's placements, adds a player
+ *       start where the camera is and saves the result as a level mod under
+ *       the display name, through the calls the Level File section's buttons
+ *       make. It then turns the camera to a yaw away from every axis and a
+ *       pitch that is not level, and logs where the editor's world markers
+ *       put five known points (FORGE.MARKERS.PROBE), which checks by numbers
+ *       the projection and that the editor's angles are the view's. It takes
+ *       no screenshot and ends nothing: a smoke
+ *       waits on forge_level_file_open and times those itself. Logged as
+ *       FORGE.LEVEL.* lines. With --debug-forge-session-undo the added start
+ *       is undone and redone before the save, through the session's undo,
+ *       as the editor's Undo and Redo buttons do. With
+ *       --debug-forge-session-live it then copies and moves the level's
+ *       first crate or prop (or makes an ammo crate in a level with none)
+ *       ahead of the probe view, for the world to show while the camera
+ *       flies (FORGE.LEVEL.LIVE lines).
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -312,6 +401,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       model of the named vehicle, so a mod vehicle can be driven
  *       (with --debug-mount-bike) before levels can place vehicles.
  *       See port/include/vehicle_debug.h.
+ *
+ *   --debug-mount-seat <driver|gunner>
+ *       Every mount of a vehicle whose behavior graph has a gunner seat
+ *       asks for that seat, instead of the seat the player's place and
+ *       view choose. A one-seat vehicle is not affected.
  *
  *   --debug-spawn-at x,y,z,room
  *       Post-setupCreateProps hook: teleports player 0 to the given
@@ -723,6 +817,20 @@ static void bootRecordAssetPhase(const char *phase, s32 result)
 	}
 }
 
+static s32 bootAllowsBackgroundStageRepair(void)
+{
+	if (g_BootExtractAssetsOnly || g_NetDedicated || nativeWritePolicyActive() ||
+			sysArgCheck("--boot-stage") || sysArgCheck("--profile") ||
+			sysArgCheck("--launch-mission") || sysArgCheck("--launch-scenario") ||
+			sysArgCheck("--launch-challenge") || sysArgCheck("--launch-mp-room") ||
+			sysArgCheck("--connect-host") || sysArgCheck("--host-autostart") ||
+			sysArgCheck("--no-background-stage-repair")) return 0;
+	for (s32 i = 0; i < modmgrGetCount(); ++i) {
+		if (modmgrGetModEnabled(i)) return 0;
+	}
+	return 1;
+}
+
 static void bootRunCatalogWork(void *arg)
 {
 	(void)arg;
@@ -847,6 +955,7 @@ static void bootRunCatalogWork(void *arg)
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ARENA);
+	stageArchiveRepairSetEnabled(bootAllowsBackgroundStageRepair());
 	bootRecordAssetPhase("pdarena-pdscenario", romExtractAllPdarena(0));
 	bootProgressEndPhase();
 
@@ -927,6 +1036,7 @@ static void cleanup(void)
 	// netDisconnect so that blocking teardown paths (UPnP HTTP delete,
 	// stage transitions) are skipped and the process exits quickly.
 	g_AppQuitting = 1;
+	mainStopGridWorldForShutdown();
 
 	discordShutdown();
 	inputLayerShutdown();
@@ -941,6 +1051,7 @@ static void cleanup(void)
 	 * decision intentionally preserves its dirty marker for the next launch. */
 	netCrashRecoveryMarkClean();
 	netDisconnect();
+	mainRetireGridForShutdown();
 	modmgrShutdown();
 	actionmapSaveBinds();
 	configSave(CONFIG_PATH);
@@ -984,6 +1095,8 @@ extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
 		u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom,
 		s32 *inlift, struct prop **lift);
 extern f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
+extern f32 cdFindFloorYColourTypeAtPos(struct coord *pos, RoomNum *rooms, u16 *floorcol, u8 *floortype);
+extern s32 lvGetStageTime60(void);
 extern void bgFindRoomsByPos(struct coord *pos, RoomNum *inrooms,
 		RoomNum *aboverooms, s32 max, RoomNum *bestroom);
 /* T-NETWORKING-011 (finding 3): src/lib/collision.c and src/game/atan2f.c,
@@ -1011,6 +1124,9 @@ extern void creditsEnterNormalScroll(void);
  * all state mutation remains owned by the ordinary Mod Manager UI. */
 extern void pdguiModdingHubShowTool(s32 tool);
 extern s32 pdguiModdingHubDebugWeaponCreate(const char *template_id, const char *display_name);
+extern s32 pdguiCharacterToolDebugCreate(const char *template_id, const char *display_name,
+	const char *gender, const char *build, s32 height);
+extern s32 pdguiLevelToolDebugNew(const char *template_id, const char *display_name);
 extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
@@ -1123,6 +1239,18 @@ static void bootApplyModAuthorRecipe(const char *recipe_path)
 		modAuthorRuntimeRunRecipe(recipe_path) ? "OK" : "FAIL");
 }
 
+/* Authorize the exact native archive created by the smoke's recipe. */
+static void bootApplyDebugGridShareWeapon(void)
+{
+	if (!smokeHarnessIsActive()) return;
+	const char *weapon_id = sysArgGetString("--debug-grid-share-weapon");
+	if (!weapon_id || !weapon_id[0]) return;
+	char err[256] = {0};
+	if (!forgeLevelAllowWeaponMatchSharing(weapon_id, err, sizeof(err))) {
+		sysLogPrintf(LOG_WARNING, "SMOKE.GRID.WEAPON: cannot share weapon=%s reason='%s'", weapon_id, err);
+	}
+}
+
 /* --debug-weapon-tool-create <weapon id> [--debug-weapon-tool-name <name>]:
  * the Weapons creator's own template start and save, without the mouse. */
 static void bootApplyDebugWeaponToolCreate(void)
@@ -1139,6 +1267,81 @@ static void bootApplyDebugWeaponToolCreate(void)
 	sysLogPrintf(LOG_NOTE, "BOOT: --debug-weapon-tool-create template=%s name='%s' result=%s",
 		template_id, name,
 		pdguiModdingHubDebugWeaponCreate(template_id, name) ? "OK" : "FAIL");
+}
+
+/* --debug-character-tool-create <id> with its optional -name, -gender, -build
+ * and -height flags: the Characters creator's own template start and save,
+ * without the mouse. A height that is not a whole number from 1 to 65535
+ * fails the run instead of being read as "keep". */
+static void bootApplyDebugCharacterToolCreate(void)
+{
+	const char *template_id = sysArgGetString("--debug-character-tool-create");
+	const char *name = sysArgGetString("--debug-character-tool-name");
+	const char *gender = sysArgGetString("--debug-character-tool-gender");
+	const char *build = sysArgGetString("--debug-character-tool-build");
+	const char *height_text = sysArgGetString("--debug-character-tool-height");
+	s32 height = 0;
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Character";
+	}
+	if (height_text && height_text[0]) {
+		char *end = NULL;
+		const long value = strtol(height_text, &end, 10);
+		if (!end || *end != '\0' || value < 1 || value > 65535) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-character-tool-create template=%s name='%s' result=FAIL (--debug-character-tool-height '%s' is not a whole number from 1 to 65535)",
+				template_id, name, height_text);
+			return;
+		}
+		height = (s32)value;
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-character-tool-create template=%s name='%s' result=%s",
+		template_id, name,
+		pdguiCharacterToolDebugCreate(template_id, name,
+			gender && gender[0] ? gender : NULL, build && build[0] ? build : NULL,
+			height) ? "OK" : "FAIL");
+}
+
+/* --debug-level-tool-new <arena id> [--debug-level-tool-name <name>]: the
+ * Levels tool's own New Level, without the mouse. */
+static void bootApplyDebugLevelToolNew(void)
+{
+	const char *template_id = sysArgGetString("--debug-level-tool-new");
+	const char *name = sysArgGetString("--debug-level-tool-name");
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Level";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-level-tool-new template=%s name='%s' result=%s",
+		template_id, name, pdguiLevelToolDebugNew(template_id, name) ? "OK" : "FAIL");
+}
+
+/* --debug-forge-level <arena id> [--debug-forge-level-name <name>]: Forge's
+ * own open, edit and save of a level's placements, without the editor. */
+static void bootApplyDebugForgeLevel(void)
+{
+	const char *arena_id = sysArgGetString("--debug-forge-level");
+	const char *name = sysArgGetString("--debug-forge-level-name");
+	const char *weapon_id = sysArgGetString("--debug-forge-level-weapon");
+
+	if (!arena_id || !arena_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Level";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-forge-level arena=%s name='%s' weapon=%s result=%s",
+		arena_id, name, (weapon_id && weapon_id[0]) ? weapon_id : "(none)",
+		forgeLevelDebugEdit(arena_id, name, weapon_id,
+			sysArgCheck("--debug-forge-level-vehicle") ? 1 : 0,
+			sysArgGetString("--debug-forge-level-prop")) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -1378,7 +1581,13 @@ static void bootApplyLaunchMpRoom(void)
 		sysLogPrintf(LOG_NOTE, "BOOT: --match-teamscorelimit applied: score=%d",
 			g_BootMatchTeamScoreLimit);
 	}
-	if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
+	if (smokeHarnessIsActive() && sysArgCheck("--debug-grid-fiesta")) {
+		g_MatchConfig.options |= MPOPTION_SPAWNWITHWEAPON;
+		g_MatchConfig.spawn_weapon_id[0] = '\0';
+		g_MatchConfig.spawnWeaponMode = SPAWNWEAPON_MODE_FIESTA;
+		g_MatchConfig.spawnWeaponNum = SPAWNWEAPON_FIESTA_SENTINEL;
+		sysLogPrintf(LOG_NOTE, "BOOT: configured Grid Fiesta spawn weapons");
+	} else if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
 		strncpy(g_MatchConfig.spawn_weapon_id, g_BootDebugSpawnWeapon,
 			sizeof(g_MatchConfig.spawn_weapon_id) - 1);
 		g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
@@ -2968,6 +3177,8 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 
 /* Dispatcher called once from main() after the catalog is fully
  * initialised. */
+static void bootGridPrepareCreatorReviewSource(void);
+
 static void bootApplyCliFastPaths(void)
 {
 	const char *player_init_fault =
@@ -2976,7 +3187,20 @@ static void bootApplyCliFastPaths(void)
 	/* First, so every fast path below (spawn weapon, room launch, catalog
 	 * probes) already sees the mod a recipe creates. */
 	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
+	if (smokeHarnessIsActive() && sysArgCheck("--debug-grid-variant-placement-fallbacks")
+			&& sysArgCheck("--debug-grid-variant-fallback-save")) {
+		const char *recipe = sysArgGetString("--debug-grid-variant-fallback-vehicle-recipe");
+		if (!recipe || !modAuthorRuntimeRunRecipe(recipe)) {
+			smokeHarnessExit(1, "grid_variant_fallback_vehicle_recipe_failed");
+			return;
+		}
+	}
+	bootApplyDebugGridShareWeapon();
 	bootApplyDebugWeaponToolCreate();
+	bootApplyDebugCharacterToolCreate();
+	bootApplyDebugLevelToolNew();
+	bootApplyDebugForgeLevel();
+	bootGridPrepareCreatorReviewSource();
 
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =
@@ -3071,6 +3295,24 @@ static void bootApplyCliFastPaths(void)
 		sysLogPrintf(LOG_NOTE, "BOOT: --debug-swap-vehicle %s armed (replaces each hoverbike a stage creates)",
 			vehicleDebugSwapId());
 	}
+	if (sysArgGetString("--debug-mount-seat")) {
+		const char *seat = sysArgGetString("--debug-mount-seat");
+		if (strcmp(seat, "driver") == 0) {
+			hoverbikeDebugSetMountSeat(VEHICLE_DEBUG_MOUNT_SEAT_DRIVER);
+		} else if (strcmp(seat, "gunner") == 0) {
+			hoverbikeDebugSetMountSeat(VEHICLE_DEBUG_MOUNT_SEAT_GUNNER);
+		} else {
+			sysLogPrintf(LOG_ERROR,
+				"BOOT: --debug-mount-seat '%s' is not driver or gunner; the player's place and view choose the seat",
+				seat);
+			seat = NULL;
+		}
+		if (seat) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-mount-seat %s armed (every mount of a two-seat vehicle asks for that seat)",
+				seat);
+		}
+	}
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();
 	bootApplyDebugPlaceBotNearPlayer();
@@ -3118,6 +3360,913 @@ s32 bootLaunchScenarioTick(void)
 	}
 	g_BootLaunchScenarioPending = 0;
 	return 1;
+}
+
+/* The yaw and pitch the session debug flag turns the editor camera to before
+ * it measures. The yaw is far from every axis on purpose: at 0, 90, 180 and
+ * 270 degrees sin or cos is zero and a wrong sign in the facing math cannot
+ * be seen. The pitch is not level, so that a pitch that does not reach the
+ * view shows too. */
+#define BOOT_FORGE_PROBE_YAW_DEG 217.0f
+#define BOOT_FORGE_PROBE_PITCH_DEG -20.0f
+
+/* Where the editor's world markers put five known points, logged so a run
+ * can check the projection, and that the editor camera's angles are the
+ * view's, without anyone looking at a picture.
+ *
+ * The camera's yaw is a turn angle t, and a turn angle t faces (-sin t, 0,
+ * cos t), the game's reading of a player's turn angle (bondmove.c,
+ * bmoveUpdateVerta). Pitch p tips that toward +y: look = (-sin t cos p,
+ * sin p, cos t cos p), up = (sin t sin p, cos p, -cos t sin p), and the
+ * view's right is (-cos t, 0, -sin t). These are the vectors the editor's
+ * view is drawn with (forgemode.c, forgeCameraOverride). So a point along the
+ * look must be at the middle of the picture (0.5, 0.5), one beside it along
+ * the right must be right of the middle, one along the up must be above it,
+ * and one behind must be out of view.
+ *
+ * The first run of this probe (2026-11-17, yaw 217, level) put the point
+ * ahead at x = -0.146: the view was looking along +X whatever the editor's
+ * yaw said (B-1240). The fifth point is ahead by the mirrored reading of the
+ * angle, (+sin t, ., cos t), which the editor's fly and placement code used
+ * until then (B-1238); it is logged, not judged.
+ *
+ * Fractions of the renderer's native size, the units forgeProjectWorldPos
+ * answers in and the Forge HUD scales to the window. The player's own turn
+ * angle and pitch are logged beside the editor's: they are what the game's
+ * player code holds that frame, for diagnosis. */
+static void bootForgeMarkerProbe(void)
+{
+	struct coord cam;
+	const f32 native_w = (f32)videoGetNativeWidth();
+	const f32 native_h = (f32)videoGetNativeHeight();
+	const f32 reach = 1000.0f;
+	const f32 aside = 300.0f;
+	const f32 yaw = forgeGetCameraYawDeg() * 0.017453292f;
+	const f32 pitch = forgeGetCameraPitchDeg() * 0.017453292f;
+	const f32 look[3] = { -sinf(yaw) * cosf(pitch), sinf(pitch), cosf(yaw) * cosf(pitch) };
+	const f32 up[3] = { sinf(yaw) * sinf(pitch), cosf(pitch), -cosf(yaw) * sinf(pitch) };
+	const f32 right[3] = { -cosf(yaw), 0.0f, -sinf(yaw) };
+	const f32 mirrored[3] = { sinf(yaw) * cosf(pitch), sinf(pitch), cosf(yaw) * cosf(pitch) };
+	f32 point[3];
+	char text[5][48];
+
+	cam.x = 0.0f;
+	cam.y = 0.0f;
+	cam.z = 0.0f;
+	forgeGetCameraPos(&cam);
+
+	for (s32 i = 0; i < 5; i++) {
+		const f32 *along = (i == 4) ? mirrored : look;
+		const f32 distance = (i == 3) ? -reach : reach;
+		const f32 *beside = (i == 1) ? right : ((i == 2) ? up : NULL);
+		f32 x = 0.0f;
+		f32 y = 0.0f;
+
+		point[0] = cam.x + along[0] * distance + (beside ? beside[0] * aside : 0.0f);
+		point[1] = cam.y + along[1] * distance + (beside ? beside[1] * aside : 0.0f);
+		point[2] = cam.z + along[2] * distance + (beside ? beside[2] * aside : 0.0f);
+		if (native_w > 0.0f && native_h > 0.0f && forgeProjectWorldPos(point, &x, &y, NULL)) {
+			snprintf(text[i], sizeof(text[i]), "(%.3f, %.3f)", x / native_w, y / native_h);
+		} else {
+			snprintf(text[i], sizeof(text[i]), "hidden");
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"FORGE.MARKERS.PROBE: ahead=%s right=%s up=%s behind=%s other_reading=%s native=%dx%d camera=(%.0f, %.0f, %.0f) yaw=%.1f pitch=%.1f player_theta=%.1f player_verta=%.1f",
+		text[0], text[1], text[2], text[3], text[4], (s32)native_w, (s32)native_h, cam.x, cam.y, cam.z,
+		forgeGetCameraYawDeg(), forgeGetCameraPitchDeg(),
+		g_Vars.currentplayer ? g_Vars.currentplayer->vv_theta : 0.0f,
+		g_Vars.currentplayer ? g_Vars.currentplayer->vv_verta : 0.0f);
+}
+
+/* Inspect the resident padfile after the normal loader has resolved pad rooms
+ * and fixed up the group's pointers. The new pad has exactly one first hop. */
+static s32 bootForgeConnectPadsNative(const char *phase, const f32 *position)
+{
+	const s32 expected = position ? 9 : 8;
+	const struct waypoint *points = g_StageSetup.waypoints;
+	const struct waygroup *groups = g_StageSetup.waygroups;
+	if (!g_PadsFile || !g_StageSetup.padfiledata || g_PadsFile->numpads != expected
+			|| !points || !groups || !groups[0].neighbours || !groups[0].waypoints
+			|| groups[1].neighbours) return 0;
+
+	u32 member_mask = 0, pad_mask = 0;
+	for (s32 i = 0; i < expected; ++i) {
+		const s32 member = groups[0].waypoints[i];
+		const s32 pad = points[i].padnum;
+		if (member < 0 || member >= expected || (member_mask & (1u << member))
+				|| pad < 0 || pad >= expected || (pad_mask & (1u << pad))
+				|| points[i].groupnum != 0 || !points[i].neighbours) return 0;
+		member_mask |= 1u << member;
+		pad_mask |= 1u << pad;
+	}
+	if (points[expected].padnum >= 0 || groups[0].waypoints[expected] != -1) return 0;
+
+	s32 refs = 0, first_hop = -1, reciprocal = 0;
+	for (s32 i = 0; i < expected; ++i) {
+		const s32 pad = points[i].padnum;
+		u32 neighbours = 0;
+		s32 degree = 0;
+		for (; degree < expected; ++degree) {
+			const s32 next = points[i].neighbours[degree];
+			if (next < 0) break;
+			if (next >= expected || next == i || (neighbours & (1u << next))) return 0;
+			neighbours |= 1u << next;
+			if (pad == 8) first_hop = points[next].padnum;
+			if (pad == 0 && points[next].padnum == 8) reciprocal = 1;
+		}
+		if (pad == 8 && degree != 1) return 0;
+		refs += degree;
+	}
+	if (refs != expected * 2) return 0;
+	if (position) {
+		struct pad anchor = {0}, connected = {0};
+		padUnpack(0, PADFIELD_ROOM, &anchor);
+		padUnpack(8, PADFIELD_POS | PADFIELD_ROOM, &connected);
+		if (!reciprocal || first_hop != 0 || anchor.room != 1 || connected.room != anchor.room) return 0;
+		for (s32 axis = 0; axis < 3; ++axis) {
+			if (!(fabsf(connected.pos.f[axis] - position[axis]) <= 0.01f)) return 0;
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.ROUTE: phase=%s pads=%d waypoints=%d waygroups=1 edges=%d first_hop=%d",
+		phase, expected, expected, refs / 2, first_hop);
+	return 1;
+}
+
+static s32 bootForgeConnectPadsTick(s32 *step)
+{
+	static f32 position[3];
+	char err[256] = "";
+	if (*step == 2 && forgeIsFreefly() && g_Vars.lvframenum >= 120) {
+		if (!forgeLevelSessionDoc() && !forgeLevelSessionOpen(forgeLevelSessionArena(), err, sizeof(err))) goto fail;
+		forge_level_doc_t *doc = forgeLevelSessionDoc();
+		forge_level_pad_t anchor;
+		if (!forgeLevelSessionCanConnectPads() || !bootForgeConnectPadsNative("original", NULL)
+				|| forgeLevelDocPadCount(doc) != 8 || forgeLevelDocSpawnCount(doc) != 8
+				|| !forgeLevelDocFindPad(doc, "pad_0000", &anchor)) {
+			snprintf(err, sizeof(err), "the original arena's native seed route is unavailable");
+			goto fail;
+		}
+		/* Stay inside room 1, offset from its doorway-side routed pad. */
+		position[0] = anchor.position[0] - 120.0f;
+		position[1] = anchor.position[1];
+		position[2] = anchor.position[2] + 60.0f;
+		char spawn_id[32], path_id[32];
+		forge_level_spawn_t spawn;
+		forgeLevelSessionEditBegin();
+		const s32 added = forgeLevelDocAddSpawn(doc, position, anchor.look, NULL,
+			spawn_id, sizeof(spawn_id), err, sizeof(err));
+		forgeLevelSessionEditEnd(added);
+		if (!added || !forgeLevelDocGetSpawn(doc, 8, &spawn) || strcmp(spawn.spawn_id, spawn_id) != 0
+				|| strcmp(spawn.pad_ref, "pad_0008") != 0
+				|| !forgeLevelSessionConnectPads(spawn.pad_ref, anchor.pad_ref, path_id, sizeof(path_id), err, sizeof(err))
+				|| strcmp(path_id, "path_0001") != 0) goto fail;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.ROUTE: connected spawn=%s pad=%s target=%s path=%s position=(%.2f,%.2f,%.2f)",
+			spawn_id, spawn.pad_ref, anchor.pad_ref, path_id, position[0], position[1], position[2]);
+		if (!forgeLevelSessionPlayDraft(err, sizeof(err))) goto fail;
+		*step = 6;
+		return 1;
+	}
+	if (*step == 6 && forgeLevelDraftIsPlaying() && g_Vars.lvframenum >= 120) {
+		if (!bootForgeConnectPadsNative("draft", position) || !forgeLevelDraftReturn()) {
+			snprintf(err, sizeof(err), "the native draft route did not load or could not return");
+			goto fail;
+		}
+		*step = 7;
+		return 1;
+	}
+	if (*step == 7 && forgeIsFreefly() && g_Vars.lvframenum >= 60) {
+		if (!bootForgeConnectPadsNative("returned", NULL) || !forgeLevelSessionHasUnsavedChanges()
+				|| forgeLevelSessionUndoCount() != 2 || !forgeLevelSessionUndo()
+				|| forgeLevelDocMemberChanged(forgeLevelSessionDoc(), FORGE_LEVEL_MEMBER_PATHS)
+				|| forgeLevelDocPadCount(forgeLevelSessionDoc()) != 9 || !forgeLevelSessionRedo()
+				|| !forgeLevelDocMemberChanged(forgeLevelSessionDoc(), FORGE_LEVEL_MEMBER_PATHS)) {
+			snprintf(err, sizeof(err), "the original route or draft history did not survive return");
+			goto fail;
+		}
+		*step = 9;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.ROUTE: returned with linked draft history=retained");
+		smokeHarnessExit(0, "grid_connect_pads_complete");
+		return 1;
+	}
+	return 0;
+
+fail:
+	*step = 9;
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.ROUTE.FAIL: %s", err[0] ? err : "the route edit had unexpected output");
+	smokeHarnessExit(1, "grid_connect_pads_failed");
+	return 1;
+}
+
+typedef struct boot_forge_pickup_probe {
+	s32 stage;
+	s32 command;
+	s32 second_command;
+	s32 chained;
+	struct coord trigger_center;
+	struct prop *player;
+	f32 pickup_x;
+	s32 entered_frame;
+	u32 step_started;
+	u32 match_options;
+	u32 mp_options;
+	s32 loadout_overridden;
+	char archive_sha256[SHA256_HEX_SIZE];
+	char volume[32];
+} boot_forge_pickup_probe_t;
+
+static const f32 kBootForgePickupHalfSize[] = {120.0f, 220.0f, 120.0f};
+
+static s32 bootForgePickupInside(const boot_forge_pickup_probe_t *probe, const struct prop *prop)
+{
+	for (s32 axis = 0; axis < 3; ++axis) {
+		if (!(fabsf(prop->pos.f[axis] - probe->trigger_center.f[axis]) <= kBootForgePickupHalfSize[axis])) return 0;
+	}
+	return 1;
+}
+
+static s32 bootForgePickupInRoom(const struct coord *position, RoomNum room)
+{
+	struct coord point = *position;
+	RoomNum inside[24], above[22];
+	bgFindRoomsByPos(&point, inside, above, 20, NULL);
+	for (s32 i = 0; i < 20 && inside[i] != -1; ++i) {
+		if (inside[i] == room) return 1;
+	}
+	return 0;
+}
+
+static void bootForgePickupRestoreLoadout(boot_forge_pickup_probe_t *probe)
+{
+	if (!probe->loadout_overridden) return;
+	g_MatchConfig.options = probe->match_options;
+	g_MpSetup.options = probe->mp_options;
+	probe->loadout_overridden = 0;
+}
+
+static s32 bootForgePickupAuthor(boot_forge_pickup_probe_t *probe, const char *arena_id,
+	char *err, size_t err_cap)
+{
+	if (!forgeLevelSessionDoc() && !forgeLevelSessionOpen(arena_id, err, err_cap)) return 0;
+	const forge_level_source_t *source = forgeLevelSessionSource();
+	const asset_entry_t *arena = assetCatalogResolve(arena_id);
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	forge_level_spawn_t spawn;
+	forge_level_pad_t trigger_pad, pickup_pad;
+	if (g_NetMode != NETMODE_NONE || !source || strcmp(source->arena_id, arena_id) != 0
+			|| strlen(source->archive_sha256) != SHA256_HEX_SIZE - 1
+			|| strcmp(forgeLevelCloneProvenance(arena_id, source->archive_path), GRID_ARENA_PROVENANCE_ORIGINAL) != 0
+			|| !arena || arena->type != ASSET_ARENA || arena->ext.arena.stagenum != g_StageNum
+			|| !forgeLevelSessionCanPlayDraft() || forgeLevelDocObjectCount(doc) != 0
+			|| forgeLevelDocSpawnCount(doc) != 8 || forgeLevelDocPadCount(doc) != 8
+			|| !forgeLevelDocGetSpawn(doc, 0, &spawn) || strcmp(spawn.pad_ref, "pad_0000") != 0
+			|| !forgeLevelDocFindPad(doc, "pad_0001", &trigger_pad) || strcmp(trigger_pad.room_ref, "room_1") != 0
+			|| !forgeLevelDocFindPad(doc, "pad_0006", &pickup_pad) || strcmp(pickup_pad.room_ref, "room_2") != 0) {
+		snprintf(err, err_cap, "the exact original two-room source is unavailable");
+		return 0;
+	}
+	probe->stage = g_StageNum;
+	snprintf(probe->archive_sha256, sizeof(probe->archive_sha256), "%s", source->archive_sha256);
+	memcpy(probe->trigger_center.f, trigger_pad.position, sizeof(probe->trigger_center.f));
+	char record[32];
+	forge_level_object_t pickup;
+	forge_level_trigger_t trigger;
+	forgeLevelSessionEditBegin();
+	s32 ok = 1;
+	for (s32 i = 7; i > 0 && ok; --i) {
+		ok = forgeLevelDocGetSpawn(doc, i, &spawn)
+			&& forgeLevelDocRemoveSpawn(doc, spawn.spawn_id, err, err_cap);
+	}
+	ok = ok && forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, pickup_pad.position, pickup_pad.look,
+			record, sizeof(record), err, err_cap)
+		&& forgeLevelSessionGivePickup(record, "base:dragon", err, err_cap)
+		&& forgeLevelDocAddTrigger(doc, FORGE_LEVEL_TRIGGER_GIVE_PICKUP, trigger_pad.pad_ref, record,
+			kBootForgePickupHalfSize, err, err_cap)
+		&& forgeLevelDocGetObject(doc, 0, &pickup) && strcmp(pickup.record_id, record) == 0
+		&& pickup.order == 0 && strcmp(pickup.pad_ref, "pad_0008") == 0
+		&& forgeLevelDocGetTrigger(doc, 0, &trigger) && strcmp(trigger.target_id, record) == 0;
+	forgeLevelSessionEditEnd(ok);
+	if (!ok) return 0;
+	probe->command = pickup.order;
+	snprintf(probe->volume, sizeof(probe->volume), "%s", trigger.volume_id);
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.PICKUP: authored arena=%s provenance=original archive_sha256=%s spawn=pad_0000 trigger=%s pad=%s fixed=%s weapon=base:dragon pickup_pad=%s",
+		arena_id, probe->archive_sha256, probe->volume, trigger.pad_ref, record, pickup.pad_ref);
+	return 1;
+}
+
+static s32 bootForgeAuthorChainedLogic(boot_forge_pickup_probe_t *probe, char *err, size_t err_cap)
+{
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	forge_level_pad_t pad;
+	forge_level_object_t other;
+	char record[32];
+	forgeLevelSessionEditBegin();
+	s32 ok = forgeLevelDocFindPad(doc, "pad_0006", &pad)
+		&& forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, pad.position, pad.look,
+			record, sizeof(record), err, err_cap)
+		&& strcmp(record, "setup_0001") == 0
+		&& forgeLevelSessionGivePickup(record, "base:cyclone", err, err_cap)
+		&& forgeLevelDocGetObject(doc, 1, &other) && strcmp(other.record_id, record) == 0;
+	if (ok) {
+		size_t length = 0;
+		const char *graph = forgeLevelDocMemberText(doc, FORGE_LEVEL_MEMBER_LEVEL_GRAPH, &length);
+		const char *nodes = graph ? strstr(graph, "\"nodes\"") : NULL;
+		const char *edges = graph ? strstr(graph, "\"edges\"") : NULL;
+		nodes = nodes ? strchr(nodes, '[') : NULL;
+		edges = edges ? strchr(edges, '[') : NULL;
+		const char new_nodes[] =
+			"{\"id\":\"grid.logic.qualified\",\"kind\":\"gate.player.has_item\",\"item\":\"base:dragon\"},"
+			"{\"id\":\"grid.logic.second\",\"kind\":\"og.pickup.give\",\"object\":\"setup_0001\"},";
+		const char new_edges[] =
+			"{\"from\":\"grid.trigger.volume_pad_9999.give\",\"to\":\"grid.logic.qualified\",\"input\":\"exec\"},"
+			"{\"from\":\"grid.logic.qualified\",\"to\":\"grid.logic.second\",\"input\":\"exec\",\"output\":\"pass\"},";
+		ok = nodes && edges && nodes < edges && length <= INT_MAX;
+		if (ok) {
+			++nodes;
+			++edges;
+			const size_t capacity = length + sizeof(new_nodes) + sizeof(new_edges);
+			char *candidate = malloc(capacity);
+			if (candidate) {
+				const s32 written = snprintf(candidate, capacity, "%.*s%s%.*s%s%s",
+					(int)(nodes - graph), graph, new_nodes, (int)(edges - nodes), nodes, new_edges, edges);
+				ok = written > 0 && (size_t)written < capacity
+					&& forgeLevelDocReplaceLogic(doc, candidate, (size_t)written, err, err_cap);
+				free(candidate);
+			} else {
+				ok = 0;
+			}
+		}
+	}
+	forgeLevelSessionEditEnd(ok);
+	if (!ok) {
+		if (!err[0]) snprintf(err, err_cap, "the native logic chain could not be authored");
+		return 0;
+	}
+	probe->second_command = other.order;
+	probe->chained = 1;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LOGIC: authored gate=base:dragon second=%s weapon=base:cyclone undo=%d",
+		record, forgeLevelSessionUndoCount());
+	return 1;
+}
+
+static s32 bootForgePickupTriggerTick(const char *arena_id, s32 *step)
+{
+	static boot_forge_pickup_probe_t probe;
+	char err[256] = "";
+	const u32 now = SDL_GetTicks();
+	if (*step == 2 && forgeIsFreefly() && g_Vars.lvframenum >= 120) {
+		if (!bootForgePickupAuthor(&probe, arena_id, err, sizeof(err))) goto fail;
+		if (sysArgCheck("--debug-forge-chained-level-logic")
+				&& !bootForgeAuthorChainedLogic(&probe, err, sizeof(err))) goto fail;
+		probe.match_options = g_MatchConfig.options;
+		probe.mp_options = g_MpSetup.options;
+		probe.loadout_overridden = 1;
+		g_MatchConfig.options &= ~MPOPTION_SPAWNWITHWEAPON;
+		g_MpSetup.options &= ~MPOPTION_SPAWNWITHWEAPON;
+		if (!forgeLevelSessionPlayDraft(err, sizeof(err))) goto fail;
+		probe.step_started = now;
+		*step = 6;
+		return 1;
+	}
+	if (*step == 6 && forgeLevelDraftIsPlaying() && g_Vars.lvframenum >= 120) {
+		const struct player *player = g_Vars.players[0];
+		struct prop *actor = player ? player->prop : NULL;
+		const struct defaultobj *object = setupGetObjByCmdIndex(probe.command);
+		if (g_NetMode != NETMODE_NONE || g_StageNum != probe.stage || PLAYERCOUNT() != 1
+				|| !actor || !actor->chr || player != g_Vars.currentplayer || player->isdead
+				|| actor->rooms[0] != 1 || bootForgePickupInside(&probe, actor)
+				|| !bootForgePickupInRoom(&actor->pos, 1) || (g_MpSetup.options & MPOPTION_SPAWNWITHWEAPON)
+				|| invHasSingleWeaponExcAllGuns(WEAPON_DRAGON)
+				|| !object || object->type != OBJTYPE_WEAPON || ((const struct weaponobj *)object)->weaponnum != WEAPON_DRAGON
+				|| !object->prop || object->prop->rooms[0] != 2 || object->pad != 8
+				|| !bootForgePickupInRoom(&object->prop->pos, 2)
+				|| !(fabsf(actor->pos.x - object->prop->pos.x) > 1000.0f)
+				|| !(fabsf(probe.trigger_center.x - object->prop->pos.x) > 1000.0f)) {
+			snprintf(err, sizeof(err), "the pickup, outside player or empty pre-entry inventory did not load");
+			goto fail;
+		}
+		if (probe.chained) {
+			const struct defaultobj *other = setupGetObjByCmdIndex(probe.second_command);
+			if (invHasSingleWeaponExcAllGuns(WEAPON_CYCLONE) || !other || other->type != OBJTYPE_WEAPON
+					|| ((const struct weaponobj *)other)->weaponnum != WEAPON_CYCLONE
+					|| !other->prop || !bootForgePickupInRoom(&other->prop->pos, 2)) {
+				snprintf(err, sizeof(err), "the second physical pickup or empty inventory did not load");
+				goto fail;
+			}
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LOGIC: second pickup room=2 has_cyclone=0");
+		}
+		probe.player = actor;
+		probe.pickup_x = object->prop->pos.x;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PICKUP: before player=0 player_room=1 pickup_room=2 has_dragon=0 separation_x=%.1f",
+			fabsf(actor->pos.x - probe.pickup_x));
+		struct coord enter = probe.trigger_center;
+		enter.y = actor->pos.y;
+		RoomNum rooms[] = {1, -1};
+		if (!chrMoveToPos(actor->chr, &enter, rooms, 0.0f, true) || actor->rooms[0] != 1
+				|| !bootForgePickupInside(&probe, actor) || !bootForgePickupInRoom(&actor->pos, 1)) {
+			snprintf(err, sizeof(err), "the player could not be positioned inside the actual room-1 trigger");
+			goto fail;
+		}
+		probe.entered_frame = g_Vars.lvframenum;
+		probe.step_started = now;
+		*step = 8;
+		return 1;
+	}
+	if (*step == 8) {
+		const struct player *player = g_Vars.players[0];
+		if (g_StageNum != probe.stage || !forgeLevelDraftIsPlaying() || !player || player->prop != probe.player
+				|| player != g_Vars.currentplayer || player->isdead || probe.player->rooms[0] != 1
+				|| !bootForgePickupInside(&probe, probe.player) || !bootForgePickupInRoom(&probe.player->pos, 1)) {
+			snprintf(err, sizeof(err), "the exact entering player or stage changed before volume dispatch");
+			goto fail;
+		}
+		if (g_Vars.lvframenum > probe.entered_frame && invHasSingleWeaponExcAllGuns(WEAPON_DRAGON)
+				&& (!probe.chained || invHasSingleWeaponExcAllGuns(WEAPON_CYCLONE))) {
+			if (probe.chained) sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LOGIC: chained grants player=0 dragon=1 cyclone=1");
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.GRID.PICKUP: after player=0 player_room=1 pickup_room=2 has_dragon=1 separation_x=%.1f volume=%s",
+				fabsf(probe.player->pos.x - probe.pickup_x), probe.volume);
+			bootForgePickupRestoreLoadout(&probe);
+			if (!forgeLevelDraftReturn()) {
+				snprintf(err, sizeof(err), "the successful playtest did not request normal return");
+				goto fail;
+			}
+			probe.step_started = now;
+			*step = 7;
+			return 1;
+		}
+		if ((u32)(now - probe.step_started) >= 3000) {
+			snprintf(err, sizeof(err), "ordinary volume entry did not grant the native weapon within three seconds");
+			goto fail;
+		}
+	}
+	if (*step == 7 && forgeIsFreefly() && g_Vars.lvframenum >= 60) {
+		const forge_level_source_t *source = forgeLevelSessionSource();
+		forge_level_source_t restored = {0};
+		forge_level_doc_t *original = forgeLevelOpen(arena_id, &restored, err, sizeof(err));
+		const s32 restored_original = original && forgeLevelDocSpawnCount(original) == 8
+			&& forgeLevelDocObjectCount(original) == 0 && forgeLevelDocTriggerCount(original) == 0
+			&& strcmp(probe.archive_sha256, restored.archive_sha256) == 0;
+		forgeLevelDocFree(original);
+		forge_level_doc_t *retained = forgeLevelSessionDoc();
+		const char *logic = forgeLevelDocMemberText(retained, FORGE_LEVEL_MEMBER_LEVEL_GRAPH, NULL);
+		const s32 retained_edit = probe.chained ? logic && strstr(logic, "\"grid.logic.second\"") != NULL
+			: forgeLevelDocTriggerCount(retained) == 1;
+		if (!source || strcmp(source->arena_id, arena_id) != 0 || !restored_original || g_StageNum != probe.stage
+				|| forgeLevelDraftIsPlaying() || setupGetObjByCmdIndex(probe.command)
+				|| !forgeLevelSessionHasUnsavedChanges() || forgeLevelSessionUndoCount() != 1 + probe.chained
+				|| !retained_edit) {
+			if (!err[0]) snprintf(err, sizeof(err), "return did not restore the original native source and retain the trigger draft");
+			goto fail;
+		}
+		*step = 9;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PICKUP: returned arena=%s archive_sha256=%s %s=retained",
+			arena_id, probe.archive_sha256, probe.chained ? "draft_logic" : "draft_trigger");
+		smokeHarnessExit(0, probe.chained ? "grid_level_logic_complete" : "grid_fixed_pickup_trigger_complete");
+		return 1;
+	}
+	if ((*step == 6 || *step == 7) && (u32)(now - probe.step_started) >= 90000) {
+		snprintf(err, sizeof(err), "the native draft or return failed to load within ninety seconds");
+		goto fail;
+	}
+	return 0;
+
+fail:
+	*step = 9;
+	bootForgePickupRestoreLoadout(&probe);
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.PICKUP.FAIL: %s", err[0] ? err : "unexpected typed authoring output");
+	smokeHarnessExit(1, "grid_fixed_pickup_trigger_failed");
+	return 1;
+}
+
+static forge_level_doc_t *bootForgeDraftWithUnknownAction(forge_level_doc_t *doc, char *err, size_t err_cap)
+{
+	forge_level_overrides_t *members = calloc(1, sizeof(*members));
+	if (!members) return NULL;
+	forge_level_texts_t texts = {0};
+	forge_level_doc_t *invalid = NULL;
+	char *graph = NULL;
+	if (!forgeLevelDocOverridesAll(doc, NULL, members, err, err_cap)) goto done;
+	for (s32 i = 0; i < FORGE_LEVEL_MEMBER_COUNT; ++i) {
+		for (u32 j = 0; j < members->count; ++j) {
+			const asset_archive_clone_override_t *entry = &members->entries[j];
+			if (strcmp(entry->entry, forgeLevelDocMemberName(i)) != 0) continue;
+			texts.text[i] = entry->data;
+			texts.size[i] = entry->len;
+			break;
+		}
+	}
+	const size_t size = texts.size[FORGE_LEVEL_MEMBER_LEVEL_GRAPH];
+	if (!size || size > FORGE_LEVEL_CHECKPOINT_MAX_BYTES) goto done;
+	graph = malloc(size + 1);
+	if (!graph) goto done;
+	memcpy(graph, texts.text[FORGE_LEVEL_MEMBER_LEVEL_GRAPH], size);
+	graph[size] = '\0';
+	char *action = strstr(graph, "\"og.pickup.give\"");
+	if (!action) goto done;
+	memcpy(action, "\"og.pickup.fake\"", sizeof("\"og.pickup.fake\"") - 1);
+	texts.text[FORGE_LEVEL_MEMBER_LEVEL_GRAPH] = graph;
+	invalid = forgeLevelDocRead(&texts, err, err_cap);
+
+done:
+	free(graph);
+	free(members);
+	return invalid;
+}
+
+static s32 bootForgeValidateDraftTick(const char *arena_id, s32 *step)
+{
+	if (*step != 2 || !forgeIsFreefly() || g_Vars.lvframenum < 120) return 0;
+	boot_forge_pickup_probe_t source_proof = {0};
+	char err[256] = "", sha[SHA256_HEX_SIZE];
+	forge_level_doc_t *invalid = NULL;
+	forge_level_doc_t *original = NULL;
+	mod_author_result_t *attempt = NULL;
+	const char *name = sysArgGetString("--debug-level-tool-name");
+	if (!forgeLevelSessionDoc() && !forgeLevelSessionOpen(arena_id, err, sizeof(err))) goto fail;
+	const forge_level_source_t *source = forgeLevelSessionSource();
+	const asset_entry_t *enabled = assetCatalogResolve(arena_id);
+	if (!name || !source || !enabled || enabled->type != ASSET_ARENA || !enabled->enabled) {
+		snprintf(err, sizeof(err), "the saved original arena and its name are required");
+		goto fail;
+	}
+	forge_revision_t before;
+	if (!forgeLevelSessionPinSavedRevision(&before, err, sizeof(err))) goto fail;
+
+	attempt = calloc(1, sizeof(*attempt));
+	if (!attempt) {
+		snprintf(err, sizeof(err), "could not allocate the ordinary Save As result");
+		goto fail;
+	}
+	const mod_author_request_t request = {
+		.template_path = source->archive_path, .mods_root = modmgrGetModsDir(), .display_name = name,
+	};
+	if (modAuthorPlan(&request, attempt, err, sizeof(err)) != MOD_AUTHOR_OK || !attempt->updated
+			|| strcmp(attempt->catalog_id, arena_id) != 0 || strcmp(before.arena_id, arena_id) != 0
+			|| strcmp(before.digest, source->archive_sha256) != 0
+			|| sha256VerifyFile(attempt->archive_path, before.digest) != 1) {
+		if (!err[0]) snprintf(err, sizeof(err), "the ordinary Save As target is not the exact pinned original");
+		goto fail;
+	}
+	char target_path[MOD_AUTHOR_PATH_MAX];
+	snprintf(target_path, sizeof(target_path), "%s", attempt->archive_path);
+	if (!bootForgePickupAuthor(&source_proof, arena_id, err, sizeof(err))) goto fail;
+	forge_level_doc_t *draft = forgeLevelSessionDoc();
+	const u32 generation = forgeLevelSessionGeneration();
+	const u32 catalog_generation = assetCatalogGetGeneration();
+	const s32 stage_index = g_StageIndex;
+	char directory[FS_MAXPATH + 1];
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	if (!forgeLevelValidateOriginalDraft(draft, source, sha, err, sizeof(err))
+			|| strlen(sha) != SHA256_HEX_SIZE - 1 || strcmp(sha, source_proof.archive_sha256) == 0) goto fail;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VALIDATE: valid unsaved=%d archive_sha256=%s", forgeLevelSessionHasUnsavedChanges(), sha);
+
+	invalid = bootForgeDraftWithUnknownAction(draft, err, sizeof(err));
+	if (!invalid) goto fail;
+	if (forgeLevelValidateOriginalDraft(invalid, source, sha, err, sizeof(err)) || sha[0]
+			|| !strstr(err, "native module 'og.pickup.fake' does not exist")) goto fail;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VALIDATE: rejected %s", err);
+
+	/* Save As and the session command share this production author function.
+	 * The malformed clone stays outside the user's valid editor document. */
+	if (forgeLevelSaveAs(invalid, source, name, attempt, err, sizeof(err)) != MOD_AUTHOR_ERR_ARCHIVE
+			|| attempt->catalog_id[0] || !strstr(err, "native module 'og.pickup.fake' does not exist")) {
+		if (!err[0]) snprintf(err, sizeof(err), "ordinary Save As did not refuse the invalid draft before publication");
+		goto fail;
+	}
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VALIDATE: ordinary save refused arena=%s reason='%s'", arena_id, err);
+
+	forge_level_source_t reopened;
+	original = forgeLevelOpen(arena_id, &reopened, err, sizeof(err));
+	forge_revision_t after;
+	const s32 still_pinned = forgeRevisionReadCurrent(directory, arena_id, &after, NULL, 0);
+	const asset_entry_t *resolved = assetCatalogResolve(arena_id);
+	if (!original || strcmp(reopened.archive_sha256, source_proof.archive_sha256) != 0
+			|| forgeLevelDocObjectCount(original) || forgeLevelDocTriggerCount(original)
+			|| sha256VerifyFile(target_path, before.digest) != 1 || !still_pinned
+			|| strcmp(before.digest, after.digest) != 0 || strcmp(before.path, after.path) != 0
+			|| !resolved || resolved != enabled || !resolved->enabled || resolved->ext.arena.stagenum != source_proof.stage
+			|| assetCatalogGetGeneration() != catalog_generation || g_StageNum != source_proof.stage
+			|| g_StageIndex != stage_index || mainStageChangePending() || forgeLevelDraftOwnsStageTransition()
+			|| forgeLevelSessionGeneration() != generation || forgeLevelSessionDoc() != draft
+			|| !forgeLevelSessionHasUnsavedChanges() || forgeLevelSessionUndoCount() != 1 || forgeLevelSessionRedoCount()
+			|| forgeLevelDocTriggerCount(draft) != 1) {
+		if (!err[0]) snprintf(err, sizeof(err), "draft validation or Save As refusal changed the stage, catalog, saved source, pin, or draft");
+		goto fail;
+	}
+	forgeLevelDocFree(original);
+	forgeLevelDocFree(invalid);
+	free(attempt);
+	*step = 9;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VALIDATE: unchanged arena=%s stage=0x%02x undo=1 source_sha256=%s pin_sha256=%s enabled=1 catalog=%u",
+		arena_id, g_StageNum, reopened.archive_sha256, after.digest, catalog_generation);
+	smokeHarnessExit(0, "grid_validate_draft_complete");
+	return 1;
+
+fail:
+	forgeLevelDocFree(original);
+	forgeLevelDocFree(invalid);
+	free(attempt);
+	*step = 9;
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.VALIDATE.FAIL: %s", err[0] ? err : "unexpected draft validation output");
+	smokeHarnessExit(1, "grid_validate_draft_failed");
+	return 1;
+}
+
+/* --launch-forge-level <arena id> and --debug-forge-session-save <name>.
+ * Called every gameplay frame from the Forge editor's tick
+ * (pdguiForgeEditorTick). One-shot steps:
+ *
+ *   1. Once the boot stage has placed the player (lvframenum >= 4, the gate
+ *      --launch-scenario uses), start a Forge session on the arena.
+ *   2. With --debug-forge-session-save: two seconds into that level, with the
+ *      editor camera flying, add a player start where the camera is, facing
+ *      the way it faces, and save the level under the name
+ *      (forgeLevelDebugSessionEdit). The level file stays open, so the HUD
+ *      marks its starts and objects in the world.
+ *   3. Twenty frames later: turn the camera to a yaw far from every axis
+ *      and a pitch that is not level (BOOT_FORGE_PROBE_YAW_DEG,
+ *      BOOT_FORGE_PROBE_PITCH_DEG).
+ *   4. Forty frames after that, once frames have been drawn at that angle:
+ *      log where the markers' projection puts five known points
+ *      (bootForgeMarkerProbe).
+ *   5. From then on, if something holds the forward action: once the
+ *      camera has left that place and stood still again, log how far it
+ *      flew and how much of that was along its look (FORGE.FLY.PROBE).
+ *
+ * The flag takes no screenshot and ends nothing. A smoke waits for the level
+ * file to be open (forge_level_file_open) and times its screenshot and its
+ * exit from there, on the harness's own clock.
+ * --debug-forge-connect-pads is a smoke-only alternative that probes an
+ * original two-room arena, plays the linked draft and returns to its editor.
+ * --debug-forge-fixed-pickup-trigger probes inventory before and after
+ * entering an authored volume in an original two-room draft.
+ *
+ * Returns 1 on a frame where a step ran. */
+static s32 bootGridSaveRestartVariant(const char *original_id, const char *name);
+static s32 bootGridPlayRestartVariant(const char *original_id);
+static s32 bootGridSaveFallbackVariant(const char *original_id, const char *name);
+static s32 bootGridPlayFallbackVariant(const char *original_id);
+static s32 bootGridSavePlayedVariantTick(const char *name, s32 host);
+static s32 bootGridPlaySavedVariantTick(void);
+
+s32 bootForgeLevelTick(void)
+{
+	static s32 s_step = 0;
+	static const char *s_arena = NULL;
+	static const char *s_name = NULL;
+	static const char *s_fork_name = NULL;
+	static const char *s_restart_variant = NULL;
+	static const char *s_fallback_variant = NULL;
+	static s32 s_draft = 0;
+	static s32 s_connect_pads = 0;
+	static s32 s_fixed_pickup_trigger = 0;
+	static s32 s_validate_draft = 0;
+	static s32 s_draft_returns = 0;
+	static s32 s_saved_frame = 0;
+	static struct coord s_fly_from;
+	static struct coord s_fly_last;
+	static s32 s_fly_moving = 0;
+	static s32 s_fly_still = 0;
+
+	if (smokeHarnessIsActive()) {
+		const char *played_name = sysArgGetString("--debug-grid-save-played-variant");
+		if (played_name) return bootGridSavePlayedVariantTick(played_name, 0);
+		played_name = sysArgGetString("--debug-grid-save-host-played-variant");
+		if (played_name) return bootGridSavePlayedVariantTick(played_name, 1);
+		if (sysArgCheck("--debug-grid-play-saved-variant")) return bootGridPlaySavedVariantTick();
+		const char *original = sysArgGetString("--debug-grid-variant-restart-play");
+		if (original) return bootGridPlayRestartVariant(original);
+		original = sysArgGetString("--debug-grid-variant-fallback-play");
+		if (original) return bootGridPlayFallbackVariant(original);
+	}
+	if (s_step == 9) {
+		return 0;
+	}
+	if (s_step == 0) {
+		s_arena = sysArgGetString("--launch-forge-level");
+		s_name = sysArgGetString("--debug-forge-session-save");
+		s_fork_name = sysArgGetString("--debug-forge-fork");
+		s_restart_variant = smokeHarnessIsActive() ? sysArgGetString("--debug-grid-variant-restart-save") : NULL;
+		s_fallback_variant = smokeHarnessIsActive() ? sysArgGetString("--debug-grid-variant-fallback-save") : NULL;
+		s_draft = sysArgCheck("--debug-forge-draft-playtest");
+		s_connect_pads = smokeHarnessIsActive() && sysArgCheck("--debug-forge-connect-pads");
+		s_fixed_pickup_trigger = smokeHarnessIsActive() && sysArgCheck("--debug-forge-fixed-pickup-trigger");
+		s_validate_draft = smokeHarnessIsActive() && sysArgCheck("--debug-forge-validate-draft");
+		if (!s_arena || !s_arena[0]) {
+			if (s_fallback_variant) smokeHarnessExit(1, "grid_variant_fallback_missing_arena");
+			if (s_validate_draft) smokeHarnessExit(1, "grid_validate_draft_missing_arena");
+			if (s_fixed_pickup_trigger) smokeHarnessExit(1, "grid_fixed_pickup_trigger_missing_arena");
+			if (s_connect_pads) smokeHarnessExit(1, "grid_connect_pads_missing_arena");
+			if (s_name && s_name[0]) {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-forge-session-save name='%s' result=FAIL (it needs --launch-forge-level <arena id>)",
+					s_name);
+			}
+			s_step = 9;
+			return 0;
+		}
+		sysLogPrintf(LOG_NOTE, "BOOT: --launch-forge-level arena=%s armed", s_arena);
+		s_step = 1;
+	}
+	if (s_step == 1) {
+		s32 started;
+
+		if (g_Vars.lvframenum < 4) {
+			return 0;
+		}
+		started = forgeLevelStartForge(s_arena);
+		sysLogPrintf(started ? LOG_NOTE : LOG_WARNING, "BOOT: --launch-forge-level arena=%s result=%s",
+			s_arena, started ? "OK" : "FAIL");
+		if (!started && s_connect_pads) smokeHarnessExit(1, "grid_connect_pads_start_failed");
+		if (!started && s_fixed_pickup_trigger) smokeHarnessExit(1, "grid_fixed_pickup_trigger_start_failed");
+		if (!started && s_validate_draft) smokeHarnessExit(1, "grid_validate_draft_start_failed");
+		if (!started && s_restart_variant) smokeHarnessExit(1, "grid_variant_restart_start_failed");
+		if (!started && s_fallback_variant) smokeHarnessExit(1, "grid_variant_fallback_start_failed");
+		s_step = (started && (s_validate_draft || s_fixed_pickup_trigger || s_connect_pads || s_draft || (s_fork_name && s_fork_name[0])
+			|| (s_name && s_name[0]) || s_restart_variant || s_fallback_variant)) ? 2 : 9;
+		return 1;
+	}
+	if (s_validate_draft) return bootForgeValidateDraftTick(s_arena, &s_step);
+	if (s_fixed_pickup_trigger) return bootForgePickupTriggerTick(s_arena, &s_step);
+	if (s_connect_pads) return bootForgeConnectPadsTick(&s_step);
+	if (s_fallback_variant) {
+		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) return 0;
+		const s32 saved = bootGridSaveFallbackVariant(s_arena, s_fallback_variant);
+		s_step = 9;
+		smokeHarnessExit(saved ? 0 : 1, saved ? "grid_variant_fallback_saved" : "grid_variant_fallback_save_failed");
+		return 1;
+	}
+	if (s_restart_variant) {
+		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) return 0;
+		const s32 saved = bootGridSaveRestartVariant(s_arena, s_restart_variant);
+		s_step = 9;
+		smokeHarnessExit(saved ? 0 : 1, saved ? "grid_variant_restart_saved" : "grid_variant_restart_save_failed");
+		return 1;
+	}
+	if (s_fork_name && s_fork_name[0]) {
+		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) return 0;
+		char err[256] = "";
+		s32 forked = forgeLevelDebugForkPinned(s_fork_name, err, sizeof(err));
+		sysLogPrintf(forked ? LOG_NOTE : LOG_WARNING, "FORGE.REVISION.DEBUG: result=%s reason='%s'",
+			forked ? "OK" : "FAIL", err);
+		s_step = 9;
+		return 1;
+	}
+	if (s_draft) {
+		char err[256] = "";
+		if (s_step == 2 && forgeIsFreefly() && g_Vars.lvframenum >= 120) {
+			if ((!s_draft_returns && !forgeLevelDebugEditDraft(err, sizeof(err)))
+					|| !forgeLevelSessionPlayDraft(err, sizeof(err))) {
+				sysLogPrintf(LOG_WARNING, "FORGE.DRAFT.DEBUG.FAIL: %s", err);
+				s_step = 9;
+				return 1;
+			}
+			forgeBotAddRequest(1);
+			s_step = 6;
+			return 1;
+		}
+		if (s_step == 6 && forgeLevelDraftIsPlaying() && g_Vars.lvframenum >= 120) {
+			if (forgeLevelDraftReturn()) s_step = 7;
+			return 1;
+		}
+		if (s_step == 7 && forgeIsFreefly() && g_Vars.lvframenum >= 60) {
+			s32 retained = forgeLevelSessionHasUnsavedChanges()
+				&& forgeLevelSessionUndoCount() == 1 && forgeLevelSessionUndo()
+				&& !forgeLevelSessionHasUnsavedChanges() && forgeLevelSessionRedo()
+				&& forgeLevelSessionHasUnsavedChanges()
+				&& forgeBotSettings()->active_count == 0
+				&& forgeBotSettings()->frozen_count == 0;
+			if (!retained) {
+				sysLogPrintf(LOG_WARNING, "FORGE.DRAFT.DEBUG.FAIL: draft history or bot counts did not survive the round trip");
+				s_step = 9;
+				return 1;
+			}
+			sysLogPrintf(LOG_NOTE, "FORGE.DRAFT.DEBUG.OK: return=%d history=retained",
+				++s_draft_returns);
+			s_step = s_draft_returns == 2 ? 9 : 2;
+			return 1;
+		}
+		return 0;
+	}
+	if (s_step == 2) {
+		struct coord cam;
+		f32 position[3];
+		f32 look[3];
+		f32 live_look[3];
+		f32 yaw;
+		s32 saved;
+
+		if (!forgeIsFreefly() || g_Vars.lvframenum < 120) {
+			return 0;
+		}
+		/* The camera's facing, flat. Its yaw is the player's turn angle t, and
+		 * a player with turn angle t faces (-sin t, 0, cos t); a player started
+		 * on a pad with this look gets the same angle back (player.c), so the
+		 * start faces what the camera faces. */
+		cam.x = 0.0f;
+		cam.y = 0.0f;
+		cam.z = 0.0f;
+		forgeGetCameraPos(&cam);
+		yaw = forgeGetCameraYawDeg() * 0.017453292f;
+		position[0] = cam.x;
+		position[1] = cam.y;
+		position[2] = cam.z;
+		look[0] = -sinf(yaw);
+		look[1] = 0.0f;
+		look[2] = cosf(yaw);
+		/* --debug-forge-session-live: edits for the world to show, along the
+		 * flat look of the probe view the screenshots are taken in. */
+		live_look[0] = -sinf(BOOT_FORGE_PROBE_YAW_DEG * 0.017453292f);
+		live_look[1] = 0.0f;
+		live_look[2] = cosf(BOOT_FORGE_PROBE_YAW_DEG * 0.017453292f);
+		saved = forgeLevelDebugSessionEdit(s_name, position, look,
+			sysArgCheck("--debug-forge-session-undo") ? 1 : 0,
+			sysArgCheck("--debug-forge-session-live") ? live_look : NULL);
+		sysLogPrintf(saved ? LOG_NOTE : LOG_WARNING, "BOOT: --debug-forge-session-save name='%s' result=%s",
+			s_name, saved ? "OK" : "FAIL");
+		s_saved_frame = g_Vars.lvframenum;
+		s_step = saved ? 3 : 9;
+		return 1;
+	}
+	/* A stage that was loaded again counts its frames from zero; then there is
+	 * nothing left to wait for. */
+	if (s_step == 3) {
+		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 20) {
+			return 0;
+		}
+		forgeDebugSetCameraAngles(BOOT_FORGE_PROBE_YAW_DEG, BOOT_FORGE_PROBE_PITCH_DEG);
+		s_step = 4;
+		return 1;
+	}
+	if (s_step == 4) {
+		if (g_Vars.lvframenum >= s_saved_frame && g_Vars.lvframenum < s_saved_frame + 60) {
+			return 0;
+		}
+		bootForgeMarkerProbe();
+		s_fly_from.x = 0.0f;
+		s_fly_from.y = 0.0f;
+		s_fly_from.z = 0.0f;
+		forgeGetCameraPos(&s_fly_from);
+		s_fly_last = s_fly_from;
+		s_fly_moving = 0;
+		s_fly_still = 0;
+		s_step = 5;
+		return 1;
+	}
+
+	/* 5. The fly check: does the camera fly where it looks? It needs a hand,
+	 * or a smoke, holding the forward action after the probe. Once the camera
+	 * has left the place the probe measured from and then stood still for ten
+	 * frames, log how far it went and how much of that was along its look and
+	 * along its right (1.000 along the look is "it flew where it looked").
+	 * Counted in frames of stillness, not in time, so a slow frame rate does
+	 * not cut the flight short. Without input nothing is logged. */
+	{
+		struct coord now;
+		f32 dx;
+		f32 dy;
+		f32 dz;
+		f32 step;
+
+		now = s_fly_last;
+		forgeGetCameraPos(&now);
+		dx = now.x - s_fly_last.x;
+		dy = now.y - s_fly_last.y;
+		dz = now.z - s_fly_last.z;
+		step = sqrtf(dx * dx + dy * dy + dz * dz);
+		s_fly_last = now;
+		dx = now.x - s_fly_from.x;
+		dy = now.y - s_fly_from.y;
+		dz = now.z - s_fly_from.z;
+		if (!s_fly_moving) {
+			if (sqrtf(dx * dx + dy * dy + dz * dz) > 50.0f) {
+				s_fly_moving = 1;
+			}
+			return 0;
+		}
+		s_fly_still = (step < 0.01f) ? s_fly_still + 1 : 0;
+		if (s_fly_still < 10) {
+			return 0;
+		}
+		{
+			const f32 yaw = forgeGetCameraYawDeg() * 0.017453292f;
+			const f32 pitch = forgeGetCameraPitchDeg() * 0.017453292f;
+			const f32 distance = sqrtf(dx * dx + dy * dy + dz * dz);
+			const f32 along_look = (dx * (-sinf(yaw) * cosf(pitch)) + dy * sinf(pitch)
+				+ dz * (cosf(yaw) * cosf(pitch))) / distance;
+			const f32 along_right = (dx * -cosf(yaw) + dz * -sinf(yaw)) / distance;
+
+			sysLogPrintf(LOG_NOTE,
+				"FORGE.FLY.PROBE: moved=(%.0f, %.0f, %.0f) distance=%.0f along_look=%.3f along_right=%.3f yaw=%.1f pitch=%.1f",
+				dx, dy, dz, distance, along_look, along_right,
+				forgeGetCameraYawDeg(), forgeGetCameraPitchDeg());
+		}
+		s_step = 9;
+		return 1;
+	}
 }
 
 s32 bootDebugThemeStageTransitionProofTick(void)
@@ -3510,10 +4659,21 @@ s32 bootDebugMountBikeTick(void)
 			setCurrentPlayerNum(0);
 			struct coord target = prop->pos;
 			f32 turn = hoverpropGetTurnAngle(prop->obj);
+			struct chrdata *chr = g_Vars.players[0]->prop->chr;
+			const u32 oldhidden = chr->hidden;
+			bool placed;
 			target.x += sinf(turn + M_BADPI * 0.5f) * 150.0f;
 			target.z += cosf(turn + M_BADPI * 0.5f) * 150.0f;
-			if (!chrMoveToPos(g_Vars.players[0]->prop->chr, &target, prop->rooms,
-					turn, false)) {
+			/* The placement may be where the camera sees it, as the game's own
+			 * chrSetPos allows: without this, chrAdjustPosForSpawn refuses
+			 * every place in view, which on a level of one open room is every
+			 * place beside the vehicle (the room vehicle smokes, B-1241). */
+			chr->hidden |= CHRHFLAG_WARPONSCREEN;
+			placed = chrMoveToPos(g_Vars.players[0]->prop->chr, &target, prop->rooms, turn, false);
+			if ((oldhidden & CHRHFLAG_WARPONSCREEN) == 0) {
+				chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
+			}
+			if (!placed) {
 				setCurrentPlayerNum(previousPlayerNum);
 				sysLogPrintf(LOG_WARNING,
 					"BOOT: --debug-mount-bike placement failed for Player 0");
@@ -4314,8 +5474,3727 @@ static void bootHostAutostartRearmTick(void)
 		g_BootHostAutostartStarted + 1, g_BootHostAutostartMatches, g_BootHostAutostartRoomId);
 }
 
+enum boot_grid_private_draft_role {
+	BOOT_GRID_DRAFT_NONE,
+	BOOT_GRID_DRAFT_HOST,
+	BOOT_GRID_DRAFT_CREATOR,
+	BOOT_GRID_DRAFT_ORDINARY
+};
+
+enum boot_grid_private_draft_step {
+	BOOT_GRID_DRAFT_WAIT_ROOM,
+	BOOT_GRID_DRAFT_WAIT_GRANT,
+	BOOT_GRID_DRAFT_WAIT_COMMIT,
+	BOOT_GRID_DRAFT_WAIT_RESUME_INVITE,
+	BOOT_GRID_DRAFT_WAIT_RESUME_GRANT,
+	BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_START,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_SPAWN,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_EDIT,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_VISIBILITY,
+	BOOT_GRID_DRAFT_WAIT_DECORATION_START,
+	BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION,
+	BOOT_GRID_DRAFT_WAIT_DECORATION_VALID,
+	BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE,
+	BOOT_GRID_DRAFT_WAIT_LAYOUT_AMBIENT_OFF,
+	BOOT_GRID_DRAFT_WAIT_LIVE_DISCONNECT,
+	BOOT_GRID_DRAFT_WAIT_LIVE_DETACH,
+	BOOT_GRID_DRAFT_WAIT_LIVE_AUTH,
+	BOOT_GRID_DRAFT_WAIT_LIVE_ROOM_INVITE,
+	BOOT_GRID_DRAFT_WAIT_LIVE_ROOM,
+	BOOT_GRID_DRAFT_WAIT_LIVE_EDIT,
+	BOOT_GRID_DRAFT_WAIT_LIVE_RETIRED,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN,
+	BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETIRED,
+	BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW,
+	BOOT_GRID_DRAFT_WAIT_EXTENSION_ROOM,
+	BOOT_GRID_DRAFT_WAIT_EXTENSION_ACTIVE,
+	BOOT_GRID_DRAFT_WAIT_CLOSE,
+	BOOT_GRID_DRAFT_FLUSH_CLOSE,
+	BOOT_GRID_DRAFT_DONE
+};
+
+static enum boot_grid_private_draft_role s_GridDraftRole;
+static enum boot_grid_private_draft_step s_GridDraftStep;
+static u32 s_GridDraftStepTick;
+static u8 s_GridDraftRoom = 0xff;
+static s32 s_GridDraftResume;
+static s32 s_GridDraftPlaytest;
+static s32 s_GridDraftVariantPlaytest;
+static s32 s_GridDraftVisibility;
+static s32 s_GridDraftDecoration;
+static s32 s_GridDraftDecorationOnPlan;
+static s32 s_GridDraftLiveReconnect;
+static s32 s_GridDraftRoomExtension;
+static s32 s_GridDraftPreparedReview;
+static s32 s_GridDraftTransferReview;
+static s32 s_GridDraftApplyLayout;
+static s32 s_GridDraftLayoutDecoration;
+static s32 s_GridDraftLayoutAmbientOff;
+static s32 s_GridDraftRelocateLayout;
+static s32 s_GridDraftLayoutReconnect;
+static const char kGridLayoutRelocationArena[] = "mod:arena_grid_extension_relocate";
+static struct {
+	struct chrdata *actors[MAX_MPCHRS];
+	struct prop *props[MAX_MPCHRS];
+	u64 prop_generations[MAX_MPCHRS];
+	struct player *player;
+	const struct room *rooms;
+	u64 first_serial;
+	s32 stage_index;
+	s32 frame;
+	s32 requested;
+	s32 second;
+	s32 retry_reported_transfer;
+	s32 retry_verified_timeout;
+	s32 captured_relocation;
+	s32 verified_relocation;
+	s32 match_time;
+	f32 relocation_origin;
+	u8 actor_state[SHA256_DIGEST_SIZE];
+} s_GridLayoutSmoke;
+static struct {
+	grid_edit_room_control_t before_disconnect;
+	u32 catalog;
+} s_GridLayoutReconnect;
+static char s_GridPreparedCreatorArenaSha[SHA256_HEX_SIZE];
+static grid_edit_staged_variant_info_t s_GridRoomExtension;
+static grid_match_runtime_identity_t s_GridRoomExtensionWorld;
+static grid_edit_variant_review_t s_GridRoomExtensionOffer;
+static u32 s_GridRoomExtensionCatalog;
+static u32 s_GridRoomExtensionEpoch;
+static grid_edit_room_invite_t s_GridDraftInitialInvite;
+static u32 s_GridDraftConnection;
+static u64 s_GridDraftInitialActor;
+static u64 s_GridDraftResumeGeneration;
+static u64 s_GridDraftResumeActor;
+static u32 s_GridPlaytestEpoch;
+static s32 s_GridPlaytestStage;
+static f32 s_GridPlaytestBaseline;
+static forge_revision_t s_GridPlaytestVariant;
+static grid_edit_move_spawn_t s_GridPlaytestMovedSpawn;
+static s32 s_GridPlaytestMovedPad;
+
+static const struct { unsigned players, creators; } s_GridVisibilityCases[] = {
+	{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0},
+};
+static unsigned s_GridVisibilityCase;
+static u32 s_GridVisibilityStarted;
+static u32 s_GridVisibilityStable;
+static u32 s_GridVisibilityLastView;
+static s32 s_GridVisibilityPeerVerified;
+static grid_edit_move_spawn_t s_GridVisibilityCursor;
+static grid_edit_move_decoration_t s_GridDecorationOriginal;
+static struct {
+	const struct prop *prop;
+	u32 command;
+	u64 lifecycle;
+	RoomNum room;
+	struct coord position;
+	struct coord moved_position;
+} s_GridDecorationNative;
+
+#define GRID_DRAFT_SMOKE_BRIGHTNESS 137
+#define GRID_DRAFT_SMOKE_BASE_BRIGHTNESS 104
+#define GRID_DRAFT_SMOKE_RESUME_TAIL_BRIGHTNESS 149
+#define GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS 155
+#define GRID_VISIBILITY_SMOKE_HOLD_MS 1300u
+#define GRID_VISIBILITY_SMOKE_TIMEOUT_MS 12000u
+#define GRID_DECORATION_SMOKE_TIMEOUT_MS 12000u
+#define GRID_DECORATION_SMOKE_X_DELTA 24.0f
+#define GRID_PLAYTEST_RETURN_SMOKE_TIMEOUT_MS 15000u
+#define GRID_LIVE_RECONNECT_SMOKE_TIMEOUT_MS 45000u
+#define GRID_EXTENSION_REVIEW_SMOKE_TIMEOUT_MS 20000u
+#define GRID_EXTENSION_TRANSFER_SMOKE_TIMEOUT_MS 90000u
+
+static void bootGridDraftInit(void)
+{
+	if (!smokeHarnessIsActive()) return;
+	const char *role = sysArgGetString("--debug-grid-private-draft");
+	if (!role) return;
+	if (strcmp(role, "host") == 0) s_GridDraftRole = BOOT_GRID_DRAFT_HOST;
+	else if (strcmp(role, "creator") == 0) s_GridDraftRole = BOOT_GRID_DRAFT_CREATOR;
+	else if (strcmp(role, "ordinary") == 0) s_GridDraftRole = BOOT_GRID_DRAFT_ORDINARY;
+	else smokeHarnessExit(1, "grid_draft_invalid_role");
+	s_GridDraftResume = sysArgCheck("--debug-grid-private-resume");
+	s_GridDraftVisibility = sysArgCheck("--debug-grid-private-visibility");
+	s_GridDraftDecoration = sysArgCheck("--debug-grid-private-decoration");
+	s_GridDraftLiveReconnect = sysArgCheck("--debug-grid-private-live-reconnect");
+	s_GridDraftVariantPlaytest = sysArgCheck("--debug-grid-private-saved-variant");
+	s_GridDraftRoomExtension = sysArgCheck("--debug-grid-private-room-extension");
+	s_GridDraftPreparedReview = sysArgCheck("--debug-grid-private-prepared-review") != 0;
+	s_GridDraftTransferReview = sysArgCheck("--debug-grid-private-transfer-review") != 0;
+	s_GridDraftApplyLayout = s_GridDraftTransferReview && sysArgCheck("--debug-grid-private-layout-apply");
+	s_GridDraftLayoutDecoration = sysArgCheck("--debug-grid-private-layout-decoration");
+	s_GridDraftLayoutAmbientOff = sysArgCheck("--debug-grid-private-layout-ambient-off");
+	s_GridDraftDecorationOnPlan = s_GridDraftLayoutDecoration
+		|| (s_GridDraftDecoration && sysArgCheck("--debug-grid-decoration-on-plan"));
+	s_GridDraftRelocateLayout = s_GridDraftApplyLayout && sysArgCheck("--debug-grid-private-layout-relocate");
+	s_GridDraftLayoutReconnect = sysArgCheck("--debug-grid-private-layout-reconnect") != 0;
+	if (s_GridDraftLayoutDecoration && (!s_GridDraftApplyLayout || s_GridDraftRelocateLayout
+			|| s_GridDraftLayoutReconnect || sysArgCheck("--debug-grid-private-layout-retry"))) {
+		smokeHarnessExit(1, "grid_layout_decoration_requires_single_apply");
+	}
+	if (s_GridDraftLayoutAmbientOff && !s_GridDraftLayoutDecoration) {
+		smokeHarnessExit(1, "grid_layout_ambient_off_requires_decoration");
+	}
+	if (s_GridDraftLayoutReconnect && !s_GridDraftApplyLayout) {
+		smokeHarnessExit(1, "grid_layout_reconnect_without_apply");
+	}
+	if (s_GridDraftPreparedReview && !s_GridDraftRoomExtension) {
+		smokeHarnessExit(1, "grid_prepared_review_without_extension");
+	}
+	if (s_GridDraftTransferReview && !s_GridDraftPreparedReview) {
+		smokeHarnessExit(1, "grid_transfer_review_without_preparation");
+	}
+	s_GridDraftPlaytest = s_GridDraftVariantPlaytest || s_GridDraftVisibility || s_GridDraftDecoration
+		|| s_GridDraftLiveReconnect || s_GridDraftRoomExtension || sysArgCheck("--debug-grid-private-playtest");
+	if ((s_GridDraftResume && s_GridDraftPlaytest)
+			|| s_GridDraftVariantPlaytest + s_GridDraftVisibility + s_GridDraftDecoration
+				+ s_GridDraftLiveReconnect + s_GridDraftRoomExtension > 1) {
+		smokeHarnessExit(1, "grid_draft_conflicting_modes");
+	}
+}
+
+/* Author the creator's independent copy before registering with the host. */
+static void bootGridPrepareCreatorReviewSource(void)
+{
+	if (!s_GridDraftPreparedReview || s_GridDraftTransferReview || s_GridDraftRole != BOOT_GRID_DRAFT_CREATOR) return;
+	if (g_NetMode == NETMODE_CLIENT || g_NetMode == NETMODE_SERVER || g_NetStageEpoch) {
+		smokeHarnessExit(1, "grid_prepared_review_creator_already_networked");
+		return;
+	}
+	const char *parent = "mod:arena_grid_playtest_draft";
+	const char *expected = "mod:arena_grid_extension_staged";
+	mod_author_result_t saved = {0};
+	forge_level_source_t source = {0};
+	scenario_stage_atmosphere_t look;
+	char reason[256] = {0};
+	forge_level_doc_t *doc = forgeLevelOpen(parent, &source, reason, sizeof(reason));
+	s32 ok = doc && forgeLevelDocGetAtmosphere(doc, &look)
+		&& look.has_ambient && look.ambient_light == GRID_DRAFT_SMOKE_BASE_BRIGHTNESS;
+	if (ok) {
+		look.ambient_light = GRID_DRAFT_SMOKE_BRIGHTNESS;
+		ok = forgeLevelDocSetAtmosphere(doc, &look, reason, sizeof(reason))
+			&& forgeLevelForkExtendedRevision(parent, source.archive_sha256, doc,
+				"Grid Extension Staged", 2, 300, &saved, reason, sizeof(reason))
+			&& strcmp(saved.catalog_id, expected) == 0
+			&& modAuthorRuntimeEnable(saved.mod_id, NULL, reason, sizeof(reason));
+	}
+	forgeLevelDocFree(doc);
+	forge_level_source_t candidate = {0};
+	doc = ok ? forgeLevelOpen(saved.catalog_id, &candidate, reason, sizeof(reason)) : NULL;
+	if (!doc || strcmp(candidate.archive_sha256, source.archive_sha256) == 0) {
+		forgeLevelDocFree(doc);
+		sysLogPrintf(LOG_ERROR, "SMOKE.GRID.EXTENSION: independent creator authoring failed reason='%s'", reason);
+		smokeHarnessExit(1, "grid_prepared_review_creator_source");
+		return;
+	}
+	forgeLevelDocFree(doc);
+	snprintf(s_GridPreparedCreatorArenaSha, sizeof(s_GridPreparedCreatorArenaSha), "%s", candidate.archive_sha256);
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.EXTENSION: creator authored locally arena=%s sha256=%s parent=%s before_connect=1",
+		saved.catalog_id, s_GridPreparedCreatorArenaSha, source.archive_sha256);
+}
+
+static s32 bootGridDraftIsHostPeer(u8 client_id)
+{
+	const struct netclient *client = &g_NetClients[client_id];
+	return client->id == client_id && client->peer && client->state == CLSTATE_LOBBY
+		&& client->room_id == s_GridDraftRoom;
+}
+
+static void bootGridDraftFail(const char *phase)
+{
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.DRAFT: failed phase=%s reason=%s", phase, netGridEditError());
+	smokeHarnessExit(1, phase);
+}
+
+static s32 bootGridDraftRecordInitialInvite(const grid_edit_room_invite_t *invite,
+		const struct netclient *peer)
+{
+	if (!peer || !peer->peer || invite->identity.room_id != s_GridDraftRoom
+			|| !invite->identity.generation || invite->baseline_revision != 1) return 0;
+	s_GridDraftInitialInvite = *invite;
+	s_GridDraftConnection = peer->peer->connectID;
+	return 1;
+}
+
+static s32 bootGridDraftSameArena(const grid_edit_room_invite_t *invite)
+{
+	const grid_edit_room_invite_t *initial = &s_GridDraftInitialInvite;
+	return invite->identity.room_id == s_GridDraftRoom && invite->baseline_revision == initial->baseline_revision
+		&& invite->host_actor == initial->host_actor && strcmp(invite->arena_id, initial->arena_id) == 0
+		&& strcmp(invite->arena_sha256, initial->arena_sha256) == 0;
+}
+
+static s32 bootGridDraftSameSource(const grid_edit_room_invite_t *invite, const struct netclient *peer)
+{
+	return peer && peer->peer && peer->peer->connectID == s_GridDraftConnection
+		&& bootGridDraftSameArena(invite);
+}
+
+static s32 bootGridDraftVariantParentMatches(const char *arena_id, const forge_level_source_t *source,
+		char *reason, size_t reason_cap)
+{
+	const grid_edit_room_invite_t *initial = &s_GridDraftInitialInvite;
+	char directory[FS_MAXPATH + 1];
+	forge_revision_t saved, parent;
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	snprintf(saved.arena_id, sizeof(saved.arena_id), "%s", arena_id);
+	snprintf(saved.digest, sizeof(saved.digest), "%s", source->archive_sha256);
+	snprintf(saved.path, sizeof(saved.path), "%s", source->archive_path);
+	return forgeRevisionReadParent(directory, &saved, &parent, reason, reason_cap) == FORGE_REVISION_PARENT_AVAILABLE
+		&& strcmp(parent.arena_id, initial->arena_id) == 0 && strcmp(parent.digest, initial->arena_sha256) == 0;
+}
+
+static s32 bootGridDraftVerifySavedVariant(const char *arena_id)
+{
+	const grid_edit_room_invite_t *initial = &s_GridDraftInitialInvite;
+	forge_level_source_t original_source, variant_source;
+	char reason[256] = {0};
+	forge_level_doc_t *original = forgeLevelOpen(initial->arena_id, &original_source, reason, sizeof(reason));
+	forge_level_doc_t *variant = original ? forgeLevelOpen(arena_id, &variant_source, reason, sizeof(reason)) : NULL;
+	scenario_stage_atmosphere_t before = {0}, after = {0};
+	s32 same = original && variant && strcmp(original_source.archive_sha256, initial->arena_sha256) == 0
+		&& forgeLevelDocGetAtmosphere(original, &before) && forgeLevelDocGetAtmosphere(variant, &after)
+		&& before.has_ambient && before.ambient_light == GRID_DRAFT_SMOKE_BASE_BRIGHTNESS
+		&& after.has_ambient && after.ambient_light == GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS
+		&& before.has_sky && after.has_sky && memcmp(before.sky_rgb, after.sky_rgb, sizeof(before.sky_rgb)) == 0
+		&& before.has_fog && after.has_fog && before.fog_start == after.fog_start && before.fog_end == after.fog_end
+		&& before.primary_music[0] && strcmp(before.primary_music, after.primary_music) == 0;
+	static const s32 members[] = {FORGE_LEVEL_MEMBER_PADS, FORGE_LEVEL_MEMBER_SPAWNS, FORGE_LEVEL_MEMBER_OBJECTS,
+		FORGE_LEVEL_MEMBER_VOLUMES, FORGE_LEVEL_MEMBER_SETUP_FIELDS, FORGE_LEVEL_MEMBER_INTRO};
+	for (size_t i = 0; same && i < ARRAYCOUNT(members); i++) {
+		size_t before_size = 0, after_size = 0;
+		const char *source = forgeLevelDocMemberText(original, members[i], &before_size);
+		const char *saved = forgeLevelDocMemberText(variant, members[i], &after_size);
+		same = source && saved && before_size && before_size == after_size && memcmp(source, saved, before_size) == 0;
+	}
+	if (same) same = bootGridDraftVariantParentMatches(arena_id, &variant_source, reason, sizeof(reason));
+	if (same) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host reopened variant=%s ambient=%d preserved_author_data=1 parent_sha256=%s",
+			arena_id, after.ambient_light, initial->arena_sha256);
+	} else {
+		sysLogPrintf(LOG_WARNING, "SMOKE.GRID.DRAFT: saved native document did not verify: %s", reason);
+	}
+	forgeLevelDocFree(variant);
+	forgeLevelDocFree(original);
+	return same;
+}
+
+static s32 bootGridPlaytestOffsetSpawn(grid_edit_move_spawn_t *pose)
+{
+	if (strcmp(pose->spawn_id, "spawn_0000") != 0) return 0;
+	pose->position[0] += 24.0f;
+	return 1;
+}
+
+static s32 bootGridPlaytestPoseMatches(const grid_edit_move_spawn_t *pose, const f32 position[3], const f32 look[3])
+{
+	for (s32 axis = 0; axis < 3; axis++) {
+		if (!(fabsf(pose->position[axis] - position[axis]) <= 0.01f)
+				|| !(fabsf(pose->look[axis] - look[axis]) <= 0.01f)) return 0;
+	}
+	return 1;
+}
+
+static s32 bootGridPlaytestSavedStartVariant(void)
+{
+	const grid_edit_room_invite_t *initial = &s_GridDraftInitialInvite;
+	char arena_id[CATALOG_ID_LEN];
+	char reason[256] = {0};
+	forge_level_source_t original_source, variant_source;
+	forge_level_spawn_t original_spawn, variant_spawn;
+	forge_level_pad_t original_pad, variant_pad;
+	grid_edit_move_spawn_t live;
+	forge_level_doc_t *original = NULL, *variant = NULL;
+	s32 verified = 0;
+	if (!netGridEditGetSpawnPose(0, &live)
+			|| !netGridEditSaveVariant("Grid_Start_Playtest_Variant", arena_id, sizeof(arena_id))
+			|| strcmp(arena_id, "mod:arena_grid_start_playtest_variant") != 0
+			|| !netGridEditHasSavedVariant(arena_id)) goto done;
+	/* Reopen the original after saving so its digest also witnesses immutability. */
+	original = forgeLevelOpen(initial->arena_id, &original_source, reason, sizeof(reason));
+	variant = forgeLevelOpen(arena_id, &variant_source, reason, sizeof(reason));
+	if (!original || !variant || strcmp(original_source.archive_sha256, initial->arena_sha256) != 0
+			|| !forgeLevelDocGetSpawn(original, 0, &original_spawn)
+			|| !forgeLevelDocGetSpawn(variant, 0, &variant_spawn)
+			|| strcmp(original_spawn.spawn_id, variant_spawn.spawn_id) != 0
+			|| strcmp(original_spawn.spawn_id, live.spawn_id) != 0
+			|| !forgeLevelDocFindPad(original, original_spawn.pad_ref, &original_pad)
+			|| !forgeLevelDocFindPad(variant, variant_spawn.pad_ref, &variant_pad)) goto done;
+	snprintf(s_GridPlaytestMovedSpawn.spawn_id, sizeof(s_GridPlaytestMovedSpawn.spawn_id), "%s", original_spawn.spawn_id);
+	memcpy(s_GridPlaytestMovedSpawn.position, original_pad.position, sizeof(original_pad.position));
+	memcpy(s_GridPlaytestMovedSpawn.look, original_pad.look, sizeof(original_pad.look));
+	if (!bootGridPlaytestOffsetSpawn(&s_GridPlaytestMovedSpawn)
+			|| !bootGridPlaytestPoseMatches(&s_GridPlaytestMovedSpawn, live.position, live.look)
+			|| !bootGridPlaytestPoseMatches(&s_GridPlaytestMovedSpawn, variant_pad.position, variant_pad.look)
+			|| !bootGridDraftVariantParentMatches(arena_id, &variant_source, reason, sizeof(reason))) goto done;
+	char extra;
+	if (sscanf(variant_spawn.pad_ref, "pad_%d%c", &s_GridPlaytestMovedPad, &extra) != 1
+			|| s_GridPlaytestMovedPad < 0) goto done;
+	char directory[FS_MAXPATH + 1];
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	verified = forgeRevisionReadCurrent(directory, arena_id, &s_GridPlaytestVariant, reason, sizeof(reason))
+		&& strcmp(s_GridPlaytestVariant.digest, variant_source.archive_sha256) == 0;
+done:
+	forgeLevelDocFree(variant);
+	forgeLevelDocFree(original);
+	if (verified) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: saved native start=%s pad=%d x=%.2f parent_sha256=%s variant_sha256=%s",
+			s_GridPlaytestMovedSpawn.spawn_id, s_GridPlaytestMovedPad, s_GridPlaytestMovedSpawn.position[0],
+			initial->arena_sha256, s_GridPlaytestVariant.digest);
+	} else if (reason[0]) {
+		sysLogPrintf(LOG_WARNING, "SMOKE.GRID.PLAYTEST: saved Variant start validation failed: %s", reason);
+	}
+	return verified;
+}
+
+static s32 bootGridPlaytestCheckActiveVariant(void)
+{
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	char sha[SHA256_HEX_SIZE];
+	if (!active || active->stage != g_StageNum || strcmp(active->arena_id, s_GridPlaytestVariant.arena_id) != 0
+			|| !g_PadsFile || !g_StageSetup.padfiledata || s_GridPlaytestMovedPad >= g_PadsFile->numpads) return 0;
+	sha256ToHex(active->arena_sha256, sha);
+	if (strcmp(sha, s_GridPlaytestVariant.digest) != 0) return 0;
+	struct pad native = {0};
+	padUnpack(s_GridPlaytestMovedPad, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &native);
+	if (native.room != 1 || !bootGridPlaytestPoseMatches(&s_GridPlaytestMovedSpawn, native.pos.f, native.look.f)) return 0;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: loaded native start=%s pad=%d room=%d x=%.2f epoch=%u variant_sha256=%s",
+		s_GridPlaytestMovedSpawn.spawn_id, s_GridPlaytestMovedPad, native.room, native.pos.x, g_NetStageEpoch, sha);
+	return 1;
+}
+
+typedef struct boot_grid_witness_reader {
+	long offset;
+	u32 last_poll;
+} boot_grid_witness_reader_t;
+
+/* Smoke-only barriers from the current shared install's process logs. */
+static s32 bootGridPlaytestReadWitness(boot_grid_witness_reader_t *reader, const char *path,
+		const char *prefix, char *out, size_t out_cap)
+{
+	const u32 now = SDL_GetTicks();
+	if ((u32)(now - reader->last_poll) < 100u) return 0;
+	reader->last_poll = now;
+	FILE *stream = fopen(path, "rb");
+	if (!stream) return 0;
+	s32 found = 0;
+	if (fseek(stream, reader->offset, SEEK_SET) == 0) {
+		char line[4096];
+		for (size_t i = 0; i < 512 && fgets(line, sizeof(line), stream); i++) {
+			if (!strchr(line, '\n')) break;
+			long next = ftell(stream);
+			if (next < 0) break;
+			reader->offset = next;
+			const char *start = strstr(line, prefix);
+			if (start) {
+				snprintf(out, out_cap, "%s", start + strlen(prefix));
+				found = 1;
+				break;
+			}
+		}
+	}
+	fclose(stream);
+	return found;
+}
+
+static s32 bootGridPlaytestReadHostWitness(const char *prefix, char *out, size_t out_cap)
+{
+	static boot_grid_witness_reader_t reader;
+	return bootGridPlaytestReadWitness(&reader, "./logs/game client/pd-host.log", prefix, out, out_cap);
+}
+
+static s32 bootGridPlaytestReadLight(s32 stage, s32 brightness, f32 *native, f32 *rendered)
+{
+	char prefix[96];
+	char record[128];
+	snprintf(prefix, sizeof(prefix), "GRID.PLAYTEST.LIGHT: stage=0x%02x ambient=%d ", stage, brightness);
+	if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return 0;
+	s32 rooms, room;
+	if (sscanf(record, "rooms=%d sample_room=%d native=%f rendered=%f", &rooms, &room, native, rendered) != 4
+			|| rooms < 1 || room < 1) {
+		bootGridDraftFail("grid_playtest_invalid_render_witness");
+		return 0;
+	}
+	return 1;
+}
+
+static s32 bootGridVisibilityReadCursorSpawn(void)
+{
+	return netGridEditGetSpawnPose(0, &s_GridVisibilityCursor)
+		&& strcmp(s_GridVisibilityCursor.spawn_id, "spawn_0000") == 0
+		&& __builtin_isfinite(s_GridVisibilityCursor.position[0]) && __builtin_isfinite(s_GridVisibilityCursor.position[2]);
+}
+
+static s32 bootGridVisibilityValidView(const grid_playtest_view_t *view)
+{
+	if (view->epoch != s_GridPlaytestEpoch || !view->serial || view->room_count != 2 || view->actor_count != 4) return 0;
+	for (u8 i = 0; i < view->room_count; i++) {
+		if (view->rooms[i].min_x >= view->rooms[i].max_x || view->rooms[i].min_z >= view->rooms[i].max_z) return 0;
+	}
+	u8 bots = 0;
+	for (u8 i = 0; i < view->actor_count; i++) bots += view->actors[i].bot != 0;
+	return bots == 3;
+}
+
+static s32 bootGridVisibilityCursorMatches(u16 x, u16 z)
+{
+	/* Use the live room bounds and the same unmodified start in both profiles. */
+	if (!g_Rooms || g_Vars.roomcount != 3) return 0;
+	const f32 min_x = g_Rooms[1].bbmin[0] < g_Rooms[2].bbmin[0] ? g_Rooms[1].bbmin[0] : g_Rooms[2].bbmin[0];
+	const f32 max_x = g_Rooms[1].bbmax[0] > g_Rooms[2].bbmax[0] ? g_Rooms[1].bbmax[0] : g_Rooms[2].bbmax[0];
+	const f32 min_z = g_Rooms[1].bbmin[2] < g_Rooms[2].bbmin[2] ? g_Rooms[1].bbmin[2] : g_Rooms[2].bbmin[2];
+	const f32 max_z = g_Rooms[1].bbmax[2] > g_Rooms[2].bbmax[2] ? g_Rooms[1].bbmax[2] : g_Rooms[2].bbmax[2];
+	const f32 source_x = s_GridVisibilityCursor.position[0];
+	const f32 source_z = s_GridVisibilityCursor.position[2];
+	if (!(source_x > min_x && source_x < max_x && source_z > min_z && source_z < max_z)) return 0;
+	const s32 expected_x = (s32)((source_x - min_x) / (max_x - min_x) * UINT16_MAX);
+	const s32 expected_z = (s32)((source_z - min_z) / (max_z - min_z) * UINT16_MAX);
+	return abs(expected_x - x) <= 1 && abs(expected_z - z) <= 1;
+}
+
+static s32 bootGridVisibilityStable(u32 now, s32 expected)
+{
+	if (!expected) {
+		s_GridVisibilityStable = 0;
+		return 0;
+	}
+	if (!s_GridVisibilityStable) s_GridVisibilityStable = now;
+	return (u32)(now - s_GridVisibilityStable) >= GRID_VISIBILITY_SMOKE_HOLD_MS;
+}
+
+static void bootGridVisibilityHostTick(u32 now)
+{
+	static boot_grid_witness_reader_t creator_log;
+	const unsigned phase = s_GridVisibilityCase;
+	const unsigned players = s_GridVisibilityCases[phase].players;
+	const unsigned creators = s_GridVisibilityCases[phase].creators;
+	const unsigned long long generation = s_GridDraftInitialInvite.identity.generation;
+	if (!s_GridVisibilityStarted) {
+		s32 old_players, old_creators;
+		if (!netGridEditGetPlaytestVisibility(&old_players, &old_creators)
+				|| (!phase && (old_players || old_creators))
+				|| !netGridEditSetPlaytestVisibility(players, creators)) {
+			bootGridDraftFail("grid_view_policy");
+			return;
+		}
+		s_GridVisibilityStarted = now;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VIEW: policy room=%u generation=%llu epoch=%u phase=%u players=%u creators=%u",
+			(unsigned)s_GridDraftRoom, generation, s_GridPlaytestEpoch, phase, players, creators);
+	}
+	if ((u32)(now - s_GridVisibilityStarted) >= GRID_VISIBILITY_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_view_host_timeout");
+		return;
+	}
+
+	grid_playtest_view_t view;
+	u16 x = 0, z = 0;
+	const s32 visible = netGridEditGetCreatorCursor(&view, &x, &z);
+	if ((visible && !players) || (visible && (!bootGridVisibilityValidView(&view) || !bootGridVisibilityCursorMatches(x, z)))) {
+		bootGridDraftFail("grid_view_host_cursor");
+		return;
+	}
+	if (!s_GridVisibilityPeerVerified) {
+		char prefix[150], record[64];
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.VIEW: creator room=%u generation=%llu epoch=%u phase=%u ",
+			(unsigned)s_GridDraftRoom, generation, s_GridPlaytestEpoch, phase);
+		if (bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log", prefix, record, sizeof(record))) {
+			unsigned confirmed;
+			if (sscanf(record, "view=%u", &confirmed) != 1 || confirmed != creators) {
+				bootGridDraftFail("grid_view_creator_witness");
+				return;
+			}
+			s_GridVisibilityPeerVerified = 1;
+		}
+	}
+	if (!bootGridVisibilityStable(now, visible == (s32)players) || !s_GridVisibilityPeerVerified) return;
+
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VIEW: host verified epoch=%u phase=%u cursor=%u view=%u x=%u z=%u",
+		s_GridPlaytestEpoch, phase, players, creators, (unsigned)x, (unsigned)z);
+	s_GridVisibilityStarted = s_GridVisibilityStable = 0;
+	s_GridVisibilityPeerVerified = 0;
+	if (++s_GridVisibilityCase == ARRAYCOUNT(s_GridVisibilityCases)) {
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+		mainEndStage();
+	}
+}
+
+static void bootGridVisibilityCreatorTick(const grid_edit_room_state_t *draft)
+{
+	if (!draft->ready || draft->revision != 2 || !draft->enabled || draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+			|| !bootGridDraftSameSource(&draft->invite, g_NetLocalClient)
+			|| draft->invite.identity.generation != s_GridDraftInitialInvite.identity.generation) {
+		bootGridDraftFail("grid_view_creator_draft");
+		return;
+	}
+	netGridEditSetCreatorCursor(s_GridVisibilityCursor.position);
+	const u32 now = SDL_GetTicks();
+	const unsigned phase = s_GridVisibilityCase;
+	const unsigned creators = s_GridVisibilityCases[phase].creators;
+	const unsigned long long generation = s_GridDraftInitialInvite.identity.generation;
+	if (!s_GridVisibilityStarted) {
+		char prefix[150], record[64];
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.VIEW: policy room=%u generation=%llu epoch=%u phase=%u ",
+			(unsigned)s_GridDraftRoom, generation, s_GridPlaytestEpoch, phase);
+		if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+		unsigned expected_players, expected_creators;
+		if (sscanf(record, "players=%u creators=%u", &expected_players, &expected_creators) != 2
+				|| expected_players != s_GridVisibilityCases[phase].players || expected_creators != creators) {
+			bootGridDraftFail("grid_view_invalid_policy_witness");
+			return;
+		}
+		s_GridVisibilityStarted = now;
+	}
+	if ((u32)(now - s_GridVisibilityStarted) >= GRID_VISIBILITY_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_view_creator_timeout");
+		return;
+	}
+
+	grid_playtest_view_t view = {0};
+	const s32 visible = netGridEditGetPlaytestView(&view);
+	/* The last case can first see the previous frame while revocation travels. */
+	if (visible && ((!creators && phase < 2) || !bootGridVisibilityValidView(&view))) {
+		bootGridDraftFail("grid_view_invalid_frame");
+		return;
+	}
+	if (!bootGridVisibilityStable(now, creators ? visible && view.serial > s_GridVisibilityLastView : !visible)) return;
+
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VIEW: creator room=%u generation=%llu epoch=%u phase=%u view=%u rooms=%u actors=%u serial=%u lobby=1",
+		(unsigned)s_GridDraftRoom, generation, s_GridPlaytestEpoch, phase, creators,
+		(unsigned)view.room_count, (unsigned)view.actor_count, view.serial);
+	if (visible) s_GridVisibilityLastView = view.serial;
+	s_GridVisibilityStarted = s_GridVisibilityStable = 0;
+	if (++s_GridVisibilityCase == ARRAYCOUNT(s_GridVisibilityCases)) {
+		netGridEditSetCreatorCursor(NULL);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+	}
+}
+
+static s32 bootGridDecorationClose(f32 a, f32 b)
+{
+	const f32 difference = a - b;
+	return difference >= -0.05f && difference <= 0.05f;
+}
+
+static s32 bootGridDecorationDraftMatches(f32 x, f32 z)
+{
+	grid_edit_move_decoration_t pose;
+	return netGridEditDecorationCount() == 1 && netGridEditGetDecorationPose(0, &pose)
+		&& strcmp(pose.record_id, s_GridDecorationOriginal.record_id) == 0
+		&& bootGridDecorationClose(pose.x, x) && bootGridDecorationClose(pose.z, z);
+}
+
+static struct prop *bootGridDecorationLoadedProp(u32 *command)
+{
+	const grid_match_runtime_identity_t *arena = gridMatchRuntimeActive();
+	if (!arena || arena->stage != g_StageNum || arena->offer.room_id != s_GridDraftRoom
+			|| strcmp(arena->arena_id, s_GridDraftInitialInvite.arena_id) != 0
+			|| !scenarioSourceGridDecorationCommand(arena->scenario_id, g_StageSetup.props,
+				s_GridDecorationOriginal.record_id, command)) return NULL;
+	struct defaultobj *obj = setupGetObjByCmdIndex(*command);
+	struct prop *prop = obj && obj->type == OBJTYPE_BASIC ? obj->prop : NULL;
+	return prop && prop->obj == obj && prop->type == PROPTYPE_OBJ && (prop->flags & PROPFLAG_ENABLED)
+		&& !prop->colmesh && prop->rooms[0] > 0 && prop->rooms[1] == -1 ? prop : NULL;
+}
+
+static void bootGridRoomExtensionStage(const grid_edit_room_state_t *draft);
+
+static s32 bootGridLayoutAmbientIsOff(void)
+{
+	s32 enabled, brightness;
+	return netGridEditPrivatePlaytestAmbientState(&enabled, &brightness) && !enabled && !brightness;
+}
+
+static s32 bootGridLayoutDecorationWitness(const grid_edit_room_state_t *draft, u64 layout,
+		const char *phase)
+{
+	u32 command;
+	const struct prop *prop = bootGridDecorationLoadedProp(&command);
+	const struct coord *moved = &s_GridDecorationNative.moved_position;
+	if (!prop || prop != s_GridDecorationNative.prop || command != s_GridDecorationNative.command
+			|| propGetLifecycleGeneration(prop) != s_GridDecorationNative.lifecycle
+			|| prop->rooms[0] != s_GridDecorationNative.room
+			|| prop->pos.x != moved->x || prop->pos.y != moved->y || prop->pos.z != moved->z
+			|| g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage
+			|| gridMatchRuntimePrivateLayoutGeneration() != layout
+			|| draft->revision != (s_GridDraftLayoutAmbientOff ? 4u : 3u)
+			|| (s_GridDraftLayoutAmbientOff && !bootGridLayoutAmbientIsOff())
+			|| !bootGridDecorationDraftMatches(moved->x, moved->z)) return 0;
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.LAYOUT.DECORATION: %s room=%u epoch=%u layout=%llu revision=%llu record=%s command=%u prop_room=%d lifecycle=%llu x=%.1f y=%.1f z=%.1f",
+		phase, (unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)layout,
+		(unsigned long long)draft->revision, s_GridDecorationOriginal.record_id, command, (s32)prop->rooms[0],
+		(unsigned long long)s_GridDecorationNative.lifecycle, prop->pos.x, prop->pos.y, prop->pos.z);
+	return 1;
+}
+
+static void bootGridDecorationRelease(const char *phase)
+{
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: release_%s room=%u generation=%llu epoch=%u record=%s revision=2",
+		phase, (unsigned)s_GridDraftRoom, (unsigned long long)s_GridDraftInitialInvite.identity.generation,
+		s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+}
+
+static s32 bootGridDecorationStartHost(u32 now)
+{
+	if (netGridEditDecorationCount() != 1 || !netGridEditGetDecorationPose(0, &s_GridDecorationOriginal)) return 0;
+	struct prop *prop = bootGridDecorationLoadedProp(&s_GridDecorationNative.command);
+	if (!prop || !bootGridDecorationClose(prop->pos.x, s_GridDecorationOriginal.x)
+			|| !bootGridDecorationClose(prop->pos.z, s_GridDecorationOriginal.z)) return 0;
+	s_GridDecorationNative.lifecycle = propGetLifecycleGeneration(prop);
+	if (!s_GridDecorationNative.lifecycle) return 0;
+	s_GridDecorationNative.prop = prop;
+	s_GridDecorationNative.room = prop->rooms[0];
+	s_GridDecorationNative.position = prop->pos;
+	if (s_GridDraftDecorationOnPlan && (prop->rooms[0] != 1 || !netGridEditSetPlaytestVisibility(0, 1))) return 0;
+	bootGridDecorationRelease("invalid");
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION;
+	s_GridDraftStepTick = now;
+	return 1;
+}
+
+static void bootGridDecorationHostTick(const grid_edit_room_state_t *draft, u32 now)
+{
+	static boot_grid_witness_reader_t creator_log;
+	u32 command;
+	const struct prop *prop = bootGridDecorationLoadedProp(&command);
+	if (g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage || !draft->ready
+			|| !draft->enabled || draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+			|| !prop || command != s_GridDecorationNative.command
+			|| propGetLifecycleGeneration(prop) != s_GridDecorationNative.lifecycle
+			|| prop->rooms[0] != s_GridDecorationNative.room || prop->pos.y != s_GridDecorationNative.position.y
+			|| (u32)(now - s_GridDraftStepTick) >= GRID_DECORATION_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_decoration_host_native_identity");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION) {
+		if (draft->revision != 2 || !bootGridDecorationDraftMatches(s_GridDecorationOriginal.x, s_GridDecorationOriginal.z)
+				|| prop->pos.x != s_GridDecorationNative.position.x || prop->pos.z != s_GridDecorationNative.position.z) {
+			bootGridDraftFail("grid_decoration_rejection_changed_state");
+			return;
+		}
+		char prefix[180], record[64];
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.DECORATION: creator refused room=%u generation=%llu epoch=%u record=%s ",
+			(unsigned)s_GridDraftRoom, (unsigned long long)s_GridDraftInitialInvite.identity.generation,
+			s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+		if (!bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log", prefix, record, sizeof(record))) return;
+		if (strncmp(record, "revision=2 next_sequence=2 intact=1 lobby=1",
+				sizeof("revision=2 next_sequence=2 intact=1 lobby=1") - 1) != 0) {
+			bootGridDraftFail("grid_decoration_refusal_witness");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: verified refusal epoch=%u record=%s revision=2 intact=1",
+			s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+		bootGridDecorationRelease("valid");
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE;
+		s_GridDraftStepTick = now;
+		return;
+	}
+	if (draft->revision == 2) return;
+	const f32 x = s_GridDecorationOriginal.x + GRID_DECORATION_SMOKE_X_DELTA;
+	const f32 z = s_GridDecorationOriginal.z;
+	if (draft->revision != 3 || draft->can_undo_decoration || !bootGridDecorationDraftMatches(x, z)) {
+		bootGridDraftFail("grid_decoration_host_move_commit");
+		return;
+	}
+	if (!bootGridDecorationClose(prop->pos.x, x) || !bootGridDecorationClose(prop->pos.z, z)) return;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: native moved epoch=%u record=%s command=%u room=%d lifecycle=%llu x=%.1f z=%.1f",
+		s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id, command, prop->rooms[0],
+		(unsigned long long)s_GridDecorationNative.lifecycle, prop->pos.x, prop->pos.z);
+	if (s_GridDraftLayoutDecoration) {
+		s_GridDecorationNative.moved_position = prop->pos;
+		if (s_GridDraftLayoutAmbientOff) {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LAYOUT_AMBIENT_OFF;
+			s_GridDraftStepTick = now;
+		} else {
+			bootGridRoomExtensionStage(draft);
+		}
+		return;
+	}
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+	mainEndStage();
+}
+
+static void bootGridLayoutAmbientOffTick(const grid_edit_room_state_t *draft, u32 now)
+{
+	if (!draft->ready || draft->revision < 3 || draft->revision > 4
+			|| g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage
+			|| (u32)(now - s_GridDraftStepTick) >= GRID_DECORATION_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_layout_ambient_off_scope");
+		return;
+	}
+	if (draft->revision == 3) {
+		static boot_grid_witness_reader_t creator_log;
+		char prefix[180], line[32];
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.DECORATION: creator accepted epoch=%u record=%s revision=3 undo=1",
+			s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+		if (!bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log", prefix, line, sizeof(line))) return;
+		if (!netGridEditSetAmbient(0, 0)) bootGridDraftFail("grid_layout_disable_ambient");
+		return;
+	}
+	if (draft->enabled || draft->brightness) {
+		bootGridDraftFail("grid_layout_ambient_off_draft");
+		return;
+	}
+	if (!bootGridLayoutAmbientIsOff()) return;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LAYOUT.AMBIENT: disabled room=%u epoch=%u revision=4",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+	bootGridRoomExtensionStage(draft);
+}
+
+static void bootGridDecorationCreatorTick(const grid_edit_room_state_t *draft)
+{
+	const u32 now = SDL_GetTicks();
+	if (!draft->ready || !draft->enabled || draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+			|| !bootGridDraftSameSource(&draft->invite, g_NetLocalClient)
+			|| draft->invite.identity.generation != s_GridDraftInitialInvite.identity.generation
+			|| (u32)(now - s_GridDraftStepTick) >= GRID_DECORATION_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_decoration_creator_state");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION) {
+		if (draft->pending_command) return;
+		if (draft->revision != 2 || draft->next_sequence != 2 || draft->can_undo_decoration
+				|| strcmp(netGridEditError(), "The host refused this Shared Grid edit.") != 0
+				|| !bootGridDecorationDraftMatches(s_GridDecorationOriginal.x, s_GridDecorationOriginal.z)) {
+			bootGridDraftFail("grid_decoration_creator_refusal");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: creator refused room=%u generation=%llu epoch=%u record=%s revision=2 next_sequence=2 intact=1 lobby=1",
+			(unsigned)s_GridDraftRoom, (unsigned long long)s_GridDraftInitialInvite.identity.generation,
+			s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_DECORATION_VALID;
+		s_GridDraftStepTick = now;
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE) {
+		if (draft->pending_command) return;
+		const grid_edit_move_decoration_t *undo = &draft->previous_decoration;
+		if (draft->revision != 3 || draft->next_sequence != 3 || !draft->can_undo_decoration
+				|| strcmp(undo->record_id, s_GridDecorationOriginal.record_id) != 0
+				|| undo->x != s_GridDecorationOriginal.x || undo->z != s_GridDecorationOriginal.z
+				|| !bootGridDecorationDraftMatches(s_GridDecorationOriginal.x + GRID_DECORATION_SMOKE_X_DELTA,
+					s_GridDecorationOriginal.z)) {
+			bootGridDraftFail("grid_decoration_creator_commit");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: creator accepted epoch=%u record=%s revision=3 undo=1",
+			s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+		if (s_GridDraftLayoutDecoration) {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW;
+			s_GridDraftStepTick = now;
+		} else {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+		}
+		return;
+	}
+	const s32 invalid = s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_START;
+	grid_playtest_view_t view;
+	grid_playtest_target_t target;
+	if (s_GridDraftDecorationOnPlan) {
+		if (!netGridEditGetPlaytestView(&view) || !view.has_world_bounds) return;
+		if (!bootGridVisibilityValidView(&view) || view.layout_generation != 0) {
+			bootGridDraftFail("grid_decoration_plan_identity");
+			return;
+		}
+		target = (grid_playtest_target_t){ view.epoch, view.layout_generation };
+	}
+	char prefix[180], record[16];
+	snprintf(prefix, sizeof(prefix), "SMOKE.GRID.DECORATION: release_%s room=%u generation=%llu epoch=%u record=%s revision=2",
+		invalid ? "invalid" : "valid", (unsigned)s_GridDraftRoom,
+		(unsigned long long)s_GridDraftInitialInvite.identity.generation, s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id);
+	if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+	grid_edit_move_decoration_t move = s_GridDecorationOriginal;
+	if (draft->revision != 2 || draft->next_sequence != 2 || draft->pending_command) {
+		bootGridDraftFail("grid_decoration_creator_send_state");
+		return;
+	}
+	if (invalid && s_GridDraftDecorationOnPlan) {
+		grid_playtest_target_t stale = target;
+		stale.layout_generation++;
+		grid_edit_room_state_t after;
+		if (netGridEditMoveDecorationOnPlan(&move, &stale)
+				|| strcmp(netGridEditError(), "The live plan changed. Choose the position again on the current plan.") != 0
+				|| !netGridEditGetState(&after) || after.pending_command || after.next_sequence != draft->next_sequence
+				|| after.revision != draft->revision || !bootGridDecorationDraftMatches(move.x, move.z)) {
+			bootGridDraftFail("grid_decoration_stale_target_changed_draft");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: rejected stale plan epoch=%u shown_layout=0 stale_layout=1 revision=2 next_sequence=2",
+			target.epoch);
+		const grid_playtest_view_room_t *other = &view.rooms[1];
+		const f32 x = ((f32)other->min_x + other->max_x) * (0.5f / UINT16_MAX);
+		const f32 z = ((f32)other->min_z + other->max_z) * (0.5f / UINT16_MAX);
+		move.x = view.min_x + (view.max_x - view.min_x) * x;
+		move.z = view.min_z + (view.max_z - view.min_z) * z;
+	} else {
+		move.x += invalid ? 100000.0f : GRID_DECORATION_SMOKE_X_DELTA;
+	}
+	const s32 sent = s_GridDraftDecorationOnPlan
+		? netGridEditMoveDecorationOnPlan(&move, &target) : netGridEditMoveDecoration(&move);
+	if (!sent) {
+		bootGridDraftFail("grid_decoration_creator_send");
+		return;
+	}
+	const char *destination = invalid ? (s_GridDraftDecorationOnPlan ? "other_room" : "out_of_bounds") : "same_room";
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: creator sent %s epoch=%u record=%s revision=2%s",
+		destination, s_GridPlaytestEpoch, move.record_id, s_GridDraftDecorationOnPlan ? " plan=1 layout=0" : "");
+	s_GridDraftStep = invalid ? BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION : BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE;
+	s_GridDraftStepTick = now;
+}
+
+static void bootGridDraftHostCommitResumeTail(const grid_edit_room_state_t *draft,
+		const struct netclient *creator)
+{
+	if (!draft->is_host || !draft->pending_resume || !draft->snapshot_ready || draft->ready
+			|| draft->peer_actor != s_GridDraftResumeActor
+			|| draft->invite.identity.generation != s_GridDraftResumeGeneration
+			|| !bootGridDraftSameSource(&draft->invite, creator)) {
+		bootGridDraftFail("grid_draft_host_missed_resume_tail");
+		return;
+	}
+	if (!draft->can_edit) return;
+	/* The snapshot pump precedes receive dispatch. This tick can commit
+	 * after confirmation and before the guest can acknowledge the snapshot. */
+	grid_edit_room_state_t committed;
+	if (!netGridEditSetAmbient(1, GRID_DRAFT_SMOKE_RESUME_TAIL_BRIGHTNESS)
+			|| !netGridEditGetState(&committed) || !committed.can_edit || !committed.pending_resume || committed.ready
+			|| committed.revision != 3 || !committed.enabled || committed.brightness != GRID_DRAFT_SMOKE_RESUME_TAIL_BRIGHTNESS
+			|| committed.peer_actor != s_GridDraftResumeActor
+			|| committed.invite.identity.generation != s_GridDraftResumeGeneration) {
+		bootGridDraftFail("grid_draft_host_resume_tail_commit");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host resume_tail_commit revision=%llu ambient=%d generation=%llu can_edit=%d pending_resume=%d ready=%d",
+			(unsigned long long)committed.revision, committed.brightness, (unsigned long long)committed.invite.identity.generation,
+			committed.can_edit, committed.pending_resume, committed.ready);
+}
+
+static s32 bootGridRoomExtensionBounds(f32 second_max);
+
+static u16 bootGridLayoutProjectionSeam(u32 room2_max)
+{
+	/* The managed arena spans -2100 to room2_max on X, with the portal at zero. */
+	return (u16)((2100u * UINT16_MAX) / (2100u + room2_max));
+}
+
+static s32 bootGridLayoutProjectionMatches(const grid_playtest_view_t *view, u32 room2_max)
+{
+	const u16 seam = bootGridLayoutProjectionSeam(room2_max);
+	if (view->epoch != s_GridPlaytestEpoch || !view->serial || view->room_count != 2 || view->actor_count != 4
+			|| view->rooms[0].min_x != 0 || view->rooms[0].max_x != seam
+			|| view->rooms[1].min_x != seam || view->rooms[1].max_x != UINT16_MAX) return 0;
+	for (u8 i = 0; i < view->room_count; ++i) {
+		if (view->rooms[i].min_z != 0 || view->rooms[i].max_z != UINT16_MAX) return 0;
+	}
+	u8 bots = 0;
+	for (u8 i = 0; i < view->actor_count; ++i) bots += view->actors[i].bot;
+	return bots == 3;
+}
+
+static s32 bootGridLayoutProjectionHidden(void)
+{
+	grid_playtest_view_t view;
+	grid_edit_room_control_t receipt;
+	return !netGridEditGetPlaytestView(&view) && !netGridEditGetObservedLayout(&receipt);
+}
+
+static s32 bootGridLayoutReconnectObserve(const grid_edit_room_state_t *draft, s32 resumed)
+{
+	grid_edit_room_control_t receipt;
+	grid_playtest_view_t view;
+	if (!netGridEditGetObservedLayout(&receipt) || !netGridEditGetPlaytestView(&view)) return 0;
+	const u64 layout = s_GridLayoutSmoke.second ? 2 : 1;
+	const u32 room2_max = s_GridLayoutSmoke.second ? 2800 : 3000;
+	const u64 generation = resumed ? s_GridDraftResumeGeneration : s_GridDraftInitialInvite.identity.generation;
+	grid_edit_variant_review_info_t review;
+	if (receipt.kind != GRID_EDIT_ROOM_CONTROL_APPLY_BASELINE || receipt.apply_result
+			|| receipt.invite.identity.room_id != s_GridDraftRoom || receipt.invite.identity.generation != generation
+			|| receipt.apply_previous_layout_generation != layout - 1 || receipt.apply_layout_generation != layout
+			|| !gridEditVariantReviewMatches(&receipt.review, &s_GridRoomExtensionOffer)
+			|| !bootGridLayoutProjectionMatches(&view, room2_max) || netGridEditGetStagedReview(&review)
+			|| assetCatalogGetGeneration() != s_GridLayoutReconnect.catalog
+			|| assetCatalogResolveAny(receipt.review.arena_id) || !gridMatchRuntimeIsIdle()
+			|| g_NetStageEpoch || g_NetLocalClient->stage_ready) {
+		bootGridDraftFail("grid_layout_reconnect_projection_or_scope");
+		return 0;
+	}
+	if (resumed) {
+		grid_edit_room_control_t applied = s_GridLayoutReconnect.before_disconnect;
+		if (applied.invite.identity.generation >= generation) {
+			bootGridDraftFail("grid_layout_reconnect_old_draft_identity");
+			return 0;
+		}
+		applied.invite.identity = draft->invite.identity;
+		if (!gridEditLayoutApplyMatches(&applied, &receipt)) {
+			bootGridDraftFail("grid_layout_reconnect_baseline_changed");
+			return 0;
+		}
+	} else {
+		s_GridLayoutReconnect.before_disconnect = receipt;
+	}
+	char arena_sha[SHA256_HEX_SIZE], manifest_sha[SHA256_HEX_SIZE];
+	sha256ToHex(receipt.review.arena_sha256, arena_sha);
+	sha256ToHex(receipt.apply_manifest_sha256, manifest_sha);
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.LAYOUT.RECONNECT: %s room=%u epoch=%u layout=%llu draft=%llu actor=%llu serial=%llu arena_sha256=%s manifest_sha256=%s rooms=%u actors=%u seam_x=%u",
+		resumed ? "restored" : "applied", (unsigned)s_GridDraftRoom, view.epoch, (unsigned long long)layout,
+		(unsigned long long)generation, (unsigned long long)draft->local_actor,
+		(unsigned long long)receipt.review.offer_serial, arena_sha, manifest_sha,
+		(unsigned)view.room_count, (unsigned)view.actor_count, (unsigned)view.rooms[0].max_x);
+	return 1;
+}
+
+static void bootGridLiveReconnectHostTick(const grid_edit_room_state_t *draft, u32 now)
+{
+	if (!draft->is_host || !bootGridDraftSameArena(&draft->invite)
+			|| (u32)(now - s_GridDraftStepTick) >= GRID_LIVE_RECONNECT_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_live_reconnect_host_draft");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN
+			|| s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_LIVE_RETIRED) {
+		if (!draft->ready || draft->revision != 4 || !draft->enabled
+				|| draft->brightness != GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS
+				|| draft->invite.identity.generation != s_GridDraftResumeGeneration) {
+			bootGridDraftFail("grid_live_reconnect_return_draft");
+			return;
+		}
+		if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN) {
+			if (g_NetStageEpoch || !g_MainIsEndscreen || g_NetLocalClient->state != CLSTATE_LOBBY) return;
+			extern void pdguiEndscreenExitToRoom(void);
+			extern void pdguiSetInRoom(s32 inRoom);
+			pdguiEndscreenExitToRoom();
+			pdguiSetInRoom(1);
+			netSendLobbyResync();
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_RETIRED;
+			return;
+		}
+		if (mainGridRoomReturnPending() || !mainGridRoomBackdropActive() || !gridMatchRuntimeIsIdle()
+				|| netGridEditPrivatePlaytestRoom(s_GridDraftRoom)) return;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: returned room=%u epoch=%u revision=4 ambient=%d",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, draft->brightness);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+		s_GridDraftStepTick = now;
+		return;
+	}
+
+	const grid_match_runtime_identity_t *arena = gridMatchRuntimeActive();
+	if (!arena || arena->offer.room_id != s_GridDraftRoom || arena->stage != s_GridPlaytestStage
+			|| strcmp(arena->arena_id, s_GridDraftInitialInvite.arena_id) != 0
+			|| g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage
+			|| !netGridEditPrivatePlaytestRoom(s_GridDraftRoom)) {
+		bootGridDraftFail("grid_live_reconnect_world_changed");
+		return;
+	}
+	char digest[SHA256_HEX_SIZE];
+	sha256ToHex(arena->arena_sha256, digest);
+	if (strcmp(digest, s_GridDraftInitialInvite.arena_sha256) != 0) {
+		bootGridDraftFail("grid_live_reconnect_world_revision");
+		return;
+	}
+	if (s_GridDraftLayoutReconnect && (gridMatchRuntimePrivateLayoutGeneration() != (s_GridLayoutSmoke.second ? 2u : 1u)
+			|| !bootGridRoomExtensionBounds(s_GridLayoutSmoke.second ? 2800.0f : 3000.0f)
+			|| g_StageIndex != s_GridLayoutSmoke.stage_index || g_Vars.players[0] != s_GridLayoutSmoke.player
+			|| memcmp(g_MpAllChrPtrs, s_GridLayoutSmoke.actors, sizeof(s_GridLayoutSmoke.actors))
+			|| assetCatalogGetGeneration() != s_GridRoomExtensionCatalog
+			|| assetCatalogResolveAny(s_GridRoomExtension.arena_id))) {
+		bootGridDraftFail("grid_layout_reconnect_host_layout_changed");
+		return;
+	}
+	struct netclient *creator = &g_NetClients[1];
+	switch (s_GridDraftStep) {
+	case BOOT_GRID_DRAFT_WAIT_LIVE_DETACH:
+		if (creator->state != CLSTATE_DISCONNECTED || creator->peer || !draft->creator_detached) return;
+		if (draft->ready || draft->peer_actor || draft->revision != 2
+				|| draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+				|| draft->invite.identity.generation != s_GridDraftInitialInvite.identity.generation
+				|| !netGridEditPrivateResumeRoomOpen(s_GridDraftRoom)) {
+			bootGridDraftFail("grid_live_reconnect_detach_state");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: detached room=%u epoch=%u revision=2 ambient=%d",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, draft->brightness);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_AUTH;
+		return;
+	case BOOT_GRID_DRAFT_WAIT_LIVE_AUTH:
+		if (creator->state != CLSTATE_LOBBY || !creator->peer || creator->room_id != 0xff) return;
+		if (creator->peer->connectID == s_GridDraftConnection || netGridEditCanInvite(1)
+				|| !netGridEditInviteToResumeRoom(1)) {
+			bootGridDraftFail("grid_live_reconnect_room_invite");
+			return;
+		}
+		s_GridDraftConnection = creator->peer->connectID;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: room_invite room=%u epoch=%u client=1 fresh_connection=1",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_ROOM;
+		return;
+	case BOOT_GRID_DRAFT_WAIT_LIVE_ROOM: {
+		if (!bootGridDraftIsHostPeer(1)) return;
+		grid_edit_room_state_t offered;
+		if (creator->stage_ready || !draft->creator_detached || draft->ready
+				|| !bootGridDraftSameSource(&draft->invite, creator)
+				|| !netGridEditInvite(1, s_GridDraftInitialInvite.arena_id, s_GridDraftInitialInvite.arena_sha256)
+				|| !netGridEditGetState(&offered) || !offered.pending_resume
+				|| offered.invite.identity.generation <= s_GridDraftInitialInvite.identity.generation
+				|| offered.peer_actor <= s_GridDraftInitialActor) {
+			bootGridDraftFail("grid_live_reconnect_draft_invite");
+			return;
+		}
+		s_GridDraftResumeGeneration = offered.invite.identity.generation;
+		s_GridDraftResumeActor = offered.peer_actor;
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.LIVE_RECONNECT: draft_invite room=%u epoch=%u generation=%llu actor=%llu source_sha256=%s",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)s_GridDraftResumeGeneration,
+			(unsigned long long)s_GridDraftResumeActor, offered.invite.arena_sha256);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_EDIT;
+		return;
+	}
+	case BOOT_GRID_DRAFT_WAIT_LIVE_EDIT: {
+		if (draft->revision == 2) {
+			bootGridDraftHostCommitResumeTail(draft, creator);
+			return;
+		}
+		if (!draft->ready) return;
+		if (!bootGridDraftSameSource(&draft->invite, creator) || creator->stage_ready
+				|| draft->creator_detached || draft->pending_resume || netGridEditPrivateResumeRoomOpen(s_GridDraftRoom)
+				|| draft->peer_actor != s_GridDraftResumeActor
+				|| draft->invite.identity.generation != s_GridDraftResumeGeneration) {
+			bootGridDraftFail("grid_live_reconnect_grant_state");
+			return;
+		}
+		s32 ambient;
+		f32 native, rendered;
+		if (draft->revision != 4 || !netGridEditPrivatePlaytestAmbient(&ambient)
+				|| ambient != GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS
+				|| !bootGridPlaytestReadLight(g_StageNum, ambient, &native, &rendered)) return;
+		if (!draft->enabled || draft->brightness != ambient || rendered <= s_GridPlaytestBaseline) {
+			bootGridDraftFail("grid_live_reconnect_render");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.LIVE_RECONNECT: rendered resumed edit room=%u epoch=%u revision=4 ambient=%d before=%.1f after=%.1f",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, ambient, s_GridPlaytestBaseline, rendered);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+		mainEndStage();
+		return;
+	}
+	default:
+		bootGridDraftFail("grid_live_reconnect_host_step");
+	}
+}
+
+static s32 bootGridRoomExtensionBounds(f32 second_max)
+{
+	if (!g_Rooms || g_Vars.roomcount != 3) return 0;
+	for (s32 room = 1; room <= 2; room++) {
+		const struct room *bounds = &g_Rooms[room];
+		if (bounds->bbmin[1] != 0.0f || bounds->bbmax[1] != 600.0f
+				|| bounds->bbmin[2] != -900.0f || bounds->bbmax[2] != 900.0f) return 0;
+	}
+	return g_Rooms[1].bbmin[0] == -2100.0f && g_Rooms[1].bbmax[0] == 0.0f
+		&& g_Rooms[1].centre.x == -1050.0f
+		&& g_Rooms[2].bbmin[0] == 0.0f && g_Rooms[2].bbmax[0] == second_max
+		&& g_Rooms[2].centre.x == second_max / 2.0f;
+}
+
+static s32 bootGridRoomExtensionCandidateMatches(void)
+{
+	grid_edit_staged_variant_info_t current;
+	return netGridEditGetStagedVariant(&current)
+		&& current.draft_revision == s_GridRoomExtension.draft_revision
+		&& current.current_revision == s_GridRoomExtension.current_revision
+		&& !strcmp(current.arena_id, s_GridRoomExtension.arena_id)
+		&& !strcmp(current.arena_sha256, s_GridRoomExtension.arena_sha256);
+}
+
+static s32 bootGridRoomExtensionOriginalWorld(const grid_match_runtime_identity_t *initial, u32 catalog)
+{
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	return active && !gridMatchRuntimePending() && g_NetStageEpoch == s_GridPlaytestEpoch
+		&& g_StageNum == s_GridPlaytestStage && g_NetLocalClient->state == CLSTATE_GAME
+		&& active->offer.room_id == s_GridDraftRoom && active->offer.generation == initial->offer.generation
+		&& !strcmp(active->offer.manifest_digest, initial->offer.manifest_digest)
+		&& !strcmp(active->arena_id, initial->arena_id)
+		&& !memcmp(active->arena_sha256, initial->arena_sha256, sizeof(active->arena_sha256))
+		&& assetCatalogGetGeneration() == catalog
+		&& bootGridRoomExtensionBounds(s_GridLayoutSmoke.second ? 3000.0f : 2700.0f);
+}
+
+static s32 bootGridRoomExtensionReviewMatches(const grid_edit_variant_review_t *review,
+		const grid_edit_room_state_t *draft)
+{
+	char parent[SHA256_HEX_SIZE];
+	sha256ToHex(review->parent_sha256, parent);
+	return review->offer_serial && review->draft_revision == draft->revision
+		&& review->stage_epoch == s_GridPlaytestEpoch && review->edited_room == 2
+		&& review->extension == (s_GridLayoutSmoke.second ? 100 : 300)
+		&& (!s_GridLayoutSmoke.second || review->offer_serial > s_GridLayoutSmoke.first_serial)
+		&& !strcmp(review->arena_id, s_GridLayoutSmoke.second ? kGridLayoutRelocationArena : "mod:arena_grid_extension_staged")
+		&& !strcmp(parent, draft->invite.arena_sha256);
+}
+
+static void bootGridRoomExtensionStage(const grid_edit_room_state_t *draft)
+{
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	if (!active || !bootGridRoomExtensionBounds(2700.0f)) {
+		bootGridDraftFail("grid_extension_original_bounds");
+		return;
+	}
+	const grid_match_runtime_identity_t initial = *active;
+	const u32 catalog = assetCatalogGetGeneration();
+	char parent_sha[SHA256_HEX_SIZE];
+	sha256ToHex(initial.arena_sha256, parent_sha);
+	char arena[CATALOG_ID_LEN];
+	if (strcmp(initial.arena_id, draft->invite.arena_id) || strcmp(parent_sha, draft->invite.arena_sha256)
+			|| !netGridEditStageRoomExtension("Grid Extension Staged", 2, 300, arena, sizeof(arena))
+			|| strcmp(arena, "mod:arena_grid_extension_staged")
+			|| !netGridEditGetStagedVariant(&s_GridRoomExtension)
+			|| strcmp(arena, s_GridRoomExtension.arena_id)
+			|| !strcmp(parent_sha, s_GridRoomExtension.arena_sha256)
+			|| s_GridRoomExtension.draft_revision != draft->revision
+			|| s_GridRoomExtension.current_revision != draft->revision
+			|| assetCatalogResolveAny(arena) || !bootGridRoomExtensionOriginalWorld(&initial, catalog)) {
+		bootGridDraftFail("grid_extension_stage_changed_world");
+		return;
+	}
+	char rejected[CATALOG_ID_LEN];
+	if (netGridEditStageRoomExtension("Grid Extension Too Long", 2, 1400, rejected, sizeof(rejected))
+			|| !strstr(netGridEditError(), "The extended room would exceed 40 m.")
+			|| !bootGridRoomExtensionCandidateMatches() || !bootGridRoomExtensionOriginalWorld(&initial, catalog)) {
+		bootGridDraftFail("grid_extension_refusal_changed_world");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.EXTENSION: resident unchanged epoch=%u catalog=%u revision=%llu room1_max=%.0f room2_max=%.0f refused_length=1400 sha256=%s",
+		s_GridPlaytestEpoch, catalog, (unsigned long long)draft->revision, g_Rooms[1].bbmax[0],
+		g_Rooms[2].bbmax[0], s_GridRoomExtension.arena_sha256);
+
+	/* The directed review is part of the creator's authorized playtest view. */
+	if (!netGridEditSetPlaytestVisibility(0, 1)) {
+		bootGridDraftFail("grid_extension_review_visibility");
+		return;
+	}
+	s_GridRoomExtensionWorld = initial;
+	s_GridRoomExtensionCatalog = catalog;
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW;
+	s_GridDraftStepTick = SDL_GetTicks();
+}
+
+static s32 bootGridRoomTransferCreatorObserved(const grid_edit_room_state_t *draft,
+	const grid_edit_variant_review_t *review)
+{
+	static boot_grid_witness_reader_t creator_log;
+	char prefix[320], record[384];
+	snprintf(prefix, sizeof(prefix),
+		"SMOKE.GRID.EXTENSION: creator transferred room=%u generation=%llu epoch=%u revision=%llu serial=%llu sha256=%s installed=0",
+		(unsigned)s_GridDraftRoom, (unsigned long long)draft->invite.identity.generation, review->stage_epoch,
+		(unsigned long long)review->draft_revision, (unsigned long long)review->offer_serial,
+		s_GridRoomExtension.arena_sha256);
+	return bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log", prefix,
+		record, sizeof(record));
+}
+
+/* The normal mesh ground query intentionally tolerates beyond-edge hits.
+ * Take an exact ray and a separate native tile query through the removed floor. */
+static s32 bootGridRelocationFloor(const struct coord *point, RoomNum room, s32 present)
+{
+	struct coord from = *point, to = *point;
+	from.y = 160.0f;
+	to.y = -32.0f;
+	s32 hit = -1;
+	const f32 fraction = meshRayCastWorldMasked(&from, &to, GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2, NULL, &hit);
+	RoomNum rooms[] = {room, -1};
+	const f32 tile = cdFindFloorYColourTypeAtPos(&from, rooms, NULL, NULL);
+	return present ? hit >= 0 && fabsf(from.y + (to.y - from.y) * fraction) < 0.125f && tile == 0.0f
+		: hit < 0 && fraction == 1.0f && tile < -1000.0f;
+}
+
+static s32 bootGridLayoutActorIdentity(void)
+{
+	if (g_Vars.players[0] != s_GridLayoutSmoke.player
+			|| memcmp(g_MpAllChrPtrs, s_GridLayoutSmoke.actors, sizeof(g_MpAllChrPtrs))) return 0;
+	for (s32 i = 0; i < MAX_MPCHRS; ++i) {
+		struct prop *prop = g_MpAllChrPtrs[i] ? g_MpAllChrPtrs[i]->prop : NULL;
+		if (prop != s_GridLayoutSmoke.props[i]
+				|| propGetLifecycleGeneration(prop) != s_GridLayoutSmoke.prop_generations[i]) return 0;
+	}
+	return 1;
+}
+
+static s32 bootGridLayoutActorState(u8 out[SHA256_DIGEST_SIZE])
+{
+	struct player *host = g_Vars.players[0];
+	if (!host || host != g_Vars.currentplayer || !bootGridLayoutActorIdentity()) return 0;
+	u8 score_bytes[2 + MAX_MPCHRS * (6 + 2 * MAX_MPCHRS)];
+	struct netbuf scores = {.data = score_bytes, .size = sizeof(score_bytes)};
+	if (netmsgSvcPlayerScoresWrite(&scores) || scores.wp < 2 || score_bytes[1] != 4) return 0;
+	sha256_ctx state;
+	sha256Init(&state);
+	sha256Update(&state, score_bytes, scores.wp);
+	const f32 host_status[] = {host->bondhealth, host->vv_theta, host->vv_verta};
+	const s32 equipment[] = {host->isdead, bgunGetWeaponNum(HAND_RIGHT), bgunGetWeaponNum(HAND_LEFT),
+		host->hands[HAND_RIGHT].loadedammo[0], host->hands[HAND_RIGHT].loadedammo[1],
+		host->hands[HAND_LEFT].loadedammo[0], host->hands[HAND_LEFT].loadedammo[1]};
+	sha256Update(&state, host_status, sizeof(host_status));
+	sha256Update(&state, equipment, sizeof(equipment));
+	sha256Update(&state, host->ammoheldarr, sizeof(host->ammoheldarr));
+	const s32 inventory_count = host->equipmaxitems;
+	if (!host->equipment || inventory_count <= 0 || inventory_count > 256) return 0;
+	sha256Update(&state, &inventory_count, sizeof(inventory_count));
+	sha256Update(&state, &host->equipcuritem, sizeof(host->equipcuritem));
+	for (s32 i = 0; i < inventory_count; ++i) {
+		const struct invitem *item = &host->equipment[i];
+		sha256Update(&state, &item->type, sizeof(item->type));
+		switch (item->type) {
+		case -1: break;
+		case INVITEMTYPE_WEAP: sha256Update(&state, &item->type_weap, sizeof(item->type_weap)); break;
+		case INVITEMTYPE_DUAL: sha256Update(&state, &item->type_dual, sizeof(item->type_dual)); break;
+		case INVITEMTYPE_PROP: sha256Update(&state, &item->type_prop, sizeof(item->type_prop)); break;
+		default: return 0;
+		}
+	}
+	for (s32 i = 0; i < 4; ++i) {
+		const struct chrdata *chr = g_MpAllChrPtrs[i];
+		if (!chr || (i && (!chr->aibot || !chr->aibot->ammoheld))) return 0;
+		const f32 health[] = {chr->damage, chr->maxdamage, chr->cshield};
+		sha256Update(&state, health, sizeof(health));
+		if (chr->aibot) {
+			const struct aibot *bot = chr->aibot;
+			sha256Update(&state, &bot->weaponnum, sizeof(bot->weaponnum));
+			sha256Update(&state, bot->loadedammo, sizeof(bot->loadedammo));
+			sha256Update(&state, bot->ammoheld, AMMO_TYPE_COUNT * sizeof(*bot->ammoheld));
+		}
+	}
+	sha256Final(&state, out);
+	return 1;
+}
+
+/* Called only for an actual slot-0 relocation, around its native commit
+ * with neither game time nor another actor tick between the two reads. */
+void bootGridLayoutSmokeActorState(s32 moved)
+{
+	if (!s_GridDraftRelocateLayout || !s_GridLayoutSmoke.second || !s_GridLayoutSmoke.requested) return;
+	struct prop *prop = g_Vars.players[0] ? g_Vars.players[0]->prop : NULL;
+	if (!prop || prop->rooms[0] != 2) return;
+	if (!moved) {
+		if (!(prop->pos.x > 2800.0f && prop->pos.x < 3000.0f)
+				|| !bootGridRelocationFloor(&prop->pos, 2, 0)) return;
+		s_GridLayoutSmoke.relocation_origin = prop->pos.x;
+		s_GridLayoutSmoke.match_time = lvGetStageTime60();
+		s_GridLayoutSmoke.captured_relocation = bootGridLayoutActorState(s_GridLayoutSmoke.actor_state);
+		return;
+	}
+	u8 state[SHA256_DIGEST_SIZE];
+	if (!s_GridLayoutSmoke.captured_relocation || s_GridLayoutSmoke.match_time != lvGetStageTime60()
+			|| !(prop->pos.x > 0.0f && prop->pos.x < 2800.0f)
+			|| !bootGridRelocationFloor(&prop->pos, 2, 1) || !bootGridLayoutActorState(state)
+			|| memcmp(state, s_GridLayoutSmoke.actor_state, sizeof(state))) return;
+	s_GridLayoutSmoke.verified_relocation = 1;
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.RELOCATE: actor slot=0 from_x=%.1f to_x=%.1f room=2 time=%d scores_health_inventory_ammo=unchanged mesh_tiles=verified",
+		s_GridLayoutSmoke.relocation_origin, prop->pos.x, s_GridLayoutSmoke.match_time);
+}
+
+static s32 bootGridLayoutSceneExtent(f32 expected)
+{
+	f32 rightmost = 0.0f;
+	const s32 count = scenarioSceneRendererVertexCount();
+	if (count <= 0) return 0;
+	for (s32 i = 0; i < count; ++i) {
+		f32 pos[3];
+		if (!scenarioSceneRendererVertexPosition(i, pos) || !__builtin_isfinite(pos[0])) return 0;
+		if (pos[0] > rightmost) rightmost = pos[0];
+	}
+	return fabsf(rightmost - expected) < 0.125f;
+}
+
+/* Exercise the same Packaged Level File and Mod Manager APIs that the
+ * two manual steps use. Nothing from this process is passed in memory. */
+static s32 bootGridSaveRestartVariant(const char *original_id, const char *name)
+{
+	char directory[FS_MAXPATH + 1];
+	char err[256] = {0};
+	forge_revision_t original, variant, parent;
+	mod_author_result_t *fork = calloc(1, sizeof(*fork));
+	forge_level_doc_t *reopened = NULL;
+	s32 saved = 0;
+
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	const forge_level_source_t *opened = forgeLevelSessionSource();
+	if (!fork || !bootGridRoomExtensionBounds(2700.0f)
+			|| ((!opened || strcmp(opened->arena_id, original_id) != 0)
+				&& !forgeLevelSessionOpen(original_id, err, sizeof(err)))
+			|| !forgeLevelSessionPinSavedRevision(&original, err, sizeof(err))
+			|| strcmp(original.arena_id, original_id) != 0
+			|| !forgeLevelSessionSaveExtendedVariant(name, 2, 300, fork, err, sizeof(err))
+			|| !forgeRevisionPublishLocal(directory, fork->catalog_id, fork->archive_path,
+				NULL, &variant, err, sizeof(err))
+			|| forgeRevisionReadParent(directory, &variant, &parent, err, sizeof(err))
+				!= FORGE_REVISION_PARENT_AVAILABLE
+			|| strcmp(parent.arena_id, original.arena_id) != 0
+			|| strcmp(parent.digest, original.digest) != 0) goto done;
+
+	forge_level_source_t source;
+	reopened = forgeLevelOpen(original.arena_id, &source, err, sizeof(err));
+	if (!reopened || strcmp(source.archive_sha256, original.digest) != 0
+			|| strcmp(variant.arena_id, original.arena_id) == 0
+			|| strcmp(variant.digest, original.digest) == 0) goto done;
+
+	/* Saving an extended variant publishes its files without enabling it.
+	 * Persist the usual user selection for the next boot. */
+	modmgrRescanDirectory();
+	for (s32 i = 0; i < modmgrGetCount(); i++) {
+		modinfo_t *mod = modmgrGetMod(i);
+		if (!mod || strcmp(mod->id, fork->mod_id) != 0) continue;
+		modmgrSetEnabled(i, 1);
+		modmgr_save_result_t result;
+		if (!mod->enabled || !modmgrSaveConfigChecked(NULL, &result)) goto done;
+		saved = 1;
+		break;
+	}
+done:
+	if (saved) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VARIANT.RESTART: saved original=%s parent=%s variant=%s sha256=%s",
+			original.arena_id, original.digest, variant.arena_id, variant.digest);
+	} else {
+		sysLogPrintf(LOG_WARNING, "SMOKE.GRID.VARIANT.RESTART: could not save exact variant %s",
+			err[0] ? err : name);
+	}
+	forgeLevelDocFree(reopened);
+	free(fork);
+	return saved;
+}
+
+static s32 bootGridVerifyRestartVariant(const char *original_id, const char *variant_id,
+		forge_revision_t *variant)
+{
+	char directory[FS_MAXPATH + 1];
+	char err[256] = {0};
+	forge_revision_t original, parent;
+	forge_level_source_t original_source, variant_source;
+	forge_level_doc_t *original_doc = NULL;
+	forge_level_doc_t *variant_doc = NULL;
+	s32 verified = 0;
+
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	if (!forgeRevisionReadCurrent(directory, original_id, &original, err, sizeof(err))
+			|| !forgeRevisionReadCurrent(directory, variant_id, variant, err, sizeof(err))
+			|| forgeRevisionReadParent(directory, variant, &parent, err, sizeof(err))
+				!= FORGE_REVISION_PARENT_AVAILABLE
+			|| strcmp(parent.arena_id, original_id) != 0
+			|| strcmp(parent.digest, original.digest) != 0
+			|| strcmp(variant->digest, original.digest) == 0) goto done;
+	original_doc = forgeLevelOpen(original_id, &original_source, err, sizeof(err));
+	variant_doc = forgeLevelOpen(variant_id, &variant_source, err, sizeof(err));
+	verified = original_doc && variant_doc
+		&& strcmp(original_source.archive_sha256, original.digest) == 0
+		&& strcmp(variant_source.archive_sha256, variant->digest) == 0;
+done:
+	if (verified) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VARIANT.RESTART: reopened original=%s parent=%s variant=%s sha256=%s",
+			original.arena_id, original.digest, variant->arena_id, variant->digest);
+	} else {
+		sysLogPrintf(LOG_WARNING, "SMOKE.GRID.VARIANT.RESTART: persisted source or lineage did not verify %s", err);
+	}
+	forgeLevelDocFree(variant_doc);
+	forgeLevelDocFree(original_doc);
+	return verified;
+}
+
+static s32 bootGridPlayRestartVariant(const char *original_id)
+{
+	static s32 checked;
+	static s32 first_tick;
+	static struct coord start;
+	static forge_revision_t variant;
+	if (checked < 0 || !g_BootLaunchMpArena || g_NetMode != NETMODE_NONE
+			|| !g_Vars.normmplayerisrunning || g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.lvframenum < 60) return 0;
+	const asset_entry_t *arena = assetCatalogResolve(g_BootLaunchMpArena);
+	struct player *player = g_Vars.players[0];
+	if (!arena || arena->type != ASSET_ARENA || arena->ext.arena.stagenum != g_StageNum
+			|| !player || !player->prop) return 0;
+
+	if (!checked) {
+		const struct coord extension = { .f = { 2850.0f, 160.0f, 0.0f } };
+		if (!bootGridVerifyRestartVariant(original_id, arena->id, &variant)
+				|| !bootGridRoomExtensionBounds(3000.0f) || !bootGridLayoutSceneExtent(3000.0f)
+				|| !bootGridRelocationFloor(&extension, 2, 1)) {
+			checked = -1;
+			smokeHarnessExit(1, "grid_variant_restart_native_load_failed");
+			return 1;
+		}
+		checked = 1;
+		first_tick = g_Vars.lvframenum;
+		start = player->prop->pos;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VARIANT.RESTART: native arena=%s sha256=%s room2_max=3000 scene_max=3000 mesh_floor=0 tile_floor=0",
+			variant.arena_id, variant.digest);
+		return 1;
+	}
+	const struct coord *pos = &player->prop->pos;
+	const f32 dx = pos->x - start.x;
+	const f32 dz = pos->z - start.z;
+	const f32 distance = sqrtf(dx * dx + dz * dz);
+	const s32 moving = fabsf(actionValue(0, ACTION_AXIS_MOVE_Y)) > 0.5f
+		|| fabsf(actionValue(0, ACTION_AXIS_MOVE_X)) > 0.5f;
+	if (g_Vars.lvframenum > first_tick && moving && distance >= 48.0f && (player->prop->rooms[0] == 1 || player->prop->rooms[0] == 2)) {
+		checked = -1;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.VARIANT.RESTART: played arena=%s room=%d distance=%.1f frames=%d",
+			variant.arena_id, (s32)player->prop->rooms[0], distance, (s32)g_Vars.lvframenum - first_tick);
+		smokeHarnessExit(0, "grid_variant_restart_played");
+		return 1;
+	}
+	return 0;
+}
+
+static const char kBootGridFallbackWeapon[] = "mod:weapon_grid_triangle";
+static const char kBootGridFallbackProp[] = "grid_required_mesh:tri_required";
+static const char kBootGridFallbackVehicle[] = "mod:vehicle_grid_hover";
+static const char kBootGridFallbackBaseProp[] = "base:model_crate2_cq";
+static const char kBootGridFallbackBaseBike[] = "base:model_hovbike";
+static const char *const kBootGridFallbackSourceMods[] = {
+	"mod.weapon_grid_triangle", "grid_required_mesh", "mod.vehicle_grid_hover",
+};
+static const char *const kBootGridFallbackIds[] = {"base:falcon2", "base:slayer"};
+static const s32 kBootGridFallbackWeapons[] = {WEAPON_FALCON2, WEAPON_SLAYER};
+
+static s32 bootGridSaveFallbackVariant(const char *original_id, const char *name)
+{
+	const s32 placements = sysArgCheck("--debug-grid-variant-placement-fallbacks");
+	char err[256] = "";
+	char directory[FS_MAXPATH + 1];
+	char records[4][32];
+	char models[2][CATALOG_ID_LEN];
+	char bike_model_id[CATALOG_ID_LEN] = "";
+	forge_level_placement_fallback_t fallbacks[4];
+	forge_level_pad_t first, second, prop_pad;
+	forge_level_spawn_t spawn;
+	forge_level_object_t still_open;
+	forge_revision_t original, variant;
+	forge_level_source_t reopened_source;
+	forge_level_doc_t *reopened = NULL;
+	grid_match_sources_t reviewed = {0};
+	mod_author_result_t *saved = calloc(1, sizeof(*saved));
+	s32 disabled = 0;
+	s32 ok = 0;
+	const forge_level_source_t *opened = forgeLevelSessionSource();
+	if (!saved || ((!opened || strcmp(opened->arena_id, original_id) != 0)
+			&& !forgeLevelSessionOpen(original_id, err, sizeof(err)))) goto done;
+	forge_level_doc_t *doc = forgeLevelSessionDoc();
+	if (!doc || !forgeLevelSessionCanReviewVariantSources() || forgeLevelDocObjectCount(doc) != 0
+			|| forgeLevelDocSpawnCount(doc) != 8 || !forgeLevelSessionPinSavedRevision(&original, err, sizeof(err))
+			|| strcmp(original.arena_id, original_id) != 0
+			|| !forgeLevelDocFindPad(doc, "pad_0006", &first) || strcmp(first.room_ref, "room_2") != 0
+			|| !forgeLevelDocFindPad(doc, "pad_0007", &second) || strcmp(second.room_ref, "room_2") != 0
+			|| !forgeLevelDocFindPad(doc, "pad_0005", &prop_pad) || strcmp(prop_pad.room_ref, "room_2") != 0) goto done;
+
+	if (placements) {
+		const asset_entry_t *bike_model = assetRuntimeVehiclePlacementModel(kBootGridFallbackVehicle);
+		if (!bike_model) {
+			snprintf(err, sizeof(err), "the real Grid Hover model is unavailable");
+			goto done;
+		}
+		snprintf(bike_model_id, sizeof(bike_model_id), "%s", bike_model->id);
+	}
+	/* Put both pickups deep inside room 2, away from the Combat spawn
+	 * pool's near-doorway choices, and keep their touch ranges separate. */
+	second.position[0] = first.position[0];
+	forgeLevelSessionEditBegin();
+	s32 edited = 1;
+	for (s32 i = 7; i > 0 && edited; --i) {
+		edited = forgeLevelDocGetSpawn(doc, i, &spawn) && forgeLevelDocRemoveSpawn(doc, spawn.spawn_id, err, sizeof(err));
+	}
+	edited = edited && forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, first.position, first.look,
+			records[0], sizeof(records[0]), err, sizeof(err))
+		&& forgeLevelSessionGivePickup(records[0], kBootGridFallbackWeapon, err, sizeof(err))
+		&& forgeLevelDocAddObject(doc, FORGE_LEVEL_NEW_WEAPON_PLACE, 0, second.position, second.look,
+			records[1], sizeof(records[1]), err, sizeof(err))
+		&& forgeLevelSessionGivePickup(records[1], kBootGridFallbackWeapon, err, sizeof(err))
+		&& forgeLevelDocAddProp(doc, kBootGridFallbackProp, prop_pad.position, prop_pad.look,
+			records[2], sizeof(records[2]), err, sizeof(err));
+	if (edited && placements) {
+		const f32 bike_position[3] = {first.position[0] + 500.0f, first.position[1], 0.0f};
+		edited = forgeLevelDocAddHoverbike(doc, bike_model_id, bike_position, first.look,
+			records[3], sizeof(records[3]), err, sizeof(err));
+	}
+	forgeLevelSessionEditEnd(edited);
+	if (!edited || !forgeLevelSessionReviewVariantSources(&reviewed, err, sizeof(err))) goto done;
+
+	u16 omitted[3];
+	size_t omitted_count = 0;
+	s32 mesh_present = 0;
+	for (size_t i = 0; i < reviewed.package_count; i++) {
+		const grid_match_source_package_t *package = &reviewed.packages[i];
+		const s32 weapon = package->owner.type == ASSET_WEAPON && strcmp(package->owner.id, kBootGridFallbackWeapon) == 0;
+		const s32 mesh = package->owner.type == ASSET_MODEL && strcmp(package->owner.id, kBootGridFallbackProp) == 0;
+		const s32 bike = package->owner.type == ASSET_VEHICLE && strcmp(package->owner.id, kBootGridFallbackVehicle) == 0;
+		mesh_present |= mesh;
+		if (weapon || (placements && (mesh || bike))) {
+			if (omitted_count >= ARRAYCOUNT(omitted)) goto done;
+			omitted[omitted_count++] = (u16)i;
+		}
+	}
+	if (!mesh_present || omitted_count != (placements ? 3u : 1u)) {
+		snprintf(err, sizeof(err), "the exact reviewed placement owners are incomplete");
+		goto done;
+	}
+	if (placements) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: reviewed digest=%s omitted_weapon=%s omitted_prop=%s omitted_vehicle=%s bike_model=%s pickups=2",
+			reviewed.digest, kBootGridFallbackWeapon, kBootGridFallbackProp, kBootGridFallbackVehicle, bike_model_id);
+	} else {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: reviewed digest=%s omitted=%s kept=%s pickups=2",
+			reviewed.digest, kBootGridFallbackWeapon, kBootGridFallbackProp);
+	}
+	if (forgeLevelSessionSaveSelectedVariant(name, &reviewed, omitted, omitted_count, NULL, 0, NULL, err, sizeof(err))
+			|| !strstr(err, "still requires this omitted package")) goto done;
+	if (placements) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: refused omission while native placements still required omitted packages=%u", (unsigned)omitted_count);
+	} else {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: refused omission while the two pickups still required %s", kBootGridFallbackWeapon);
+	}
+	for (s32 i = 0; i < 2; i++) {
+		s32 scale = 0;
+		if (!forgeLevelPickupLook(kBootGridFallbackIds[i], models[i], sizeof(models[i]), &scale, err, sizeof(err))) goto done;
+		fallbacks[i] = (forge_level_placement_fallback_t){
+			.kind = FORGE_LEVEL_FALLBACK_PICKUP, .record_id = records[i], .expected_catalog_id = kBootGridFallbackWeapon,
+			.weapon_catalog_id = kBootGridFallbackIds[i], .model_catalog_id = models[i], .extra_scale = scale,
+		};
+	}
+	if (placements) {
+		fallbacks[2] = (forge_level_placement_fallback_t){
+			.kind = FORGE_LEVEL_FALLBACK_PROP, .record_id = records[2], .expected_catalog_id = kBootGridFallbackProp,
+		};
+		fallbacks[3] = (forge_level_placement_fallback_t){
+			.kind = FORGE_LEVEL_FALLBACK_HOVERBIKE, .record_id = records[3], .expected_catalog_id = bike_model_id,
+		};
+	}
+	if (!forgeLevelSessionSaveSelectedVariant(name, &reviewed, omitted, omitted_count, fallbacks, placements ? 4 : 2,
+			saved, err, sizeof(err)) || strcmp(saved->catalog_id, original.arena_id) == 0
+			|| forgeLevelSessionDoc() != doc || !forgeLevelDocGetObject(doc, 0, &still_open)
+			|| strcmp(still_open.weapon_catalog_id, kBootGridFallbackWeapon) != 0) goto done;
+	if (placements && (!forgeLevelDocGetObject(doc, 2, &still_open)
+			|| strcmp(still_open.model_catalog_id, kBootGridFallbackProp) != 0
+			|| !forgeLevelDocGetObject(doc, 3, &still_open) || strcmp(still_open.model_catalog_id, bike_model_id) != 0)) goto done;
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	if (!forgeRevisionPublishLocal(directory, saved->catalog_id, saved->archive_path, NULL, &variant, err, sizeof(err))) goto done;
+	reopened = forgeLevelOpen(original.arena_id, &reopened_source, err, sizeof(err));
+	if (!reopened || strcmp(reopened_source.archive_sha256, original.digest) != 0
+			|| forgeLevelDocObjectCount(reopened) != 0 || forgeLevelDocSpawnCount(reopened) != 8) goto done;
+
+	/* Persist normal Mod Manager selection so cold play cannot use omitted assets. */
+	for (s32 i = 0; i < modmgrGetCount(); i++) {
+		const char *id = modmgrGetModId(i);
+		if (!id || !modmgrGetModEnabled(i)) continue;
+		for (size_t j = 0; j < omitted_count; j++) {
+			if (strcmp(id, kBootGridFallbackSourceMods[j]) != 0) continue;
+			modmgrSetEnabled(i, 0);
+			disabled += !modmgrGetModEnabled(i);
+			break;
+		}
+	}
+	modmgr_save_result_t result;
+	ok = disabled == (s32)omitted_count && modmgrSaveConfigChecked(NULL, &result);
+	if (!ok) snprintf(err, sizeof(err), "persisting disabled source mods failed (%d of %u)", disabled, (unsigned)omitted_count);
+
+done:
+	if (ok) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: saved original=%s sha256=%s variant=%s sha256=%s triangle_enabled=0 draft_unchanged=1",
+			original.arena_id, original.digest, variant.arena_id, variant.digest);
+		if (placements) sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: disabled placed source mods=%d", disabled);
+	} else {
+		sysLogPrintf(LOG_ERROR, "SMOKE.GRID.FALLBACK.FAIL: save %s", err[0] ? err : "unexpected native authoring, source review or saved selection");
+	}
+	forgeLevelDocFree(reopened);
+	gridMatchSourcesFree(&reviewed);
+	free(saved);
+	return ok;
+}
+
+static s32 bootGridReadFallbackVariant(const char *original_id, const char *variant_id,
+		char *err, size_t err_cap)
+{
+	const s32 placements = sysArgCheck("--debug-grid-variant-placement-fallbacks");
+	char directory[FS_MAXPATH + 1];
+	forge_revision_t original, variant;
+	forge_level_source_t original_source, variant_source;
+	forge_level_doc_t *original_doc = NULL;
+	forge_level_doc_t *variant_doc = NULL;
+	s32 ok = 0;
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	if (!forgeRevisionReadCurrent(directory, original_id, &original, err, err_cap)
+			|| !forgeRevisionReadCurrent(directory, variant_id, &variant, err, err_cap)
+			|| strcmp(original.digest, variant.digest) == 0) goto done;
+	original_doc = forgeLevelOpen(original_id, &original_source, err, err_cap);
+	variant_doc = forgeLevelOpen(variant_id, &variant_source, err, err_cap);
+	if (!original_doc || !variant_doc || assetCatalogResolve(kBootGridFallbackWeapon)
+			|| strcmp(original_source.archive_sha256, original.digest) != 0
+			|| strcmp(variant_source.archive_sha256, variant.digest) != 0
+			|| forgeLevelDocObjectCount(original_doc) != 0 || forgeLevelDocSpawnCount(original_doc) != 8
+			|| forgeLevelDocObjectCount(variant_doc) != (placements ? 4 : 3) || forgeLevelDocSpawnCount(variant_doc) != 1) goto done;
+	const size_t omitted_count = placements ? ARRAYCOUNT(kBootGridFallbackSourceMods) : 1;
+	for (size_t i = 0; i < omitted_count; i++) {
+		const modinfo_t *mod = modmgrFindMod(kBootGridFallbackSourceMods[i]);
+		if (!mod || mod->enabled) goto done;
+	}
+	if (placements && (assetCatalogResolve(kBootGridFallbackProp) || assetCatalogResolve(kBootGridFallbackVehicle))) goto done;
+	forge_level_object_t object;
+	for (s32 i = 0; i < 2; i++) {
+		if (!forgeLevelDocGetObject(variant_doc, i, &object) || object.order != i
+				|| strcmp(object.weapon_catalog_id, kBootGridFallbackIds[i]) != 0) goto done;
+	}
+	if (!forgeLevelDocGetObject(variant_doc, 2, &object) || object.order != 2
+			|| strcmp(object.model_catalog_id, placements ? kBootGridFallbackBaseProp : kBootGridFallbackProp) != 0) goto done;
+	if (placements && (!forgeLevelDocGetObject(variant_doc, 3, &object) || object.order != 3
+			|| strcmp(object.kind, "hoverbike") != 0 || strcmp(object.model_catalog_id, kBootGridFallbackBaseBike) != 0)) goto done;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: reopened original=%s sha256=%s variant=%s sha256=%s omitted_weapon_available=0",
+		original.arena_id, original.digest, variant.arena_id, variant.digest);
+	if (placements) sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: reopened with omitted prop and vehicle unavailable sources=%u", (unsigned)omitted_count);
+	ok = 1;
+done:
+	forgeLevelDocFree(original_doc);
+	forgeLevelDocFree(variant_doc);
+	return ok;
+}
+
+static s32 bootGridCollectFallback(struct player *player, s32 index, s32 weapon, RoomNum room)
+{
+	struct defaultobj *object = setupGetObjByCmdIndex(index);
+	if (!object || object->type != OBJTYPE_WEAPON || !object->prop || object->prop->rooms[0] != room
+			|| ((struct weaponobj *)object)->weaponnum != weapon
+			|| invHasSingleWeaponExcAllGuns(weapon)) return 0;
+	struct prop *pickup = object->prop;
+	struct coord position = pickup->pos;
+	position.x -= 48.0f;
+	position.y = player->prop->pos.y;
+	RoomNum rooms[] = {room, -1};
+	if (!bootForgePickupInRoom(&position, room) || !chrMoveToPos(player->prop->chr, &position, rooms, 0.0f, true)
+			|| player->prop->rooms[0] != room || !bootForgePickupInRoom(&player->prop->pos, room)) return 0;
+	/* Use the game's touch test and pickup transaction for the loaded world prop. */
+	const s32 operation = objTestForPickup(pickup);
+	if (operation == TICKOP_NONE) return 0;
+	propExecuteTickOperation(pickup, operation);
+	return invHasSingleWeaponExcAllGuns(weapon);
+}
+
+static s32 bootGridFallbackNativePlacement(s32 command, s32 type, const char *model_id, char *err, size_t err_cap)
+{
+	const struct defaultobj *object = setupGetObjByCmdIndex(command);
+	const struct prop *prop = object ? object->prop : NULL;
+	catalog_model_result_t binding;
+	if (!object || object->type != type || !prop || prop->obj != object
+			|| !(prop->flags & PROPFLAG_ENABLED) || prop->rooms[0] != 2
+			|| !object->model || !object->model->definition
+			|| !catalogResolveModel(model_id, &binding) || !binding.handle.provider
+			|| binding.modelnum < 0 || object->modelnum != binding.modelnum) {
+		snprintf(err, err_cap, "stock placement cmd=%d type=%d modelnum=%d prop=%d room=%d expected_model=%s",
+			command, object ? object->type : -1, object ? object->modelnum : -1, prop != NULL,
+			prop ? prop->rooms[0] : -1, model_id);
+		return 0;
+	}
+	return 1;
+}
+
+static s32 bootGridPlayFallbackVariant(const char *original_id)
+{
+	static s32 phase;
+	static s32 first_pickup_frame;
+	const s32 placements = sysArgCheck("--debug-grid-variant-placement-fallbacks");
+	char err[256] = "";
+	if (phase < 0 || !g_BootLaunchMpArena || g_NetMode != NETMODE_NONE
+			|| !g_Vars.normmplayerisrunning || g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.lvframenum < 60 || !g_Vars.lvupdate240) return 0;
+	const asset_entry_t *arena = assetCatalogResolve(g_BootLaunchMpArena);
+	struct player *player = g_Vars.players[0];
+	if (!arena || arena->type != ASSET_ARENA || arena->ext.arena.stagenum != g_StageNum
+			|| PLAYERCOUNT() != 1 || !player || player != g_Vars.currentplayer
+			|| !player->prop || !player->prop->chr || player->isdead) return 0;
+	if (!phase) {
+		if (!bootGridReadFallbackVariant(original_id, arena->id, err, sizeof(err))) {
+			if (!err[0]) snprintf(err, sizeof(err), "reopened revisions, placement IDs, or omitted sources did not match");
+			goto fail;
+		}
+		for (s32 i = 0; i < 2; i++) {
+			const struct defaultobj *placed = setupGetObjByCmdIndex(i);
+			const s32 weapon = placed && placed->type == OBJTYPE_WEAPON
+				? ((const struct weaponobj *)placed)->weaponnum : -1;
+			const s32 room = placed && placed->prop ? placed->prop->rooms[0] : -1;
+			const s32 owned = invHasSingleWeaponExcAllGuns(kBootGridFallbackWeapons[i]);
+			if (!placed || placed->type != OBJTYPE_WEAPON || !placed->prop || !placed->model
+					|| room != 2 || weapon != kBootGridFallbackWeapons[i] || owned) {
+				snprintf(err, sizeof(err),
+					"pickup cmd=%d type=%d prop=%d model=%d room=%d weapon=%d expected=%d owned=%d start_room=%d start=(%.0f,%.0f,%.0f)",
+					i, placed ? placed->type : -1, placed && placed->prop, placed && placed->model,
+					room, weapon, kBootGridFallbackWeapons[i], owned, (s32)player->prop->rooms[0],
+					player->prop->pos.x, player->prop->pos.y, player->prop->pos.z);
+				goto fail;
+			}
+		}
+		if (placements) {
+			if (!bootGridFallbackNativePlacement(2, OBJTYPE_BASIC, kBootGridFallbackBaseProp, err, sizeof(err))
+					|| !bootGridFallbackNativePlacement(3, OBJTYPE_HOVERBIKE, kBootGridFallbackBaseBike, err, sizeof(err))) goto fail;
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.GRID.FALLBACK: native arena=%s room=2 pickups=base:falcon2,base:slayer prop=%s hoverbike=%s inventory_before=0,0",
+				arena->id, kBootGridFallbackBaseProp, kBootGridFallbackBaseBike);
+		} else {
+			const struct defaultobj *prop = setupGetObjByCmdIndex(2);
+			const char *model = prop && prop->modelnum >= 0 ? catalogModelIdByModelnum(prop->modelnum) : NULL;
+			if (!prop || prop->type != OBJTYPE_BASIC || !prop->prop || !prop->model || prop->prop->rooms[0] != 2
+					|| !model || strcmp(model, kBootGridFallbackProp) != 0) {
+				snprintf(err, sizeof(err), "retained prop cmd=2 type=%d prop=%d model=%d modelnum=%d model_id=%s room=%d",
+					prop ? prop->type : -1, prop && prop->prop, prop && prop->model, prop ? prop->modelnum : -1,
+					model ? model : "(none)", prop && prop->prop ? (s32)prop->prop->rooms[0] : -1);
+				goto fail;
+			}
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: native arena=%s room=2 pickups=base:falcon2,base:slayer prop=%s inventory_before=0,0",
+				arena->id, model);
+		}
+		if (!bootGridCollectFallback(player, 0, kBootGridFallbackWeapons[0], 2)) {
+			snprintf(err, sizeof(err), "Falcon 2 touch did not grant inventory in room 2");
+			goto fail;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: picked up %s in room=2 inventory=1", kBootGridFallbackIds[0]);
+		first_pickup_frame = g_Vars.lvframenum;
+		phase = 1;
+		return 1;
+	}
+	if (g_Vars.lvframenum <= first_pickup_frame) return 0;
+	const s32 slayer = bootGridCollectFallback(player, 1, kBootGridFallbackWeapons[1], 2);
+	const s32 falcon = invHasSingleWeaponExcAllGuns(kBootGridFallbackWeapons[0]);
+	if (!slayer || !falcon) {
+		snprintf(err, sizeof(err), "Slayer touch collected=%d Falcon 2 retained=%d", slayer, falcon);
+		goto fail;
+	}
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.FALLBACK: picked up %s in room=2 inventory=1", kBootGridFallbackIds[1]);
+	phase = -1;
+	smokeHarnessExit(0, "grid_variant_fallback_played");
+	return 1;
+
+fail:
+	phase = -1;
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.FALLBACK.FAIL: restart %s", err);
+	smokeHarnessExit(1, "grid_variant_fallback_play_failed");
+	return 1;
+}
+
+static const char kBootPlayedOriginal[] = "mod:arena_grid_required_mods";
+static const char kBootPlayedVariant[] = "mod:arena_grid_played_variant";
+static const char kBootHostPlayedVariant[] = "mod:arena_grid_host_played_variant";
+static const char kBootPlayedMeshSha[] = "90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f";
+
+static s32 bootGridPlayedSourcesUninstalled(s32 mesh_mounted)
+{
+	return !modmgrFindMod("mod.arena_grid_required_mods") && !modmgrFindMod("mod.weapon_grid_triangle")
+		&& !modmgrFindMod("grid_required_mesh") && !assetCatalogResolveAny(kBootPlayedOriginal)
+		&& !assetCatalogResolveAny(kBootGridFallbackWeapon)
+		&& (mesh_mounted || !assetCatalogResolveAny(kBootGridFallbackProp));
+}
+
+static const grid_match_source_package_t *bootGridPlayedPackage(const grid_match_sources_t *sources,
+	const char *id, asset_type_e type)
+{
+	for (size_t i = 0; sources && i < sources->package_count; i++) {
+		const grid_match_source_package_t *package = &sources->packages[i];
+		if (package->owner.type == type && strcmp(package->owner.id, id) == 0) return package;
+	}
+	return NULL;
+}
+
+static s32 bootGridPlayedMeshBytes(const grid_match_source_package_t *expected, const void *bytes, u32 size)
+{
+	if (!expected || expected->bundled || strcmp(expected->suffix, ".pdmesh") != 0
+			|| !bytes || size != expected->size) return 0;
+	u8 digest[SHA256_DIGEST_SIZE];
+	char hex[SHA256_HEX_SIZE];
+	sha256Hash(bytes, size, digest);
+	sha256ToHex(digest, hex);
+	return memcmp(digest, expected->digest, sizeof(digest)) == 0 && strcmp(hex, kBootPlayedMeshSha) == 0;
+}
+
+static s32 bootGridPlayedInstalledMatches(const grid_match_source_package_t *package)
+{
+	if (!package || package->bundled) return 0;
+	const asset_entry_t *entry = assetCatalogResolve(package->owner.id);
+	char descriptor[FS_MAXPATH + 1], locator[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+	if (!entry || entry->type != package->owner.type || entry->temporary
+			|| !gridMatchCatalogArchiveDescriptor(entry, descriptor, sizeof(descriptor))
+			|| !gridMatchPackageLocation(descriptor, locator, sizeof(locator), chain, sizeof(chain), NULL)
+			|| chain[0]) return 0;
+	u32 size = 0;
+	void *bytes = gridMatchPackageLoad(locator, &size);
+	u8 digest[SHA256_DIGEST_SIZE] = {0};
+	if (bytes && size == package->size) sha256Hash(bytes, size, digest);
+	const s32 exact = bytes && size == package->size && memcmp(digest, package->digest, sizeof(digest)) == 0;
+	free(bytes);
+	return exact;
+}
+
+static s32 bootGridPlayedHostSourcesMatch(const grid_match_sources_t *match)
+{
+	return bootGridPlayedInstalledMatches(bootGridPlayedPackage(match, kBootPlayedOriginal, ASSET_ARENA))
+		&& bootGridPlayedInstalledMatches(bootGridPlayedPackage(match, kBootGridFallbackProp, ASSET_MODEL))
+		&& bootGridPlayedInstalledMatches(bootGridPlayedPackage(match, kBootGridFallbackWeapon, ASSET_WEAPON));
+}
+
+static s32 bootGridPlayedHostForkMatches(const forge_revision_t *variant, const forge_level_object_t *original,
+		const char *pickup_model, char *err, size_t err_cap)
+{
+	forge_level_source_t source;
+	forge_level_doc_t *doc = forgeLevelOpen(variant->arena_id, &source, err, err_cap);
+	if (!doc) return 0;
+	s32 mesh = 0, fallback = 0, omitted = 1;
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc); i++) {
+		forge_level_object_t object;
+		if (!forgeLevelDocGetObject(doc, i, &object) || object.removed) continue;
+		if (strcmp(object.kind, "prop") == 0 && strcmp(object.model_catalog_id, kBootGridFallbackProp) == 0) mesh = 1;
+		if (object.weapon_settable && strcmp(object.weapon_catalog_id, kBootGridFallbackWeapon) == 0) omitted = 0;
+		if (object.weapon_settable && strcmp(object.record_id, original->record_id) == 0
+				&& strcmp(object.pad_ref, original->pad_ref) == 0
+				&& strcmp(object.weapon_catalog_id, kBootGridFallbackIds[0]) == 0
+				&& strcmp(object.model_catalog_id, pickup_model) == 0) fallback = 1;
+	}
+	forgeLevelDocFree(doc);
+	return strcmp(source.archive_sha256, variant->digest) == 0 && mesh && fallback && omitted;
+}
+
+static s32 bootGridSavePlayedVariantTick(const char *name, s32 host)
+{
+	static u32 saved_tick;
+	static s32 finished;
+	if (finished) return 0;
+	if (saved_tick) {
+		/* Leave time for the ordinary Room resync to reach the host. */
+		if (SDL_GetTicks() - saved_tick < 1000u) return 0;
+		finished = 1;
+		smokeHarnessExit(0, "grid_played_variant_saved");
+		return 1;
+	}
+	if (host ? (g_NetMode != NETMODE_SERVER || g_NetDedicated) : g_NetMode != NETMODE_CLIENT) return 0;
+	const grid_match_result_t *current = netGridLastMatchResult();
+	if (!mainGridRoomBackdropActive() || mainGridRoomReturnPending()
+			|| !forgeLevelCanReviewPlayedVariantSources(current)
+			|| g_NetLocalClient->room_id != current->offer.room_id) return 0;
+	const grid_match_result_t result = *current;
+	const grid_match_sources_t *match = gridMatchRuntimeReturnedSources(&result);
+	const grid_match_source_package_t *received_mesh = bootGridPlayedPackage(match, kBootGridFallbackProp, ASSET_MODEL);
+	char err[256] = "", directory[FS_MAXPATH + 1], parent_hex[SHA256_HEX_SIZE];
+	char pickup_model[CATALOG_ID_LEN];
+	forge_level_doc_t *doc = NULL;
+	grid_match_sources_t review = {0};
+	forge_level_object_t pickup = {0};
+	forge_level_placement_fallback_t fallback = { .kind = FORGE_LEVEL_FALLBACK_PICKUP };
+	mod_author_result_t *saved = calloc(1, sizeof(*saved));
+	void *stored_mesh = NULL, *stored_weapon = NULL;
+	forge_revision_t variant, parent;
+	s32 ok = 0;
+	u32 arena_size = 0, mesh_size = 0;
+	const void *arena = gridMatchRuntimeReadReturnedArena(&result, &arena_size);
+	const void *mesh = !host && received_mesh
+		? gridMatchRuntimeReadReturnedSource(&result, received_mesh - match->packages, &mesh_size) : NULL;
+	u8 actual_parent[SHA256_DIGEST_SIZE];
+	if (!saved || !arena || !arena_size || strcmp(result.arena_id, kBootPlayedOriginal) != 0
+			|| (host ? !bootGridPlayedHostSourcesMatch(match)
+				: (!bootGridPlayedSourcesUninstalled(0) || !bootGridPlayedMeshBytes(received_mesh, mesh, mesh_size)))) goto done;
+	sha256Hash(arena, arena_size, actual_parent);
+	if (memcmp(actual_parent, result.arena_sha256, sizeof(actual_parent)) != 0
+			|| !forgeLevelReviewPlayedVariantSources(&result, &doc, &review, err, sizeof(err))) goto done;
+	sha256ToHex(actual_parent, parent_hex);
+	const grid_match_source_package_t *weapon = bootGridPlayedPackage(&review, kBootGridFallbackWeapon, ASSET_WEAPON);
+	const grid_match_source_package_t *kept = bootGridPlayedPackage(&review, kBootGridFallbackProp, ASSET_MODEL);
+	if (!weapon || (host ? !bootGridPlayedInstalledMatches(kept) : !bootGridPlayedMeshBytes(kept, mesh, mesh_size))) goto done;
+	s32 pickups = 0;
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc); i++) {
+		forge_level_object_t object;
+		if (forgeLevelDocGetObject(doc, i, &object) && !object.removed && object.weapon_settable
+				&& strcmp(object.weapon_catalog_id, kBootGridFallbackWeapon) == 0) {
+			pickup = object;
+			pickups++;
+		}
+	}
+	if (pickups != 1 || !forgeLevelPickupLook(kBootGridFallbackIds[0], pickup_model, sizeof(pickup_model),
+			&fallback.extra_scale, err, sizeof(err))) goto done;
+	fallback.record_id = pickup.record_id;
+	fallback.expected_catalog_id = pickup.weapon_catalog_id;
+	fallback.weapon_catalog_id = kBootGridFallbackIds[0];
+	fallback.model_catalog_id = pickup_model;
+	const u16 omitted = (u16)(weapon - review.packages);
+	if (!forgeLevelSavePlayedVariant(&result, name, &review, &omitted, 1, &fallback, 1, saved, err, sizeof(err))
+			|| err[0] || strcmp(saved->catalog_id, host ? kBootHostPlayedVariant : kBootPlayedVariant) != 0
+			|| (host ? !bootGridPlayedHostSourcesMatch(gridMatchRuntimeReturnedSources(&result))
+				: !bootGridPlayedSourcesUninstalled(0))) goto done;
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	if (!forgeRevisionReadCurrent(directory, saved->catalog_id, &variant, err, sizeof(err))
+			|| forgeRevisionReadParent(directory, &variant, &parent, err, sizeof(err)) != FORGE_REVISION_PARENT_AVAILABLE
+			|| strcmp(parent.arena_id, result.arena_id) != 0 || strcmp(parent.digest, parent_hex) != 0
+			|| strcmp(variant.digest, parent.digest) == 0) goto done;
+	if (host) {
+		forge_revision_t current_pin;
+		if (!forgeRevisionReadCurrent(directory, result.arena_id, &current_pin, err, sizeof(err))
+				|| strcmp(current_pin.digest, parent_hex) != 0
+				|| !bootGridPlayedHostForkMatches(&variant, &pickup, pickup_model, err, sizeof(err))) goto done;
+	}
+	stored_mesh = forgeRevisionLoadDependency(directory, kept, &mesh_size, err, sizeof(err));
+	stored_weapon = forgeRevisionLoadDependency(directory, weapon, NULL, NULL, 0);
+	ok = !stored_weapon && bootGridPlayedMeshBytes(kept, stored_mesh, mesh_size);
+	if (ok && host) sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYED: host saved room=%u original=%s parent=%s variant=%s sha256=%s kept=%s mesh_sha256=%s omitted=%s fallback=%s installed_exact=1",
+		(unsigned)result.offer.room_id, result.arena_id, parent.digest, variant.arena_id, variant.digest,
+		kBootGridFallbackProp, kBootPlayedMeshSha, kBootGridFallbackWeapon, kBootGridFallbackIds[0]);
+	else if (ok) sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYED: saved room=%u original=%s parent=%s variant=%s sha256=%s kept=%s mesh_sha256=%s omitted=%s fallback=%s mods_installed=0",
+		(unsigned)result.offer.room_id, result.arena_id, parent.digest, variant.arena_id, variant.digest,
+		kBootGridFallbackProp, kBootPlayedMeshSha, kBootGridFallbackWeapon, kBootGridFallbackIds[0]);
+
+done:
+	free(stored_weapon);
+	free(stored_mesh);
+	free(saved);
+	gridMatchSourcesFree(&review);
+	forgeLevelDocFree(doc);
+	if (host) {
+		if (!ok) sysLogPrintf(LOG_ERROR, "SMOKE.GRID.PLAYED: host save proof failed %s",
+			err[0] ? err : "unexpected installed sources, native placements or saved fork");
+		finished = 1;
+	} else if (ok) saved_tick = SDL_GetTicks();
+	else {
+		sysLogPrintf(LOG_ERROR, "SMOKE.GRID.PLAYED: save proof failed %s", err[0] ? err : "unexpected receipt, native placements or stored sources");
+		finished = 1;
+		smokeHarnessExit(1, "grid_played_variant_save_failed");
+	}
+	return 1;
+}
+
+static s32 bootGridPlaySavedVariantTick(void)
+{
+	static s32 finished;
+	if (finished || g_NetMode != NETMODE_NONE || !g_BootLaunchMpArena || !g_Vars.normmplayerisrunning
+			|| g_Vars.tickmode != TICKMODE_NORMAL || g_Vars.lvframenum < 60 || !g_Vars.lvupdate240) return 0;
+	const asset_entry_t *arena = assetCatalogResolve(g_BootLaunchMpArena);
+	struct player *player = g_Vars.players[0];
+	if (!arena || arena->type != ASSET_ARENA || arena->ext.arena.stagenum != g_StageNum || PLAYERCOUNT() != 1
+			|| !player || player != g_Vars.currentplayer || !player->prop || !player->prop->chr || player->isdead) return 0;
+	finished = 1;
+	char err[256] = "", directory[FS_MAXPATH + 1];
+	char descriptor[FS_MAXPATH + 1], locator[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+	char folder[FS_MAXPATH + 1], expected[FS_MAXPATH + 1];
+	forge_revision_t parent, variant;
+	forge_level_source_t reopened;
+	forge_level_doc_t *doc = NULL;
+	void *bytes = NULL;
+	s32 ok = 0;
+	fsFullPath("$S/forge-revisions", directory, sizeof(directory));
+	const grid_match_sources_t *plan = forgeLevelVariantDependencyPlanForStage(g_StageNum);
+	const grid_match_source_package_t *kept = bootGridPlayedPackage(plan, kBootGridFallbackProp, ASSET_MODEL);
+	const asset_entry_t *model = assetCatalogResolve(kBootGridFallbackProp);
+	if (strcmp(arena->id, kBootPlayedVariant) != 0 || !bootGridPlayedSourcesUninstalled(1) || !kept
+			|| bootGridPlayedPackage(plan, kBootGridFallbackWeapon, ASSET_WEAPON) || !model || !model->temporary
+			|| !gridMatchCatalogArchiveDescriptor(model, descriptor, sizeof(descriptor))
+			|| !gridMatchPackageLocation(descriptor, locator, sizeof(locator), chain, sizeof(chain), NULL) || chain[0]
+			|| !gridMatchPackagePrivatePath(kept->digest, kept->suffix, folder, expected) || strcmp(locator, expected) != 0
+			|| !forgeRevisionReadCurrent(directory, arena->id, &variant, err, sizeof(err))
+			|| forgeRevisionReadParent(directory, &variant, &parent, err, sizeof(err)) != FORGE_REVISION_PARENT_AVAILABLE
+			|| strcmp(parent.arena_id, kBootPlayedOriginal) != 0 || strcmp(parent.digest, variant.digest) == 0) goto done;
+	u32 size = 0;
+	bytes = gridMatchPackageLoad(locator, &size);
+	doc = forgeLevelOpen(arena->id, &reopened, err, sizeof(err));
+	if (!doc || strcmp(reopened.archive_sha256, variant.digest) != 0 || !bootGridPlayedMeshBytes(kept, bytes, size)) goto done;
+	s32 pickup_index = -1, prop_index = -1;
+	for (s32 i = 0; i < forgeLevelDocObjectCount(doc); i++) {
+		forge_level_object_t object;
+		if (!forgeLevelDocGetObject(doc, i, &object) || object.removed) continue;
+		if (object.weapon_settable && strcmp(object.weapon_catalog_id, kBootGridFallbackIds[0]) == 0) pickup_index = object.order;
+		if (strcmp(object.kind, "prop") == 0 && strcmp(object.model_catalog_id, kBootGridFallbackProp) == 0) prop_index = object.order;
+	}
+	const struct defaultobj *prop = prop_index >= 0 ? setupGetObjByCmdIndex(prop_index) : NULL;
+	const struct defaultobj *pickup = pickup_index >= 0 ? setupGetObjByCmdIndex(pickup_index) : NULL;
+	const char *model_id = prop ? catalogModelIdByModelnum(prop->modelnum) : NULL;
+	if (!prop || prop->type != OBJTYPE_BASIC || !prop->prop || !prop->model || !model_id
+			|| strcmp(model_id, kBootGridFallbackProp) != 0 || !pickup || pickup->type != OBJTYPE_WEAPON
+			|| !pickup->prop || !pickup->model || pickup->prop->rooms[0] <= 0
+			|| ((const struct weaponobj *)pickup)->weaponnum != WEAPON_FALCON2) goto done;
+	const RoomNum room = pickup->prop->rooms[0];
+	if (!bootGridCollectFallback(player, pickup_index, WEAPON_FALCON2, room)) goto done;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYED: restarted variant=%s sha256=%s parent=%s mesh=%s mesh_sha256=%s pickup=%s room=%d inventory=1 mods_installed=0",
+		variant.arena_id, variant.digest, parent.digest, model_id, kBootPlayedMeshSha, kBootGridFallbackIds[0], (s32)room);
+	ok = 1;
+
+done:
+	free(bytes);
+	forgeLevelDocFree(doc);
+	if (!ok) sysLogPrintf(LOG_ERROR, "SMOKE.GRID.PLAYED: restart proof failed %s", err[0] ? err : "unexpected mounted mesh, parent or native pickup");
+	smokeHarnessExit(ok ? 0 : 1, ok ? "grid_played_variant_restarted" : "grid_played_variant_restart_failed");
+	return 1;
+}
+
+static s32 bootGridLayoutStageRelocation(const grid_edit_room_state_t *draft)
+{
+	const u64 serial = s_GridRoomExtensionOffer.offer_serial;
+	char arena[CATALOG_ID_LEN];
+	if (!netGridEditStageRoomExtension("Grid Extension Relocate", 2, 100, arena, sizeof(arena))
+			|| strcmp(arena, kGridLayoutRelocationArena)
+			|| !netGridEditGetStagedVariant(&s_GridRoomExtension)
+			|| strcmp(arena, s_GridRoomExtension.arena_id) || s_GridRoomExtension.draft_revision != draft->revision
+			|| s_GridRoomExtension.current_revision != draft->revision || assetCatalogResolveAny(arena)) return 0;
+	s_GridLayoutSmoke.second = 1;
+	s_GridLayoutSmoke.requested = 0;
+	s_GridLayoutSmoke.first_serial = serial;
+	memset(&s_GridRoomExtensionOffer, 0, sizeof(s_GridRoomExtensionOffer));
+	s_GridDraftStepTick = SDL_GetTicks();
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.RELOCATE: staged epoch=%u catalog=%u revision=%llu room2_max=3000 target=2800 sha256=%s",
+		s_GridPlaytestEpoch, s_GridRoomExtensionCatalog, (unsigned long long)draft->revision,
+		s_GridRoomExtension.arena_sha256);
+	return 1;
+}
+
+static s32 bootGridLayoutRetrySmoke(void)
+{
+	return s_GridDraftApplyLayout && smokeHarnessIsActive()
+		&& sysArgCheck("--debug-grid-private-layout-retry");
+}
+
+static void bootGridLayoutRetryHost(const grid_edit_room_state_t *draft)
+{
+	grid_edit_variant_review_info_t review;
+	if (!draft->ready || draft->revision != s_GridRoomExtension.draft_revision
+			|| !bootGridRoomExtensionOriginalWorld(&s_GridRoomExtensionWorld, s_GridRoomExtensionCatalog)
+			|| !bootGridRoomExtensionCandidateMatches() || gridMatchRuntimePrivateLayoutGeneration()
+			|| g_StageIndex != s_GridLayoutSmoke.stage_index || g_Rooms != s_GridLayoutSmoke.rooms
+			|| !bootGridLayoutActorIdentity() || !bootGridDraftIsHostPeer(1) || !bootGridDraftIsHostPeer(2)
+			|| assetCatalogResolveAny(s_GridRoomExtension.arena_id)
+			|| !netGridEditGetStagedReview(&review)
+			|| !gridEditVariantReviewMatches(&s_GridRoomExtensionOffer, &review.variant)
+			|| !review.match_sources_prepared) {
+		bootGridDraftFail("grid_layout_retry_changed_original_round");
+		return;
+	}
+	if (review.apply_pending) return;
+
+	static boot_grid_witness_reader_t creator_log;
+	char prefix[224], record[64];
+	snprintf(prefix, sizeof(prefix), "SMOKE.GRID.LAYOUT.RETRY: creator intact room=%u epoch=%u serial=%llu revision=%llu layout=0 ",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)review.variant.offer_serial,
+		(unsigned long long)draft->revision);
+	if (!bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log",
+			prefix, record, sizeof(record))) return;
+
+	const struct coord extension = { .f = {2850.0f, 160.0f, 0.0f} };
+	if (!bootGridRelocationFloor(&extension, 2, 0) || !bootGridLayoutSceneExtent(2700.0f)
+			|| g_Vars.lvframe60 <= s_GridLayoutSmoke.frame || lvGetStageTime60() <= s_GridLayoutSmoke.match_time
+			|| !netGridEditCanApplyStagedLayout()) {
+		bootGridDraftFail("grid_layout_retry_did_not_keep_running");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.LAYOUT.RETRY: original intact room=%u epoch=%u serial=%llu revision=%llu layout=0 room2_max=2700 scene_max=2700 no_extension_floor=1 actors=4 frame_before=%d frame_after=%d time_before=%d time_after=%d",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)review.variant.offer_serial,
+		(unsigned long long)draft->revision, s_GridLayoutSmoke.frame, g_Vars.lvframe60,
+		s_GridLayoutSmoke.match_time, lvGetStageTime60());
+	s_GridLayoutSmoke.retry_verified_timeout = 1;
+	if (!netGridEditApplyStagedLayout()) bootGridDraftFail("grid_layout_retry_could_not_prepare");
+}
+
+static void bootGridLayoutSmokeCheck(const grid_edit_room_state_t *draft)
+{
+	const s32 retry = bootGridLayoutRetrySmoke();
+	if (retry && !s_GridLayoutSmoke.retry_verified_timeout) {
+		bootGridLayoutRetryHost(draft);
+		return;
+	}
+	const s32 second = s_GridLayoutSmoke.second;
+	const u64 generation = second || retry ? 2 : 1;
+	const u64 previous_generation = second ? 1 : 0;
+	if (gridMatchRuntimePrivateLayoutGeneration() < generation) {
+		const char *error = netGridEditError();
+		if (error && error[0]) bootGridDraftFail("grid_layout_refused");
+		return;
+	}
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	struct coord probe = { .f = {second ? 2900.0f : 2850.0f, 160.0f, 0.0f} };
+	const f32 floor = meshFindFloor(&probe, 20.0f, NULL);
+	const s32 floor_ok = second ? bootGridRelocationFloor(&probe, 2, 0) : floor == 0.0f;
+	if (!draft->ready || draft->revision != s_GridRoomExtension.draft_revision
+			|| gridMatchRuntimePrivateLayoutGeneration() != generation
+			|| !active || gridMatchRuntimePending() || g_NetStageEpoch != s_GridPlaytestEpoch
+			|| g_StageNum != s_GridPlaytestStage || g_StageIndex != s_GridLayoutSmoke.stage_index
+			|| active->offer.room_id != s_GridDraftRoom
+			|| active->offer.generation != s_GridRoomExtensionWorld.offer.generation
+			|| strcmp(active->offer.manifest_digest, s_GridRoomExtensionWorld.offer.manifest_digest)
+			|| g_Vars.lvframe60 <= s_GridLayoutSmoke.frame || g_Vars.players[0] != s_GridLayoutSmoke.player
+			|| memcmp(g_MpAllChrPtrs, s_GridLayoutSmoke.actors, sizeof(g_MpAllChrPtrs))
+			|| ((s_GridDraftRelocateLayout || retry) && !bootGridLayoutActorIdentity())
+			|| assetCatalogGetGeneration() != s_GridRoomExtensionCatalog
+			|| g_Rooms == s_GridLayoutSmoke.rooms || !bootGridRoomExtensionBounds(second ? 2800.0f : 3000.0f) || !floor_ok
+			|| !bootGridDraftIsHostPeer(1) || !bootGridDraftIsHostPeer(2)
+			|| assetCatalogResolveAny(s_GridRoomExtension.arena_id)) {
+		bootGridDraftFail("grid_layout_changed_round_or_missed_floor");
+		return;
+	}
+	if (retry && (!bootGridRelocationFloor(&probe, 2, 1) || !bootGridLayoutSceneExtent(3000.0f))) {
+		bootGridDraftFail("grid_layout_retry_missing_floor_or_scene");
+		return;
+	}
+	if (second && (!s_GridLayoutSmoke.verified_relocation || lvGetStageTime60() <= s_GridLayoutSmoke.match_time
+			|| !bootGridLayoutSceneExtent(2800.0f))) {
+		bootGridDraftFail("grid_layout_missing_host_relocation_state_or_render");
+		return;
+	}
+	const s32 reconnect = s_GridDraftLayoutReconnect && (!s_GridDraftRelocateLayout || second);
+	static boot_grid_witness_reader_t creator_log;
+	if (reconnect) {
+		char prefix[320], record[160];
+		snprintf(prefix, sizeof(prefix),
+			"SMOKE.GRID.LAYOUT.RECONNECT: applied room=%u epoch=%u layout=%llu draft=%llu actor=%llu serial=%llu arena_sha256=%s ",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)generation,
+			(unsigned long long)draft->invite.identity.generation, (unsigned long long)draft->peer_actor,
+			(unsigned long long)s_GridRoomExtensionOffer.offer_serial, s_GridRoomExtension.arena_sha256);
+		if (!bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log",
+				prefix, record, sizeof(record))) return;
+	} else {
+		const char prefix[] = "NET.GRID.LAYOUT: event=outcome side=creator ";
+		char record[512];
+		if (!bootGridPlaytestReadWitness(&creator_log, "./logs/game client/pd-grid-creator.log",
+				prefix, record, sizeof(record))) return;
+		unsigned room, epoch, result;
+		unsigned long long previous, next, serial, actor;
+		if (sscanf(record, "room=%u epoch=%u previous=%llu next=%llu serial=%llu actor=%llu result=%u",
+				&room, &epoch, &previous, &next, &serial, &actor, &result) != 7
+				|| room != s_GridDraftRoom || epoch != s_GridPlaytestEpoch
+				|| serial != s_GridRoomExtensionOffer.offer_serial || !actor) {
+			bootGridDraftFail("grid_layout_creator_outcome");
+			return;
+		}
+		if (retry && previous == 0 && next == 1 && result == GRID_EDIT_LAYOUT_APPLY_ABORTED) return;
+		if (next != generation || previous != previous_generation || result != GRID_EDIT_LAYOUT_APPLY_COMMITTED) {
+			bootGridDraftFail("grid_layout_creator_outcome");
+			return;
+		}
+	}
+	if (s_GridDraftLayoutDecoration && !bootGridLayoutDecorationWitness(draft, generation, "after")) {
+		bootGridDraftFail("grid_layout_decoration_changed_resident_prop");
+		return;
+	}
+	if (second) {
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.RELOCATE: same round room=%u epoch=%u generation=2 room2_max=2800 scene_max=2800 floor_removed=1 frame_before=%d frame_after=%d actors=4",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, s_GridLayoutSmoke.frame, g_Vars.lvframe60);
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.LAYOUT: same round room=%u epoch=%u generation=%llu room2_max=%.0f floor=%.0f frame_before=%d frame_after=%d actors=4",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)generation, g_Rooms[2].bbmax[0], floor,
+			s_GridLayoutSmoke.frame, g_Vars.lvframe60);
+		if (s_GridDraftRelocateLayout) {
+			if (!bootGridLayoutStageRelocation(draft)) bootGridDraftFail("grid_layout_stage_relocation");
+			return;
+		}
+	}
+	if (reconnect) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: release_disconnect room=%u epoch=%u",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_DETACH;
+		s_GridDraftStepTick = SDL_GetTicks();
+		return;
+	}
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+	mainEndStage();
+}
+
+static s32 bootGridLayoutAnchorHost(void)
+{
+	struct player *host = g_Vars.players[0];
+	struct prop *prop = host ? host->prop : NULL;
+	if (!prop || !prop->chr || host->isdead || host->bondmovemode != MOVEMODE_WALK) return 0;
+	struct coord point = {.f = {2900.0f, host->vv_eyeheight, 0.0f}};
+	if (!bootGridRelocationFloor(&point, 2, 1)) return 0;
+	const s32 slot = g_Vars.currentplayernum;
+	setCurrentPlayerNum(0);
+	const u32 old_hidden = prop->chr->hidden;
+	const f32 yaw = host->vv_theta, pitch = host->vv_verta;
+	prop->chr->hidden |= CHRHFLAG_WARPONSCREEN;
+	RoomNum rooms[] = {2, -1};
+	const s32 placed = chrMoveToPos(prop->chr, &point, rooms, BADDEG2RAD(360.0f - yaw), false);
+	if (!(old_hidden & CHRHFLAG_WARPONSCREEN)) prop->chr->hidden &= ~CHRHFLAG_WARPONSCREEN;
+	host->vv_theta = yaw;
+	host->vv_verta = pitch;
+	setCurrentPlayerNum(slot);
+	if (!placed || prop->rooms[0] != 2 || fabsf(prop->pos.x - 2900.0f) >= 0.125f
+			|| fabsf(prop->pos.z) >= 0.125f || !bootGridRelocationFloor(&prop->pos, 2, 1)) return 0;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.RELOCATE: anchored slot=0 x=%.1f room=2 old_floor=verified epoch=%u",
+		prop->pos.x, s_GridPlaytestEpoch);
+	return 1;
+}
+
+static s32 bootGridLayoutSmokeRequest(const grid_edit_room_state_t *draft)
+{
+	struct coord probe = { .f = {2850.0f, 160.0f, 0.0f} };
+	s32 count = 0;
+	for (s32 i = 0; i < MAX_MPCHRS; ++i) {
+		if (g_MpAllChrPtrs[i]) ++count;
+	}
+	if (count != 4 || g_Vars.lvframe60 <= 0 || !g_Vars.players[0]) {
+		bootGridDraftFail("grid_layout_original_floor_or_roster");
+		return 0;
+	}
+	if (s_GridLayoutSmoke.second) {
+		if (!bootGridLayoutActorIdentity() || !bootGridLayoutAnchorHost()) {
+			bootGridDraftFail("grid_layout_could_not_anchor_host");
+			return 0;
+		}
+	} else {
+		if (meshFindFloor(&probe, 20.0f, NULL) >= -1000.0f) {
+			bootGridDraftFail("grid_layout_original_floor_or_roster");
+			return 0;
+		}
+		memcpy(s_GridLayoutSmoke.actors, g_MpAllChrPtrs, sizeof(g_MpAllChrPtrs));
+		for (s32 i = 0; i < MAX_MPCHRS; ++i) {
+			struct prop *prop = g_MpAllChrPtrs[i] ? g_MpAllChrPtrs[i]->prop : NULL;
+			s_GridLayoutSmoke.props[i] = prop;
+			s_GridLayoutSmoke.prop_generations[i] = propGetLifecycleGeneration(prop);
+		}
+		s_GridLayoutSmoke.player = g_Vars.players[0];
+		s_GridLayoutSmoke.stage_index = g_StageIndex;
+	}
+	s_GridLayoutSmoke.rooms = g_Rooms;
+	s_GridLayoutSmoke.frame = g_Vars.lvframe60;
+	if (bootGridLayoutRetrySmoke()) s_GridLayoutSmoke.match_time = lvGetStageTime60();
+	if (s_GridDraftLayoutDecoration && !bootGridLayoutDecorationWitness(draft, 0, "before")) {
+		bootGridDraftFail("grid_layout_decoration_apply_baseline");
+		return 0;
+	}
+	if (!netGridEditApplyStagedLayout()) {
+		bootGridDraftFail("grid_layout_prepare");
+		return 0;
+	}
+	s_GridLayoutSmoke.requested = 1;
+	return 1;
+}
+
+static void bootGridRoomExtensionReviewHost(const grid_edit_room_state_t *draft, u32 now)
+{
+	const u32 timeout = s_GridDraftTransferReview ? GRID_EXTENSION_TRANSFER_SMOKE_TIMEOUT_MS
+		: GRID_EXTENSION_REVIEW_SMOKE_TIMEOUT_MS;
+	if ((u32)(now - s_GridDraftStepTick) >= timeout) {
+		bootGridDraftFail("grid_extension_review_host_timeout");
+		return;
+	}
+	if (s_GridDraftApplyLayout && s_GridLayoutSmoke.requested) {
+		bootGridLayoutSmokeCheck(draft);
+		return;
+	}
+	if (!bootGridRoomExtensionOriginalWorld(&s_GridRoomExtensionWorld, s_GridRoomExtensionCatalog)) {
+		bootGridDraftFail("grid_extension_review_changed_world");
+		return;
+	}
+
+	grid_edit_variant_review_info_t review;
+	if (!s_GridRoomExtensionOffer.offer_serial) {
+		const s32 ready = s_GridDraftTransferReview ? netGridEditCanOfferStagedReviewTransfer()
+			: netGridEditCanOfferStagedReview();
+		if (!ready) return;
+		const s32 sent = s_GridDraftTransferReview ? netGridEditOfferStagedReviewTransfer()
+			: netGridEditOfferStagedReview();
+		if (!sent || !netGridEditGetStagedReview(&review) || review.reply
+				|| !bootGridRoomExtensionReviewMatches(&review.variant, draft)) {
+			bootGridDraftFail("grid_extension_review_offer");
+			return;
+		}
+		char sha[SHA256_HEX_SIZE];
+		sha256ToHex(review.variant.arena_sha256, sha);
+		if (strcmp(sha, s_GridRoomExtension.arena_sha256)) {
+			bootGridDraftFail("grid_extension_review_wrong_revision");
+			return;
+		}
+		s_GridRoomExtensionOffer = review.variant;
+		return;
+	}
+
+	if (!netGridEditGetStagedReview(&review) || !gridEditVariantReviewMatches(&s_GridRoomExtensionOffer, &review.variant)) {
+		bootGridDraftFail("grid_extension_review_offer_changed");
+		return;
+	}
+	if (!review.reply) return;
+	const grid_edit_variant_review_reply_e expected = s_GridDraftPreparedReview
+		? GRID_EDIT_VARIANT_REVIEW_DEPS_VERIFIED : GRID_EDIT_VARIANT_REVIEW_ACKNOWLEDGED;
+	if (review.reply != expected || (s_GridDraftPreparedReview && !review.sources_prepared)) {
+		bootGridDraftFail("grid_extension_review_wrong_receipt");
+		return;
+	}
+	/* Keep the transfer alive until the guest smoke has read its own retained result. */
+	if (s_GridDraftTransferReview && !bootGridRoomTransferCreatorObserved(draft, &review.variant)) return;
+	if (s_GridDraftApplyLayout && !netGridEditCanApplyStagedLayout()) return;
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.EXTENSION: review %s room=%u generation=%llu epoch=%u revision=%llu serial=%llu sha256=%s",
+		s_GridDraftTransferReview ? "transferred" : s_GridDraftPreparedReview ? "prepared" : "acknowledged",
+		(unsigned)s_GridDraftRoom,
+		(unsigned long long)draft->invite.identity.generation, review.variant.stage_epoch,
+		(unsigned long long)review.variant.draft_revision, (unsigned long long)review.variant.offer_serial,
+		s_GridRoomExtension.arena_sha256);
+	if (s_GridDraftApplyLayout) {
+		bootGridLayoutSmokeRequest(draft);
+		return;
+	}
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+	mainEndStage();
+}
+
+static s32 bootGridRoomTransferHostShaMatches(const grid_edit_variant_review_t *offer, const char *sha)
+{
+	static boot_grid_witness_reader_t host_log;
+	const char *prefix = s_GridLayoutSmoke.second ? "SMOKE.GRID.RELOCATE: staged "
+		: "SMOKE.GRID.EXTENSION: resident unchanged ";
+	char record[384];
+	if (!bootGridPlaytestReadWitness(&host_log, "./logs/game client/pd-host.log", prefix,
+			record, sizeof(record))) return 0;
+	unsigned epoch, catalog;
+	unsigned long long revision;
+	char expected[SHA256_HEX_SIZE] = {0};
+	const char *layout = s_GridLayoutSmoke.second
+		? "epoch=%u catalog=%u revision=%llu room2_max=3000 target=2800 sha256=%64[0-9a-f]"
+		: "epoch=%u catalog=%u revision=%llu room1_max=0 room2_max=2700 refused_length=1400 sha256=%64[0-9a-f]";
+	if (sscanf(record, layout,
+			&epoch, &catalog, &revision, expected) != 4 || !catalog
+			|| epoch != offer->stage_epoch || revision != offer->draft_revision || strcmp(expected, sha) != 0) return -1;
+	return 1;
+}
+
+static s32 bootGridLayoutRetryCreator(const grid_edit_room_state_t *draft,
+		const grid_edit_variant_review_info_t *review)
+{
+	grid_playtest_view_t view;
+	if (review->apply_pending || !netGridEditGetPlaytestView(&view)) return 0;
+	static boot_grid_witness_reader_t own_log;
+	char prefix[200], record[280];
+	snprintf(prefix, sizeof(prefix),
+		"NET.GRID.LAYOUT: event=outcome side=creator room=%u epoch=%u previous=0 next=1 serial=%llu actor=%llu result=4 ",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)review->variant.offer_serial,
+		(unsigned long long)draft->local_actor);
+	if (!bootGridPlaytestReadWitness(&own_log, "./logs/game client/pd-grid-creator.log",
+			prefix, record, sizeof(record))) return 0;
+	grid_edit_room_control_t receipt;
+	if (!view.has_world_bounds || view.layout_generation || view.max_x != 2700.0f
+			|| !bootGridLayoutProjectionMatches(&view, 2700) || netGridEditGetObservedLayout(&receipt)
+			|| !review->sources_prepared || draft->revision != review->variant.draft_revision) {
+		bootGridDraftFail("grid_layout_retry_creator_projection");
+		return 0;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.LAYOUT.RETRY: creator intact room=%u epoch=%u serial=%llu revision=%llu layout=0 room2_max=2700 actors=4 retained=1 lobby=1",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)review->variant.offer_serial,
+		(unsigned long long)draft->revision);
+	return 1;
+}
+
+static void bootGridRoomExtensionTransferCreator(const grid_edit_room_state_t *draft)
+{
+	static struct {
+		s32 captured;
+		u32 catalog;
+		s32 stage;
+		s32 stage_index;
+		s32 room_count;
+		const struct room *rooms;
+		grid_edit_variant_review_t accepted;
+		u32 arena_bytes;
+	} before;
+	const char *arena = s_GridLayoutSmoke.second ? kGridLayoutRelocationArena : "mod:arena_grid_extension_staged";
+	const asset_entry_t *mesh = assetCatalogResolve("example:tri_mesh");
+	if (!mesh || !mesh->enabled || mesh->type != ASSET_MODEL || assetCatalogResolveAny(arena)
+			|| g_NetStageEpoch || !gridMatchRuntimeIsIdle() || !g_NetLocalClient
+			|| g_NetLocalClient->state != CLSTATE_LOBBY || g_NetLocalClient->stage_ready
+			|| g_NetLocalClient->room_id != s_GridDraftRoom || draft->local_actor != s_GridDraftInitialActor) {
+		bootGridDraftFail("grid_transfer_review_creator_source_or_scope");
+		return;
+	}
+	if (!before.captured) {
+		before.catalog = assetCatalogGetGeneration();
+		before.stage = g_StageNum;
+		before.stage_index = g_StageIndex;
+		before.room_count = g_Vars.roomcount;
+		before.rooms = g_Rooms;
+		before.captured = 1;
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.TRANSFER: creator baseline room=%u catalog=%u stage=0x%02x variant_absent=1 model=example:tri_mesh",
+			(unsigned)s_GridDraftRoom, before.catalog, before.stage);
+	}
+	if (assetCatalogGetGeneration() != before.catalog || g_StageNum != before.stage
+			|| g_StageIndex != before.stage_index || g_Vars.roomcount != before.room_count || g_Rooms != before.rooms) {
+		bootGridDraftFail("grid_transfer_review_creator_changed_world");
+		return;
+	}
+	grid_edit_variant_review_info_t review;
+	if (!netGridEditGetStagedReview(&review)) {
+		if (before.accepted.offer_serial) bootGridDraftFail("grid_transfer_review_creator_offer_lost");
+		return;
+	}
+	/* The first prepared review can remain visible until its actual Apply
+	 * outcome. The new offer must carry a fresh serial in the same round. */
+	if (s_GridLayoutSmoke.second && review.variant.offer_serial == s_GridLayoutSmoke.first_serial) return;
+	if (!bootGridRoomExtensionReviewMatches(&review.variant, draft) || !review.includes_dependencies) {
+		bootGridDraftFail("grid_transfer_review_creator_offer_scope");
+		return;
+	}
+	char sha[SHA256_HEX_SIZE];
+	sha256ToHex(review.variant.arena_sha256, sha);
+	if (!before.accepted.offer_serial) {
+		if (!review.transfer_available) return;
+		if (s_GridDraftLayoutReconnect && !s_GridLayoutSmoke.second && !s_GridLayoutReconnect.catalog) {
+			grid_playtest_view_t view;
+			grid_edit_room_control_t receipt;
+			if (!netGridEditGetPlaytestView(&view)) return;
+			if (!bootGridLayoutProjectionMatches(&view, 2700) || netGridEditGetObservedLayout(&receipt)) {
+				bootGridDraftFail("grid_layout_reconnect_original_projection");
+				return;
+			}
+			s_GridLayoutReconnect.catalog = before.catalog;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LAYOUT.RECONNECT: original room=%u epoch=%u rooms=2 actors=4 seam_x=%u",
+				(unsigned)s_GridDraftRoom, view.epoch, (unsigned)view.rooms[0].max_x);
+		}
+		const s32 match = bootGridRoomTransferHostShaMatches(&review.variant, sha);
+		if (!match) return;
+		if (match < 0 || !review.transfer_offered || !review.arena_bytes || review.reply
+				|| review.sources_prepared || !netGridEditAcceptStagedReviewTransfer()) {
+			bootGridDraftFail("grid_transfer_review_creator_consent");
+			return;
+		}
+		before.accepted = review.variant;
+		before.arena_bytes = review.arena_bytes;
+		return;
+	}
+	if (!gridEditVariantReviewMatches(&before.accepted, &review.variant) || review.arena_bytes != before.arena_bytes) {
+		bootGridDraftFail("grid_transfer_review_creator_revision_changed");
+		return;
+	}
+	if (!review.reply) return;
+	if (review.reply != GRID_EDIT_VARIANT_REVIEW_DEPS_VERIFIED || !review.sources_prepared) {
+		bootGridDraftFail("grid_transfer_review_creator_not_prepared");
+		return;
+	}
+	const s32 retry = bootGridLayoutRetrySmoke();
+	if (!retry || !s_GridLayoutSmoke.retry_reported_transfer) {
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.EXTENSION: creator transferred room=%u generation=%llu epoch=%u revision=%llu serial=%llu sha256=%s installed=0 catalog=%u stage=0x%02x",
+			(unsigned)s_GridDraftRoom, (unsigned long long)draft->invite.identity.generation, review.variant.stage_epoch,
+			(unsigned long long)review.variant.draft_revision, (unsigned long long)review.variant.offer_serial,
+			sha, before.catalog, before.stage);
+		s_GridLayoutSmoke.retry_reported_transfer = retry;
+	}
+	if (retry && !bootGridLayoutRetryCreator(draft, &review)) return;
+	if (s_GridDraftRelocateLayout && !s_GridLayoutSmoke.second) {
+		s_GridLayoutSmoke.second = 1;
+		s_GridLayoutSmoke.first_serial = review.variant.offer_serial;
+		memset(&before.accepted, 0, sizeof(before.accepted));
+		before.arena_bytes = 0;
+		s_GridDraftStepTick = SDL_GetTicks();
+		return;
+	}
+	if (s_GridDraftLayoutReconnect) {
+		s_GridRoomExtensionOffer = review.variant;
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_DISCONNECT;
+		s_GridDraftStepTick = SDL_GetTicks();
+		return;
+	}
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+}
+
+static void bootGridRoomExtensionReviewCreator(const grid_edit_room_state_t *draft, s32 has_draft)
+{
+	const u32 timeout = s_GridDraftTransferReview ? GRID_EXTENSION_TRANSFER_SMOKE_TIMEOUT_MS
+		: GRID_EXTENSION_REVIEW_SMOKE_TIMEOUT_MS;
+	if ((u32)(SDL_GetTicks() - s_GridDraftStepTick) >= timeout) {
+		bootGridDraftFail("grid_extension_review_creator_timeout");
+		return;
+	}
+	if (!has_draft || !draft->ready || draft->is_host
+			|| draft->invite.identity.generation != s_GridDraftInitialInvite.identity.generation
+			|| !bootGridDraftSameSource(&draft->invite, g_NetLocalClient)) {
+		bootGridDraftFail("grid_extension_review_creator_authority");
+		return;
+	}
+	if (s_GridDraftTransferReview) {
+		bootGridRoomExtensionTransferCreator(draft);
+		return;
+	}
+	grid_edit_variant_review_info_t offered;
+	if (!netGridEditGetStagedReview(&offered)) return;
+	const u32 catalog = assetCatalogGetGeneration();
+	const s32 installed = assetCatalogResolveAny(offered.variant.arena_id) != NULL;
+	char sha[SHA256_HEX_SIZE];
+	sha256ToHex(offered.variant.arena_sha256, sha);
+	const grid_edit_variant_review_reply_e expected = s_GridDraftPreparedReview
+		? GRID_EDIT_VARIANT_REVIEW_DEPS_VERIFIED : GRID_EDIT_VARIANT_REVIEW_ACKNOWLEDGED;
+	grid_edit_variant_review_info_t replied;
+	if (offered.reply || !bootGridRoomExtensionReviewMatches(&offered.variant, draft)
+			|| installed != s_GridDraftPreparedReview
+			|| (s_GridDraftPreparedReview && strcmp(sha, s_GridPreparedCreatorArenaSha) != 0)
+			|| !netGridEditReplyToStagedReview(1) || !netGridEditGetStagedReview(&replied)
+			|| replied.reply != expected || (s_GridDraftPreparedReview && !replied.sources_prepared)
+			|| !gridEditVariantReviewMatches(&offered.variant, &replied.variant)
+			|| assetCatalogGetGeneration() != catalog) {
+		bootGridDraftFail("grid_extension_review_creator_receipt");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.EXTENSION: creator %s room=%u generation=%llu epoch=%u revision=%llu serial=%llu sha256=%s installed=%d",
+		s_GridDraftPreparedReview ? "prepared" : "acknowledged", (unsigned)s_GridDraftRoom,
+		(unsigned long long)draft->invite.identity.generation,
+		replied.variant.stage_epoch, (unsigned long long)replied.variant.draft_revision,
+		(unsigned long long)replied.variant.offer_serial, sha, installed);
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+}
+
+static void bootGridRoomExtensionTick(const grid_edit_room_state_t *draft, u32 now)
+{
+	if (!draft->ready || draft->revision != s_GridRoomExtension.draft_revision
+			|| !bootGridRoomExtensionCandidateMatches()) {
+		bootGridDraftFail("grid_extension_candidate_lost");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW) {
+		bootGridRoomExtensionReviewHost(draft, now);
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_ROOM) {
+		if (mainGridRoomReturnPending() || !mainGridRoomBackdropActive() || !gridMatchRuntimeIsIdle()
+				|| netGridEditPrivatePlaytestRoom(s_GridDraftRoom) || g_NetStageEpoch
+				|| g_NetLocalClient->state != CLSTATE_LOBBY) return;
+		if (s_GridDraftPreparedReview) {
+			grid_edit_variant_review_info_t review;
+			if (netGridEditGetStagedReview(&review) || !bootGridDraftIsHostPeer(1)
+					|| !bootGridDraftIsHostPeer(2) || assetCatalogResolveAny(s_GridRoomExtension.arena_id)) {
+				bootGridDraftFail("grid_prepared_review_did_not_retire");
+				return;
+			}
+			if (s_GridDraftLayoutDecoration && !bootGridDecorationDraftMatches(
+					s_GridDecorationNative.moved_position.x, s_GridDecorationNative.moved_position.z)) {
+				bootGridDraftFail("grid_layout_decoration_return_pose");
+				return;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.GRID.EXTENSION: prepared review retired room=%u epoch=%u revision=%llu creator_lobby=1 ordinary_lobby=1",
+				(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)draft->revision);
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+			s_GridDraftStepTick = now;
+			return;
+		}
+		if (s_GridRoomExtensionEpoch) {
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.EXTENSION: returned room=%u epoch=%u revision=%llu ordinary_lobby=1",
+				(unsigned)s_GridDraftRoom, s_GridRoomExtensionEpoch, (unsigned long long)draft->revision);
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+			s_GridDraftStepTick = now;
+			return;
+		}
+		char ordinary[CATALOG_ID_LEN];
+		if (!netGridEditSaveVariant("Grid Extension Ordinary", ordinary, sizeof(ordinary))
+				|| strcmp(ordinary, "mod:arena_grid_extension_ordinary")
+				|| strcmp(ordinary, netGridEditSavedVariantId())
+				|| !netGridEditHasSavedVariant(ordinary)
+				|| !netGridEditHasSavedVariant(s_GridRoomExtension.arena_id)
+				|| !bootGridRoomExtensionCandidateMatches()
+				|| assetCatalogResolveAny(s_GridRoomExtension.arena_id)) {
+			bootGridDraftFail("grid_extension_ordinary_save_replaced_candidate");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.EXTENSION: room saved=%s staged=%s revision=%llu sha256=%s",
+			ordinary, s_GridRoomExtension.arena_id, (unsigned long long)draft->revision,
+			s_GridRoomExtension.arena_sha256);
+		if (!netGridEditStartPrivateVariantPlaytest(s_GridRoomExtension.arena_id, 3, BOTDIFF_NORMAL)) {
+			bootGridDraftFail("grid_extension_next_round_start");
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_EXTENSION_ACTIVE;
+		return;
+	}
+
+	const grid_match_runtime_identity_t *active = gridMatchRuntimeActive();
+	s32 ambient;
+	f32 native, rendered;
+	if (!active || !g_NetStageEpoch || !netGridEditPrivatePlaytestAmbient(&ambient)
+			|| ambient != GRID_DRAFT_SMOKE_BRIGHTNESS
+			|| !bootGridPlaytestReadLight(g_StageNum, ambient, &native, &rendered)) return;
+	char sha[SHA256_HEX_SIZE];
+	sha256ToHex(active->arena_sha256, sha);
+	if (g_NetStageEpoch <= s_GridPlaytestEpoch || active->stage != g_StageNum
+			|| active->offer.room_id != s_GridDraftRoom || strcmp(active->arena_id, s_GridRoomExtension.arena_id)
+			|| strcmp(sha, s_GridRoomExtension.arena_sha256) || !bootGridRoomExtensionBounds(3000.0f)) {
+		bootGridDraftFail("grid_extension_next_round_bounds");
+		return;
+	}
+	s_GridRoomExtensionEpoch = g_NetStageEpoch;
+	sysLogPrintf(LOG_NOTE,
+		"SMOKE.GRID.EXTENSION: loaded room=%u previous_epoch=%u epoch=%u arena=%s sha256=%s room1_min=%.0f room2_max=%.0f room2_center=%.0f",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, s_GridRoomExtensionEpoch, active->arena_id, sha,
+		g_Rooms[1].bbmin[0], g_Rooms[2].bbmax[0], g_Rooms[2].centre.x);
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+	mainEndStage();
+}
+
+static void bootGridPlaytestHostTick(const grid_edit_room_state_t *draft, u32 now)
+{
+	if ((s_GridDraftLiveReconnect || s_GridDraftLayoutReconnect) && (s_GridDraftStep >= BOOT_GRID_DRAFT_WAIT_LIVE_DETACH
+			&& s_GridDraftStep <= BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN)) {
+		bootGridLiveReconnectHostTick(draft, now);
+		return;
+	}
+	const u64 baseline_revision = s_GridDraftVariantPlaytest ? 2 : 1;
+	const u64 edited_revision = baseline_revision + 1;
+	const u64 return_revision = edited_revision + (s_GridDraftDecoration || s_GridDraftLayoutDecoration)
+		+ (s_GridDraftLayoutAmbientOff != 0);
+	if (!draft->is_host || !bootGridDraftSameSource(&draft->invite, &g_NetClients[1])
+			|| draft->invite.identity.generation != s_GridDraftInitialInvite.identity.generation) {
+		bootGridDraftFail("grid_playtest_draft_authority");
+		return;
+	}
+	if (s_GridDraftRoomExtension && (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW
+			|| s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_ROOM
+			|| s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_ACTIVE)) {
+		bootGridRoomExtensionTick(draft, now);
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_START) {
+		if (!draft->ready || draft->revision < baseline_revision) return;
+		if (draft->revision != baseline_revision || !draft->enabled
+				|| draft->brightness != GRID_DRAFT_SMOKE_BASE_BRIGHTNESS) {
+			bootGridDraftFail("grid_playtest_baseline_draft");
+			return;
+		}
+		if (s_GridDraftVariantPlaytest && !bootGridPlaytestSavedStartVariant()) {
+			bootGridDraftFail("grid_playtest_saved_variant");
+			return;
+		}
+		const s32 started = s_GridDraftVariantPlaytest
+			? netGridEditStartPrivateVariantPlaytest(s_GridPlaytestVariant.arena_id, 3, BOTDIFF_NORMAL)
+			: netGridEditStartPrivatePlaytest(3, BOTDIFF_NORMAL);
+		if (!started) {
+			bootGridDraftFail("grid_playtest_launch");
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE;
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE) {
+		s32 current;
+		f32 native;
+		if (!g_NetStageEpoch || !netGridEditPrivatePlaytestAmbient(&current)
+				|| current != GRID_DRAFT_SMOKE_BASE_BRIGHTNESS
+				|| !bootGridPlaytestReadLight(g_StageNum, current, &native, &s_GridPlaytestBaseline)) return;
+		if (s_GridDraftVariantPlaytest && !bootGridPlaytestCheckActiveVariant()) {
+			bootGridDraftFail("grid_playtest_loaded_variant");
+			return;
+		}
+		s_GridPlaytestEpoch = g_NetStageEpoch;
+		s_GridPlaytestStage = g_StageNum;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: release_creator room=%u generation=%llu epoch=%u",
+			(unsigned)s_GridDraftRoom, (unsigned long long)draft->invite.identity.generation,
+			s_GridPlaytestEpoch);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_EDIT;
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_EDIT) {
+		if (g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage) {
+			bootGridDraftFail("grid_playtest_epoch_changed");
+			return;
+		}
+		s32 current;
+		f32 native, rendered;
+		if (draft->revision != edited_revision || !netGridEditPrivatePlaytestAmbient(&current)
+				|| current != GRID_DRAFT_SMOKE_BRIGHTNESS
+				|| !bootGridPlaytestReadLight(g_StageNum, current, &native, &rendered)) return;
+		if (!draft->ready || !draft->enabled || draft->brightness != current
+				|| rendered <= native || rendered <= s_GridPlaytestBaseline) {
+			bootGridDraftFail("grid_playtest_light_did_not_change");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: rendered edit epoch=%u revision=%llu before=%.1f native=%.1f after=%.1f",
+			s_GridPlaytestEpoch, (unsigned long long)draft->revision, s_GridPlaytestBaseline, native, rendered);
+		if (s_GridDraftLiveReconnect) {
+			s_GridPlaytestBaseline = rendered;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: release_disconnect room=%u epoch=%u",
+				(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_DETACH;
+			s_GridDraftStepTick = now;
+			return;
+		}
+		if (s_GridDraftVisibility) {
+			if (!bootGridVisibilityReadCursorSpawn()) {
+				bootGridDraftFail("grid_view_host_spawn");
+				return;
+			}
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_VISIBILITY;
+			return;
+		}
+		if (s_GridDraftDecoration || s_GridDraftLayoutDecoration) {
+			if (!bootGridDecorationStartHost(now)) bootGridDraftFail("grid_decoration_host_baseline");
+			return;
+		}
+		if (s_GridDraftRoomExtension) {
+			if (s_GridDraftLayoutReconnect) s_GridPlaytestBaseline = rendered;
+			bootGridRoomExtensionStage(draft);
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN;
+		mainEndStage();
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_VISIBILITY) {
+		if (g_NetStageEpoch != s_GridPlaytestEpoch || g_StageNum != s_GridPlaytestStage
+				|| !draft->ready || draft->revision != edited_revision || draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS) {
+			bootGridDraftFail("grid_view_stage_changed");
+			return;
+		}
+		bootGridVisibilityHostTick(now);
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_REJECTION
+			|| s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE) {
+		bootGridDecorationHostTick(draft, now);
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_LAYOUT_AMBIENT_OFF) {
+		bootGridLayoutAmbientOffTick(draft, now);
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETURN) {
+		if (g_NetStageEpoch || !g_MainIsEndscreen || g_NetLocalClient->state != CLSTATE_LOBBY) return;
+		s32 enabled, brightness;
+		if (!draft->ready || draft->revision != return_revision
+				|| draft->enabled != !s_GridDraftLayoutAmbientOff
+				|| draft->brightness != (s_GridDraftLayoutAmbientOff ? 0 : GRID_DRAFT_SMOKE_BRIGHTNESS)
+				|| netGridEditPrivatePlaytestAmbientState(&enabled, &brightness)) {
+			bootGridDraftFail("grid_playtest_return_state");
+			return;
+		}
+		/* Same exit, Room open and resync actions as Combat Simulator Continue. */
+		extern void pdguiEndscreenExitToRoom(void);
+		extern void pdguiSetInRoom(s32 inRoom);
+		pdguiEndscreenExitToRoom();
+		pdguiSetInRoom(1);
+		netSendLobbyResync();
+		if (s_GridDraftRoomExtension) {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_EXTENSION_ROOM;
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETIRED;
+		s_GridDraftStepTick = now;
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_RETIRED) {
+		if ((u32)(now - s_GridDraftStepTick) >= GRID_PLAYTEST_RETURN_SMOKE_TIMEOUT_MS) {
+			bootGridDraftFail("grid_playtest_continue_timeout");
+			return;
+		}
+		/* Continue queues the stage stop. Keep the draft and both peers until
+		 * the next Room backdrop has released the old match world. */
+		if (mainGridRoomReturnPending() || !mainGridRoomBackdropActive() || !gridMatchRuntimeIsIdle()) return;
+		if (netGridEditPrivatePlaytestRoom(s_GridDraftRoom) || g_NetStageEpoch
+				|| g_NetLocalClient->state != CLSTATE_LOBBY || !draft->ready || !draft->enabled
+				|| draft->revision != return_revision || draft->brightness != GRID_DRAFT_SMOKE_BRIGHTNESS) {
+			bootGridDraftFail("grid_playtest_continue_state");
+			return;
+		}
+		if (s_GridDraftVariantPlaytest) {
+			grid_edit_move_spawn_t spawn;
+			if (!netGridEditGetSpawnPose(0, &spawn) || strcmp(spawn.spawn_id, s_GridPlaytestMovedSpawn.spawn_id)
+					|| !bootGridPlaytestPoseMatches(&s_GridPlaytestMovedSpawn, spawn.position, spawn.look)) {
+				bootGridDraftFail("grid_playtest_continue_spawn");
+				return;
+			}
+		}
+		if (s_GridDraftDecoration) {
+			const f32 x = s_GridDecorationOriginal.x + GRID_DECORATION_SMOKE_X_DELTA;
+			const f32 z = s_GridDecorationOriginal.z;
+			if (!bootGridDecorationDraftMatches(x, z)) {
+				bootGridDraftFail("grid_decoration_continue_pose");
+				return;
+			}
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DECORATION: retained room=%u epoch=%u record=%s revision=3 x=%.1f z=%.1f",
+				(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, s_GridDecorationOriginal.record_id, x, z);
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: returned room=%u epoch=%u revision=%llu ambient=%d",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch, (unsigned long long)draft->revision, draft->brightness);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+		s_GridDraftStepTick = now;
+	}
+}
+
+static void bootGridDraftHostTick(void)
+{
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_DONE || g_NetMode != NETMODE_SERVER
+			|| g_NetDedicated || !g_NetLocalClient) return;
+	if (s_GridDraftRoom == 0xff || g_NetLocalClient->room_id != s_GridDraftRoom) {
+		bootGridDraftFail("grid_draft_host_room");
+		return;
+	}
+	const u32 now = SDL_GetTicks();
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_FLUSH_CLOSE) {
+		/* The creator exits on the targeted close. Keep servicing the
+		 * reliable transport with the ordinary peer still in this room. */
+		if (!bootGridDraftIsHostPeer(2)) {
+			bootGridDraftFail("grid_draft_ordinary_left_before_shutdown");
+			return;
+		}
+		if ((u32)(now - s_GridDraftStepTick) >= 3000u) {
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host close_flushed room=%u ordinary_lobby=1",
+				(unsigned)s_GridDraftRoom);
+			s_GridDraftStep = BOOT_GRID_DRAFT_DONE;
+			smokeHarnessExit(0, "grid_draft_complete");
+		}
+		return;
+	}
+	const s32 creator_returning = (s_GridDraftLiveReconnect || s_GridDraftLayoutReconnect)
+		&& s_GridDraftStep >= BOOT_GRID_DRAFT_WAIT_LIVE_DETACH
+		&& s_GridDraftStep <= BOOT_GRID_DRAFT_WAIT_LIVE_ROOM;
+	if ((!creator_returning && !bootGridDraftIsHostPeer(1)) || !bootGridDraftIsHostPeer(2)) {
+		bootGridDraftFail("grid_draft_host_members");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_ROOM) {
+		if (!netGridEditCanInvite(1)) return;
+		if (!netGridEditInvite(1, g_BootLaunchMpArena, NULL)) {
+			bootGridDraftFail("grid_draft_invite");
+			return;
+		}
+		if (s_GridDraftResume || s_GridDraftPlaytest) {
+			grid_edit_room_state_t offered;
+			if (!netGridEditGetState(&offered) || !offered.pending_invite || !offered.is_host
+					|| !offered.peer_actor || !bootGridDraftRecordInitialInvite(&offered.invite, &g_NetClients[1])) {
+				bootGridDraftFail("grid_draft_host_initial_offer");
+				return;
+			}
+			s_GridDraftInitialActor = offered.peer_actor;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host room=%u creator=1 ordinary=2",
+			(unsigned)s_GridDraftRoom);
+		s_GridDraftStep = s_GridDraftPlaytest ? BOOT_GRID_DRAFT_WAIT_PLAYTEST_START : BOOT_GRID_DRAFT_WAIT_COMMIT;
+		return;
+	}
+
+	grid_edit_room_state_t state;
+	if (!netGridEditGetState(&state)) {
+		bootGridDraftFail("grid_draft_authority_lost");
+		return;
+	}
+	if (s_GridDraftPlaytest && s_GridDraftStep != BOOT_GRID_DRAFT_WAIT_CLOSE) {
+		bootGridPlaytestHostTick(&state, now);
+		return;
+	}
+	if (s_GridDraftResume && s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_COMMIT) {
+		if (!state.creator_detached) return;
+		if (!state.is_host || state.ready || state.pending_invite || !state.enabled || state.revision != 2
+				|| state.brightness != GRID_DRAFT_SMOKE_BRIGHTNESS || state.peer_actor
+				|| state.invite.identity.generation != s_GridDraftInitialInvite.identity.generation
+				|| !bootGridDraftSameSource(&state.invite, &g_NetClients[1])) {
+			bootGridDraftFail("grid_draft_host_retained_value");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host retained revision=2 ambient=%d generation=%llu source_sha256=%s",
+			state.brightness, (unsigned long long)state.invite.identity.generation, state.invite.arena_sha256);
+		if (!netGridEditCanInvite(1) || !netGridEditInvite(1, state.invite.arena_id, state.invite.arena_sha256)
+				|| !netGridEditGetState(&state) || !state.pending_invite || !state.pending_resume || !state.snapshot_ready
+				|| state.ready || state.revision != 2 || state.peer_actor <= s_GridDraftInitialActor
+				|| state.invite.identity.generation <= s_GridDraftInitialInvite.identity.generation
+				|| !bootGridDraftSameSource(&state.invite, &g_NetClients[1])) {
+			bootGridDraftFail("grid_draft_host_resume_invite");
+			return;
+		}
+		s_GridDraftResumeGeneration = state.invite.identity.generation;
+		s_GridDraftResumeActor = state.peer_actor;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host resume_invite generation=%llu actor=%llu source_sha256=%s",
+			(unsigned long long)s_GridDraftResumeGeneration, (unsigned long long)s_GridDraftResumeActor,
+			state.invite.arena_sha256);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT;
+		return;
+	}
+	if (s_GridDraftResume && s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT && state.revision == 2) {
+		bootGridDraftHostCommitResumeTail(&state, &g_NetClients[1]);
+		return;
+	}
+	const u64 revision = s_GridDraftResume ? 4 : 2;
+	const s32 brightness = s_GridDraftResume ? GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS : GRID_DRAFT_SMOKE_BRIGHTNESS;
+	const enum boot_grid_private_draft_step commit_step = s_GridDraftResume
+		? BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT : BOOT_GRID_DRAFT_WAIT_COMMIT;
+	if (s_GridDraftStep == commit_step && state.ready && state.revision == revision) {
+		const char *name = s_GridDraftResume ? "Grid_Resume_Draft_Variant" : "Grid_Shared_Draft_Variant";
+		const char *expected = s_GridDraftResume ? "mod:arena_grid_resume_draft_variant" : "mod:arena_grid_shared_draft_variant";
+		char arena[CATALOG_ID_LEN];
+		if (!state.is_host || !state.enabled || state.brightness != brightness
+				|| (s_GridDraftResume && (state.pending_resume || state.peer_actor != s_GridDraftResumeActor
+					|| state.invite.identity.generation != s_GridDraftResumeGeneration
+					|| !bootGridDraftSameSource(&state.invite, &g_NetClients[1])))
+				|| !netGridEditSaveVariant(name, arena, sizeof(arena)) || strcmp(arena, expected) != 0
+				|| (s_GridDraftResume && !bootGridDraftVerifySavedVariant(arena))) {
+			bootGridDraftFail("grid_draft_save_variant");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host revision=%llu ambient=%d",
+			(unsigned long long)revision, state.brightness);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+		s_GridDraftStepTick = SDL_GetTicks();
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_CLOSE
+			&& (u32)(now - s_GridDraftStepTick) >= 1500u) {
+		netGridEditClose();
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=host closed room=%u creator_lobby=1 ordinary_lobby=1",
+			(unsigned)s_GridDraftRoom);
+		s_GridDraftStep = BOOT_GRID_DRAFT_FLUSH_CLOSE;
+		s_GridDraftStepTick = SDL_GetTicks();
+	}
+}
+
+static void bootGridLiveReconnectClientTick(u32 now)
+{
+	if (g_NetStageEpoch || (u32)(now - s_GridDraftStepTick) >= GRID_LIVE_RECONNECT_SMOKE_TIMEOUT_MS) {
+		bootGridDraftFail("grid_live_reconnect_creator_stage_or_timeout");
+		return;
+	}
+	char prefix[160];
+	char record[80];
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_LIVE_DISCONNECT) {
+		if (s_GridDraftLayoutReconnect && !s_GridLayoutReconnect.before_disconnect.apply_layout_generation) {
+			grid_edit_room_state_t draft;
+			if (!g_NetLocalClient || g_NetLocalClient->state != CLSTATE_LOBBY
+					|| !netGridEditGetState(&draft) || !draft.ready || draft.local_actor != s_GridDraftInitialActor
+					|| draft.revision != 2 || !bootGridDraftSameSource(&draft.invite, g_NetLocalClient)) {
+				bootGridDraftFail("grid_layout_reconnect_creator_before_disconnect");
+				return;
+			}
+			if (!bootGridLayoutReconnectObserve(&draft, 0)) return;
+		}
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.LIVE_RECONNECT: release_disconnect room=%u epoch=%u",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+		grid_edit_room_state_t draft;
+		if (!netGridEditGetState(&draft) || !draft.ready || draft.revision != 2
+				|| draft.brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+				|| !bootGridDraftSameSource(&draft.invite, g_NetLocalClient)
+				|| netDisconnect() != 0 || g_NetMode != NETMODE_NONE || netGridEditGetState(&draft)
+				|| (s_GridDraftLayoutReconnect && !bootGridLayoutProjectionHidden())) {
+			bootGridDraftFail("grid_live_reconnect_creator_disconnect");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: creator disconnected room=%u epoch=%u revision=2",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_AUTH;
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_LIVE_AUTH) {
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.LIVE_RECONNECT: detached room=%u epoch=%u revision=2 ",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+		const char *address = sysArgGetString("--connect-host");
+		if (g_NetMode != NETMODE_NONE || !address || strncmp(address, "127.0.0.1:", 10) != 0
+				|| netStartClient(address) != 0) {
+			bootGridDraftFail("grid_live_reconnect_creator_reauth");
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_ROOM_INVITE;
+		return;
+	}
+	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient || g_NetLocalClient->state < CLSTATE_LOBBY) return;
+	struct netclient *local = g_NetLocalClient;
+	grid_edit_room_state_t draft;
+	if (!local->peer || local->id != 1 || local->state != CLSTATE_LOBBY || local->stage_ready
+			|| (local->flags & CLFLAG_SPECTATOR) || netGridEditGetState(&draft)
+			|| (s_GridDraftLayoutReconnect && !bootGridLayoutProjectionHidden())) {
+		bootGridDraftFail("grid_live_reconnect_creator_room_authority");
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_LIVE_ROOM_INVITE) {
+		grid_edit_room_invite_t invite;
+		if (local->room_id != 0xff || local->peer->connectID == s_GridDraftConnection
+				|| netGridEditPendingInvite(&invite)) {
+			bootGridDraftFail("grid_live_reconnect_creator_lounge");
+			return;
+		}
+		s32 advertised = 0;
+		for (s32 i = 0; i < g_RoomCacheCount; ++i) {
+			const room_cache_entry_t *room = &g_RoomCache[i];
+			if (room->id != s_GridDraftRoom) continue;
+			advertised = room->state == ROOM_STATE_LOBBY && room->access == ROOM_ACCESS_INVITE
+				&& room->client_count == 2 && room->client_count < room->max_players;
+			break;
+		}
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.LIVE_RECONNECT: room_invite room=%u epoch=%u client=1 ",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		if (!advertised || !bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+		s_GridDraftConnection = local->peer->connectID;
+		if (netRequestRoomJoin(s_GridDraftRoom, "") != 0) {
+			bootGridDraftFail("grid_live_reconnect_creator_join");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: creator requested Room join room=%u epoch=%u fresh_connection=1",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_ROOM;
+		return;
+	}
+	if (local->room_id == 0xff) {
+		if (!netRoomRequestPending()) {
+			sysLogPrintf(LOG_ERROR, "SMOKE.GRID.LIVE_RECONNECT: Room join failed: %s", netRoomRequestMessage());
+			bootGridDraftFail("grid_live_reconnect_creator_join_result");
+		}
+		return;
+	}
+	if (local->room_id != s_GridDraftRoom || local->peer->connectID != s_GridDraftConnection) {
+		bootGridDraftFail("grid_live_reconnect_creator_wrong_room");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LIVE_RECONNECT: creator rejoined room=%u epoch=%u lobby=1 role=none",
+		(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+	if (s_GridDraftLayoutReconnect) {
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.LAYOUT.RECONNECT: ungranted room=%u epoch=%u receipt=0 projection=0",
+			(unsigned)s_GridDraftRoom, s_GridPlaytestEpoch);
+	}
+	s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_RESUME_INVITE;
+}
+
+static void bootGridDraftClientTick(void)
+{
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_DONE) return;
+	if ((s_GridDraftLiveReconnect || s_GridDraftLayoutReconnect) && s_GridDraftRole == BOOT_GRID_DRAFT_CREATOR
+			&& s_GridDraftStep >= BOOT_GRID_DRAFT_WAIT_LIVE_DISCONNECT
+			&& s_GridDraftStep <= BOOT_GRID_DRAFT_WAIT_LIVE_ROOM) {
+		bootGridLiveReconnectClientTick(SDL_GetTicks());
+		return;
+	}
+	const s32 track_link = s_GridDraftResume || s_GridDraftPlaytest;
+	if (track_link && s_GridDraftRole == BOOT_GRID_DRAFT_CREATOR && s_GridDraftRoom != 0xff
+			&& (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient || !g_NetLocalClient->peer
+				|| g_NetLocalClient->state != CLSTATE_LOBBY || g_NetLocalClient->room_id != s_GridDraftRoom
+				|| g_NetLocalClient->peer->connectID != s_GridDraftConnection)) {
+		bootGridDraftFail("grid_draft_creator_link_changed");
+		return;
+	}
+	if (s_GridDraftPlaytest && g_NetStageEpoch) {
+		bootGridDraftFail("grid_playtest_remote_stage_epoch");
+		return;
+	}
+	if (s_GridDraftRole == BOOT_GRID_DRAFT_ORDINARY && s_GridDraftRoom != 0xff) {
+		/* The smoke requires the shutdown reason from the normal transport
+		 * log before this marker. Match the last live room until teardown. */
+		if (g_NetMode == NETMODE_NONE) {
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=ordinary disconnected room=%u",
+				(unsigned)s_GridDraftRoom);
+			s_GridDraftStep = BOOT_GRID_DRAFT_DONE;
+			smokeHarnessExit(0, "grid_draft_complete");
+			return;
+		}
+		if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient
+				|| g_NetLocalClient->state != CLSTATE_LOBBY
+				|| g_NetLocalClient->room_id != s_GridDraftRoom) {
+			bootGridDraftFail("grid_draft_ordinary_left_room");
+			return;
+		}
+	}
+	if (g_NetMode != NETMODE_CLIENT
+			|| !g_NetLocalClient || g_NetLocalClient->state != CLSTATE_LOBBY
+			|| g_NetLocalClient->room_id == 0xff) return;
+	grid_edit_room_invite_t invite;
+	grid_edit_room_state_t state;
+	const s32 invited = netGridEditPendingInvite(&invite);
+	const s32 has_draft = netGridEditGetState(&state);
+	if (s_GridDraftRole == BOOT_GRID_DRAFT_ORDINARY) {
+		grid_playtest_view_t view;
+		if (g_NetLocalClient->id != 2 || invited || has_draft) {
+			bootGridDraftFail("grid_draft_ordinary_membership");
+			return;
+		}
+		if (s_GridDraftVisibility && netGridEditGetPlaytestView(&view)) {
+			bootGridDraftFail("grid_view_ordinary_disclosure");
+			return;
+		}
+		if (s_GridDraftLayoutReconnect && !bootGridLayoutProjectionHidden()) {
+			bootGridDraftFail("grid_layout_reconnect_ordinary_disclosure");
+			return;
+		}
+		if (s_GridDraftRoom == 0xff) {
+			s_GridDraftRoom = g_NetLocalClient->room_id;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=ordinary client=2 room=%u lobby=1",
+				(unsigned)s_GridDraftRoom);
+		}
+		return;
+	}
+	if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_ROOM && invited) {
+		s_GridDraftRoom = g_NetLocalClient->room_id;
+		if (g_NetLocalClient->id != 1
+				|| (track_link && !bootGridDraftRecordInitialInvite(&invite, g_NetLocalClient))
+				|| !netGridEditReply(1)) {
+			bootGridDraftFail("grid_draft_accept");
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_GRANT;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_GRANT && has_draft && state.ready) {
+		if (state.is_host || state.revision != 1
+				|| (track_link && (!state.local_actor || !state.enabled
+					|| state.brightness != GRID_DRAFT_SMOKE_BASE_BRIGHTNESS
+					|| state.invite.identity.generation != s_GridDraftInitialInvite.identity.generation
+					|| !bootGridDraftSameSource(&state.invite, g_NetLocalClient)))
+				|| (!s_GridDraftPlaytest && !netGridEditSetAmbient(1, GRID_DRAFT_SMOKE_BRIGHTNESS))) {
+			bootGridDraftFail("grid_draft_ambient");
+			return;
+		}
+		if (s_GridDraftPlaytest) {
+			s_GridDraftInitialActor = state.local_actor;
+			if (s_GridDraftVariantPlaytest) {
+				if (state.next_sequence != 1 || !netGridEditGetSpawnPose(0, &s_GridPlaytestMovedSpawn)
+						|| !bootGridPlaytestOffsetSpawn(&s_GridPlaytestMovedSpawn)
+						|| !netGridEditMoveSpawn(&s_GridPlaytestMovedSpawn)) {
+					bootGridDraftFail("grid_playtest_creator_move_start");
+					return;
+				}
+				sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: creator moved start=%s x=%.2f room=%u lobby=1",
+					s_GridPlaytestMovedSpawn.spawn_id, s_GridPlaytestMovedSpawn.position[0], (unsigned)s_GridDraftRoom);
+				s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_SPAWN;
+			} else {
+				s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE;
+			}
+			return;
+		}
+		if (s_GridDraftResume) {
+			s_GridDraftInitialActor = state.local_actor;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator initial_grant generation=%llu actor=%llu source_sha256=%s",
+				(unsigned long long)state.invite.identity.generation, (unsigned long long)state.local_actor,
+				state.invite.arena_sha256);
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_COMMIT;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_SPAWN && has_draft && state.revision == 2) {
+		grid_edit_move_spawn_t spawn;
+		if (!state.ready || state.pending_command || state.local_actor != s_GridDraftInitialActor || state.next_sequence != 2
+				|| !netGridEditGetSpawnPose(0, &spawn) || strcmp(spawn.spawn_id, s_GridPlaytestMovedSpawn.spawn_id)
+				|| !bootGridPlaytestPoseMatches(&s_GridPlaytestMovedSpawn, spawn.position, spawn.look)) {
+			bootGridDraftFail("grid_playtest_creator_observe_start");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: creator observed start=%s revision=2 x=%.2f",
+			spawn.spawn_id, spawn.position[0]);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_BASELINE) {
+		char prefix[128];
+		char record[48];
+		snprintf(prefix, sizeof(prefix), "SMOKE.GRID.PLAYTEST: release_creator room=%u generation=%llu epoch=",
+			(unsigned)s_GridDraftRoom, (unsigned long long)s_GridDraftInitialInvite.identity.generation);
+		if (!bootGridPlaytestReadHostWitness(prefix, record, sizeof(record))) return;
+		unsigned epoch;
+		if (sscanf(record, "%u", &epoch) != 1 || !epoch || !has_draft || !state.ready
+				|| state.revision != (s_GridDraftVariantPlaytest ? 2u : 1u)
+				|| !netGridEditSetAmbient(1, GRID_DRAFT_SMOKE_BRIGHTNESS)) {
+			bootGridDraftFail("grid_playtest_creator_edit");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PLAYTEST: creator sent ambient=%d host_epoch=%u room=%u lobby=1",
+			GRID_DRAFT_SMOKE_BRIGHTNESS, epoch, (unsigned)s_GridDraftRoom);
+		if (s_GridDraftVisibility || s_GridDraftDecoration || s_GridDraftLiveReconnect || s_GridDraftRoomExtension) {
+			s_GridPlaytestEpoch = epoch;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_COMMIT;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_COMMIT && has_draft
+			&& state.revision == (s_GridDraftVariantPlaytest ? 3u : 2u)) {
+		if (state.pending_command || !state.enabled || state.brightness != GRID_DRAFT_SMOKE_BRIGHTNESS
+				|| (s_GridDraftVariantPlaytest && (state.local_actor != s_GridDraftInitialActor || state.next_sequence != 3))) {
+			bootGridDraftFail("grid_draft_guest_value");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator revision=%llu ambient=%d",
+			(unsigned long long)state.revision, state.brightness);
+		if (s_GridDraftRoomExtension && !s_GridDraftLayoutDecoration) {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW;
+			s_GridDraftStepTick = SDL_GetTicks();
+			return;
+		}
+		if (s_GridDraftLiveReconnect) {
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_LIVE_DISCONNECT;
+			s_GridDraftStepTick = SDL_GetTicks();
+			return;
+		}
+		if (s_GridDraftVisibility) {
+			if (!bootGridVisibilityReadCursorSpawn()) {
+				bootGridDraftFail("grid_view_creator_spawn");
+				return;
+			}
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_PLAYTEST_VISIBILITY;
+			return;
+		}
+		if (s_GridDraftDecoration || s_GridDraftLayoutDecoration) {
+			if (netGridEditDecorationCount() != 1 || !netGridEditGetDecorationPose(0, &s_GridDecorationOriginal)) {
+				bootGridDraftFail("grid_decoration_creator_baseline");
+				return;
+			}
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_DECORATION_START;
+			s_GridDraftStepTick = SDL_GetTicks();
+			return;
+		}
+		if (s_GridDraftResume) {
+			netGridEditClose();
+			if (netGridEditGetState(&state) || g_NetLocalClient->room_id != s_GridDraftRoom
+					|| g_NetLocalClient->state != CLSTATE_LOBBY) {
+				bootGridDraftFail("grid_draft_creator_leave");
+				return;
+			}
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator voluntarily_left room=%u revision=2 lobby=1",
+				(unsigned)s_GridDraftRoom);
+			s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_RESUME_INVITE;
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+	} else if (s_GridDraftRoomExtension && s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_EXTENSION_REVIEW) {
+		bootGridRoomExtensionReviewCreator(&state, has_draft);
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_PLAYTEST_VISIBILITY) {
+		if (!has_draft) {
+			bootGridDraftFail("grid_view_creator_authority_lost");
+			return;
+		}
+		bootGridVisibilityCreatorTick(&state);
+	} else if (s_GridDraftStep >= BOOT_GRID_DRAFT_WAIT_DECORATION_START
+			&& s_GridDraftStep <= BOOT_GRID_DRAFT_WAIT_DECORATION_MOVE) {
+		if (!has_draft) {
+			bootGridDraftFail("grid_decoration_creator_authority_lost");
+			return;
+		}
+		bootGridDecorationCreatorTick(&state);
+	} else if (s_GridDraftVisibility && s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_CLOSE && has_draft) {
+		grid_playtest_view_t view;
+		if (netGridEditGetPlaytestView(&view)) bootGridDraftFail("grid_view_after_revoke");
+	} else if (s_GridDraftLayoutReconnect && (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_INVITE
+			|| (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_GRANT && (!has_draft || !state.ready)))
+			&& !bootGridLayoutProjectionHidden()) {
+		bootGridDraftFail("grid_layout_reconnect_premature_projection");
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_INVITE && invited) {
+		if (has_draft || invite.identity.generation <= s_GridDraftInitialInvite.identity.generation
+				|| !bootGridDraftSameSource(&invite, g_NetLocalClient) || !netGridEditReply(1)) {
+			bootGridDraftFail("grid_draft_creator_resume_accept");
+			return;
+		}
+		s_GridDraftResumeGeneration = invite.identity.generation;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator accepted_resume generation=%llu source_sha256=%s",
+			(unsigned long long)s_GridDraftResumeGeneration, invite.arena_sha256);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_RESUME_GRANT;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_GRANT && has_draft && state.ready) {
+		if (state.is_host || !state.can_edit || state.pending_resume || state.revision != 3 || !state.enabled
+				|| state.brightness != GRID_DRAFT_SMOKE_RESUME_TAIL_BRIGHTNESS || state.local_actor <= s_GridDraftInitialActor
+				|| state.next_sequence != 1 || state.invite.identity.generation != s_GridDraftResumeGeneration
+				|| !bootGridDraftSameSource(&state.invite, g_NetLocalClient)) {
+			bootGridDraftFail("grid_draft_creator_resume_grant");
+			return;
+		}
+		if (s_GridDraftLayoutReconnect && !bootGridLayoutReconnectObserve(&state, 1)) return;
+		s_GridDraftResumeActor = state.local_actor;
+		sysLogPrintf(LOG_NOTE,
+			"SMOKE.GRID.DRAFT: role=creator resumed revision=%llu ambient=%d generation=%llu actor=%llu source_sha256=%s",
+			(unsigned long long)state.revision, state.brightness, (unsigned long long)s_GridDraftResumeGeneration,
+			(unsigned long long)s_GridDraftResumeActor, state.invite.arena_sha256);
+		if (!netGridEditSetAmbient(1, GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS)) {
+			bootGridDraftFail("grid_draft_creator_post_resume_command");
+			return;
+		}
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_RESUME_COMMIT && has_draft && state.revision == 4) {
+		if (!state.ready || state.pending_command || !state.enabled
+				|| state.brightness != GRID_DRAFT_SMOKE_RESUME_BRIGHTNESS || state.next_sequence != 2
+				|| state.local_actor != s_GridDraftResumeActor || state.invite.identity.generation != s_GridDraftResumeGeneration) {
+			bootGridDraftFail("grid_draft_creator_resumed_value");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator revision=%llu ambient=%d actor=%llu",
+			(unsigned long long)state.revision, state.brightness, (unsigned long long)s_GridDraftResumeActor);
+		s_GridDraftStep = BOOT_GRID_DRAFT_WAIT_CLOSE;
+	} else if (s_GridDraftStep == BOOT_GRID_DRAFT_WAIT_CLOSE && !has_draft) {
+		if (g_NetLocalClient->room_id != s_GridDraftRoom
+				|| strcmp(netGridEditError(), "The host ended Shared Grid.") != 0) {
+			bootGridDraftFail("grid_draft_guest_close");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.DRAFT: role=creator closed room=%u lobby=1",
+			(unsigned)s_GridDraftRoom);
+		s_GridDraftStep = BOOT_GRID_DRAFT_DONE;
+		smokeHarnessExit(0, "grid_draft_complete");
+	}
+}
+
+enum boot_grid_proposal_role {
+	BOOT_GRID_PROPOSAL_NONE,
+	BOOT_GRID_PROPOSAL_HOST,
+	BOOT_GRID_PROPOSAL_DONOR,
+	BOOT_GRID_PROPOSAL_ORDINARY,
+};
+
+enum boot_grid_proposal_step {
+	BOOT_GRID_PROPOSAL_WAIT_ROOM,
+	BOOT_GRID_PROPOSAL_WAIT_DECLINE,
+	BOOT_GRID_PROPOSAL_WAIT_REOFFER,
+	BOOT_GRID_PROPOSAL_WAIT_APPROVAL,
+	BOOT_GRID_PROPOSAL_WAIT_ACTIVE,
+	BOOT_GRID_PROPOSAL_WAIT_RESULT,
+	BOOT_GRID_PROPOSAL_WAIT_RETURN,
+	BOOT_GRID_PROPOSAL_WAIT_RETIRE,
+	BOOT_GRID_PROPOSAL_DONE,
+};
+
+static const char kBootGridProposalWeapon[] = "mod:weapon_grid_triangle";
+static const char kBootGridProposalMod[] = "mod.weapon_grid_triangle";
+static const char kBootGridProposalArena[] = "mod:arena_grid_proposal";
+static enum boot_grid_proposal_role s_BootGridProposalRole;
+static enum boot_grid_proposal_step s_BootGridProposalStep;
+static u32 s_BootGridProposalTick;
+static u8 s_BootGridProposalRoom = 0xff;
+static u64 s_BootGridProposalFirstSerial;
+static s32 s_BootGridProposalRound = 1;
+static s32 s_BootGridProposalConsent;
+static u32 s_BootGridProposalEpoch;
+static grid_match_runtime_identity_t s_BootGridProposalWorld;
+static u8 s_BootGridProposalWeaponSha[SHA256_DIGEST_SIZE];
+static u8 s_BootGridProposalArenaSha[SHA256_DIGEST_SIZE];
+static char s_BootGridProposalScratch[FS_MAXPATH + 1];
+
+static void bootGridProposalInit(void)
+{
+	if (!smokeHarnessIsActive()) return;
+	const char *role = sysArgGetString("--debug-grid-mod-proposal");
+	if (!role) return;
+	if (strcmp(role, "host") == 0) s_BootGridProposalRole = BOOT_GRID_PROPOSAL_HOST;
+	else if (strcmp(role, "donor") == 0) s_BootGridProposalRole = BOOT_GRID_PROPOSAL_DONOR;
+	else if (strcmp(role, "ordinary") == 0) s_BootGridProposalRole = BOOT_GRID_PROPOSAL_ORDINARY;
+	else smokeHarnessExit(1, "grid_proposal_invalid_role");
+}
+
+static void bootGridProposalStep(enum boot_grid_proposal_step step)
+{
+	s_BootGridProposalStep = step;
+	s_BootGridProposalTick = SDL_GetTicks();
+}
+
+static void bootGridProposalFail(const char *reason)
+{
+	const char *notice = netmsgGridModProposalNotice();
+	sysLogPrintf(LOG_ERROR, "SMOKE.GRID.PROPOSAL: failed phase=%s room=%u round=%d detail=%s",
+		reason, (unsigned)s_BootGridProposalRoom, s_BootGridProposalRound, notice ? notice : "");
+	bootGridProposalStep(BOOT_GRID_PROPOSAL_DONE);
+	smokeHarnessExit(1, reason);
+}
+
+static s32 bootGridProposalWeaponSource(s32 temporary, u8 sha[SHA256_DIGEST_SIZE])
+{
+	const asset_entry_t *entry = assetCatalogResolve(kBootGridProposalWeapon);
+	char descriptor[FS_MAXPATH + 1], locator[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+	if (!entry || entry->type != ASSET_WEAPON || entry->temporary != temporary
+			|| strcmp(entry->id, kBootGridProposalWeapon) != 0
+			|| !gridMatchCatalogArchiveDescriptor(entry, descriptor, sizeof(descriptor))
+			|| !gridMatchPackageLocation(descriptor, locator, sizeof(locator), chain, sizeof(chain), NULL) || chain[0]) return 0;
+	u32 size = 0;
+	void *bytes = gridMatchPackageLoad(locator, &size);
+	if (!bytes || !size) { free(bytes); return 0; }
+	sha256Hash(bytes, size, sha);
+	free(bytes);
+	if (temporary) {
+		char folder[FS_MAXPATH + 1];
+		return !modmgrFindMod(kBootGridProposalMod)
+			&& gridMatchPackagePrivatePath(sha, ".pdweapon", folder, s_BootGridProposalScratch)
+			&& strcmp(locator, s_BootGridProposalScratch) == 0;
+	}
+	return modmgrFindMod(kBootGridProposalMod) != NULL;
+}
+
+static s32 bootGridProposalPeersReturned(void)
+{
+	for (u8 id = 1; id <= 2; id++) {
+		const struct netclient *peer = &g_NetClients[id];
+		if (!peer->peer || peer->room_id != s_BootGridProposalRoom || peer->state != CLSTATE_LOBBY
+				|| peer->reviewing_results || (peer->flags & (CLFLAG_SPECTATOR | CLFLAG_ABSENT))) return 0;
+	}
+	return 1;
+}
+
+static s32 bootGridProposalStart(void)
+{
+	extern s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficulty,
+		u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario,
+		u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex);
+	/* The normal Specific selection carries only a typed ID until Start Match resolves it. */
+	const char *weapon = s_BootGridProposalRound == 1 ? "base:falcon2" : kBootGridProposalWeapon;
+	snprintf(g_MatchConfig.spawn_weapon_id, sizeof(g_MatchConfig.spawn_weapon_id), "%s", weapon);
+	g_MatchConfig.spawnWeaponMode = SPAWNWEAPON_MODE_SPECIFIC;
+	matchConfigSetUserOption(MPOPTION_SPAWNWITHWEAPON, 1);
+	return netLobbyRequestStartWithSims(NETGAMEMODE_MP, kBootGridProposalArena, 0, NET_NULL_CLIENT,
+		0, 0, g_MatchConfig.timelimit, matchConfigGetUserOptions(), g_MatchConfig.scenario, g_MatchConfig.scorelimit,
+		g_MatchConfig.teamscorelimit, g_MatchConfig.weaponSetIndex >= 0 ? (u8)g_MatchConfig.weaponSetIndex : 0xff) == 0;
+}
+
+static s32 bootGridProposalHostReview(s32 accept, const grid_mod_proposal_control_t *offer)
+{
+	if (offer->offer.room_id != s_BootGridProposalRoom || offer->packages.count != 1) return 0;
+	const grid_match_source_package_t *source = &offer->sources.packages[offer->packages.indexes[0]];
+	if (source->owner.type != ASSET_WEAPON || strcmp(source->owner.id, kBootGridProposalWeapon) != 0
+			|| assetCatalogResolveAny(kBootGridProposalWeapon) || modmgrFindMod(kBootGridProposalMod)) return 0;
+	if (accept) {
+		return offer->proposal_serial != s_BootGridProposalFirstSerial
+			&& memcmp(source->digest, s_BootGridProposalWeaponSha, sizeof(s_BootGridProposalWeaponSha)) == 0
+			&& netmsgGridResolveModProposal(1);
+	}
+	char folder[FS_MAXPATH + 1];
+	if (!gridMatchPackagePrivatePath(source->digest, source->suffix, folder, s_BootGridProposalScratch)) return 0;
+	s_BootGridProposalFirstSerial = offer->proposal_serial;
+	memcpy(s_BootGridProposalWeaponSha, source->digest, sizeof(s_BootGridProposalWeaponSha));
+	if (!netmsgGridResolveModProposal(0) || fsFileSize(s_BootGridProposalScratch) >= 0
+			|| netmsgGridModIsProposalOnly(kBootGridProposalWeapon)) return 0;
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: host declined room=%u upload=0 scratch=0",
+		(unsigned)s_BootGridProposalRoom);
+	return 1;
+}
+
+static s32 bootGridProposalCheckActive(const grid_match_runtime_identity_t *world, const char *role)
+{
+	const s32 used = s_BootGridProposalRound == 2;
+	const char *weapon = used ? kBootGridProposalWeapon : "base:falcon2";
+	if (world->offer.room_id != s_BootGridProposalRoom || strcmp(world->arena_id, kBootGridProposalArena) != 0
+			|| (used && (g_NetStageEpoch <= s_BootGridProposalEpoch
+				|| world->offer.generation <= s_BootGridProposalWorld.offer.generation
+				|| memcmp(world->arena_sha256, s_BootGridProposalArenaSha, sizeof(s_BootGridProposalArenaSha)) != 0))
+			|| g_MatchConfig.spawnWeaponMode != SPAWNWEAPON_MODE_SPECIFIC
+			|| strcmp(g_MatchConfig.spawn_weapon_id, weapon) != 0
+			|| !gridMatchRuntimeValidateActiveSpawnWeapon(weapon, g_MatchConfig.spawnWeaponNum, NULL, 0)) return 0;
+	grid_match_sources_t sources = {0};
+	if (!gridMatchRuntimeCopyActiveSources(&sources, NULL, 0)) return 0;
+	s32 count = 0;
+	s32 valid = 1;
+	char weapon_sha[SHA256_HEX_SIZE] = "-";
+	for (size_t i = 0; i < sources.package_count; i++) {
+		const grid_match_source_package_t *package = &sources.packages[i];
+		if (strcmp(package->owner.id, kBootGridProposalWeapon) != 0) continue;
+		count++;
+		u8 digest[SHA256_DIGEST_SIZE];
+		valid = package->owner.type == ASSET_WEAPON
+			&& bootGridProposalWeaponSource(s_BootGridProposalRole != BOOT_GRID_PROPOSAL_DONOR, digest)
+			&& memcmp(package->digest, digest, sizeof(digest)) == 0;
+		if (valid && s_BootGridProposalRole != BOOT_GRID_PROPOSAL_ORDINARY)
+			valid = memcmp(package->digest, s_BootGridProposalWeaponSha, sizeof(s_BootGridProposalWeaponSha)) == 0;
+		sha256ToHex(package->digest, weapon_sha);
+	}
+	gridMatchSourcesFree(&sources);
+	if (!valid || count != used || (s_BootGridProposalRole == BOOT_GRID_PROPOSAL_ORDINARY
+			&& (s_BootGridProposalConsent != used || (!used && assetCatalogResolveAny(kBootGridProposalWeapon))))) return 0;
+	s_BootGridProposalWorld = *world;
+	s_BootGridProposalEpoch = g_NetStageEpoch;
+	memcpy(s_BootGridProposalArenaSha, world->arena_sha256, sizeof(s_BootGridProposalArenaSha));
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: active role=%s round=%d room=%u epoch=%u included=%d weapon=%s sha256=%s",
+		role, s_BootGridProposalRound, (unsigned)s_BootGridProposalRoom, s_BootGridProposalEpoch, count, weapon, weapon_sha);
+	return 1;
+}
+
+static void bootGridProposalPlayTick(s32 host, const char *role)
+{
+	struct netclient *cl = g_NetLocalClient;
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_ACTIVE) {
+		if (!host && netDistribClientConsentPending()) {
+			const char *id = netDistribClientGridConsentId(0);
+			if (!id || strcmp(id, kBootGridProposalWeapon) != 0 || netDistribClientGridConsentId(1)
+					|| s_BootGridProposalRound != 2 || s_BootGridProposalRole != BOOT_GRID_PROPOSAL_ORDINARY
+					|| cl->state != CLSTATE_PREPARING) {
+				bootGridProposalFail("grid_proposal_unexpected_consent");
+				return;
+			}
+			if (!s_BootGridProposalConsent) {
+				s_BootGridProposalConsent = 1;
+				sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: ordinary consent prompt room=%u package=%s count=1",
+					(unsigned)s_BootGridProposalRoom, id);
+			}
+		}
+		const grid_match_runtime_identity_t *world = gridMatchRuntimeActive();
+		if (!world || !g_NetStageEpoch || cl->state != CLSTATE_GAME || !cl->stage_ready) return;
+		if (s_BootGridProposalRound == 2 && (!g_Vars.players[0] || g_Vars.currentplayer != g_Vars.players[0]
+				|| !invHasSingleWeaponExcAllGuns(g_MatchConfig.spawnWeaponNum))) return;
+		if (!bootGridProposalCheckActive(world, role)) bootGridProposalFail("grid_proposal_active_sources");
+		else bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_RESULT);
+		return;
+	}
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_RESULT) {
+		if (g_NetStageEpoch || !g_MainIsEndscreen || cl->state != CLSTATE_LOBBY) return;
+		const grid_match_result_t *result = netGridLastMatchResult();
+		if (!gridMatchResultMatchesStage(result, &s_BootGridProposalWorld.offer, s_BootGridProposalEpoch,
+				s_BootGridProposalWorld.arena_id, s_BootGridProposalArenaSha)) {
+			bootGridProposalFail("grid_proposal_result_identity");
+			return;
+		}
+		if (s_BootGridProposalRound == 1 || s_BootGridProposalRole != BOOT_GRID_PROPOSAL_ORDINARY) {
+			extern void pdguiEndscreenExitToRoom(void);
+			extern void pdguiSetInRoom(s32 inRoom);
+			pdguiEndscreenExitToRoom();
+			pdguiSetInRoom(1);
+			netSendLobbyResync();
+		}
+		bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_RETURN);
+		return;
+	}
+	if (mainGridRoomReturnPending() || !mainGridRoomBackdropActive() || !gridMatchRuntimeIsIdle()
+			|| cl->reviewing_results || (host && !bootGridProposalPeersReturned())) return;
+	if ((host && (!netmsgGridModIsProposalOnly(kBootGridProposalWeapon) || fsFileSize(s_BootGridProposalScratch) <= 0))
+			|| (s_BootGridProposalRole == BOOT_GRID_PROPOSAL_ORDINARY && assetCatalogResolveAny(kBootGridProposalWeapon))) {
+		bootGridProposalFail("grid_proposal_room_lease_lifetime");
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: returned role=%s round=%d room=%u epoch=%u",
+		role, s_BootGridProposalRound, (unsigned)s_BootGridProposalRoom, s_BootGridProposalEpoch);
+	if (s_BootGridProposalRound == 1) {
+		s_BootGridProposalRound = 2;
+		if (host && !bootGridProposalStart()) bootGridProposalFail("grid_proposal_start_specific");
+		else bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_ACTIVE);
+	} else {
+		if (host) netListenHostRoomLeave();
+		bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_RETIRE);
+	}
+}
+
+static void bootGridProposalTick(void)
+{
+	static const char *const roles[] = {"", "host", "donor", "ordinary"};
+	const char *role = roles[s_BootGridProposalRole];
+	const s32 host = s_BootGridProposalRole == BOOT_GRID_PROPOSAL_HOST;
+	const s32 donor = s_BootGridProposalRole == BOOT_GRID_PROPOSAL_DONOR;
+	const char *notice = netmsgGridModProposalNotice();
+	struct netclient *cl = g_NetLocalClient;
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_DONE) return;
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_ROOM) {
+		if (!cl || cl->state != CLSTATE_LOBBY || cl->room_id == 0xff || !cl->room_id
+				|| (host ? g_NetMode != NETMODE_SERVER : g_NetMode != NETMODE_CLIENT)) return;
+		s_BootGridProposalRoom = cl->room_id;
+		if (host && !bootGridProposalPeersReturned()) return;
+		if (!host && !netmsgGridCanProposeMod()) return;
+		if (donor && (!bootGridProposalWeaponSource(0, s_BootGridProposalWeaponSha)
+				|| !netmsgGridProposeMod(kBootGridProposalWeapon))) {
+			bootGridProposalFail("grid_proposal_donor_send");
+			return;
+		}
+		bootGridProposalStep(host || donor ? BOOT_GRID_PROPOSAL_WAIT_DECLINE : BOOT_GRID_PROPOSAL_WAIT_ACTIVE);
+		return;
+	}
+	if (SDL_GetTicks() - s_BootGridProposalTick >= 90000u) {
+		bootGridProposalFail("grid_proposal_timeout");
+		return;
+	}
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_RETIRE) {
+		if (host) {
+			if (assetCatalogResolveAny(kBootGridProposalWeapon) || netmsgGridModIsProposalOnly(kBootGridProposalWeapon)
+					|| fsFileSize(s_BootGridProposalScratch) >= 0) return;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: host retired room=%u catalog=0 scratch=0 mods=%d",
+				(unsigned)s_BootGridProposalRoom, modmgrFindMod(kBootGridProposalMod) != NULL);
+			if (modmgrFindMod(kBootGridProposalMod)) { bootGridProposalFail("grid_proposal_persistent_mod"); return; }
+		} else if (g_NetMode != NETMODE_NONE) return;
+		bootGridProposalStep(BOOT_GRID_PROPOSAL_DONE);
+		smokeHarnessExit(0, "grid_mod_proposal_complete");
+		return;
+	}
+	if (!cl || !g_NetMode || cl->room_id != s_BootGridProposalRoom) {
+		bootGridProposalFail("grid_proposal_room_changed");
+		return;
+	}
+	if (s_BootGridProposalStep >= BOOT_GRID_PROPOSAL_WAIT_ACTIVE) {
+		bootGridProposalPlayTick(host, role);
+		return;
+	}
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_DECLINE) {
+		if (host) {
+			const grid_mod_proposal_control_t *offer = netmsgGridReviewModProposal();
+			if (!offer) return;
+			if (!bootGridProposalHostReview(0, offer)) { bootGridProposalFail("grid_proposal_host_decline"); return; }
+		} else {
+			if (notice && strcmp(notice, "Sending the approved mod packages to the host.") == 0) {
+				bootGridProposalFail("grid_proposal_upload_before_approval");
+				return;
+			}
+			if (!notice || strcmp(notice, "The host did not add the proposed mod.") != 0) return;
+			sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: donor observed decline room=%u upload=0", (unsigned)s_BootGridProposalRoom);
+			if (!netmsgGridProposeMod(kBootGridProposalWeapon)) { bootGridProposalFail("grid_proposal_donor_reoffer"); return; }
+		}
+		bootGridProposalStep(host ? BOOT_GRID_PROPOSAL_WAIT_REOFFER : BOOT_GRID_PROPOSAL_WAIT_APPROVAL);
+		return;
+	}
+	if (s_BootGridProposalStep == BOOT_GRID_PROPOSAL_WAIT_REOFFER) {
+		const grid_mod_proposal_control_t *offer = netmsgGridReviewModProposal();
+		if (!offer) return;
+		if (!bootGridProposalHostReview(1, offer)) { bootGridProposalFail("grid_proposal_host_approve"); return; }
+		bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_APPROVAL);
+		return;
+	}
+	if (host) {
+		if (!netmsgGridModIsProposalOnly(kBootGridProposalWeapon)) return;
+		u8 digest[SHA256_DIGEST_SIZE];
+		if (!bootGridProposalWeaponSource(1, digest) || memcmp(digest, s_BootGridProposalWeaponSha, sizeof(digest)) != 0
+				|| !bootGridProposalPeersReturned()) { bootGridProposalFail("grid_proposal_admission_identity"); return; }
+		char hex[SHA256_HEX_SIZE];
+		sha256ToHex(digest, hex);
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: host admitted room=%u id=%s sha256=%s temporary=1",
+			(unsigned)s_BootGridProposalRoom, kBootGridProposalWeapon, hex);
+		if (!bootGridProposalStart()) { bootGridProposalFail("grid_proposal_start_unused"); return; }
+	} else {
+		if (!notice || strcmp(notice, "The host can use your mod in this Room.") != 0) return;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.PROPOSAL: donor observed approved upload room=%u", (unsigned)s_BootGridProposalRoom);
+	}
+	bootGridProposalStep(BOOT_GRID_PROPOSAL_WAIT_ACTIVE);
+}
+
+static void bootGridSongWitnessTick(void)
+{
+	static s32 observed_track = -1;
+	static s32 done;
+	static u8 observed_room;
+	static char scratch[FS_MAXPATH + 1];
+	if (done || !smokeHarnessIsActive() || !g_NetLocalClient) return;
+	const char *id = sysArgGetString("--debug-grid-song-witness");
+	if (!id || (g_NetMode != NETMODE_SERVER && g_NetMode != NETMODE_CLIENT)) return;
+
+	const s32 guest = g_NetMode == NETMODE_CLIENT;
+	if (observed_track >= 0) {
+		if (g_NetStageEpoch || g_MainIsEndscreen || g_NetLocalClient->state != CLSTATE_LOBBY
+				|| g_NetLocalClient->room_id != observed_room || !gridMatchRuntimeIsIdle()) return;
+		if (modSequenceVirtualTrackId(observed_track) || assetCatalogResolve(id) || fsFileSize(scratch) >= 0) return;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.SONG: retired role=guest room=%u id=%s track=%d slot_released=1 catalog=0 scratch=0",
+			(unsigned)observed_room, id, observed_track);
+		done = 1;
+		return;
+	}
+
+	const grid_match_runtime_identity_t *world = gridMatchRuntimeActive();
+	if (g_SndDisabled || !world || world->stage != g_StageNum || !g_NetStageEpoch
+			|| g_NetLocalClient->state != CLSTATE_GAME || !g_NetLocalClient->stage_ready
+			|| g_NetLocalClient->room_id != world->offer.room_id) return;
+	const s32 track = scenarioSourceStagePrimaryMusic(world->stage);
+	const char *track_id = modSequenceVirtualTrackId(track);
+	if (!track_id || strcmp(track_id, id) != 0) return;
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_SeqInstances); i++) {
+		const struct seqinstance *seq = &g_SeqInstances[i];
+		if (!seq->seqp || seq->tracknum != track || !seq->volume || !g_SeqChannels[i].inuse
+				|| g_SeqChannels[i].tracktype != TRACKTYPE_PRIMARY || n_alCSPGetState(seq->seqp) != AL_PLAYING) continue;
+		const asset_entry_t *entry = assetCatalogResolve(id);
+		if (!entry || entry->type != ASSET_AUDIO || entry->ext.audio.category != AUDIO_CAT_MUSIC
+				|| !!entry->temporary != guest) return;
+		if (guest) {
+			char descriptor[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+			if (!gridMatchCatalogArchiveDescriptor(entry, descriptor, sizeof(descriptor))
+					|| !gridMatchPackageLocation(descriptor, scratch, sizeof(scratch), chain, sizeof(chain), NULL)
+					|| chain[0] || fsFileSize(scratch) <= 0) return;
+		}
+		observed_track = track;
+		observed_room = world->offer.room_id;
+		sysLogPrintf(LOG_NOTE, "SMOKE.GRID.SONG: playing role=%s room=%u epoch=%u id=%s track=%d player=%d volume=%u temporary=%d",
+			guest ? "guest" : "host", (unsigned)observed_room, g_NetStageEpoch, id, track, i,
+			(unsigned)seq->volume, guest);
+		done = !guest;
+		return;
+	}
+}
+
 s32 bootHostAutostartTick(void)
 {
+	bootGridSongWitnessTick();
+	if (s_BootGridProposalRole && (s_BootGridProposalRole != BOOT_GRID_PROPOSAL_HOST || g_BootHostAutostartFired)) {
+		bootGridProposalTick();
+		return 0;
+	}
+	if (s_GridDraftRole == BOOT_GRID_DRAFT_CREATOR || s_GridDraftRole == BOOT_GRID_DRAFT_ORDINARY) {
+		bootGridDraftClientTick();
+		return 0;
+	}
+	if (s_GridDraftRole == BOOT_GRID_DRAFT_HOST && g_BootHostAutostartFired) {
+		bootGridDraftHostTick();
+		return 0;
+	}
 	if (g_BootHostAutostartArmed && g_BootHostAutostartFired && g_BootHostAutostartMatches > 1
 			&& g_BootHostAutostartStarted < g_BootHostAutostartMatches) {
 		bootHostAutostartRearmTick();
@@ -4397,7 +9276,17 @@ s32 bootHostAutostartTick(void)
 	 * entirely. We still space the start a few frames after the join so the
 	 * SVC_ROOM_ASSIGN round-trip and room state settle cleanly. */
 	if (g_BootHostAutostartPhase == 0) {
-		u8 roomId = netLobbyRequestCreateRoom();
+		u8 roomId;
+		if (s_GridDraftLiveReconnect || s_GridDraftLayoutReconnect) {
+			if (netRequestRoomCreate("Grid Creator Reconnect", ROOM_ACCESS_INVITE, "", 4) != 0
+					|| g_NetLocalClient->room_id == 0xff) {
+				bootGridDraftFail("grid_live_reconnect_create_room");
+				return 0;
+			}
+			roomId = g_NetLocalClient->room_id;
+		} else {
+			roomId = netLobbyRequestCreateRoom();
+		}
 		if (roomId == 0xFF) {
 			/* Could not create/own a room — without it the start would be
 			 * rejected as "not room creator". Surface and bail (one-shot
@@ -4432,6 +9321,15 @@ s32 bootHostAutostartTick(void)
 	}
 
 	g_BootHostAutostartFired = 1;
+	if (s_BootGridProposalRole == BOOT_GRID_PROPOSAL_HOST) {
+		bootGridProposalTick();
+		return 0;
+	}
+	if (s_GridDraftRole == BOOT_GRID_DRAFT_HOST) {
+		s_GridDraftRoom = g_BootHostAutostartRoomId;
+		bootGridDraftHostTick();
+		return 0;
+	}
 	/* Every attempt counts, so a start that fails below is not retried
 	 * past --host-autostart-matches. */
 	g_BootHostAutostartStarted++;
@@ -4750,6 +9648,28 @@ static s32 bootInitNativeReuse(int argc, const char **argv)
 	return 1;
 }
 
+/* A repair child has its own decoder scratch and writes only its staged output.
+ * Its parent has already extracted and verified the shared raw input files. */
+static s32 bootRunStageRepairWorker(void)
+{
+	const char *output = sysArgGetString("--stage-repair-output");
+	const char *save = sysArgGetString("--savedir");
+	const char *rom = sysArgGetString("--rom-file");
+	const s32 stage = sysArgGetInt("--stage-repair", -1);
+	if (!sysArgCheck("--extract-assets-only") || nativeWritePolicyActive() ||
+			!output || !save || strcmp(output, save) || !fsPathIsAbsolute(output) ||
+			!rom || !fsPathIsAbsolute(rom) || stage < 0) return 2;
+	sysInit();
+	fsInit();
+	if (fsFileSize(rom) <= 0 || romdataInit() < 0 || romdataReleaseRom() < 0) return 2;
+	catalogInit();
+	stageTableInit();
+	assetCatalogInit();
+	assetCatalogRegisterBaseGame();
+	assetCatalogRegisterStageSceneFiles();
+	return romExtractStandaloneScenarioCandidate(stage, output) == 0 ? 0 : 2;
+}
+
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
@@ -4761,6 +9681,7 @@ int main(int argc, const char **argv)
 		return supported ? 0 : 2;
 	}
 	if (!bootInitNativeReuse(argc, argv)) return 2;
+	if (sysArgCheck("--stage-repair")) return bootRunStageRepairWorker();
 
 	/* D13: Apply pending update VERY EARLY — before any subsystem init.
 	 * If an update was downloaded previously, this renames the .update file
@@ -5207,6 +10128,8 @@ int main(int argc, const char **argv)
 			return 2;
 		}
 		(void)smokeHarnessInit();
+		bootGridDraftInit();
+		bootGridProposalInit();
 	}
 
 	/* Engine Phase 2 boot orchestrator (2026-05-03): the catalog work

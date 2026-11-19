@@ -1,0 +1,282 @@
+{
+  "scenario_name": "forge_grid_required_character_smoke",
+  "description": "A host selects one native simulant with original custom body and head. Two clean profiles with different occupied character slots accept exactly the pinned Grid arena and its two selected match sources, render the assembled bot, then retire the temporary archives after Results. The unselected installed character seed stays out of the offer.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "body",
+    "head",
+    "temporary-content",
+    "render"
+  ],
+  "paths_of_interest": [
+    "tools/smoke-verify/fixtures/grid_required_character",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/loader_pool.c",
+    "port/src/catalog_model_generation.cpp",
+    "src/game/body.c",
+    "src/game/botmgr.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 1,
+  "timeout_seconds": 570,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "guest",
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": [
+    "gch-h",
+    "gch-g"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_character/host",
+      "dst": "gch-h/mods/grid_character"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_character/guest",
+      "dst": "gch-h/mods/grid_character_seed"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_character/guest",
+      "dst": "gch-g/mods/grid_character_seed"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "gch-h/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "gch-g/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_character/host-enabled.json",
+      "dst": "gch-h/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_character/guest-enabled.json",
+      "dst": "gch-g/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--savedir",
+        "$E/gch-h",
+        "--moddir",
+        "$E/gch-h/mods",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Character_Proof",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_character_proof",
+        "--debug-forge-level-name",
+        "Grid_Character_Proof",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--host",
+        "--listen-bind",
+        "27624",
+        "--launch-mp-room",
+        "mod:arena_grid_character_proof",
+        "base:combat",
+        "1",
+        "--debug-bot-body",
+        "grid_character:bot_body",
+        "--debug-bot-head",
+        "grid_character:bot_head",
+        "--debug-bots-hold-fire",
+        "--debug-place-bot-near-player",
+        "--debug-place-bot-near-player-num",
+        "1",
+        "--debug-place-bot-near-player-visible",
+        "--debug-place-bot-near-player-hold-sec",
+        "16",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27624",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loading mod 'grid_character'",
+          "modmgr: loading mod 'grid_character_seed'",
+          "BOOT: --debug-bot-appearance applied slot=[0-9]+ body='grid_character:bot_body' head='grid_character:bot_head' ",
+          "CHR\\.DIAG: botAlloc chrnum=[0-9]+ slot=0 body=152 head=152 mpbody=[0-9]+ mphead=[0-9]+ body_id='grid_character:bot_body' head_id='grid_character:bot_head'",
+          "BODY\\.HEADSPOT\\.RESOLVED: body_id='grid_character:bot_body' bodynum=152 head_id='grid_character:bot_head' headnum=152 part=4",
+          "BOOT: --debug-place-bot-near-player-visible chose turn=",
+          "BOOT: --debug-place-bot-near-player consumed: .* result=OK ",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=3 netmode=1"
+        ],
+        "required_sequences": [
+          {
+            "name": "host-plays-and-returns",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_character_proof",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_character_proof epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_character_proof revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "SMOKE: result=scripted_exit scenario=forge_grid_required_character_smoke"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "CHR\\.DIAG: botAlloc .* (body_id|head_id)='grid_character_seed:",
+          "BOOT: --debug-place-bot-near-player timed out",
+          "hold complete: .*result=DEGRADED"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_required_character/guest_process.json",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--savedir",
+        "$E/gch-g",
+        "--moddir",
+        "$E/gch-g/mods",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Character Slot Seed",
+        "--connect-host",
+        "127.0.0.1:27624",
+        "--debug-face-nearest-bot",
+        "--debug-generated-mesh-render-audit"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 235,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loading mod 'grid_character_seed'",
+          "CHR\\.DIAG: botAlloc chrnum=[0-9]+ slot=0 body=153 head=153 mpbody=[0-9]+ mphead=[0-9]+ body_id='grid_character:bot_body' head_id='grid_character:bot_head'",
+          "BODY\\.HEADSPOT\\.RESOLVED: body_id='grid_character:bot_body' bodynum=153 head_id='grid_character:bot_head' headnum=153 part=4",
+          "MODASSET\\.COMPILER: built hierarchy modeldef 'grid_character:bot_head' source=.*gch-g[/\\\\]grid-session[/\\\\]c1defd6c00bfea496fd833998c3372cb3039fe9328d10522a47ed1c7b8301299\\.pdhead::mesh\\.pdmesh::model\\.gltf .*tris=[1-9][0-9]*",
+          "MODASSET\\.RENDER: generated source modeldef rendered id=grid_character:bot_body source=.*gch-g[/\\\\]grid-session[/\\\\]1b0d4903d75eb8710e87a0e67b3af2b551e889aceccdde9f275182c07d4fd23b\\.pdbody::mesh\\.pdmesh::model\\.gltf .*tris=[1-9][0-9]*",
+          "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender .* body=153 head=153 ",
+          "BOOT: --debug-face-nearest-bot facing chrnum=[0-9]+ ",
+          "PARTICIPANTS: 3 active \\(2 players, 1 bots\\)",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=3 netmode=2",
+          "DISTRIB\\.GRID: receiving package=[123]/3 id=mod:arena_grid_character_proof verified=[0-9]+ total=[1-9][0-9]*$",
+          "DISTRIB\\.GRID: receiving package=[123]/3 id=grid_character:bot_body verified=[0-9]+ total=[1-9][0-9]*$",
+          "DISTRIB\\.GRID: receiving package=[123]/3 id=grid_character:bot_head verified=[0-9]+ total=[1-9][0-9]*$"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest-accepts-three-exact-packages-and-returns-to-original-room",
+            "patterns": [
+              "DISTRIB\\.GRID: temporary packages await consent count=3 bytes=[1-9][0-9]*",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_character_proof packages=3$",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_character_proof generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MATCH: client stage start received",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_character_proof epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_character_proof revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "NET: CLC_LOBBY_RESYNC sent to server",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "NET: SVC_ROOM_SETTINGS: .* stage='mod:arena_grid_character_proof'",
+              "SMOKE: result=scripted_exit scenario=forge_grid_required_character_smoke"
+            ]
+          },
+          {
+            "name": "guest-retires-arena-before-room-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_character_proof$",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          },
+          {
+            "name": "guest-retires-body-before-room-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary source=grid_character:bot_body type=[0-9]+$",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          },
+          {
+            "name": "guest-retires-head-before-room-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary source=grid_character:bot_head type=[0-9]+$",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "modmgr: loading mod 'grid_character' from ",
+          "DISTRIB\\.GRID: receiving package=.* id=grid_character_seed:",
+          "GRID\\.MATCH\\.LEASE: retired temporary source=grid_character_seed:",
+          "CHR\\.DIAG: botAlloc .* (body_id|head_id)='grid_character_seed:"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 410000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 10000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 100000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 12000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 22000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|wait_timeout)",
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: (refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "GRID\\.MATCH\\.LEASE: deferred (source )?retirement",
+      "BODY\\.(HEADSPOT|HEAD)\\.REJECT:",
+      "BODY\\.CLONE\\.FAIL:",
+      "CHR\\.DIAG: WARNING bodyAllocateModel returned NULL"
+    ]
+  }
+}

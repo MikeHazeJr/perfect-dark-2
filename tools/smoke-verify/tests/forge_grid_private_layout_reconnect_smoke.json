@@ -1,0 +1,460 @@
+{
+  "scenario_name": "forge_grid_private_layout_reconnect_smoke",
+  "description": "A creator observes an exact committed Grid room extension, disconnects, and re-enters the invite-only Room on a fresh connection. A fresh grant restores the same layout receipt and room projection without installing the arena or entering the still-running private round. The ordinary peer remains in the Room without private traffic.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "shared-draft",
+    "private-playtest",
+    "smoke",
+    "structural-staging",
+    "structural-review",
+    "prepared-sources",
+    "staged-transfer",
+    "structural-apply",
+    "reconnect"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/bg.c",
+    "port/src/forge_room_builder.cpp",
+    "port/src/grid_match_runtime.c",
+    "port/src/forge_level_io.c",
+    "port/src/net/grid_edit_room_wire.c",
+    "src/game/grid_layout_actors.c",
+    "src/lib/meshcollision.c",
+    "port/fast3d/scenario_scene_renderer.cpp",
+    "port/src/net/grid_edit_room.c",
+    "port/src/room.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": [
+    "glr-h",
+    "glr-c",
+    "glr-o"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "glr-h/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "glr-c/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "glr-o/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "examples/modding/typed-pdxxx-basic/mod.json",
+      "dst": "glr-h/mods/example_typed_pdxxx_basic/mod.json"
+    },
+    {
+      "src": "examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh",
+      "dst": "glr-h/mods/example_typed_pdxxx_basic/meshes/tri_mesh.pdmesh"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json",
+      "dst": "glr-h/mods-enabled.json"
+    },
+    {
+      "src": "examples/modding/typed-pdxxx-basic/mod.json",
+      "dst": "glr-c/mods/example_typed_pdxxx_basic/mod.json"
+    },
+    {
+      "src": "examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh",
+      "dst": "glr-c/mods/example_typed_pdxxx_basic/meshes/tri_mesh.pdmesh"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/typed_pdxxx_basic_enabled.json",
+      "dst": "glr-c/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/glr-h",
+        "--moddir",
+        "$E/glr-h/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-prop",
+        "example:tri_mesh",
+        "--debug-forge-level-decoration",
+        "--debug-forge-level-atmosphere",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27493",
+        "--launch-mp-room",
+        "mod:arena_grid_playtest_draft",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--host-autostart-peers",
+        "2",
+        "--debug-grid-private-draft",
+        "host",
+        "--debug-grid-private-room-extension",
+        "--debug-grid-private-prepared-review",
+        "--debug-grid-private-transfer-review",
+        "--debug-grid-private-layout-apply",
+        "--debug-grid-private-layout-reconnect"
+      ],
+      "wait_for": "NET: created server on port 27493",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "same_round_apply_fresh_creator_and_rendered_edit",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_playtest_draft sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "GRID\\.PLAYTEST: prepared room=[0-9]+ arena=mod:arena_grid_playtest_draft",
+              "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_playtest_draft epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.PLAYTEST: active room=[0-9]+ epoch=[1-9][0-9]* arena=mod:arena_grid_playtest_draft",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=1 enabled=1 brightness=104",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=104 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: release_creator room=[0-9]+ generation=1 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=2 enabled=1 brightness=137",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=137 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: rendered edit epoch=[1-9][0-9]* revision=2 before=[0-9.]+ native=[0-9.]+ after=[0-9.]+",
+              "GRID\\.MATCH\\.PREFLIGHT: detached arena=mod:arena_grid_extension_staged scenario=mod:arena_grid_extension_staged__[A-Za-z0-9_]+ sha256=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.PREFLIGHT: extension walk arena=mod:arena_grid_extension_staged sha256=[0-9a-f]{64} starts=9 links=16",
+              "GRID\\.PLAYTEST: staged native variant=mod:arena_grid_extension_staged revision=2 room=2 extension=300 active_epoch=[1-9][0-9]* draft_generation=1 sha256=[0-9a-f]{64} parent=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.EXTENSION: resident unchanged epoch=[1-9][0-9]* catalog=[1-9][0-9]* revision=2 room1_max=0 room2_max=2700 refused_length=1400 sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW: offered creator=1 serial=[1-9][0-9]* epoch=[1-9][0-9]* revision=2 arena=mod:arena_grid_extension_staged",
+              "NET\\.GRID\\.REVIEW\\.DEPS: offered serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW\\.PREPARED: retained role=host serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: offered creator=1 serial=[1-9][0-9]* arena=mod:arena_grid_extension_staged bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: consented role=host serial=[1-9][0-9]* bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: released serial=[1-9][0-9]* reason=verified",
+              "NET\\.GRID\\.REVIEW\\.PREPARED: matched creator=1 serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW\\.CANDIDATE: prepared serial=[1-9][0-9]* epoch=[1-9][0-9]* entries=[1-9][0-9]* packages=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW: creator=1 replied serial=[1-9][0-9]* result=4",
+              "SMOKE\\.GRID\\.EXTENSION: review transferred room=[0-9]+ generation=1 epoch=[1-9][0-9]* revision=2 serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.LAYOUT: event=prepared side=host room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1",
+              "NET\\.GRID\\.LAYOUT: event=reply side=host room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 .*result=1 sha256=[0-9a-f]{64}",
+              "SCENARIO\\.RENDER: committed prepared Grid scene",
+              "GRID\\.LAYOUT\\.ACTORS: checked=4 relocated=[0-4]",
+              "GRID\\.LAYOUT: committed room=[0-9]+ epoch=[1-9][0-9]* generation=1 sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.LAYOUT: event=outcome side=host room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 .*result=3 sha256=[0-9a-f]{64}",
+              "SCENARIO\\.RENDER: rendered native source scene 'mod:arena_grid_extension_staged__[a-zA-Z0-9_]+' vertices=[1-9][0-9]* groups=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.LAYOUT: same round room=[0-9]+ epoch=[1-9][0-9]* generation=1 room2_max=3000 floor=0 frame_before=[1-9][0-9]* frame_after=[1-9][0-9]* actors=4",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: release_disconnect room=[0-9]+ epoch=[1-9][0-9]*",
+              "NET: disconnect event from client 1 ",
+              "NET\\.GRID\\.EDIT: host kept the committed draft after creator left",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: detached room=[0-9]+ epoch=[1-9][0-9]* revision=2 ambient=137",
+              "NET\\.GRID\\.EDIT: admitted fresh lobby auth client=1 room=[0-9]+",
+              "NET\\.GRID\\.EDIT: invited lobby client=1 to rejoin room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: room_invite room=[0-9]+ epoch=[1-9][0-9]* client=1 fresh_connection=1",
+              "NET\\.ROOM: join committed client=1 room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: draft_invite room=[0-9]+ epoch=[1-9][0-9]* generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: committed revision=3 author=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host resume_tail_commit revision=3 ambient=149 generation=2 can_edit=1 pending_resume=1 ready=0",
+              "GRID\\.PLAYTEST: resumed draft generation=2 revision=3 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: resumed creator=1 revision=3 digest=[0-9a-f]{64} tail=1$",
+              "NET\\.GRID\\.LAYOUT: event=baseline side=host room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 serial=[1-9][0-9]* actor=3 result=0 sha256=[0-9a-f]{64} arena=mod:arena_grid_extension_staged arena_sha256=[0-9a-f]{64} draft_generation=2",
+              "NET\\.GRID\\.EDIT: committed revision=4 author=3",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=4 enabled=1 brightness=155",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=155 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: rendered resumed edit room=[0-9]+ epoch=[1-9][0-9]* revision=4 ambient=155 before=[0-9.]+ after=[0-9.]+",
+              "NET: SVC_STAGE_END published and committed, returning to lobby",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.MATCH\\.ROOM: world retired room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: returned room=[0-9]+ epoch=[1-9][0-9]* revision=4 ambient=155",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*glr-h",
+          "SCENARIO\\.SOURCE: resolved room domain 'mod:arena_grid_playtest_draft__[a-zA-Z0-9_]+' rooms=3 declared=3 mesh_max=2 portal_max=2",
+          "PLAYER\\.INIT\\.COMMIT lobby-start room=[0-9]+ mode=0 players=1 bots=3",
+          "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+          "SIMULANT: spawning done total=3",
+          "GRID\\.STAGED\\.SOURCES: verified arena=mod:arena_grid_extension_staged revision=[0-9a-f]{64} entries=([4-9]|[1-9][0-9]+) packages=([3-9]|[1-9][0-9]+) digest=[0-9a-f]{64}",
+          "FORGE\\.LEVEL\\.EDIT: made decoration setup_[0-9]+ drawn with example:tri_mesh",
+          "NET\\.GRID\\.REVIEW\\.PREPARED: released serial=[1-9][0-9]* reason=[A-Za-z_-]+"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited|granted) client=2",
+          "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_extension_staged",
+          "GRID\\.PLAYTEST: staged native variant=mod:arena_grid_extension_too_long",
+          "NET\\.GRID\\.REVIEW: creator=[0-9]+ replied serial=[0-9]+ result=[123]",
+          "NET\\.GRID\\.REVIEW\\.DEPS: unavailable",
+          "NET\\.GRID\\.EDIT: (invited lobby client|resumed creator)=2",
+          "NET\\.RECONNECT\\.PRESERVE client=1"
+        ],
+        "required_counts": [
+          {
+            "pattern": "GRID\\.PLAYTEST: staged native variant=",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.PREPARED: retained role=host",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.TRANSFER: offered creator=1",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.TRANSFER: consented role=host",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.LAYOUT: committed room=",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT: granted client=1",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "NET\\.GRID\\.LAYOUT: event=baseline side=host",
+            "min": 1,
+            "max": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/glr-c",
+        "--moddir",
+        "$E/glr-c/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-prop",
+        "example:tri_mesh",
+        "--debug-forge-level-decoration",
+        "--debug-forge-level-atmosphere",
+        "--debug-forge-level-pin",
+        "--connect-host",
+        "127.0.0.1:27493",
+        "--debug-grid-private-draft",
+        "creator",
+        "--debug-grid-private-room-extension",
+        "--debug-grid-private-prepared-review",
+        "--debug-grid-private-transfer-review",
+        "--debug-grid-private-layout-apply",
+        "--debug-grid-private-layout-reconnect"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "same_exact_applied_layout_restored_only_after_fresh_grant",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.PLAYTEST: creator sent ambient=137 host_epoch=[1-9][0-9]* room=[0-9]+ lobby=1",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.TRANSFER: creator baseline room=[0-9]+ catalog=[1-9][0-9]* stage=0x[0-9a-f]+ variant_absent=1 model=example:tri_mesh",
+              "SMOKE\\.GRID\\.LAYOUT\\.RECONNECT: original room=[0-9]+ epoch=[1-9][0-9]* rooms=2 actors=4 seam_x=28671",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: consented role=creator serial=[1-9][0-9]* bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: verified serial=[1-9][0-9]* arena=mod:arena_grid_extension_staged bytes=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW\\.PREPARED: retained role=creator serial=[1-9][0-9]* sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.REVIEW\\.TRANSFER: released serial=[1-9][0-9]* reason=verified",
+              "SMOKE\\.GRID\\.EXTENSION: creator transferred room=[0-9]+ generation=1 epoch=[1-9][0-9]* revision=2 serial=[1-9][0-9]* sha256=[0-9a-f]{64} installed=0 catalog=[1-9][0-9]* stage=0x[0-9a-f]+",
+              "NET\\.GRID\\.LAYOUT: event=reply side=creator room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 .*result=1 sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.LAYOUT: event=outcome side=creator room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 .*result=3 sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.LAYOUT\\.RECONNECT: applied room=[0-9]+ epoch=[1-9][0-9]* layout=1 draft=1 actor=2 serial=[1-9][0-9]* arena_sha256=[0-9a-f]{64} manifest_sha256=[0-9a-f]{64} rooms=2 actors=4 seam_x=26985",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator disconnected room=[0-9]+ epoch=[1-9][0-9]* revision=2",
+              "NET: SVC_AUTH from server, our ID is 1",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator requested Room join room=[0-9]+ epoch=[1-9][0-9]* fresh_connection=1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator rejoined room=[0-9]+ epoch=[1-9][0-9]* lobby=1 role=none",
+              "SMOKE\\.GRID\\.LAYOUT\\.RECONNECT: ungranted room=[0-9]+ epoch=[1-9][0-9]* receipt=0 projection=0",
+              "SMOKE\\.GRID\\.DRAFT: role=creator accepted_resume generation=2 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: verified resume snapshot revision=2 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=3 author=1",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "NET\\.GRID\\.LAYOUT: event=baseline side=creator room=[0-9]+ epoch=[1-9][0-9]* previous=0 next=1 serial=[1-9][0-9]* actor=3 result=0 sha256=[0-9a-f]{64} arena=mod:arena_grid_extension_staged arena_sha256=[0-9a-f]{64} draft_generation=2",
+              "SMOKE\\.GRID\\.LAYOUT\\.RECONNECT: restored room=[0-9]+ epoch=[1-9][0-9]* layout=1 draft=2 actor=3 serial=[1-9][0-9]* arena_sha256=[0-9a-f]{64} manifest_sha256=[0-9a-f]{64} rooms=2 actors=4 seam_x=26985",
+              "SMOKE\\.GRID\\.DRAFT: role=creator resumed revision=3 ambient=149 generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=4 author=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=4 ambient=155 actor=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*glr-c",
+          "FORGE\\.LEVEL\\.EDIT: made decoration setup_[0-9]+ drawn with example:tri_mesh",
+          "NET\\.GRID\\.REVIEW\\.PREPARED: released serial=[1-9][0-9]* reason=[A-Za-z_-]+"
+        ],
+        "required_counts": [
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.PREPARED: retained role=creator",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.TRANSFER: consented role=creator",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.REVIEW\\.TRANSFER: verified serial=",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET: SVC_AUTH from server, our ID is 1",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "NET\\.GRID\\.LAYOUT: event=baseline side=creator",
+            "min": 1,
+            "max": 1
+          }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active",
+          "SMOKE\\.GRID\\.EXTENSION: creator authored locally",
+          "PDARENA\\.SCENARIO: owner=mod:arena_grid_extension_staged",
+          "NET\\.GRID\\.RECONNECT:",
+          "DISTRIB\\.GRID: temporary"
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/glr-o",
+        "--moddir",
+        "$E/glr-o/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27493",
+        "--debug-grid-private-draft",
+        "ordinary",
+        "--debug-grid-private-room-extension",
+        "--debug-grid-private-prepared-review",
+        "--debug-grid-private-transfer-review",
+        "--debug-grid-private-layout-apply",
+        "--debug-grid-private-layout-reconnect"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-stays-through-normal-host-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*glr-o"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT\\.WIRE: received",
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active",
+          "NET\\.GRID\\.REVIEW\\.PREPARED:",
+          "SMOKE\\.GRID\\.EXTENSION: creator authored locally",
+          "NET\\.GRID\\.REVIEW\\.TRANSFER:",
+          "SMOKE\\.GRID\\.TRANSFER:",
+          "NET\\.GRID\\.LAYOUT:",
+          "GRID\\.LAYOUT: committed",
+          "SMOKE\\.GRID\\.LAYOUT\\.RECONNECT:"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

@@ -37,6 +37,10 @@ typedef enum forge_session_state {
 	FORGE_SESSION_FREEFLY  = 2, /* in session, free-fly editor camera */
 } forge_session_state_t;
 
+/* Player-facing name from [Forge] DisplayName in pd.ini. */
+#define FORGE_DISPLAY_NAME_CAP 48
+const char *forgeDisplayName(void);
+
 /* ============================================================
  * Lifecycle
  * ============================================================ */
@@ -74,6 +78,11 @@ void forgeRequestEnterSessionCanvas(void);
  *  Called automatically from forgeTick when leaving gameplay. */
 void forgeExitSession(void);
 
+/* Retire stage-owned Grid state before the engine releases the stage pool.
+ * An offline draft reload also retains the editing camera. */
+void forgePrepareStageDeparture(s32 draft_reload);
+void forgeCompleteDraftStageReload(s32 play);
+
 /* ============================================================
  * State queries
  * ============================================================ */
@@ -98,6 +107,42 @@ s32 forgeIsCanvasMode(void);
  * ============================================================ */
 
 void forgeGetCameraPos(struct coord *out_pos);
+
+/** Where a world position is in the picture, through the current player's
+ *  view: the game's own projection (the view matrix, then cam0f0b4d04, as
+ *  its target boxes use). out_x and out_y are in the game's framebuffer
+ *  units, the units of the renderer's native size (videoGetNativeWidth by
+ *  videoGetNativeHeight), so a caller that draws on the window scales them
+ *  by window size over native size. out_distance (optional) is how far in
+ *  front of the camera the point is. Returns 0, and writes nothing, for a
+ *  point at the camera or behind it, or when there is no view yet. */
+s32  forgeProjectWorldPos(const f32 world[3], f32 *out_x, f32 *out_y, f32 *out_distance);
+
+/** Turns the editor camera to a yaw and a pitch, in degrees, while it is
+ *  flying. For a debug flag that needs the camera at a known angle; players
+ *  turn it with the look input. Does nothing outside FREEFLY. */
+void forgeDebugSetCameraAngles(f32 yaw_deg, f32 pitch_deg);
+
+/** The editor camera's own view, while it is flying and `g_Vars.currentplayer`
+ *  is the player it rides: where it is, and its up and look vectors from its
+ *  yaw and pitch (a turn angle t faces (-sin t, 0, cos t), the game's reading
+ *  of a player's turn angle; pitch tips that toward +y). Returns 1 and fills
+ *  the three, or 0 outside FREEFLY.
+ *
+ *  player.c asks this where a player's view is set (player0f0c1840) and uses
+ *  the answer in place of what it was handed. Without that the editor's yaw
+ *  and pitch never reached the view: the flying camera holds the player in
+ *  the cutscene move mode, where nothing turns the player's own look vectors
+ *  (B-1240, measured 2026-11-17). */
+s32  forgeCameraOverride(struct coord *pos, struct coord *up, struct coord *look);
+
+/** Turns the editor camera by a number of degrees while it is flying: yaw to
+ *  the right for a positive `dyaw_deg`, pitch up for a positive
+ *  `dpitch_deg`, the directions the look stick turns it. For a look input the
+ *  action map does not carry (the editor's mouse look). A call asking for
+ *  more than a quarter turn at once is ignored. */
+void forgeAddCameraAngles(f32 dyaw_deg, f32 dpitch_deg);
+
 f32  forgeGetCameraYawDeg(void);
 f32  forgeGetCameraPitchDeg(void);
 f32  forgeGetCurrentSpeedScale(void); /* 1.0 default, 3.0 boost, 0.25 precision */

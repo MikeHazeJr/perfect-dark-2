@@ -1488,6 +1488,102 @@
         "target_b": -1,
         "side": 0
       }
+    },
+    {
+      "id": 31,
+      "parent": 0,
+      "type": 2,
+      "partnum": 160,
+      "part": 23,
+      "mtx0": 23,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 420.0,
+        "z": 450.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 32,
+      "parent": 3,
+      "type": 2,
+      "partnum": 161,
+      "part": 24,
+      "mtx0": 24,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 654.194,
+        "z": 84.765
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
     }
   ]
 }

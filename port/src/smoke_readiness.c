@@ -7,8 +7,15 @@ static const char *const mainMenuConditions[] = {
 	"settings_video_ready", "settings_interface_ready", "settings_audio_ready",
 	"settings_input_ready", "settings_game_ready"
 };
+static const char *const lobbyUiConditions[] = {
+	"lobby_catalog_consent_ready", "lobby_manifest_consent_ready",
+	"lobby_countdown_active", "lobby_countdown_ready",
+	"lobby_catalog_room_session_ready"
+};
 _Static_assert(SMOKE_READINESS_SETTINGS_GAME_READY - SMOKE_READINESS_MAIN_MENU_PLAY_READY + 1 ==
 	sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]), "menu readiness registry drift");
+_Static_assert(SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + 1 ==
+	sizeof(lobbyUiConditions) / sizeof(lobbyUiConditions[0]), "lobby UI readiness registry drift");
 
 smoke_readiness_condition_t smokeReadinessConditionFromName(
 	const char *name)
@@ -28,6 +35,8 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	}
 	if (strcmp(name, "network_declined_lobby") == 0)
 		return SMOKE_READINESS_NETWORK_DECLINED_LOBBY;
+	if (strcmp(name, "grid_consent_ready") == 0)
+		return SMOKE_READINESS_GRID_CONSENT_READY;
 	if (strcmp(name, "network_stage_live") == 0) {
 		return SMOKE_READINESS_NETWORK_STAGE_LIVE;
 	}
@@ -58,9 +67,19 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	if (strcmp(name, "scenario_token_held") == 0) {
 		return SMOKE_READINESS_SCENARIO_TOKEN_HELD;
 	}
+	if (strcmp(name, "forge_editor_ready") == 0) {
+		return SMOKE_READINESS_FORGE_EDITOR_READY;
+	}
+	if (strcmp(name, "forge_level_file_open") == 0) {
+		return SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN;
+	}
 	for (unsigned int i = 0; i < sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]); ++i) {
 		if (strcmp(name, mainMenuConditions[i]) == 0)
 			return (smoke_readiness_condition_t)(SMOKE_READINESS_MAIN_MENU_PLAY_READY + i);
+	}
+	for (unsigned int i = 0; i < sizeof(lobbyUiConditions) / sizeof(lobbyUiConditions[0]); ++i) {
+		if (strcmp(name, lobbyUiConditions[i]) == 0)
+			return (smoke_readiness_condition_t)(SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + i);
 	}
 	return SMOKE_READINESS_INVALID;
 }
@@ -70,6 +89,8 @@ const char *smokeReadinessConditionName(
 {
 	if (condition >= SMOKE_READINESS_MAIN_MENU_PLAY_READY && condition <= SMOKE_READINESS_SETTINGS_GAME_READY)
 		return mainMenuConditions[condition - SMOKE_READINESS_MAIN_MENU_PLAY_READY];
+	if (condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY && condition <= SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY)
+		return lobbyUiConditions[condition - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY];
 	switch (condition) {
 	case SMOKE_READINESS_CORE_BOOT_READY:
 		return "core_boot_ready";
@@ -81,6 +102,8 @@ const char *smokeReadinessConditionName(
 		return "network_lobby_ready";
 	case SMOKE_READINESS_NETWORK_DECLINED_LOBBY:
 		return "network_declined_lobby";
+	case SMOKE_READINESS_GRID_CONSENT_READY:
+		return "grid_consent_ready";
 	case SMOKE_READINESS_NETWORK_STAGE_LIVE:
 		return "network_stage_live";
 	case SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE:
@@ -101,6 +124,10 @@ const char *smokeReadinessConditionName(
 		return "agent_create_ready";
 	case SMOKE_READINESS_SCENARIO_TOKEN_HELD:
 		return "scenario_token_held";
+	case SMOKE_READINESS_FORGE_EDITOR_READY:
+		return "forge_editor_ready";
+	case SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN:
+		return "forge_level_file_open";
 	default:
 		return "invalid";
 	}
@@ -205,6 +232,29 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 	case SMOKE_READINESS_NETWORK_DECLINED_LOBBY:
 		return facts->boot_complete && facts->network_active
 			&& facts->local_client_in_lobby && facts->manifest_declined;
+	case SMOKE_READINESS_GRID_CONSENT_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->grid_consent_preparing && facts->grid_consent_pending
+			&& facts->menu_input_top && facts->menu_keyboard_ready
+			&& facts->grid_consent_accept_focused;
+	case SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY:
+	case SMOKE_READINESS_LOBBY_MANIFEST_CONSENT_READY:
+		return facts->boot_complete && facts->network_active
+			&& (condition == SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY
+				? facts->local_client_in_lobby : facts->local_client_preparing)
+			&& facts->menu_input_top && facts->menu_keyboard_ready
+			&& facts->lobby_content_consent_input;
+	case SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->local_client_in_lobby && facts->menu_input_top
+			&& facts->menu_keyboard_ready && facts->lobby_catalog_room_session_input;
+	case SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE:
+	case SMOKE_READINESS_LOBBY_COUNTDOWN_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->local_client_preparing && facts->lobby_countdown_active
+			&& (condition == SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE
+				|| (facts->menu_input_top && facts->menu_keyboard_ready
+					&& facts->lobby_countdown_input));
 	case SMOKE_READINESS_NETWORK_STAGE_LIVE:
 		return stage_live;
 	case SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE:
@@ -235,6 +285,13 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		return facts->multiplayer_running && facts->gameplay_stage
 			&& facts->stage_tick_active && !facts->endscreen
 			&& facts->scenario_token_held;
+	case SMOKE_READINESS_FORGE_EDITOR_READY:
+		/* The editor camera holds the player in a cutscene move mode and
+		 * owns the top input layer, so none of the walking-player facts
+		 * apply: a live offline stage and the camera flying are the state. */
+		return offline_stage_live && facts->forge_freefly;
+	case SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN:
+		return offline_stage_live && facts->forge_freefly && facts->forge_level_file_open;
 	default:
 		return 0;
 	}

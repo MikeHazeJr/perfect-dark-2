@@ -142,9 +142,9 @@ TEST_CASE("AI simulant twins: every level graph carries both module nodes",
 			!= std::string::npos);
 	}
 	// The fast cache treats an archive without them as stale.
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
 		"\t\t\t\"scenario.ai.condition.if_bot_respawning\") &&") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
 		"\t\t\t\"scenario.ai.action.mp_init_simulants\") &&") != std::string::npos);
 	// SP-86: the scenario kind moved with the extractor's output.
 	REQUIRE(extractor.find("_aiedges_simtwins") != std::string::npos);

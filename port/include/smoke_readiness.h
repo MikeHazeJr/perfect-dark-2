@@ -28,7 +28,18 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_NETWORK_LOBBY_READY,
 	SMOKE_READINESS_CORE_BOOT_READY,
 	SMOKE_READINESS_NETWORK_DECLINED_LOBBY,
-	SMOKE_READINESS_SCENARIO_TOKEN_HELD
+	SMOKE_READINESS_SCENARIO_TOKEN_HELD,
+	/* An offline stage is live and the Forge editor camera is flying over
+	 * it: the state a Forge session starts in. */
+	SMOKE_READINESS_FORGE_EDITOR_READY,
+	/* That, and the editor has the level's own file open. */
+	SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN,
+	SMOKE_READINESS_GRID_CONSENT_READY,
+	SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY,
+	SMOKE_READINESS_LOBBY_MANIFEST_CONSENT_READY,
+	SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE,
+	SMOKE_READINESS_LOBBY_COUNTDOWN_READY,
+	SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -45,7 +56,15 @@ typedef struct smoke_readiness_facts {
 	int network_reconnect_available;
 	int local_client_in_game;
 	int local_client_in_lobby;
+	int local_client_preparing;
 	int manifest_declined;
+	int grid_consent_preparing;
+	int grid_consent_pending;
+	int grid_consent_accept_focused;
+	int lobby_content_consent_input;
+	int lobby_catalog_room_session_input;
+	int lobby_countdown_active;
+	int lobby_countdown_input;
 	int gameplay_stage;
 	int stage_ready_epoch;
 	int multiplayer_running;
@@ -71,6 +90,8 @@ typedef struct smoke_readiness_facts {
 	int player_bike_mode;
 	int player_hoverbike;
 	int vehicle_driver_layer_active;
+	int forge_freefly;
+	int forge_level_file_open;
 	int endscreen;
 	int endscreen_menu_active;
 	int menu_input_active;

@@ -71,6 +71,11 @@ typedef s32 (*scenario_intro_weapon_resolver_t)(const char *catalog_id, s32 *out
 s32 scenarioIntroParse(const char *json, size_t json_size,
 	scenario_intro_weapon_resolver_t resolve_weapon,
 	scenario_intro_t *out, char *err, size_t err_cap);
+typedef s32 (*scenario_intro_context_resolver_t)(const char *catalog_id,
+	s32 *out_weaponnum, void *userdata);
+s32 scenarioIntroParseWithContext(const char *json, size_t json_size,
+	scenario_intro_context_resolver_t resolve_weapon, void *userdata,
+	scenario_intro_t *out, char *err, size_t err_cap);
 void scenarioIntroFree(scenario_intro_t *intro);
 
 /* The number of s32 words of an intro command, 0 for an unknown one. */

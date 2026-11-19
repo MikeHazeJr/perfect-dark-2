@@ -39,6 +39,7 @@ void loaderWalkerScanHeads(const char *tier_dir,
 {
     static const loader_walker_kind_desc_t desc = {
         "head", "heads", ".pdhead", /* always_invoke: */ 1, "head.ini", "head",
+        &g_BodyHeadArchivePreparation,
     };
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
 }

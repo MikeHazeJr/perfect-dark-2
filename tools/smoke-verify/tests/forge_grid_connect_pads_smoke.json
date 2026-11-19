@@ -1,0 +1,75 @@
+{
+  "scenario_name": "forge_grid_connect_pads_smoke",
+  "description": "Create an asymmetric original Grid arena, connect a new start to its native bot route, play the unsaved draft, then return to the original route with undo and redo intact.",
+  "tags": ["modding", "forge", "arena", "navigation", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/fast3d/pdgui_menu_leveltool.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/grid_two_rooms", "mods/MP Maps/arena_grid_connect_pads"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "original",
+    "--debug-level-tool-name",
+    "Grid_Connect_Pads",
+    "--debug-grid-room-size",
+    "2100,2700,1800,600,500,390",
+    "--launch-forge-level",
+    "mod:arena_grid_connect_pads",
+    "--debug-forge-connect-pads"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_connect_pads_smoke",
+      "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0 path='[^']*[/\\\\]grid[/\\\\]templates[/\\\\]grid_two_rooms\\.pdarena'",
+      "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00"
+    ],
+    "required_sequences": [
+      {
+        "name": "A playtest uses the added route and returns to the original native route",
+        "patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_connect_pads opens=1",
+          "BOOT: --launch-forge-level arena=mod:arena_grid_connect_pads result=OK",
+          "SMOKE\\.GRID\\.ROUTE: phase=original pads=8 waypoints=8 waygroups=1 edges=8 first_hop=-1",
+          "SMOKE\\.GRID\\.ROUTE: connected spawn=spawn_[0-9]+ pad=pad_0008 target=pad_0000 path=path_0001 position=",
+          "FORGE\\.DRAFT\\.PREPARED: arena=mod:arena_grid_connect_pads revision=[0-9a-f]{64} bytes=[1-9][0-9]* unsaved=1",
+          "FORGE\\.DRAFT\\.BIND: stage=0x[0-9a-f]+",
+          "SCENARIO\\.SOURCE: generated deterministic navigation tables from public pads\\.json '[^']*grid_connect_pads[^']*' and navigation/paths\\.json '[^']*' .* as 9 waypoints, 1 waygroups, 9 covers, 9 path edges, 1 branch waypoints",
+          "FORGE\\.DRAFT\\.PLAYING: stage=0x[0-9a-f]+",
+          "SMOKE\\.GRID\\.ROUTE: phase=draft pads=9 waypoints=9 waygroups=1 edges=9 first_hop=0",
+          "FORGE\\.DRAFT\\.RETURNED: stage=0x[0-9a-f]+ unsaved=1 undo=2",
+          "SMOKE\\.GRID\\.ROUTE: phase=returned pads=8 waypoints=8 waygroups=1 edges=8 first_hop=-1",
+          "SMOKE\\.GRID\\.ROUTE: returned with linked draft history=retained",
+          "SMOKE: result=grid_connect_pads_complete"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.ROUTE\\.FAIL",
+      "SMOKE: result=(timeout|grid_connect_pads_(failed|missing_arena|start_failed))",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

@@ -21,6 +21,9 @@ bool cdGetSavedPos(struct coord *arg0, struct coord *arg1);
 void cdGetGeoNormal(struct geo *geo, struct coord *normal);
 void cdGetFloorCol(struct geo *tile, u16 *floorcol);
 void cdGetFloorType(struct geo *tile, u8 *floortype);
+/* Install a prevalidated native tile bank, or clear it with NULL. The caller
+ * retains ownership of bank and may release the outgoing bytes after this. */
+void cdInstallStageTileBank(u8 *bank);
 bool cd000266a4(f32 x, f32 z, struct geo *tile);
 void cdGetPropsOnPlatform(struct prop *platform, s16 *propnums, s32 len);
 s32 cd000274e0Block(struct geoblock *tile, f32 x, f32 z, f32 width, struct prop *prop, struct collision *collision);
@@ -44,6 +47,9 @@ RoomNum cdFindCeilingRoomYColourFlagsAtPos(struct coord *pos, RoomNum *rooms, f3
 RoomNum cdFindFloorRoomYColourNormalPropAtPos(struct coord *pos, RoomNum *rooms, f32 *arg2, u16 *floorcol, struct coord *normal, struct prop **propptr);
 RoomNum cdFindCeilingRoomYColourFlagsNormalAtPos(struct coord *pos, RoomNum *rooms, f32 *arg2, u16 *floorcol, u16 *geoflags, struct coord *normal);
 s32 cdTestVolume(struct coord *pos, f32 radius, RoomNum *rooms, s32 types, bool checkvertical, f32 ymax, f32 ymin);
+/* Test solid object/door geometry without changing the last collision result.
+ * The vertical limits are relative to pos. */
+s32 cdPropVolumeClear(struct coord *pos, f32 radius, RoomNum *rooms, f32 ymax, f32 ymin);
 s32 cdExamCylMove01(struct coord *pos, struct coord *pos2, f32 radius, RoomNum *rooms, s32 types, bool checkvertical, f32 ymax, f32 ymin);
 s32 cdExamCylMove02(struct coord *origpos, struct coord *dstpos, f32 width, RoomNum *dstrooms, s32 types, bool checkvertical, f32 ymax, f32 ymin);
 bool cdTestCylMove01(struct coord *pos, RoomNum *rooms, struct coord *targetpos, u32 types, u32 arg4, f32 ymax, f32 ymin);

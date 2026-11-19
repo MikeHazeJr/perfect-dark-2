@@ -26,6 +26,7 @@
 #include "config.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_friends.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
 #include "pdgui_nav.h"
 #include "pdgui_nav_input.h"
@@ -119,6 +120,7 @@ static s32 agentSelectGraphLoad(void *userdata)
 static s32 s_SelectedIdx = 0;
 static s32 s_PrevSelectedIdx = -1;
 static bool s_FocusListPending = false;
+static bool s_SocialOwnedInput = false;
 static bool s_Registered = false;
 static struct agentprofilesummary s_Profiles[AGENT_PROFILE_CAPACITY];
 static s32 s_ProfileCount = 0;
@@ -307,6 +309,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
+    const bool socialOwnsInput = pdguiFriendsAnySurfaceIsOpen() != 0;
+    if (socialOwnsInput) {
+        wflags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing;
+    }
 
     if (!ImGui::Begin("##agent_select", nullptr, wflags)) {
         ImGui::End();
@@ -317,14 +323,17 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
 
-    if (ImGui::IsWindowAppearing()) {
+    const bool appearing = ImGui::IsWindowAppearing();
+    if (!socialOwnsInput && (appearing || s_SocialOwnedInput) &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+        ImGui::SetWindowFocus();
+        s_FocusListPending = true;
+    }
+    s_SocialOwnedInput = socialOwnsInput;
+
+    if (appearing) {
         refreshAgentProfiles(true);
         totalEntries = s_ProfileCount + 1;
-        ImGui::SetWindowFocus();
-        /* The selected row lives inside a child navigation region. Focus it
-         * on entry so the first Accept activates the row instead of merely
-         * entering that region. Copy/delete use this same restoration path. */
-        s_FocusListPending = true;
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 
@@ -334,16 +343,15 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         if (presenceIsAgentLoaded() == 0) {
             prefsAgentApplyMachineBaseline();
         }
+    }
 
-        /* Auto-load the stable default profile name on first appearance only
-         * when no agent is loaded yet. If presenceIsAgentLoaded() is true the
-         * user reached Agent Select from main_menu via Change Agent
-         * (an explicit request to choose a different identity). */
+    /* Auto-load a saved default only the first time the picker owns input.
+     * Change Agent always lets the player choose a different profile. */
+    if (!socialOwnsInput && !s_AutoLoadTriggered) {
+        s_AutoLoadTriggered = true;
         s32 defaultIndex = findProfileByName(s_DefaultAgentName);
-        if (!s_AutoLoadTriggered && defaultIndex >= 0 &&
-                presenceIsAgentLoaded() == 0) {
-            s_AutoLoadTriggered = true;
-            s_SelectedIdx = defaultIndex;
+        if (defaultIndex >= 0) s_SelectedIdx = defaultIndex;
+        if (defaultIndex >= 0 && presenceIsAgentLoaded() == 0) {
             AgentSelectLoadPayload payload = {{0}, menupoolDialogDef(dialog)};
             snprintf(payload.name, sizeof(payload.name), "%s",
                      s_Profiles[defaultIndex].name);
@@ -352,13 +360,6 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 ImGui::End();
                 return 1;
             }
-        } else if (!s_AutoLoadTriggered) {
-            /* Mark triggered anyway so the gate flips for the rest of the
-             * session -- a later sign-out + re-enter Agent Select should
-             * present the picker, not auto-load the prior agent. */
-            s_AutoLoadTriggered = true;
-            /* Preselect the default if any; the user can A-confirm it. */
-            if (defaultIndex >= 0) s_SelectedIdx = defaultIndex;
         }
     }
 
@@ -379,6 +380,22 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     pdguiSetCursorBelowTitle(pdTitleH);
     ImGui::TextDisabled("Choose Your Reality");
+
+    /* The current popup or Social surface gets Back ahead of the picker. */
+    const bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
+                               s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount);
+    bool agentChildOpen = confirmActive || ImGui::IsPopupOpen(
+        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    const bool titleClose = !agentChildOpen && pdguiConsumeTitleClose();
+    if (!agentChildOpen && !socialOwnsInput && (titleClose || pdguiMenuCancelPressed())) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        ImGui::End();
+        pdguiNavSuppressActivation();
+        menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
+        return 1;
+    }
+
+    ImGui::BeginDisabled(socialOwnsInput);
     if (s_StatusMessage[0]) {
         ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
                            "%s", s_StatusMessage);
@@ -395,26 +412,9 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* Defer popup opens until the agent window's ID scope. A context menu
-     * and a confirmation both own input ahead of the parent agent list. */
-    const bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
-                               s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount);
-    bool agentChildOpen = confirmActive || ImGui::IsPopupOpen(
-        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
     bool requestAgentContext = false;
     bool requestAgentConfirm = false;
 
-    /* L-4: B / Escape = go back to previous menu — only when the confirm
-     * modal isn't open. When it is, Escape cancels the modal (handled in
-     * the BeginPopupModal block below). */
-    if (!agentChildOpen && pdguiMenuCancelPressed()) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        ImGui::End();
-        pdguiNavSuppressActivation();
-        menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
-        return 1;
-    }
     /* Native Selectable activation owns Accept. Dispatch only after End so
      * a focused Retry button cannot also load the highlighted Agent. */
     bool requestCreate = false;
@@ -427,7 +427,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * popup; right-click on a list row also opens it (handled at the
      * row Selectable below). The direct C-fires-Copy and Y-fires-Delete
      * paths are kept as power-user shortcuts on the keyboard. */
-    if (!agentChildOpen && pdguiMenuSecondaryPressed()) {
+    if (!agentChildOpen && !socialOwnsInput && pdguiMenuSecondaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             requestAgentContext = true;
             agentChildOpen = true;
@@ -436,7 +436,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     /* Menu Delete = delete (with confirmation). Controller users can reach
      * Delete through the Menu Secondary context menu when Delete is unbound. */
-    if (!agentChildOpen && pdguiMenuDeletePressed()) {
+    if (!agentChildOpen && !socialOwnsInput && pdguiMenuDeletePressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
@@ -446,7 +446,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         }
     }
     /* Menu Tertiary = set as default agent. */
-    if (!agentChildOpen && pdguiMenuTertiaryPressed()) {
+    if (!agentChildOpen && !socialOwnsInput && pdguiMenuTertiaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             const char *name = s_Profiles[s_SelectedIdx].name;
             toggleDefaultAgent(name);
@@ -487,7 +487,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     requestCreate = true;
                 }
                 if (isSelected) ImGui::SetItemDefaultFocus();
-                if (!s_FocusListPending && !agentChildOpen && (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
+                if (!s_FocusListPending && !agentChildOpen && !socialOwnsInput &&
+                        (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
                     s_SelectedIdx = i;
             } else {
                 const struct agentprofilesummary *profile = &s_Profiles[i];
@@ -520,7 +521,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     snprintf(requestedLoad, sizeof(requestedLoad), "%s", name);
                 }
                 if (isSelected) ImGui::SetItemDefaultFocus();
-                if (!s_FocusListPending && !agentChildOpen && (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
+                if (!s_FocusListPending && !agentChildOpen && !socialOwnsInput &&
+                        (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
                     s_SelectedIdx = i;
 
                 /* Right-click on this row opens the per-row context
@@ -529,7 +531,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                  * the right entry. Same popup id (##agent_ctx) backs
                  * both routes per Rule 5 X-context-menu (one builder
                  * for both input devices). */
-                if (!agentChildOpen && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                if (!agentChildOpen && !socialOwnsInput && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                     s_SelectedIdx = i;
                     requestAgentContext = true;
                     agentChildOpen = true;
@@ -600,6 +602,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         s_FocusListPending = false;
     }
     ImGui::EndChild();
+    ImGui::EndDisabled();
 
     if (requestAgentContext) {
         ImGui::OpenPopup("##agent_ctx");
@@ -788,7 +791,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (mAvailW - totalW) * 0.5f);
 
             bool doConfirm = false;
-            bool doCancel  = false;
+            bool doCancel = pdguiConsumeTitleClose() != 0;
 
             s32 framesOpen = (s_ConfirmOpenFrame >= 0)
                              ? (curFrame - s_ConfirmOpenFrame)

@@ -77,6 +77,19 @@ void sessionCatalogBuild(const match_manifest_t *manifest)
     g_SessionCatalog.num_entries = count;
 }
 
+void sessionCatalogBuildForLocalMatch(const match_manifest_t *manifest)
+{
+    sessionCatalogBuild(manifest);
+    memset(s_LocalTranslation, 0, sizeof(s_LocalTranslation));
+    for (u16 i = 0; i < g_SessionCatalog.num_entries; i++) {
+        const session_catalog_entry_t *entry = &g_SessionCatalog.entries[i];
+        session_translation_t *translation = &s_LocalTranslation[entry->wire_id];
+        translation->session_id = entry->wire_id;
+        translation->local_entry = assetCatalogResolve(entry->catalog_id);
+        translation->resolved = translation->local_entry != NULL;
+    }
+}
+
 /* -------------------------------------------------------------------------
  * Server-side: broadcast
  * ------------------------------------------------------------------------- */

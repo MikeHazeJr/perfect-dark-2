@@ -40,6 +40,7 @@ static const smoke_fixture_field_entry_t k_event_fields[] = {
 	{ "hand", SMOKE_FIXTURE_FIELD_HAND },
 	{ "axis", SMOKE_FIXTURE_FIELD_AXIS },
 	{ "value", SMOKE_FIXTURE_FIELD_VALUE },
+	{ "slot", SMOKE_FIXTURE_FIELD_SLOT },
 };
 
 static void smokeJsonSkipWhitespace(smoke_json_cursor_t *cursor)
@@ -348,13 +349,13 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 	if (!strcmp(type, "modmgr_apply_retry_probe") ||
 			!strcmp(type, "file_transfer_socket_probe")) return common;
 	if (!strcmp(type, "controller_attach") || !strcmp(type, "controller_detach")) {
-		return common;
+		return common | SMOKE_FIXTURE_FIELD_SLOT;
 	}
 	if (!strcmp(type, "controller_button")) {
-		return common | SMOKE_FIXTURE_FIELD_BUTTON | SMOKE_FIXTURE_FIELD_ACTION;
+		return common | SMOKE_FIXTURE_FIELD_SLOT | SMOKE_FIXTURE_FIELD_BUTTON | SMOKE_FIXTURE_FIELD_ACTION;
 	}
 	if (!strcmp(type, "controller_axis")) {
-		return common | SMOKE_FIXTURE_FIELD_AXIS | SMOKE_FIXTURE_FIELD_VALUE;
+		return common | SMOKE_FIXTURE_FIELD_SLOT | SMOKE_FIXTURE_FIELD_AXIS | SMOKE_FIXTURE_FIELD_VALUE;
 	}
 	if (!type[0] || !strcmp(type, "wait") || !strcmp(type, "exit")
 			|| !strcmp(type, "unclean_exit")

@@ -3,11 +3,21 @@
 #include <array>
 #include <cfloat>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <vector>
 #include <fstream>
 #include <sstream>
+
+#include "types.h"
+extern "C" {
+#include "net/net.h"
+}
+#include "net/net_player_move_wire.h"
+#undef bool
+#undef false
+#undef true
 
 namespace {
 using AdmissionFixture = std::unique_ptr<void, decltype(&moveFixtureDestroy)>;
@@ -32,6 +42,16 @@ std::vector<unsigned char> golden(bool aiming) {
 using IngressFixture = std::unique_ptr<void, decltype(&moveIngressDestroy)>;
 constexpr uint32_t force = 0xe0000000u;
 constexpr uint32_t select = 1u << 7, dual = 1u << 8, fire = 1u;
+std::vector<unsigned char> goldenGrid(uint32_t command, uint16_t weaponRef) {
+    std::vector<unsigned char> wire;
+    word(wire, 123); word(wire, command);
+    for (int i = 0; i < 8; ++i) real(wire, fields[i]);
+    wire.push_back(static_cast<unsigned char>(weaponRef));
+    wire.push_back(static_cast<unsigned char>(weaponRef >> 8));
+    for (int i = 8; i < 11; ++i) real(wire, fields[i]);
+    if (command & aim) real(wire, fields[11]);
+    return wire;
+}
 std::vector<unsigned char> ingressPacket(bool snapshot, uint32_t tick,
         uint32_t ack, uint32_t command = 0, int weapon = 1, unsigned char id = 1) {
     std::vector<unsigned char> packet;
@@ -174,6 +194,96 @@ TEST_CASE("Movement decoder rejects every truncated ordinary and aiming packet t
     }
 }
 
+TEST_CASE("Grid movement carries a typed reference and leaves force rooms in the outer frame",
+          "[net][move][grid][numeric]") {
+    for (const uint32_t command : {0u, aim, force, force | aim}) {
+        for (const uint16_t weaponRef : {uint16_t{0}, uint16_t{0x4321}}) {
+            CAPTURE(command, weaponRef);
+            const auto expected = goldenGrid(command, weaponRef);
+            REQUIRE(expected.size() == ((command & aim) ? 58 : 54));
+
+            // Use the same native input as the legacy golden record and give it
+            // a runtime weapon distinct from the typed wire reference.
+            const auto legacy = golden((command & aim) != 0);
+            netbuf legacyReader{};
+            netbufStartReadData(&legacyReader, legacy.data(), legacy.size());
+            netplayermove sent{};
+            REQUIRE(netbufReadPlayerMove(&legacyReader, &sent) == 0);
+            sent.ucmd = command;
+            sent.weaponnum = WEAPON_FALCON2;
+            std::strcpy(sent.weapon_id, "mod:weapon_local");
+
+            std::array<unsigned char, 62> storage{};
+            netbuf writer{storage.data(), static_cast<u32>(storage.size()), 0, 0, 0};
+            REQUIRE(netbufWriteGridPlayerMove(&writer, &sent, weaponRef) == 0);
+            REQUIRE(writer.wp == expected.size());
+            CHECK(std::memcmp(storage.data(), expected.data(), expected.size()) == 0);
+            if (command & force) {
+                REQUIRE(netbufWriteS16(&writer, 4) == sizeof(s16));
+                REQUIRE(netbufWriteS16(&writer, -1) == sizeof(s16));
+            }
+
+            netbuf reader{};
+            netbufStartReadData(&reader, storage.data(), writer.wp);
+            netplayermove decoded{};
+            u16 decodedRef = 0xffff;
+            REQUIRE(netbufReadGridPlayerMove(&reader, &decoded, &decodedRef) == 0);
+            CHECK(decodedRef == weaponRef);
+            CHECK(decoded.tick == 123);
+            CHECK(decoded.ucmd == command);
+            CHECK(decoded.weaponnum == -1);
+            CHECK(decoded.weapon_id[0] == '\0');
+            const f32 values[] = {decoded.leanofs, decoded.crouchofs,
+                decoded.movespeed[0], decoded.movespeed[1], decoded.angles[0], decoded.angles[1],
+                decoded.crosspos[0], decoded.crosspos[1], decoded.pos.x, decoded.pos.y, decoded.pos.z};
+            for (size_t i = 0; i < std::size(values); ++i) CHECK(values[i] == fields[i]);
+            CHECK(decoded.zoomfov == ((command & aim) ? fields[11] : 0.f));
+            REQUIRE(reader.rp == expected.size());
+            if (command & force) {
+                s16 rooms[3] = {99, 99, 99};
+                REQUIRE(netbufReadRooms(&reader, rooms, 3) == 0);
+                CHECK(rooms[0] == 4);
+                CHECK(rooms[1] == -1);
+                CHECK(rooms[2] == 99);
+            }
+            CHECK(reader.rp == reader.wp);
+        }
+    }
+}
+
+TEST_CASE("Grid movement preserves the record and typed reference on refusal",
+          "[net][move][grid][numeric]") {
+    const auto reject = [](const std::vector<unsigned char> &wire, size_t size) {
+        netbuf reader{};
+        netbufStartReadData(&reader, wire.data(), static_cast<u32>(size));
+        netplayermove decoded;
+        std::memset(&decoded, 0x5a, sizeof(decoded));
+        std::array<unsigned char, sizeof(decoded)> before{};
+        std::memcpy(before.data(), &decoded, before.size());
+        u16 ref = 0xbabe;
+        REQUIRE(netbufReadGridPlayerMove(&reader, &decoded, &ref) != 0);
+        CHECK(ref == 0xbabe);
+        CHECK(std::memcmp(before.data(), &decoded, before.size()) == 0);
+    };
+
+    for (const uint32_t command : {0u, force | aim}) {
+        const auto wire = goldenGrid(command, 0x4321);
+        for (size_t size = 0; size < wire.size(); ++size) {
+            CAPTURE(command, size);
+            reject(wire, size);
+        }
+    }
+    const size_t offsets[] = {8, 12, 16, 20, 24, 28, 32, 36, 42, 46, 50, 54};
+    for (const size_t offset : offsets) {
+        for (const uint32_t bits : {0x7fc00001u, 0x7f800000u, 0xff800000u}) {
+            CAPTURE(offset, bits);
+            auto wire = goldenGrid(force | aim, 0x4321);
+            for (int i = 0; i < 4; ++i) wire[offset + i] = static_cast<unsigned char>(bits >> (8 * i));
+            reject(wire, wire.size());
+        }
+    }
+}
+
 TEST_CASE("Movement decoder rejects NaN and both infinities in every transmitted float",
           "[net][move][numeric]") {
     const size_t offsets[] = {8,12,16,20,24,28,32,36,41,45,49,53};
@@ -302,6 +412,38 @@ TEST_CASE("SVC force snapshot teleports the local player exactly once and never 
         REQUIRE(r.unchanged);
         REQUIRE(r.teleports == 0);
     }
+}
+
+TEST_CASE("Grid Fiesta reconnect proves live movement after committing the authenticated command",
+          "[net][move][grid][ingress]") {
+    IngressFixture f(moveIngressCreate(1), moveIngressDestroy);
+    REQUIRE(f);
+    moveIngressGrid(f.get(), 3, 1, 0x8001, 87);
+    moveIngressWitness(f.get());
+    move_ingress_result r{};
+    const auto receiveMove = [&](uint32_t tick) {
+        std::vector<unsigned char> packet;
+        word(packet, 3);
+        word(packet, 0);
+        auto movement = goldenGrid(0, 0xffff);
+        movement[0] = static_cast<unsigned char>(tick);
+        packet.insert(packet.end(), movement.begin(), movement.end());
+        REQUIRE(moveIngressReadGrid(f.get(), false, packet.data(), packet.size(), &r) == 0);
+    };
+
+    moveIngressFiesta(f.get(), 1);
+    receiveMove(1);
+    REQUIRE(r.witnessPending);
+    REQUIRE(r.reconnectLogs == 0);
+    moveIngressFiesta(f.get(), 0);
+    receiveMove(1);
+    REQUIRE(r.witnessPending);
+    REQUIRE(r.reconnectLogs == 0);
+    receiveMove(2);
+    REQUIRE_FALSE(r.witnessPending);
+    REQUIRE(r.reconnectLogs == 1);
+    receiveMove(3);
+    REQUIRE(r.reconnectLogs == 0);
 }
 
 TEST_CASE("CLC weapon policy uses the sending player inventory and sanitizes only selection",

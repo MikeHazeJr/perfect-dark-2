@@ -63,8 +63,11 @@ REVIEWED = {
     # Re-reviewed for B-1233 (T-MODDING-008): Store::initialize also rewrites,
     # through the same serializer, a complete bindings file saved by a build
     # with fewer actions, once it has been read and applied.
-    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "ee30087477ac847653ef68c5e197fd9e8976c71bc87ca4db1d56fc889224b8ab"},
-    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "03d168b8946aac8b3fd73491df60fae0ea248b640b050ef1b00f68c748135220"},
+    # Re-reviewed for the input context rule (T-MODDING-008, 2026-11-17): the
+    # same rewrite also runs for a complete file from a build with fewer input
+    # contexts; the write call, its serializer and its path are unchanged.
+    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "b5a389d2af84ec5230a7075b9d1c586b150671b163b2cb332199a800ef3108ad"},
+    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "82f4d0718bdc89e747a271634dda46f9b7abc5692d059e70d7a8c26441702891"},
     # Inactive POSIX branches; the Windows counterparts are wrapped.
     "port/src/crash.c": {"routes": ["open"], "sha256": "766fc2f5ffb484f092be672bded832cd300d97d90805ffe5cc038d89d13c33f7"},
     "port/src/fs.c": {"routes": ["mkdir"], "sha256": "95a210fddb3711643c1ec36e0b219dc1cde9bcac74594f504dc353f1c1e7e53d"},
@@ -77,6 +80,8 @@ REVIEWED = {
     "port/src/pdca_extract_transaction.c": {"routes": ["mkdir"], "sha256": "ea7c9891ad5a20663da577577cc846a1fdd1f6e550e057821be09e45d956ffe8"},
     "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "14ae26828e8f5b75c32415b870c2a0489ce57aef47f2f55d0bc4dffa86bffe37"},
     "port/src/theater_format.c": {"routes": ["ftruncate"], "sha256": "b684bb220e080efa8b7780260ff10002c527127f26b3778b6b1060fb9645dceb"},
+    # POSIX exclusive publication. Windows uses the wrapped MoveFileExA.
+    "port/src/save_atomic.c": {"routes": ["link"], "sha256": "99446e8b34d6d494352f48a071013015b2cd692e26152e32ffe7f9830a6f2a19"},
     # Dynamic resolution is restricted to random bytes and a waitable timer.
     "port/src/net/net_candidate.c": {"routes": ["GetProcAddress", "LoadLibraryA"], "sha256": "8aabafc20491a90e664f81b0ef8df5ed9b12b558a764696741c3eb25183184b8"},
     "port/src/system.c": {"routes": ["GetProcAddress"], "sha256": "bf6b770d4cb62f430834beb52cb74c4438f93f113ca4e764310da4091c0e3cd3"},

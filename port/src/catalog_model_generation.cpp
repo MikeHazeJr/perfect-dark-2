@@ -371,6 +371,11 @@ extern "C" catalog_model_generation_t *catalogModelGenerationForModeldef(const s
     for (auto *g = generations; g; g = g->next) if (g->model == model) return g;
     return nullptr;
 }
+extern "C" int catalogModelGenerationHasLiveIdentity(const char *id) {
+    if (!id || !id[0] || !onClientThread()) return 1;
+    for (auto *g = generations; g; g = g->next) if (g->id == id) return 1;
+    return 0;
+}
 extern "C" int catalogModelGenerationPinStage(catalog_model_generation_t *g) {
     if (!g || !onClientThread()) return 0;
     if (g->stage_pinned) return 1;

@@ -41,6 +41,7 @@ void loaderWalkerScanBodies(const char *tier_dir,
 {
     static const loader_walker_kind_desc_t desc = {
         "body", "bodies", ".pdbody", /* always_invoke: */ 1, "body.ini", "body",
+        &g_BodyHeadArchivePreparation,
     };
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
 }

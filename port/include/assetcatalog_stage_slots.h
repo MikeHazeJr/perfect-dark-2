@@ -38,6 +38,14 @@ void assetCatalogDestroyCustomStageSlotSnapshot(void *snapshot);
  * CATALOG.STAGE.CUSTOM_SLOT_FAIL). */
 s32 assetCatalogResolveStagenumPrivateSlot(const char *catalog_id);
 
+/* Preview the same existing or next slot as Resolve without reserving it.
+ * Returns -1 for a missing key or exhausted range. */
+s32 assetCatalogPeekStagenumPrivateSlot(const char *catalog_id);
+
+/* Inspect or release an exact reservation without minting another slot. */
+s32 assetCatalogFindStagenumPrivateSlot(const char *catalog_id);
+s32 assetCatalogReleaseStagenumPrivateSlot(const char *catalog_id, s32 stagenum);
+
 #ifdef __cplusplus
 }
 #endif

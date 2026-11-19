@@ -32,9 +32,11 @@
 #ifndef _IN_NETMANIFEST_H
 #define _IN_NETMANIFEST_H
 
+#include <stddef.h>
 #include <PR/ultratypes.h>
 
 /* Forward declarations */
+struct grid_match_source_root;
 struct hub_room_s;
 struct matchconfig;
 struct netbuf;
@@ -171,6 +173,10 @@ void manifestSetMaxEntries(s32 n);
  */
 void manifestAddEntry(match_manifest_t *m, const char *id,
                       u8 type, u8 slot_index);
+
+/* Collect the same host-unlocked weapon IDs used by the ordinary spawn pool.
+ * Refusal leaves no usable count, so an exact match cannot use a truncated pool. */
+s32 manifestCollectSpawnWeaponPool(struct grid_match_source_root *roots, size_t capacity, size_t *count);
 
 /**
  * Append one exact enabled catalog asset and its registered dependency closure.
@@ -430,6 +436,8 @@ void manifestBuildForMenu(match_manifest_t *out);
  * Uses module-internal static buffers — not re-entrant.
  */
 void manifestSPTransition(s32 stagenum);
+struct grid_match_sources;
+s32 manifestGridVariantTransition(s32 stagenum, const struct grid_match_sources *sources);
 
 /**
  * Post-setup-load rescan: re-run manifestBuildMission() AFTER
@@ -451,6 +459,8 @@ void manifestSPRescanSetup(s32 stagenum);
  * Uses module-internal static buffers — not re-entrant.
  */
 void manifestMenuTransition(void);
+/* Release the current manifest after the world has stopped. */
+void manifestReleaseCurrent(void);
 
 /**
  * Apply a diff-based asset lifecycle transition for an MP match.
@@ -468,7 +478,8 @@ void manifestMenuTransition(void);
  *
  * Uses module-internal static buffers — not re-entrant.
  */
-void manifestMPTransition(void);
+/* Returns 1 when the authoritative manifest activated. */
+s32 manifestMPTransition(void);
 
 /** Number of entries in the manifest authoritative for this process's MP
  * transition. Servers use g_ServerManifest and clients use g_ClientManifest;

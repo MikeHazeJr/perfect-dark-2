@@ -1,0 +1,102 @@
+{
+  "scenario_name": "forge_level_weapon_smoke",
+  "description": "Forge step F3, back end: a level with a pickup pinned to one weapon loads and the game makes that pickup. One ordinary client launch opens the placements of the extracted base Complex arena, makes the edits forge_level_edit_smoke makes (a player start, a copy of the first weapon pickup, the first ammo crate left out), and, through --debug-forge-level-weapon, gives the copied pickup the catalog weapon base:dragon: the level document rewrites its pickup.weapon row from one of the match's weapon places to that weapon, its base.model row to the model the weapon set shows that weapon with, and its size, in both object files. The result is saved as the mod level 'Forge_Weapon' and the same launch starts an offline Combat Simulator match on it with three simulants. What this proves: the game compiles the rewritten rows (a weapon or model id it cannot resolve refuses the level), and its setup makes a weapon pickup at command 35 that is not one of the match's weapon places (the SETUP line setup.c writes for exactly that case, with the prop made). What it does not prove: that the pickup is drawn where it was put, or that picking it up gives the weapon; nothing here looks at the world or walks to it. No mod exists before the launch. A level made from a base arena holds data from the player's own game files and is local only.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "mod-author",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "src/game/setup.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mod_author_runtime.c",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/MP Maps/arena_forge_weapon"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "base:arena_mp_complex",
+    "--debug-forge-level-name",
+    "Forge_Weapon",
+    "--debug-forge-level-weapon",
+    "base:dragon",
+    "--launch-mp-room",
+    "mod:arena_forge_weapon",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the ordinary Combat Simulator player is continuously spawned, live, controllable and walking on the edited level. The level was made by the first CLI fast paths, before the room launch flags."
+    },
+    {
+      "at_ms": 6000,
+      "type": "exit",
+      "comment": "Six seconds on the level, then a scripted exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_level_weapon_smoke",
+      "FORGE\\.LEVEL\\.DEBUG\\.BEGIN: arena=base:arena_mp_complex name='Forge_Weapon'",
+      "FORGE\\.LEVEL\\.OPEN: arena=base:arena_mp_complex pads=226 spawns=19 objects=35 field_rows=[1-9]\\d* ",
+      "FORGE\\.LEVEL\\.EDIT: copied weapon_pickup setup_0000 to setup_0035 at \\(-1877, 328, 185\\)",
+      "FORGE\\.LEVEL\\.EDIT: setup_0035 now gives base:dragon \\(model base:model_[a-z0-9_]+, size [1-9]\\d*\\)",
+      "FORGE\\.LEVEL\\.EDIT: the level now has pads=228 spawns=20 objects=36",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_weapon mod_id=mod\\.arena_forge_weapon updated=0",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=base:arena_mp_complex catalog=mod:arena_forge_weapon changed_members=6 restart_count=\\d+ archive='.*arena_forge_weapon\\.pdarena' own_template=0",
+      "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=OK catalog=mod:arena_forge_weapon",
+      "BOOT: --debug-forge-level arena=base:arena_mp_complex name='Forge_Weapon' weapon=base:dragon result=OK",
+      "PDARENA\\.SCENARIO: owner=mod:arena_forge_weapon id=mod:arena_forge_weapon__\\S+ stagenum=0x[0-9a-f]+ source=",
+      "BOOT: --launch-mp-room direct match start",
+      "SCENARIO\\.GRAPH: trigger volume nodes '[^']*arena_forge_weapon[^']*' nodes=228 rows=228 ",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_forge_weapon[^']*'.* as 36 setup records, 20 spawns,",
+      "SETUP: fixed weapon pickup cmd=35 weapon=[1-9]\\d* model=[1-9]\\d* prop=1",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "MATCH: player spawned slot=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}
