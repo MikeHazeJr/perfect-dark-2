@@ -26,10 +26,12 @@
 #include "constants.h"
 #include "asset_runtime.h"
 #include "vehicle_graph_runtime.h"
+#include "vehicle_seats.h"
 #include "system.h"
 #include "game/vehiclegraph.h"
 #include "bss.h"
 #include "lib/model.h"
+#include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
 
@@ -41,7 +43,7 @@
 typedef struct hoverbike_graph_host {
 	struct hoverbikeobj *bike;
 	struct prop *prop;
-	hoverbike_seat_action_fn action; /* a seat request's mount or dismount */
+	hoverbike_seat_action_fn action; /* a seat request's mount, dismount or switch */
 	void *action_context;
 	s32 seat_done;                   /* the seat module did it */
 } hoverbike_graph_host_t;
@@ -60,18 +62,28 @@ static struct modelnode *hoverbikeTogglePart(struct hoverbikeobj *bike, s32 part
 	return node && node->type == MODELNODETYPE_TOGGLE ? node : NULL;
 }
 
-/* gate.vehicle.seat_free: nobody is in that seat. */
+/* gate.vehicle.seat_free: nobody is in that seat. The driver seat is taken
+ * while the vehicle is mounted (OBJHFLAG_MOUNTED, the original flag, which the
+ * physics, the doors and the network all read, so it also covers a remote
+ * driver). The gunner seat is in the vehicle's graph record. */
 static s32 hoverbikeGraphSeatFree(void *context, s32 seat)
 {
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
 
-	/* One seat until the gunner seat (V4). */
-	return seat == VEHICLE_GRAPH_SEAT_DRIVER
-		&& (host->bike->base.hidden & OBJHFLAG_MOUNTED) == 0;
+	if (seat == VEHICLE_GRAPH_SEAT_DRIVER) {
+		return (host->bike->base.hidden & OBJHFLAG_MOUNTED) == 0;
+	}
+	if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return vehicleGraphRuntimeSeatOccupant(host->prop, host->prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER) < 0;
+	}
+	return 0;
 }
 
-/* og.vehicle.mount_seat and og.vehicle.dismount_seat: run the request's
- * action for the seat, once. */
+/* og.vehicle.mount_seat, og.vehicle.dismount_seat and og.vehicle.switch_seat:
+ * run the request's action for the seat the module names, once. Which seats
+ * an action serves is the action's own business: it returns 0 for a seat it
+ * has nothing for (the gunner seat, until the gunner's ride is built). */
 static s32 hoverbikeGraphSeatAction(void *context, s32 seat, const vehicle_graph_event_t *event)
 {
 	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
@@ -82,8 +94,9 @@ static s32 hoverbikeGraphSeatAction(void *context, s32 seat, const vehicle_graph
 	 * nothing. The compiler refuses a second one for one seat on one event;
 	 * this keeps the host safe whatever the graph (CORE's review,
 	 * 2026-11-16). */
-	if (host->seat_done || seat != VEHICLE_GRAPH_SEAT_DRIVER || !host->action
-			|| !host->action(host->action_context)) {
+	if (host->seat_done || !host->action
+			|| (seat != VEHICLE_GRAPH_SEAT_DRIVER && seat != VEHICLE_GRAPH_SEAT_GUNNER)
+			|| !host->action(host->action_context, seat)) {
 		return 0;
 	}
 	host->seat_done = 1;
@@ -117,11 +130,203 @@ static void hoverbikeGraphHostInit(vehicle_graph_host_t *table, hoverbike_graph_
 	memset(host, 0, sizeof(*host));
 	host->bike = bike;
 	host->prop = prop;
+	/* A callback left NULL would refuse its module. The three seat modules
+	 * share one: each runs the action of the request that reached it. */
+	memset(table, 0, sizeof(*table));
 	table->context = host;
 	table->seat_free = hoverbikeGraphSeatFree;
 	table->mount_seat = hoverbikeGraphSeatAction;
 	table->dismount_seat = hoverbikeGraphSeatAction;
+	table->switch_seat = hoverbikeGraphSeatAction;
 	table->set_part_visible = hoverbikeGraphPartVisible;
+}
+
+/* ---------------------------------------------------------------------------
+ * Seat parts: where a rider's eye is on the model
+ * ------------------------------------------------------------------------- */
+
+s32 hoverbikeSeatModelPos(struct defaultobj *obj, s32 seat, struct coord *pos)
+{
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *node;
+	s32 part;
+
+	if (!model || !model->definition || !pos) {
+		return 0;
+	}
+	if (seat == VEHICLE_GRAPH_SEAT_DRIVER) {
+		part = VEHICLE_MODEL_PART_DRIVER_SEAT;
+	} else if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		part = VEHICLE_MODEL_PART_GUNNER_SEAT;
+	} else {
+		return 0;
+	}
+	node = modelGetPart(model->definition, part);
+	if (!node || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+		return 0;
+	}
+	/* The sum of the node's own position and its parents' (the gunner's eye
+	 * hangs off the turret's yaw node), in model units. */
+	modelNodeGetModelRelativePosition(model, node, pos);
+	return 1;
+}
+
+/* Whether `node` is `ancestor` or under it. */
+static s32 hoverbikeNodeIsUnder(struct modelnode *node, struct modelnode *ancestor)
+{
+	while (node) {
+		if (node == ancestor) {
+			return 1;
+		}
+		node = node->parent;
+	}
+	return 0;
+}
+
+/* The turret's yaw part when it is a position node that carries the gunner's
+ * eye (part 161 under it), else NULL. */
+static struct modelnode *hoverbikeTurretYawNode(struct model *model)
+{
+	struct modelnode *yawnode;
+	struct modelnode *eyenode;
+
+	if (!model || !model->definition) {
+		return NULL;
+	}
+	yawnode = modelGetPart(model->definition, VEHICLE_MODEL_PART_TURRET_YAW);
+	eyenode = modelGetPart(model->definition, VEHICLE_MODEL_PART_GUNNER_SEAT);
+	if (!yawnode || (yawnode->type & 0xff) != MODELNODETYPE_POSITION || !yawnode->parent
+			|| !eyenode || !hoverbikeNodeIsUnder(eyenode, yawnode) || eyenode == yawnode) {
+		return NULL;
+	}
+	return yawnode;
+}
+
+s32 hoverbikeTurretEyeModelPos(struct defaultobj *obj, f32 yaw, struct coord *eye)
+{
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *yawnode = hoverbikeTurretYawNode(model);
+	struct coord pivot;
+	f32 at[3];
+	f32 turned[3];
+
+	if (!yawnode || !eye) {
+		return 0;
+	}
+	/* The pivot in model units: the yaw part's own position and its
+	 * parents', as hoverbikeSeatModelPos sums them for the eye. */
+	modelNodeGetModelRelativePosition(model, yawnode, &pivot);
+	at[0] = eye->x;
+	at[1] = eye->y;
+	at[2] = eye->z;
+	vehicleTurretTurnPoint(pivot.f, at, yaw, turned);
+	eye->x = turned[0];
+	eye->y = turned[1];
+	eye->z = turned[2];
+	return 1;
+}
+
+void hoverbikeApplyTurretAim(struct prop *prop)
+{
+	static s32 s_LoggedModelnum = -1;
+	static s32 s_LoggedTurnedModelnum = -1;
+	struct defaultobj *obj = (prop && prop->type == PROPTYPE_OBJ) ? prop->obj : NULL;
+	struct model *model = obj ? obj->model : NULL;
+	struct modelnode *yawnode;
+	struct modelnode *pitchnode;
+	struct modelnode *node;
+	f32 yaw;
+	f32 pitch;
+
+	if (!obj || obj->type != OBJTYPE_HOVERBIKE || !model || !model->matrices
+			|| !vehicleGraphRuntimeTurretAim(prop, prop->lifecycle_generation, &yaw, &pitch)) {
+		return;
+	}
+	yawnode = hoverbikeTurretYawNode(model);
+	if (!yawnode) {
+		return;
+	}
+	pitchnode = modelGetPart(model->definition, VEHICLE_MODEL_PART_TURRET_PITCH);
+	if (pitchnode && ((pitchnode->type & 0xff) != MODELNODETYPE_POSITION
+			|| !hoverbikeNodeIsUnder(pitchnode, yawnode))) {
+		pitchnode = NULL;
+	}
+
+	/* The model was placed with no animation (objInitMatrices), so each
+	 * position node's matrix is its parent's times its own offset. Rebuild
+	 * the yaw part's and every position node's under it, parents first, with
+	 * the yaw turned in at the yaw part and the pitch at the pitch part; the
+	 * drawn parts under them take their matrices from these. A two-matrix
+	 * joint is not built this way, and a model with one under the turret is
+	 * left as modelled. */
+	for (node = yawnode; node; ) {
+		if ((node->type & 0xff) == MODELNODETYPE_POSITION) {
+			struct modelrodata_position *rodata = &node->rodata->position;
+			Mtxf *parentmtx = modelFindNodeMtx(model, node->parent, 0);
+			Mtxf local;
+			Mtxf rot;
+			Mtxf turned;
+
+			if ((node->type & MODELNODETYPE_0100) || !parentmtx
+					|| rodata->mtxindex0 < 0 || rodata->mtxindex0 >= model->definition->nummatrices) {
+				return;
+			}
+			mtx4LoadTranslation(&rodata->pos, &local);
+			if (node == yawnode || node == pitchnode) {
+				if (node == yawnode) {
+					mtx4LoadYRotation(yaw, &rot);
+				} else {
+					/* Up is positive: the cannon's +z tilts towards +y, as
+					 * the gunner's view does (bbikeTickGunner). */
+					mtx4LoadXRotation(-pitch, &rot);
+				}
+				mtx00015be4(&local, &rot, &turned);
+				local = turned;
+			}
+			mtx00015be4(parentmtx, &local, &model->matrices[rodata->mtxindex0]);
+		}
+
+		/* The next node under the yaw part, parents before children. */
+		if (node->child) {
+			node = node->child;
+			continue;
+		}
+		while (node != yawnode && !node->next) {
+			node = node->parent;
+		}
+		if (node == yawnode) {
+			break;
+		}
+		node = node->next;
+	}
+
+	if (s_LoggedModelnum != obj->modelnum) {
+		s_LoggedModelnum = obj->modelnum;
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.TURRET: modelnum=%d the turret follows the gunner's aim: yaw part %d, pitch part %d",
+			obj->modelnum, VEHICLE_MODEL_PART_TURRET_YAW, pitchnode ? VEHICLE_MODEL_PART_TURRET_PITCH : -1);
+	}
+	if (s_LoggedTurnedModelnum != obj->modelnum && (yaw > 0.1f || yaw < -0.1f)) {
+		s_LoggedTurnedModelnum = obj->modelnum;
+		sysLogPrintf(LOG_NOTE, "VEHICLE.TURRET: modelnum=%d drawn turned: yaw=%.2f pitch=%.2f",
+			obj->modelnum, yaw, pitch);
+	}
+}
+
+s32 hoverbikeSeatWorldPos(struct defaultobj *obj, s32 seat, struct coord *pos)
+{
+	struct coord local;
+	Mtxf mtx;
+
+	if (!obj || !obj->prop || !pos || !hoverbikeSeatModelPos(obj, seat, &local)) {
+		return 0;
+	}
+	/* The ride's own transform (bbikeTick): the vehicle's rotation, which
+	 * carries the model scale, and its position. */
+	mtx3ToMtx4(obj->realrot, &mtx);
+	mtx4SetTranslation(&obj->prop->pos, &mtx);
+	mtx4TransformVec(&mtx, &local, pos);
+	return 1;
 }
 
 /* ---------------------------------------------------------------------------
@@ -290,7 +495,7 @@ void hoverbikeGraphIdleTick(struct hoverbikeobj *bike)
 }
 
 /* ---------------------------------------------------------------------------
- * Seat requests: mounting and dismounting
+ * Seat requests: mounting, dismounting and switching seat
  * ------------------------------------------------------------------------- */
 
 s32 hoverbikeGraphSeatRequest(struct prop *prop, s32 kind, s32 seat,

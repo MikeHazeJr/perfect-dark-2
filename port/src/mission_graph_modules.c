@@ -230,15 +230,18 @@ static s32 s_runPickupGive(const mission_graph_params_t *params,
 			|| g_NetMode == NETMODE_CLIENT) {
 		return 0;
 	}
+	/* A successful pickup can clear obj->prop before its tick operation
+	 * releases the original prop slot. */
+	struct prop *prop = obj->prop;
 	prevplayernum = g_Vars.currentplayernum;
 	setCurrentPlayerNum(event->player);
-	if (obj->prop->parent) {
-		objDetach(obj->prop);
-		objFreeEmbedmentOrProjectile(obj->prop);
-		propActivate(obj->prop);
+	if (prop->parent) {
+		objDetach(prop);
+		objFreeEmbedmentOrProjectile(prop);
+		propActivate(prop);
 	}
-	result = propPickupByPlayer(obj->prop, 0);
-	propExecuteTickOperation(obj->prop, result);
+	result = propPickupByPlayer(prop, 0);
+	propExecuteTickOperation(prop, result);
 	obj->hidden = ((u32)event->player << 28) | (obj->hidden & 0x0fffffff);
 	setCurrentPlayerNum(prevplayernum);
 	return 1;
@@ -256,10 +259,12 @@ static s32 s_gateObjectKind(const mission_graph_params_t *params,
 
 /* gate.player.has_item: the event's player carries "item", a weapon or
  * item catalog id. */
+static const char kHasItemParam[] = "item";
+
 static s32 s_gatePlayerHasItem(const mission_graph_params_t *params,
 	const mission_graph_event_t *event)
 {
-	const char *item = missionGraphParamText(params, "item");
+	const char *item = missionGraphParamText(params, kHasItemParam);
 	int64_t weaponnum = 0;
 	s32 prevplayernum;
 	s32 has;
@@ -568,6 +573,8 @@ static s32 s_runGlassBreak(const mission_graph_params_t *params,
 static const struct {
 	const char *kind;
 	s32 (*run)(const mission_graph_params_t *params, const mission_graph_event_t *event);
+	const char *asset_param;
+	asset_type_e asset_type;
 } s_MissionGraphModules[] = {
 	{ "og.hud.objective_status_message", s_runObjectiveStatusMessage },
 	{ "og.mission.start_next_stage", s_runStartNextStage },
@@ -582,7 +589,7 @@ static const struct {
 	{ "og.door.unlock", s_runDoorUnlock },
 	{ "og.pickup.give", s_runPickupGive },
 	{ "gate.object.kind", s_gateObjectKind },
-	{ "gate.player.has_item", s_gatePlayerHasItem },
+	{ "gate.player.has_item", s_gatePlayerHasItem, kHasItemParam, ASSET_WEAPON },
 	/* object-events.md slice 4: the native pickup and door rules */
 	{ "gate.pickup.native_rules", s_gatePickupNativeRules },
 	{ "og.pickup.collect", s_runPickupCollect },
@@ -610,6 +617,21 @@ s32 missionGraphModuleKnown(const char *kind)
 		if (strcmp(kind, s_MissionGraphModules[i].kind) == 0) return 1;
 	}
 	return 0;
+}
+
+s32 missionGraphModuleAssetRef(const char *kind, const mission_graph_params_t *params,
+	const char **id, asset_type_e *type)
+{
+	if (!kind || !id || !type) return -1;
+	for (size_t i = 0; i < sizeof(s_MissionGraphModules) / sizeof(s_MissionGraphModules[0]); i++) {
+		if (strcmp(kind, s_MissionGraphModules[i].kind) != 0) continue;
+		const char *key = s_MissionGraphModules[i].asset_param;
+		if (!key) return 0;
+		*id = missionGraphParamText(params, key);
+		*type = s_MissionGraphModules[i].asset_type;
+		return *id && **id ? 1 : -1;
+	}
+	return -1;
 }
 
 s32 missionGraphModuleRun(const char *kind, const char *node_id,

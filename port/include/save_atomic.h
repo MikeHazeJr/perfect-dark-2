@@ -21,6 +21,8 @@ typedef struct save_atomic_file {
 s32 saveAtomicBegin(save_atomic_file_t *transaction, const char *destination);
 FILE *saveAtomicStream(save_atomic_file_t *transaction);
 s32 saveAtomicCommit(save_atomic_file_t *transaction);
+/* Publish the candidate only when the destination is absent. */
+s32 saveAtomicCommitNew(save_atomic_file_t *transaction);
 void saveAtomicAbort(save_atomic_file_t *transaction);
 
 /* Debug/smoke seam.  The next otherwise-successful commit fails immediately

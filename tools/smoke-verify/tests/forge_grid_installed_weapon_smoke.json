@@ -1,0 +1,209 @@
+{
+  "scenario_name": "forge_grid_installed_weapon_smoke",
+  "description": "Two v65 peers author the same original Grid arena and play with an identical installed Needler .pdmod. The guest loads Crystal Pistol first, so the same Needler catalog ID binds to slot 86 on the host and 87 on the guest. The guest switches to Unarmed and back through the normal weapon-slot actions. Both consume the nested Needler model, observe its authored effect, and complete the timed match without downloads.",
+  "tags": ["modding", "forge", "network", "pdmod", "pdweapon", "match-lifecycle"],
+  "paths_of_interest": [
+    "dev-mods/needler",
+    "dev-mods/crystal_pistol",
+    "port/src/forge_level_io.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/net/netmsg.c",
+    "src/game/bondgun.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 480,
+  "install_state": "clean",
+  "remove_paths": ["grid-weapon-host", "grid-weapon-guest"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-weapon-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-weapon-guest/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/needler_enabled.json",
+      "dst": "grid-weapon-host/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_installed_weapon_guest_enabled.json",
+      "dst": "grid-weapon-guest/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/needler_source_pd.ini",
+      "dst": "grid-weapon-host/pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/needler_source_pd.ini",
+      "dst": "grid-weapon-guest/pd.ini"
+    }
+  ],
+  "packed_fixtures": [
+    {"src": "dev-mods/needler", "dst": "grid-weapon-host/mods/installed/needler.pdmod"},
+    {"src": "dev-mods/needler", "dst": "grid-weapon-guest/mods/installed/needler.pdmod"},
+    {"src": "dev-mods/crystal_pistol", "dst": "grid-weapon-guest/mods/installed/crystal_pistol.pdmod"}
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-weapon-host",
+        "--moddir", "$E/grid-weapon-host/mods",
+        "--no-update-check",
+        "--skip-intro",
+        "--debug-generated-mesh-render-audit",
+        "--debug-effect-runtime-audit",
+        "--debug-force-first-person",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Installed_Weapon",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_installed_weapon",
+        "--debug-forge-level-name", "Grid_Installed_Weapon",
+        "--debug-forge-level-weapon", "mod_needler:needler",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind", "27476",
+        "--launch-mp-room", "mod:arena_grid_installed_weapon", "base:combat", "0",
+        "--debug-spawn-weapon", "mod_needler:needler",
+        "--host-autostart",
+        "--match-timelimit-sec", "30"
+      ],
+      "wait_for": "NET: created server on port 27476",
+      "wait_timeout_seconds": 230,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-weapon-host",
+          "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_installed_weapon catalog=mod:arena_grid_installed_weapon",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_installed_weapon sha256=[0-9a-f]{64}",
+          "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_installed_weapon generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+          "GRID\\.SPAWN\\.ACTIVE: id=mod_needler:needler mode=0 weaponnum=86\\b",
+          "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model path=.*needler\\.pdmod::needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+          "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ explosion=1 spark=1 smoke=0 particle=0 audio=1 audio_id=mod_needler:pink_burst_sfx",
+          "MATCH: final scores published before stage end room=",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=1"
+        ],
+        "forbidden_patterns": [
+          "modmgr: loading mod 'crystal_pistol'"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-weapon-guest",
+        "--moddir", "$E/grid-weapon-guest/mods",
+        "--no-update-check",
+        "--skip-intro",
+        "--debug-generated-mesh-render-audit",
+        "--debug-effect-runtime-audit",
+        "--debug-force-first-person",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Installed_Weapon",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_installed_weapon",
+        "--debug-forge-level-name", "Grid_Installed_Weapon",
+        "--debug-forge-level-weapon", "mod_needler:needler",
+        "--connect-host", "127.0.0.1:27476"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-weapon-guest",
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_installed_weapon catalog=mod:arena_grid_installed_weapon",
+          "NET: SVC_AUTH from server, our ID is 1",
+          "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_installed_weapon generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "MATCH: client stage start received",
+          "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model path=.*needler\\.pdmod::needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=2"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest-loads-crystal-first-and-binds-the-same-needler-at-slot-87",
+            "patterns": [
+              "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+              "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
+              "GRID\\.SPAWN\\.ACTIVE: id=mod_needler:needler mode=0 weaponnum=87\\b"
+            ]
+          },
+          {
+            "name": "guest-switches-away-and-back-before-the-authored-needler-effect",
+            "patterns": [
+              "SMOKE: action tap-press id=34 at_ms=1700\\b",
+              "LOG\\.WPN\\.DIAG: bgunEquipWeapon enter player=0 wpn=1 cur_wpn=87\\b",
+              "SMOKE: action tap-press id=35 at_ms=4400\\b",
+              "LOG\\.WPN\\.DIAG: bgunEquipWeapon enter player=0 wpn=87 cur_wpn=1\\b",
+              "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ explosion=1 spark=1 smoke=0 particle=0 audio=1 audio_id=mod_needler:pink_burst_sfx"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {"at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 390000, "stable_ms": 1000},
+    {"at_ms": 1700, "type": "action", "name": "ACTION_WEAPON_1", "action": "tap", "comment": "Switch to Unarmed through the first inventory slot."},
+    {"at_ms": 3000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press"},
+    {"at_ms": 4400, "type": "action", "name": "ACTION_WEAPON_2", "action": "tap", "comment": "Re-equip the admitted Needler through the second inventory slot."},
+    {"at_ms": 7000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press"},
+    {"at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release"},
+    {"at_ms": 10000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press"},
+    {"at_ms": 11000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release"},
+    {"at_ms": 12000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Fire the authored secondary projectile toward nearby floor collision."},
+    {"at_ms": 14000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release"},
+    {"at_ms": 15000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release"},
+    {"at_ms": 16000, "type": "wait_until", "condition": "endscreen_visible", "timeout_ms": 65000, "stable_ms": 1000},
+    {"at_ms": 18500, "type": "exit"}
+  ],
+  "assertions": {
+    "required_lines": ["MATCH: stage end reason=timelimit"],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_installed_weapon epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_installed_weapon revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit scenario=forge_grid_installed_weapon",
+        "min": 2,
+        "max": 2
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER:",
+      "DISTRIB\\.GRID:",
+      "DISTRIB: (recv begin|sending |player approved|missing component)",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=FAIL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "ASSET\\.FALLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

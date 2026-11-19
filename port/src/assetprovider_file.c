@@ -52,6 +52,20 @@ static void fileProviderEnsureMutex(void)
     }
 }
 
+static s32 fileProviderFindPathLocked(const char *path)
+{
+    for (s32 i = 0; i < s_PathCount; i++) {
+        const s32 offset = s_PathOffsets[i];
+        if (strcmp(&s_PathPool[offset], path) == 0) return offset;
+    }
+    return 0;
+}
+
+static s32 fileProviderHasPathCapacity(s32 pool_used, s32 path_count, s32 need)
+{
+    return path_count < FILE_PROVIDER_MAX_PATHS && need <= FILE_PROVIDER_POOL_BYTES - pool_used;
+}
+
 static s32 fileProviderInternPath(const char *path)
 {
     if (!path || !path[0]) {
@@ -69,21 +83,14 @@ static s32 fileProviderInternPath(const char *path)
         SDL_LockMutex(s_PathMutex);
     }
 
-    /* Dedup: scan the offsets table. O(n) but n is small (< 1024 in any
-     * realistic install) and only runs at catalog registration time. */
-    for (s32 i = 0; i < s_PathCount; i++) {
-        if (strcmp(&s_PathPool[s_PathOffsets[i]], path) == 0) {
-            s32 offset = s_PathOffsets[i];
-            if (s_PathMutex) {
-                SDL_UnlockMutex(s_PathMutex);
-            }
-            return offset;
-        }
+    const s32 existing = fileProviderFindPathLocked(path);
+    if (existing) {
+        if (s_PathMutex) SDL_UnlockMutex(s_PathMutex);
+        return existing;
     }
 
     s32 need = (s32)strlen(path) + 1;
-    if (s_PathPoolUsed + need > FILE_PROVIDER_POOL_BYTES ||
-            s_PathCount >= FILE_PROVIDER_MAX_PATHS) {
+    if (!fileProviderHasPathCapacity(s_PathPoolUsed, s_PathCount, need)) {
         if (!s_Warned) {
             sysLogPrintf(LOG_WARNING,
                 "FileProvider: path intern pool exhausted (%d paths, %d bytes used, need %d more). "
@@ -105,6 +112,41 @@ static s32 fileProviderInternPath(const char *path)
         SDL_UnlockMutex(s_PathMutex);
     }
     return offset;
+}
+
+s32 fileProviderCanInternPaths(const char *const *paths, size_t count)
+{
+    if (!count) return 1;
+    if (!paths) return 0;
+    fileProviderEnsureMutex();
+    SDL_mutex *mutex = s_PathMutex;
+    if (!mutex || SDL_LockMutex(mutex) != 0) return 0;
+
+    s32 fits = 1;
+    s32 pool_used = s_PathPoolUsed;
+    s32 path_count = s_PathCount;
+    for (size_t i = 0; i < count; ++i) {
+        const char *path = paths[i];
+        const size_t length = path ? strnlen(path, FS_MAXPATH) : 0;
+        if (!length || length == FS_MAXPATH) {
+            fits = 0;
+            break;
+        }
+        if (fileProviderFindPathLocked(path)) continue;
+        size_t first = 0;
+        while (first < i && strcmp(paths[first], path) != 0) ++first;
+        if (first < i) continue;
+
+        const s32 need = (s32)length + 1;
+        if (!fileProviderHasPathCapacity(pool_used, path_count, need)) {
+            fits = 0;
+            break;
+        }
+        pool_used += need;
+        path_count++;
+    }
+    SDL_UnlockMutex(mutex);
+    return fits;
 }
 
 static const char *fileProviderGetPath(s32 offset)

@@ -163,6 +163,15 @@ void cdClearResults(void)
 	var8005f038 = 0;
 }
 
+void cdInstallStageTileBank(u8 *bank)
+{
+	cdClearResults();
+	g_CdObstacleGeo = NULL;
+	g_TileFileData.u8 = bank;
+	g_TileNumRooms = bank ? (s32)*g_TileFileData.u32 : 0;
+	g_TileRooms = bank ? g_TileFileData.u32 + 1 : NULL;
+}
+
 void cdSetObstacleVtxProp(struct coord *vtx1, struct coord *vtx2, struct prop *prop)
 {
 	g_CdEdgeVtx1.x = vtx1->x;
@@ -2462,6 +2471,38 @@ s32 cdTestVolume(struct coord *pos, f32 width, RoomNum *rooms, s32 types, bool c
 	}
 
 	return result;
+}
+
+s32 cdPropVolumeClear(struct coord *pos, f32 radius, RoomNum *rooms, f32 ymax, f32 ymin)
+{
+	const u32 types = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
+	if (!pos || !rooms || rooms[0] < 1 || !g_Vars.props
+			|| !(radius > 0.0f) || !__builtin_isfinite(radius) || !(ymax >= ymin)
+			|| !__builtin_isfinite(ymax) || !__builtin_isfinite(ymin)
+			|| !__builtin_isfinite(pos->x) || !__builtin_isfinite(pos->y) || !__builtin_isfinite(pos->z)) return 0;
+
+	/* Scan the resident prop pool so a saturated room query cannot hide a
+	 * blocker. Object and door geometry is cached and read by these helpers. */
+	for (s32 i = 0; i < g_Vars.maxprops; ++i) {
+		struct prop *prop = &g_Vars.props[i];
+		if (!propGetLifecycleGeneration(prop) || !(prop->flags & PROPFLAG_ENABLED) || prop->parent
+				|| (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_DOOR) || !prop->obj
+				|| !propIsOfCdType(prop, types)) continue;
+		s32 shares_room = 0;
+		for (s32 j = 0; j < ARRAYCOUNT(prop->rooms) && prop->rooms[j] != -1 && !shares_room; ++j) {
+			for (const RoomNum *room = rooms; *room != -1; ++room) {
+				if (*room == prop->rooms[j]) shares_room = 1;
+			}
+		}
+		u8 *start, *end;
+		if (!shares_room || !propUpdateGeometry(prop, &start, &end)) continue;
+		struct collision hit;
+		s32 count = 0;
+		cdCollectGeoForCylFromList(pos, radius, start, end, GEOFLAG_WALL, true,
+			ymax, ymin, prop, &hit, 1, &count, prop->rooms[0]);
+		if (count) return 0;
+	}
+	return 1;
 }
 
 s32 cdExamCylMove01(struct coord *pos, struct coord *pos2, f32 radius, RoomNum *rooms, s32 types, bool checkvertical, f32 ymax, f32 ymin)

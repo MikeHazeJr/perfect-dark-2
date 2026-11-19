@@ -29,6 +29,18 @@ const char *vehicleDebugSwapId(void);
  */
 s32 vehicleDebugSwapModelnum(s32 modelnum);
 
+/*
+ * `--debug-mount-seat <driver|gunner>`: the seat every mount of a two-seat
+ * vehicle asks for, instead of the seat the player's place and view choose
+ * (src/game/propobj.c, hoverbikeChooseMountSeat). 0 is the driver seat, 1 the
+ * gunner seat, -1 clears it (VEHICLE_GRAPH_SEAT_* in vehicle_graph_runner.h).
+ * A vehicle whose graph has no gunner seat is not affected.
+ */
+#define VEHICLE_DEBUG_MOUNT_SEAT_NONE   (-1)
+#define VEHICLE_DEBUG_MOUNT_SEAT_DRIVER 0
+#define VEHICLE_DEBUG_MOUNT_SEAT_GUNNER 1
+void hoverbikeDebugSetMountSeat(s32 seat);
+
 #ifdef __cplusplus
 }
 #endif

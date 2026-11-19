@@ -71,15 +71,49 @@ def call(method, path, body=None):
         return {"url_error": str(error.reason)}
 
 
+def png_pixels_only(data, path):
+    """A PNG's bytes without its text, time and EXIF chunks.
+
+    A render saved by Blender carries the .blend file's full path, the date,
+    and the scene's and camera's names in those chunks, and a photo carries
+    its EXIF. None of that belongs in an upload to an outside service; the
+    picture is all the service needs. Colour and pixel chunks are kept as they
+    are. Anything that is not a well-formed PNG is refused, so nothing is sent
+    that this function could not read."""
+    signature = bytes((137, 80, 78, 71, 13, 10, 26, 10))
+    private = (b"tEXt", b"zTXt", b"iTXt", b"eXIf", b"tIME")
+    if not data.startswith(signature):
+        raise SystemExit("reference image is not a PNG (convert it first): " + path)
+    kept = [signature]
+    pos = len(signature)
+    ended = False
+    while pos + 12 <= len(data):
+        length = int.from_bytes(data[pos:pos + 4], "big")
+        kind = data[pos + 4:pos + 8]
+        end = pos + 12 + length
+        if end > len(data):
+            break
+        if kind not in private:
+            kept.append(data[pos:end])
+        pos = end
+        if kind == b"IEND":
+            ended = True
+            break
+    if not ended:
+        raise SystemExit("reference image is not a complete PNG: " + path)
+    return b"".join(kept)
+
+
 def upload(path):
     """POST /v3/files (multipart, field "file"); returns the file token. The
-    upload carries a generic file name, not the local one."""
+    upload carries a generic file name, not the local one, and the picture
+    without its metadata (png_pixels_only)."""
     crlf = bytes((13, 10))
     boundary = "----pdgamemodel" + uuid.uuid4().hex
     with open(path, "rb") as f:
-        data = f.read()
-    ctype = "image/png" if path.lower().endswith(".png") else "image/jpeg"
-    ext = ".png" if ctype == "image/png" else ".jpg"
+        data = png_pixels_only(f.read(), path)
+    ctype = "image/png"
+    ext = ".png"
     head = crlf.join([
         ("--" + boundary).encode("ascii"),
         ('Content-Disposition: form-data; name="file"; filename="reference' + ext + '"').encode("ascii"),
@@ -114,6 +148,11 @@ if label == "balance":          # free check: print the balance and stop
 
 with open(prompt_path, encoding="utf-8") as f:
     prompt = f.read().strip()
+# Tripo refuses a longer prompt (code 1004, "prompt must be at most 1800
+# characters"). Stop here, before any reference image is uploaded.
+PROMPT_LIMIT = 1800
+if len(prompt) > PROMPT_LIMIT:
+    raise SystemExit("prompt is %d characters; Tripo takes at most %d" % (len(prompt), PROMPT_LIMIT))
 record = {"label": label, "model": model, "size": size, "quality": quality,
           "prompt_file": os.path.abspath(prompt_path),
           "started_utc": datetime.datetime.utcnow().isoformat() + "Z"}

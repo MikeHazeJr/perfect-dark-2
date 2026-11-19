@@ -43,6 +43,10 @@ void assetCatalogDestroyCustomSoundSlotSnapshot(void *snapshot);
  * remaining identity in soundnumhack's 11-bit id field; it is a wire-safe
  * runtime ceiling rather than a PC-only arbitrary reservation. */
 s32 assetCatalogResolveSoundPrivateSlot(const char *catalog_id);
+/* Exact catalog metadata reservations, independent of the PCM generations. */
+s32 assetCatalogFindSoundPrivateSlot(const char *catalog_id);
+s32 assetCatalogCanRetireSoundReservation(const char *catalog_id, s32 soundnum);
+s32 assetCatalogRetireSoundReservation(const char *catalog_id, s32 soundnum);
 
 /* Immutable generations own leaf slots independently of catalog rows. */
 s32 assetCatalogReserveSoundGenerationSlot(void);

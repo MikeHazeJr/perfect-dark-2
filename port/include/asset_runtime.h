@@ -148,6 +148,12 @@ const asset_runtime_binding_t *assetRuntimeFindByRuntimeId(asset_type_e type,
                                                           s32 runtime_id);
 const asset_runtime_binding_t *assetRuntimeHudElement(s32 element_type);
 const asset_runtime_binding_t *assetRuntimeVehicleForModelnum(s32 modelnum);
+/* Borrow the privately bound, typed embedded model of one enabled custom
+ * vehicle definition. Available before its runtime graph is hydrated. */
+const asset_entry_t *assetRuntimeVehiclePlacementModel(const char *vehicle_id);
+/* Check the exact detached source through the native vehicle hydrator. */
+s32 assetRuntimeVehiclePlacementSourceValid(const asset_entry_t *vehicle,
+	char *err, size_t err_cap);
 s32 assetRuntimeHudElementEnabled(s32 element_type);
 s32 assetRuntimeVehicleAllows(s32 modelnum, const char *action);
 s32 assetRuntimeVehicleHover(s32 modelnum, f32 out_values[13]);

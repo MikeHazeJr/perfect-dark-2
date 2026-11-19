@@ -19,7 +19,7 @@ struct Refusal {
 	std::string reason;
 };
 
-void refuse(const std::string &reason)
+[[noreturn]] void refuse(const std::string &reason)
 {
 	throw Refusal{ reason };
 }
@@ -54,6 +54,55 @@ bool boolean(const Json &object, const char *key, const std::string &where)
 	if (!object.contains(key)) return false;
 	if (!object[key].is_boolean()) refuse(where + "." + key + " must be true or false");
 	return object[key].get<crude_json::boolean>();
+}
+
+void readAtmosphere(const Json &look, scenario_stage_atmosphere_t &out)
+{
+	if (!look.is_object() || look.get<crude_json::object>().empty()) {
+		refuse("atmosphere must be a nonempty object");
+	}
+	onlyKeys(look, {"sky_rgb", "fog", "ambient_light", "primary_music"}, "atmosphere");
+	if (look.contains("sky_rgb")) {
+		const Json &sky = look["sky_rgb"];
+		if (!sky.is_array() || sky.get<crude_json::array>().size() != 3) {
+			refuse("atmosphere.sky_rgb must have three color channels");
+		}
+		for (size_t i = 0; i < 3; i++) {
+			const Json &channel = sky[i];
+			if (!channel.is_number()) refuse("atmosphere.sky_rgb channels must be integers");
+			const double value = channel.get<double>();
+			if (value < 0 || value > 255 || std::floor(value) != value) {
+				refuse("atmosphere.sky_rgb channels must be integers from 0 to 255");
+			}
+			out.sky_rgb[i] = static_cast<u8>(value);
+		}
+		out.has_sky = 1;
+	}
+	if (look.contains("fog")) {
+		const Json &fog = look["fog"];
+		if (!fog.is_object()) refuse("atmosphere.fog must be an object");
+		onlyKeys(fog, {"start", "end"}, "atmosphere.fog");
+		out.fog_start = wholeNumber(fog, "start", 0, 999, "atmosphere.fog");
+		out.fog_end = wholeNumber(fog, "end", out.fog_start + 1, 1000, "atmosphere.fog");
+		out.has_fog = 1;
+	}
+	if (look.contains("ambient_light")) {
+		out.ambient_light = wholeNumber(look, "ambient_light", 0, 255, "atmosphere");
+		out.has_ambient = 1;
+	}
+	if (look.contains("primary_music")) {
+		const Json &music = look["primary_music"];
+		if (!music.is_string()) refuse("atmosphere.primary_music must be a catalog id");
+		const auto &id = music.get<std::string>();
+		const size_t colon = id.find(':');
+		if (id.size() >= sizeof(out.primary_music) || colon == std::string::npos
+				|| colon == 0 || colon + 1 == id.size() || id.find(':', colon + 1) != std::string::npos
+				|| id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:") != std::string::npos) {
+			refuse("atmosphere.primary_music must be a song catalog id");
+		}
+		std::memcpy(out.primary_music, id.c_str(), id.size() + 1);
+	}
+	out.present = 1;
 }
 
 void readWeather(const Json &weather, scenario_stage_weather_t &out)
@@ -98,6 +147,34 @@ void readWeather(const Json &weather, scenario_stage_weather_t &out)
 		out.wind_angle = number(wind, "angle", "weather.wind_direction");
 		out.wind_speed_x = number(wind, "speed_x", "weather.wind_direction");
 		out.wind_speed_z = number(wind, "speed_z", "weather.wind_direction");
+	}
+}
+
+void readWeatherStart(const Json &startup, scenario_stage_weather_t &out)
+{
+	const std::string where = "weather_start";
+	if (!startup.is_object()) refuse("weather_start must be an object");
+	onlyKeys(startup, { "kind", "intensity" }, where);
+	if (!startup.contains("kind") || !startup["kind"].is_string()) {
+		refuse("weather_start.kind must be rain or snow");
+	}
+	const auto &kind = startup["kind"].get<crude_json::string>();
+	s32 ceiling;
+	if (kind == "rain") {
+		out.startup_kind = SCENARIO_STAGE_WEATHER_START_RAIN;
+		ceiling = 3;
+	} else if (kind == "snow") {
+		out.startup_kind = SCENARIO_STAGE_WEATHER_START_SNOW;
+		ceiling = 1;
+	} else {
+		refuse("weather_start.kind must be rain or snow");
+	}
+	out.startup_intensity = wholeNumber(startup, "intensity", 1, ceiling, where);
+	if (!out.present) {
+		out.present = 1;
+		out.wind_speed = 20.0f;
+		out.y_min = -800.0f;
+		out.y_max = 800.0f;
 	}
 }
 
@@ -327,12 +404,13 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks",
-			"gas" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "weather_start", "player", "ai", "ending", "hub",
+			"stars", "sparks", "gas", "atmosphere" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
 		if (root.contains("weather")) readWeather(root["weather"], out->weather);
+		if (root.contains("weather_start")) readWeatherStart(root["weather_start"], out->weather);
 		if (root.contains("player")) readPlayer(root["player"], out->player);
 		if (root.contains("ai")) readAi(root["ai"], out->ai);
 		if (root.contains("ending")) readEnding(root["ending"], out->ending);
@@ -344,6 +422,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 		if (root.contains("stars")) readStars(root["stars"], out->stars);
 		if (root.contains("sparks")) readSparks(root["sparks"], out->sparks);
 		if (root.contains("gas")) readGas(root["gas"], out->gas);
+		if (root.contains("atmosphere")) readAtmosphere(root["atmosphere"], out->atmosphere);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

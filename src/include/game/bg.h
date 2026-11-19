@@ -1,5 +1,6 @@
 #ifndef IN_GAME_BG_H
 #define IN_GAME_BG_H
+#include <stddef.h>
 #include <ultra64.h>
 #include "data.h"
 #include "types.h"
@@ -30,6 +31,25 @@ void bgStop(void);
 /* True while the stage's background comes from scenario source rather than
  * the ROM background file. */
 s32 bgUsesScenarioSource(void);
+
+struct colmesh;
+typedef struct bg_grid_room_layout bg_grid_room_layout_t;
+/* Detach geometry for the supported native Grid two-room layout. The caller
+ * supplies the exact validated scenario collision. The output must start
+ * NULL and remains untouched on failure. */
+s32 bgPrepareGridRoomLayout(const struct colmesh *collision,
+	bg_grid_room_layout_t **out, char *err, size_t err_cap);
+/* Main-thread commit with a non-NULL prepared bank while the same native
+ * stage is live. Exchanges heap ownership without allocation or failure.
+ * Returns NULL on the first swap. The ordinary stage bank stays pool-owned. */
+void bgSwapGridRoomLayout(bg_grid_room_layout_t **prepared);
+/* Release the detached or superseded heap bank. Native room resources
+ * belong to the stage and are never released by this call. */
+void bgReleaseGridRoomLayout(bg_grid_room_layout_t *layout);
+/* Restore the stage-pool table after room consumers are stopped and before
+ * the stage allocator resets. An ordinary stage bank is unaffected. */
+void bgClearGridRoomLayout(void);
+
 void bgSetStageTranslationThing(f32 arg0);
 f32 bgGetStageTranslationThing(void);
 f32 bgGetScaleBg2Gfx(void);

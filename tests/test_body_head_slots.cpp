@@ -121,6 +121,27 @@ TEST_CASE("body and head slot domains are independent",
 	REQUIRE(h == CATALOG_MGR_HEAD_CUSTOM_START);
 }
 
+TEST_CASE("Grid retires only the exact private character reservation",
+          "[catalog][bodyhead][slots][grid-provenance]") {
+	assetCatalogResetCustomBodyHeadSlots();
+	const s32 departing = assetCatalogResolveBodyPrivateSlot("grid:body_departing");
+	const s32 installed = assetCatalogResolveBodyPrivateSlot("grid:body_installed");
+	const s32 head = assetCatalogResolveHeadPrivateSlot("grid:head_installed");
+	REQUIRE(departing >= CATALOG_MGR_BODY_CUSTOM_START);
+	REQUIRE(installed > departing);
+	REQUIRE(head >= CATALOG_MGR_HEAD_CUSTOM_START);
+	CHECK_FALSE(assetCatalogRetireBodyHeadReservation(0, "grid:body_installed", departing));
+	CHECK_FALSE(assetCatalogRetireBodyHeadReservation(1, "grid:body_departing", departing));
+	CHECK(assetCatalogFindBodyHeadPrivateSlot(0, "grid:body_departing") == departing);
+
+	REQUIRE(assetCatalogRetireBodyHeadReservation(0, "grid:body_departing", departing));
+	CHECK(assetCatalogFindBodyHeadPrivateSlot(0, "grid:body_departing") == -1);
+	CHECK(assetCatalogResolveBodyPrivateSlot("grid:body_next") == departing);
+	CHECK_FALSE(assetCatalogRetireBodyHeadReservation(0, "grid:body_departing", departing));
+	CHECK(assetCatalogFindBodyHeadPrivateSlot(0, "grid:body_installed") == installed);
+	CHECK(assetCatalogFindBodyHeadPrivateSlot(1, "grid:head_installed") == head);
+}
+
 TEST_CASE("body and head admission snapshot restores both domains",
           "[catalog][bodyhead][slots][b1043][T-CATALOG-003]") {
 	assetCatalogResetCustomBodyHeadSlots();

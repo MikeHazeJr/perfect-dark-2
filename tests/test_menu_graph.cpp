@@ -1620,7 +1620,7 @@ TEST_CASE("menu graph: solo mission pause uses graph helpers for pause subdialog
  * re-introducing raw menuPopDialog() in the migrated function blocks.
  * ------------------------------------------------------------------------- */
 
-TEST_CASE("menu graph: Agent Create save and cancel use graph pop edges", "[input][menu_graph][agent][static]")
+TEST_CASE("menu graph: Agent Create owns input and pops through graph edges", "[input][menu_graph][agent][static]")
 {
     const std::string create = readTextFile("port/fast3d/pdgui_menu_agentcreate.cpp");
     const std::string graph = readTextFile("port/src/menugraph.c");
@@ -1631,6 +1631,17 @@ TEST_CASE("menu graph: Agent Create save and cancel use graph pop edges", "[inpu
     REQUIRE(graph.find("EDGE_POP(\"save\", ACTION_MENU_ACCEPT, \"Save Agent\")") != std::string::npos);
     REQUIRE(graph.find("EDGE_POP(\"cancel\", ACTION_MENU_CANCEL, \"Cancel\")") != std::string::npos);
     REQUIRE(graph.find("NODE(MENU_TYPE_AGENT_CREATE, \"agent_create\", s_AgentCreateEdges)") != std::string::npos);
+
+    const std::string render = functionBlock(create, "renderAgentCreate");
+    REQUIRE_FALSE(render.empty());
+    const auto begin = render.find("ImGui::Begin(\"##agent_create\"");
+    const auto acquire = render.find("menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu)");
+    const auto firstFrame = render.find("ImGui::IsWindowAppearing()");
+    REQUIRE(begin != std::string::npos);
+    REQUIRE(acquire != std::string::npos);
+    REQUIRE(firstFrame != std::string::npos);
+    REQUIRE(begin < acquire);
+    REQUIRE(acquire < firstFrame);
 
     REQUIRE(create.find("menuGraphFirePop(MENU_TYPE_AGENT_CREATE, \"save\")") != std::string::npos);
     REQUIRE(create.find("menuGraphFirePop(MENU_TYPE_AGENT_CREATE, \"cancel\")") != std::string::npos);
@@ -1835,6 +1846,8 @@ TEST_CASE("main menu entries wait for the CI camera before opening input", "[inp
     REQUIRE(ready.find("g_Vars.lvframenum < 4") != std::string::npos);
     REQUIRE(ready.find("g_Vars.tickmode == TICKMODE_CUTSCENE") != std::string::npos);
     REQUIRE(ready.find("!playerCurrentCutsceneInProgress()") != std::string::npos);
+    REQUIRE(ready.find("g_Vars.lvframe60 >= SECSTOTIME60(6)") != std::string::npos);
+    REQUIRE(ready.find("g_Vars.lvframenum >") == std::string::npos);
     /* CI MENU CHARACTER FIX: ciReadyForMenuOpen must NOT force-end the intro
      * fly-in cutscene -- doing so flipped to TICKMODE_NORMAL and removed the
      * player chrbody (Joanna) from the menu backdrop. The menu opens OVER the
@@ -1847,7 +1860,7 @@ TEST_CASE("main menu entries wait for the CI camera before opening input", "[inp
     REQUIRE(tick.find("g_FileState == FILESTATE_UNSELECTED") != std::string::npos);
     REQUIRE(findAll(tick, "ciReadyForMenuOpen()").size() >= 3);
     REQUIRE(findAll(tick, "ciHoldMenuOpenUntilCameraReady()").size() >= 2);
-    REQUIRE(tick.find("g_Vars.lvframenum > 300") == std::string::npos);
+    REQUIRE(tick.find("g_Vars.lvframe60 >= 30 && ciReadyForMenuOpen()") != std::string::npos);
 }
 
 
@@ -1901,7 +1914,7 @@ TEST_CASE("Agent popup requests open in the parent scope that renders them",
     REQUIRE(render.find("!confirmActive &&") == std::string::npos);
     REQUIRE(render.find("if (!agentChildOpen && requestCreate)") != std::string::npos);
     REQUIRE(render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))") != std::string::npos);
-    REQUIRE(render.find("!agentChildOpen && pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("!agentChildOpen && !socialOwnsInput && (titleClose || pdguiMenuCancelPressed())") != std::string::npos);
     // Each popup suppresses its opening gesture before submitting its body.
     // Other graph transitions may also suppress activation (including Back).
     REQUIRE(render.find("pdguiNavSuppressActivation()", contextOpens[0]) < contextBegin);
@@ -2000,7 +2013,7 @@ TEST_CASE("Agent Select gives native focus activation authority and defers trans
     REQUIRE(render.find("pdguiMenuUpRepeat()") == std::string::npos);
     REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
     REQUIRE(render.find("ImGui::SetItemDefaultFocus()") != std::string::npos);
-    REQUIRE(render.find("if (!agentChildOpen && pdguiMenuCancelPressed())") < render.find("ImGui::Selectable("));
+    REQUIRE(render.find("if (!agentChildOpen && !socialOwnsInput && (titleClose || pdguiMenuCancelPressed()))") < render.find("ImGui::Selectable("));
     REQUIRE(render.rfind("ImGui::End();") < render.find("if (!agentChildOpen && requestCreate)"));
     REQUIRE(render.rfind("ImGui::End();") < render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))"));
     REQUIRE(render.find("const s32 restoreFocusIndex = s_FocusListPending ? s_SelectedIdx : -1;") != std::string::npos);

@@ -49,6 +49,10 @@ TEST_CASE("smoke event schema rejects known fields on incompatible event types",
 		common | SMOKE_FIXTURE_FIELD_PATH, &unsupported));
 	REQUIRE_FALSE(smokeFixtureEventFieldsValid("give_weapon",
 		common | SMOKE_FIXTURE_FIELD_PATH | SMOKE_FIXTURE_FIELD_NAME, &unsupported));
+	/* object-events.md slice 4 in play: touch_pickup takes no fields. */
+	REQUIRE(smokeFixtureEventFieldsValid("touch_pickup", common, &unsupported));
+	REQUIRE_FALSE(smokeFixtureEventFieldsValid("touch_pickup",
+		common | SMOKE_FIXTURE_FIELD_PATH, &unsupported));
 	REQUIRE(smokeFixtureEventFieldsValid("wait_until", assisted_wait,
 		&unsupported));
 	REQUIRE(unsupported == 0);

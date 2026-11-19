@@ -51,9 +51,20 @@
  * Cost: NULL is a single compare; readable is one VirtualQuery
  * (~100 ns on modern Win10/11) per range, ~100 calls per tick on a
  * heavy stage -- rounding error in the frame budget.
+ *
+ * That estimate holds for a hundred calls a tick and not for a loop.
+ * Measured 2026-11-17 (B-1234): the shot hit test probed every display
+ * list command and every vertex batch it walked, one system call each.
+ * Against the base hoverbike that was about 3 ms of every frame while the
+ * player looked at it or rode it; against a compiled 5,829-triangle mod
+ * vehicle (one vertex batch per triangle) about 47 ms, which held its
+ * rider near 20 frames a second.  A walk that checks many ranges uses
+ * modelRodataIsReadableInSpan below, which asks the operating system once
+ * per readable run of memory, not once per range.
  */
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -78,6 +89,39 @@ int modelRodataIsNonNull(const void *rodata);
  * non-Windows hosts this falls back to a NULL check.
  */
 int modelRodataIsReadable(const void *rodata, size_t bytes);
+
+/*
+ * What one walk has learned about readable memory: the bounds of the run
+ * of committed, readable pages its last query found.  `hi` is one past the
+ * last readable byte; zero means nothing is known yet.
+ *
+ * A span belongs to ONE walk.  Declare it on the walk's stack, zeroed
+ * (`model_rodata_span_t span = { 0, 0 };`), and let it go when the walk
+ * returns.  Never keep one in a global or across frames: the memory it
+ * describes can be freed or re-protected once the walk is over, and a
+ * stale span would then answer "readable" for memory that no longer is.
+ */
+typedef struct model_rodata_span {
+	uintptr_t lo;
+	uintptr_t hi;
+} model_rodata_span_t;
+
+/*
+ * The same answer as modelRodataIsReadable, for a walk that checks many
+ * ranges.  A range inside the span is answered with two compares and no
+ * system call.  Any other range is asked of the operating system as
+ * before, and the run of pages that query walked becomes the span (joined
+ * to the old span when the two touch or overlap).  A range that fails
+ * leaves the span as it was.
+ *
+ * A run starts at the page that holds the queried address, not at the
+ * start of its allocation, so a walk that reads memory in rising order
+ * asks once and a walk that reads it in falling order asks once per page.
+ *
+ * `span` may be NULL: the call is then exactly modelRodataIsReadable.
+ */
+int modelRodataIsReadableInSpan(model_rodata_span_t *span,
+                                const void *rodata, size_t bytes);
 
 /*
  * Logging helper.  Emits a rate-limited `MODEL.RODATA.MISS:` warning

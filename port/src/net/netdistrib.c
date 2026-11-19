@@ -43,15 +43,19 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/grid_edit_room_net.h"
 #include "net/distrib_queue.h"
 #include "net/transfer_buffer.h"
 #include "net/netenet.h"
 #include "net/netmanifest.h"
+#include "smoke_harness.h"
 #include "assetcatalog.h"
 #include "lang_source.h"
 #include "asset_path_contract.h"
 #include "pdca_extract_transaction.h"
 #include "asset_archive_policy.h"
+#include "grid_archive_policy.h"
+#include "grid_match_package_io.h"
 #include "assetcatalog_body_head_slots.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
@@ -74,6 +78,9 @@
 #include "fs.h"
 #include "config.h"
 #include "sha256.h"
+#include "grid_match_runtime.h"
+#include "net/grid_match_wire.h"
+#include "net/grid_match_transfer.h"
 
 /* ========================================================================
  * Constants
@@ -95,6 +102,7 @@
 
 #define DISTRIB_QUEUE_ASSET    0
 #define DISTRIB_QUEUE_PACKAGE  1
+#define DISTRIB_QUEUE_GRID_ARENA 2
 #define DISTRIB_PACKAGE_CATEGORY "pdmod"
 
 static distrib_queue s_Queue;
@@ -117,6 +125,8 @@ typedef struct distrib_send_stream {
     u32 compressed_len;
     u32 next_chunk;
     u32 total_chunks;
+    grid_match_offer_t grid_offer;
+    u16 grid_package;
     s32 active;
 } distrib_send_stream_t;
 static distrib_send_stream_t s_SendStream;
@@ -176,8 +186,10 @@ static s32 s_PendingTemporary = 1;
 /* Missing content is an admission transaction. No request may reach the host
  * until the player has chosen its persistence policy. */
 enum distrib_consent_kind { DISTRIB_CONSENT_NONE, DISTRIB_CONSENT_CATALOG,
-                            DISTRIB_CONSENT_MANIFEST };
+                            DISTRIB_CONSENT_MANIFEST, DISTRIB_CONSENT_GRID_ARENA };
 static enum distrib_consent_kind s_ConsentKind;
+static s32 s_GridArenaTransfer;
+static char s_GridArenaError[192];
 static char (*s_ConsentIds)[64];
 static u16 s_ConsentCount;
 static u16 s_CatalogExpected;
@@ -493,6 +505,67 @@ fail:
  * PDCA Archive Builder (server side)
  * ======================================================================== */
 
+static s32 distribGridArchiveWithheld(const char *name, const void *bytes, u32 size)
+{
+	const char *suffix = name ? strrchr(name, '.') : NULL;
+	const asset_type_e type = name ? assetArchiveTypeForPath(name) : ASSET_NONE;
+	const grid_archive_origin_e origin = gridMatchPackageTypeShareable(type, suffix)
+		? gridMatchPackageOrigin(suffix, bytes, size) : gridArchiveOrigin(name, bytes, size);
+	if (origin == GRID_ARCHIVE_LEGACY) return 0;
+	sysLogPrintf(LOG_WARNING, "DISTRIB.GRID: legacy offer cannot include '%s'", name);
+	return 1;
+}
+
+typedef struct distrib_grid_package {
+	const char *root;
+	s32 withheld;
+} distrib_grid_package_t;
+
+static void distribFindHeldGridSource(const asset_entry_t *entry, void *userdata)
+{
+	distrib_grid_package_t *context = userdata;
+	if (context->withheld || !entry->grid_offer_only || !context->root[0]) return;
+	size_t len = strlen(context->root);
+	const char *path = entry->descriptor_path;
+	if (strncmp(path, context->root, len) != 0) return;
+	if (path[len] == '\0' || path[len] == '/' || path[len] == '\\'
+			|| (path[len] == ':' && path[len + 1] == ':')) {
+		context->withheld = 1;
+	}
+}
+
+s32 netDistribLegacyPackageWithheld(const char *mod_id)
+{
+	const modinfo_t *mod = modmgrFindMod(mod_id);
+	if (!mod) return 0;
+	distrib_grid_package_t context = { mod->is_archive ? mod->archive_path : mod->dirpath, 0 };
+	for (asset_type_e type = ASSET_NONE + 1; type < ASSET_TYPE_COUNT && !context.withheld; ++type) {
+		assetCatalogIterateByType(type, distribFindHeldGridSource, &context);
+	}
+	return context.withheld;
+}
+
+/* Nested typed dependencies inherit the sharing boundary of the source
+ * archive that owns them. */
+static s32 distribGridAncestorWithheld(const char *descriptor)
+{
+	char archive[FS_MAXPATH + 1];
+	for (const char *cut = strstr(descriptor, "::"); cut; cut = strstr(cut + 2, "::")) {
+		size_t len = (size_t)(cut - descriptor);
+		if (!len || len >= sizeof(archive)) return 1;
+		memcpy(archive, descriptor, len);
+		archive[len] = '\0';
+		const asset_type_e type = assetArchiveTypeForPath(archive);
+		if (!gridMatchPackageTypeShareable(type, strrchr(archive, '.'))) continue;
+		u32 size = 0;
+		void *bytes = fsFileLoad(archive, &size);
+		s32 withheld = distribGridArchiveWithheld(archive, bytes, size);
+		if (bytes) sysMemFree(bytes);
+		if (withheld) return 1;
+	}
+	return 0;
+}
+
 static s32 distribTypedArchiveRef(const asset_entry_t *entry,
 		char *out, size_t out_cap)
 {
@@ -530,6 +603,10 @@ static u8 *buildTypedArchiveComponent(const asset_entry_t *entry,
 
 	if (!archive_bytes || archive_size == 0) {
 		if (archive_bytes) sysMemFree(archive_bytes);
+		return NULL;
+	}
+	if (distribGridArchiveWithheld(archive_ref, archive_bytes, archive_size)) {
+		sysMemFree(archive_bytes);
 		return NULL;
 	}
 	chain = strrchr(archive_ref, ':');
@@ -673,6 +750,11 @@ static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
             *ok = 0;
             break;
         }
+        if (distribGridArchiveWithheld(childrel, p, fsize)) {
+            fclose(fp);
+            *ok = 0;
+            break;
+        }
         *buf_len += entry_size;
 
         fclose(fp);
@@ -759,6 +841,11 @@ static u8 *buildModPackageArchive(const modinfo_t *mod, u32 *out_len)
 			u32 size = 0;
 			u8 *data = (u8 *)modArchiveExtractAlloc(archive, i, &size);
 			if (!data) {
+				ok = 0;
+				break;
+			}
+			if (distribGridArchiveWithheld(name, data, size)) {
+				free(data);
 				ok = 0;
 				break;
 			}
@@ -927,6 +1014,10 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 			distribSendEnd(cl, catalog_id, 0);
 			return;
 		}
+		if (netDistribLegacyPackageWithheld(catalog_id)) {
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
 		category = DISTRIB_PACKAGE_CATEGORY;
 		raw = buildModPackageArchive(mod, &raw_len);
 		sysLogPrintf(LOG_NOTE,
@@ -945,6 +1036,11 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 			sysLogPrintf(LOG_WARNING,
 				"DISTRIB: client requested bundled asset '%s' -- skipped",
 				entry->id);
+			distribSendEnd(cl, catalog_id, 0);
+			return;
+		}
+		if (entry->grid_offer_only || distribGridAncestorWithheld(entry->descriptor_path)) {
+			sysLogPrintf(LOG_WARNING, "DISTRIB.GRID: legacy request for '%s' refused", entry->id);
 			distribSendEnd(cl, catalog_id, 0);
 			return;
 		}
@@ -1055,6 +1151,40 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     s_SendStream.active = 1;
 }
 
+static s32 distribSendGridArenaChunk(ENetPeer *peer, u32 offset, u16 length)
+{
+    static s32 smoke_corrupted;
+    u32 size = 0;
+    const u8 *bytes = gridMatchRuntimeReadPendingPackage(&s_SendStream.grid_offer,
+        s_SendStream.grid_package, &size);
+    if (!bytes || size != s_SendStream.compressed_len || offset >= size || length > size - offset)
+        return 0;
+    u8 packet[1 + GRID_MATCH_CHUNK_WIRE_HEADER_SIZE + NET_DISTRIB_CHUNK_SIZE];
+    struct netbuf wire = { .data = packet, .size = sizeof(packet) };
+    grid_match_chunk_t chunk = { .offer = s_SendStream.grid_offer,
+        .package_index = s_SendStream.grid_package, .offset = offset,
+        .size = length, .data = bytes + offset };
+    const char *fault_id = !smoke_corrupted && offset == 0 && smokeHarnessIsActive()
+        ? sysArgGetString("--debug-grid-corrupt-arena") : NULL;
+    const s32 inject = fault_id && strcmp(fault_id, s_SendStream.id) == 0
+        && length && length <= NET_DISTRIB_CHUNK_SIZE;
+    u8 altered[NET_DISTRIB_CHUNK_SIZE];
+    if (inject) {
+        memcpy(altered, chunk.data, length);
+        altered[0] ^= 1;
+        chunk.data = altered;
+    }
+    netbufWriteU8(&wire, SVC_GRID_ARENA_CHUNK);
+    const s32 sent = gridMatchChunkWrite(&wire, &chunk)
+        && distribSendPacketToPeer(peer, packet, wire.wp, NETCHAN_TRANSFER);
+    if (sent && inject) {
+        smoke_corrupted = 1;
+        sysLogPrintf(LOG_NOTE, "SMOKE.GRID.CORRUPT: sent arena=%s room=%u package=%u offset=0 bytes_changed=1",
+            fault_id, (unsigned)chunk.offer.room_id, (unsigned)chunk.package_index);
+    }
+    return sent;
+}
+
 static void distribTickSendStream(void)
 {
     if (!s_SendStream.active) return;
@@ -1063,6 +1193,11 @@ static void distribTickSendStream(void)
     if (!cl || cl->state < CLSTATE_LOBBY || cl->peer != peer
             || !peer || peer->connectID != s_SendStream.peer_connect_id
             || enet_peer_get_state(peer) != ENET_PEER_STATE_CONNECTED) {
+        distribClearSendStream();
+        return;
+    }
+    if (s_SendStream.kind == DISTRIB_QUEUE_GRID_ARENA
+            && (cl->state != CLSTATE_PREPARING || cl->room_id != s_SendStream.grid_offer.room_id)) {
         distribClearSendStream();
         return;
     }
@@ -1079,6 +1214,15 @@ static void distribTickSendStream(void)
         const u32 remaining = s_SendStream.compressed_len - offset;
         const u16 this_len = (u16)(remaining < NET_DISTRIB_CHUNK_SIZE
             ? remaining : NET_DISTRIB_CHUNK_SIZE);
+        if (s_SendStream.kind == DISTRIB_QUEUE_GRID_ARENA) {
+            if (!distribSendGridArenaChunk(peer, offset, this_len)) {
+                distribClearSendStream();
+                netmsgGridArenaSendFailed(cl);
+                return;
+            }
+            s_SendStream.next_chunk++;
+            continue;
+        }
         const u16 id_wire_len = (u16)(strlen(s_SendStream.id) + 1);
         const u32 pkt_len = 1 + sizeof(u16) + id_wire_len + 2 + 1 + 2 + this_len;
         u8 *pkt = (u8 *)malloc(pkt_len);
@@ -1107,7 +1251,7 @@ static void distribTickSendStream(void)
         s_SendStream.next_chunk++;
     }
     if (s_SendStream.next_chunk == s_SendStream.total_chunks) {
-        distribSendEnd(cl, s_SendStream.id, 1);
+        if (s_SendStream.kind != DISTRIB_QUEUE_GRID_ARENA) distribSendEnd(cl, s_SendStream.id, 1);
         distribClearSendStream();
     }
 }
@@ -1125,6 +1269,8 @@ void netDistribInit(void)
     distribQueueClear(&s_Queue);
     memset(s_RecvSlots, 0, sizeof(s_RecvSlots));
     memset(&s_ClientStatus, 0, sizeof(s_ClientStatus));
+    s_GridArenaTransfer = 0;
+    s_GridArenaError[0] = '\0';
     s_SessionArchiveBytesReserved = 0;
     memset(s_KillFeed, 0, sizeof(s_KillFeed));
     s_KillFeedNext = 0;
@@ -1232,6 +1378,40 @@ void netDistribServerHandleManifestDiff(struct netclient *cl,
 	}
 }
 
+s32 netDistribServerQueueGridArena(struct netclient *cl, const grid_match_offer_t *offer,
+        u16 package, const char *arena_id)
+{
+    if (!s_Initialized || !offer || !netPeerHasGridCapability(cl) || !arena_id || !arena_id[0])
+        return 0;
+    distrib_request request = { .client = cl, .peer = cl->peer, .connection = cl->peer->connectID,
+        .kind = DISTRIB_QUEUE_GRID_ARENA, .temporary = 1, .offer_generation = offer->generation,
+        .package_index = package };
+    snprintf(request.id, sizeof(request.id), "%s", arena_id);
+    return distribQueuePush(&s_Queue, &request) != DISTRIB_QUEUE_REJECTED;
+}
+
+static void distribOpenGridArenaStream(struct netclient *cl, const distrib_request *request)
+{
+    const grid_match_runtime_identity_t *grid = gridMatchRuntimePending();
+    if (!grid || request->offer_generation != grid->offer.generation
+            || cl->state != CLSTATE_PREPARING || cl->room_id != grid->offer.room_id) return;
+    u32 size = 0;
+    if (!gridMatchRuntimeReadPendingPackage(&grid->offer, request->package_index, &size)) {
+        netmsgGridArenaSendFailed(cl);
+        return;
+    }
+    s_SendStream.cl = cl;
+    s_SendStream.peer = cl->peer;
+    s_SendStream.peer_connect_id = cl->peer->connectID;
+    s_SendStream.kind = DISTRIB_QUEUE_GRID_ARENA;
+    s_SendStream.grid_offer = grid->offer;
+    s_SendStream.grid_package = request->package_index;
+    snprintf(s_SendStream.id, sizeof(s_SendStream.id), "%s", request->id);
+    s_SendStream.compressed_len = size;
+    s_SendStream.total_chunks = (size + NET_DISTRIB_CHUNK_SIZE - 1) / NET_DISTRIB_CHUNK_SIZE;
+    s_SendStream.active = 1;
+}
+
 void netDistribServerTick(void)
 {
     if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
@@ -1250,18 +1430,23 @@ void netDistribServerTick(void)
                 && distribRequestSameConnection(&request, cl, cl->peer,
                     cl->peer->connectID)
                 && enet_peer_get_state(cl->peer) == ENET_PEER_STATE_CONNECTED) {
-            streamComponentToClient(cl, request.id, request.kind, request.temporary);
+            if (request.kind == DISTRIB_QUEUE_GRID_ARENA) distribOpenGridArenaStream(cl, &request);
+            else streamComponentToClient(cl, request.id, request.kind, request.temporary);
             if (s_SendStream.active) distribTickSendStream();
         }
     }
 }
 
+/* Captures the lobby boundary before the ready gate restores its snapshot. */
+extern void smokeHarnessGridDeclineObserve(const struct netclient *client);
+
 void netDistribServerCancelClient(struct netclient *cl)
 {
     if (!cl) return;
+    if (smokeHarnessIsActive()) smokeHarnessGridDeclineObserve(cl);
     distribQueueRemoveClient(&s_Queue, cl);
     if (s_SendStream.active && s_SendStream.cl == cl) {
-        if (cl->peer == s_SendStream.peer && cl->peer
+        if (s_SendStream.kind != DISTRIB_QUEUE_GRID_ARENA && cl->peer == s_SendStream.peer && cl->peer
                 && cl->peer->connectID == s_SendStream.peer_connect_id
                 && enet_peer_get_state(cl->peer) == ENET_PEER_STATE_CONNECTED)
             distribSendEnd(cl, s_SendStream.id, 0);
@@ -1312,6 +1497,7 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
                             const char *weapon, u8 flags)
 {
     if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
+    if (g_NetLocalClient && netGridEditPrivatePlaytestRoom(g_NetLocalClient->room_id)) return;
 
     /* Broadcast to all active clients: spectators (CLSTATE_LOBBY) and
      * in-game players (CLSTATE_GAME) so the HUD killfeed shows on all clients. */
@@ -1339,7 +1525,7 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        u16 batch_offset,
                                        u16 total_count)
 {
-    if (!s_Initialized) return;
+    if (!s_Initialized || s_GridArenaTransfer) return;
     (void)categories;
 
     if (batch_offset == 0) {
@@ -1417,6 +1603,7 @@ void netDistribClientBeginManifestOffer(void)
 {
     /* Also reset for an all-present offer, which never opens a transfer set. */
     s_ManifestDeclined = 0;
+    netDistribClientClearGridArenaError();
 }
 
 s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
@@ -1459,6 +1646,110 @@ s32 netDistribClientConsentPending(void)
     return s_ConsentKind != DISTRIB_CONSENT_NONE;
 }
 
+s32 netDistribClientBeginGridConsent(const char (*package_ids)[CATALOG_ID_LEN],
+        u16 count, u32 bytes, s32 arena_only)
+{
+    static s32 smoke_declined_once;
+    if (!s_Initialized || !package_ids || !count || count > GRID_MATCH_MAX_SHARED_PACKAGES
+            || !bytes || bytes > NET_DISTRIB_MAX_SESSION || bytes > count * (u64)NET_DISTRIB_MAX_COMP
+            || (s_ConsentKind != DISTRIB_CONSENT_NONE && s_ConsentKind != DISTRIB_CONSENT_CATALOG)
+            || s_GridArenaTransfer || s_ClientStatus.state == DISTRIB_CSTATE_RECEIVING) return 0;
+    _Static_assert(CATALOG_ID_LEN == sizeof(*s_ConsentIds), "Grid consent uses catalog ids");
+    char (*ids)[CATALOG_ID_LEN] = calloc(count, sizeof(*ids));
+    if (!ids) return 0;
+    memcpy(ids, package_ids, count * sizeof(*ids));
+    /* The exact match prompt takes precedence over an unapproved catalog list. */
+    distribClearConsent();
+    s_ConsentIds = ids;
+    s_ConsentCount = count;
+    netDistribClientBeginManifestOffer();
+    s_GridArenaTransfer = 1;
+    s_ConsentKind = DISTRIB_CONSENT_GRID_ARENA;
+    s_ClientStatus = (distrib_client_status_t){ .state = DISTRIB_CSTATE_DIFFING,
+        .missing_count = count, .temporary = 1, .current_bytes_total = bytes };
+    snprintf(s_ClientStatus.current_id, sizeof(s_ClientStatus.current_id), "%s", package_ids[0]);
+    if (arena_only) {
+        sysLogPrintf(LOG_NOTE, "DISTRIB.GRID: temporary arena awaits consent id=%s bytes=%u", package_ids[0], bytes);
+    } else {
+        sysLogPrintf(LOG_NOTE, "DISTRIB.GRID: temporary packages await consent count=%u bytes=%u", count, bytes);
+    }
+    if (sysArgCheck("--debug-decline-manifest")) netDistribClientResolveConsent(0, 1);
+    else if (smokeHarnessIsActive() && sysArgCheck("--debug-grid-decline-once") && !smoke_declined_once)
+        smoke_declined_once = netDistribClientResolveConsent(0, 1);
+    else if (sysArgCheck("--debug-approve-downloads")) netDistribClientResolveConsent(1, 1);
+    return 1;
+}
+
+const char *netDistribClientGridConsentId(s32 index)
+{
+    return s_ConsentKind == DISTRIB_CONSENT_GRID_ARENA && index >= 0 && index < s_ConsentCount
+        ? s_ConsentIds[index] : NULL;
+}
+
+s32 netDistribClientIsGridArena(void)
+{
+    return s_GridArenaTransfer;
+}
+
+void netDistribClientGridArenaPackage(u16 completed, const char *id, u32 received)
+{
+    if (!s_GridArenaTransfer || !id || !id[0] || !memchr(id, '\0', CATALOG_ID_LEN)
+            || completed >= s_ClientStatus.missing_count || completed < s_ClientStatus.received_count
+            || completed > s_ClientStatus.received_count + 1
+            || received < s_ClientStatus.current_bytes_received || received >= s_ClientStatus.current_bytes_total
+            || (completed == s_ClientStatus.received_count && strcmp(id, s_ClientStatus.current_id) != 0)) return;
+
+    s_ClientStatus.received_count = completed;
+    s_ClientStatus.current_bytes_received = received;
+    snprintf(s_ClientStatus.current_id, sizeof(s_ClientStatus.current_id), "%s", id);
+    sysLogPrintf(LOG_NOTE, "DISTRIB.GRID: receiving package=%u/%d id=%s verified=%u total=%u",
+        (unsigned)completed + 1u, s_ClientStatus.missing_count, id, received, s_ClientStatus.current_bytes_total);
+}
+
+void netDistribClientGridArenaProgress(u32 received)
+{
+    if (!s_GridArenaTransfer || received > s_ClientStatus.current_bytes_total) return;
+    if (received > s_ClientStatus.current_bytes_received) s_ClientStatus.current_bytes_received = received;
+    s_ClientStatus.state = DISTRIB_CSTATE_RECEIVING;
+}
+
+void netDistribClientEndGridArena(s32 success)
+{
+    if (!s_GridArenaTransfer) return;
+    if (s_ConsentKind == DISTRIB_CONSENT_GRID_ARENA) distribClearConsent();
+    s_GridArenaTransfer = 0;
+    s_ClientStatus.state = success ? DISTRIB_CSTATE_DONE : DISTRIB_CSTATE_IDLE;
+    s_ClientStatus.received_count = success ? s_ClientStatus.missing_count : 0;
+}
+
+void netDistribClientFailGridArena(const char *reason)
+{
+    if (!s_Initialized || (!s_GridArenaTransfer && (s_ConsentKind != DISTRIB_CONSENT_NONE
+            || s_ClientStatus.state == DISTRIB_CSTATE_RECEIVING))) return;
+    netDistribClientEndGridArena(0);
+    s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+    if (!reason || !reason[0]) reason = "Could not prepare the exact Grid match content.";
+    size_t length = 0;
+    for (; length + 1 < sizeof(s_GridArenaError) && reason[length]; ++length) {
+        const unsigned char ch = (unsigned char)reason[length];
+        s_GridArenaError[length] = ch < 0x20 || ch == 0x7f ? ' ' : reason[length];
+    }
+    s_GridArenaError[length] = '\0';
+}
+
+const char *netDistribClientGridArenaError(void)
+{
+    return s_ClientStatus.state == DISTRIB_CSTATE_ERROR && s_GridArenaError[0] ? s_GridArenaError : NULL;
+}
+
+void netDistribClientClearGridArenaError(void)
+{
+    if (s_ClientStatus.state == DISTRIB_CSTATE_ERROR && s_GridArenaError[0]) {
+        s_ClientStatus.state = DISTRIB_CSTATE_IDLE;
+    }
+    s_GridArenaError[0] = '\0';
+}
+
 s32 netDistribClientManifestDeclined(void)
 {
     return s_ManifestDeclined;
@@ -1467,6 +1758,17 @@ s32 netDistribClientManifestDeclined(void)
 s32 netDistribClientResolveConsent(s32 accept, s32 temporary)
 {
     enum distrib_consent_kind kind = s_ConsentKind;
+    if (kind == DISTRIB_CONSENT_GRID_ARENA) {
+        if ((accept && !temporary) || !netmsgGridResolveArenaConsent(accept)) return 0;
+        distribClearConsent();
+        s_ManifestDeclined = !accept;
+        if (accept) s_ClientStatus.state = DISTRIB_CSTATE_RECEIVING;
+        else {
+            netDistribClientEndGridArena(0);
+            if (smokeHarnessIsActive()) smokeHarnessGridDeclineObserve(g_NetLocalClient);
+        }
+        return 1;
+    }
     u32 manifest_hash = s_ConsentManifestHash;
     s32 sent_ok = 1;
     if (kind == DISTRIB_CONSENT_NONE || !s_ConsentCount) return 0;
@@ -2358,7 +2660,9 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
                 sizeof(e->ext.arena.scenario_archive) - 1);
         e->ext.arena.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
         e->ext.arena.name_langid = iniGetInt(ini, "name_langid", 0);
-        e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
+        e->ext.arena.load_mode = catalogArenaLoadModeFromIni(ini); /* B-1235: by name */
+        catalogArenaDisplayNameFromIni(ini, e->ext.arena.display_name,
+                                       sizeof(e->ext.arena.display_name)); /* Forge F1 */
         if (e->ext.arena.scenario_archive[0]) {
             distribSetPrimaryFromFile(e, dirpath,
                                       e->ext.arena.scenario_archive);

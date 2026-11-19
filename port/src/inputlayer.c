@@ -61,6 +61,24 @@ static const InputAction s_VehicleDriverActionSet[] = {
     ACTION_PAUSE,
 };
 
+/* Maian vehicle V4 (2026-11-17): what a gunner may do. No drive, steer,
+ * brake, handbrake or boost: those are the driver's. The exit action is
+ * shared (pressed twice it switches seat when the other one is free). Every
+ * other gameplay action is closed while this layer is on top, so the hand
+ * gun does not fire from the pod. */
+static const InputAction s_VehicleTurretActionSet[] = {
+    ACTION_TURRET_FIRE,
+    ACTION_TURRET_ZOOM,
+    ACTION_VEHICLE_EXIT,
+    ACTION_VEHICLE_LOOK_X,
+    ACTION_VEHICLE_LOOK_Y,
+    /* The shared aim axis pair: the mouse and the right stick turn the
+     * gunner's view, as they do the driver's. */
+    ACTION_AXIS_AIM_X,
+    ACTION_AXIS_AIM_Y,
+    ACTION_PAUSE,
+};
+
 static const InputAction s_ObserverActionSet[] = {
     ACTION_AXIS_MOVE_X,
     ACTION_AXIS_MOVE_Y,
@@ -163,6 +181,33 @@ static void onVehicleDriverAbort(int reason_code)
     (void)reason_code;
     imcVehicleDismount();
     actionmapFlushActionSet(s_VehicleDriverActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleDriverActionSet));
+}
+
+/* The gunner seat's layer: the same shape as the driver's. The push flushes
+ * gameplay state so a fire button held on foot does not carry into the pod,
+ * and each end flushes the seat's own actions so nothing held in the seat
+ * carries out of it (the exit press that left the seat, above all). */
+static int onVehicleTurretPush(void *payload)
+{
+    (void)payload;
+    imcVehicleTurretMount();
+    actionmapFlushGameplayState();
+    actionmapFlushActionSet(s_VehicleTurretActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleTurretActionSet));
+    return 0;
+}
+
+static void onVehicleTurretPop(void *result_out)
+{
+    (void)result_out;
+    imcVehicleTurretDismount();
+    actionmapFlushActionSet(s_VehicleTurretActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleTurretActionSet));
+}
+
+static void onVehicleTurretAbort(int reason_code)
+{
+    (void)reason_code;
+    imcVehicleTurretDismount();
+    actionmapFlushActionSet(s_VehicleTurretActionSet, INPUTLAYER_ARRAYCOUNT(s_VehicleTurretActionSet));
 }
 
 /* s036-06 (c036): track which source pushed the observer layer so pop /
@@ -292,12 +337,12 @@ const LayerDef g_LayerVehicleDriver = {
 const LayerDef g_LayerVehicleTurret = {
     .type                  = LAYER_VEHICLE_TURRET,
     .name                  = "VehicleTurret",
-    .action_set            = NULL,
-    .action_set_count      = 0,
-    .on_push               = NULL,
-    .on_pop                = NULL,
-    .on_abort              = NULL,
-    .imc                   = NULL, /* greenfield */
+    .action_set            = s_VehicleTurretActionSet,
+    .action_set_count      = INPUTLAYER_ARRAYCOUNT(s_VehicleTurretActionSet),
+    .on_push               = onVehicleTurretPush,
+    .on_pop                = onVehicleTurretPop,
+    .on_abort              = onVehicleTurretAbort,
+    .imc                   = &g_ImcVehicleTurret,
     .wants_relative_mouse  = 1,
     .wants_visible_cursor  = 0,
 };

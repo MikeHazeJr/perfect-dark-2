@@ -6203,11 +6203,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 64") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 65") != std::string::npos);
 	REQUIRE(netHeader.find("v54/v55") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 64") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 65") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
@@ -6790,7 +6790,20 @@ TEST_CASE("metadata family INI support covers grouped templates and deps",
 	REQUIRE(distrib.find("iniGetInt(ini, \"anim_id\"") == std::string::npos);
 	REQUIRE(distrib.find("iniGetInt(ini, \"texture_id\"") == std::string::npos);
 	REQUIRE(distrib.find("iniGetInt(ini, \"sound_id\"") == std::string::npos);
-	REQUIRE(scanner.find("catalogDepRegister(owner_id, dep, is_bundled)") != std::string::npos);
+	const size_t visitor = scanner.find("s32 assetCatalogVisitDeclaredDependencies(");
+	const size_t callback = scanner.find("static s32 registerDeclaredDependency(", visitor);
+	const size_t wrapper = scanner.find("static void registerDependencyList(", callback);
+	const size_t wrapper_end = scanner.find("static s32 registerAnimationCommandSource(", wrapper);
+	REQUIRE(visitor != std::string::npos);
+	REQUIRE(callback != std::string::npos);
+	REQUIRE(wrapper != std::string::npos);
+	REQUIRE(wrapper_end != std::string::npos);
+	REQUIRE(scanner.find("if (dep[0] && !visit(dep, userdata)) return 0;", visitor) < callback);
+	REQUIRE(scanner.find("catalogDepRegister(owner->id, id, owner->bundled);", callback) < wrapper);
+	REQUIRE(scanner.find("declared_dependency_owner_t owner = {owner_id, is_bundled};", wrapper) < wrapper_end);
+	REQUIRE(scanner.find("assetCatalogVisitDeclaredDependencies(deps, registerDeclaredDependency, &owner);", wrapper) < wrapper_end);
+	REQUIRE(scanner.find("registerDependencyList(e->id, iniGet(ini, \"deps\", \"\"), e->bundled);", wrapper_end)
+		!= std::string::npos);
 	REQUIRE(scanner.find("catalogDepRegister(e->ext.anim.target_body, e->id, e->bundled)") != std::string::npos);
 	REQUIRE(distrib.find("distribRegisterDependencyList(e->id, iniGet(&ini, \"deps\", \"\"), e->bundled)") != std::string::npos);
 	REQUIRE(distrib.find("catalogDepRegister(e->id, e->ext.projectile.entity_ref, e->bundled)") != std::string::npos);
@@ -7191,7 +7204,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("collapsed_triangles=%d/%d") != std::string::npos);
 	REQUIRE(compiler.find("modeldef native integer boundary failed") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefLoadMaterialMetadata") != std::string::npos);
-	REQUIRE(compiler.find("pd_texture_catalog") != std::string::npos);
+	REQUIRE(compiler.find("modAssetMaterialCatalogTextureDirective(p,") != std::string::npos);
+	const std::string material_directives = readFile("port/src/modasset_material_order.c");
+	REQUIRE(material_directives.find("pd_texture_catalog") != std::string::npos);
+	REQUIRE(material_directives.find("pd_secondary_texture_catalog") != std::string::npos);
 	REQUIRE(compiler.find("objMaterialSetTextureMapPath") != std::string::npos);
 	REQUIRE(compiler.find("map_Kd") != std::string::npos);
 	REQUIRE(compiler.find("assetCatalogIterateByType(ASSET_TEXTURE") != std::string::npos);
@@ -7684,6 +7700,7 @@ TEST_CASE("B-1102 schema-v5 animation framing is bounded and terminal",
 {
 	const std::string extractor = readFile("port/src/romextract_pdanim_chr.c");
 	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	const std::string walker = readFile("port/src/loader_walker_anim.c");
 	const std::string special = sourceFunctionBlock(compiler,
 		"static s32 gltfBuildNativeFromSpecialParts");
 	const std::string payload = sourceFunctionBlock(compiler,
@@ -7694,6 +7711,21 @@ TEST_CASE("B-1102 schema-v5 animation framing is bounded and terminal",
 		"static s32 parseGltfAnimationNativeExtras");
 	const std::string stream_validator = sourceFunctionBlock(compiler,
 		"static s32 animDescriptorStreamMatches");
+	const std::string build = sourceFunctionBlock(compiler,
+		"s32 modAssetCompilerBuildAnimationClipHashed");
+	const std::string rotation_source = sourceFunctionBlock(walker,
+		"static s32 s_readRotationBits");
+
+	REQUIRE(rotation_source.find("\"animation.ini\"") != std::string::npos);
+	REQUIRE(rotation_source.find("iniGet(ini, \"framelen\", NULL)") != std::string::npos);
+	REQUIRE(walker.find("e->ext.anim.framelen = rotation_bits") != std::string::npos);
+	REQUIRE(build.find("entry ? entry->ext.anim.framelen : 0") != std::string::npos);
+	REQUIRE(payload.find("gltfBuildNativeFromSpecialParts(clip, frame_count, rotation_bits") !=
+		std::string::npos);
+	REQUIRE(special.find("rotation_bits > 16") != std::string::npos);
+	REQUIRE(special.find("out_entry->framelen = rotation_bits ? (u8)rotation_bits : 16") !=
+		std::string::npos);
+	REQUIRE(build.find("(u8)frame_count, out_entry->framelen}") != std::string::npos);
 
 	/* The public schema is ordered framing, not two independent optional
 	 * properties: every header_hex descriptor is preceded by its flags byte. */
@@ -10134,7 +10166,7 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	        std::string::npos);
 	REQUIRE(audio.find("assetArchiveWriterAddDescriptor(&asset_writer, descriptor_name") !=
 	        std::string::npos);
-	REQUIRE(audio.find("s_existingArchiveHasEntry(dst_rel, \"sample.wav\")") !=
+	REQUIRE(audio.find("s_archiveEntryMatches(arc, \"sample.wav\", wav, wav_size)") !=
 	        std::string::npos);
 	REQUIRE(audio.find("s_existingArchiveEntryContains(dst_rel, \"_meta/manifest.json\"") !=
 	        std::string::npos);
@@ -10167,7 +10199,8 @@ TEST_CASE("base audio extractors emit accessible wav payloads",
 	REQUIRE(audio.find("symbol[len - 1] == 'M'") != std::string::npos);
 	REQUIRE(audio.find("catalogReadableVoiceIdForFile(filenum") !=
 	        std::string::npos);
-	REQUIRE(audio.find("pdvoice_b1018_direct_mp3") != std::string::npos);
+	REQUIRE(audio.find("pdvoice_b1018_direct_mp3_bank22050") != std::string::npos);
+	REQUIRE(audio.find("pdsfx_b943fields_bank22050") != std::string::npos);
 	REQUIRE(audio.find("direct MP3 file archive(s) checked") !=
 	        std::string::npos);
 	REQUIRE(audio.find("\\\"source_reference_kind\\\": \\\"%s\\\"") !=

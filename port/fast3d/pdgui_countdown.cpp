@@ -7,7 +7,7 @@
  * Features:
  *   - Large PD-styled number, counts 3 → 2 → 1 → GO
  *   - Audio cue on each number change (tick for 3/2/1, success chime for GO)
- *   - ESC or gamepad B-button cancels the countdown for all players
+ *   - The Cancel button and the mapped Back action cancel for all players
  *   - "[Name] cancelled the match start" banner shown on cancellation
  *   - Banner auto-clears after CANCEL_DISPLAY_TICKS frames (~3s at 60fps)
  *
@@ -28,6 +28,7 @@
 #include "pdgui_glyphs.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "system.h"
 
 /* ============================================================================
@@ -90,6 +91,16 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
 
     showCountdown = pdguiCountdownIsActive();
     showCancel    = (s_CancelDisplayTimer > 0);
+    const char *countdownPopup = "##countdown_popup";
+    const ImGuiWindowFlags countdownFlags = ImGuiWindowFlags_NoDecoration
+        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoBackground;
+
+    if (!showCountdown && ImGui::IsPopupOpen(countdownPopup) &&
+        ImGui::BeginPopupModal(countdownPopup, nullptr, countdownFlags)) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
 
     if (!showCountdown && !showCancel) {
         s_PrevCountdownSecs = -1;
@@ -117,14 +128,6 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
         }
     }
 
-    /* ---- Check for cancel input (ESC or gamepad B) ---- */
-    if (showCountdown) {
-        if (pdguiMenuCancelPressed()) {
-            sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player (ESC/B)");
-            netLobbyRequestCancel();
-        }
-    }
-
     /* ========== Render the countdown popup ========== */
 
     float scale = pdguiScaleFactor();
@@ -133,6 +136,7 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
 
     if (showCountdown) {
         currentSecs = pdguiCountdownGetSecs();
+        if (!ImGui::IsPopupOpen(countdownPopup)) ImGui::OpenPopup(countdownPopup);
 
         /* --- Semi-transparent full-screen dim --- */
         ImDrawList *bg = ImGui::GetBackgroundDrawList();
@@ -145,22 +149,13 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
         float boxX = cx - boxW * 0.5f;
         float boxY = cy - boxH * 0.5f;
 
-        ImGuiWindowFlags flags =
-            ImGuiWindowFlags_NoTitleBar    |
-            ImGuiWindowFlags_NoResize      |
-            ImGuiWindowFlags_NoMove        |
-            ImGuiWindowFlags_NoScrollbar   |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoNav         |
-            ImGuiWindowFlags_NoDecoration  |
-            ImGuiWindowFlags_NoBackground;
-
         ImGui::SetNextWindowPos(ImVec2(boxX, boxY), ImGuiCond_Always);
         ImGui::SetNextWindowSize(ImVec2(boxW, boxH), ImGuiCond_Always);
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-        if (ImGui::Begin("##countdown_popup", nullptr, flags)) {
+        if (ImGui::BeginPopupModal(countdownPopup, nullptr, countdownFlags)) {
+            if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
             ImDrawList *dl = ImGui::GetWindowDrawList();
 
             /* Box background */
@@ -224,22 +219,30 @@ extern "C" void pdguiCountdownRender(s32 winW, s32 winH)
                             numBuf);
             }
 
-            /* Footer hint — S311 glyph-driven cancel key. */
+            /* One Cancel target for pointer, focused Accept, and mapped Back. */
             {
                 ImGui::SetWindowFontScale(1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.55f, 0.8f));
                 char cancelKey[24];
-                pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancelKey, (s32)sizeof(cancelKey));
-                char hint[64];
-                snprintf(hint, sizeof(hint), "Press %s to cancel", cancelKey);
-                float hw = ImGui::CalcTextSize(hint).x;
-                ImGui::SetCursorPos(ImVec2((boxW - hw) * 0.5f,
-                                           boxH - pdguiScale(39.0f)));
-                ImGui::TextUnformatted(hint);
-                ImGui::PopStyleColor();
+                pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelKey,
+                                          (s32)sizeof(cancelKey));
+                char label[64];
+                snprintf(label, sizeof(label), "Cancel (%s)###countdown_cancel", cancelKey);
+                const float buttonWidth = pdguiScale(220.0f);
+                ImGui::SetCursorPos(ImVec2((boxW - buttonWidth) * 0.5f,
+                                           boxH - pdguiScale(53.0f)));
+                const bool back = pdguiMenuCancelPressed() != 0;
+                const bool clicked = ImGui::Button(label, ImVec2(buttonWidth, pdguiScale(38.0f)));
+                ImGui::SetItemDefaultFocus();
+                if (back || clicked) {
+                    pdguiNavSuppressActivation();
+                    if (netLobbyRequestCancel() == 0) {
+                        sysLogPrintf(LOG_NOTE, "MENU_STACK: countdown CANCEL by local player");
+                    }
+                    if (!pdguiCountdownIsActive()) ImGui::CloseCurrentPopup();
+                }
             }
+            ImGui::EndPopup();
         }
-        ImGui::End();
         ImGui::PopStyleVar();
     }
 

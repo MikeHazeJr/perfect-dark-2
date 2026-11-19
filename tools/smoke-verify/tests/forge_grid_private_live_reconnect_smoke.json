@@ -1,0 +1,185 @@
+{
+  "scenario_name": "forge_grid_private_live_reconnect_smoke",
+  "description": "A creator disconnects after a rendered edit in a live private Grid playtest. They authenticate on a fresh ENet connection and rejoin the Room. They verify the draft snapshot and receive a host edit made during transfer before regaining creator authority. Their next edit renders in the original playtest epoch. The ordinary peer stays in the Room without receiving private gameplay or draft traffic.",
+  "tags": ["modding", "forge", "network", "shared-draft", "private-playtest", "reconnect", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/room.c",
+    "port/src/net/netmsg.c",
+    "port/src/net/grid_edit_room.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/pdmain.c",
+    "src/game/bg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": ["grid-rh", "grid-rc", "grid-ro"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-rh/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "grid-rh/mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-rc/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "grid-rc/mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-ro/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "grid-ro/mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-rh", "--moddir", "$E/grid-rh/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Live_Reconnect_Source",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_live_reconnect_source",
+        "--debug-forge-level-name", "Grid_Live_Reconnect_Draft", "--debug-forge-level-atmosphere", "--debug-forge-level-pin",
+        "--host", "--listen-bind", "27492",
+        "--launch-mp-room", "mod:arena_grid_live_reconnect_draft", "base:combat", "3",
+        "--host-autostart", "--host-autostart-peers", "2",
+        "--debug-grid-private-draft", "host", "--debug-grid-private-live-reconnect"
+      ],
+      "wait_for": "NET: created server on port 27492",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "detached-creator-resumes-in-original-playtest",
+            "patterns": [
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_live_reconnect_draft sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_live_reconnect_draft epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=1 enabled=1 brightness=104",
+              "SMOKE\\.GRID\\.PLAYTEST: release_creator room=[0-9]+ generation=1 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "SMOKE\\.GRID\\.PLAYTEST: rendered edit epoch=[1-9][0-9]* revision=2",
+              "NET: disconnect event from client 1 ",
+              "NET\\.GRID\\.EDIT: host kept the committed draft after creator left",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: detached room=[0-9]+ epoch=[1-9][0-9]* revision=2 ambient=137",
+              "NET\\.GRID\\.EDIT: admitted fresh lobby auth client=1 room=[0-9]+",
+              "NET\\.GRID\\.EDIT: invited lobby client=1 to rejoin room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: room_invite room=[0-9]+ epoch=[1-9][0-9]* client=1 fresh_connection=1",
+              "NET\\.ROOM: join committed client=1 room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: draft_invite room=[0-9]+ epoch=[1-9][0-9]* generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: committed revision=3 author=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host resume_tail_commit revision=3 ambient=149 generation=2 can_edit=1 pending_resume=1 ready=0",
+              "GRID\\.PLAYTEST: resumed draft generation=2 revision=3 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: resumed creator=1 revision=3 digest=[0-9a-f]{64} tail=1$",
+              "NET\\.GRID\\.EDIT: committed revision=4 author=3",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=4 enabled=1 brightness=155",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=155 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: rendered resumed edit room=[0-9]+ epoch=[1-9][0-9]* revision=4 ambient=155 before=[0-9.]+ after=[0-9.]+",
+              "GRID\\.PLAYTEST: retired local stage room=[0-9]+ epoch=[1-9][0-9]*",
+              "GRID\\.MATCH\\.ROOM: world retired room=[0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: returned room=[0-9]+ epoch=[1-9][0-9]* revision=4 ambient=155",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-rh",
+          "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+          "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0"
+        ],
+        "required_counts": [
+          { "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_live_reconnect_draft ", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.EDIT: granted client=1", "min": 2, "max": 2 }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited client|granted client|invited lobby client|resumed creator)=2",
+          "NET\\.RECONNECT\\.PRESERVE client=1"
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-rc", "--moddir", "$E/grid-rc/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Live_Reconnect_Source",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_live_reconnect_source",
+        "--debug-forge-level-name", "Grid_Live_Reconnect_Draft", "--debug-forge-level-atmosphere",
+        "--connect-host", "127.0.0.1:27492",
+        "--debug-grid-private-draft", "creator", "--debug-grid-private-live-reconnect"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "creator-authenticates-and-joins-before-fresh-draft-authority",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator disconnected room=[0-9]+ epoch=[1-9][0-9]* revision=2",
+              "NET: SVC_AUTH from server, our ID is 1",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator requested Room join room=[0-9]+ epoch=[1-9][0-9]* fresh_connection=1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.LIVE_RECONNECT: creator rejoined room=[0-9]+ epoch=[1-9][0-9]* lobby=1 role=none",
+              "SMOKE\\.GRID\\.DRAFT: role=creator accepted_resume generation=2 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: verified resume snapshot revision=2 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=3 author=1",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.DRAFT: role=creator resumed revision=3 ambient=149 generation=2 actor=3 source_sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: observed revision=4 author=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=4 ambient=155 actor=3",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-rc"],
+        "required_counts": [
+          { "pattern": "NET: SVC_AUTH from server, our ID is 1", "min": 2, "max": 2 }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.OFFER: guest", "DISTRIB\\.GRID: temporary", "NET\\.GRID\\.RECONNECT:",
+          "SVC_STAGE_START read", "SVC_STAGE_END read", "NET\\.GRID\\.RESULT:", "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-ro", "--moddir", "$E/grid-ro/mods",
+        "--no-update-check", "--no-sound", "--skip-intro", "--connect-host", "127.0.0.1:27492",
+        "--debug-grid-private-draft", "ordinary", "--debug-grid-private-live-reconnect"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-remains-in-room-until-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-ro"],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT\\.WIRE: received", "NET\\.GRID\\.OFFER: guest",
+          "DISTRIB\\.GRID: temporary", "NET\\.GRID\\.RECONNECT:",
+          "SVC_STAGE_START read", "SVC_STAGE_END read", "NET\\.GRID\\.RESULT:", "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION", "FATAL: "
+    ]
+  }
+}

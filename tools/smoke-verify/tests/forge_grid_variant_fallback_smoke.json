@@ -1,0 +1,130 @@
+{
+  "scenario_name": "forge_grid_variant_fallback_smoke",
+  "description": "Review a Grid draft with two fixed Triangle pickups, a standalone original prop and the authored Grid Hover. Refuse omission while the placements still require those packages, then save an independent variant with Falcon 2, Slayer, a stock crate and a stock hoverbike. Cold restart with all three packages disabled, verify both revision hashes and the resident stock model bindings, and collect both native pickups.",
+  "tags": ["modding", "forge", "arena", "variant", "weapon", "restart", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "src/game/setup.c",
+    "src/game/propobj.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "clean",
+  "remove_paths": ["gvf"],
+  "fixtures": [
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena"},
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "gvf/mods/.pdmod-migration-done"},
+    {"src": "tools/smoke-verify/fixtures/grid_required_mesh/enabled.json", "dst": "gvf/mods-enabled.json"},
+    {"src": "tools/smoke-verify/fixtures/grid_required_mesh/mod.json", "dst": "gvf/mods/grid_required_mesh/mod.json"},
+    {"src": "tools/smoke-verify/fixtures/grid_required_mesh/tri_required.pdmesh", "dst": "gvf/mods/grid_required_mesh/meshes/tri_required.pdmesh"},
+    {"src": "tools/smoke-verify/fixtures/mod_author/grid_triangle/recipe.json", "dst": "gvf/recipes/grid_triangle/recipe.json"},
+    {"src": "examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon", "dst": "gvf/recipes/grid_triangle/tri_weapon.pdweapon"},
+    {"src": "tools/smoke-verify/fixtures/mod_author/grid_hover_vehicle/recipe.json", "dst": "gvf/recipes/hover/recipe.json"},
+    {"src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle", "dst": "gvf/recipes/hover/template/tri_vehicle.pdvehicle"},
+    {"src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh", "dst": "gvf/recipes/hover/template/tri_mesh.pdmesh"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini", "dst": "gvf/recipes/hover/meshes/vehicle/mesh.ini"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj", "dst": "gvf/recipes/hover/meshes/vehicle/model.obj"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl", "dst": "gvf/recipes/hover/meshes/vehicle/model.mtl"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json", "dst": "gvf/recipes/hover/meshes/vehicle/model.nodes.json"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json", "dst": "gvf/recipes/hover/meshes/vehicle/model.parts.json"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json", "dst": "gvf/recipes/hover/meshes/vehicle/model.faces.json"},
+    {"src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json", "dst": "gvf/recipes/hover/meshes/vehicle/model.render.json"},
+    {"src": "dev-mods/maian_hover_vehicle/behavior/variables.json", "dst": "gvf/recipes/hover/behavior/variables.json"},
+    {"src": "dev-mods/maian_hover_vehicle/behavior.graph.json", "dst": "gvf/recipes/hover/behavior.graph.json"},
+    {"src": "dev-mods/maian_hover_vehicle/physics.json", "dst": "gvf/recipes/hover/physics.json"}
+  ],
+  "retain_artifacts": [
+    {"src": "gvf/mods/MP Maps/arena_grid_fallback_original/arena_grid_fallback_original.pdarena", "name": "original.pdarena"},
+    {"src": "gvf/mods/MP Maps/arena_grid_fallback_variant/arena_grid_fallback_variant.pdarena", "name": "variant.pdarena"},
+    {"src": "gvf/mods-enabled.json", "name": "mods-enabled.json"}
+  ],
+  "processes": [
+    {
+      "name": "save-variant",
+      "snapshot_log_file": "grid-fallback-save.log",
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--no-net", "--skip-intro",
+        "--savedir", "$E/gvf", "--moddir", "$E/gvf/mods",
+        "--mod-author", "gvf/recipes/grid_triangle/recipe.json",
+        "--debug-grid-variant-placement-fallbacks",
+        "--debug-grid-variant-fallback-vehicle-recipe", "gvf/recipes/hover/recipe.json",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Fallback_Original",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--launch-forge-level", "mod:arena_grid_fallback_original",
+        "--debug-grid-variant-fallback-save", "Grid_Fallback_Variant"
+      ],
+      "wait_for": "SMOKE: result=grid_variant_fallback_saved .* code=0$",
+      "wait_timeout_seconds": 300,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "review, refuse a required omission, and save a distinct variant",
+            "patterns": [
+              "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_grid_triangle",
+              "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_grid_hover",
+              "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_fallback_original opens=1",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_fallback_original sha256=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.FALLBACK: reviewed digest=[0-9a-f]{64} omitted_weapon=mod:weapon_grid_triangle omitted_prop=grid_required_mesh:tri_required omitted_vehicle=mod:vehicle_grid_hover bike_model=mod:vehicle_grid_hover__[^ ]+ pickups=2",
+              "SMOKE\\.GRID\\.FALLBACK: refused omission while native placements still required omitted packages=3",
+              "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_fallback_original catalog=mod:arena_grid_fallback_variant .*own_template=0",
+              "FORGE\\.LEVEL\\.VARIANT\\.SOURCES: template=mod:arena_grid_fallback_original catalog=mod:arena_grid_fallback_variant kept=[1-9][0-9]* omitted=3 fallbacks=4",
+              "SMOKE\\.GRID\\.FALLBACK: saved original=mod:arena_grid_fallback_original sha256=[0-9a-f]{64} variant=mod:arena_grid_fallback_variant sha256=[0-9a-f]{64} triangle_enabled=0 draft_unchanged=1",
+              "SMOKE\\.GRID\\.FALLBACK: disabled placed source mods=3",
+              "SMOKE: result=grid_variant_fallback_saved"
+            ]
+          }
+        ],
+        "forbidden_patterns": ["FORGE\\.LEVEL\\.SAVE\\.INPLACE: arena=mod:arena_grid_fallback_original"]
+      }
+    },
+    {
+      "name": "play-saved-variant-after-restart",
+      "snapshot_log_file": "grid-fallback-restart.log",
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--no-net", "--skip-intro",
+        "--savedir", "$E/gvf", "--moddir", "$E/gvf/mods",
+        "--launch-mp-room", "mod:arena_grid_fallback_variant", "base:combat", "0",
+        "--debug-auto-start-match", "--debug-spawn-weapon", "base:dragon",
+        "--debug-grid-variant-placement-fallbacks",
+        "--debug-grid-variant-fallback-play", "mod:arena_grid_fallback_original"
+      ],
+      "wait_for": "SMOKE: result=grid_variant_fallback_played .* code=0$",
+      "wait_timeout_seconds": 300,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loaded mods-enabled\\.json in saved order",
+          "PDARENA\\.SCENARIO: owner=mod:arena_grid_fallback_variant id=mod:arena_grid_fallback_variant__"
+        ],
+        "required_sequences": [
+          {
+            "name": "reopen without omitted packages and validate all four native placements",
+            "patterns": [
+              "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*grid_fallback_variant[^']*'.* as 4 setup records, 1 spawns,",
+              "SMOKE\\.GRID\\.FALLBACK: reopened original=mod:arena_grid_fallback_original sha256=[0-9a-f]{64} variant=mod:arena_grid_fallback_variant sha256=[0-9a-f]{64} omitted_weapon_available=0",
+              "SMOKE\\.GRID\\.FALLBACK: reopened with omitted prop and vehicle unavailable sources=3",
+              "SMOKE\\.GRID\\.FALLBACK: native arena=mod:arena_grid_fallback_variant room=2 pickups=base:falcon2,base:slayer prop=base:model_crate2_cq hoverbike=base:model_hovbike inventory_before=0,0",
+              "SMOKE\\.GRID\\.FALLBACK: picked up base:falcon2 in room=2 inventory=1",
+              "SMOKE\\.GRID\\.FALLBACK: picked up base:slayer in room=2 inventory=1",
+              "SMOKE: result=grid_variant_fallback_played"
+            ]
+          }
+        ],
+        "forbidden_patterns": ["MODAUTHOR\\.RECIPE\\.RESULT", "LEVELTOOL\\.DEBUG\\.NEW\\.BEGIN", "FORGE\\.LEVEL\\.SAVE\\.OK:"]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=forge_grid_variant_fallback_smoke"],
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.FALLBACK\\.FAIL",
+      "SMOKE: result=(timeout|grid_variant_fallback_.*failed)",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

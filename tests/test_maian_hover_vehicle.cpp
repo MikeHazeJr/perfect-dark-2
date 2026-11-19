@@ -180,6 +180,16 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(heat->overheat_ticks240 == 960.0f);
 	CHECK(vehicleGraphProgramEventReachesModule(program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
 		"og.vehicle.mount_seat") == 1);
+	/* Two seats (V4): a mount, a dismount and a switch each reach both the
+	 * driver's and the gunner's seat module, which is how the game knows the
+	 * vehicle has a gunner seat and that a rider may switch. */
+	const u32 bothSeats = (1u << VEHICLE_GRAPH_SEAT_DRIVER) | (1u << VEHICLE_GRAPH_SEAT_GUNNER);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED) == bothSeats);
+	CHECK(vehicleGraphProgramEventSeats(program, VEHICLE_GRAPH_EVENT_TICK) == 0u);
+	CHECK(vehicleGraphProgramNodeCount(program) == 26);
+	CHECK(vehicleGraphProgramExecEdgeCount(program) == 21);
 	vehicleGraphProgramFree(program);
 
 	/* The embedded model, in the mod's namespace. */
@@ -228,9 +238,11 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(manifest.find("\"catalog_id\": \"" + meshId + "\"") != std::string::npos);
 
 	/* The parts later steps drive: turret yaw and pitch, the muzzle, the 18 ring
-	 * seats (110-127) and the muzzle crystal's seat (128), the crystal toggles. */
+	 * seats (110-127) and the muzzle crystal's seat (128), the crystal toggles,
+	 * and the two riders' eye points (160 the driver's, 161 the gunner's; the
+	 * game reads them through hoverbikeSeatModelPos). */
 	const std::string parts = hoverEntry(mesh, "model.parts.json");
-	for (int part : {0, 1, 2, 50, 110, 127, 128, 140, 141}) {
+	for (int part : {0, 1, 2, 50, 110, 127, 128, 140, 141, 160, 161}) {
 		INFO("part " << part);
 		CHECK(parts.find("\"partnum\": " + std::to_string(part) + ",") != std::string::npos);
 	}

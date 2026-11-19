@@ -76,12 +76,25 @@ blender -b --python scripts/tripo_image.py -- <out_dir> concept-v2 <prompt.txt> 
 - Fix inconsistent views with **image-to-image** on the previous task id
   (`chat_image_2.5_sunburst` keeps untouched areas): name the views that are
   right and say what the others must match. Change one thing per edit and
-  check every view afterwards: an edit can quietly undo an earlier fix.
+  check every view afterwards: an edit can quietly undo an earlier fix (the
+  Maian veteran's back view was corrected and the same edit dropped the
+  holster from two other views).
+- **A prompt is at most 1,800 characters** (Tripo refuses a longer one, code
+  1004, before any charge; the script stops first). Number the changes and
+  cut the connecting words.
+- **Counts are hard for the image model** (three fingers, three toes): ask
+  for the count in plain numbers, say what the wrong count looks like ("a
+  thumb and three fingers is wrong"), ask for open hands so the digits can be
+  counted, then check every hand and foot in an enlarged crop before showing
+  the sheet. Expect to fix leftovers at the model stage.
 - **Style references** (an existing model of ours, for a matching look): pass
   local images after the task id. Tripo refuses a task id inside the
   reference list (code 1004), so give "-" as the task id and the image to edit
   as the first reference; the script uploads each (`/v3/files`, generic file
-  name) and the prompt calls them image[1], image[2]...
+  name) and the prompt calls them image[1], image[2]... References must be
+  PNG. The script uploads the picture without its text, time and EXIF chunks:
+  a render saved by Blender carries the .blend file's full path, the date and
+  the scene's names in them.
 - Observed cost: 10 credits per image at `medium`. Host: the add-on's key
   works on `https://openapi.tripo3d.ai/v3`; `openapi.tripo3d.com` rejects it.
 - **If Tripo cannot make the image** (refused, failing, no credits), make it

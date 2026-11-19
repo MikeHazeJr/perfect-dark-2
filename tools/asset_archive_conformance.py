@@ -146,6 +146,15 @@ SCENE_DYNTEX_PRESETS = frozenset({
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
 )
+# Level formats the game still loads besides the current one
+# (object-events.md, "Levels authored before slice 5"): an arena a mod
+# authored may name one of these older kinds, and the scenario it embeds is
+# then held to what that kind promised (the pickup and door rule wiring, not
+# the lift and glass rules). A base arena names the current kind: an install
+# re-extracts it otherwise.
+ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents",
+)
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
@@ -2344,18 +2353,22 @@ VEHICLE_GRAPH_MAX_EDGES = 16384
 VEHICLE_GRAPH_MAX_LOCKOUT_REASONS = 32
 VEHICLE_GRAPH_MAX_PENDING = 64
 VEHICLE_GRAPH_EVENTS = {"event.vehicle.mount_requested", "event.vehicle.dismount_requested",
-                        "event.vehicle.tick", "event.vehicle.heat_changed"}
+                        "event.vehicle.tick", "event.vehicle.heat_changed",
+                        "event.vehicle.switch_seat_requested"}
 VEHICLE_GRAPH_GATES = {"gate.vehicle.seat", "gate.vehicle.seat_free", "gate.vehicle.heat_phase"}
 VEHICLE_GRAPH_MODULES = {"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                         "og.vehicle.switch_seat",
                          "og.vehicle.hover_drive", "og.vehicle.throttle_boost",
                          "og.vehicle.boost_heat", "og.vehicle.part_visible",
                          "og.vehicle.turret_lockout"}
 # The events a native seam fires; heat_changed is raised by og.vehicle.boost_heat.
 VEHICLE_GRAPH_FIRED_EVENTS = ("event.vehicle.mount_requested",
-                              "event.vehicle.dismount_requested", "event.vehicle.tick")
+                              "event.vehicle.dismount_requested", "event.vehicle.tick",
+                              "event.vehicle.switch_seat_requested")
 VEHICLE_GRAPH_MODULE_EVENTS = {
     "og.vehicle.mount_seat": {"event.vehicle.mount_requested"},
     "og.vehicle.dismount_seat": {"event.vehicle.dismount_requested"},
+    "og.vehicle.switch_seat": {"event.vehicle.switch_seat_requested"},
     "og.vehicle.hover_drive": {"event.vehicle.tick"},
     "og.vehicle.throttle_boost": {"event.vehicle.tick"},
     "og.vehicle.boost_heat": {"event.vehicle.tick"},
@@ -2373,6 +2386,7 @@ VEHICLE_GRAPH_PARAMS = {
     "gate.vehicle.heat_phase": {"phases": "phases"},
     "og.vehicle.mount_seat": {"seat": "seat"},
     "og.vehicle.dismount_seat": {"seat": "seat"},
+    "og.vehicle.switch_seat": {"seat": "seat"},
     "og.vehicle.hover_drive": {"drive": "bool?"},
     "og.vehicle.throttle_boost": {"boost_speed": "speed", "ramp_time": "time+"},
     "og.vehicle.boost_heat": {
@@ -2388,8 +2402,9 @@ _VEHICLE_TIME_SCALE = {"ticks60": 4.0, "ticks240": 1.0, "centiseconds": 2.4}
 _VEHICLE_MAX_TICKS240 = 240.0 * 3600.0
 _VEHICLE_NAME = re.compile(r"^[a-z0-9_]{1,63}$")
 _VEHICLE_REASON = re.compile(r"^[a-z0-9_]{1,31}$")
-# The modules that mount or dismount a seat: one per seat on one event.
-VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat"})
+# The modules that change who sits where: one of each per seat on one event.
+VEHICLE_GRAPH_SEAT_MODULES = frozenset({"og.vehicle.mount_seat", "og.vehicle.dismount_seat",
+                                        "og.vehicle.switch_seat"})
 
 
 def vehicle_time_ticks240(value: object):
@@ -2660,7 +2675,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
             seen.add(at)
             queue.extend(out[at])
         reach[event] = [node_id for node_id in order if node_id in seen]
-        # One event mounts or dismounts a seat at most once (the runner's rule).
+        # One event mounts, dismounts or switches to a seat at most once (the
+        # runner's rule).
         seat_modules: dict[tuple[str, str], int] = {}
         for node_id in reach[event]:
             kind = kinds[node_id]
@@ -2671,8 +2687,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
                 seat_modules[key] = seat_modules.get(key, 0) + 1
                 if seat_modules[key] == 2:
                     errors.append(f"{where} {event} reaches a second {kind} for the "
-                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts or "
-                                  "dismounts a seat once")
+                                  f"{seats[node_id]} seat ({node_id!r}); one event mounts, "
+                                  "dismounts or switches to a seat once")
     if errors:
         return errors
 
@@ -3055,6 +3071,19 @@ MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
 MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach",
                              "event.lift.called", "event.lift.idle", "event.lift.arrived",
                              "event.glass.damaged")
+# The rule events a level had to handle before slice 5: what the runtime
+# still requires of every level, and all that conformance requires of a level
+# whose arena names a kind of ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED.
+LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = ("event.pickup.touched", "event.door.use",
+                                      "event.door.approach")
+
+
+def arena_kind_promises_ai_edges(kind: str | None) -> bool:
+    """The AI control-flow edges and typed operands of a level graph: written
+    by the current kind and by every older kind the game still loads (each is
+    the current kind less the lift and glass rule wiring)."""
+    return (kind == ARENA_SCENARIO_GRAPH_CACHE_KIND
+            or kind in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED)
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
@@ -3089,7 +3118,8 @@ def _is_graph_program_kind(kind: object) -> bool:
     return isinstance(kind, str) and kind.startswith(("event.", "gate.", "og."))
 
 
-def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:
+def validate_mission_graph_execution(label: str, graph: dict, level: bool = False,
+                                     rule_events: tuple[str, ...] | None = None) -> list[str]:
     """The same rules the runner applies when it compiles a mission graph:
     unique ids, known og.* modules and gate kinds, every edge between existing
     nodes, and execution edges ("input": "exec") only from an executable
@@ -3208,9 +3238,12 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
                 and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
             exec_out.setdefault(edge["from"], []).append(edge["to"])
     # object-events.md slice 4: a level program handles every rule event (an
-    # event node of the kind with an execution edge), as the runtime requires.
+    # event node of the kind with an execution edge). rule_events narrows the
+    # set for a level of an older format (slice 5: a level authored before
+    # the lift and glass rules need not wire them; the runtime requires the
+    # pickup and door rules of every level).
     if level:
-        for rule in MISSION_GRAPH_RULE_EVENTS:
+        for rule in (MISSION_GRAPH_RULE_EVENTS if rule_events is None else rule_events):
             if not any(kind == rule and exec_out.get(node_id) for node_id, kind in kinds.items()):
                 errors.append(f"{where} handles no {rule}: the level's pickup and door rules "
                               "are not wired (object-events.md slice 4)")
@@ -3232,8 +3265,8 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
 # Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
-STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks",
-                    "gas"}
+STAGE_RULES_KEYS = {"schema", "note", "weather", "weather_start", "player", "ai", "ending", "hub",
+                    "stars", "sparks", "gas", "atmosphere"}
 STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance",
                      "unlimited_ammo_excludes"}
 STAGE_MAX_AMMO_EXCLUDES = 8
@@ -3244,6 +3277,7 @@ STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock",
 STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
                       "weather_rooms", "dry_rooms", "wind_direction"}
 STAGE_WEATHER_MAX_ROOMS = 127
+STAGE_WEATHER_START_KEYS = {"kind", "intensity"}
 
 
 def validate_stage_gas(where: str, gas) -> list[str]:
@@ -3305,6 +3339,35 @@ def validate_stage_gas(where: str, gas) -> list[str]:
     return errors
 
 
+def validate_stage_atmosphere(where: str, look: object) -> list[str]:
+    def whole(value, lo, hi):
+        return (not isinstance(value, bool) and isinstance(value, (int, float))
+                and lo <= value <= hi and int(value) == value)
+
+    if not isinstance(look, dict) or not look:
+        return [f"{where} atmosphere must be a nonempty object"]
+    errors = [f"{where} atmosphere has an unknown key {key!r}"
+              for key in sorted(set(look) - {"sky_rgb", "fog", "ambient_light", "primary_music"})]
+    if "sky_rgb" in look:
+        rgb = look["sky_rgb"]
+        if not isinstance(rgb, list) or len(rgb) != 3 or not all(whole(c, 0, 255) for c in rgb):
+            errors.append(f"{where} atmosphere.sky_rgb needs three integer color channels from 0 to 255")
+    if "fog" in look:
+        fog = look["fog"]
+        if (not isinstance(fog, dict) or set(fog) != {"start", "end"}
+                or not whole(fog["start"], 0, 999) or not whole(fog["end"], 1, 1000)
+                or fog["start"] >= fog["end"]):
+            errors.append(f"{where} atmosphere.fog needs ordered integer start and end values from 0 to 1000")
+    if "ambient_light" in look and not whole(look["ambient_light"], 0, 255):
+        errors.append(f"{where} atmosphere.ambient_light must be an integer from 0 to 255")
+    if "primary_music" in look:
+        music = look["primary_music"]
+        if (not isinstance(music, str) or len(music) >= 64
+                or not re.fullmatch(r"[a-zA-Z0-9_.-]+:[a-zA-Z0-9_.-]+", music)):
+            errors.append(f"{where} atmosphere.primary_music must be a song catalog id")
+    return errors
+
+
 def validate_stage_json(label: str, text: str) -> list[str]:
     """The reader's rules for stage.json: the schema, known keys only, and a
     usable weather rule (numbers, y_min below y_max, exactly one room list of
@@ -3321,6 +3384,8 @@ def validate_stage_json(label: str, text: str) -> list[str]:
         errors.append(f"{where} must declare schema {STAGE_RULES_SCHEMA}")
     for key in sorted(set(doc) - STAGE_RULES_KEYS):
         errors.append(f"{where} has an unknown key {key!r}")
+    if "atmosphere" in doc:
+        errors.extend(validate_stage_atmosphere(where, doc["atmosphere"]))
     if "note" in doc and not isinstance(doc["note"], str):
         errors.append(f"{where} note must be text")
     player = doc.get("player")
@@ -3404,6 +3469,21 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                 errors.append(f"{where} ai has an unknown key {key!r}")
             if "dark_room_lists" in ai and not isinstance(ai["dark_room_lists"], bool):
                 errors.append(f"{where} ai.dark_room_lists must be true or false")
+    if "weather_start" in doc:
+        startup = doc["weather_start"]
+        if not isinstance(startup, dict):
+            errors.append(f"{where} weather_start must be an object")
+        else:
+            for key in sorted(set(startup) - STAGE_WEATHER_START_KEYS):
+                errors.append(f"{where} weather_start has an unknown key {key!r}")
+            kind = startup.get("kind")
+            if kind not in ("rain", "snow"):
+                errors.append(f"{where} weather_start.kind must be rain or snow")
+            else:
+                intensity = startup.get("intensity")
+                ceiling = 3 if kind == "rain" else 1
+                if isinstance(intensity, bool) or intensity not in range(1, ceiling + 1):
+                    errors.append(f"{where} weather_start.intensity must be a whole number from 1 to {ceiling}")
     weather = doc.get("weather")
     if weather is None:
         return errors
@@ -4232,6 +4312,14 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
             value = clean_value(match.group(2).split("#", 1)[0].split(";", 1)[0])
             if key in descriptor_keys:
                 errors.append(f"{label} effect.ini has duplicate field {key}")
+            if key == "grid_provenance":
+                raw_key, _, raw_value = line.partition("=")
+                if raw_key.strip(" \t") != key or raw_value.strip(" \t") not in {
+                    "original", "byor", "unverified",
+                }:
+                    errors.append(
+                        f"{label} effect.ini grid_provenance must be original, byor, or unverified"
+                    )
             descriptor_keys.add(key)
             descriptor_values[key] = value
         if section_count != 1:
@@ -4252,7 +4340,7 @@ def validate_effect_source_contract(label: str, zf: zipfile.ZipFile,
             v2_keys
             if descriptor_values.get("schema") == "pd.effect_graph.v2"
             else v1_keys
-        )
+        ) | {"grid_provenance"}
         for key in sorted(descriptor_keys - allowed_descriptor):
             errors.append(f"{label} effect.ini has unknown field {key}")
 
@@ -6238,18 +6326,32 @@ def scan_delimited_asset_refs(label: str, entry_name: str, text: str,
     return errors
 
 
+class _CoverSourceObject(dict):
+    def __init__(self, pairs: list[tuple[str, object]]) -> None:
+        super().__init__(pairs)
+        self.generate_routes_fields = sum(key == "generate_routes" for key, _ in pairs)
+
+
 def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
                                      schema_id: str,
                                      required_fields: list[str]) -> tuple[int, list[str]]:
     errors: list[str] = []
     try:
-        parsed = json.loads(text)
+        parsed = json.loads(
+            text,
+            object_pairs_hook=_CoverSourceObject if schema_id == "pd2.scenario.covers.v1" else None,
+        )
     except json.JSONDecodeError as exc:
         return 0, [f"{label} has unreadable JSON source {entry_name}: {exc}"]
     if not isinstance(parsed, dict):
         return 0, [f"{label} {entry_name} must be a JSON object"]
     if parsed.get("schema") != schema_id:
         errors.append(f"{label} {entry_name} must declare schema {schema_id}")
+    if isinstance(parsed, _CoverSourceObject):
+        if parsed.generate_routes_fields > 1:
+            errors.append(f"{label} {entry_name} has duplicate generate_routes fields")
+        if "generate_routes" in parsed and not isinstance(parsed["generate_routes"], bool):
+            errors.append(f"{label} {entry_name} generate_routes must be a top-level boolean")
     rows = parsed.get("rows")
     if not isinstance(rows, list):
         errors.append(f"{label} {entry_name} must contain rows")
@@ -9763,7 +9865,13 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         # program (its event.*, gate.* and og.* nodes), as the
                         # runtime compiles it for every stage.
                         result.errors.extend(
-                            validate_mission_graph_execution(label, graph, level=True))
+                            validate_mission_graph_execution(
+                                label, graph, level=True,
+                                rule_events=(
+                                    LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS
+                                    if parent_scenario_graph_cache
+                                    in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                                    else None)))
                         links = graph.get("links")
                         link_pairs = set()
                         if isinstance(links, list):
@@ -9875,8 +9983,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_list_edge_errors(
                                         ai_rows, nodes, links,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                                 # ai-typed-operands.md slice 2: the rows'
@@ -9885,8 +9993,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_args_node_errors(
                                         ai_rows, nodes,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                         for pair in {
@@ -10452,7 +10560,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} arena.ini cannot declare scenario = null when a scenario dependency is present"
                         )
-                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND:
+                    # An arena a mod authored may name an older kind the
+                    # game still loads; a base arena names the current one.
+                    authored_older_kind = (
+                        scenario_graph_cache in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                        and not descriptor_value(text, "catalog_id").lower().startswith("base:"))
+                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND and not authored_older_kind:
                         result.errors.append(
                             f"{label} arena.ini must declare scenario_graph_cache = {ARENA_SCENARIO_GRAPH_CACHE_KIND}"
                         )
@@ -11210,6 +11323,7 @@ def run_selftest() -> int:
                     "effect_file = effect.graph.json\n"
                     "timeline_file = timeline.json\n"
                     "shader_id = classic_tint\nintensity = 1.0\n"
+                    "grid_provenance = original\n"
                 ),
                 "effect.graph.json": "{}",
                 "timeline.json": "{}",
@@ -11217,6 +11331,23 @@ def run_selftest() -> int:
             ("effect.ini", "shader_id = classic_tint",
              "shader_id = example_glow"),
             "shader_id example_glow has no production pipeline for effect_key explosion",
+        ),
+        (
+            "EFFECT-PROVENANCE",
+            validate_effect_source_contract,
+            {
+                "effect.ini": (
+                    "[effect]\ncatalog_id = test:effect\nname = Test Effect\n"
+                    "schema = pd.effect_graph.v2\n"
+                    "profile_kind = explosion\neffect_file = effect.graph.json\n"
+                    "target_policy = callsite\nattachment_policy = callsite\n"
+                    "priority_policy = callsite\nscorch_policy = callsite\n"
+                    "grid_provenance = unverified\n"
+                ),
+                "effect.graph.json": "{}",
+            },
+            ("effect.ini", "grid_provenance = unverified", "grid_provenance = unknown"),
+            "grid_provenance must be original, byor, or unverified",
         ),
         (
             "PROP",

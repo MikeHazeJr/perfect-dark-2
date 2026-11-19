@@ -78,6 +78,8 @@ TEST_CASE("B-1101 frames are bounded and B-1102 rejection keeps bind pose safe",
 	const std::string bounded_bits = read_player_init_source("src/lib/anim_bits.c");
 	const std::string matrix_core = player_init_function(modelasm,
 		"static bool modelasmBuildMatrices");
+	const std::string part_check = player_init_function(modelasm,
+		"static bool modelasmCanSamplePart");
 	const std::string decode_failure = player_init_function(modelasm,
 		"static bool modelasmHandleFrameDecodeFailure");
 
@@ -142,10 +144,35 @@ TEST_CASE("B-1101 frames are bounded and B-1102 rejection keeps bind pose safe",
 		"animscale = anim != NULL ? anim->animscale : 1.0f;") !=
 		std::string::npos);
 	REQUIRE(count_substring(matrix_core, "anim->animscale") == 1);
-	REQUIRE(matrix_core.find("case MODELNODETYPE_CHRINFO:") !=
-		std::string::npos);
-	REQUIRE(matrix_core.find("if (anim && anim->animnum)") !=
-		std::string::npos);
+
+	/* POSITION and CHRINFO share the guard before sampling either clip.
+	 * An unbound rigid POSITION keeps its authored rest translation. */
+	const size_t position_begin = matrix_core.find("case MODELNODETYPE_POSITION:");
+	const size_t position_end = matrix_core.find("case MODELNODETYPE_DISTANCE:", position_begin);
+	const size_t chrinfo_begin = matrix_core.find("case MODELNODETYPE_CHRINFO:");
+	const size_t chrinfo_end = matrix_core.find("case MODELNODETYPE_HEADSPOT:", chrinfo_begin);
+	REQUIRE(position_begin < position_end);
+	REQUIRE(position_end != std::string::npos);
+	REQUIRE(chrinfo_begin < chrinfo_end);
+	REQUIRE(chrinfo_end != std::string::npos);
+	const std::string position = matrix_core.substr(position_begin, position_end - position_begin);
+	const std::string chrinfo = matrix_core.substr(chrinfo_begin, chrinfo_end - chrinfo_begin);
+	const char *const sample_guard = "if (anim && modelasmCanSamplePart(t1, anim, skeleton))";
+	const size_t position_guard = position.find(sample_guard);
+	const size_t chrinfo_guard = chrinfo.find(sample_guard);
+	REQUIRE(count_substring(matrix_core, sample_guard) == 2);
+	REQUIRE(position.find("t1 = node->rodata->position.part;") < position_guard);
+	REQUIRE(chrinfo.find("t1 = node->rodata->chrinfo.animpart;") < chrinfo_guard);
+	REQUIRE(position_guard < position.find("t0slot = &sp00["));
+	REQUIRE(chrinfo_guard < chrinfo.find("t0slot = &sp00["));
+	REQUIRE(position.find("if (node != modeldef->rootnode || t1 == 0xffff)") != std::string::npos);
+	REQUIRE(position.find("sr8 = 0;") != std::string::npos);
+	REQUIRE(chrinfo.find("sr8 = 0;") != std::string::npos);
+	REQUIRE(part_check.find("part < 0 || part >= MODELASM_FRAME_PART_CAPACITY") != std::string::npos);
+	REQUIRE(part_check.find("!anim->flip && (anim->fracmerge == 0.0f || !anim->flip2)") != std::string::npos);
+	REQUIRE(part_check.find("skeleton && skeleton->things && part < skeleton->numthings") != std::string::npos);
+	REQUIRE(part_check.find("skeleton->things[part][1] < MODELASM_FRAME_PART_CAPACITY") != std::string::npos);
+
 	REQUIRE(decode_failure.find(
 		"return modelasmBuildMatrices(renderdata, model, NULL);") !=
 		std::string::npos);

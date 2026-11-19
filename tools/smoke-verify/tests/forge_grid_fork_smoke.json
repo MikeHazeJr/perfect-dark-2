@@ -1,0 +1,62 @@
+{
+  "scenario_name": "forge_grid_fork_smoke",
+  "description": "Pin an original arena, reopen a Variant, fork its verified parent into another arena, and load the Variant through the normal stage loader.",
+  "tags": ["modding", "forge", "arena", "pdarena", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/forge_revision_store.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/assetcatalog_scanner.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/blank_room", "mods/MP Maps/arena_grid_fork", "mods/MP Maps/arena_grid_fork_parent"],
+  "fixtures": [
+    { "src": "dev-mods/blank_room/mod.json", "dst": "mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-fork",
+    "Grid_Fork"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "forge_editor_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 14000
+    },
+    { "at_ms": 1000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_fork_smoke",
+      "FORGE\\.REVISION\\.PIN: arena=mod_blank_room:arena_blank_room sha256=[0-9a-f]{64}",
+      "FORGE\\.REVISION\\.FORK: original=mod_blank_room:arena_blank_room parent=[0-9a-f]{64} fork=mod:arena_grid_fork",
+      "FORGE\\.REVISION\\.PARENT\\.FORK: variant=mod:arena_grid_fork parent=mod_blank_room:arena_blank_room sha256=[0-9a-f]{64} fork=mod:arena_grid_fork_parent",
+      "FORGE\\.REVISION\\.PRESERVED: original=mod_blank_room:arena_blank_room sha256=[0-9a-f]{64} reopened_fork=mod:arena_grid_fork",
+      "FORGE\\.LEVEL\\.OPEN: arena=mod:arena_grid_fork pads=8 spawns=8 objects=0",
+      "FORGE\\.LEVEL\\.START: arena=mod:arena_grid_fork stagenum=0x[0-9a-f]+ canvas=0",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_grid_fork[^']*'.* as 0 setup records, 8 spawns,",
+      "FORGE\\.REVISION\\.DEBUG: result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "FORGE\\.REVISION\\.DEBUG: result=FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

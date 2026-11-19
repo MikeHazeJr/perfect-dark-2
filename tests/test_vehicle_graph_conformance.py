@@ -112,6 +112,52 @@ def base_graph():
     }
 
 
+def two_seat_graph():
+    """Each seat mounts when it is free, either seat dismounts, and a rider
+    may switch to the other seat when it is free (kTwoSeatGraph in
+    tests/test_vehicle_graph_runner.cpp)."""
+    return {
+        "schema": "pd.vehicle_graph.v1",
+        "catalog_id": CATALOG,
+        "nodes": [
+            node("mount", "event.vehicle.mount_requested"),
+            node("dismount", "event.vehicle.dismount_requested"),
+            node("switch", "event.vehicle.switch_seat_requested"),
+            node("tick", "event.vehicle.tick"),
+            node("mount_wants_driver", "gate.vehicle.seat", seat="driver"),
+            node("driver_free", "gate.vehicle.seat_free", seat="driver"),
+            node("gunner_free", "gate.vehicle.seat_free", seat="gunner"),
+            node("mount_driver", "og.vehicle.mount_seat", seat="driver"),
+            node("mount_gunner", "og.vehicle.mount_seat", seat="gunner"),
+            node("leaves_driver", "gate.vehicle.seat", seat="driver"),
+            node("dismount_driver", "og.vehicle.dismount_seat", seat="driver"),
+            node("dismount_gunner", "og.vehicle.dismount_seat", seat="gunner"),
+            node("switch_wants_gunner", "gate.vehicle.seat", seat="gunner"),
+            node("gunner_free_for_switch", "gate.vehicle.seat_free", seat="gunner"),
+            node("driver_free_for_switch", "gate.vehicle.seat_free", seat="driver"),
+            node("switch_to_gunner", "og.vehicle.switch_seat", seat="gunner"),
+            node("switch_to_driver", "og.vehicle.switch_seat", seat="driver"),
+            node("drive", "og.vehicle.hover_drive"),
+        ],
+        "edges": [
+            edge("mount", "mount_wants_driver"),
+            edge("mount_wants_driver", "driver_free", "pass"),
+            edge("mount_wants_driver", "gunner_free", "fail"),
+            edge("driver_free", "mount_driver", "pass"),
+            edge("gunner_free", "mount_gunner", "pass"),
+            edge("dismount", "leaves_driver"),
+            edge("leaves_driver", "dismount_driver", "pass"),
+            edge("leaves_driver", "dismount_gunner", "fail"),
+            edge("switch", "switch_wants_gunner"),
+            edge("switch_wants_gunner", "gunner_free_for_switch", "pass"),
+            edge("switch_wants_gunner", "driver_free_for_switch", "fail"),
+            edge("gunner_free_for_switch", "switch_to_gunner", "pass"),
+            edge("driver_free_for_switch", "switch_to_driver", "pass"),
+            edge("tick", "drive"),
+        ],
+    }
+
+
 def graph_errors(graph, variables=VARIABLES, catalog=CATALOG):
     var_errors = []
     parsed = validate_vehicle_variables("fixture", variables, var_errors) if variables else None
@@ -227,6 +273,55 @@ class VehicleGraphConformanceTests(unittest.TestCase):
         for name, graph, expected in cases:
             with self.subTest(name=name):
                 errors = graph_errors(graph)
+                self.assertTrue(any(expected in e for e in errors), errors)
+
+    def test_a_two_seat_graph_with_a_seat_switch_passes(self):
+        self.assertEqual(graph_errors(two_seat_graph(), None), [])
+        # A part or a lockout may run on a switch, as on any event.
+        graph = two_seat_graph()
+        graph["nodes"].append(node("lock", "og.vehicle.turret_lockout", reason="switching",
+                                   locked=True))
+        graph["edges"].append(edge("switch_to_driver", "lock"))
+        self.assertEqual(graph_errors(graph, None), [])
+
+    def test_seat_modules_run_only_on_their_own_request_once_per_seat(self):
+        def edit(fn):
+            graph = two_seat_graph()
+            fn(graph)
+            return graph
+
+        def retarget(graph, src, dst, new_dst):
+            for e in graph["edges"]:
+                if e["from"] == src and e["to"] == dst:
+                    e["to"] = new_dst
+                    return
+            raise AssertionError(f"no edge {src} -> {dst}")
+
+        cases = [
+            ("switch on mount", edit(lambda g: retarget(g, "gunner_free", "mount_gunner",
+                                                        "switch_to_gunner")),
+             "og.vehicle.switch_seat 'switch_to_gunner' cannot run on "
+             "event.vehicle.mount_requested"),
+            ("mount on switch", edit(lambda g: retarget(g, "gunner_free_for_switch",
+                                                        "switch_to_gunner", "mount_gunner")),
+             "og.vehicle.mount_seat 'mount_gunner' cannot run on "
+             "event.vehicle.switch_seat_requested"),
+            ("drive on switch", edit(lambda g: retarget(g, "driver_free_for_switch",
+                                                        "switch_to_driver", "drive")),
+             "og.vehicle.hover_drive 'drive' cannot run on event.vehicle.switch_seat_requested"),
+            ("two switches on a gate's branches", edit(lambda g: (
+                g["nodes"].append(node("switch_again", "og.vehicle.switch_seat", seat="driver")),
+                g["edges"].append(edge("driver_free_for_switch", "switch_again", "fail")))),
+             "event.vehicle.switch_seat_requested reaches a second og.vehicle.switch_seat for "
+             "the driver seat"),
+            ("seat name", edit(lambda g: find(g, "switch_to_gunner")["params"].update(
+                seat="turret")), "must be \"driver\" or \"gunner\""),
+            ("no seat", edit(lambda g: find(g, "switch_to_gunner").pop("params")),
+             "param 'seat' is missing"),
+        ]
+        for name, graph, expected in cases:
+            with self.subTest(name=name):
+                errors = graph_errors(graph, None)
                 self.assertTrue(any(expected in e for e in errors), errors)
 
     def test_variables_take_values_whole_with_the_runner_types(self):

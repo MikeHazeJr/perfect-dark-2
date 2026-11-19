@@ -904,6 +904,252 @@ static s32 cloneJsonTopString(const char *s, u32 n, const char *key, u32 *vstart
 	return 0;
 }
 
+/* The value span of the top-level member `key`, whatever its type. */
+static s32 cloneJsonTopValue(const char *s, u32 n, const char *key, u32 *vstart, u32 *vend)
+{
+	const size_t klen = strlen(key);
+	u32 i = cloneJsonSkipWs(s, n, 0);
+
+	if (i >= n || s[i] != '{') return 0;
+	i = cloneJsonSkipWs(s, n, i + 1);
+	while (i < n && s[i] == '"') {
+		const u32 kstart = i + 1;
+		const u32 kend = cloneJsonSkipString(s, n, i);
+		u32 v;
+		u32 after;
+
+		if (kend >= n) return 0;
+		i = cloneJsonSkipWs(s, n, kend);
+		if (i >= n || s[i] != ':') return 0;
+		v = cloneJsonSkipWs(s, n, i + 1);
+		after = cloneJsonSkipValue(s, n, v);
+		if (after >= n) return 0;
+		if (kend - 1 - kstart == klen && memcmp(s + kstart, key, klen) == 0) {
+			*vstart = v;
+			*vend = after;
+			return 1;
+		}
+		i = cloneJsonSkipWs(s, n, after);
+		if (i < n && s[i] == ',') i = cloneJsonSkipWs(s, n, i + 1);
+	}
+	return 0;
+}
+
+/*
+ * A scenario's navigation record, `_meta/generated-navmesh.json`, repeats two
+ * facts about eleven of the scenario's members: a hash of each, and the row
+ * count of six tables. The game compares both with the members before it
+ * uses the level's navigation and refuses the level when they differ
+ * (scenario_source_runtime.c: "source counts mismatch public navigation
+ * tables", "source hashes mismatch public navigation inputs").
+ *
+ * A plain clone never changes those members: none of them holds a catalog
+ * id. A rebuild with overrides can. Forge saves a level by overriding its
+ * pads.json, spawns.json and volumes.json, and the record then has to say
+ * what the saved level holds, or the level its author just saved would not
+ * load. So the record is one of the things a rebuild derives from its result.
+ */
+#define CLONE_NAV_INPUT_COUNT 11
+#define CLONE_NAV_TABLE_COUNT 6
+
+/* The members the record names, in the record's order. */
+static const char *const s_CloneNavInputs[CLONE_NAV_INPUT_COUNT] = {
+	"scene.glb", "collision.obj", "navigation.ini", "portals.json", "pads.json",
+	"spawns.json", "volumes.json", "navigation/waypoints.json",
+	"navigation/waygroups.json", "navigation/covers.json", "navigation/paths.json",
+};
+/* The tables it counts, in the record's order, and which member each one is. */
+static const char *const s_CloneNavTables[CLONE_NAV_TABLE_COUNT] = {
+	"pads", "volumes", "waypoints", "waygroups", "covers", "paths",
+};
+static const s32 s_CloneNavTableInput[CLONE_NAV_TABLE_COUNT] = { 4, 6, 7, 8, 9, 10 };
+
+typedef struct clone_nav_facts {
+	char hex[CLONE_NAV_INPUT_COUNT][SHA256_HEX_SIZE];
+	s32 have[CLONE_NAV_INPUT_COUNT];
+	s32 rows[CLONE_NAV_INPUT_COUNT];   /* -1: not a table with a rows array */
+} clone_nav_facts_t;
+
+/* How many rows a table file holds: the elements of its top-level "rows" array, or -1. */
+static s32 cloneJsonRowCount(const char *s, u32 n)
+{
+	u32 vs = 0;
+	u32 ve = 0;
+	u32 i;
+	s32 count = 0;
+
+	if (!cloneJsonTopValue(s, n, "rows", &vs, &ve) || s[vs] != '[') return -1;
+	i = cloneJsonSkipWs(s, ve, vs + 1);
+	if (i < ve && s[i] == ']') return 0;
+	while (i < ve) {
+		const u32 after = cloneJsonSkipValue(s, ve, i);
+
+		if (after >= ve || after == i) return -1;
+		count++;
+		i = cloneJsonSkipWs(s, ve, after);
+		if (i < ve && s[i] == ',') {
+			i = cloneJsonSkipWs(s, ve, i + 1);
+			continue;
+		}
+		return (i < ve && s[i] == ']') ? count : -1;
+	}
+	return -1;
+}
+
+/* Notes a member as it is written to the result, when the record names it. */
+static void cloneNavNote(clone_nav_facts_t *nav, const char *entry, const char *data, u32 size)
+{
+	for (s32 i = 0; i < CLONE_NAV_INPUT_COUNT; i++) {
+		if (strcmp(entry, s_CloneNavInputs[i]) != 0) continue;
+		cloneShaHex(data, size, nav->hex[i]);
+		nav->rows[i] = cloneEndsWith(entry, ".json") ? cloneJsonRowCount(data, size) : -1;
+		nav->have[i] = 1;
+		return;
+	}
+}
+
+/*
+ * The record with its two lists made true for the members the result holds.
+ * NULL when the record already says exactly that, or when it cannot be
+ * brought up to date here: a member it names is not in the archive, a table
+ * has no rows array, or the record has no such lists. The caller then writes
+ * the record as it is, and the game is the judge of it.
+ *
+ * The lists are written the way the extractor writes them
+ * (romextract_pdarena.c), which is the exact text the game looks for.
+ */
+static char *cloneNavRefresh(const char *record, u32 record_size,
+		const clone_nav_facts_t *nav, u32 *out_size)
+{
+	char counts[256];
+	char hashes[CLONE_NAV_INPUT_COUNT * (SHA256_HEX_SIZE + 48) + 16];
+	size_t used = 0;
+	u32 cs = 0, ce = 0, hs = 0, he = 0;
+	u32 first_s, first_e, second_s, second_e;
+	const char *first_text;
+	const char *second_text;
+	size_t first_len, second_len, total;
+	char *out;
+	char *w;
+
+	for (s32 i = 0; i < CLONE_NAV_INPUT_COUNT; i++) {
+		if (!nav->have[i]) return NULL;
+	}
+	for (s32 k = 0; k < CLONE_NAV_TABLE_COUNT; k++) {
+		if (nav->rows[s_CloneNavTableInput[k]] < 0) return NULL;
+	}
+	snprintf(counts, sizeof(counts),
+		"{ \"%s\": %d, \"%s\": %d, \"%s\": %d, \"%s\": %d, \"%s\": %d, \"%s\": %d }",
+		s_CloneNavTables[0], nav->rows[s_CloneNavTableInput[0]],
+		s_CloneNavTables[1], nav->rows[s_CloneNavTableInput[1]],
+		s_CloneNavTables[2], nav->rows[s_CloneNavTableInput[2]],
+		s_CloneNavTables[3], nav->rows[s_CloneNavTableInput[3]],
+		s_CloneNavTables[4], nav->rows[s_CloneNavTableInput[4]],
+		s_CloneNavTables[5], nav->rows[s_CloneNavTableInput[5]]);
+	used = (size_t)snprintf(hashes, sizeof(hashes), "{ ");
+	for (s32 i = 0; i < CLONE_NAV_INPUT_COUNT; i++) {
+		used += (size_t)snprintf(hashes + used, sizeof(hashes) - used, "%s\"%s\": \"%s\"",
+			i ? ", " : "", s_CloneNavInputs[i], nav->hex[i]);
+		if (used >= sizeof(hashes)) return NULL;
+	}
+	used += (size_t)snprintf(hashes + used, sizeof(hashes) - used, " }");
+	if (used >= sizeof(hashes)) return NULL;
+
+	if (!cloneJsonTopValue(record, record_size, "source_counts", &cs, &ce) ||
+			!cloneJsonTopValue(record, record_size, "source_hashes", &hs, &he) ||
+			record[cs] != '{' || record[hs] != '{') {
+		return NULL;
+	}
+	if (ce - cs == strlen(counts) && memcmp(record + cs, counts, ce - cs) == 0 &&
+			he - hs == strlen(hashes) && memcmp(record + hs, hashes, he - hs) == 0) {
+		return NULL;
+	}
+
+	if (cs < hs) {
+		first_s = cs; first_e = ce; first_text = counts;
+		second_s = hs; second_e = he; second_text = hashes;
+	} else {
+		first_s = hs; first_e = he; first_text = hashes;
+		second_s = cs; second_e = ce; second_text = counts;
+	}
+	first_len = strlen(first_text);
+	second_len = strlen(second_text);
+	total = (size_t)first_s + first_len + (second_s - first_e) + second_len
+		+ (record_size - second_e);
+	if (total > 0xffffffffu) return NULL;
+	out = (char *)malloc(total + 1);
+	if (!out) return NULL;
+	w = out;
+	memcpy(w, record, first_s);
+	w += first_s;
+	memcpy(w, first_text, first_len);
+	w += first_len;
+	memcpy(w, record + first_e, second_s - first_e);
+	w += second_s - first_e;
+	memcpy(w, second_text, second_len);
+	w += second_len;
+	memcpy(w, record + second_e, record_size - second_e);
+	w += record_size - second_e;
+	*w = '\0';
+	*out_size = (u32)total;
+	return out;
+}
+
+/* See asset_archive_clone.h. */
+s32 assetArchiveCloneJsonDropTopMember(char *s, u32 *len, const char *key)
+{
+	const size_t klen = key ? strlen(key) : 0;
+	u32 n;
+	u32 i;
+	u32 prev_comma;
+
+	if (!s || !len || !klen) return 0;
+	n = *len;
+	prev_comma = n; /* the comma before the current member; n while there is none */
+	i = cloneJsonSkipWs(s, n, 0);
+	if (i >= n || s[i] != '{') return 0;
+	i = cloneJsonSkipWs(s, n, i + 1);
+	while (i < n && s[i] == '"') {
+		const u32 mstart = i;
+		const u32 kstart = i + 1;
+		const u32 kend = cloneJsonSkipString(s, n, i);
+		u32 v;
+		u32 after;
+		u32 next;
+
+		if (kend >= n) return 0;
+		i = cloneJsonSkipWs(s, n, kend);
+		if (i >= n || s[i] != ':') return 0;
+		v = cloneJsonSkipWs(s, n, i + 1);
+		after = cloneJsonSkipValue(s, n, v);
+		if (after >= n) return 0;
+		next = cloneJsonSkipWs(s, n, after);
+		if (kend - 1 - kstart == klen && memcmp(s + kstart, key, klen) == 0) {
+			u32 cut_start = mstart;
+			u32 cut_end = after;
+
+			if (next < n && s[next] == ',') {
+				/* Not the last member: it goes with the comma after it, up to
+				 * where the next member starts. */
+				cut_end = cloneJsonSkipWs(s, n, next + 1);
+			} else if (prev_comma < n) {
+				/* The last member: it goes with the comma before it. */
+				cut_start = prev_comma;
+			}
+			memmove(s + cut_start, s + cut_end, n - cut_end);
+			*len = n - (cut_end - cut_start);
+			return 1;
+		}
+		if (next < n && s[next] == ',') {
+			prev_comma = next;
+			i = cloneJsonSkipWs(s, n, next + 1);
+		} else {
+			i = next;
+		}
+	}
+	return 0;
+}
+
 static s32 cloneJsonPlain(const char *value, u32 len)
 {
 	for (u32 i = 0; i < len; i++) {
@@ -1075,9 +1321,12 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 	u32 source_desc_size = 0;
 	char *final_desc = NULL;
 	u32 final_desc_size = 0;
+	/* What the result holds of the members a navigation record names. */
+	clone_nav_facts_t nav;
 
 	memset(&names, 0, sizeof(names));
 	memset(&members, 0, sizeof(members));
+	memset(&nav, 0, sizeof(nav));
 	if (!descriptor_name ||
 			!cloneReadArchiveId(ctx, bytes, size, name, old_id, sizeof(old_id))) {
 		if (!descriptor_name) {
@@ -1213,6 +1462,7 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				free(rewritten);
 				goto cleanup;
 			}
+			cloneNavNote(&nav, entry, data, data_size);
 			if (strcmp(entry, descriptor_name) == 0) {
 				char declared[CATALOG_ID_LEN];
 				if (!cloneDescriptorCatalogId(data, data_size, declared, sizeof(declared)) ||
@@ -1309,6 +1559,29 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				}
 				data = synced;
 				data_size = synced_size;
+			}
+			if (strcmp(leaf, ASSET_ARCHIVE_META_MANIFEST) == 0
+					&& cloneEqNoCase(ext, ".pdmesh")) {
+				/* A cloned mesh is a new asset. The native file its template
+				 * stands for (source_filenum_symbol, which the extractor writes
+				 * for every base mesh) stays the template's: a copy that kept it
+				 * claimed that file's slot when it was a weapon's mesh (B-1152:
+				 * the base gun then loaded the mod's copy) and is refused as a
+				 * second owner when it is a body's or a head's. Without it the
+				 * loader gives the mesh a private slot. */
+				(void)assetArchiveCloneJsonDropTopMember(data, &data_size,
+					"source_filenum_symbol");
+			}
+			if (strcmp(leaf, "generated-navmesh.json") == 0) {
+				/* The record says what its members hold; see cloneNavRefresh. */
+				u32 fresh_size = 0;
+				char *fresh = cloneNavRefresh(data, data_size, &nav, &fresh_size);
+
+				if (fresh) {
+					free(data);
+					data = fresh;
+					data_size = fresh_size;
+				}
 			}
 		}
 		stale = cloneFindStaleId(ctx, data, data_size);

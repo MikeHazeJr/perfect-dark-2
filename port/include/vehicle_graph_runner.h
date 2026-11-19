@@ -16,8 +16,17 @@
  * native units when the program compiles; a "$name" param takes the
  * variable's value whole. A module may run only on the events it is made for
  * (og.vehicle.hover_drive on event.vehicle.tick, ...), and a graph whose
- * events can reach a module on the wrong event is refused. A broken rule
+ * events can reach a module on the wrong event is refused. One event may
+ * reach one mount, one dismount and one switch per seat. A broken rule
  * refuses the program, and a refused program runs nothing.
+ *
+ * Seats. A vehicle has a driver seat and may have a gunner seat. Three
+ * requests change who sits where, each naming the seat it is about:
+ * mount_requested (the seat asked for), dismount_requested (the seat left)
+ * and switch_seat_requested (the seat a rider asks to move to). The graph's
+ * gates decide (gate.vehicle.seat, gate.vehicle.seat_free) and its seat
+ * modules ask the host to do it (og.vehicle.mount_seat, dismount_seat and
+ * switch_seat).
  *
  * Run. One instance per vehicle holds the program, the per-node state and the
  * pending events (D-006A's shape). A native seam fires an event; the walk is
@@ -67,17 +76,21 @@ extern "C" {
 #define VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED 2
 #define VEHICLE_GRAPH_EVENT_TICK 3
 #define VEHICLE_GRAPH_EVENT_HEAT_CHANGED 4 /* raised by og.vehicle.boost_heat only */
-#define VEHICLE_GRAPH_EVENT_KIND_END 5
+#define VEHICLE_GRAPH_EVENT_SWITCH_SEAT_REQUESTED 5 /* a rider asks for the other seat */
+#define VEHICLE_GRAPH_EVENT_KIND_END 6
 
 /* Seats. */
 #define VEHICLE_GRAPH_SEAT_NONE (-1)
 #define VEHICLE_GRAPH_SEAT_DRIVER 0
 #define VEHICLE_GRAPH_SEAT_GUNNER 1
+#define VEHICLE_GRAPH_SEAT_COUNT 2
 
 typedef struct vehicle_graph_event {
 	s32 kind;           /* VEHICLE_GRAPH_EVENT_* */
-	s32 seat;           /* mount/dismount: the seat asked for; else SEAT_NONE */
-	s32 player;         /* mount/dismount: the player number; else -1 */
+	/* A seat request's seat: the seat a mount asks for, the seat a dismount
+	 * leaves, the seat a switch asks to move to. Else SEAT_NONE. */
+	s32 seat;
+	s32 player;         /* a seat request's player number; else -1 */
 	/* tick */
 	s32 ticks240;       /* this update's 240 Hz ticks (g_Vars.lvupdate240) */
 	f32 ticks60;        /* this update's 60 Hz ticks (g_Vars.lvupdate60freal) */
@@ -104,6 +117,9 @@ typedef struct vehicle_graph_host {
 	s32 (*seat_free)(void *context, s32 seat);
 	s32 (*mount_seat)(void *context, s32 seat, const vehicle_graph_event_t *event);
 	s32 (*dismount_seat)(void *context, s32 seat, const vehicle_graph_event_t *event);
+	/* og.vehicle.switch_seat: move the event's player, who rides this
+	 * vehicle, to this seat. */
+	s32 (*switch_seat)(void *context, s32 seat, const vehicle_graph_event_t *event);
 	s32 (*set_part_visible)(void *context, s32 part, s32 visible);
 } vehicle_graph_host_t;
 
@@ -141,6 +157,12 @@ s32 vehicleGraphProgramExecEdgeCount(const vehicle_graph_program_t *program);
  * execution edges (both branches of every gate, raised events included). */
 s32 vehicleGraphProgramEventReachesModule(const vehicle_graph_program_t *program,
 	s32 event_kind, const char *module_kind);
+/* The seats a request of this kind can act on, one bit per seat (1 << seat):
+ * the seats a mount can take (og.vehicle.mount_seat), a dismount can leave
+ * (og.vehicle.dismount_seat) or a switch can move to (og.vehicle.switch_seat),
+ * along both branches of every gate. 0 for any other event. A vehicle has a
+ * gunner seat when a mount request reaches a mount for it. */
+u32 vehicleGraphProgramEventSeats(const vehicle_graph_program_t *program, s32 event_kind);
 /* The most follow-up events one fired event can lead to. */
 s32 vehicleGraphProgramPendingBound(const vehicle_graph_program_t *program);
 /* The og.vehicle.boost_heat params, or NULL when the graph has none. */
@@ -162,9 +184,9 @@ const vehicle_graph_program_t *vehicleGraphInstanceProgram(
 	const vehicle_graph_instance_t *instance);
 
 /*
- * Fire mount_requested, dismount_requested or tick, then deliver what it
- * raises. Returns the number of modules run, or -1 when the event is
- * malformed or a module refused (the other modules still ran).
+ * Fire mount_requested, dismount_requested, switch_seat_requested or tick,
+ * then deliver what it raises. Returns the number of modules run, or -1 when
+ * the event is malformed or a module refused (the other modules still ran).
  */
 s32 vehicleGraphInstanceFire(vehicle_graph_instance_t *instance,
 	const vehicle_graph_event_t *event, const vehicle_graph_host_t *host);

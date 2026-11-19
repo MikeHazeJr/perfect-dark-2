@@ -23,6 +23,8 @@
 #include "game/stubs/game_000900.h"
 #include "game/stubs/game_000910.h"
 #include "game/tex.h"
+#include "texture_source_runtime.h"
+#include "video.h"
 #include "game/stubs/game_00b180.h"
 #include "game/stubs/game_00b200.h"
 #include "game/challenge.h"
@@ -36,6 +38,11 @@
 #include "game/lang.h"
 #include "game/forgemode.h"
 #include "forge/forge_core.h"
+#include "forge_level_io.h"
+#include "mod.h"
+#include "grid_match_runtime.h"
+#include "assetcatalog_load.h"
+#include "assetcatalog_resolve.h"
 #include "pdgui_forge.h"
 #include "swarm_test.h"
 #include "actionmap.h"
@@ -96,8 +103,10 @@
 #include "system.h"
 #include "console.h"
 #include "net/net.h"
+#include "net/grid_edit_room_net.h"
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
+#include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
@@ -502,6 +511,139 @@ void mainOverrideVariable(char *name, void *value)
  * Decomp patches these reads in its build system so it can be played
  * without the development board.
  */
+static s32 s_GridStageQueued = -1;
+static s32 s_GridRoomBackdrop;
+static u8 s_GridRoomReturn = 0xff;
+static s32 s_GridWorldReady;
+
+s32 mainGridRoomBackdropActive(void)
+{
+	return s_GridRoomBackdrop;
+}
+
+s32 mainGridRoomReturnPending(void)
+{
+	return s_GridRoomReturn != 0xff;
+}
+
+void mainQueueGridRoomReturn(void)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (!grid || g_NetStageEpoch || !g_NetLocalClient
+			|| g_NetLocalClient->state != CLSTATE_LOBBY
+			|| g_NetLocalClient->room_id != grid->offer.room_id
+			|| g_MainChangeToStageNum >= 0) return;
+
+	s_GridRoomReturn = grid->offer.room_id;
+	mainChangeToStage(STAGE_TITLE);
+}
+
+s32 mainQueueGridStageAbort(u8 room_id)
+{
+	if (!g_NetStageEpoch || !g_NetLocalClient
+			|| g_NetLocalClient->state != CLSTATE_GAME
+			|| g_NetLocalClient->room_id != room_id || mainGridRoomReturnPending()) return 0;
+
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (grid) {
+		if (!s_GridWorldReady || grid->stage != g_StageNum || g_MainChangeToStageNum >= 0) return 0;
+	} else {
+		grid = gridMatchRuntimePending();
+		if (!grid || s_GridStageQueued != grid->stage || g_MainChangeToStageNum != grid->stage) return 0;
+	}
+	if (grid->offer.room_id != room_id) return 0;
+
+	s_GridRoomReturn = room_id;
+	mainChangeToStage(STAGE_TITLE);
+	return 1;
+}
+
+static void mainRetireGridStage(void)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimeActive();
+	if (grid) {
+		scenarioSourceReleaseStageGraphs();
+		scenarioSourceStageRulesReset();
+		modSequenceForgetGridStageTracks();
+		assetCatalogDeactivateStage();
+		catalogReleaseStageAsset(ASSET_SCENARIO, grid->scenario_id);
+		catalogReleaseStageAsset(ASSET_ARENA, grid->arena_id);
+		gridMatchRuntimeDropActive();
+	}
+	netGridEditPrivatePlaytestStageStopped();
+}
+
+static void mainRetireSavedGridSources(void)
+{
+	char error[256];
+	if (!forgeLevelReleaseVariantDependencyStageRefs(error, sizeof(error))
+			|| !forgeLevelRetireVariantDependencies(error, sizeof(error))) {
+		sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.VARIANT.MOUNT: stage retirement: %s", error);
+	}
+}
+
+void mainStopGridWorldForShutdown(void)
+{
+	if (!s_GridWorldReady) return;
+	s_GridWorldReady = 0;
+	sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
+	imcSceneClearGameplay();
+	lvStop();
+	scenarioSourceClearGridTiles();
+}
+
+void mainRetireGridForShutdown(void)
+{
+	const s32 has_active_grid = gridMatchRuntimeActive() != NULL;
+	const s32 has_saved_variant = forgeLevelVariantDependenciesStage() >= 0;
+	if (has_active_grid || has_saved_variant) {
+		/* World, UI and transport have stopped. Retire the player roots
+		 * and their held-model generations as on a normal stage change. */
+		playermgrReset();
+		manifestReleaseCurrent();
+	}
+	if (!gridMatchRuntimeIsIdle() || has_saved_variant) {
+		videoResetTextureCache();
+		surfaceReset();
+		textureSourceRuntimeResetStage();
+	}
+	/* Direct exit skips the next stage load that ordinarily releases the
+	 * stage-owned mesh references of a temporary weapon. */
+	char err[256];
+	if (!gridMatchRuntimeReleaseWeaponStageRefs(err, sizeof(err))) {
+		sysLogPrintf(LOG_WARNING, "GRID.MATCH.LEASE: shutdown weapon stage release: %s", err);
+	}
+	if (has_active_grid) mainRetireGridStage();
+	if (has_saved_variant) {
+		scenarioSourceReleaseStageGraphs();
+		scenarioSourceStageRulesReset();
+		modSequenceForgetGridStageTracks();
+		assetCatalogDeactivateStage();
+		mainRetireSavedGridSources();
+	}
+	/* Transport and UI shutdown may have released the last references to a
+	 * lease deferred by an earlier stage departure. */
+	if (!gridMatchRuntimeRetryArenaLeaseRetirement(err, sizeof(err))) {
+		sysLogPrintf(LOG_WARNING, "GRID.MATCH.LEASE: shutdown arena retirement: %s", err);
+	}
+	if (!gridMatchRuntimeRetryWeaponLeaseRetirement(err, sizeof(err))) {
+		sysLogPrintf(LOG_WARNING, "GRID.MATCH.LEASE: shutdown weapon retirement: %s", err);
+	}
+	if (!gridMatchRuntimeRetrySourceSetRetirement(err, sizeof(err))) {
+		sysLogPrintf(LOG_WARNING, "GRID.MATCH.LEASE: shutdown source retirement: %s", err);
+	}
+	netmsgGridModProposalPoll();
+}
+
+static const grid_match_runtime_identity_t *mainPendingGridStage(s32 stage)
+{
+	const grid_match_runtime_identity_t *grid = gridMatchRuntimePending();
+	return grid && grid->stage == stage && g_NetMode != NETMODE_NONE
+		&& g_NetLocalClient && g_NetLocalClient->state == CLSTATE_GAME
+		&& g_NetLocalClient->room_id == grid->offer.room_id
+		&& g_NetStageEpoch ? grid : NULL;
+}
+
 void mainLoop(void)
 {
 	s32 ending = 0;
@@ -542,6 +684,42 @@ void mainLoop(void)
 		g_MainNumGfxTasks = 0;
 		g_MainGameLogicEnabled = 1;
 		g_MainIsEndscreen = 0;
+
+		if (s_GridStageQueued == g_StageNum) {
+			s_GridStageQueued = -1;
+			const grid_match_runtime_identity_t *grid = mainPendingGridStage(g_StageNum);
+			const s32 fiesta = g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA;
+			char err[256] = "no exact offer for the queued Grid stage";
+			const s32 manifest_active = grid
+				&& gridMatchRuntimePublishStage(g_StageNum, &grid->offer, err, sizeof(err))
+				&& manifestMPTransition();
+			if (!manifest_active
+					|| !(fiesta ? gridMatchRuntimeValidateActiveFiesta(err, sizeof(err))
+						: gridMatchRuntimeValidateActiveSpawnWeapon(g_MatchConfig.spawn_weapon_id,
+							g_MatchConfig.spawnWeaponNum, err, sizeof(err)))) {
+				if (!err[0]) snprintf(err, sizeof(err), "the exact runtime manifest did not activate");
+				sysLogPrintf(LOG_ERROR, "GRID.MATCH.STAGE: activation refused: %s", err);
+				if (manifest_active) manifestReleaseCurrent();
+				mainRetireGridStage();
+				if (forgeLevelVariantDependenciesStage() == g_StageNum) mainRetireSavedGridSources();
+				netDisconnect();
+				g_StageNum = STAGE_TITLE;
+				g_MainChangeToStageNum = -1;
+				titleSetNextStage(STAGE_TITLE);
+				titleSetNextMode(TITLEMODE_SKIP);
+				continue;
+			}
+			sysLogPrintf(LOG_NOTE, "GRID.MATCH.STAGE: active arena=%s epoch=%u digest=%s",
+				grid->arena_id, g_NetStageEpoch, grid->offer.manifest_digest);
+			if (!fiesta) {
+				sysLogPrintf(LOG_NOTE, "GRID.SPAWN.ACTIVE: id=%s mode=%u weaponnum=%u",
+					g_MatchConfig.spawn_weapon_id, (unsigned)g_MatchConfig.spawnWeaponMode,
+					(unsigned)g_MatchConfig.spawnWeaponNum);
+			} else if (smokeHarnessIsActive() && sysArgCheck("--debug-grid-fiesta")) {
+				sysLogPrintf(LOG_NOTE, "GRID.FIESTA.ACTIVE: count=%d digest=%s",
+					gridMatchRuntimeFiestaSlots(NULL), grid->offer.manifest_digest);
+			}
+		}
 
 		if (var8005d9b0 && var8005d9c4 == 0) {
 			index = -1;
@@ -636,9 +814,15 @@ void mainLoop(void)
 			enum playermgr_allocate_result player_result =
 				playermgrAllocatePlayers(numplayers);
 			if (player_result != PLAYMGR_ALLOC_OK) {
+				const s32 saved_variant = forgeLevelVariantDependenciesStage() == g_StageNum;
+				if (gridMatchRuntimeActive() || saved_variant) manifestReleaseCurrent();
+				mainRetireGridStage();
+				if (saved_variant) mainRetireSavedGridSources();
+				s32 recover_draft = forgeLevelDraftStageFailed();
 				sysLogPrintf(LOG_ERROR,
-					"PLAYER.INIT.ROLLBACK stage=0x%02x status=%s; returning to title",
-					g_StageNum, playermgrAllocateResultString(player_result));
+					"PLAYER.INIT.ROLLBACK stage=0x%02x status=%s destination=%s",
+					g_StageNum, playermgrAllocateResultString(player_result),
+					recover_draft ? "grid-editor" : "title");
 				if (g_NetMode != NETMODE_NONE) {
 					if (g_NetLocalClient != NULL) {
 						g_NetLocalClient->state = CLSTATE_LOBBY;
@@ -650,10 +834,12 @@ void mainLoop(void)
 				g_Vars.normmplayerisrunning = false;
 				g_Vars.lvmpbotlevel = 0;
 				setNumPlayers(1);
-				g_StageNum = STAGE_TITLE;
 				g_MainChangeToStageNum = -1;
-				titleSetNextStage(STAGE_TITLE);
-				titleSetNextMode(TITLEMODE_SKIP);
+				if (!recover_draft) {
+					g_StageNum = STAGE_TITLE;
+					titleSetNextStage(STAGE_TITLE);
+					titleSetNextMode(TITLEMODE_SKIP);
+				}
 				continue;
 			}
 		}
@@ -686,9 +872,22 @@ void mainLoop(void)
 		dhudReset();
 		zbufReset(g_StageNum);
 		if (!lvReset(g_StageNum)) {
+			const s32 saved_variant = forgeLevelVariantDependenciesStage() == g_StageNum;
+			if (forgeLevelDraftOwnsStageTransition() || gridMatchRuntimeActive() || saved_variant) {
+				sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
+				lvStop();
+				if (gridMatchRuntimeActive() || saved_variant) manifestReleaseCurrent();
+				mainRetireGridStage();
+				if (saved_variant) {
+					scenarioSourceStageRulesReset();
+					modSequenceForgetGridStageTracks();
+					mainRetireSavedGridSources();
+				}
+			}
+			s32 recover_draft = forgeLevelDraftStageFailed();
 			sysLogPrintf(LOG_ERROR,
-				"PLAYER.INIT.ROLLBACK phase=stage stage=0x%02x; returning to title",
-				g_StageNum);
+				"PLAYER.INIT.ROLLBACK phase=stage stage=0x%02x destination=%s",
+				g_StageNum, recover_draft ? "grid-editor" : "title");
 			if (g_NetMode != NETMODE_NONE) {
 				if (g_NetLocalClient != NULL) {
 					g_NetLocalClient->state = CLSTATE_LOBBY;
@@ -700,13 +899,17 @@ void mainLoop(void)
 			g_Vars.normmplayerisrunning = false;
 			g_Vars.lvmpbotlevel = 0;
 			setNumPlayers(1);
-			g_StageNum = STAGE_TITLE;
 			g_MainChangeToStageNum = -1;
-			titleSetNextStage(STAGE_TITLE);
-			titleSetNextMode(TITLEMODE_SKIP);
+			if (!recover_draft) {
+				g_StageNum = STAGE_TITLE;
+				titleSetNextStage(STAGE_TITLE);
+				titleSetNextMode(TITLEMODE_SKIP);
+			}
 			continue;
 		}
+		s_GridWorldReady = gridMatchRuntimeActive() != NULL;
 		viReset(g_StageNum);
+		if (s_GridRoomBackdrop) viBlack(false);
 		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - entering tick loop with g_StageNum=0x%02x, g_Vars.stagenum=0x%02x",
 			g_StageNum, g_Vars.stagenum);
 		frametimeCalculate();
@@ -735,6 +938,8 @@ void mainLoop(void)
 			sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
 		} else {
 			sceneFire(SCENE_EVENT_STAGE_READY, NULL);
+			s32 draft_ready = forgeLevelDraftStageReady();
+			if (draft_ready) forgeCompleteDraftStageReload(draft_ready > 0);
 			/* The network stage-ready handshake belongs to this real post-load
 			 * boundary, after lvReset and player allocation. In particular, a
 			 * reconnect snapshot must never race the asynchronous stage load. */
@@ -756,10 +961,58 @@ void mainLoop(void)
 		/* Priority J (2026-04-25): scene unloading -- drop both
 		 * gameplay-scope IMCs (and Vehicle, defensively) before the next
 		 * stage's load activates the right one. */
+		s_GridWorldReady = 0;
+		forgePrepareStageDeparture(forgeLevelDraftOwnsStageTransition());
 		sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
 		imcSceneClearGameplay();
 
 		lvStop();
+		const s32 retire_saved_variant = forgeLevelVariantDependenciesStage() == g_StageNum
+			&& g_MainChangeToStageNum != g_StageNum;
+		s_GridRoomBackdrop = mainGridRoomReturnPending() && g_MainChangeToStageNum == STAGE_TITLE;
+		if (s_GridRoomBackdrop) {
+			/* The connected Room has no match world. Use system-stage
+			 * allocation and the normal network Room overlay. */
+			const s32 has_active_grid = gridMatchRuntimeActive() != NULL;
+			if (has_active_grid) {
+				/* Retire old stage consumers before the exact weapon lease,
+				 * while the props and players are still in the stage pool. */
+				meshDetachAllStageProps();
+				playermgrReset();
+			}
+			if (g_NetLocalClient) {
+				g_NetLocalClient->player = NULL;
+				g_NetLocalClient->config = NULL;
+			}
+			g_Vars.mplayerisrunning = false;
+			g_Vars.normmplayerisrunning = false;
+			g_Vars.lvmpbotlevel = 0;
+			manifestClear(&g_ClientManifest);
+			manifestClear(&g_ServerManifest);
+			manifestReleaseCurrent();
+			if (has_active_grid) {
+				char err[256];
+				if (!gridMatchRuntimeReleaseWeaponStageRefs(err, sizeof(err))) {
+					sysLogPrintf(LOG_WARNING, "GRID.MATCH.LEASE: Room return weapon stage release: %s", err);
+				}
+			}
+			if (sessionCatalogIsActive()) sessionCatalogTeardown();
+			gridMatchRuntimeCancelPending();
+		}
+		mainRetireGridStage();
+		if (retire_saved_variant) {
+			meshDetachAllStageProps();
+			playermgrReset();
+			scenarioSourceReleaseStageGraphs();
+			scenarioSourceStageRulesReset();
+			modSequenceForgetGridStageTracks();
+			assetCatalogDeactivateStage();
+			videoResetTextureCache();
+			surfaceReset();
+			textureSourceRuntimeResetStage();
+			mainRetireSavedGridSources();
+		}
+		forgeLevelDraftStageLeaving(g_MainChangeToStageNum);
 		mempDisablePool(MEMPOOL_STAGE);
 		mempDisablePool(MEMPOOL_7);
 		filesStop(4);
@@ -783,6 +1036,16 @@ void mainTick(void)
 	Gfx *gdlstart = NULL;
 	OSScMsg msg = {OS_SC_DONE_MSG};
 	s32 i;
+
+	if (s_GridRoomBackdrop && mainGridRoomReturnPending()) {
+		if (!g_NetLocalClient || g_NetLocalClient->room_id != s_GridRoomReturn) {
+			s_GridRoomReturn = 0xff;
+		} else if (g_NetLocalClient->state == CLSTATE_LOBBY && gridMatchRuntimeIsIdle()) {
+			sysLogPrintf(LOG_NOTE, "GRID.MATCH.ROOM: world retired room=%u", (unsigned)s_GridRoomReturn);
+			s_GridRoomReturn = 0xff;
+			netSendLobbyResync();
+		}
+	}
 
 	/* Smoke verify harness tick (2026-05-11): scheduled SDL_PushEvent
 	 * dispatch + timeout watchdog. Cheap no-op when --smoke is absent.
@@ -991,7 +1254,7 @@ void mainTick(void)
 			bool run_global_tick = true;
 			static bool s_LocalContextFailureLogged = false;
 
-			if (g_NetMode != NETMODE_NONE && !g_NetDedicated) {
+			if (g_NetMode != NETMODE_NONE && !g_NetDedicated && !s_GridRoomBackdrop) {
 				run_global_tick = playermgrRestoreLocalPlayerContext();
 				if (!run_global_tick && !s_LocalContextFailureLogged) {
 					sysLogPrintf(LOG_WARNING,
@@ -1005,6 +1268,10 @@ void mainTick(void)
 			}
 
 			if (run_global_tick) {
+				if (STAGE_IS_GAMEPLAY(g_StageNum)) {
+					netGridEditPrivateLayoutTick();
+					netGridEditPrivatePlaytestTick();
+				}
 				lvTick();
 			}
 			playermgrShuffle();
@@ -1224,6 +1491,8 @@ static s32 s_MainEndStageWithoutResults = 0;
 
 void mainEndStage(void)
 {
+	if (forgeLevelDraftReturn()) return;
+
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
 	/* object-events.md slice 2: the stage's object event totals. */
 	scenarioSourceGraphObjectEventsReport("stage_end");
@@ -1302,11 +1571,17 @@ void mainEndStageWithoutResults(void)
 /**
  * Change to the given stage at the end of the current frame.
  */
+s32 mainStageChangePending(void)
+{
+	return g_MainChangeToStageNum >= 0;
+}
+
 void mainChangeToStage(s32 stagenum)
 {
 	pak0f11c6d0();
 
 	stagenum = stageSanitizeLoadStagenum(stagenum);
+	if (stagenum != STAGE_TITLE) s_GridRoomReturn = 0xff;
 
 	/* Phase 1: diff-based asset lifecycle — build/diff/apply before the
 	 * stage is committed.
@@ -1353,7 +1628,20 @@ void mainChangeToStage(s32 stagenum)
 		}
 	}
 
-	if (STAGE_IS_GAMEPLAY(stagenum)) {
+	const grid_match_sources_t *variant = g_NetMode == NETMODE_NONE
+		? forgeLevelVariantDependencyPlanForStage(stagenum) : NULL;
+	if (variant && !manifestGridVariantTransition(stagenum, variant)) {
+		sysLogPrintf(LOG_ERROR, "FORGE.LEVEL.VARIANT.MOUNT: runtime sources did not activate for stage 0x%02x",
+			(u32)stagenum);
+		if (forgeLevelVariantDependenciesStage() != g_StageNum) mainRetireSavedGridSources();
+		stagenum = STAGE_TITLE;
+		variant = NULL;
+	}
+	s_GridStageQueued = mainPendingGridStage(stagenum) ? stagenum : -1;
+	if (variant || s_GridStageQueued >= 0 || mainGridRoomReturnPending()) {
+		/* The stage boundary publishes exact sources for a match start
+		 * or releases the ended world's manifest for a Room return. */
+	} else if (STAGE_IS_GAMEPLAY(stagenum)) {
 		const s32 mpManifestEntries = manifestMPTransitionEntryCount();
 
 		if (mpManifestEntries > 0) {

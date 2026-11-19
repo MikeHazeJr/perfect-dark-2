@@ -41,6 +41,10 @@ s32 assetCatalogResolveBodyPrivateSlot(const char *catalog_id);
  * CATALOG_MGR_HEAD_TOTAL); logs CATALOG.HEAD.CUSTOM_SLOT_FAIL on exhaustion. */
 s32 assetCatalogResolveHeadPrivateSlot(const char *catalog_id);
 
+/* Exact lookup and release for an already-owned custom reservation. */
+s32 assetCatalogFindBodyHeadPrivateSlot(s32 is_head, const char *catalog_id);
+s32 assetCatalogRetireBodyHeadReservation(s32 is_head, const char *catalog_id, s32 slot);
+
 #ifdef __cplusplus
 }
 #endif

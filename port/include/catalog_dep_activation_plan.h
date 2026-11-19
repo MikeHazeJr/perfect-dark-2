@@ -26,11 +26,20 @@ typedef s32 (*catalog_dep_activation_resolve_fn)(const char *asset_id,
 typedef void (*catalog_dep_activation_release_fn)(const char *asset_id,
 	asset_type_e expected_type, void *userdata);
 
+typedef s32 (*catalog_dep_activation_add_fn)(const char *asset_id,
+	asset_type_e expected_type, void *userdata);
+typedef s32 (*catalog_dep_activation_supplement_fn)(const char *asset_id, asset_type_e type,
+	catalog_dep_activation_add_fn add, void *add_context, void *userdata, char *err, size_t err_cap);
+
 void catalogDepActivationPlanCollect(const char *dep_id, void *userdata);
 s32 catalogDepActivationPlanBuild(catalog_dep_activation_plan_t *plan,
 	const char *root_id, asset_type_e root_type,
 	catalog_dep_activation_resolve_fn resolve_fn, void *resolve_userdata,
 	char *error, size_t error_cap);
+/* Add caller-owned exact-source dependencies to the same typed cycle walk. */
+s32 catalogDepActivationPlanBuildWithEdges(catalog_dep_activation_plan_t *plan,
+	const char *root_id, asset_type_e root_type, catalog_dep_activation_resolve_fn resolve, void *resolve_data,
+	catalog_dep_activation_supplement_fn supplement, void *supplement_data, char *err, size_t err_cap);
 void catalogDepActivationPlanRollback(const catalog_dep_activation_plan_t *plan,
 	size_t loaded_count, catalog_dep_activation_release_fn release_fn,
 	void *userdata);

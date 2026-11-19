@@ -36,6 +36,7 @@
 #include "system.h"
 #include "modmgr.h"
 #include "net/netmanifest.h"
+#include "net/netmsg.h"
 #include "mpsetups.h"
 #include "assetcatalog.h"
 #include "asset_runtime.h"  /* c3849 Wave 6a: botprofile meta-family consumer */
@@ -1455,6 +1456,7 @@ static void mpweaponRandomCollectCb(const asset_entry_t *e, void *userdata)
 	s32 mpidx = (s32)e->mp_index;
 	if (mpidx >= 0 && mpidx < (s32)ARRAYCOUNT(g_MpWeaponSetRandomFilters)
 			&& g_MpWeaponSetRandomFilters[mpidx] == 1
+			&& !(e->temporary && netmsgGridModIsProposalOnly(e->id))
 			&& ctx->index < ctx->capacity) {
 		ctx->weapons[ctx->index++] = (u8)ctx->ui_idx;
 	}

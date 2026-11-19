@@ -1168,6 +1168,10 @@ function Select-SmokeTests {
 #     native GUI-thread focus and SDL gained/lost evidence are mandatory;
 #     launch order and foreground z-order are not focus proof. Operational
 #     failures retain their exact phase and Win32 diagnostics in the receipt.
+#     The default is to focus after all launches. Set `before_target_barrier`
+#     when the target's launch marker needs input focus first. An optional
+#     `target_ready_wait_for` marker and `target_ready_timeout_seconds` wait
+#     for target boot before starting the ordinary native focus budget.
 #   - Once all processes are launched, the runner waits up to
 #     timeout_seconds for ALL processes to exit. Any still running after
 #     the timeout are killed.
@@ -1469,6 +1473,37 @@ function Invoke-MultiProcessWindowFocusTransition {
     return $true
 }
 
+function Wait-SmokeProcessLaunchMarker {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [object] $Entry,
+        [Parameter(Mandatory)] [string] $Pattern,
+        [Parameter(Mandatory)] [int] $TimeoutSeconds
+    )
+
+    Write-Info ("    waiting for marker: {0} (timeout {1}s)" -f $Pattern, $TimeoutSeconds)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $exited = $Entry.Process.HasExited
+        # Reap before reading the last log line so an exit immediately after
+        # a logger flush cannot become a false launch-barrier failure.
+        if ($exited) { $Entry.Process.WaitForExit() }
+        if (Test-Path -LiteralPath $Entry.LogPath) {
+            try {
+                $hit = Select-String -LiteralPath $Entry.LogPath -Pattern $Pattern -List -ErrorAction SilentlyContinue
+                if ($hit) {
+                    Write-Info "    marker reached"
+                    return
+                }
+            } catch {}
+        }
+        if ($exited) {
+            return ("process exited (code {0}) before emitting wait_for marker" -f $Entry.Process.ExitCode)
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    return ("wait_for marker not seen within {0}s: {1}" -f $TimeoutSeconds, $Pattern)
+}
+
 function Invoke-SmokeTestMultiProcess {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [psobject] $Test,
@@ -1735,6 +1770,18 @@ function Invoke-SmokeTestMultiProcess {
     $retainedForTest = @()
     $launchFailed = $false
     $operationalFailures = New-Object System.Collections.Generic.List[psobject]
+    $focusTransitionPassed = $true
+    $focusTransitionAttempted = $false
+    $focusBeforeTargetBarrier = $false
+    $focusTarget = ""
+    if ($def.PSObject.Properties['window_focus_transition'] -and $def.window_focus_transition) {
+        $focusTransition = $def.window_focus_transition
+        $focusBeforeTargetBarrier = $focusTransition.PSObject.Properties['before_target_barrier'] -and
+            $focusTransition.before_target_barrier -eq $true
+        if ($focusBeforeTargetBarrier -and $focusTransition.PSObject.Properties['to_process']) {
+            $focusTarget = [string]$focusTransition.to_process
+        }
+    }
 
     foreach ($plan in $processPlans) {
         $pdef = $plan.Definition
@@ -1874,6 +1921,28 @@ function Invoke-SmokeTestMultiProcess {
             RequiredSequenceStartLines = @{}
         }
 
+        if ($focusBeforeTargetBarrier -and -not $focusTransitionAttempted -and $pname -eq $focusTarget) {
+            $focusTransitionAttempted = $true
+            $readyFailure = $null
+            if ($focusTransition.PSObject.Properties['target_ready_wait_for'] -and
+                    $focusTransition.target_ready_wait_for) {
+                $readyTimeoutSeconds = 15
+                if ($focusTransition.PSObject.Properties['target_ready_timeout_seconds'] -and
+                        $focusTransition.target_ready_timeout_seconds) {
+                    $readyTimeoutSeconds = [Math]::Min(3600,
+                        [Math]::Max(1, [int]$focusTransition.target_ready_timeout_seconds))
+                }
+                $readyFailure = Wait-SmokeProcessLaunchMarker -Entry $procs[-1] `
+                    -Pattern ([string]$focusTransition.target_ready_wait_for) -TimeoutSeconds $readyTimeoutSeconds
+            }
+            if ($readyFailure) {
+                $focusTransitionPassed = Set-WindowFocusTransitionFailure -Stage 'target-ready' -Message $readyFailure
+            } else {
+                $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition -Definition $def -Processes $procs
+            }
+            if (-not $focusTransitionPassed) { break }
+        }
+
         # Optional barrier: poll the just-launched process's log for the
         # `wait_for` marker before launching the next process.
         $waitFor = $null
@@ -1886,46 +1955,12 @@ function Invoke-SmokeTestMultiProcess {
         }
 
         if ($waitFor) {
-            Write-Info ("    waiting for marker: {0} (timeout {1}s)" -f $waitFor, $waitTimeoutSec)
-            $deadline = (Get-Date).AddSeconds($waitTimeoutSec)
-            $matched = $false
-            while ((Get-Date) -lt $deadline) {
-                if (Test-Path -LiteralPath $logPath) {
-                    try {
-                        $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
-                        if ($hit) {
-                            $matched = $true
-                            break
-                        }
-                    } catch {}
-                }
-                if ($p.HasExited) {
-                    # A successful smoke result is commonly the process's last
-                    # log line. Reap the process and scan once more so an exit
-                    # between the preceding poll and the logger flush cannot
-                    # become a false launch-barrier failure.
-                    $p.WaitForExit()
-                    if (Test-Path -LiteralPath $logPath) {
-                        try {
-                            $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
-                            if ($hit) {
-                                $matched = $true
-                                break
-                            }
-                        } catch {}
-                    }
-                    Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
-                    $launchFailed = $true
-                    break
-                }
-                Start-Sleep -Milliseconds 200
-            }
-            if (-not $matched -and -not $launchFailed) {
-                Write-Fail ("    wait_for marker not seen within {0}s: {1}" -f $waitTimeoutSec, $waitFor)
+            $markerFailure = Wait-SmokeProcessLaunchMarker -Entry $procs[-1] `
+                -Pattern $waitFor -TimeoutSeconds $waitTimeoutSec
+            if ($markerFailure) {
+                Write-Fail ("    {0}" -f $markerFailure)
                 $launchFailed = $true
-            }
-            if ($matched) {
-                Write-Info "    marker reached"
+                break
             }
         }
 
@@ -1967,10 +2002,13 @@ function Invoke-SmokeTestMultiProcess {
         }
     }
 
-    $focusTransitionPassed = $true
-    if (-not $launchFailed) {
-        $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition `
-            -Definition $def -Processes $procs
+    if (-not $launchFailed -and -not $focusTransitionAttempted) {
+        if ($focusBeforeTargetBarrier) {
+            $focusTransitionPassed = Set-WindowFocusTransitionFailure -Stage 'target-resolution' `
+                -Message ("window focus transition did not reach its target launch barrier: '{0}'" -f $focusTarget)
+        } else {
+            $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition -Definition $def -Processes $procs
+        }
     }
     if (-not $launchFailed -and -not $focusTransitionPassed) {
         if ($null -ne $script:lastWindowFocusTransitionFailure) {

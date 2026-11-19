@@ -10,7 +10,7 @@
  * field on the wire is what gates the ENet auth handshake (see
  * port/src/net/net.c:netServerEvConnect at line ~1560). The actual reject
  * needs a live ENet host, so we test the semantic invariant: a fake
- * version that doesn't equal NET_PROTOCOL_VER must be rejected.
+ * the production connection decoder rejects every mismatched wire version.
  *
  * Mike's directive (2026-04-26):
  *   "Wire format (NET_PROTOCOL_VER 43 -> 44): netmsg encode/decode
@@ -18,6 +18,7 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
+ * Bumped 2026-11-17 to NET_PROTOCOL_VER 65 for D-027 Grid matches and creator traffic.
  * Bumped 2026-11-16 to NET_PROTOCOL_VER 64 for host-authoritative scenario
  * state (SVC_SCENARIO_STATE, SVC_BOT_PICKUP; MULTIPLAYER's v62, renumbered
  * after dev's v63). Bumped 2026-11-15 to NET_PROTOCOL_VER 63 for
@@ -41,13 +42,14 @@
  * drift, a deliberate update to BOTH is forced. */
 
 extern "C" {
+#include "net/net_reconnect.h"
 extern const u32 g_TestExpectedNetProtocolVer;   /* defined in this file */
 extern const u32 g_TestLiveNetProtocolVer;       /* defined in test_versions_pin.c */
 extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 64;
+const u32 g_TestExpectedNetProtocolVer  = 65;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -58,8 +60,8 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-11-15 the live value is 62: SVC_SCENARIO_STATE carries the
-     * host's objective scenario state. v61 authenticated the lobby roster;
+     * As of 2026-11-17 v65 carries exact Grid match offers, native arena
+     * data and private creator traffic. v64 added objective scenario state. v61 authenticated the lobby roster;
      * room messages carry initial settings, access and results (v60). The
      * v59 hoverbike and v58 stage epoch invariants remain required. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
@@ -73,20 +75,25 @@ TEST_CASE("version pin: MPSETUP_VERSION is the version this test was written aga
     REQUIRE(g_TestLiveMpsetupVersion == g_TestExpectedMpsetupVersion);
 }
 
-TEST_CASE("version pin: cross-version mismatch is detectable",
+TEST_CASE("version pin: the online connection decoder rejects older and newer protocols",
           "[versions]") {
-    /* The actual auth-handshake reject (`netServerEvConnect` in
-     * port/src/net/net.c) compares the client-presented protocol version
-     * against NET_PROTOCOL_VER and disconnects with DISCONNECT_VERSION on
-     * mismatch. We can't run that path here (no ENet), but we can pin
-     * the semantic invariant: any value other than the live constant
-     * does NOT equal it. This catches a bug class where someone
-     * accidentally writes `>= NET_PROTOCOL_VER` instead of `==`. */
-    u32 v = g_TestLiveNetProtocolVer;
-    REQUIRE(v != 0);                       /* Sanity: unused-version sentinel */
-    REQUIRE(v != v - 1);                   /* Mismatch detection: predecessor */
-    REQUIRE(v != v + 1);                   /* Mismatch detection: successor */
-    REQUIRE(v != 0xFFFFFFFFu);             /* Mismatch detection: garbage */
+    const u16 current = static_cast<u16>(g_TestLiveNetProtocolVer);
+    const u8 no_slot = 0xff;
+    s32 reconnect = -1;
+    u8 client = 0;
+    REQUIRE(netReconnectConnectDataDecode(current, current, no_slot, &reconnect, &client)
+        == NET_RECONNECT_CONNECT_OK);
+    REQUIRE(reconnect == 0);
+    REQUIRE(client == no_slot);
+
+    const u16 preceding = current - 1;
+    const u32 old_reconnect = netReconnectConnectDataEncode(preceding, 1, 1, no_slot);
+    REQUIRE(netReconnectConnectDataDecode(preceding, current, no_slot, &reconnect, &client)
+        == NET_RECONNECT_CONNECT_PROTOCOL_MISMATCH);
+    REQUIRE(netReconnectConnectDataDecode(old_reconnect, current, no_slot, &reconnect, &client)
+        == NET_RECONNECT_CONNECT_PROTOCOL_MISMATCH);
+    REQUIRE(netReconnectConnectDataDecode(current + 1, current, no_slot, &reconnect, &client)
+        == NET_RECONNECT_CONNECT_PROTOCOL_MISMATCH);
 }
 
 TEST_CASE("version pin: MPSETUP_VERSION is monotonically growing",

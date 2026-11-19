@@ -37,14 +37,17 @@ static s32 saveAtomicSync(FILE *stream)
 #endif
 }
 
-static s32 saveAtomicReplacePath(const char *candidate,
-		const char *destination)
+static s32 saveAtomicPublishPath(const char *candidate,
+		const char *destination, s32 replace)
 {
 #ifdef _WIN32
 	return MoveFileExA(candidate, destination,
-		MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
+		(replace ? MOVEFILE_REPLACE_EXISTING : 0) | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
 #else
-	return rename(candidate, destination) == 0 ? 0 : -1;
+	if (replace) return rename(candidate, destination) == 0 ? 0 : -1;
+	if (link(candidate, destination) != 0) return -1;
+	remove(candidate);
+	return 0;
 #endif
 }
 
@@ -103,7 +106,7 @@ void saveAtomicAbort(save_atomic_file_t *transaction)
 	}
 }
 
-s32 saveAtomicCommit(save_atomic_file_t *transaction)
+static s32 saveAtomicFinish(save_atomic_file_t *transaction, s32 replace)
 {
 	s32 failed = 0;
 
@@ -125,12 +128,12 @@ s32 saveAtomicCommit(save_atomic_file_t *transaction)
 			"SAVE.ATOMIC: debug failure injected before replace for '%s'",
 			transaction->destination);
 	}
-	if (!failed && saveAtomicReplacePath(transaction->candidate,
-			transaction->destination) != 0) {
+	if (!failed && saveAtomicPublishPath(transaction->candidate,
+			transaction->destination, replace) != 0) {
 		failed = 1;
 		sysLogPrintf(LOG_ERROR,
-			"SAVE.ATOMIC: could not replace '%s': errno=%d",
-			transaction->destination, errno);
+			"SAVE.ATOMIC: could not %s '%s': errno=%d",
+			replace ? "replace" : "create", transaction->destination, errno);
 	}
 	if (failed) {
 		remove(transaction->candidate);
@@ -138,6 +141,16 @@ s32 saveAtomicCommit(save_atomic_file_t *transaction)
 	}
 	transaction->candidate[0] = '\0';
 	return 0;
+}
+
+s32 saveAtomicCommit(save_atomic_file_t *transaction)
+{
+	return saveAtomicFinish(transaction, 1);
+}
+
+s32 saveAtomicCommitNew(save_atomic_file_t *transaction)
+{
+	return saveAtomicFinish(transaction, 0);
 }
 
 void saveAtomicDebugFailNextCommit(void)

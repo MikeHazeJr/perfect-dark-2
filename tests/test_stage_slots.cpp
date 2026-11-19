@@ -63,6 +63,46 @@ TEST_CASE("stage slots: reset clears reservations",
 	REQUIRE(assetCatalogResolveStagenumPrivateSlot("mod_x:stage_b") == first);
 }
 
+TEST_CASE("stage slots: preview does not reserve the next slot",
+          "[catalog][stage][slots][c3849]") {
+	assetCatalogResetCustomStageSlots();
+	const char *candidate = "mod_x:stage_candidate";
+	CHECK(assetCatalogPeekStagenumPrivateSlot(nullptr) == -1);
+	CHECK(assetCatalogPeekStagenumPrivateSlot("") == -1);
+	const s32 next = assetCatalogPeekStagenumPrivateSlot(candidate);
+	REQUIRE(next == STAGENUM_CUSTOM_START);
+	CHECK(assetCatalogPeekStagenumPrivateSlot(candidate) == next);
+	CHECK(assetCatalogFindStagenumPrivateSlot(candidate) == -1);
+	REQUIRE(assetCatalogResolveStagenumPrivateSlot("mod_x:stage_other") == next);
+	const s32 updated = assetCatalogPeekStagenumPrivateSlot(candidate);
+	REQUIRE(updated == next + 1);
+	REQUIRE(assetCatalogResolveStagenumPrivateSlot(candidate) == updated);
+	REQUIRE(assetCatalogReleaseStagenumPrivateSlot("mod_x:stage_other", next));
+	CHECK(assetCatalogPeekStagenumPrivateSlot(candidate) == updated);
+	CHECK(assetCatalogPeekStagenumPrivateSlot("mod_x:stage_another") == next);
+}
+
+TEST_CASE("stage slots: preview waits for an actual release when full",
+          "[catalog][stage][slots][c3849]") {
+	assetCatalogResetCustomStageSlots();
+	const char *outgoing = "mod_x:stage_outgoing";
+	const char *incoming = "mod_x:stage_incoming";
+	const s32 occupied = assetCatalogResolveStagenumPrivateSlot(outgoing);
+	REQUIRE(occupied == STAGENUM_CUSTOM_START);
+	for (s32 i = 1; i < STAGENUM_CUSTOM_COUNT; i++) {
+		char id[32];
+		snprintf(id, sizeof(id), "mod_x:stage_%d", i);
+		REQUIRE(assetCatalogResolveStagenumPrivateSlot(id) == STAGENUM_CUSTOM_START + i);
+	}
+	CHECK(assetCatalogPeekStagenumPrivateSlot(outgoing) == occupied);
+	CHECK(assetCatalogPeekStagenumPrivateSlot(incoming) == -1);
+	CHECK(assetCatalogFindStagenumPrivateSlot(outgoing) == occupied);
+	REQUIRE(assetCatalogReleaseStagenumPrivateSlot(outgoing, occupied));
+	CHECK(assetCatalogPeekStagenumPrivateSlot(incoming) == occupied);
+	CHECK(assetCatalogFindStagenumPrivateSlot(incoming) == -1);
+	CHECK(assetCatalogResolveStagenumPrivateSlot(incoming) == occupied);
+}
+
 TEST_CASE("stage slots: range anchors (logical-range + 7-bit save anchors)",
           "[catalog][stage][slots][c3849]") {
 	REQUIRE(STAGENUM_CUSTOM_START == 0x60);

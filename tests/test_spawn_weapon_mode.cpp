@@ -654,6 +654,60 @@ TEST_CASE("spawn-weapon wire: production netmsg keeps v45 field order",
         std::string::npos);
 }
 
+TEST_CASE("Grid Random seals one typed winner and stage replay uses the local binding",
+          "[spawn-weapon][wire][static][grid]") {
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string pick = source_slice(netmsg,
+        "static bool netLobbyStartResolveGridRandomSpawn",
+        "static bool netLobbyStartResolveRandomSpawn");
+    require_ordered(pick, {
+        "manifestCollectSpawnWeaponPool(roots, ARRAYCOUNT(roots), &count)",
+        "gridMatchResolveCatalogSpawnWeapon(roots[i].id, &slot, &weapon)",
+        "seen_slots[slot] = true;",
+        "netLobbyStartPrng(prng_state) % eligible",
+        "roots[winner].id",
+        "plan->spawn_weapon_num = weapons[winner]",
+    });
+    REQUIRE(pick.find("spawnWeaponPickFromSlots") == std::string::npos);
+    REQUIRE(pick.find("manifestAppendCatalogClosure") == std::string::npos);
+
+    const std::string prepare = source_slice(netmsg,
+        "static bool netLobbyStartPrepareManifest",
+        "static bool netLobbyStartBuildState");
+    require_ordered(prepare, {
+        "netLobbyStartResolveRandomSpawn(plan, grid)",
+        "plan->spawn_weapon_id, MANIFEST_SLOT_MATCH",
+        "netLobbyStartPrepareGrid(plan)",
+    });
+    const std::string write = source_slice(netmsg,
+        "static bool netStageStartWritePrepare",
+        "u32 netmsgSvcStageStartWrite");
+    require_ordered(write, {
+        "!grid && plan->spawn_weapon_mode == SPAWNWEAPON_MODE_RANDOM",
+        ": g_MatchConfig.spawn_weapon_id",
+        "gridMatchRuntimeResolveSpawnWeapon(&grid->offer, plan->spawn_weapon_id, &weapon)",
+    });
+    const std::string read = source_slice(netmsg,
+        "u32 netmsgSvcStageStartRead",
+        "u32 netmsgSvcStageEndWrite");
+    require_ordered(read, {
+        "gridMatchRuntimeResolveSpawnWeapon(&grid->offer, plan.spawn_weapon_id, &local_weapon)",
+        "wireNum >= WEAPON_CUSTOM_END || local_weapon < WEAPON_CUSTOM_START",
+        "spawn_entry->runtime_index != (s32)wireNum",
+        "plan.spawn_weapon_num = (u8)local_weapon;",
+        "g_MatchConfig.spawnWeaponNum = plan.spawn_weapon_num;",
+    });
+    const std::string runtime = read_text_file("port/src/grid_match_runtime.c");
+    const std::string resolve = source_slice(runtime,
+        "s32 gridMatchRuntimeResolveSpawnWeapon",
+        "s32 gridMatchRuntimeValidateActiveSpawnWeapon");
+    require_ordered(resolve, {
+        "runtimeMatchForOffer(offer)",
+        "asset->type == ASSET_WEAPON && strcmp(asset->id, id) == 0",
+        "gridMatchResolveCatalogSpawnWeapon(id, &slot, weapon)",
+    });
+}
+
 /* ============================================================================
  * S483 (2026-04-27): host-eligible pool via match manifest.
  *

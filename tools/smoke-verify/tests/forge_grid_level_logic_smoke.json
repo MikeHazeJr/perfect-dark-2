@@ -1,0 +1,92 @@
+{
+  "scenario_name": "forge_grid_level_logic_smoke",
+  "description": "Create a native volume rule, then edit its execution graph to grant a second pickup only after the player receives a Dragon. Play the draft, witness both real pickups, and return to the unchanged original while retaining the two undoable edits.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "graph",
+    "weapon",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mission_graph_modules.c",
+    "src/game/lv.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/grid_two_rooms",
+    "mods/MP Maps/arena_grid_level_logic"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-level-tool-new",
+    "original",
+    "--debug-level-tool-name",
+    "Grid_Level_Logic",
+    "--debug-grid-room-size",
+    "2100,2700,1800,600,500,390",
+    "--launch-forge-level",
+    "mod:arena_grid_level_logic",
+    "--debug-forge-fixed-pickup-trigger",
+    "--debug-forge-chained-level-logic"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_level_logic_smoke",
+      "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0 path='[^']*[/\\\\]grid[/\\\\]templates[/\\\\]grid_two_rooms\\.pdarena'",
+      "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00"
+    ],
+    "required_sequences": [
+      {
+        "name": "An authored native action and gate run in the real level graph and survive return",
+        "patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_level_logic opens=1",
+          "BOOT: --launch-forge-level arena=mod:arena_grid_level_logic result=OK",
+          "SMOKE\\.GRID\\.PICKUP: authored arena=mod:arena_grid_level_logic provenance=original archive_sha256=[0-9a-f]{64} spawn=pad_0000 trigger=volume_pad_9999 pad=pad_0001 fixed=setup_0000 weapon=base:dragon pickup_pad=pad_0008",
+          "SMOKE\\.GRID\\.LOGIC: authored gate=base:dragon second=setup_0001 weapon=base:cyclone undo=2",
+          "FORGE\\.DRAFT\\.PREPARED: arena=mod:arena_grid_level_logic revision=[0-9a-f]{64} bytes=[1-9][0-9]* unsaved=1",
+          "FORGE\\.DRAFT\\.BIND: stage=0x[0-9a-f]+",
+          "SCENARIO\\.GRAPH: level program '[^']*grid_level_logic[^']*' .*volumes=1 backend=graph\\.level\\.runner",
+          "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*grid_level_logic[^']*'.* as 2 setup records, 1 spawns,",
+          "FORGE\\.DRAFT\\.PLAYING: stage=0x[0-9a-f]+",
+          "SMOKE\\.GRID\\.LOGIC: second pickup room=2 has_cyclone=0",
+          "SMOKE\\.GRID\\.PICKUP: before player=0 player_room=1 pickup_room=2 has_dragon=0 separation_x=[1-9][0-9]{3,}\\.[0-9]",
+          "SCENARIO\\.GRAPH: event\\.volume\\.entered '[^']*grid_level_logic[^']*' volume=volume_pad_9999 player=0 modules=2 backend=graph\\.level\\.runner",
+          "SMOKE\\.GRID\\.LOGIC: chained grants player=0 dragon=1 cyclone=1",
+          "SMOKE\\.GRID\\.PICKUP: after player=0 player_room=1 pickup_room=2 has_dragon=1 separation_x=[1-9][0-9]{3,}\\.[0-9] volume=volume_pad_9999",
+          "FORGE\\.DRAFT\\.RETURNED: stage=0x[0-9a-f]+ unsaved=1 undo=2",
+          "SMOKE\\.GRID\\.PICKUP: returned arena=mod:arena_grid_level_logic archive_sha256=[0-9a-f]{64} draft_logic=retained",
+          "SMOKE: result=grid_level_logic_complete"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.PICKUP\\.FAIL",
+      "SMOKE: result=(timeout|grid_level_logic_(failed|missing_arena|start_failed))",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

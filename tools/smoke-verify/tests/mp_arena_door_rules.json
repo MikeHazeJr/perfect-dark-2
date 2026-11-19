@@ -54,6 +54,11 @@
       "comment": "And opens it again."
     },
     {
+      "at_ms": 13000,
+      "type": "touch_pickup",
+      "comment": "Player 0 touches the nearest weapon pickup: the level program decides it (gate.pickup.native_rules, og.pickup.collect)."
+    },
+    {
       "at_ms": 15000,
       "type": "exit",
       "comment": "The stage's object event totals are logged at the exit."
@@ -67,7 +72,10 @@
       "SCENARIO\\.GRAPH: event\\.door\\.use 'base:scenario_mp_felicity' object=setup_[0-9]{4} tag=-?[0-9]+ kind=door catalog_id=base:[a-z0-9_]+ player=0 level_modules=1 ",
       "SCENARIO\\.GRAPH: event\\.door\\.opened 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",
       "SCENARIO\\.GRAPH: event\\.door\\.closed 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",
-      "SCENARIO\\.GRAPH: object events 'base:scenario_mp_felicity' pickup\\.collected=[0-9]+ door\\.opened=[1-9][0-9]* door\\.closed=[1-9][0-9]* object\\.used=[0-9]+ glass\\.broken=[0-9]+ pickup\\.touched=[0-9]+ door\\.use=3 door\\.approach=[0-9]+ lift\\.called=[0-9]+ lift\\.idle=[0-9]+ lift\\.arrived=[0-9]+ glass\\.damaged=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0 reason=smoke_exit",
+      "SCENARIO\\.GRAPH: object events 'base:scenario_mp_felicity' pickup\\.collected=[0-9]+ door\\.opened=[1-9][0-9]* door\\.closed=[1-9][0-9]* object\\.used=[0-9]+ glass\\.broken=[0-9]+ pickup\\.touched=[1-9][0-9]* door\\.use=3 door\\.approach=[0-9]+ lift\\.called=[0-9]+ lift\\.idle=[0-9]+ lift\\.arrived=[0-9]+ glass\\.damaged=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0 reason=smoke_exit",
+      "SMOKE\\.TOUCH_PICKUP: object=setup_[0-9]{4} distance=[0-9]+ op=[1-9]",
+      "SCENARIO\\.GRAPH: event\\.pickup\\.touched 'base:scenario_mp_felicity' object=setup_[0-9]{4} tag=-?[0-9]+ kind=[a-z_]+ catalog_id=base:[a-z0-9_]+ player=0 level_modules=1 ",
+      "SCENARIO\\.GRAPH: event\\.pickup\\.collected 'base:scenario_mp_felicity' object=setup_[0-9]{4} ",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

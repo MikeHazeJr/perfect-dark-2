@@ -82,6 +82,9 @@
 #define PDSFX_OUT_DIR_SFX   "audio/sfx"
 #define PDSFX_OUT_DIR_VOICE "audio/voice"
 #define PDAUDIO_MAX_FILE_ENUM 2048
+/* At unity pitch the native PC synth consumes one bank sample per mixer
+ * frame. ALBank.sampleRate is not applied by the stock sound player. */
+#define PDAUDIO_BANK_PCM_RATE 22050
 
 /* Audioconfig slot numbers that the Slice 10 retag classifies as
  * voice. Mirrors s_audioConfigIsVoice() in
@@ -184,10 +187,17 @@ s32 romextractPdvoiceIsDirectMp3FileSymbol(const char *symbol)
 	return len > 6 && symbol[len - 1] == 'M';
 }
 
-static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry);
-static s32 s_existingArchiveEntryContains(const char *relpath,
-                                          const char *entry,
-                                          const char *needle);
+static s32 s_hasAudioDescriptor(const char *relpath, const char *descriptor)
+{
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 has_descriptor = modArchiveFindEntry(arc, descriptor) >= 0;
+	modArchiveClose(arc);
+	return has_descriptor;
+}
 
 static s32 s_configuredAliasMappedMp3Source(s32 confignum, union soundnumhack *out)
 {
@@ -252,12 +262,7 @@ static s32 s_configuredMp3VoiceArchivesComplete(const char *out_dir)
 		catalogReadableSoundRefId(packed, catalog_id, sizeof(catalog_id));
 		s_filenameSlug(catalog_id, slug, sizeof(slug));
 		snprintf(full, sizeof(full), "%s/%s.pdvoice", out_dir, slug);
-		if (fsFileSize(full) <= 0 ||
-				!s_existingArchiveHasEntry(full, "voice.ini") ||
-				!s_existingArchiveHasEntry(full, "_meta/manifest.json") ||
-				!s_existingArchiveHasEntry(full, "sample.mp3") ||
-				!s_existingArchiveEntryContains(full, "_meta/manifest.json",
-					"\"source_filenum\"")) {
+		if (!s_hasAudioDescriptor(full, "voice.ini")) {
 			return 0;
 		}
 	}
@@ -518,18 +523,6 @@ static s32 s_buildWavPayload(const u8 *ctl_data, u32 ctl_size,
 	return 1;
 }
 
-static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
-{
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
-	modArchiveClose(arc);
-	return has_entry;
-}
-
 static s32 s_existingArchiveEntryContains(const char *relpath,
                                           const char *entry,
                                           const char *needle)
@@ -561,12 +554,82 @@ static s32 s_existingArchiveEntryContains(const char *relpath,
 	return contains;
 }
 
+static s32 s_archiveEntryMatches(mod_archive_t *arc, const char *name,
+                                const void *expected, u32 size)
+{
+	s32 entry = modArchiveFindEntry(arc, name);
+	if (entry < 0 || modArchiveGetEntrySize(arc, entry) != size) return 0;
+	u32 actual_size = 0;
+	void *data = modArchiveExtractAlloc(arc, entry, &actual_size);
+	s32 matches = data && actual_size == size && !memcmp(data, expected, size);
+	free(data);
+	return matches;
+}
+
+static s32 s_stockRateTextMatches(mod_archive_t *arc, const char *name,
+                                 const char *text, const char *rate_key,
+                                 s32 legacy_rate)
+{
+	char current_field[48], legacy_field[48];
+	snprintf(current_field, sizeof(current_field), "%s%d", rate_key, PDAUDIO_BANK_PCM_RATE);
+	snprintf(legacy_field, sizeof(legacy_field), "%s%d", rate_key, legacy_rate);
+	const char *field = strstr(text, current_field);
+	if (!field) return 0;
+	const char *suffix = field + strlen(current_field);
+	size_t prefix_size = (size_t)(field - text);
+	size_t field_size = strlen(legacy_field);
+	size_t suffix_size = strlen(suffix);
+	u32 size = (u32)(prefix_size + field_size + suffix_size);
+	s32 entry = modArchiveFindEntry(arc, name);
+	if (entry < 0 || modArchiveGetEntrySize(arc, entry) != size) return 0;
+	u32 actual_size = 0;
+	char *data = modArchiveExtractAlloc(arc, entry, &actual_size);
+	s32 matches = data && actual_size == size &&
+		!memcmp(data, text, prefix_size) &&
+		!memcmp(data + prefix_size, legacy_field, field_size) &&
+		!memcmp(data + prefix_size + field_size, suffix, suffix_size);
+	free(data);
+	return matches;
+}
+
+/* A same-ID archive and its self-reported checksums can also describe an
+ * edit. Compare with the ROM-derived public sources before replacing it. */
+static s32 s_isPristineLegacyBankArchive(const char *path, const char *descriptor,
+                                        const char *ini, const char *manifest,
+                                        u8 *wav, u32 wav_size, s32 legacy_rate)
+{
+	const char *metadata[] = {
+		"_meta/sample.wav.sha256", "_meta/inventory.json", "_meta/hashes.json",
+		"_meta/provenance.json", "_meta/validation.json", "_meta/source-handles.json",
+	};
+	char descriptor_hash[64];
+	snprintf(descriptor_hash, sizeof(descriptor_hash), "_meta/%s.sha256", descriptor);
+	mod_archive_t *arc = modArchiveOpen(path);
+	if (!arc) return 0;
+	s32 matches = modArchiveCanRewriteSources(arc) && modArchiveGetEntryCount(arc) == 10 &&
+		!modArchiveGetComment(arc)[0] && modArchiveFindEntry(arc, descriptor_hash) >= 0;
+	for (size_t i = 0; matches && i < sizeof(metadata) / sizeof(metadata[0]); ++i) {
+		matches = modArchiveFindEntry(arc, metadata[i]) >= 0;
+	}
+	matches = matches && s_stockRateTextMatches(arc, descriptor, ini, "sample_rate_hz = ", legacy_rate) &&
+		s_stockRateTextMatches(arc, "_meta/manifest.json", manifest, "\"sample_rate_hz\": ", legacy_rate);
+	if (matches) {
+		s_writeLe32(wav + 24, (u32)legacy_rate);
+		s_writeLe32(wav + 28, (u32)legacy_rate * 2u);
+		matches = s_archiveEntryMatches(arc, "sample.wav", wav, wav_size);
+		s_writeLe32(wav + 24, PDAUDIO_BANK_PCM_RATE);
+		s_writeLe32(wav + 28, PDAUDIO_BANK_PCM_RATE * 2u);
+	}
+	modArchiveClose(arc);
+	return matches;
+}
+
 /* Emit one .pdsfx (or .pdvoice) ZIP for a given ALSound entry. Returns
  * 1 written, 0 skipped, -1 failed. */
 static s32 s_emitOneSound(s32 sfx_idx,
                           const u8 *ctl_data, u32 ctl_size,
                           const u8 *tbl_data, u32 tbl_size,
-                          const ALSound *snd, s32 sample_rate,
+                          const ALSound *snd, s32 legacy_rate,
                           pdaudio_walk_mode_t mode,
                           const char *out_dir, s32 force_rewrite,
                           const char *channel,
@@ -657,17 +720,17 @@ static s32 s_emitOneSound(s32 sfx_idx,
 
 	const char *descriptor_name =
 		(mode == PDAUDIO_WALK_VOICE) ? "voice.ini" : "sound.ini";
-	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, descriptor_name) &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "sample.wav") &&
-	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
-			"\"key_base\"") &&
-	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
-			"\"attack_time_us\"") &&
-	    s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
-			"\"velocity_max\"")) return 0;
+	/* Existing editable descriptors may select a differently named file or
+	 * codec. Keep them unless the complete legacy stock source matches. */
+	s32 upgrade = !force_rewrite && s_hasAudioDescriptor(dst_rel, descriptor_name);
+	if (upgrade) {
+		char legacy_field[64];
+		snprintf(legacy_field, sizeof(legacy_field), "\"sample_rate_hz\": %d,", legacy_rate);
+		if (legacy_rate == PDAUDIO_BANK_PCM_RATE ||
+		    !s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json", legacy_field)) return 0;
+	}
 
+	const s32 sample_rate = PDAUDIO_BANK_PCM_RATE;
 	u8 *wav_data = NULL;
 	u32 wav_size = 0;
 	u32 decoded_sample_count = 0;
@@ -958,6 +1021,12 @@ static s32 s_emitOneSound(s32 sfx_idx,
 		return -1;
 	}
 
+	if (upgrade && !s_isPristineLegacyBankArchive(dst_full, descriptor_name, ini_buf,
+			manifest_buf, wav_data, wav_size, legacy_rate)) {
+		free(wav_data);
+		return 0;
+	}
+
 	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		LOUD_FAILF_RT(channel, "modArchiveBegin failed for \"%s\"", dst_full);
@@ -1036,12 +1105,7 @@ static s32 s_emitOneMp3VoiceSource(s32 source_filenum, s32 source_index,
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdvoice",
 		out_dir, filename_slug);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-			s_existingArchiveHasEntry(dst_rel, "voice.ini") &&
-			s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-			s_existingArchiveHasEntry(dst_rel, "sample.mp3") &&
-			s_existingArchiveEntryContains(dst_rel, "_meta/manifest.json",
-				"\"source_filenum\"")) {
+	if (!force_rewrite && s_hasAudioDescriptor(dst_rel, "voice.ini")) {
 		return 0;
 	}
 
@@ -1233,7 +1297,7 @@ typedef struct {
 	const u8           *tbl_data;
 	u32                 tbl_size;
 	const ALInstrument *inst;
-	s32                 sample_rate;
+	s32                 legacy_rate;
 	pdaudio_walk_mode_t mode;
 	const char         *out_dir;
 	const char         *channel;
@@ -1271,7 +1335,7 @@ static void s_pdsfxWork(int i, void *user)
 
 	s32 r = s_emitOneSound(i, c->ctl_data, c->ctl_size,
 	                        c->tbl_data, c->tbl_size,
-	                        snd, c->sample_rate, c->mode,
+	                        snd, c->legacy_rate, c->mode,
 	                        c->out_dir, c->force_rewrite, c->channel,
 	                        NULL, NULL);
 	if (r > 0)        SDL_AtomicAdd(&c->written, 1);
@@ -1351,7 +1415,7 @@ static void s_emitConfiguredAliasSounds(const pdsfx_fanout_ctx_t *c,
 		catalogReadableSoundRefId(packed, alias_id, sizeof(alias_id));
 		const ALSound *snd = (const ALSound *)(c->ctl_data + snd_off);
 		s32 result = s_emitOneSound(leaf, c->ctl_data, c->ctl_size,
-			c->tbl_data, c->tbl_size, snd, c->sample_rate, PDAUDIO_WALK_SFX,
+			c->tbl_data, c->tbl_size, snd, c->legacy_rate, PDAUDIO_WALK_SFX,
 			c->out_dir, c->force_rewrite, c->channel, alias_id, alias_sym);
 		if (result > 0 && written) {
 			(*written)++;
@@ -1413,7 +1477,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	 * change forces the directory stamp stale without polluting log output.
 	 * _b943fields adds the additive ALADPCM "loop_state" predictor vector. */
 	const char *cache_kind = (mode == PDAUDIO_WALK_VOICE)
-		? "pdvoice_b1018_direct_mp3" : "pdsfx_b943fields";
+		? "pdvoice_b1018_direct_mp3_bank22050" : "pdsfx_b943fields_bank22050";
 
 	const u8 *ctl_data = NULL;
 	u32 ctl_size = 0;
@@ -1485,7 +1549,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		return -1;
 	}
 	const ALBank *bank = (const ALBank *)(ctl_data + bank_off);
-	s32 sample_rate = bank->sampleRate > 0 ? bank->sampleRate : 22050;
+	s32 legacy_rate = bank->sampleRate > 0 ? bank->sampleRate : PDAUDIO_BANK_PCM_RATE;
 
 	if (bank->instCount < 1) {
 		LOUD_FAILF_RT(channel, "ALBank instCount=%d (<1)",
@@ -1536,7 +1600,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 				"romextract %s: written=0 skipped=%d failed=0 "
 				"sound_count=%d sample_rate=%d (out=%s, fast-cache)",
 				kind_label, sound_count, sound_count,
-				sample_rate, out_dir);
+				PDAUDIO_BANK_PCM_RATE, out_dir);
 			return 0;
 		}
 	}
@@ -1565,15 +1629,13 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 	fxctx.tbl_data      = tbl_data;
 	fxctx.tbl_size      = tbl_size;
 	fxctx.inst          = inst;
-	fxctx.sample_rate   = sample_rate;
+	fxctx.legacy_rate   = legacy_rate;
 	fxctx.mode          = mode;
 	fxctx.out_dir       = out_dir;
 	fxctx.channel       = channel;
-	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
-	 * the stored kind differs from the current one (no-op on clean install or
-	 * unchanged kind). cache_kind varies by mode (voice/sfx). */
-	fxctx.force_rewrite = force_rewrite |
-		romExtractPdFastCacheKindMismatch(cache_kind, out_dir);
+	/* A cache miss rechecks each archive. Only an explicit rebuild may
+	 * overwrite edited source or re-emit a complete MP3 archive. */
+	fxctx.force_rewrite = force_rewrite;
 	fxctx.voice_cache   = voice_cache;
 	fxctx.want_voice    = (mode == PDAUDIO_WALK_VOICE) ? 1 : 0;
 	fxctx.sound_count   = sound_count;
@@ -1599,7 +1661,7 @@ s32 romextract_pdaudio_walkBank(pdaudio_walk_mode_t mode, s32 force_rewrite)
 		"romextract %s: written=%d skipped=%d failed=%d "
 		"sound_count=%d sample_rate=%d (out=%s)",
 		kind_label, written, skipped, failed, sound_count,
-		sample_rate, out_dir);
+		PDAUDIO_BANK_PCM_RATE, out_dir);
 
 	if (failed == 0) {
 		const char *ext = (mode == PDAUDIO_WALK_VOICE) ? ".pdvoice" : ".pdsfx";

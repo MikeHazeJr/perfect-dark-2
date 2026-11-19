@@ -525,6 +525,17 @@ extern "C" void missionGraphProgramFree(mission_graph_program_t *program)
 	delete program;
 }
 
+extern "C" s32 missionGraphProgramVisitModuleParams(const mission_graph_program_t *program,
+	mission_graph_module_param_visitor_t visit, void *userdata)
+{
+	if (!program || !visit) return 0;
+	for (const Node &node : program->nodes) {
+		if ((node.type == NODE_MODULE || node.native_gate)
+				&& !visit(node.kind.c_str(), &node.params, userdata)) return 0;
+	}
+	return 1;
+}
+
 extern "C" s32 missionGraphProgramNodeCount(const mission_graph_program_t *program)
 {
 	return program ? static_cast<s32>(program->nodes.size()) : 0;
@@ -704,5 +715,46 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		return refused ? -1 : ran;
 	} catch (...) {
 		return -1;
+	}
+}
+
+namespace {
+
+bool bindLevelLayoutIdentity(crude_json::value &graph, const char *identity)
+{
+	if (!graph.is_object() || !graph.contains("scenario") || !graph["scenario"].is_string()
+			|| graph["scenario"].get<crude_json::string>() != identity
+			|| !graph.contains("nodes") || !graph["nodes"].is_array()) return false;
+	graph["scenario"] = "";
+	auto *nodes = graph["nodes"].get_ptr<crude_json::array>();
+	bool found = false;
+	for (auto &node : *nodes) {
+		if (!node.is_object() || !node.contains("id") || !node["id"].is_string()
+				|| node["id"].get<crude_json::string>() != "scenario.global.settings") continue;
+		if (found || !node.contains("kind") || !node["kind"].is_string()
+				|| node["kind"].get<crude_json::string>() != "scenario.global.settings.source"
+				|| !node.contains("scenario") || !node["scenario"].is_string()
+				|| node["scenario"].get<crude_json::string>() != identity) return false;
+		node["scenario"] = "";
+		found = true;
+	}
+	return found;
+}
+
+} // namespace
+
+extern "C" s32 missionGraphLevelLayoutCompatible(const char *outgoing, size_t outgoing_size, const char *outgoing_id,
+	const char *incoming, size_t incoming_size, const char *incoming_id)
+{
+	if (!outgoing_id || !outgoing_id[0] || !incoming_id || !incoming_id[0]) return 0;
+	try {
+		crude_json::value before, after;
+		return modAssetJsonReadValue(outgoing, outgoing_size, before)
+			&& modAssetJsonReadValue(incoming, incoming_size, after)
+			&& bindLevelLayoutIdentity(before, outgoing_id)
+			&& bindLevelLayoutIdentity(after, incoming_id)
+			&& before.dump() == after.dump();
+	} catch (...) {
+		return 0;
 	}
 }

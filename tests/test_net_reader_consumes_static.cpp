@@ -132,7 +132,7 @@ const std::string &netmsg_code()
 TEST_CASE("net readers: SVC_PLAYER_STATS reads its ammo tail before it decides",
           "[net][b1131]") {
 	const std::string body = function_body(netmsg_code(),
-		"u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)\n{");
+		"static u32 netmsgReadPlayerStats(struct netbuf *src, struct netclient *srccl,");
 
 	const size_t ammomask = body.find("const u32 ammomask = netbufReadU32(src);");
 	const size_t attacker = body.find("const s8 wire_attacker_id = netbufReadS8(src);");
@@ -159,6 +159,36 @@ TEST_CASE("net readers: SVC_PROP_MOVE reads its projectile tail before it decide
 	REQUIRE(skip != std::string::npos);
 	REQUIRE(tail < skip);
 	REQUIRE(body.find("netbufRead", skip) == std::string::npos);
+}
+
+TEST_CASE("Grid Fiesta consumes full spawn stats before applying a new sealed life",
+          "[net][grid][reconnect][b1131]") {
+	const std::string packet = function_body(netmsg_code(), "u32 netmsgSvcGridFiestaSpawnRead(");
+	const std::string stats = function_body(netmsg_code(), "static u32 netmsgReadPlayerStats(");
+	REQUIRE(packet.find("netbufReadU32(src)") < packet.find("netmsgReadPlayerStats"));
+	REQUIRE(packet.find("netbufReadU16(src)") < packet.find("netmsgReadPlayerStats"));
+	REQUIRE(packet.find("netbufReadCoord(src, &fiesta.pose.position)") < packet.find("netmsgReadPlayerStats"));
+	REQUIRE(packet.find("fiesta.pose.room = netbufReadS16(src)") < packet.find("netmsgReadPlayerStats"));
+	const size_t tail = stats.find("const s8 wire_attacker_id = netbufReadS8(src)");
+	const size_t duplicate = stats.find("fiesta->life < life->number");
+	const size_t sealed = stats.find("gridMatchRuntimeFiestaWeaponId(weapon, &slot)");
+	const size_t reset = stats.find("playerStartNewGridFiestaLife(&fiesta->pose)");
+	const size_t grant = stats.find("playerGiveSpawnWeapon(slot, weapon)");
+	const size_t commit = stats.find(".number = fiesta->life", grant);
+	const size_t ammo = stats.find("pl->ammoheldarr[i] = ammoheld[i]");
+	REQUIRE(tail < duplicate);
+	REQUIRE(duplicate < sealed);
+	REQUIRE(sealed < reset);
+	REQUIRE(reset < grant);
+	REQUIRE(grant < commit);
+	REQUIRE(commit < ammo);
+	REQUIRE(ammo != std::string::npos);
+	REQUIRE(stats.find("snapshot && !s_ReconnectPropReceive.complete") != std::string::npos);
+	REQUIRE(stats.find("fiesta->life == life->number && (!release_dead || life->release_dead)", duplicate) < sealed);
+	REQUIRE(stats.find("if (!snapshot && !release_dead)", duplicate) < sealed);
+	REQUIRE(stats.find("playerSpawnPoseIsValid(&fiesta->pose)", duplicate) < sealed);
+	REQUIRE(stats.find("s_ReconnectPropReceive.complete || release_dead", ammo) != std::string::npos);
+	REQUIRE(stats.find(".release_dead = true", ammo) != std::string::npos);
 }
 
 TEST_CASE("net readers: SVC_CHR_DISARM reads its position before it decides, and the writer always sends it",
@@ -223,7 +253,7 @@ TEST_CASE("net readers: pickup, use and damage skip a message they cannot apply"
 	const char *signatures[] = {
 		"u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)\n{",
 		"u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)\n{",
-		"u32 netmsgSvcChrDamageRead(struct netbuf *src, struct netclient *srccl)\n{",
+		"u32 netmsgSvcChrDamageRead(struct netbuf *src, struct netclient *srccl, s32 grid)\n{",
 	};
 	const char *skips[] = {
 		"NET: SVC_PROP_PICKUP skipped",

@@ -41,6 +41,9 @@ s32 assetCatalogRegisterBodyHeadArchive(const char *archive_path,
     const char *expected_id, s32 is_head, s32 base_slot_hint, s32 bundled,
     char *error, size_t error_capacity);
 
+struct loader_walker_archive_preparation;
+extern const struct loader_walker_archive_preparation g_BodyHeadArchivePreparation;
+
 /* Received loose descriptors keep the existing admission transaction alive
  * until their filesystem publication commits. No catalog pointers escape.
  * Finish exactly once: commit=0 restores all snapshots; commit=1 releases them.

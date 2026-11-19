@@ -3,6 +3,7 @@
 #include <strings.h>
 #include <PR/libaudio.h>
 #include <PR/ultratypes.h>
+#include <n_libaudio.h>
 #include "platform.h"
 #include "system.h"
 #include "fs.h"
@@ -12,7 +13,13 @@
 #include "data.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "assetcatalog_scanner.h"
+#include "bss.h"
 #include "catalog_animation_generation.h"
+#include "grid_match_package_io.h"
+#include "modarchive.h"
+#include "net/net.h"
+#include "scenario_source_runtime.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
 #include "modmusic.h"
@@ -71,6 +78,11 @@ typedef struct {
 } mod_seq_buf_t;
 
 static char s_ModSequenceVirtualIds[MOD_SEQUENCE_VIRTUAL_SLOTS][CATALOG_ID_LEN];
+static u8 s_ModSequenceGridSlots[MOD_SEQUENCE_VIRTUAL_SLOTS];
+
+extern s32 g_TemporaryPrimaryTrack;
+extern s32 g_TemporaryAmbientTrack;
+extern u32 g_SeqBufferSize;
 
 static s32 modSequenceVirtualIndex(s32 tracknum)
 {
@@ -101,36 +113,24 @@ const char *modSequenceVirtualTrackId(s32 tracknum)
 	return s_ModSequenceVirtualIds[index];
 }
 
-s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id)
+static s32 modSequenceFindVirtualTrack(const char *catalog_id)
 {
-	const asset_entry_t *entry;
-	s32 i;
-
-	if (!catalog_id || !catalog_id[0]) {
-		return -1;
-	}
-
-	entry = assetCatalogResolve(catalog_id);
-	if (!entry || entry->type != ASSET_AUDIO ||
-			entry->ext.audio.category != AUDIO_CAT_MUSIC) {
-		return -1;
-	}
-
-	if (entry->ext.audio.file_path[0]) {
-		return -1;
-	}
-
-	for (i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
+	for (s32 i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
 		if (strcmp(s_ModSequenceVirtualIds[i], catalog_id) == 0) {
 			return MOD_SEQUENCE_VIRTUAL_BASE + i;
 		}
 	}
+	return -1;
+}
 
-	for (i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
+static s32 modSequenceAllocateVirtualTrack(const char *catalog_id, s32 grid)
+{
+	for (s32 i = 0; i < MOD_SEQUENCE_VIRTUAL_SLOTS; i++) {
 		if (s_ModSequenceVirtualIds[i][0] == '\0') {
 			strncpy(s_ModSequenceVirtualIds[i], catalog_id,
 				sizeof(s_ModSequenceVirtualIds[i]) - 1);
 			s_ModSequenceVirtualIds[i][sizeof(s_ModSequenceVirtualIds[i]) - 1] = '\0';
+			s_ModSequenceGridSlots[i] = grid != 0;
 			sysLogPrintf(LOG_NOTE,
 				"CATALOG: music '%s' assigned private sequence slot %d",
 				catalog_id, MOD_SEQUENCE_VIRTUAL_BASE + i);
@@ -141,6 +141,61 @@ s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id)
 	sysLogPrintf(LOG_WARNING,
 		"CATALOG: music '%s' could not get a private sequence slot", catalog_id);
 	return -1;
+}
+
+s32 modSequenceVirtualTrackForCatalogId(const char *catalog_id)
+{
+	const asset_entry_t *entry = catalog_id && catalog_id[0] ? assetCatalogResolve(catalog_id) : NULL;
+	if (!entry || entry->type != ASSET_AUDIO || entry->ext.audio.category != AUDIO_CAT_MUSIC
+			|| entry->ext.audio.file_path[0]) return -1;
+	const s32 track = modSequenceFindVirtualTrack(catalog_id);
+	if (entry->temporary && entry->grid_offer_only) {
+		return track >= 0 && s_ModSequenceGridSlots[modSequenceVirtualIndex(track)] ? track : -1;
+	}
+	return track >= 0 ? track : modSequenceAllocateVirtualTrack(catalog_id, 0);
+}
+
+s32 modSequenceReserveGridTrack(const char *catalog_id)
+{
+	if (!catalog_id || !catalog_id[0] || strlen(catalog_id) >= CATALOG_ID_LEN
+			|| modSequenceFindVirtualTrack(catalog_id) >= 0) return -1;
+	return modSequenceAllocateVirtualTrack(catalog_id, 1);
+}
+
+void modSequenceForgetGridStageTracks(void)
+{
+	const s32 primary = modSequenceVirtualIndex(g_TemporaryPrimaryTrack);
+	const s32 ambient = modSequenceVirtualIndex(g_TemporaryAmbientTrack);
+	if (primary >= 0 && s_ModSequenceGridSlots[primary]) g_TemporaryPrimaryTrack = -1;
+	if (ambient >= 0 && s_ModSequenceGridSlots[ambient]) g_TemporaryAmbientTrack = -1;
+}
+
+s32 modSequenceCanRetireGridTrack(const char *catalog_id, s32 tracknum)
+{
+	const s32 index = modSequenceVirtualIndex(tracknum);
+	if (!catalog_id || !catalog_id[0] || index < 0 || !s_ModSequenceGridSlots[index]
+			|| strcmp(s_ModSequenceVirtualIds[index], catalog_id) != 0
+			|| g_TemporaryPrimaryTrack == tracknum || g_TemporaryAmbientTrack == tracknum
+			|| scenarioSourceStagePrimaryMusic(g_MusicStageNum) == tracknum) return 0;
+	if (g_MusicEventQueueLength < 0 || g_MusicEventQueueLength > ARRAYCOUNT(g_MusicEventQueue)) return 0;
+	for (s32 i = 0; i < g_MusicEventQueueLength; i++) {
+		const struct musicevent *event = &g_MusicEventQueue[i];
+		if (event->eventtype == MUSICEVENTTYPE_PLAY && event->tracknum == tracknum) return 0;
+	}
+	for (s32 i = 0; i < ARRAYCOUNT(g_SeqInstances); i++) {
+		const struct seqinstance *seq = &g_SeqInstances[i];
+		if (seq->tracknum == tracknum && seq->seqp && n_alCSPGetState(seq->seqp) != AL_STOPPED) return 0;
+	}
+	return 1;
+}
+
+s32 modSequenceRetireGridTrack(const char *catalog_id, s32 tracknum)
+{
+	if (!modSequenceCanRetireGridTrack(catalog_id, tracknum)) return 0;
+	const s32 index = modSequenceVirtualIndex(tracknum);
+	s_ModSequenceVirtualIds[index][0] = '\0';
+	s_ModSequenceGridSlots[index] = 0;
+	return 1;
 }
 
 typedef struct {
@@ -500,34 +555,20 @@ static void modSequenceTracksFree(mod_seq_track_t *tracks)
 	}
 }
 
-static s32 modSequenceLoadEventsJson(const char *path,
+static s32 modSequenceParseEventsJson(const char *text, u32 size,
 		mod_seq_track_t *tracks, u32 *out_events)
 {
-	u32 size = 0;
-	char *text;
 	u32 events = 0;
 	mod_json_span_t root;
 	mod_json_span_t events_array;
 	mod_json_span_t object;
 	const char *cursor = NULL;
 
-	if (!path || !tracks || !out_events) {
-		return -1;
-	}
-
-	text = fsFileLoad(path, &size);
-	if (!text || size == 0) {
-		if (text) {
-			sysMemFree(text);
-		}
-		return -1;
-	}
-	text[size] = '\0';
+	if (!text || !size || !tracks || !out_events) return -1;
 
 	root.start = text;
 	root.end = text + size;
 	if (!modJsonObjectArray(root, "events", &events_array)) {
-		sysMemFree(text);
 		return -1;
 	}
 
@@ -542,7 +583,6 @@ static s32 modSequenceLoadEventsJson(const char *path,
 				!modJsonObjectU32(object, "track", &track_index) ||
 				track_index >= 16 ||
 				!modJsonObjectString(object, "type", event.type, sizeof(event.type))) {
-			sysMemFree(text);
 			return -1;
 		}
 
@@ -554,15 +594,26 @@ static s32 modSequenceLoadEventsJson(const char *path,
 		if (!modJsonObjectU32(object, "loop_count", &event.loop_count)) event.loop_count = 0;
 
 		if (modSequenceTrackPush(&tracks[track_index], &event) != 0) {
-			sysMemFree(text);
 			return -1;
 		}
 		events++;
 	}
 
-	sysMemFree(text);
 	*out_events = events;
 	return events > 0 ? 0 : -1;
+}
+
+static s32 modSequenceLoadEventsJson(const char *path,
+		mod_seq_track_t *tracks, u32 *out_events)
+{
+	if (!path) return -1;
+	u32 size = 0;
+	char *text = fsFileLoad(path, &size);
+	if (!text) return -1;
+	text[size] = '\0';
+	const s32 result = modSequenceParseEventsJson(text, size, tracks, out_events);
+	sysMemFree(text);
+	return result;
 }
 
 static s32 modSequenceEmitLoopEndBody(mod_seq_track_t *track, u32 loop_count);
@@ -814,6 +865,97 @@ static void *modSequenceCompilePublicSource(const CatalogResolveResult *r,
 	return compiled;
 }
 
+typedef struct mod_grid_sequence_members {
+	u32 midi_size, events_size;
+	s32 midi_count, events_count;
+} mod_grid_sequence_members_t;
+
+static s32 modSequenceMeasureGridMember(const char *name, u32 size, void *context)
+{
+	mod_grid_sequence_members_t *members = context;
+	if (strcmp(name, "sequence.mid") == 0) {
+		members->midi_size = size;
+		members->midi_count++;
+	} else if (strcmp(name, "sequence.json") == 0) {
+		members->events_size = size;
+		members->events_count++;
+	}
+	return 0;
+}
+
+static char *modSequenceReadGridDescriptor(const char *name, const void *bytes, u32 size,
+	u32 *out_size)
+{
+	const char *suffix = name ? strrchr(name, '.') : NULL;
+	if (!suffix || strcmp(suffix, ".pdsong") != 0 || !size || size > NET_DISTRIB_MAX_COMP) return NULL;
+	u32 descriptor_size = 0;
+	char *descriptor = gridMatchPackageReadMember(bytes, size, "music.ini",
+		NET_DISTRIB_MAX_COMP, &descriptor_size, NULL);
+	if (!descriptor) return NULL;
+	ini_section_t *ini = malloc(sizeof(*ini));
+	s32 valid = ini && !memchr(descriptor, '\0', descriptor_size)
+		&& iniParseText(descriptor, descriptor_size, ini, NULL, 0);
+	if (valid) {
+		const char *category = iniGet(ini, "audio_category", iniGet(ini, "kind", iniGet(ini, "category", "")));
+		const char *midi = iniGet(ini, "music_file", iniGet(ini, "midi_file", ""));
+		valid = strcmp(ini->type, "music") == 0 && !iniGet(ini, "file_path", "")[0]
+			&& (!category[0] || strcasecmp(category, "music") == 0
+				|| strcasecmp(category, "track") == 0 || strcmp(category, "1") == 0)
+			&& strcmp(midi, "sequence.mid") == 0
+			&& strcmp(iniGet(ini, "events_file", "sequence.json"), "sequence.json") == 0;
+	}
+	free(ini);
+	mod_grid_sequence_members_t members = {0};
+	if (!valid || modArchiveMemForEachEntry(bytes, size, modSequenceMeasureGridMember, &members) != MODARCHIVE_OK
+			|| members.midi_count != 1 || members.events_count != 1 || members.midi_size < 14
+			|| !members.events_size || (u64)descriptor_size + members.midi_size + members.events_size > NET_DISTRIB_MAX_SESSION) {
+		free(descriptor);
+		return NULL;
+	}
+	*out_size = descriptor_size;
+	return descriptor;
+}
+
+s32 modSequenceGridSourceShareable(const char *name, const void *bytes, u32 size)
+{
+	u32 descriptor_size = 0;
+	char *descriptor = modSequenceReadGridDescriptor(name, bytes, size, &descriptor_size);
+	const s32 shareable = descriptor != NULL;
+	free(descriptor);
+	return shareable;
+}
+
+s32 modSequenceValidateGridSource(const char *name, const void *bytes, u32 size,
+	char *err, size_t err_cap)
+{
+	u32 descriptor_size = 0, midi_size = 0, events_size = 0;
+	char *descriptor = modSequenceReadGridDescriptor(name, bytes, size, &descriptor_size);
+	void *midi = descriptor ? gridMatchPackageReadMember(bytes, size, "sequence.mid",
+		NET_DISTRIB_MAX_SESSION, &midi_size, NULL) : NULL;
+	char *events = midi ? gridMatchPackageReadMember(bytes, size, "sequence.json",
+		NET_DISTRIB_MAX_SESSION, &events_size, NULL) : NULL;
+	mod_seq_track_t tracks[16] = {0};
+	u32 division = 0, event_count = 0, compiled_size = 0;
+	void *compiled = NULL;
+	if (events && midi_size >= 14 && memcmp(midi, "MThd", 4) == 0 && !memchr(events, '\0', events_size)
+			&& modSequenceParseDivision(descriptor, descriptor_size, &division) == 0
+			&& modSequenceParseEventsJson(events, events_size, tracks, &event_count) == 0) {
+		compiled = modSequenceBuildAlcBuffer(tracks, division, &compiled_size);
+	}
+	const u64 native_size = (((u64)compiled_size + 15u) & ~15ull) + 0x40u;
+	const s32 valid = compiled && (g_SndDisabled || native_size < g_SeqBufferSize);
+	if (compiled) sysMemFree(compiled);
+	modSequenceTracksFree(tracks);
+	free(events);
+	free(midi);
+	free(descriptor);
+	if (err && err_cap) {
+		if (valid) err[0] = '\0';
+		else snprintf(err, err_cap, "%s", "Grid song requires a valid public MIDI/event sequence that fits the native player");
+	}
+	return valid;
+}
+
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize)
 {
 	/* PC: When g_NotLoadMod is set (title screen, CI main menu, solo stages),
@@ -910,6 +1052,8 @@ void *modSequenceLoad(u16 num, u32 *outSize)
 		              (s32)num, entry ? entry->id : "?");
 		return NULL;
 	}
+	const s32 index = modSequenceVirtualIndex(num);
+	if (index >= 0 && s_ModSequenceGridSlots[index]) return NULL;
 
 	static s32 dirExists = -1;
 	if (dirExists < 0) {

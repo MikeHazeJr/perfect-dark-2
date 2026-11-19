@@ -2647,6 +2647,62 @@ s32 modmgrRegisterSessionFolder(const char *dirpath, const char *expected_id,
 	return 1;
 }
 
+s32 modmgrEnableAuthoredGridVariant(const char *folder, const char *mod_id, const char *arena_id,
+		const char *archive_sha256, char *error, size_t error_capacity)
+{
+	if (error && error_capacity) error[0] = '\0';
+	const char *slug = arena_id && strncmp(arena_id, "mod:arena_", 10) == 0 ? arena_id + 4 : NULL;
+	if (!folder || !slug || !mod_id || strncmp(mod_id, "mod.", 4) != 0 || strcmp(slug, mod_id + 4) != 0
+			|| strspn(slug, "abcdefghijklmnopqrstuvwxyz0123456789_") != strlen(slug)
+			|| !archive_sha256 || !g_ModsDirPath[0]) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid variant has an invalid library identity.");
+		return 0;
+	}
+
+	char expected[FS_MAXPATH + 1], archive[FS_MAXPATH + 1], digest[SHA256_HEX_SIZE];
+	int length = snprintf(expected, sizeof(expected), "%s/MP Maps/%s", g_ModsDirPath, slug);
+	if (length <= 0 || (size_t)length >= sizeof(expected) || !modsRootsSameDir(folder, expected)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid variant is outside the local library.");
+		return 0;
+	}
+	length = snprintf(archive, sizeof(archive), "%s/%s.pdarena", folder, slug);
+	u8 hash[SHA256_DIGEST_SIZE];
+	if (length <= 0 || (size_t)length >= sizeof(archive) || modArchiveSha256(archive, hash) != 0) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid arena could not be read.");
+		return 0;
+	}
+	sha256ToHex(hash, digest);
+	if (strcmp(digest, archive_sha256) != 0) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved Grid arena changed before enabling it.");
+		return 0;
+	}
+
+	if (modmgrFindMod(mod_id) || assetCatalogResolveAny(arena_id)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The saved variant conflicts with an existing library entry.");
+		return 0;
+	}
+	const s32 index = g_ModRegistryCount;
+	if (!modmgrTryRegisterModEntry(folder, slug, "grid-variant", true)) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The local library could not register the saved variant.");
+		return 0;
+	}
+	modinfo_t *mod = &g_ModRegistry[index];
+	mod->enabled = 1;
+	if (!mod->valid || !mod->has_modjson || strcmp(mod->id, mod_id) != 0 || !modmgrLoadMod(mod)) {
+		memset(mod, 0, sizeof(*mod));
+		g_ModRegistryCount = index;
+		if (error && error_capacity) snprintf(error, error_capacity, "The local library could not load the saved variant.");
+		return 0;
+	}
+
+	modmgrCatalogChanged();
+	if (!modmgrBuildEnabledList() || !modmgrSaveModsEnabledJson()) {
+		if (error && error_capacity) snprintf(error, error_capacity, "The variant is enabled for this process. The library setting could not be saved.");
+		return 0;
+	}
+	return 1;
+}
+
 s32 modmgrRetireSessionContent(void)
 {
 	s32 session_count = 0;

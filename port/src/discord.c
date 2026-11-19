@@ -200,10 +200,10 @@ static void disc_build_activity(disc_activity_t *a)
 
     if (STAGE_IS_GAMEPLAY(g_StageNum) && forgeSessionIsActive()) {
         stage_id_to_name(g_MissionConfig.stage_id, stageName, sizeof(stageName));
-        _snprintf(a->details, sizeof(a->details), "Editing in The Grid");
+        _snprintf(a->details, sizeof(a->details), "Editing in %s", forgeDisplayName());
         _snprintf(a->state,   sizeof(a->state),   "%s", stageName);
         a->small_icon = "icon_forge";
-        a->small_text  = "The Grid";
+        a->small_text  = forgeDisplayName();
         return;
     }
 

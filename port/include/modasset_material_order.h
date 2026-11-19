@@ -43,6 +43,15 @@ s32 modAssetMaterialOrderBuild(const char *mtl_text,
 
 void modAssetMaterialOrderFree(modasset_material_order_t *order);
 
+/* Recognize the explicit catalog texture line consumed by native MTL.
+ * A recognized line without '=' has a NULL value. The value borrows line. */
+s32 modAssetMaterialCatalogTextureDirective(const char *line, const char **value, s32 *secondary);
+
+typedef s32 (*modasset_material_texture_visit_fn)(const char *id, void *userdata);
+/* Visit explicit catalog texture references from the OBJ material domain. */
+s32 modAssetMaterialVisitCatalogTextures(const char *text, size_t size,
+	modasset_material_texture_visit_fn visit, void *userdata, char *err, size_t err_cap);
+
 #ifdef __cplusplus
 }
 #endif

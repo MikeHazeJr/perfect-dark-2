@@ -1,0 +1,187 @@
+{
+  "scenario_name": "forge_grid_installed_reconnect_smoke",
+  "description": "Verify host-owned player grants and native simulant grants from the sealed Fiesta pool in an exact Grid arena. Time out the guest so the host marks its player dead, restore that life in the original stage epoch, and apply the host's next-life grant once. Check that the host accepts the guest's movement and that both peers receive the authoritative result.",
+  "tags": ["modding", "forge", "network", "combatsim", "fiesta", "reconnect", "match-lifecycle"],
+  "paths_of_interest": [
+    "port/src/grid_match_cache.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/grid_match_sources.c",
+    "port/src/main.c",
+    "port/src/net/grid_match_wire.c",
+    "port/src/net/matchsetup.c",
+    "port/src/net/net.c",
+    "port/src/net/net_player_move_ingress.c",
+    "port/src/net/netmanifest.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/bot.c",
+    "src/game/player.c",
+    "tools/smoke-verify/fixtures/forge_grid_fiesta_reconnect_guest.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 540,
+  "install_state": "clean",
+  "remove_paths": ["grid-reconnect-host", "grid-reconnect-guest"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-reconnect-host/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-reconnect-guest/mods/.pdmod-migration-done" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-reconnect-host/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-reconnect-host/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-reconnect-host/mods-enabled.json" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-reconnect-guest/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-reconnect-guest/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-reconnect-guest/mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "smoke_path": "tools/smoke-verify/fixtures/forge_grid_reconnect_host.json",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-reconnect-host", "--moddir", "$E/grid-reconnect-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name", "Grid_Reconnect", "--debug-forge-level-pin",
+        "--host", "--listen-bind", "27484",
+        "--launch-mp-room", "mod:arena_grid_reconnect", "base:combat", "3",
+        "--debug-grid-fiesta", "--debug-bots-hold-fire", "--host-autostart", "--match-timelimit-sec", "75"
+      ],
+      "wait_for": "NET: created server on port 27484",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_reconnect sha256=[0-9a-f]{64}",
+          "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_reconnect generation=1 digest=[0-9a-f]{64} fiesta_pool=[1-9][0-9]*",
+          "GRID\\.FIESTA\\.GRANT: actor=player id=base:[a-z0-9_]+ slot=[1-9][0-9]* weapon=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "GRID\\.FIESTA\\.GRANT: actor=bot id=base:[a-z0-9_]+ slot=[1-9][0-9]* weapon=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "MATCH: player spawned slot=1 playernum=1 ",
+          "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=1",
+          "SAVE: initialized .*grid-reconnect-host"
+        ],
+        "required_sequences": [
+          {
+            "name": "same_grid_offer_and_preserved_player_on_authority",
+            "patterns": [
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "GRID\\.FIESTA\\.PLAYER: action=recorded client=1 epoch=1 life=1 player=1 id=base:[^ ]+",
+              "SMOKE\\.NETWORK: timeout_client client=1 .*stage_ready=1.*production_path=1",
+              "NET\\.RECONNECT\\.PRESERVE client=1 player=1 room=[0-9]+ .*snapshot=complete",
+              "NET\\.RECONNECT\\.AUTH client=1 .*credential=accepted",
+              "NET\\.GRID\\.RECONNECT: offered client=1 room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RECONNECT: stage_queued client=1 room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64} stage_bytes=[1-9][0-9]* reservation_retained=1",
+              "NET\\.RECONNECT\\.CUTSCENE active=[01]",
+              "NET\\.RECONNECT\\.RESYNC\\.PREPARE client=1 .*exact_set=1 score=1",
+              "NET\\.RECONNECT\\.RESYNC client=1 .*post_load_ready=1 targeted=1 ordered=1",
+              "PLAYER\\.INIT\\.COMMIT reconnect client=1 player=1 .*post_load_ready=1 resync=targeted",
+              "GRID\\.FIESTA\\.PLAYER: action=recorded client=1 epoch=1 life=2 player=1 id=base:[^ ]+",
+              "GRID\\.FIESTA\\.POSE: action=recorded client=1 epoch=1 life=2 room=[1-9][0-9]* pos=[-0-9.,]+ yaw=[-0-9.]+",
+              "NET\\.RECONNECT\\.GAMEPLAY client=1 player=1 .*move=1 server_accepted=1",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_reconnect", "min": 1, "max": 1 },
+          { "pattern": "GRID\\.FIESTA\\.ACTIVE: count=[1-9][0-9]* digest=[0-9a-f]{64}", "min": 1, "max": 1 },
+          { "pattern": "GRID\\.FIESTA\\.PLAYER: action=recorded client=1 epoch=1 life=", "min": 2, "max": 2 },
+          { "pattern": "NET\\.RECONNECT\\.GAMEPLAY client=1 player=1 .*move=1 server_accepted=1", "min": 1, "max": 1 },
+          { "pattern": "NET\\.GRID\\.RECONNECT: stage_queued client=1", "min": 1, "max": 1 }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/forge_grid_fiesta_reconnect_guest.json",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-reconnect-guest", "--moddir", "$E/grid-reconnect-guest/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name", "Grid_Reconnect",
+        "--debug-grid-fiesta",
+        "--connect-host", "127.0.0.1:27484"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_reconnect",
+          "MATCH: player spawned slot=1 playernum=0 ",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=2",
+          "SAVE: initialized .*grid-reconnect-guest"
+        ],
+        "required_sequences": [
+          {
+            "name": "host_grant_applies_once_per_life_across_a_dead_reconnect_snapshot",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_reconnect generation=1 digest=[0-9a-f]{64}",
+              "GRID\\.FIESTA\\.ACTIVE: count=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.FIESTA\\.PLAYER: action=applied client=1 epoch=1 life=1 player=0 id=base:[^ ]+",
+              "NET\\.GRID\\.RECONNECT: guest_ready arena=mod:arena_grid_reconnect room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64} installed_only=1",
+              "GRID\\.FIESTA\\.ACTIVE: count=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.FIESTA\\.PLAYER: action=restored client=1 epoch=1 life=1 dead=1",
+              "NET\\.RECONNECT\\.CLIENT commit=accepted client=1 ordered_snapshot=complete",
+              "GRID\\.FIESTA\\.PLAYER: action=applied client=1 epoch=1 life=2 player=0 id=base:[^ ]+",
+              "GRID\\.FIESTA\\.POSE: action=applied client=1 epoch=1 life=2 room=[1-9][0-9]* pos=[-0-9.,]+ yaw=[-0-9.]+",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=5 down=1 .*held_after=1"
+            ]
+          },
+          {
+            "name": "original_grid_epoch_reloaded_from_installed_sources",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_reconnect generation=1 digest=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RECONNECT: retained room=[0-9]+ client=1 player=1 generation=1 epoch=1 digest=[0-9a-f]{64}",
+              "SMOKE\\.WAIT: satisfied condition=network_reconnect_available",
+              "NET\\.RECONNECT\\.CLIENT auth=accepted",
+              "NET\\.GRID\\.RECONNECT: guest_ready arena=mod:arena_grid_reconnect room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64} installed_only=1",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.RECONNECT\\.WORLD end .*exact_set=1 refs=resolved topology=exclusive",
+              "NET\\.RECONNECT\\.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0",
+              "NET\\.RECONNECT\\.CLIENT commit=accepted client=1 ordered_snapshot=complete",
+              "NET\\.RECONNECT\\.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_reconnect epoch=1 digest=[0-9a-f]{64}", "min": 2, "max": 2 },
+          { "pattern": "GRID\\.FIESTA\\.ACTIVE: count=[1-9][0-9]* digest=[0-9a-f]{64}", "min": 2, "max": 2 },
+          { "pattern": "GRID\\.FIESTA\\.PLAYER: action=applied client=1 epoch=1 life=", "min": 2, "max": 2 },
+          { "pattern": "GRID\\.FIESTA\\.PLAYER: action=restored client=1 epoch=1 life=", "min": 1, "max": 1 },
+          { "pattern": "NET\\.RECONNECT\\.CLIENT commit=accepted client=1", "min": 1, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT: satisfied condition=network_stage_live", "min": 2, "max": 2 }
+        ],
+        "forbidden_patterns": [
+          "GRID\\.FIESTA\\.PLAYER: action=recorded\\b"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_counts": [
+      { "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}", "min": 2, "max": 2 }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.RECONNECT: (guest_refused|refused|unavailable)",
+      "NET\\.GRID\\.TRANSFER:",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.FIESTA\\..*(outside|refused)",
+      "SPAWN\\.CATALOG\\.MISS:.*spawnWeaponNum=254",
+      "NET\\.RECONNECT\\.MANIFEST",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "NET\\.RECONNECT\\.CLIENT authoritative message rejected",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|network_timeout_client_failed|network_reconnect_failed)"
+    ]
+  }
+}

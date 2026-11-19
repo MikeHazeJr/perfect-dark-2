@@ -1,0 +1,134 @@
+{
+  "scenario_name": "forge_grid_corrupt_arena_smoke",
+  "description": "A guest consents to the exact original Grid arena. The host's smoke driver corrupts one byte while encoding the first outgoing chunk. The guest rejects the received SHA-256 mismatch and both peers retain the room and configuration without entering a match.",
+  "tags": ["modding", "forge", "network", "consent", "negative"],
+  "paths_of_interest": [
+    "port/src/net/netdistrib.c",
+    "port/src/net/netmsg.c",
+    "port/src/grid_match_cache.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 480,
+  "install_state": "clean",
+  "remove_paths": ["grid-corrupt-host", "grid-corrupt-guest"],
+  "fixtures": [
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-corrupt-host/mods/.pdmod-migration-done"},
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-corrupt-guest/mods/.pdmod-migration-done"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-corrupt-host/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-corrupt-guest/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-corrupt-host/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-corrupt-guest/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-corrupt-host/mods-enabled.json"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-corrupt-guest/mods-enabled.json"}
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-corrupt-host",
+        "--moddir", "$E/grid-corrupt-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "mod_grid_two_rooms:arena_grid_two_rooms",
+        "--debug-level-tool-name", "Grid_Corrupt_Arena",
+        "--debug-grid-room-size", "2100,1800,600",
+        "--debug-forge-level", "mod:arena_grid_corrupt_arena",
+        "--debug-forge-level-name", "Grid_Corrupt_Arena",
+        "--debug-forge-level-pin", "--debug-forge-level-share",
+        "--host", "--listen-bind", "27483",
+        "--launch-mp-room", "mod:arena_grid_corrupt_arena", "base:combat", "3",
+        "--debug-spawn-weapon", "base:cyclone",
+        "--host-autostart",
+        "--debug-grid-corrupt-arena", "mod:arena_grid_corrupt_arena",
+        "--debug-grid-corrupt-witness", "mod:arena_grid_corrupt_arena"
+      ],
+      "wait_for": "NET: created server on port 27483",
+      "wait_timeout_seconds": 230,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-corrupt-host",
+          "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_corrupt_arena sha256=[0-9a-f]{64}"
+        ],
+        "required_sequences": [
+          {
+            "name": "one-corrupted-byte-then-room-rollback",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_corrupt_arena generation=1 digest=[0-9a-f]{64}",
+              "SMOKE\\.GRID\\.CORRUPT: sent arena=mod:arena_grid_corrupt_arena room=[0-9]+ package=[0-9]+ offset=0 bytes_changed=1",
+              "NET: ready gate aborted by 'A player lacks the exact Grid sources'",
+              "PLAYER\\.INIT\\.ROLLBACK lobby-start room=[0-9]+ .*globals_restored=1",
+              "SMOKE\\.GRID\\.CORRUPT: role=host room=[0-9]+ members=2 settings_revision=[0-9]+ playlist_revision=[0-9]+ retained=1 epoch=0 review=0",
+              "SMOKE\\.WAIT: satisfied condition=network_lobby_ready",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_counts": [
+          {"pattern": "SMOKE\\.GRID\\.CORRUPT: sent arena=mod:arena_grid_corrupt_arena", "min": 1, "max": 1}
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-corrupt-guest",
+        "--moddir", "$E/grid-corrupt-guest/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-approve-downloads",
+        "--debug-grid-corrupt-witness", "mod:arena_grid_corrupt_arena",
+        "--connect-host", "127.0.0.1:27483"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-corrupt-guest"
+        ],
+        "required_sequences": [
+          {
+            "name": "consented-transfer-fails-sha-before-admission",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_corrupt_arena bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_corrupt_arena packages=1",
+              "NET\\.GRID\\.TRANSFER: refused arena=mod:arena_grid_corrupt_arena reason=Grid match package digest differs from the source plan",
+              "NET: SVC_MATCH_CANCELLED .*A player lacks the exact Grid sources",
+              "SMOKE\\.GRID\\.CORRUPT: role=guest room=[0-9]+ retained=1 rejected_bytes=[1-9][0-9]* catalog=0 private_files=0 epoch=0 review=0 declined=0",
+              "SMOKE\\.WAIT: satisfied condition=network_lobby_ready",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {"at_ms": 0, "type": "wait_until", "condition": "network_lobby_ready", "timeout_ms": 410000, "stable_ms": 1200},
+    {"at_ms": 2500, "type": "exit"}
+  ],
+  "assertions": {
+    "required_counts": [
+      {"pattern": "SMOKE: result=scripted_exit scenario=forge_grid_corrupt_arena_smoke", "min": 2, "max": 2}
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.TRANSFER: (guest declined|admitted exact temporary)",
+      "NET\\.GRID\\.OFFER: (guest ready|host recorded ready)",
+      "GRID\\.MATCH\\.LEASE:",
+      "GRID\\.MATCH\\.STAGE: active",
+      "NET\\.STAGE\\.REPLICATION ready",
+      "MATCH: (server stage start|client stage start received)",
+      "LOBBY\\.REVIEW: .*reviewing=1",
+      "NET\\.GRID\\.RESULT:",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

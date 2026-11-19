@@ -213,6 +213,15 @@ void catalogTextureGenerationRelease(catalog_texture_generation_t *g)
     assetCatalogReleaseTextureGenerationSlot(g->slot);
     sysMemFree(g->allocation); free(g->id); free(g);
 }
+s32 catalogTextureGenerationHasLiveIdentity(const char *id)
+{
+    if (!id || !id[0]) return 0;
+    if (!onTextureThread()) return 1;
+    for (const catalog_texture_generation_t *g = s_Generations; g; g = g->next) {
+        if (strcmp(g->id, id) == 0) return 1;
+    }
+    return 0;
+}
 const char *catalogTextureGenerationId(const catalog_texture_generation_t *g) { return g ? g->id : NULL; }
 const char *catalogTextureGenerationHash(const catalog_texture_generation_t *g) { return g ? g->hash : NULL; }
 s32 catalogTextureGenerationSlot(const catalog_texture_generation_t *g) { return g ? g->slot : -1; }

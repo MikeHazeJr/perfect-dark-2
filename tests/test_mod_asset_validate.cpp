@@ -10,18 +10,25 @@
 extern "C" {
 #include "asset_archive_clone.h"
 #include "asset_archive_policy.h"
+#include "assetcatalog_deps.h"
+#include "forge_revision_store.h"
+#include "grid_archive_policy.h"
+#include "grid_match_sources.h"
 #include "mod_asset_validate.h"
 #include "mod_author.h"
 #include "modarchive.h"
 #include "modpack_pdmod.h"
+#include "save_atomic.h"
 }
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <string>
 #include <system_error>
@@ -116,6 +123,353 @@ const char *const kCharacter =
 	"examples/modding/typed-pdxxx-basic/characters/tri_character.pdcharacter";
 
 } // namespace
+
+TEST_CASE("Grid revisions preserve exact previous arenas and atomically move the current pointer",
+	"[forge-revision][modding][pdxxx]")
+{
+	const ValidateTempDir dir;
+	const fs::path store = dir.path / "revisions";
+	REQUIRE(fs::create_directory(store));
+	const auto directory = store.string();
+	const char *id = "mod_blank_room:arena_blank_room";
+	const char *example = "dev-mods/blank_room/blank_room.pdarena";
+	const auto first = validateExample(example);
+	const auto descriptor = validateEntry(validateReadFile(first), "arena.ini");
+	const auto second = validateWithMember(dir, example, id, "arena.ini",
+		descriptor + "revision_note = changed\n", "next.pdarena").string();
+	auto digest = [](const std::string &path) {
+		u8 hash[SHA256_DIGEST_SIZE];
+		char hex[SHA256_HEX_SIZE];
+		REQUIRE(modArchiveSha256(path.c_str(), hash) == 0);
+		sha256ToHex(hash, hex);
+		return std::string(hex);
+	};
+	const auto first_digest = digest(first);
+	const auto second_digest = digest(second);
+	REQUIRE(first_digest != second_digest);
+	forge_revision_t revision{};
+	char err[256]{};
+
+	REQUIRE_FALSE(forgeRevisionPublishLocal(directory.c_str(), id, first.c_str(),
+		second_digest.c_str(), &revision, err, sizeof(err)));
+	REQUIRE_FALSE(forgeRevisionReadCurrent(directory.c_str(), id, &revision, err, sizeof(err)));
+	REQUIRE(forgeRevisionPublishLocal(directory.c_str(), id, first.c_str(),
+		first_digest.c_str(), &revision, err, sizeof(err)));
+	REQUIRE(validateReadFile(revision.path) == validateReadFile(first));
+	REQUIRE(forgeRevisionPublishLocal(directory.c_str(), id, second.c_str(),
+		nullptr, &revision, err, sizeof(err)));
+	REQUIRE(std::string(revision.digest) == second_digest);
+	REQUIRE(forgeRevisionRead(directory.c_str(), id, first_digest.c_str(), &revision, err, sizeof(err)));
+	REQUIRE(validateReadFile(revision.path) == validateReadFile(first));
+	REQUIRE_FALSE(forgeRevisionRead(directory.c_str(), "mod:wrong_arena",
+		first_digest.c_str(), &revision, err, sizeof(err)));
+
+	saveAtomicDebugFailNextCommit();
+	REQUIRE_FALSE(forgeRevisionPublishLocal(directory.c_str(), id, first.c_str(),
+		first_digest.c_str(), &revision, err, sizeof(err)));
+	REQUIRE(forgeRevisionReadCurrent(directory.c_str(), id, &revision, err, sizeof(err)));
+	REQUIRE(std::string(revision.digest) == second_digest);
+	REQUIRE(validateReadFile(revision.path) == validateReadFile(second));
+
+	u8 id_hash[SHA256_DIGEST_SIZE];
+	char map_hash[SHA256_HEX_SIZE];
+	sha256Hash(id, static_cast<u32>(std::strlen(id)), id_hash);
+	sha256ToHex(id_hash, map_hash);
+	auto saved = std::make_unique<mod_author_result_t>();
+	const std::string mods_path = dir.path.string();
+	mod_author_descriptor_value_t lineage[] = {
+		{FORGE_REVISION_PARENT_MAP_KEY, map_hash},
+		{FORGE_REVISION_PARENT_DIGEST_KEY, first_digest.c_str()},
+	};
+	mod_author_request_t request{};
+	request.template_path = first.c_str();
+	request.mods_root = mods_path.c_str();
+	request.display_name = "Lineage Variant";
+	request.descriptor_values = lineage;
+	request.descriptor_value_count = 2;
+	forge_revision_t parent{};
+	forge_revision_t variant{};
+
+	SECTION("a remembered predecessor has an independent atomic pointer") {
+		const fs::path unpinned_store = dir.path / "unpinned-revisions";
+		REQUIRE(fs::create_directory(unpinned_store));
+		const auto unpinned = unpinned_store.string();
+		forge_revision_t previous{};
+		REQUIRE(forgeRevisionRememberPrevious(unpinned.c_str(), id, first.c_str(),
+			first_digest.c_str(), &previous, err, sizeof(err)));
+		CHECK(std::string(previous.arena_id) == id);
+		CHECK(std::string(previous.digest) == first_digest);
+		CHECK(validateReadFile(previous.path) == validateReadFile(first));
+		const std::string pointer_stem = map_hash;
+		const std::string previous_leaf = pointer_stem + ".previous";
+		const std::string current_leaf = pointer_stem + ".current";
+		CHECK(validateReadFile(unpinned_store / previous_leaf) ==
+			std::string("PD2_GRID_REVISION_V1\n") + id + "\n" + first_digest + "\n");
+		CHECK_FALSE(fs::exists(unpinned_store / current_leaf));
+		REQUIRE(forgeRevisionReadPrevious(unpinned.c_str(), id, &previous, err, sizeof(err)));
+
+		const auto original_pin = validateReadFile(store / current_leaf);
+		REQUIRE_FALSE(original_pin.empty());
+		REQUIRE(forgeRevisionRememberPrevious(directory.c_str(), id, first.c_str(),
+			first_digest.c_str(), &previous, err, sizeof(err)));
+		const auto previous_record = validateReadFile(store / previous_leaf);
+		REQUIRE_FALSE(previous_record.empty());
+		const forge_revision_t remembered = previous;
+
+		REQUIRE_FALSE(forgeRevisionRememberPrevious(directory.c_str(), id, first.c_str(),
+			second_digest.c_str(), &previous, err, sizeof(err)));
+		CHECK(std::string(err).find("bytes do not match") != std::string::npos);
+		REQUIRE_FALSE(forgeRevisionRememberPrevious(directory.c_str(), "mod:wrong_arena", first.c_str(),
+			first_digest.c_str(), &previous, err, sizeof(err)));
+		CHECK(std::string(err).find("arena ID does not match") != std::string::npos);
+		CHECK(std::memcmp(&previous, &remembered, sizeof(previous)) == 0);
+
+		// The second digest already exists, so the injected failure targets the pointer.
+		saveAtomicDebugFailNextCommit();
+		REQUIRE_FALSE(forgeRevisionRememberPrevious(directory.c_str(), id, second.c_str(),
+			second_digest.c_str(), &previous, err, sizeof(err)));
+		CHECK(std::string(err).find("previous revision pointer could not be saved") != std::string::npos);
+		CHECK(std::memcmp(&previous, &remembered, sizeof(previous)) == 0);
+		CHECK(validateReadFile(store / previous_leaf) == previous_record);
+		CHECK(validateReadFile(store / current_leaf) == original_pin);
+		REQUIRE(forgeRevisionReadPrevious(directory.c_str(), id, &previous, err, sizeof(err)));
+		CHECK(std::string(previous.digest) == first_digest);
+		REQUIRE(forgeRevisionReadCurrent(directory.c_str(), id, &revision, err, sizeof(err)));
+		CHECK(std::string(revision.digest) == second_digest);
+
+		REQUIRE(forgeRevisionRememberPrevious(directory.c_str(), id, second.c_str(),
+			second_digest.c_str(), &previous, err, sizeof(err)));
+		REQUIRE(forgeRevisionReadPrevious(directory.c_str(), id, &previous, err, sizeof(err)));
+		CHECK(std::string(previous.digest) == second_digest);
+		CHECK(validateReadFile(previous.path) == validateReadFile(second));
+		CHECK(validateReadFile(store / current_leaf) == original_pin);
+	}
+
+	SECTION("a Variant resolves the recorded older digest even after the current pin moves") {
+		REQUIRE(modAuthorSave(&request, saved.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+		std::snprintf(variant.arena_id, sizeof(variant.arena_id), "%s", saved->catalog_id);
+		std::snprintf(variant.path, sizeof(variant.path), "%s", saved->archive_path);
+		std::snprintf(variant.digest, sizeof(variant.digest), "%s", digest(variant.path).c_str());
+		REQUIRE(forgeRevisionReadParent(directory.c_str(), &variant, &parent, err, sizeof(err))
+			== FORGE_REVISION_PARENT_AVAILABLE);
+		REQUIRE(std::string(parent.arena_id) == id);
+		REQUIRE(std::string(parent.digest) == first_digest);
+		REQUIRE(validateReadFile(parent.path) == validateReadFile(first));
+		REQUIRE(forgeRevisionReadCurrent(directory.c_str(), id, &revision, err, sizeof(err)));
+		REQUIRE(std::string(revision.digest) == second_digest);
+
+		REQUIRE(fs::copy_file(second, parent.path, fs::copy_options::overwrite_existing));
+		CHECK(forgeRevisionReadParent(directory.c_str(), &variant, &parent, err, sizeof(err))
+			== FORGE_REVISION_PARENT_UNAVAILABLE);
+		CHECK(std::string(err).find("bytes do not match") != std::string::npos);
+	}
+
+	SECTION("a valid revision digest cannot stand in for the parent's arena identity") {
+		lineage[0].value = second_digest.c_str();
+		REQUIRE(modAuthorSave(&request, saved.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+		std::snprintf(variant.arena_id, sizeof(variant.arena_id), "%s", saved->catalog_id);
+		std::snprintf(variant.path, sizeof(variant.path), "%s", saved->archive_path);
+		std::snprintf(variant.digest, sizeof(variant.digest), "%s", digest(variant.path).c_str());
+		CHECK(forgeRevisionReadParent(directory.c_str(), &variant, &parent, err, sizeof(err))
+			== FORGE_REVISION_PARENT_UNAVAILABLE);
+		CHECK(std::string(err).find("arena ID does not match") != std::string::npos);
+	}
+}
+
+TEST_CASE("Saved Grid variant plans survive reopen and refuse changed metadata",
+	"[forge-revision][grid-variant-fallback]")
+{
+	ValidateTempDir directory;
+	const auto root = directory.path.string();
+	grid_match_source_package_t package{};
+	grid_match_source_entry_t entry{};
+	package.owner.type = ASSET_MODEL;
+	std::strcpy(package.owner.id, "grid:placed_mesh");
+	std::strcpy(package.suffix, ".pdmesh");
+	std::strcpy(package.path, "C:/private/source/placed_mesh.pdmesh");
+	const auto source = validateExample("tools/smoke-verify/fixtures/grid_required_mesh/tri_required.pdmesh");
+	package.size = static_cast<u32>(fs::file_size(source));
+	REQUIRE(modArchiveSha256(source.c_str(), package.digest) == 0);
+	entry.asset = package.owner;
+
+	grid_match_sources_t selected{};
+	selected.entries = &entry;
+	selected.packages = &package;
+	selected.entry_count = selected.package_count = 1;
+	char error[256]{};
+	REQUIRE(gridMatchSourcesSeal(&selected, error, sizeof(error)));
+	REQUIRE(forgeRevisionStoreDependencyPlan(root.c_str(), &selected, error, sizeof(error)));
+	REQUIRE(forgeRevisionStoreDependencyPlan(root.c_str(), &selected, error, sizeof(error)));
+
+	const auto file = directory.path / "sources" / (std::string(selected.digest) + ".plan");
+	CHECK(validateReadFile(file).find(package.path) == std::string::npos);
+
+	struct LoadedPlan {
+		grid_match_sources_t plan{};
+		~LoadedPlan() { gridMatchSourcesFree(&plan); }
+	} loaded;
+	REQUIRE(forgeRevisionLoadDependencyPlan(root.c_str(), selected.digest, &loaded.plan, error, sizeof(error)));
+	REQUIRE(loaded.plan.package_count == 1);
+	REQUIRE(loaded.plan.entry_count == 1);
+	CHECK(std::string(loaded.plan.entries[0].asset.id) == entry.asset.id);
+	CHECK(std::memcmp(loaded.plan.packages[0].digest, package.digest, SHA256_DIGEST_SIZE) == 0);
+	CHECK(std::string(loaded.plan.digest) == selected.digest);
+	CHECK(loaded.plan.packages[0].path[0] == '\0');
+
+	{
+		std::ofstream corrupt(file, std::ios::binary | std::ios::app);
+		corrupt << "unexpected content\n";
+		REQUIRE(corrupt.good());
+	}
+	REQUIRE_FALSE(forgeRevisionLoadDependencyPlan(root.c_str(), selected.digest, &loaded.plan, error, sizeof(error)));
+	CHECK(std::string(loaded.plan.digest) == selected.digest);
+	CHECK(std::string(loaded.plan.entries[0].asset.id) == entry.asset.id);
+}
+
+TEST_CASE("Grid match sources group exact catalog closure by immutable owning archive",
+	"[grid-match-sources][manifest]")
+{
+	struct Asset {
+		asset_type_e type;
+		const char *file;
+		const char *member;
+		const char *content;
+	};
+	std::map<std::string, Asset> catalog{
+		{"grid:arena", {ASSET_ARENA, "arena.pdarena", "", "arena!"}},
+		{"grid:scenario", {ASSET_SCENARIO, "arena.pdarena", "map.pdscenario", "arena!"}},
+		{"grid:weapon", {ASSET_WEAPON, "weapon.pdweapon", "", "weapon!"}},
+		{"grid:effect", {ASSET_EFFECT, "weapon.pdweapon", "effect.pdeffect", "weapon!"}},
+		{"grid:audio", {ASSET_AUDIO, "audio.pdsong", "", "audio!"}},
+		{"grid:unrelated", {ASSET_WEAPON, "other.pdweapon", "", "other!"}},
+	};
+	using Catalog = decltype(catalog);
+	const auto resolve = [](const char *id, asset_type_e *type, void *user) -> s32 {
+		const auto &table = *static_cast<const Catalog *>(user);
+		const auto found = table.find(id);
+		if (found == table.end()) return 0;
+		*type = found->second.type;
+		return 1;
+	};
+	const auto inspect = [](const grid_match_source_root_t *asset,
+			grid_match_source_archive_t *archive, void *user, char *, size_t) -> s32 {
+		const auto &entry = static_cast<const Catalog *>(user)->at(asset->id);
+		std::snprintf(archive->path, sizeof(archive->path), "%s", entry.file);
+		std::snprintf(archive->member_chain, sizeof(archive->member_chain), "%s", entry.member);
+		const char *owner = asset->type == ASSET_SCENARIO ? "grid:arena"
+			: asset->type == ASSET_EFFECT ? "grid:weapon" : asset->id;
+		archive->owner.type = static_cast<const Catalog *>(user)->at(owner).type;
+		std::snprintf(archive->owner.id, sizeof(archive->owner.id), "%s", owner);
+		const char *suffix = archive->owner.type == ASSET_AUDIO ? ".pdsong"
+			: archive->owner.type == ASSET_WEAPON ? ".pdweapon" : ".pdarena";
+		std::snprintf(archive->suffix, sizeof(archive->suffix), "%s", suffix);
+		archive->size = static_cast<u32>(std::strlen(entry.content));
+		sha256Hash(entry.content, archive->size, archive->digest);
+		return 1;
+	};
+	struct SourceTest {
+		catalog_dep_snapshot_t previous{};
+		grid_match_sources_t manifest{};
+		SourceTest() {
+			REQUIRE(catalogDepSnapshotCreate(&previous));
+			catalogDepClear();
+		}
+		~SourceTest() {
+			gridMatchSourcesFree(&manifest);
+			catalogDepSnapshotRestore(&previous);
+			catalogDepSnapshotDestroy(&previous);
+		}
+	} scope;
+	REQUIRE(catalogDepRegisterTyped("grid:arena", "grid:weapon", ASSET_WEAPON, 0));
+	REQUIRE(catalogDepRegisterTyped("grid:scenario", "grid:weapon", ASSET_WEAPON, 0));
+	REQUIRE(catalogDepRegisterTyped("grid:weapon", "grid:effect", ASSET_EFFECT, 0));
+	REQUIRE(catalogDepRegisterTyped("grid:effect", "grid:audio", ASSET_AUDIO, 0));
+	grid_match_source_root_t roots[] = {{"grid:scenario", ASSET_SCENARIO}, {"grid:arena", ASSET_ARENA}};
+	char err[256]{};
+	auto &plan = scope.manifest;
+	REQUIRE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(plan.entry_count == 5);
+	REQUIRE(plan.package_count == 3);
+	REQUIRE(std::string(plan.entries[0].asset.id) == "grid:arena");
+	REQUIRE(plan.entries[0].package_index == plan.entries[3].package_index);
+	REQUIRE(plan.entries[2].package_index == plan.entries[4].package_index);
+	const std::string previous = plan.digest;
+
+	std::swap(roots[0], roots[1]);
+	catalog["grid:arena"].file = "other_install/renamed.pdarena";
+	REQUIRE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(std::string(plan.digest) == previous);
+	catalog["grid:audio"].type = ASSET_ANIMATION;
+	REQUIRE_FALSE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(std::string(plan.digest) == previous);
+
+	catalog["grid:audio"].type = ASSET_AUDIO;
+	catalog["grid:audio"].file = "weapon.pdweapon";
+	REQUIRE_FALSE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(std::string(plan.digest) == previous);
+
+	catalog["grid:audio"].file = "audio.pdsong";
+	catalog["grid:audio"].content = "audio changed!";
+	REQUIRE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(std::string(plan.digest) != previous);
+	const std::string updated = plan.digest;
+	REQUIRE(catalogDepRegisterTyped("grid:audio", "grid:effect", ASSET_EFFECT, 0));
+	REQUIRE_FALSE(gridMatchSourcesBuild(&plan, roots, 2, resolve, inspect, &catalog, err, sizeof(err)));
+	REQUIRE(std::string(plan.digest) == updated);
+}
+
+TEST_CASE("Grid arena provenance stays in the native descriptor across copies",
+	"[grid-provenance][modding][pdxxx]")
+{
+	const ValidateTempDir dir;
+	const char *id = "mod_blank_room:arena_blank_room";
+	const char *relative = "dev-mods/blank_room/blank_room.pdarena";
+	const auto original = validateReadFile(validateExample(relative));
+	auto origin = [](const std::string &bytes) {
+		return gridArchiveOrigin("arena.pdarena", bytes.data(), static_cast<u32>(bytes.size()));
+	};
+	REQUIRE(origin(original) == GRID_ARCHIVE_LEGACY);
+
+	const auto descriptor = validateEntry(original, "arena.ini");
+	const auto marked = validateWithMember(dir, relative, id, "arena.ini",
+		descriptor + "grid_provenance = byor\n", "byor.pdarena");
+	REQUIRE(origin(validateReadFile(marked)) == GRID_ARCHIVE_BYOR);
+	const fs::path fork = dir.path / "fork.pdarena";
+	char err[256]{};
+	REQUIRE(assetArchiveCloneFile(marked.string().c_str(), fork.string().c_str(), "mod:arena_fork",
+		"pd-tests", nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	REQUIRE(origin(validateReadFile(fork)) == GRID_ARCHIVE_BYOR);
+	const auto ambiguous = validateWithMember(dir, relative, id, "arena.ini",
+		descriptor + "grid_provenance = original\ngrid_provenance = byor\n", "ambiguous.pdarena");
+	REQUIRE(origin(validateReadFile(ambiguous)) == GRID_ARCHIVE_INVALID);
+	const auto author_marked = validateWithMember(dir, relative, id, "arena.ini",
+		descriptor + "grid_provenance = original\n", "authored.pdarena");
+	REQUIRE(origin(validateReadFile(author_marked)) == GRID_ARCHIVE_ORIGINAL);
+}
+
+TEST_CASE("Grid weapon redistribution requires unambiguous native original provenance",
+	"[grid-provenance][modding][pdxxx]")
+{
+	const ValidateTempDir dir;
+	const char *id = "example:tri_weapon";
+	const char *relative = "examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon";
+	const auto original = validateReadFile(validateExample(relative));
+	const auto descriptor = validateEntry(original, "weapon.ini");
+	const auto origin = [](const std::string &bytes) {
+		return gridArchiveOrigin("received.pdweapon", bytes.data(), static_cast<u32>(bytes.size()));
+	};
+	REQUIRE(origin(original) == GRID_ARCHIVE_LEGACY);
+	const auto author = validateWithMember(dir, relative, id, "weapon.ini",
+		descriptor + "grid_provenance = original\n", "original.pdweapon");
+	REQUIRE(origin(validateReadFile(author)) == GRID_ARCHIVE_ORIGINAL);
+	const auto byor = validateWithMember(dir, relative, id, "weapon.ini",
+		descriptor + "grid_provenance = byor\n", "byor.pdweapon");
+	REQUIRE(origin(validateReadFile(byor)) == GRID_ARCHIVE_BYOR);
+	const auto ambiguous = validateWithMember(dir, relative, id, "weapon.ini",
+		descriptor + "grid_provenance = original\ngrid_provenance = byor\n", "ambiguous.pdweapon");
+	REQUIRE(origin(validateReadFile(ambiguous)) == GRID_ARCHIVE_INVALID);
+	REQUIRE(origin("truncated") == GRID_ARCHIVE_INVALID);
+}
 
 TEST_CASE("in-game Validate accepts every checked-in example archive",
           "[modding][validate]") {

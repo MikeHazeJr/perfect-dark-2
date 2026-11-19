@@ -19,6 +19,8 @@ typedef struct distrib_request {
     char id[64];
     uint8_t kind;
     uint8_t temporary;
+    uint64_t offer_generation; /* Zero for ordinary asset/package requests. */
+    uint16_t package_index;
 } distrib_request;
 
 typedef struct distrib_queue {

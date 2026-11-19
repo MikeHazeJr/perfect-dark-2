@@ -134,6 +134,30 @@ static s32 s_exactSlot(const char *id, s32 slot)
     return strcmp(s_CustomModelCatalogIds[local], id) == 0 ? local : -1;
 }
 
+s32 assetCatalogFindModelPrivateSlot(const char *id)
+{
+    if (!id || !id[0]) return -1;
+    for (s32 i = 0; i < MODEL_CUSTOM_COUNT; i++) {
+        if (strcmp(s_CustomModelCatalogIds[i], id) == 0) return MODEL_CUSTOM_START + i;
+    }
+    return -1;
+}
+
+s32 assetCatalogCanRetireModelReservation(const char *id, s32 slot)
+{
+    const s32 local = s_exactSlot(id, slot);
+    return local >= 0 && s_CustomModelReserved[local] && !s_CustomModelPins[local];
+}
+
+s32 assetCatalogRetireModelReservation(const char *id, s32 slot)
+{
+    if (!assetCatalogCanRetireModelReservation(id, slot)) return 0;
+    const s32 local = slot - MODEL_CUSTOM_START;
+    s_CustomModelReserved[local] = 0;
+    s_CustomModelCatalogIds[local][0] = '\0';
+    return 1;
+}
+
 s32 assetCatalogPinModelPrivateSlot(const char *id, s32 slot)
 {
     s32 local = s_exactSlot(id, slot);

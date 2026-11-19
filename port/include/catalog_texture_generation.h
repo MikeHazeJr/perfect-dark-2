@@ -20,6 +20,8 @@ catalog_texture_generation_t *catalogTextureGenerationAcquireSource(
     const char *descriptor, u32 descriptor_size, char *error, size_t capacity);
 void catalogTextureGenerationRetain(catalog_texture_generation_t *generation);
 void catalogTextureGenerationRelease(catalog_texture_generation_t *generation);
+/* Exact catalog identity query on the client texture thread. */
+s32 catalogTextureGenerationHasLiveIdentity(const char *catalog_id);
 const char *catalogTextureGenerationId(const catalog_texture_generation_t *generation);
 const char *catalogTextureGenerationHash(const catalog_texture_generation_t *generation);
 s32 catalogTextureGenerationSlot(const catalog_texture_generation_t *generation);

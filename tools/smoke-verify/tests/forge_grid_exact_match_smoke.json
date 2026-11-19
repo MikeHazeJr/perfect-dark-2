@@ -1,0 +1,227 @@
+{
+  "scenario_name": "forge_grid_exact_match_smoke",
+  "description": "Author the same Grid arena in two clean profiles. The listen host rolls one Random spawn weapon from its unlocked catalog and offers exact typed sources. Both peers use the staged archives and spawn armed, then review the results. Each peer has a fresh save and Mods directory in one managed base install.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "combatsim",
+    "match-lifecycle"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-host",
+    "grid-guest"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-guest/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "grid-host/mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "grid-host/mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "grid-host/mods-enabled.json"
+    },
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "grid-guest/mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "grid-guest/mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "grid-guest/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-host",
+        "--moddir",
+        "$E/grid-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-forge-level",
+        "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name",
+        "Grid_Exact_Match",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27473",
+        "--launch-mp-room",
+        "mod:arena_grid_exact_match",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "20"
+      ],
+      "wait_for": "NET: created server on port 27473",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host rolls once from more than six eligible weapons and plays the exact stage",
+            "patterns": [
+              "GRID\\.SPAWN\\.ROLL: id=base:[a-z0-9_.-]+ eligible=([7-9]|[1-5][0-9]|6[01])\\b",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_exact_match generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.SPAWN\\.ACTIVE: id=base:[a-z0-9_.-]+ mode=1 weaponnum=[1-9][0-9]*\\b",
+              "SPAWN: player [0-9]+ spawned with weapon [1-9][0-9]* .*auto-equipped to right hand",
+              "MATCH: final scores published before stage end room="
+            ]
+          }
+        ],
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_exact_match sha256=[0-9a-f]{64}",
+          "NET: .+ \\(1\\) joined",
+          "SPAWN: bot chr=\\S+ spawned with weapon [1-9][0-9]* \\(",
+          "SAVE: initialized .*grid-host"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-guest",
+        "--moddir",
+        "$E/grid-guest/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-forge-level",
+        "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name",
+        "Grid_Exact_Match",
+        "--connect-host",
+        "127.0.0.1:27473"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "installed guest retains its exact played arena before the result commits",
+            "patterns": [
+              "MATCH: client stage start received",
+              "GRID\\.SPAWN\\.ACTIVE: id=base:[a-z0-9_.-]+ mode=1 weaponnum=[1-9][0-9]*\\b",
+              "SPAWN: player [0-9]+ spawned with weapon [1-9][0-9]* .*auto-equipped to right hand",
+              "GRID\\.MATCH\\.RETURNED_ARENA: retained room=[0-9]+ generation=[1-9][0-9]* stage_epoch=[1-9][0-9]* arena=mod:arena_grid_exact_match bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_exact_match revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=5"
+            ]
+          }
+        ],
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_exact_match",
+          "NET: SVC_AUTH from server, our ID is 1",
+          "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_exact_match generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "MATCH: client stage start received",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=2",
+          "SAVE: initialized .*grid-guest"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 320000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 60000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 2500,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "MATCH: stage end reason=timelimit",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.SPAWN\\.ROLL:",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "GRID\\.SPAWN\\.ACTIVE:",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_exact_match epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_exact_match revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=5",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER:",
+      "NET\\.GRID\\.RESULT: rejected",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

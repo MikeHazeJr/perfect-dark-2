@@ -193,6 +193,10 @@ s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);
 s32 missionGraphProgramExecEdgeCount(const mission_graph_program_t *program);
 s32 missionGraphProgramEventNodeCount(const mission_graph_program_t *program, s32 event_kind);
 s32 missionGraphProgramModuleNodeCount(const mission_graph_program_t *program);
+typedef s32 (*mission_graph_module_param_visitor_t)(const char *kind,
+	const mission_graph_params_t *params, void *userdata);
+s32 missionGraphProgramVisitModuleParams(const mission_graph_program_t *program,
+	mission_graph_module_param_visitor_t visit, void *userdata);
 /* The distinct volumes event.volume.* nodes name, in authored order. */
 s32 missionGraphProgramVolumeCount(const mission_graph_program_t *program);
 const char *missionGraphProgramVolumeAt(const mission_graph_program_t *program, s32 index);
@@ -220,6 +224,11 @@ s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program
  * it; the modules before the refusal have run. */
 s32 missionGraphProgramFire(const mission_graph_program_t *program,
 	const mission_graph_event_t *event, mission_graph_module_run_fn run, void *user);
+
+/* Compare the same live level graph under its two verified catalog IDs.
+ * Only its root and the native settings node may change identity. */
+s32 missionGraphLevelLayoutCompatible(const char *outgoing, size_t outgoing_size, const char *outgoing_id,
+	const char *incoming, size_t incoming_size, const char *incoming_id);
 
 #ifdef __cplusplus
 }

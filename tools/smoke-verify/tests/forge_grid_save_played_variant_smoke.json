@@ -1,0 +1,193 @@
+{
+  "scenario_name": "forge_grid_save_played_variant_smoke",
+  "description": "A clean guest consents to an exact Grid arena, placed weapon, and independent model. After returning to the same Room, the listen host and guest independently save variants of the played revision with the original mesh and a Falcon 2 in place of Triangle. The host verifies its installed sources and pin. A fresh offline guest loads the exact retained mesh and collects the native fallback without installing the received mods.",
+  "tags": ["modding", "forge", "network", "temporary-content", "variant", "restart"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_io.c",
+    "port/src/forge_revision_store.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/modeldef.c",
+    "src/game/propobj.c",
+    "tools/smoke-verify/fixtures/grid_required_mesh",
+    "tools/smoke-verify/fixtures/grid_two_package_guest_process.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "guest",
+    "before_target_barrier": true,
+    "target_ready_wait_for": "NET: SVC_AUTH from server, our ID is 1",
+    "target_ready_timeout_seconds": 210,
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": ["grm-h", "grm-g"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/mod_author/grid_triangle/recipe.json", "dst": "grm-h/recipes/grid_triangle/recipe.json" },
+    { "src": "examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon", "dst": "grm-h/recipes/grid_triangle/tri_weapon.pdweapon" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grm-h/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/grid_required_mesh/enabled.json", "dst": "grm-h/mods-enabled.json" },
+    { "src": "tools/smoke-verify/fixtures/grid_required_mesh/mod.json", "dst": "grm-h/mods/grid_required_mesh/mod.json" },
+    { "src": "tools/smoke-verify/fixtures/grid_required_mesh/tri_required.pdmesh", "dst": "grm-h/mods/grid_required_mesh/meshes/tri_required.pdmesh" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grm-g/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json", "dst": "grm-g/mods-enabled.json" }
+  ],
+  "packed_fixtures": [
+    { "src": "dev-mods/crystal_pistol", "dst": "grm-g/mods/installed/crystal_pistol.pdmod" }
+  ],
+  "retain_artifacts": [
+    { "src": "grm-h/mods/MP Maps/arena_grid_host_played_variant/arena_grid_host_played_variant.pdarena", "name": "host-played-variant.pdarena" },
+    { "src": "grm-g/mods/MP Maps/arena_grid_played_variant/arena_grid_played_variant.pdarena", "name": "played-variant.pdarena" },
+    { "src": "grm-g/forge-revisions/sources/90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f.pdmesh", "name": "kept-mesh.pdmesh" },
+    { "src": "grm-g/mods-enabled.json", "name": "guest-mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grm-h", "--moddir", "$E/grm-h/mods",
+        "--no-update-check", "--no-sound", "--skip-intro", "--debug-force-first-person",
+        "--mod-author", "grm-h/recipes/grid_triangle/recipe.json", "--debug-grid-share-weapon", "mod:weapon_grid_triangle",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Required_Mods",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_required_mods", "--debug-forge-level-name", "Grid_Required_Mods",
+        "--debug-forge-level-weapon", "mod:weapon_grid_triangle", "--debug-forge-level-prop", "grid_required_mesh:tri_required",
+        "--debug-forge-level-pin", "--debug-forge-level-share", "--host", "--listen-bind", "27625",
+        "--launch-mp-room", "mod:arena_grid_required_mods", "base:combat", "0",
+        "--debug-spawn-weapon", "mod:weapon_grid_triangle", "--host-autostart", "--match-timelimit-sec", "35",
+        "--debug-grid-save-host-played-variant", "Grid_Host_Played_Variant"
+      ],
+      "wait_for": "NET: created server on port 27625",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "the host stages and plays the original required-source arena",
+            "patterns": [
+              "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_grid_triangle",
+              "FORGE\\.LEVEL\\.EDIT: made prop setup_[0-9]+ drawn with grid_required_mesh:tri_required",
+              "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_required_mods sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_required_mods",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_required_mods epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_required_mods revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.MATCH\\.ROOM: world retired room=1",
+              "FORGE\\.LEVEL\\.PLAYED: saved original=mod:arena_grid_required_mods parent=[0-9a-f]{64} variant=mod:arena_grid_host_played_variant plan=[0-9a-f]{64} omitted=1 fallbacks=1",
+              "SMOKE\\.GRID\\.PLAYED: host saved room=1 original=mod:arena_grid_required_mods parent=[0-9a-f]{64} variant=mod:arena_grid_host_played_variant sha256=[0-9a-f]{64} kept=grid_required_mesh:tri_required mesh_sha256=90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f omitted=mod:weapon_grid_triangle fallback=base:falcon2 installed_exact=1$",
+              "SMOKE: result=scripted_exit scenario=forge_grid_save_played_variant_smoke"
+            ]
+          }
+        ],
+        "required_lines": [
+          "NET: CLC_LOBBY_RESYNC from client=1, replaying room state room=1$",
+          "MODEL\\.SLOT: custom slot [1-9][0-9]* 'grid_required_mesh:tri_required' world scale "
+        ],
+        "forbidden_patterns": [
+          "SETUP: object modelnum -1 modeldef NULL after load",
+          "SMOKE\\.GRID\\.PLAYED: host save proof failed"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+      "snapshot_log_file": "grid-played-variant-save.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grm-g", "--moddir", "$E/grm-g/mods",
+        "--no-update-check", "--no-sound", "--skip-intro", "--debug-force-first-person",
+        "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid Slot Seed",
+        "--connect-host", "127.0.0.1:27625", "--debug-grid-save-played-variant", "Grid_Played_Variant"
+      ],
+      "wait_for": "SMOKE: result=grid_played_variant_saved .* code=0$",
+      "wait_timeout_seconds": 435,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "guest consents through the Room, plays, returns and saves the exact original as parent",
+            "patterns": [
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "DISTRIB\\.GRID: temporary packages await consent count=3 bytes=[1-9][0-9]*",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=24 down=1 .*pressed_after=1",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_required_mods packages=3",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_required_mods generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_required_mods epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=[1-9][0-9]* id=grid_required_mesh:tri_required path=.*grm-g/grid-session/90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f\\.pdmesh::model\\.gltf$",
+              "MODEL\\.SLOT: custom slot [1-9][0-9]* 'grid_required_mesh:tri_required' world scale ",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_required_mods revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.MATCH\\.ROOM: world retired room=1",
+              "FORGE\\.LEVEL\\.PLAYED: saved original=mod:arena_grid_required_mods parent=[0-9a-f]{64} variant=mod:arena_grid_played_variant plan=[0-9a-f]{64} omitted=1 fallbacks=1",
+              "SMOKE\\.GRID\\.PLAYED: saved room=1 original=mod:arena_grid_required_mods parent=[0-9a-f]{64} variant=mod:arena_grid_played_variant sha256=[0-9a-f]{64} kept=grid_required_mesh:tri_required mesh_sha256=90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f omitted=mod:weapon_grid_triangle fallback=base:falcon2 mods_installed=0",
+              "SMOKE: result=grid_played_variant_saved"
+            ]
+          }
+        ],
+        "required_counts": [
+          { "pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary ", "min": 3, "max": 3 },
+          { "pattern": "DISTRIB\\.GRID: temporary packages await consent count=3", "min": 1, "max": 1 }
+        ],
+        "forbidden_patterns": ["MODAUTHOR\\.RECIPE\\.RESULT", "modmgr: loading mod 'grid_required_mesh'", "FORGE\\.LEVEL\\.SAVE\\.INPLACE: arena=mod:arena_grid_required_mods"]
+      }
+    },
+    {
+      "name": "guest-offline-restart",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/tests/forge_grid_variant_fallback_smoke.json",
+      "snapshot_log_file": "grid-played-variant-restart.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grm-g", "--moddir", "$E/grm-g/mods",
+        "--no-update-check", "--no-sound", "--no-net", "--skip-intro",
+        "--launch-mp-room", "mod:arena_grid_played_variant", "base:combat", "0",
+        "--debug-auto-start-match", "--debug-spawn-weapon", "base:dragon", "--debug-grid-play-saved-variant"
+      ],
+      "wait_for": "SMOKE: result=grid_played_variant_restarted .* code=0$",
+      "wait_timeout_seconds": 300,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "fresh offline engine restores the retained mesh and grants the native Falcon pickup",
+            "patterns": [
+              "modmgr: loaded mods-enabled\\.json in saved order",
+              "FORGE\\.LEVEL\\.VARIANT\\.MOUNT: arena=mod:arena_grid_played_variant plan=[0-9a-f]{64} restored=1",
+              "MODELDEF\\.SOURCE: loaded catalog model source type=23 filenum=[1-9][0-9]* id=grid_required_mesh:tri_required path=.*grm-g/grid-session/90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f\\.pdmesh::model\\.gltf$",
+              "MODEL\\.SLOT: custom slot [1-9][0-9]* 'grid_required_mesh:tri_required' world scale ",
+              "SMOKE\\.GRID\\.PLAYED: restarted variant=mod:arena_grid_played_variant sha256=[0-9a-f]{64} parent=[0-9a-f]{64} mesh=grid_required_mesh:tri_required mesh_sha256=90682b258c9272480c2419d92c8d7d15da946993ea2cdc6878eb8b3a9b316d2f pickup=base:falcon2 room=[1-9][0-9]* inventory=1 mods_installed=0",
+              "SMOKE: result=grid_played_variant_restarted"
+            ]
+          }
+        ],
+        "forbidden_patterns": ["NET: SVC_AUTH", "NET\\.GRID\\.TRANSFER", "MODAUTHOR\\.RECIPE\\.RESULT", "modmgr: loading mod 'grid_required_mesh'"]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 410000, "stable_ms": 1500 },
+    { "at_ms": 11000, "type": "wait_until", "condition": "endscreen_visible", "timeout_ms": 75000, "stable_ms": 1000 },
+    { "at_ms": 13000, "type": "action", "name": "ACTION_USE", "action": "tap" },
+    { "at_ms": 29000, "type": "exit" }
+  ],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.PLAYED: (save|restart) proof failed",
+      "SMOKE: result=(timeout|grid_played_variant_.*failed)",
+      "NET\\.GRID\\.TRANSFER: (refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

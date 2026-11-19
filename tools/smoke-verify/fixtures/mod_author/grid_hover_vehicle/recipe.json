@@ -1,0 +1,66 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template_file": "template/tri_vehicle.pdvehicle",
+  "name": "Grid Hover",
+  "author": "PD2",
+  "version": "0.4.0",
+  "description": "An original Grid proof vehicle using the repository\u2019s native hover mesh, physics and behavior source.",
+  "descriptor": {
+    "model_file": "dependencies/assets/models/maian_hover.pdmesh",
+    "grid_provenance": "original"
+  },
+  "overrides": [
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh",
+      "file": "template/tri_mesh.pdmesh"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::mesh.ini",
+      "file": "meshes/vehicle/mesh.ini"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.gltf",
+      "remove": true
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.obj",
+      "file": "meshes/vehicle/model.obj"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.mtl",
+      "file": "meshes/vehicle/model.mtl"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.nodes.json",
+      "file": "meshes/vehicle/model.nodes.json"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.parts.json",
+      "file": "meshes/vehicle/model.parts.json"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.faces.json",
+      "file": "meshes/vehicle/model.faces.json"
+    },
+    {
+      "entry": "dependencies/assets/models/maian_hover.pdmesh::model.render.json",
+      "file": "meshes/vehicle/model.render.json"
+    },
+    {
+      "entry": "model.gltf",
+      "remove": true
+    },
+    {
+      "entry": "behavior/variables.json",
+      "file": "behavior/variables.json"
+    },
+    {
+      "entry": "behavior.graph.json",
+      "file": "behavior.graph.json"
+    },
+    {
+      "entry": "physics.json",
+      "file": "physics.json"
+    }
+  ]
+}

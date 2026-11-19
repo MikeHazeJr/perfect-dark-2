@@ -39,11 +39,23 @@ about 70 degrees.
 
 Maian veteran: no traits; normal hitbox, speed and health. An older Skedar-war
 veteran: weathered grey skin, scars, a worn harness with crystal inlays, a
-holstered crystal pistol, three crystal chevrons on one pauldron. Male and
-female variants on the Maian rig. Reuse the Maian animations; add driver and
-gunner seats and get in/out; a calmer idle if easy. The simulant prefers Maian
-weapons, holds cover and engages at range. A single-player ally can drive or
-gun.
+holstered crystal pistol, three crystal chevrons on one pauldron. On the Maian
+rig. Reuse the Maian animations; add driver and gunner seats and get in/out; a
+calmer idle if easy. The simulant prefers Maian weapons, holds cover and
+engages at range. A single-player ally can drive or gun.
+
+Changed by Mike on 2026-11-17, after the first concept sheets (this replaces
+"male and female variants" in the brief of 2026-11-15):
+
+1. One veteran, not two: Maians are not gendered.
+2. Maians are tridactyl (three fingers).
+3. Crystal colour: similar to the crystal pistol's, ever so slightly less
+   vibrant.
+4. The crystal pistol is the style reference, more or less.
+
+The next sheet is shown to Mike before any model is made. Round 2 was shown on
+2026-11-17 (`D:\Game Dev\PD2-Assets\maian-veteran\concept\concept-v3.png`; the
+folder's README has what is right and wrong in it); his answer is awaited.
 
 ### Level
 
@@ -164,7 +176,7 @@ reported them; not re-read line by line).
 
 | Requirement | State | Where the work goes |
 |---|---|---|
-| Male and female veteran on the Maian rig | partial (pipeline and male templates) | new `.pdbody`/`.pdhead`: an original mesh bound to the 14 body parts, `HEADBODYTYPE_MAIAN`, `ismale` 1 and 0 |
+| One veteran on the Maian rig (Mike 2026-11-17: Maians are not gendered; the row read "male and female") | partial (pipeline and male templates) | new `.pdbody`/`.pdhead`: an original mesh bound to the 14 body parts, `HEADBODYTYPE_MAIAN`; `ismale` stays as the base Maian body has it, since the game has no third value |
 | Looks (grey skin, scars, harness, holster, chevrons) | partial | `.pdtexture` dependencies named by the mesh materials |
 | Maian animations | exists (human clips, Maian scale) | green blood for Maian-type mod bodies |
 | Seats and get in/out | missing | new clips and seat code |
@@ -306,6 +318,23 @@ a Modding Hub tab for players), and the tools grow with the mods.
   crystals that regrow per shot (the crystal pistol's regrow ammo), full
   regrow = interval x 18 plus about 10 % scaled by speed, fire rate lowered by
   normalised non-boost speed; locked out at full boost.
+  - V5a WRITTEN 2026-11-17 (not run): the turret points where the gunner
+    aims. The gunner's update records the aim for the vehicle (its yaw on top
+    of the vehicle's heading, and the view's pitch;
+    `vehicleGraphRuntimeSetTurretAim`), and the vehicle keeps the last one
+    when the gunner leaves. When the vehicle's matrices are built
+    (`objInitMatrices`), `hoverbikeApplyTurretAim` rebuilds the turret's yaw
+    part (part 1) and every position node under it with the yaw turned in,
+    and the pitch part (part 2) and its nodes with the pitch: the model is
+    placed with no animation, so each node's matrix is its parent's times its
+    own offset. The gunner's eye (part 161, on the yaw part) goes round the
+    yaw pivot with it (`vehicleTurretTurnPoint`, unit-tested in
+    `[vehicle-seats]`), so the gunner keeps looking along the cannon. Only a
+    model whose yaw part carries the gunner's seat part is turned. Not yet:
+    pitch limits, firing, lock and zoom, and the parts named by an
+    `og.vehicle.turret_aim` node instead of fixed numbers. The seats smoke
+    requires the `VEHICLE.TURRET:` lines, and its gunner-looking-right picture
+    should show the cannon ahead of the eye.
 - V6. Lock-on at vehicles only: shots track until they hit, the gunner
   releases, or boost ramps; the boost curve weakens tracking; a shot that
   loses tracking keeps its heading.
@@ -403,6 +432,20 @@ Build order:
 - V4a. Seat records in the graph runtime, the host's `seat_free` for both
   seats, `event.vehicle.switch_seat_requested` and `og.vehicle.switch_seat` in
   the runner and conformance, with pd-tests.
+  - WRITTEN 2026-11-16 (0611ac20 on `week-pd/mods-v4`), not compiled yet. As
+    built: a switch request names the seat asked for, like a mount;
+    `gate.vehicle.seat` tests the seat of any of the three seat requests; one
+    event may reach one mount, one dismount and one switch per seat;
+    `vehicleGraphProgramEventSeats` tells the game which seats a mount, a
+    dismount or a switch can act on (so "has a gunner seat" and "has a seat to
+    switch to" are read from the graph); the record keeps one player per seat
+    and one seat per player (`vehicleGraphRuntimeSeatOccupant`,
+    `SetSeatOccupant`, `SeatOfPlayer`) and keeps the riders when a program is
+    freed and compiled again. The driver seat's truth stays `OBJHFLAG_MOUNTED`
+    (it covers a remote driver); the gunner seat's is the record, which is the
+    call MULTIPLAYER's wire will make for a remote gunner. Tests: a two-seat
+    graph in `[vehicle-graph]` and in the conformance cases (10 pass). Schema:
+    `vehicle-graph-v1.md`, "Seats".
 - V4b. The seat a mount asks for (mount points, view and distance), the
   gunner's ride (follow the pod, free look, no physics), the turret layer and
   its input context, the double-press switch, and the Maian graph's gunner
@@ -410,6 +453,215 @@ Build order:
 - V4c. A solo smoke: walk up looking at the cockpit and mount the driver seat,
   press exit twice (turret layer on top, the player at the pod), twice again
   (driver), drive, press once and dismount.
+
+#### V4b step plan (read-only survey at ee3809a9, 2026-11-16)
+
+READ by a planning survey; file:line as it reported them, not re-read line by
+line. Nothing here is built.
+
+Where things go:
+
+- The rider's seat is read from the record
+  (`vehicleGraphRuntimeSeatOfPlayer`), with no new field on the player. Only
+  the gunner is recorded; a rider who is not the recorded gunner is the driver,
+  so a one-seat or v2 vehicle makes no record and takes today's path. Helpers
+  in `bondbike.c`: `bbikeSeatOfPlayer(playernum)`, `bbikeCurrentSeat()`.
+- Pure helpers with unit cases, `port/src/vehicle_seats.c`
+  (`[vehicle-seats]`): the view angle to a seat, the seat choice from each
+  seat's free, in range, angle and distance, and the exit button's press
+  machine (`vehicleExitPressStep`).
+- Mount points in `vehiclegraph.c` (`hoverbikeSeatWorldPos`): the driver's is
+  the seat offset (0, 80, -50) over the model scale (`bondbike.c:297`); the
+  gunner's is model part 1 through `modelNodeGetModelRelativePosition`
+  (`model.c:549`), not the render matrices (they exist only for a prop drawn
+  that frame). Range is the native check on the mount point
+  (`propobj.c:18555`); the view angle is the interact cone's formula
+  (`propobj.c:18331`).
+- The seat action takes the seat (`hoverbike_seat_action_fn(context, seat)`)
+  and also serves the switch callback. The native mount and both apply
+  functions keep their text (pinned by `test_vehicle_observer_layer.cpp`); a
+  gunner mount is a new function, solo only (`g_NetMode == NETMODE_NONE`)
+  until the wire carries a seat.
+- `bbikeInit` and `bbikeExitLocal` split into what both seats do and what only
+  the driver does (the scene kind, the projectile speed handoff,
+  `objFreeEmbedmentOrProjectile`, `OBJHFLAG_MOUNTED`, momentum, the engine
+  sounds). The gunner branch of the exit must come before the flag's early
+  return (`bondbike.c:145`), and `bbikeCanDismount` and `bbikeTryDismount`
+  have the same early return (`:197`, `:227`).
+- `bbikeTick` branches to a gunner tick: no physics, engine sound, collision
+  move or bike camera; the seat transform with the pod's offset, free yaw at
+  the walk rate, the head through `bmoveUpdateHead`. `bbikeApplyMoveData`
+  returns early for the gunner after the shared exit read (no drive, no boost).
+  The bike's perimeter and the death explosion stay the driver's.
+- Exit and switch: the press is read in `bbikeApplyMoveData`
+  (`bondbike.c:580`). Per-player state beside `s_VehicleExitIntentPending`,
+  stamped with `g_Vars.lvframe60`, window `TICKS(18)` (0.3 s). A switch fires
+  `event.vehicle.switch_seat_requested`; its action swaps the driver half of
+  the exit or the init, fires the scene's dismount and then board for the new
+  kind (board does nothing while a vehicle handle exists, `scene.c:208`) and
+  restarts the camera blend.
+- Input: `g_LayerVehicleTurret` is a stub today (`inputlayer.c:292`: no action
+  set, no context), so every gameplay action would pass, the hand gun included.
+  It needs its action set (exit, look, aim axes, pause, and two new actions),
+  a `g_ImcVehicleTurret` context registered everywhere the driver's is
+  (`actionmap.cpp:923`, `1253`, `2309`, `2923`, `3557`, `3603`), defaults
+  (mouse buttons, the triggers, F and X), and Controls menu rows
+  (`pdgui_menu_mainmenu.cpp:1862`, `2009`, `2033`). New actions
+  `ACTION_TURRET_FIRE` (124) and `ACTION_TURRET_ZOOM` (125), appended.
+- Smoke: `--debug-mount-seat <driver|gunner>` beside `--debug-mount-bike`
+  (`main.c:3112`), two exit taps 150 ms apart from the harness, a readiness
+  condition for the gunner, and `VEHICLE.SEAT:` lines for the choice, each
+  mount, each switch and each dismount.
+
+Order: (1) the pure helpers and their cases; (2) the actions, the turret
+context, layer and menu rows; (3) `vehiclegraph.c`: the seat-carrying action,
+the switch callback, the mount points, the three pins; (4) `bondbike.c` and
+`player.c`: the seat helper, gunner init, exit, tick, move data, the dismount
+guards; (5) `propobj.c` and `main.c`: the gunner mount, the seat choice, the
+debug seat; (6) the press machine and the switch action; (7) the Maian graph's
+gunner nodes (the smokes' `nodes=15 exec_edges=11` lines change); (8) the
+readiness condition and the V4c smoke.
+
+Status on `week-pd/mods-v4` (2026-11-17):
+
+- Step 1 WRITTEN and compiled in hosted CI (b1b53fe2, 17c12dd4): the seat
+  choice and the exit press machine, `port/src/vehicle_seats.c`,
+  `[vehicle-seats]`.
+- Step 2 WRITTEN, not compiled locally: `ACTION_TURRET_FIRE` (124) and
+  `ACTION_TURRET_ZOOM` (125), saved names `TurretFire` and `TurretZoom`; the
+  context `g_ImcVehicleTurret` ("vehicle_turret", priority 5, last in
+  `s_AllImcs`) with its defaults (left mouse button or right trigger fires,
+  right mouse button or left trigger zooms and locks, F or X exits, the right
+  stick and the arrow keys look, the mouse aims through the shared aim axes);
+  `imcVehicleTurretMount` and `imcVehicleTurretDismount`; the turret layer's
+  action set and its push, pop and abort hooks (`inputlayer.c`), so every
+  other gameplay action is closed in the gunner's seat; a "Vehicle Turret"
+  group of seven rows under the Controls menu's Vehicle tab, reset with it.
+  Nothing pushes the turret layer yet (step 4 does), so play is unchanged.
+- Step 3, first part WRITTEN, not compiled locally: a seat action is told the
+  seat its module names (`hoverbike_seat_action_fn(context, seat)`), the
+  host's three seat modules share one callback that runs the request's action
+  once, and `og.vehicle.switch_seat` is no longer refused by the host. The
+  pinned native functions keep their text: the driver mount action refuses
+  any other seat, and `bondbike.c` has two small adapters
+  (`bbikeDismountToSidesSeat`, `bbikeExitToChosenSideSeat`) that serve the
+  driver seat. No pin moved. The mount points (`hoverbikeSeatWorldPos`) come
+  with step 5, where they are first used.
+- Seat points WRITTEN, not compiled locally and not seen in the game: the
+  model carries the riders' eye points as parts 160 (driver: in the well ahead
+  of the turret deck, model units (0, 420, 450)) and 161 (gunner: above the
+  cannon, (0, 960, -300), a child of the turret's yaw node), added by
+  `build_vehicle_mesh.py` (the other mesh files regenerate byte for byte);
+  `hoverbikeSeatModelPos` reads them and `bbikeUpdateVehicleOffset` uses the
+  driver's, logging `VEHICLE.SEAT: ... driver eye from model part 160`. This
+  settles the first risk below for the eye positions (the two seats are now
+  about 0.9 m apart on the model, 54 world units up and 75 along) and moves
+  the driver out of the cannon. The first game run must check the view: the
+  next `maian_vehicle_drive_smoke` screenshots.
+- Steps 4 to 7 WRITTEN, not compiled locally and not run in the game
+  (99fa4ed7, af7e9a95, 8e9ccd4d and the graph commit after them):
+  - Step 4, `bondbike.c`: `bbikeCurrentSeat` (the gunner is the player the
+    vehicle's record names); gunner branches in `bbikeInit` (the turret layer,
+    no mounted flag), the local exit, `bbikeCanDismount` and
+    `bbikeTryDismount` (ahead of the mounted flag's early returns);
+    `bbikeTickGunner` (the seat follows the vehicle, the view turns freely at
+    the walk's rate on top of the vehicle's heading, no physics, collision or
+    sound); the gunner has the exit and the look inputs only.
+  - Step 5, `propobj.c`: `hoverbikeChooseMountSeat` measures each seat from
+    its eye point (distance and view angle) and `vehicleSeatChoose` decides;
+    `currentPlayerTryMountHoverbikeGunner` (solo play only);
+    `--debug-mount-seat <driver|gunner>`.
+  - Step 6, `bondbike.c`: the exit read runs `vehicleExitPressStep` every
+    update; `bbikeSeatToSwitchTo`; `bbikeSwitchSeatAction` swaps the seat's
+    input layer, runs the driver's half of the exit or init, sets or clears
+    the gunner's record and eases the eye to the new seat.
+  - Step 7: the Maian graph has both seats (26 nodes, 21 execution edges; the
+    mount, dismount and switch sections in the shape of `kTwoSeatGraph`); the
+    two vehicle smokes ask for the driver seat (`--debug-mount-seat driver`)
+    and expect the new counts.
+  - Left: step 8, the readiness condition for the gunner and the V4c smoke;
+    then the first game run, where the gunner's view and the switch are
+    expected to need corrections.
+
+Risks the survey found, to settle before or in step 5:
+
+- The two mount points nearly coincide on the Maian model: pod part 1 is 11.6
+  world units from the driver's seat offset, so "where you look" cannot tell
+  them apart, and from the debug hook's spot the pod wins on both angle and
+  distance. The model needs a driver seat part of its own (in
+  `build_vehicle_mesh.py`), placed at the cockpit.
+- `objTestForInteract` aims the interact cone at the vehicle's origin
+  (`propobj.c:18313`), so looking at a seat far from the centre may not
+  interact at all.
+- Bindings files: `actionmap_profile.cpp:324` wanted exactly contexts times
+  actions rows, so two new actions and a thirteenth context would have made
+  every existing `input-bindings.ini` invalid and blocked saving (`:425`).
+  SETTLED 2026-11-17: B-1233 (on `week-pd/mods`) reads a complete file from a
+  build with fewer actions, and the side branch extends the same rule to a
+  build with fewer input contexts (`[upgrade]` cases; not compiled locally
+  yet): the bindings are kept, new actions and contexts take their defaults
+  and the file is written back complete. The rule holds only while new actions
+  are appended to the action list and new contexts to the end of `s_AllImcs`
+  (`actionmap.cpp`), so the turret context goes last there, after
+  `g_ImcTextInput`.
+- A driverless vehicle slides as a projectile in the prop pass
+  (`propobj.c:8052`) and excludes only its owner prop from collision, so it may
+  hit its own gunner, and the gunner's eye may lag a frame. Unconfirmed in
+  play.
+- Whether the gunner mount should keep the driver mount's side gate
+  (`propobj.c:18594`) is not decided.
+
+#### Game turn 2026-11-17, 11:41 to 12:40 UTC (q_20261117080550197_5ee34c8d, client 0f329f66, base 9)
+
+- Two seats again: `maian_vehicle_seats_smoke` 56/56 (driver, gunner by a
+  double press, back to the driver).
+- B-1234 PROVEN: the Maian vehicle rides at 60 frames a second in all three of
+  its runs, as the driver and as the gunner (it was 17 to 41 in most runs
+  before the fix). The main thread sleeps in the frame limiter for 87% of the
+  mounted time; the hit test that cost 30 to 48 ms a frame is 0.8% of it.
+- B-1236 PROVEN: the vehicle's collision mesh has all 5,829 triangles (it was
+  5,192).
+- `mod_vehicle_drive_smoke` 32/32 (the base bike saved as a mod).
+- B-1241, NEW: `maian_vehicle_boost_smoke` (38/48) and
+  `maian_vehicle_drive_smoke` (37/38) fail, and not because of the vehicle.
+  Escape's own script now runs as written (dev's mission and AI graphs): about
+  0.4 s after the vehicle starts to move, the mission's objective 2 completes,
+  and 0.8 to 0.9 s later a cutscene starts and takes the player out of the
+  vehicle. Boost was 0.6 s old, so there was no overheat to see; the steering
+  input came after the dismount. The seats smoke passes only because its seat
+  checks come before its last drive.
+
+So boost, heat and steering have no proof on this build, though nothing says
+they broke: the last full passes are 2026-11-16 (46/46 and 34/34, base 7).
+
+Where the vehicle smokes go: off the mission. An original level is now a
+proven thing (the Blank Room loads, plays and is edited in Forge), and the
+Maian arena needs a level that places a vehicle anyway.
+
+WRITTEN 2026-11-17 (not run):
+
+- A level can place a hoverbike. The level document makes the record every
+  base hoverbike has (`FORGE_LEVEL_NEW_HOVERBIKE`: 63 field rows, the same in
+  all five; `base:model_hovbike`; flag words 0x05120101, 0x00304300,
+  0x02000003; facing its pad's look), and Forge's editor has New Hoverbike
+  Here beside New Ammo Crate Here. Unit case in `[forge-level-doc]`.
+- `--debug-forge-level-vehicle` makes one in the scripted level edit, 600
+  units in front of the first start. On the Blank Room that is (250, 50, 0)
+  facing the room's middle, with about 13 m of clear floor ahead of it
+  between the pillars.
+- `maian_vehicle_room_drive_smoke` and `maian_vehicle_room_boost_smoke`: the
+  two Escape smokes' inputs and checks of the vehicle, on that level in a
+  Combat Simulator match with no simulants, the hoverbike swapped for the
+  Maian vehicle as on Escape. Any dismount fails them.
+
+Not yet: a level that names the vehicle itself (a mod vehicle's own model in
+the record, so `--debug-swap-vehicle` is not needed), a longer room for the
+boost's full ten seconds in motion (the far wall stops the vehicle a second
+or so into the boost, as Escape's hangar did when the smoke passed there),
+and the seats smoke on the room.
+
+Until the room smokes pass, the Escape smokes still prove the mount, the two
+seats, the frame rate and the collision mesh.
 
 ### Veteran
 
@@ -456,10 +708,48 @@ Build order:
     body through a nested override (`<body archive>::body.ini`, the example id in it
     rewritten to the mod's id like the rest); the game's strict body and character
     readers accept all three, and the character keeps its fixed head.
-- C2. Models: original male and female Maian meshes bound to the 14 body
-  parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
-  is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not
-  be shared).
+  - FIRST SLICE WRITTEN 2026-11-16, approved by Mike the same day ("browser, Use as
+    Template, name and gender/height editing, save"). Not compiled yet (written on
+    `week-pd/mods-v4` while the vehicle landing waited for the game slot).
+    - The rules are their own module, `port/src/character_tool.c` (`character_tool.h`),
+      with `[characters-tool]` in pd-tests: what the tool lists, how a gender and a
+      build become `ismale` and `type` (Human is DEFAULT when male and FEMALE when
+      female, Guard is FEMALEGUARD and female, Maian is MAIAN and either, and
+      "Template's own" keeps a type the builds cannot name, such as Cassandra's and
+      Mr Blonde's rigs), and which descriptor values a save sends: only what the player
+      changed, with `rig_class` removed when the type changes. A template saved as it
+      is sends nothing. `[characters-tab]` gained the tool's whole path on the example
+      body: read the template, set the form, save, read back.
+    - The window is `port/fast3d/pdgui_menu_charactertool.cpp` (`pdgui_charactertool.h`):
+      a browser with Characters, Bodies and Heads lists (the base game has 63, 68 and
+      84), the selected entry's gender, build, height and neck read from its archive by
+      the game's own reader, "Use as Template", a creator (name; gender, build and
+      height for a body or a head; what the save will be called and what it changes;
+      a note that a mod made from a base entry holds the player's own game data and is
+      not to be shared), and the save window (creator, display name, Create + Enable).
+      Every step logs a `CHARMOD.*` line.
+    - The hub: the Characters tool is its eleventh. The hub's parallel tool tables (two
+      name lists, the child ids, the footer lines, the count and the index clamp) are
+      now one table, `kHubTools`, and the tool bar's buttons narrow to fit.
+    - Proof to run: `--debug-character-tool-create` with `-name`, `-gender`, `-build`
+      and `-height` (`port/src/main.c`), and `character_tool_create_smoke` (the base A51
+      airman body saved as a male Maian body of height 106, then loaded through the
+      typed catalog loader in the same launch).
+    - Not in this slice: a character's own gender (it lives in its embedded body; the
+      back end is tested), head policy, a 3D preview, the Room and random-head-pool
+      fixes, simulant profiles (C4).
+- C2. Model: one original Maian veteran mesh (Mike 2026-11-17: one veteran,
+  Maians are not gendered; this step read "male and female" before) bound to
+  the 14 body parts, `HEADBODYTYPE_MAIAN`; three-fingered hands; looks as
+  textures or vertex colours, with the crystals the pistol's colour a little
+  less saturated. A clone of a base Maian mesh is only a local stand-in (BYOR:
+  it embeds ROM-derived geometry and must not be shared).
+  - CONCEPT, 2026-11-17: round 2 of the concept sheet (one veteran, gear in the
+    crystal pistol's look, seafoam crystals) was shown to Mike; no model is
+    made until he approves a sheet. Round 2 cost 20 Tripo credits (balance
+    1,175). Still wrong in the sheet: one view's hand has more than three
+    fingers, the toes are not clearly three, and the holster is missing from
+    two views. Records: `D:\Game Dev\PD2-Assets\maian-veteran\README.md`.
 - C3. Green blood for Maian-type mod bodies.
   - WRITTEN 2026-11-16: `chrGetBloodColour` (`src/game/chr.c`) keeps the original's
     per-body list (Elvis, The King and Elvis in a waistcoat green; the robots, Mr Blonde
@@ -504,7 +794,9 @@ unlikely to finish this week; they stay in this plan.
    meshes, since the October veteran is a human sergeant).
    Vehicle answered 2026-11-15: MODS makes it with Tripo (the `pd-game-model`
    skill). Veterans answered by Mike 2026-11-16: MODS makes both (male and
-   female) with Tripo, the same way as the vehicle.
+   female) with Tripo, the same way as the vehicle. Changed by Mike
+   2026-11-17: one veteran only, since Maians are not gendered (see the
+   Character brief above).
 3. CORE: a vehicle behavior graph schema for the node variables (asked in the
    week note). Answered: MODS drafts it; the draft is `vehicle-graph-v1.md`,
    waiting for CORE's review.

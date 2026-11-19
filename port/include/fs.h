@@ -38,6 +38,33 @@ void *fsFileLoad(const char *name, u32 *outSize);
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize);
 s32 fsFileSize(const char *name);
 
+/* Bind a validated typed scenario to its exact nested member root for a
+ * local stage lifetime. Storage remains owned by the caller through clear.
+ * Pass NULL to clear the binding before releasing its bytes. */
+s32 fsBindScenarioSource(const char *root, void *archive, u32 size);
+
+typedef struct fs_stage_archive {
+	const char *root;
+	const void *bytes;
+	u32 size;
+} fs_stage_archive_t;
+
+typedef struct fs_stage_archive_set fs_stage_archive_set_t;
+
+/* Prepare a private archive table in an empty output handle. Roots are copied
+ * and must match lookup paths exactly, including case and separators. Supply
+ * any aliases explicitly. A root may be a file or a typed archive member.
+ * The caller keeps the bytes immutable and alive until release or stage clear. */
+s32 fsPrepareStageArchives(fs_stage_archive_set_t **prepared,
+	const fs_stage_archive_t *archives, size_t count);
+
+/* Install without allocating. An active set or draft scenario binding blocks
+ * publication and leaves the handle intact. Success consumes the handle.
+ * Reads use the longest matching archive boundary. */
+s32 fsPublishPreparedStageArchives(fs_stage_archive_set_t **prepared);
+void fsReleasePreparedStageArchives(fs_stage_archive_set_t **prepared);
+void fsClearStageArchives(void);
+
 FILE *fsFileOpenWrite(const char *name);
 FILE *fsFileOpenRead(const char *name);
 void fsFileFree(FILE *f);

@@ -1,0 +1,215 @@
+{
+  "scenario_name": "forge_grid_temporary_arena_smoke",
+  "description": "The host builds and pins an original two-room arena, then authorizes its exact bytes. A clean guest consents to a temporary arena, plays the timed match, verifies results and returns to the same room. Each peer has a fresh save and Mods directory in one managed base install.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "combatsim",
+    "match-lifecycle"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "port/src/net/netdistrib.c",
+    "port/src/assetcatalog_scanner.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-host",
+    "grid-guest"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-guest/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/mod.json",
+      "dst": "grid-host/mods/grid_two_rooms/mod.json"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid-host/mods/grid_two_rooms/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/enabled.json",
+      "dst": "grid-host/mods-enabled.json"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/mod.json",
+      "dst": "grid-guest/mods/grid_two_rooms/mod.json"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid-guest/mods/grid_two_rooms/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/enabled.json",
+      "dst": "grid-guest/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-host",
+        "--moddir",
+        "$E/grid-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "mod_grid_two_rooms:arena_grid_two_rooms",
+        "--debug-level-tool-name",
+        "Grid_Shared_Arena",
+        "--debug-grid-room-size",
+        "2100,1800,600",
+        "--debug-forge-level",
+        "mod:arena_grid_shared_arena",
+        "--debug-forge-level-name",
+        "Grid_Shared_Arena",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--host",
+        "--listen-bind",
+        "27474",
+        "--launch-mp-room",
+        "mod:arena_grid_shared_arena",
+        "base:combat",
+        "3",
+        "--debug-spawn-weapon",
+        "base:cyclone",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "20"
+      ],
+      "wait_for": "NET: created server on port 27474",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_shared_arena sha256=[0-9a-f]{64}",
+          "NET: .+ \\(1\\) joined",
+          "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_shared_arena generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+          "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+          "MATCH: final scores published before stage end room=",
+          "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_shared_arena sha256=[0-9a-f]{64}",
+          "LOBBY\\.REVIEW: client=1 reviewing=0 reason=continue",
+          "SAVE: initialized .*grid-host"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-guest",
+        "--moddir",
+        "$E/grid-guest/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-approve-downloads",
+        "--connect-host",
+        "127.0.0.1:27474"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "NET: SVC_AUTH from server, our ID is 1",
+          "MATCH: client stage start received",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=2",
+          "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_shared_arena",
+          "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_shared_arena",
+          "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_shared_arena",
+          "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_shared_arena",
+          "NET: CLC_LOBBY_RESYNC sent to server",
+          "SAVE: initialized .*grid-guest",
+          "GRID\\.MATCH\\.RETURNED_ARENA: retained room=[0-9]+ generation=[1-9][0-9]* stage_epoch=[1-9][0-9]* arena=mod:arena_grid_shared_arena bytes=[1-9][0-9]*"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 320000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 60000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 2000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 10000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "MATCH: stage end reason=timelimit",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_shared_arena epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_shared_arena revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.RESULT: rejected",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "NET\\.GRID\\.TRANSFER: refused",
+      "GRID\\.MATCH\\.LEASE: deferred retirement"
+    ]
+  }
+}

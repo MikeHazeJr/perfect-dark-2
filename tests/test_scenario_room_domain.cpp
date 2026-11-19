@@ -4,6 +4,8 @@ extern "C" {
 #include "scenario_room_domain.h"
 }
 
+#include <cmath>
+#include <limits>
 #include <string>
 
 TEST_CASE("scenario room domain preserves declared portal-only rooms",
@@ -76,4 +78,52 @@ TEST_CASE("scenario room domain reports stable diagnostics",
 	REQUIRE(std::string(scenarioRoomDomainResultName(
 		SCENARIO_ROOM_DOMAIN_OBSERVED_ROOM_OUT_OF_RANGE))
 		== "observed_room_out_of_range");
+}
+
+TEST_CASE("candidate room bounds accept asymmetric world-space boxes and flat collision",
+	"[scenario-room-domain][grid]")
+{
+	const scenario_room_bounds_t authored = {{-3100.0f, 50.0f, 725.0f}, {-900.0f, 650.0f, 2515.0f}};
+	const scenario_room_bounds_t floor = {{-3100.0f, 50.0f, 725.0f}, {-900.0f, 50.0f, 2515.0f}};
+	CHECK(scenarioRoomBoundsValid(&authored, 1));
+	CHECK(scenarioRoomBoundsValid(&floor, 0));
+	CHECK_FALSE(scenarioRoomBoundsValid(&floor, 1));
+	CHECK(scenarioRoomBoundsContain(&authored, &floor));
+
+	scenario_room_bounds_t rounded = floor;
+	rounded.minimum[0] = std::nextafter(rounded.minimum[0], -std::numeric_limits<float>::infinity());
+	rounded.maximum[2] = std::nextafter(rounded.maximum[2], std::numeric_limits<float>::infinity());
+	CHECK(scenarioRoomBoundsContain(&authored, &rounded));
+
+	scenario_room_bounds_t clipped = authored;
+	clipped.minimum[0] += 25.0f;
+	CHECK_FALSE(scenarioRoomBoundsContain(&clipped, &floor));
+	scenario_room_bounds_t shifted = authored;
+	shifted.minimum[2] += 25.0f;
+	shifted.maximum[2] += 25.0f;
+	CHECK_FALSE(scenarioRoomBoundsContain(&shifted, &floor));
+}
+
+TEST_CASE("candidate room bounds and light origins preserve safe native arithmetic",
+	"[scenario-room-domain][grid]")
+{
+	const float largest = std::numeric_limits<float>::max();
+	const float nan = std::numeric_limits<float>::quiet_NaN();
+	const scenario_room_bounds_t invalid = {{nan, -1.0f, -1.0f}, {0.0f, 1.0f, 1.0f}};
+	const scenario_room_bounds_t inverted = {{1.0f, -1.0f, -1.0f}, {0.0f, 1.0f, 1.0f}};
+	const scenario_room_bounds_t huge_center = {{largest, -1.0f, -1.0f}, {largest, 1.0f, 1.0f}};
+	const scenario_room_bounds_t huge_radius = {{-1.0e20f, -1.0f, -1.0f}, {1.0e20f, 1.0f, 1.0f}};
+	CHECK_FALSE(scenarioRoomBoundsValid(&invalid, 1));
+	CHECK_FALSE(scenarioRoomBoundsValid(&inverted, 0));
+	CHECK_FALSE(scenarioRoomBoundsValid(&huge_center, 0));
+	CHECK_FALSE(scenarioRoomBoundsValid(&huge_radius, 1));
+
+	const float light_origin[] = {-2150.5f, 325.0f, 2170.0f};
+	const float huge_origin[] = {2147483648.0f, 0.0f, 0.0f};
+	const float overflow_with_local_corner[] = {2147483520.0f, 0.0f, 0.0f};
+	const float invalid_origin[] = {nan, 0.0f, 0.0f};
+	CHECK(scenarioRoomOriginValid(light_origin));
+	CHECK_FALSE(scenarioRoomOriginValid(huge_origin));
+	CHECK_FALSE(scenarioRoomOriginValid(overflow_with_local_corner));
+	CHECK_FALSE(scenarioRoomOriginValid(invalid_origin));
 }

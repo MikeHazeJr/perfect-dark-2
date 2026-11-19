@@ -1,0 +1,287 @@
+{
+  "scenario_name": "maian_vehicle_room_boost_smoke",
+  "description": "The Maian hover vehicle's boost and heat where no mission can end the ride (B-1241). The same vehicle, inputs and checks as maian_vehicle_boost_smoke, which runs on Escape, where the mission's own script now takes the player out of the vehicle a second after it moves. Here the level is the Blank Room with a hoverbike that Forge's level document adds at boot, played in a Combat Simulator match with no simulants. Boost is held for 10 s: ramp, full, the crystals turn black (part 140 hidden) and the turret is locked, then recovery after release and the crystals come back. The room's far wall stops the vehicle a second or so into the boost, as Escape's hangar wall did when this smoke passed there; the heat follows the held input, not the speed. Any dismount fails the run.",
+  "tags": [
+    "vehicle",
+    "modding",
+    "mod-author",
+    "pdvehicle",
+    "recipe",
+    "gameplay",
+    "maian-vehicle",
+    "vehicle-boost",
+    "pillar:modding",
+    "forge",
+    "arena"
+  ],
+  "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/behavior.graph.json",
+    "dev-mods/maian_hover_vehicle/behavior/variables.json",
+    "port/src/vehicle_boost_heat.c",
+    "port/src/vehicle_graph_runner.cpp",
+    "port/src/vehicle_graph_runtime.c",
+    "port/src/asset_runtime.c",
+    "src/game/vehiclegraph.c",
+    "src/game/propobj.c",
+    "src/game/bondbike.c",
+    "port/src/actionmap.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "dev-mods/blank_room/build_blank_room.py",
+    "context/designs/modding/maian-vehicle-and-veteran.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/Vehicles/vehicle_maian_hover",
+    "mods/blank_room",
+    "mods/MP Maps/arena_vehicle_room"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/maian_hover_vehicle/recipe.json",
+      "dst": "mod-recipes/maian_hover_vehicle/recipe.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior.graph.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior.graph.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/physics.json",
+      "dst": "mod-recipes/maian_hover_vehicle/physics.json"
+    },
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/maian_hover_vehicle/recipe.json",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Vehicle_Room",
+    "--debug-forge-level-vehicle",
+    "--launch-mp-room",
+    "mod:arena_vehicle_room",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match",
+    "--debug-swap-vehicle",
+    "mod:vehicle_maian_hover",
+    "--debug-mount-seat",
+    "driver",
+    "--debug-mount-bike"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 4500,
+      "name": "maian-room-boost-full"
+    },
+    {
+      "at_ms": 11000,
+      "name": "maian-room-crystals-black"
+    },
+    {
+      "at_ms": 12500,
+      "name": "maian-room-crystals-recovering"
+    },
+    {
+      "at_ms": 21500,
+      "name": "maian-room-crystals-cool"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Boot makes the Maian vehicle (the mod author's recipe) and the level (the Blank Room with a hoverbike that Forge's level document adds), the match starts on that level with no simulants, the hoverbike takes the Maian vehicle's model, and --debug-mount-bike puts Player 0 in its driver seat as soon as the player walks. A match intro, if any, is skipped. The script waits here until the player has driven-seat control for a second."
+    },
+    {
+      "at_ms": 1000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Drive forward, so the input line and the speed-scaled recovery have speed."
+    },
+    {
+      "at_ms": 1500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "press",
+      "comment": "Hold boost: ramping, full after about 1 s of game time (turret locked), overheated after about 4 s."
+    },
+    {
+      "at_ms": 11500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "release",
+      "comment": "Let go after 10 s of real time. The boost needs 4 s of game time to overheat, and the game falls behind real time when the frame rate drops under about 20 (B-1234: the Maian vehicle runs at 17 to 41 frames a second in most runs on the test PC; a 5.5 s hold at 17 frames a second gave only 3 s of game time and no overheat). 10 s covers the game running at less than half speed. The crystals stay black while they recover."
+    },
+    {
+      "at_ms": 11500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release",
+      "comment": "Slow down; recovery is faster at low speed."
+    },
+    {
+      "at_ms": 22000,
+      "type": "exit",
+      "comment": "Scripted exit once the crystals are cool again: 2 to 4 s of game time after letting go, up to about 9 s of real time when the game runs at half speed."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=maian_vehicle_room_boost_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "FORGE\\.LEVEL\\.DEBUG\\.BEGIN: arena=mod_blank_room:arena_blank_room name='Vehicle_Room'",
+      "FORGE\\.LEVEL\\.EDIT: made hoverbike setup_0002 at \\(250, 50, -?0\\) facing \\(-1\\.00, -?0\\.00, -?0\\.00\\)",
+      "FORGE\\.LEVEL\\.EDIT: the level now has pads=12 spawns=9 objects=3",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_vehicle_room changed_members=\\d+ restart_count=\\d+ archive='.*arena_vehicle_room\\.pdarena' own_template=0",
+      "BOOT: --debug-forge-level arena=mod_blank_room:arena_blank_room name='Vehicle_Room' weapon=\\(none\\) result=OK",
+      "BOOT: --launch-mp-room direct match start",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_vehicle_room[^']*'.* as 3 setup records, 9 spawns,",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=12 without_room=0",
+      "MODAUTHOR\\.SAVE\\.OK kind=vehicle catalog=mod:vehicle_maian_hover mod_id=mod\\.vehicle_maian_hover updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:vehicle_maian_hover type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
+      "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
+      "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
+      "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=26 exec_edges=21 pending=\\d+ parts=1 boost_heat=1",
+      "VEHICLE: input .*boost=1\\.00",
+      "VEHICLE\\.BOOST: modelnum=\\d+ boost and heat on: boost_speed=7\\.00 ramp=240 overheat=960 overheated_boost=0\\.50 recover=480 ticks240",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase cool -> ramping",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase ramping -> full .*turret_locked=1",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated .*turret_locked=1",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase (?:ramping -> full|full -> overheated) .*peak_ground=(?:22\\.[5-9][0-9]*|2[3-9]\\.[0-9]+|[3-9][0-9]\\.[0-9]+) top=21\\.00",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 hidden",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase overheated -> recovering",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase recovering -> cool .*turret_locked=0",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 shown",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PDVEHICLE\\.MODEL\\.REJECT",
+      "PDVEHICLE\\.MODEL: .*cannot be placed",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: '",
+      "FIX-B\\.2: modelnum",
+      "MODEL\\.RODATA\\.LOAD: PARTIAL",
+      "CATALOG-FATAL",
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "VEHICLE: dismounted",
+      "MATCH: endscreen shown"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BMOVE: .* lvupdate240=[5-8] ",
+        "min": 0,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 shown",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 hidden",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

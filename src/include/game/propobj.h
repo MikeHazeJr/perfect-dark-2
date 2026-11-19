@@ -211,6 +211,8 @@ void glassUpdatePortal(struct prop *glass, s32 playercount, bool *arg2);
 void weaponInitMatrices(struct prop *weapon);
 void hangingmonitorInitMatrices(struct prop *hangingmonitors);
 void objInitMatrices(struct prop *prop);
+/* A private Grid decoration may translate on its current static floor only. */
+s32 objGridDecorationMove(struct defaultobj *obj, u64 generation, f32 x, f32 z, s32 apply);
 bool propCanRegen(struct prop *prop);
 void objRegenNow(struct prop *prop);
 u32 objTick(struct prop *prop);
@@ -275,6 +277,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual);
 void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual);
 s32 propPickupByPlayer(struct prop *prop, bool showhudmsg);
 s32 objTestForPickup(struct prop *prop);
+s32 objPickupTouchForSmoke(struct prop *prop);
 /* object-events.md slice 4: the original pickup rules for the current player
  * (gate.pickup.native_rules), the refusal of a locked door
  * (og.door.locked_message) and an automatic door opening

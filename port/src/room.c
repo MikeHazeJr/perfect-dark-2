@@ -50,6 +50,7 @@ static void roomHashPassword(const char *plaintext, u8 out[ROOM_PASSWORD_HASH_LE
  * ------------------------------------------------------------------------- */
 
 static hub_room_t s_Rooms[HUB_MAX_ROOMS];
+static u64 s_RoomLifetime;
 static int        s_Initialised = 0;
 static s32 roomContainsClient(const hub_room_t *room, u8 clientId);
 
@@ -90,6 +91,7 @@ void roomsInit(void)
     s_Rooms[0].creator_client_id = 0xff;
     s_Rooms[0].created_tick     = 0;
     s_Rooms[0].state_enter_tick = 0;
+    s_Rooms[0].lifetime        = ++s_RoomLifetime;
     strncpy(s_Rooms[0].name, "Lounge", ROOM_NAME_MAX - 1);
 
     s_Initialised = 1;
@@ -117,6 +119,7 @@ hub_room_t *roomCreate(const char *name)
     r->state             = ROOM_STATE_LOBBY;
     r->created_tick      = g_NetTick;
     r->state_enter_tick  = g_NetTick;
+    r->lifetime          = ++s_RoomLifetime;
 
     strncpy(r->name, name ? name : "Room", ROOM_NAME_MAX - 1);
     r->name[ROOM_NAME_MAX - 1] = '\0';
@@ -177,15 +180,21 @@ const char *roomResultMessage(room_result_t result)
     }
 }
 
-room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
-    u8 client_id, const char *password)
+static s32 roomAcceptsLobbyClients(const hub_room_t *room, s32 private_playtest)
+{
+    return room->state == ROOM_STATE_LOBBY || (private_playtest
+        && (room->state == ROOM_STATE_LOADING || room->state == ROOM_STATE_MATCH));
+}
+
+static room_result_t roomJoinForClientWithState(hub_room_t *previous,
+    hub_room_t *destination, u8 client_id, const char *password, s32 private_playtest)
 {
     if (client_id >= HUB_MAX_CLIENTS) return ROOM_RESULT_INVALID;
     if (!destination || destination->state == ROOM_STATE_CLOSED) return ROOM_RESULT_NOT_FOUND;
     if (previous == destination && roomContainsClient(destination, client_id)) {
         return ROOM_RESULT_OK;
     }
-    if (destination->state != ROOM_STATE_LOBBY) return ROOM_RESULT_NOT_OPEN;
+    if (!roomAcceptsLobbyClients(destination, private_playtest)) return ROOM_RESULT_NOT_OPEN;
     if (!roomCheckPassword(destination, password ? password : "")) return ROOM_RESULT_PASSWORD;
     if (destination->access == ROOM_ACCESS_INVITE
             && destination->creator_client_id != client_id
@@ -201,6 +210,18 @@ room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
     if (previous) roomLeave(previous, client_id);
     destination->invited_client_mask &= ~(1u << client_id);
     return ROOM_RESULT_OK;
+}
+
+room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
+    u8 client_id, const char *password)
+{
+    return roomJoinForClientWithState(previous, destination, client_id, password, 0);
+}
+
+room_result_t roomJoinForClientDuringPrivatePlaytest(hub_room_t *previous,
+    hub_room_t *destination, u8 client_id, const char *password)
+{
+    return roomJoinForClientWithState(previous, destination, client_id, password, 1);
 }
 
 room_result_t roomCreateForClient(hub_room_t *previous, u8 client_id,
@@ -223,13 +244,25 @@ room_result_t roomCreateForClient(hub_room_t *previous, u8 client_id,
     return ROOM_RESULT_OK;
 }
 
-room_result_t roomInviteClient(hub_room_t *room, u8 leader, u8 invited)
+static room_result_t roomInviteClientWithState(hub_room_t *room, u8 leader,
+    u8 invited, s32 private_playtest)
 {
     if (!room || invited >= HUB_MAX_CLIENTS) return ROOM_RESULT_INVALID;
     if (room->creator_client_id != leader) return ROOM_RESULT_NOT_LEADER;
-    if (room->state != ROOM_STATE_LOBBY) return ROOM_RESULT_NOT_OPEN;
+    if (!roomAcceptsLobbyClients(room, private_playtest)) return ROOM_RESULT_NOT_OPEN;
     room->invited_client_mask |= 1u << invited;
     return ROOM_RESULT_OK;
+}
+
+room_result_t roomInviteClient(hub_room_t *room, u8 leader, u8 invited)
+{
+    return roomInviteClientWithState(room, leader, invited, 0);
+}
+
+room_result_t roomInviteClientDuringPrivatePlaytest(hub_room_t *room, u8 leader, u8 invited)
+{
+    if (!room || room->access != ROOM_ACCESS_INVITE) return ROOM_RESULT_INVALID;
+    return roomInviteClientWithState(room, leader, invited, 1);
 }
 
 static u32 roomNextRevision(u32 revision)
@@ -464,6 +497,7 @@ void roomDestroy(hub_room_t *room)
 {
     if (!room) return;
 
+    room->lifetime = ++s_RoomLifetime;
     memset(&room->settings, 0, sizeof(room->settings));
     memset(room->playlist, 0, sizeof(room->playlist));
     room->settings_revision = 0;

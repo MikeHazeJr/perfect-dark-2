@@ -1,0 +1,17 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template_file": "tri_weapon.pdweapon",
+  "name": "Grid Triangle",
+  "author": "PD2 smoke",
+  "version": "0.1.0",
+  "description": "Binds the Triangle Weapon's fired projectile and its embedded click sound.",
+  "descriptor": {
+    "grid_provenance": "original"
+  },
+  "overrides": [
+    {
+      "entry": "behavior/primary.graph.json",
+      "text": "{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"example:tri_weapon\",\"graph_id\":\"primary\",\"nodes\":[{\"id\":\"trigger_primary\",\"kind\":\"event.trigger_pressed\",\"params\":{\"mode\":\"primary\"}},{\"id\":\"spawn_projectile\",\"kind\":\"spawn.fired_projectile\",\"params\":{\"mode\":\"primary\",\"function_type\":\"shoot_projectile\",\"projectile_ref\":\"example:tri_projectile\",\"projectile_model_ref\":\"example:tri_mesh\",\"shoot_sound_ref\":\"example:tri_click\"}}],\"edges\":[{\"from\":\"trigger_primary\",\"to\":\"spawn_projectile\"}],\"exports\":[{\"name\":\"primary\",\"node\":\"spawn_projectile\"}]}"
+    }
+  ]
+}

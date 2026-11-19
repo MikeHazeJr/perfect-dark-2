@@ -2,6 +2,7 @@
 #define _IN_MISSION_GRAPH_MODULES_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 #include "mission_graph_runner.h"
 
 #ifdef __cplusplus
@@ -12,6 +13,10 @@ extern "C" {
  * native gates (gate.*, object-events.md slice 3), the table the graph
  * runner compiles and fires against. */
 s32 missionGraphModuleKnown(const char *kind);
+/* Returns 1 for a named asset, 0 for a module without an asset parameter,
+ * and -1 when the required declared asset is missing. */
+s32 missionGraphModuleAssetRef(const char *kind, const mission_graph_params_t *params,
+	const char **id, asset_type_e *type);
 s32 missionGraphModuleRun(const char *kind, const char *node_id,
 	const mission_graph_params_t *params, const mission_graph_event_t *event, void *user);
 

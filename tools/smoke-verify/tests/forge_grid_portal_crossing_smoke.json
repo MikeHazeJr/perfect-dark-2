@@ -1,0 +1,118 @@
+{
+  "scenario_name": "forge_grid_portal_crossing_smoke",
+  "description": "Author two connected rooms on a fresh profile. Use ordinary movement to walk through the doorway, then restart on the saved arena and verify the same input meets the partition wall outside the doorway.",
+  "tags": ["modding", "forge", "arena", "pdarena", "collision", "restart", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_leveltool.cpp",
+    "port/src/forge_room_builder.cpp",
+    "port/src/scenario_source_runtime.c",
+    "port/src/smoke_harness.c",
+    "src/game/bondwalk.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["grid-portal-profile"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-portal-profile/mods/.pdmod-migration-done" }
+  ],
+  "processes": [
+    {
+      "name": "doorway-crossing",
+      "snapshot_log_file": "grid-portal-crossing.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--no-net", "--portable",
+        "--savedir", "$E/grid-portal-profile",
+        "--moddir", "$E/grid-portal-profile/mods",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Portal_Crossing",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--launch-mp-room", "mod:arena_grid_portal_crossing", "base:combat", "0",
+        "--debug-auto-start-match",
+        "--debug-grid-portal-witness", "cross",
+        "--debug-grid-portal-arena", "mod:arena_grid_portal_crossing"
+      ],
+      "wait_for": "GRID\\.PORTAL\\.CROSSED: arena=mod:arena_grid_portal_crossing from=1 to=2 grounded=1",
+      "wait_timeout_seconds": 280
+    },
+    {
+      "name": "partition-wall-after-restart",
+      "snapshot_log_file": "grid-portal-wall.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--no-net", "--portable",
+        "--savedir", "$E/grid-portal-profile",
+        "--moddir", "$E/grid-portal-profile/mods",
+        "--launch-mp-room", "mod:arena_grid_portal_crossing", "base:combat", "0",
+        "--debug-auto-start-match",
+        "--debug-grid-portal-witness", "block",
+        "--debug-grid-portal-arena", "mod:arena_grid_portal_crossing"
+      ],
+      "wait_for": "GRID\\.PORTAL\\.BLOCKED: arena=mod:arena_grid_portal_crossing room=1 grounded=1",
+      "wait_timeout_seconds": 280
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 260000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    { "at_ms": 500, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press" },
+    { "at_ms": 5500, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release" },
+    { "at_ms": 6500, "type": "exit" }
+  ],
+  "assertions": {
+    "required_sequences": [
+      {
+        "name": "author and walk through the native doorway",
+        "patterns": [
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0 path='[^']*[/\\\\]grid[/\\\\]templates[/\\\\]grid_two_rooms\\.pdarena'",
+          "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00",
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_portal_crossing opens=1",
+          "GRID\\.PORTAL\\.ANCHOR: arena=mod:arena_grid_portal_crossing mode=cross room=1 start_x=-350 start_z=0",
+          "GRID\\.PORTAL\\.INPUT: arena=mod:arena_grid_portal_crossing mode=cross axis=\\([^,]+,1\\.000\\)",
+          "GRID\\.PORTAL\\.APPROACH: arena=mod:arena_grid_portal_crossing mode=cross room=1 grounded=1",
+          "GRID\\.PORTAL\\.CROSSED: arena=mod:arena_grid_portal_crossing from=1 to=2 grounded=1"
+        ]
+      },
+      {
+        "name": "reopen the same saved arena and walk into its solid partition",
+        "patterns": [
+          "GRID\\.PORTAL\\.CROSSED: arena=mod:arena_grid_portal_crossing from=1 to=2 grounded=1",
+          "SMOKE: result=scripted_exit",
+          "PDARENA\\.SCENARIO: owner=mod:arena_grid_portal_crossing id=mod:arena_grid_portal_crossing__",
+          "GRID\\.PORTAL\\.ANCHOR: arena=mod:arena_grid_portal_crossing mode=block room=1 start_x=-350 start_z=450",
+          "GRID\\.PORTAL\\.INPUT: arena=mod:arena_grid_portal_crossing mode=block axis=\\([^,]+,1\\.000\\)",
+          "GRID\\.PORTAL\\.APPROACH: arena=mod:arena_grid_portal_crossing mode=block room=1 grounded=1",
+          "GRID\\.PORTAL\\.BLOCKED: arena=mod:arena_grid_portal_crossing room=1 grounded=1",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [
+      { "pattern": "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_portal_crossing", "min": 1, "max": 1 },
+      { "pattern": "GRID\\.PORTAL\\.CROSSED: arena=mod:arena_grid_portal_crossing", "min": 1, "max": 1 },
+      { "pattern": "GRID\\.PORTAL\\.BLOCKED: arena=mod:arena_grid_portal_crossing", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }
+    ],
+    "forbidden_patterns": [
+      "GRID\\.PORTAL\\.FAIL:",
+      "LEVELTOOL\\.[A-Z.]* .*result=FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "SCENARIO\\.SOURCE: invalid",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|wait_)"
+    ]
+  }
+}
