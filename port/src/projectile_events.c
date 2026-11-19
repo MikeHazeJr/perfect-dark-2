@@ -14,6 +14,7 @@
 #include "bss.h"
 #include "system.h"
 #include "net/net.h"
+#include "game/game_0b0fd0.h"
 #include "weapondata_authored.h"
 #include "weapon_graph_runtime.h"
 #include "mission_graph_runner.h"
@@ -83,56 +84,91 @@ static s32 projectileEventFirst(s32 weaponnum, s32 func, s32 kind)
 	return 1;
 }
 
-/* The archive each projectile was launched from (projectileEventBind), by
- * its prop and that prop's generation, so a freed prop's entry never names a
- * later object. A ring: when a projectile outlives its entry (64 newer
- * launches) its own weapon and function identify it again, which is right
- * for everything thrown. A fired rocket, bolt or grenade round carries its
- * own weapon number and needs the entry; none lives that long. */
-#define PROJECTILE_BIND_MAX 64
-typedef struct projectile_bind {
-	const struct prop *prop;
+/* What is kept for each prop of the stage: the archive a projectile was
+ * launched from (projectileEventBind) and, for a weapon object, the arm it
+ * chose (projectileArmModules). One record per prop, found by the prop's
+ * place in the stage's prop array and valid while the prop's generation is
+ * the one the record was made for, so a freed prop's record never names a
+ * later object, nor another stage's. A record lasts as long as its prop: a
+ * projectile keeps its archive however long it lives. (Slice 1 kept the last
+ * 64 launches in a ring, and an object that outlived its entry was known by
+ * its own weapon number alone.) The table grows to the largest stage seen. */
+typedef struct projectile_record {
 	u64 generation;
-	s16 gunnum; /* the weapon whose function names the archive, or -1 */
+	u8 bound;          /* a launch named its archive: gunnum, func, asset_id */
+	u8 armed;          /* arms is the answer for arm_weaponnum and arm_gunfunc */
 	s8 func;
+	s8 arm_gunfunc;
+	s16 gunnum;        /* the weapon whose function names the archive, or -1 */
+	s16 arm_weaponnum;
+	u32 arms;
 	char asset_id[CATALOG_ID_LEN];
-} projectile_bind_t;
-static projectile_bind_t s_ProjectileBinds[PROJECTILE_BIND_MAX];
-static s32 s_ProjectileBindNext;
+} projectile_record_t;
+static projectile_record_t *s_ProjectileRecords;
+static s32 s_ProjectileRecordCap;
 
-static projectile_bind_t *projectileBindFind(const struct defaultobj *obj)
+/* The prop's record; with `make`, a fresh one when it has none. NULL for a
+ * prop outside the stage's array and when the table cannot grow. */
+static projectile_record_t *projectileRecordOf(const struct prop *prop, s32 make)
 {
-	s32 i;
+	projectile_record_t *record;
+	s32 index;
 
-	if (!obj || !obj->prop || obj->prop->lifecycle_generation == 0) {
+	if (!prop || prop->lifecycle_generation == 0 || !g_Vars.props || g_Vars.maxprops <= 0
+			|| (uintptr_t)prop < (uintptr_t)g_Vars.props
+			|| (uintptr_t)prop >= (uintptr_t)(g_Vars.props + g_Vars.maxprops)) {
 		return NULL;
 	}
-	for (i = 0; i < PROJECTILE_BIND_MAX; i++) {
-		if (s_ProjectileBinds[i].prop == obj->prop
-				&& s_ProjectileBinds[i].generation == obj->prop->lifecycle_generation) {
-			return &s_ProjectileBinds[i];
+	index = (s32)(prop - g_Vars.props);
+	if (index >= s_ProjectileRecordCap) {
+		projectile_record_t *grown;
+
+		if (!make) {
+			return NULL;
 		}
+		grown = realloc(s_ProjectileRecords, (size_t)g_Vars.maxprops * sizeof(*grown));
+		if (!grown) {
+			return NULL;
+		}
+		memset(grown + s_ProjectileRecordCap, 0,
+			(size_t)(g_Vars.maxprops - s_ProjectileRecordCap) * sizeof(*grown));
+		s_ProjectileRecords = grown;
+		s_ProjectileRecordCap = g_Vars.maxprops;
 	}
-	return NULL;
+	record = &s_ProjectileRecords[index];
+	if (record->generation != prop->lifecycle_generation) {
+		if (!make) {
+			return NULL;
+		}
+		memset(record, 0, sizeof(*record));
+		record->generation = prop->lifecycle_generation;
+		record->gunnum = -1;
+	}
+	return record;
+}
+
+static const projectile_record_t *projectileBindFind(const struct defaultobj *obj)
+{
+	const projectile_record_t *record = obj ? projectileRecordOf(obj->prop, 0) : NULL;
+
+	return record && record->bound ? record : NULL;
 }
 
 void projectileEventBind(struct defaultobj *obj, const char *asset_id)
 {
-	projectile_bind_t *bind;
+	projectile_record_t *bind;
 	s32 weaponnum;
 	s32 func;
 
 	if (!obj || !obj->prop || obj->prop->lifecycle_generation == 0 || !asset_id || !asset_id[0]) {
 		return;
 	}
-	bind = projectileBindFind(obj);
+	bind = projectileRecordOf(obj->prop, 1);
 	if (!bind) {
-		bind = &s_ProjectileBinds[s_ProjectileBindNext];
-		s_ProjectileBindNext = (s_ProjectileBindNext + 1) % PROJECTILE_BIND_MAX;
+		return;
 	}
-	memset(bind, 0, sizeof(*bind));
-	bind->prop = obj->prop;
-	bind->generation = obj->prop->lifecycle_generation;
+	bind->bound = 1;
+	bind->armed = 0; /* its archive is known now: it chooses its arm again */
 	bind->gunnum = -1;
 	bind->func = FUNC_PRIMARY;
 	snprintf(bind->asset_id, sizeof(bind->asset_id), "%s", asset_id);
@@ -198,12 +234,32 @@ static s32 projectileFunctionLaunches(s32 gunnum, s32 func, s32 weaponnum, s32 g
 	return objweapon == weaponnum && objfunc == gunfunc;
 }
 
+/* Whether a weapon object no launch bound is what its own function's archive
+ * describes. For the original's weapons the numbers say (above). A mod
+ * weapon's objects all carry the weapon's number: the gun on a pad, in a
+ * hand or dropped, and what it fires. So only a function that throws the
+ * item itself (a grenade, a mine) makes the unbound object its own
+ * projectile; what a mod weapon fires is known by its launch's binding,
+ * which lasts as long as the object does. Without this a mod launcher copied
+ * from a base one would arm and fuse the gun itself, and a shot at the
+ * pickup would blow it up. */
+static s32 projectileUnboundIsItsProjectile(const struct weaponobj *weapon)
+{
+	if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+		const struct weaponfunc *f = weaponGetFunctionById(weapon->weaponnum, weapon->gunfunc);
+
+		return f && (f->type & 0xff) == INVENTORYFUNCTYPE_THROW;
+	}
+	return projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,
+		weapon->weaponnum, weapon->gunfunc);
+}
+
 /* The object's binding; for a weapon object without one, its own weapon and
  * function (everything thrown carries those). 0 when neither says: an
  * unbound object that is no weapon is not a projectile of a weapon. */
 static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out)
 {
-	const projectile_bind_t *bind = projectileBindFind(obj);
+	const projectile_record_t *bind = projectileBindFind(obj);
 
 	out->gunnum = -1;
 	out->func = FUNC_PRIMARY;
@@ -233,8 +289,7 @@ static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out
 		out->gunnum = weapon->gset.weaponnum;
 		out->func = weapon->gset.weaponfunc;
 		if (!out->asset_id) {
-			if (projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,
-					weapon->weaponnum, weapon->gunfunc)) {
+			if (projectileUnboundIsItsProjectile(weapon)) {
 				const weapon_graph_projectile_runtime_t *record =
 					weaponGraphRuntimeGetProjectileForHeldFunction(
 						weaponGraphRuntimeGetHeldFunctionForGameplay(out->gunnum, out->func));
@@ -499,9 +554,13 @@ static u32 projectileRuleDecide(s32 kind, struct defaultobj *obj, void *instance
 	if (g_NetMode != NETMODE_CLIENT && (handled || original)) {
 		char chose[96];
 		char orig[96];
+		/* The parity probe compares with the original's rule for the weapon
+		 * number. A mod weapon's number has none, so its program's choices
+		 * are logged and not counted. */
+		const s32 counted = who.gunnum < WEAPON_CUSTOM_START;
 
-		s_ProjectileRuleCompared++;
-		if (rule.modules != original) {
+		s_ProjectileRuleCompared += counted;
+		if (counted && rule.modules != original) {
 			s_ProjectileRuleDiffer++;
 			if (s_ProjectileRuleDiffer <= 8) {
 				sysLogPrintf(LOG_WARNING,
@@ -541,59 +600,27 @@ u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 	return projectileRuleDecide(kind, obj, obj, who, original, context);
 }
 
-/* Slice 6: the arms each weapon object chose (event.projectile.armed). The
- * choice is made once, the first time weaponTick asks, and kept for as long
- * as the object's prop lives: one entry per prop of the stage, by the prop's
- * place in the stage's prop array, valid while the prop's generation is the
- * one the entry was made for (so a freed prop's entry never answers for the
- * next object in its place, nor for another stage's). The table grows to the
- * largest stage seen. */
-typedef struct projectile_arms {
-	u64 generation;
-	u32 arms;
-} projectile_arms_t;
-static projectile_arms_t *s_ProjectileArms;
-static s32 s_ProjectileArmsCap;
-
-static projectile_arms_t *projectileArmsEntry(const struct prop *prop)
-{
-	s32 index;
-
-	if (!prop || !g_Vars.props || g_Vars.maxprops <= 0
-			|| (uintptr_t)prop < (uintptr_t)g_Vars.props
-			|| (uintptr_t)prop >= (uintptr_t)(g_Vars.props + g_Vars.maxprops)) {
-		return NULL;
-	}
-	index = (s32)(prop - g_Vars.props);
-	if (index >= s_ProjectileArmsCap) {
-		projectile_arms_t *grown = realloc(s_ProjectileArms,
-			(size_t)g_Vars.maxprops * sizeof(*grown));
-
-		if (!grown) {
-			return NULL; /* not kept: the object is asked again next tick */
-		}
-		memset(grown + s_ProjectileArmsCap, 0,
-			(size_t)(g_Vars.maxprops - s_ProjectileArmsCap) * sizeof(*grown));
-		s_ProjectileArms = grown;
-		s_ProjectileArmsCap = g_Vars.maxprops;
-	}
-	return &s_ProjectileArms[index];
-}
-
+/* Slice 6: the arm a weapon object chose (event.projectile.armed), kept in
+ * its prop's record so a tick costs one lookup. The answer stands for the
+ * weapon number and function it was given for. Both can change on a live
+ * object (a simulant switching function rewrites the weapon it holds; a
+ * reconnect snapshot rewrites a prop), and the original read them every
+ * tick, so a change asks again. */
 u32 projectileArmModules(struct defaultobj *obj, u32 native)
 {
 	const u32 original = projectileNativeChoice(native, obj, NULL);
+	const struct weaponobj *weapon = (const struct weaponobj *)obj;
 	const char *asset_id = NULL;
-	projectile_arms_t *kept;
+	projectile_record_t *kept;
 	projectile_identity_t who;
 	u32 arms = original;
 
-	if (!obj || obj->type != OBJTYPE_WEAPON || !obj->prop
-			|| obj->prop->lifecycle_generation == 0) {
+	if (!obj || obj->type != OBJTYPE_WEAPON || !obj->prop) {
 		return original;
 	}
-	kept = projectileArmsEntry(obj->prop);
-	if (kept && kept->generation == obj->prop->lifecycle_generation) {
+	kept = projectileRecordOf(obj->prop, 1);
+	if (kept && kept->armed && kept->arm_weaponnum == weapon->weaponnum
+			&& kept->arm_gunfunc == (s8)weapon->gunfunc) {
 		return kept->arms;
 	}
 	if (projectileIdentify(obj, &who)
@@ -604,7 +631,9 @@ u32 projectileArmModules(struct defaultobj *obj, u32 native)
 			original, NULL) | PROJECTILE_ARMS_PROGRAM;
 	}
 	if (kept) {
-		kept->generation = obj->prop->lifecycle_generation;
+		kept->armed = 1;
+		kept->arm_weaponnum = (s16)weapon->weaponnum;
+		kept->arm_gunfunc = (s8)weapon->gunfunc;
 		kept->arms = arms;
 	}
 	return arms;
@@ -689,7 +718,12 @@ u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosi
 	}
 	differs = rule.modules != original
 		|| ((original & PROJECTILE_MODULE_EXPLODE) && rule.explosion != native_explosion);
-	s_ProjectileFuseCompared++;
+	/* A mod weapon's number has no original fuse to compare with. */
+	if (who.gunnum >= WEAPON_CUSTOM_START) {
+		differs = 0;
+	} else {
+		s_ProjectileFuseCompared++;
+	}
 	if (differs) {
 		s_ProjectileFuseDiffer++;
 		if (s_ProjectileFuseDiffer <= 8) {

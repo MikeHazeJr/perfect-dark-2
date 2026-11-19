@@ -1211,20 +1211,49 @@ TEST_CASE("projectile rules: weaponTick runs the arm each object chose", "[proje
 		"\t\t(arms & PROJECTILE_ARMS_PROGRAM) ? NULL : weaponGetCustomProjectileGraph(weapon);")
 		!= std::string::npos);
 
-	// The choice is made once and kept beside the object's prop, by the
-	// prop's place in the stage's array and its generation.
+	// The choice is kept in the prop's record (found by the prop's place in
+	// the stage's array, valid for its generation), for the weapon number and
+	// function it was given for. A change of either asks again, because the
+	// original read both every tick and a simulant switching function
+	// rewrites the function of the weapon it holds.
 	REQUIRE(events.find("u32 projectileArmModules(struct defaultobj *obj, u32 native)\n{\n"
 		"\tconst u32 original = projectileNativeChoice(native, obj, NULL);") != std::string::npos);
-	REQUIRE(events.find("\tkept = projectileArmsEntry(obj->prop);\n"
-		"\tif (kept && kept->generation == obj->prop->lifecycle_generation) {\n"
+	REQUIRE(events.find("\tkept = projectileRecordOf(obj->prop, 1);\n"
+		"\tif (kept && kept->armed && kept->arm_weaponnum == weapon->weaponnum\n"
+		"\t\t\t&& kept->arm_gunfunc == (s8)weapon->gunfunc) {\n"
 		"\t\treturn kept->arms;\n\t}") != std::string::npos);
 	REQUIRE(events.find("\tif (projectileIdentify(obj, &who)\n"
 		"\t\t\t&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {") != std::string::npos);
 	REQUIRE(events.find("\t\tarms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,\n"
 		"\t\t\toriginal, NULL) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
 	REQUIRE(events.find("\tindex = (s32)(prop - g_Vars.props);") != std::string::npos);
-	REQUIRE(events.find("\t\tkept->generation = obj->prop->lifecycle_generation;\n"
+	REQUIRE(events.find("\t\tkept->armed = 1;\n"
+		"\t\tkept->arm_weaponnum = (s16)weapon->weaponnum;\n"
+		"\t\tkept->arm_gunfunc = (s8)weapon->gunfunc;\n"
 		"\t\tkept->arms = arms;") != std::string::npos);
+	// A launch that binds the object after it chose makes it choose again.
+	REQUIRE(events.find("\tbind->armed = 0; /* its archive is known now: it chooses its arm again */")
+		!= std::string::npos);
+	// The parity probe counts where the original has a rule to compare with:
+	// a mod weapon's number has none, so its choices are logged, not counted.
+	REQUIRE(events.find("\t\tconst s32 counted = who.gunnum < WEAPON_CUSTOM_START;\n\n"
+		"\t\ts_ProjectileRuleCompared += counted;\n"
+		"\t\tif (counted && rule.modules != original) {") != std::string::npos);
+	REQUIRE(events.find("\tif (who.gunnum >= WEAPON_CUSTOM_START) {\n\t\tdiffers = 0;\n\t} else {\n"
+		"\t\ts_ProjectileFuseCompared++;\n\t}") != std::string::npos);
+
+	// The watch list: an object joins it through the proximity arm, which a
+	// program can choose for any weapon object, so every weapon object leaves
+	// it when freed. No weapon number is asked.
+	const size_t freeAt = propobj.find("void objFree(struct defaultobj *obj, bool freeprop, bool canregen)\n{");
+	REQUIRE(freeAt != std::string::npos);
+	const std::string freed = propobj.substr(freeAt, propobj.find("\n}\n", freeAt) - freeAt);
+	CHECK(countOf(freed, "weaponUnregisterProxy(weapon);") == 1);
+	CHECK(freed.find("\t\tweaponUnregisterProxy(weapon);\n\n"
+		"\t\tif (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {\n"
+		"\t\t\tsmokeClearForProp(obj->prop);") != std::string::npos);
+	CHECK(freed.find("weapon->weaponnum == WEAPON_PROXIMITYMINE") == std::string::npos);
+	CHECK(countOf(body, "weaponRegisterProxy(weapon);") == 2); // the proximity arm, a mod weapon's record arm
 
 	// Registration: a projectile archive's program that wires a fuse must
 	// arm it; an entity archive carries its item's fuse alone.

@@ -579,8 +579,10 @@ got no arm at all, so its fuse never ran.
   dangerous list, go off), so the two are one arm that keeps each order by
   what goes off. And the timed mine's "first function only" test is gone
   from inside its arm, because the table gives the arm to that function
-  alone. With more than one arm chosen (a mod's program can), the first in
-  the table's order whose timer condition holds runs.
+  alone. The original gives an object one arm. A mod's program can choose
+  several, and then the first chosen in the table's order runs: the two
+  countdown arms and the mine's step aside while the timer is idle, the
+  others never do.
 - **The table answers for the original** (`projectileRulesNative` at
   `armed`): one arm for each weapon number and function the chain gave one,
   none for the rest. pd-tests compare the whole table with the chain as it
@@ -588,12 +590,33 @@ got no arm at all, so its fuse never ran.
   base archive's arm from the table, first, before the fuse, and the parity
   probe compares the program's choice with it once per object
   (`rules.compared`, `rules.differ`).
-- **Asked once, kept per object.** The answer is kept in a table with one
-  entry per prop of the stage (by the prop's place in the stage's prop array
-  and its generation, so a freed prop's entry never answers for the next
-  object in its place). A tick costs one lookup. An object alive across a
-  mid-stage reload of its archive keeps the arm it chose; its other rules
-  follow the new program.
+- **Kept per object, asked again when it changes.** The answer is kept in a
+  record that belongs to the object's prop (found by the prop's place in the
+  stage's prop array, valid for the prop's generation, so a freed prop's
+  record never answers for the next object in its place). A tick costs one
+  lookup. The answer stands for the weapon number and function it was given
+  for, and a change of either asks again: the original read both every tick,
+  and they do change on a live object (a simulant that switches function
+  rewrites the function of the weapon it holds; a reconnect snapshot
+  rewrites a prop). An object alive across a mid-stage reload of its archive
+  keeps the arm it chose; its other rules follow the new program.
+- **A launch's binding lasts as long as the object.** The same record holds
+  the archive the object was launched from. Slice 1 kept the last 64
+  launches in a ring, and an object that outlived its entry was known by its
+  own weapon number alone; that was right for the original's weapons by
+  their data, and wrong in waiting for a mod's long-lived mine.
+- **A mod weapon's gun is not its projectile.** A mod weapon's objects all
+  carry the weapon's number: the gun on a pad, in a hand or dropped, and
+  what it fires. An unbound one is taken for its function's projectile only
+  when that function throws the item itself (a grenade, a mine). What a mod
+  weapon fires is known by its launch's binding. Before this an unbound mod
+  object always counted as "what its function launches", so a mod launcher
+  copied from a base one would have armed and fused the gun itself, and a
+  shot at the pickup would have blown it up.
+- **Every weapon object leaves the watch list when freed.** An object joins
+  the proximity watch list through its arm, which a program can choose for
+  any weapon object, so `objFree` no longer picks by weapon number who
+  leaves it (a pointer left behind would be read after the free).
 - **A fuse needs an arm.** Only an arm asks the fuse rule, so a projectile
   archive's program that wires `timer_expired` and reaches no arm from
   `armed` (the bolt's arm runs no fuse and does not count) is refused at
@@ -601,7 +624,10 @@ got no arm at all, so its fuse never ran.
   is wired but event.projectile.armed reaches no arm that runs a fuse". An
   entity archive carries its item's fuse alone and is exempt: the item's
   projectile archive arms it. A program that wires no `armed` rule at all
-  arms nothing; the original's arm is not a fallback for it.
+  arms nothing; the original's arm is not a fallback for it. So that no base
+  archive written before the arm rule survives, each weapon archive carries a
+  marker that the extractor checks archive by archive (`embedded.v16`), with
+  or without the directory's cache stamp: an older one is rewritten.
 - **A program's object runs no record arm.** A mod weapon's two record arms
   in `weaponTick` (the v1 projectile arm and the v1 entity arm) do not run
   for an object whose archive has a program: its arm is the one its program
@@ -625,12 +651,34 @@ got no arm at all, so its fuse never ran.
    fails (the mine stays), which a player can see, so it is an arm of its
    own (`arm_mine_fuse`).
 
+**An independent review (2026-11-19)** was given the commit and one claim to
+break: "for every base weapon object, `weaponTick` does what it did". It
+found the chain and the table equal for every weapon number, function and
+timer state, and five things the first commit had wrong or left to luck:
+the arm was kept for the object's life although the function of a held
+weapon changes (a simulant's hand grenade, shot in its hand, would take the
+other function's block); the mod gun taken for its projectile; the watch
+list left by weapon number; an older archive surviving on an install with no
+cache stamp; and the parity counters comparing a mod weapon's choices with
+an original that has none for its number (they are logged now, not
+counted). Each is fixed above. It also noted what holds by data rather than
+by code, which stays so: a base program equals the table because the
+extractor wires it from the table, and a networked client, which creates
+replicated projectiles without a binding, knows a rocket, a bolt or a
+grenade round by its own number.
+
 **What still goes by weapon number, or by a mod weapon's records** (not this
 slice):
 
 - the flight model and the presentation (a rocket's power limit and smoke,
   the homing rocket's tail, the grenade round's trail, the knife's woosh,
   the bounce sounds), the spawn sites, pickup and free;
+- on a networked client a mod weapon with a program is armed by its program
+  but its fuse is the original's (slices 2 and 4: each peer runs its own
+  fuses, the client by the table), which for a mod weapon's number is
+  nothing; the host's explosion and free arrive by replication. A client
+  also cannot bind a replicated mod projectile to its archive. Both belong
+  with MULTIPLAYER's authority work;
 - at the other seams, a mod weapon's record clauses still apply beside its
   program's choice, as in slices 3 to 5: the contact's sticky filters and
   record impact, the fuse seeded when it sticks, the sticky device's landing

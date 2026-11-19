@@ -45,7 +45,11 @@
 #include "mission_graph_runner.h"
 #include "projectile_rules.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v15"
+/* v16 (projectile-events.md slice 6): each archive is checked for this marker
+ * by itself, with or without the directory's cache stamp, so no weapon
+ * archive written before the arm rule survives an extraction (one that did
+ * would arm nothing). */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v16"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */

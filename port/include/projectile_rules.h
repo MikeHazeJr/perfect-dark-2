@@ -43,9 +43,10 @@ extern "C" {
  * Slice 6: the arms. A weapon object chooses its arm once, when it is first
  * ticked (event.projectile.armed), and weaponTick runs that arm from then
  * on: what the object's timer means and what it listens for. "The fuse rule"
- * below is event.projectile.timer_expired, which says what goes off. With
- * more than one arm chosen, the first in this order whose timer condition
- * holds runs.
+ * below is event.projectile.timer_expired, which says what goes off. The
+ * original gives an object one arm. A program may choose several, and then
+ * the first chosen in this order runs: arm_fuse, arm_wall_fuse and
+ * arm_mine_fuse step aside while the timer is idle, the others never do.
  *
  * - arm_fuse: while its timer is not idle it counts down; below zero the
  *   fuse rule is asked, and if it chooses anything the object is removed.

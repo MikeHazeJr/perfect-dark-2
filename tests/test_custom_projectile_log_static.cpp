@@ -91,7 +91,12 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(propobj.find("\tprojectileEventBind(obj, runtime->asset_id);", applyRecord) <
 		propobj.find("\n}\n", applyRecord));
 	REQUIRE(countOf(propobj, "projectileEventBind(") == 1);
-	REQUIRE(events.find("s_ProjectileBinds[i].generation == obj->prop->lifecycle_generation") != std::string::npos);
+	// Slice 6: the binding is kept in the prop's own record for as long as
+	// the prop lives (slice 1 kept the last 64 launches in a ring).
+	REQUIRE(events.find("\tif (record->generation != prop->lifecycle_generation) {") != std::string::npos);
+	REQUIRE(events.find("\treturn record && record->bound ? record : NULL;") != std::string::npos);
+	REQUIRE(events.find("\tbind = projectileRecordOf(obj->prop, 1);") != std::string::npos);
+	REQUIRE(events.find("PROJECTILE_BIND_MAX") == std::string::npos);
 	REQUIRE(events.find("strcmp(held->projectile_ref, asset_id) == 0") != std::string::npos);
 	// The records, the fuse rule and the contact rules (slice 3).
 	REQUIRE(countOf(events, "!projectileIdentify(obj, &who)") == 3);
@@ -114,8 +119,15 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(events.find("\tprojectileRulesLaunchedObject(gunnum, func, f->type == INVENTORYFUNCTYPE_THROW,\n"
 		"\t\t(f->flags & FUNCFLAG_HOMINGROCKET) != 0, &objweapon, &objfunc);\n"
 		"\treturn objweapon == weaponnum && objfunc == gunfunc;") != std::string::npos);
-	REQUIRE(events.find("\t\t\tif (projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,\n"
-		"\t\t\t\t\tweapon->weaponnum, weapon->gunfunc)) {") != std::string::npos);
+	REQUIRE(events.find("\t\t\tif (projectileUnboundIsItsProjectile(weapon)) {") != std::string::npos);
+	REQUIRE(events.find("\treturn projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,\n"
+		"\t\tweapon->weaponnum, weapon->gunfunc);") != std::string::npos);
+	// Slice 6 review: a mod weapon's objects all carry the weapon's number
+	// (the gun on a pad and what it fires), so an unbound one is its own
+	// projectile only when its function throws the item itself.
+	REQUIRE(events.find("\tif (weapon->weaponnum >= WEAPON_CUSTOM_START) {\n"
+		"\t\tconst struct weaponfunc *f = weaponGetFunctionById(weapon->weaponnum, weapon->gunfunc);\n\n"
+		"\t\treturn f && (f->type & 0xff) == INVENTORYFUNCTYPE_THROW;\n\t}") != std::string::npos);
 	REQUIRE(events.find("\t\t\t\tout->not_launched = 1;") != std::string::npos);
 	// A bound object is held to the same test: a launch that made something
 	// other than what its archive is wired for (a player firing the guards'

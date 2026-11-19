@@ -44,9 +44,11 @@ void projectileEventRecord(s32 kind, struct defaultobj *obj);
  * and the thrown Laptop gun is no weapon object at all, so the object alone
  * does not say which archive's program is its own. projectileApplyGraphRuntime
  * calls this at every launch that applies a record; the events and the
- * rules then name the gun and its function and use that archive's program. An
- * object never bound is identified by its own weapon and function, as
- * everything thrown can be. */
+ * rules then name the gun and its function and use that archive's program,
+ * for as long as the object lives. An object never bound is identified by
+ * its own weapon and function, as everything thrown can be; a mod weapon's
+ * unbound object only when its function throws the item itself (the gun on
+ * a pad is not what it fires). */
 void projectileEventBind(struct defaultobj *obj, const char *asset_id);
 
 /* Logs "PROJECTILE.EVENTS: <why> spawned=N bounced=N hit_target=N landed=N
@@ -142,9 +144,11 @@ u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosi
 /*
  * The arm rule (projectile-events.md slice 6). Every tick weaponTick asks
  * which arm a weapon object runs: PROJECTILE_MODULE_ARM_* bits
- * (projectile_rules.h). The object chooses once, the first time it is asked
+ * (projectile_rules.h). The object chooses the first time it is asked
  * (event.projectile.armed, as it is first ticked), and the choice is kept
- * until its prop is freed, so a tick costs one table lookup. When the
+ * with its prop, so a tick costs one table lookup. It chooses again only
+ * when its weapon number or function changes, which the original read every
+ * tick (a simulant switching function rewrites the weapon it holds). When the
  * object's archive has a program the program chooses, and the answer carries
  * PROJECTILE_ARMS_PROGRAM: that object runs the arms it chose and none of a
  * mod weapon's record arms. With no program (a v1 archive, or an object no

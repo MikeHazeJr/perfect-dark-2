@@ -3288,29 +3288,20 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			weapon->dualweapon = NULL;
 		}
 
-		if (weapon->weaponnum == WEAPON_PROXIMITYMINE) {
-			weaponUnregisterProxy(weapon);
-		}
-
-		if (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
-		}
-
-		if (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
-		}
+		/* projectile-events.md slice 6: an object joins the watch list
+		 * through the proximity arm, which a program can choose for any
+		 * weapon object, and the function the original tested here can
+		 * change on a held object. So every weapon object leaves the list
+		 * when it is freed: a proxy left in g_Proxies would dangle
+		 * (use-after-free in coordTriggerProxies). No-op for one that never
+		 * joined. */
+		weaponUnregisterProxy(weapon);
 
 		if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
-			weaponUnregisterProxy(weapon);
 			smokeClearForProp(obj->prop);
 		}
 
-		/* c3849 Wave 5 Unit 6: custom-slot weapons always unregister; a
-		 * custom proxy left in g_Proxies would dangle after this free
-		 * (use-after-free in coordTriggerProxies). No-op when the weapon
-		 * never registered. */
 		if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
-			weaponUnregisterProxy(weapon);
 			/* T-MODDING-008: drop it from the landed-crystal registry too. */
 			bgunModProjectileForget(weapon);
 
