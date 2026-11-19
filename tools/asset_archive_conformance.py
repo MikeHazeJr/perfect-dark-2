@@ -2054,7 +2054,9 @@ PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced
                            "event.projectile.proximity", "event.projectile.remote_signal",
                            "event.projectile.damaged",
                            # slice 5: the sentry rule events
-                           "event.projectile.thrown", "event.projectile.sentry_aimed")
+                           "event.projectile.thrown", "event.projectile.sentry_aimed",
+                           # slice 6: the arm rule event
+                           "event.projectile.armed")
 # Slice 3: a module is a choice the seam of its event acts on, so each event
 # applies only the modules listed for it; one wired anywhere else would do
 # nothing, and the game refuses the program. Keep in step with
@@ -2066,6 +2068,10 @@ PROJECTILE_GRAPH_EVENT_MODULES = {
     "event.projectile.damaged": ("og.projectile.spend_fuse",),
     "event.projectile.thrown": ("og.projectile.deploy_sentry",),
     "event.projectile.sentry_aimed": ("og.projectile.sentry_fire",),
+    "event.projectile.armed": ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                               "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                               "og.projectile.arm_remote", "og.projectile.arm_proximity",
+                               "og.projectile.arm_bolt"),
     "event.projectile.contact": ("og.projectile.stick", "og.projectile.wall_hug",
                                  "og.projectile.pierce", "og.projectile.impact"),
     "event.projectile.launch_blocked": ("og.projectile.spend_fuse",),
@@ -2080,7 +2086,20 @@ PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
                             "og.projectile.shield_device", "og.projectile.land_bolt",
                             "og.projectile.land_knife", "og.projectile.poison_target",
                             "og.projectile.nbomb_storm", "og.projectile.deploy_sentry",
-                            "og.projectile.sentry_fire")
+                            "og.projectile.sentry_fire",
+                            # slice 6: the arms (what weaponTick runs for the object)
+                            "og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                            "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                            "og.projectile.arm_remote", "og.projectile.arm_proximity",
+                            "og.projectile.arm_bolt")
+# Slice 6: only an arm asks the fuse rule, and the bolt's arm runs no fuse. A
+# projectile archive's program that wires event.projectile.timer_expired must
+# reach one of these from event.projectile.armed, or it would never go off
+# (projectileProgramModulesApply). An entity archive carries its item's fuse
+# alone: the item's projectile archive arms it.
+PROJECTILE_GRAPH_FUSE_ARMS = ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                              "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                              "og.projectile.arm_remote", "og.projectile.arm_proximity")
 PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase",
                           "gate.projectile.fuse_armed", "gate.projectile.trigger_close",
                           "gate.projectile.trigger_character",
@@ -2101,14 +2120,15 @@ PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
 
 
-def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
+def validate_projectile_graph_program(where: str, graph: dict, entity: bool = False) -> list[str]:
     """The program of a v2 projectile or entity graph, as the runner compiles
     it: its event.*, gate.* and og.* nodes (every other node is launch or
     deploy data), unique ids, only projectile events, only the modules a
     projectile program has, and execution edges ("input": "exec") from an
     event, gate or module to a gate or module with the right output port. A
     program the runner would refuse keeps its archive from registering, so
-    its weapon could not fire."""
+    its weapon could not fire. entity: an entity archive's program, which
+    carries its item's fuse alone and need not arm it."""
     errors: list[str] = []
     nodes = graph.get("nodes")
     if not isinstance(nodes, list):
@@ -2195,12 +2215,16 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
         if isinstance(edge, dict) and edge.get("input") == "exec" \
                 and edge.get("from") in kinds and edge.get("to") in kinds:
             exec_out.setdefault(edge["from"], []).append(edge["to"])
+    handled: set[str] = set()                # the events with an execution edge
+    reached: dict[str, set[str]] = {}        # event kind -> the node kinds it reaches
     for event_id, event_kind in kinds.items():
         if event_kind not in PROJECTILE_GRAPH_EVENTS:
             continue
         applied = PROJECTILE_GRAPH_EVENT_MODULES.get(event_kind, ())
         seen: set[str] = set()
         queue = list(exec_out.get(event_id, []))
+        if queue:
+            handled.add(event_kind)
         while queue:
             node_id = queue.pop(0)
             if node_id in seen:
@@ -2213,7 +2237,13 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
             if event_kind not in PROJECTILE_GRAPH_GATE_EVENTS.get(node_kind, (event_kind,)):
                 errors.append(f"{where} {node_kind} {node_id!r} cannot be answered at "
                               f"{event_kind} ({event_id!r})")
+            reached.setdefault(event_kind, set()).add(node_kind)
             queue.extend(exec_out.get(node_id, []))
+    # Slice 6: a fuse runs only for an object that arms itself.
+    if not entity and "event.projectile.timer_expired" in handled \
+            and not reached.get("event.projectile.armed", set()) & set(PROJECTILE_GRAPH_FUSE_ARMS):
+        errors.append(f"{where} wires event.projectile.timer_expired but event.projectile.armed "
+                      "reaches no arm that runs a fuse")
     return errors
 
 
@@ -2233,7 +2263,7 @@ def validate_projectile_entity_graph(label: str, ext: str, text: str) -> list[st
     if schema not in (v1, v2):
         return [f"{where} schema must be {v1} or {v2}"]
     if schema == v2:
-        return validate_projectile_graph_program(where, graph)
+        return validate_projectile_graph_program(where, graph, entity=ext == ".pdentity")
     errors = []
     for node in graph.get("nodes") or []:
         if isinstance(node, dict) and _is_graph_program_kind(node.get("kind")):

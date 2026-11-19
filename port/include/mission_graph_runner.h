@@ -133,6 +133,11 @@ extern "C" {
  * og.projectile.sentry_fire. */
 #define MISSION_GRAPH_EVENT_PROJECTILE_THROWN 32
 #define MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED 33
+/* projectile-events.md slice 6: the arm rule event. A weapon object is about
+ * to be ticked for the first time (armed). It chooses the arm weaponTick
+ * runs for it from then on (og.projectile.arm_*): what its timer means and
+ * what it listens for. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_ARMED 34
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts

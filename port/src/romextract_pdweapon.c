@@ -49,7 +49,7 @@
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1770,7 +1770,9 @@ static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
  * rule get no object rules. Slice 5: a throw also gets what the original
  * makes of the throw itself, by the thrower's weapon (the Laptop gun's
  * throw deploys a sentry), and a throw that deploys a sentry gets the
- * sentry's own rule. fuse_only keeps the fuse rule alone: an entity
+ * sentry's own rule. Slice 6: the object's arm comes first
+ * (event.projectile.armed: the arm weaponTick gives it), since nothing else
+ * of a fuse runs without one. fuse_only keeps the fuse rule alone: an entity
  * archive's program, which answers the fuse of an item that has no
  * projectile program. */
 static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,
@@ -1780,6 +1782,7 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 		s32 kind;
 		const char *id;
 	} events[] = {
+		{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, "armed" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, "fuse" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, "contact" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, "launch_blocked" },
@@ -1969,9 +1972,9 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
 	}
 
-	/* projectile-events.md slices 3 and 4: the rules of what this function
-	 * launches (its fuse, its contacts, what sets it off), wired as the
-	 * original has them. */
+	/* projectile-events.md slices 3 to 6: the rules of what this function
+	 * launches (its arm, its fuse, its contacts, what sets it off), wired as
+	 * the original has them. */
 	char rule_nodes[3072];
 	char rule_edges[3072];
 	if (s_projectileRuleWiring(p, 0, rule_nodes, sizeof(rule_nodes),

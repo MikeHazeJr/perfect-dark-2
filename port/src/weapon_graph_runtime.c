@@ -676,9 +676,11 @@ static s32 projectileProgramExplosionVisit(const char *kind,
  * event does, so one wired to an event whose seam does not apply it would
  * do nothing; a gate reads what its event carries, so one wired to an event
  * that does not carry it could never pass. Such a program is refused, with
- * the pair named. */
+ * the pair named. Slice 6: so is a projectile archive's program that wires
+ * a fuse and arms none (is_projectile; an entity archive carries its item's
+ * fuse alone, and the item's projectile archive arms it). */
 static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
-	char *why, size_t why_cap)
+	s32 is_projectile, char *why, size_t why_cap)
 {
 	for (s32 e = 0; projectileRulesEventAt(e) >= 0; e++) {
 		const s32 event_kind = projectileRulesEventAt(e);
@@ -712,6 +714,26 @@ static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
 			" from 1 to %d, or none", PROJECTILE_EXPLOSION_TYPE_COUNT - 1);
 		return 0;
 	}
+	/* Only an arm asks the fuse rule (weaponTick), and the object runs the
+	 * arm it chooses at event.projectile.armed. The bolt's arm runs no fuse. */
+	if (is_projectile &&
+			missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED)) {
+		s32 armed = 0;
+
+		for (s32 m = 0; m < PROJECTILE_MODULE_COUNT && !armed; m++) {
+			const u32 bit = 1u << m;
+
+			if ((bit & PROJECTILE_MODULE_ARMS) && bit != PROJECTILE_MODULE_ARM_BOLT) {
+				armed = missionGraphProgramEventReachesModule(program,
+					MISSION_GRAPH_EVENT_PROJECTILE_ARMED, projectileRulesModuleKind(bit));
+			}
+		}
+		if (!armed) {
+			snprintf(why, why_cap, "event.projectile.timer_expired is wired but "
+				"event.projectile.armed reaches no arm that runs a fuse");
+			return 0;
+		}
+	}
 	return 1;
 }
 
@@ -737,8 +759,10 @@ static void projectileProgramsClearAll(void)
 
 /* Compiles and keeps the IR's program (a v2 graph) in place of the asset's
  * old one; a v1 IR drops it. -1 with the reason when the program does not
- * compile: the archive then refuses (fail closed). */
-static s32 projectileProgramRegister(const weapon_graph_ir_t *ir, char *err, size_t err_cap)
+ * compile: the archive then refuses (fail closed). is_projectile: a
+ * projectile archive's program, not an entity archive's. */
+static s32 projectileProgramRegister(const weapon_graph_ir_t *ir, s32 is_projectile,
+	char *err, size_t err_cap)
 {
 	char why[256];
 	mission_graph_program_t *program;
@@ -753,7 +777,7 @@ static s32 projectileProgramRegister(const weapon_graph_ir_t *ir, char *err, siz
 			why[0] ? why : "it does not compile");
 		return -1;
 	}
-	if (!projectileProgramModulesApply(program, why, sizeof(why))) {
+	if (!projectileProgramModulesApply(program, is_projectile, why, sizeof(why))) {
 		missionGraphProgramFree(program);
 		setErr(err, err_cap, "%s program refused: %s", ir->asset_id, why);
 		return -1;
@@ -5370,7 +5394,7 @@ static s32 weaponGraphRuntimeRegisterProjectileIrOwned(
 
 	/* projectile-events.md slice 2: a v2 archive's program, or the archive
 	 * does not register. */
-	if (projectileProgramRegister(ir, err, err_cap) != 0) {
+	if (projectileProgramRegister(ir, 1, err, err_cap) != 0) {
 		if (index >= 0) projectileRuntimeClearSlot(index);
 		return -1;
 	}
@@ -5450,7 +5474,7 @@ static s32 weaponGraphRuntimeRegisterEntityIrOwned(
 
 	/* projectile-events.md slice 2: a v2 archive's program, or the archive
 	 * does not register. */
-	if (projectileProgramRegister(ir, err, err_cap) != 0) {
+	if (projectileProgramRegister(ir, 0, err, err_cap) != 0) {
 		if (index >= 0) entityRuntimeClearSlot(index);
 		return -1;
 	}

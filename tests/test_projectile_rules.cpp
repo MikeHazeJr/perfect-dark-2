@@ -1,7 +1,7 @@
 /*
  * test_projectile_rules.cpp -- the modules of a projectile program and the
  * original game's rules (port/src/projectile_rules.c;
- * context/designs/modding/projectile-events.md, slices 3 to 5).
+ * context/designs/modding/projectile-events.md, slices 3 to 6).
  *
  * The table is the one source the game's seams, the extractor's wiring and
  * the archive validator share, so these cases pin it three ways: its own
@@ -19,6 +19,7 @@
 
 #include "constants.h"
 #include "mission_graph_runner.h"
+#include "projectile_events.h"
 #include "projectile_rules.h"
 
 #include <utility>
@@ -84,7 +85,7 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 		seen |= bit;
 	}
 	CHECK(seen == PROJECTILE_MODULE_ALL);
-	CHECK(PROJECTILE_MODULE_COUNT == 13);
+	CHECK(PROJECTILE_MODULE_COUNT == 20);
 	CHECK(projectileRulesModuleKind(0) == nullptr);
 	CHECK(projectileRulesModuleKind(PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_PIERCE) == nullptr);
 	CHECK(projectileRulesModuleKind(1u << PROJECTILE_MODULE_COUNT) == nullptr);
@@ -93,6 +94,19 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 	CHECK(projectileRulesModuleBit("og.projectile.nbomb_storm") == PROJECTILE_MODULE_NBOMB_STORM);
 	CHECK(projectileRulesModuleBit("og.projectile.deploy_sentry") == PROJECTILE_MODULE_DEPLOY_SENTRY);
 	CHECK(projectileRulesModuleBit("og.projectile.sentry_fire") == PROJECTILE_MODULE_SENTRY_FIRE);
+	// Slice 6: the arms, in the order weaponTick tests them.
+	CHECK(projectileRulesModuleBit("og.projectile.arm_fuse") == PROJECTILE_MODULE_ARM_FUSE);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_wall_fuse") == PROJECTILE_MODULE_ARM_WALL_FUSE);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_struck_fuse") == PROJECTILE_MODULE_ARM_STRUCK_FUSE);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_mine_fuse") == PROJECTILE_MODULE_ARM_MINE_FUSE);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_remote") == PROJECTILE_MODULE_ARM_REMOTE);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_proximity") == PROJECTILE_MODULE_ARM_PROXIMITY);
+	CHECK(projectileRulesModuleBit("og.projectile.arm_bolt") == PROJECTILE_MODULE_ARM_BOLT);
+	CHECK(PROJECTILE_MODULE_ARMS == (PROJECTILE_MODULE_ALL & ~((1u << 13) - 1)));
+	CHECK(PROJECTILE_MODULE_ARM_FUSE < PROJECTILE_MODULE_ARM_WALL_FUSE);
+	CHECK(PROJECTILE_MODULE_ARM_PROXIMITY < PROJECTILE_MODULE_ARM_BOLT);
+	// What the runtime keeps beside an object's arms is no module and no gate.
+	CHECK((PROJECTILE_ARMS_PROGRAM & (PROJECTILE_MODULE_ALL | PROJECTILE_RULE_GATE_ALL)) == 0);
 	// The module bits stay below the gate bits.
 	CHECK((PROJECTILE_MODULE_ALL & PROJECTILE_RULE_GATE_ALL) == 0);
 	// Slice 2's name for the fuse's outcome is gone: explode and nbomb_storm say what goes off.
@@ -174,11 +188,11 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 		CHECK((projectileRulesEventModules(kind) & ~PROJECTILE_MODULE_ALL) == 0);
 		count++;
 	}
-	CHECK(count == 15);
+	CHECK(count == 16);
 	CHECK(projectileRulesEventAt(-1) == -1);
 	CHECK(projectileRulesEventName(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == nullptr);
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == 0);
-	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED + 1) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_ARMED + 1) == 0);
 
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) ==
 		(PROJECTILE_MODULE_EXPLODE | PROJECTILE_MODULE_NBOMB_STORM));
@@ -198,6 +212,9 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_THROWN) == PROJECTILE_MODULE_DEPLOY_SENTRY);
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED) ==
 		PROJECTILE_MODULE_SENTRY_FIRE);
+	// Slice 6: the arm an object runs, and nothing else.
+	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == PROJECTILE_MODULE_ARMS);
+	CHECK(std::string(projectileRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_ARMED)) == "event.projectile.armed");
 	// The records apply nothing.
 	for (s32 kind : { MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED, MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET,
 			MISSION_GRAPH_EVENT_PROJECTILE_ENDED, MISSION_GRAPH_EVENT_PROJECTILE_DETONATED }) {
@@ -449,6 +466,172 @@ TEST_CASE("projectile rules: the original game's sentry rules", "[projectile][ru
 	Choice none;
 	CHECK(missionGraphProgramFire(program, &bare, runModule, &none) < 0);
 	missionGraphProgramFree(program);
+}
+
+TEST_CASE("projectile rules: the original game's arms", "[projectile][rules]")
+{
+	const s32 armed = MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
+	const auto arm = [&](s32 weaponnum, s32 func) {
+		return projectileRulesNative(armed, weaponnum, func, 0);
+	};
+
+	// The countdown: a hand grenade's and the N-bomb's first function, and a
+	// grenade round whatever fired it. The Devastator's wall hugger has the
+	// wall timer as well.
+	CHECK(arm(WEAPON_GRENADE, FUNC_PRIMARY) == PROJECTILE_MODULE_ARM_FUSE);
+	CHECK(arm(WEAPON_NBOMB, FUNC_PRIMARY) == PROJECTILE_MODULE_ARM_FUSE);
+	CHECK(arm(WEAPON_GRENADEROUND, FUNC_PRIMARY) == PROJECTILE_MODULE_ARM_FUSE);
+	CHECK(arm(WEAPON_GRENADEROUND, FUNC_2) == PROJECTILE_MODULE_ARM_FUSE); // the Super Dragon's grenade
+	CHECK(arm(WEAPON_GRENADEROUND, FUNC_SECONDARY) == PROJECTILE_MODULE_ARM_WALL_FUSE);
+	// A rocket has no countdown: it goes off when something spends its fuse.
+	for (s32 weaponnum : { WEAPON_ROCKET, WEAPON_HOMINGROCKET, WEAPON_SKROCKET }) {
+		for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY, FUNC_2 }) {
+			CHECK(arm(weaponnum, func) == PROJECTILE_MODULE_ARM_STRUCK_FUSE);
+		}
+	}
+	// The mines, and the bolt.
+	CHECK(arm(WEAPON_TIMEDMINE, FUNC_PRIMARY) == PROJECTILE_MODULE_ARM_MINE_FUSE);
+	CHECK(arm(WEAPON_TIMEDMINE, FUNC_SECONDARY) == 0); // its timer counts for the first function only
+	for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY, FUNC_2 }) {
+		CHECK(arm(WEAPON_REMOTEMINE, func) == PROJECTILE_MODULE_ARM_REMOTE);
+		CHECK(arm(WEAPON_PROXIMITYMINE, func) == PROJECTILE_MODULE_ARM_PROXIMITY);
+		CHECK(arm(WEAPON_BOLT, func) == PROJECTILE_MODULE_ARM_BOLT);
+	}
+	// The other proximity items: the second functions of the Dragon, the
+	// grenade and the N-bomb.
+	CHECK(arm(WEAPON_DRAGON, FUNC_SECONDARY) == PROJECTILE_MODULE_ARM_PROXIMITY);
+	CHECK(arm(WEAPON_GRENADE, FUNC_SECONDARY) == PROJECTILE_MODULE_ARM_PROXIMITY);
+	CHECK(arm(WEAPON_NBOMB, FUNC_SECONDARY) == PROJECTILE_MODULE_ARM_PROXIMITY);
+	CHECK(arm(WEAPON_DRAGON, FUNC_PRIMARY) == 0);
+	// Nothing else has an arm: a knife, a planted device, a gun, a launcher.
+	for (s32 weaponnum : { WEAPON_COMBATKNIFE, WEAPON_ECMMINE, WEAPON_COMMSRIDER, WEAPON_TRACERBUG,
+			WEAPON_TARGETAMPLIFIER, WEAPON_LAPTOPGUN, WEAPON_FALCON2, WEAPON_ROCKETLAUNCHER,
+			WEAPON_ROCKETLAUNCHER_34, WEAPON_DEVASTATOR, WEAPON_CROSSBOW, WEAPON_SUPERDRAGON }) {
+		for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY }) {
+			CHECK(arm(weaponnum, func) == 0);
+		}
+	}
+
+	// The whole table against the chain weaponTick tested before slice 6,
+	// arm by arm in its order (propobj.c at 4c1ad8a0).
+	const auto chain = [](s32 weaponnum, s32 gunfunc) -> u32 {
+		if ((weaponnum == WEAPON_GRENADE && gunfunc == FUNC_PRIMARY) || weaponnum == WEAPON_GRENADEROUND) {
+			return weaponnum == WEAPON_GRENADEROUND && gunfunc == FUNC_SECONDARY
+				? PROJECTILE_MODULE_ARM_WALL_FUSE : PROJECTILE_MODULE_ARM_FUSE;
+		} else if (weaponnum == WEAPON_NBOMB && gunfunc == FUNC_PRIMARY) {
+			return PROJECTILE_MODULE_ARM_FUSE;
+		} else if (weaponnum == WEAPON_ROCKET
+				|| weaponnum == WEAPON_HOMINGROCKET
+				|| weaponnum == WEAPON_SKROCKET) {
+			return PROJECTILE_MODULE_ARM_STRUCK_FUSE;
+		} else if (weaponnum == WEAPON_TIMEDMINE) {
+			return gunfunc == FUNC_PRIMARY ? PROJECTILE_MODULE_ARM_MINE_FUSE : 0;
+		} else if (weaponnum == WEAPON_REMOTEMINE) {
+			return PROJECTILE_MODULE_ARM_REMOTE;
+		} else if (weaponnum == WEAPON_PROXIMITYMINE
+				|| (weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY)
+				|| (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY)
+				|| (weaponnum == WEAPON_NBOMB && gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_ARM_PROXIMITY;
+		} else if (weaponnum == WEAPON_BOLT) {
+			return PROJECTILE_MODULE_ARM_BOLT;
+		}
+		return 0;
+	};
+	s32 armedObjects = 0;
+	for (s32 weaponnum = -1; weaponnum < 0x60; weaponnum++) {
+		for (s32 func = FUNC_PRIMARY; func <= FUNC_POISON; func++) {
+			const u32 native = arm(weaponnum, func);
+			INFO("weapon " << weaponnum << " func " << func);
+			CHECK(native == chain(weaponnum, func));
+			// One arm or none, and no gate: the original's arm is not conditional.
+			CHECK((native & (native - 1)) == 0);
+			CHECK((native & ~PROJECTILE_MODULE_ARMS) == 0);
+			// sticks_to_wall is the contact rule's; it does not change the arm.
+			CHECK(projectileRulesNative(armed, weaponnum, func, 1) == native);
+			armedObjects += native != 0 ? 1 : 0;
+			// Only an arm asks the fuse rule: whatever the original gives a
+			// fuse has an arm that runs one (the bolt's arm runs none).
+			if (projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, weaponnum, func, 0)) {
+				CHECK((native & PROJECTILE_MODULE_ARMS & ~PROJECTILE_MODULE_ARM_BOLT) != 0);
+			}
+			// The wall hugger's arm and its contact go together.
+			CHECK(((projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, weaponnum, func, 1)
+					& PROJECTILE_MODULE_WALL_HUG) != 0)
+				== (native == PROJECTILE_MODULE_ARM_WALL_FUSE));
+		}
+	}
+	// Over the four function numbers: the grenade 2, the N-bomb 2, the grenade
+	// round 4, three rockets 12, the timed mine 1, the remote and proximity
+	// mines 8, the Dragon 1, the bolt 4.
+	CHECK(armedObjects == 34);
+	// A mod weapon's number has no arm of the original's: its program arms
+	// it, or its v1 records do.
+	CHECK(arm(WEAPON_CUSTOM_START, FUNC_PRIMARY) == 0);
+	CHECK(arm(0x7f, FUNC_SECONDARY) == 0);
+}
+
+TEST_CASE("projectile rules: an object arms itself through the graph runner", "[projectile][rules][graph]")
+{
+	// A grenade's wiring as the extractor writes it (its arm, then its fuse),
+	// with a second arm behind the fuse_armed gate, as a mod might wire one.
+	const std::string graph = R"({
+  "schema": "pd.projectile_graph.v2",
+  "nodes": [
+    { "id": "motion", "kind": "projectile.motion", "params": {} },
+    { "id": "armed", "kind": "event.projectile.armed" },
+    { "id": "armed_arm_fuse", "kind": "og.projectile.arm_fuse" },
+    { "id": "armed_fuse_armed", "kind": "gate.projectile.fuse_armed" },
+    { "id": "armed_arm_proximity", "kind": "og.projectile.arm_proximity" },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "fuse_explode", "kind": "og.projectile.explode" }
+  ],
+  "edges": [
+    { "from": "armed", "output": "out", "to": "armed_arm_fuse", "input": "exec" },
+    { "from": "armed", "output": "out", "to": "armed_fuse_armed", "input": "exec" },
+    { "from": "armed_fuse_armed", "output": "fail", "to": "armed_arm_proximity", "input": "exec" },
+    { "from": "fuse", "output": "out", "to": "fuse_explode", "input": "exec" }
+  ]
+})";
+	char err[256] = "";
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(graph.data(), graph.size(),
+		moduleKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	const s32 armed = MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
+	CHECK(missionGraphEventIsProjectile(armed) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, armed) == 1);
+	// What registration asks: which arms the event can reach, gates or not.
+	CHECK(missionGraphProgramEventReachesModule(program, armed, "og.projectile.arm_fuse") == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, armed, "og.projectile.arm_proximity") == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, armed, "og.projectile.arm_bolt") == 0);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED,
+		"og.projectile.arm_fuse") == 0);
+
+	int instance = 0;
+	const auto fire = [&](s32 kind, bool live) {
+		mission_graph_event_t event = {};
+		event.kind = kind;
+		event.instance = &instance;
+		Choice choice;
+		choice.passing = live ? PROJECTILE_RULE_GATE_FUSE_ARMED : 0;
+		CHECK(missionGraphProgramFire(program, &event, runModule, &choice) >= 0);
+		return choice.modules;
+	};
+	// Thrown with a live fuse it counts down; one whose timer is idle when it
+	// is first ticked also waits as a proximity item.
+	CHECK(fire(armed, true) == PROJECTILE_MODULE_ARM_FUSE);
+	CHECK(fire(armed, false) == (PROJECTILE_MODULE_ARM_FUSE | PROJECTILE_MODULE_ARM_PROXIMITY));
+	CHECK((fire(armed, false) & ~projectileRulesEventModules(armed)) == 0);
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, true) == PROJECTILE_MODULE_EXPLODE);
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, true) == 0);
+	missionGraphProgramFree(program);
+
+	// The arm event is a projectile event: no mission or level graph has it.
+	const std::string mission = R"({ "nodes": [ { "id": "a", "kind": "event.projectile.armed" } ], "edges": [] })";
+	CHECK(missionGraphProgramCompile(mission.data(), mission.size(), moduleKnown, err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("belongs to a projectile or entity graph") != std::string::npos);
+	CHECK(missionGraphProgramCompileLevel(mission.data(), mission.size(), moduleKnown, err, sizeof(err)) == nullptr);
 }
 
 TEST_CASE("projectile rules: the explosion an explode node names", "[projectile][rules]")
@@ -787,13 +970,17 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	REQUIRE(runtime.find("snprintf(why, why_cap, \"%s cannot be answered at %s\", gate_kind,") != std::string::npos);
 	REQUIRE(runtime.find("\tif (!missionGraphProgramVisitModuleParams(program, projectileProgramExplosionVisit, NULL)) {")
 		!= std::string::npos);
-	REQUIRE(runtime.find("\tif (!projectileProgramModulesApply(program, why, sizeof(why))) {") != std::string::npos);
+	REQUIRE(runtime.find("\tif (!projectileProgramModulesApply(program, is_projectile, why, sizeof(why))) {")
+		!= std::string::npos);
 
 	// The extractor writes the wiring from the table, for the object the
 	// function launches, behind the weapon cache kind.
 	REQUIRE(extractor.find("static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,")
 		!= std::string::npos);
 	REQUIRE(extractor.find("\t\t\tmodules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);") != std::string::npos);
+	// Slice 6: the object's arm is wired first, since only an arm asks the fuse rule.
+	REQUIRE(extractor.find("\t} events[] = {\n\t\t{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, \"armed\" },\n"
+		"\t\t{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },") != std::string::npos);
 	// Slice 5: the throw's own rule is by the thrower's weapon, and the
 	// sentry's rule goes only to a throw that deploys one.
 	REQUIRE(extractor.find("\tthrown = f->type == INVENTORYFUNCTYPE_THROW\n"
@@ -805,9 +992,10 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules\"") != std::string::npos);
-	// Every rule event of the table is wired, the fuse first.
-	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules\"") != std::string::npos);
+	// Every rule event of the table is wired, the arm and the fuse first.
+	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, \"armed\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, \"contact\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, \"launch_blocked\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, \"bounced\" },",
@@ -864,8 +1052,11 @@ TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[p
 	const size_t tickEnd = propobj.find("\n}\n", tick);
 	REQUIRE(tickEnd != std::string::npos);
 	const std::string body = propobj.substr(tick, tickEnd - tick);
-	CHECK(countOf(body, "(fusemods = projectileFuseFor(obj, &fusetype)) != 0") == 6);
-	// One per fuse, and the proximity items' two ways to tidy up (a storm, an explosion).
+	// One per arm that runs a fuse (slice 6: the countdown, the struck fuse,
+	// the mine's, the remote mine's, the proximity item's).
+	CHECK(countOf(body, "(fusemods = projectileFuseFor(obj, &fusetype)) != 0") == 5);
+	// One per fuse, and two ways to tidy up for the countdown (a storm, an
+	// explosion) and for the proximity items.
 	CHECK(countOf(body, "weaponGoOffAs(prop, fusemods, fusetype)") == 7);
 	CHECK(body.find("EXPLOSIONTYPE_SDGRENADE") == std::string::npos);
 	CHECK(body.find("EXPLOSIONTYPE_DRAGONBOMBSPY") == std::string::npos);
@@ -946,6 +1137,111 @@ TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[p
 	REQUIRE(events.find("\t\tif (bit == PROJECTILE_MODULE_EXPLODE) {") != std::string::npos);
 	REQUIRE(events.find("missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM));") != std::string::npos);
 	REQUIRE(events.find("projectileFuseRule") == std::string::npos);
+}
+
+TEST_CASE("projectile rules: weaponTick runs the arm each object chose", "[projectile][rules][static]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string events = readSource("port/src/projectile_events.c");
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// One helper asks: the original's arm goes in as the answer for an object
+	// with no program and as the parity reference.
+	REQUIRE(propobj.find("static u32 projectileArmsFor(struct defaultobj *obj)\n{\n"
+		"\tstruct weaponobj *weapon = (struct weaponobj *)obj;\n\n"
+		"\treturn projectileArmModules(obj,\n"
+		"\t\tprojectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_ARMED,\n"
+		"\t\t\tweapon->weaponnum, weapon->gunfunc, 0));\n}") != std::string::npos);
+
+	const size_t tick = propobj.find("void weaponTick(struct prop *prop)\n{");
+	REQUIRE(tick != std::string::npos);
+	const size_t tickEnd = propobj.find("\n}\n", tick);
+	REQUIRE(tickEnd != std::string::npos);
+	const std::string body = propobj.substr(tick, tickEnd - tick);
+	CHECK(countOf(body, "projectileArmsFor(obj)") == 1);
+	CHECK(body.find("\tconst u32 arms = projectileArmsFor(obj);") != std::string::npos);
+	// No weapon number picks an arm any more. The two tests that are left
+	// guard a mod weapon's records (the owner cleanup, the record entity arm).
+	CHECK(body.find("weaponnum == WEAPON_") == std::string::npos);
+	CHECK(countOf(body, "weapon->weaponnum >= WEAPON_CUSTOM_START") == 2);
+	// The arms, in the order the original tested them, with a mod weapon's
+	// two record arms where they have always stood.
+	const char *chain[] = {
+		"\tif ((arms & (PROJECTILE_MODULE_ARM_FUSE | PROJECTILE_MODULE_ARM_WALL_FUSE))\n"
+			"\t\t\t&& weapon->timer240 >= 0) {",
+		"\t\tif ((arms & PROJECTILE_MODULE_ARM_WALL_FUSE) && weapon->timer240 > 0) {",
+		"\t} else if (arms & PROJECTILE_MODULE_ARM_STRUCK_FUSE) {",
+		"\t} else if (customproj != NULL\n",
+		"\t} else if ((arms & PROJECTILE_MODULE_ARM_MINE_FUSE) && weapon->timer240 >= 0) {",
+		"\t} else if (arms & PROJECTILE_MODULE_ARM_REMOTE) {",
+		"\t} else if (arms & PROJECTILE_MODULE_ARM_PROXIMITY) {",
+		"\t} else if (weapon->weaponnum >= WEAPON_CUSTOM_START && !(arms & PROJECTILE_ARMS_PROGRAM)\n"
+			"\t\t\t&& entitygraph\n",
+		"\t} else if (arms & PROJECTILE_MODULE_ARM_BOLT) {",
+	};
+	size_t at = 0;
+	for (const char *entry : chain) {
+		INFO(entry);
+		const size_t found = body.find(entry, at);
+		REQUIRE(found != std::string::npos);
+		CHECK(countOf(body, entry) == 1);
+		at = found + 1;
+	}
+	// The timed mine's arm asks no function: the arm rule gives the arm to
+	// its first function.
+	CHECK(body.find("\t\tif (weapon->gunfunc == FUNC_PRIMARY) {\n\t\t\tweapon->timer240 -= g_Vars.lvupdate240;")
+		== std::string::npos);
+	CHECK(body.find("\t\t// Handle timed mines\n") != std::string::npos);
+	// The countdown arm keeps each original's order of tidying up: the
+	// N-bomb's storm starts before it leaves the dangerous list, a grenade
+	// leaves it before it explodes.
+	CHECK(body.find("\t\t\t\tif (fusemods & PROJECTILE_MODULE_NBOMB_STORM) {\n"
+		"\t\t\t\t\t// Nbombs detonate when they hit the ground, so this code only\n"
+		"\t\t\t\t\t// runs if it's airborne for the entire duration of its timer.\n"
+		"\t\t\t\t\tweaponGoOffAs(prop, fusemods, fusetype);\n"
+		"\t\t\t\t\tpropUnsetDangerous(prop);\n"
+		"\t\t\t\t} else {\n"
+		"\t\t\t\t\tpropUnsetDangerous(prop);\n\n"
+		"\t\t\t\t\tweaponGoOffAs(prop, fusemods, fusetype);\n"
+		"\t\t\t\t}") != std::string::npos);
+	// An object whose archive has a program runs none of a mod weapon's
+	// record arms.
+	CHECK(body.find("\tconst weapon_graph_projectile_runtime_t *customproj =\n"
+		"\t\t(arms & PROJECTILE_ARMS_PROGRAM) ? NULL : weaponGetCustomProjectileGraph(weapon);")
+		!= std::string::npos);
+
+	// The choice is made once and kept beside the object's prop, by the
+	// prop's place in the stage's array and its generation.
+	REQUIRE(events.find("u32 projectileArmModules(struct defaultobj *obj, u32 native)\n{\n"
+		"\tconst u32 original = projectileNativeChoice(native, obj, NULL);") != std::string::npos);
+	REQUIRE(events.find("\tkept = projectileArmsEntry(obj->prop);\n"
+		"\tif (kept && kept->generation == obj->prop->lifecycle_generation) {\n"
+		"\t\treturn kept->arms;\n\t}") != std::string::npos);
+	REQUIRE(events.find("\tif (projectileIdentify(obj, &who)\n"
+		"\t\t\t&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {") != std::string::npos);
+	REQUIRE(events.find("\t\tarms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,\n"
+		"\t\t\toriginal, NULL) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
+	REQUIRE(events.find("\tindex = (s32)(prop - g_Vars.props);") != std::string::npos);
+	REQUIRE(events.find("\t\tkept->generation = obj->prop->lifecycle_generation;\n"
+		"\t\tkept->arms = arms;") != std::string::npos);
+
+	// Registration: a projectile archive's program that wires a fuse must
+	// arm it; an entity archive carries its item's fuse alone.
+	REQUIRE(runtime.find("\"event.projectile.armed reaches no arm that runs a fuse\"") != std::string::npos);
+	REQUIRE(runtime.find("\t\t\tif ((bit & PROJECTILE_MODULE_ARMS) && bit != PROJECTILE_MODULE_ARM_BOLT) {")
+		!= std::string::npos);
+	REQUIRE(runtime.find("\tif (projectileProgramRegister(ir, 1, err, err_cap) != 0) {\n"
+		"\t\tif (index >= 0) projectileRuntimeClearSlot(index);") != std::string::npos);
+	REQUIRE(runtime.find("\tif (projectileProgramRegister(ir, 0, err, err_cap) != 0) {\n"
+		"\t\tif (index >= 0) entityRuntimeClearSlot(index);") != std::string::npos);
+
+	// The validator: the same arms run a fuse, and the same refusal.
+	CHECK(conformance.find("PROJECTILE_GRAPH_FUSE_ARMS = (\"og.projectile.arm_fuse\", \"og.projectile.arm_wall_fuse\",\n")
+		!= std::string::npos);
+	CHECK(conformance.find("reaches no arm that runs a fuse") != std::string::npos);
+	CHECK(conformance.find("return validate_projectile_graph_program(where, graph, entity=ext == \".pdentity\")")
+		!= std::string::npos);
 }
 
 TEST_CASE("projectile rules: a throw and a sentry ask the rules", "[projectile][rules][static]")

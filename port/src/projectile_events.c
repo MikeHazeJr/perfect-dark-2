@@ -4,11 +4,14 @@
  * (slice 1).
  */
 
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "constants.h"
+#include "bss.h"
 #include "system.h"
 #include "net/net.h"
 #include "weapondata_authored.h"
@@ -536,6 +539,75 @@ u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 		return original;
 	}
 	return projectileRuleDecide(kind, obj, obj, who, original, context);
+}
+
+/* Slice 6: the arms each weapon object chose (event.projectile.armed). The
+ * choice is made once, the first time weaponTick asks, and kept for as long
+ * as the object's prop lives: one entry per prop of the stage, by the prop's
+ * place in the stage's prop array, valid while the prop's generation is the
+ * one the entry was made for (so a freed prop's entry never answers for the
+ * next object in its place, nor for another stage's). The table grows to the
+ * largest stage seen. */
+typedef struct projectile_arms {
+	u64 generation;
+	u32 arms;
+} projectile_arms_t;
+static projectile_arms_t *s_ProjectileArms;
+static s32 s_ProjectileArmsCap;
+
+static projectile_arms_t *projectileArmsEntry(const struct prop *prop)
+{
+	s32 index;
+
+	if (!prop || !g_Vars.props || g_Vars.maxprops <= 0
+			|| (uintptr_t)prop < (uintptr_t)g_Vars.props
+			|| (uintptr_t)prop >= (uintptr_t)(g_Vars.props + g_Vars.maxprops)) {
+		return NULL;
+	}
+	index = (s32)(prop - g_Vars.props);
+	if (index >= s_ProjectileArmsCap) {
+		projectile_arms_t *grown = realloc(s_ProjectileArms,
+			(size_t)g_Vars.maxprops * sizeof(*grown));
+
+		if (!grown) {
+			return NULL; /* not kept: the object is asked again next tick */
+		}
+		memset(grown + s_ProjectileArmsCap, 0,
+			(size_t)(g_Vars.maxprops - s_ProjectileArmsCap) * sizeof(*grown));
+		s_ProjectileArms = grown;
+		s_ProjectileArmsCap = g_Vars.maxprops;
+	}
+	return &s_ProjectileArms[index];
+}
+
+u32 projectileArmModules(struct defaultobj *obj, u32 native)
+{
+	const u32 original = projectileNativeChoice(native, obj, NULL);
+	const char *asset_id = NULL;
+	projectile_arms_t *kept;
+	projectile_identity_t who;
+	u32 arms = original;
+
+	if (!obj || obj->type != OBJTYPE_WEAPON || !obj->prop
+			|| obj->prop->lifecycle_generation == 0) {
+		return original;
+	}
+	kept = projectileArmsEntry(obj->prop);
+	if (kept && kept->generation == obj->prop->lifecycle_generation) {
+		return kept->arms;
+	}
+	if (projectileIdentify(obj, &who)
+			&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {
+		/* Its archive has a program: the program arms it, and none of a mod
+		 * weapon's record arms run for it. */
+		arms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,
+			original, NULL) | PROJECTILE_ARMS_PROGRAM;
+	}
+	if (kept) {
+		kept->generation = obj->prop->lifecycle_generation;
+		kept->arms = arms;
+	}
+	return arms;
 }
 
 /* The archive a sentry rule is asked of, named by the caller: a throw has no

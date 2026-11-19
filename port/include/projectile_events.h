@@ -139,6 +139,28 @@ u32 projectileSentryModules(s32 kind, struct defaultobj *obj, s32 gunnum, s32 fu
 u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosion,
 	s32 *explosion);
 
+/*
+ * The arm rule (projectile-events.md slice 6). Every tick weaponTick asks
+ * which arm a weapon object runs: PROJECTILE_MODULE_ARM_* bits
+ * (projectile_rules.h). The object chooses once, the first time it is asked
+ * (event.projectile.armed, as it is first ticked), and the choice is kept
+ * until its prop is freed, so a tick costs one table lookup. When the
+ * object's archive has a program the program chooses, and the answer carries
+ * PROJECTILE_ARMS_PROGRAM: that object runs the arms it chose and none of a
+ * mod weapon's record arms. With no program (a v1 archive, or an object no
+ * archive describes) the answer is the original's arm for its weapon number
+ * and function (`native`, projectileRulesNative's answer), and a mod weapon's
+ * records drive their own arms as before. Host and client alike choose by
+ * the program; only the host counts.
+ *
+ * Parity is counted with the other rules (rules.compared, rules.differ), once
+ * per object, and the first decision for a weapon and function logs
+ * "PROJECTILE.RULE: armed weapon=... func=... object=... program=...
+ * modules=arm_fuse native=arm_fuse".
+ */
+#define PROJECTILE_ARMS_PROGRAM (1u << 31) /* beside the arm bits: its archive has a program */
+u32 projectileArmModules(struct defaultobj *obj, u32 native);
+
 #ifdef __cplusplus
 }
 #endif

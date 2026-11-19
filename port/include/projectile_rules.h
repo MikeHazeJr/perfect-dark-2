@@ -6,7 +6,7 @@
 /*
  * The modules a projectile program can run, the events that apply them, and
  * the original game's rules that the base programs wire
- * (context/designs/modding/projectile-events.md, slices 2 to 4). No game
+ * (context/designs/modding/projectile-events.md, slices 2 to 6). No game
  * state here, so the game, the extractor and pd-tests all read one table:
  *
  * - the extractor writes each base archive's wiring from it;
@@ -39,8 +39,46 @@ extern "C" {
 #define PROJECTILE_MODULE_NBOMB_STORM   (1u << 10) /* og.projectile.nbomb_storm: it becomes an N-bomb storm */
 #define PROJECTILE_MODULE_DEPLOY_SENTRY (1u << 11) /* og.projectile.deploy_sentry: the throw makes a sentry gun, not a weapon object */
 #define PROJECTILE_MODULE_SENTRY_FIRE   (1u << 12) /* og.projectile.sentry_fire: the sentry fires */
-#define PROJECTILE_MODULE_COUNT 13
+/*
+ * Slice 6: the arms. A weapon object chooses its arm once, when it is first
+ * ticked (event.projectile.armed), and weaponTick runs that arm from then
+ * on: what the object's timer means and what it listens for. "The fuse rule"
+ * below is event.projectile.timer_expired, which says what goes off. With
+ * more than one arm chosen, the first in this order whose timer condition
+ * holds runs.
+ *
+ * - arm_fuse: while its timer is not idle it counts down; below zero the
+ *   fuse rule is asked, and if it chooses anything the object is removed.
+ * - arm_wall_fuse: arm_fuse for a wall hugger. While its timer is above zero
+ *   it is the time the object flies or hangs before it lets go and drops;
+ *   the landing zeroes it (og.projectile.wall_hug), and from zero it is
+ *   arm_fuse's.
+ * - arm_struck_fuse: no countdown. A spent fuse (a timer of zero) asks the
+ *   fuse rule, and if it chooses anything the object is removed.
+ * - arm_mine_fuse: while its timer is not idle it counts down; below zero
+ *   the fuse rule is asked, and the object is removed only if something
+ *   went off (an explosion can fail for want of room: the mine then stays).
+ * - arm_remote: it listens for its owner's detonator
+ *   (event.projectile.remote_signal). A spent fuse asks the fuse rule until
+ *   something goes off.
+ * - arm_proximity: its timer is its arming delay; armed, it joins the watch
+ *   list and tests the player of the tick (event.projectile.proximity). A
+ *   spent fuse asks the fuse rule until something goes off.
+ * - arm_bolt: a crossbow bolt's quiver after it lands, and its beam.
+ */
+#define PROJECTILE_MODULE_ARM_FUSE        (1u << 13) /* og.projectile.arm_fuse */
+#define PROJECTILE_MODULE_ARM_WALL_FUSE   (1u << 14) /* og.projectile.arm_wall_fuse */
+#define PROJECTILE_MODULE_ARM_STRUCK_FUSE (1u << 15) /* og.projectile.arm_struck_fuse */
+#define PROJECTILE_MODULE_ARM_MINE_FUSE   (1u << 16) /* og.projectile.arm_mine_fuse */
+#define PROJECTILE_MODULE_ARM_REMOTE      (1u << 17) /* og.projectile.arm_remote */
+#define PROJECTILE_MODULE_ARM_PROXIMITY   (1u << 18) /* og.projectile.arm_proximity */
+#define PROJECTILE_MODULE_ARM_BOLT        (1u << 19) /* og.projectile.arm_bolt */
+#define PROJECTILE_MODULE_COUNT 20
 #define PROJECTILE_MODULE_ALL ((1u << PROJECTILE_MODULE_COUNT) - 1)
+#define PROJECTILE_MODULE_ARMS \
+	(PROJECTILE_MODULE_ARM_FUSE | PROJECTILE_MODULE_ARM_WALL_FUSE | PROJECTILE_MODULE_ARM_STRUCK_FUSE \
+		| PROJECTILE_MODULE_ARM_MINE_FUSE | PROJECTILE_MODULE_ARM_REMOTE | PROJECTILE_MODULE_ARM_PROXIMITY \
+		| PROJECTILE_MODULE_ARM_BOLT)
 
 /*
  * The gates. projectileRulesNative sets a gate's bit beside the modules the
@@ -57,12 +95,12 @@ extern "C" {
  *   explosion's damage, a crusher's, a hoverbike's ram and a script's
  *   "destroy" with the remote mine's weapon number.
  */
-#define PROJECTILE_RULE_GATE_FUSE_ARMED        (1u << 16)
-#define PROJECTILE_RULE_GATE_TRIGGER_CLOSE     (1u << 17)
-#define PROJECTILE_RULE_GATE_TRIGGER_CHARACTER (1u << 18)
-#define PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST  (1u << 19)
+#define PROJECTILE_RULE_GATE_FUSE_ARMED        (1u << 24)
+#define PROJECTILE_RULE_GATE_TRIGGER_CLOSE     (1u << 25)
+#define PROJECTILE_RULE_GATE_TRIGGER_CHARACTER (1u << 26)
+#define PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST  (1u << 27)
 #define PROJECTILE_GATE_COUNT 4
-#define PROJECTILE_RULE_GATE_ALL (((1u << PROJECTILE_GATE_COUNT) - 1) << 16)
+#define PROJECTILE_RULE_GATE_ALL (((1u << PROJECTILE_GATE_COUNT) - 1) << 24)
 #define PROJECTILE_GATE_FUSE_ARMED_KIND "gate.projectile.fuse_armed"
 #define PROJECTILE_GATE_TRIGGER_CLOSE_KIND "gate.projectile.trigger_close"
 #define PROJECTILE_GATE_TRIGGER_CHARACTER_KIND "gate.projectile.trigger_character"
@@ -102,7 +140,10 @@ u32 projectileRulesEventModules(s32 event_kind);
  * the detonator). Two events are not about a weapon object: at
  * event.projectile.thrown the weapon number and function are the thrower's
  * (a thrown Laptop gun becomes its sentry), and event.projectile.sentry_aimed
- * has one answer for every sentry and every other autogun (it fires).
+ * has one answer for every sentry and every other autogun (it fires). At
+ * event.projectile.armed the answer is the arm weaponTick gives that weapon
+ * number and function: one arm, or none for an object with no timer to run
+ * (a gun, a knife, a planted device).
  */
 u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks_to_wall);
 

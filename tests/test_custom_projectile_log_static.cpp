@@ -125,10 +125,12 @@ TEST_CASE("projectile events are recorded at the native seams",
 		"\t\t\t\t\tout->not_launched = 1;") != std::string::npos);
 	REQUIRE(events.find("\tif (who->not_launched) {\n\t\treturn NULL;\n\t}") != std::string::npos);
 
-	// Slices 2 and 4: the six fuses ask the rule what goes off (the four of
-	// slice 2, the remote mine's and the proximity items'), and the rule
-	// fires the program's timer event, takes its modules and counts parity.
-	REQUIRE(countOf(propobj, "(fusemods = projectileFuseFor(obj, &fusetype)) != 0") == 6);
+	// Slices 2, 4 and 6: the five arms that run a fuse ask the rule what goes
+	// off (the countdown that the grenade, the grenade round and the N-bomb
+	// share, the rocket's, the timed mine's, the remote mine's and the
+	// proximity items'), and the rule fires the program's timer event, takes
+	// its modules and counts parity.
+	REQUIRE(countOf(propobj, "(fusemods = projectileFuseFor(obj, &fusetype)) != 0") == 5);
 	REQUIRE(propobj.find("projectileFuseRule") == std::string::npos);
 	REQUIRE(events.find("event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;") != std::string::npos);
 	REQUIRE(events.find("\t\tif (bit == PROJECTILE_MODULE_EXPLODE) {") != std::string::npos);
@@ -144,7 +146,7 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(extractor.find("{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },") != std::string::npos);
 	REQUIRE(extractor.find("og.projectile.fuse_expired") == std::string::npos);
 	REQUIRE(countOf(extractor, "if (s_projectileRuleWiring(p, ") == 2);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules\"") != std::string::npos);
 }
 
 // B-1265: a base throw's launch record carries placeholders for what a

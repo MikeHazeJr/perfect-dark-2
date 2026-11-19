@@ -1,12 +1,12 @@
 # Projectiles, mines and autoguns as behavior graphs
 
-Status: CORE, 2026-11-17. Draft for the week note's "Projectiles, mines,
+Status: CORE, 2026-11-19. For the week note's "Projectiles, mines,
 autoguns" row ("the graph selects the projectile and entity modules for base
 weapons too"), under decision 1 ("Players should be able to recreate any
-existing game behavior with the nodes"). B-1261 and slice 1 are written on
-`week-pd/core-s6` (78072e83, 772f0497; see "Slice 1 as written"); slices 2
-to 4 are written too (core-s6, core-s7, core-s8), none run in the game yet;
-slices 5 and 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
+existing game behavior with the nodes"). Slices 1 to 6 are written
+(`week-pd/core-s6` to `week-pd/core-s10`; each has an "as written" section
+below). None has run in the game yet. Facts from a read-only survey of
+`week-pd/core-s5` (a51e12bc);
 `pc` is `src/game/propobj.c`, `bg` is `src/game/bondgun.c`.
 
 ## Where it stands
@@ -124,8 +124,8 @@ slices 5 and 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a5
    off by a shot (written: see "Slice 4 as written").
 5. **Deployment and autoguns:** the Laptop sentry and `autogunTick` as
    modules (written: see "Slice 5 as written").
-6. **One contract:** the base guards go, the v1 path is refused, the row
-   ticks.
+6. **The arms:** `weaponTick` runs the arm each object chose, where it
+   tested weapon numbers (written: see "Slice 6 as written").
 
 ## Slice 1 as written (CORE, 2026-11-17)
 
@@ -548,71 +548,105 @@ Tests: `tests/test_projectile_rules.cpp` (the table's two answers, the
 Laptop gun's wiring fired through the runner, and the source pins of the
 throw and the sentry seams), `tools/tests/test_projectile_program_conformance.py`.
 
-## Slice 6 plan: one contract (CORE, 2026-11-19)
+## Slice 6 as written: the arms (CORE, 2026-11-19; on `week-pd/core-s10`, not run in the game yet)
 
-After slices 2 to 4 a program decides what happens inside each fuse arm of
-`weaponTick`, but the arm an object runs is still chosen by weapon number,
-and a mod weapon runs two other arms that only its v1 record drives:
+After slices 2 to 5 a program decided what happens inside each arm of
+`weaponTick` (the code that runs a weapon object's timer every tick), but
+the arm an object ran was still chosen by weapon number. A rule wired into
+an archive whose object the original never brings to that arm did nothing (a
+`remote_signal` on a grenade), and a mod weapon copied from a base archive
+got no arm at all, so its fuse never ran.
 
-| Arm | Chosen today by | What it does |
+**The arm is the object's own choice now.** One more rule event,
+`event.projectile.armed`, is asked once per weapon object, the first time
+`weaponTick` meets it. Its modules are the arms:
+
+| Module | The original gives it to | What the arm does |
 |---|---|---|
-| fuse countdown | grenade (first function), grenade round, N-bomb (first function), timed mine | its timer counts down; below zero the fuse rule is asked |
-| wall timer | grenade round, second function, while its timer is above zero | hangs on the wall, then falls (the continuation of `og.projectile.wall_hug`) |
-| struck fuse | rocket, homing rocket, Slayer rocket | no countdown; a timer of zero asks the fuse rule |
-| remote | remote mine | listens for its owner's detonator; a timer of zero asks the fuse rule |
-| proximity | proximity mine, and the second functions of the Dragon, the grenade and the N-bomb | arming delay, joins the watch list, tests the player of the tick; a timer of zero asks the fuse rule |
-| bolt | bolt | quivers after landing, feeds its beam |
-| mod projectile arm | a mod weapon whose v1 record has a wall hugger, a consumed impact or a timer | the same behaviors from record fields |
-| mod entity arm | a mod weapon whose v1 entity record is a remote, timed or proximity device or a storm | the same behaviors from record fields, with owner, team and line-of-sight filters |
+| `og.projectile.arm_fuse` | the hand grenade's and the N-bomb's first function, the Devastator's plain round, the Super Dragon's grenade | while its timer is not idle it counts down; below zero the fuse rule (`timer_expired`) is asked, and if it chooses anything the object is removed |
+| `og.projectile.arm_wall_fuse` | the Devastator's wall hugger | `arm_fuse`, but while its timer is above zero it is the time the object flies or hangs before it lets go and drops; the landing zeroes it, and from zero the countdown is `arm_fuse`'s |
+| `og.projectile.arm_struck_fuse` | a rocket, a homing rocket, the Skedar rocket (`WEAPON_SKROCKET`) | no countdown: a spent fuse (a timer of zero) asks the fuse rule, and if it chooses anything the object is removed |
+| `og.projectile.arm_mine_fuse` | the timed mine's first function | it counts down like `arm_fuse`, but the object is removed only if something went off (an explosion can fail for want of room; the mine then stays, inert) |
+| `og.projectile.arm_remote` | the remote mine | it listens for its owner's detonator (`remote_signal`); a spent fuse asks the fuse rule until something goes off |
+| `og.projectile.arm_proximity` | the proximity mine, and the second functions of the Dragon, the grenade and the N-bomb | its timer is its arming delay; armed, it joins the watch list and tests the player of the tick (`proximity`); a spent fuse asks the fuse rule until something goes off |
+| `og.projectile.arm_bolt` | the crossbow bolt | its quiver after it lands, and its beam |
 
-So a rule wired into an archive whose object the original never brings to
-that arm does nothing (a `remote_signal` on a grenade), a mod weapon with a
-v2 program still gets its arms from v1 record fields, and `spend_fuse` on an
-object with no fuse arm has nothing to set off.
+- **`weaponTick` asks the arm, not the weapon number.** Each arm's entry test
+  is "this object chose the arm", with the timer condition it always had.
+  The code inside each arm did not move, with two exceptions that keep the
+  original exactly. The N-bomb's countdown was a block of its own that
+  differed from the grenade's only in the order of two lines (off the
+  dangerous list, go off), so the two are one arm that keeps each order by
+  what goes off. And the timed mine's "first function only" test is gone
+  from inside its arm, because the table gives the arm to that function
+  alone. With more than one arm chosen (a mod's program can), the first in
+  the table's order whose timer condition holds runs.
+- **The table answers for the original** (`projectileRulesNative` at
+  `armed`): one arm for each weapon number and function the chain gave one,
+  none for the rest. pd-tests compare the whole table with the chain as it
+  stood before the slice (propobj.c at 4c1ad8a0). The extractor wires each
+  base archive's arm from the table, first, before the fuse, and the parity
+  probe compares the program's choice with it once per object
+  (`rules.compared`, `rules.differ`).
+- **Asked once, kept per object.** The answer is kept in a table with one
+  entry per prop of the stage (by the prop's place in the stage's prop array
+  and its generation, so a freed prop's entry never answers for the next
+  object in its place). A tick costs one lookup. An object alive across a
+  mid-stage reload of its archive keeps the arm it chose; its other rules
+  follow the new program.
+- **A fuse needs an arm.** Only an arm asks the fuse rule, so a projectile
+  archive's program that wires `timer_expired` and reaches no arm from
+  `armed` (the bolt's arm runs no fuse and does not count) is refused at
+  registration and by the archive validator: "event.projectile.timer_expired
+  is wired but event.projectile.armed reaches no arm that runs a fuse". An
+  entity archive carries its item's fuse alone and is exempt: the item's
+  projectile archive arms it. A program that wires no `armed` rule at all
+  arms nothing; the original's arm is not a fallback for it.
+- **A program's object runs no record arm.** A mod weapon's two record arms
+  in `weaponTick` (the v1 projectile arm and the v1 entity arm) do not run
+  for an object whose archive has a program: its arm is the one its program
+  chose. A v1 archive runs them as before, and a base weapon never does.
 
-**The contract.** An object whose archive has a program runs the arms its
-program chooses; an object whose archive is v1 runs the record arms, as
-today (nothing a mod already holds is refused: see the note under slice 2).
+**What changed from the plan, and why.**
 
-- **One more rule event, asked once per object:** `event.projectile.armed`,
-  when a weapon object is first ticked. Its modules are the arms:
-  `og.projectile.arm_fuse` (the countdown), `og.projectile.arm_struck_fuse`,
-  `og.projectile.arm_remote`, `og.projectile.arm_proximity`,
-  `og.projectile.arm_bolt`. The answer is kept beside the object's binding
-  (its prop and that prop's generation), so the arm chain costs one table
-  lookup per tick, as today's weapon-number tests do. The wall timer is not
-  an arm of its own: it runs for an object that chose `wall_hug` at its
-  contact.
-- **The table answers for the original** (`projectileRulesNative` gains the
-  event): the arm each weapon number and function has today. The extractor
-  wires it; the parity probe compares the program's arms with it.
-- **`weaponTick` asks the arms, not the weapon number.** Each arm's entry
-  test becomes "this object chose the arm" (and the timer conditions it has
-  today). The code inside each arm does not move. Two details the original
-  keys by number inside an arm become gates or parameters then: the timed
-  mine's countdown that runs for its first function only, and the proximity
-  item's radius, which the entity record already carries for the player's
-  test and the watch list ignores.
-- **A fuse for every program.** An object that chose no arm but whose
-  program wires `timer_expired` gets the struck fuse: a timer of zero asks
-  the fuse rule, and the object goes off and is deleted as a rocket is.
-  This is what makes `spend_fuse` mean something on a thrown knife.
-- **The record arms stay for v1 archives only.** `weaponGetCustomProjectileGraph`
-  and the entity arm's entry test stop asking for a mod weapon number and
-  ask for "no program" instead, so a mod weapon with a v2 program meets the
-  same arms as a base weapon, and a base weapon can never fall into a
-  record arm. That is the guard the row's text is about.
+1. The plan had the wall timer run "for an object that chose `wall_hug` at
+   its contact". The extracted archive says otherwise: the wall hugger is
+   launched with a six-second timer (`timer60` 360), and the original runs
+   its wall branch from the launch, not from the wall. A flag set at the
+   contact would have made a wall hugger that flies for six seconds explode
+   in the air where the original drops it. So the wall timer is an arm of
+   its own (`arm_wall_fuse`), chosen like the others.
+2. The plan gave a struck fuse to every program that wired a fuse and chose
+   no arm. That is a behavior nothing in the graph asks for. An explicit
+   arm, and a refusal when a fuse has none, says the same thing where an
+   author can read it.
+3. The plan had one countdown arm for the grenade, the N-bomb and the timed
+   mine. The timed mine's block differs in what happens when its explosion
+   fails (the mine stays), which a player can see, so it is an arm of its
+   own (`arm_mine_fuse`).
 
-**Order of work**, each step with the parity probe at zero before the next:
-the event and the table with the kept answer (no behavior change: the arm
-chain still tests weapon numbers, and the probe compares); then one arm at a
-time switches its entry test (fuse, struck fuse, remote, proximity, bolt);
-then the fuse for every program; then the record arms' entry tests. The
-campaigns exercise the fuse and struck fuse arms (guards throw grenades and
-fire rockets); `projectile_events_smoke` exercises all five.
+**What still goes by weapon number, or by a mod weapon's records** (not this
+slice):
 
-**What it does not do:** the flight model, the presentation, a held
-weapon's detonator, and the sentry, whose two rules are slice 5's.
+- the flight model and the presentation (a rocket's power limit and smoke,
+  the homing rocket's tail, the grenade round's trail, the knife's woosh,
+  the bounce sounds), the spawn sites, pickup and free;
+- at the other seams, a mod weapon's record clauses still apply beside its
+  program's choice, as in slices 3 to 5: the contact's sticky filters and
+  record impact, the fuse seeded when it sticks, the sticky device's landing
+  flags, the damage response, the watch list's filters. A mod weapon with a
+  program therefore does not yet behave exactly like the base weapon it was
+  copied from in those respects. Closing that needs a test mod with a v2
+  program and a decision about each record clause (which are data, which
+  are decisions).
+
+**Proof asked of the game run:** `projectile_events_smoke` requires the
+first `armed` decision of fourteen weapon functions, the program's arm equal
+to the original's, and the detonations it already required now pass through
+the new entry tests (the grenade, a rocket, the timed mine, the remote mine,
+the Super Dragon's grenade). The campaigns must keep `rules.differ` and
+`fuse.differ` at 0, and the mod weapon smoke (a v1 archive) must run its
+record arms as before.
 
 ## Not in scope
 

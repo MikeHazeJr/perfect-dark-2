@@ -4,13 +4,14 @@
   bounce from the throw itself. Placeholder values in a base weapon's launch
   record are no longer applied over them.
 - Mod weapons: a projectile archive can carry a program
-  (`pd.projectile_graph.v2`). Its rules decide what a thrown or fired object
-  does when it strikes something and when it lands, what sets it off (something
-  coming near, the detonator, a shot or a blast), what goes off then (an
-  explosion of a chosen type, or an N-bomb storm), whether a throw becomes a
-  sentry gun and whether an aimed sentry fires. The original weapons are wired
-  to do what they always did, and a v1 archive keeps working unchanged. Weapon
-  archives update once on boot.
+  (`pd.projectile_graph.v2`). Its rules decide which fuse a thrown or fired
+  object runs (a countdown, a wall hugger's, a rocket's, a mine's, a proximity
+  item's), what it does when it strikes something and when it lands, what sets
+  it off (something coming near, the detonator, a shot or a blast), what goes
+  off then (an explosion of a chosen type, or an N-bomb storm), whether a
+  throw becomes a sentry gun and whether an aimed sentry fires. The original
+  weapons are wired to do what they always did, and a v1 archive keeps working
+  unchanged. Weapon archives update once on boot.
 
 - Repairs affected stage archives individually and preserves valid edits. Normal startup can check or repair standalone campaign missions while the menu is available. Bundled weapon registration also spends less time preparing rollback.
 

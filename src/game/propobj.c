@@ -5205,6 +5205,20 @@ static u32 projectileFuseFor(struct defaultobj *obj, s32 *exptype)
 		projectileRulesNativeExplosion(weapon->weaponnum, weapon->gunfunc), exptype);
 }
 
+/* projectile-events.md slice 6: the arms this weapon object runs in
+ * weaponTick (PROJECTILE_MODULE_ARM_* bits), with PROJECTILE_ARMS_PROGRAM
+ * when its archive has a program. It chooses once, when it is first ticked
+ * (event.projectile.armed); after that this is one table lookup. With no
+ * program the original's arm for its weapon number and function answers. */
+static u32 projectileArmsFor(struct defaultobj *obj)
+{
+	struct weaponobj *weapon = (struct weaponobj *)obj;
+
+	return projectileArmModules(obj,
+		projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_ARMED,
+			weapon->weaponnum, weapon->gunfunc, 0));
+}
+
 void objLand2(struct defaultobj *obj, struct coord *arg1, struct coord *arg2)
 {
 	Mtxf sp40;
@@ -5669,11 +5683,16 @@ void weaponTick(struct prop *prop)
 			weapon->gset.weaponnum, weapon->gset.weaponfunc);
 	const weapon_graph_entity_runtime_t *entitygraph =
 		weaponGraphRuntimeGetEntityForHeldFunction(graph);
+	/* projectile-events.md slice 6: the arm this object runs, chosen when it
+	 * is first ticked (event.projectile.armed): its program's choice, or
+	 * with no program the original's by weapon number and function. */
+	const u32 arms = projectileArmsFor(obj);
 	/* c3849 Wave 5 (binding spec B1): resolved once per tick for the combined
 	 * custom projectile arm below. NULL for every base weapon (custom-slot
-	 * guard) and whenever the runtime gate is off in tests. */
+	 * guard), for an object whose archive has a program (its arms are the
+	 * program's) and whenever the runtime gate is off in tests. */
 	const weapon_graph_projectile_runtime_t *customproj =
-		weaponGetCustomProjectileGraph(weapon);
+		(arms & PROJECTILE_ARMS_PROGRAM) ? NULL : weaponGetCustomProjectileGraph(weapon);
 	/* projectile-events.md slice 4: what the fuse rule chose at this tick. */
 	u32 fusemods = 0;
 	s32 fusetype = PROJECTILE_EXPLOSION_OWN;
@@ -5706,13 +5725,15 @@ void weaponTick(struct prop *prop)
 	}
 
 	// Handle grenade timers
-	if (((weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_PRIMARY)
-				|| weapon->weaponnum == WEAPON_GRENADEROUND)
+	/* projectile-events.md slice 6: the countdown arm, for an object that
+	 * chose og.projectile.arm_fuse or arm_wall_fuse (the original: a hand
+	 * grenade's and the N-bomb's first function, and a grenade round). */
+	if ((arms & (PROJECTILE_MODULE_ARM_FUSE | PROJECTILE_MODULE_ARM_WALL_FUSE))
 			&& weapon->timer240 >= 0) {
 		// Handle Devastator wall hugger timer
-		if (weapon->weaponnum == WEAPON_GRENADEROUND
-				&& weapon->gunfunc == FUNC_SECONDARY
-				&& weapon->timer240 > 0) {
+		/* arm_wall_fuse: above zero its timer is the wall hugger's (the
+		 * time it flies or hangs before it drops). */
+		if ((arms & PROJECTILE_MODULE_ARM_WALL_FUSE) && weapon->timer240 > 0) {
 			if (weapon->timer240 >= 2) {
 				// Still on the wall
 				weapon->timer240 -= g_Vars.lvupdate240;
@@ -5772,11 +5793,21 @@ void weaponTick(struct prop *prop)
 			weapon->timer240 -= g_Vars.lvupdate240;
 
 			/* projectile-events.md slices 2 and 4: the fuse rule says what
-			 * goes off (the Super Dragon's grenade names its own explosion). */
+			 * goes off (the Super Dragon's grenade names its own explosion;
+			 * the N-bomb's is its storm). */
 			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
-				propUnsetDangerous(prop);
+				/* The original takes a grenade off the dangerous list
+				 * before it explodes, and an N-bomb after its storm starts. */
+				if (fusemods & PROJECTILE_MODULE_NBOMB_STORM) {
+					// Nbombs detonate when they hit the ground, so this code only
+					// runs if it's airborne for the entire duration of its timer.
+					weaponGoOffAs(prop, fusemods, fusetype);
+					propUnsetDangerous(prop);
+				} else {
+					propUnsetDangerous(prop);
 
-				weaponGoOffAs(prop, fusemods, fusetype);
+					weaponGoOffAs(prop, fusemods, fusetype);
+				}
 
 				obj->hidden |= OBJHFLAG_DELETING;
 
@@ -5801,45 +5832,7 @@ void weaponTick(struct prop *prop)
 #endif
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY) {
-		// Handle nbombs being thrown normally
-		if (weapon->timer240 >= 0) {
-			weapon->timer240 -= g_Vars.lvupdate240;
-
-			/* projectile-events.md slices 2 and 4: the fuse rule says what
-			 * goes off (the original: the storm). */
-			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
-				// Nbombs detonate when they hit the ground, so this code only
-				// runs if it's airborne for the entire duration of its timer.
-				weaponGoOffAs(prop, fusemods, fusetype);
-				propUnsetDangerous(prop);
-
-				obj->hidden |= OBJHFLAG_DELETING;
-
-#if VERSION >= VERSION_NTSC_1_0
-				{
-					s32 i;
-
-					for (i = 0; i < MAX_PLAYERS; i++) {
-						if (!g_Vars.players[i]) {
-							continue;
-						}
-						if (g_Vars.players[i]->slayerrocket == (struct weaponobj *)obj) {
-							g_Vars.players[i]->slayerrocket = NULL;
-							g_Vars.players[i]->visionmode = VISIONMODE_SLAYERROCKETSTATIC;
-						}
-					}
-				}
-#else
-				if (g_Vars.currentplayer->slayerrocket == (struct weaponobj *) obj) {
-					g_Vars.currentplayer->slayerrocket = NULL;
-				}
-#endif
-			}
-		}
-	} else if (weapon->weaponnum == WEAPON_ROCKET
-			|| weapon->weaponnum == WEAPON_HOMINGROCKET
-			|| weapon->weaponnum == WEAPON_SKROCKET) {
+	} else if (arms & PROJECTILE_MODULE_ARM_STRUCK_FUSE) {
 		// Handle rockets
 		/* projectile-events.md slices 2 and 4: the fuse rule says what goes off. */
 		if (weapon->timer240 == 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
@@ -6013,22 +6006,21 @@ void weaponTick(struct prop *prop)
 				}
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_TIMEDMINE && weapon->timer240 >= 0) {
+	} else if ((arms & PROJECTILE_MODULE_ARM_MINE_FUSE) && weapon->timer240 >= 0) {
 		// Handle timed mines
-		if (weapon->gunfunc == FUNC_PRIMARY) {
-			weapon->timer240 -= g_Vars.lvupdate240;
+		/* projectile-events.md slice 6: the original counts a timed mine's
+		 * fuse for its first function only. The arm rule gives the arm to
+		 * that function, so nothing asks the function here. */
+		weapon->timer240 -= g_Vars.lvupdate240;
 
-			/* projectile-events.md slices 2 and 4: the fuse rule says what goes off. */
-			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
-				if (weaponGoOffAs(prop, fusemods, fusetype)) {
-					weapon->timer240 = -1;
-					obj->hidden |= OBJHFLAG_DELETING;
-				}
+		/* projectile-events.md slices 2 and 4: the fuse rule says what goes off. */
+		if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
+			if (weaponGoOffAs(prop, fusemods, fusetype)) {
+				weapon->timer240 = -1;
+				obj->hidden |= OBJHFLAG_DELETING;
 			}
-		} else {
-			// empty
 		}
-	} else if (weapon->weaponnum == WEAPON_REMOTEMINE) {
+	} else if (arms & PROJECTILE_MODULE_ARM_REMOTE) {
 		// Handle remote mines
 		if (g_PlayersDetonatingMines != 0) {
 			s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
@@ -6089,10 +6081,7 @@ void weaponTick(struct prop *prop)
 				obj->hidden |= OBJHFLAG_DELETING;
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_PROXIMITYMINE
-			|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)
-			|| (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY)
-			|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_SECONDARY)) {
+	} else if (arms & PROJECTILE_MODULE_ARM_PROXIMITY) {
 		// Handle proximity items
 		if (weapon->timer240 >= 2) {
 			// The timer is still active, so the proxy isn't active yet
@@ -6166,12 +6155,15 @@ void weaponTick(struct prop *prop)
 				obj->hidden |= OBJHFLAG_DELETING;
 			}
 		}
-	} else if (weapon->weaponnum >= WEAPON_CUSTOM_START && entitygraph
+	} else if (weapon->weaponnum >= WEAPON_CUSTOM_START && !(arms & PROJECTILE_ARMS_PROGRAM)
+			&& entitygraph
 			&& (entitygraph->has_remote_detonatable
 				|| entitygraph->has_timed_detonatable
 				|| entitygraph->has_proxy_trigger
 				|| entitygraph->has_nbomb_storm)) {
 		/* c3849 Wave 5 Unit 6 (binding spec B1 position 6): CUSTOM ENTITY ARM.
+		 * A v1 archive's arm (projectile-events.md slice 6): an object whose
+		 * archive has a program runs the arm its program chose, never this.
 		 * Custom-slot-only by entry: entitygraph is non-NULL for base weapons
 		 * with the runtime toggle ON, so the weaponnum gate carries the
 		 * dormancy guarantee (the OG arms above stay verbatim and first). A
@@ -6464,7 +6456,7 @@ void weaponTick(struct prop *prop)
 				}
 			}
 		}
-	} else if (weapon->weaponnum == WEAPON_BOLT) {
+	} else if (arms & PROJECTILE_MODULE_ARM_BOLT) {
 		// Handle crossbow bolts
 		// Note that the timer240 value doesn't act like a timer at all
 		if (weapon->timer240 >= 2) {

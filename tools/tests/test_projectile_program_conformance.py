@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the archive validator's projectile and entity graph checks
-(context/designs/modding/projectile-events.md, slices 2 to 5).
+(context/designs/modding/projectile-events.md, slices 2 to 6).
 
 A projectile or entity archive's behavior.graph.json is v1 (the launch and
 deploy data alone) or v2 (the same data plus a program of event.*, gate.* and
@@ -31,7 +31,7 @@ EXAMPLE = REPO / "examples" / "modding" / "typed-pdxxx-basic"
 
 # What the extractor writes for a base projectile with a fuse: the v1 data
 # nodes, then the fuse wired to what goes off (the node keeps the id the
-# cases below name).
+# cases below name), and the arm that runs the fuse (slice 6).
 V2_PROJECTILE = {
     "schema": "pd.projectile_graph.v2",
     "asset_id": "example:tri_projectile",
@@ -41,10 +41,13 @@ V2_PROJECTILE = {
         {"id": "motion", "kind": "projectile.motion", "params": {}},
         {"id": "fuse", "kind": "event.projectile.timer_expired"},
         {"id": "fuse_expired", "kind": "og.projectile.explode"},
+        {"id": "armed", "kind": "event.projectile.armed"},
+        {"id": "armed_arm_fuse", "kind": "og.projectile.arm_fuse"},
     ],
     "edges": [
         {"from": "spawn_state", "to": "motion"},
         {"from": "fuse", "output": "out", "to": "fuse_expired", "input": "exec"},
+        {"from": "armed", "output": "out", "to": "armed_arm_fuse", "input": "exec"},
     ],
     "exports": [{"name": "main", "node": "motion"}],
 }
@@ -98,7 +101,7 @@ class Schemas(unittest.TestCase):
     def test_a_v1_graph_is_data_only(self):
         v1 = edited(schema="pd.projectile_graph.v1")
         errors = graph_errors(v1)
-        self.assertEqual(len(errors), 2, errors)
+        self.assertEqual(len(errors), 4, errors)
         self.assertTrue(all("is a program node: a program needs schema pd.projectile_graph.v2" in e
                             for e in errors), errors)
         v1["nodes"] = v1["nodes"][:2]
@@ -113,8 +116,16 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 13)
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 15)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 20)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 16)
+        # Slice 6: the arms, in the order weaponTick tests them.
+        self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"],
+                         ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                          "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                          "og.projectile.arm_remote", "og.projectile.arm_proximity",
+                          "og.projectile.arm_bolt"))
+        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[13:],
+                         conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"])
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.thrown"],
                          ("og.projectile.deploy_sentry",))
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.sentry_aimed"],
@@ -152,6 +163,10 @@ class Programs(unittest.TestCase):
                               ("event.projectile.thrown", "og.projectile.sentry_fire"),
                               ("event.projectile.sentry_aimed", "og.projectile.deploy_sentry"),
                               ("event.projectile.contact", "og.projectile.deploy_sentry"),
+                              ("event.projectile.armed", "og.projectile.explode"),
+                              ("event.projectile.contact", "og.projectile.arm_fuse"),
+                              ("event.projectile.spawned", "og.projectile.arm_proximity"),
+                              ("event.projectile.timer_expired", "og.projectile.arm_remote"),
                               ("event.projectile.timer_expired", "og.projectile.land_knife")):
             graph = with_nodes([{"id": "more", "kind": event}, {"id": "chosen", "kind": module}],
                                [{"from": "more", "to": "chosen", "input": "exec"}])
@@ -160,12 +175,12 @@ class Programs(unittest.TestCase):
             self.assertIn("%s 'chosen' has no effect on %s ('more')" % (module, event), errors[0])
         # Reached through a gate, the same.
         graph = with_nodes([{"id": "rest", "kind": "event.projectile.came_to_rest"},
-                            {"id": "armed", "kind": "gate.projectile.fuse_armed"},
+                            {"id": "live", "kind": "gate.projectile.fuse_armed"},
                             {"id": "spend", "kind": "og.projectile.spend_fuse"},
                             {"id": "stick", "kind": "og.projectile.stick"}],
-                           [{"from": "rest", "to": "armed", "input": "exec"},
-                            {"from": "armed", "output": "pass", "to": "spend", "input": "exec"},
-                            {"from": "armed", "output": "fail", "to": "stick", "input": "exec"}])
+                           [{"from": "rest", "to": "live", "input": "exec"},
+                            {"from": "live", "output": "pass", "to": "spend", "input": "exec"},
+                            {"from": "live", "output": "fail", "to": "stick", "input": "exec"}])
         errors = program_errors(graph)
         self.assertEqual(len(errors), 1, errors)
         self.assertIn("og.projectile.stick 'stick' has no effect on event.projectile.came_to_rest", errors[0])
@@ -230,12 +245,71 @@ class Programs(unittest.TestCase):
         # fuse_armed reads the projectile itself: any event.
         for event in conf.PROJECTILE_GRAPH_EVENTS:
             graph = with_nodes([{"id": "more", "kind": event},
-                                {"id": "armed", "kind": "gate.projectile.fuse_armed"}],
-                               [{"from": "more", "output": "out", "to": "armed", "input": "exec"}])
+                                {"id": "live", "kind": "gate.projectile.fuse_armed"}],
+                               [{"from": "more", "output": "out", "to": "live", "input": "exec"}])
             self.assertEqual(program_errors(graph), [], event)
         # A context gate nothing reaches is not asked anywhere.
         self.assertEqual(program_errors(with_node(
             {"id": "idle", "kind": "gate.projectile.trigger_close"})), [])
+
+    def test_a_fuse_needs_an_arm(self):
+        def without_arm(**changes):
+            graph = copy.deepcopy(V2_PROJECTILE)
+            graph["nodes"] = graph["nodes"][:4]
+            graph["edges"] = graph["edges"][:2]
+            graph.update(changes)
+            return graph
+
+        # A fuse wired and nothing armed: only an arm asks the fuse rule, so
+        # the object would never go off. The game refuses the program.
+        errors = program_errors(without_arm())
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("wires event.projectile.timer_expired but event.projectile.armed reaches no arm "
+                      "that runs a fuse", errors[0])
+        self.assertEqual(len(graph_errors(without_arm())), 1)
+        # An entity archive carries its item's fuse alone: the item's
+        # projectile archive arms it.
+        self.assertEqual(conf.validate_projectile_graph_program("x", without_arm(), entity=True), [])
+        self.assertEqual(graph_errors(without_arm(schema="pd.entity_graph.v2"), ".pdentity"), [])
+        # Each arm that runs a fuse will do; the bolt's arm runs none.
+        for arm in conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"]:
+            graph = without_arm()
+            graph["nodes"] += [{"id": "armed", "kind": "event.projectile.armed"},
+                               {"id": "arm", "kind": arm}]
+            graph["edges"] += [{"from": "armed", "output": "out", "to": "arm", "input": "exec"}]
+            errors = program_errors(graph)
+            if arm == "og.projectile.arm_bolt":
+                self.assertNotIn(arm, conf.PROJECTILE_GRAPH_FUSE_ARMS)
+                self.assertEqual(len(errors), 1, (arm, errors))
+                self.assertIn("reaches no arm that runs a fuse", errors[0])
+            else:
+                self.assertIn(arm, conf.PROJECTILE_GRAPH_FUSE_ARMS)
+                self.assertEqual(errors, [], arm)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_FUSE_ARMS), 6)
+        # An arm behind a gate counts: the program can reach it.
+        graph = without_arm()
+        graph["nodes"] += [{"id": "armed", "kind": "event.projectile.armed"},
+                           {"id": "live", "kind": "gate.projectile.fuse_armed"},
+                           {"id": "arm", "kind": "og.projectile.arm_fuse"}]
+        graph["edges"] += [{"from": "armed", "output": "out", "to": "live", "input": "exec"},
+                           {"from": "live", "output": "pass", "to": "arm", "input": "exec"}]
+        self.assertEqual(program_errors(graph), [])
+        # A fuse event nothing leaves decides nothing and needs no arm; nor
+        # does a program with no fuse (a thrown knife: its contact alone).
+        graph = without_arm()
+        graph["edges"] = graph["edges"][:1]
+        self.assertEqual(program_errors(graph), [])
+        knife = without_arm()
+        knife["nodes"] = knife["nodes"][:2] + [{"id": "contact", "kind": "event.projectile.contact"},
+                                               {"id": "stick", "kind": "og.projectile.stick"}]
+        knife["edges"] = knife["edges"][:1] + [{"from": "contact", "to": "stick", "input": "exec"}]
+        self.assertEqual(program_errors(knife), [])
+        # An arm with no fuse wired is a choice too (a bolt has none).
+        bolt = without_arm()
+        bolt["nodes"] = bolt["nodes"][:2] + [{"id": "armed", "kind": "event.projectile.armed"},
+                                             {"id": "arm", "kind": "og.projectile.arm_bolt"}]
+        bolt["edges"] = bolt["edges"][:1] + [{"from": "armed", "to": "arm", "input": "exec"}]
+        self.assertEqual(program_errors(bolt), [])
 
     def test_the_explosion_an_explode_names(self):
         def explode(**fields):
@@ -351,7 +425,7 @@ class Archives(unittest.TestCase):
                     return dict(wired(graph), schema=conf.PROJECTILE_GRAPH_SCHEMAS[ext][0])
 
                 messages = self.graph_messages(self.rebuilt(relative, stale), ext)
-                self.assertEqual(len(messages), 2, messages)
+                self.assertEqual(len(messages), 4, messages)
 
 
 if __name__ == "__main__":

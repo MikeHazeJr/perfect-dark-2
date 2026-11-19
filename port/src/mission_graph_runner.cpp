@@ -131,6 +131,8 @@ const struct {
 	// Slice 5: the sentry rule events.
 	{ "event.projectile.thrown", MISSION_GRAPH_EVENT_PROJECTILE_THROWN },
 	{ "event.projectile.sentry_aimed", MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED },
+	// Slice 6: the arm rule event.
+	{ "event.projectile.armed", MISSION_GRAPH_EVENT_PROJECTILE_ARMED },
 };
 
 // The projectile event kind of a node kind, or 0 for none.
@@ -145,7 +147,7 @@ s32 projectileEventKindOf(const std::string &kind)
 bool isProjectileEventKind(s32 kind)
 {
 	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
-		kind <= MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED;
+		kind <= MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
 }
 
 // A node's scalar fields other than id and kind, as text.

@@ -1,7 +1,7 @@
 /*
  * projectile_rules.c -- the modules of a projectile program and the original
  * game's rules by weapon number: see projectile_rules.h and
- * context/designs/modding/projectile-events.md (slices 3 and 4).
+ * context/designs/modding/projectile-events.md (slices 3 to 6).
  */
 
 #include <string.h>
@@ -27,6 +27,13 @@ static const struct {
 	{ PROJECTILE_MODULE_NBOMB_STORM, "og.projectile.nbomb_storm" },
 	{ PROJECTILE_MODULE_DEPLOY_SENTRY, "og.projectile.deploy_sentry" },
 	{ PROJECTILE_MODULE_SENTRY_FIRE, "og.projectile.sentry_fire" },
+	{ PROJECTILE_MODULE_ARM_FUSE, "og.projectile.arm_fuse" },
+	{ PROJECTILE_MODULE_ARM_WALL_FUSE, "og.projectile.arm_wall_fuse" },
+	{ PROJECTILE_MODULE_ARM_STRUCK_FUSE, "og.projectile.arm_struck_fuse" },
+	{ PROJECTILE_MODULE_ARM_MINE_FUSE, "og.projectile.arm_mine_fuse" },
+	{ PROJECTILE_MODULE_ARM_REMOTE, "og.projectile.arm_remote" },
+	{ PROJECTILE_MODULE_ARM_PROXIMITY, "og.projectile.arm_proximity" },
+	{ PROJECTILE_MODULE_ARM_BOLT, "og.projectile.arm_bolt" },
 };
 
 static const struct {
@@ -72,6 +79,7 @@ static const struct {
 		PROJECTILE_MODULE_DEPLOY_SENTRY },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "event.projectile.sentry_aimed",
 		PROJECTILE_MODULE_SENTRY_FIRE },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, "event.projectile.armed", PROJECTILE_MODULE_ARMS },
 };
 #define PROJECTILE_EVENT_ROWS ((s32)(sizeof(s_ProjectileEvents) / sizeof(s_ProjectileEvents[0])))
 
@@ -296,6 +304,41 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 		/* An aimed sentry fires, and so does every other autogun
 		 * (autogunTick). */
 		return PROJECTILE_MODULE_SENTRY_FIRE;
+	case MISSION_GRAPH_EVENT_PROJECTILE_ARMED:
+		/* weaponTick's arms, which the original picks by weapon number and
+		 * function: one each, in the order it tests them. */
+		if ((weaponnum == WEAPON_GRENADE && gunfunc == FUNC_PRIMARY)
+				|| (weaponnum == WEAPON_NBOMB && gunfunc == FUNC_PRIMARY)) {
+			return PROJECTILE_MODULE_ARM_FUSE;
+		}
+		if (weaponnum == WEAPON_GRENADEROUND) {
+			/* The Devastator's wall hugger; its plain round and the Super
+			 * Dragon's grenade count down. */
+			return gunfunc == FUNC_SECONDARY
+				? PROJECTILE_MODULE_ARM_WALL_FUSE : PROJECTILE_MODULE_ARM_FUSE;
+		}
+		if (weaponnum == WEAPON_ROCKET
+				|| weaponnum == WEAPON_HOMINGROCKET
+				|| weaponnum == WEAPON_SKROCKET) {
+			return PROJECTILE_MODULE_ARM_STRUCK_FUSE;
+		}
+		if (weaponnum == WEAPON_TIMEDMINE) {
+			/* Its fuse counts for its first function only. */
+			return gunfunc == FUNC_PRIMARY ? PROJECTILE_MODULE_ARM_MINE_FUSE : 0;
+		}
+		if (weaponnum == WEAPON_REMOTEMINE) {
+			return PROJECTILE_MODULE_ARM_REMOTE;
+		}
+		if (weaponnum == WEAPON_PROXIMITYMINE
+				|| (weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY)
+				|| (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY)
+				|| (weaponnum == WEAPON_NBOMB && gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_ARM_PROXIMITY;
+		}
+		if (weaponnum == WEAPON_BOLT) {
+			return PROJECTILE_MODULE_ARM_BOLT;
+		}
+		return 0;
 	default:
 		return 0;
 	}
