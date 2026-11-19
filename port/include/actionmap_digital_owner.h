@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <unordered_map>
 
-/* A physical edge keeps its winning action until its own release. Device
- * instance is part of the key, so another controller cannot release it. */
+/* Keep the winning action until the physical source releases or its route is
+ * retired. The instance key keeps different devices' releases independent. */
 enum class ActionSourceKind : uint8_t {
     Keyboard = 1, MouseButton, Wheel, ControllerButton, RawButton,
     ControllerAxis, RawAxis
@@ -22,6 +22,7 @@ struct ActionDigitalOwner {
     s32 player;
     InputAction action;
     const InputMappingContext *context;
+    bool frontend_borrowed;
 };
 
 struct ActionDigitalRelease {
@@ -35,11 +36,12 @@ public:
     struct Press { bool accepted; bool first; };
 
     Press press(uint64_t source, s32 player, InputAction action,
-               const InputMappingContext *context)
+               const InputMappingContext *context, bool frontend_borrowed = false)
     {
         if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
             action < 0 || action >= ACTION_COUNT || !context) return {false, false};
-        auto inserted = owners_.emplace(source, ActionDigitalOwner{player, action, context});
+        auto inserted = owners_.emplace(source,
+            ActionDigitalOwner{player, action, context, frontend_borrowed});
         if (!inserted.second) return {false, false};
         s32 &count = counts_[player][action];
         return {true, ++count == 1};
@@ -70,6 +72,15 @@ public:
             it = owners_.erase(it);
             onRelease(result);
         }
+    }
+
+    template <typename OnRelease>
+    void retireBorrowedFrontendOwners(int32_t preferred_instance, OnRelease onRelease)
+    {
+        retireWhere([preferred_instance](uint64_t source, const ActionDigitalOwner &owner) {
+            return owner.frontend_borrowed
+                && uint32_t(source >> 16) != uint32_t(preferred_instance);
+        }, onRelease);
     }
 
     void clear()

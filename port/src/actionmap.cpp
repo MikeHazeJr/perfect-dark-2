@@ -821,6 +821,19 @@ static int deviceIdentityFromInstance(SDL_JoystickID instance, InputDeviceIdenti
 void actionmapObserveDeviceEvent(const SDL_Event *event)
 {
     if (!event) return;
+    if (event->type == SDL_CONTROLLERDEVICEADDED) {
+        SDL_GameController *preferred = actionmapFrontendContext() ? actionmapFrontendPad() : nullptr;
+        if (preferred) {
+            const SDL_JoystickID instance =
+                SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(preferred));
+            if (instance >= 0) {
+                /* Borrowed menu holds end when a preferred pad takes over.
+                 * Leave axis latches in place until their physical neutral edge. */
+                s_DigitalOwners.retireBorrowedFrontendOwners(instance, actionmapReleaseDigitalOwner);
+            }
+        }
+        return;
+    }
     if (event->type == SDL_CONTROLLERDEVICEREMOVED || event->type == SDL_JOYDEVICEREMOVED) {
         const SDL_JoystickID instance = event->jdevice.which;
         s_DigitalOwners.retireWhere(
@@ -1036,6 +1049,7 @@ static void fireVk(u32 vk, s32 is_down, uint64_t source)
     }
     if (vk == 0) return;
 
+    bool frontend_borrowed = false;
     const auto source_kind = static_cast<ActionSourceKind>(source >> 56);
     if (source_kind == ActionSourceKind::ControllerButton ||
         source_kind == ActionSourceKind::ControllerAxis) {
@@ -1043,6 +1057,7 @@ static void fireVk(u32 vk, s32 is_down, uint64_t source)
         const auto instance = static_cast<SDL_JoystickID>(uint32_t(source >> 16));
         if (inputVkDecodeController(vk, &control) && control.player > 0 &&
                 actionmapFrontendBorrows(instance)) {
+            frontend_borrowed = true;
             vk = control.kind == INPUT_VK_BUTTON ? inputVkRawButton(0, control.index) :
                 inputVkDigitalAxis(0, control.index, control.direction);
         }
@@ -1106,7 +1121,7 @@ static void fireVk(u32 vk, s32 is_down, uint64_t source)
         }
 
         const ActionDigitalOwners::Press press =
-            s_DigitalOwners.press(source, player, (InputAction)best_a, ctx);
+            s_DigitalOwners.press(source, player, (InputAction)best_a, ctx, frontend_borrowed);
         if (press.accepted) {
             if (press.first && !st->held) {
                 st->held          = 1;
