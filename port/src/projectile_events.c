@@ -153,38 +153,46 @@ typedef struct projectile_identity {
 	s32 gunnum;           /* the weapon whose function launched it, or -1 */
 	s32 func;
 	const char *asset_id; /* the projectile archive it was launched from, or NULL */
-	s32 not_launched;     /* a gun whose function launches something else: no archive describes it */
+	s32 not_launched;     /* the function's archive describes another object: this one has no program */
 } projectile_identity_t;
 
-/* B-1264: whether a weapon object with this weapon number and function is
- * what that function launches. A thrown item is (a grenade, a mine, a knife,
- * the Dragon's second function); so is a rocket, a bolt or a grenade round
- * that carries its own number. A gun that fires something else is not: a
- * rocket launcher, a Devastator or a crossbow lying on the floor, or
- * dropped by a guard, is a weapon object too, and its function's archive
- * describes the rocket, the round or the bolt. A mod weapon's objects carry
- * the weapon's own number whatever they are, so the number cannot say; the
- * launch binds those. */
-static s32 projectileFunctionLaunchesItself(s32 weaponnum, s32 func)
+/* B-1264: whether a weapon object (weaponnum, gunfunc) is what the function
+ * `func` of the gun `gunnum` launches. An archive's program describes that
+ * object and no other. A thrown item is its own function's object (a
+ * grenade, a mine, a knife, the Dragon's second function); so is a rocket,
+ * a bolt or a grenade round that carries its own number. Two kinds of object
+ * are not:
+ * - a gun that fires something else. A rocket launcher, a Devastator or a
+ *   crossbow lying on the floor, or dropped by a guard, is a weapon object
+ *   too, and its function's archive describes the rocket, the round or the
+ *   bolt;
+ * - what a launch made in place of the usual object. A character firing the
+ *   guards' launcher (WEAPON_ROCKETLAUNCHER_34) makes a rocket, and its
+ *   archive is wired for one; a player firing it makes an object with the
+ *   launcher's own number, which the original gives no rule.
+ * For those the original rules answer. A mod weapon's objects carry the
+ * weapon's own number whatever they are, so the number cannot say; the
+ * launch's binding does. */
+static s32 projectileFunctionLaunches(s32 gunnum, s32 func, s32 weaponnum, s32 gunfunc)
 {
 	const struct weaponfunc *f;
 	s32 objweapon = -1;
 	s32 objfunc = -1;
 
-	if (weaponnum >= WEAPON_CUSTOM_START) {
+	if (gunnum >= WEAPON_CUSTOM_START) {
 		return 1;
 	}
-	if (weaponnum < 0 || weaponnum >= g_WeaponDataCount || !g_WeaponData[weaponnum]
+	if (gunnum < 0 || gunnum >= g_WeaponDataCount || !g_WeaponData[gunnum]
 			|| func < FUNC_PRIMARY || func > FUNC_SECONDARY) {
 		return 0;
 	}
-	f = (const struct weaponfunc *)g_WeaponData[weaponnum]->functions[func];
+	f = (const struct weaponfunc *)g_WeaponData[gunnum]->functions[func];
 	if (!f) {
 		return 0;
 	}
-	projectileRulesLaunchedObject(weaponnum, func, f->type == INVENTORYFUNCTYPE_THROW,
+	projectileRulesLaunchedObject(gunnum, func, f->type == INVENTORYFUNCTYPE_THROW,
 		(f->flags & FUNCFLAG_HOMINGROCKET) != 0, &objweapon, &objfunc);
-	return objweapon == weaponnum && objfunc == func;
+	return objweapon == weaponnum && objfunc == gunfunc;
 }
 
 /* The object's binding; for a weapon object without one, its own weapon and
@@ -203,6 +211,16 @@ static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out
 		if (bind->gunnum >= 0) {
 			out->gunnum = bind->gunnum;
 			out->func = bind->func;
+			if (obj->type == OBJTYPE_WEAPON) {
+				const struct weaponobj *made = (const struct weaponobj *)obj;
+
+				/* The launch made something other than what the archive
+				 * is wired for: the original rules answer for it. */
+				if (!projectileFunctionLaunches(bind->gunnum, bind->func,
+						made->weaponnum, made->gunfunc)) {
+					out->not_launched = 1;
+				}
+			}
 			return 1;
 		}
 	}
@@ -212,7 +230,8 @@ static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out
 		out->gunnum = weapon->gset.weaponnum;
 		out->func = weapon->gset.weaponfunc;
 		if (!out->asset_id) {
-			if (projectileFunctionLaunchesItself(weapon->weaponnum, weapon->gunfunc)) {
+			if (projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,
+					weapon->weaponnum, weapon->gunfunc)) {
 				const weapon_graph_projectile_runtime_t *record =
 					weaponGraphRuntimeGetProjectileForHeldFunction(
 						weaponGraphRuntimeGetHeldFunctionForGameplay(out->gunnum, out->func));
@@ -315,19 +334,26 @@ static s32 projectileProgramModuleRun(const char *kind, const char *node_id,
 	return 0;
 }
 
-/* The program that decides for a projectile: the one of the archive it was
- * launched from, else its entity archive's (a deployed item). */
+/* The program that decides a rule event for a projectile: the one of the
+ * archive it was launched from. An object its archive does not describe has
+ * none (B-1264). An entity archive carries its item's fuse alone, so a
+ * deployed item whose projectile archive has no program gets its entity
+ * archive's program for the fuse rule and the original rules for the rest. */
 static const mission_graph_program_t *projectileProgramFor(const projectile_identity_t *who,
-		const char **asset_id)
+		s32 event_kind, const char **asset_id)
 {
 	const mission_graph_program_t *program = NULL;
 
 	*asset_id = NULL;
+	if (who->not_launched) {
+		return NULL;
+	}
 	if (who->asset_id) {
 		program = weaponGraphRuntimeProjectileProgram(who->asset_id);
 		*asset_id = who->asset_id;
 	}
-	if (!program && who->gunnum >= 0 && !who->not_launched) {
+	if (!program && who->gunnum >= 0
+			&& event_kind == MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) {
 		const weapon_graph_entity_runtime_t *entity = weaponGraphRuntimeGetEntityForHeldFunction(
 			weaponGraphRuntimeGetHeldFunctionForGameplay(who->gunnum, who->func));
 
@@ -355,7 +381,7 @@ s32 projectileFuseRule(struct defaultobj *obj)
 		return 1;
 	}
 	weapon = (struct weaponobj *)obj;
-	program = projectileProgramFor(&who, &asset_id);
+	program = projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, &asset_id);
 	if (!program) {
 		return 1; /* a v1 archive: the native rule decides */
 	}
@@ -428,7 +454,7 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 	if (!obj || !projectileIdentify(obj, &who)) {
 		return native;
 	}
-	program = projectileProgramFor(&who, &asset_id);
+	program = projectileProgramFor(&who, kind, &asset_id);
 	if (!program) {
 		return native; /* a v1 archive: the original rules decide */
 	}
