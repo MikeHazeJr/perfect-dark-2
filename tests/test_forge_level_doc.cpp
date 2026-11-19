@@ -55,7 +55,12 @@ extern "C" s32 missionGraphModuleKnown(const char *kind)
 	for (const char *name : {"gate.pickup.native_rules", "og.pickup.collect", "gate.door.native_unlocked",
 			"og.door.activate", "og.door.locked_message", "og.door.activate_automatic", "og.door.open",
 			"og.door.close", "og.door.lock", "og.door.unlock", "og.pickup.give", "gate.object.kind",
-			"gate.player.has_item"}) {
+			"gate.player.has_item",
+			/* object-events.md slice 5: the lift and glass rules the example
+			 * level's graph wires (mission_graph_modules.c has them). */
+			"gate.lift.native_vacant", "og.lift.go_to_stop", "gate.lift.native_ready",
+			"og.lift.go_to_next_stop", "gate.lift.native_door_unlocked", "og.lift.open_door",
+			"gate.glass.native_broken", "og.glass.break"}) {
 		if (kind && strcmp(name, kind) == 0) return 1;
 	}
 	return 0;

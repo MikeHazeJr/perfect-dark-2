@@ -146,6 +146,15 @@ SCENE_DYNTEX_PRESETS = frozenset({
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
 )
+# Level formats the game still loads besides the current one
+# (object-events.md, "Levels authored before slice 5"): an arena a mod
+# authored may name one of these older kinds, and the scenario it embeds is
+# then held to what that kind promised (the pickup and door rule wiring, not
+# the lift and glass rules). A base arena names the current kind: an install
+# re-extracts it otherwise.
+ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents",
+)
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
@@ -3062,6 +3071,19 @@ MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
 MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.door.approach",
                              "event.lift.called", "event.lift.idle", "event.lift.arrived",
                              "event.glass.damaged")
+# The rule events a level had to handle before slice 5: what the runtime
+# still requires of every level, and all that conformance requires of a level
+# whose arena names a kind of ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED.
+LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = ("event.pickup.touched", "event.door.use",
+                                      "event.door.approach")
+
+
+def arena_kind_promises_ai_edges(kind: str | None) -> bool:
+    """The AI control-flow edges and typed operands of a level graph: written
+    by the current kind and by every older kind the game still loads (each is
+    the current kind less the lift and glass rule wiring)."""
+    return (kind == ARENA_SCENARIO_GRAPH_CACHE_KIND
+            or kind in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED)
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
@@ -3096,7 +3118,8 @@ def _is_graph_program_kind(kind: object) -> bool:
     return isinstance(kind, str) and kind.startswith(("event.", "gate.", "og."))
 
 
-def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:
+def validate_mission_graph_execution(label: str, graph: dict, level: bool = False,
+                                     rule_events: tuple[str, ...] | None = None) -> list[str]:
     """The same rules the runner applies when it compiles a mission graph:
     unique ids, known og.* modules and gate kinds, every edge between existing
     nodes, and execution edges ("input": "exec") only from an executable
@@ -3215,9 +3238,12 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
                 and isinstance(edge.get("from"), str) and isinstance(edge.get("to"), str):
             exec_out.setdefault(edge["from"], []).append(edge["to"])
     # object-events.md slice 4: a level program handles every rule event (an
-    # event node of the kind with an execution edge), as the runtime requires.
+    # event node of the kind with an execution edge). rule_events narrows the
+    # set for a level of an older format (slice 5: a level authored before
+    # the lift and glass rules need not wire them; the runtime requires the
+    # pickup and door rules of every level).
     if level:
-        for rule in MISSION_GRAPH_RULE_EVENTS:
+        for rule in (MISSION_GRAPH_RULE_EVENTS if rule_events is None else rule_events):
             if not any(kind == rule and exec_out.get(node_id) for node_id, kind in kinds.items()):
                 errors.append(f"{where} handles no {rule}: the level's pickup and door rules "
                               "are not wired (object-events.md slice 4)")
@@ -9839,7 +9865,13 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         # program (its event.*, gate.* and og.* nodes), as the
                         # runtime compiles it for every stage.
                         result.errors.extend(
-                            validate_mission_graph_execution(label, graph, level=True))
+                            validate_mission_graph_execution(
+                                label, graph, level=True,
+                                rule_events=(
+                                    LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS
+                                    if parent_scenario_graph_cache
+                                    in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                                    else None)))
                         links = graph.get("links")
                         link_pairs = set()
                         if isinstance(links, list):
@@ -9951,8 +9983,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_list_edge_errors(
                                         ai_rows, nodes, links,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                                 # ai-typed-operands.md slice 2: the rows'
@@ -9961,8 +9993,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_args_node_errors(
                                         ai_rows, nodes,
-                                        require=parent_scenario_graph_cache
-                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                        require=arena_kind_promises_ai_edges(
+                                            parent_scenario_graph_cache),
                                     ),
                                 ))
                         for pair in {
@@ -10528,7 +10560,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         result.errors.append(
                             f"{label} arena.ini cannot declare scenario = null when a scenario dependency is present"
                         )
-                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND:
+                    # An arena a mod authored may name an older kind the
+                    # game still loads; a base arena names the current one.
+                    authored_older_kind = (
+                        scenario_graph_cache in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                        and not descriptor_value(text, "catalog_id").lower().startswith("base:"))
+                    if scenario_graph_cache != ARENA_SCENARIO_GRAPH_CACHE_KIND and not authored_older_kind:
                         result.errors.append(
                             f"{label} arena.ini must declare scenario_graph_cache = {ARENA_SCENARIO_GRAPH_CACHE_KIND}"
                         )

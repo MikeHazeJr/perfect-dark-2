@@ -361,7 +361,7 @@ bool doorCallLift(struct prop *doorprop, bool allowclose)
 							&& door->base.type == OBJTYPE_DOOR
 							&& !doorIsClosed(door)) {
 						handled = false;
-					} else if (scenarioSourceGraphObjectRulesActive()) {
+					} else if (scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_CALLED)) {
 						/* object-events.md slice 5: the level program decides. */
 						liftCalled(link->lift, link->stopnum);
 					} else if (liftIsVacant((struct liftobj *)link->lift->obj)) {
@@ -10294,7 +10294,8 @@ void liftTick(struct prop *prop)
 
 				door = lift->doors[lift->levelcur];
 
-				if (g_NetMode != NETMODE_CLIENT && scenarioSourceGraphObjectRulesActive()) {
+				if (g_NetMode != NETMODE_CLIENT
+						&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_ARRIVED)) {
 					/* object-events.md slice 5: the level program decides. */
 					liftArrived(prop);
 				} else if (door && door->keyflags == 0) {
@@ -10316,7 +10317,8 @@ void liftTick(struct prop *prop)
 		}
 	} else {
 		// Lift is at the aim stop
-		if (g_NetMode != NETMODE_CLIENT && scenarioSourceGraphObjectRulesActive()) {
+		if (g_NetMode != NETMODE_CLIENT
+				&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_IDLE)) {
 			/* object-events.md slice 5: the level program decides. */
 			liftIdled(prop);
 			return;
@@ -18107,7 +18109,8 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 		// empty
 	} else {
 		if (obj->type == OBJTYPE_GLASS || obj->type == OBJTYPE_TINTEDGLASS) {
-			if (g_NetMode != NETMODE_CLIENT && scenarioSourceGraphObjectRulesActive()) {
+			if (g_NetMode != NETMODE_CLIENT
+					&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_GLASS_DAMAGED)) {
 				/* object-events.md slice 5: the level program decides. */
 				glassDamaged(obj);
 			} else if (obj->damage >= obj->maxdamage) {

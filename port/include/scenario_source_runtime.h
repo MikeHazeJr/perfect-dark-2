@@ -121,9 +121,16 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 void scenarioSourceGraphObjectEventsReport(const char *reason);
 /* object-events.md slice 4: whether the pickup and door rules are the level
  * program's on this stage (a scenario-source stage, whose level program must
- * handle every rule event or it is refused at activation). When they are,
- * the native seams fire the rule events and decide nothing themselves. */
+ * handle those rule events or it is refused at activation). When they are,
+ * the pickup and door seams fire the rule events and decide nothing
+ * themselves. */
 s32 scenarioSourceGraphObjectRulesActive(void);
+/* object-events.md slice 5: whether the level program decides this lift or
+ * glass rule event (MISSION_GRAPH_EVENT_LIFT_CALLED, _LIFT_IDLE,
+ * _LIFT_ARRIVED, _GLASS_DAMAGED): the rules are active and the program
+ * handles the event. A level authored before these rules handles none (it
+ * still loads), and its seams keep the game's own rule. */
+s32 scenarioSourceGraphObjectRuleHandled(s32 kind);
 /* A rule event from a native seam (MISSION_GRAPH_EVENT_PICKUP_TOUCHED,
  * _DOOR_USE, _DOOR_APPROACH; slice 5: _LIFT_CALLED, _LIFT_IDLE,
  * _LIFT_ARRIVED, _GLASS_DAMAGED) with the object events' payload, into the level

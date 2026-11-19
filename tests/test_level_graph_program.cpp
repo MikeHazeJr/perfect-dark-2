@@ -185,9 +185,11 @@ TEST_CASE("Level graph program: the runtime compiles it for every stage and runs
 	REQUIRE(lv.find("\t\tif (!g_MainIsEndscreen && g_NetMode != NETMODE_CLIENT) {") != std::string::npos);
 
 	// Conformance checks a level graph's program as the runner compiles it.
-	REQUIRE(conformance.find("def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:")
+	REQUIRE(conformance.find("def validate_mission_graph_execution(label: str, graph: dict, level: bool = False,\n"
+		"                                     rule_events: tuple[str, ...] | None = None) -> list[str]:")
 		!= std::string::npos);
-	REQUIRE(conformance.find("validate_mission_graph_execution(label, graph, level=True))") != std::string::npos);
+	REQUIRE(conformance.find("validate_mission_graph_execution(\n"
+		"                                label, graph, level=True,") != std::string::npos);
 }
 
 namespace {
@@ -670,15 +672,26 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 	}
 	// The seams: a lift door's call, the idle lift, the arrival and glass
 	// damage go to the level program on a scenario-source stage.
-	REQUIRE(propobj.find("\t\t\t\t\t} else if (scenarioSourceGraphObjectRulesActive()) {\n"
+	REQUIRE(propobj.find("\t\t\t\t\t} else if (scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_CALLED)) {\n"
 		"\t\t\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
 		"\t\t\t\t\t\tliftCalled(link->lift, link->stopnum);") != std::string::npos);
-	REQUIRE(propobj.find("\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+	REQUIRE(propobj.find("\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_IDLE)) {\n"
+		"\t\t\t/* object-events.md slice 5: the level program decides. */\n"
 		"\t\t\tliftIdled(prop);\n\t\t\treturn;") != std::string::npos);
-	REQUIRE(propobj.find("\t\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+	REQUIRE(propobj.find("\t\t\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_ARRIVED)) {\n"
+		"\t\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
 		"\t\t\t\t\tliftArrived(prop);") != std::string::npos);
-	REQUIRE(propobj.find("\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
+	REQUIRE(propobj.find("\t\t\t\t\t&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_GLASS_DAMAGED)) {\n"
+		"\t\t\t\t/* object-events.md slice 5: the level program decides. */\n"
 		"\t\t\t\tglassDamaged(obj);") != std::string::npos);
+	// Each seam keeps the game's own rule behind it, for a level whose
+	// program does not handle the event (one authored before slice 5).
+	REQUIRE(propobj.find("\t\t\t\t\t\tliftCalled(link->lift, link->stopnum);\n"
+		"\t\t\t\t\t} else if (liftIsVacant((struct liftobj *)link->lift->obj)) {") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t\tliftArrived(prop);\n"
+		"\t\t\t\t} else if (door && door->keyflags == 0) {") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\tglassDamaged(obj);\n"
+		"\t\t\t} else if (obj->damage >= obj->maxdamage) {") != std::string::npos);
 	REQUIRE(propobj.find("\tobjGraphEventFire(MISSION_GRAPH_EVENT_GLASS_BROKEN, &broken, -1);")
 		!= std::string::npos);
 	for (const char *kind : { "MISSION_GRAPH_EVENT_LIFT_CALLED", "MISSION_GRAPH_EVENT_LIFT_IDLE",
@@ -727,6 +740,34 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 			"MISSION_GRAPH_EVENT_DOOR_APPROACH" }) {
 		INFO(kind);
 		REQUIRE(propobj.find(std::string("\tscenarioSourceGraphObjectRuleCompared(") + kind) != std::string::npos);
+	}
+
+	// Levels authored before slice 5 still load: the activation check
+	// requires the pickup and door rules only and notes unwired lift and
+	// glass rules, which the game's own rules then decide; conformance holds
+	// a level of an older kind to the pickup and door rules.
+	{
+		const size_t required = runtime.find("static s32 s_levelProgramHandlesRules(");
+		const size_t noted = runtime.find("static void s_levelProgramNoteUnwiredRules(");
+		REQUIRE(required != std::string::npos);
+		REQUIRE(noted != std::string::npos);
+		REQUIRE(required < noted);
+		const std::string requiredBlock = runtime.substr(required, noted - required);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_PICKUP_TOUCHED") != std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_DOOR_APPROACH") != std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_LIFT_CALLED") == std::string::npos);
+		CHECK(requiredBlock.find("MISSION_GRAPH_EVENT_GLASS_DAMAGED") == std::string::npos);
+		REQUIRE(runtime.find("\ts_levelProgramNoteUnwiredRules(s_ActiveScenarioGraphs.level_program, scenario->id);")
+			!= std::string::npos);
+		REQUIRE(runtime.find("s32 scenarioSourceGraphObjectRuleHandled(s32 kind)\n{\n"
+			"\treturn scenarioSourceGraphObjectRulesActive()\n"
+			"\t\t&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);\n}")
+			!= std::string::npos);
+		REQUIRE(conformance.find("ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (") != std::string::npos);
+		REQUIRE(conformance.find("LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = (\"event.pickup.touched\", \"event.door.use\",")
+			!= std::string::npos);
+		REQUIRE(conformance.find("and not descriptor_value(text, \"catalog_id\").lower().startswith(\"base:\"))")
+			!= std::string::npos);
 	}
 
 	// The runtime refuses a level program without the wiring, fires the rule

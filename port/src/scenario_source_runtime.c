@@ -9806,9 +9806,10 @@ static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
 	return 1;
 }
 
-/* object-events.md slice 4: a level program must handle every rule event,
- * or its stage would have no pickups and no doors: it is refused (fails
- * closed). The extractor writes the wiring into every level graph. */
+/* object-events.md slice 4: a level program must handle the pickup and door
+ * rule events, or its stage would have no pickups and no doors: it is
+ * refused (fails closed). The extractor writes the wiring into every level
+ * graph. */
 static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, char *err,
 	size_t err_cap)
 {
@@ -9819,11 +9820,6 @@ static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, ch
 		{ MISSION_GRAPH_EVENT_PICKUP_TOUCHED, "event.pickup.touched" },
 		{ MISSION_GRAPH_EVENT_DOOR_USE, "event.door.use" },
 		{ MISSION_GRAPH_EVENT_DOOR_APPROACH, "event.door.approach" },
-		/* object-events.md slice 5 */
-		{ MISSION_GRAPH_EVENT_LIFT_CALLED, "event.lift.called" },
-		{ MISSION_GRAPH_EVENT_LIFT_IDLE, "event.lift.idle" },
-		{ MISSION_GRAPH_EVENT_LIFT_ARRIVED, "event.lift.arrived" },
-		{ MISSION_GRAPH_EVENT_GLASS_DAMAGED, "event.glass.damaged" },
 	};
 	size_t i;
 
@@ -9835,6 +9831,48 @@ static s32 s_levelProgramHandlesRules(const mission_graph_program_t *program, ch
 		}
 	}
 	return 1;
+}
+
+/* object-events.md slice 5 ("Levels authored before slice 5"): every base
+ * level graph wires the lift and glass rule events, and conformance requires
+ * them of a level of the current format, but a level authored before them
+ * still loads and keeps the rules it was authored under: a lift or glass
+ * rule event its program does not handle is decided by the game's own rule
+ * (scenarioSourceGraphObjectRuleHandled). One line says so when such a level
+ * activates. */
+static void s_levelProgramNoteUnwiredRules(const mission_graph_program_t *program,
+	const char *scenario_id)
+{
+	static const struct {
+		s32 kind;
+		const char *name;
+	} rules[] = {
+		{ MISSION_GRAPH_EVENT_LIFT_CALLED, "event.lift.called" },
+		{ MISSION_GRAPH_EVENT_LIFT_IDLE, "event.lift.idle" },
+		{ MISSION_GRAPH_EVENT_LIFT_ARRIVED, "event.lift.arrived" },
+		{ MISSION_GRAPH_EVENT_GLASS_DAMAGED, "event.glass.damaged" },
+	};
+	char names[160];
+	size_t used = 0;
+	size_t i;
+
+	names[0] = '\0';
+	for (i = 0; i < sizeof(rules) / sizeof(rules[0]); i++) {
+		if (!missionGraphProgramHandlesEvent(program, rules[i].kind)) {
+			const int n = snprintf(names + used, sizeof(names) - used, "%s%s",
+				used ? ", " : "", rules[i].name);
+
+			if (n < 0 || (size_t)n >= sizeof(names) - used) {
+				break;
+			}
+			used += (size_t)n;
+		}
+	}
+	if (used) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: level program '%s' wires no %s: the game's own rule decides each (a level authored before the lift and glass rules)",
+			scenario_id ? scenario_id : "?", names);
+	}
 }
 
 s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
@@ -13054,8 +13092,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	/* object-events.md slice 1: the level graph's own program (its event.*,
 	 * gate.* and og.* nodes), for every stage. One that does not compile,
 	 * names a volume that is no box of volumes.json, or (slice 4) does not
-	 * handle every rule event refuses the level graph. A base level graph's
-	 * program is the pickup and door rules' wiring. */
+	 * handle the pickup and door rule events refuses the level graph. A base
+	 * level graph's program is the pickup, door, lift and glass rules'
+	 * wiring; a level authored before the lift and glass rules still loads
+	 * (slice 5). */
 	s_ActiveScenarioGraphs.level_program = missionGraphProgramCompileLevel(text, text_size,
 		missionGraphModuleKnown, s_ActiveScenarioGraphs.level_program_error,
 		sizeof(s_ActiveScenarioGraphs.level_program_error));
@@ -13084,6 +13124,7 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.level_program),
 		missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.level_program),
 		s_ActiveScenarioGraphs.level_program_volume_count);
+	s_levelProgramNoteUnwiredRules(s_ActiveScenarioGraphs.level_program, scenario->id);
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -35280,6 +35321,16 @@ static const char *const s_ObjectRuleEventNames[] = { "pickup.touched", "door.us
 s32 scenarioSourceGraphObjectRulesActive(void)
 {
 	return s_ActiveScenarioGraphs.level_graph_active && s_ActiveScenarioGraphs.level_program != NULL;
+}
+
+/* object-events.md slice 5: whether the level program decides this lift or
+ * glass rule event. It does when it handles the event (every base level and
+ * every level of the current format); a level authored before these rules
+ * handles none, and the seam keeps the game's own rule. */
+s32 scenarioSourceGraphObjectRuleHandled(s32 kind)
+{
+	return scenarioSourceGraphObjectRulesActive()
+		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);
 }
 
 /* object-events.md slice 4: a rule event, into the level program only (a
