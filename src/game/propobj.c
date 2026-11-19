@@ -5126,26 +5126,48 @@ void func0f06e9cc(struct coord *arg0, Mtxf *arg1)
 	mtx4MultMtx4(&sp70, &sp30, arg1);
 }
 
-/* projectile-events.md slice 3: the modules a contact rule event runs for
+/* projectile-events.md slices 3 and 4: the modules a rule event runs for
  * this object (PROJECTILE_MODULE_* bits): its program's choice, or with no
  * program the original rules by weapon number (projectile_rules.c), which
- * the parity probe also compares against. Only weapon objects have rules. */
-static u32 projectileRuleFor(s32 kind, struct defaultobj *obj)
+ * the parity probe also compares against. context is what the event carries
+ * for the gates that read it, or NULL. Only weapon objects have rules. */
+static u32 projectileRuleWith(s32 kind, struct defaultobj *obj,
+		const projectile_rule_context_t *context)
 {
 	struct weaponobj *weapon;
 	u32 native;
+	s32 sticks = 0;
 
 	if (!obj || obj->type != OBJTYPE_WEAPON) {
 		return 0;
 	}
 	weapon = (struct weaponobj *)obj;
-	native = projectileRulesNative(kind, weapon->weaponnum, weapon->gunfunc,
-		gsetHasFunctionFlags(&weapon->gset, FUNCFLAG_STICKTOWALL));
-	if (native & PROJECTILE_RULE_GATE_FUSE_ARMED) {
-		/* gate.projectile.fuse_armed: only while the timer is not idle. */
-		native = weapon->timer240 >= 0 ? (native & ~PROJECTILE_RULE_GATE_FUSE_ARMED) : 0;
+	if (kind == MISSION_GRAPH_EVENT_PROJECTILE_CONTACT) {
+		/* Only a contact asks the flying object's function, which a thrown
+		 * or fired object always has; a pickup that is shot may not. */
+		sticks = gsetHasFunctionFlags(&weapon->gset, FUNCFLAG_STICKTOWALL);
 	}
-	return projectileRuleModules(kind, obj, native);
+	native = projectileRulesNative(kind, weapon->weaponnum, weapon->gunfunc, sticks);
+	return projectileRuleModulesWith(kind, obj, native, context);
+}
+
+static u32 projectileRuleFor(s32 kind, struct defaultobj *obj)
+{
+	return projectileRuleWith(kind, obj, NULL);
+}
+
+/* projectile-events.md slice 4: what goes off where this weapon object's
+ * fuse has run out (PROJECTILE_MODULE_EXPLODE, PROJECTILE_MODULE_NBOMB_STORM,
+ * both, or 0 for nothing), and in *exptype the explosion the explode module
+ * names, or PROJECTILE_EXPLOSION_OWN. */
+static u32 projectileFuseFor(struct defaultobj *obj, s32 *exptype)
+{
+	struct weaponobj *weapon = (struct weaponobj *)obj;
+
+	return projectileFuseModules(obj,
+		projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED,
+			weapon->weaponnum, weapon->gunfunc, 0),
+		projectileRulesNativeExplosion(weapon->weaponnum, weapon->gunfunc), exptype);
 }
 
 void objLand2(struct defaultobj *obj, struct coord *arg1, struct coord *arg2)
@@ -5551,6 +5573,46 @@ void ammocrateTick(struct prop *prop)
  */
 #define nbombCreateStorm_hack(x, y, z) nbombCreateStorm(x, y)
 
+/* projectile-events.md slice 4: what the fuse rule chose goes off: the
+ * N-bomb's storm, an explosion (the type the program names, else the weapon
+ * object's own: the huge one for an object flagged for it, the standard one
+ * otherwise), or both. Returns whether anything did: a storm always does, an
+ * explosion can fail for want of room. Each fuse in weaponTick tidies up
+ * afterwards as it always has. */
+static bool weaponGoOffAs(struct prop *prop, u32 fusemods, s32 exptype)
+{
+	struct defaultobj *obj = prop->obj;
+	bool wentoff = false;
+
+	if (fusemods & PROJECTILE_MODULE_NBOMB_STORM) {
+		struct prop *ownerprop = NULL;
+		s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
+
+		if (g_Vars.normmplayerisrunning) {
+			struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
+
+			if (chr) {
+				ownerprop = chr->prop;
+			}
+		}
+
+		nbombCreateStorm_hack(&prop->pos, ownerprop, prop);
+		wentoff = true;
+	}
+
+	if (fusemods & PROJECTILE_MODULE_EXPLODE) {
+		if (exptype < 0) {
+			exptype = (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET;
+		}
+
+		if (propExplode(prop, exptype)) {
+			wentoff = true;
+		}
+	}
+
+	return wentoff;
+}
+
 /**
  * Handles the following:
  *
@@ -5577,6 +5639,9 @@ void weaponTick(struct prop *prop)
 	 * guard) and whenever the runtime gate is off in tests. */
 	const weapon_graph_projectile_runtime_t *customproj =
 		weaponGetCustomProjectileGraph(weapon);
+	/* projectile-events.md slice 4: what the fuse rule chose at this tick. */
+	u32 fusemods = 0;
+	s32 fusetype = PROJECTILE_EXPLOSION_OWN;
 
 	/* c3849 Wave 5 Unit 7 (entity-deployed Step 3): owner-cleanup. Runs
 	 * BEFORE the arm chain so an "explode" zeroing of timer240 detonates via
@@ -5671,15 +5736,12 @@ void weaponTick(struct prop *prop)
 			// Normal grenade
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			/* projectile-events.md slice 2: a v2 program decides the fuse. */
-			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
+			/* projectile-events.md slices 2 and 4: the fuse rule says what
+			 * goes off (the Super Dragon's grenade names its own explosion). */
+			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
 				propUnsetDangerous(prop);
 
-				if (weapon->gunfunc == FUNC_2) {
-					propExplode(prop, EXPLOSIONTYPE_SDGRENADE);
-				} else {
-					propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
-				}
+				weaponGoOffAs(prop, fusemods, fusetype);
 
 				obj->hidden |= OBJHFLAG_DELETING;
 
@@ -5709,22 +5771,12 @@ void weaponTick(struct prop *prop)
 		if (weapon->timer240 >= 0) {
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			/* projectile-events.md slice 2: a v2 program decides the fuse. */
-			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
+			/* projectile-events.md slices 2 and 4: the fuse rule says what
+			 * goes off (the original: the storm). */
+			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
 				// Nbombs detonate when they hit the ground, so this code only
 				// runs if it's airborne for the entire duration of its timer.
-				struct prop *ownerprop = NULL;
-				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
-
-				if (g_Vars.normmplayerisrunning) {
-					struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
-
-					if (chr) {
-						ownerprop = chr->prop;
-					}
-				}
-
-				nbombCreateStorm_hack(&prop->pos, ownerprop, prop);
+				weaponGoOffAs(prop, fusemods, fusetype);
 				propUnsetDangerous(prop);
 
 				obj->hidden |= OBJHFLAG_DELETING;
@@ -5754,9 +5806,9 @@ void weaponTick(struct prop *prop)
 			|| weapon->weaponnum == WEAPON_HOMINGROCKET
 			|| weapon->weaponnum == WEAPON_SKROCKET) {
 		// Handle rockets
-		/* projectile-events.md slice 2: a v2 program decides the fuse. */
-		if (weapon->timer240 == 0 && projectileFuseRule(obj)) {
-			propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET);
+		/* projectile-events.md slices 2 and 4: the fuse rule says what goes off. */
+		if (weapon->timer240 == 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
+			weaponGoOffAs(prop, fusemods, fusetype);
 
 			obj->hidden |= OBJHFLAG_DELETING;
 
@@ -5931,9 +5983,9 @@ void weaponTick(struct prop *prop)
 		if (weapon->gunfunc == FUNC_PRIMARY) {
 			weapon->timer240 -= g_Vars.lvupdate240;
 
-			/* projectile-events.md slice 2: a v2 program decides the fuse. */
-			if (weapon->timer240 < 0 && projectileFuseRule(obj)) {
-				if (propExplode(prop, (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET)) {
+			/* projectile-events.md slices 2 and 4: the fuse rule says what goes off. */
+			if (weapon->timer240 < 0 && (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
+				if (weaponGoOffAs(prop, fusemods, fusetype)) {
 					weapon->timer240 = -1;
 					obj->hidden |= OBJHFLAG_DELETING;
 				}
@@ -5950,6 +6002,8 @@ void weaponTick(struct prop *prop)
 			// If a player manages to throw a mine on themselves, it will not detonate.
 			// You can't throw a mine on yourself anyway, so this check always passes
 			if (prop->parent == NULL || parentchr == NULL || mpPlayerGetIndex(parentchr) != ownerplayernum) {
+				bool signalled = false;
+
 				if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
 					if (ownerplayernum == 2) {
 						u32 mask = 0;
@@ -5965,12 +6019,20 @@ void weaponTick(struct prop *prop)
 						g_PlayersDetonatingMines &= mask;
 
 						if (g_PlayersDetonatingMines != 0) {
-							weapon->timer240 = 0;
+							signalled = true;
 						}
 					} else if (g_PlayersDetonatingMines & 1 << ownerplayernum) {
-						weapon->timer240 = 0;
+						signalled = true;
 					}
 				} else if (g_PlayersDetonatingMines & 1 << ownerplayernum) {
+					signalled = true;
+				}
+
+				/* projectile-events.md slice 4: its owner pressed the
+				 * detonator. The remote signal rule says whether that
+				 * spends its fuse. */
+				if (signalled && (projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, obj)
+						& PROJECTILE_MODULE_SPEND_FUSE)) {
 					weapon->timer240 = 0;
 				}
 			}
@@ -5983,15 +6045,11 @@ void weaponTick(struct prop *prop)
 			if (weapon->timer240 < 2) {
 				weapon->timer240 = 1;
 			}
-		} else if (weapon->timer240 == 0) {
+		} else if (weapon->timer240 == 0
+				&& (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
 			// Mine was damaged or timer was set to 0 above
-			s32 exptype = EXPLOSIONTYPE_ROCKET;
-
-			if (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) {
-				exptype = EXPLOSIONTYPE_HUGE17;
-			}
-
-			if (propExplode(prop, exptype)) {
+			/* projectile-events.md slice 4: the fuse rule says what goes off. */
+			if (weaponGoOffAs(prop, fusemods, fusetype)) {
 				weapon->timer240 = -1;
 				obj->hidden |= OBJHFLAG_DELETING;
 			}
@@ -6021,26 +6079,29 @@ void weaponTick(struct prop *prop)
 
 			if (xdist * xdist + ydist * ydist + zdist * zdist <
 					proxyradius * proxyradius) {
-				weapon->timer240 = 0;
+				/* projectile-events.md slice 4: the player of this tick is
+				 * within its radius. The proximity rule says whether that
+				 * spends its fuse. */
+				projectile_rule_context_t nearby;
+
+				nearby.trigger_close = true;
+				nearby.trigger_character = true;
+				nearby.damage_weaponnum = WEAPON_NONE;
+
+				if (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, obj, &nearby)
+						& PROJECTILE_MODULE_SPEND_FUSE) {
+					weapon->timer240 = 0;
+				}
 			}
 		}
 
-		if (weapon->timer240 == 0) {
+		if (weapon->timer240 == 0
+				&& (fusemods = projectileFuseFor(obj, &fusetype)) != 0) {
 			// Proxy was triggered or shot
-			if (weapon->weaponnum == WEAPON_NBOMB) {
-				u32 stack;
-				struct prop *ownerprop = NULL;
-				s32 ownerplayernum = (obj->hidden & 0xf0000000) >> 28;
-
-				if (g_Vars.normmplayerisrunning) {
-					struct chrdata *chr = mpGetChrFromPlayerIndex(ownerplayernum);
-
-					if (chr) {
-						ownerprop = chr->prop;
-					}
-				}
-
-				nbombCreateStorm_hack(&prop->pos, ownerprop, prop);
+			/* projectile-events.md slice 4: the fuse rule says what goes off:
+			 * the N-bomb's storm, or an explosion (the Dragon names its own). */
+			if (fusemods & PROJECTILE_MODULE_NBOMB_STORM) {
+				weaponGoOffAs(prop, fusemods, fusetype);
 				propUnsetDangerous(prop);
 
 				obj->hidden |= OBJHFLAG_DELETING;
@@ -6064,24 +6125,10 @@ void weaponTick(struct prop *prop)
 					g_Vars.currentplayer->slayerrocket = NULL;
 				}
 #endif
-			} else {
+			} else if (weaponGoOffAs(prop, fusemods, fusetype)) {
 				// Regular explosive
-				s32 exptype;
-
-				if (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) {
-					exptype = EXPLOSIONTYPE_HUGE17;
-				} else {
-					exptype = EXPLOSIONTYPE_ROCKET;
-				}
-
-				if (weapon->weaponnum == WEAPON_DRAGON) {
-					exptype = EXPLOSIONTYPE_DRAGONBOMBSPY;
-				}
-
-				if (propExplode(prop, exptype)) {
-					weapon->timer240 = -1;
-					obj->hidden |= OBJHFLAG_DELETING;
-				}
+				weapon->timer240 = -1;
+				obj->hidden |= OBJHFLAG_DELETING;
 			}
 		}
 	} else if (weapon->weaponnum >= WEAPON_CUSTOM_START && entitygraph
@@ -18066,6 +18113,7 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 
 		if (obj->type == OBJTYPE_WEAPON) {
 			struct weaponobj *weapon;
+			projectile_rule_context_t damagedby;
 
 			if (obj->flags2 & OBJFLAG2_AICANNOTUSE) {
 				propExplode(obj->prop, EXPLOSIONTYPE_12);
@@ -18076,19 +18124,18 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 			// zeroing its timer
 			weapon = (struct weaponobj *) obj;
 
-			if (weapon->weaponnum == WEAPON_GRENADE
-					|| weapon->weaponnum == WEAPON_TIMEDMINE
-					|| weapon->weaponnum == WEAPON_REMOTEMINE
-					|| weapon->weaponnum == WEAPON_PROXIMITYMINE
-					|| weapon->weaponnum == WEAPON_ROCKET
-					|| weapon->weaponnum == WEAPON_HOMINGROCKET
-					|| weapon->weaponnum == WEAPON_GRENADEROUND
-					|| (weapon->weaponnum == WEAPON_DRAGON && weapon->gunfunc == FUNC_SECONDARY)) {
-				// Homing rockets are immune to remote mines? Or maybe they just
-				// don't explode because the mine is exploding anyway
-				if (weapon->weaponnum != WEAPON_HOMINGROCKET || weaponnum != WEAPON_REMOTEMINE) {
-					weapon->timer240 = 0;
-				}
+			/* projectile-events.md slice 4: the damaged rule says whether
+			 * the damage spends its fuse. The original's explosives do (a
+			 * grenade, the three mines, a rocket, a grenade round, the
+			 * Dragon's second function); a homing rocket ignores a blast,
+			 * whose damage the game marks with the remote mine's number. */
+			damagedby.trigger_close = false;
+			damagedby.trigger_character = false;
+			damagedby.damage_weaponnum = weaponnum;
+
+			if (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, obj, &damagedby)
+					& PROJECTILE_MODULE_SPEND_FUSE) {
+				weapon->timer240 = 0;
 			} else if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
 				/* c3849 Wave 5 Unit 6: custom-slot damage response. Checked
 				 * in B1 precedence order: a graph matching the custom
@@ -21691,6 +21738,7 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 			f32 xdiff;
 			f32 ydiff;
 			f32 zdiff;
+			f32 distsq;
 			f32 range = 250 * 250;
 
 			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
@@ -21705,16 +21753,32 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 				}
 			}
 
-			if (weapon->weaponnum == WEAPON_DRAGON) {
-				range += range;
-			}
-
 			xdiff = pos->x - weapon->base.prop->pos.x;
 			ydiff = pos->y - weapon->base.prop->pos.y;
 			zdiff = pos->z - weapon->base.prop->pos.z;
+			distsq = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
 
-			if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff < range) {
-				if (weapon->weaponnum != WEAPON_GRENADE || arg1 == true) {
+			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+				/* A mod weapon whose record makes no decision: the plain
+				 * rule, 250 units and anything that moves. */
+				if (distsq < range) {
+					weapon->timer240 = 0;
+				}
+			} else if (distsq < range + range) {
+				/* projectile-events.md slice 4: something is within the
+				 * watch list's reach (twice the area of the 250 unit
+				 * circle: 354 units). The proximity rule says whether that
+				 * spends its fuse: the original's Dragon goes off anywhere
+				 * in it, the others only within 250 units, and a proximity
+				 * grenade only for a character. */
+				projectile_rule_context_t nearby;
+
+				nearby.trigger_close = distsq < range;
+				nearby.trigger_character = arg1 == true;
+				nearby.damage_weaponnum = WEAPON_NONE;
+
+				if (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, &weapon->base, &nearby)
+						& PROJECTILE_MODULE_SPEND_FUSE) {
 					weapon->timer240 = 0;
 				}
 			}

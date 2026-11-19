@@ -1,7 +1,7 @@
 /*
  * projectile_rules.c -- the modules of a projectile program and the original
  * game's rules by weapon number: see projectile_rules.h and
- * context/designs/modding/projectile-events.md (slice 3).
+ * context/designs/modding/projectile-events.md (slices 3 and 4).
  */
 
 #include <string.h>
@@ -14,7 +14,7 @@ static const struct {
 	u32 bit;
 	const char *kind;
 } s_ProjectileModules[PROJECTILE_MODULE_COUNT] = {
-	{ PROJECTILE_MODULE_FUSE_EXPIRED, "og.projectile.fuse_expired" },
+	{ PROJECTILE_MODULE_EXPLODE, "og.projectile.explode" },
 	{ PROJECTILE_MODULE_STICK, "og.projectile.stick" },
 	{ PROJECTILE_MODULE_WALL_HUG, "og.projectile.wall_hug" },
 	{ PROJECTILE_MODULE_PIERCE, "og.projectile.pierce" },
@@ -24,6 +24,17 @@ static const struct {
 	{ PROJECTILE_MODULE_LAND_BOLT, "og.projectile.land_bolt" },
 	{ PROJECTILE_MODULE_LAND_KNIFE, "og.projectile.land_knife" },
 	{ PROJECTILE_MODULE_POISON_TARGET, "og.projectile.poison_target" },
+	{ PROJECTILE_MODULE_NBOMB_STORM, "og.projectile.nbomb_storm" },
+};
+
+static const struct {
+	u32 bit;
+	const char *kind;
+} s_ProjectileGates[PROJECTILE_GATE_COUNT] = {
+	{ PROJECTILE_RULE_GATE_FUSE_ARMED, PROJECTILE_GATE_FUSE_ARMED_KIND },
+	{ PROJECTILE_RULE_GATE_TRIGGER_CLOSE, PROJECTILE_GATE_TRIGGER_CLOSE_KIND },
+	{ PROJECTILE_RULE_GATE_TRIGGER_CHARACTER, PROJECTILE_GATE_TRIGGER_CHARACTER_KIND },
+	{ PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST, PROJECTILE_GATE_DAMAGE_NOT_BLAST_KIND },
 };
 
 /* Every projectile event, in kind order, with the modules its seam applies. */
@@ -41,13 +52,19 @@ static const struct {
 	{ MISSION_GRAPH_EVENT_PROJECTILE_ENDED, "event.projectile.ended", 0 },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_DETONATED, "event.projectile.detonated", 0 },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, "event.projectile.timer_expired",
-		PROJECTILE_MODULE_FUSE_EXPIRED },
+		PROJECTILE_MODULE_EXPLODE | PROJECTILE_MODULE_NBOMB_STORM },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, "event.projectile.contact",
 		PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_WALL_HUG | PROJECTILE_MODULE_PIERCE
 			| PROJECTILE_MODULE_IMPACT },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, "event.projectile.launch_blocked",
 		PROJECTILE_MODULE_SPEND_FUSE },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, "event.projectile.came_to_rest",
+		PROJECTILE_MODULE_SPEND_FUSE },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, "event.projectile.proximity",
+		PROJECTILE_MODULE_SPEND_FUSE },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, "event.projectile.remote_signal",
+		PROJECTILE_MODULE_SPEND_FUSE },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "event.projectile.damaged",
 		PROJECTILE_MODULE_SPEND_FUSE },
 };
 #define PROJECTILE_EVENT_ROWS ((s32)(sizeof(s_ProjectileEvents) / sizeof(s_ProjectileEvents[0])))
@@ -77,6 +94,49 @@ u32 projectileRulesModuleBit(const char *kind)
 		}
 	}
 	return 0;
+}
+
+const char *projectileRulesGateKind(u32 gate)
+{
+	s32 i;
+
+	for (i = 0; i < PROJECTILE_GATE_COUNT; i++) {
+		if (s_ProjectileGates[i].bit == gate) {
+			return s_ProjectileGates[i].kind;
+		}
+	}
+	return NULL;
+}
+
+u32 projectileRulesGateBit(const char *kind)
+{
+	s32 i;
+
+	if (!kind) {
+		return 0;
+	}
+	for (i = 0; i < PROJECTILE_GATE_COUNT; i++) {
+		if (strcmp(s_ProjectileGates[i].kind, kind) == 0) {
+			return s_ProjectileGates[i].bit;
+		}
+	}
+	return 0;
+}
+
+s32 projectileRulesGateApplies(u32 gate, s32 event_kind)
+{
+	switch (gate) {
+	case PROJECTILE_RULE_GATE_FUSE_ARMED:
+		/* It reads the projectile itself. */
+		return projectileRulesEventName(event_kind) != NULL;
+	case PROJECTILE_RULE_GATE_TRIGGER_CLOSE:
+	case PROJECTILE_RULE_GATE_TRIGGER_CHARACTER:
+		return event_kind == MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY;
+	case PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST:
+		return event_kind == MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED;
+	default:
+		return 0;
+	}
 }
 
 s32 projectileRulesEventAt(s32 index)
@@ -114,8 +174,26 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 
 	switch (event_kind) {
 	case MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED:
-		/* Every weapon's fuse is its own (weaponTick's four fuses). */
-		return PROJECTILE_MODULE_FUSE_EXPIRED;
+		/* weaponTick's fuses, for the objects that have one: the N-bomb
+		 * becomes a storm, the rest explode. A timed mine's fuse counts for
+		 * its first function only. */
+		if (weaponnum == WEAPON_NBOMB
+				&& (gunfunc == FUNC_PRIMARY || gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_NBOMB_STORM;
+		}
+		if ((weaponnum == WEAPON_GRENADE
+					&& (gunfunc == FUNC_PRIMARY || gunfunc == FUNC_SECONDARY))
+				|| weaponnum == WEAPON_GRENADEROUND
+				|| weaponnum == WEAPON_ROCKET
+				|| weaponnum == WEAPON_HOMINGROCKET
+				|| weaponnum == WEAPON_SKROCKET
+				|| (weaponnum == WEAPON_TIMEDMINE && gunfunc == FUNC_PRIMARY)
+				|| weaponnum == WEAPON_REMOTEMINE
+				|| weaponnum == WEAPON_PROXIMITYMINE
+				|| (weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_EXPLODE;
+		}
+		return 0;
 	case MISSION_GRAPH_EVENT_PROJECTILE_CONTACT:
 		/* projectileTick's stick list; inside it the Devastator's wall
 		 * hugger latches its wall timer. */
@@ -168,9 +246,77 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 			modules |= PROJECTILE_MODULE_LAND_KNIFE | PROJECTILE_MODULE_POISON_TARGET;
 		}
 		return modules;
+	case MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY:
+		/* weaponTick's proximity items, once armed. The watch list tests the
+		 * Dragon at 354 units and the others at 250, and a proximity grenade
+		 * ignores a moving object. */
+		if (weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY) {
+			return PROJECTILE_MODULE_SPEND_FUSE;
+		}
+		if (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY) {
+			return PROJECTILE_MODULE_SPEND_FUSE | PROJECTILE_RULE_GATE_TRIGGER_CLOSE
+				| PROJECTILE_RULE_GATE_TRIGGER_CHARACTER;
+		}
+		if (weaponnum == WEAPON_PROXIMITYMINE
+				|| (weaponnum == WEAPON_NBOMB && gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_SPEND_FUSE | PROJECTILE_RULE_GATE_TRIGGER_CLOSE;
+		}
+		return 0;
+	case MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL:
+		/* Only a remote mine listens for its owner's detonator. */
+		return weaponnum == WEAPON_REMOTEMINE ? PROJECTILE_MODULE_SPEND_FUSE : 0;
+	case MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED:
+		/* objDamage's explosives: a shot or a blast sets them off. A homing
+		 * rocket ignores a blast. */
+		if (weaponnum == WEAPON_HOMINGROCKET) {
+			return PROJECTILE_MODULE_SPEND_FUSE | PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST;
+		}
+		if (weaponnum == WEAPON_GRENADE
+				|| weaponnum == WEAPON_TIMEDMINE
+				|| weaponnum == WEAPON_REMOTEMINE
+				|| weaponnum == WEAPON_PROXIMITYMINE
+				|| weaponnum == WEAPON_ROCKET
+				|| weaponnum == WEAPON_GRENADEROUND
+				|| (weaponnum == WEAPON_DRAGON && gunfunc == FUNC_SECONDARY)) {
+			return PROJECTILE_MODULE_SPEND_FUSE;
+		}
+		return 0;
 	default:
 		return 0;
 	}
+}
+
+s32 projectileRulesExplosionFromText(const char *text)
+{
+	s32 value = 0;
+	s32 i;
+
+	if (!text) {
+		return PROJECTILE_EXPLOSION_OWN;
+	}
+	if (!text[0]) {
+		return PROJECTILE_EXPLOSION_REFUSED;
+	}
+	for (i = 0; text[i]; i++) {
+		if (text[i] < '0' || text[i] > '9' || i >= 3) {
+			return PROJECTILE_EXPLOSION_REFUSED;
+		}
+		value = value * 10 + (text[i] - '0');
+	}
+	/* Type 0 is "no explosion": an explode that could never go off. */
+	return value >= 1 && value < PROJECTILE_EXPLOSION_TYPE_COUNT
+		? value : PROJECTILE_EXPLOSION_REFUSED;
+}
+
+s32 projectileRulesNativeExplosion(s32 weaponnum, s32 gunfunc)
+{
+	if (weaponnum == WEAPON_GRENADEROUND && gunfunc == FUNC_2) {
+		return EXPLOSIONTYPE_SDGRENADE; /* the Super Dragon's grenade */
+	}
+	if (weaponnum == WEAPON_DRAGON) {
+		return EXPLOSIONTYPE_DRAGONBOMBSPY; /* its self-destruct */
+	}
+	return PROJECTILE_EXPLOSION_OWN;
 }
 
 void projectileRulesLaunchedObject(s32 gunnum, s32 func, s32 thrown, s32 homing,

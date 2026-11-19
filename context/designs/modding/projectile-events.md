@@ -4,8 +4,9 @@ Status: CORE, 2026-11-17. Draft for the week note's "Projectiles, mines,
 autoguns" row ("the graph selects the projectile and entity modules for base
 weapons too"), under decision 1 ("Players should be able to recreate any
 existing game behavior with the nodes"). B-1261 and slice 1 are written on
-`week-pd/core-s6` (78072e83, 772f0497; see "Slice 1 as written"), not yet
-run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
+`week-pd/core-s6` (78072e83, 772f0497; see "Slice 1 as written"); slices 2
+to 4 are written too (core-s6, core-s7, core-s8), none run in the game yet;
+slices 5 and 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a51e12bc);
 `pc` is `src/game/propobj.c`, `bg` is `src/game/bondgun.c`.
 
 ## Where it stands
@@ -120,7 +121,7 @@ run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week
 3. **Contacts:** surface and target (stick, bounce, slide, land, damage,
    wall hug, explode on contact).
 4. **Mines and damage taken:** proximity, remote and timed, a projectile set
-   off by a shot.
+   off by a shot (written: see "Slice 4 as written").
 5. **Deployment and autoguns:** the Laptop sentry and `autogunTick` as
    modules.
 6. **One contract:** the base guards go, the v1 path is refused, the row
@@ -215,6 +216,12 @@ run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week
   archive check first. A projectile event in a mission or level graph is an
   error there too. Test: `tools/tests/test_projectile_program_conformance.py`.
 
+Slice 4 renamed the fuse's module: `og.projectile.fuse_expired` ("the
+weapon's original fuse") became `og.projectile.explode` and
+`og.projectile.nbomb_storm`, which say what goes off, and
+`projectileFuseRule` became `projectileFuseModules`. No archive outside
+these branches carried the old name.
+
 For slice 6 ("the v1 path is refused"): do not refuse v1 archives that mods
 already hold. Slice 5 of the object events met the same question for levels
 (object-events.md, "Levels authored before slice 5") and kept older content
@@ -248,7 +255,7 @@ construction, and the probe proves it in play.
 | `event.projectile.bounced` (20, was a record) | it bounced off a wall or floor | `spend_fuse` |
 | `event.projectile.came_to_rest` (28) | it lies or all but lies still while still in flight (on the floor, falling, speed or movement under 0.1) | `spend_fuse` |
 | `event.projectile.landed` (22, was a record) | it stuck or came down (`objLand`) | `shield_device`, `land_bolt`, `land_knife`, `poison_target` |
-| `event.projectile.timer_expired` (25, slice 2) | a fuse ran out | `fuse_expired` |
+| `event.projectile.timer_expired` (25, slice 2) | a fuse ran out | `explode`, `nbomb_storm` (slice 4; one module, `fuse_expired`, until then) |
 
 `spawned`, `hit_target`, `ended` and `detonated` stay records with no
 module. A module wired to an event that does not apply it would do nothing,
@@ -313,7 +320,8 @@ seam (`has_sticky_attach`, `has_impact`, `has_wall_hugger`, bounce limits),
 which a v1 mod archive still drives.
 
 **Not covered**: a projectile whose weapon has no fuse of its own in
-`weaponTick` ignores `spend_fuse` (slice 4 gives every program a fuse).
+`weaponTick` ignores `spend_fuse` (slice 6 gives every program a fuse, when
+the fuse arms of `weaponTick` are one: see slice 4, "Left native").
 
 Tests: `tests/test_projectile_rules.cpp` (the table, a program compiled and
 fired through the runner, and the source pins of the seams, the extractor
@@ -321,6 +329,113 @@ and the validator), `tools/tests/test_projectile_program_conformance.py`
 (the applicability rule), pins in `tests/test_custom_projectile_log_static.cpp`.
 The weapon cache kind moved (`_contactrules`), so an install re-extracts its
 weapon archives once.
+
+## Slice 4 as written: mines and damage taken (CORE, 2026-11-19; on `week-pd/core-s8`, not run in the game yet)
+
+What sets an explosive off, and what goes off then, was decided by weapon
+number in four places: the fuses of `weaponTick` (which explosion, or the
+N-bomb's storm), the watch list that characters and moving things are
+tested against (`coordTriggerProxiesFor`: the Dragon's wider reach, the
+proximity grenade's "characters only"), the remote mine's signal, and
+`objDamage`'s list of explosives with the homing rocket's exemption. Each
+now asks the projectile's program, as slice 3's contacts do: the seam fires
+a rule event, the program chooses modules, and the seam runs the original
+code for the modules chosen.
+
+Everything that sets an explosive off is one module, `og.projectile.spend_fuse`
+(its timer becomes 0), on three new events; the fuse rule then says what
+goes off.
+
+| Event (kind) | Fired | Modules it applies |
+|---|---|---|
+| `event.projectile.proximity` (29) | an armed proximity item has something in reach: the player whose tick it is, inside its radius (250 units, or its entity record's); or a character or moving thing the watch list tested, inside 354 units (twice the area of the 250 unit circle, the Dragon's reach) | `spend_fuse` |
+| `event.projectile.remote_signal` (30) | a remote mine's owner pressed the detonator (the game's owner test passed, co-op and counter-op included) | `spend_fuse` |
+| `event.projectile.damaged` (31) | a weapon object took damage from a weapon (a shot, a blast, a crusher); an invincible object takes none | `spend_fuse` |
+| `event.projectile.timer_expired` (25) | its fuse ran out: the four fuses of slice 2, and now the remote mine's and the proximity items' (their timer at 0) | `explode`, `nbomb_storm` |
+
+| Module or gate | What it selects | Base wiring |
+|---|---|---|
+| `og.projectile.explode` | it explodes. A whole-number field `explosion_type` on the node names a row of the game's explosion table (1 to 25); with none it is the weapon object's own explosion (the standard blast, or the huge one for an object flagged for it) | every explosive; the Super Dragon's grenade names 21, the Dragon's self-destruct 23 |
+| `og.projectile.nbomb_storm` | it becomes an N-bomb storm, owned by whoever threw it | both N-bomb functions |
+| `gate.projectile.trigger_close` | what came near is within 250 units | the proximity mine, the proximity grenade, the proximity N-bomb (not the Dragon, which goes off anywhere in the watch list's reach) |
+| `gate.projectile.trigger_character` | what came near is a character (a guard, a simulant, a player, an eyespy, a firing range target), not a moving object | the proximity grenade |
+| `gate.projectile.damage_not_blast` | the damage is not a blast's: the game marks an explosion's damage, a crusher's, a hoverbike's ram and a script's "destroy" with the remote mine's weapon number | the homing rocket |
+
+So the proximity grenade's archive reads: `proximity` to `trigger_close` to
+`trigger_character` to `spend_fuse`; `damaged` to `spend_fuse`; `fuse`
+(`timer_expired`) to `explode`. A mod that drops the `trigger_character`
+gate gets a grenade that a passing door sets off; one that gives a mine's
+`explode` an `explosion_type` changes its blast; one that unwires `damaged`
+gets a mine that cannot be shot.
+
+**The gates are answered in one place** (`projectileGatePasses`), for a
+program's gate nodes and for the gates the original asks alike: the rule
+table gives the original's modules with the bit of each gate in front of
+them, and the seam passes what its event carries (`projectile_rule_context_t`:
+close, character, the damage's weapon number). A gate wired to an event
+that does not carry what it reads could never pass, so registration refuses
+the program and the validator fails the archive ("gate.projectile.trigger_close
+cannot be answered at event.projectile.damaged"); so is an `explode` whose
+`explosion_type` is no row of the table.
+
+**The fuse is wired only where the original has one.** Slice 2 wrote the
+fuse into every base archive. The extractor now writes it from the rule
+table like the rest: a thrown knife, a bolt, a planted device and the
+Laptop gun's sentry have none. An entity archive carries its item's fuse
+alone; its program decides only for an item with no projectile program
+(none in the base game).
+
+**Each fuse tidies up as it always has.** The explosion or storm is one
+helper (`weaponGoOffAs`); what follows it stays in each arm: a grenade and
+a rocket are deleted whether or not the explosion found room, a mine only
+when it did (a remote mine tries again next tick), and the grenade, the
+N-bomb and the rockets release a player's Slayer camera.
+
+**Parity**: the fuse rule counts in `fuse.compared` and `fuse.differ`, and a
+difference in the explosion counts too; its first decision for a weapon and
+function logs `PROJECTILE.RULE: timer_expired weapon=base:superdragon
+func=secondary object=base:grenaderound program=... modules=explode
+native=explode explosion=21 native_explosion=21`. The other three events
+count in `rules.compared` and `rules.differ` like the contacts.
+`projectile_events_smoke` requires the fuse lines of the grenade, the
+rocket, the timed mine, the remote mine and the Super Dragon's grenade, and
+the remote mine's `remote_signal` line.
+
+**Authority**: damage is the host's (a client only replays it), and the
+client's replay asks its own copy of the program, as for contacts. The
+proximity tests and the remote signal run on every peer, as they always
+have, and each asks the program; only the host counts parity. A fuse on a
+client keeps the original (slice 2): each peer makes its own explosions.
+
+**Left native, on purpose**:
+
+- Which arm of `weaponTick` an object runs (who counts down, who arms and
+  joins the watch list, who listens for the detonator) is still chosen by
+  weapon number, so a rule wired into an archive whose object the original
+  never brings to that seam does nothing yet (a `remote_signal` on a
+  grenade), and `spend_fuse` on an object with no fuse arm has nothing to
+  set off. Slice 6 makes the arms one, for base and mod weapons alike; a
+  mod weapon's arms are still driven by its v1 record.
+- The Dragon's wider reach is the watch list's only: its own test of the
+  player whose tick it is uses 250 units, like the others.
+- A mod weapon in the watch list whose record makes no decision keeps the
+  plain rule (250 units, anything that moves).
+- A character's held explosive that is shot (`chrHit`'s list), the Slayer
+  rocket set off by a blast (`explosions.c`), a thrown Dragon set off by a
+  shot at what it lies behind (`projectileCreate`), the watch list's
+  housekeeping when a weapon object is freed, and which thrown items may
+  be picked up again.
+- The detonator itself (the remote mine's second function and the quick
+  detonate buttons) is a held weapon's.
+
+Tests: `tests/test_projectile_rules.cpp` (the table's fuses, triggers and
+gates, a program with gates and a named explosion fired through the runner,
+and the source pins of the six fuses, the watch list, the remote signal and
+`objDamage`), `tests/test_mission_graph_runner.cpp` (registration refuses a
+gate it cannot answer and an explosion outside the table),
+`tools/tests/test_projectile_program_conformance.py` (the same two rules in
+the validator). The weapon cache kind moved (`_devicerules`), so an install
+re-extracts its weapon archives once.
 
 ## Not in scope
 

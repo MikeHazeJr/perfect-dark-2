@@ -124,6 +124,10 @@ const struct {
 	{ "event.projectile.contact", MISSION_GRAPH_EVENT_PROJECTILE_CONTACT },
 	{ "event.projectile.launch_blocked", MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED },
 	{ "event.projectile.came_to_rest", MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST },
+	// Slice 4: the device rule events.
+	{ "event.projectile.proximity", MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY },
+	{ "event.projectile.remote_signal", MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL },
+	{ "event.projectile.damaged", MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED },
 };
 
 // The projectile event kind of a node kind, or 0 for none.
@@ -138,7 +142,7 @@ s32 projectileEventKindOf(const std::string &kind)
 bool isProjectileEventKind(s32 kind)
 {
 	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
-		kind <= MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST;
+		kind <= MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED;
 }
 
 // A node's scalar fields other than id and kind, as text.
@@ -616,7 +620,7 @@ extern "C" s32 missionGraphProgramEventReachesModule(const mission_graph_program
 			if (reached[at]) continue;
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
-			if (node.type == NODE_MODULE && node.kind == module_kind) return 1;
+			if ((node.type == NODE_MODULE || node.native_gate) && node.kind == module_kind) return 1;
 			for (const Edge &edge : node.out) queue.push_back(edge.target);
 		}
 	} catch (...) {

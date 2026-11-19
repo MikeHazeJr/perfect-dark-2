@@ -118,6 +118,14 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_PROJECTILE_CONTACT 26
 #define MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED 27
 #define MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST 28
+/* projectile-events.md slice 4: the device rule events. Something is within
+ * reach of an armed proximity item (proximity); a remote mine's owner
+ * pressed the detonator (remote_signal); a weapon object took damage
+ * (damaged). They choose og.projectile.spend_fuse; timer_expired then
+ * chooses what goes off. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY 29
+#define MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL 30
+#define MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED 31
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -222,8 +230,9 @@ s32 missionGraphEventIsObjectRule(s32 event_kind);
  * (MISSION_GRAPH_EVENT_PROJECTILE_*). */
 s32 missionGraphEventIsProjectile(s32 event_kind);
 
-/* Whether an event of this kind can reach a native module of this og.* kind
- * along execution edges (both branches of every gate). */
+/* Whether an event of this kind can reach a native module of this og.* kind,
+ * or a native gate of this gate.* kind, along execution edges (both branches
+ * of every gate). */
 s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,
 	s32 event_kind, const char *module_kind);
 

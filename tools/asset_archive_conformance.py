@@ -2049,13 +2049,19 @@ PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced
                            "event.projectile.timer_expired",
                            # slice 3: the contact rule events
                            "event.projectile.contact", "event.projectile.launch_blocked",
-                           "event.projectile.came_to_rest")
+                           "event.projectile.came_to_rest",
+                           # slice 4: the device rule events
+                           "event.projectile.proximity", "event.projectile.remote_signal",
+                           "event.projectile.damaged")
 # Slice 3: a module is a choice the seam of its event acts on, so each event
 # applies only the modules listed for it; one wired anywhere else would do
 # nothing, and the game refuses the program. Keep in step with
 # port/src/projectile_rules.c (s_ProjectileEvents, s_ProjectileModules).
 PROJECTILE_GRAPH_EVENT_MODULES = {
-    "event.projectile.timer_expired": ("og.projectile.fuse_expired",),
+    "event.projectile.timer_expired": ("og.projectile.explode", "og.projectile.nbomb_storm"),
+    "event.projectile.proximity": ("og.projectile.spend_fuse",),
+    "event.projectile.remote_signal": ("og.projectile.spend_fuse",),
+    "event.projectile.damaged": ("og.projectile.spend_fuse",),
     "event.projectile.contact": ("og.projectile.stick", "og.projectile.wall_hug",
                                  "og.projectile.pierce", "og.projectile.impact"),
     "event.projectile.launch_blocked": ("og.projectile.spend_fuse",),
@@ -2064,13 +2070,28 @@ PROJECTILE_GRAPH_EVENT_MODULES = {
     "event.projectile.landed": ("og.projectile.shield_device", "og.projectile.land_bolt",
                                 "og.projectile.land_knife", "og.projectile.poison_target"),
 }
-PROJECTILE_GRAPH_MODULES = ("og.projectile.fuse_expired", "og.projectile.stick",
+PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
                             "og.projectile.wall_hug", "og.projectile.pierce",
                             "og.projectile.impact", "og.projectile.spend_fuse",
                             "og.projectile.shield_device", "og.projectile.land_bolt",
-                            "og.projectile.land_knife", "og.projectile.poison_target")
+                            "og.projectile.land_knife", "og.projectile.poison_target",
+                            "og.projectile.nbomb_storm")
 PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase",
-                          "gate.projectile.fuse_armed")
+                          "gate.projectile.fuse_armed", "gate.projectile.trigger_close",
+                          "gate.projectile.trigger_character",
+                          "gate.projectile.damage_not_blast")
+# Slice 4: a gate that reads what its event carries can only be answered at
+# that event (projectileRulesGateApplies); fuse_armed reads the projectile
+# and answers anywhere.
+PROJECTILE_GRAPH_GATE_EVENTS = {
+    "gate.projectile.trigger_close": ("event.projectile.proximity",),
+    "gate.projectile.trigger_character": ("event.projectile.proximity",),
+    "gate.projectile.damage_not_blast": ("event.projectile.damaged",),
+}
+# Slice 4: og.projectile.explode may name an explosion of the game's table
+# (EXPLOSIONTYPE_BASE_COUNT rows; 0 is "none") with a whole number.
+PROJECTILE_GRAPH_EXPLOSION_PARAM = "explosion_type"
+PROJECTILE_GRAPH_EXPLOSION_TYPES = 26
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
 
@@ -2109,6 +2130,13 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
         elif kind.startswith("og."):
             if kind not in PROJECTILE_GRAPH_MODULES:
                 errors.append(f"{where} native module {kind!r} does not exist")
+            elif kind == "og.projectile.explode" and PROJECTILE_GRAPH_EXPLOSION_PARAM in node:
+                value = node[PROJECTILE_GRAPH_EXPLOSION_PARAM]
+                if isinstance(value, bool) or not isinstance(value, int) \
+                        or not 1 <= value < PROJECTILE_GRAPH_EXPLOSION_TYPES:
+                    errors.append(f"{where} og.projectile.explode {node_id!r} needs "
+                                  f"{PROJECTILE_GRAPH_EXPLOSION_PARAM} from 1 to "
+                                  f"{PROJECTILE_GRAPH_EXPLOSION_TYPES - 1}, or none")
         elif kind == "gate.objective.status":
             if node.get("status") not in MISSION_GRAPH_STATUSES:
                 errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
@@ -2154,8 +2182,9 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
                 errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
         elif output is not None and output != "out":
             errors.append(f"{where} edge {idx} output must be \"out\"")
-    # Slice 3: every module an event reaches (through any gates) is one its
-    # seam applies. The game refuses the program otherwise, naming the pair.
+    # Slices 3 and 4: every module an event reaches (through any gates) is one
+    # its seam applies, and every gate it reaches is one it can answer. The
+    # game refuses the program otherwise, naming the pair.
     exec_out: dict[str, list[str]] = {}
     for edge in edges:
         if isinstance(edge, dict) and edge.get("input") == "exec" \
@@ -2176,6 +2205,9 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
             if node_kind in PROJECTILE_GRAPH_MODULES and node_kind not in applied:
                 errors.append(f"{where} {node_kind} {node_id!r} has no effect on {event_kind} "
                               f"({event_id!r})")
+            if event_kind not in PROJECTILE_GRAPH_GATE_EVENTS.get(node_kind, (event_kind,)):
+                errors.append(f"{where} {node_kind} {node_id!r} cannot be answered at "
+                              f"{event_kind} ({event_id!r})")
             queue.extend(exec_out.get(node_id, []))
     return errors
 

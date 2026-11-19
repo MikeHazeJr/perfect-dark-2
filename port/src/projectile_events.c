@@ -23,10 +23,10 @@ static const char *const s_ProjectileEventNames[PROJECTILE_EVENT_COUNT] = {
 
 static s32 s_ProjectileEventTotals[PROJECTILE_EVENT_COUNT];
 
-/* The fuse rule's parity counters (projectileFuseRule). */
+/* The fuse rule's parity counters (projectileFuseModules). */
 static s32 s_ProjectileFuseCompared;
 static s32 s_ProjectileFuseDiffer;
-/* The contact rules' (projectileRuleModules). */
+/* The other rules' (projectileRuleModulesWith). */
 static s32 s_ProjectileRuleCompared;
 static s32 s_ProjectileRuleDiffer;
 
@@ -241,36 +241,80 @@ void projectileEventsReport(const char *why)
 
 /* What a projectile program's modules chose for one event. */
 typedef struct projectile_rule {
-	s32 fuse;               /* og.projectile.fuse_expired ran */
 	u32 modules;            /* every module that ran (PROJECTILE_MODULE_*) */
+	s32 explosion;          /* og.projectile.explode's explosion, or PROJECTILE_EXPLOSION_OWN */
 	struct defaultobj *obj; /* the projectile, for the gates */
+	const projectile_rule_context_t *context; /* what the event carries, or NULL */
 } projectile_rule_t;
+
+/* Whether a gate passes for this projectile and what its event carries
+ * (projectile_rules.h says what each reads). A program's gate nodes and the
+ * gates the original asks are answered here alike. */
+static s32 projectileGatePasses(u32 gate, const struct defaultobj *obj,
+		const projectile_rule_context_t *context)
+{
+	switch (gate) {
+	case PROJECTILE_RULE_GATE_FUSE_ARMED:
+		/* The fuse counts or is spent: the weapon object's timer is not idle. */
+		return obj && obj->type == OBJTYPE_WEAPON
+			&& ((const struct weaponobj *)obj)->timer240 >= 0;
+	case PROJECTILE_RULE_GATE_TRIGGER_CLOSE:
+		return context && context->trigger_close;
+	case PROJECTILE_RULE_GATE_TRIGGER_CHARACTER:
+		return context && context->trigger_character;
+	case PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST:
+		/* The game marks a blast's damage with the remote mine's number. */
+		return context && context->damage_weaponnum != WEAPON_REMOTEMINE;
+	default:
+		return 0;
+	}
+}
+
+/* The original's choice once the gates it asks are answered: its modules,
+ * or none when one of them fails. */
+static u32 projectileNativeChoice(u32 native, const struct defaultobj *obj,
+		const projectile_rule_context_t *context)
+{
+	s32 g;
+
+	for (g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+		const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+
+		if ((native & gate) && !projectileGatePasses(gate, obj, context)) {
+			return 0;
+		}
+	}
+	return native & PROJECTILE_MODULE_ALL;
+}
 
 /* The projectile programs' modules and gates (projectile_rules.h lists the
  * kinds, and weapon_graph_runtime.c's projectileProgramModuleKnown accepts
- * the same). A module is a choice the seam then acts on; the gate reads the
- * projectile. */
+ * the same). A module is a choice the seam then acts on; a gate reads the
+ * projectile or what the event carries. */
 static s32 projectileProgramModuleRun(const char *kind, const char *node_id,
 		const mission_graph_params_t *params, const mission_graph_event_t *event, void *user)
 {
 	projectile_rule_t *rule = (projectile_rule_t *)user;
 	const u32 bit = projectileRulesModuleBit(kind);
+	const u32 gate = projectileRulesGateBit(kind);
 
 	(void)node_id;
-	(void)params;
 	(void)event;
 	if (!rule || !kind) {
 		return 0;
 	}
-	if (strcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0) {
-		/* The fuse counts or is spent: the weapon object's timer is not idle. */
-		return rule->obj && rule->obj->type == OBJTYPE_WEAPON
-			&& ((struct weaponobj *)rule->obj)->timer240 >= 0 ? 1 : 0;
+	if (gate) {
+		return projectileGatePasses(gate, rule->obj, rule->context) ? 1 : 0;
 	}
 	if (bit) {
 		rule->modules |= bit;
-		if (bit == PROJECTILE_MODULE_FUSE_EXPIRED) {
-			rule->fuse = 1;
+		if (bit == PROJECTILE_MODULE_EXPLODE) {
+			/* Registration refused a node whose explosion_type is no type,
+			 * so this is a type or none. The last explode reached names it. */
+			const s32 type = projectileRulesExplosionFromText(
+				missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM));
+
+			rule->explosion = type >= 0 ? type : PROJECTILE_EXPLOSION_OWN;
 		}
 		return 1;
 	}
@@ -301,47 +345,6 @@ static const mission_graph_program_t *projectileProgramFor(const projectile_iden
 		}
 	}
 	return program;
-}
-
-s32 projectileFuseRule(struct defaultobj *obj)
-{
-	struct weaponobj *weapon;
-	const mission_graph_program_t *program;
-	const char *asset_id = NULL;
-	mission_graph_event_t event;
-	projectile_identity_t who;
-	projectile_rule_t rule;
-
-	if (!obj || obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT
-			|| !projectileIdentify(obj, &who)) {
-		return 1;
-	}
-	weapon = (struct weaponobj *)obj;
-	program = projectileProgramFor(&who, &asset_id);
-	if (!program) {
-		return 1; /* a v1 archive: the native rule decides */
-	}
-	memset(&event, 0, sizeof(event));
-	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
-	event.player = (s32)((u32)obj->hidden >> 28);
-	event.catalog_id = projectileEventWeaponId(who.gunnum);
-	event.instance = obj;
-	memset(&rule, 0, sizeof(rule));
-	rule.obj = obj;
-	if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
-		rule.fuse = 0;
-	}
-	s_ProjectileFuseCompared++;
-	if (!rule.fuse) {
-		s_ProjectileFuseDiffer++;
-	}
-	if (projectileEventFirst(who.gunnum, who.func, PROJECTILE_EVENT_SEEN_FUSE_RULE)) {
-		sysLogPrintf(LOG_NOTE,
-			"PROJECTILE.RULE: timer_expired weapon=%s func=%s object=%s program=%s fuse=%d",
-			projectileEventWeaponId(who.gunnum), who.func == FUNC_SECONDARY ? "secondary" : "primary",
-			projectileEventWeaponId(weapon->weaponnum), asset_id ? asset_id : "-", rule.fuse);
-	}
-	return rule.fuse;
 }
 
 /* "contact" for MISSION_GRAPH_EVENT_PROJECTILE_CONTACT. */
@@ -378,8 +381,26 @@ static const char *projectileModulesText(u32 modules, char *buf, size_t cap)
 	return buf;
 }
 
+/* "own" for the weapon object's own explosion, else the type's number. */
+static const char *projectileExplosionText(s32 explosion, char *buf, size_t cap)
+{
+	if (explosion < 0) {
+		snprintf(buf, cap, "own");
+	} else {
+		snprintf(buf, cap, "%d", explosion);
+	}
+	return buf;
+}
+
 u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 {
+	return projectileRuleModulesWith(kind, obj, native, NULL);
+}
+
+u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
+		const projectile_rule_context_t *context)
+{
+	const u32 original = projectileNativeChoice(native, obj, context);
 	const mission_graph_program_t *program;
 	const char *asset_id = NULL;
 	mission_graph_event_t event;
@@ -388,14 +409,16 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 	s32 handled;
 
 	if (!obj || !projectileIdentify(obj, &who)) {
-		return native;
+		return original;
 	}
 	program = projectileProgramFor(&who, &asset_id);
 	if (!program) {
-		return native; /* a v1 archive: the original rules decide */
+		return original; /* a v1 archive: the original rules decide */
 	}
 	memset(&rule, 0, sizeof(rule));
 	rule.obj = obj;
+	rule.context = context;
+	rule.explosion = PROJECTILE_EXPLOSION_OWN;
 	handled = missionGraphProgramHandlesEvent(program, kind);
 	if (handled) {
 		memset(&event, 0, sizeof(event));
@@ -408,12 +431,12 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 		}
 		rule.modules &= projectileRulesEventModules(kind);
 	}
-	if (g_NetMode != NETMODE_CLIENT && (handled || native)) {
+	if (g_NetMode != NETMODE_CLIENT && (handled || original)) {
 		char chose[96];
-		char original[96];
+		char orig[96];
 
 		s_ProjectileRuleCompared++;
-		if (rule.modules != native) {
+		if (rule.modules != original) {
 			s_ProjectileRuleDiffer++;
 			if (s_ProjectileRuleDiffer <= 8) {
 				sysLogPrintf(LOG_WARNING,
@@ -422,7 +445,7 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 					projectileEventWeaponId(who.gunnum),
 					who.func == FUNC_SECONDARY ? "secondary" : "primary", asset_id ? asset_id : "-",
 					projectileModulesText(rule.modules, chose, sizeof(chose)),
-					projectileModulesText(native, original, sizeof(original)));
+					projectileModulesText(original, orig, sizeof(orig)));
 			}
 		}
 		if (projectileEventFirst(who.gunnum, who.func, PROJECTILE_EVENT_SEEN_RULE(kind))) {
@@ -435,8 +458,83 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 					? projectileEventWeaponId(((struct weaponobj *)obj)->weaponnum) : "-",
 				asset_id ? asset_id : "-",
 				projectileModulesText(rule.modules, chose, sizeof(chose)),
-				projectileModulesText(native, original, sizeof(original)));
+				projectileModulesText(original, orig, sizeof(orig)));
 		}
+	}
+	return rule.modules;
+}
+
+u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosion,
+		s32 *explosion)
+{
+	const u32 original = projectileNativeChoice(native, obj, NULL);
+	const mission_graph_program_t *program;
+	const char *asset_id = NULL;
+	mission_graph_event_t event;
+	projectile_identity_t who;
+	projectile_rule_t rule;
+	char chose[96];
+	char orig[96];
+	char chosetype[16];
+	char origtype[16];
+	s32 differs;
+
+	if (explosion) {
+		*explosion = native_explosion;
+	}
+	if (!obj || obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT
+			|| !projectileIdentify(obj, &who)) {
+		return original;
+	}
+	program = projectileProgramFor(&who, &asset_id);
+	if (!program) {
+		return original; /* a v1 archive: the original fuse decides */
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+	event.player = (s32)((u32)obj->hidden >> 28);
+	event.catalog_id = projectileEventWeaponId(who.gunnum);
+	event.instance = obj;
+	memset(&rule, 0, sizeof(rule));
+	rule.obj = obj;
+	rule.explosion = PROJECTILE_EXPLOSION_OWN;
+	if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
+		rule.modules = 0; /* a module refused: nothing goes off */
+	}
+	rule.modules &= projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED);
+	if (!(rule.modules & PROJECTILE_MODULE_EXPLODE)) {
+		rule.explosion = PROJECTILE_EXPLOSION_OWN;
+	}
+	differs = rule.modules != original
+		|| ((original & PROJECTILE_MODULE_EXPLODE) && rule.explosion != native_explosion);
+	s_ProjectileFuseCompared++;
+	if (differs) {
+		s_ProjectileFuseDiffer++;
+		if (s_ProjectileFuseDiffer <= 8) {
+			sysLogPrintf(LOG_WARNING,
+				"PROJECTILE.RULE differs: timer_expired weapon=%s func=%s program=%s modules=%s native=%s"
+				" explosion=%s native_explosion=%s",
+				projectileEventWeaponId(who.gunnum),
+				who.func == FUNC_SECONDARY ? "secondary" : "primary", asset_id ? asset_id : "-",
+				projectileModulesText(rule.modules, chose, sizeof(chose)),
+				projectileModulesText(original, orig, sizeof(orig)),
+				projectileExplosionText(rule.explosion, chosetype, sizeof(chosetype)),
+				projectileExplosionText(native_explosion, origtype, sizeof(origtype)));
+		}
+	}
+	if (projectileEventFirst(who.gunnum, who.func, PROJECTILE_EVENT_SEEN_FUSE_RULE)) {
+		sysLogPrintf(LOG_NOTE,
+			"PROJECTILE.RULE: timer_expired weapon=%s func=%s object=%s program=%s modules=%s native=%s"
+			" explosion=%s native_explosion=%s",
+			projectileEventWeaponId(who.gunnum), who.func == FUNC_SECONDARY ? "secondary" : "primary",
+			projectileEventWeaponId(((struct weaponobj *)obj)->weaponnum), asset_id ? asset_id : "-",
+			projectileModulesText(rule.modules, chose, sizeof(chose)),
+			projectileModulesText(original, orig, sizeof(orig)),
+			projectileExplosionText(rule.explosion, chosetype, sizeof(chosetype)),
+			projectileExplosionText(native_explosion, origtype, sizeof(origtype)));
+	}
+	if (explosion) {
+		*explosion = rule.explosion;
 	}
 	return rule.modules;
 }

@@ -49,7 +49,7 @@
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1760,26 +1760,32 @@ static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
 	}
 }
 
-/* projectile-events.md slice 3: the contact rule wiring of the weapon object
+/* projectile-events.md slices 3 and 4: the rule wiring of the weapon object
  * a function launches, from the original rules by weapon number
- * (projectile_rules.c): an event node, its modules and their execution
- * edges, and gate.projectile.fuse_armed where the original asks whether the
- * fuse is armed. Each fragment begins ",\n    " so it follows the fuse node
- * and the fuse edge. A function that launches no weapon object (the thrown
- * Laptop gun's sentry) and one whose object the original gives no rule get
- * nothing. */
-static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p,
+ * (projectile_rules.c): an event node, the gates the original asks, its
+ * modules and their execution edges; an explode module carries the
+ * explosion the original names for that object. Each fragment begins
+ * ",\n    " so it follows the data nodes and the data edge. A function that
+ * launches no weapon object (the thrown Laptop gun's sentry) and one whose
+ * object the original gives no rule get nothing. fuse_only keeps the fuse
+ * rule alone: an entity archive's program, which decides only for an item
+ * that has no projectile program. */
+static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,
 	char *nodes, size_t nodes_cap, char *edges, size_t edges_cap)
 {
 	static const struct {
 		s32 kind;
 		const char *id;
 	} events[] = {
+		{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, "fuse" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, "contact" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, "launch_blocked" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, "bounced" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, "came_to_rest" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_LANDED, "landed" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, "proximity" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, "remote_signal" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "damaged" },
 	};
 	const struct weaponfunc *f = p->func;
 	size_t nlen = 0;
@@ -1805,30 +1811,39 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p,
 
 	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
 		u32 modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);
-		const s32 gated = (modules & PROJECTILE_RULE_GATE_FUSE_ARMED) != 0;
+		const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);
+		const char *output = "out";
 		char source[64];
 		int n;
 
-		modules &= PROJECTILE_MODULE_ALL;
-		if (!modules) continue;
+		if (fuse_only && events[i].kind != MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) continue;
+		if (!(modules & PROJECTILE_MODULE_ALL)) continue;
 		n = snprintf(nodes + nlen, nodes_cap - nlen,
 			",\n    { \"id\": \"%s\", \"kind\": \"%s\" }",
 			events[i].id, projectileRulesEventName(events[i].kind));
 		if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
 		nlen += (size_t)n;
 		snprintf(source, sizeof(source), "%s", events[i].id);
-		if (gated) {
+		/* The gates the original asks, one behind the other. */
+		for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+			const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+			const char *gate_kind = (modules & gate) ? projectileRulesGateKind(gate) : NULL;
+			const char *gate_short;
+
+			if (!gate_kind) continue;
+			gate_short = gate_kind + strlen("gate.projectile.");
 			n = snprintf(nodes + nlen, nodes_cap - nlen,
-				",\n    { \"id\": \"%s_fuse_armed\", \"kind\": \"" PROJECTILE_GATE_FUSE_ARMED_KIND "\" }",
-				events[i].id);
+				",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
+				events[i].id, gate_short, gate_kind);
 			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
 			nlen += (size_t)n;
 			n = snprintf(edges + elen, edges_cap - elen,
-				",\n    { \"from\": \"%s\", \"output\": \"out\", \"to\": \"%s_fuse_armed\", \"input\": \"exec\" }",
-				events[i].id, events[i].id);
+				",\n    { \"from\": \"%s\", \"output\": \"%s\", \"to\": \"%s_%s\", \"input\": \"exec\" }",
+				source, output, events[i].id, gate_short);
 			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
 			elen += (size_t)n;
-			snprintf(source, sizeof(source), "%s_fuse_armed", events[i].id);
+			snprintf(source, sizeof(source), "%s_%s", events[i].id, gate_short);
+			output = "pass";
 		}
 		for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
 			const char *kind = (modules & (1u << m)) ? projectileRulesModuleKind(1u << m) : NULL;
@@ -1836,14 +1851,20 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p,
 
 			if (!kind) continue;
 			shortname = kind + strlen("og.projectile.");
-			n = snprintf(nodes + nlen, nodes_cap - nlen,
-				",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
-				events[i].id, shortname, kind);
+			if ((1u << m) == PROJECTILE_MODULE_EXPLODE && explosion >= 0) {
+				n = snprintf(nodes + nlen, nodes_cap - nlen,
+					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\", \"" PROJECTILE_EXPLODE_TYPE_PARAM "\": %d }",
+					events[i].id, shortname, kind, explosion);
+			} else {
+				n = snprintf(nodes + nlen, nodes_cap - nlen,
+					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
+					events[i].id, shortname, kind);
+			}
 			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
 			nlen += (size_t)n;
 			n = snprintf(edges + elen, edges_cap - elen,
 				",\n    { \"from\": \"%s\", \"output\": \"%s\", \"to\": \"%s_%s\", \"input\": \"exec\" }",
-				source, gated ? "pass" : "out", events[i].id, shortname);
+				source, output, events[i].id, shortname);
 			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
 			elen += (size_t)n;
 		}
@@ -1926,17 +1947,18 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
 	}
 
-	/* projectile-events.md slice 3: the contact rules of what this function
-	 * launches, wired as the original has them. */
-	char rule_nodes[2048];
-	char rule_edges[2048];
-	if (s_projectileRuleWiring(p, rule_nodes, sizeof(rule_nodes),
+	/* projectile-events.md slices 3 and 4: the rules of what this function
+	 * launches (its fuse, its contacts, what sets it off), wired as the
+	 * original has them. */
+	char rule_nodes[3072];
+	char rule_edges[3072];
+	if (s_projectileRuleWiring(p, 0, rule_nodes, sizeof(rule_nodes),
 			rule_edges, sizeof(rule_edges)) != 0) {
 		return -1;
 	}
 
 	/* projectile-events.md slice 2: v2, the records plus the program that
-	 * decides the fuse; the base archive wires the original fuse. */
+	 * decides for the object; the base archive wires the original rules. */
 	char graph[8192];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
@@ -1971,13 +1993,10 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"        \"powered\": %s,\n"
 		"        \"calculate_trajectory\": %s\n"
 		"      }\n"
-		"    }%s%s%s%s,\n"
-		"    { \"id\": \"fuse\", \"kind\": \"event.projectile.timer_expired\" },\n"
-		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }%s\n"
+		"    }%s%s%s%s%s\n"
 		"  ],\n"
 		"  \"edges\": [\n"
-		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s,\n"
-		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }%s\n"
+		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s%s\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"%s\" }\n"
@@ -2087,8 +2106,16 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 	else if (strstr(archetype, "timed")) entity_kind = "entity.timed_detonatable";
 	else if (strstr(archetype, "storm")) entity_kind = "entity.nbomb_storm";
 
-	/* projectile-events.md slice 2: v2, the record plus the program that
-	 * decides a deployed item's fuse; the base archive wires the original. */
+	/* projectile-events.md slices 2 and 4: v2, the record plus the program
+	 * that decides the fuse of an item with no projectile program; the base
+	 * archive wires the original fuse, when its item has one. */
+	char rule_nodes[512];
+	char rule_edges[512];
+	if (s_projectileRuleWiring(p, 1, rule_nodes, sizeof(rule_nodes),
+			rule_edges, sizeof(rule_edges)) != 0) {
+		return -1;
+	}
+
 	char graph[4096];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
@@ -2109,12 +2136,9 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"        \"flags\": %u,\n"
 		"        \"runtime_detail\": \"module adapter extracts current C constants\"\n"
 		"      }\n"
-		"    },\n"
-		"    { \"id\": \"fuse\", \"kind\": \"event.projectile.timer_expired\" },\n"
-		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }\n"
+		"    }%s\n"
 		"  ],\n"
-		"  \"edges\": [\n"
-		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }\n"
+		"  \"edges\": [%s\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"entity_behavior\" }\n"
@@ -2127,7 +2151,10 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		s_modeName(p->mode_index),
 		activatetime60,
 		recoverytime60,
-		(unsigned)flags);
+		(unsigned)flags,
+		rule_nodes,
+		/* the first edge of the array: without the fragment's comma */
+		rule_edges[0] ? rule_edges + 1 : "");
 	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
 
 	char bindings[512];

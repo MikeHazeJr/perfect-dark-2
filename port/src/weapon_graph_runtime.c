@@ -656,12 +656,27 @@ static s32 projectileProgramModuleKnown(const char *kind)
 {
 	if (!kind) return 0;
 	return projectileRulesModuleBit(kind) != 0 ||
-		strcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0;
+		projectileRulesGateBit(kind) != 0;
 }
 
-/* projectile-events.md slice 3: a module chooses what the seam of its event
- * does, so one wired to an event whose seam does not apply it would do
- * nothing. Such a program is refused, with the pair named. */
+/* projectile-events.md slice 4: an og.projectile.explode node names an
+ * explosion of the game's table with "explosion_type", or none. 0 stops the
+ * visit at a node that names anything else. */
+static s32 projectileProgramExplosionVisit(const char *kind,
+	const mission_graph_params_t *params, void *userdata)
+{
+	(void)userdata;
+	if (projectileRulesModuleBit(kind) != PROJECTILE_MODULE_EXPLODE) return 1;
+	return projectileRulesExplosionFromText(
+		missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM)) !=
+		PROJECTILE_EXPLOSION_REFUSED;
+}
+
+/* projectile-events.md slices 3 and 4: a module chooses what the seam of its
+ * event does, so one wired to an event whose seam does not apply it would
+ * do nothing; a gate reads what its event carries, so one wired to an event
+ * that does not carry it could never pass. Such a program is refused, with
+ * the pair named. */
 static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
 	char *why, size_t why_cap)
 {
@@ -680,6 +695,22 @@ static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
 				return 0;
 			}
 		}
+		for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+			const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+			const char *gate_kind = projectileRulesGateKind(gate);
+
+			if (gate_kind && !projectileRulesGateApplies(gate, event_kind) &&
+					missionGraphProgramEventReachesModule(program, event_kind, gate_kind)) {
+				snprintf(why, why_cap, "%s cannot be answered at %s", gate_kind,
+					projectileRulesEventName(event_kind));
+				return 0;
+			}
+		}
+	}
+	if (!missionGraphProgramVisitModuleParams(program, projectileProgramExplosionVisit, NULL)) {
+		snprintf(why, why_cap, "og.projectile.explode needs " PROJECTILE_EXPLODE_TYPE_PARAM
+			" from 1 to %d, or none", PROJECTILE_EXPLOSION_TYPE_COUNT - 1);
+		return 0;
 	}
 	return 1;
 }

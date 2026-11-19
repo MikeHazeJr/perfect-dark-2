@@ -557,7 +557,7 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
     { "id": "spawn_state", "kind": "projectile.spawn_state", "params": { "scale": 1 } },
     { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
     { "id": "fuse", "kind": "event.projectile.timer_expired" },
-    { "id": "explode", "kind": "og.projectile.fuse_expired" }
+    { "id": "explode", "kind": "og.projectile.explode" }
   ],
   "edges": [
     { "from": "spawn_state", "to": "motion" },
@@ -580,16 +580,68 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
 	CHECK(missionGraphProgramNodeCount(program) == 2);
 	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
 	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED,
-		"og.projectile.fuse_expired") == 1);
+		"og.projectile.explode") == 1);
 
 	// A module the projectile table does not know refuses the archive.
 	std::string unknown = v2;
-	unknown.replace(unknown.find("og.projectile.fuse_expired"),
-		std::string("og.projectile.fuse_expired").size(), "og.projectile.unknown");
+	unknown.replace(unknown.find("og.projectile.explode"),
+		std::string("og.projectile.explode").size(), "og.projectile.unknown");
 	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, unknown.data(),
 		(u32)unknown.size(), err, sizeof(err)) != 0);
 	CHECK(std::string(err).find("program refused") != std::string::npos);
 	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+
+	// projectile-events.md slice 4: an explode may name an explosion of the
+	// game's table; anything else refuses the archive, with the range named.
+	const std::string plain = R"({ "id": "explode", "kind": "og.projectile.explode" })";
+	const auto withExplode = [&](const char *node) {
+		std::string text = v2;
+		text.replace(text.find(plain), plain.size(), node);
+		return text;
+	};
+	const std::string dragon = withExplode(
+		R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 23 })");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, dragon.data(),
+		(u32)dragon.size(), err, sizeof(err)) == 0);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) != nullptr);
+	for (const char *node : {
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 0 })",
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 26 })",
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": "big" })" }) {
+		const std::string bad = withExplode(node);
+		INFO(node);
+		CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, bad.data(),
+			(u32)bad.size(), err, sizeof(err)) != 0);
+		CHECK(std::string(err).find("og.projectile.explode needs explosion_type from 1 to 25, or none")
+			!= std::string::npos);
+		CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	}
+
+	// A gate that reads what its event carries is refused at an event that
+	// does not carry it; fuse_armed reads the projectile and stands anywhere.
+	const auto gated = [&](const char *gate_kind) {
+		std::string text = v2;
+		const std::string edge = R"({ "from": "fuse", "output": "out", "to": "explode", "input": "exec" })";
+		text.replace(text.find(edge), edge.size(),
+			R"({ "from": "fuse", "output": "out", "to": "asked", "input": "exec" },
+    { "from": "asked", "output": "pass", "to": "explode", "input": "exec" })");
+		text.replace(text.find(plain), plain.size(),
+			plain + ",\n    { \"id\": \"asked\", \"kind\": \"" + gate_kind + "\" }");
+		return text;
+	};
+	const std::string armed = gated("gate.projectile.fuse_armed");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, armed.data(),
+		(u32)armed.size(), err, sizeof(err)) == 0);
+	for (const char *gate_kind : { "gate.projectile.trigger_close", "gate.projectile.trigger_character",
+			"gate.projectile.damage_not_blast" }) {
+		const std::string bad = gated(gate_kind);
+		INFO(gate_kind);
+		CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, bad.data(),
+			(u32)bad.size(), err, sizeof(err)) != 0);
+		CHECK(std::string(err).find(std::string(gate_kind) +
+			" cannot be answered at event.projectile.timer_expired") != std::string::npos);
+		CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	}
 
 	// A v1 graph is records only: no program, and a program node is refused.
 	std::string v1 = v2;

@@ -1,7 +1,7 @@
 /*
  * test_projectile_rules.cpp -- the modules of a projectile program and the
- * original game's contact rules (port/src/projectile_rules.c;
- * context/designs/modding/projectile-events.md, slice 3).
+ * original game's rules (port/src/projectile_rules.c;
+ * context/designs/modding/projectile-events.md, slices 3 and 4).
  *
  * The table is the one source the game's seams, the extractor's wiring and
  * the archive validator share, so these cases pin it three ways: its own
@@ -44,24 +44,29 @@ size_t countOf(const std::string &text, const std::string &needle)
 
 s32 moduleKnown(const char *kind)
 {
-	return kind && (projectileRulesModuleBit(kind) != 0 ||
-		std::string(kind) == PROJECTILE_GATE_FUSE_ARMED_KIND) ? 1 : 0;
+	return kind && (projectileRulesModuleBit(kind) != 0 || projectileRulesGateBit(kind) != 0) ? 1 : 0;
 }
 
 struct Choice {
 	u32 modules = 0;
-	bool armed = false;
+	u32 passing = 0; // the gates that pass (PROJECTILE_RULE_GATE_* bits)
+	s32 explosion = PROJECTILE_EXPLOSION_OWN;
 };
 
-s32 runModule(const char *kind, const char *, const mission_graph_params_t *,
+s32 runModule(const char *kind, const char *, const mission_graph_params_t *params,
 	const mission_graph_event_t *, void *user)
 {
 	Choice *choice = static_cast<Choice *>(user);
-	if (std::string(kind) == PROJECTILE_GATE_FUSE_ARMED_KIND) {
-		return choice->armed ? 1 : 0;
+	const u32 gate = projectileRulesGateBit(kind);
+	if (gate) {
+		return (choice->passing & gate) ? 1 : 0;
 	}
 	const u32 bit = projectileRulesModuleBit(kind);
 	choice->modules |= bit;
+	if (bit == PROJECTILE_MODULE_EXPLODE) {
+		choice->explosion = projectileRulesExplosionFromText(
+			missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM));
+	}
 	return bit ? 1 : 0;
 }
 
@@ -79,13 +84,76 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 		seen |= bit;
 	}
 	CHECK(seen == PROJECTILE_MODULE_ALL);
+	CHECK(PROJECTILE_MODULE_COUNT == 11);
 	CHECK(projectileRulesModuleKind(0) == nullptr);
 	CHECK(projectileRulesModuleKind(PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_PIERCE) == nullptr);
 	CHECK(projectileRulesModuleKind(1u << PROJECTILE_MODULE_COUNT) == nullptr);
 	CHECK(projectileRulesModuleBit("og.projectile.stick") == PROJECTILE_MODULE_STICK);
-	CHECK(projectileRulesModuleBit("og.projectile.explode") == 0);
+	CHECK(projectileRulesModuleBit("og.projectile.explode") == PROJECTILE_MODULE_EXPLODE);
+	CHECK(projectileRulesModuleBit("og.projectile.nbomb_storm") == PROJECTILE_MODULE_NBOMB_STORM);
+	// Slice 2's name for the fuse's outcome is gone: explode and nbomb_storm say what goes off.
+	CHECK(projectileRulesModuleBit("og.projectile.fuse_expired") == 0);
+	CHECK(projectileRulesModuleBit("og.projectile.vanish") == 0);
 	CHECK(projectileRulesModuleBit(PROJECTILE_GATE_FUSE_ARMED_KIND) == 0);
 	CHECK(projectileRulesModuleBit(nullptr) == 0);
+}
+
+TEST_CASE("projectile rules: every gate has one kind, one bit and its events", "[projectile][rules]")
+{
+	u32 seen = 0;
+	for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+		const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+		const char *kind = projectileRulesGateKind(gate);
+		REQUIRE(kind != nullptr);
+		CHECK(std::string(kind).rfind("gate.projectile.", 0) == 0);
+		CHECK(projectileRulesGateBit(kind) == gate);
+		// A gate bit is never a module bit: the original's rule carries both.
+		CHECK((gate & PROJECTILE_MODULE_ALL) == 0);
+		seen |= gate;
+	}
+	CHECK(seen == PROJECTILE_RULE_GATE_ALL);
+	CHECK(PROJECTILE_GATE_COUNT == 4);
+	CHECK(projectileRulesGateBit(PROJECTILE_GATE_FUSE_ARMED_KIND) == PROJECTILE_RULE_GATE_FUSE_ARMED);
+	CHECK(projectileRulesGateBit(PROJECTILE_GATE_TRIGGER_CLOSE_KIND) == PROJECTILE_RULE_GATE_TRIGGER_CLOSE);
+	CHECK(projectileRulesGateBit(PROJECTILE_GATE_TRIGGER_CHARACTER_KIND) ==
+		PROJECTILE_RULE_GATE_TRIGGER_CHARACTER);
+	CHECK(projectileRulesGateBit(PROJECTILE_GATE_DAMAGE_NOT_BLAST_KIND) ==
+		PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST);
+	CHECK(projectileRulesGateBit("gate.mission.phase") == 0);
+	CHECK(projectileRulesGateBit("og.projectile.stick") == 0);
+	CHECK(projectileRulesGateBit(nullptr) == 0);
+	CHECK(projectileRulesGateKind(0) == nullptr);
+	CHECK(projectileRulesGateKind(PROJECTILE_RULE_GATE_ALL) == nullptr);
+	CHECK(projectileRulesGateKind(PROJECTILE_MODULE_STICK) == nullptr);
+
+	// A gate answers where its event carries what it reads.
+	for (s32 i = 0; projectileRulesEventAt(i) >= 0; i++) {
+		const s32 kind = projectileRulesEventAt(i);
+		INFO(projectileRulesEventName(kind));
+		CHECK(projectileRulesGateApplies(PROJECTILE_RULE_GATE_FUSE_ARMED, kind) == 1);
+		CHECK(projectileRulesGateApplies(PROJECTILE_RULE_GATE_TRIGGER_CLOSE, kind) ==
+			(kind == MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY ? 1 : 0));
+		CHECK(projectileRulesGateApplies(PROJECTILE_RULE_GATE_TRIGGER_CHARACTER, kind) ==
+			(kind == MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY ? 1 : 0));
+		CHECK(projectileRulesGateApplies(PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST, kind) ==
+			(kind == MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED ? 1 : 0));
+		// The original never asks a gate its event cannot answer.
+		for (s32 weaponnum = 0; weaponnum < 0x60; weaponnum++) {
+			for (s32 func = FUNC_PRIMARY; func <= FUNC_2; func++) {
+				const u32 native = projectileRulesNative(kind, weaponnum, func, 1);
+				for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+					const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+					if (native & gate) {
+						CHECK(projectileRulesGateApplies(gate, kind) == 1);
+						// A gate stands in front of something.
+						CHECK((native & PROJECTILE_MODULE_ALL) != 0);
+					}
+				}
+			}
+		}
+	}
+	CHECK(projectileRulesGateApplies(PROJECTILE_RULE_GATE_FUSE_ARMED, MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == 0);
+	CHECK(projectileRulesGateApplies(0, MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY) == 0);
 }
 
 TEST_CASE("projectile rules: the events and the modules each applies", "[projectile][rules]")
@@ -102,18 +170,21 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 		CHECK((projectileRulesEventModules(kind) & ~PROJECTILE_MODULE_ALL) == 0);
 		count++;
 	}
-	CHECK(count == 10);
+	CHECK(count == 13);
 	CHECK(projectileRulesEventAt(-1) == -1);
 	CHECK(projectileRulesEventName(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == nullptr);
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED + 1) == 0);
 
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) ==
-		PROJECTILE_MODULE_FUSE_EXPIRED);
+		(PROJECTILE_MODULE_EXPLODE | PROJECTILE_MODULE_NBOMB_STORM));
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT) ==
 		(PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_WALL_HUG | PROJECTILE_MODULE_PIERCE |
 			PROJECTILE_MODULE_IMPACT));
+	// Everything that can set a fuse off spends it; the fuse rule then says what goes off.
 	for (s32 kind : { MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED,
-			MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST }) {
+			MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY,
+			MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED }) {
 		CHECK(projectileRulesEventModules(kind) == PROJECTILE_MODULE_SPEND_FUSE);
 	}
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_LANDED) ==
@@ -198,12 +269,133 @@ TEST_CASE("projectile rules: the original game's contact rules by weapon", "[pro
 		CHECK(at(MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, weaponnum, FUNC_PRIMARY) == 0);
 		CHECK(at(landed, weaponnum, FUNC_PRIMARY) == 0);
 	}
-	// Every weapon's fuse is its own.
-	CHECK(at(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, WEAPON_GRENADE, FUNC_PRIMARY) ==
-		PROJECTILE_MODULE_FUSE_EXPIRED);
 	// The records choose nothing.
 	CHECK(at(MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED, WEAPON_ROCKET, FUNC_PRIMARY) == 0);
 	CHECK(at(MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET, WEAPON_BOLT, FUNC_PRIMARY) == 0);
+}
+
+TEST_CASE("projectile rules: the original game's fuses and what sets them off", "[projectile][rules]")
+{
+	const auto at = [](s32 kind, s32 weaponnum, s32 func) {
+		return projectileRulesNative(kind, weaponnum, func, 0);
+	};
+	const s32 fuse = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+	const s32 proximity = MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY;
+	const s32 signal = MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL;
+	const s32 damaged = MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED;
+	const u32 explode = PROJECTILE_MODULE_EXPLODE;
+	const u32 storm = PROJECTILE_MODULE_NBOMB_STORM;
+	const u32 spend = PROJECTILE_MODULE_SPEND_FUSE;
+
+	// What goes off, for the objects weaponTick gives a fuse.
+	CHECK(at(fuse, WEAPON_GRENADE, FUNC_PRIMARY) == explode);   // its timer
+	CHECK(at(fuse, WEAPON_GRENADE, FUNC_SECONDARY) == explode); // the proximity pinball
+	for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY, FUNC_2 }) {
+		CHECK(at(fuse, WEAPON_GRENADEROUND, func) == explode);
+		CHECK(at(fuse, WEAPON_ROCKET, func) == explode);
+		CHECK(at(fuse, WEAPON_HOMINGROCKET, func) == explode);
+		CHECK(at(fuse, WEAPON_SKROCKET, func) == explode);
+		CHECK(at(fuse, WEAPON_REMOTEMINE, func) == explode);
+		CHECK(at(fuse, WEAPON_PROXIMITYMINE, func) == explode);
+	}
+	CHECK(at(fuse, WEAPON_TIMEDMINE, FUNC_PRIMARY) == explode);
+	CHECK(at(fuse, WEAPON_TIMEDMINE, FUNC_SECONDARY) == 0); // its timer counts for the first function only
+	CHECK(at(fuse, WEAPON_DRAGON, FUNC_SECONDARY) == explode);
+	CHECK(at(fuse, WEAPON_DRAGON, FUNC_PRIMARY) == 0);
+	// The N-bomb becomes a storm, thrown or as a proximity item.
+	CHECK(at(fuse, WEAPON_NBOMB, FUNC_PRIMARY) == storm);
+	CHECK(at(fuse, WEAPON_NBOMB, FUNC_SECONDARY) == storm);
+	// Nothing else has a fuse: a knife, a bolt, a planted device, a gun.
+	for (s32 weaponnum : { WEAPON_COMBATKNIFE, WEAPON_BOLT, WEAPON_ECMMINE, WEAPON_COMMSRIDER,
+			WEAPON_TRACERBUG, WEAPON_TARGETAMPLIFIER, WEAPON_LAPTOPGUN, WEAPON_FALCON2,
+			WEAPON_ROCKETLAUNCHER, WEAPON_DEVASTATOR, WEAPON_CROSSBOW }) {
+		for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY }) {
+			CHECK(at(fuse, weaponnum, func) == 0);
+		}
+	}
+
+	// The explosion: the object's own, but for the Super Dragon's grenade
+	// and the Dragon's self-destruct.
+	CHECK(projectileRulesNativeExplosion(WEAPON_GRENADEROUND, FUNC_2) == EXPLOSIONTYPE_SDGRENADE);
+	CHECK(projectileRulesNativeExplosion(WEAPON_GRENADEROUND, FUNC_PRIMARY) == PROJECTILE_EXPLOSION_OWN);
+	CHECK(projectileRulesNativeExplosion(WEAPON_GRENADEROUND, FUNC_SECONDARY) == PROJECTILE_EXPLOSION_OWN);
+	CHECK(projectileRulesNativeExplosion(WEAPON_DRAGON, FUNC_SECONDARY) == EXPLOSIONTYPE_DRAGONBOMBSPY);
+	for (s32 weaponnum : { WEAPON_GRENADE, WEAPON_ROCKET, WEAPON_HOMINGROCKET, WEAPON_SKROCKET,
+			WEAPON_TIMEDMINE, WEAPON_REMOTEMINE, WEAPON_PROXIMITYMINE }) {
+		CHECK(projectileRulesNativeExplosion(weaponnum, FUNC_PRIMARY) == PROJECTILE_EXPLOSION_OWN);
+		CHECK(projectileRulesNativeExplosion(weaponnum, FUNC_2) == PROJECTILE_EXPLOSION_OWN);
+	}
+
+	// Proximity: the four armed items. The Dragon goes off for anything in
+	// the watch list's reach; the others only within 250 units; the grenade
+	// only for a character.
+	CHECK(at(proximity, WEAPON_DRAGON, FUNC_SECONDARY) == spend);
+	CHECK(at(proximity, WEAPON_PROXIMITYMINE, FUNC_PRIMARY) ==
+		(spend | PROJECTILE_RULE_GATE_TRIGGER_CLOSE));
+	CHECK(at(proximity, WEAPON_NBOMB, FUNC_SECONDARY) == (spend | PROJECTILE_RULE_GATE_TRIGGER_CLOSE));
+	CHECK(at(proximity, WEAPON_GRENADE, FUNC_SECONDARY) ==
+		(spend | PROJECTILE_RULE_GATE_TRIGGER_CLOSE | PROJECTILE_RULE_GATE_TRIGGER_CHARACTER));
+	for (s32 weaponnum : { WEAPON_GRENADE, WEAPON_NBOMB, WEAPON_DRAGON, WEAPON_TIMEDMINE,
+			WEAPON_REMOTEMINE, WEAPON_ROCKET }) {
+		CHECK(at(proximity, weaponnum, FUNC_PRIMARY) == 0);
+	}
+	// Remote: only a remote mine listens for the detonator.
+	CHECK(at(signal, WEAPON_REMOTEMINE, FUNC_PRIMARY) == spend);
+	for (s32 weaponnum : { WEAPON_TIMEDMINE, WEAPON_PROXIMITYMINE, WEAPON_GRENADE, WEAPON_ROCKET }) {
+		CHECK(at(signal, weaponnum, FUNC_PRIMARY) == 0);
+	}
+	// Damage: objDamage's explosives; a homing rocket ignores a blast.
+	for (s32 weaponnum : { WEAPON_GRENADE, WEAPON_TIMEDMINE, WEAPON_REMOTEMINE, WEAPON_PROXIMITYMINE,
+			WEAPON_ROCKET, WEAPON_GRENADEROUND }) {
+		for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY, FUNC_2 }) {
+			CHECK(at(damaged, weaponnum, func) == spend);
+		}
+	}
+	CHECK(at(damaged, WEAPON_HOMINGROCKET, FUNC_PRIMARY) ==
+		(spend | PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST));
+	CHECK(at(damaged, WEAPON_DRAGON, FUNC_SECONDARY) == spend);
+	CHECK(at(damaged, WEAPON_DRAGON, FUNC_PRIMARY) == 0);
+	// Not explosives: the N-bomb, the Slayer's own rocket object, a bolt, a
+	// knife, a planted device, a gun.
+	for (s32 weaponnum : { WEAPON_NBOMB, WEAPON_SKROCKET, WEAPON_BOLT, WEAPON_COMBATKNIFE,
+			WEAPON_ECMMINE, WEAPON_FALCON2 }) {
+		CHECK(at(damaged, weaponnum, FUNC_PRIMARY) == 0);
+	}
+	// Every explosive has a fuse to spend.
+	for (s32 weaponnum = 0; weaponnum < 0x60; weaponnum++) {
+		for (s32 func = FUNC_PRIMARY; func <= FUNC_SECONDARY; func++) {
+			if (weaponnum == WEAPON_TIMEDMINE && func == FUNC_SECONDARY) {
+				continue; // never thrown: the mine's second function is its threat detector
+			}
+			for (s32 kind : { proximity, signal, damaged }) {
+				if (at(kind, weaponnum, func) & spend) {
+					INFO("weapon " << weaponnum << " func " << func << " event " << kind);
+					CHECK(at(fuse, weaponnum, func) != 0);
+				}
+			}
+		}
+	}
+}
+
+TEST_CASE("projectile rules: the explosion an explode node names", "[projectile][rules]")
+{
+	CHECK(projectileRulesExplosionFromText(nullptr) == PROJECTILE_EXPLOSION_OWN);
+	CHECK(projectileRulesExplosionFromText("21") == EXPLOSIONTYPE_SDGRENADE);
+	CHECK(projectileRulesExplosionFromText("23") == EXPLOSIONTYPE_DRAGONBOMBSPY);
+	CHECK(projectileRulesExplosionFromText("1") == 1);
+	CHECK(projectileRulesExplosionFromText("25") == PROJECTILE_EXPLOSION_TYPE_COUNT - 1);
+	// "No explosion", a number past the table, and anything that is no whole number.
+	for (const char *bad : { "0", "26", "100", "1000", "", "-1", "2.5", "true", "rocket", " 21", "21 " }) {
+		INFO(bad);
+		CHECK(projectileRulesExplosionFromText(bad) == PROJECTILE_EXPLOSION_REFUSED);
+	}
+	CHECK(PROJECTILE_EXPLOSION_OWN < 0);
+	CHECK(PROJECTILE_EXPLOSION_REFUSED < 0);
+	CHECK(PROJECTILE_EXPLOSION_OWN != PROJECTILE_EXPLOSION_REFUSED);
+	// The table's size is the game's.
+	CHECK(PROJECTILE_EXPLOSION_TYPE_COUNT == 26);
+	REQUIRE(readSource("src/include/game/explosions.h").find("#define EXPLOSIONTYPE_BASE_COUNT 26\n")
+		!= std::string::npos);
 }
 
 TEST_CASE("projectile rules: the object a weapon function launches", "[projectile][rules]")
@@ -296,6 +488,12 @@ TEST_CASE("projectile rules: a program chooses modules through the graph runner"
 		"og.projectile.spend_fuse") == 1);
 	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_CONTACT,
 		"og.projectile.spend_fuse") == 0);
+	// A native gate is reached like a module (slice 4: registration asks
+	// whether an event reaches a gate it cannot answer).
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST,
+		PROJECTILE_GATE_FUSE_ARMED_KIND) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_CONTACT,
+		PROJECTILE_GATE_FUSE_ARMED_KIND) == 0);
 
 	int instance = 0;
 	const auto fire = [&](s32 kind, bool armed) {
@@ -303,7 +501,7 @@ TEST_CASE("projectile rules: a program chooses modules through the graph runner"
 		event.kind = kind;
 		event.instance = &instance;
 		Choice choice;
-		choice.armed = armed;
+		choice.passing = armed ? PROJECTILE_RULE_GATE_FUSE_ARMED : 0;
 		CHECK(missionGraphProgramFire(program, &event, runModule, &choice) >= 0);
 		return choice.modules;
 	};
@@ -326,6 +524,107 @@ TEST_CASE("projectile rules: a program chooses modules through the graph runner"
 	CHECK(std::string(err).find("is not a projectile event") != std::string::npos);
 }
 
+TEST_CASE("projectile rules: a program decides what sets a fuse off and what goes off",
+	"[projectile][rules][graph]")
+{
+	// The proximity grenade's wiring, the homing rocket's damage rule, a
+	// remote mine's signal, and the Dragon's and the N-bomb's fuses, as the
+	// extractor writes them (two fuse events stand for two archives).
+	const std::string graph = R"({
+  "schema": "pd.projectile_graph.v2",
+  "nodes": [
+    { "id": "motion", "kind": "projectile.motion", "params": {} },
+    { "id": "proximity", "kind": "event.projectile.proximity" },
+    { "id": "proximity_trigger_close", "kind": "gate.projectile.trigger_close" },
+    { "id": "proximity_trigger_character", "kind": "gate.projectile.trigger_character" },
+    { "id": "proximity_spend_fuse", "kind": "og.projectile.spend_fuse" },
+    { "id": "damaged", "kind": "event.projectile.damaged" },
+    { "id": "damaged_damage_not_blast", "kind": "gate.projectile.damage_not_blast" },
+    { "id": "damaged_spend_fuse", "kind": "og.projectile.spend_fuse" },
+    { "id": "remote_signal", "kind": "event.projectile.remote_signal" },
+    { "id": "remote_signal_spend_fuse", "kind": "og.projectile.spend_fuse" },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "fuse_explode", "kind": "og.projectile.explode", "explosion_type": 23 }
+  ],
+  "edges": [
+    { "from": "proximity", "output": "out", "to": "proximity_trigger_close", "input": "exec" },
+    { "from": "proximity_trigger_close", "output": "pass", "to": "proximity_trigger_character", "input": "exec" },
+    { "from": "proximity_trigger_character", "output": "pass", "to": "proximity_spend_fuse", "input": "exec" },
+    { "from": "damaged", "output": "out", "to": "damaged_damage_not_blast", "input": "exec" },
+    { "from": "damaged_damage_not_blast", "output": "pass", "to": "damaged_spend_fuse", "input": "exec" },
+    { "from": "remote_signal", "output": "out", "to": "remote_signal_spend_fuse", "input": "exec" },
+    { "from": "fuse", "output": "out", "to": "fuse_explode", "input": "exec" }
+  ]
+})";
+	char err[256] = "";
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(graph.data(), graph.size(),
+		moduleKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	for (s32 kind : { MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED,
+			MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED }) {
+		CHECK(missionGraphProgramHandlesEvent(program, kind) == 1);
+	}
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY,
+		PROJECTILE_GATE_TRIGGER_CHARACTER_KIND) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED,
+		PROJECTILE_GATE_TRIGGER_CHARACTER_KIND) == 0);
+
+	int instance = 0;
+	const auto fire = [&](s32 kind, u32 passing) {
+		mission_graph_event_t event = {};
+		event.kind = kind;
+		event.instance = &instance;
+		Choice choice;
+		choice.passing = passing;
+		CHECK(missionGraphProgramFire(program, &event, runModule, &choice) >= 0);
+		return choice;
+	};
+	const u32 close = PROJECTILE_RULE_GATE_TRIGGER_CLOSE;
+	const u32 character = PROJECTILE_RULE_GATE_TRIGGER_CHARACTER;
+	const u32 direct = PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST;
+	// The grenade: only a character within 250 units.
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, close | character).modules == PROJECTILE_MODULE_SPEND_FUSE);
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, close).modules == 0);     // a moving object
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, character).modules == 0); // in the outer ring
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, 0).modules == 0);
+	// The homing rocket: a shot, not a blast.
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, direct).modules == PROJECTILE_MODULE_SPEND_FUSE);
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, 0).modules == 0);
+	// The remote mine: its owner's detonator, no gate.
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, 0).modules == PROJECTILE_MODULE_SPEND_FUSE);
+	// The fuse: an explosion, the one the node names.
+	const Choice fuse = fire(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, 0);
+	CHECK(fuse.modules == PROJECTILE_MODULE_EXPLODE);
+	CHECK(fuse.explosion == EXPLOSIONTYPE_DRAGONBOMBSPY);
+	missionGraphProgramFree(program);
+
+	// An explode that names none is the object's own; a storm is a module of its own.
+	const std::string storm = R"({
+  "schema": "pd.projectile_graph.v2",
+  "nodes": [
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "fuse_nbomb_storm", "kind": "og.projectile.nbomb_storm" },
+    { "id": "fuse_explode", "kind": "og.projectile.explode" }
+  ],
+  "edges": [
+    { "from": "fuse", "output": "out", "to": "fuse_nbomb_storm", "input": "exec" },
+    { "from": "fuse", "output": "out", "to": "fuse_explode", "input": "exec" }
+  ]
+})";
+	program = missionGraphProgramCompileProjectile(storm.data(), storm.size(), moduleKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+	event.instance = &instance;
+	Choice both;
+	CHECK(missionGraphProgramFire(program, &event, runModule, &both) >= 0);
+	CHECK(both.modules == (PROJECTILE_MODULE_EXPLODE | PROJECTILE_MODULE_NBOMB_STORM));
+	CHECK(both.explosion == PROJECTILE_EXPLOSION_OWN);
+	missionGraphProgramFree(program);
+}
+
 TEST_CASE("projectile rules: the seams, the extractor and the validator read the table",
 	"[projectile][rules][static]")
 {
@@ -337,10 +636,16 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 
 	// One helper asks the rule at every seam: the original rules go in as
 	// the answer for a projectile with no program and as the parity reference.
-	REQUIRE(propobj.find("static u32 projectileRuleFor(s32 kind, struct defaultobj *obj)\n{") != std::string::npos);
-	REQUIRE(propobj.find("\tnative = projectileRulesNative(kind, weapon->weaponnum, weapon->gunfunc,\n"
-		"\t\tgsetHasFunctionFlags(&weapon->gset, FUNCFLAG_STICKTOWALL));") != std::string::npos);
-	REQUIRE(propobj.find("\treturn projectileRuleModules(kind, obj, native);\n}") != std::string::npos);
+	REQUIRE(propobj.find("static u32 projectileRuleWith(s32 kind, struct defaultobj *obj,\n"
+		"\t\tconst projectile_rule_context_t *context)\n{") != std::string::npos);
+	REQUIRE(propobj.find("\tnative = projectileRulesNative(kind, weapon->weaponnum, weapon->gunfunc, sticks);\n"
+		"\treturn projectileRuleModulesWith(kind, obj, native, context);\n}") != std::string::npos);
+	// Only a contact asks the flying object's function for its stick flag (a
+	// shot pickup may have no function).
+	REQUIRE(propobj.find("\tif (kind == MISSION_GRAPH_EVENT_PROJECTILE_CONTACT) {") != std::string::npos);
+	REQUIRE(countOf(propobj, "gsetHasFunctionFlags(&weapon->gset, FUNCFLAG_STICKTOWALL)") == 1);
+	REQUIRE(propobj.find("static u32 projectileRuleFor(s32 kind, struct defaultobj *obj)\n{\n"
+		"\treturn projectileRuleWith(kind, obj, NULL);\n}") != std::string::npos);
 	REQUIRE(countOf(propobj, "projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, obj)") == 1);
 	REQUIRE(countOf(propobj, "projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, obj)") == 1);
 	REQUIRE(countOf(propobj, "projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, obj)") == 1);
@@ -380,29 +685,62 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 		"\t\t\t\t\t\t\tif (sp350") == std::string::npos);
 
 	// The rule: the program chooses, a module its event does not apply is
-	// dropped, the host counts parity.
-	REQUIRE(events.find("u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)\n{") != std::string::npos);
-	REQUIRE(events.find("\t\treturn native; /* a v1 archive: the original rules decide */") != std::string::npos);
+	// dropped, the host counts parity. The original's gates and a program's
+	// gate nodes are answered by one function.
+	REQUIRE(events.find("u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)\n{\n"
+		"\treturn projectileRuleModulesWith(kind, obj, native, NULL);\n}") != std::string::npos);
+	REQUIRE(events.find("u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,\n"
+		"\t\tconst projectile_rule_context_t *context)\n{\n"
+		"\tconst u32 original = projectileNativeChoice(native, obj, context);") != std::string::npos);
+	REQUIRE(events.find("\t\treturn original; /* a v1 archive: the original rules decide */") != std::string::npos);
 	REQUIRE(events.find("\t\trule.modules &= projectileRulesEventModules(kind);") != std::string::npos);
-	REQUIRE(events.find("\tif (g_NetMode != NETMODE_CLIENT && (handled || native)) {") != std::string::npos);
+	REQUIRE(events.find("\tif (g_NetMode != NETMODE_CLIENT && (handled || original)) {") != std::string::npos);
 	REQUIRE(events.find("\"PROJECTILE.RULE differs: %s weapon=%s func=%s program=%s modules=%s native=%s\"") != std::string::npos);
 	REQUIRE(events.find(" fuse.compared=%d fuse.differ=%d rules.compared=%d rules.differ=%d") != std::string::npos);
-	REQUIRE(events.find("if (strcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0) {") != std::string::npos);
+	REQUIRE(events.find("static s32 projectileGatePasses(u32 gate, const struct defaultobj *obj,\n"
+		"\t\tconst projectile_rule_context_t *context)\n{") != std::string::npos);
+	REQUIRE(events.find("\t\treturn projectileGatePasses(gate, rule->obj, rule->context) ? 1 : 0;") != std::string::npos);
+	REQUIRE(events.find("\t\tif ((native & gate) && !projectileGatePasses(gate, obj, context)) {\n"
+		"\t\t\treturn 0;") != std::string::npos);
+	REQUIRE(events.find("\t\treturn context && context->damage_weaponnum != WEAPON_REMOTEMINE;") != std::string::npos);
 
-	// Registration takes the table's modules and gate and refuses a module
-	// wired where it would do nothing.
+	// Registration takes the table's modules and gates and refuses a module
+	// wired where it would do nothing, a gate wired where it cannot be
+	// answered, and an explode that names no explosion of the table.
 	REQUIRE(runtime.find("\treturn projectileRulesModuleBit(kind) != 0 ||\n"
-		"\t\tstrcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0;") != std::string::npos);
+		"\t\tprojectileRulesGateBit(kind) != 0;") != std::string::npos);
 	REQUIRE(runtime.find("snprintf(why, why_cap, \"%s has no effect on %s\", module_kind,") != std::string::npos);
+	REQUIRE(runtime.find("snprintf(why, why_cap, \"%s cannot be answered at %s\", gate_kind,") != std::string::npos);
+	REQUIRE(runtime.find("\tif (!missionGraphProgramVisitModuleParams(program, projectileProgramExplosionVisit, NULL)) {")
+		!= std::string::npos);
 	REQUIRE(runtime.find("\tif (!projectileProgramModulesApply(program, why, sizeof(why))) {") != std::string::npos);
 
 	// The extractor writes the wiring from the table, for the object the
 	// function launches, behind the weapon cache kind.
-	REQUIRE(extractor.find("static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p,") != std::string::npos);
+	REQUIRE(extractor.find("static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,")
+		!= std::string::npos);
 	REQUIRE(extractor.find("u32 modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);") != std::string::npos);
+	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules\"") != std::string::npos);
+	// Every rule event of the table is wired, the fuse first.
+	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, \"contact\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, \"launch_blocked\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, \"bounced\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, \"came_to_rest\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_LANDED, \"landed\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, \"proximity\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, \"remote_signal\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, \"damaged\" }," }) {
+		INFO(row);
+		CHECK(extractor.find(row) != std::string::npos);
+	}
+	// A projectile archive carries all of its object's rules; an entity
+	// archive its fuse alone.
+	CHECK(extractor.find("\tif (s_projectileRuleWiring(p, 0, rule_nodes, sizeof(rule_nodes),") != std::string::npos);
+	CHECK(extractor.find("\tif (s_projectileRuleWiring(p, 1, rule_nodes, sizeof(rule_nodes),") != std::string::npos);
 
 	// The validator knows every event, module and gate of the table, and
 	// which modules each event applies.
@@ -416,7 +754,112 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 		INFO(kind);
 		CHECK(conformance.find("\"" + kind + "\"") != std::string::npos);
 	}
+	for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+		const std::string kind = projectileRulesGateKind(PROJECTILE_RULE_GATE_FUSE_ARMED << g);
+		INFO(kind);
+		CHECK(conformance.find("\"" + kind + "\"") != std::string::npos);
+	}
 	CHECK(conformance.find("PROJECTILE_GRAPH_GATES = (\"gate.objective.status\", \"gate.mission.phase\",\n"
-		"                          \"gate.projectile.fuse_armed\")") != std::string::npos);
+		"                          \"gate.projectile.fuse_armed\", \"gate.projectile.trigger_close\",\n"
+		"                          \"gate.projectile.trigger_character\",\n"
+		"                          \"gate.projectile.damage_not_blast\")") != std::string::npos);
 	CHECK(conformance.find("PROJECTILE_GRAPH_EVENT_MODULES = {") != std::string::npos);
+	CHECK(conformance.find("PROJECTILE_GRAPH_GATE_EVENTS = {") != std::string::npos);
+	CHECK(conformance.find("PROJECTILE_GRAPH_EXPLOSION_TYPES = 26\n") != std::string::npos);
+}
+
+TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[projectile][rules][static]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string events = readSource("port/src/projectile_events.c");
+
+	// weaponTick: every fuse asks what goes off, and what goes off is the
+	// modules' choice, with no weapon number or function asked.
+	const size_t tick = propobj.find("void weaponTick(struct prop *prop)\n{");
+	REQUIRE(tick != std::string::npos);
+	const size_t tickEnd = propobj.find("\n}\n", tick);
+	REQUIRE(tickEnd != std::string::npos);
+	const std::string body = propobj.substr(tick, tickEnd - tick);
+	CHECK(countOf(body, "(fusemods = projectileFuseFor(obj, &fusetype)) != 0") == 6);
+	// One per fuse, and the proximity items' two ways to tidy up (a storm, an explosion).
+	CHECK(countOf(body, "weaponGoOffAs(prop, fusemods, fusetype)") == 7);
+	CHECK(body.find("EXPLOSIONTYPE_SDGRENADE") == std::string::npos);
+	CHECK(body.find("EXPLOSIONTYPE_DRAGONBOMBSPY") == std::string::npos);
+	CHECK(body.find("if (weapon->gunfunc == FUNC_2) {") == std::string::npos);
+	CHECK(body.find("if (weapon->weaponnum == WEAPON_NBOMB) {") == std::string::npos);
+	CHECK(body.find("if (weapon->weaponnum == WEAPON_DRAGON) {") == std::string::npos);
+	CHECK(body.find("\t\t\tif (fusemods & PROJECTILE_MODULE_NBOMB_STORM) {\n"
+		"\t\t\t\tweaponGoOffAs(prop, fusemods, fusetype);\n"
+		"\t\t\t\tpropUnsetDangerous(prop);") != std::string::npos);
+	CHECK(body.find("\t\t\t} else if (weaponGoOffAs(prop, fusemods, fusetype)) {\n"
+		"\t\t\t\t// Regular explosive\n"
+		"\t\t\t\tweapon->timer240 = -1;") != std::string::npos);
+	// The original fuse arms outside the custom ones never set off a storm or
+	// an explosion themselves any more.
+	CHECK(countOf(propobj, "nbombCreateStorm_hack(&prop->pos, ownerprop, prop);") == 2); // the helper, the custom arm
+	REQUIRE(propobj.find("static bool weaponGoOffAs(struct prop *prop, u32 fusemods, s32 exptype)\n{") != std::string::npos);
+	REQUIRE(propobj.find("\tif (fusemods & PROJECTILE_MODULE_EXPLODE) {\n"
+		"\t\tif (exptype < 0) {\n"
+		"\t\t\texptype = (obj->flags2 & OBJFLAG2_WEAPON_HUGEEXP) ? EXPLOSIONTYPE_HUGE17 : EXPLOSIONTYPE_ROCKET;\n"
+		"\t\t}") != std::string::npos);
+	REQUIRE(propobj.find("static u32 projectileFuseFor(struct defaultobj *obj, s32 *exptype)\n{") != std::string::npos);
+	REQUIRE(propobj.find("\t\tprojectileRulesNativeExplosion(weapon->weaponnum, weapon->gunfunc), exptype);") != std::string::npos);
+
+	// The remote mine: the owner test stays the game's; the rule says
+	// whether the signal spends the fuse.
+	CHECK(countOf(body, "signalled = true;") == 3);
+	CHECK(body.find("\t\t\t\tif (signalled && (projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, obj)\n"
+		"\t\t\t\t\t\t& PROJECTILE_MODULE_SPEND_FUSE)) {\n"
+		"\t\t\t\t\tweapon->timer240 = 0;") != std::string::npos);
+	// The proximity item's own test of the player of the tick.
+	CHECK(body.find("\t\t\t\tif (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, obj, &nearby)\n"
+		"\t\t\t\t\t\t& PROJECTILE_MODULE_SPEND_FUSE) {\n"
+		"\t\t\t\t\tweapon->timer240 = 0;") != std::string::npos);
+
+	// The watch list: no weapon number decides for a base weapon; the rule
+	// is asked for anything within twice the area of the 250 unit circle,
+	// and told whether it is within 250 units and whether it is a character.
+	const size_t sweep = propobj.find("static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)\n{");
+	REQUIRE(sweep != std::string::npos);
+	const std::string watch = propobj.substr(sweep, propobj.find("\n}\n", sweep) - sweep);
+	CHECK(watch.find("WEAPON_DRAGON") == std::string::npos);
+	CHECK(watch.find("WEAPON_GRENADE") == std::string::npos);
+	CHECK(watch.find("\t\t\t} else if (distsq < range + range) {") != std::string::npos);
+	CHECK(watch.find("\t\t\t\tnearby.trigger_close = distsq < range;\n"
+		"\t\t\t\tnearby.trigger_character = arg1 == true;") != std::string::npos);
+	CHECK(watch.find("\t\t\t\tif (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, &weapon->base, &nearby)\n"
+		"\t\t\t\t\t\t& PROJECTILE_MODULE_SPEND_FUSE) {\n"
+		"\t\t\t\t\tweapon->timer240 = 0;") != std::string::npos);
+	// A mod weapon whose record makes no decision keeps the plain rule.
+	CHECK(watch.find("\t\t\tif (weapon->weaponnum >= WEAPON_CUSTOM_START) {\n"
+		"\t\t\t\t/* A mod weapon whose record makes no decision: the plain\n"
+		"\t\t\t\t * rule, 250 units and anything that moves. */\n"
+		"\t\t\t\tif (distsq < range) {\n"
+		"\t\t\t\t\tweapon->timer240 = 0;") != std::string::npos);
+
+	// Damage taken: the list of explosives is the rule's, and so is the
+	// homing rocket's exemption.
+	const size_t damage = propobj.find("void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weaponnum, s32 playernum)\n{");
+	REQUIRE(damage != std::string::npos);
+	const std::string taken = propobj.substr(damage, propobj.find("\n}\n", damage) - damage);
+	CHECK(taken.find("weapon->weaponnum == WEAPON_GRENADE") == std::string::npos);
+	CHECK(taken.find("WEAPON_HOMINGROCKET") == std::string::npos);
+	CHECK(taken.find("\t\t\tdamagedby.damage_weaponnum = weaponnum;\n\n"
+		"\t\t\tif (projectileRuleWith(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, obj, &damagedby)\n"
+		"\t\t\t\t\t& PROJECTILE_MODULE_SPEND_FUSE) {\n"
+		"\t\t\t\tweapon->timer240 = 0;\n"
+		"\t\t\t} else if (weapon->weaponnum >= WEAPON_CUSTOM_START) {") != std::string::npos);
+
+	// The fuse rule: the program's modules, the explosion its explode names,
+	// the original for a v1 archive and for a networked client.
+	REQUIRE(events.find("u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosion,\n"
+		"\t\ts32 *explosion)\n{") != std::string::npos);
+	REQUIRE(events.find("\tif (!obj || obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT\n"
+		"\t\t\t|| !projectileIdentify(obj, &who)) {\n\t\treturn original;") != std::string::npos);
+	REQUIRE(events.find("\t\treturn original; /* a v1 archive: the original fuse decides */") != std::string::npos);
+	REQUIRE(events.find("\tdiffers = rule.modules != original\n"
+		"\t\t|| ((original & PROJECTILE_MODULE_EXPLODE) && rule.explosion != native_explosion);") != std::string::npos);
+	REQUIRE(events.find("\t\tif (bit == PROJECTILE_MODULE_EXPLODE) {") != std::string::npos);
+	REQUIRE(events.find("missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM));") != std::string::npos);
+	REQUIRE(events.find("projectileFuseRule") == std::string::npos);
 }

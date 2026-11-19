@@ -42,8 +42,8 @@ void projectileEventRecord(s32 kind, struct defaultobj *obj);
  * number (WEAPON_ROCKET, WEAPON_BOLT, WEAPON_GRENADEROUND), not the gun's,
  * and the thrown Laptop gun is no weapon object at all, so the object alone
  * does not say which archive's program is its own. projectileApplyGraphRuntime
- * calls this at every launch that applies a record; the events and the fuse
- * rule then name the gun and its function and use that archive's program. An
+ * calls this at every launch that applies a record; the events and the
+ * rules then name the gun and its function and use that archive's program. An
  * object never bound is identified by its own weapon and function, as
  * everything thrown can be. */
 void projectileEventBind(struct defaultobj *obj, const char *asset_id);
@@ -54,36 +54,29 @@ void projectileEventBind(struct defaultobj *obj, const char *asset_id);
 void projectileEventsReport(const char *why);
 
 /*
- * The fuse rule (projectile-events.md slice 2). At a fuse expiry the native
- * code in weaponTick asks whether to run its original fuse (the explosion or
- * the N-bomb storm). When the projectile's archive, or for a deployed item
- * its entity's, has a program (pd.projectile_graph.v2, pd.entity_graph.v2),
- * the program decides: event.projectile.timer_expired runs
- * og.projectile.fuse_expired, and a program that does not reach it keeps the
- * fuse from running (fail closed). With no program (a v1 archive) the native
- * rule decides, as before. A networked client keeps the native rule; the
- * host's outcome replicates.
- *
- * The parity probe counts each expiry a program decided (fuse.compared) and
- * the ones where it did not run the fuse the original would have run
- * (fuse.differ); the base programs must leave fuse.differ at 0. The first
- * decision for a weapon and function logs "PROJECTILE.RULE: timer_expired
- * weapon=... func=... object=... program=... fuse=0|1".
+ * What a rule event carries for the gates that read it (projectile_rules.h):
+ * the seam fills it in and passes it with the event.
  */
-s32 projectileFuseRule(struct defaultobj *obj);
+typedef struct projectile_rule_context {
+	s32 trigger_close;     /* proximity: what came near is within 250 units */
+	s32 trigger_character; /* proximity: it is a character, not a moving object */
+	s32 damage_weaponnum;  /* damaged: the weapon number the damage is marked with */
+} projectile_rule_context_t;
 
 /*
- * The contact rules (projectile-events.md slice 3). At a contact seam the
- * native code asks which modules the rule event `kind`
+ * The rule events (projectile-events.md slices 3 and 4). At a seam the
+ * native code asks which modules the rule event `kind` runs for this object
  * (MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, _LAUNCH_BLOCKED, _BOUNCED,
- * _CAME_TO_REST, _LANDED) runs for this object, and then runs the original
- * code of the modules chosen (PROJECTILE_MODULE_* bits, projectile_rules.h).
- * When the object's archive has a program, the program chooses: the event
- * runs its gates and modules, and a module the event's seam does not apply
- * is dropped. With no program (a v1 archive, or an object no launch bound
- * and no archive names) the answer is `native`, the original rules' choice
- * by weapon number (projectileRulesNative), which the caller passes in.
- * Host and client alike choose by the program; only the host counts.
+ * _CAME_TO_REST, _LANDED, _PROXIMITY, _REMOTE_SIGNAL, _DAMAGED), and then
+ * runs the original code of the modules chosen (PROJECTILE_MODULE_* bits,
+ * projectile_rules.h). When the object's archive has a program, the program
+ * chooses: the event runs its gates and modules, and a module the event's
+ * seam does not apply is dropped. With no program (a v1 archive, or an
+ * object no launch bound and no archive names) the answer is the original
+ * rules' choice by weapon number: `native` is projectileRulesNative's
+ * answer, with the bit of each gate the original asks, and the gates are
+ * answered here, the same way a program's gate nodes are. Host and client
+ * alike choose by the program; only the host counts.
  *
  * The parity probe counts each choice a program made or the original would
  * have made (rules.compared) and the ones where they are not the same set
@@ -93,6 +86,33 @@ s32 projectileFuseRule(struct defaultobj *obj);
  * func=... object=... program=... modules=a+b native=a+b".
  */
 u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native);
+u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
+	const projectile_rule_context_t *context);
+
+/*
+ * The fuse rule (projectile-events.md slices 2 and 4). Where a weapon
+ * object's fuse has run out, weaponTick asks what goes off:
+ * PROJECTILE_MODULE_EXPLODE, PROJECTILE_MODULE_NBOMB_STORM, both, or 0 for
+ * nothing. *explosion is the explosion the explode module names
+ * (og.projectile.explode's "explosion_type"), or PROJECTILE_EXPLOSION_OWN.
+ * When the projectile's archive, or for a deployed item its entity's, has a
+ * program (pd.projectile_graph.v2, pd.entity_graph.v2), the program decides:
+ * event.projectile.timer_expired runs its modules, and a program that
+ * reaches none keeps the fuse from going off. With no program (a v1 archive)
+ * the original decides: `native` and `native_explosion`
+ * (projectileRulesNative, projectileRulesNativeExplosion). A networked
+ * client keeps the original; each peer runs its own fuses.
+ *
+ * The parity probe counts each expiry a program decided (fuse.compared) and
+ * the ones where it did not choose what the original would have, the
+ * explosion included (fuse.differ, the first eight logged as
+ * "PROJECTILE.RULE differs: timer_expired ..."); the base programs must
+ * leave fuse.differ at 0. The first decision for a weapon and function logs
+ * "PROJECTILE.RULE: timer_expired weapon=... func=... object=... program=...
+ * modules=explode native=explode explosion=own native_explosion=own".
+ */
+u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosion,
+	s32 *explosion);
 
 #ifdef __cplusplus
 }

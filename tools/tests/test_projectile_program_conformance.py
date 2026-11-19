@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the archive validator's projectile and entity graph checks
-(context/designs/modding/projectile-events.md, slice 2).
+(context/designs/modding/projectile-events.md, slices 2 to 4).
 
 A projectile or entity archive's behavior.graph.json is v1 (the launch and
 deploy data alone) or v2 (the same data plus a program of event.*, gate.* and
@@ -30,7 +30,8 @@ import asset_archive_conformance as conf  # noqa: E402
 EXAMPLE = REPO / "examples" / "modding" / "typed-pdxxx-basic"
 
 # What the extractor writes for a base projectile with a fuse: the v1 data
-# nodes, then the fuse wired to the original fuse.
+# nodes, then the fuse wired to what goes off (the node keeps the id the
+# cases below name).
 V2_PROJECTILE = {
     "schema": "pd.projectile_graph.v2",
     "asset_id": "example:tri_projectile",
@@ -39,7 +40,7 @@ V2_PROJECTILE = {
         {"id": "spawn_state", "kind": "projectile.spawn_state", "params": {}},
         {"id": "motion", "kind": "projectile.motion", "params": {}},
         {"id": "fuse", "kind": "event.projectile.timer_expired"},
-        {"id": "fuse_expired", "kind": "og.projectile.fuse_expired"},
+        {"id": "fuse_expired", "kind": "og.projectile.explode"},
     ],
     "edges": [
         {"from": "spawn_state", "to": "motion"},
@@ -112,9 +113,16 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 10)
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 10)
-        self.assertIn("gate.projectile.fuse_armed", conf.PROJECTILE_GRAPH_GATES)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 11)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 13)
+        for gate in ("gate.projectile.fuse_armed", "gate.projectile.trigger_close",
+                     "gate.projectile.trigger_character", "gate.projectile.damage_not_blast"):
+            self.assertIn(gate, conf.PROJECTILE_GRAPH_GATES)
+        self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.timer_expired"],
+                         ("og.projectile.explode", "og.projectile.nbomb_storm"))
+        for event in ("event.projectile.proximity", "event.projectile.remote_signal",
+                      "event.projectile.damaged"):
+            self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES[event], ("og.projectile.spend_fuse",))
         # Each event applies its own modules: wired to one of them, valid.
         for event, modules in conf.PROJECTILE_GRAPH_EVENT_MODULES.items():
             self.assertIn(event, conf.PROJECTILE_GRAPH_EVENTS)
@@ -133,7 +141,10 @@ class Programs(unittest.TestCase):
                               ("event.projectile.hit_target", "og.projectile.spend_fuse"),
                               ("event.projectile.bounced", "og.projectile.stick"),
                               ("event.projectile.contact", "og.projectile.spend_fuse"),
-                              ("event.projectile.landed", "og.projectile.fuse_expired"),
+                              ("event.projectile.landed", "og.projectile.explode"),
+                              ("event.projectile.damaged", "og.projectile.explode"),
+                              ("event.projectile.proximity", "og.projectile.nbomb_storm"),
+                              ("event.projectile.remote_signal", "og.projectile.stick"),
                               ("event.projectile.timer_expired", "og.projectile.land_knife")):
             graph = with_nodes([{"id": "more", "kind": event}, {"id": "chosen", "kind": module}],
                                [{"from": "more", "to": "chosen", "input": "exec"}])
@@ -178,6 +189,68 @@ class Programs(unittest.TestCase):
         self.assertIn("needs phase", program_errors(with_node({"id": "g", "kind": "gate.mission.phase"}))[0])
         self.assertIn("needs status",
                       program_errors(with_node({"id": "g", "kind": "gate.objective.status"}))[0])
+
+    def test_a_gate_wired_where_it_cannot_be_answered(self):
+        # The original's proximity grenade: within 250 units, and a character.
+        grenade = with_nodes(
+            [{"id": "proximity", "kind": "event.projectile.proximity"},
+             {"id": "close", "kind": "gate.projectile.trigger_close"},
+             {"id": "character", "kind": "gate.projectile.trigger_character"},
+             {"id": "spend", "kind": "og.projectile.spend_fuse"}],
+            [{"from": "proximity", "output": "out", "to": "close", "input": "exec"},
+             {"from": "close", "output": "pass", "to": "character", "input": "exec"},
+             {"from": "character", "output": "pass", "to": "spend", "input": "exec"}])
+        self.assertEqual(program_errors(grenade), [])
+        # The original's homing rocket: damage that is not a blast's.
+        rocket = with_nodes(
+            [{"id": "damaged", "kind": "event.projectile.damaged"},
+             {"id": "direct", "kind": "gate.projectile.damage_not_blast"},
+             {"id": "spend", "kind": "og.projectile.spend_fuse"}],
+            [{"from": "damaged", "output": "out", "to": "direct", "input": "exec"},
+             {"from": "direct", "output": "pass", "to": "spend", "input": "exec"}])
+        self.assertEqual(program_errors(rocket), [])
+        # A gate reads what its event carries; anywhere else it could never pass.
+        for event, gate in (("event.projectile.damaged", "gate.projectile.trigger_close"),
+                            ("event.projectile.remote_signal", "gate.projectile.trigger_character"),
+                            ("event.projectile.proximity", "gate.projectile.damage_not_blast"),
+                            ("event.projectile.timer_expired", "gate.projectile.damage_not_blast"),
+                            ("event.projectile.contact", "gate.projectile.trigger_close")):
+            graph = with_nodes([{"id": "more", "kind": event}, {"id": "asked", "kind": gate}],
+                               [{"from": "more", "output": "out", "to": "asked", "input": "exec"}])
+            errors = program_errors(graph)
+            self.assertEqual(len(errors), 1, (event, gate, errors))
+            self.assertIn("%s 'asked' cannot be answered at %s ('more')" % (gate, event), errors[0])
+        # fuse_armed reads the projectile itself: any event.
+        for event in conf.PROJECTILE_GRAPH_EVENTS:
+            graph = with_nodes([{"id": "more", "kind": event},
+                                {"id": "armed", "kind": "gate.projectile.fuse_armed"}],
+                               [{"from": "more", "output": "out", "to": "armed", "input": "exec"}])
+            self.assertEqual(program_errors(graph), [], event)
+        # A context gate nothing reaches is not asked anywhere.
+        self.assertEqual(program_errors(with_node(
+            {"id": "idle", "kind": "gate.projectile.trigger_close"})), [])
+
+    def test_the_explosion_an_explode_names(self):
+        def explode(**fields):
+            graph = copy.deepcopy(V2_PROJECTILE)
+            graph["nodes"][3] = dict(graph["nodes"][3], **fields)
+            return program_errors(graph)
+
+        self.assertEqual(conf.PROJECTILE_GRAPH_EXPLOSION_TYPES, 26)
+        self.assertEqual(explode(), [])
+        # The Super Dragon's grenade (21) and the Dragon's self-destruct (23).
+        for number in (1, 13, 17, 21, 23, 25):
+            self.assertEqual(explode(explosion_type=number), [], number)
+        for bad in (0, 26, -1, 21.5, "21", True, None, [21]):
+            errors = explode(explosion_type=bad)
+            self.assertEqual(len(errors), 1, (bad, errors))
+            self.assertIn("og.projectile.explode 'fuse_expired' needs explosion_type from 1 to 25, or none",
+                          errors[0])
+        # Only an explode reads the field.
+        graph = with_nodes([{"id": "more", "kind": "event.projectile.damaged"},
+                            {"id": "spend", "kind": "og.projectile.spend_fuse", "explosion_type": 99}],
+                           [{"from": "more", "output": "out", "to": "spend", "input": "exec"}])
+        self.assertEqual(program_errors(graph), [])
 
     def test_node_rules(self):
         self.assertIn("is used twice",
@@ -259,12 +332,12 @@ class Archives(unittest.TestCase):
                 # A program the runner refuses fails the archive.
                 def broken(graph):
                     graph = wired(graph)
-                    graph["nodes"] = graph["nodes"] + [{"id": "boom", "kind": "og.projectile.explode"}]
+                    graph["nodes"] = graph["nodes"] + [{"id": "boom", "kind": "og.projectile.vanish"}]
                     return graph
 
                 messages = self.graph_messages(self.rebuilt(relative, broken), ext)
                 self.assertEqual(len(messages), 1, messages)
-                self.assertIn("native module 'og.projectile.explode' does not exist", messages[0])
+                self.assertIn("native module 'og.projectile.vanish' does not exist", messages[0])
 
                 # Program nodes in a v1 graph: the game would not read them.
                 def stale(graph):
