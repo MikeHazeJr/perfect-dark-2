@@ -315,3 +315,75 @@ TEST_CASE("Main Menu readiness follows native keyboard focus and only fresh obse
         REQUIRE_FALSE(pdguiMenuViewReadiness("##main_menu", 1, &facts));
     }
 }
+
+TEST_CASE("recorded menu readiness admits the focused topmost modal",
+    "[smoke][readiness][menus][imgui]")
+{
+    MenuReadinessContext fixture;
+    const char *room = "##room";
+    const char *consent = "##distrib_prompt";
+    const char *nested = nullptr;
+    const auto draw = [&](bool coverConsent, bool recordConsent) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize(ImVec2(400, 300));
+        ImGui::Begin(room);
+        ImGui::Button("Room controls");
+        pdguiMenuRecordView(0, -1, ImGui::GetItemID(), 0, 0);
+        if (!ImGui::IsPopupOpen(consent)) ImGui::OpenPopup(consent);
+        ImGui::SetNextWindowSize(ImVec2(280, 160));
+        if (ImGui::BeginPopupModal(consent)) {
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+            ImGui::Button("Receive for Match");
+            const ImGuiID receive = ImGui::GetItemID();
+            ImGui::SetItemDefaultFocus();
+            ImGui::Button("Decline");
+            const ImGuiID decline = ImGui::GetItemID();
+            if (recordConsent) pdguiMenuRecordView(2, -1, receive, decline, 0);
+
+            if (coverConsent && !ImGui::IsPopupOpen("More details")) ImGui::OpenPopup("More details");
+            if (ImGui::BeginPopup("More details")) {
+                nested = ImGui::GetCurrentWindow()->Name;
+                if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+                ImGui::Button("Dismiss details");
+                ImGui::SetItemDefaultFocus();
+                pdguiMenuRecordView(3, -1, ImGui::GetItemID(), 0, 0);
+                ImGui::EndPopup();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::End();
+        ImGui::SetNavCursorVisible(true);
+        ImGui::Render();
+    };
+
+    for (int frame = 0; frame < 3; ++frame) draw(false, true);
+    pdgui_menu_view_readiness_t facts{};
+    REQUIRE(pdguiMenuObserveInput(consent, 1).rejection_mask == PDGUI_MENU_INPUT_POPUP);
+    REQUIRE_FALSE(pdguiMenuWindowOwnsInput(consent, 1));
+    REQUIRE(pdguiMenuViewReadiness(consent, 1, &facts));
+    REQUIRE(facts.view == 2);
+    REQUIRE(facts.play_focused);
+    REQUIRE_FALSE(facts.settings_focused);
+    REQUIRE_FALSE(pdguiMenuViewReadiness(room, 1, &facts));
+    REQUIRE_FALSE(pdguiMenuViewReadiness("##another_prompt", 1, &facts));
+    REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 0, &facts));
+
+    SECTION("a nested non-modal popup blocks both observations") {
+        for (int frame = 0; frame < 3; ++frame) draw(true, true);
+        REQUIRE(nested != nullptr);
+        REQUIRE(pdguiMenuObserveInput(nested, 1).rejection_mask == PDGUI_MENU_INPUT_POPUP);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+        REQUIRE_FALSE(pdguiMenuViewReadiness(nested, 1, &facts));
+    }
+    SECTION("the modal must keep recording its view") {
+        draw(false, false);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+    }
+    SECTION("the modal must keep a visible navigation target") {
+        ImGui::SetNavCursorVisible(false);
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+        ImGui::SetNavCursorVisible(true);
+        ImGui::GetCurrentContext()->NavId = 0;
+        REQUIRE_FALSE(pdguiMenuViewReadiness(consent, 1, &facts));
+    }
+}
