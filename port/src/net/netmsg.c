@@ -5681,6 +5681,7 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct model *parent_model;
 		struct modelnode *attachment_node = NULL;
 		s16 attachment_mtx_index;
+		bool had_parent;
 		bool was_parented;
 		s32 scheduler_membership;
 
@@ -5733,6 +5734,7 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				prop->syncid, parent_id, (u32)prop->type);
 		}
 
+		had_parent = prop->parent != NULL;
 		was_parented = prop->parent != NULL
 			|| (s_ReconnectPropReceive.lifecycle_by_slot[slot]
 				& NET_RECONNECT_LIFECYCLE_PRUNED_PARENT) != 0;
@@ -5766,6 +5768,21 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		if (scheduler_membership < 0
 				|| (parent && scheduler_membership != 0)
 				|| (!parent && scheduler_membership != 1)) {
+			/* T-NETWORKING-007 S2: name the object and the state that left it
+			 * off the lists (or on them twice), so a refusal can be traced. */
+			sysLogPrintf(LOG_ERROR,
+				"NET.RECONNECT.WORLD scheduler detail slot=%d syncid=%u proptype=%u objtype=%u"
+				" modelnum=%d propflags=0x%02x lifecycle=0x%02x had_parent=%d active=%d"
+				" objflags=0x%08x objflags2=0x%08x objflags3=0x%08x hidden=0x%08x hidden2=0x%02x"
+				" room=%d first_dynamic=%u",
+				slot, prop->syncid, (unsigned)prop->type, (unsigned)prop->obj->type,
+				(s32)prop->obj->modelnum, (unsigned)prop->flags,
+				(unsigned)s_ReconnectPropReceive.lifecycle_by_slot[slot],
+				had_parent ? 1 : 0, prop->active ? 1 : 0,
+				(unsigned)prop->obj->flags, (unsigned)prop->obj->flags2,
+				(unsigned)prop->obj->flags3, (unsigned)prop->obj->hidden,
+				(unsigned)prop->obj->hidden2, (s32)prop->rooms[0],
+				(unsigned)g_NetFirstDynamicSyncId);
 			return netmsgReconnectPropEndReject("scheduler", slot, prop->syncid,
 				parent_id, (u32)scheduler_membership);
 		}
