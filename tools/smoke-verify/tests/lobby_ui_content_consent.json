@@ -62,7 +62,7 @@
               "SMOKE: tap-press scancode=80",
               "NET: SVC_ROOM_ASSIGN: assigned to room \\d+",
               "MENU_IMGUI: room OPEN \\(solo=0\\)",
-              "SMOKE.WAIT: satisfied condition=lobby_catalog_room_session_ready",
+              "SMOKE.WAIT: satisfied condition=lobby_room_session_ready",
               "SMOKE: tap-press scancode=40",
               "DISTRIB: player approved [1-9]\\d* catalog entries temporary=1",
               "MENU_STACK: lobby content consent SESSION",
