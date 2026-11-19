@@ -58,6 +58,8 @@ typedef struct {
     const char *public_descriptor;
     const char *public_section;
     const loader_walker_archive_preparation_t *archive_preparation;
+    /* Optional filter for immutable boot-time exclusions. Runs during listing. */
+    s32 (*skip_path)(const char *file_path);
 } loader_walker_kind_desc_t;
 
 /* Per-kind result counters. */

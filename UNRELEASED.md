@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Repairs affected stage archives individually and preserves valid edits. Normal startup can check or repair standalone campaign missions while the menu is available. Bundled weapon registration also spends less time preparing rollback.
+
 - Stock bank audio plays at the original PC rate, including the Carrington
   Institute typing cues. Existing unedited stock WAV archives update on boot.
 - Create Agent takes over menu input when it opens, so first-time players

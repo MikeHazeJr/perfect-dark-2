@@ -607,7 +607,7 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 		"\t\t\t\t\ts_setupWeaponCatalogIdByRuntime(w->weaponnum));") != std::string::npos);
 	REQUIRE(extractor.find("catalogWeaponIdByRuntimeWeaponNum(w->weaponnum)") == std::string::npos);
 	// An archive without the wiring is stale for the extractor.
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
 		"\t\t\t\"\\\"object.rules.door.activate_automatic\\\"\") &&") != std::string::npos);
 
 	// The rule gates and modules, each only inside its own rule events.

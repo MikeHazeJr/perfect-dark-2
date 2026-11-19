@@ -35,6 +35,7 @@
 #include "game/hudmsg.h"
 #include "game/lang.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "crashbreadcrumb.h"
 #include "romdata.h"
 #include "scene_transition.h"
@@ -3378,6 +3379,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			return netStageStartReject(&plan, NET_STAGE_START_INVALID_STAGE,
 				"stage session is missing, disabled, wrong-type, or unbound");
 		}
+	}
+	if (stageArchiveRepairStatus(stagenum) != 0) {
+		return netStageStartReject(&plan, NET_STAGE_START_INVALID_STAGE,
+			"the selected stage archive is being checked or repaired");
 	}
 	plan.stagenum = stagenum;
 	strncpy(plan.stage_id, stage_result.entry->id, sizeof(plan.stage_id) - 1);

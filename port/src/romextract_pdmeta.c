@@ -30,6 +30,7 @@
 #include "modarchive.h"
 #include "pdeffect_source.h"
 #include "romextract_pd.h"
+#include "stage_archive_repair.h"
 #include "system.h"
 
 #define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings"
@@ -1688,7 +1689,7 @@ typedef struct pdmeta_mission_source {
 } pdmeta_mission_source_t;
 
 static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *out_dir,
-	const char *scenarios_dir, s32 force_rewrite)
+	const char *scenarios_dir, s32 force_rewrite, s32 register_catalog)
 {
 	if (!a || !a->slug || !a->slug[0]) {
 		return 0;
@@ -1700,7 +1701,8 @@ static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *ou
 	s_idToFilenameSlug(mission_id, mission_file, sizeof(mission_file));
 	char relpath[FS_MAXPATH];
 	s_archiveRelPath(out_dir, mission_id, ".pdmission", relpath, sizeof(relpath));
-	s32 archive_current = (!force_rewrite && fsFileSize(relpath) > 0 &&
+	const s32 archive_size = fsFileSize(relpath);
+	s32 archive_current = (!force_rewrite && archive_size > 0 &&
 		s_existingArchiveHasEntry(relpath, "mission.ini") &&
 		s_existingArchiveHasEntry(relpath, "mission.graph.json") &&
 		s_existingArchiveHasEntry(relpath, "objectives.json") &&
@@ -1729,6 +1731,13 @@ static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *ou
 			"\"nodes\": []") &&
 		!s_existingArchiveEntryContains(relpath, "objectives.json",
 			"original_perfect_dark_setup"));
+	if (!register_catalog && archive_size >= 0 && !archive_current &&
+			!romExtractPdArchivePublicUnmodified(relpath)) {
+		sysLoudFailf("EXTRACT.PDMETA",
+			"mission scenario conflict in %s; preserving edited/unreadable public archive",
+			relpath);
+		return -1;
+	}
 
 	char scenario_id[CATALOG_ID_LEN];
 	s_scenarioIdFromSlug(a->slug, scenario_id, sizeof(scenario_id));
@@ -1754,7 +1763,7 @@ static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *ou
 		return -1;
 	}
 
-	asset_entry_t *entry = assetCatalogRegister(mission_id, ASSET_MISSION);
+	asset_entry_t *entry = register_catalog ? assetCatalogRegister(mission_id, ASSET_MISSION) : NULL;
 	if (entry) {
 		strncpy(entry->category, "base", CATALOG_CATEGORY_LEN - 1);
 		entry->bundled = 1;
@@ -1882,7 +1891,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	const pdmeta_mission_source_t source = {
 		a->slug, "arenadata_authored", arena_index, arena_index,
 	};
-	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite);
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite, 1);
 }
 
 /* The arena table lists 14 of the 21 campaign stages. The other seven
@@ -1911,16 +1920,55 @@ static s32 s_soloStageNeedsOwnMission(s32 solo_index)
 	return 1;
 }
 
-static s32 s_emitMissionForSoloStage(s32 solo_index, const char *out_dir,
-	const char *scenarios_dir, s32 force_rewrite)
+static const char *s_soloStageMissionSlug(s32 solo_index)
 {
 	const struct solostage *stage = &g_SoloStages[solo_index];
 	const char *colon = strchr(stage->catalog_id, ':');
+	return (colon && colon[1]) ? colon + 1 : stage->catalog_id;
+}
+
+static s32 s_emitMissionForSoloStage(s32 solo_index, const char *out_dir,
+	const char *scenarios_dir, s32 force_rewrite, s32 register_catalog)
+{
 	const pdmeta_mission_source_t source = {
-		(colon && colon[1]) ? colon + 1 : stage->catalog_id,
+		s_soloStageMissionSlug(solo_index),
 		"solostages", solo_index, -1,
 	};
-	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite);
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite, register_catalog);
+}
+
+s32 romExtractStandaloneMissionPath(s32 stagenum, char *out, size_t capacity)
+{
+	if (!out || !capacity) return -1;
+	out[0] = '\0';
+	if (stagenum < 0) return -1;
+	const s32 solo_index = soloStageGetIndex(stagenum);
+	if (!s_soloStageNeedsOwnMission(solo_index)) return 0;
+
+	char mission_id[CATALOG_ID_LEN], missions_dir[FS_MAXPATH];
+	const int length = snprintf(mission_id, sizeof(mission_id), "base:mission_%s",
+		s_soloStageMissionSlug(solo_index));
+	if (length <= 0 || (size_t)length >= sizeof(mission_id)) return -1;
+	fsDataPathFor("missions", missions_dir, sizeof(missions_dir));
+	const size_t bytes = strlen(missions_dir) + strlen(mission_id) + sizeof("/.pdmission");
+	if (bytes > capacity || bytes > FS_MAXPATH) return -1;
+	s_archiveRelPath(missions_dir, mission_id, ".pdmission", out, capacity);
+	return 1;
+}
+
+s32 romExtractRefreshStandaloneMission(s32 stagenum)
+{
+	if (stagenum < 0) return -1;
+	const s32 solo_index = soloStageGetIndex(stagenum);
+	if (!s_soloStageNeedsOwnMission(solo_index)) return 0;
+
+	char missions_dir[FS_MAXPATH], scenarios_dir[FS_MAXPATH];
+	fsDataPathFor("missions", missions_dir, sizeof(missions_dir));
+	fsDataPathFor("scenarios", scenarios_dir, sizeof(scenarios_dir));
+	if (s_emitMissionForSoloStage(solo_index, missions_dir, scenarios_dir, 0, 0) < 0) return -1;
+	char abs_buf[FS_MAXPATH + 1];
+	const char *abs_dir = fsFullPath(missions_dir, abs_buf, sizeof(abs_buf));
+	return abs_dir && abs_dir[0] ? modArchiveDerivedBarrier(abs_dir) : -1;
 }
 
 typedef struct pdmeta_ctx {
@@ -2140,12 +2188,18 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 
 	/* Campaign stages without an arena row. Runs after the arena loop so a
 	 * stage that has a row is always described by it. */
+	s32 deferred_missions = 0;
 	for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
 		if (!s_soloStageNeedsOwnMission(i)) {
 			continue;
 		}
+		if (stageArchiveRepairStatus(g_SoloStages[i].stagenum) != 0) {
+			deferred_missions++;
+			SDL_AtomicAdd(&ctx.skipped, 1);
+			continue;
+		}
 		s32 r = s_emitMissionForSoloStage(i, missions_dir, scenarios_dir,
-			force_rewrite);
+			force_rewrite, 1);
 		if (r > 0) SDL_AtomicAdd(&ctx.written, 1);
 		else if (r == 0) SDL_AtomicAdd(&ctx.skipped, 1);
 		else SDL_AtomicAdd(&ctx.failed, 1);
@@ -2166,8 +2220,10 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 			".pdbotprofile");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, hud_dir,
 			".pdhud");
-		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, missions_dir,
-			".pdmission");
+		if (!deferred_missions) {
+			romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, missions_dir,
+				".pdmission");
+		}
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, materials_dir,
 			".pdmaterial");
 		romExtractPdFastCacheWrite(PDMETA_FAST_CACHE_KIND, skins_dir,

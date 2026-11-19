@@ -26,6 +26,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "stage_archive_repair.h"
 #include "scenario_global_ailists.h"
 #include "config.h"
 #include "mod.h"
@@ -807,6 +808,20 @@ static void bootRecordAssetPhase(const char *phase, s32 result)
 	}
 }
 
+static s32 bootAllowsBackgroundStageRepair(void)
+{
+	if (g_BootExtractAssetsOnly || g_NetDedicated || nativeWritePolicyActive() ||
+			sysArgCheck("--boot-stage") || sysArgCheck("--profile") ||
+			sysArgCheck("--launch-mission") || sysArgCheck("--launch-scenario") ||
+			sysArgCheck("--launch-challenge") || sysArgCheck("--launch-mp-room") ||
+			sysArgCheck("--connect-host") || sysArgCheck("--host-autostart") ||
+			sysArgCheck("--no-background-stage-repair")) return 0;
+	for (s32 i = 0; i < modmgrGetCount(); ++i) {
+		if (modmgrGetModEnabled(i)) return 0;
+	}
+	return 1;
+}
+
 static void bootRunCatalogWork(void *arg)
 {
 	(void)arg;
@@ -931,6 +946,7 @@ static void bootRunCatalogWork(void *arg)
 	bootProgressEndPhase();
 
 	bootProgressBeginPhase(BOOT_PHASE_EMIT_ARENA);
+	stageArchiveRepairSetEnabled(bootAllowsBackgroundStageRepair());
 	bootRecordAssetPhase("pdarena-pdscenario", romExtractAllPdarena(0));
 	bootProgressEndPhase();
 
@@ -9611,6 +9627,28 @@ static s32 bootInitNativeReuse(int argc, const char **argv)
 	return 1;
 }
 
+/* A repair child has its own decoder scratch and writes only its staged output.
+ * Its parent has already extracted and verified the shared raw input files. */
+static s32 bootRunStageRepairWorker(void)
+{
+	const char *output = sysArgGetString("--stage-repair-output");
+	const char *save = sysArgGetString("--savedir");
+	const char *rom = sysArgGetString("--rom-file");
+	const s32 stage = sysArgGetInt("--stage-repair", -1);
+	if (!sysArgCheck("--extract-assets-only") || nativeWritePolicyActive() ||
+			!output || !save || strcmp(output, save) || !fsPathIsAbsolute(output) ||
+			!rom || !fsPathIsAbsolute(rom) || stage < 0) return 2;
+	sysInit();
+	fsInit();
+	if (fsFileSize(rom) <= 0 || romdataInit() < 0 || romdataReleaseRom() < 0) return 2;
+	catalogInit();
+	stageTableInit();
+	assetCatalogInit();
+	assetCatalogRegisterBaseGame();
+	assetCatalogRegisterStageSceneFiles();
+	return romExtractStandaloneScenarioCandidate(stage, output) == 0 ? 0 : 2;
+}
+
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
@@ -9622,6 +9660,7 @@ int main(int argc, const char **argv)
 		return supported ? 0 : 2;
 	}
 	if (!bootInitNativeReuse(argc, argv)) return 2;
+	if (sysArgCheck("--stage-repair")) return bootRunStageRepairWorker();
 
 	/* D13: Apply pending update VERY EARLY — before any subsystem init.
 	 * If an update was downloaded previously, this renames the .update file

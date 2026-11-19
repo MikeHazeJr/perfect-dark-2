@@ -284,6 +284,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
                                                   char *err,
                                                   size_t err_cap);
 
+/* Bundled weapon admission while the universal boot walker holds the
+ * catalog publication lock. Other callers use the general entry above. */
+s32 assetCatalogRegisterBootWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, char *err, size_t err_cap);
+
 /**
  * Register typed archives embedded by a strict public .pdeffect source.
  * The executable graph remains the dependency authority: every embedded

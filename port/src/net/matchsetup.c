@@ -18,6 +18,7 @@
 #include "data.h"
 #include "bss.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netlobby.h"
@@ -1265,6 +1266,10 @@ static match_start_status_e matchStartPrepare(match_start_plan_t *plan)
 	if (plan->setup.stagenum == 0) {
 		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
 			"stage has no runtime stagenum binding");
+	}
+	if (stageArchiveRepairStatus(plan->setup.stagenum) != 0) {
+		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+			"the selected stage archive is being checked or repaired");
 	}
 	strncpy(plan->setup.stage_id, g_MatchConfig.stage_id,
 		sizeof(plan->setup.stage_id) - 1);

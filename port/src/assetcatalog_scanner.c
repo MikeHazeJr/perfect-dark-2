@@ -68,6 +68,7 @@
 #include "loader_walker_common.h"
 #include "mod.h"
 #include "modarchive.h"
+#include "modvfs.h"
 #include "mod_asset_validate.h"
 #include "mods_roots.h"
 #include "net/net.h"
@@ -86,6 +87,7 @@ typedef struct external_scan_transaction {
 	catalog_entry_snapshot_t *rows;
 	s32 row_count;
 	s32 existing_rows_only;
+	s32 weapon_rows_begin;
 	catalog_dep_snapshot_t deps;
 	file_provider_checkpoint_t provider;
 	void *weapon_slots;
@@ -113,60 +115,6 @@ static const catalog_entry_snapshot_t *externalScanPriorRow(
 	return NULL;
 }
 
-static s32 externalScanTransactionBegin(
-		external_scan_transaction_t *transaction)
-{
-	if (!transaction) return 0;
-	memset(transaction, 0, sizeof(*transaction));
-	const u64 started = sysGetMicroseconds();
-	if (!assetCatalogCaptureEntrySnapshots(&transaction->rows,
-			&transaction->row_count)) goto fail;
-	const u64 rows_finished = sysGetMicroseconds();
-	if (!catalogDepSnapshotCreate(&transaction->deps)
-			|| !fileProviderCheckpointCreate(&transaction->provider)
-			|| !(transaction->weapon_slots =
-				assetCatalogSnapshotCustomWeaponSlots())
-			|| !(transaction->body_head_slots =
-				assetCatalogSnapshotCustomBodyHeadSlots())
-			|| !(transaction->model_slots = assetCatalogSnapshotCustomModelSlots())
-			|| !(transaction->sound_slots =
-				assetCatalogSnapshotCustomSoundSlots())
-			|| !(transaction->texture_slots =
-				assetCatalogSnapshotCustomTextureSlots())
-			|| !(transaction->anim_slots =
-				assetCatalogSnapshotCustomAnimSlots())
-			|| !(transaction->stage_slots =
-				assetCatalogSnapshotCustomStageSlots())
-			|| !(transaction->stage_table = stageTableSnapshotCreate())
-			|| !(transaction->loader_pool = loaderPoolSnapshotCreate())
-			|| !(transaction->body_manager =
-				catalogManagerBodySnapshotCreate())
-			|| !(transaction->head_manager =
-				catalogManagerHeadSnapshotCreate())) goto fail;
-	transaction->active = 1;
-	sysLogPrintf(LOG_VERBOSE, "CATALOG.CHECKPOINT: rows=%d rows_us=%llu total_us=%llu",
-		transaction->row_count, (unsigned long long)(rows_finished - started),
-		(unsigned long long)(sysGetMicroseconds() - started));
-	return 1;
-
-fail:
-	assetCatalogDestroyCustomModelSlotSnapshot(transaction->model_slots);
-	assetCatalogDestroyCustomWeaponSlotSnapshot(transaction->weapon_slots);
-	assetCatalogDestroyCustomBodyHeadSlotSnapshot(transaction->body_head_slots);
-	assetCatalogDestroyCustomSoundSlotSnapshot(transaction->sound_slots);
-	assetCatalogDestroyCustomTextureSlotSnapshot(transaction->texture_slots);
-	assetCatalogDestroyCustomAnimSlotSnapshot(transaction->anim_slots);
-	assetCatalogDestroyCustomStageSlotSnapshot(transaction->stage_slots);
-	stageTableSnapshotDestroy(transaction->stage_table);
-	loaderPoolSnapshotDestroy(transaction->loader_pool);
-	catalogManagerBodySnapshotDestroy(transaction->body_manager);
-	catalogManagerHeadSnapshotDestroy(transaction->head_manager);
-	catalogDepSnapshotDestroy(&transaction->deps);
-	free(transaction->rows);
-	memset(transaction, 0, sizeof(*transaction));
-	return 0;
-}
-
 static void externalScanTransactionDestroy(
 		external_scan_transaction_t *transaction)
 {
@@ -185,6 +133,44 @@ static void externalScanTransactionDestroy(
 	catalogDepSnapshotDestroy(&transaction->deps);
 	free(transaction->rows);
 	memset(transaction, 0, sizeof(*transaction));
+}
+
+static s32 externalScanTransactionCaptureSharedState(
+		external_scan_transaction_t *transaction)
+{
+	return catalogDepSnapshotCreate(&transaction->deps)
+		&& fileProviderCheckpointCreate(&transaction->provider)
+		&& (transaction->weapon_slots = assetCatalogSnapshotCustomWeaponSlots())
+		&& (transaction->body_head_slots = assetCatalogSnapshotCustomBodyHeadSlots())
+		&& (transaction->model_slots = assetCatalogSnapshotCustomModelSlots())
+		&& (transaction->sound_slots = assetCatalogSnapshotCustomSoundSlots())
+		&& (transaction->texture_slots = assetCatalogSnapshotCustomTextureSlots())
+		&& (transaction->anim_slots = assetCatalogSnapshotCustomAnimSlots())
+		&& (transaction->stage_slots = assetCatalogSnapshotCustomStageSlots())
+		&& (transaction->stage_table = stageTableSnapshotCreate())
+		&& (transaction->loader_pool = loaderPoolSnapshotCreate())
+		&& (transaction->body_manager = catalogManagerBodySnapshotCreate())
+		&& (transaction->head_manager = catalogManagerHeadSnapshotCreate());
+}
+
+static s32 externalScanTransactionBegin(
+		external_scan_transaction_t *transaction)
+{
+	if (!transaction) return 0;
+	memset(transaction, 0, sizeof(*transaction));
+	const u64 started = sysGetMicroseconds();
+	if (!assetCatalogCaptureEntrySnapshots(&transaction->rows,
+			&transaction->row_count)) return 0;
+	const u64 rows_finished = sysGetMicroseconds();
+	if (!externalScanTransactionCaptureSharedState(transaction)) {
+		externalScanTransactionDestroy(transaction);
+		return 0;
+	}
+	transaction->active = 1;
+	sysLogPrintf(LOG_VERBOSE, "CATALOG.CHECKPOINT: rows=%d rows_us=%llu total_us=%llu",
+		transaction->row_count, (unsigned long long)(rows_finished - started),
+		(unsigned long long)(sysGetMicroseconds() - started));
+	return 1;
 }
 
 /* A bundled head/body refresh can only change its existing owner and model
@@ -214,26 +200,31 @@ static s32 externalScanTransactionBeginExistingRows(
 	return 1;
 }
 
-static s32 externalScanTransactionRollback(
-		external_scan_transaction_t *transaction)
+static s32 externalScanTransactionRollbackWeaponRows(
+		const external_scan_transaction_t *transaction)
 {
 	s32 ok = 1;
-	if (!transaction || !transaction->active) return 0;
-
-	if (transaction->existing_rows_only) {
-		for (s32 i = transaction->row_count; i-- > 0;) {
-			const catalog_entry_snapshot_t *prior = &transaction->rows[i];
-			asset_entry_t *row = assetCatalogGetMutable(prior->row.id);
-			if (!row) ok = 0;
-			else if (!catalogEntrySnapshotMatches(prior, row))
-				catalogActivationLedgerRestoreRetiredSnapshot(row, &prior->row);
-		}
-		if (!catalogDepSnapshotRestore(&transaction->deps)) ok = 0;
-		if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
-		transaction->active = 0;
-		return ok;
+	/* The boot walker holds the publication lock. Only this weapon could
+	 * have appended rows since the checkpoint. */
+	for (s32 i = assetCatalogGetPoolSize(); i-- > transaction->weapon_rows_begin;) {
+		const asset_entry_t *row = assetCatalogGetByIndex(i);
+		if (!row) continue;
+		char id[CATALOG_ID_LEN];
+		memcpy(id, row->id, sizeof(id));
+		if (!assetCatalogRollbackUnactivatedRegistration(id)) ok = 0;
 	}
+	for (s32 i = transaction->row_count; i-- > 0;) {
+		const catalog_entry_snapshot_t *prior = &transaction->rows[i];
+		asset_entry_t *row = assetCatalogGetMutable(prior->row.id);
+		if (!row || !catalogEntrySnapshotRestorePreserved(row, prior)) ok = 0;
+	}
+	return ok;
+}
 
+static s32 externalScanTransactionRollbackAllRows(
+		const external_scan_transaction_t *transaction)
+{
+	s32 ok = 1;
 	/* New rows are removed in reverse pool order. Replaced or retired rows are
 	 * restored as metadata-only identities; their prior payload pointers were
 	 * already retired and must be reacquired after the filesystem rolls back. */
@@ -261,6 +252,32 @@ static s32 externalScanTransactionRollback(
 		if (!row) ok = 0;
 		else catalogActivationLedgerRestoreRetiredSnapshot(row, prior);
 	}
+	return ok;
+}
+
+static s32 externalScanTransactionRollback(
+		external_scan_transaction_t *transaction)
+{
+	s32 ok = 1;
+	if (!transaction || !transaction->active) return 0;
+
+	if (transaction->existing_rows_only) {
+		for (s32 i = transaction->row_count; i-- > 0;) {
+			const catalog_entry_snapshot_t *prior = &transaction->rows[i];
+			asset_entry_t *row = assetCatalogGetMutable(prior->row.id);
+			if (!row) ok = 0;
+			else if (!catalogEntrySnapshotMatches(prior, row))
+				catalogActivationLedgerRestoreRetiredSnapshot(row, &prior->row);
+		}
+		if (!catalogDepSnapshotRestore(&transaction->deps)) ok = 0;
+		if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
+		transaction->active = 0;
+		return ok;
+	}
+
+	ok = transaction->weapon_rows_begin > 0
+		? externalScanTransactionRollbackWeaponRows(transaction)
+		: externalScanTransactionRollbackAllRows(transaction);
 	if (!catalogDepSnapshotRestore(&transaction->deps)) ok = 0;
 	if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
 	if (!assetCatalogRestoreCustomWeaponSlots(transaction->weapon_slots)) ok = 0;
@@ -4815,9 +4832,73 @@ static s32 weaponNestedPrepareRecursiveEffects(
 	return 1;
 }
 
+static s32 weaponNestedOrdinaryBundledRow(const asset_entry_t *entry, asset_type_e type)
+{
+	return entry && entry->type == type && entry->enabled && entry->bundled
+		&& !entry->temporary && !entry->grid_offer_only;
+}
+
+static s32 weaponNestedCanCheckpointRow(const char *id, asset_type_e type,
+		const ini_section_t *ini, s32 existing)
+{
+	/* ResolveAny includes disabled rows. An occupied identity the public
+	 * preflight treated as absent must use the general transaction. */
+	const asset_entry_t *entry = assetCatalogResolveAny(id);
+	return !iniGet(ini, GRID_ARENA_PROVENANCE_KEY, NULL)
+		&& (existing ? weaponNestedOrdinaryBundledRow(entry, type) : !entry);
+}
+
+static s32 weaponNestedBeginBootTransaction(external_scan_transaction_t *transaction,
+		const char *weapon_id, const weapon_nested_preflight_t *pending, size_t count)
+{
+	const u64 started = sysGetMicroseconds();
+	const asset_entry_t *owner = assetCatalogResolveAny(weapon_id);
+	if (!weaponNestedOrdinaryBundledRow(owner, ASSET_WEAPON)) {
+		return externalScanTransactionBegin(transaction);
+	}
+	size_t row_count = 1; /* Only the owner and reused mesh metadata can change. */
+	for (size_t i = 0; i < count; i++) {
+		const weapon_nested_preflight_t *member = &pending[i];
+		if (!weaponNestedCanCheckpointRow(member->catalog_id, member->expected_type,
+				&member->ini, member->existing)) {
+			return externalScanTransactionBegin(transaction);
+		}
+		for (size_t j = 0; j < member->effect_nested.child_count; j++) {
+			const effect_nested_child_t *child = &member->effect_nested.children[j];
+			if (!weaponNestedCanCheckpointRow(child->catalog_id, child->expected_type,
+					&child->ini, child->existing)) {
+				return externalScanTransactionBegin(transaction);
+			}
+		}
+		if (member->existing && member->has_mesh_source) row_count++;
+	}
+	if (row_count > INT_MAX || row_count > SIZE_MAX / sizeof(*transaction->rows)) return 0;
+	transaction->rows = malloc(row_count * sizeof(*transaction->rows));
+	if (!transaction->rows) return 0;
+	catalogEntrySnapshotCapture(&transaction->rows[transaction->row_count++], owner);
+	for (size_t i = 0; i < count; i++) {
+		const weapon_nested_preflight_t *member = &pending[i];
+		if (member->existing && member->has_mesh_source) {
+			const asset_entry_t *mesh = assetCatalogResolveAny(member->catalog_id);
+			catalogEntrySnapshotCapture(&transaction->rows[transaction->row_count++], mesh);
+		}
+	}
+	transaction->weapon_rows_begin = assetCatalogGetPoolSize();
+	const u64 rows_finished = sysGetMicroseconds();
+	if (!externalScanTransactionCaptureSharedState(transaction)) {
+		externalScanTransactionDestroy(transaction);
+		return 0;
+	}
+	transaction->active = 1;
+	sysLogPrintf(LOG_VERBOSE, "CATALOG.CHECKPOINT: weapon_scoped_rows=%d rows_us=%llu total_us=%llu",
+		transaction->row_count, (unsigned long long)(rows_finished - started),
+		(unsigned long long)(sysGetMicroseconds() - started));
+	return 1;
+}
+
 static s32 registerWeaponNestedDependenciesWithAnimationBatch(const char *weapon_id,
 		const char *weapon_archive, s32 bundled, char *err, size_t err_cap,
-		loader_animation_source_batch_t *batch)
+		loader_animation_source_batch_t *batch, external_scan_transaction_t *boot_transaction)
 {
 	u32 weapon_size = 0;
 	void *weapon_bytes = NULL;
@@ -4932,6 +5013,11 @@ static s32 registerWeaponNestedDependenciesWithAnimationBatch(const char *weapon
 				pending[i].catalog_id, "");
 			goto rollback;
 		}
+	}
+	if (boot_transaction && !weaponNestedBeginBootTransaction(boot_transaction,
+			weapon_id, pending, pending_count)) {
+		nestedSetErr(err, err_cap, "could not checkpoint bundled weapon %s%s", weapon_id, "");
+		goto rollback;
 	}
 	{
 		if (mesh_edges.count > SIZE_MAX - pending_count) goto rollback;
@@ -5180,30 +5266,45 @@ done:
 	return result;
 }
 
-s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
-        const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
+static s32 registerWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, s32 bundled, s32 boot, char *err, size_t err_cap)
 {
     char owner[CATALOG_ID_LEN];
     if (!weapon_id || !assetPathCopyChecked(owner, sizeof(owner), weapon_id)) return -1;
+    const s32 scoped_boot = boot && !strncmp(owner, "base:", 5)
+        && weapon_archive && weapon_archive[0] && !strstr(weapon_archive, "::")
+        && !modVfsCanResolve(weapon_archive)
+        && weaponNestedOrdinaryBundledRow(assetCatalogResolveAny(owner), ASSET_WEAPON);
     external_scan_transaction_t transaction = {0};
     loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
-    if (!batch || !externalScanTransactionBegin(&transaction)) {
+    if (!batch || (!scoped_boot && !externalScanTransactionBegin(&transaction))) {
         loaderAnimationSourceBatchDestroy(batch);
         return -1;
     }
     s32 result = registerWeaponNestedDependenciesWithAnimationBatch(owner,
-        weapon_archive, bundled, err, err_cap, batch);
+        weapon_archive, bundled, err, err_cap, batch, scoped_boot ? &transaction : NULL);
     if (result >= 0 && !loaderAnimationSourceBatchCommit(batch)) {
         nestedSetErr(err, err_cap, "weapon command closure rejected: %s%s", owner, "");
         result = -1;
     }
-    if (result < 0 && !externalScanTransactionRollback(&transaction))
+    if (result < 0 && transaction.active && !externalScanTransactionRollback(&transaction))
         sysLoudFailf("PDWEAPON.NESTED.ROLLBACK", "could not restore complete nested source transaction");
     externalScanTransactionDestroy(&transaction);
     loaderAnimationSourceBatchDestroy(batch);
     return result;
 }
 
+s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
+{
+    return registerWeaponNestedDependencies(weapon_id, weapon_archive, bundled, 0, err, err_cap);
+}
+
+s32 assetCatalogRegisterBootWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, char *err, size_t err_cap)
+{
+    return registerWeaponNestedDependencies(weapon_id, weapon_archive, 1, 1, err, err_cap);
+}
 
 /* ========================================================================
  * Nested theme dependency registration
@@ -5901,7 +6002,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			if (!weapon_id[0]
 					|| registerWeaponNestedDependenciesWithAnimationBatch(weapon_id,
 						descriptor_path, 0, nested_err,
-						sizeof(nested_err), batch) < 0) {
+						sizeof(nested_err), batch, NULL) < 0) {
 				asset_entry_t *weapon = weapon_id[0]
 					? assetCatalogGetMutable(weapon_id) : NULL;
 				if (weapon) {
@@ -8603,7 +8704,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 				nested_err[0] = '\0';
 				if (!weapon_id || !weapon_id[0]
 						|| registerWeaponNestedDependenciesWithAnimationBatch(weapon_id,
-							entry_ref, 0, nested_err, sizeof(nested_err), batch) < 0) {
+							entry_ref, 0, nested_err, sizeof(nested_err), batch, NULL) < 0) {
 					asset_entry_t *weapon = weapon_id && weapon_id[0]
 						? assetCatalogGetMutable(weapon_id) : NULL;
 					if (had_prior_weapon && weapon) catalogActivationLedgerRestoreRetiredSnapshot(weapon, &prior_weapon);

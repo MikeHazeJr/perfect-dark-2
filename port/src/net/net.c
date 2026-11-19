@@ -60,6 +60,7 @@
 #include "lib/vi.h"
 #include "config.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "crashbreadcrumb.h"
 #include "console.h"
 #include "fs.h"
@@ -2056,6 +2057,10 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	if (g_NetMode != NETMODE_SERVER) {
 		return -1;
+	}
+	if (stageArchiveRepairStatus(stagenum) != 0) {
+		sysLogPrintf(LOG_WARNING, "EXTRACT.STAGE.BACKGROUND: co-op stage 0x%02x is unavailable", (u32)stagenum);
+		return -2;
 	}
 	if (g_NetGameMode != NETGAMEMODE_COOP
 			&& g_NetGameMode != NETGAMEMODE_ANTI) {
