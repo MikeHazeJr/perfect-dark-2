@@ -60,6 +60,9 @@
               "MENU_STACK: lobby content consent OPEN",
               "SMOKE.WAIT: satisfied condition=lobby_catalog_consent_ready",
               "SMOKE: tap-press scancode=80",
+              "NET: SVC_ROOM_ASSIGN: assigned to room \\d+",
+              "MENU_IMGUI: room OPEN \\(solo=0\\)",
+              "SMOKE.WAIT: satisfied condition=lobby_catalog_room_session_ready",
               "SMOKE: tap-press scancode=40",
               "DISTRIB: player approved [1-9]\\d* catalog entries temporary=1",
               "MENU_STACK: lobby content consent SESSION",
@@ -73,6 +76,9 @@
               "SMOKE.WAIT: satisfied condition=network_declined_lobby.*stable_ms=8000"
             ]
           }
+        ],
+        "required_counts": [
+          { "pattern": "MENU_STACK: lobby content consent OPEN", "min": 2, "max": 2 }
         ],
         "forbidden_patterns": ["MATCH: client stage start received", "DISTRIB: player approved .* manifest entries", "DISTRIB: recv begin 'needler' category=pdmod"]
       }

@@ -2,6 +2,9 @@
 #include "pdgui_menu_readiness.h"
 #include "../port/fast3d/imgui/imgui.h"
 #include "../port/fast3d/imgui/imgui_internal.h"
+#include <fstream>
+#include <iterator>
+#include <string>
 
 namespace {
 /* Independent pre-diagnostic admission oracle: keep the original predicates
@@ -226,6 +229,61 @@ TEST_CASE("menu readiness denies a popup owner and physical focus loss",
         ImGui::GetIO().AddFocusEvent(true);
         context.frame("##agent_select");
         REQUIRE(pdguiMenuWindowOwnsInput("##agent_select", 1));
+    }
+}
+
+TEST_CASE("Room assignment preserves the current selection on a global lobby consent modal",
+    "[smoke][readiness][menus][imgui][lobby-ui]")
+{
+    MenuReadinessContext fixture;
+    const char *consent = "##distrib_prompt";
+    const auto frame = [&](const char *background, bool open, bool selectSession) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowSize(ImVec2(400, 300));
+        ImGui::Begin(background);
+        const bool appearing = ImGui::IsWindowAppearing();
+        if (appearing) {
+            ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
+        }
+        ImGui::Button("Leave");
+        ImGui::End();
+
+        // Distribution submits the same top-level popup after either lobby window.
+        if (open) ImGui::OpenPopup(consent);
+        if (ImGui::BeginPopupModal(consent)) {
+            if (selectSession) ImGui::SetKeyboardFocusHere();
+            ImGui::Button("This Session");
+            ImGui::SameLine();
+            ImGui::Button("Skip");
+            ImGui::SetItemDefaultFocus();
+            ImGui::EndPopup();
+        }
+        ImGui::Render();
+        return appearing;
+    };
+
+    frame("##social_lobby", true, false);
+    frame("##social_lobby", false, false);
+    frame("##social_lobby", false, true);
+    frame("##social_lobby", false, false);
+    REQUIRE(pdguiMenuModalOwnsInput(consent, "This Session", 1));
+    REQUIRE_FALSE(pdguiMenuModalOwnsInput(consent, "Skip", 1));
+
+    REQUIRE(frame("##room_interior", false, false));
+    REQUIRE(pdguiMenuModalOwnsInput(consent, "This Session", 1));
+    REQUIRE_FALSE(pdguiMenuModalOwnsInput(consent, "Skip", 1));
+}
+
+TEST_CASE("Lobby and Room focus requests respect native modal ownership",
+    "[smoke][readiness][menus][lobby-ui][static]")
+{
+    for (const char *path : {"port/fast3d/pdgui_menu_lobby.cpp", "port/fast3d/pdgui_menu_room.cpp"}) {
+        CAPTURE(path);
+        std::ifstream file(path);
+        REQUIRE(file.good());
+        const std::string source{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+        REQUIRE(source.find("ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);")
+            != std::string::npos);
     }
 }
 

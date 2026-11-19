@@ -41,6 +41,7 @@
 #include <vector>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "pdgui_friends.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
@@ -4785,7 +4786,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     menupoolAcquire(MENU_TYPE_ROOM, NULL, &g_CtxImGuiMenu);
 
     if (!socialOwnsInput && (restoreRoomFocus || ImGui::IsWindowAppearing())) {
-        ImGui::SetWindowFocus();
+        ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
     }
     if (ImGui::IsWindowAppearing()) {
         /* S352: reset portrait cache on every room open */

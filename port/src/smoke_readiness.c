@@ -9,11 +9,12 @@ static const char *const mainMenuConditions[] = {
 };
 static const char *const lobbyUiConditions[] = {
 	"lobby_catalog_consent_ready", "lobby_manifest_consent_ready",
-	"lobby_countdown_active", "lobby_countdown_ready"
+	"lobby_countdown_active", "lobby_countdown_ready",
+	"lobby_catalog_room_session_ready"
 };
 _Static_assert(SMOKE_READINESS_SETTINGS_GAME_READY - SMOKE_READINESS_MAIN_MENU_PLAY_READY + 1 ==
 	sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]), "menu readiness registry drift");
-_Static_assert(SMOKE_READINESS_LOBBY_COUNTDOWN_READY - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + 1 ==
+_Static_assert(SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + 1 ==
 	sizeof(lobbyUiConditions) / sizeof(lobbyUiConditions[0]), "lobby UI readiness registry drift");
 
 smoke_readiness_condition_t smokeReadinessConditionFromName(
@@ -88,7 +89,7 @@ const char *smokeReadinessConditionName(
 {
 	if (condition >= SMOKE_READINESS_MAIN_MENU_PLAY_READY && condition <= SMOKE_READINESS_SETTINGS_GAME_READY)
 		return mainMenuConditions[condition - SMOKE_READINESS_MAIN_MENU_PLAY_READY];
-	if (condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY && condition <= SMOKE_READINESS_LOBBY_COUNTDOWN_READY)
+	if (condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY && condition <= SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY)
 		return lobbyUiConditions[condition - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY];
 	switch (condition) {
 	case SMOKE_READINESS_CORE_BOOT_READY:
@@ -243,6 +244,10 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 				? facts->local_client_in_lobby : facts->local_client_preparing)
 			&& facts->menu_input_top && facts->menu_keyboard_ready
 			&& facts->lobby_content_consent_input;
+	case SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->local_client_in_lobby && facts->menu_input_top
+			&& facts->menu_keyboard_ready && facts->lobby_catalog_room_session_input;
 	case SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE:
 	case SMOKE_READINESS_LOBBY_COUNTDOWN_READY:
 		return facts->boot_complete && facts->network_active
