@@ -1508,7 +1508,11 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 		projectile->flags |= PROJECTILEFLAG_LIGHTWEIGHT;
 	}
 
-	if (runtime->has_reflect_angle) {
+	/* B-1265: the extractor writes "reflect_angle": 0 for a function that has
+	 * none (every throw). Zero is "not authored": the launch site's own value
+	 * stays (a thrown item's 0.1 first-bounce boost). A fired projectile's
+	 * site already set this same number, so nothing changes for it. */
+	if (runtime->has_reflect_angle && runtime->reflect_angle > 0.0f) {
 		projectile->unk08c = runtime->reflect_angle;
 	} else if (runtime->has_bounce_slide && runtime->bounce_first_boost > 0.0f) {
 		projectile->unk08c = runtime->bounce_first_boost;
@@ -1561,7 +1565,12 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 			timer60 = runtime->timer_ticks60;
 			hastimer = true;
 		}
-	} else if (runtime->has_timer60) {
+	} else if (runtime->has_timer60 && runtime->timer60 >= 0) {
+		/* B-1265: a negative timer60 is "this function has no timer" (the
+		 * extractor writes -1 for every throw, whose fuse is its activation
+		 * time, set at the launch site). Applying it wiped a thrown
+		 * grenade's or mine's fuse. A fired projectile's site already set
+		 * this same number, so nothing changes for it. */
 		timer60 = runtime->timer60;
 		hastimer = true;
 	}

@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "root": "C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/core",
+  "policy": {"min_free_gib": 100, "max_full_installs": 2, "max_full_install_gib": 3, "max_archive_gib": 4, "discard_completed": true}
+}
