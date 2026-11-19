@@ -412,10 +412,11 @@ TEST_CASE("readiness wait diagnostics log captured admission observations withou
         "static smoke_readiness_facts_t smokeCaptureReadinessFacts",
         "static void smokeLogReadinessWait");
     const std::string logger = requireSlice(source,
-        "static void smokeLogReadinessWait", "/* One smoke-owned SDL device.");
+        "static void smokeLogReadinessWait", "/* Smoke owns the virtual joysticks.");
     const std::string ownership = readTextFile("port/fast3d/pdgui_menu_readiness.cpp");
     requireContains(ownership, "int pdguiMenuWindowOwnsInput(");
-    const std::string wrapper = ownership.substr(ownership.find("int pdguiMenuWindowOwnsInput("));
+    const std::string wrapper = requireSlice(ownership,
+        "int pdguiMenuWindowOwnsInput(", "int pdguiMenuModalOwnsInput(");
 
     requireContains(projection, "facts.menu_focus_lost = input_authority.window_focus_lost;");
     requireContains(projection,
@@ -1383,15 +1384,17 @@ TEST_CASE("virtual controller smoke uses SDL state and preserves production inpu
 {
     const std::string source = readTextFile("port/src/smoke_harness.c");
     const std::string driver = requireSlice(source,
-        "/* One smoke-owned SDL device.", "static s32 smokeHasPendingTap(void)");
+        "/* Smoke owns the virtual joysticks.", "static s32 smokeHasPendingTap(void)");
     requireContains(driver, "SDL_JoystickAttachVirtualEx(&desc)");
     requireContains(driver, "SDL_JoystickSetVirtualButton");
     requireContains(driver, "SDL_JoystickSetVirtualAxis");
     requireContains(driver, "SDL_GameControllerGetBindForButton");
     requireContains(driver, "SDL_GameControllerGetBindForAxis");
-    requireContains(driver, "inputGetPad(0)");
-    requireContains(driver, "SDL_GameControllerFromPlayerIndex(0)");
+    requireContains(driver, "inputGetPad(slot)");
+    requireContains(driver, "SDL_GameControllerFromPlayerIndex(slot)");
+    requireContains(driver, "SDL_GameControllerGetPlayerIndex(pad) != slot");
     requireContains(driver, "SMOKE_READINESS_AGENT_SELECT_READY");
+    requireContains(driver, "SMOKE_READINESS_MAIN_MENU_PLAY_READY");
     REQUIRE(driver.find("SDL_PushEvent") == std::string::npos);
     REQUIRE(driver.find("actionmapInject") == std::string::npos);
     REQUIRE(driver.find("inputAssignController(") == std::string::npos);
@@ -1405,11 +1408,11 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
 {
     const std::string source = readTextFile("port/src/smoke_harness.c");
     const std::string index = requireSlice(source,
-        "static s32 smokePadDeviceIndex(void)", "static SDL_GameController *smokePadController(void)");
-    requireContains(index, "SDL_JoystickGetDeviceInstanceID(i) == s_SmokePad.instance");
+        "static s32 smokePadDeviceIndex(", "static SDL_GameController *smokePadController(");
+    requireContains(index, "SDL_JoystickGetDeviceInstanceID(i) == state->instance");
     const std::string detach = requireSlice(source,
-        "static s32 smokePadDetachOwned(void)", "static s32 smokePadCleanup(void)");
-    requireContains(detach, "const s32 index = smokePadDeviceIndex()");
+        "static s32 smokePadDetachOwned(", "static s32 smokePadCleanupOne(");
+    requireContains(detach, "const s32 index = smokePadDeviceIndex(state)");
     requireContains(detach, "SDL_LockJoysticks()");
     requireContains(detach, "SDL_UnlockJoysticks()");
     requireContains(detach, "SDL_JoystickIsVirtual(index)");
@@ -1418,7 +1421,9 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
     const std::string tick = requireSlice(source, "void smokeHarnessTick(void)", "void smokeHarnessExit(");
     requireContains(tick, "ev->at_ms != controller_group_at");
     requireContains(tick, "SDL_JoystickUpdate()");
-    requireContains(tick, "s_SmokePad.pending_state = 1");
+    const std::string write = requireSlice(source,
+        "static s32 smokePadWrite(", "static s32 smokeHasPendingTap(");
+    requireContains(write, "state->pending_state = 1");
     requireContains(source, "SMOKE_PAD_RELEASING");
     requireContains(source, "SMOKE_PAD_REMOVING");
     requireContains(source, "neutral_observed=1 removed_observed=1 virtual=1");
@@ -1430,6 +1435,29 @@ TEST_CASE("virtual controller smoke fences state and releases before instance-sa
     requireContains(source, "exit requires controller_detach first");
     requireContains(source, "controller axis value must be an integer");
     requireContains(source, "smokeFixtureControllerAxisValueValid(controller_value)");
+}
+
+TEST_CASE("two-pad smoke checks stable assignments and input through the ordinary menu",
+    "[smoke][input][controller][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string schema = readTextFile("port/src/smoke_fixture_schema.c");
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/menu_virtual_controller_handoff.json");
+    requireContains(schema, "{ \"slot\", SMOKE_FIXTURE_FIELD_SLOT }");
+    requireContains(source, "ev->controller_slot = 0");
+    requireContains(source, "slot < 0 || slot >= SMOKE_PAD_COUNT");
+    requireContains(source, "held_count -= slot_held[slot]");
+    requireContains(source, "smokePadCleanupOne(&s_SmokePads[slot])");
+    requireContains(source, "actionmapGetBindingDeviceIdentity(0, &frontend)");
+    requireContains(fixture, "\"type\": \"controller_attach\", \"slot\": 1");
+    requireContains(fixture, "\"type\": \"controller_detach\", \"slot\": 0");
+    requireContains(fixture, "player=1 virtual=1 accept=1");
+    requireContains(fixture, "player=1 virtual=1 accept=0 cancel=1");
+    requireContains(fixture, "primary_present=0 frontend_instance=");
+    requireContains(fixture, "primary_present=1 frontend_instance=");
+    requireContains(fixture, "\"condition\": \"main_menu_settings_focused\"");
+    requireContains(fixture, "\"condition\": \"settings_video_ready\"");
 }
 
 TEST_CASE("virtual controller menu fixture demands observed production outcomes",
