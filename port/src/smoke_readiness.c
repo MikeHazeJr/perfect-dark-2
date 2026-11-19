@@ -10,7 +10,7 @@ static const char *const mainMenuConditions[] = {
 static const char *const lobbyUiConditions[] = {
 	"lobby_catalog_consent_ready", "lobby_manifest_consent_ready",
 	"lobby_countdown_active", "lobby_countdown_ready",
-	"lobby_catalog_room_session_ready"
+	"lobby_room_session_ready"
 };
 _Static_assert(SMOKE_READINESS_SETTINGS_GAME_READY - SMOKE_READINESS_MAIN_MENU_PLAY_READY + 1 ==
 	sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]), "menu readiness registry drift");
