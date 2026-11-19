@@ -38,7 +38,8 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY,
 	SMOKE_READINESS_LOBBY_MANIFEST_CONSENT_READY,
 	SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE,
-	SMOKE_READINESS_LOBBY_COUNTDOWN_READY
+	SMOKE_READINESS_LOBBY_COUNTDOWN_READY,
+	SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -61,6 +62,7 @@ typedef struct smoke_readiness_facts {
 	int grid_consent_pending;
 	int grid_consent_accept_focused;
 	int lobby_content_consent_input;
+	int lobby_catalog_room_session_input;
 	int lobby_countdown_active;
 	int lobby_countdown_input;
 	int gameplay_stage;

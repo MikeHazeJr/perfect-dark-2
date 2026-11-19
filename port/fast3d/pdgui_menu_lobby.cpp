@@ -33,6 +33,7 @@
 #include <string.h>
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "pdgui_friends.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
@@ -163,7 +164,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     menupoolAcquire(MENU_TYPE_SOCIAL_LOBBY, NULL, &g_CtxImGuiMenu);
 
     if (!socialOwnsInput && (restoreLobbyFocus || ImGui::IsWindowAppearing())) {
-        ImGui::SetWindowFocus();
+        ImGui::FocusWindow(ImGui::GetCurrentWindow(), ImGuiFocusRequestFlags_UnlessBelowModal);
     }
     if (ImGui::IsWindowAppearing()) {
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: social lobby OPEN");
