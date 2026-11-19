@@ -2555,9 +2555,13 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
             !facts.menu_focus_lost, &consent_view) && consent_view.play_focused
             && !pdguiTextKeyboardOwnsMenuInput();
     }
-    facts.lobby_content_consent_input = facts.network_active
-        && netDistribClientConsentPending() && !pdguiTextKeyboardOwnsMenuInput()
+    const s32 lobbyConsentPending = facts.network_active
+        && netDistribClientConsentPending() && !pdguiTextKeyboardOwnsMenuInput();
+    facts.lobby_content_consent_input = lobbyConsentPending
         && pdguiMenuModalOwnsInput("##distrib_prompt", "Skip", !facts.menu_focus_lost);
+    facts.lobby_catalog_room_session_input = lobbyConsentPending
+        && menupoolIsActive(MENU_TYPE_ROOM)
+        && pdguiMenuModalOwnsInput("##distrib_prompt", "This Session", !facts.menu_focus_lost);
     facts.lobby_countdown_input = facts.lobby_countdown_active
         && !pdguiTextKeyboardOwnsMenuInput()
         && pdguiMenuModalOwnsInput("##countdown_popup", "###countdown_cancel", !facts.menu_focus_lost);
@@ -2608,10 +2612,11 @@ static void smokeLogReadinessWait(s32 level, const char *status,
             facts->forge_freefly, facts->forge_level_file_open);
     }
     if (ev->readiness_condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY &&
-        ev->readiness_condition <= SMOKE_READINESS_LOBBY_COUNTDOWN_READY) {
-        sysLogPrintf(level, "SMOKE.WAIT.LOBBY_UI: preparing=%d consent_input=%d countdown=%d countdown_input=%d",
+        ev->readiness_condition <= SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY) {
+        sysLogPrintf(level, "SMOKE.WAIT.LOBBY_UI: preparing=%d consent_input=%d room_session_input=%d countdown=%d countdown_input=%d",
             facts->local_client_preparing, facts->lobby_content_consent_input,
-            facts->lobby_countdown_active, facts->lobby_countdown_input);
+            facts->lobby_catalog_room_session_input, facts->lobby_countdown_active,
+            facts->lobby_countdown_input);
     }
     sysLogPrintf(level,
 		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d"
