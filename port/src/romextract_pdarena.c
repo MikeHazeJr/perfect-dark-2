@@ -98,7 +98,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4916,6 +4916,18 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"id\": \"object.rules.door.approach\", \"kind\": \"event.door.approach\" },\n"
 			"    { \"id\": \"object.rules.door.approach_unlocked\", \"kind\": \"gate.door.native_unlocked\" },\n"
 			"    { \"id\": \"object.rules.door.activate_automatic\", \"kind\": \"og.door.activate_automatic\" },\n"
+			"    { \"id\": \"object.rules.lift.called\", \"kind\": \"event.lift.called\" },\n"
+			"    { \"id\": \"object.rules.lift.called_vacant\", \"kind\": \"gate.lift.native_vacant\" },\n"
+			"    { \"id\": \"object.rules.lift.go_to_stop\", \"kind\": \"og.lift.go_to_stop\" },\n"
+			"    { \"id\": \"object.rules.lift.idle\", \"kind\": \"event.lift.idle\" },\n"
+			"    { \"id\": \"object.rules.lift.idle_ready\", \"kind\": \"gate.lift.native_ready\" },\n"
+			"    { \"id\": \"object.rules.lift.go_to_next_stop\", \"kind\": \"og.lift.go_to_next_stop\" },\n"
+			"    { \"id\": \"object.rules.lift.arrived\", \"kind\": \"event.lift.arrived\" },\n"
+			"    { \"id\": \"object.rules.lift.arrival_door_unlocked\", \"kind\": \"gate.lift.native_door_unlocked\" },\n"
+			"    { \"id\": \"object.rules.lift.open_door\", \"kind\": \"og.lift.open_door\" },\n"
+			"    { \"id\": \"object.rules.glass.damaged\", \"kind\": \"event.glass.damaged\" },\n"
+			"    { \"id\": \"object.rules.glass.damaged_broken\", \"kind\": \"gate.glass.native_broken\" },\n"
+			"    { \"id\": \"object.rules.glass.break\", \"kind\": \"og.glass.break\" },\n"
 			"    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
 			"    { \"id\": \"collision.generate\", \"kind\": \"scenario.collision.generate\", \"source\": \"collision.obj\", \"cache\": \"_meta/generated-collision.json\" },\n"
 			"    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": %u },\n"
@@ -5949,7 +5961,15 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.activate\", \"input\": \"exec\", \"output\": \"pass\" },\n"
 			"    { \"from\": \"object.rules.door.use_unlocked\", \"to\": \"object.rules.door.locked_message\", \"input\": \"exec\", \"output\": \"fail\" },\n"
 			"    { \"from\": \"object.rules.door.approach\", \"to\": \"object.rules.door.approach_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
-			"    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" }\n"
+			"    { \"from\": \"object.rules.door.approach_unlocked\", \"to\": \"object.rules.door.activate_automatic\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.lift.called\", \"to\": \"object.rules.lift.called_vacant\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.lift.called_vacant\", \"to\": \"object.rules.lift.go_to_stop\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.lift.idle\", \"to\": \"object.rules.lift.idle_ready\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.lift.idle_ready\", \"to\": \"object.rules.lift.go_to_next_stop\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.lift.arrived\", \"to\": \"object.rules.lift.arrival_door_unlocked\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.lift.arrival_door_unlocked\", \"to\": \"object.rules.lift.open_door\", \"input\": \"exec\", \"output\": \"pass\" },\n"
+			"    { \"from\": \"object.rules.glass.damaged\", \"to\": \"object.rules.glass.damaged_broken\", \"input\": \"exec\", \"output\": \"out\" },\n"
+			"    { \"from\": \"object.rules.glass.damaged_broken\", \"to\": \"object.rules.glass.break\", \"input\": \"exec\", \"output\": \"pass\" }\n"
 			"  ],\n"
 			"  \"counts\": { \"rooms\": %u, \"triangles\": %u, \"pads\": %u, \"volumes\": %u, \"objects\": %u, \"objectives\": %u, \"ai_lists\": %u, \"ai_commands\": %u, \"waypoints\": %u, \"waygroups\": %u, \"covers\": %u, \"paths\": %u }\n"
 			"}\n",
@@ -9281,9 +9301,12 @@ static s32 s_existingPdscenarioArchiveMatches(existing_archive_check_t *check)
 			"\"COLOR_0\"") &&
 		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.global.settings.source") &&
-		/* object-events.md slice 4: the pickup and door rule wiring. */
+		/* object-events.md slices 4 and 5: the pickup, door, lift and glass
+		 * rule wiring. */
 		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"object.rules.door.activate_automatic\"") &&
+		s_existingArchiveEntryContains(check, "level.graph.json",
+			"\"object.rules.glass.break\"") &&
 		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.portals.source") &&
 		s_existingArchiveEntryContains(check, "level.graph.json",

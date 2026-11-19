@@ -1,0 +1,99 @@
+{
+  "scenario_name": "mission_lift_glass_rules",
+  "description": "Object events slice 5 (context/designs/modding/object-events.md): the level's lift and glass rules are its level program. Defection, which has 2 lifts with 8 lift doors and 83 glass objects. The harness has player 0 use the nearest lift door (use_lift_door): the door use runs the door rule, whose og.door.activate calls the lift, so event.lift.called runs gate.lift.native_vacant and og.lift.go_to_stop; the lifts' own waits and arrivals run event.lift.idle and event.lift.arrived. It then breaks the two nearest glass objects with a shot each (damage_glass): event.glass.damaged runs gate.glass.native_broken and og.glass.break, and event.glass.broken follows. Every decision is compared with the original rule; the stage's totals are logged at the scripted exit.",
+  "tags": [
+    "graph",
+    "objects",
+    "lifts",
+    "glass",
+    "solo",
+    "mission"
+  ],
+  "paths_of_interest": [
+    "src/game/propobj.c",
+    "port/src/mission_graph_modules.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/romextract_pdarena.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 480,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 330000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause until the player is spawned, live and walking; the bounded Skip assist ends the intro."
+    },
+    {
+      "at_ms": 3000,
+      "type": "use_lift_door",
+      "comment": "The nearest lift door: the door rule runs, and through og.door.activate the lift is called."
+    },
+    {
+      "at_ms": 6000,
+      "type": "damage_glass",
+      "comment": "The nearest unbroken glass takes a shot and breaks."
+    },
+    {
+      "at_ms": 9000,
+      "type": "damage_glass",
+      "comment": "And the next one."
+    },
+    {
+      "at_ms": 40000,
+      "type": "exit",
+      "comment": "The lifts have waited and arrived meanwhile; the stage's totals are logged at the exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mission_lift_glass_rules",
+      "SCENARIO\\.GRAPH: level program 'base:scenario_defection' nodes=23 exec_edges=15 modules=8 volumes=0 ",
+      "SMOKE\\.USE_LIFT_DOOR: object=setup_[0-9]{4} ",
+      "SCENARIO\\.GRAPH: event\\.door\\.use 'base:scenario_defection' object=setup_[0-9]{4} tag=-?[0-9]+ kind=door ",
+      "SCENARIO\\.GRAPH: event\\.lift\\.called 'base:scenario_defection' object=setup_[0-9]{4} tag=-?[0-9]+ kind=lift ",
+      "SCENARIO\\.GRAPH: event\\.lift\\.idle 'base:scenario_defection' object=setup_[0-9]{4} ",
+      "SCENARIO\\.GRAPH: event\\.lift\\.arrived 'base:scenario_defection' object=setup_[0-9]{4} ",
+      "SMOKE\\.DAMAGE_GLASS: object=setup_[0-9]{4} distance=[0-9]+ broken=1 ",
+      "SCENARIO\\.GRAPH: event\\.glass\\.damaged 'base:scenario_defection' object=setup_[0-9]{4} tag=-?[0-9]+ kind=(glass|tinted_glass) ",
+      "SCENARIO\\.GRAPH: event\\.glass\\.broken 'base:scenario_defection' object=setup_[0-9]{4} ",
+      "SCENARIO\\.GRAPH: object events 'base:scenario_defection' pickup\\.collected=[0-9]+ door\\.opened=[0-9]+ door\\.closed=[0-9]+ object\\.used=[0-9]+ glass\\.broken=[2-9][0-9]* pickup\\.touched=[0-9]+ door\\.use=1 door\\.approach=[0-9]+ lift\\.called=[1-9][0-9]* lift\\.idle=[1-9][0-9]* lift\\.arrived=[1-9][0-9]* glass\\.damaged=[2-9][0-9]* rules\\.compared=[1-9][0-9]* rules\\.differ=0 reason=smoke_exit",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE\\.USE_LIFT_DOOR: no door",
+      "SMOKE\\.DAMAGE_GLASS: no glass",
+      "SCENARIO\\.GRAPH: object rule differs",
+      "level program refused: ",
+      "SCENARIO\\.GRAPH: event\\.(lift|glass)\\.[a-z_]+ '[^']+' object=- "
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.DAMAGE_GLASS: object=setup_[0-9]{4} ",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}

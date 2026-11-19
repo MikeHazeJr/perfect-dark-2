@@ -1,0 +1,201 @@
+{
+  "scenario_name": "hoverbike_room_flow_smoke",
+  "description": "The base hoverbike ridden through its own vehicle graph (pd.vehicle_graph.v1; object-events slice 5 made every vehicle a graph vehicle and removed the native path beside it). The place is the one maian_vehicle_room_drive_smoke uses, where no mission can end the ride (B-1241): the Blank Room (dev-mods/blank_room) with a hoverbike that Forge's level document adds at boot (--debug-forge-level-vehicle), saved as the level 'Vehicle_Room' and played in a Combat Simulator match with no simulants. No mod vehicle and no model swap: the hoverbike keeps base:model_hovbike (modelnum 58) and base:vehicle_hoverbike's graph, 8 nodes and 5 execution edges. Player 0 is put on it (--debug-mount-bike: the mount request event.vehicle.mount_requested runs og.vehicle.mount_seat), accelerates for 1.4 s, steers right for 1.2 s, brakes for 1.4 s, holds the handbrake for 1.4 s (each long enough for the half-second input witness), then leaves it with the exit input (event.vehicle.dismount_requested runs og.vehicle.dismount_seat) and must be back on foot in walk mode. Exactly one mount and one dismount. It replaces, for this proof, vehicle_flow, which runs on Escape and cannot pass there: Escape starts in grab mode (B-1159, not a bug) and its script ends a ride a second after the vehicle moves (B-1241). Second thing it proves: a level authored before the lift and glass rules loads on slice 5. The saved level carries the Blank Room's graph (the pickup and door rules: 11 nodes, 7 execution edges, 4 modules), is not refused, and logs once that the game's own rules decide its lifts and glass.",
+  "tags": [
+    "vehicle",
+    "gameplay",
+    "vehicle-graph",
+    "object-events",
+    "pillar:modding",
+    "forge",
+    "arena"
+  ],
+  "paths_of_interest": [
+    "src/game/vehiclegraph.c",
+    "src/game/bondbike.c",
+    "src/game/propobj.c",
+    "port/src/romextract_pdmeta.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/forge_level_io.c",
+    "port/src/forge_level_doc.cpp",
+    "dev-mods/blank_room/build_blank_room.py",
+    "context/designs/modding/object-events.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_vehicle_room"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Vehicle_Room",
+    "--debug-forge-level-vehicle",
+    "--launch-mp-room",
+    "mod:arena_vehicle_room",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match",
+    "--debug-mount-bike"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Boot makes the level (the Blank Room with a hoverbike that Forge's level document adds), the match starts on it with no simulants, and --debug-mount-bike puts Player 0 on the hoverbike as soon as the player walks. A match intro, if any, is skipped. The script waits here until the player has driven-seat control for a second."
+    },
+    {
+      "at_ms": 1000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Accelerate: event.vehicle.tick runs og.vehicle.hover_drive."
+    },
+    {
+      "at_ms": 2400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release"
+    },
+    {
+      "at_ms": 2600,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "press"
+    },
+    {
+      "at_ms": 3800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "release"
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BRAKE",
+      "action": "press"
+    },
+    {
+      "at_ms": 5400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BRAKE",
+      "action": "release"
+    },
+    {
+      "at_ms": 5600,
+      "type": "action",
+      "name": "ACTION_VEHICLE_HANDBRAKE",
+      "action": "press"
+    },
+    {
+      "at_ms": 7000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_HANDBRAKE",
+      "action": "release"
+    },
+    {
+      "at_ms": 7400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "Leave the vehicle: the dismount request goes to the graph, which runs the exit."
+    },
+    {
+      "at_ms": 7600,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 30000,
+      "stable_ms": 250,
+      "comment": "Player 0 is back on foot: walk mode, control, no vehicle layer on top."
+    },
+    {
+      "at_ms": 8600,
+      "type": "exit",
+      "comment": "Scripted exit after the ride and the dismount."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=hoverbike_room_flow_smoke",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "FORGE\\.LEVEL\\.DEBUG\\.BEGIN: arena=mod_blank_room:arena_blank_room name='Vehicle_Room'",
+      "FORGE\\.LEVEL\\.EDIT: made hoverbike setup_0002 at \\(250, 50, -?0\\) facing \\(-1\\.00, -?0\\.00, -?0\\.00\\)",
+      "FORGE\\.LEVEL\\.EDIT: the level now has pads=12 spawns=9 objects=3",
+      "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_vehicle_room changed_members=\\d+ restart_count=\\d+ archive='.*arena_vehicle_room\\.pdarena' own_template=0",
+      "BOOT: --debug-forge-level arena=mod_blank_room:arena_blank_room name='Vehicle_Room' weapon=\\(none\\) result=OK",
+      "BOOT: --launch-mp-room direct match start",
+      "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_vehicle_room[^']*'.* as 3 setup records, 9 spawns,",
+      "SCENARIO\\.GRAPH: level program 'mod:arena_vehicle_room__scenario_scenario_blank_room' nodes=11 exec_edges=7 modules=4 volumes=0 ",
+      "SCENARIO\\.GRAPH: level program 'mod:arena_vehicle_room__scenario_scenario_blank_room' wires no event\\.lift\\.called, event\\.lift\\.idle, event\\.lift\\.arrived, event\\.glass\\.damaged: the game's own rule decides each",
+      "BOOT: --debug-mount-bike armed",
+      "VEHICLE\\.GRAPH: modelnum=58 graph instance made: nodes=8 exec_edges=5 pending=0 parts=0 boost_heat=0",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .* brake=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*handbrake=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: dismounted player=0",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: ",
+      "CATALOG-FATAL",
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused",
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "level program refused",
+      "MATCH: endscreen shown"
+    ],
+    "required_counts": [
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE: dismounted",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

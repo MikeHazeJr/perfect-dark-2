@@ -277,6 +277,7 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual);
 void currentPlayerQueuePickupWeaponHudmsg(u32 weaponnum, bool dual);
 s32 propPickupByPlayer(struct prop *prop, bool showhudmsg);
 s32 objTestForPickup(struct prop *prop);
+s32 objPickupTouchForSmoke(struct prop *prop);
 /* object-events.md slice 4: the original pickup rules for the current player
  * (gate.pickup.native_rules), the refusal of a locked door
  * (og.door.locked_message) and an automatic door opening
@@ -284,6 +285,16 @@ s32 objTestForPickup(struct prop *prop);
 bool objPickupRulesAllow(struct prop *prop);
 void doorShowLocked(struct doorobj *door);
 void doorOpenAutomatic(struct doorobj *door);
+/* object-events.md slice 5: the original lift and glass rules
+ * (gate.lift.native_vacant, gate.lift.native_ready, og.lift.go_to_next_stop,
+ * gate.lift.native_door_unlocked, og.lift.open_door,
+ * gate.glass.native_broken). */
+bool liftIsVacant(struct liftobj *lift);
+bool liftStopIsReady(struct liftobj *lift);
+void liftGoToNextStop(struct liftobj *lift);
+bool liftArrivalDoorUnlocked(struct liftobj *lift);
+void liftOpenArrivalDoor(struct liftobj *lift);
+bool glassIsBroken(struct defaultobj *obj);
 bool func0f0899dc(struct prop *prop, struct coord *arg1, f32 *arg2, f32 *arg3);
 void modelFreeVertices(s32 vtxstoretype, struct model *model);
 struct prop *hatApplyToChr(struct hatobj *hat, struct chrdata *chr, struct modeldef *modeldef, struct prop *prop, struct model *model);
