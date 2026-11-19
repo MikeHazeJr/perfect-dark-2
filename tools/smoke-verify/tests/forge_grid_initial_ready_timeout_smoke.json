@@ -1,0 +1,209 @@
+{
+  "scenario_name": "forge_grid_initial_ready_timeout_smoke",
+  "description": "An authenticated Grid guest loads the exact pinned arena and withholds the first post-load READY. The listen host cancels only that launch, returns both connected peers to the same Room, and starts a second exact round that releases and reports the same final scores.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "combatsim",
+    "match-lifecycle",
+    "stage-ready"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 480,
+  "install_state": "clean",
+  "remove_paths": [
+    "glt-h",
+    "glt-g"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "glt-h/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "glt-g/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "glt-h/mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "glt-h/mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "glt-h/mods-enabled.json"
+    },
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "glt-g/mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "glt-g/mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "glt-g/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/glt-h",
+        "--moddir",
+        "$E/glt-h/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-forge-level",
+        "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name",
+        "Grid_Exact_Match",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27494",
+        "--launch-mp-room",
+        "mod:arena_grid_exact_match",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "20",
+        "--host-autostart-matches",
+        "2"
+      ],
+      "wait_for": "NET: created server on port 27494",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "first launch cancels and the same host runs a normal retry",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "NET\\.STAGE\\.REPLICATION phase=waiting epoch=1 room=1",
+              "NET\\.GRID\\.STAGE: load_timeout room=1 epoch=1 pending_mask=0x00000002 timeout_ms=30000",
+              "NET\\.GRID\\.STAGE: cancelled role=host room=1 epoch=1 roster=0x00000003",
+              "GRID\\.MATCH\\.ROOM: world retired room=1",
+              "BOOT: --host-autostart re-armed: match 2 of 2 in room 1",
+              "NET\\.STAGE\\.REPLICATION phase=waiting epoch=2 room=1",
+              "NET\\.STAGE\\.REPLICATION phase=release epoch=2 room=1 ready_mask=0x00000002",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=2 reason=1 arena=mod:arena_grid_exact_match revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=5",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_lines": [
+          "NET: using protocol version 65",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_exact_match sha256=[0-9a-f]{64}",
+          "SAVE: initialized .*glt-h"
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/glt-g",
+        "--moddir",
+        "$E/glt-g/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-forge-level",
+        "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name",
+        "Grid_Exact_Match",
+        "--connect-host",
+        "127.0.0.1:27494",
+        "--debug-grid-hold-initial-stage-ready"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "the original connection receives both the cancellation and later results",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1",
+              "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_exact_match generation=[1-9][0-9]*",
+              "MATCH: client stage start received",
+              "SMOKE\\.GRID\\.STAGE: held_initial_ready epoch=1 post_load=1",
+              "NET\\.GRID\\.STAGE: cancelled role=guest room=1 epoch=1 roster=0x[0-9a-f]+",
+              "GRID\\.MATCH\\.ROOM: world retired room=1",
+              "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_exact_match generation=[1-9][0-9]*",
+              "MATCH: client stage start received",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=2 reason=1 arena=mod:arena_grid_exact_match revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=5",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*glt-g"
+        ],
+        "required_counts": [
+          {
+            "pattern": "NET: SVC_AUTH from server, our ID is 1",
+            "min": 1,
+            "max": 1
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 400000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 1500,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_counts": [
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=2 reason=1 arena=mod:arena_grid_exact_match revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=5",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.STAGE: load_timeout ",
+        "min": 1,
+        "max": 1
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.STAGE\\.REPLICATION phase=release epoch=1\\b",
+      "NET\\.GRID\\.RESULT: .* epoch=1\\b",
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER:",
+      "NET\\.GRID\\.RESULT: rejected",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

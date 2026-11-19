@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "assetcatalog.h"
 #include "modasset_material_order.h"
 
 static void materialOrderSetError(char *error, size_t error_cap,
@@ -201,4 +202,93 @@ s32 modAssetMaterialOrderBuild(const char *mtl_text,
 fail:
 	modAssetMaterialOrderFree(out);
 	return 0;
+}
+
+s32 modAssetMaterialCatalogTextureDirective(const char *line, const char **value, s32 *secondary)
+{
+	if (strncmp(line, "pd_texture_catalog", 18) == 0) {
+		*secondary = 0;
+	} else if (strncmp(line, "pd_secondary_texture_catalog", 28) == 0) {
+		*secondary = 1;
+	} else {
+		return 0;
+	}
+	const char *equals = strchr(line, '=');
+	*value = equals ? equals + 1 : NULL;
+	return 1;
+}
+
+static s32 materialCatalogTextureId(const char *value, char id[CATALOG_ID_LEN])
+{
+	if (!value) return 0;
+	while (isspace((u8)*value)) value++;
+	size_t length = 0;
+	while (value[length] && !isspace((u8)value[length]) && value[length] != '#') length++;
+	if (!length || length >= CATALOG_ID_LEN) return 0;
+	memcpy(id, value, length);
+	id[length] = '\0';
+	const char *colon = strchr(id, ':');
+	return colon && colon != id && colon[1] && !strchr(colon + 1, ':')
+		&& strspn(id, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:_.-") == length;
+}
+
+s32 modAssetMaterialVisitCatalogTextures(const char *text, size_t size,
+	modasset_material_texture_visit_fn visit, void *userdata, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!size) return 1;
+	if (!text || !visit || size == (size_t)-1 || memchr(text, '\0', size)) {
+		materialOrderSetError(err, err_cap, "invalid material metadata");
+		return 0;
+	}
+	char *copy = malloc(size + 1);
+	if (!copy) {
+		materialOrderSetError(err, err_cap, "out of memory reading material metadata");
+		return 0;
+	}
+	memcpy(copy, text, size);
+	copy[size] = '\0';
+	if (!strstr(copy, "pd_texture_catalog") && !strstr(copy, "pd_secondary_texture_catalog")) {
+		free(copy);
+		return 1;
+	}
+	modasset_material_order_t order = {0};
+	const s32 declared = modAssetMaterialOrderBuild(copy, NULL, NULL, 0, &order, err, err_cap);
+	modAssetMaterialOrderFree(&order);
+	if (!declared) {
+		free(copy);
+		return 0;
+	}
+
+	s32 current_material = 0;
+	s32 valid = 1;
+	for (char *line = copy; line && *line; ) {
+		char *end = line + strcspn(line, "\r\n");
+		char *next = NULL;
+		if (*end) {
+			next = end + strspn(end, "\r\n");
+			*end = '\0';
+		}
+		while (isspace((u8)*line)) line++;
+		const char *value;
+		s32 secondary;
+		if (strncmp(line, "newmtl", 6) == 0 && isspace((u8)line[6])) {
+			current_material = 1;
+		} else if (current_material && modAssetMaterialCatalogTextureDirective(line, &value, &secondary)) {
+			char id[CATALOG_ID_LEN];
+			if (!materialCatalogTextureId(value, id)) {
+				materialOrderSetError(err, err_cap, "invalid explicit material texture catalog ID");
+				valid = 0;
+				break;
+			}
+			if (!visit(id, userdata)) {
+				if (err && err_cap && !err[0]) materialOrderSetError(err, err_cap, "material texture dependency refused");
+				valid = 0;
+				break;
+			}
+		}
+		line = next;
+	}
+	free(copy);
+	return valid;
 }

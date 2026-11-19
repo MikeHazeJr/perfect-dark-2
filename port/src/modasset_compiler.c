@@ -35,6 +35,7 @@
 #include "modasset_gltf_scene.h"
 #include "modasset_material_order.h"
 #include "modasset_render_stream.h"
+#include "scenario_room_domain.h"
 #include "sha256.h"
 #include "system.h"
 
@@ -367,6 +368,8 @@ typedef struct obj_mesh {
 	obj_triangle_t *triangles;
 	s32 triangle_count;
 	s32 triangle_capacity;
+	size_t allocation_budget;
+	size_t allocated_bytes;
 	char error[128];
 } obj_mesh_t;
 
@@ -392,6 +395,18 @@ static void objMeshSetError(obj_mesh_t *mesh, s32 line_no, const char *reason)
 		line_no, reason ? reason : "invalid_obj");
 }
 
+static s32 objMeshAllowGrowth(obj_mesh_t *mesh, s32 current, s32 next, size_t item_size)
+{
+	if (!mesh->allocation_budget) return 1;
+	size_t bytes = (size_t)(next - current) * item_size;
+	if (bytes > mesh->allocation_budget - mesh->allocated_bytes) {
+		objMeshSetError(mesh, 0, "detached_collision_geometry_budget");
+		return 0;
+	}
+	mesh->allocated_bytes += bytes;
+	return 1;
+}
+
 static s32 objMeshGrowVertices(obj_mesh_t *mesh, s32 needed)
 {
 	s32 newcap;
@@ -409,6 +424,7 @@ static s32 objMeshGrowVertices(obj_mesh_t *mesh, s32 needed)
 		newcap = 64;
 	}
 
+	if (!objMeshAllowGrowth(mesh, mesh->vertex_capacity, newcap, sizeof(*mesh->vertices))) return 0;
 	newptr = realloc(mesh->vertices, (size_t)newcap * sizeof(*mesh->vertices));
 	if (!newptr) {
 		objMeshSetError(mesh, 0, "vertex_alloc_failed");
@@ -437,6 +453,7 @@ static s32 objMeshGrowTexcoords(obj_mesh_t *mesh, s32 needed)
 		newcap = 64;
 	}
 
+	if (!objMeshAllowGrowth(mesh, mesh->texcoord_capacity, newcap, sizeof(*mesh->texcoords))) return 0;
 	newptr = realloc(mesh->texcoords,
 		(size_t)newcap * sizeof(*mesh->texcoords));
 	if (!newptr) {
@@ -466,6 +483,7 @@ static s32 objMeshGrowMaterials(obj_mesh_t *mesh, s32 needed)
 		newcap = 8;
 	}
 
+	if (!objMeshAllowGrowth(mesh, mesh->material_capacity, newcap, sizeof(*mesh->materials))) return 0;
 	newptr = realloc(mesh->materials,
 		(size_t)newcap * sizeof(*mesh->materials));
 	if (!newptr) {
@@ -497,6 +515,7 @@ static s32 objMeshGrowGroups(obj_mesh_t *mesh, s32 needed)
 		newcap = 8;
 	}
 
+	if (!objMeshAllowGrowth(mesh, mesh->group_capacity, newcap, sizeof(*mesh->groups))) return 0;
 	newptr = realloc(mesh->groups, (size_t)newcap * sizeof(*mesh->groups));
 	if (!newptr) {
 		objMeshSetError(mesh, 0, "group_alloc_failed");
@@ -527,6 +546,7 @@ static s32 objMeshGrowTriangles(obj_mesh_t *mesh, s32 needed)
 		newcap = 64;
 	}
 
+	if (!objMeshAllowGrowth(mesh, mesh->triangle_capacity, newcap, sizeof(*mesh->triangles))) return 0;
 	newptr = realloc(mesh->triangles, (size_t)newcap * sizeof(*mesh->triangles));
 	if (!newptr) {
 		objMeshSetError(mesh, 0, "triangle_alloc_failed");
@@ -741,7 +761,8 @@ static s32 parseObjRoomName(char *line)
 			p++;
 		}
 		if (isdigit((u8)*p)) {
-			return (s32)strtol(p, NULL, 10);
+			const long parsed = strtol(p, NULL, 10);
+			return parsed > INT32_MAX ? INT32_MAX : (s32)parsed;
 		}
 	}
 	return 0;
@@ -970,7 +991,7 @@ static s32 parseObjFaceLine(char *line, obj_mesh_t *mesh, s32 line_no,
 	return 1;
 }
 
-static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
+static s32 parseObjSourceBounded(const u8 *data, u32 size, obj_mesh_t *mesh, size_t budget)
 {
 	char *text;
 	char *line;
@@ -985,6 +1006,7 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	}
 
 	memset(mesh, 0, sizeof(*mesh));
+	mesh->allocation_budget = budget;
 	text = malloc((size_t)size + 1);
 	if (!text) {
 		objMeshSetError(mesh, 0, "source_alloc_failed");
@@ -1024,6 +1046,11 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 				current_material, current_group);
 		} else if ((*p == 'g' || *p == 'o') && isspace((u8)p[1])) {
 			current_room = parseObjRoomName(p);
+			if (budget && current_room >= SCENARIO_ROOM_DOMAIN_MAX_COUNT) {
+				objMeshSetError(mesh, line_no, "obj_room_out_of_range");
+				ok = 0;
+				break;
+			}
 			current_group = objMeshEnsureGroup(mesh, skipSpaces(p + 1));
 			if (current_group < 0) {
 				ok = 0;
@@ -1056,6 +1083,11 @@ static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
 	}
 
 	return ok;
+}
+
+static s32 parseObjSource(const u8 *data, u32 size, obj_mesh_t *mesh)
+{
+	return parseObjSourceBounded(data, size, mesh, 0);
 }
 
 typedef struct json_span {
@@ -2645,11 +2677,11 @@ static s32 gltfApplyPrimitiveBaseColor(json_span_t root,
 	return 1;
 }
 
-static s32 parseGltfMeshFromJson(const char *json,
+static s32 parseGltfMeshFromJsonBounded(const char *json,
                                  u32 json_size,
                                  const u8 *bin,
                                  u32 bin_size,
-                                 obj_mesh_t *mesh)
+                                 obj_mesh_t *mesh, size_t budget)
 {
 	json_span_t root;
 	json_span_t meshes_array;
@@ -2669,6 +2701,7 @@ static s32 parseGltfMeshFromJson(const char *json,
 	}
 
 	memset(mesh, 0, sizeof(*mesh));
+	mesh->allocation_budget = budget;
 	root.start = json;
 	root.end = json + json_size;
 	if (!modAssetGltfScenePlanBuild(json, json_size, &scene_plan,
@@ -2835,6 +2868,12 @@ static s32 parseGltfMeshFromJson(const char *json,
 	return ok;
 }
 
+static s32 parseGltfMeshFromJson(const char *json, u32 json_size, const u8 *bin,
+	u32 bin_size, obj_mesh_t *mesh)
+{
+	return parseGltfMeshFromJsonBounded(json, json_size, bin, bin_size, mesh, 0);
+}
+
 static s32 parseGltfTextMesh(const modasset_model_inputs_t *inputs, const char *source_path, const u8 *data,
 		u32 size, obj_mesh_t *mesh)
 {
@@ -2875,7 +2914,7 @@ static s32 parseGltfTextMesh(const modasset_model_inputs_t *inputs, const char *
 	return ok;
 }
 
-static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
+static s32 parseGlbMeshBounded(const u8 *data, u32 size, obj_mesh_t *mesh, size_t budget)
 {
 	modasset_gltf_glb_chunks_t chunks;
 	json_span_t root;
@@ -2892,8 +2931,13 @@ static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 		objMeshSetError(mesh, 0, "glb_buffer_declaration_invalid");
 		return 0;
 	}
-	return parseGltfMeshFromJson(root.start, chunks.json_size,
-		chunks.bin, bin_size, mesh);
+	return parseGltfMeshFromJsonBounded(root.start, chunks.json_size,
+		chunks.bin, bin_size, mesh, budget);
+}
+
+static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
+{
+	return parseGlbMeshBounded(data, size, mesh, 0);
 }
 static void gltfAnimationSetError(gltf_animation_info_t *info, const char *error)
 {
@@ -6667,14 +6711,16 @@ static s32 generatedModeldefLoadMaterialMetadata(const modasset_model_inputs_t *
 		}
 
 		p = skipSpaces(line);
+		const char *texture_catalog_value;
+		s32 secondary;
 		if (strncmp(p, "newmtl", 6) == 0 && isspace((u8)p[6])) {
 			current = objMeshFindMaterial(mesh, skipSpaces(p + 6));
-		} else if (current && strncmp(p, "pd_texture_catalog", 18) == 0) {
-			char *value = strchr(p, '=');
-			if (value) {
-				if (!objMaterialSetTextureCatalog(inputs, current, value + 1, 0)) {
-                free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
-            }
+		} else if (current && modAssetMaterialCatalogTextureDirective(p, &texture_catalog_value, &secondary)) {
+			if (texture_catalog_value
+					&& !objMaterialSetTextureCatalog(inputs, current, texture_catalog_value, secondary)) {
+				free(copy);
+				objMeshSetError(mesh, 0, "material_source_resolution_failed");
+				return 0;
 			}
 		} else if (current && strncmp(p, "map_Kd", 6) == 0 &&
 				isspace((u8)p[6])) {
@@ -6682,14 +6728,6 @@ static s32 generatedModeldefLoadMaterialMetadata(const modasset_model_inputs_t *
 				skipSpaces(p + 6))) {
                 free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
             }
-		} else if (current &&
-				strncmp(p, "pd_secondary_texture_catalog", 28) == 0) {
-			char *value = strchr(p, '=');
-			if (value) {
-				if (!objMaterialSetTextureCatalog(inputs, current, value + 1, 1)) {
-                free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
-            }
-			}
 		} else if (current && strncmp(p, "pd_texture_subcmd", 17) == 0) {
 			char *value = strchr(p, '=');
 			if (value) parseObjMaterialInt(value + 1, &current->subcmd);
@@ -9412,13 +9450,13 @@ typedef struct colflags_sidecar {
  * string ("0x004f"). Returns 1 on success, value via *out. */
 static s32 colflagsReadUint(const char *p, const char *end, u32 *out)
 {
-	while (p < end && (*p == ' ' || *p == '\t' || *p == ':')) {
+	while (p < end && (isspace((u8)*p) || *p == ':')) {
 		p++;
 	}
 	if (p < end && *p == '"') {
 		p++;
 	}
-	while (p < end && (*p == ' ' || *p == '\t')) {
+	while (p < end && isspace((u8)*p)) {
 		p++;
 	}
 	if (p >= end) {
@@ -9462,170 +9500,160 @@ static void colflagsFree(colflags_sidecar_t *s)
 	s->count = 0;
 }
 
-/* Load + parse the collision.flags.json sibling of source_path. Returns 1 if
- * parsed (out->rows owned by caller, free with colflagsFree), 0 if the sidecar
- * is absent or unparseable (caller falls back to classifyTriFlags). */
-static s32 colflagsLoadSidecar(const char *source_path, colflags_sidecar_t *out)
+static s32 colflagsReadStrictUint(const char *p, const char *end, u32 *out)
 {
-	char sidecar_path[FS_MAXPATH + 1];
-	u32 size = 0;
-	char *text;
-	const char *end;
-	const char *rows;
-	const char *cursor;
+	if (!p) return 0;
+	while (p < end && isspace((u8)*p)) ++p;
+	if (p == end || *p++ != ':') return 0;
+	while (p < end && isspace((u8)*p)) ++p;
+	if (p == end) return 0;
+	const char *token_end = NULL;
+	if (*p == '"') {
+		if (end - p < 5 || p[1] != '0' || (p[2] != 'x' && p[2] != 'X')) return 0;
+		const char *hex = p + 3;
+		p = hex;
+		u32 value = 0;
+		while (p < end && isxdigit((u8)*p)) {
+			u32 digit = isdigit((u8)*p) ? (u32)(*p - '0') : (u32)(tolower((u8)*p) - 'a' + 10);
+			value = (value << 4) | digit;
+			if (value > UINT16_MAX) return 0;
+			++p;
+		}
+		if (p == hex || p == end || *p != '"') return 0;
+		*out = value;
+		token_end = p + 1;
+	} else if (!modAssetJsonParseU32Token(p, end, out, &token_end) || *out > UINT16_MAX) {
+		return 0;
+	}
+	return modAssetJsonTokenHasContainerBoundary(token_end, end, '}');
+}
+
+/* The legacy reader falls back to native normal-derived flags if a sidecar is
+ * absent or unusable. Exact candidates reject any supplied invalid sidecar. */
+static s32 colflagsParseSidecar(const char *text, u32 size, s32 expected_rows,
+	colflags_sidecar_t *out)
+{
+	const s32 strict = expected_rows >= 0;
+	if (!text || !size || (strict && !modAssetJsonValidateObject(text, size))) return 0;
+	const char *end = text + size;
+	const char *rows = colflagsFindKey(text, end, "rows");
+	if (!rows) return 0;
+	if (strict) {
+		const json_span_t document = {text, end};
+		json_span_t authored_rows;
+		char schema[64];
+		if (!jsonObjectString(document, "schema", schema, sizeof(schema))
+				|| strcmp(schema, "pd2.scenario.collision.flags.v1") != 0
+				|| !jsonObjectArray(document, "rows", &authored_rows)) return 0;
+		while (rows < end && isspace((u8)*rows)) ++rows;
+		if (rows == end || *rows++ != ':') return 0;
+		while (rows < end && isspace((u8)*rows)) ++rows;
+		if (rows == end || *rows != '[' || rows + 1 != authored_rows.start) return 0;
+	} else {
+		rows = memchr(rows, '[', (size_t)(end - rows));
+		if (!rows) return 0;
+	}
+	const char *cursor = rows + 1;
 	s32 cap = 0;
 	s32 n = 0;
-
-	if (!out) {
-		return 0;
-	}
-	out->rows = NULL;
-	out->count = 0;
-
-	if (!generatedModeldefMetadataPath(source_path, "collision.flags.json",
-			sidecar_path, sizeof(sidecar_path))) {
-		return 0;
-	}
-
-	text = (char *)fsFileLoad(sidecar_path, &size);
-	if (!text || size == 0) {
-		if (text) {
-			free(text);
-		}
-		return 0;
-	}
-	end = text + size;
-
-	rows = colflagsFindKey(text, end, "rows");
-	if (!rows) {
-		free(text);
-		return 0;
-	}
-	rows = (const char *)memchr(rows, '[', (size_t)(end - rows));
-	if (!rows) {
-		free(text);
-		return 0;
-	}
-	cursor = rows + 1;
-
 	while (cursor < end) {
-		const char *obj_open = (const char *)memchr(cursor, '{',
-			(size_t)(end - cursor));
-		const char *obj_close;
-		const char *kp;
+		const char *obj_open;
+		if (strict) {
+			while (cursor < end && isspace((u8)*cursor)) ++cursor;
+			if (cursor < end && *cursor == ']') break;
+			if (cursor == end || *cursor != '{' || n >= expected_rows) goto fail;
+			obj_open = cursor;
+		} else {
+			obj_open = memchr(cursor, '{', (size_t)(end - cursor));
+		}
+		if (!obj_open) break;
+		const char *obj_close = memchr(obj_open, '}', (size_t)(end - obj_open));
+		if (!obj_close) break;
+		const char *flags_value = colflagsFindKey(obj_open, obj_close, "flags");
+		const char *type_value = colflagsFindKey(obj_open, obj_close, "floortype");
+		const char *color_value = colflagsFindKey(obj_open, obj_close, "floorcol");
 		u32 flags = 0, floortype = 0, floorcol = 0;
-
-		if (!obj_open) {
-			break;
+		if (strict) {
+			if (!colflagsReadStrictUint(flags_value, obj_close, &flags)
+					|| !colflagsReadStrictUint(type_value, obj_close, &floortype)
+					|| !colflagsReadStrictUint(color_value, obj_close, &floorcol)) goto fail;
+		} else {
+			if (flags_value) (void)colflagsReadUint(flags_value, obj_close, &flags);
+			if (type_value) (void)colflagsReadUint(type_value, obj_close, &floortype);
+			if (color_value) (void)colflagsReadUint(color_value, obj_close, &floorcol);
 		}
-		obj_close = (const char *)memchr(obj_open, '}',
-			(size_t)(end - obj_open));
-		if (!obj_close) {
-			break;
-		}
-
-		kp = colflagsFindKey(obj_open, obj_close, "flags");
-		if (kp) {
-			(void)colflagsReadUint(kp, obj_close, &flags);
-		}
-		kp = colflagsFindKey(obj_open, obj_close, "floortype");
-		if (kp) {
-			(void)colflagsReadUint(kp, obj_close, &floortype);
-		}
-		kp = colflagsFindKey(obj_open, obj_close, "floorcol");
-		if (kp) {
-			(void)colflagsReadUint(kp, obj_close, &floorcol);
-		}
-
 		if (n >= cap) {
 			s32 newcap = cap ? cap * 2 : 256;
-			colflags_row_t *np = (colflags_row_t *)realloc(out->rows,
-				(size_t)newcap * sizeof(*np));
-			if (!np) {
-				colflagsFree(out);
-				free(text);
-				return 0;
-			}
+			colflags_row_t *np = realloc(out->rows, (size_t)newcap * sizeof(*np));
+			if (!np) goto fail;
 			out->rows = np;
 			cap = newcap;
 		}
-		out->rows[n].flags = (u16)flags;
-		out->rows[n].floortype = (u16)floortype;
-		out->rows[n].floorcol = (u16)floorcol;
-		n++;
-
+		out->rows[n++] = (colflags_row_t){(u16)flags, (u16)floortype, (u16)floorcol};
 		cursor = obj_close + 1;
+		if (strict) {
+			while (cursor < end && isspace((u8)*cursor)) ++cursor;
+			if (cursor == end) goto fail;
+			if (*cursor == ']') break;
+			if (*cursor++ != ',') goto fail;
+		}
 	}
-
-	free(text);
+	if (strict && (n != expected_rows || cursor == end || *cursor != ']')) goto fail;
 	out->count = n;
-	return n > 0 ? 1 : 0;
+	return n > 0;
+
+fail:
+	colflagsFree(out);
+	return 0;
 }
 
-s32 modAssetCompilerBuildColmesh(const char *source_path,
-                                 struct colmesh *out_mesh)
+static s32 buildColmeshFromSourceBytes(const char *source_path, const void *source_bytes, u32 source_size,
+	const char *flags_text, u32 flags_size, size_t mesh_budget, struct colmesh *out_mesh)
 {
-	u32 source_size = 0;
-	void *source_bytes;
-	obj_mesh_t obj_mesh;
-	const char *source_kind;
+	obj_mesh_t obj_mesh = {0};
+	const char *source_kind = sourceKindForPath(source_path);
 	s32 parsed = 0;
-	s32 skipped_degenerate = 0;
-
-	if (!modAssetCompilerIsExternalSource(source_path)) {
-		return 0;
-	}
-
-	if (!out_mesh || !source_path || !source_path[0]) {
-		return -1;
-	}
-
-	source_bytes = fsFileLoad(source_path, &source_size);
-	if (!source_bytes || source_size == 0) {
-		if (source_bytes) {
-			free(source_bytes);
-		}
-		return -1;
-	}
-
-	memset(&obj_mesh, 0, sizeof(obj_mesh));
-	source_kind = sourceKindForPath(source_path);
 	if (strcmp(source_kind, "obj") == 0) {
-		parsed = parseObjSource((const u8 *)source_bytes, source_size, &obj_mesh);
-	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
-		parsed = parseGltfLikeMeshSource(NULL, source_path,
-			(const u8 *)source_bytes, source_size, &obj_mesh);
+		parsed = parseObjSourceBounded(source_bytes, source_size, &obj_mesh, mesh_budget);
+	} else if (strcmp(source_kind, "glb") == 0) {
+		parsed = parseGlbMeshBounded(source_bytes, source_size, &obj_mesh, mesh_budget);
+	} else if (!mesh_budget && strcmp(source_kind, "gltf") == 0) {
+		parsed = parseGltfLikeMeshSource(NULL, source_path, source_bytes, source_size, &obj_mesh);
 	}
-
 	if (!parsed) {
-		sysLogPrintf(LOG_WARNING,
-			"MODASSET.COMPILER: colmesh parse failed for %s (%s)",
+		sysLogPrintf(LOG_WARNING, "MODASSET.COMPILER: colmesh parse failed for %s (%s)",
 			source_path, obj_mesh.error[0] ? obj_mesh.error : "parse_failed");
 		objMeshFree(&obj_mesh);
-		free(source_bytes);
 		return -1;
 	}
 
-	free(source_bytes);
+	/* The native colmesh grows geometrically, starting with 64 triangles. */
+	if (mesh_budget && (mesh_budget < 64 * sizeof(struct meshtri)
+			|| (size_t)obj_mesh.triangle_count > mesh_budget / (2 * sizeof(struct meshtri)))) {
+		objMeshFree(&obj_mesh);
+		return -1;
+	}
 	meshInit(out_mesh);
 
-	/* B-943: load the authoritative per-triangle GEOFLAG / floortype / floorcol
-	 * sidecar. Indexed by OBJ triangle index (same order the extractor emitted
-	 * collision.obj), so it stays aligned even though degenerate triangles are
-	 * skipped below (they were never emitted to either file). Absent sidecar =>
-	 * classifyTriFlags fallback for back-compat with pre-B-943 archives. */
-	colflags_sidecar_t colflags;
-	s32 have_colflags = colflagsLoadSidecar(source_path, &colflags);
-	s32 colflags_applied = 0;
+	/* B-943: flags are indexed by input triangle, including degenerate input
+	 * triangles skipped below, so later rows cannot slide onto other faces. */
+	colflags_sidecar_t colflags = {0};
+	s32 have_colflags = colflagsParseSidecar(flags_text, flags_size,
+		mesh_budget ? obj_mesh.triangle_count : -1, &colflags);
+	if (mesh_budget && flags_text && !have_colflags) {
+		sysLogPrintf(LOG_WARNING, "MODASSET.COMPILER: invalid exact collision.flags.json for %s", source_path);
+		objMeshFree(&obj_mesh);
+		return -1;
+	}
 	if (have_colflags && colflags.count != obj_mesh.triangle_count) {
-		/* Order contract broken (count must match the OBJ triangle count). Do
-		 * not risk mis-tagging geometry -- drop to the normal-based fallback. */
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: collision.flags.json count=%d != obj triangles=%d for %s; using normal fallback",
 			colflags.count, obj_mesh.triangle_count, source_path);
 		colflagsFree(&colflags);
 		have_colflags = 0;
 	}
+	s32 skipped_degenerate = 0;
+	s32 colflags_applied = 0;
 
 	for (s32 i = 0; i < obj_mesh.triangle_count; i++) {
 		const obj_triangle_t *tri = &obj_mesh.triangles[i];
@@ -9695,6 +9723,40 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 		colflagsFree(&colflags);
 	}
 	return out_mesh->numtris > 0 ? 1 : -1;
+}
+
+s32 modAssetCompilerBuildColmesh(const char *source_path, struct colmesh *out_mesh)
+{
+	if (!modAssetCompilerIsExternalSource(source_path)) return 0;
+	if (!out_mesh) return -1;
+	u32 source_size = 0;
+	void *source = fsFileLoad(source_path, &source_size);
+	if (!source || !source_size) {
+		free(source);
+		return -1;
+	}
+	char flags_path[FS_MAXPATH + 1];
+	u32 flags_size = 0;
+	char *flags = generatedModeldefMetadataPath(source_path, "collision.flags.json", flags_path, sizeof(flags_path))
+		? fsFileLoad(flags_path, &flags_size) : NULL;
+	s32 result = buildColmeshFromSourceBytes(source_path, source, source_size, flags, flags_size, 0, out_mesh);
+	free(flags);
+	free(source);
+	return result;
+}
+
+s32 modAssetCompilerBuildColmeshFromBytes(const char *source_path, const void *source, u32 source_size,
+	const void *flags, u32 flags_size, size_t mesh_budget, struct colmesh *out_mesh)
+{
+	if (!source_path || !source || !source_size || !out_mesh || !mesh_budget
+			|| (!flags && flags_size) || (flags && !flags_size)
+			|| (endsWithNoCase(source_path, ".obj") && memchr(source, '\0', source_size))) return -1;
+	if (!endsWithNoCase(source_path, ".obj") && !endsWithNoCase(source_path, ".glb")) return 0;
+	struct colmesh candidate = {0};
+	s32 result = buildColmeshFromSourceBytes(source_path, source, source_size, flags, flags_size, mesh_budget, &candidate);
+	if (result == 1) *out_mesh = candidate;
+	else meshFree(&candidate);
+	return result;
 }
 
 s32 modAssetCompilerBuildObjColmesh(const char *source_path,
@@ -9788,6 +9850,7 @@ static s32 animDescriptorStreamMatches(const u8 *header,
  * fail-closed source/layout rejection. */
 static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
                                            s32 frame_count,
+                                           s32 rotation_bits,
                                            struct animtableentry *out_entry,
                                            u8 **out_data,
                                            u32 *out_data_size)
@@ -9805,6 +9868,9 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	u8 *data;
 
 	if (part_count <= 0 || !clip->special_parts) {
+		return 0;
+	}
+	if (rotation_bits < 0 || rotation_bits > 16) {
 		return 0;
 	}
 	if (clip->part_count > 0 && part_count != clip->part_count) {
@@ -9929,7 +9995,9 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	out_entry->bytesperframe = (u16)bytes_per_frame;
 	out_entry->data = 0xffffffff;
 	out_entry->headerlen = (u16)header_len;
-	out_entry->framelen = 16;
+	/* The packed rotation values use the precision in the public descriptor.
+	 * A missing width keeps the original 16-bit default for loose sources. */
+	out_entry->framelen = rotation_bits ? (u8)rotation_bits : 16;
 	out_entry->flags = (u8)(clip->native_flags
 		| (has_repeat_tail ? ANIMFLAG_HASREPEATFRAMES : 0)
 		| (has_cut_skip_tail ? ANIMFLAG_HASCUTSKIPFRAMES : 0));
@@ -9941,6 +10009,7 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 
 static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
                                          s32 requested_frame_count,
+                                         s32 rotation_bits,
                                          struct animtableentry *out_entry,
                                          u8 **out_data,
                                          u32 *out_data_size)
@@ -9980,8 +10049,8 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	 * native-only fields are never discarded into the lossy channel path. */
 	if (!clip->zero_frame_placeholder
 			&& clip->special_parts && clip->special_part_count > 0) {
-		return gltfBuildNativeFromSpecialParts(clip, frame_count, out_entry,
-			out_data, out_data_size);
+		return gltfBuildNativeFromSpecialParts(clip, frame_count, rotation_bits,
+			out_entry, out_data, out_data_size);
 	}
 
 	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
@@ -10303,8 +10372,8 @@ s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
 		frame_count = 0xffff;
 	}
 
-	ok = gltfBuildAnimationClipPayload(&clip, frame_count, out_entry,
-		out_data, out_data_size);
+	ok = gltfBuildAnimationClipPayload(&clip, frame_count,
+		entry ? entry->ext.anim.framelen : 0, out_entry, out_data, out_data_size);
 	if (!ok) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: animation clip build rejected for '%s'",
@@ -10321,20 +10390,21 @@ s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
             clip.owned_bin_size, source_digest);
         sha256_ctx hash;
         sha256Init(&hash);
-        const char version[] = "pd.animation.generation.v1";
+        const char version[] = "pd.animation.generation.v2";
         sha256Update(&hash, version, sizeof(version));
         sha256Update(&hash, source_digest, sizeof(source_digest));
         const u8 framing[] = {(u8)(frame_count >> 24), (u8)(frame_count >> 16),
-            (u8)(frame_count >> 8), (u8)frame_count};
+            (u8)(frame_count >> 8), (u8)frame_count, out_entry->framelen};
         sha256Update(&hash, framing, sizeof(framing));
         sha256Final(&hash, digest);
         sha256ToHex(digest, source_sha256);
     }
 
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built animation clip '%s' source=%s clips=%d channels=%d frames=%d boundary=animtableentry",
+		"MODASSET.COMPILER: built animation clip '%s' source=%s clips=%d channels=%d frames=%d boundary=animtableentry rotation_bits=%u",
 		entry ? entry->id : "(unknown)", source_path,
-		clip.info.animation_count, clip.channel_count, frame_count);
+		clip.info.animation_count, clip.channel_count, frame_count,
+		(unsigned)out_entry->framelen);
 	gltfAnimationClipFree(&clip);
 	free(source_bytes);
 	return 1;

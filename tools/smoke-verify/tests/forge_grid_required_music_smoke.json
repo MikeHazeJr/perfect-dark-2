@@ -1,0 +1,223 @@
+{
+  "scenario_name": "forge_grid_required_music_smoke",
+  "description": "A host authors an original Grid arena that names an independently authored MIDI-backed song. A clean guest approves both missing packages, both native primary sequencers play the song, and the guest retires the private track, catalog row and archive when returning to the same Room.",
+  "tags": ["modding", "forge", "network", "pdsong", "audio", "temporary-content", "required-mods"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mod.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/pdmain.c",
+    "src/game/stagemusic.c",
+    "src/lib/music.c",
+    "tools/smoke-verify/fixtures/grid_required_music",
+    "tools/smoke-verify/fixtures/grid_two_package_guest_process.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 570,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "guest",
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": ["gms-h", "gms-g"],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "gms-h/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "gms-g/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_music/enabled.json",
+      "dst": "gms-h/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_music/mod.json",
+      "dst": "gms-h/mods/grid_required_music/mod.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/grid_required_music/stage_call.pdsong",
+      "dst": "gms-h/mods/grid_required_music/music/stage_call.pdsong"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/gms-h",
+        "--moddir", "$E/gms-h/mods",
+        "--no-update-check",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Required_Music",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_required_music",
+        "--debug-forge-level-name", "Grid_Required_Music",
+        "--debug-forge-level-atmosphere",
+        "--debug-grid-level-music", "grid_required_music:stage_call",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--debug-grid-song-witness", "grid_required_music:stage_call",
+        "--host",
+        "--listen-bind", "27641",
+        "--launch-mp-room", "mod:arena_grid_required_music", "base:combat", "0",
+        "--host-autostart",
+        "--match-timelimit-sec", "35"
+      ],
+      "wait_for": "NET: created server on port 27641",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loading mod 'grid_required_music' from .*gms-h[/\\\\]mods[/\\\\]grid_required_music",
+          "NET: CLC_LOBBY_RESYNC from client=1, replaying room state room=1$"
+        ],
+        "required_sequences": [
+          {
+            "name": "host authors the song dependency and plays it as the stage primary",
+            "patterns": [
+              "FORGE\\.LEVEL\\.EDIT: authored primary music grid_required_music:stage_call$",
+              "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_required_music catalog=mod:arena_grid_required_music",
+              "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_required_music sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_required_music",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_required_music epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "SCENARIO\\.SOURCE: atmosphere for '[^']+' .*music='grid_required_music:stage_call' track=16[0-9]{3} source=stage.json",
+              "MUSIC: musicStartPrimary track=16[0-9]{3} qlen=[0-9]+",
+              "CATALOG: music sequence 16[0-9]{3} -> public sequence source mid=\".*stage_call\\.pdsong::sequence\\.mid\" events=\".*stage_call\\.pdsong::sequence\\.json\" \\(195 events, [1-9][0-9]* bytes\\)",
+              "SMOKE\\.GRID\\.SONG: playing role=host room=1 epoch=[1-9][0-9]* id=grid_required_music:stage_call track=16[0-9]{3} player=[0-2] volume=[1-9][0-9]* temporary=0$",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_required_music revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "SMOKE: result=scripted_exit scenario=forge_grid_required_music_smoke"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/gms-g",
+        "--moddir", "$E/gms-g/mods",
+        "--no-update-check",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--debug-grid-song-witness", "grid_required_music:stage_call",
+        "--connect-host", "127.0.0.1:27641"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 235,
+      "assertions": {
+        "required_lines": [
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:arena_grid_required_music verified=[0-9]+ total=[1-9][0-9]*$",
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=grid_required_music:stage_call verified=[0-9]+ total=[1-9][0-9]*$",
+          "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_required_music bytes=[1-9][0-9]*$"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest consents and actually plays the transferred public sequence",
+            "patterns": [
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "DISTRIB\\.GRID: temporary packages await consent count=2 bytes=[1-9][0-9]*",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=24 down=1 .*held_after=1 pressed_after=1",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_required_music packages=2",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary source=grid_required_music:stage_call bytes=2082$",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_required_music generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MATCH: client stage start received",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_required_music epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "SCENARIO\\.SOURCE: atmosphere for '[^']+' .*music='grid_required_music:stage_call' track=16[0-9]{3} source=stage.json",
+              "MUSIC: musicStartPrimary track=16[0-9]{3} qlen=[0-9]+",
+              "CATALOG: music sequence 16[0-9]{3} -> public sequence source mid=\".*gms-g/grid-session/27205d5663d8ac197c89df7cb863c4dbcdbb12d42afd8ed414f843caa70bcfd0\\.pdsong::sequence\\.mid\" events=\".*gms-g/grid-session/27205d5663d8ac197c89df7cb863c4dbcdbb12d42afd8ed414f843caa70bcfd0\\.pdsong::sequence\\.json\" \\(195 events, [1-9][0-9]* bytes\\)",
+              "SMOKE\\.GRID\\.SONG: playing role=guest room=1 epoch=[1-9][0-9]* id=grid_required_music:stage_call track=16[0-9]{3} player=[0-2] volume=[1-9][0-9]* temporary=1$",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_required_music revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.MATCH\\.LEASE: retired temporary source=grid_required_music:stage_call type=20$",
+              "GRID\\.MATCH\\.ROOM: world retired room=1$",
+              "NET: CLC_LOBBY_RESYNC sent to server",
+              "SMOKE\\.GRID\\.SONG: retired role=guest room=1 id=grid_required_music:stage_call track=16[0-9]{3} slot_released=1 catalog=0 scratch=0$",
+              "SMOKE: result=scripted_exit scenario=forge_grid_temporary_arena_weapon_smoke"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "DISTRIB\\.GRID: temporary packages await consent",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary ",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary source=grid_required_music:stage_call",
+            "min": 1,
+            "max": 1
+          }
+        ],
+        "forbidden_patterns": [
+          "modmgr: loading mod 'grid_required_music'",
+          "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_required_music"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 410000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 75000,
+      "stable_ms": 1000
+    },
+    {"at_ms": 3000, "type": "action", "name": "ACTION_USE", "action": "tap"},
+    {"at_ms": 16000, "type": "exit"}
+  ],
+  "assertions": {
+    "required_lines": ["MATCH: stage end reason=timelimit"],
+    "required_counts": [
+      {"pattern": "SMOKE\\.GRID\\.SONG: playing role=", "min": 2, "max": 2},
+      {"pattern": "SMOKE: result=scripted_exit scenario=", "min": 2, "max": 2}
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: (refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "ASSET\\.FALLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

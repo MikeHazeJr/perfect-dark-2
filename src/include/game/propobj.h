@@ -211,6 +211,8 @@ void glassUpdatePortal(struct prop *glass, s32 playercount, bool *arg2);
 void weaponInitMatrices(struct prop *weapon);
 void hangingmonitorInitMatrices(struct prop *hangingmonitors);
 void objInitMatrices(struct prop *prop);
+/* A private Grid decoration may translate on its current static floor only. */
+s32 objGridDecorationMove(struct defaultobj *obj, u64 generation, f32 x, f32 z, s32 apply);
 bool propCanRegen(struct prop *prop);
 void objRegenNow(struct prop *prop);
 u32 objTick(struct prop *prop);

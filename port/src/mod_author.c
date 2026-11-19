@@ -5,6 +5,7 @@
  */
 
 #include <direct.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,11 @@ typedef struct author_family {
  * `bundled` says the asset ships with the game, a weapon's `category` names
  * its owner (the catalog falls back to the mod's own id), and
  * `requirefeature` locks the asset behind base-game progress.
+ *
+ * An arena's name key is `display_name` (Forge F1): a base arena is named by
+ * a language id and has no such key, so the author adds it, and the arena
+ * lists show a saved level under the name its author gave it and not as a
+ * second copy of its template's name.
  */
 static const author_family_t s_Families[] = {
 	{ ".pdweapon",    "weapon",    "Weapons",    "name",         NULL,   "bundled category" },
@@ -52,7 +58,7 @@ static const author_family_t s_Families[] = {
 	{ ".pdbody",      "body",      "Characters", "display_name", "name", "bundled requirefeature" },
 	{ ".pdhead",      "head",      "Characters", "display_name", "name", "bundled requirefeature" },
 	{ ".pdvehicle",   "vehicle",   "Vehicles",   "name",         NULL,   "bundled" },
-	{ ".pdarena",     "arena",     "MP Maps",    NULL,           NULL,   "bundled requirefeature" },
+	{ ".pdarena",     "arena",     "MP Maps",    "display_name", NULL,   "bundled requirefeature" },
 };
 
 typedef struct author_buf {
@@ -598,10 +604,10 @@ static s32 authorCheckDescriptorValues(const mod_author_request_t *request,
 
 /* Names and paths for a request. Writes nothing. */
 static s32 authorPlan(const mod_author_request_t *request, mod_author_result_t *result,
-		const author_family_t **out_family, char *display, size_t display_cap,
-		char *err, size_t err_cap)
+		const author_family_t **out_family, char *err, size_t err_cap)
 {
 	const author_family_t *family;
+	char display[MOD_AUTHOR_NAME_MAX];
 	char name_slug[MOD_AUTHOR_NAME_MAX];
 	char full[MOD_AUTHOR_NAME_MAX + 32];
 	/* "mod:<slug>" must leave room for the ids the rebuild derives from it
@@ -626,7 +632,7 @@ static s32 authorPlan(const mod_author_request_t *request, mod_author_result_t *
 			"no creator for this kind of archive yet: %s",
 			authorLeaf(request->template_path));
 	}
-	if (!authorCleanLine(request->display_name, display, display_cap)) {
+	if (!authorCleanLine(request->display_name, display, sizeof(display))) {
 		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
 			"the name must be one line of 1 to %d bytes of plain text",
 			MOD_AUTHOR_NAME_MAX - 1);
@@ -670,17 +676,28 @@ static s32 authorPlan(const mod_author_request_t *request, mod_author_result_t *
 		result->mod_dir, result->slug, family->ext);
 	snprintf(result->manifest_path, sizeof(result->manifest_path), "%s/mod.json",
 		result->mod_dir);
+	memcpy(result->display_name, display, strlen(display) + 1);
 	*out_family = family;
 	return MOD_AUTHOR_OK;
 }
 
-/*
- * Who owns the planned folder: nobody yet (`plan->updated` 0), this mod
- * (`plan->updated` 1), or something else (MOD_AUTHOR_ERR_EXISTS).
- */
-static s32 authorCheckOwner(mod_author_result_t *plan, char *err, size_t err_cap)
+static s32 authorRefuseOccupiedFolder(const char *path, char *err, size_t err_cap)
+{
+	return authorFail(err, err_cap, MOD_AUTHOR_ERR_EXISTS,
+		"Choose a different name. The destination '%s' already exists.", path);
+}
+
+/* Resolve existing ownership according to the request's update policy. */
+static s32 authorCheckOwner(mod_author_result_t *plan, s32 require_new_folder,
+		char *err, size_t err_cap)
 {
 	plan->updated = 0;
+	if (require_new_folder) {
+		if (GetFileAttributesA(plan->mod_dir) != INVALID_FILE_ATTRIBUTES) {
+			return authorRefuseOccupiedFolder(plan->mod_dir, err, err_cap);
+		}
+		return MOD_AUTHOR_OK;
+	}
 	if (authorFileExists(plan->manifest_path)) {
 		u32 size = 0;
 		char id[MOD_AUTHOR_ID_MAX];
@@ -705,29 +722,27 @@ s32 modAuthorNames(const mod_author_request_t *request, mod_author_result_t *res
 		char *err, size_t err_cap)
 {
 	const author_family_t *family = NULL;
-	char display[MOD_AUTHOR_NAME_MAX];
 
 	if (err && err_cap) err[0] = '\0';
 	if (!result) {
 		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS, "result is required");
 	}
-	return authorPlan(request, result, &family, display, sizeof(display), err, err_cap);
+	return authorPlan(request, result, &family, err, err_cap);
 }
 
 s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *result,
 		char *err, size_t err_cap)
 {
 	const author_family_t *family = NULL;
-	char display[MOD_AUTHOR_NAME_MAX];
 	s32 code;
 
 	if (err && err_cap) err[0] = '\0';
 	if (!result) {
 		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS, "result is required");
 	}
-	code = authorPlan(request, result, &family, display, sizeof(display), err, err_cap);
+	code = authorPlan(request, result, &family, err, err_cap);
 	if (code == MOD_AUTHOR_OK) {
-		code = authorCheckOwner(result, err, err_cap);
+		code = authorCheckOwner(result, request->require_new_folder, err, err_cap);
 		if (code != MOD_AUTHOR_OK) memset(result, 0, sizeof(*result));
 	}
 	return code;
@@ -737,7 +752,7 @@ s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *resu
  * manifest gate. NULL with `err` set otherwise. */
 static char *authorBuildManifest(const mod_author_request_t *request,
 		const mod_author_result_t *plan, const author_family_t *family,
-		const char *display, size_t *out_len, char *err, size_t err_cap)
+		size_t *out_len, char *err, size_t err_cap)
 {
 	author_buf_t b;
 	char author[AUTHOR_AUTHOR_CAP];
@@ -773,7 +788,7 @@ static char *authorBuildManifest(const mod_author_request_t *request,
 	authorBufText(&b, "{\n  \"id\": ");
 	authorBufJsonString(&b, plan->mod_id);
 	authorBufText(&b, ",\n  \"name\": ");
-	authorBufJsonString(&b, display);
+	authorBufJsonString(&b, plan->display_name);
 	authorBufText(&b, ",\n  \"version\": ");
 	authorBufJsonString(&b, version);
 	authorBufText(&b, ",\n  \"author\": ");
@@ -808,7 +823,6 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 {
 	mod_author_result_t *plan = NULL;
 	const author_family_t *family = NULL;
-	char display[MOD_AUTHOR_NAME_MAX];
 	char category_dir[MOD_AUTHOR_PATH_MAX];
 	char candidate[MOD_AUTHOR_PATH_MAX + 32];
 	char manifest_tmp[MOD_AUTHOR_PATH_MAX + 32];
@@ -833,7 +847,7 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 	if (!plan) return authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE, "out of memory");
 
 	category_dir[0] = '\0';
-	code = authorPlan(request, plan, &family, display, sizeof(display), err, err_cap);
+	code = authorPlan(request, plan, &family, err, err_cap);
 	if (code != MOD_AUTHOR_OK) goto done;
 
 	if (!authorDirExists(request->mods_root)) {
@@ -846,12 +860,12 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 			"template archive not found: %s", authorLeaf(request->template_path));
 		goto done;
 	}
-	code = authorCheckOwner(plan, err, err_cap);
+	code = authorCheckOwner(plan, request->require_new_folder, err, err_cap);
 	if (code != MOD_AUTHOR_OK) goto done;
 	code = authorCheckDescriptorValues(request, family, err, err_cap);
 	if (code != MOD_AUTHOR_OK) goto done;
 
-	manifest = authorBuildManifest(request, plan, family, display, &manifest_len,
+	manifest = authorBuildManifest(request, plan, family, &manifest_len,
 		err, err_cap);
 	if (!manifest) {
 		code = MOD_AUTHOR_ERR_ARGS;
@@ -1005,7 +1019,7 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 		}
 		if (family->name_key) {
 			descriptor = authorSetDescriptorKey(owned, owned_size, family->name_key,
-				family->name_alias, display, 0, &patched_size);
+				family->name_alias, plan->display_name, 0, &patched_size);
 			free(owned);
 			if (!descriptor) {
 				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
@@ -1032,17 +1046,36 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 		ASSET_ARCHIVE_CLONE_STAGING_SUFFIX);
 	snprintf(manifest_tmp, sizeof(manifest_tmp), "%s%s", plan->manifest_path,
 		ASSET_ARCHIVE_CLONE_STAGING_SUFFIX);
-	if (!authorEnsureDir(category_dir, &made_category) ||
-			!authorEnsureDir(plan->mod_dir, &made_mod_dir)) {
+	if (!authorEnsureDir(category_dir, &made_category)) {
+		code = authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE,
+			"could not create %s", plan->mod_dir);
+		goto done;
+	}
+	if (request->require_new_folder) {
+		/* The earlier ownership check is advisory. Only a successful mkdir
+		 * acquires this folder, even if it appeared during planning. */
+		if (_mkdir(plan->mod_dir) != 0) {
+			if (errno == EEXIST || GetFileAttributesA(plan->mod_dir) != INVALID_FILE_ATTRIBUTES) {
+				code = authorRefuseOccupiedFolder(plan->mod_dir, err, err_cap);
+			} else {
+				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE,
+					"could not create %s", plan->mod_dir);
+			}
+			goto done;
+		}
+		made_mod_dir = 1;
+	} else if (!authorEnsureDir(plan->mod_dir, &made_mod_dir)) {
 		code = authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE,
 			"could not create %s", plan->mod_dir);
 		goto done;
 	}
 
 	/* Stage the archive under a name the catalog scanner does not pick up.
-	 * A leftover from an interrupted save of this mod is ours to replace. */
-	remove(candidate);
-	remove(manifest_tmp);
+	 * Ordinary updates may replace their own interrupted save files. */
+	if (!request->require_new_folder) {
+		remove(candidate);
+		remove(manifest_tmp);
+	}
 	clone_err[0] = '\0';
 	r = assetArchiveRebuildFile(request->template_path, candidate, plan->catalog_id,
 		(request->tool && request->tool[0]) ? request->tool : "mod-author",

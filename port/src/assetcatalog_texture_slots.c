@@ -108,6 +108,32 @@ s32 assetCatalogResolveTexturePrivateSlot(const char *catalog_id)
     return TEXTURE_CUSTOM_START + idx;
 }
 
+s32 assetCatalogFindTexturePrivateSlot(const char *id)
+{
+    if (!id || !id[0]) return -1;
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; i++) {
+        if (strcmp(s_CustomTextureCatalogIds[i], id) == 0) return TEXTURE_CUSTOM_START + i;
+    }
+    return -1;
+}
+
+s32 assetCatalogCanRetireTextureReservation(const char *id, s32 slot)
+{
+    if (!id || !id[0] || slot < TEXTURE_CUSTOM_START || slot >= TEXTURE_CUSTOM_END) return 0;
+    const s32 local = slot - TEXTURE_CUSTOM_START;
+    return !s_GenerationSlots[local] && !s_SnapshotReservations[local]
+        && strcmp(s_CustomTextureCatalogIds[local], id) == 0;
+}
+
+s32 assetCatalogRetireTextureReservation(const char *id, s32 slot)
+{
+    if (!assetCatalogCanRetireTextureReservation(id, slot)) return 0;
+    const s32 local = slot - TEXTURE_CUSTOM_START;
+    s_CustomTextureCatalogIds[local][0] = '\0';
+    if (local + 1 > s_GenerationSearchCeiling) s_GenerationSearchCeiling = local + 1;
+    return 1;
+}
+
 s32 assetCatalogReserveTextureGenerationSlot(void)
 {
     for (s32 i = s_GenerationSearchCeiling; i-- > 0;) {

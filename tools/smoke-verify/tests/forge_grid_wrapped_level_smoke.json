@@ -1,0 +1,104 @@
+{
+  "scenario_name": "forge_grid_wrapped_level_smoke",
+  "description": "Let normal profile startup migrate a legacy folder mod into a pdmod. Open the native arena inside it, save edits under a new identity, pin that exact save, and start offline Combat on the new arena.",
+  "tags": [
+    "modding",
+    "forge",
+    "mod-author",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/modmigrate.c",
+    "port/src/forge_revision_store.c",
+    "port/src/scenario_source_runtime.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-wrapped"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "grid-wrapped/mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "grid-wrapped/mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "grid-wrapped/mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--portable",
+    "--savedir",
+    "$E/grid-wrapped",
+    "--moddir",
+    "$E/grid-wrapped/mods",
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--skip-intro",
+    "--debug-forge-level",
+    "mod_blank_room:arena_blank_room",
+    "--debug-forge-level-name",
+    "Grid_Wrapped_Level",
+    "--debug-forge-level-pin",
+    "--launch-mp-room",
+    "mod:arena_grid_wrapped_level",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 280000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 3000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_sequences": [
+      {
+        "name": "packed-sourced-typed-save-and-real-gameplay",
+        "patterns": [
+          "MIGRATE: packaged 'blank_room' -> 'blank_room\\.pdmod'",
+          "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room .+archive='[^']*blank_room\\.pdmod::blank_room\\.pdarena'",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_wrapped_level .+own_template=0",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_wrapped_level sha256=[0-9a-f]{64}",
+          "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_grid_wrapped_level[^']*'.*9 spawns",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_lines": [
+      "SAVE: initialized .*grid-wrapped",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=11 without_room=0",
+      "MATCH: player spawned slot="
+    ],
+    "forbidden_patterns": [
+      "FORGE\\.LEVEL\\.[A-Z.]*FAIL",
+      "FORGE\\.REVISION\\.PIN.FAIL",
+      "CATALOG\\.SCAN\\.TRANSACTION\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

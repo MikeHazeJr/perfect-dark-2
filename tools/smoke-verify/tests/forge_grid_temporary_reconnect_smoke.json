@@ -1,0 +1,309 @@
+{
+  "scenario_name": "forge_grid_temporary_reconnect_smoke",
+  "description": "The guest accepts an original Grid arena and native weapon once. A live timeout retires both temporary mounts. The same authenticated slot reloads the same offer and epoch from retained verified bytes, fires the authored projectile, and reviews the authoritative result. The guest quits from that result and retires both re-admitted mounts.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "pdweapon",
+    "match-lifecycle",
+    "temporary-content",
+    "reconnect"
+  ],
+  "paths_of_interest": [
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/grid_match_cache.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/pdmain.c",
+    "port/src/pdsched.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 570,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-two-reconnect-host",
+    "grid-two-reconnect-guest"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/grid_triangle/recipe.json",
+      "dst": "grid-two-reconnect-host/recipes/grid_triangle/recipe.json"
+    },
+    {
+      "src": "examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon",
+      "dst": "grid-two-reconnect-host/recipes/grid_triangle/tri_weapon.pdweapon"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-two-reconnect-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "grid-two-reconnect-host/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-two-reconnect-guest/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "grid-two-reconnect-guest/mods-enabled.json"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-two-reconnect-host",
+        "--moddir",
+        "$E/grid-two-reconnect-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--mod-author",
+        "grid-two-reconnect-host/recipes/grid_triangle/recipe.json",
+        "--debug-grid-share-weapon",
+        "mod:weapon_grid_triangle",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Two_Reconnect",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_two_reconnect",
+        "--debug-forge-level-name",
+        "Grid_Two_Reconnect",
+        "--debug-forge-level-weapon",
+        "mod:weapon_grid_triangle",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--host",
+        "--listen-bind",
+        "27486",
+        "--launch-mp-room",
+        "mod:arena_grid_two_reconnect",
+        "base:combat",
+        "0",
+        "--debug-spawn-weapon",
+        "mod:weapon_grid_triangle",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "75"
+      ],
+      "wait_for": "NET: created server on port 27486",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_lines": [
+          "SAVE: initialized .*grid-two-reconnect-host",
+          "FORGE\\.WEAPON\\.SHARE: granted weapon=mod:weapon_grid_triangle sha256=[0-9a-f]{64}",
+          "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_two_reconnect sha256=[0-9a-f]{64}",
+          "WEAPON\\.GRAPH: custom projectile spawned \\(fired\\) weapon=[0-9]+ asset='mod:weapon_grid_triangle__projectile_tri_projectile' graph='projectile' modelnum=[1-9][0-9]*",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=1"
+        ],
+        "required_sequences": [
+          {
+            "name": "ordinary_save_as_publishes_before_stage_launch",
+            "patterns": [
+              "FORGE\\.LEVEL\\.SAVE\\.INPLACE: arena=mod:arena_grid_two_reconnect",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_two_reconnect sha256=[0-9a-f]{64}",
+              "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_two_reconnect sha256=[0-9a-f]{64}",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1"
+            ]
+          },
+          {
+            "name": "authoritative_reconnect_and_same_stage_result",
+            "patterns": [
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "SMOKE\\.NETWORK: timeout_client client=1 .*stage_ready=1.*production_path=1",
+              "NET\\.RECONNECT\\.PRESERVE client=1 player=1 room=[0-9]+ .*snapshot=complete",
+              "NET\\.RECONNECT\\.AUTH client=1 .*credential=accepted",
+              "NET\\.GRID\\.RECONNECT: offered client=1 room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RECONNECT: stage_queued client=1 room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64} stage_bytes=[1-9][0-9]* reservation_retained=1",
+              "NET\\.RECONNECT\\.CUTSCENE active=[01]",
+              "NET\\.RECONNECT\\.RESYNC\\.PREPARE client=1 .*exact_set=1 score=1",
+              "NET\\.RECONNECT\\.RESYNC client=1 .*post_load_ready=1 targeted=1 ordered=1",
+              "PLAYER\\.INIT\\.COMMIT reconnect client=1 player=1 .*post_load_ready=1 resync=targeted",
+              "NET\\.RECONNECT\\.GAMEPLAY client=1 player=1 .*fire=1 server_accepted=1",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_two_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1 digest=[0-9a-f]{64}",
+            "min": 1,
+            "max": 1
+          }
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/forge_grid_reconnect_host.json"
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-two-reconnect-guest",
+        "--moddir",
+        "$E/grid-two-reconnect-guest/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--debug-approve-downloads",
+        "--connect-host",
+        "127.0.0.1:27486"
+      ],
+      "assertions": {
+        "required_lines": [
+          "SAVE: initialized .*grid-two-reconnect-guest",
+          "BONDGUN\\.SOURCE: loaded catalog model source .*id=mod:weapon_grid_triangle__mesh_tri_mesh path=.*grid-session/.*\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=2"
+        ],
+        "required_sequences": [
+          {
+            "name": "one_consent_and_exact_reauthentication",
+            "patterns": [
+              "DISTRIB\\.GRID: temporary packages await consent count=2 bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_two_reconnect packages=2",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_two_reconnect bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.RECONNECT: retained room=[0-9]+ client=1 player=1 generation=1 epoch=1 digest=[0-9a-f]{64} retained_packages=2",
+              "SMOKE\\.WAIT: satisfied condition=network_reconnect_available",
+              "NET\\.RECONNECT\\.CLIENT auth=accepted",
+              "NET\\.GRID\\.RECONNECT: admitted exact temporary arena=mod:arena_grid_two_reconnect bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.RECONNECT: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.RECONNECT: guest_ready arena=mod:arena_grid_two_reconnect room=[0-9]+ generation=1 epoch=1 digest=[0-9a-f]{64} installed_only=0 retained_packages=2",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1 digest=[0-9a-f]{64}",
+              "NET\\.RECONNECT\\.WORLD end .*exact_set=1 refs=resolved topology=exclusive",
+              "NET\\.RECONNECT\\.CLIENT commit=accepted client=1 ordered_snapshot=complete",
+              "NET\\.GRID\\.RECONNECT: released retained_packages=2 epoch=1 reason=committed",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=20 down=1",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_two_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "SMOKE: result=scripted_exit"
+            ]
+          },
+          {
+            "name": "first_arena_mount_retires_before_re_admission",
+            "patterns": [
+              "NET\\.GRID\\.RECONNECT: retained room=[0-9]+ client=1 player=1 generation=1 epoch=1 digest=[0-9a-f]{64} retained_packages=2",
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_two_reconnect",
+              "NET\\.GRID\\.RECONNECT: admitted exact temporary arena=mod:arena_grid_two_reconnect bytes=[1-9][0-9]*"
+            ]
+          },
+          {
+            "name": "first_weapon_mount_retires_before_re_admission",
+            "patterns": [
+              "NET\\.GRID\\.RECONNECT: retained room=[0-9]+ client=1 player=1 generation=1 epoch=1 digest=[0-9a-f]{64} retained_packages=2",
+              "GRID\\.MATCH\\.LEASE: retired temporary weapon",
+              "NET\\.GRID\\.RECONNECT: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*"
+            ]
+          },
+          {
+            "name": "quitting_from_results_retires_both_re_admitted_mounts",
+            "patterns": [
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_two_reconnect",
+              "SMOKE: result=scripted_exit",
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_two_reconnect",
+              "GRID\\.MATCH\\.LEASE: retired temporary weapon"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "DISTRIB\\.GRID: temporary packages await consent",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: guest approved",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary arena",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary weapon",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.RECONNECT: admitted exact temporary arena=mod:arena_grid_two_reconnect bytes=[1-9][0-9]*",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.RECONNECT: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_reconnect epoch=1 digest=[0-9a-f]{64}",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_two_reconnect",
+            "min": 2,
+            "max": 2
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary weapon",
+            "min": 2,
+            "max": 2
+          }
+        ],
+        "forbidden_patterns": [
+          "MODAUTHOR\\.RECIPE\\.RESULT",
+          "FORGE\\.WEAPON\\.SHARE: granted",
+          "FORGE\\.REVISION\\.SHARE: granted",
+          "GRID\\.MATCH\\.LEASE: shutdown (arena retirement|weapon (stage release|retirement)):"
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/forge_grid_reconnect_guest.json"
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_counts": [
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1 epoch=1 reason=1 arena=mod:arena_grid_two_reconnect revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.RECONNECT: (guest_refused|refused|unavailable|expired|aborted)",
+      "NET\\.GRID\\.TRANSFER: (refused|aborted)",
+      "NET\\.RECONNECT\\.MANIFEST",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "NET\\.RECONNECT\\.CLIENT authoritative message rejected",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "ASSET\\.FALLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|network_timeout_client_failed|network_reconnect_failed)"
+    ]
+  }
+}

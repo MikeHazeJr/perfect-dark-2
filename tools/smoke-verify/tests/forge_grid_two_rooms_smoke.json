@@ -1,0 +1,87 @@
+{
+  "scenario_name": "forge_grid_two_rooms_smoke",
+  "description": "Load the original Grid Test Rooms and start Combat with three simulants. Verify that the native stage compiles both authored room domains, the portal, collision and navigation pads.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/grid_two_rooms/build_grid_two_rooms.py",
+    "tools/level_archive.py",
+    "port/src/scenario_source_runtime.c",
+    "src/game/bg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/grid_two_rooms"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/mod.json",
+      "dst": "mods/grid_two_rooms/mod.json"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "mods/grid_two_rooms/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "dev-mods/grid_two_rooms/enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "mod_grid_two_rooms:arena_grid_two_rooms",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 8000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_two_rooms_smoke",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms id=mod_grid_two_rooms:scenario_grid_two_rooms",
+      "SCENARIO\\.SOURCE: resolved room domain 'mod_grid_two_rooms:scenario_grid_two_rooms' rooms=3 declared=3 mesh_max=2 portal_max=2",
+      "SCENARIO\\.SOURCE: compiled portals\\.json '[^']*' for stage '[^']*' as 1 portals across 3 rooms ",
+      "SCENARIO\\.SOURCE: compiled scene tiles 'mod_grid_two_rooms:scenario_grid_two_rooms' for stage '[^']*' as 3 rooms, 28 tiles ",
+      "SCENARIO\\.SOURCE: compiled pads\\.json '[^']*grid_two_rooms[^']*' for stage '[^']*' as 8 pads, 8 waypoints, \\d+ waygroups, 8 covers ",
+      "SETUP\\.PADS: stage 0x[0-9a-f]+ pads=8 without_room=0",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "SCENARIO\\.SOURCE: invalid"
+    ]
+  }
+}

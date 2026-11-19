@@ -1,0 +1,9 @@
+{
+  "id": "grid_two_rooms",
+  "name": "Grid Test Rooms",
+  "version": "0.1.0",
+  "author": "PD2",
+  "description": "An original arena with two rooms joined by one portal and a navigation loop across the opening.",
+  "tags": ["arena", "pdarena", "template"],
+  "contents": ["arena"]
+}

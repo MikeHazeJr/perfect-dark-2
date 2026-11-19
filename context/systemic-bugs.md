@@ -1,5 +1,40 @@
 # Systemic Bug Patterns - Architectural Issue Catalog
 
+2026-11-18, N-0972. Check the complete archive inventory at both offer
+entry points. The host and a proposing client now use the same typed
+member check as the receiving side before requesting transfer consent.
+Nested packages must have exact supported native member paths.
+
+2026-11-18, N-0973 through N-0979. Reconstruct live placement edits
+from the exact approved draft when applying geometry. Preserve each
+eligible decoration's pad through reopen and check native starts, paths,
+waypoints and links before moving it. Check the resident prop and its
+supporting floor before swapping the prepared layout. The focused native
+fixture verifies only the intended pad and bounds members changed.
+
+2026-11-18, N-0968. Treat an unbound native position as a rigid transform.
+The public hierarchy uses part -1 for a node that follows its parent
+without an animation channel. The native compiler stores that convention
+as unsigned 65535. The optimized animation matrix evaluator used it as a
+decoded-frame index; the same character crashed in the installed and
+temporarily mounted worlds. Keep the static local offset, and validate
+both direct and mirrored channel indices before reading frame scratch.
+
+2026-11-18, N-0955. Check the runtime model slot for typed placements.
+A standalone original mesh can validate and compile while a native setup
+prop still resolves to model -1. Check both installed and leased catalog
+paths through native setup. The shared private model and source-file
+binder now reserves both identities for exact standalone originals.
+Managed receipt 653e2159 shows the placed mesh in different real slots on
+host and guest, then after the guest's offline variant restart.
+
+2026-11-18, T-NETWORKING-013. Check both bounds on archived data spans.
+Extraction and enumeration share the archive's actual byte count. Validate
+the full local header, compressed range, and central directory cursor before
+reading or inflating. Use widened offsets or checked subtraction. Expansion
+budgets limit output size and complement the input range checks. The Grid
+review path applies both checks before probing received native source.
+
 N-0829 Debug-only source guards are not production source enforcement. Inspect default gating and caller continuations: gun loading accepted non-file provider continuation while Debug.AssetSourceOnlyType was ASSET_NONE. Owned route now fails unsupported sources; global provider code unchanged. Dead legacy path cleanup and runtime proof remain open.
 
 N-0826 Budgeted-loop cursor ownership: commit persistent progress before an early budget return; otherwise the last processed entry is revisited. bgunTickGunLoad TEXTURES corrected in source; exact-multiple completion timing preserved. Full-width pointer-union and callback reads must survive graph conversion; regression execution deferred until ALL conversion.
@@ -3676,6 +3711,10 @@ count, sizes and times) and the per-archive check never runs.
   pdscenario kind grew to 525 chars while the stamp readers read 511, so the
   stored kind never matched and every launch re-extracted every scenario. The
   readers now hold 2047 chars and the writer refuses a longer kind loudly.
+- P-001 follow-up (2026-11-18): the separate `.pdextract-clean` reader still
+  accepted only 511 characters of a 593-character scenario kind. Both family
+  stamps hit, but every warm launch repeated the expensive content checks.
+  The marker reader and writer now share the complete serialized record.
 
 **Rule:** a folder fast-cache kind must change whenever anything its skip
 vouches for changes, and it must round-trip through its stamp unchanged. Build the kind from the version macros it depends on
@@ -4461,3 +4500,62 @@ read `words.w1` and shift). A unit test should decode a macro-built command
 through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
 
 `rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`
+
+---
+
+## SP-97: An operating system probe sits inside a loop that runs every frame
+
+**Severity: MEDIUM — nothing breaks. The frame rate falls with the size of the
+data, so a small base model hides the cost and a large mod model shows it.**
+
+`modelRodataIsReadable` asks the operating system (`VirtualQuery`) whether a
+range of memory can be read. It was written for about a hundred calls a tick,
+one per model node, and its header estimated 100 ns a call. In this client a
+call costs several microseconds. Inside a loop over display list commands or
+vertex batches it becomes thousands of system calls per walk.
+
+**Known instance (B-1234, 2026-11-17):** the shot hit test (`bgTestHitOnObj`,
+`bgTestHitOnChr` in `src/game/bg.c`) probed every vertex batch, and on the
+native path every command. The game runs that test every frame to find what
+the player is looking at. A compiled mod model has one vertex batch per
+triangle: 5,829 system calls for one test of the Maian vehicle, 30 to 48 ms of
+every frame while its rider's view passed through it. The base hoverbike paid
+about 3 ms a frame the same way and held 60 only because it is small.
+
+**Fix shape:** keep the check and drop the repeated question. A walk carries a
+`model_rodata_span_t` on its stack and calls `modelRodataIsReadableInSpan`,
+which asks once per run of readable memory and answers the rest with two
+compares. The span never outlives its walk: memory can be freed or
+re-protected between walks, and a kept span would go on answering "readable".
+Where the owner of the data knows its extent (the mod asset compiler's
+generated display list spans), a bound check against that extent is better
+still than a page probe.
+
+**Left alone, not per frame:** `extractGfxTris` in `src/lib/meshcollision.c`
+probes once per command while a prop's collision mesh is built (once per
+prop). The model relation updates in `src/lib/model.c` probe once per node,
+2% to 3% of the main thread's samples.
+
+**Audit checklist:** for every probe call, read the loop it sits in and how
+often that loop runs: per node is fine, per command, per vertex or per
+triangle of a per-frame walk is this pattern. Measure before trusting a cost
+estimate in a comment: a sampler on the running client found this in one run
+(`rip_sampler.py`, `rip_report.py`, `rip_chain.py`, described in B-1234), after
+reading the code had produced a wrong guess.
+
+`rg -n "modelRodataIsReadable(InSpan)?\(" src port`
+
+## Scripted pickup can clear the object-to-prop link
+
+A scripted grant must hold the incoming prop through
+`propPickupByPlayer` and pass it to the returned tick operation. For a
+successful untagged weapon pickup without regeneration, `objFree` uses
+`freeprop=false`, clears `obj->prop`, and leaves the original prop slot
+for `TICKOP_FREE`. Touch pickup already carries the incoming pointer.
+
+The Grid fixed-pickup case 5fe63674 reproduced a crash in
+`propExecuteTickOperation` when `og.pickup.give` read the cleared link.
+The Grid module now keeps the incoming prop. Source review found the
+same expression in `aiGiveObjectToChr` and
+`scenarioSourceAiGraphExecuteGiveObjectToChr`. Their production paths
+need separate AI ownership and runtime verification.

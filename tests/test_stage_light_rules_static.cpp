@@ -17,6 +17,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -199,7 +200,8 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 
 	for (const char *query : {"s32 scenarioSourceRoomRenderAlways(s32 roomnum);",
 			"s32 scenarioSourceRoomSky(s32 roomnum);",
-			"s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level);",
+			"s32 scenarioSourceRoomExplicitBaseBrightness(s32 roomnum, s32 *out_level);",
+			"s32 scenarioSourceRoomBaseBrightness(s32 stagenum, s32 roomnum, s32 *out_level);",
 			"s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);",
 			"s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);",
 			"s32 scenarioSourcePortalOpenToLight(s32 portalnum);",
@@ -209,20 +211,63 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 	}
 	REQUIRE(bg_h.find("s32 bgUsesScenarioSource(void);") != std::string::npos);
 
-	// The rows' fields are read, and each table clears its stage's rules first.
+	// The room reader takes light rules from the native room rows.
+	const std::string roomReader = between(runtime, "static void s_readRoomRuleFields(", "\n}\n");
 	for (const char *key : {"\"render_always\"", "\"sky\"", "\"base_brightness\"", "\"lights_unshootable\"",
-			"\"unshootable_lights\"", "\"light_flood_blocked\"", "\"open_to_light\""}) {
+			"\"unshootable_lights\""}) {
 		INFO(key);
-		REQUIRE(runtime.find(key) != std::string::npos);
+		REQUIRE(roomReader.find(key) != std::string::npos);
+	}
+
+	// The shared portals.json parser maps only true native boolean fields to
+	// light-rule bits, and the stage loader consumes those same indexed bits.
+	const std::string portalParser = readSource("port/src/scenario_portal_source.cpp");
+	const std::string portalTable = between(portalParser, "s32 scenarioPortalSourceRead(", "\n}\n");
+	REQUIRE(portalTable.find("source[\"schema\"].get<std::string>() != \"pd2.scenario.portals.v1\"") != std::string::npos);
+	REQUIRE(portalTable.find("readRow(input[i], parsed.get()[i])") != std::string::npos);
+	const std::string portalRow = between(portalParser, "bool readRow(", "\n}\n");
+	for (const auto &rule : {
+			std::pair{"light_flood_blocked", "SCENARIO_PORTAL_RULE_FLOOD_BLOCKED"},
+			std::pair{"open_to_light", "SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT"}}) {
+		INFO(rule.first);
+		const std::string key = "\"" + std::string(rule.first) + "\"";
+		const std::string field = "source[" + key + "]";
+		const size_t boolean = portalRow.find("source.contains(" + key + ") && " + field + ".is_boolean()");
+		const size_t flag = portalRow.find(field + ".get<bool>()) row.light_rules |= " + rule.second + ";");
+		REQUIRE(flag != std::string::npos);
+		REQUIRE(boolean < flag);
 	}
 	const std::string portals = between(runtime, "struct bgportal *scenarioSourceLoadPortalsForStage(",
 		"u8 *scenarioSourceLoadPadsForStage(");
-	REQUIRE(portals.find("s_stagePortalRulesClear();") != std::string::npos);
-	REQUIRE(portals.find("s_StagePortalRules[i] = rows[i].light_rules;") != std::string::npos);
+	const size_t clearPortals = portals.find("s_stagePortalRulesClear();");
+	const size_t parsePortals = portals.find("scenarioPortalSourceRead(text, text_size, &rows, &row_count, NULL, 0)");
+	const size_t storePortalRules = portals.find("s_StagePortalRules[i] = rows[i].light_rules;");
+	REQUIRE(storePortalRules != std::string::npos);
+	REQUIRE(clearPortals < parsePortals);
+	REQUIRE(parsePortals < storePortalRules);
+	const std::string flood = between(runtime, "s32 scenarioSourcePortalBlocksLightFlood(", "\n}\n");
+	REQUIRE(flood.find("s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_FLOOD_BLOCKED") != std::string::npos);
+	const std::string open = between(runtime, "s32 scenarioSourcePortalOpenToLight(", "\n}\n");
+	REQUIRE(open.find("s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT") != std::string::npos);
+
 	const std::string table = between(runtime, "s32 scenarioSourceApplyRoomTableForStage(",
 		"\n}\n");
 	REQUIRE(table.find("s_stageRoomRulesClear();") != std::string::npos);
 	REQUIRE(table.find("s_readRoomRuleFields(obj_open, obj_close,") != std::string::npos);
+
+	// An explicit room base wins over ambient from the current native stage.
+	const std::string explicitBase = between(runtime, "s32 scenarioSourceRoomExplicitBaseBrightness(", "\n}\n");
+	const size_t noRoomBase = explicitBase.find("if (!rule || rule->base_brightness < 0) return 0;");
+	const size_t roomBase = explicitBase.find("*out_level = rule->base_brightness;");
+	REQUIRE(roomBase != std::string::npos);
+	REQUIRE(noRoomBase < roomBase);
+	const std::string base = between(runtime, "s32 scenarioSourceRoomBaseBrightness(", "\n}\n");
+	const size_t explicitOverride = base.find("if (scenarioSourceRoomExplicitBaseBrightness(roomnum, out_level)) return 1;");
+	const size_t ambientScope = base.find("roomnum <= 0 || stagenum != s_StageAtmosphereStage || !look->has_ambient");
+	const size_t ambient = base.find("*out_level = look->ambient_light;");
+	REQUIRE(ambient != std::string::npos);
+	REQUIRE(explicitOverride < ambientScope);
+	REQUIRE(ambientScope < ambient);
 
 	// Activating a stage's scenario background and stopping it drop the rules.
 	const std::string activate = between(bg, "static s32 bgTryActivateScenarioSourceBackground(",
@@ -233,7 +278,7 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 
 	// The light code asks the scenario rules for a scenario-source stage and
 	// keeps the stage checks for a ROM-background stage, at all five places.
-	REQUIRE(dlights.find("if (scenarioSourceRoomBaseBrightness(roomnum, &level)) {") != std::string::npos);
+	REQUIRE(dlights.find("if (scenarioSourceRoomBaseBrightness(g_Vars.stagenum, roomnum, &level)) {") != std::string::npos);
 	REQUIRE(dlights.find("renderalways = scenarioSourceRoomRenderAlways(roomnum);") != std::string::npos);
 	REQUIRE(dlights.find("if (scenarioSourceRoomLightUnshootable(roomnum, i)) {") != std::string::npos);
 	REQUIRE(dlights.find("if (scenarioSourcePortalBlocksLightFlood(i)) {") != std::string::npos);

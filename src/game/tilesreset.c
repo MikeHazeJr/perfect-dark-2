@@ -19,6 +19,7 @@ void tilesReset(void)
 	s32 index = bgGetStageIndex(g_Vars.stagenum);
 	catalog_stage_result_t stage;
 
+	scenarioSourceClearGridTiles();
 	if (index < 0) {
 		index = 0;
 	}

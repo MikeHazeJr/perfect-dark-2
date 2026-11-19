@@ -61,6 +61,48 @@ TEST_CASE("editor hotkeys: Forge commands use action-map actions", "[input][forg
     REQUIRE(editor.find("ImGui::IsKeyPressed(") == std::string::npos);
 }
 
+TEST_CASE("editor hotkeys: Forge's control legend names the actions that work in FREEFLY",
+          "[input][forge][editor][static]")
+{
+    /* B-1242: the legend named the menu's tab keys and use / cancel-use, which
+     * FREEFLY blocks (actionIsBlockedInFreefly), so those pills read "Unbound"
+     * for every player. Each pill now names the editor's own action, and
+     * each of those is bound in g_ImcForge. */
+    const std::string hud = readTextFile("port/fast3d/pdgui_forge_hud.cpp");
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+
+    REQUIRE_FALSE(hud.empty());
+    REQUIRE_FALSE(actionmap.empty());
+
+    for (const char *pill : { "{ ACTION_FORGE_TAB_PREV, \"prev tab\" }", "{ ACTION_FORGE_TAB_NEXT, \"next tab\" }",
+            "{ ACTION_FORGE_SIDEBAR_TOGGLE, \"editor\" }", "{ ACTION_FORGE_SIDEBAR_ACTIVATE, \"select / place\" }",
+            "{ ACTION_FORGE_PLACE_CANCEL, \"cancel\" }" }) {
+        CAPTURE(pill);
+        /* Once to measure the box, once to draw it. */
+        const size_t first = hud.find(pill);
+        REQUIRE(first != std::string::npos);
+        CHECK(hud.find(pill, first + 1) != std::string::npos);
+    }
+    for (const char *stale : { "{ ACTION_USE, \"select / place\" }", "{ ACTION_CANCEL_USE, \"cancel\" }",
+            "{ ACTION_MENU_TAB_PREV, \"prev tab\" }", "{ ACTION_MENU_TAB_NEXT, \"next tab\" }" }) {
+        CAPTURE(stale);
+        CHECK(hud.find(stale) == std::string::npos);
+    }
+
+    /* Bound in the editor's own context (setupForgeDefaults). */
+    const size_t defaults = actionmap.find("static void setupForgeDefaults(s32 player)");
+    REQUIRE(defaults != std::string::npos);
+    const size_t end = actionmap.find("\n}\n", defaults);
+    REQUIRE(end != std::string::npos);
+    const std::string forge = actionmap.substr(defaults, end - defaults);
+    for (const char *bind : { "addBind(imc, ACTION_FORGE_TAB_PREV,", "addBind(imc, ACTION_FORGE_TAB_NEXT,",
+            "addBind(imc, ACTION_FORGE_SIDEBAR_TOGGLE,", "addBind(imc, ACTION_FORGE_SIDEBAR_ACTIVATE,",
+            "addBind(imc, ACTION_FORGE_PLACE_CANCEL," }) {
+        CAPTURE(bind);
+        CHECK(forge.find(bind) != std::string::npos);
+    }
+}
+
 TEST_CASE("editor hotkeys: Skin Editor commands use action-map actions", "[input][skin][editor][static]")
 {
     const std::string header = readTextFile("port/include/actionmap.h");

@@ -127,7 +127,7 @@ endif()
 # GitHub release prerelease flag, not by the version number itself.
 set(VERSION_SEM_MAJOR 0 CACHE STRING "Semantic version major")
 set(VERSION_SEM_MINOR 1 CACHE STRING "Semantic version minor")
-set(VERSION_SEM_PATCH 102 CACHE STRING "Semantic version revision")
+set(VERSION_SEM_PATCH 105 CACHE STRING "Semantic version revision")
 
 set(VERSION_SEM_STRING "${VERSION_SEM_MAJOR}.${VERSION_SEM_MINOR}.${VERSION_SEM_PATCH}")
 
@@ -629,9 +629,22 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 
 # Game client target
 
+# Stage the original native authoring seed beside the client.
+set(PD_GRID_ROOM_SEED "${CMAKE_SOURCE_DIR}/dev-mods/grid_two_rooms/grid_two_rooms.pdarena")
+set(PD_GRID_ROOM_SEED_DIR "${CMAKE_CURRENT_BINARY_DIR}/grid/templates")
+set(PD_GRID_ROOM_SEED_OUTPUT "${PD_GRID_ROOM_SEED_DIR}/grid_two_rooms.pdarena")
+add_custom_command(
+  OUTPUT "${PD_GRID_ROOM_SEED_OUTPUT}"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "${PD_GRID_ROOM_SEED_DIR}"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PD_GRID_ROOM_SEED}" "${PD_GRID_ROOM_SEED_OUTPUT}"
+  DEPENDS "${PD_GRID_ROOM_SEED}"
+  VERBATIM
+)
+add_custom_target(pd_grid_room_seed DEPENDS "${PD_GRID_ROOM_SEED_OUTPUT}")
+
 set(BIN_NAME "PerfectDark")
 add_executable(pd ${SRC})
-add_dependencies(pd pd_headers)
+add_dependencies(pd pd_headers pd_grid_room_seed)
 target_link_libraries(pd PRIVATE ${LIBS})
 
 # Existing-install smoke reuse confines native mutations to a retained profile.
@@ -902,6 +915,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/gdl_span.c
   ${CMAKE_SOURCE_DIR}/tests/test_anim_bits.cpp
   ${CMAKE_SOURCE_DIR}/src/lib/anim_bits.c
+  ${CMAKE_SOURCE_DIR}/tests/modelasm_character_fixture.c
+  ${CMAKE_SOURCE_DIR}/src/game/acosasin.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
   # Simulant pickups and drops in networked play (v62, finding 3).
   ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
@@ -941,6 +956,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/campaign_evidence.c
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_room_domain.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_room_domain.c
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_portal_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_portal_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
   # B-1113: authored room boxes reach public source and are used at stage load.
   ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
@@ -1202,12 +1219,27 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/character_head_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/body_head_source.c
   ${CMAKE_SOURCE_DIR}/port/src/body_blood.c
+  ${CMAKE_SOURCE_DIR}/port/src/character_tool.c
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_seats.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_properties.c
   ${CMAKE_SOURCE_DIR}/port/src/texture_stage_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_blood.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_character_tool.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_seats.cpp
+  # The readable-memory probe and one walk's span of it (B-1234).
+  ${CMAKE_SOURCE_DIR}/port/src/model_rodata_guard.c
+  ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
+  # A level's pads, spawns and objects as Forge edits them (Forge F2).
+  ${CMAKE_SOURCE_DIR}/port/src/forge_level_doc.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_room_builder.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_level_live.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc.cpp
+  # The rules of the Modding Hub's Levels tool (Forge F4).
+  ${CMAKE_SOURCE_DIR}/port/src/level_tool.c
+  ${CMAKE_SOURCE_DIR}/tests/test_level_tool.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
@@ -1228,6 +1260,29 @@ set(SRC_TESTS
   # One in-game Validate: release validation plus the content of every member.
   ${CMAKE_SOURCE_DIR}/port/src/mod_asset_validate.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_asset_validate.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/forge_revision_store.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_archive_policy.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_edit_session.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_cache.c
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_sources.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_result.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_wire.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_match_transfer.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_transfer.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_cache.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/grid_match_package_io.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_match_package_io.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_session.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_playtest_view.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_playtest_view.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_room.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_room_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_room.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_snapshot.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/grid_edit_snapshot_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_grid_edit_snapshot.cpp
   # The descriptor INI parser the game uses (the scanner's own loop).
   ${CMAKE_SOURCE_DIR}/port/src/ini_parse.c
   ${CMAKE_SOURCE_DIR}/tests/test_ini_parse.cpp
@@ -1389,6 +1444,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_stage_ownership.cpp
   ${CMAKE_SOURCE_DIR}/port/src/pdca_extract_transaction.c
   ${CMAKE_SOURCE_DIR}/tests/test_pdca_extract_transaction.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/assetprovider_file.c
   ${CMAKE_SOURCE_DIR}/tests/test_asset_path_contract.cpp
 
   # S484 F1: catalog manager for weapons (pure validators + variant spec).

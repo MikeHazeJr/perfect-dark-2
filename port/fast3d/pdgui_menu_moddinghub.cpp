@@ -42,6 +42,8 @@
 #include "pdgui_font_mod.h"
 #include "pdgui_model_preview.h"
 #include "pdgui_weapon_graph_node_editor.h"
+#include "pdgui_charactertool.h"
+#include "pdgui_leveltool.h"
 #include "system.h"
 #include "asset_mod_utility_contract.h"
 #include "asset_archive_policy.h"
@@ -148,8 +150,50 @@ static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
  * Hub-level state
  * ======================================================================== */
 
+/* The hub's tools, in tool bar order. A tool is one row of kHubTools, its
+ * refresh in moddingHubActivateTool and its body in renderModdingHub; the
+ * tool bar, the child window ids, the footer line, the LB/RB cycle and the
+ * index clamp all read the table. The main menu's MODHUB_TOOL_* mirror
+ * (pdgui_menu_mainmenu.cpp) names the first nine by number. */
+enum HubTool {
+    HUB_TOOL_MOD_MANAGER = 0,
+    HUB_TOOL_INI_EDITOR,
+    HUB_TOOL_SCALE,
+    HUB_TOOL_PACK,
+    HUB_TOOL_AUDIO,
+    HUB_TOOL_SKIN_EDITOR,
+    HUB_TOOL_MAP_IMPORT,
+    HUB_TOOL_MENU_STYLE,
+    HUB_TOOL_FONT_MOD,
+    HUB_TOOL_WEAPONS,
+    HUB_TOOL_CHARACTERS,
+    HUB_TOOL_LEVELS,
+    HUB_TOOL_COUNT
+};
+
+struct HubToolInfo {
+    const char *name;        /* its tool bar button */
+    const char *childId;     /* its body's child window */
+    const char *description; /* the footer line while it is active */
+};
+
+static const HubToolInfo kHubTools[HUB_TOOL_COUNT] = {
+    { "Mod Manager", "##modhub_modmgr",     "Enable/disable mod components" },
+    { "INI Editor",  "##modhub_ini",        "Edit mod .ini manifests" },
+    { "Scale Tool",  "##modhub_scale",      "Bake model scale to file" },
+    { "Mod Pack",    "##modhub_pack",       "Pack/import .pdmod archives" },
+    { "Audio Mods",  "##modhub_audio",      "Browse, audition, and import audio mods" },
+    { "Skin Editor", "##modhub_skin",       "Paint custom character skins" },
+    { "Map Import",  "##modhub_import",     "Stage editable map source layouts and typed map archives" },
+    { "Menu Style",  "##modhub_nineslice",  "Create UI chrome nine-slice mods in-game" },
+    { "Font Mod",    "##modhub_fontmod",    "Import a .ttf/.otf font as a mod" },
+    { "Weapons",     "##modhub_weapons",    "Browse weapon archives and graph payloads" },
+    { "Characters",  "##modhub_characters", "Make character, body and head mods from templates" },
+    { "Levels",      "##modhub_levels",     "Make a level from a template and open it in Forge" },
+};
+
 static bool s_Visible    = false;
-static int  s_ActiveTool = 0;    /* 0=ModManager, 1=INI, 2=Scale, 3=Pack, 4=Audio, 5=SkinEditor, 6=MapImport, 7=NineSlice, 8=FontMod, 9=Weapons */
+static int  s_ActiveTool = 0;    /* a HubTool */
 static int  s_LastLoggedTool = -1;
 static int  s_ModHubOpenFrame = -1; /* B-210: frame stamp for open-input debounce */
 static void chromeToolReset(void);
@@ -158,7 +202,7 @@ static void renderFontTool(float w, float h, float scale);
 static void weaponToolRefresh(void);
 static void renderWeaponTool(float w, float h, float scale);
 
-static int s_ModMgrPendingDestination = -1; // -2 close, 0..9 tool, -1 none
+static int s_ModMgrPendingDestination = -1; // -2 close, a HubTool, -1 none
 static modmgr_apply_plan_t *s_PdmodActivationPlan = nullptr;
 static modmgr_apply_result_t s_PdmodActivationResult = {};
 static char s_PdmodActivationId[CATALOG_ID_LEN] = "";
@@ -553,22 +597,10 @@ static bool iniResolveDescriptor(const asset_entry_t *e, IniEntry *ie)
 
 static const char *hubToolName(int tool)
 {
-    static const char *kNames[] = {
-        "Mod Manager",
-        "INI Editor",
-        "Scale Tool",
-        "Mod Pack",
-        "Audio Mods",
-        "Skin Editor",
-        "Map Import",
-        "Menu Style",
-        "Font Mod",
-        "Weapons",
-    };
-    if (tool < 0 || tool >= (int)(sizeof(kNames) / sizeof(kNames[0]))) {
+    if (tool < 0 || tool >= HUB_TOOL_COUNT) {
         return "Unknown";
     }
-    return kNames[tool];
+    return kHubTools[tool].name;
 }
 
 static void iniCollectCallback(const asset_entry_t *e, void *ud)
@@ -4427,6 +4459,8 @@ static void moddingHubActivateTool(int tool)
         case 7: chromeToolReset(); break;
         case 8: fontToolReset(); break;
         case 9: weaponToolRefresh(); break;
+        case HUB_TOOL_CHARACTERS: pdguiCharacterToolRefresh(); break;
+        case HUB_TOOL_LEVELS: pdguiLevelToolRefresh(); break;
     }
 }
 
@@ -4496,28 +4530,33 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
+    /* A creator view (the Weapons tool's or the Characters tool's) takes the
+     * hub's header, tool bar, body and footer while it is open. */
     const bool weaponCreatorView = s_WeaponTemplateMenuOpen;
+    const bool characterCreatorView = !weaponCreatorView && pdguiCharacterToolCreatorOpen() != 0;
 
     /* ---- Hub header ---- */
     pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left/top from chrome border */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
-    ImGui::Text("%s", weaponCreatorView ? "CREATE WEAPON MOD" : "MODDING");
+    ImGui::Text("%s", weaponCreatorView ? "CREATE WEAPON MOD"
+                      : characterCreatorView ? pdguiCharacterToolCreatorTitle() : "MODDING");
     ImGui::PopStyleColor();
     ImGui::Separator();
 
     /* ---- Tool selector bar ---- */
     if (weaponCreatorView) {
         ImGui::TextDisabled("Weapons > Create Weapon Mod");
+    } else if (characterCreatorView) {
+        ImGui::TextDisabled("%s", pdguiCharacterToolCreatorPath());
     } else {
-        const float btnW = 120.0f * scale;
+        static const int NUM_TOOLS = HUB_TOOL_COUNT;
+        /* The buttons share the bar: 120 wide at the reference size, narrower
+         * when that many would run past the dialog's edge. */
+        const float barSpacing = ImGui::GetStyle().ItemSpacing.x;
+        const float barFit = (ImGui::GetContentRegionAvail().x - barSpacing * (NUM_TOOLS - 1))
+                           / (float)NUM_TOOLS;
+        const float btnW = barFit < 120.0f * scale ? barFit : 120.0f * scale;
         const float btnH = 28.0f * scale;
-        static const int NUM_TOOLS = 10;
-
-        static const char *toolNames[] = {
-            "Mod Manager", "INI Editor", "Scale Tool", "Mod Pack",
-            "Audio Mods", "Skin Editor", "Map Import", "Menu Style",
-            "Font Mod", "Weapons"
-        };
 
         /* ACTION_MENU_TAB_PREV/NEXT cycle hub tools.
          * Skin Editor uses list navigation heavily; suppress global tab cycling there
@@ -4558,7 +4597,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
             }
 
-            if (PdButton(toolNames[i], ImVec2(btnW, btnH))) moddingHubRequestTool(i);
+            if (PdButton(kHubTools[i].name, ImVec2(btnW, btnH))) moddingHubRequestTool(i);
             if (active) ImGui::PopStyleColor(2);
         }
     }
@@ -4584,16 +4623,9 @@ static void renderModdingHub(s32 winW, s32 winH)
             ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBackground;
 
-        const char *childIds[] = {
-            "##modhub_modmgr", "##modhub_ini", "##modhub_scale",
-            "##modhub_pack", "##modhub_audio", "##modhub_skin",
-            "##modhub_import", "##modhub_nineslice", "##modhub_fontmod",
-            "##modhub_weapons"
-        };
-
-        const char *childId = weaponCreatorView
-                            ? "##modhub_weapon_creator"
-                            : childIds[s_ActiveTool];
+        const char *childId = weaponCreatorView ? "##modhub_weapon_creator"
+                            : characterCreatorView ? "##modhub_character_creator"
+                            : kHubTools[s_ActiveTool].childId;
 
         /* Priority L (2026-04-25): NavFlattened tool body. */
         if (ImGui::BeginChild(childId,
@@ -4602,6 +4634,8 @@ static void renderModdingHub(s32 winW, s32 winH)
             if (weaponCreatorView) {
                 weaponRenderTemplateEditor(scale);
                 weaponRenderMeshPickerPopup(scale);
+            } else if (characterCreatorView) {
+                pdguiCharacterToolRenderCreator(scale);
             } else if (s_ActiveTool == 0) {
                 s32 wantsClose = 0;
                 pdguiModManagerRenderContent(dialogW, contentH, scale, &wantsClose);
@@ -4624,28 +4658,22 @@ static void renderModdingHub(s32 winW, s32 winH)
                 renderFontTool(dialogW, contentH, scale);
             } else if (s_ActiveTool == 9) {
                 renderWeaponTool(dialogW, contentH, scale);
+            } else if (s_ActiveTool == HUB_TOOL_CHARACTERS) {
+                pdguiCharacterToolRender(dialogW, contentH, scale);
+            } else if (s_ActiveTool == HUB_TOOL_LEVELS) {
+                pdguiLevelToolRender(dialogW, contentH, scale);
             }
         }
         ImGui::EndChild();
     }
 
     /* ---- Hub footer: tool description row + docked action bar (C1) ---- */
-    const char *toolDescs[] = {
-        "Enable/disable mod components",
-        "Edit mod .ini manifests",
-        "Bake model scale to file",
-        "Pack/import .pdmod archives",
-        "Browse, audition, and import audio mods",
-        "Paint custom character skins",
-        "Stage editable map source layouts and typed map archives",
-        "Create UI chrome nine-slice mods in-game",
-        "Import a .ttf/.otf font as a mod",
-        "Browse weapon archives and graph payloads"
-    };
     if (weaponCreatorView) {
         ImGui::TextDisabled("Create a self-contained .pdweapon from the selected weapon template");
+    } else if (characterCreatorView) {
+        ImGui::TextDisabled("Save the selected template as a new character, body or head mod");
     } else {
-        ImGui::TextDisabled("%s", toolDescs[s_ActiveTool]);
+        ImGui::TextDisabled("%s", kHubTools[s_ActiveTool].description);
     }
 
     if (pdguiBeginActionBar("##modhub_ab")) {
@@ -4653,6 +4681,10 @@ static void renderModdingHub(s32 winW, s32 winH)
             if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
                 s_WeaponTemplateMenuOpen = false;
                 s_WeaponMeshPickerOpen = false;
+            }
+        } else if (characterCreatorView) {
+            if (pdguiActionBarButton("Back", 1, ImGui::GetContentRegionAvail().x)) {
+                pdguiCharacterToolCloseCreator();
             }
         } else {
             ImGui::BeginDisabled(s_ActiveTool == 0 && pdguiModManagerOwnsNavigation());
@@ -4672,6 +4704,8 @@ static void renderModdingHub(s32 winW, s32 winH)
             if (weaponCreatorView) {
                 s_WeaponTemplateMenuOpen = false;
                 s_WeaponMeshPickerOpen = false;
+            } else if (characterCreatorView) {
+                pdguiCharacterToolCloseCreator();
             } else {
                 moddingHubCloseFromUi("title-x-button");
             }
@@ -4681,6 +4715,9 @@ static void renderModdingHub(s32 winW, s32 winH)
                 if (weaponCreatorView) {
                     s_WeaponTemplateMenuOpen = false;
                     s_WeaponMeshPickerOpen = false;
+                    pdguiPlaySound(PDGUI_SND_SWIPE);
+                } else if (characterCreatorView) {
+                    pdguiCharacterToolCloseCreator();
                     pdguiPlaySound(PDGUI_SND_SWIPE);
                 } else {
                     /* B-213: Escape leaves paint session first; second Escape closes hub. */
@@ -6089,6 +6126,7 @@ void pdguiModdingHubShow(void)
         s_ActiveTool = 0;
         s_WeaponTemplateMenuOpen = false;
         s_WeaponMeshPickerOpen = false;
+        pdguiCharacterToolCloseCreator();
         pdguiModManagerRefreshSnapshot();
         sysLogPrintf(LOG_NOTE, "MODHUB: opened");
     }
@@ -6100,14 +6138,15 @@ void pdguiModdingHubShow(void)
  * without requiring the user to navigate through the hub manually. */
 void pdguiModdingHubShowTool(s32 tool)
 {
-    /* Clamp to the known tool range (0..9); out-of-range requests land
-     * on Mod Manager rather than an undefined child render. */
-    if (tool < 0 || tool > 9) tool = 0;
+    /* Clamp to the known tools; out-of-range requests land on Mod Manager
+     * rather than an undefined child render. */
+    if (tool < 0 || tool >= HUB_TOOL_COUNT) tool = 0;
     if (s_Visible && tool != s_ActiveTool && !moddingHubCanLeave(tool)) return;
     const bool refresh = !s_Visible || tool != s_ActiveTool;
     s_Visible = true;
     s_WeaponTemplateMenuOpen = false;
     s_WeaponMeshPickerOpen = false;
+    pdguiCharacterToolCloseCreator();
     if (refresh) moddingHubActivateTool(tool);
     sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
 }

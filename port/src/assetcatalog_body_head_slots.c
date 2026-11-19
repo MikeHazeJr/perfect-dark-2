@@ -56,6 +56,15 @@ void assetCatalogDestroyCustomBodyHeadSlotSnapshot(void *snapshot)
     free(snapshot);
 }
 
+static s32 s_find(char ids[][CATALOG_ID_LEN], s32 count, const char *catalog_id)
+{
+    if (!catalog_id || !catalog_id[0]) return -1;
+    for (s32 i = 0; i < count; i++) {
+        if (ids[i][0] && strncmp(ids[i], catalog_id, CATALOG_ID_LEN) == 0) return i;
+    }
+    return -1;
+}
+
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local
  * index, or -1 when the range is exhausted (caller logs the loud failure). */
 static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
@@ -67,11 +76,8 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
         return -1;
     }
 
-    for (i = 0; i < count; i++) {
-        if (ids[i][0] && strncmp(ids[i], catalog_id, CATALOG_ID_LEN) == 0) {
-            return i;
-        }
-    }
+    i = s_find(ids, count, catalog_id);
+    if (i >= 0) return i;
 
     for (i = 0; i < count; i++) {
         if (!ids[i][0]) {
@@ -118,4 +124,23 @@ s32 assetCatalogResolveHeadPrivateSlot(const char *catalog_id)
     }
 
     return CATALOG_MGR_HEAD_CUSTOM_START + idx;
+}
+
+s32 assetCatalogFindBodyHeadPrivateSlot(s32 is_head, const char *catalog_id)
+{
+    const s32 index = is_head
+        ? s_find(s_CustomHeadCatalogIds, CATALOG_MGR_HEAD_CUSTOM_COUNT, catalog_id)
+        : s_find(s_CustomBodyCatalogIds, CATALOG_MGR_BODY_CUSTOM_COUNT, catalog_id);
+    if (index < 0) return -1;
+    return index + (is_head ? CATALOG_MGR_HEAD_CUSTOM_START : CATALOG_MGR_BODY_CUSTOM_START);
+}
+
+s32 assetCatalogRetireBodyHeadReservation(s32 is_head, const char *catalog_id, s32 slot)
+{
+    if (slot < 0 || assetCatalogFindBodyHeadPrivateSlot(is_head, catalog_id) != slot) return 0;
+    char *reservation = is_head
+        ? s_CustomHeadCatalogIds[slot - CATALOG_MGR_HEAD_CUSTOM_START]
+        : s_CustomBodyCatalogIds[slot - CATALOG_MGR_BODY_CUSTOM_START];
+    memset(reservation, 0, CATALOG_ID_LEN);
+    return 1;
 }

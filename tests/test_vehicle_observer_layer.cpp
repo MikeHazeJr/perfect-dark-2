@@ -242,8 +242,13 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE_FALSE(sides.empty());
     REQUIRE_FALSE(chosen.empty());
     // Every vehicle mounts through its graph: no native fallback after the
-    // request (a v2 behavior is refused when the catalog hydrates it).
+    // request (a v2 behavior is refused when the catalog hydrates it). The
+    // request names the seat the player's place and view chose (V4b).
     REQUIRE(mountRequest.find("hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED") !=
+        std::string::npos);
+    REQUIRE(mountRequest.find("if (hoverbikeChooseMountSeat(prop) == VEHICLE_GRAPH_SEAT_GUNNER) {") !=
+        std::string::npos);
+    REQUIRE(mountRequest.find("VEHICLE_GRAPH_SEAT_GUNNER, hoverbikeMountDriverAction, prop) == 1;") !=
         std::string::npos);
     REQUIRE(mountRequest.find("currentPlayerTryMountHoverbikeNative(prop)") == std::string::npos);
     // og.vehicle.mount_seat runs the native mount through the request's action.
@@ -253,9 +258,11 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
         std::string::npos);
     REQUIRE(apply.find("hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED") !=
         std::string::npos);
-    // The graph decides the PC exit too: no direct call after the request.
-    REQUIRE(apply.find("VEHICLE_GRAPH_SEAT_DRIVER, bbikeExitToChosenSide, &vexit);") != std::string::npos);
+    // The graph decides the PC exit too: the request names the seat the rider
+    // leaves (V4b), and nothing calls the exit directly after it.
+    REQUIRE(apply.find("bbikeCurrentSeat(), bbikeExitToChosenSideSeat, &vexit);") != std::string::npos);
     REQUIRE(apply.find("bbikeExitToChosenSide(&vexit)") == std::string::npos);
+    REQUIRE(apply.find("bbikeExitToChosenSideSeat, &vexit) < 0") == std::string::npos);
     REQUIRE(chosen.find("s_VehicleExitIntentPending") != std::string::npos);
     REQUIRE(chosen.find("g_NetMode == NETMODE_CLIENT") != std::string::npos);
     REQUIRE(chosen.find("if (g_Vars.currentplayer->walkinitmove)") != std::string::npos);
@@ -287,8 +294,9 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE(bikeActivate.find("localIntentAccepted") != std::string::npos);
     REQUIRE(bikeActivate.find("hoverbikeGraphSeatRequest(g_Vars.currentplayer->hoverbike") !=
         std::string::npos);
-    REQUIRE(bikeActivate.find("bbikeDismountToSides, &d);") != std::string::npos);
+    REQUIRE(bikeActivate.find("bbikeCurrentSeat(),\n\t\t\tbbikeDismountToSidesSeat, &d);") != std::string::npos);
     REQUIRE(bikeActivate.find("bbikeDismountToSides(&d);") == std::string::npos);
+    REQUIRE(bikeActivate.find("bbikeDismountToSidesSeat, &d) < 0") == std::string::npos);
     REQUIRE(bikeActivate.find("localIntentAccepted = d.localIntentAccepted") != std::string::npos);
     REQUIRE(sides.find("bbikeTryDismountAngle") <
         sides.find("s_VehicleExitIntentPending"));

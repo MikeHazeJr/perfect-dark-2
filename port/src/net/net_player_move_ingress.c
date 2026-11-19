@@ -6,6 +6,7 @@
 #include "game/chraction.h"
 #include "game/inv.h"
 #include "game/playermgr.h"
+#include "grid_match_runtime.h"
 #include "system.h"
 #include "net/net.h"
 #include "net/netbuf.h"
@@ -31,11 +32,38 @@ static bool netmsgClientCanSelectWeapon(struct netclient *cl, s32 weaponnum, boo
 	return has_single && has_double;
 }
 
-u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
+static bool netmsgAcceptMoveRoute(const struct netclient *srccl, s32 grid, u32 epoch)
+{
+	const u32 active_epoch = netmsgGridGameplayEpoch();
+	if (!grid) return active_epoch == 0;
+	return epoch != 0 && epoch == active_epoch && netmsgGridMovePeerReady(srccl);
+}
+
+static void netmsgGridResolveMoveSelection(struct netplayermove *move, u16 ref)
+{
+	s32 weapon;
+	move->weaponnum = -1;
+	if (!(move->ucmd & UCMD_SELECT)) return;
+	if (ref == NET_GRID_WEAPON_REF_NO_SELECTION || !netmsgGridDecodeWeaponRef(ref, &weapon)
+			|| weapon < WEAPON_NONE || weapon >= WEAPON_CUSTOM_END) {
+		move->ucmd &= ~(UCMD_SELECT | UCMD_SELECT_DUAL);
+		return;
+	}
+	move->weaponnum = (s8)weapon;
+}
+
+u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl, s32 grid)
 {
 	struct netplayermove newmove = {0};
+	u16 weapon_ref = NET_GRID_WEAPON_REF_NO_SELECTION;
+	const u32 epoch = grid ? netbufReadU32(src) : 0;
 	const u32 outmoveack = netbufReadU32(src);
-	netbufReadPlayerMove(src, &newmove);
+	if (grid) {
+		const u32 error = netbufReadGridPlayerMove(src, &newmove, &weapon_ref);
+		if (error) return error;
+	} else {
+		netbufReadPlayerMove(src, &newmove);
+	}
 	if (src->error) {
 		return src->error;
 	}
@@ -44,6 +72,7 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 		// silently ignore
 		return src->error;
 	}
+	if (!netmsgAcceptMoveRoute(srccl, grid, epoch)) return 0;
 
 	if ((newmove.ucmd & UCMD_VEHICLE_PC_INTENT)
 			&& !(newmove.ucmd & UCMD_ACTIVATE)) {
@@ -53,6 +82,7 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
+	if (grid) netmsgGridResolveMoveSelection(&newmove, weapon_ref);
 	if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum == WEAPON_NONE) {
 		/* A dead player's gun switches to none, and every move it sends until
 		 * it respawns carries that select (49 rejections in one death). The
@@ -94,32 +124,42 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 				}
 			}
 		}
-		if (srccl->reconnect_gameplay_witness_pending
-				&& (newmove.ucmd & UCMD_FIRE)
-				&& srccl->player && srccl->player->prop) {
-			srccl->reconnect_gameplay_witness_pending = false;
-			sysLogPrintf(LOG_NOTE,
-				"NET.RECONNECT.GAMEPLAY client=%u player=%u room=%u prop=%u move_tick=%u fire=1 server_accepted=1",
-				(unsigned)srccl->id, (unsigned)srccl->playernum,
-				(unsigned)srccl->room_id,
-				(unsigned)srccl->player->prop->syncid,
-				(unsigned)newmove.tick);
+		if (srccl->reconnect_gameplay_witness_pending && srccl->player && srccl->player->prop) {
+			const bool fiesta = grid && gridMatchRuntimeFiestaActive();
+			const bool gameplay = fiesta
+				? (!srccl->player->isdead && (newmove.movespeed[0] != 0 || newmove.movespeed[1] != 0))
+				: (newmove.ucmd & UCMD_FIRE) != 0;
+			if (gameplay) {
+				srccl->reconnect_gameplay_witness_pending = false;
+				sysLogPrintf(LOG_NOTE,
+					"NET.RECONNECT.GAMEPLAY client=%u player=%u room=%u prop=%u move_tick=%u %s=1 server_accepted=1",
+					(unsigned)srccl->id, (unsigned)srccl->playernum,
+					(unsigned)srccl->room_id, (unsigned)srccl->player->prop->syncid,
+					(unsigned)newmove.tick, fiesta ? "move" : "fire");
+			}
 		}
 	}
 
 	return src->error;
 }
 
-u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
+u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl, s32 grid)
 {
 	u8 id = 0;
 	u32 outmoveack = 0;
 	struct netplayermove newmove = {0};
 	RoomNum newrooms[8] = { -1 };
+	u16 weapon_ref = NET_GRID_WEAPON_REF_NO_SELECTION;
+	const u32 epoch = grid ? netbufReadU32(src) : 0;
 
 	id = netbufReadU8(src);
 	outmoveack = netbufReadU32(src);
-	netbufReadPlayerMove(src, &newmove);
+	if (grid) {
+		const u32 error = netbufReadGridPlayerMove(src, &newmove, &weapon_ref);
+		if (error) return error;
+	} else {
+		netbufReadPlayerMove(src, &newmove);
+	}
 	if (newmove.ucmd & UCMD_FL_FORCEMASK) {
 		netbufReadRooms(src, newrooms, ARRAYCOUNT(newrooms));
 	}
@@ -127,6 +167,7 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error || srccl->state < CLSTATE_GAME) {
 		return src->error;
 	}
+	if (!netmsgAcceptMoveRoute(srccl, grid, epoch)) return 0;
 
 	if (id >= NET_MAX_CLIENTS) {
 		sysLogPrintf(LOG_WARNING, "NET: PlayerMove: client id %u out of range", id);
@@ -136,6 +177,13 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 	struct netclient *movecl = &g_NetClients[id];
 	if (movecl->state < CLSTATE_GAME) {
 		return src->error;
+	}
+	if (grid) {
+		/* The authority may position a preserved peer from the reconnect
+		 * snapshot before that peer returns to the game. */
+		if (movecl->state != CLSTATE_GAME || !movecl->player
+				|| (movecl->flags & CLFLAG_SPECTATOR)) return 0;
+		netmsgGridResolveMoveSelection(&newmove, weapon_ref);
 	}
 
 	if (!netPlayerMoveCommit(movecl, &newmove, outmoveack)) {

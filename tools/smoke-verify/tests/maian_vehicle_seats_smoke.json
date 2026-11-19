@@ -1,0 +1,320 @@
+{
+  "scenario_name": "maian_vehicle_seats_smoke",
+  "description": "Maian vehicle V4 (two seats, 2026-11-17): the Maian hover vehicle mod is built, put in place of Escape's hoverbike and mounted in the driver seat exactly as maian_vehicle_drive_smoke does it (--debug-mount-seat driver makes the debug mount ask for the driver seat). Then the seats: the exit action is tapped twice 150 ms apart and the rider moves to the gunner's pod without getting off (the vehicle's graph runs event.vehicle.switch_seat_requested and og.vehicle.switch_seat; the driver's input context closes and the turret's opens; the eye goes to the model's gunner seat part 161); the gunner looks right for a second (the gunner's own yaw leaves zero); two more taps move the rider back to the driver seat (the turret's context closes, the driver's opens again), where accelerating drives the vehicle; one tap, with no second one, then leaves the vehicle after the 0.3 s the exit waits for a second press. It proves the switch both ways, each seat's input context, the seat parts and that the driver seat still drives afterwards. It does not prove the seat a mount asks for from the player's place and view (the mount here is the debug mount), the gunner mount from the ground, the turret (V5), or anything over the network (the gunner seat is solo only). The screenshots show the driver's view from the cockpit and the gunner's view from above the cannon. Waits are in real milliseconds with room for a slow game (B-1234).",
+  "tags": [
+    "vehicle",
+    "modding",
+    "mod-author",
+    "pdvehicle",
+    "recipe",
+    "gameplay",
+    "maian-vehicle",
+    "pillar:modding",
+    "vehicle-seats"
+  ],
+  "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/behavior.graph.json",
+    "dev-mods/maian_hover_vehicle/build_vehicle_mesh.py",
+    "src/game/bondbike.c",
+    "src/game/propobj.c",
+    "src/game/vehiclegraph.c",
+    "port/src/vehicle_seats.c",
+    "port/src/vehicle_graph_runtime.c",
+    "port/src/inputlayer.c",
+    "port/src/actionmap.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 320,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/Vehicles/vehicle_maian_hover"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/maian_hover_vehicle/recipe.json",
+      "dst": "mod-recipes/maian_hover_vehicle/recipe.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior.graph.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior.graph.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/physics.json",
+      "dst": "mod-recipes/maian_hover_vehicle/physics.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/maian_hover_vehicle/recipe.json",
+    "--launch-mission",
+    "base:escape",
+    "--debug-swap-vehicle",
+    "mod:vehicle_maian_hover",
+    "--debug-mount-seat",
+    "driver",
+    "--debug-mount-bike"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 9800,
+      "name": "maian-seats-driver-view"
+    },
+    {
+      "at_ms": 15800,
+      "name": "maian-seats-gunner-view"
+    },
+    {
+      "at_ms": 18200,
+      "name": "maian-seats-gunner-looking-right"
+    },
+    {
+      "at_ms": 23500,
+      "name": "maian-seats-driver-again"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "cutscene_skip_ready",
+      "timeout_ms": 150000,
+      "comment": "Escape is live and its intro is playing."
+    },
+    {
+      "at_ms": 0,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press",
+      "comment": "Skip the intro. The stage then has the player grab the hover bed."
+    },
+    {
+      "at_ms": 900,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_USE",
+      "action": "tap",
+      "comment": "Let go of the hover bed: a direct activate in grab mode drops it and gives walk mode back. Only once: a second press could grab it again. The armed mount hook mounts in that same frame."
+    },
+    {
+      "at_ms": 9000,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 1000,
+      "comment": "Player 0 is mounted on the Maian vehicle and driving through LAYER_VEHICLE_DRIVER."
+    },
+    {
+      "at_ms": 12000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "First of two exit taps (4 s after the mount, so the rider is settled even in a slow game). The other seat is free, so the exit waits 0.3 s for a second press."
+    },
+    {
+      "at_ms": 12150,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "The second tap inside the window: the rider moves to the gunner's pod."
+    },
+    {
+      "at_ms": 16500,
+      "type": "action",
+      "name": "ACTION_AXIS_AIM_X",
+      "action": "press",
+      "comment": "The gunner looks right: the shared aim axis, which the mouse and the right stick drive and the turret layer lets through (the on-foot turn path; the look actions do not turn the view in the PC control mode). The eye has had 4 s to ease to the pod."
+    },
+    {
+      "at_ms": 17700,
+      "type": "action",
+      "name": "ACTION_AXIS_AIM_X",
+      "action": "release"
+    },
+    {
+      "at_ms": 19000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "Two taps again: back to the driver seat."
+    },
+    {
+      "at_ms": 19150,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap"
+    },
+    {
+      "at_ms": 23000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "The driver seat drives again (4 s after the switch, for the ease and the engine start)."
+    },
+    {
+      "at_ms": 24400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release"
+    },
+    {
+      "at_ms": 26500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "One tap and no second: after the 0.3 s wait the rider leaves the vehicle."
+    },
+    {
+      "at_ms": 29500,
+      "type": "exit",
+      "comment": "Scripted exit, 3 s after the dismount tap."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=maian_vehicle_seats_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=vehicle catalog=mod:vehicle_maian_hover mod_id=mod\\.vehicle_maian_hover updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:vehicle_maian_hover type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
+      "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
+      "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
+      "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=26 exec_edges=21 pending=\\d+ parts=1 boost_heat=1",
+      "BOOT: --debug-mount-seat driver armed",
+      "VEHICLE\\.SEAT: mount asks for the driver seat \\(--debug-mount-seat\\)",
+      "VEHICLE\\.SEAT: modelnum=\\d+ driver eye from model part 160 at \\(0, 420, 450\\) model units",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "SMOKE: result=scripted_exit",
+      "VEHICLE\\.SEAT: player=0 switched from the driver seat to the gunner seat",
+      "ACTIONMAP: vehicle turret IMC mounted",
+      "VEHICLE\\.SEAT: modelnum=\\d+ gunner eye from model part 161 at \\(0, 960, -300\\) model units",
+      "VEHICLE: gunner player=0 yaw=0\\.00 ",
+      "VEHICLE: gunner player=0 yaw=(?!0\\.00 )\\d+\\.\\d\\d ",
+      "VEHICLE\\.TURRET: modelnum=\\d+ the turret follows the gunner's aim: yaw part 1, pitch part 2",
+      "VEHICLE\\.TURRET: modelnum=\\d+ drawn turned: yaw=-?\\d+\\.\\d\\d pitch=-?\\d+\\.\\d\\d",
+      "VEHICLE\\.SEAT: player=0 switched from the gunner seat to the driver seat",
+      "ACTIONMAP: vehicle turret IMC dismounted",
+      "VEHICLE: dismounted player=0$"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PDVEHICLE\\.MODEL\\.REJECT",
+      "PDVEHICLE\\.MODEL: .*cannot be placed",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: '",
+      "FIX-B\\.2: modelnum",
+      "MODEL\\.RODATA\\.LOAD: PARTIAL",
+      "CATALOG-FATAL",
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused",
+      "VEHICLE\\.SEAT: .* input layer did not open",
+      "VEHICLE\\.SEAT: player=0 seat switch refused",
+      "VEHICLE\\.SEAT: gunner mount failed",
+      "VEHICLE\\.SEAT: modelnum=\\d+ has no gunner seat part",
+      "VEHICLE: dismounted player=0 seat=gunner",
+      "VEHICLE: mount apply failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.SEAT: player=0 switched from",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "ACTIONMAP: vehicle IMC mounted",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "ACTIONMAP: vehicle IMC dismounted",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "ACTIONMAP: vehicle turret IMC mounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "ACTIONMAP: vehicle turret IMC dismounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE: dismounted player=0",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

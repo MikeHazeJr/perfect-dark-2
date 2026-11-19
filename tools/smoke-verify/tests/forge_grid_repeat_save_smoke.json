@@ -1,0 +1,56 @@
+{
+  "scenario_name": "forge_grid_repeat_save_smoke",
+  "description": "Save a new level from The Grid with surrounding spaces in its name, edit again, and save to the same output while the source level stays open and resident. Reopen the saved archive and verify the predecessor and live catalog binding.",
+  "tags": ["modding", "forge", "arena", "save", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/mod_author.c",
+    "port/include/mod_author.h"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/MP Maps/arena_grid_repeat_source", "mods/MP Maps/arena_grid_repeat_target"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" }
+  ],
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--debug-level-tool-new", "original", "--debug-level-tool-name", "Grid_Repeat_Source",
+    "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+    "--launch-forge-level", "mod:arena_grid_repeat_source",
+    "--debug-forge-session-save", "  Grid_Repeat_Target  ", "--debug-grid-repeat-save"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "forge_editor_ready", "timeout_ms": 160000, "stable_ms": 300 },
+    { "at_ms": 6500, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": ["SMOKE: scenario=forge_grid_repeat_save_smoke"],
+    "required_sequences": [
+      {
+        "name": "created output then replaced the same exact archive without catalog refresh",
+        "patterns": [
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_repeat_source opens=1",
+          "FORGE\\.LEVEL\\.OPEN: arena=mod:arena_grid_repeat_source .*spawns=8",
+          "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_grid_repeat_target .*updated=0",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_repeat_source catalog=mod:arena_grid_repeat_target .*own_template=0",
+          "FORGE\\.LEVEL\\.PREVIOUS: retained arena=mod:arena_grid_repeat_target sha256=[0-9a-f]{64}",
+          "FORGE\\.LEVEL\\.SAVE\\.INPLACE: arena=mod:arena_grid_repeat_target archive='[^']*arena_grid_repeat_target\\.pdarena'",
+          "FORGE\\.LEVEL\\.OPEN: arena=mod:arena_grid_repeat_target .*spawns=10",
+          "SMOKE\\.GRID\\.REPEAT_SAVE: source=mod:arena_grid_repeat_source target=mod:arena_grid_repeat_target spawns=10 predecessor=1 catalog_unchanged=1",
+          "BOOT: --debug-forge-session-save name='  Grid_Repeat_Target  ' result=OK",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_grid_repeat_target .*updated=1",
+      "FORGE\\.LEVEL\\.SAVE\\.FAIL",
+      "BOOT: --debug-forge-session-save .*result=FAIL",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

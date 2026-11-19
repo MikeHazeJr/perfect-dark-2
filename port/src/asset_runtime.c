@@ -10,6 +10,9 @@
 #include "vehicle_graph_runtime.h"
 #include "vehicle_model_parts.h"
 #include "asset_archive_policy.h"
+#include "assetcatalog_deps.h"
+#include "constants.h"
+#include "grid_match_package_io.h"
 #ifndef PD_TESTS
 #include "fs.h"
 #include "system.h"
@@ -350,6 +353,15 @@ static s32 s_finishFileBinding(asset_runtime_binding_t *binding, s32 ok)
     return ok;
 }
 
+static void s_bindVehicleSources(asset_runtime_binding_t *binding, const char *model,
+    const char *physics, const char *behavior, s32 runtime_id)
+{
+    s_copy(binding->authored_file, sizeof(binding->authored_file), model);
+    s_copy(binding->dependency_a, sizeof(binding->dependency_a), physics);
+    s_copy(binding->dependency_b, sizeof(binding->dependency_b), behavior);
+    binding->runtime_id = runtime_id;
+}
+
 void assetRuntimeReset(void)
 {
 	propGraphRuntimeReset();
@@ -616,13 +628,8 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                          NULL, NULL));
 
     case ASSET_VEHICLE:
-        s_copy(binding->authored_file, sizeof(binding->authored_file),
-               entry->ext.vehicle.model_file);
-        s_copy(binding->dependency_a, sizeof(binding->dependency_a),
-               entry->ext.vehicle.physics_file);
-        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
-               entry->ext.vehicle.behavior_graph);
-        binding->runtime_id = entry->runtime_index;
+        s_bindVehicleSources(binding, entry->ext.vehicle.model_file,
+            entry->ext.vehicle.physics_file, entry->ext.vehicle.behavior_graph, entry->runtime_index);
         return s_finishFileBinding(binding,
             s_hasText(binding->dependency_a) &&
             s_hasAnyFile(binding->authored_file, binding->dependency_b,
@@ -1644,6 +1651,69 @@ const asset_runtime_binding_t *assetRuntimeVehicleForModelnum(s32 modelnum)
     const asset_runtime_binding_t *binding =
         assetRuntimeFindByRuntimeId(ASSET_VEHICLE, modelnum);
     return binding && binding->source_hydrated ? binding : NULL;
+}
+
+typedef struct vehicle_placement_model {
+    const asset_entry_t *model;
+    const char *descriptor;
+    s32 modelnum;
+    s32 matches;
+} vehicle_placement_model_t;
+
+static void s_vehiclePlacementModelDependency(const char *id, asset_type_e type, void *userdata)
+{
+    vehicle_placement_model_t *placement = userdata;
+    if (type != ASSET_NONE && type != ASSET_MODEL) return;
+    const asset_entry_t *model = assetCatalogResolve(id);
+    if (!model || model->type != ASSET_MODEL || model->bundled || !model->enabled
+            || model->runtime_index != placement->modelnum
+            || strcmp(model->descriptor_path, placement->descriptor) != 0) return;
+    placement->model = model;
+    placement->matches++;
+}
+
+const asset_entry_t *assetRuntimeVehiclePlacementModel(const char *vehicle_id)
+{
+    const asset_entry_t *vehicle = vehicle_id && vehicle_id[0] ? assetCatalogResolve(vehicle_id) : NULL;
+    if (!vehicle || !vehicle->enabled || vehicle->bundled || vehicle->type != ASSET_VEHICLE
+            || strcmp(vehicle->id, vehicle_id) != 0 || vehicle->runtime_index < MODEL_CUSTOM_START
+            || vehicle->runtime_index >= MODEL_CUSTOM_END) return NULL;
+
+    char root[FS_MAXPATH + 1], model_root[FS_MAXPATH + 1], chain[FS_MAXPATH + 1];
+    char descriptor[FS_MAXPATH + 1];
+    const char *model_path = vehicle->ext.vehicle.model_file;
+    if (assetArchiveTypeForPath(model_path) != ASSET_MODEL
+            || !gridMatchPackageLocation(vehicle->descriptor_path, root, sizeof(root), chain, sizeof(chain), NULL)
+            || chain[0] || assetArchiveTypeForPath(root) != ASSET_VEHICLE
+            || !assetPathJoinChecked(descriptor, sizeof(descriptor), model_path, "::", "mesh.ini")
+            || !gridMatchPackageLocation(descriptor, model_root, sizeof(model_root), chain, sizeof(chain), NULL)
+            || strcmp(root, model_root) != 0 || !chain[0] || strstr(chain, "::")) return NULL;
+
+    vehicle_placement_model_t placement = { .descriptor = descriptor, .modelnum = vehicle->runtime_index };
+    catalogDepForEachTyped(vehicle_id, s_vehiclePlacementModelDependency, &placement);
+    return placement.matches == 1 ? placement.model : NULL;
+}
+
+s32 assetRuntimeVehiclePlacementSourceValid(const asset_entry_t *vehicle, char *err, size_t err_cap)
+{
+    if (err && err_cap) err[0] = '\0';
+    if (!vehicle || !assetRuntimeVehiclePlacementModel(vehicle->id)) {
+        if (err && err_cap) snprintf(err, err_cap, "%s", "vehicle has no exact embedded native model");
+        return 0;
+    }
+    asset_runtime_binding_t probe = {0};
+    s_copy(probe.id, sizeof(probe.id), vehicle->id);
+    s_copy(probe.primary_path, sizeof(probe.primary_path), vehicle->ext.vehicle.model_file);
+    s_bindVehicleSources(&probe, vehicle->ext.vehicle.model_file, vehicle->ext.vehicle.physics_file,
+        vehicle->ext.vehicle.behavior_graph, vehicle->runtime_index);
+    char previous_error[sizeof(s_VehicleGraphError)];
+    memcpy(previous_error, s_VehicleGraphError, sizeof(previous_error));
+    const s32 valid = s_hydrateVehicle(&probe);
+    vehicleGraphProgramFree(probe.vehicle_graph);
+    if (!valid && err && err_cap) snprintf(err, err_cap, "%s",
+        s_VehicleGraphError[0] ? s_VehicleGraphError : "vehicle has no valid native physics and behavior sources");
+    memcpy(s_VehicleGraphError, previous_error, sizeof(previous_error));
+    return valid;
 }
 
 s32 assetRuntimeHudElementEnabled(s32 element_type)

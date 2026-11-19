@@ -396,6 +396,18 @@ void catalogManagerRegisterBody(const char *id, const body_data_t *data)
 		id, bodynum);
 }
 
+s32 catalogManagerRetireCustomBody(const char *id, s32 bodynum, s32 commit)
+{
+	if (!id || !id[0] || bodynum < CATALOG_MGR_BODY_CUSTOM_START
+			|| bodynum >= CATALOG_MGR_BODY_CUSTOM_END) return 0;
+	if (!s_BodiesInited) return 1;
+	const body_data_t *entry = &s_Bodies[bodynum];
+	if (entry->modeldef || (entry->catalog_id[0]
+			? strcmp(entry->catalog_id, id) != 0 : entry->filenum != 0)) return 0;
+	if (commit) s_populateFromAuthored(bodynum);
+	return 1;
+}
+
 void catalogManagerUnregisterBody(const char *id)
 {
 	const asset_entry_t *e;

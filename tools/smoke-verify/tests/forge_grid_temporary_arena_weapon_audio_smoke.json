@@ -1,0 +1,370 @@
+{
+  "scenario_name": "forge_grid_temporary_arena_weapon_audio_smoke",
+  "description": "The guest accepts only a temporary original Grid arena and Triangle Weapon, with a click sound embedded in the weapon. Ordinary guest Fire uses that exact click through the leased weapon's public sample.wav and the peers then see the same results and retire both temporary archives.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "pdweapon",
+    "match-lifecycle",
+    "temporary-content",
+    "audio"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol",
+    "port/src/main.c",
+    "port/src/net/netdistrib.c",
+    "port/src/net/netmsg.c",
+    "port/src/grid_match_runtime.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_weapon_slots.c",
+    "port/src/pdmain.c",
+    "src/game/bondgun.c",
+    "tools/smoke-verify/fixtures/mod_author/grid_triangle_audio/recipe.json",
+    "tools/smoke-verify/fixtures/mod_author/grid_triangle_audio/build_fixture.py",
+    "tools/smoke-verify/fixtures/mod_author/grid_triangle_audio/tri_weapon.pdweapon",
+    "src/lib/snd.c",
+    "port/src/weapon_graph_runtime.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 570,
+  "install_state": "clean",
+  "window_focus_transition": {
+    "from_process": "host",
+    "to_process": "guest",
+    "source_wait_for": "INPUTCTX: focus GAINED",
+    "wait_for": "INPUTCTX: focus LOST",
+    "timeout_seconds": 15,
+    "settle_ms": 500
+  },
+  "remove_paths": [
+    "grid-audio-host",
+    "grid-audio-guest"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/grid_triangle_audio/recipe.json",
+      "dst": "grid-audio-host/recipes/grid_triangle/recipe.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/grid_triangle_audio/tri_weapon.pdweapon",
+      "dst": "grid-audio-host/recipes/grid_triangle/tri_weapon.pdweapon"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-audio-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "grid-audio-host/mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-audio-guest/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "grid-audio-guest/mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "grid-audio-guest/mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-audio-host",
+        "--moddir",
+        "$E/grid-audio-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--mod-author",
+        "grid-audio-host/recipes/grid_triangle/recipe.json",
+        "--debug-grid-share-weapon",
+        "mod:weapon_grid_triangle",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Two_Package",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_two_package",
+        "--debug-forge-level-name",
+        "Grid_Two_Package",
+        "--debug-forge-level-weapon",
+        "mod:weapon_grid_triangle",
+        "--debug-forge-level-pin",
+        "--debug-forge-level-share",
+        "--host",
+        "--listen-bind",
+        "27502",
+        "--launch-mp-room",
+        "mod:arena_grid_two_package",
+        "base:combat",
+        "0",
+        "--debug-spawn-weapon",
+        "mod:weapon_grid_triangle",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27502",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_lines": [
+          "SAVE: initialized .*grid-audio-host",
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_two_package catalog=mod:arena_grid_two_package",
+          "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=86\\b",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=1",
+          "NET: CLC_LOBBY_RESYNC from client=1, replaying room state room=1$",
+          "LOBBY\\.REVIEW: client=1 reviewing=0 reason=continue"
+        ],
+        "required_sequences": [
+          {
+            "name": "host-grants-both-packages-and-runs-the-exact-match",
+            "patterns": [
+              "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_grid_triangle",
+              "FORGE\\.WEAPON\\.SHARE: granted weapon=mod:weapon_grid_triangle sha256=[0-9a-f]{64} bytes=[1-9][0-9]*",
+              "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_two_package sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_two_package",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_package epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "BONDGUN\\.SOURCE: loaded catalog model source filenum=[0-9]+ id=mod:weapon_grid_triangle__[^ ]+ path=.*\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+              "WEAPON\\.GRAPH: custom projectile spawned \\(fired\\) weapon=[1-9][0-9]* asset='mod:weapon_grid_triangle__projectile_tri_projectile' graph='projectile' modelnum=[1-9][0-9]*",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_two_package revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "SMOKE: result=scripted_exit scenario=forge_grid_temporary_arena_weapon_audio_smoke"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/grid_two_package_guest_process.json",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-audio-guest",
+        "--moddir",
+        "$E/grid-audio-guest/mods",
+        "--no-update-check",
+        "--skip-intro",
+        "--debug-force-first-person",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid Slot Seed",
+        "--connect-host",
+        "127.0.0.1:27502"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 235,
+      "assertions": {
+        "required_lines": [
+          "SAVE: initialized .*grid-audio-guest",
+          "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=87\\b",
+          "NET: SVC_AUTH from server, our ID is 1",
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:arena_grid_two_package verified=[0-9]+ total=[1-9][0-9]*",
+          "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:weapon_grid_triangle verified=[0-9]+ total=[1-9][0-9]*",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=2",
+          "GRID\\.MATCH\\.RETURNED_ARENA: retained room=1 generation=[1-9][0-9]* stage_epoch=[1-9][0-9]* arena=mod:arena_grid_two_package bytes=[1-9][0-9]*"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest-consents-once-admits-both-and-handles-the-native-projectile",
+            "patterns": [
+              "LOADER\\.UNIVERSAL\\.OK: kind=weapon",
+              "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+              "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_grid_slot_seed opens=1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "DISTRIB\\.GRID: temporary packages await consent count=2 bytes=[1-9][0-9]*",
+              "SMOKE\\.WAIT\\.GRIDCONSENT: satisfied preparing=1 pending=1 accept_focused=1 input_top=1 keyboard_ready=1",
+              "SMOKE: action tap-press id=24 at_ms=250",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=24 down=1 .*held_after=1 pressed_after=1",
+              "DISTRIB\\.GRID: receiving package=1/2 id=mod:(arena_grid_two_package|weapon_grid_triangle) verified=0 total=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_two_package packages=2",
+              "DISTRIB\\.GRID: receiving package=2/2 id=mod:(arena_grid_two_package|weapon_grid_triangle) verified=[1-9][0-9]* total=[1-9][0-9]*",
+              "PDWEAPON\\.NESTED\\.REGISTER: owner=mod:weapon_grid_triangle id=mod:weapon_grid_triangle__projectile_tri_projectile type=26 source=.*grid-audio-guest/grid-session/[0-9a-f]{64}\\.pdweapon::dependencies/assets/projectiles/primary\\.pdprojectile$",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_two_package bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary weapon=mod:weapon_grid_triangle bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_two_package generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MATCH: client stage start received",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_package epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "BONDGUN\\.SOURCE: loaded catalog model source filenum=[0-9]+ id=mod:weapon_grid_triangle__[^ ]+ path=.*grid-audio-guest/grid-session/[0-9a-f]{64}\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=20 down=1 .*held_after=1 pressed_after=1",
+              "BONDGUN\\.PROJECTILE\\.CHRTEST: weapon=[1-9][0-9]* func=0 chrnum=[1-9][0-9]* proptype=6 result=(hit|miss)",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_two_package revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "NET: CLC_LOBBY_RESYNC sent to server",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "NET: SVC_ROOM_SETTINGS: .* stage='mod:arena_grid_two_package'",
+              "SMOKE: result=scripted_exit scenario=forge_grid_temporary_arena_weapon_smoke"
+            ]
+          },
+          {
+            "name": "guest-retires-the-temporary-arena-before-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_two_package",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          },
+          {
+            "name": "guest-retires-the-temporary-weapon-before-resync",
+            "patterns": [
+              "GRID\\.MATCH\\.LEASE: retired temporary weapon",
+              "NET: CLC_LOBBY_RESYNC sent to server"
+            ]
+          },
+          {
+            "name": "guest-fires-the-missing-native-sound-from-the-verified-weapon",
+            "patterns": [
+              "DISTRIB\\.GRID: receiving package=[12]/2 id=mod:weapon_grid_triangle",
+              "PDWEAPON\\.NESTED\\.REGISTER: owner=mod:weapon_grid_triangle id=mod:weapon_grid_triangle__[^ ]+ type=20 source=.*grid-audio-guest/grid-session/[0-9a-f]{64}\\.pdweapon::dependencies/assets/audio/fire\\.pdsfx",
+              "GRID\\.SPAWN\\.ACTIVE: id=mod:weapon_grid_triangle mode=0 weaponnum=87\\b",
+              "SMOKE\\.ACTION\\.INJECT: player=0 action=20 down=1 .*held_after=1 pressed_after=1",
+              "CATALOG: sound [1-9][0-9]* .*mod override \"[^\"]*grid-audio-guest/grid-session/[0-9a-f]{64}\\.pdweapon::dependencies/assets/audio/fire\\.pdsfx::sample\\.wav\"",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_two_package",
+              "GRID\\.MATCH\\.LEASE: retired temporary weapon"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "DISTRIB\\.GRID: temporary (arena awaits|packages await) consent",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "NET\\.GRID\\.TRANSFER: guest approved",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_two_package",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "GRID\\.MATCH\\.LEASE: retired temporary weapon",
+            "min": 1,
+            "max": 1
+          }
+        ],
+        "forbidden_patterns": [
+          "MODAUTHOR\\.RECIPE\\.RESULT",
+          "FORGE\\.WEAPON\\.SHARE: granted",
+          "FORGE\\.REVISION\\.SHARE: granted",
+          "NET\\.GRID\\.OFFER: guest ready arena=mod:arena_grid_two_package",
+          "ASSET\\.CHAIN: sound [0-9]+ maps to public file source .*fire\\.pdsfx"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 410000,
+      "stable_ms": 1500
+    },
+    {
+      "at_ms": 2500,
+      "type": "action",
+      "name": "ACTION_AIM_DOWN",
+      "action": "press"
+    },
+    {
+      "at_ms": 6500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 9500,
+      "type": "action",
+      "name": "ACTION_AIM_DOWN",
+      "action": "release"
+    },
+    {
+      "at_ms": 11000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 75000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 13000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap"
+    },
+    {
+      "at_ms": 21000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "MATCH: stage end reason=timelimit"
+    ],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_two_package epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_two_package revision=[0-9a-f]{64} scores=[0-9a-f]{64}",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit scenario=forge_grid_temporary_arena_weapon(?:_audio)?_smoke\\b",
+        "min": 2,
+        "max": 2
+      }
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: (refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.LEASE: deferred (weapon )?retirement",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=FAIL",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "LOUDFAIL\\.ASSETCHAIN",
+      "ASSET\\.FALLBACK",
+      "WEAPON\\.GRAPH: custom projectile not spawned",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

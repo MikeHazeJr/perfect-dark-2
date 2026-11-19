@@ -9,6 +9,28 @@ extern "C" {
 
 #include "lib/anim_bits.h"
 
+extern "C" s32 testModelasmUnboundPosition(s32 flip, f32 matrices[2][4][4]);
+
+TEST_CASE("animated characters retain an unbound rigid position transform",
+		"[anim][modelasm][rigid-position]")
+{
+	for (const s32 flip : {0, 1}) {
+		CAPTURE(flip);
+		f32 matrices[2][4][4] = {};
+		REQUIRE(testModelasmUnboundPosition(flip, matrices));
+		const f32 rootX = flip ? 11.0f : 7.0f;
+		CHECK(matrices[0][3][0] == rootX);
+		CHECK(matrices[1][3][0] == rootX + 3.0f);
+		CHECK(matrices[1][3][1] == 5.0f);
+		CHECK(matrices[1][3][2] == 7.0f);
+		for (s32 row = 0; row < 3; ++row) {
+			for (s32 column = 0; column < 3; ++column) {
+				CHECK(matrices[1][row][column] == (row == column ? 1.0f : 0.0f));
+			}
+		}
+	}
+}
+
 TEST_CASE("animation probe counts only complete bounded parts",
 		"[anim][layout][probe-boundaries]")
 {

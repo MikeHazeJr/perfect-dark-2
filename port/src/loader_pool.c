@@ -2910,6 +2910,31 @@ s32 loaderPoolInstallPublicHead(const head_data_t *head)
 	return 1;
 }
 
+s32 loaderPoolRetirePublicBodyHead(s32 is_head, const char *id, s32 slot, s32 commit)
+{
+	const s32 start = is_head ? CATALOG_MGR_HEAD_CUSTOM_START : CATALOG_MGR_BODY_CUSTOM_START;
+	const s32 end = is_head ? CATALOG_MGR_HEAD_CUSTOM_END : CATALOG_MGR_BODY_CUSTOM_END;
+	if (!id || !id[0] || slot < start || slot >= end) return 0;
+
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	u8 *populated = is_head ? &s_HeadsPoolPopulated[slot] : &s_BodiesPoolPopulated[slot];
+	s32 *registered = is_head ? &s_HeadsRegistered : &s_BodiesRegistered;
+	const s32 matches = *populated && *registered > 0 && (is_head
+		? s_HeadsPool[slot].headnum == slot && !s_HeadsPool[slot].modeldef
+			&& strcmp(s_HeadsPool[slot].catalog_id, id) == 0
+		: s_BodiesPool[slot].bodynum == slot && !s_BodiesPool[slot].modeldef
+			&& strcmp(s_BodiesPool[slot].catalog_id, id) == 0);
+	if (matches && commit) {
+		if (is_head) memset(&s_HeadsPool[slot], 0, sizeof(s_HeadsPool[slot]));
+		else memset(&s_BodiesPool[slot], 0, sizeof(s_BodiesPool[slot]));
+		*populated = 0;
+		--*registered;
+	}
+	POOL_UNLOCK();
+	return matches;
+}
+
 s32 loaderPoolParseHeadJson(const char *json, size_t json_len)
 {
 	s_poolEnsureMutex();

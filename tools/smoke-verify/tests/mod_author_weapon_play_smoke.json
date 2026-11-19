@@ -75,6 +75,7 @@
       "SMOKE: result=timeout",
       "MODAUTHOR\\.[A-Z.]*FAIL",
       "CATALOG_CRITICAL: bgun model",
+      "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=mod:weapon_smoke_falcon id=mod:weapon_smoke_falcon__mesh[^ ]* action=[a-z]+ filenum=887 ",
       "BONDGUN\\.SOURCE: catalog model source load failed",
       "ENDSCREEN\\.STATE:",
       "MATCH: endscreen shown"

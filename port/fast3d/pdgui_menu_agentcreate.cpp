@@ -31,11 +31,14 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_charpreview.h"
+#include "pdgui_friends.h"
 #include "pdgui_model_preview.h"
 #include "pdgui_layout.h"  /* B-253: docked action bar primitives */
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
 #include "agent_session.h"
@@ -84,6 +87,7 @@ static s32  s_SelectedBody = 0;
 static s32  s_SelectedHead = 0;
 static bool s_HeadOverridden = false; /* Has user manually picked a head? */
 static bool s_FirstFrame = true;      /* Focus name input on first frame */
+static bool s_SocialOwnedInput = false;
 
 /* Frame-scoped flag: set inside the LEFT-pane name input render, read in the
  * docked action bar later in the same frame so Enter from the name field
@@ -420,15 +424,28 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                             | ImGuiWindowFlags_NoSavedSettings
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
+    const bool socialOwnsInput = pdguiFriendsAnySurfaceIsOpen() != 0;
+    if (socialOwnsInput) {
+        wflags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing;
+    }
 
     if (!ImGui::Begin("##agent_create", nullptr, wflags)) {
         ImGui::End();
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
 
-    /* Auto-possess on first appearance */
-    if (ImGui::IsWindowAppearing()) {
+    // Agent Select relinquishes the context when it opens this dialog.
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    const bool appearing = ImGui::IsWindowAppearing();
+    if (!socialOwnsInput && (appearing || s_SocialOwnedInput) &&
+            !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
         ImGui::SetWindowFocus();
+    }
+    s_SocialOwnedInput = socialOwnsInput;
+
+    if (appearing) {
         s_FirstFrame = true;
         s_CreateStatus[0] = '\0';
         /* Force preview re-render on screen open */
@@ -488,6 +505,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* Draw PD-authentic dialog frame */
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH,
                       "Create Agent", 1);
+    const bool titleClose = pdguiConsumeTitleClose() != 0;
 
     /* Content starts below PD title bar */
     pdguiSetCursorBelowTitle(pdTitleH);
@@ -497,6 +515,8 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* Reserve room for the docked action bar at the bottom. */
     float availY = ImGui::GetContentRegionAvail().y;
     float bodyH  = pdguiBodyHeightForActionBar(availY);
+
+    ImGui::BeginDisabled(socialOwnsInput);
 
     /* ================================================================
      * Two-column body: LEFT = controls (1/2 width), RIGHT = 3D pane
@@ -539,7 +559,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             ImGui::TextUnformatted("Agent Name");
             ImGui::Spacing();
 
-            if (s_FirstFrame) {
+            if (s_FirstFrame && !socialOwnsInput) {
                 ImGui::SetKeyboardFocusHere();
                 s_FirstFrame = false;
             }
@@ -730,6 +750,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         }
     }
     pdguiEndActionBar();
+    ImGui::EndDisabled();
 
     /* Allow Enter from the name field to create. */
     if (s_NameEnterPressedThisFrame && nameValid) {
@@ -737,11 +758,13 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     }
     s_NameEnterPressedThisFrame = false;  /* reset for next frame */
 
-    /* B / Escape cancels at the top level. */
-    if (!ImGui::IsWindowAppearing() &&
-        pdguiMenuCancelPressed()) {
+    /* The title X or a Back gesture left over from native editing cancels. */
+    if (!socialOwnsInput && (titleClose || (!appearing && pdguiMenuCancelPressed()))) {
         doCancel = true;
     }
+
+    ImGui::End();
+    if (socialOwnsInput) return 1;
 
     /* ---- Execute Create ---- */
     if (doCreate && nameValid && !doCancel) {
@@ -763,6 +786,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                          "pdgui_agentcreate: committed JSON agent '%s' "
                          "body_id=\"%s\" head_id=\"%s\" (awaiting selection)",
                          s_AgentName, bid, hid);
+            pdguiNavSuppressOpeningGesture();
             menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "save");
 
             s_AgentName[0] = '\0';
@@ -781,6 +805,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     /* ---- Execute Cancel ---- */
     if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        pdguiNavSuppressOpeningGesture();
         menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "cancel");
 
         s_AgentName[0] = '\0';
@@ -790,7 +815,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         s_HeadOverridden = false;
     }
 
-    ImGui::End();
     return 1;  /* Handled */
 }
 

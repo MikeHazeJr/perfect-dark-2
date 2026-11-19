@@ -27,10 +27,24 @@ Checks: `tools/asset_archive_conformance.py` (`validate_stage_json`), tests in
   therefore needs a client that knows it.
 - A stage built from the ROM background keeps the game's own tables and checks.
 
+## `atmosphere`
+
+The Grid can author this optional family in Level File. The game applies it
+when the saved stage loads.
+
+| Field | Meaning |
+|---|---|
+| `sky_rgb` | Three integer color channels from 0 to 255 |
+| `fog` | `start` and a larger `end`, from 0 to 1000 thousandths of view distance |
+| `ambient_light` | Default room brightness from 0 to 255. A room's explicit `base_brightness` takes precedence. |
+| `primary_music` | Catalog ID of a sequenced song to use as the stage's primary track |
+
+Each setting is optional. The editor preserves the stage's other rules.
+
 ## `weather`
 
-Where and how the stage's rain or snow falls. Whether it rains or snows, and
-how hard, is started by the stage's AI commands (`configure_rain`,
+Where and how the stage's rain or snow falls. Without a startup rule, the
+stage's AI commands select the kind and intensity (`configure_rain`,
 `configure_snow`, which already have graph twins). Written from the game's
 `g_WeatherConfig` (`src/game/weather.c`), so base stages are unchanged.
 
@@ -47,6 +61,22 @@ Base stages with a rule: Chicago, G5 Building, Air Base, Crash Site.
 `weatherTick` used to check Air Base and G5 by stage; on the scenario-source path
 it reads `z_max` and `cutscene_only` instead, which hold the same values, and the
 draw code already did.
+
+## `weather_start`
+
+The Grid can choose weather at stage start in Level File's Atmosphere section.
+The setting takes effect on draft Playtest or when the saved level loads.
+
+`"weather_start": { "kind": "rain", "intensity": 2 }` starts native rain.
+Rain has intensity 1 (light), 2 (medium), or 3 (heavy). Snow uses
+`"kind": "snow"` and intensity 1. Stage default removes this override so the
+stage's AI commands can start its existing weather as before.
+
+The separate `weather` object's room list, cutscene/camera limits, bounds, and
+wind still apply. If that object is absent, startup uses wind speed 20, a
+camera-relative vertical range of -800 to 800, and precipitation in all rooms.
+Later AI commands can change the weather. Particle placement uses the engine's
+existing random stream, so exact particle positions can differ across clients.
 
 ## `player`
 

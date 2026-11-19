@@ -324,7 +324,17 @@ static void sysLogSetDefaultPath(void)
 	extern s32 g_NetDedicated;
 	extern s32 g_NetHostLatch;
 
-	if (g_NetDedicated || sysArgCheck("--dedicated")) {
+	const s32 smoke = sysArgCheck("--smoke");
+	const char *grid_smoke = smoke ? sysArgGetString("--debug-grid-private-draft") : NULL;
+	const char *proposal = smoke ? sysArgGetString("--debug-grid-mod-proposal") : NULL;
+	if (grid_smoke && strcmp(grid_smoke, "creator") == 0) {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-grid-creator.log");
+	} else if (proposal && strcmp(proposal, "donor") == 0) {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-grid-donor.log");
+	} else if ((proposal && strcmp(proposal, "ordinary") == 0)
+			 || (grid_smoke && strcmp(grid_smoke, "ordinary") == 0)) {
+		sysLogSetPath(LOG_CLIENT_DIR, "pd-grid-ordinary.log");
+	} else if (g_NetDedicated || sysArgCheck("--dedicated")) {
 		sysLogSetPath(LOG_CLIENT_DIR, "pd-server.log");
 	} else if (g_NetHostLatch || sysArgCheck("--host")) {
 		sysLogSetPath(LOG_CLIENT_DIR, "pd-host.log");

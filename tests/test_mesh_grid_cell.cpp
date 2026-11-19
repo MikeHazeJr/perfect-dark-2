@@ -122,7 +122,7 @@ TEST_CASE("B-1210 every world grid index in meshcollision.c goes through meshGri
     REQUIRE(src.find("originz) / MESHGRID_CELL_SIZE") == std::string::npos);
 
     const char *const users[] = {
-        "void meshWorldFinalize(void)",
+        "static s32 meshWorldBuildGrid(struct meshgrid *grid",
         "f32 meshSweepCapsuleWorld(struct coord *start",
         "f32 meshFindFloor(struct coord *pos",
         "f32 meshFindCeiling(struct coord *pos",
@@ -133,4 +133,41 @@ TEST_CASE("B-1210 every world grid index in meshcollision.c goes through meshGri
         REQUIRE_FALSE(body.empty());
         REQUIRE(body.find("meshGridCell(") != std::string::npos);
     }
+}
+
+TEST_CASE("Grid layout builds detached collision through the native world grid", "[grid-layout-apply][meshcollision][source]")
+{
+    const std::string src = readTextFile("src/lib/meshcollision.c");
+    const std::string finalize = functionBody(src, "void meshWorldFinalize(void)");
+    const std::string prepare = functionBody(src, "s32 meshWorldPrepare(");
+    REQUIRE(finalize.find("meshWorldBuildGrid(&g_WorldMesh, &s_WorldMeshHasShotFlags,") != std::string::npos);
+    REQUIRE(prepare.find("memcpy(prepared->grid.tris, source->tris, tri_bytes);") != std::string::npos);
+    REQUIRE(prepare.find("g_WorldMesh") == std::string::npos);
+    REQUIRE(prepare.find("s_WorldRay") == std::string::npos);
+    REQUIRE(prepare.find("s_WorldMeshHasShotFlags") == std::string::npos);
+
+    const size_t build = prepare.find("if (!meshWorldBuildGrid(&prepared->grid, &prepared->has_shot_flags,");
+    const size_t publish = prepare.find("*out = prepared;");
+    REQUIRE(build != std::string::npos);
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(build < publish);
+    const std::string onFailure = prepare.substr(build, publish - build);
+    REQUIRE(onFailure.find("meshWorldFreePrepared(prepared);") != std::string::npos);
+    REQUIRE(onFailure.find("return 0;") != std::string::npos);
+}
+
+TEST_CASE("Grid world swap preserves the outgoing grid and its ray state", "[grid-layout-apply][meshcollision][source]")
+{
+    const std::string src = readTextFile("src/lib/meshcollision.c");
+    const std::string swap = functionBody(src, "void meshWorldSwapPrepared(");
+    const size_t capture = swap.find(".grid = g_WorldMesh, .ray = s_WorldRay, .has_shot_flags = s_WorldMeshHasShotFlags,");
+    const size_t grid = swap.find("g_WorldMesh = prepared->grid;");
+    const size_t ray = swap.find("s_WorldRay = prepared->ray;");
+    const size_t shotFlags = swap.find("s_WorldMeshHasShotFlags = prepared->has_shot_flags;");
+    const size_t outgoing = swap.find("*prepared = outgoing;");
+    REQUIRE(capture < grid);
+    REQUIRE(grid < ray);
+    REQUIRE(ray < shotFlags);
+    REQUIRE(shotFlags < outgoing);
+    REQUIRE(outgoing != std::string::npos);
 }

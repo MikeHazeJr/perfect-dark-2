@@ -7,6 +7,8 @@
 #include "game/bondbike.h"
 #include "game/bondwalk.h"
 #include "game/vehiclegraph.h"
+#include "vehicle_seats.h"
+#include "vehicle_debug.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
@@ -61,6 +63,7 @@
 #include "game/options.h"
 #include "actionmap.h"
 #include "game/propobj.h"
+#include "forge_level_doc.h"
 #include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/wallhit.h"
 #include "game/shards.h"
@@ -13190,6 +13193,51 @@ void hangingmonitorInitMatrices(struct prop *prop)
 	mtx00015be0(matrices, &matrices[4]);
 }
 
+s32 objGridDecorationMove(struct defaultobj *obj, u64 generation, f32 x, f32 z, s32 apply)
+{
+	if (!obj || !generation || obj->type != OBJTYPE_BASIC
+			|| !forgeLevelDecorationFlagsMatch(obj->flags, obj->flags2, obj->flags3)
+			|| obj->projectile || !obj->model
+			|| (obj->hidden & (OBJHFLAG_DELETING | OBJHFLAG_GONE | OBJHFLAG_EMBEDDED | OBJHFLAG_PROJECTILE))
+			|| !__builtin_isfinite(x) || !__builtin_isfinite(z)) return 0;
+	struct prop *prop = obj->prop;
+	if (!prop || prop->obj != obj || prop->type != PROPTYPE_OBJ || prop->child || prop->parent
+			|| !(prop->flags & PROPFLAG_ENABLED) || propGetLifecycleGeneration(prop) != generation
+			|| !g_Rooms || prop->rooms[0] <= 0 || prop->rooms[0] >= g_Vars.roomcount
+			|| prop->rooms[1] != -1) return 0;
+
+	struct coord origin = prop->pos;
+	struct coord target = prop->pos;
+	target.x = x;
+	target.z = z;
+	const RoomNum room = prop->rooms[0];
+	const struct room *bounds = &g_Rooms[room];
+	if (x <= bounds->bbmin[0] || x >= bounds->bbmax[0]
+			|| z <= bounds->bbmin[2] || z >= bounds->bbmax[2]
+			|| target.y < bounds->bbmin[1] || target.y > bounds->bbmax[1]) return 0;
+
+	RoomNum rooms[] = { room, -1 };
+	struct prop *origin_floor = NULL;
+	struct prop *target_floor = NULL;
+	struct coord floor_normal;
+	f32 origin_y = 0.0f;
+	f32 target_y = 0.0f;
+	const RoomNum source_room = cdFindFloorRoomYColourNormalPropAtPos(
+		&origin, rooms, &origin_y, NULL, &floor_normal, &origin_floor);
+	const RoomNum target_room = cdFindFloorRoomYColourNormalPropAtPos(
+		&target, rooms, &target_y, NULL, &floor_normal, &target_floor);
+	if (source_room != room || target_room != room || origin_floor || target_floor
+			|| !__builtin_isfinite(origin_y) || !__builtin_isfinite(target_y)
+			|| target_y - origin_y > 2.0f || origin_y - target_y > 2.0f
+			|| cdTestCylMove02(&origin, rooms, &target, rooms, CDTYPE_BG, 0, 0.0f, 0.0f)
+				!= CDRESULT_NOCOLLISION) return 0;
+
+	/* Normal object rendering rebuilds matrices from prop->pos and realrot.
+	 * General placement also fires proximity triggers; this edit must not. */
+	if (apply) prop->pos = target;
+	return 1;
+}
+
 void objInitMatrices(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -13224,6 +13272,12 @@ void objInitMatrices(struct prop *prop)
 				thing.unk00 = &sp28;
 
 				modelSetMatrices(&thing, obj->model);
+
+				/* A vehicle's turret points where its gunner aims (V5a;
+				 * nothing happens for a vehicle with no aim recorded). */
+				if (obj->type == OBJTYPE_HOVERBIKE) {
+					hoverbikeApplyTurretAim(prop);
+				}
 			}
 		}
 	}
@@ -18950,20 +19004,185 @@ static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)
 	return false;
 }
 
-/* What og.vehicle.mount_seat does for the driver seat: the native candidate
- * and commit above. */
-static s32 hoverbikeMountDriverAction(void *context)
+/* The gunner seat's mount (Maian vehicle V4). The gunner seat is new, so this
+ * is not a copy of the original mount: it asks for the same stance and the
+ * same press, records the player in the seat (the vehicle's graph record) and
+ * enters the bike mode, whose init, update and exit know a gunner
+ * (bondbike.c). Solo play only: the vehicle state message carries no seat
+ * yet, so a networked game takes no gunner. The vehicle is not marked
+ * mounted; that flag is the driver seat's. */
+static bool currentPlayerTryMountHoverbikeGunner(struct prop *prop)
 {
+	struct player *player = g_Vars.currentplayer;
+	const s32 playernum = g_Vars.currentplayernum;
+	struct defaultobj *obj;
+	struct prop *previousbike;
+	bool hasMountIntent;
+
+	if (g_NetMode != NETMODE_NONE
+			|| !player || !g_Vars.currentplayerstats || !player->prop || !prop
+			|| prop->type != PROPTYPE_OBJ || !prop->obj || player->isdead
+			|| player->isremote
+			|| playernum < 0 || playernum >= MAX_PLAYERS
+			|| player->bondmovemode != MOVEMODE_WALK
+			|| bmoveGetCrouchPos() != CROUCHPOS_STAND
+			|| player->crouchoffset != 0) {
+		return false;
+	}
+
+	obj = prop->obj;
+	if (obj->type != OBJTYPE_HOVERBIKE || obj->prop != prop || !obj->model
+			|| obj->model->scale == 0.0f
+			|| (obj->hidden & OBJHFLAG_GRABBED) != 0) {
+		return false;
+	}
+
+	/* The press that mounts: the driver mount's rule (the PC's explicit
+	 * use, or a controller's double tap). */
+	hasMountIntent = player->pcinteractusekind == 2;
+	if (!hasMountIntent && player->pcinteractusekind == 0
+			&& bmoveIsLocalControllerVehicleIntent()) {
+		hasMountIntent = g_Vars.lvframe60 - player->activatetimelast < TICKS(30);
+	}
+	if (!hasMountIntent || !assetRuntimeVehicleAllows(obj->modelnum, "mount")
+			|| !sceneVehicleDriverCanBoard()) {
+		return false;
+	}
+
+	if (!vehicleGraphRuntimeSetSeatOccupant(prop, prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER, playernum)) {
+		return false;
+	}
+	previousbike = player->hoverbike;
+	player->hoverbike = prop;
+	if (!bmoveSetMode(MOVEMODE_BIKE)
+			|| player->bondmovemode != MOVEMODE_BIKE
+			|| player->hoverbike != prop) {
+		/* The mode change failed and restored the walk; take the seat
+		 * record and the pointer back too. */
+		vehicleGraphRuntimeSetSeatOccupant(prop, prop->lifecycle_generation,
+			VEHICLE_GRAPH_SEAT_GUNNER, -1);
+		player->hoverbike = previousbike;
+		sysLogPrintf(LOG_WARNING, "VEHICLE.SEAT: gunner mount failed in the mode change player=%d",
+			playernum);
+		return false;
+	}
+	return true;
+}
+
+/* What og.vehicle.mount_seat does for the seat it names: the driver seat's is
+ * the native candidate and commit above, the gunner seat's the mount just
+ * above. */
+static s32 hoverbikeMountDriverAction(void *context, s32 seat)
+{
+	if (seat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return currentPlayerTryMountHoverbikeGunner((struct prop *)context) ? 1 : 0;
+	}
+	if (seat != VEHICLE_GRAPH_SEAT_DRIVER) {
+		return 0;
+	}
 	return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;
+}
+
+/* --debug-mount-seat: the seat every mount asks for, or
+ * VEHICLE_GRAPH_SEAT_NONE to let the player's place and view choose. */
+static s32 s_HoverbikeDebugMountSeat = VEHICLE_GRAPH_SEAT_NONE;
+
+void hoverbikeDebugSetMountSeat(s32 seat)
+{
+	s_HoverbikeDebugMountSeat = seat;
+}
+
+/* The seat a mount asks for on this vehicle (Mike, 2026-11-16: "the seat you
+ * take depends on where you entered from and where you're looking"). A
+ * vehicle has a gunner seat when its graph's mount request can reach a mount
+ * module for it; every other vehicle has the driver seat only. For each seat
+ * the game measures here, from the seat's eye point on the model, how far it
+ * is from the player and how far off the player's view; vehicleSeatChoose
+ * (port/src/vehicle_seats.c) decides. With no free seat in range the answer
+ * is the driver seat, whose mount then refuses as it always did. */
+static s32 hoverbikeChooseMountSeat(struct prop *prop)
+{
+	struct player *player = g_Vars.currentplayer;
+	const asset_runtime_binding_t *source;
+	vehicle_seat_candidate_t seats[VEHICLE_GRAPH_SEAT_COUNT];
+	struct defaultobj *obj;
+	u32 mountable;
+	f32 range;
+	s32 choice;
+	s32 seat;
+
+	if (g_NetMode != NETMODE_NONE || !player || !player->prop || !prop
+			|| prop->type != PROPTYPE_OBJ || !prop->obj
+			|| prop->obj->type != OBJTYPE_HOVERBIKE) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	obj = prop->obj;
+	source = assetRuntimeVehicleForModelnum(obj->modelnum);
+	if (!source || !source->vehicle_graph) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	mountable = vehicleGraphProgramEventSeats(source->vehicle_graph,
+		VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED);
+	if ((mountable & (1u << VEHICLE_GRAPH_SEAT_GUNNER)) == 0) {
+		return VEHICLE_GRAPH_SEAT_DRIVER;
+	}
+	if (s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_DRIVER
+			|| s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_GUNNER) {
+		sysLogPrintf(LOG_NOTE, "VEHICLE.SEAT: mount asks for the %s seat (--debug-mount-seat)",
+			s_HoverbikeDebugMountSeat == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner" : "driver");
+		return s_HoverbikeDebugMountSeat;
+	}
+
+	range = (obj->flags3 & OBJFLAG3_INTERACTSHORTRANGE) ? 100.0f : 200.0f;
+	for (seat = 0; seat < VEHICLE_GRAPH_SEAT_COUNT; seat++) {
+		struct coord eye;
+		f32 dx;
+		f32 dz;
+
+		if (!hoverbikeSeatWorldPos(obj, seat, &eye)) {
+			/* A model without this seat's part: the vehicle itself. */
+			eye.x = prop->pos.x;
+			eye.y = prop->pos.y;
+			eye.z = prop->pos.z;
+		}
+		dx = eye.x - player->prop->pos.x;
+		dz = eye.z - player->prop->pos.z;
+		seats[seat].exists = (mountable & (1u << seat)) != 0;
+		seats[seat].dist = sqrtf(dx * dx + dz * dz);
+		seats[seat].in_range = seats[seat].dist < range;
+		seats[seat].view_angle = vehicleSeatViewAngle(dx, dz, player->vv_theta);
+		seats[seat].free = 0;
+	}
+	seats[VEHICLE_GRAPH_SEAT_DRIVER].free = (obj->hidden & OBJHFLAG_MOUNTED) == 0;
+	seats[VEHICLE_GRAPH_SEAT_GUNNER].free = vehicleGraphRuntimeSeatOccupant(prop,
+		prop->lifecycle_generation, VEHICLE_GRAPH_SEAT_GUNNER) < 0;
+
+	choice = vehicleSeatChoose(seats, VEHICLE_SEAT_TIE_ANGLE, VEHICLE_SEAT_DRIVER_MARGIN);
+	sysLogPrintf(LOG_NOTE,
+		"VEHICLE.SEAT: mount choice=%s driver(dist=%.0f angle=%.2f free=%d range=%d) gunner(dist=%.0f angle=%.2f free=%d range=%d)",
+		choice == VEHICLE_GRAPH_SEAT_GUNNER ? "gunner"
+			: choice == VEHICLE_GRAPH_SEAT_DRIVER ? "driver" : "none",
+		seats[VEHICLE_GRAPH_SEAT_DRIVER].dist, seats[VEHICLE_GRAPH_SEAT_DRIVER].view_angle,
+		seats[VEHICLE_GRAPH_SEAT_DRIVER].free, seats[VEHICLE_GRAPH_SEAT_DRIVER].in_range,
+		seats[VEHICLE_GRAPH_SEAT_GUNNER].dist, seats[VEHICLE_GRAPH_SEAT_GUNNER].view_angle,
+		seats[VEHICLE_GRAPH_SEAT_GUNNER].free, seats[VEHICLE_GRAPH_SEAT_GUNNER].in_range);
+	return choice == VEHICLE_GRAPH_SEAT_GUNNER
+		? VEHICLE_GRAPH_SEAT_GUNNER : VEHICLE_GRAPH_SEAT_DRIVER;
 }
 
 /* Every vehicle mounts through its pd.vehicle_graph.v1 graph (vehiclegraph.c):
  * the request is event.vehicle.mount_requested, and og.vehicle.mount_seat runs
  * the native mount. There is no other way on: a prop that is not a vehicle
  * with a graph (a v2 behavior is refused when the catalog hydrates it) cannot
- * be mounted. */
+ * be mounted. On a vehicle whose graph has a gunner seat the request names the
+ * seat the player's place and view chose. */
 bool currentPlayerTryMountHoverbike(struct prop *prop)
 {
+	if (hoverbikeChooseMountSeat(prop) == VEHICLE_GRAPH_SEAT_GUNNER) {
+		return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+			VEHICLE_GRAPH_SEAT_GUNNER, hoverbikeMountDriverAction, prop) == 1;
+	}
 	return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
 		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop) == 1;
 }

@@ -30,6 +30,11 @@ s32 pdguiIsPauseMenuOpen(void);
 /** Render the pause menu. Called from pdguiRender() pipeline each frame. */
 void pdguiPauseMenuRender(s32 winW, s32 winH);
 
+/* Shared Room and private playtest Settings visibility controls. */
+void pdguiRenderGridPlaytestVisibility(s32 livePlaytest);
+void pdguiRenderGridPlaytestResume(void);
+void pdguiRenderGridRoomExtension(void);
+
 /* --- Scorecard Overlay --- */
 
 /** Set scorecard visibility (call each frame based on button hold state). */

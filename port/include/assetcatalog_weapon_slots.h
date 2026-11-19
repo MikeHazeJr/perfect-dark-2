@@ -16,6 +16,10 @@ void assetCatalogResetCustomWeaponSlots(void);
  * live pins prevent rebinding; rollback never restores operational counts. */
 s32 assetCatalogPinWeaponPrivateSlot(const char *catalog_id, s32 runtime_weapon_id);
 s32 assetCatalogReleaseWeaponPrivateSlot(const char *catalog_id, s32 runtime_weapon_id);
+/* Lease retirement is checked before removing any owned catalog rows. */
+s32 assetCatalogFindWeaponPrivateSlot(const char *catalog_id);
+s32 assetCatalogCanRetireWeaponReservation(const char *catalog_id, s32 runtime_weapon_id);
+s32 assetCatalogRetireWeaponReservation(const char *catalog_id, s32 runtime_weapon_id);
 void *assetCatalogSnapshotCustomWeaponSlots(void);
 s32 assetCatalogRestoreCustomWeaponSlots(const void *snapshot);
 void assetCatalogDestroyCustomWeaponSlotSnapshot(void *snapshot);

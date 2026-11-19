@@ -1,0 +1,162 @@
+{
+  "scenario_name": "forge_grid_virtual_controller_level_file_smoke",
+  "description": "Use an ordinary SDL virtual controller to open a native Level File, play its draft and return, then type and save a new level name with the on-screen keyboard.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "input",
+    "smoke",
+    "virtual-controller",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_forge_editor.cpp",
+    "port/src/actionmap.cpp",
+    "port/src/forge_level_io.c",
+    "src/game/forgemode.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/blank_room",
+    "mods/MP Maps/arena_12"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/blank_room/mod.json",
+      "dst": "mods/blank_room/mod.json"
+    },
+    {
+      "src": "dev-mods/blank_room/blank_room.pdarena",
+      "dst": "mods/blank_room/blank_room.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/blank_room_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-forge-level",
+    "mod_blank_room:arena_blank_room"
+  ],
+  "input_sequence": [
+    {"at_ms": 0, "type": "wait_until", "condition": "forge_editor_ready", "timeout_ms": 160000, "stable_ms": 500},
+    {"at_ms": 250, "type": "controller_attach"},
+    {"at_ms": 600, "type": "controller_button", "button": "a", "action": "press", "comment": "Open the original Blank Room Level File from the Grid sidebar."},
+    {"at_ms": 700, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 900, "type": "wait_until", "condition": "forge_level_file_open", "timeout_ms": 15000, "stable_ms": 400},
+    {"at_ms": 1400, "type": "controller_button", "button": "rightshoulder", "action": "press", "comment": "Select Playtest."},
+    {"at_ms": 1500, "type": "controller_button", "button": "rightshoulder", "action": "release"},
+    {"at_ms": 1750, "type": "controller_button", "button": "a", "action": "press", "comment": "Play the open draft."},
+    {"at_ms": 1850, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 2025, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 90000, "stable_ms": 750},
+    {"at_ms": 2400, "type": "controller_button", "button": "back", "action": "press", "comment": "Return from the running draft to the same Level File."},
+    {"at_ms": 2500, "type": "controller_button", "button": "back", "action": "release"},
+    {"at_ms": 2700, "type": "wait_until", "condition": "forge_level_file_open", "timeout_ms": 90000, "stable_ms": 500},
+    {"at_ms": 3050, "type": "controller_button", "button": "leftshoulder", "action": "press", "comment": "Return to the Level File tab after the draft."},
+    {"at_ms": 3150, "type": "controller_button", "button": "leftshoulder", "action": "release"},
+    {"at_ms": 3400, "type": "controller_button", "button": "y", "action": "press", "comment": "Give the ordinary editor widgets controller input."},
+    {"at_ms": 3500, "type": "controller_button", "button": "y", "action": "release"},
+    {"at_ms": 3700, "type": "controller_button", "button": "dpdown", "action": "press"},
+    {"at_ms": 3800, "type": "controller_button", "button": "dpdown", "action": "release"},
+    {"at_ms": 3975, "type": "controller_button", "button": "dpdown", "action": "press"},
+    {"at_ms": 4075, "type": "controller_button", "button": "dpdown", "action": "release"},
+    {"at_ms": 4250, "type": "controller_button", "button": "dpdown", "action": "press", "comment": "Select Save & Share."},
+    {"at_ms": 4350, "type": "controller_button", "button": "dpdown", "action": "release"},
+    {"at_ms": 4525, "type": "controller_button", "button": "a", "action": "press", "comment": "Focus the Save & Share controls."},
+    {"at_ms": 4625, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 4800, "type": "controller_button", "button": "dpdown", "action": "press", "comment": "Focus Level Name."},
+    {"at_ms": 4900, "type": "controller_button", "button": "dpdown", "action": "release"},
+    {"at_ms": 5075, "type": "controller_button", "button": "a", "action": "press", "comment": "Open the shared on-screen keyboard."},
+    {"at_ms": 5175, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 5425, "type": "controller_button", "button": "a", "action": "press", "comment": "Type 1."},
+    {"at_ms": 5525, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 5700, "type": "controller_button", "button": "dpright", "action": "press"},
+    {"at_ms": 5800, "type": "controller_button", "button": "dpright", "action": "release"},
+    {"at_ms": 5975, "type": "controller_button", "button": "a", "action": "press", "comment": "Type 2."},
+    {"at_ms": 6075, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 6300, "type": "screenshot", "path": "grid-controller-level-name.bmp"},
+    {"at_ms": 6600, "type": "controller_button", "button": "dpup", "action": "press"},
+    {"at_ms": 6700, "type": "controller_button", "button": "dpup", "action": "release"},
+    {"at_ms": 6875, "type": "controller_button", "button": "dpleft", "action": "press"},
+    {"at_ms": 6975, "type": "controller_button", "button": "dpleft", "action": "release"},
+    {"at_ms": 7150, "type": "controller_button", "button": "dpleft", "action": "press", "comment": "Move from Shift through Cancel to Done."},
+    {"at_ms": 7250, "type": "controller_button", "button": "dpleft", "action": "release"},
+    {"at_ms": 7425, "type": "controller_button", "button": "a", "action": "press", "comment": "Commit the typed text without submitting the parent controls."},
+    {"at_ms": 7525, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 7775, "type": "controller_button", "button": "dpdown", "action": "press", "comment": "Focus Save As Level."},
+    {"at_ms": 7875, "type": "controller_button", "button": "dpdown", "action": "release"},
+    {"at_ms": 8050, "type": "controller_button", "button": "a", "action": "press", "comment": "Save the exact Level Name as a native arena."},
+    {"at_ms": 8150, "type": "controller_button", "button": "a", "action": "release"},
+    {"at_ms": 8400, "type": "screenshot", "path": "grid-controller-level-saved.bmp"},
+    {"at_ms": 8700, "type": "controller_button", "button": "b", "action": "press", "comment": "Return to the camera."},
+    {"at_ms": 8800, "type": "controller_button", "button": "b", "action": "release"},
+    {"at_ms": 9050, "type": "controller_detach"},
+    {"at_ms": 9300, "type": "exit"}
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_virtual_controller_level_file_smoke",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> grid-controller-level-name\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> grid-controller-level-saved\\.bmp"
+    ],
+    "required_sequences": [
+      {
+        "name": "Controller plays and returns from the draft, then types and saves the level name",
+        "patterns": [
+          "SMOKE\\.WAIT: satisfied condition=forge_editor_ready",
+          "SMOKE\\.PAD: event=attached .*player=0 .*virtual=1",
+          "FORGE\\.LEVEL\\.OPEN: arena=mod_blank_room:arena_blank_room ",
+          "FORGE\\.DRAFT\\.PREPARED: arena=mod_blank_room:arena_blank_room ",
+          "FORGE\\.DRAFT\\.PLAYING: stage=0x[0-9a-f]+",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+          "FORGE\\.DRAFT\\.RETURNED: stage=0x[0-9a-f]+ ",
+          "SMOKE\\.WAIT: satisfied condition=forge_level_file_open at_ms=2700 ",
+          "MENUPOOL: acquired grid_editor_controls .*ctx=imgui_menu\\(owned\\)",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_12 ",
+          "MENUPOOL: released grid_editor_controls .*ctx=imgui_menu",
+          "SMOKE\\.PAD: event=detached .*neutral_observed=1 .*removed_observed=1 .*virtual=1",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [
+      {
+        "pattern": "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_12 ",
+        "min": 1,
+        "max": 1
+      }
+    ],
+    "forbidden_patterns": [
+      "SMOKE: result=(?:timeout|wait_|controller_)",
+      "SMOKE\\.PAD: failure",
+      "FORGE\\.DRAFT\\.DEBUG\\.(OK|FAIL)",
+      "FORGE\\.LEVEL\\.SAVE\\.FAIL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  },
+  "retain_artifacts": [
+    {
+      "src": "grid-controller-level-name.bmp",
+      "name": "grid-controller-level-name.bmp"
+    },
+    {
+      "src": "grid-controller-level-saved.bmp",
+      "name": "grid-controller-level-saved.bmp"
+    },
+    {
+      "src": "mods/MP Maps/arena_12/arena_12.pdarena",
+      "name": "grid-controller-level-12.pdarena"
+    }
+  ]
+}

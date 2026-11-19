@@ -73,9 +73,15 @@ static void freeFrames(activation_frame_t *frames, size_t count)
 	free(frames);
 }
 
-s32 catalogDepActivationPlanBuild(catalog_dep_activation_plan_t *plan,
+static s32 addSupplement(const char *id, asset_type_e type, void *children)
+{
+	return type > ASSET_NONE && type < ASSET_TYPE_COUNT && appendNode(children, id, type);
+}
+
+s32 catalogDepActivationPlanBuildWithEdges(catalog_dep_activation_plan_t *plan,
 	const char *root_id, asset_type_e root_type,
 	catalog_dep_activation_resolve_fn resolve_fn, void *resolve_userdata,
+	catalog_dep_activation_supplement_fn supplement, void *supplement_userdata,
 	char *error, size_t error_cap)
 {
 	activation_frame_t *frames = NULL;
@@ -154,6 +160,12 @@ s32 catalogDepActivationPlanBuild(catalog_dep_activation_plan_t *plan,
 					catalogDepActivationPlanFree(plan);
 					return 0;
 				}
+				if (supplement && !supplement(pending.id, actual, addSupplement,
+						&frames[depth].children, supplement_userdata, error, error_cap)) {
+					freeFrames(frames, depth + 1);
+					catalogDepActivationPlanFree(plan);
+					return 0;
+				}
 				depth++;
 				pending.id[0] = '\0';
 			}
@@ -177,6 +189,15 @@ s32 catalogDepActivationPlanBuild(catalog_dep_activation_plan_t *plan,
 	}
 	free(frames);
 	return 1;
+}
+
+s32 catalogDepActivationPlanBuild(catalog_dep_activation_plan_t *plan,
+	const char *root_id, asset_type_e root_type,
+	catalog_dep_activation_resolve_fn resolve_fn, void *resolve_userdata,
+	char *error, size_t error_cap)
+{
+	return catalogDepActivationPlanBuildWithEdges(plan, root_id, root_type, resolve_fn,
+		resolve_userdata, NULL, NULL, error, error_cap);
 }
 
 void catalogDepActivationPlanRollback(const catalog_dep_activation_plan_t *plan,

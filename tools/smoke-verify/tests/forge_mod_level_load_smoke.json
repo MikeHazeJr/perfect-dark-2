@@ -1,0 +1,93 @@
+{
+  "scenario_name": "forge_mod_level_load_smoke",
+  "description": "KNOWN RED until Forge step F1 is built (context/designs/modding/forge-mode-scope.md, \"F1 work list\"); kept as the reproduction and as F1's proof once it passes. A mod level loads: one ordinary client launch saves the extracted base Complex arena as the mod level 'Forge Test' through --mod-author (the save, rescan, enable and apply path the in-game creators use), then starts an offline Combat Simulator match on mod:arena_forge_test with three simulants and waits for the player to spawn and walk. The level's scenario (geometry, pads, spawns, objects) is the copy inside the mod's own .pdarena. No mod exists before the launch. As read on 2026-11-16 the load cannot succeed yet: a custom stage number has no map row, and the scenario inside a mod arena is never registered; the first run shows where it stops. A level made from a base arena holds data from the player's own game files and is local only.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "pdarena",
+    "mod-author",
+    "smoke",
+    "pillar:modding",
+    "known-red"
+  ],
+  "paths_of_interest": [
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_api.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mod_author.c",
+    "port/src/mod_author_runtime.c",
+    "context/designs/modding/forge-mode-scope.md"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/MP Maps/arena_forge_test"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/arena_from_base/recipe.json",
+      "dst": "mod-recipes/arena_from_base/recipe.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/arena_from_base/recipe.json",
+    "--launch-mp-room",
+    "mod:arena_forge_test",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the ordinary Combat Simulator player is continuously spawned, live, controllable and walking on the mod level. The recipe has already run as the first CLI fast path, before the room launch flags."
+    },
+    {
+      "at_ms": 6000,
+      "type": "exit",
+      "comment": "Six seconds on the level, then a scripted exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_mod_level_load_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=arena catalog=mod:arena_forge_test mod_id=mod\\.arena_forge_test updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:arena_forge_test type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:arena_forge_test",
+      "PDARENA\\.SCENARIO: owner=mod:arena_forge_test id=mod:arena_forge_test__\\S+ stagenum=0x[0-9a-f]+ source=",
+      "BOOT: --launch-mp-room direct match start",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "MATCH: player spawned slot=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "CATALOG-FATAL",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}

@@ -53,7 +53,7 @@ extern "C" {
 #define MOD_AUTHOR_OK             0
 #define MOD_AUTHOR_ERR_ARGS      -1   /* bad request */
 #define MOD_AUTHOR_ERR_TEMPLATE  -2   /* template unreadable or not a supported family */
-#define MOD_AUTHOR_ERR_EXISTS    -3   /* the mod folder belongs to something else */
+#define MOD_AUTHOR_ERR_EXISTS    -3   /* the destination is occupied */
 #define MOD_AUTHOR_ERR_ARCHIVE   -4   /* the archive could not be rebuilt or failed validation */
 #define MOD_AUTHOR_ERR_WRITE     -5   /* folder or file could not be written */
 
@@ -87,6 +87,7 @@ typedef struct mod_author_request {
 	u32 override_count;
 	const mod_author_descriptor_value_t *descriptor_values;   /* optional descriptor keys */
 	u32 descriptor_value_count;
+	s32 require_new_folder;      /* refuse any occupied destination, including this mod's own folder */
 } mod_author_request_t;
 
 typedef struct mod_author_result {
@@ -99,6 +100,7 @@ typedef struct mod_author_result {
 	char manifest_path[MOD_AUTHOR_PATH_MAX];
 	s32 updated;                            /* 1 when this mod already existed */
 	asset_archive_clone_report_t ids;       /* template id to mod id map (Save only) */
+	char display_name[MOD_AUTHOR_NAME_MAX]; /* validated name with surrounding whitespace trimmed */
 } mod_author_result_t;
 
 /**
@@ -106,13 +108,13 @@ typedef struct mod_author_result {
  * the id and say "new mod" or "replaces your existing mod" before the player
  * confirms.
  *
- * `result` receives kind, slug, mod_id, catalog_id, the three paths and
+ * `result` receives display_name, kind, slug, mod_id, catalog_id, the three paths and
  * `updated`. Returns MOD_AUTHOR_ERR_EXISTS when the folder belongs to
- * something else, exactly as Save would.
+ * something else, or when require_new_folder is set and the path is occupied.
  */
 /**
  * The names a save of `request` would use, without looking at the mods
- * folder: kind, slug, mod id, catalog id and the three paths. A creator
+ * folder: display name, kind, slug, mod id, catalog id and the three paths. A creator
  * shows these before saving. modAuthorPlan is this plus the check of what
  * is already at that place.
  */
@@ -123,7 +125,8 @@ s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *resu
 		char *err, size_t err_cap);
 
 /**
- * Create or update the mod described by `request`.
+ * Create or update the mod described by `request`. When require_new_folder
+ * is set, Save must create the mod directory itself before writing into it.
  *
  * The display name and the request's descriptor values are written into the
  * archive's descriptor unless an override replaces the descriptor itself

@@ -9,6 +9,7 @@
 #include "game/bg.h"
 #include "scenario_source_runtime.h"
 #include "scenario_stage_rules.h"
+#include "system.h"
 
 /* A stage built from scenario source takes its weather setup from its
  * stage.json (decision 3); this is that stage's copy of the table row. */
@@ -70,6 +71,9 @@ static void weatherResetRooms(void)
 
 void weatherReset(void)
 {
+	s32 startup_kind = SCENARIO_STAGE_WEATHER_START_NONE;
+	s32 startup_intensity = 0;
+
 	g_WeatherActive = false;
 	g_WeatherData = NULL;
 
@@ -82,6 +86,8 @@ void weatherReset(void)
 		if (scenarioSourceStageWeather(&rule)) {
 			weatherConfigFromStageRules(&rule, &s_ScenarioWeatherConfig);
 			g_CurWeatherConfig = &s_ScenarioWeatherConfig;
+			startup_kind = rule.startup_kind;
+			startup_intensity = rule.startup_intensity;
 		}
 	} else {
 		for (s32 i = 0; i < ARRAYCOUNT(g_WeatherConfig) && g_WeatherConfig[i].stagenum; ++i) {
@@ -143,5 +149,15 @@ void weatherReset(void)
 		g_WeatherData->unkd4 = 0;
 
 		g_WeatherActive = true;
+
+		if (startup_kind == SCENARIO_STAGE_WEATHER_START_RAIN) {
+			weatherConfigureRain(startup_intensity);
+		} else if (startup_kind == SCENARIO_STAGE_WEATHER_START_SNOW) {
+			weatherConfigureSnow(startup_intensity);
+		}
+		if (startup_kind != SCENARIO_STAGE_WEATHER_START_NONE) {
+			sysLogPrintf(LOG_NOTE, "SCENARIO.SOURCE: weather started kind=%s intensity=%d source=stage.json",
+				g_WeatherData->type == WEATHERTYPE_RAIN ? "rain" : "snow", g_WeatherData->intensity);
+		}
 	}
 }

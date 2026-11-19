@@ -320,7 +320,19 @@ typedef enum InputAction {
      * which landed on dev first. */
     ACTION_VEHICLE_BOOST,            /* = 123 Left Shift / A-button */
 
-    ACTION_COUNT                /* = 124, sentinel - keep last */
+    /* ---- Vehicle turret (Maian vehicle V4, Mike 2026-11-16) ----
+     * The gunner seat's own actions, bound in the turret context
+     * (g_ImcVehicleTurret, active only in that seat). Held: fire the
+     * turret; held: zoom and lock it. The seat's look, exit and pause are
+     * the vehicle actions above, bound again in the turret context. Both
+     * are read by the turret (V5); until then they are bound and mappable
+     * and do nothing. */
+    ACTION_TURRET_FIRE,              /* = 124 left mouse button / right trigger */
+    ACTION_TURRET_ZOOM,              /* = 125 right mouse button / left trigger */
+
+    ACTION_FORGE_EDITOR_CONTROLS,    /* = 126 Give focus to Grid editor controls */
+
+    ACTION_COUNT                /* = 127, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */
@@ -704,6 +716,7 @@ extern InputMappingContext g_ImcMenu;          /* priority 10 — ImGui menu nav
 extern InputMappingContext g_ImcPauseMenu;     /* priority 11 — in-game pause         */
 extern InputMappingContext g_ImcDebugOverlay;  /* priority 20 — F12 debug window      */
 extern InputMappingContext g_ImcTextInput;     /* priority 30 — text entry / chat     */
+extern InputMappingContext g_ImcVehicleTurret; /* priority  5 - a vehicle's gunner seat (never active with g_ImcVehicle) */
 
 /* ============================================================
  * Scene-scope IMC dispatch (Priority J, 2026-04-25)
@@ -740,6 +753,14 @@ void imcSceneClearGameplay(void);
  *  dismount the baseline takes over again. */
 void imcVehicleMount(void);
 void imcVehicleDismount(void);
+
+/** Activate / deactivate the vehicle turret IMC: the gunner seat's bindings
+ *  (turret fire and zoom, look, exit, pause). Called from the
+ *  LAYER_VEHICLE_TURRET on_push / on_pop / on_abort hooks in inputlayer.c.
+ *  A player is in one seat, so this context and the driver's are never
+ *  active together. */
+void imcVehicleTurretMount(void);
+void imcVehicleTurretDismount(void);
 
 /** Activate / deactivate the Cutscene IMC (Cohort 4, K.2). Called from
  *  the LAYER_CUTSCENE on_push / on_pop hooks in inputlayer.c. Bindings

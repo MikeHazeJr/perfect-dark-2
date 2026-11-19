@@ -1,0 +1,98 @@
+{
+  "scenario_name": "forge_grid_logic_zone_crossing_smoke",
+  "description": "Create a standalone Logic Zone with native Enter and Leave events on an original Grid arena. Save and pin a distinct variant, launch it in offline Combat, and walk across both zone boundaries after passing through the room 2 doorway.",
+  "tags": ["modding", "forge", "arena", "graph", "input", "smoke", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/smoke_harness.c",
+    "src/game/lv.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["gz"],
+  "fixtures": [
+    { "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid/templates/grid_two_rooms.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "gz/mods/.pdmod-migration-done" }
+  ],
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--savedir", "$E/gz",
+    "--moddir", "$E/gz/mods",
+    "--debug-level-tool-new", "original",
+    "--debug-level-tool-name", "Zone_Base",
+    "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+    "--debug-forge-level", "mod:arena_zone_base",
+    "--debug-forge-level-name", "Zone_Walk",
+    "--debug-forge-level-logic-zone-crossing",
+    "--debug-forge-level-pin",
+    "--launch-mp-room", "mod:arena_zone_walk", "base:combat", "0",
+    "--debug-auto-start-match",
+    "--debug-grid-portal-witness", "cross",
+    "--debug-grid-portal-arena", "mod:arena_zone_walk"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 260000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    { "at_ms": 500, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press" },
+    { "at_ms": 5500, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release" },
+    { "at_ms": 6500, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_logic_zone_crossing_smoke",
+      "PDARENA\\.SCENARIO: owner=mod:arena_zone_walk id=mod:arena_zone_walk__[^ ]+ stagenum=0x[0-9a-f]+ source="
+    ],
+    "required_sequences": [
+      {
+        "name": "Save the standalone zone and cross both boundaries through native movement",
+        "patterns": [
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+          "LEVELTOOL\\.ROOMS: length=2100 width=1800 height=600 members=6 second_length=2700 doorway_width=500\\.00 doorway_height=390\\.00",
+          "LEVELTOOL\\.DEBUG\\.NEW\\.RESULT result=OK catalog=mod:arena_zone_base opens=1",
+          "SMOKE\\.GRID\\.ZONE: authored source=mod:arena_zone_base pad=pad_0005 room=room_2 volume=volume_pad_9999 enter=grid\\.zone\\.volume_pad_9999\\.enter leave=grid\\.zone\\.volume_pad_9999\\.leave center=\\(627\\.1,57\\.4,-136\\.4\\)",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_zone_base catalog=mod:arena_zone_walk .*archive='[^']*arena_zone_walk\\.pdarena' own_template=0",
+          "FORGE\\.REVISION\\.PIN: arena=mod:arena_zone_walk sha256=[0-9a-f]{64}",
+          "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=OK catalog=mod:arena_zone_walk",
+          "BOOT: --launch-mp-room arena='mod:arena_zone_walk' scenario='base:combat' bots=0",
+          "SCENARIO\\.GRAPH: level program 'mod:arena_zone_walk__[^']+' nodes=13 exec_edges=7 modules=4 volumes=1 backend=graph\\.level\\.runner",
+          "SCENARIO\\.SOURCE: compiled setup\\.fields\\.json '[^']*arena_zone_walk[^']*'.* as 0 setup records, 6 spawns,",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=2000",
+          "GRID\\.PORTAL\\.ANCHOR: arena=mod:arena_zone_walk mode=cross room=1 start_x=-350 start_z=0",
+          "GRID\\.PORTAL\\.INPUT: arena=mod:arena_zone_walk mode=cross axis=\\(0\\.000,1\\.000\\)",
+          "GRID\\.PORTAL\\.CROSSED: arena=mod:arena_zone_walk from=1 to=2 grounded=1",
+          "SCENARIO\\.GRAPH: event\\.volume\\.entered 'mod:arena_zone_walk__[^']+' volume=volume_pad_9999 player=0 modules=0 backend=graph\\.level\\.runner",
+          "SCENARIO\\.GRAPH: event\\.volume\\.left 'mod:arena_zone_walk__[^']+' volume=volume_pad_9999 player=0 modules=0 backend=graph\\.level\\.runner",
+          "SMOKE: action release id=[0-9]+ at_ms=5500",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [
+      { "pattern": "event\\.volume\\.entered 'mod:arena_zone_walk__[^']+' volume=volume_pad_9999 player=0", "min": 1, "max": 1 },
+      { "pattern": "event\\.volume\\.left 'mod:arena_zone_walk__[^']+' volume=volume_pad_9999 player=0", "min": 1, "max": 1 }
+    ],
+    "forbidden_patterns": [
+      "GRID\\.PORTAL\\.FAIL:",
+      "FORGE\\.LEVEL\\.(DEBUG\\.RESULT: result=FAIL|SAVE\\.FAIL)",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "PDARENA\\.SCENARIO: owner=mod_grid_two_rooms:arena_grid_two_rooms",
+      "level program refused:",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|wait_)"
+    ]
+  }
+}

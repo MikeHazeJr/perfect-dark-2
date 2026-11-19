@@ -152,6 +152,21 @@ s32 assetArchiveCloneFile(const char *src_path, const char *out_path,
 		asset_archive_clone_report_t *report,
 		char *err, size_t err_cap);
 
+/**
+ * Remove the top-level member `key` (whatever its value) from JSON object
+ * text, in place, together with the comma that separated it from its
+ * neighbour. `text` holds `*len` bytes and need not end in a terminator;
+ * `*len` shrinks by what was removed.
+ *
+ * The clone uses it for the one thing a cloned mesh must give up: its
+ * manifest's `source_filenum_symbol`, the native file the template stands
+ * for (B-1152). Declared here so pd-tests can prove the text edit.
+ *
+ * Returns 1 when the member was removed, 0 when the text is not a JSON object
+ * with such a member (the text is then untouched).
+ */
+s32 assetArchiveCloneJsonDropTopMember(char *text, u32 *len, const char *key);
+
 #ifdef __cplusplus
 }
 #endif

@@ -590,7 +590,24 @@ s32 challengeForceUnlockSetupFeatures(struct mpsetup *setup, u8 *array, s32 len)
 	return index;
 }
 
-void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 len, s32 challengeindex)
+static s32 challengeBotProfileUnlockFeature(struct challenge_bot_unlock_cache *cache,
+		u8 type, u8 difficulty)
+{
+	u16 *cached = type == BOTTYPE_GENERAL
+		? &cache->by_difficulty[difficulty] : &cache->by_type[type];
+	if (*cached == 0) {
+		s32 index = mpFindBotProfile(type, difficulty);
+		const asset_runtime_binding_t *profile = index >= 0
+			? mpBotProfileRuntimeBinding(index) : NULL;
+		/* A missing profile and a profile without an unlock both contribute zero. */
+		*cached = (profile ? profile->bot_profile_requirefeature : 0) + 1;
+		cache->profile_searches++;
+	}
+	return *cached - 1;
+}
+
+void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 len,
+		s32 challengeindex, struct challenge_bot_unlock_cache *cache)
 {
 	s32 index = challengeForceUnlockSetupFeatures(&config->setup, array, len);
 	s32 featurenum;
@@ -598,31 +615,17 @@ void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 
 	s32 i;
 
 	for (i = 0; i < MAX_BOTS; i++) {
-		s32 simtype = mpFindBotProfile(config->simulants[i].type, BOTDIFF_NORMAL);
-
-		if (simtype >= 0) {
-			const asset_runtime_binding_t *profile =
-				mpBotProfileRuntimeBinding(simtype);
-			featurenum = profile ? profile->bot_profile_requirefeature : 0;
-
-			if (featurenum) {
-				index = challengeForceUnlockFeature(featurenum, array, index, len);
-			}
+		featurenum = challengeBotProfileUnlockFeature(cache,
+				config->simulants[i].type, BOTDIFF_NORMAL);
+		if (featurenum) {
+			index = challengeForceUnlockFeature(featurenum, array, index, len);
 		}
 
 		for (numplayers = 0; numplayers < MAX_PLAYERS; numplayers++) {
-			simtype = mpFindBotProfile(0, config->simulants[i].difficulties[numplayers]);
-
-			if (simtype >= 0) {
-				const asset_runtime_binding_t *profile =
-					mpBotProfileRuntimeBinding(simtype);
-				featurenum = profile
-					? profile->bot_profile_requirefeature
-					: 0;
-
-				if (featurenum) {
-					index = challengeForceUnlockFeature(featurenum, array, index, len);
-				}
+			featurenum = challengeBotProfileUnlockFeature(cache, BOTTYPE_GENERAL,
+					config->simulants[i].difficulties[numplayers]);
+			if (featurenum) {
+				index = challengeForceUnlockFeature(featurenum, array, index, len);
 			}
 		}
 

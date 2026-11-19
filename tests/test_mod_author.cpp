@@ -18,6 +18,7 @@ extern "C" {
 #include "assetcatalog_scanner.h"
 #include "body_head_source.h"
 #include "character_head_policy.h"
+#include "character_tool.h"
 #include "constants.h"
 #include "mod_author.h"
 #include "mod_manifest_validate.h"
@@ -50,6 +51,8 @@ const char *const kHeadTemplate =
 	"examples/modding/typed-pdxxx-basic/heads/tri_head.pdhead";
 const char *const kVehicleTemplate =
 	"examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle";
+const char *const kArenaTemplate =
+	"examples/modding/typed-pdxxx-basic/arenas/tri_arena.pdarena";
 
 struct AuthorTempDir {
 	fs::path path;
@@ -481,6 +484,42 @@ TEST_CASE("mod author names characters, bodies, heads and vehicles the way their
 		const std::string manifest = authorReadFile(result.manifest_path);
 		CHECK(manifest.find("\"tags\": [\"vehicle\", \"pdvehicle\", \"user\"]")
 			!= std::string::npos);
+
+		authorKeepArtifact(result.archive_path);
+	}
+
+	SECTION("arena: a level gains a name of its own, which no template has") {
+		/* A base arena is named by a language id. A mod level has no string
+		 * in the game's language files, so the author writes display_name
+		 * and the arena lists read it (Forge F1). */
+		AuthorRequest req(authorExample(kArenaTemplate), root.path, "Dock Yard");
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		const mod_author_result_t &result = *saved.result;
+		CHECK(std::string(result.catalog_id) == "mod:arena_dock_yard");
+		CHECK(fs::equivalent(result.archive_path,
+			root.path / "MP Maps" / "arena_dock_yard" / "arena_dock_yard.pdarena"));
+		authorRequireReleaseValid(result.archive_path);
+
+		const std::string archive = authorReadFile(result.archive_path);
+		const std::string descriptor = authorEntry(archive, "arena.ini");
+		const std::string templateDescriptor =
+			authorEntry(authorReadFile(req.tmpl), "arena.ini");
+		CHECK(authorIniValues(templateDescriptor, "display_name").empty());
+		CHECK(authorIniValue(descriptor, "catalog_id") == "mod:arena_dock_yard");
+		CHECK(authorIniValue(descriptor, "display_name") == "Dock Yard");
+		CHECK(std::count(descriptor.begin(), descriptor.end(), '\n')
+			== std::count(templateDescriptor.begin(), templateDescriptor.end(), '\n') + 1);
+		/* What the level loads is its template's: the load mode by name, and
+		 * the scenario inside the archive, now in the mod's namespace. */
+		CHECK(authorIniValue(descriptor, "load_mode") == "ARENA_LOADMODE_PLAYABLE");
+		CHECK(authorIniValue(descriptor, "scenario_archive")
+			== authorIniValue(templateDescriptor, "scenario_archive"));
+		CHECK(authorIniValue(descriptor, "scenario").rfind("mod:arena_dock_yard__", 0) == 0);
+		const std::string manifest = authorReadFile(result.manifest_path);
+		CHECK(authorManifestField(manifest, "name") == "Dock Yard");
+		CHECK(manifest.find("\"contents\": [\"arena\"]") != std::string::npos);
 
 		authorKeepArtifact(result.archive_path);
 	}
@@ -962,6 +1001,59 @@ TEST_CASE("mod author updates a mod in place and edits it from its own archive",
 	}
 }
 
+TEST_CASE("mod author can require a new destination folder", "[modding][author]") {
+	AuthorTempDir root;
+	AuthorRequest req(authorExample(kWeaponTemplate), root.path, "Rivet Carbine");
+	req.request.require_new_folder = 1;
+	const AuthorCall freePlan = authorPlan(req.request);
+	REQUIRE(freePlan.code == MOD_AUTHOR_OK);
+	CHECK(freePlan.result->updated == 0);
+	CHECK(authorTree(root.path).empty());
+
+	const auto expectOccupied = [&]() {
+		const auto before = authorTree(root.path);
+		const AuthorCall refusedPlan = authorPlan(req.request);
+		CHECK(refusedPlan.code == MOD_AUTHOR_ERR_EXISTS);
+		CHECK(refusedPlan.err.find("Choose a different name") != std::string::npos);
+		CHECK(authorResultIsZero(*refusedPlan.result));
+		const AuthorCall refusedSave = authorSave(req.request);
+		CHECK(refusedSave.code == MOD_AUTHOR_ERR_EXISTS);
+		CHECK(refusedSave.err.find("Choose a different name") != std::string::npos);
+		CHECK(authorResultIsZero(*refusedSave.result));
+		CHECK(authorTree(root.path) == before);
+	};
+
+	SECTION("same-name saves preserve the archive, manifest and staging files") {
+		const AuthorCall saved = authorSave(req.request);
+		INFO(saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		CHECK(saved.result->updated == 0);
+		CHECK(std::string(saved.result->mod_dir) == freePlan.result->mod_dir);
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		const std::string manifest = authorReadFile(saved.result->manifest_path);
+		const fs::path candidate = std::string(saved.result->archive_path) + ASSET_ARCHIVE_CLONE_STAGING_SUFFIX;
+		const fs::path manifestCandidate = std::string(saved.result->manifest_path) + ASSET_ARCHIVE_CLONE_STAGING_SUFFIX;
+		const fs::path marker = fs::path(saved.result->mod_dir) / "keep.txt";
+		authorWriteFile(candidate, "archive candidate");
+		authorWriteFile(manifestCandidate, "manifest candidate");
+		authorWriteFile(marker, "folder marker");
+		req.request.version = "2.0.0";
+		expectOccupied();
+		CHECK(authorReadFile(saved.result->archive_path) == archive);
+		CHECK(authorReadFile(saved.result->manifest_path) == manifest);
+		CHECK(authorReadFile(candidate) == "archive candidate");
+		CHECK(authorReadFile(manifestCandidate) == "manifest candidate");
+		CHECK(authorReadFile(marker) == "folder marker");
+	}
+
+	SECTION("an empty directory created after planning is already occupied") {
+		const fs::path modDir = freePlan.result->mod_dir;
+		REQUIRE(fs::create_directories(modDir));
+		expectOccupied();
+		CHECK(fs::is_empty(modDir));
+	}
+}
+
 TEST_CASE("mod author never touches a folder that belongs to something else",
           "[modding][author]") {
 	AuthorTempDir root;
@@ -1307,6 +1399,93 @@ TEST_CASE("mod author sets the gender, type and height a Characters tab edits",
 		authorKeepArtifact(saved.result->archive_path);
 	}
 
+	SECTION("the Characters tool's own path: read the template, set the form, save, read back") {
+		/* What the tool does for "Use as Template": the game's body reader on
+		 * the template archive gives the template's gender, type and height. */
+		const std::string tmplPath = authorExample(kBodyTemplate);
+		const std::string tmplBytes = authorReadFile(tmplPath);
+		auto tmplSource = std::make_unique<body_head_source_t>();
+		REQUIRE(bodyHeadSourceParseArchiveBytes(tmplBytes.data(),
+			static_cast<u32>(tmplBytes.size()), "example:tri_body", 0, tmplSource.get(),
+			err, sizeof(err)) == 1);
+		character_tool_template_t tmpl{};
+		tmpl.kind = characterToolKindForAssetType(ASSET_BODY);
+		tmpl.ismale = tmplSource->ismale ? 1 : 0;
+		tmpl.type = tmplSource->type;
+		tmpl.height = tmplSource->height;
+		/* The example body names no gender, type or height: the reader's
+		 * defaults, and a rig_class of its own. */
+		CHECK(tmpl.ismale == 0);
+		CHECK(tmpl.type == HEADBODYTYPE_DEFAULT);
+		CHECK(tmpl.height == 0);
+		CHECK(std::string(tmplSource->rig_class) == "human_male_neck_standard");
+
+		character_tool_form_t form;
+		characterToolFormFromTemplate(&tmpl, &form);
+		CHECK(form.build == CHARACTER_TOOL_BUILD_TEMPLATE); /* female with DEFAULT: not a build */
+
+		/* Saved as it is, the tool sends nothing and the copy keeps the
+		 * template's own neck. */
+		character_tool_values_t values;
+		REQUIRE(characterToolDescriptorValues(&form, &tmpl, &values) == 1);
+		CHECK(values.count == 0);
+		{
+			AuthorRequest req(tmplPath, root.path, "Plain Copy");
+			const AuthorCall saved = authorSave(req.request);
+			INFO("save error: " << saved.err);
+			REQUIRE(saved.code == MOD_AUTHOR_OK);
+			const std::string archive = authorReadFile(saved.result->archive_path);
+			auto source = std::make_unique<body_head_source_t>();
+			REQUIRE(bodyHeadSourceParseArchiveBytes(archive.data(),
+				static_cast<u32>(archive.size()), saved.result->catalog_id, 0, source.get(),
+				err, sizeof(err)) == 1);
+			CHECK(source->ismale == 0);
+			CHECK(source->type == HEADBODYTYPE_DEFAULT);
+			CHECK(std::string(source->rig_class) == "human_male_neck_standard");
+		}
+
+		/* A male Maian of height 106: the tool's values, straight to the author. */
+		form.ismale = 1;
+		form.build = CHARACTER_TOOL_BUILD_MAIAN;
+		form.height = 106;
+		REQUIRE(characterToolDescriptorValues(&form, &tmpl, &values) == 1);
+		REQUIRE(values.count == 4);
+		AuthorRequest req(tmplPath, root.path, "Tool Veteran");
+		req.request.descriptor_values = values.values;
+		req.request.descriptor_value_count = values.count;
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+		CHECK(std::string(saved.result->catalog_id) == "mod:body_tool_veteran");
+
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		auto source = std::make_unique<body_head_source_t>();
+		const s32 parsed = bodyHeadSourceParseArchiveBytes(archive.data(),
+			static_cast<u32>(archive.size()), saved.result->catalog_id, 0, source.get(),
+			err, sizeof(err));
+		INFO("body reader: " << err);
+		REQUIRE(parsed == 1);
+		CHECK(source->ismale == 1);
+		CHECK(source->type == HEADBODYTYPE_MAIAN);
+		CHECK(source->height == 106);
+		CHECK(std::string(source->rig_class) == "maian_tall_neck");
+		CHECK(std::string(source->display_name) == "Tool Veteran");
+		authorKeepArtifact(saved.result->archive_path);
+
+		/* Opened again as a template, the saved mod reads back as the build
+		 * the player picked. */
+		character_tool_template_t again{};
+		again.kind = tmpl.kind;
+		again.ismale = source->ismale ? 1 : 0;
+		again.type = source->type;
+		again.height = source->height;
+		characterToolFormFromTemplate(&again, &form);
+		CHECK(form.ismale == 1);
+		CHECK(form.build == CHARACTER_TOOL_BUILD_MAIAN);
+		CHECK(form.height == 106);
+	}
+
 	SECTION("head: female, the female rig") {
 		const mod_author_descriptor_value_t values[] = {
 			{ "ismale", "0" },
@@ -1394,10 +1573,11 @@ TEST_CASE("mod author names a save without looking at the mods folder",
 	mod_author_request_t request{};
 	request.template_path = "anything.pdweapon";
 	request.mods_root = "no/such/folder";
-	request.display_name = "Maian  Crystal-Pistol!";
+	request.display_name = "  \tMaian  Crystal-Pistol!\t  ";
 	auto names = std::make_unique<mod_author_result_t>();
 	char err[256] = "";
 	REQUIRE(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(names->display_name) == "Maian  Crystal-Pistol!");
 	CHECK(std::string(names->kind) == "weapon");
 	CHECK(std::string(names->slug) == "weapon_maian_crystal_pistol");
 	CHECK(std::string(names->mod_id) == "mod.weapon_maian_crystal_pistol");
@@ -1411,12 +1591,14 @@ TEST_CASE("mod author names a save without looking at the mods folder",
 	request.mods_root = root.c_str();
 	auto plan = std::make_unique<mod_author_result_t>();
 	REQUIRE(modAuthorPlan(&request, plan.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(plan->display_name) == names->display_name);
 	CHECK(std::string(plan->slug) == names->slug);
 	CHECK(std::string(plan->mod_id) == names->mod_id);
 	CHECK(std::string(plan->catalog_id) == names->catalog_id);
 
 	request.display_name = "!!!";
 	CHECK(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_ERR_ARGS);
+	CHECK(names->display_name[0] == '\0');
 	CHECK(names->slug[0] == '\0');
 	CHECK(err[0] != '\0');
 	request.display_name = "Fine";

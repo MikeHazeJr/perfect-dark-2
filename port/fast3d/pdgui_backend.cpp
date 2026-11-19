@@ -577,7 +577,8 @@ static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
     static PdguiMouseBackGesture mouseBack;
-    const bool navigationActive = pdguiIsActive() && !pdguiMainMenuBindingCaptureListening();
+    const bool navigationActive = pdguiIsActive() && !inputCtxIsFocusLost() &&
+        !pdguiMainMenuBindingCaptureListening();
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
      * menus already use (Escape / ACTION_CANCEL_USE). Using middle-click avoids
@@ -1521,7 +1522,7 @@ static void registerDebugShortcuts(void)
      * Default keyboard binding moved from F7 to F11 (2026-04-26) to
      * split the F7 dual-bind with the invincibility cheat above. */
     pdguiDebugShortcutRegister("F11",
-        "Toggle Grid / Forge mode (default; rebindable in Settings -> Controls)",
+        "Switch between editing and playtesting (rebindable in Settings -> Controls)",
         DBG_SHORTCUT_CAT_FORGE, 0);
 }
 

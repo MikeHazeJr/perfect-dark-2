@@ -1,0 +1,11 @@
+{
+  "scenario_name": "forge_grid_reconnect_host",
+  "timeout_seconds": 530,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_listen_ready", "timeout_ms": 180000 },
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 180000 },
+    { "at_ms": 15000, "type": "network_timeout_client", "client_id": 1 },
+    { "at_ms": 15000, "type": "wait_until", "condition": "endscreen_visible", "timeout_ms": 120000, "stable_ms": 1000 },
+    { "at_ms": 18500, "type": "exit" }
+  ]
+}

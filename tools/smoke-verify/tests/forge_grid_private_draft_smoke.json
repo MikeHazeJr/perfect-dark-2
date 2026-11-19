@@ -1,0 +1,148 @@
+{
+  "scenario_name": "forge_grid_private_draft_smoke",
+  "description": "Three clients join the same listen-host room. The host invites only the creator to an exact local Grid draft. The creator commits an ambient light edit, the host saves the revised Variant, and the creator sees the targeted close while both peers are still in the room. The ordinary peer remains until normal host shutdown. This exercises the Room actions through their production APIs without navigating the widgets.",
+  "tags": ["modding", "forge", "network", "shared-draft", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/grid_edit_room.c",
+    "port/src/net/grid_edit_room_wire.c",
+    "port/src/grid_edit_session.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": ["grid-host", "grid-creator", "grid-ordinary"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-host/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-creator/mods/.pdmod-migration-done" },
+    { "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-ordinary/mods/.pdmod-migration-done" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-host/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-host/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-host/mods-enabled.json" },
+    { "src": "dev-mods/blank_room/mod.json", "dst": "grid-creator/mods/blank_room/mod.json" },
+    { "src": "dev-mods/blank_room/blank_room.pdarena", "dst": "grid-creator/mods/blank_room/blank_room.pdarena" },
+    { "src": "tools/smoke-verify/fixtures/blank_room_enabled.json", "dst": "grid-creator/mods-enabled.json" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-host", "--moddir", "$E/grid-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name", "Grid_Shared_Draft",
+        "--debug-forge-level-pin",
+        "--host", "--listen-bind", "27475",
+        "--launch-mp-room", "mod:arena_grid_shared_draft", "base:combat", "0",
+        "--host-autostart", "--host-autostart-peers", "2",
+        "--debug-grid-private-draft", "host"
+      ],
+      "wait_for": "NET: created server on port 27475",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "only-the-invited-creator-can-edit",
+            "patterns": [
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_shared_draft sha256=[0-9a-f]{64}",
+              "BOOT: --host-autostart: room [0-9]+ ready, added 2 remote client\\(s\\) to it",
+              "NET\\.GRID\\.EDIT: invited client=1 room=[0-9]+ generation=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.DRAFT: role=host room=[0-9]+ creator=1 ordinary=2",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "FORGE\\.REVISION\\.FORK: original=mod:arena_grid_shared_draft parent=[0-9a-f]{64} fork=mod:arena_grid_shared_draft_variant",
+              "NET\\.GRID\\.EDIT: saved variant=mod:arena_grid_shared_draft_variant revision=2",
+              "SMOKE\\.GRID\\.DRAFT: role=host revision=2 ambient=137",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE\\.GRID\\.DRAFT: role=host close_flushed room=[0-9]+ ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-host"],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited|granted) client=2",
+          "BOOT: --host-autostart firing",
+          "NET: === STAGE START ==="
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-creator", "--moddir", "$E/grid-creator/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-forge-level", "mod_blank_room:arena_blank_room",
+        "--debug-forge-level-name", "Grid_Shared_Draft",
+        "--connect-host", "127.0.0.1:27475",
+        "--debug-grid-private-draft", "creator"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "creator-verifies-the-baseline-edit-and-close",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod_blank_room:arena_blank_room catalog=mod:arena_grid_shared_draft",
+          "SAVE: initialized .*grid-creator"
+        ],
+        "required_counts": [
+          { "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x84", "min": 3, "max": 3 },
+          { "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x85", "min": 1, "max": 1 }
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable", "--savedir", "$E/grid-ordinary", "--moddir", "$E/grid-ordinary/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27475",
+        "--debug-grid-private-draft", "ordinary"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "uninvited-peer-stays-until-host-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": ["SAVE: initialized .*grid-ordinary"],
+        "forbidden_patterns": ["NET\\.GRID\\.EDIT\\.WIRE: received"]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

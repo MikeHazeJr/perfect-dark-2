@@ -1,0 +1,92 @@
+{
+  "scenario_name": "forge_grid_door_trigger_smoke",
+  "description": "Author a door trigger in Car Park through Level File, save the arena, and start an ordinary offline Combat match. The trigger box covers the spawn domain so the player enters during normal spawning. The graph must bind the volume, execute one module, and open the original shutter at setup_0030.",
+  "tags": [
+    "modding",
+    "forge",
+    "arena",
+    "graph",
+    "doors",
+    "smoke",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "port/src/forge_level_doc.cpp",
+    "port/src/forge_level_io.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/mission_graph_modules.c",
+    "src/game/lv.c",
+    "src/game/propobj.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/MP Maps/arena_grid_door_trigger_smoke"
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-forge-level",
+    "base:arena_mp_carpark",
+    "--debug-forge-level-name",
+    "Grid_Door_Trigger_Smoke",
+    "--debug-forge-level-trigger",
+    "--launch-mp-room",
+    "mod:arena_grid_door_trigger_smoke",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 4000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=forge_grid_door_trigger_smoke",
+      "SCENARIO\\.GRAPH: trigger volume nodes '[^']*arena_grid_door_trigger_smoke[^']*' nodes=309 rows=309 backend=graph\\.trigger\\.volumes\\+level\\.graph\\.nodes\\+volumes\\.json",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SCENARIO\\.GRAPH: object events '[^']*arena_grid_door_trigger_smoke[^']*' .*door\\.opened=[1-9][0-9]* .*door\\.use=0 door\\.approach=0 .*reason=smoke_exit",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_sequences": [
+      {
+        "name": "The saved trigger opens the Car Park shutter during normal spawning",
+        "patterns": [
+          "FORGE\\.LEVEL\\.EDIT: authored door trigger pad=pad_0189 door=setup_0030",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=base:arena_mp_carpark catalog=mod:arena_grid_door_trigger_smoke",
+          "BOOT: --launch-mp-room arena='mod:arena_grid_door_trigger_smoke' scenario='base:combat' bots=0",
+          "SCENARIO\\.GRAPH: level program '[^']*arena_grid_door_trigger_smoke[^']*' nodes=13 exec_edges=8 modules=5 volumes=1 backend=graph\\.level\\.runner",
+          "SCENARIO\\.GRAPH: event\\.door\\.opened '[^']*arena_grid_door_trigger_smoke[^']*' object=setup_0030 tag=-?[0-9]+ kind=door ",
+          "SCENARIO\\.GRAPH: event\\.volume\\.entered '[^']*arena_grid_door_trigger_smoke[^']*' volume=volume_pad_9999 player=0 modules=1 backend=graph\\.level\\.runner"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=(timeout|wait_)",
+      "SMOKE\\.USE_DOOR:",
+      "FORGE\\.LEVEL\\.DEBUG\\.RESULT: result=FAIL",
+      "FORGE\\.LEVEL\\.SAVE\\.FAIL",
+      "PDARENA\\.SCENARIO\\.REJECT",
+      "level program refused:"
+    ]
+  }
+}

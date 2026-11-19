@@ -1,0 +1,154 @@
+{
+  "scenario_name": "forge_grid_retry_arena_smoke",
+  "description": "The guest declines the first exact Grid arena offer, verifies that the party remains in the same lobby, then accepts the second offer for the same pinned arena. Both peers complete the timed match and return to the original room.",
+  "tags": ["modding", "forge", "network", "consent", "match-lifecycle"],
+  "paths_of_interest": [
+    "port/src/net/netdistrib.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 560,
+  "install_state": "clean",
+  "remove_paths": ["grid-retry-host", "grid-retry-guest"],
+  "fixtures": [
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-retry-host/mods/.pdmod-migration-done"},
+    {"src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt", "dst": "grid-retry-guest/mods/.pdmod-migration-done"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-retry-host/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/mod.json", "dst": "grid-retry-guest/mods/grid_two_rooms/mod.json"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-retry-host/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena", "dst": "grid-retry-guest/mods/grid_two_rooms/grid_two_rooms.pdarena"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-retry-host/mods-enabled.json"},
+    {"src": "dev-mods/grid_two_rooms/enabled.json", "dst": "grid-retry-guest/mods-enabled.json"}
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-retry-host",
+        "--moddir", "$E/grid-retry-host/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "mod_grid_two_rooms:arena_grid_two_rooms",
+        "--debug-level-tool-name", "Grid_Retry_Arena",
+        "--debug-grid-room-size", "2100,1800,600",
+        "--debug-forge-level", "mod:arena_grid_retry_arena",
+        "--debug-forge-level-name", "Grid_Retry_Arena",
+        "--debug-forge-level-pin", "--debug-forge-level-share",
+        "--host", "--listen-bind", "27480",
+        "--launch-mp-room", "mod:arena_grid_retry_arena", "base:combat", "3",
+        "--debug-spawn-weapon", "base:cyclone",
+        "--host-autostart",
+        "--match-timelimit-sec", "20",
+        "--debug-grid-decline-witness",
+        "--debug-grid-retry-arena", "mod:arena_grid_retry_arena"
+      ],
+      "wait_for": "NET: created server on port 27480",
+      "wait_timeout_seconds": 230,
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-retry-host",
+          "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_retry_arena sha256=[0-9a-f]{64}",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=1"
+        ],
+        "required_sequences": [
+          {
+            "name": "first-offer-is-declined-and-second-offer-starts-in-the-same-room",
+            "patterns": [
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_retry_arena generation=1 digest=[0-9a-f]{64}",
+              "NET: ready gate aborted by 'A player lacks the exact Grid sources'",
+              "PLAYER\\.INIT\\.ROLLBACK lobby-start room=[0-9]+ .*globals_restored=1",
+              "SMOKE\\.GRID\\.DECLINED: role=host room=[0-9]+ members=2 .*retained=1 epoch=0 review=0",
+              "SMOKE\\.WAIT: satisfied condition=network_declined_lobby",
+              "SMOKE\\.GRID\\.RETRY: starting room=[0-9]+ arena=mod:arena_grid_retry_arena bots=3",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_retry_arena generation=2 digest=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=2",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_retry_arena",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=2 epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_retry_arena",
+              "LOBBY\\.REVIEW: client=1 reviewing=0 reason=continue",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--savedir", "$E/grid-retry-guest",
+        "--moddir", "$E/grid-retry-guest/mods",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-grid-decline-once", "--debug-approve-downloads",
+        "--debug-grid-decline-witness",
+        "--connect-host", "127.0.0.1:27480"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: using protocol version 65",
+          "SAVE: initialized .*grid-retry-guest",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=5 netmode=2"
+        ],
+        "required_sequences": [
+          {
+            "name": "first-refusal-then-explicitly-accepted-temporary-arena",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_retry_arena",
+              "NET\\.GRID\\.TRANSFER: guest declined arena=mod:arena_grid_retry_arena",
+              "NET: SVC_MATCH_CANCELLED .*A player lacks the exact Grid sources",
+              "SMOKE\\.GRID\\.DECLINED: role=guest room=[0-9]+ retained=1 received_bytes=0 epoch=0 review=0",
+              "SMOKE\\.WAIT: satisfied condition=network_declined_lobby",
+              "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_retry_arena",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_retry_arena",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_retry_arena",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_retry_arena",
+              "NET\\.GRID\\.RESULT: room=[0-9]+ generation=2 epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_retry_arena",
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_retry_arena",
+              "SMOKE: result=scripted_exit"
+            ]
+          }
+        ],
+        "required_counts": [
+          {"pattern": "NET\\.GRID\\.TRANSFER: guest declined arena=mod:arena_grid_retry_arena", "min": 1, "max": 1},
+          {"pattern": "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_retry_arena", "min": 1, "max": 1},
+          {"pattern": "NET: SVC_AUTH from server, our ID is", "min": 1, "max": 1}
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {"at_ms": 0, "type": "wait_until", "condition": "network_declined_lobby", "timeout_ms": 410000, "stable_ms": 1200},
+    {"at_ms": 5000, "type": "wait", "comment": "Retry through the host's normal match request once both peers have observed the lobby after decline."},
+    {"at_ms": 6000, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 60000, "stable_ms": 1000},
+    {"at_ms": 7000, "type": "wait_until", "condition": "endscreen_visible", "timeout_ms": 60000, "stable_ms": 1000},
+    {"at_ms": 8000, "type": "action", "name": "ACTION_USE", "action": "tap"},
+    {"at_ms": 16000, "type": "exit"}
+  ],
+  "assertions": {
+    "required_lines": ["MATCH: stage end reason=timelimit"],
+    "required_counts": [
+      {"pattern": "NET: ready gate aborted by 'A player lacks the exact Grid sources'", "min": 1, "max": 1},
+      {"pattern": "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_retry_arena", "min": 2, "max": 2},
+      {"pattern": "NET\\.GRID\\.RESULT: room=[0-9]+ generation=2 epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_retry_arena revision=[0-9a-f]{64} scores=[0-9a-f]{64}", "min": 2, "max": 2},
+      {"pattern": "SMOKE: result=scripted_exit scenario=forge_grid_retry_arena_smoke", "min": 2, "max": 2}
+    ],
+    "forbidden_patterns": [
+      "NET\\.GRID\\.RESULT: room=[0-9]+ generation=1",
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: refused",
+      "GRID\\.MATCH\\.LEASE: deferred retirement",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "NET: SVC_MATCH_MANIFEST hash=",
+      "PLAYER\\.INIT\\.ROLLBACK phase=stage",
+      "SMOKE: result=(timeout|grid_retry_failed)",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

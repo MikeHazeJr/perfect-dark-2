@@ -20,9 +20,12 @@
 #include <PR/ultratypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <algorithm>
 
 #include "imgui/imgui.h"
 #include "asset_runtime.h"
+#include "net/grid_edit_playtest_view.h"
+#include "net/grid_edit_room_net.h"
 #include "pdgui_hud.h"
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
@@ -171,6 +174,73 @@ static s32 buildScoreRows(HudScoreRow *out, s32 maxOut, s32 *outScoreLimit)
  * HUD render
  * ======================================================================== */
 
+/* The Room and private HUD use the same normalized room coordinates. */
+void pdguiDrawGridPlaytestMap(ImDrawList *draw, const grid_playtest_view_t &view,
+    ImVec2 origin, float side, const u16 *creatorCursor)
+{
+    const float inset = pdguiScale(6.0f);
+    if (!view.room_count || side <= inset * 2.0f) return;
+
+    const ImVec2 end(origin.x + side, origin.y + side);
+    const float scale = (side - inset * 2.0f) / 65535.0f;
+    const auto point = [&](u16 x, u16 z) {
+        return ImVec2(origin.x + inset + x * scale, origin.y + inset + z * scale);
+    };
+
+    draw->PushClipRect(origin, end, true);
+    draw->AddRectFilled(origin, end, IM_COL32(15, 22, 32, 220));
+    for (int i = 0; i < view.room_count && i < IM_ARRAYSIZE(view.rooms); ++i) {
+        const auto &room = view.rooms[i];
+        const ImVec2 min = point(room.min_x, room.min_z);
+        const ImVec2 max = point(room.max_x, room.max_z);
+        draw->AddRectFilled(min, max, IM_COL32(43, 59, 75, 215));
+        draw->AddRect(min, max, IM_COL32(142, 167, 186, 245));
+    }
+
+    const float radius = pdguiScale(3.0f);
+    if (creatorCursor) {
+        const ImVec2 center = point(creatorCursor[0], creatorCursor[1]);
+        draw->AddQuadFilled(ImVec2(center.x, center.y - radius), ImVec2(center.x + radius, center.y),
+            ImVec2(center.x, center.y + radius), ImVec2(center.x - radius, center.y), IM_COL32(91, 224, 203, 255));
+    } else {
+        for (int i = 0; i < view.actor_count && i < IM_ARRAYSIZE(view.actors); ++i) {
+            const auto &actor = view.actors[i];
+            const ImVec2 center = point(actor.x, actor.z);
+            if (actor.bot) {
+                draw->AddRectFilled(ImVec2(center.x - radius, center.y - radius),
+                    ImVec2(center.x + radius, center.y + radius), IM_COL32(251, 185, 94, 255));
+            } else {
+                draw->AddCircleFilled(center, radius, IM_COL32(145, 214, 255, 255));
+            }
+        }
+    }
+    draw->PopClipRect();
+}
+
+static void drawGridCreatorCursor(s32 winW, s32 winH)
+{
+    grid_playtest_view_t view = {};
+    u16 cursor[2];
+    if (!netGridEditGetCreatorCursor(&view, &cursor[0], &cursor[1])) return;
+
+    const float side = std::min(pdguiScale(104.0f), std::min(winW, winH) * 0.24f);
+    const float inset = pdguiScale(10.0f);
+    const float labelHeight = ImGui::GetTextLineHeightWithSpacing();
+    ImGui::SetNextWindowPos(ImVec2(inset, winH - side - labelHeight - inset), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(side, side + labelHeight), ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs
+        | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoSavedSettings
+        | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    if (ImGui::Begin("##hud_grid_creator_cursor", nullptr, flags)) {
+        ImGui::TextUnformatted("Creator Cursor");
+        pdguiDrawGridPlaytestMap(ImGui::GetWindowDrawList(), view, ImGui::GetCursorScreenPos(), side, cursor);
+        ImGui::Dummy(ImVec2(side, side));
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 void pdguiHudRender(s32 winW, s32 winH)
 {
     /* Only show during an active match; suppress during the endscreen.
@@ -179,6 +249,7 @@ void pdguiHudRender(s32 winW, s32 winH)
     if (!pdguiPauseGetNormMplayerIsRunning() || g_MainIsEndscreen) {
         return;
     }
+    drawGridCreatorCursor(winW, winH);
 
     /* ------------------------------------------------------------------ */
     /* Build score data                                                     */

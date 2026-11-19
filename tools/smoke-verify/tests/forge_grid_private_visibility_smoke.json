@@ -1,0 +1,300 @@
+{
+  "scenario_name": "forge_grid_private_visibility_smoke",
+  "description": "One private native Combat stage with three bots applies a shared draft edit and exercises all four independent visibility settings. The creator stays in the Room, reads the native overview when allowed, and publishes an authored start as the creator cursor. The ordinary peer stays in the Room through Continue and shutdown.",
+  "tags": [
+    "modding",
+    "forge",
+    "network",
+    "shared-draft",
+    "private-playtest",
+    "smoke",
+    "visibility"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/grid_edit_room_net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "src/game/bg.c",
+    "port/src/net/grid_edit_playtest_view.c",
+    "port/fast3d/pdgui_menu_room.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 720,
+  "install_state": "clean",
+  "remove_paths": [
+    "grid-visibility-host",
+    "grid-visibility-creator",
+    "grid-visibility-ordinary"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-visibility-host/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-visibility-creator/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "grid-visibility-ordinary/mods/.pdmod-migration-done"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-visibility-host",
+        "--moddir",
+        "$E/grid-visibility-host/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-atmosphere",
+        "--debug-forge-level-pin",
+        "--host",
+        "--listen-bind",
+        "27485",
+        "--launch-mp-room",
+        "mod:arena_grid_playtest_draft",
+        "base:combat",
+        "3",
+        "--host-autostart",
+        "--host-autostart-peers",
+        "2",
+        "--debug-grid-private-draft",
+        "host",
+        "--debug-grid-private-visibility"
+      ],
+      "wait_for": "NET: created server on port 27485",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "host-checks-independent-cursor-and-view-in-one-private-stage",
+            "patterns": [
+              "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_playtest_draft sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.EDIT: granted client=1",
+              "GRID\\.PLAYTEST: prepared room=[0-9]+ arena=mod:arena_grid_playtest_draft",
+              "NET\\.GRID\\.PLAYTEST: roster room=[0-9]+ players=1 bots=3 ready_mask=0x00000001",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_playtest_draft epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.PLAYTEST: active room=[0-9]+ epoch=[1-9][0-9]* arena=mod:arena_grid_playtest_draft",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=1 enabled=1 brightness=104",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=104 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: release_creator room=[0-9]+ generation=1 epoch=[1-9][0-9]*",
+              "NET\\.GRID\\.EDIT: committed revision=2 author=2",
+              "GRID\\.PLAYTEST: applied visual ambient epoch=[1-9][0-9]* revision=2 enabled=1 brightness=137",
+              "GRID\\.PLAYTEST\\.LIGHT: stage=0x[0-9a-f]+ ambient=137 rooms=[1-9][0-9]* sample_room=[1-9][0-9]* native=[0-9.]+ rendered=[0-9.]+",
+              "SMOKE\\.GRID\\.PLAYTEST: rendered edit epoch=[1-9][0-9]* revision=2 before=[0-9.]+ native=[0-9.]+ after=[0-9.]+",
+              "SMOKE\\.GRID\\.VIEW: policy room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=0 players=0 creators=0",
+              "SMOKE\\.GRID\\.VIEW: host verified epoch=[1-9][0-9]* phase=0 cursor=0 view=0 x=0 z=0",
+              "SMOKE\\.GRID\\.VIEW: policy room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=1 players=1 creators=0",
+              "SMOKE\\.GRID\\.VIEW: host verified epoch=[1-9][0-9]* phase=1 cursor=1 view=0 x=[1-9][0-9]* z=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.VIEW: policy room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=2 players=1 creators=1",
+              "SMOKE\\.GRID\\.VIEW: host verified epoch=[1-9][0-9]* phase=2 cursor=1 view=1 x=[1-9][0-9]* z=[1-9][0-9]*",
+              "SMOKE\\.GRID\\.VIEW: policy room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=3 players=0 creators=1",
+              "SMOKE\\.GRID\\.VIEW: host verified epoch=[1-9][0-9]* phase=3 cursor=0 view=1 x=0 z=0",
+              "SMOKE\\.GRID\\.VIEW: policy room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=4 players=0 creators=0",
+              "SMOKE\\.GRID\\.VIEW: host verified epoch=[1-9][0-9]* phase=4 cursor=0 view=0 x=0 z=0",
+              "NET: SVC_STAGE_END published and committed, returning to lobby",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.PLAYTEST: retired local stage room=[0-9]+ epoch=[1-9][0-9]*$",
+              "GRID\\.MATCH\\.ROOM: world retired room=[0-9]+$",
+              "NET: CLC_LOBBY_RESYNC satisfied locally for listen host$",
+              "SMOKE\\.GRID\\.PLAYTEST: returned room=[0-9]+ epoch=[1-9][0-9]* revision=2 ambient=137",
+              "SMOKE\\.GRID\\.DRAFT: role=host closed room=[0-9]+ creator_lobby=1 ordinary_lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-visibility-host",
+          "SCENARIO\\.SOURCE: resolved room domain 'mod:arena_grid_playtest_draft__[a-zA-Z0-9_]+' rooms=3 declared=3 mesh_max=2 portal_max=2",
+          "PLAYER\\.INIT\\.COMMIT lobby-start room=[0-9]+ mode=0 players=1 bots=3",
+          "NET\\.MATCH\\.AUDIENCE room=[0-9]+ admitted=0x00000001 sent=0x00000000 lobby_retained=2 failed=0",
+          "SIMULANT: spawning done total=3"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT: (invited|granted) client=2"
+        ],
+        "required_counts": [
+          {
+            "pattern": "SMOKE\\.GRID\\.VIEW: host verified",
+            "min": 5,
+            "max": 5
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x20",
+            "min": 2,
+            "max": -1
+          }
+        ]
+      }
+    },
+    {
+      "name": "creator",
+      "log_file": "pd-grid-creator.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-visibility-creator",
+        "--moddir",
+        "$E/grid-visibility-creator/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--debug-level-tool-new",
+        "original",
+        "--debug-level-tool-name",
+        "Grid_Playtest_Source",
+        "--debug-grid-room-size",
+        "2100,2700,1800,600,500,390",
+        "--debug-forge-level",
+        "mod:arena_grid_playtest_source",
+        "--debug-forge-level-name",
+        "Grid_Playtest_Draft",
+        "--debug-forge-level-atmosphere",
+        "--connect-host",
+        "127.0.0.1:27485",
+        "--debug-grid-private-draft",
+        "creator",
+        "--debug-grid-private-visibility"
+      ],
+      "wait_for": "NET: SVC_AUTH from server, our ID is 1",
+      "wait_timeout_seconds": 240,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "authorized-creator-observes-rooms-and-bots-when-enabled",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 1",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "NET\\.GRID\\.EDIT: verified baseline and accepted creator grant",
+              "SMOKE\\.GRID\\.PLAYTEST: creator sent ambient=137 host_epoch=[1-9][0-9]* room=[0-9]+ lobby=1",
+              "NET\\.GRID\\.EDIT: observed revision=2 author=2",
+              "SMOKE\\.GRID\\.DRAFT: role=creator revision=2 ambient=137",
+              "SMOKE\\.GRID\\.VIEW: creator room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=0 view=0 rooms=0 actors=0 serial=0 lobby=1",
+              "SMOKE\\.GRID\\.VIEW: creator room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=1 view=0 rooms=0 actors=0 serial=0 lobby=1",
+              "SMOKE\\.GRID\\.VIEW: creator room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=2 view=1 rooms=2 actors=4 serial=[1-9][0-9]* lobby=1",
+              "SMOKE\\.GRID\\.VIEW: creator room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=3 view=1 rooms=2 actors=4 serial=[1-9][0-9]* lobby=1",
+              "SMOKE\\.GRID\\.VIEW: creator room=[0-9]+ generation=1 epoch=[1-9][0-9]* phase=4 view=0 rooms=0 actors=0 serial=0 lobby=1",
+              "SMOKE\\.GRID\\.DRAFT: role=creator closed room=[0-9]+ lobby=1",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-visibility-creator"
+        ],
+        "required_counts": [
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x84",
+            "min": 3,
+            "max": 3
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x85",
+            "min": 1,
+            "max": 1
+          },
+          {
+            "pattern": "SMOKE\\.GRID\\.VIEW: creator room=",
+            "min": 5,
+            "max": 5
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x88",
+            "min": 2,
+            "max": -1
+          },
+          {
+            "pattern": "NET\\.GRID\\.EDIT\\.WIRE: received opcode=0x89",
+            "min": 5,
+            "max": -1
+          }
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    },
+    {
+      "name": "ordinary",
+      "log_file": "pd-grid-ordinary.log",
+      "boot_args": [
+        "--portable",
+        "--savedir",
+        "$E/grid-visibility-ordinary",
+        "--moddir",
+        "$E/grid-visibility-ordinary/mods",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27485",
+        "--debug-grid-private-draft",
+        "ordinary",
+        "--debug-grid-private-visibility"
+      ],
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "ordinary-peer-stays-through-normal-host-shutdown",
+            "patterns": [
+              "NET: SVC_AUTH from server, our ID is 2",
+              "NET: SVC_ROOM_ASSIGN: assigned to room [0-9]+",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary client=2 room=[0-9]+ lobby=1",
+              "NET: disconnected from server: Server is shutting down \\(1\\)",
+              "SMOKE\\.GRID\\.DRAFT: role=ordinary disconnected room=[0-9]+",
+              "SMOKE: result=grid_draft_complete .*code=0"
+            ]
+          }
+        ],
+        "required_lines": [
+          "SAVE: initialized .*grid-visibility-ordinary"
+        ],
+        "forbidden_patterns": [
+          "NET\\.GRID\\.EDIT\\.WIRE: received",
+          "NET\\.GRID\\.OFFER: guest",
+          "SVC_STAGE_START read",
+          "SVC_STAGE_END read",
+          "NET\\.GRID\\.RESULT:",
+          "GRID\\.MATCH\\.STAGE: active"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "forbidden_patterns": [
+      "SMOKE\\.GRID\\.DRAFT: failed",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: "
+    ]
+  }
+}

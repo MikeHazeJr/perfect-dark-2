@@ -16,8 +16,7 @@ extern "C" {
  * or a value it cannot use, refuses the whole file (nothing is half applied).
  *
  * "weather": the stage's weather setup (the game kept it in g_WeatherConfig,
- * src/game/weather.c). Rain or snow and its intensity are started by the
- * stage's AI commands; this sets where and how it falls.
+ * src/game/weather.c). This sets where and how weather falls.
  *   wind_speed, y_min, y_max      numbers; y_min below y_max
  *   z_max                         number; 0 = no limit, otherwise no weather
  *                                 while the camera is below this z
@@ -27,6 +26,11 @@ extern "C" {
  *                                 at most SCENARIO_STAGE_MAX_WEATHER_ROOMS)
  *   wind_direction                optional {angle, speed_x, speed_z}: a fixed
  *                                 wind instead of the changing one
+ *
+ * "weather_start": optional {kind, intensity} to start weather on load.
+ *   kind is "rain" (intensity 1..3) or "snow" (intensity 1). Without a
+ *   "weather" object, the native wind and particle bounds apply in all rooms.
+ *   Stages without a startup rule still start weather through AI commands.
  *
  * "player": what the stage dresses the player in and leaves them (the game
  * kept these as stage checks in src/game/player.c and src/game/bondgun.c).
@@ -70,6 +74,12 @@ extern "C" {
 /* The game's table ends its room list with a zero, so one slot stays free. */
 #define SCENARIO_STAGE_MAX_WEATHER_ROOMS 127
 
+enum {
+	SCENARIO_STAGE_WEATHER_START_NONE = 0,
+	SCENARIO_STAGE_WEATHER_START_RAIN,
+	SCENARIO_STAGE_WEATHER_START_SNOW,
+};
+
 typedef struct scenario_stage_weather {
 	s32 present;
 	f32 wind_speed;
@@ -84,6 +94,8 @@ typedef struct scenario_stage_weather {
 	f32 wind_angle;
 	f32 wind_speed_x;
 	f32 wind_speed_z;
+	s32 startup_kind; /* SCENARIO_STAGE_WEATHER_START_* */
+	s32 startup_intensity;
 } scenario_stage_weather_t;
 
 #define SCENARIO_STAGE_MAX_AMMO_EXCLUDES 8
@@ -170,6 +182,20 @@ typedef struct scenario_stage_gas {
 	s32 fade_full;
 } scenario_stage_gas_t;
 
+/* Optional stage atmosphere. Fog uses thousandths of view distance. A
+ * room's explicit base_brightness takes priority over ambient_light. */
+typedef struct scenario_stage_atmosphere {
+	s32 present;
+	s32 has_sky;
+	u8 sky_rgb[3];
+	s32 has_fog;
+	s32 fog_start;
+	s32 fog_end;
+	s32 has_ambient;
+	s32 ambient_light;
+	char primary_music[SCENARIO_STAGE_ID_LEN];
+} scenario_stage_atmosphere_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
@@ -179,6 +205,7 @@ typedef struct scenario_stage_rules {
 	scenario_stage_stars_t stars;
 	scenario_stage_sparks_t sparks;
 	scenario_stage_gas_t gas;
+	scenario_stage_atmosphere_t atmosphere;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,
