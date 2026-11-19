@@ -9850,6 +9850,7 @@ static s32 animDescriptorStreamMatches(const u8 *header,
  * fail-closed source/layout rejection. */
 static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
                                            s32 frame_count,
+                                           s32 rotation_bits,
                                            struct animtableentry *out_entry,
                                            u8 **out_data,
                                            u32 *out_data_size)
@@ -9867,6 +9868,9 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	u8 *data;
 
 	if (part_count <= 0 || !clip->special_parts) {
+		return 0;
+	}
+	if (rotation_bits < 0 || rotation_bits > 16) {
 		return 0;
 	}
 	if (clip->part_count > 0 && part_count != clip->part_count) {
@@ -9991,7 +9995,9 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	out_entry->bytesperframe = (u16)bytes_per_frame;
 	out_entry->data = 0xffffffff;
 	out_entry->headerlen = (u16)header_len;
-	out_entry->framelen = 16;
+	/* The packed rotation values use the precision in the public descriptor.
+	 * A missing width keeps the original 16-bit default for loose sources. */
+	out_entry->framelen = rotation_bits ? (u8)rotation_bits : 16;
 	out_entry->flags = (u8)(clip->native_flags
 		| (has_repeat_tail ? ANIMFLAG_HASREPEATFRAMES : 0)
 		| (has_cut_skip_tail ? ANIMFLAG_HASCUTSKIPFRAMES : 0));
@@ -10003,6 +10009,7 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 
 static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
                                          s32 requested_frame_count,
+                                         s32 rotation_bits,
                                          struct animtableentry *out_entry,
                                          u8 **out_data,
                                          u32 *out_data_size)
@@ -10042,8 +10049,8 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	 * native-only fields are never discarded into the lossy channel path. */
 	if (!clip->zero_frame_placeholder
 			&& clip->special_parts && clip->special_part_count > 0) {
-		return gltfBuildNativeFromSpecialParts(clip, frame_count, out_entry,
-			out_data, out_data_size);
+		return gltfBuildNativeFromSpecialParts(clip, frame_count, rotation_bits,
+			out_entry, out_data, out_data_size);
 	}
 
 	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
@@ -10365,8 +10372,8 @@ s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
 		frame_count = 0xffff;
 	}
 
-	ok = gltfBuildAnimationClipPayload(&clip, frame_count, out_entry,
-		out_data, out_data_size);
+	ok = gltfBuildAnimationClipPayload(&clip, frame_count,
+		entry ? entry->ext.anim.framelen : 0, out_entry, out_data, out_data_size);
 	if (!ok) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: animation clip build rejected for '%s'",
@@ -10383,20 +10390,21 @@ s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
             clip.owned_bin_size, source_digest);
         sha256_ctx hash;
         sha256Init(&hash);
-        const char version[] = "pd.animation.generation.v1";
+        const char version[] = "pd.animation.generation.v2";
         sha256Update(&hash, version, sizeof(version));
         sha256Update(&hash, source_digest, sizeof(source_digest));
         const u8 framing[] = {(u8)(frame_count >> 24), (u8)(frame_count >> 16),
-            (u8)(frame_count >> 8), (u8)frame_count};
+            (u8)(frame_count >> 8), (u8)frame_count, out_entry->framelen};
         sha256Update(&hash, framing, sizeof(framing));
         sha256Final(&hash, digest);
         sha256ToHex(digest, source_sha256);
     }
 
 	sysLogPrintf(LOG_NOTE,
-		"MODASSET.COMPILER: built animation clip '%s' source=%s clips=%d channels=%d frames=%d boundary=animtableentry",
+		"MODASSET.COMPILER: built animation clip '%s' source=%s clips=%d channels=%d frames=%d boundary=animtableentry rotation_bits=%u",
 		entry ? entry->id : "(unknown)", source_path,
-		clip.info.animation_count, clip.channel_count, frame_count);
+		clip.info.animation_count, clip.channel_count, frame_count,
+		(unsigned)out_entry->framelen);
 	gltfAnimationClipFree(&clip);
 	free(source_bytes);
 	return 1;

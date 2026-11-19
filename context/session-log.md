@@ -1,5 +1,42 @@
 # Session Log (Active)
 
+2026-11-19 03:32 UTC, Grid first-run visible intro on `week-pd/mods-v4`.
+Mike authorized a temporary D: store solely for this intro verification.
+The first clean run timed out in asset startup. The subsequent clean-profile
+run with pre-extracted stock assets captured the real CI camera pointed at
+a wall across the intro. Public stock `animation.ini` declares 12-bit
+packed turns. The native compiler preserved raw fields but previously set
+the generated header to 16 bits, so the camera aimed away from Joanna.
+The stock walker now reads the public precision, and the special-part
+compiler carries it through runtime and retained-generation identity.
+The asset guard and 83 focused cases passed. The corrected exact client
+`E1E7D35B` passed 17/17 smoke assertions and five actual 2560×1440 captures
+in `q_20261119032700194_8afdb3e1`. Inspected composited frames show Joanna
+and the terminal from multiple camera angles followed by Agent Select.
+Some desk and monitor surfaces still show separate geometry artifacts.
+This run used an empty profile, pre-extracted stock assets, and the
+startup logo bypass. The candidate awaits publication.
+
+2026-11-19 02:18 UTC, Grid playtest first-run follow-up on `week-pd/mods-v4`.
+Mike reported a missing intro, unusually fast or doubled typing, and failed
+Create Agent input from a fresh v0.1.103 extract on a separate PC. Create
+Agent now acquires the owning ImGui menu context after Agent Select releases
+it. The Carrington Institute menu uses elapsed level ticks for the first-run
+picker delay and the six-second camera safety timeout. Build
+`q_20261119021642523_bf461c8b` passed, and targeted run
+`q_20261119021757589_5f7454f3` passed 16 cases and 493 assertions. Candidate
+`PerfectDark-221B25B5-first-run.exe` is retained in `grid-b1`. The updated
+controller smoke definition checks context attach and release. In-game
+first-run verification of the candidate remains open. The two attached
+v0.1.103 logs confirm Create Agent lost input ownership on both runs. The
+intro camera started and submitted CI geometry on both runs. One reached
+frame 300 and the other took the scripted skip path at about frame 110.
+The render-frame safety timeout did not trigger in either run. Both runs
+opened the audio device at 22,050 Hz and had 44,100 Hz stock WAV sources.
+The full intro logged one play per cue. N-1003 and the attached-log receipt
+record the separate stock-bank playback-rate follow-up for T-ASSETS-046.
+The source fixes are awaiting publication.
+
 2026-11-17 MODS, side branch `week-pd/mods-v4`, 15:40 to 16:25 UTC: MIKE'S DIRECTION 16:14 UTC: "Focus on Forge mode, we will return to the other stuff afterward" (memory and scope updated: vehicle, veteran and Characters work wait). (1) TURN q_20261117154917611_f73cf2e8, 15:49 to 16:19 UTC, client de514e91, shared base 9 (archive 1.03 of 2 GiB after it; C: 166 GB free): pd-tests 2,319 cases pass with the base sweep; ALL FIVE SMOKES PASS: maian_vehicle_room_drive 50/50 and maian_vehicle_room_boost 60/60 (B-1243 proven, B-1241 closed: boost, overheat, recovery on the Blank Room), maian_vehicle_seats 58/58 (V5a's turret lines), forge_blank_room_edit 33/33 (a prop from the catalog made from nothing, saved, played), forge_blank_room_session 42/42 (undo and redo in a session). B-1244 NEW (the rider's view in the Blank Room draws only the floor; cause unknown; witness written; parked for Forge). (2) CI: green on 1104c131 (the live view, the size setter, the level-archive split; first compile of the live view); a1ede256 pushed, CI running. (3) WRITTEN for Forge this stretch: F5's model builder (`tools/build_level_from_model.py`, `tools/level_archive.py`, `tools/simple_glb.py`, 7 Python cases now in hosted CI), the Model Room example and `forge_model_room_smoke`, a real Blender 5.2.2 export through the builder (24 collision triangles, starts facing the middle); marker labels kept out from under the editor's panel; Nudge rows for starts and objects; and the editor now opens on a Level File tab, with the old Grid tools labelled as not saved in the level (34dfaeba, local). NEXT: a Forge turn on a1ede256 when green (both session smokes with the live view, the Model Room); asks to CORE about a level's look (lighting, sky, fog, music) and the game modes' markers, which no scenario member holds. Nothing is merged into dev.
 
 2026-11-17 MODS, side branch `week-pd/mods-v4`, 14:35 to 15:40 UTC: the game turn ran and proved the Levels tool; the world now follows the level file in Forge (written, not compiled). (1) TURN q_20261117134802790_ef485e13, 14:49 to 15:30 UTC, client c88a828f, shared base 9, smoke storage on D: (archive 0.85 of 2 GiB afterwards, six installs of about 360 MB each sent to D:'s Recycle Bin; C: 166 GB free): pd-tests pass with the base sweep. PASS: forge_level_tool 43/43 (Forge F4 PROVEN: a new level made from the Blank Room by the tool's function, opened in Forge, saved over itself while loaded, own_template=1 updated=1), forge_blank_room 25/25, forge_blank_room_session 39/39, forge_session_save 36/36 (each with its picture from before the flight; on Complex the markers and labels show). FAIL: maian_vehicle_room_drive 42/50 and maian_vehicle_room_boost 43/60, both at `BOOT: --debug-mount-bike placement failed for Player 0` after the hoverbike made from nothing loaded and swapped to the Maian vehicle (`VEHICLE.SWAP: hoverbike modelnum 58 -> 441`): B-1243, NEW, a fault of the debug hook (chrAdjustPosForSpawn refuses a place in view), fixed in e4532d24 by setting CHRHFLAG_WARPONSCREEN around the placement as chrSetPos does. (2) CI: green on 41b68fee (the isfinite fix and the 45 degree turns); red on 7011ad13 because a static test pins the mount hook's call text (`chrMoveToPos(g_Vars.players[0]->prop->chr`), fixed in de514e91 (CI running). (3) WRITTEN, committed locally as 0dc030d7, not compiled: Forge F3's world follows the level file while the camera flies (`forge_level_live.h`): objects the file moved, redrew or left out are hidden, and stand-ins (plain walk-through objects with the same model, set down as setup sets down an object on a pad) are drawn where the file puts new, moved and redrawn objects; nothing is hidden whose stand-in could not be drawn; Playtest shows the stage as loaded. Planning half unit-tested (`[forge-level-live]`); `--debug-forge-session-live` and the two session smokes check the hide and draw lines. (4) Seen in the pictures, cosmetic: labels show through the editor's translucent panel and through walls. NEXT: push 0dc030d7 when de514e91's CI ends; a turn with the room vehicle smokes (B-1243), the seats smoke (V5a's turret lines), the edit smoke (props), the session smokes (undo, live view). ASKS FOR MIKE unchanged (smoke archive on C:, the stuck C: install, the veteran sheet, B-1234 to dev on its own). Nothing is merged into dev.

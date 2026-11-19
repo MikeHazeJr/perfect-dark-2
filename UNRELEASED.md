@@ -1,5 +1,11 @@
 # Unreleased Changes
 
+- Create Agent takes over menu input when it opens, so first-time players
+  can navigate the form and return to Agent Select.
+- The Carrington Institute opening camera has time to finish at high
+  frame rates before the agent picker opens.
+- The Carrington Institute intro preserves the original camera angles so
+  Joanna and her workstation are in view.
 - Online play requires protocol 65. A new match in the same Room gets a fresh
   stage ID. Grid matches verify the pinned level and every required original
   mod. Guests approve one download for missing packages. Room members can

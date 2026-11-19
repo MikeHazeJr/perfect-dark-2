@@ -14802,7 +14802,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 10") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler_h.find(
-	        "#define MODASSET_COMPILER_ANIMATION_VERSION 10") !=
+	        "#define MODASSET_COMPILER_ANIMATION_VERSION 11") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 15") !=
 	        std::string::npos);

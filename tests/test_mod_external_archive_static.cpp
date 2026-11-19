@@ -7700,6 +7700,7 @@ TEST_CASE("B-1102 schema-v5 animation framing is bounded and terminal",
 {
 	const std::string extractor = readFile("port/src/romextract_pdanim_chr.c");
 	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	const std::string walker = readFile("port/src/loader_walker_anim.c");
 	const std::string special = sourceFunctionBlock(compiler,
 		"static s32 gltfBuildNativeFromSpecialParts");
 	const std::string payload = sourceFunctionBlock(compiler,
@@ -7710,6 +7711,21 @@ TEST_CASE("B-1102 schema-v5 animation framing is bounded and terminal",
 		"static s32 parseGltfAnimationNativeExtras");
 	const std::string stream_validator = sourceFunctionBlock(compiler,
 		"static s32 animDescriptorStreamMatches");
+	const std::string build = sourceFunctionBlock(compiler,
+		"s32 modAssetCompilerBuildAnimationClipHashed");
+	const std::string rotation_source = sourceFunctionBlock(walker,
+		"static s32 s_readRotationBits");
+
+	REQUIRE(rotation_source.find("\"animation.ini\"") != std::string::npos);
+	REQUIRE(rotation_source.find("iniGet(ini, \"framelen\", NULL)") != std::string::npos);
+	REQUIRE(walker.find("e->ext.anim.framelen = rotation_bits") != std::string::npos);
+	REQUIRE(build.find("entry ? entry->ext.anim.framelen : 0") != std::string::npos);
+	REQUIRE(payload.find("gltfBuildNativeFromSpecialParts(clip, frame_count, rotation_bits") !=
+		std::string::npos);
+	REQUIRE(special.find("rotation_bits > 16") != std::string::npos);
+	REQUIRE(special.find("out_entry->framelen = rotation_bits ? (u8)rotation_bits : 16") !=
+		std::string::npos);
+	REQUIRE(build.find("(u8)frame_count, out_entry->framelen}") != std::string::npos);
 
 	/* The public schema is ordered framing, not two independent optional
 	 * properties: every header_hex descriptor is preceded by its flags byte. */

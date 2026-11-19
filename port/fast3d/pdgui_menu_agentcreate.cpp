@@ -36,6 +36,7 @@
 #include "pdgui_nav.h"
 #include "system.h"
 #include "assetcatalog.h"
+#include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
 #include "agent_session.h"
@@ -423,8 +424,12 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
     if (!ImGui::Begin("##agent_create", nullptr, wflags)) {
         ImGui::End();
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
         return 1;
     }
+
+    // Agent Select relinquishes the context when it opens this dialog.
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
 
     /* Auto-possess on first appearance */
     if (ImGui::IsWindowAppearing()) {
