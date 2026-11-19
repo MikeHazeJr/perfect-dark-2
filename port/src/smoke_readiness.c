@@ -7,8 +7,14 @@ static const char *const mainMenuConditions[] = {
 	"settings_video_ready", "settings_interface_ready", "settings_audio_ready",
 	"settings_input_ready", "settings_game_ready"
 };
+static const char *const lobbyUiConditions[] = {
+	"lobby_catalog_consent_ready", "lobby_manifest_consent_ready",
+	"lobby_countdown_active", "lobby_countdown_ready"
+};
 _Static_assert(SMOKE_READINESS_SETTINGS_GAME_READY - SMOKE_READINESS_MAIN_MENU_PLAY_READY + 1 ==
 	sizeof(mainMenuConditions) / sizeof(mainMenuConditions[0]), "menu readiness registry drift");
+_Static_assert(SMOKE_READINESS_LOBBY_COUNTDOWN_READY - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + 1 ==
+	sizeof(lobbyUiConditions) / sizeof(lobbyUiConditions[0]), "lobby UI readiness registry drift");
 
 smoke_readiness_condition_t smokeReadinessConditionFromName(
 	const char *name)
@@ -70,6 +76,10 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 		if (strcmp(name, mainMenuConditions[i]) == 0)
 			return (smoke_readiness_condition_t)(SMOKE_READINESS_MAIN_MENU_PLAY_READY + i);
 	}
+	for (unsigned int i = 0; i < sizeof(lobbyUiConditions) / sizeof(lobbyUiConditions[0]); ++i) {
+		if (strcmp(name, lobbyUiConditions[i]) == 0)
+			return (smoke_readiness_condition_t)(SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY + i);
+	}
 	return SMOKE_READINESS_INVALID;
 }
 
@@ -78,6 +88,8 @@ const char *smokeReadinessConditionName(
 {
 	if (condition >= SMOKE_READINESS_MAIN_MENU_PLAY_READY && condition <= SMOKE_READINESS_SETTINGS_GAME_READY)
 		return mainMenuConditions[condition - SMOKE_READINESS_MAIN_MENU_PLAY_READY];
+	if (condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY && condition <= SMOKE_READINESS_LOBBY_COUNTDOWN_READY)
+		return lobbyUiConditions[condition - SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY];
 	switch (condition) {
 	case SMOKE_READINESS_CORE_BOOT_READY:
 		return "core_boot_ready";
@@ -224,6 +236,20 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 			&& facts->grid_consent_preparing && facts->grid_consent_pending
 			&& facts->menu_input_top && facts->menu_keyboard_ready
 			&& facts->grid_consent_accept_focused;
+	case SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY:
+	case SMOKE_READINESS_LOBBY_MANIFEST_CONSENT_READY:
+		return facts->boot_complete && facts->network_active
+			&& (condition == SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY
+				? facts->local_client_in_lobby : facts->local_client_preparing)
+			&& facts->menu_input_top && facts->menu_keyboard_ready
+			&& facts->lobby_content_consent_input;
+	case SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE:
+	case SMOKE_READINESS_LOBBY_COUNTDOWN_READY:
+		return facts->boot_complete && facts->network_active
+			&& facts->local_client_preparing && facts->lobby_countdown_active
+			&& (condition == SMOKE_READINESS_LOBBY_COUNTDOWN_ACTIVE
+				|| (facts->menu_input_top && facts->menu_keyboard_ready
+					&& facts->lobby_countdown_input));
 	case SMOKE_READINESS_NETWORK_STAGE_LIVE:
 		return stage_live;
 	case SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE:

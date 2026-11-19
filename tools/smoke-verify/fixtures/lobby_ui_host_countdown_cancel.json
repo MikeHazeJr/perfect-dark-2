@@ -1,0 +1,9 @@
+{
+  "scenario_name": "lobby_ui_countdown_passive_peer",
+  "timeout_seconds": 300,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "lobby_countdown_active", "timeout_ms": 220000 },
+    { "at_ms": 500, "type": "wait_until", "condition": "network_lobby_ready", "timeout_ms": 8000, "stable_ms": 1000 },
+    { "at_ms": 5500, "type": "exit" }
+  ]
+}

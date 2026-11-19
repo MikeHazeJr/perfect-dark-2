@@ -1,0 +1,89 @@
+{
+  "scenario_name": "lobby_ui_content_consent",
+  "description": "Three ordinary localhost clients exercise actual foreground content consent. A clean guest uses the visible This Session choice on the catalog offer and mapped Back on the separate match offer. The guest stays in the Room while the host and admitted peer play.",
+  "tags": ["menus", "input", "network", "lobby-ui"],
+  "paths_of_interest": ["port/fast3d/pdgui_lobby_distrib.cpp", "port/fast3d/pdgui_lobby.cpp", "port/src/net/netdistrib.c"],
+  "log_channel_mask": "all",
+  "timeout_seconds": 320,
+  "install_state": "current",
+  "separate_process_installs": true,
+  "window_focus_target": "decliner",
+  "remove_paths": ["mods/needler.pdmod", "mods/needler", "mods/installed/needler.pdmod", "mods/.temp/received/needler", "mods/.temp/pdmod/needler"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_source_pd.ini", "dst": "pd.ini" }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "fixtures": [{ "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }],
+      "packed_fixtures": [{ "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }],
+      "boot_args": ["--no-update-check", "--portable", "--host", "--listen-bind", "27293", "--launch-mp-room", "base:arena_mp_complex", "base:combat", "0", "--debug-spawn-weapon", "mod_needler:needler", "--host-autostart", "--host-autostart-peers", "2"],
+      "wait_for": "NET: created server on port 27293",
+      "wait_timeout_seconds": 180,
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "one decline retains lobby membership while the admitted roster starts",
+            "patterns": [
+              "MANIFEST-HOST: built [1-9]\\d* entries",
+              "PLAYER.INIT.COMMIT ready-gate roster compacted players=2 declined=1",
+              "NET.MATCH.AUDIENCE room=\\d+ admitted=0x[0-9a-f]+ sent=0x[0-9a-f]+ lobby_retained=1 failed=0",
+              "MATCH: server stage start"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "admitted",
+      "log_file": "pd-client.log",
+      "fixtures": [{ "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }],
+      "boot_args": ["--no-update-check", "--portable", "--connect-host", "127.0.0.1:27293", "--debug-approve-downloads"],
+      "assertions": {
+        "required_lines": ["MATCH: client stage start received", "SMOKE.WAIT: satisfied condition=network_stage_live"]
+      }
+    },
+    {
+      "name": "decliner",
+      "log_file": "pd-client.log",
+      "fixtures": [{ "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }],
+      "boot_args": ["--no-update-check", "--portable", "--connect-host", "127.0.0.1:27293"],
+      "wait_for": "NET: connected to server, sending CLC_AUTH",
+      "wait_timeout_seconds": 180,
+      "smoke_path": "tools/smoke-verify/fixtures/lobby_ui_content_consent.json",
+      "assertions": {
+        "required_sequences": [
+          {
+            "name": "foreground catalog and match content choices lead to different outcomes",
+            "patterns": [
+              "MENU_STACK: lobby content consent OPEN",
+              "SMOKE.WAIT: satisfied condition=lobby_catalog_consent_ready",
+              "SMOKE: tap-press scancode=80",
+              "SMOKE: tap-press scancode=40",
+              "DISTRIB: player approved [1-9]\\d* catalog entries temporary=1",
+              "MENU_STACK: lobby content consent SESSION",
+              "DISTRIB: all transfers complete",
+              "DISTRIB: manifest transfer set awaiting consent",
+              "MENU_STACK: lobby content consent OPEN",
+              "SMOKE.WAIT: satisfied condition=lobby_manifest_consent_ready",
+              "SMOKE: tap-press scancode=41",
+              "DISTRIB: player declined manifest; connected lobby room=\\d+",
+              "MENU_STACK: lobby content consent SKIP",
+              "SMOKE.WAIT: satisfied condition=network_declined_lobby.*stable_ms=8000"
+            ]
+          }
+        ],
+        "forbidden_patterns": ["MATCH: client stage start received", "DISTRIB: player approved .* manifest entries", "DISTRIB: recv begin 'needler' category=pdmod"]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 230000, "stable_ms": 500 },
+    { "at_ms": 20000, "type": "exit" }
+  ],
+  "assertions": {
+    "forbidden_patterns": ["EXCEPTION_ACCESS_VIOLATION", "SMOKE: result=timeout", "DISTRIB: transfer set failed"],
+    "required_counts": [{ "pattern": "SMOKE: result=scripted_exit", "min": 3, "max": 3 }]
+  }
+}

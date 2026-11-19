@@ -193,6 +193,7 @@
 #include "game/inv.h"
 #include "game/bondgun.h"
 #include "input.h"
+#include "input_device_identity.h"
 #include "inputctx.h"
 #include "inputlayer.h"
 #include "menupool.h"
@@ -210,6 +211,8 @@
 /* Actual-core smoke probe, never ordinary input admission. */
 extern int modmgrSmokeProbePreparedRetry(void);
 extern s32 netLocalClientPreparingGridTransfer(void);
+extern s32 pdguiCountdownIsActive(void);
+extern s32 pdguiCountdownGetSecs(void);
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
  * on synthesised SDL events. ImGui's SDL2 backend filters events whose
@@ -228,6 +231,7 @@ extern s32 netLocalClientPreparingGridTransfer(void);
 /* ---------------------------------------------------------------- */
 
 #define SMOKE_MAX_EVENTS         512
+#define SMOKE_PAD_COUNT          2
 #define SMOKE_MAX_PATH           1024
 #define SMOKE_MAX_NAME           96
 #define SMOKE_DEFAULT_TIMEOUT_MS 90000
@@ -294,6 +298,7 @@ typedef struct {
     s32            mouse_wheel_y;     /* for mouse-wheel events */
     s32            controller_control; /* SDL logical button/axis */
     s32            controller_value;   /* button 0/1 or raw virtual Sint16 axis */
+    s32            controller_slot;    /* expected player slot for the virtual device */
     s32            client_id;         /* stable target for network events */
     s32            hand;              /* held-weapon event: HAND_RIGHT/LEFT */
     s32            release_at_ms;     /* for tap: scheduled release time */
@@ -847,6 +852,7 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->mouse_wheel_y = 0;
     ev->controller_control = -1;
     ev->controller_value = 0;
+    ev->controller_slot = 0;
     ev->client_id = -1;
     ev->hand = -1;
     ev->release_at_ms = -1;
@@ -1067,6 +1073,17 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 			}
             ev->mouse_wheel_y = (s32)j_tok_int(&t);
             has_wheel_y = 1;
+        } else if (!strcmp(field, "slot")) {
+            if (!j_tok_is_integer(&t)) {
+                sysLogPrintf(LOG_ERROR, "SMOKE: controller slot must be an integer");
+                return 0;
+            }
+            const s64 slot = j_tok_int(&t);
+            if (slot < 0 || slot >= SMOKE_PAD_COUNT) {
+                sysLogPrintf(LOG_ERROR, "SMOKE: controller slot must be in [0,%d]", SMOKE_PAD_COUNT - 1);
+                return 0;
+            }
+            ev->controller_slot = (s32)slot;
         } else if (!strcmp(field, "client_id")) {
 			if (!j_tok_is_integer(&t)) {
 				sysLogPrintf(LOG_ERROR,
@@ -1618,12 +1635,15 @@ static s32 smokePadGroupInput(SmokeEventType type)
 
 static s32 smokeValidateControllerSchedule(void)
 {
-    u8 buttons[SDL_CONTROLLER_BUTTON_MAX] = {0};
-    u8 axes[SDL_CONTROLLER_AXIS_MAX] = {0};
+    u8 buttons[SMOKE_PAD_COUNT][SDL_CONTROLLER_BUTTON_MAX] = {{0}};
+    u8 axes[SMOKE_PAD_COUNT][SDL_CONTROLLER_AXIS_MAX] = {{0}};
+    s32 slot_held[SMOKE_PAD_COUNT] = {0};
     s32 attached = 0;
     s32 held_count = 0;
     for (s32 i = 0; i < s_State.event_count; ++i) {
         const SmokeEvent *ev = &s_State.events[i];
+        const s32 slot = ev->controller_slot;
+        const s32 slot_bit = 1 << slot;
         if (ev->type == SMOKE_EVENT_CONTROLLER_ATTACH
                 || ev->type == SMOKE_EVENT_CONTROLLER_DETACH) {
             if ((i > 0 && s_State.events[i - 1].at_ms == ev->at_ms)
@@ -1631,16 +1651,28 @@ static s32 smokeValidateControllerSchedule(void)
                 sysLogPrintf(LOG_ERROR, "SMOKE: controller transition requires its own timestamp");
                 return 0;
             }
-            if ((ev->type == SMOKE_EVENT_CONTROLLER_ATTACH) == (attached != 0)) {
+            const s32 attaching = ev->type == SMOKE_EVENT_CONTROLLER_ATTACH;
+            if (attaching == ((attached & slot_bit) != 0)) {
                 sysLogPrintf(LOG_ERROR, "SMOKE: controller attach/detach ownership mismatch");
                 return 0;
             }
-            attached = ev->type == SMOKE_EVENT_CONTROLLER_ATTACH;
-            memset(buttons, 0, sizeof(buttons));
-            memset(axes, 0, sizeof(axes));
-            held_count = 0; /* detach explicitly neutralizes every controller control */
+            if (attaching) {
+                /* The production SDL watch assigns the lowest free player slot. */
+                const s32 lower_slots = slot_bit - 1;
+                if ((attached & lower_slots) != lower_slots) {
+                    sysLogPrintf(LOG_ERROR, "SMOKE: attach lower controller slots first");
+                    return 0;
+                }
+                attached |= slot_bit;
+            } else {
+                attached &= ~slot_bit;
+                memset(buttons[slot], 0, sizeof(buttons[slot]));
+                memset(axes[slot], 0, sizeof(axes[slot]));
+                held_count -= slot_held[slot];
+                slot_held[slot] = 0; /* detach neutralizes only this device */
+            }
         } else if (smokePadIsWrite(ev->type)) {
-            if (!attached) {
+            if (!(attached & slot_bit)) {
                 sysLogPrintf(LOG_ERROR, "SMOKE: controller state requires an attached device");
                 return 0;
             }
@@ -1648,16 +1680,21 @@ static s32 smokeValidateControllerSchedule(void)
                 const SmokeEvent *other = &s_State.events[j];
                 if (other->at_ms != ev->at_ms || j == i) continue;
                 if (!smokePadGroupInput(other->type)
-                        || (other->type == ev->type && other->controller_control == ev->controller_control)) {
+                        || (other->type == ev->type && other->controller_slot == slot
+                            && other->controller_control == ev->controller_control)) {
                     sysLogPrintf(LOG_ERROR, "SMOKE: controller timestamp has conflicting state or non-input events");
                     return 0;
                 }
             }
-            if (ev->type == SMOKE_EVENT_CONTROLLER_BUTTON)
-                smokeTrackExplicitHold(&buttons[ev->controller_control], ev->controller_value, &held_count);
-            else
-                smokeTrackExplicitHold(&axes[ev->controller_control],
-                    ev->controller_value != smokePadAxisNeutral(ev->controller_control), &held_count);
+            const s32 previous_held = slot_held[slot];
+            if (ev->type == SMOKE_EVENT_CONTROLLER_BUTTON) {
+                smokeTrackExplicitHold(&buttons[slot][ev->controller_control],
+                    ev->controller_value, &slot_held[slot]);
+            } else {
+                smokeTrackExplicitHold(&axes[slot][ev->controller_control],
+                    ev->controller_value != smokePadAxisNeutral(ev->controller_control), &slot_held[slot]);
+            }
+            held_count += slot_held[slot] - previous_held;
         } else if (ev->type == SMOKE_EVENT_WAIT_UNTIL && held_count) {
             sysLogPrintf(LOG_ERROR, "SMOKE: wait_until crosses controller input hold(s)");
             return 0;
@@ -2428,6 +2465,10 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     if (corrupt_arena && corrupt_arena[0]) {
         facts.local_client_in_lobby = smokeGridOfferFailedLobby(corrupt_arena);
     }
+    facts.local_client_preparing = g_NetLocalClient
+        && g_NetLocalClient->state == CLSTATE_PREPARING;
+    facts.lobby_countdown_active = facts.local_client_preparing
+        && pdguiCountdownIsActive() && pdguiCountdownGetSecs() > 0;
     facts.gameplay_stage = g_StageNum == g_Vars.stagenum
         && g_StageNum != STAGE_TITLE;
     facts.stage_ready_epoch = s_State.ready_stage_generation > 0
@@ -2514,6 +2555,12 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
             !facts.menu_focus_lost, &consent_view) && consent_view.play_focused
             && !pdguiTextKeyboardOwnsMenuInput();
     }
+    facts.lobby_content_consent_input = facts.network_active
+        && netDistribClientConsentPending() && !pdguiTextKeyboardOwnsMenuInput()
+        && pdguiMenuModalOwnsInput("##distrib_prompt", "Skip", !facts.menu_focus_lost);
+    facts.lobby_countdown_input = facts.lobby_countdown_active
+        && !pdguiTextKeyboardOwnsMenuInput()
+        && pdguiMenuModalOwnsInput("##countdown_popup", "###countdown_cancel", !facts.menu_focus_lost);
     const pdgui_menu_input_observation_t agent_select_input = pdguiMenuObserveInput(
         "##agent_select", !facts.menu_focus_lost);
     const pdgui_menu_input_observation_t agent_create_input = pdguiMenuObserveInput(
@@ -2559,6 +2606,12 @@ static void smokeLogReadinessWait(s32 level, const char *status,
             || ev->readiness_condition == SMOKE_READINESS_FORGE_LEVEL_FILE_OPEN) {
         sysLogPrintf(level, "SMOKE.WAIT.FORGE: freefly=%d level_file_open=%d",
             facts->forge_freefly, facts->forge_level_file_open);
+    }
+    if (ev->readiness_condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY &&
+        ev->readiness_condition <= SMOKE_READINESS_LOBBY_COUNTDOWN_READY) {
+        sysLogPrintf(level, "SMOKE.WAIT.LOBBY_UI: preparing=%d consent_input=%d countdown=%d countdown_input=%d",
+            facts->local_client_preparing, facts->lobby_content_consent_input,
+            facts->lobby_countdown_active, facts->lobby_countdown_input);
     }
     sysLogPrintf(level,
 		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d"
@@ -2613,8 +2666,8 @@ static void smokeLogReadinessWait(s32 level, const char *status,
     }
 }
 
-/* One smoke-owned SDL device. Production input.c owns its separate controller
- * handle and player assignment through the normal device-added event watch. */
+/* Smoke owns the virtual joysticks. Production input.c owns their separate
+ * controller handles and player assignments through the SDL device watch. */
 typedef enum {
     SMOKE_PAD_IDLE, SMOKE_PAD_ATTACHING, SMOKE_PAD_RELEASING,
     SMOKE_PAD_REMOVING
@@ -2626,20 +2679,24 @@ typedef struct {
     SmokePadPhase phase;
     u32 started_ms;
     s32 pending_state;
-    s32 cleanup_registered;
+    s32 player_slot;
     Uint8 buttons[SDL_CONTROLLER_BUTTON_MAX];
     Sint16 axes[SDL_CONTROLLER_AXIS_MAX];
 } SmokePadState;
 
-static SmokePadState s_SmokePad = { .instance = -1 };
+static SmokePadState s_SmokePads[SMOKE_PAD_COUNT] = {
+    { .instance = -1, .player_slot = 0 },
+    { .instance = -1, .player_slot = 1 },
+};
+static s32 s_SmokePadCleanupRegistered;
 
-static s32 smokePadDeviceIndex(void)
+static s32 smokePadDeviceIndex(SmokePadState *state)
 {
-    if (s_SmokePad.instance < 0) return -1;
+    if (state->instance < 0) return -1;
     s32 found = -1;
     SDL_LockJoysticks();
     for (s32 i = 0; i < SDL_NumJoysticks(); ++i) {
-        if (SDL_JoystickGetDeviceInstanceID(i) == s_SmokePad.instance) {
+        if (SDL_JoystickGetDeviceInstanceID(i) == state->instance) {
             found = i;
             break;
         }
@@ -2648,28 +2705,29 @@ static s32 smokePadDeviceIndex(void)
     return found;
 }
 
-static SDL_GameController *smokePadController(void)
+static SDL_GameController *smokePadController(SmokePadState *state)
 {
-    SDL_GameController *pad = (SDL_GameController *)inputGetPad(0);
-    if (!pad || pad != SDL_GameControllerFromPlayerIndex(0)
-            || SDL_GameControllerGetPlayerIndex(pad) != 0
+    const s32 slot = state->player_slot;
+    SDL_GameController *pad = (SDL_GameController *)inputGetPad(slot);
+    if (!pad || pad != SDL_GameControllerFromPlayerIndex(slot)
+            || SDL_GameControllerGetPlayerIndex(pad) != slot
             || SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad))
-                != s_SmokePad.instance) return NULL;
+                != state->instance) return NULL;
     return pad;
 }
 
-static s32 smokePadNeutralize(void)
+static s32 smokePadNeutralize(SmokePadState *state)
 {
     s32 ok = 1;
-    if (!s_SmokePad.joystick || !SDL_JoystickGetAttached(s_SmokePad.joystick)) return 0;
+    if (!state->joystick || !SDL_JoystickGetAttached(state->joystick)) return 0;
     for (s32 i = 0; i < SDL_CONTROLLER_BUTTON_MAX; ++i) {
-        s_SmokePad.buttons[i] = 0;
-        if (SDL_JoystickSetVirtualButton(s_SmokePad.joystick, i, 0) < 0) ok = 0;
+        state->buttons[i] = 0;
+        if (SDL_JoystickSetVirtualButton(state->joystick, i, 0) < 0) ok = 0;
     }
     for (s32 i = 0; i < SDL_CONTROLLER_AXIS_MAX; ++i) {
-        s_SmokePad.axes[i] = smokePadAxisNeutral(i);
-        if (SDL_JoystickSetVirtualAxis(s_SmokePad.joystick, i,
-                s_SmokePad.axes[i]) < 0) ok = 0;
+        state->axes[i] = smokePadAxisNeutral(i);
+        if (SDL_JoystickSetVirtualAxis(state->joystick, i,
+                state->axes[i]) < 0) ok = 0;
     }
     SDL_JoystickUpdate();
     return ok;
@@ -2677,41 +2735,50 @@ static s32 smokePadNeutralize(void)
 
 /* Re-resolve by instance: SDL device indices can shift after unrelated hotplug.
  * Close only our joystick reference; input.c closes the GameController it owns. */
-static s32 smokePadDetachOwned(void)
+static s32 smokePadDetachOwned(SmokePadState *state)
 {
     s32 ok = 1;
     /* Hold the SDL joystick-list lock across lookup and mutation so another
      * hotplug cannot move the index between the identity check and detach. */
     SDL_LockJoysticks();
-    const s32 index = smokePadDeviceIndex();
+    const s32 index = smokePadDeviceIndex(state);
     if (index >= 0 && (!SDL_JoystickIsVirtual(index)
             || SDL_JoystickDetachVirtual(index) < 0)) ok = 0;
     SDL_UnlockJoysticks();
     if (!ok) return 0;
-    if (s_SmokePad.joystick) {
-        SDL_JoystickClose(s_SmokePad.joystick);
-        s_SmokePad.joystick = NULL;
+    if (state->joystick) {
+        SDL_JoystickClose(state->joystick);
+        state->joystick = NULL;
     }
-    if (smokePadDeviceIndex() >= 0) ok = 0;
+    if (smokePadDeviceIndex(state) >= 0) ok = 0;
+    return ok;
+}
+
+static s32 smokePadCleanupOne(SmokePadState *state)
+{
+    s32 ok = 1;
+    if (state->instance < 0 && !state->joystick) return 1;
+    if (!(SDL_WasInit(SDL_INIT_JOYSTICK) & SDL_INIT_JOYSTICK)) return 0;
+    if (state->joystick && SDL_JoystickGetAttached(state->joystick)) {
+        if (!smokePadNeutralize(state)) ok = 0;
+    }
+    if (!smokePadDetachOwned(state)) ok = 0;
+    sysLogPrintf(ok ? LOG_NOTE : LOG_ERROR,
+        "SMOKE.PAD: event=terminal_cleanup instance=%d player=%d virtual=1 ok=%d live_release_observed=0",
+        (int)state->instance, state->player_slot, ok);
+    if (ok) {
+        state->instance = -1;
+        state->phase = SMOKE_PAD_IDLE;
+        state->pending_state = 0;
+    }
     return ok;
 }
 
 static s32 smokePadCleanup(void)
 {
     s32 ok = 1;
-    if (s_SmokePad.instance < 0 && !s_SmokePad.joystick) return 1;
-    if (!(SDL_WasInit(SDL_INIT_JOYSTICK) & SDL_INIT_JOYSTICK)) return 0;
-    if (s_SmokePad.joystick && SDL_JoystickGetAttached(s_SmokePad.joystick)) {
-        if (!smokePadNeutralize()) ok = 0;
-    }
-    if (!smokePadDetachOwned()) ok = 0;
-    sysLogPrintf(ok ? LOG_NOTE : LOG_ERROR,
-        "SMOKE.PAD: event=terminal_cleanup instance=%d virtual=1 ok=%d live_release_observed=0",
-        (int)s_SmokePad.instance, ok);
-    if (ok) {
-        s_SmokePad.instance = -1;
-        s_SmokePad.phase = SMOKE_PAD_IDLE;
-        s_SmokePad.pending_state = 0;
+    for (s32 slot = 0; slot < SMOKE_PAD_COUNT; ++slot) {
+        if (!smokePadCleanupOne(&s_SmokePads[slot])) ok = 0;
     }
     return ok;
 }
@@ -2721,10 +2788,10 @@ static void smokePadCleanupAtExit(void)
     (void)smokePadCleanup();
 }
 
-static s32 smokePadFail(const char *reason)
+static s32 smokePadFail(const SmokePadState *state, const char *reason)
 {
-    sysLogPrintf(LOG_ERROR, "SMOKE.PAD: failure reason=%s instance=%d sdl=%s",
-        reason, (int)s_SmokePad.instance, SDL_GetError());
+    sysLogPrintf(LOG_ERROR, "SMOKE.PAD: failure reason=%s instance=%d player=%d sdl=%s",
+        reason, (int)state->instance, state->player_slot, SDL_GetError());
     smokeHarnessExit(1, "controller_failed");
     return 0;
 }
@@ -2746,20 +2813,20 @@ static s32 smokePadMappingValid(SDL_GameController *pad)
     return 1;
 }
 
-static s32 smokePadStateMatches(SDL_GameController *pad)
+static s32 smokePadStateMatches(const SmokePadState *state, SDL_GameController *pad)
 {
-    if (!s_SmokePad.joystick || !SDL_JoystickGetAttached(s_SmokePad.joystick)) return 0;
+    if (!state->joystick || !SDL_JoystickGetAttached(state->joystick)) return 0;
     for (s32 i = 0; i < SDL_CONTROLLER_BUTTON_MAX; ++i) {
-        if (SDL_JoystickGetButton(s_SmokePad.joystick, i) != s_SmokePad.buttons[i]
+        if (SDL_JoystickGetButton(state->joystick, i) != state->buttons[i]
                 || SDL_GameControllerGetButton(pad, (SDL_GameControllerButton)i)
-                    != s_SmokePad.buttons[i]) return 0;
+                    != state->buttons[i]) return 0;
     }
     for (s32 i = 0; i < SDL_CONTROLLER_AXIS_MAX; ++i) {
-        const s32 raw = s_SmokePad.axes[i];
+        const s32 raw = state->axes[i];
         const s32 expected = smokePadAxisNeutral(i) == SDL_JOYSTICK_AXIS_MIN
             ? (raw + 32768) * 32767 / 65535 : raw;
         const s32 mapped = SDL_GameControllerGetAxis(pad, (SDL_GameControllerAxis)i);
-        if (SDL_JoystickGetAxis(s_SmokePad.joystick, i) != raw
+        if (SDL_JoystickGetAxis(state->joystick, i) != raw
                 || abs(mapped - expected) > 1) return 0;
     }
     return 1;
@@ -2767,47 +2834,56 @@ static s32 smokePadStateMatches(SDL_GameController *pad)
 
 static s32 smokePadObserve(void)
 {
-    if (s_SmokePad.instance < 0 || s_SmokePad.phase != SMOKE_PAD_IDLE) return 1;
-    SDL_GameController *pad = smokePadController();
-    if (!pad || !smokePadStateMatches(pad)) return smokePadFail("state_or_player_route");
-    if (s_SmokePad.pending_state) {
+    for (s32 slot = 0; slot < SMOKE_PAD_COUNT; ++slot) {
+        SmokePadState *state = &s_SmokePads[slot];
+        if (state->instance < 0 || state->phase != SMOKE_PAD_IDLE) continue;
+        SDL_GameController *pad = smokePadController(state);
+        if (!pad || !smokePadStateMatches(state, pad)) return smokePadFail(state, "state_or_player_route");
+        if (!state->pending_state) continue;
+
         InputCtxDebugAuthority authority;
+        InputDeviceIdentity frontend;
         inputCtxDebugSnapshotAuthority(&authority);
+        const s32 frontend_instance = actionmapGetBindingDeviceIdentity(0, &frontend)
+            ? frontend.instance_id : -1;
         sysLogPrintf(LOG_NOTE,
-            "SMOKE.PAD: event=state_observed instance=%d player=0 virtual=1 accept=%d cancel=%d last_device=%d focus_lost=%d settle_ms=%u context=%s",
-            (int)s_SmokePad.instance, actionHeld(0, ACTION_MENU_ACCEPT),
+            "SMOKE.PAD: event=state_observed instance=%d player=%d virtual=1 accept=%d cancel=%d last_device=%d focus_lost=%d settle_ms=%u context=%s down=%d primary_present=%d frontend_instance=%d",
+            (int)state->instance, slot, actionHeld(0, ACTION_MENU_ACCEPT),
             actionHeld(0, ACTION_MENU_CANCEL), actionmapGetLastDevice(),
             authority.window_focus_lost, authority.focus_settle_remaining_ms,
-            authority.effective_top_name ? authority.effective_top_name : "none");
-        s_SmokePad.pending_state = 0;
+            authority.effective_top_name ? authority.effective_top_name : "none",
+            actionHeld(0, ACTION_MENU_DOWN), inputGetPad(0) != NULL, frontend_instance);
+        state->pending_state = 0;
     }
     return 1;
 }
 
-/* Returns 1 after a completed, observed operation; 0 yields an ordinary frame.
- * Only attachment/removal pauses script time. The global watchdog stays live. */
 static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
 {
+    SmokePadState *state = &s_SmokePads[ev->controller_slot];
     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
-    if (s_SmokePad.phase != SMOKE_PAD_IDLE
-            && now - s_SmokePad.started_ms >= SMOKE_PAD_TRANSITION_MS)
-        return smokePadFail("transition_timeout");
+    if (state->phase != SMOKE_PAD_IDLE
+            && now - state->started_ms >= SMOKE_PAD_TRANSITION_MS)
+        return smokePadFail(state, "transition_timeout");
 
     if (ev->type == SMOKE_EVENT_CONTROLLER_ATTACH) {
-        if (s_SmokePad.phase == SMOKE_PAD_IDLE) {
+        if (state->phase == SMOKE_PAD_IDLE) {
             smoke_readiness_facts_t facts = smokeCaptureReadinessFacts();
             if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
-            const s32 forge_ready = smokeReadinessConditionMet(SMOKE_READINESS_FORGE_EDITOR_READY, &facts)
+            const s32 forge_ready = state->player_slot == 0
+                && smokeReadinessConditionMet(SMOKE_READINESS_FORGE_EDITOR_READY, &facts)
                 && inputCtxGetTop() == &g_CtxForgeEditor && facts.menu_keyboard_ready;
-            if ((!forge_ready && !smokeReadinessConditionMet(SMOKE_READINESS_AGENT_SELECT_READY, &facts))
-                    || s_SmokePad.instance >= 0 || inputGetPad(0)
+            const s32 menu_ready = forge_ready
+                || smokeReadinessConditionMet(SMOKE_READINESS_AGENT_SELECT_READY, &facts)
+                || smokeReadinessConditionMet(SMOKE_READINESS_MAIN_MENU_PLAY_READY, &facts);
+            if (!menu_ready || state->instance >= 0 || inputGetPad(state->player_slot)
                     || !(SDL_WasInit(SDL_INIT_GAMECONTROLLER) & SDL_INIT_GAMECONTROLLER))
-                return smokePadFail("attach_readiness_or_player0_occupied");
-            if (!s_SmokePad.cleanup_registered) {
+                return smokePadFail(state, "attach_readiness_or_slot_occupied");
+            if (!s_SmokePadCleanupRegistered) {
                 /* Registered after normal boot's atexit(cleanup), so this runs
                  * first on an unexpected normal exit, before SDL_Quit. */
-                if (atexit(smokePadCleanupAtExit) != 0) return smokePadFail("cleanup_registration");
-                s_SmokePad.cleanup_registered = 1;
+                if (atexit(smokePadCleanupAtExit) != 0) return smokePadFail(state, "cleanup_registration");
+                s_SmokePadCleanupRegistered = 1;
             }
             SDL_VirtualJoystickDesc desc;
             memset(&desc, 0, sizeof(desc));
@@ -2815,97 +2891,103 @@ static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
             desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
             desc.naxes = SDL_CONTROLLER_AXIS_MAX;
             desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
-            desc.name = "PD2 Smoke Virtual Controller";
+            desc.name = state->player_slot == 0
+                ? "PD2 Smoke Virtual Controller" : "PD2 Smoke Secondary Virtual Controller";
             for (s32 i = 0; i < SDL_CONTROLLER_AXIS_MAX; ++i) desc.axis_mask |= 1u << i;
             for (s32 i = 0; i < SDL_CONTROLLER_BUTTON_MAX; ++i) desc.button_mask |= 1u << i;
-            s_SmokePad.phase = SMOKE_PAD_ATTACHING;
-            s_SmokePad.started_ms = now;
+            state->phase = SMOKE_PAD_ATTACHING;
+            state->started_ms = now;
             /* Resolve the new device before unrelated hotplug can shift its
              * index. Events remain in SDL's normal path after unlocking. */
             SDL_LockJoysticks();
             const s32 index = SDL_JoystickAttachVirtualEx(&desc);
             s32 is_controller = 0;
             if (index >= 0) {
-                s_SmokePad.instance = SDL_JoystickGetDeviceInstanceID(index);
-                s_SmokePad.joystick = SDL_JoystickOpen(index);
+                state->instance = SDL_JoystickGetDeviceInstanceID(index);
+                state->joystick = SDL_JoystickOpen(index);
                 is_controller = smokeInstallVirtualMapping(index) && SDL_IsGameController(index);
-                if (s_SmokePad.instance < 0) {
+                if (state->instance < 0) {
                     /* No stable identity: roll back only this just-created
                      * index while still holding the unchanged SDL list. */
-                    if (s_SmokePad.joystick) SDL_JoystickClose(s_SmokePad.joystick);
-                    s_SmokePad.joystick = NULL;
+                    if (state->joystick) SDL_JoystickClose(state->joystick);
+                    state->joystick = NULL;
                     if (SDL_JoystickDetachVirtual(index) < 0)
                         sysLogPrintf(LOG_ERROR, "SMOKE.PAD: failure reason=attach_identity_rollback");
                 }
             }
             SDL_UnlockJoysticks();
-            if (index < 0) return smokePadFail("attach_sdl");
-            if (s_SmokePad.instance < 0 || !s_SmokePad.joystick
-                    || !is_controller || !smokePadNeutralize())
-                return smokePadFail("attach_open_or_neutral");
+            if (index < 0) return smokePadFail(state, "attach_sdl");
+            if (state->instance < 0 || !state->joystick
+                    || !is_controller || !smokePadNeutralize(state))
+                return smokePadFail(state, "attach_open_or_neutral");
             return 0;
         }
-        SDL_GameController *pad = smokePadController();
-        if (!pad) return smokePadFail("attach_player0_route");
-        if (!smokePadMappingValid(pad) || !smokePadStateMatches(pad))
-            return smokePadFail("attach_mapping_or_state");
+        SDL_GameController *pad = smokePadController(state);
+        if (!pad) return smokePadFail(state, "attach_player_route");
+        if (!smokePadMappingValid(pad) || !smokePadStateMatches(state, pad))
+            return smokePadFail(state, "attach_mapping_or_state");
         SDL_version runtime;
         SDL_GetVersion(&runtime);
         char guid[33];
-        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(s_SmokePad.joystick), guid, sizeof(guid));
+        SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(state->joystick), guid, sizeof(guid));
         char *mapping = SDL_GameControllerMapping(pad);
         sysLogPrintf(LOG_NOTE,
-            "SMOKE.PAD: event=attached instance=%d player=0 virtual=1 compiled=%d.%d.%d runtime=%d.%d.%d type=%d name='%s' guid=%s mapping='%s'",
-            (int)s_SmokePad.instance, SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL,
+            "SMOKE.PAD: event=attached instance=%d player=%d virtual=1 peer_instance=%d compiled=%d.%d.%d runtime=%d.%d.%d type=%d name='%s' guid=%s mapping='%s'",
+            (int)state->instance, state->player_slot,
+            (int)s_SmokePads[1 - state->player_slot].instance,
+            SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_PATCHLEVEL,
             runtime.major, runtime.minor, runtime.patch, (int)SDL_GameControllerGetType(pad),
             SDL_GameControllerName(pad), guid, mapping ? mapping : "");
         SDL_free(mapping);
-    } else if (s_SmokePad.phase == SMOKE_PAD_IDLE) {
-        if (!smokePadController() || !smokePadNeutralize()) return smokePadFail("detach_neutralize");
-        s_SmokePad.phase = SMOKE_PAD_RELEASING;
-        s_SmokePad.started_ms = now;
+    } else if (state->phase == SMOKE_PAD_IDLE) {
+        if (!smokePadController(state) || !smokePadNeutralize(state)) return smokePadFail(state, "detach_neutralize");
+        state->phase = SMOKE_PAD_RELEASING;
+        state->started_ms = now;
         return 0;
-    } else if (s_SmokePad.phase == SMOKE_PAD_RELEASING) {
-        SDL_GameController *pad = smokePadController();
-        if (!pad || !smokePadStateMatches(pad)) return smokePadFail("detach_release_readback");
-        if (!smokePadDetachOwned()) return smokePadFail("detach_sdl");
-        s_SmokePad.phase = SMOKE_PAD_REMOVING;
+    } else if (state->phase == SMOKE_PAD_RELEASING) {
+        SDL_GameController *pad = smokePadController(state);
+        if (!pad || !smokePadStateMatches(state, pad)) return smokePadFail(state, "detach_release_readback");
+        if (!smokePadDetachOwned(state)) return smokePadFail(state, "detach_sdl");
+        state->phase = SMOKE_PAD_REMOVING;
         return 0;
     } else {
-        if (smokePadDeviceIndex() >= 0 || smokePadController()
-                || SDL_GameControllerFromInstanceID(s_SmokePad.instance))
-            return smokePadFail("detach_removal_readback");
+        if (smokePadDeviceIndex(state) >= 0 || inputGetPad(state->player_slot)
+                || SDL_GameControllerFromInstanceID(state->instance))
+            return smokePadFail(state, "detach_removal_readback");
         sysLogPrintf(LOG_NOTE,
-            "SMOKE.PAD: event=detached instance=%d player=0 neutral_observed=1 removed_observed=1 virtual=1",
-            (int)s_SmokePad.instance);
-        s_SmokePad.instance = -1;
+            "SMOKE.PAD: event=detached instance=%d player=%d neutral_observed=1 removed_observed=1 virtual=1 peer_instance=%d",
+            (int)state->instance, state->player_slot,
+            (int)s_SmokePads[1 - state->player_slot].instance);
+        state->instance = -1;
     }
-    s_State.timeline_pause_ms += now - s_SmokePad.started_ms;
-    s_SmokePad.phase = SMOKE_PAD_IDLE;
-    s_SmokePad.pending_state = 0;
+    s_State.timeline_pause_ms += now - state->started_ms;
+    state->phase = SMOKE_PAD_IDLE;
+    state->pending_state = 0;
     return 1;
 }
 
 static s32 smokePadWrite(const SmokeEvent *ev)
 {
-    if (!smokePadController() || !s_SmokePad.joystick) return smokePadFail("write_without_player0");
+    SmokePadState *state = &s_SmokePads[ev->controller_slot];
+    if (!smokePadController(state) || !state->joystick) return smokePadFail(state, "write_without_player");
     s32 rc;
     if (ev->type == SMOKE_EVENT_CONTROLLER_AXIS) {
-        s_SmokePad.axes[ev->controller_control] = (Sint16)ev->controller_value;
-        rc = SDL_JoystickSetVirtualAxis(s_SmokePad.joystick, ev->controller_control,
+        state->axes[ev->controller_control] = (Sint16)ev->controller_value;
+        rc = SDL_JoystickSetVirtualAxis(state->joystick, ev->controller_control,
             (Sint16)ev->controller_value);
-        sysLogPrintf(LOG_NOTE, "SMOKE.PAD: event=axis instance=%d axis=%s value=%d virtual=1",
-            (int)s_SmokePad.instance, SDL_GameControllerGetStringForAxis(
+        sysLogPrintf(LOG_NOTE, "SMOKE.PAD: event=axis instance=%d player=%d axis=%s value=%d virtual=1",
+            (int)state->instance, state->player_slot, SDL_GameControllerGetStringForAxis(
                 (SDL_GameControllerAxis)ev->controller_control), ev->controller_value);
     } else {
-        s_SmokePad.buttons[ev->controller_control] = (Uint8)ev->controller_value;
-        rc = SDL_JoystickSetVirtualButton(s_SmokePad.joystick, ev->controller_control,
+        state->buttons[ev->controller_control] = (Uint8)ev->controller_value;
+        rc = SDL_JoystickSetVirtualButton(state->joystick, ev->controller_control,
             (Uint8)ev->controller_value);
-        sysLogPrintf(LOG_NOTE, "SMOKE.PAD: event=button instance=%d button=%s down=%d virtual=1",
-            (int)s_SmokePad.instance, SDL_GameControllerGetStringForButton(
+        sysLogPrintf(LOG_NOTE, "SMOKE.PAD: event=button instance=%d player=%d button=%s down=%d virtual=1",
+            (int)state->instance, state->player_slot, SDL_GameControllerGetStringForButton(
                 (SDL_GameControllerButton)ev->controller_control), ev->controller_value);
     }
-    if (rc < 0) return smokePadFail("set_virtual_state");
+    if (rc < 0) return smokePadFail(state, "set_virtual_state");
+    state->pending_state = 1;
     return 1;
 }
 
@@ -3190,7 +3272,7 @@ void smokeHarnessTick(void)
 
         if (ev->type == SMOKE_EVENT_CONTROLLER_ATTACH || ev->type == SMOKE_EVENT_CONTROLLER_DETACH) {
             if (smokeHasPendingTap()) {
-                smokePadFail("transition_pending_tap");
+                smokePadFail(&s_SmokePads[ev->controller_slot], "transition_pending_tap");
                 return;
             }
             if (!smokePadTickTransition(ev, now)) return;
@@ -3776,7 +3858,6 @@ void smokeHarnessTick(void)
     }
     if (controller_group_at >= 0) {
         SDL_JoystickUpdate();
-        s_SmokePad.pending_state = 1;
         /* Next ordinary tick verifies readback after normal SDL/ActionMap/UI
          * dispatch. Never dispatch a second timestamp's controller state here. */
     }
