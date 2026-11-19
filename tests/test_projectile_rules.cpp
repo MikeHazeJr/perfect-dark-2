@@ -220,6 +220,8 @@ TEST_CASE("projectile rules: the object a weapon function launches", "[projectil
 	CHECK(launched(WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY, false, true) ==
 		Pair(WEAPON_HOMINGROCKET, FUNC_PRIMARY));
 	CHECK(launched(WEAPON_SLAYER, FUNC_SECONDARY, false, false) == Pair(WEAPON_ROCKET, FUNC_PRIMARY));
+	// The guards' launcher: a character's shot makes a rocket of it too.
+	CHECK(launched(WEAPON_ROCKETLAUNCHER_34, FUNC_PRIMARY, false, false) == Pair(WEAPON_ROCKET, FUNC_PRIMARY));
 	CHECK(launched(WEAPON_CROSSBOW, FUNC_SECONDARY, false, false) == Pair(WEAPON_BOLT, FUNC_SECONDARY));
 	CHECK(launched(WEAPON_DEVASTATOR, FUNC_SECONDARY, false, false) ==
 		Pair(WEAPON_GRENADEROUND, FUNC_SECONDARY));
@@ -242,6 +244,16 @@ TEST_CASE("projectile rules: the object a weapon function launches", "[projectil
 	REQUIRE(countOf(bgun, "weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);")
 		== 2);
 	REQUIRE(bgun.find("\t\t\t\t\tweapon->gunfunc = FUNC_2;") != std::string::npos);
+	// A character's shot makes the same objects, and a rocket of the
+	// guards' launcher as well.
+	const std::string chraction = readSource("src/game/chraction.c");
+	REQUIRE(chraction.find("\t\t\t\t\t\tif (gset.weaponnum == WEAPON_ROCKETLAUNCHER\n"
+		"\t\t\t\t\t\t\t\t|| gset.weaponnum == WEAPON_ROCKETLAUNCHER_34\n"
+		"\t\t\t\t\t\t\t\t|| gset.weaponnum == WEAPON_SLAYER) {") != std::string::npos);
+	REQUIRE(chraction.find("projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, chr);")
+		!= std::string::npos);
+	REQUIRE(countOf(chraction, "projectileobj = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, chr);")
+		== 2);
 }
 
 TEST_CASE("projectile rules: a program chooses modules through the graph runner", "[projectile][rules][graph]")

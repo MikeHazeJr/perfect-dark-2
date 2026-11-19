@@ -185,7 +185,10 @@ void projectileRulesLaunchedObject(s32 gunnum, s32 func, s32 thrown, s32 homing,
 		if (gunnum == WEAPON_LAPTOPGUN) {
 			objweapon = -1;
 		}
-	} else if (gunnum == WEAPON_ROCKETLAUNCHER || gunnum == WEAPON_SLAYER) {
+	} else if (gunnum == WEAPON_ROCKETLAUNCHER || gunnum == WEAPON_ROCKETLAUNCHER_34
+			|| gunnum == WEAPON_SLAYER) {
+		/* The guards' launcher (0x2c) fires a rocket too (chrTickShoot); a
+		 * player never holds it. */
 		objweapon = homing ? WEAPON_HOMINGROCKET : WEAPON_ROCKET;
 		objfunc = FUNC_PRIMARY;
 	} else if (gunnum == WEAPON_CROSSBOW) {

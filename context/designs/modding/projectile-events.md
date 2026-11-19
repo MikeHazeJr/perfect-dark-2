@@ -278,7 +278,11 @@ and comes to rest, as before.
 archive's, a rocket's the rocket launcher's or the Slayer's, a grenade
 round's the Devastator's or the Super Dragon's. The bolt item's and the
 grenade round item's own archives carry the same wiring for an object no
-launch bound.
+launch bound. The extractor wires an archive for the object its function
+launches (`projectileRulesLaunchedObject`, pinned against `bondgun.c` and
+`chraction.c`): the guards' rocket launcher (weapon 0x2c), which only a
+character fires, makes a rocket too, so its archive carries the rocket's
+wiring.
 
 **Parity**: `rules.compared` and `rules.differ` in the stage totals; the
 first choice for a weapon, function and event logs `PROJECTILE.RULE: contact

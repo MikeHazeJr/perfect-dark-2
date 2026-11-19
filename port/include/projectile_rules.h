@@ -70,10 +70,12 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 /*
  * The weapon object a weapon's function launches: its weapon number and
  * function. A thrown item is itself. A fired rocket, bolt or grenade round
- * is its own weapon (bgunCreateFiredProjectile): the rocket launcher and
- * the Slayer fire WEAPON_ROCKET, or WEAPON_HOMINGROCKET from a homing
- * function; the crossbow WEAPON_BOLT; the Devastator WEAPON_GRENADEROUND;
- * the Super Dragon WEAPON_GRENADEROUND with function 2. *weaponnum is -1
+ * is its own weapon (bgunCreateFiredProjectile for a player, chrTickShoot
+ * for a character): the rocket launcher, the guards' launcher
+ * (WEAPON_ROCKETLAUNCHER_34) and the Slayer fire WEAPON_ROCKET, or
+ * WEAPON_HOMINGROCKET from a homing function; the crossbow WEAPON_BOLT; the
+ * Devastator WEAPON_GRENADEROUND; the Super Dragon WEAPON_GRENADEROUND with
+ * function 2. *weaponnum is -1
  * when what is launched is no weapon object (the thrown Laptop gun is an
  * autogun).
  */
