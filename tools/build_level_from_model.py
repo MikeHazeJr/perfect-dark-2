@@ -35,10 +35,14 @@ How the model is read:
 
 Usage:
     python tools/build_level_from_model.py MODEL.glb --id ID --name "Name" --out DIR [--scale 100]
+    Add --stage-rules PATH to include a native stage.json with atmosphere settings.
 
 writes DIR/ID.pdarena and DIR/mod.json (ids mod_ID:arena_ID and
 mod_ID:scenario_ID; ID is lower case letters, digits and underscores), checks
 the level against the game's rules and hands it to the archive validator.
+The optional stage source supports schema, atmosphere and note, preserving
+the original bytes. A song named under atmosphere.primary_music must be
+available as a stage track in the game.
 """
 
 from __future__ import annotations
@@ -53,6 +57,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from asset_archive_conformance import validate_stage_json  # noqa: E402
+from asset_gltf_source import parse_document as parse_source_json  # noqa: E402
 import level_archive as la  # noqa: E402
 sys.path.pop(0)
 
@@ -314,9 +320,24 @@ def place_starts(starts, collision):
     return [(position, look) for _name, position, look in placed]
 
 
-def build(model_path: Path, level_id: str, display_name: str, scale: float, pillow_ok: bool):
+def read_stage_rules(path: Path) -> bytes:
+    try:
+        source = path.read_bytes()
+        rules = parse_source_json(source)
+        unsupported = sorted(rules.keys() - {"schema", "atmosphere", "note"})
+        require(not unsupported, f"{path}: stage atmosphere import cannot apply {', '.join(unsupported)}")
+        errors = validate_stage_json(str(path), source.decode("utf-8"))
+    except (OSError, ValueError, OverflowError) as exc:
+        raise la.BuildError(f"{path}: invalid stage rules: {exc}") from exc
+    require(not errors, "\n".join(errors))
+    return source
+
+
+def build(model_path: Path, level_id: str, display_name: str, scale: float, pillow_ok: bool,
+          *, stage_rules_path: Path | None = None):
     require(re.fullmatch(r"[a-z0-9_]{1,40}", level_id) is not None,
             "the id must be 1 to 40 lower case letters, digits and underscores")
+    stage_rules = read_stage_rules(stage_rules_path) if stage_rules_path is not None else None
     primitives, collision, starts, (low, high) = read_level(model_path.read_bytes(), scale, pillow_ok)
     places = place_starts(starts, collision)
     margin = 50.0
@@ -341,7 +362,10 @@ def build(model_path: Path, level_id: str, display_name: str, scale: float, pill
         room_high=room_high,
         room_origin=origin,
     )
-    arena, members = la.build_level(level)
+    def include_stage_rules(members, _level):
+        members["stage.json"] = stage_rules
+
+    arena, members = la.build_level(level, include_stage_rules if stage_rules is not None else None)
     mod = json.dumps({
         "id": level_id,
         "name": "%s (level template)" % display_name,
@@ -361,6 +385,7 @@ def main(argv=None) -> int:
     parser.add_argument("--name", required=True, help="the name players see")
     parser.add_argument("--out", required=True, type=Path, help="the folder for ID.pdarena and mod.json")
     parser.add_argument("--scale", type=float, default=100.0, help="game units per model unit (default 100)")
+    parser.add_argument("--stage-rules", type=Path, help="native stage.json with atmosphere settings")
     args = parser.parse_args(argv)
     try:
         import PIL  # noqa: F401,PLC0415
@@ -368,7 +393,8 @@ def main(argv=None) -> int:
     except ImportError:
         pillow_ok = False
     try:
-        arena, mod, members, level = build(args.model, args.id, args.name, args.scale, pillow_ok)
+        arena, mod, members, level = build(args.model, args.id, args.name, args.scale, pillow_ok,
+                                           stage_rules_path=args.stage_rules)
     except la.BuildError as error:
         print("LEVEL FROM MODEL: not built: %s" % error)
         return 1
