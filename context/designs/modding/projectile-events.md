@@ -222,6 +222,16 @@ weapon's original fuse") became `og.projectile.explode` and
 `projectileFuseRule` became `projectileFuseModules`. No archive outside
 these branches carried the old name.
 
+**A throw's record carries placeholders** (B-1265, 2026-11-19): "Where it
+stands" says the values a base launch reads from its record "agree with the
+original". That was wrong for a throw. The extractor writes one motion node
+for throws and fired projectiles alike, and a throw has no `timer60` and no
+reflect angle, so its record says -1 and 0; the runtime applied both as
+authored, after the launch site had set the thrown item's fuse and its
+first-bounce boost. A negative `timer60` and a zero `reflect_angle` are now
+"not authored". Until this runs in the game, treat "a thrown grenade or mine
+behaves as the original" as unproven on every branch, dev included.
+
 For slice 6 ("the v1 path is refused"): do not refuse v1 archives that mods
 already hold. Slice 5 of the object events met the same question for levels
 (object-events.md, "Levels authored before slice 5") and kept older content
