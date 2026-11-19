@@ -346,6 +346,44 @@ updates are computed once per draw for both backends before the GL upload.
 `gfxBgfxApplyScissor` gives the scene's bgfx draws fast3d's scissor, which
 dev's call site now sets before the scene draws.
 
+## Results (2026-11-19, landing proof)
+
+One game-runtime turn (q_20261119191534312_82e5bc62, 20:49 to 21:49 UTC) on
+the branch merged with dev fdea04a9 (CORE's slice 5), shared base 10, a
+2560x1440 window. Its client is stamped ac84c3bc. Dev 92200bbd was merged
+into the worktree while that client built (a mistake: the turn started
+earlier than its queue position suggested). The one compiled file that merge
+changed, `port/src/smoke_readiness.c`, was compiled after it, so every
+compiled source is the 66878814 tree's, the tree hosted CI built green (run
+44613111811, 2,525 cases).
+
+- `devtools/build-session.ps1` built the client and pd-tests with exit 0;
+  pd-tests passed 2,525 cases (570,422 assertions); the write-policy guard
+  and the bgfx dependency audit passed.
+
+| Smoke | Result |
+|---|---|
+| `renderer_classic_default_smoke` | Pass 10/10 (no flag: no `bgfx:` or `PARITY:` line in the log) |
+| `renderer_bgfx_boot_smoke` | Pass 12/12 |
+| `renderer_parity_solo_smoke` | Pass 14/14 (the scene drawn through bgfx with dev's room lighting: 168 rooms) |
+| `renderer_parity_mp_smoke` | Pass 14/14 |
+| `renderer_parity_menu_smoke` | Pass 13/13 |
+| `renderer_bgfx_gl_fallback_smoke` | Pass 12/12 |
+| `renderer_bgfx_swarm_gpu_smoke` | Pass 15/15 |
+
+Parity, differing pixels out of 3,686,400 per capture (deltas 1, 2-3, 4-15,
+16 and more):
+
+| Scene | Differing | Max delta | Histogram | Where and why |
+|---|---|---|---|---|
+| Agent Select | 4,630; 4,581 | 8; 8 | 3,305/1,162/163/0; 3,256/1,162/163/0 | The front-buffer fix removed the thumbnail difference of 11-17 (68,712). About 4,200 of the rest lie in one round, noise-like patch in the bright part of the menu's screen thumbnail (the small TV-style picture at the bottom left); about 100 more are scattered over the screen. Cause not proven. Leading guess: a noise term in what the thumbnail draws (a `sin()`-based hash, which turns a last-bit difference between the uber-shader and the generated shader into a different value); a parity run with the noise term held constant would confirm or rule it out. |
+| Defection | 264; 448; 180 | 15; 14; 1 | 199/22/43/0; 328/80/40/0; 180/0/0/0 | Scattered over the room surfaces. More than on 11-17 (82 to 95), when the scene had no room lighting yet. Working explanation, not proven: dev's room lighting rounds with `floor()` at several steps, where a last-bit difference between the two compiled shaders becomes a whole level. |
+| Felicity Combat Simulator | 158; 172; 193 | 52; 1; 1 | 153/0/0/5; 172/0/0/0; 193/0/0/0 | Fewer than on 11-17 (379 to 503); five pixels of one capture differ by 16 or more, at edges, as before. |
+| Split-screen | none | | | Not drawable: one local player (`context/constraints.md`). |
+
+The captures, bgfx images and difference images stay in the worktree's smoke
+storage (not in git).
+
 ## Next steps (phase 2a, from section 11 of the scope doc)
 
 1. D3D11 as the Windows default, GL 4.3 as the fallback, Vulkan as an option.

@@ -1374,7 +1374,8 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
 
 ### 11.1 Progress
 
-- **Phase 2a step 1 (2026-11-17, branch `week-pd/bgfx-classic`, not merged).**
+- **Phase 2a step 1 (2026-11-17, branch `week-pd/bgfx-classic`; on dev
+  since 2026-11-19, see below).**
   Classic runs on bgfx's OpenGL 4.3 backend behind `--renderer bgfx`; the 1.0
   GL renderer stays the default and runs unchanged without the flag. bgfx,
   bx and bimg build from pinned source as static libraries in our CMake and
@@ -1391,6 +1392,15 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   a thumbnail the game copies from the front buffer, fixed but not yet
   re-run; split-screen cannot be drawn (one local player). Design, D6 review
   and results: [bgfx-classic-gl.md](bgfx-classic-gl.md).
+- **Landed on dev (2026-11-19, PR #9).** Mike: "Commit, push, merge, update
+  local dev". The branch took dev's B-1172 scene renderer first (its bgfx
+  scene path rebuilt to match). The landing proof on that tree passed:
+  build, pd-tests, the write guard, the D6 audit and all seven renderer
+  smokes on shared base 10. Parity after the front-buffer fix: Agent Select
+  4,630 and 4,581 differing pixels (max delta 8, nearly all in one patch of
+  the menu's screen thumbnail), Defection 180 to 448 (max 15), Felicity 158
+  to 193 (max 52 at a few edge pixels). Details in
+  [bgfx-classic-gl.md](bgfx-classic-gl.md), "Results (2026-11-19)".
 
 ---
 
