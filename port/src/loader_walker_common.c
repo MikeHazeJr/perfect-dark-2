@@ -34,9 +34,7 @@
 #include "loader_walker_common.h"
 #include "asset_path_contract.h"
 #include "modarchive.h"
-#ifndef PD_SERVER
 #include "modvfs.h"
-#endif
 #include "system.h"
 
 /* ------------------------------------------------------------------ */
@@ -54,7 +52,8 @@ static const char *s_findKey(const char *json, size_t json_len,
     if (klen == 0 || klen + 2 > json_len) return NULL;
 
     const char *p = json;
-    while (p + klen + 2 <= end) {
+    const char *last = end - (klen + 2);
+    while (p <= last) {
         if (*p == '"') {
             if (memcmp(p + 1, key, klen) == 0 && p[1 + klen] == '"') {
                 return p + klen + 2;
@@ -486,6 +485,21 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     char *manifest = NULL;
     size_t manifest_len = 0;
     mod_archive_t *arc = NULL;
+    void *prepared = NULL;
+    const loader_walker_archive_preparation_t *preparation = ctx->desc->archive_preparation;
+    char kind_buf[32];
+    char id_buf[128];
+
+    /* Keep mounted source selection on its existing path. Loose preparation
+     * reads the public source and provenance from a single archive capture. */
+    if (preparation && ctx->desc->always_invoke && !modVfsCanResolve(rel_path)) {
+        s32 r = preparation->prepare(rel_path, &prepared);
+        if (r > 0 && prepared) goto publish;
+        if (r < 0) lregfail++;
+        else lenv++;
+        goto cleanup;
+    }
+
     s32 have_manifest = s_loadManifest(rel_path, &manifest, &manifest_len, &arc);
     if (!have_manifest && !ctx->desc->public_descriptor) {
         sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
@@ -495,8 +509,6 @@ static void s_walkerOneFile(int idx, void *user_ctx)
         goto merge;
     }
 
-    char kind_buf[32];
-    char id_buf[128];
     if (ctx->desc->public_descriptor) {
         char *text = NULL;
         size_t text_len = 0;
@@ -545,6 +557,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     }
     }
 
+publish:
     if (ctx->register_mutex) {
         SDL_LockMutex(ctx->register_mutex);
     }
@@ -556,7 +569,11 @@ static void s_walkerOneFile(int idx, void *user_ctx)
      * binds FileProvider handles. Keep that whole section serialized so a
      * concurrent catalog realloc or provider-pool append cannot invalidate
      * the entry pointer or splice adjacent archive paths together. */
-    if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
+    if (prepared) {
+        s32 r = preparation->publish(prepared, rel_path);
+        if (r > 0)      lreg++;
+        else if (r < 0) lregfail++;
+    } else if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
         lreg++;
     } else {
         s32 r = ctx->register_fn(manifest ? manifest : "", manifest_len, kind_buf, id_buf, rel_path);
@@ -569,6 +586,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     }
 
 cleanup:
+    free(prepared);
     if (arc) modArchiveClose(arc);
     if (manifest) sysMemFree(manifest);
 

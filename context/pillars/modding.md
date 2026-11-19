@@ -934,6 +934,13 @@ only when the complete version record and both family stamps match.
 catalog manifest loader in `loader_walker_common.c` probes loose files for a ZIP
 signature before opening the archive. Legacy JSON still loads in full.
 
+The stage-texture migration also checks a private digest of the arena and
+scenario archive bytes, the extractor versions, and the bundled texture-to-ID
+mapping. When that digest and both family stamps match, the migration skips
+reopening the archives to inspect their texture rules. Changes or damaged files
+go through the existing validation and repair path. Releases exclude these
+local extraction markers.
+
 The fallback telemetry seen in the first weapon run was classified and fixed as
 extraction-bootstrap instrumentation noise: first-launch ROM reads during
 extraction/verify no longer count as runtime fallback, while post-extraction

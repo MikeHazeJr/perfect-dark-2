@@ -2188,7 +2188,13 @@ Remaining 1.0 work:
   averaged 63.2 seconds before and 29.8 seconds after. The ordinary boot
   smoke passed 14/14. Missing and corrupt scenario fixtures each repaired one
   archive. A simulated scenario version change regenerated its 87 scenarios
-  and 47 linked arenas. The other P-001 timing budgets remain open.
+  and 47 linked arenas. The November 19 follow-up parallelizes head and body
+  archive preparation, scopes the bundled checkpoints, and skips verified
+  stage-texture migration. Warm Base 9 asset startup took 28.68 and 45.90 seconds
+  on the previous client and 17.25 and 28.32 seconds on the updated client. A
+  concurrent build overlapped the second pair. Challenge initialization took
+  14.05 seconds on the instrumented reference and 4 ms on the updated client.
+  The other P-001 timing budgets remain open.
 
 Host authority migration after authority departure remains post-1.0 under
 T-NETWORKING-008 unless Mike promotes it.

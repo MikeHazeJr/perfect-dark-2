@@ -74,6 +74,7 @@
 typedef struct external_scan_transaction {
 	catalog_entry_snapshot_t *rows;
 	s32 row_count;
+	s32 existing_rows_only;
 	catalog_dep_snapshot_t deps;
 	file_provider_checkpoint_t provider;
 	void *weapon_slots;
@@ -106,16 +107,10 @@ static s32 externalScanTransactionBegin(
 {
 	if (!transaction) return 0;
 	memset(transaction, 0, sizeof(*transaction));
-	transaction->row_count = assetCatalogGetPoolSize();
-	if (transaction->row_count > 0) {
-		transaction->rows = calloc((size_t)transaction->row_count,
-			sizeof(*transaction->rows));
-		if (!transaction->rows) goto fail;
-		for (s32 i = 0; i < transaction->row_count; i++) {
-			const asset_entry_t *row = assetCatalogGetByIndex(i);
-			if (row) catalogEntrySnapshotCapture(&transaction->rows[i], row);
-		}
-	}
+	const u64 started = sysGetMicroseconds();
+	if (!assetCatalogCaptureEntrySnapshots(&transaction->rows,
+			&transaction->row_count)) goto fail;
+	const u64 rows_finished = sysGetMicroseconds();
 	if (!catalogDepSnapshotCreate(&transaction->deps)
 			|| !fileProviderCheckpointCreate(&transaction->provider)
 			|| !(transaction->weapon_slots =
@@ -138,6 +133,9 @@ static s32 externalScanTransactionBegin(
 			|| !(transaction->head_manager =
 				catalogManagerHeadSnapshotCreate())) goto fail;
 	transaction->active = 1;
+	sysLogPrintf(LOG_VERBOSE, "CATALOG.CHECKPOINT: rows=%d rows_us=%llu total_us=%llu",
+		transaction->row_count, (unsigned long long)(rows_finished - started),
+		(unsigned long long)(sysGetMicroseconds() - started));
 	return 1;
 
 fail:
@@ -178,11 +176,52 @@ static void externalScanTransactionDestroy(
 	memset(transaction, 0, sizeof(*transaction));
 }
 
+/* A bundled head/body refresh can only change its existing owner and model
+ * rows. It has fixed slots and publishes the loader record after its last
+ * fallible catalog operation. Keep the general transaction for allocation and
+ * creator admission paths. */
+static s32 externalScanTransactionBeginExistingRows(
+		external_scan_transaction_t *transaction, const asset_entry_t *const *rows,
+		s32 count)
+{
+	const u64 started = sysGetMicroseconds();
+	transaction->rows = malloc((size_t)count * sizeof(*transaction->rows));
+	if (!transaction->rows) return 0;
+	transaction->row_count = count;
+	for (s32 i = 0; i < count; ++i) {
+		catalogEntrySnapshotCapture(&transaction->rows[i], rows[i]);
+	}
+	if (!catalogDepSnapshotCreate(&transaction->deps)
+			|| !fileProviderCheckpointCreate(&transaction->provider)) {
+		externalScanTransactionDestroy(transaction);
+		return 0;
+	}
+	transaction->existing_rows_only = 1;
+	transaction->active = 1;
+	sysLogPrintf(LOG_VERBOSE, "CATALOG.CHECKPOINT: scoped_rows=%d total_us=%llu",
+		count, (unsigned long long)(sysGetMicroseconds() - started));
+	return 1;
+}
+
 static s32 externalScanTransactionRollback(
 		external_scan_transaction_t *transaction)
 {
 	s32 ok = 1;
 	if (!transaction || !transaction->active) return 0;
+
+	if (transaction->existing_rows_only) {
+		for (s32 i = transaction->row_count; i-- > 0;) {
+			const catalog_entry_snapshot_t *prior = &transaction->rows[i];
+			asset_entry_t *row = assetCatalogGetMutable(prior->row.id);
+			if (!row) ok = 0;
+			else if (!catalogEntrySnapshotMatches(prior, row))
+				catalogActivationLedgerRestoreRetiredSnapshot(row, &prior->row);
+		}
+		if (!catalogDepSnapshotRestore(&transaction->deps)) ok = 0;
+		if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
+		transaction->active = 0;
+		return ok;
+	}
 
 	/* New rows are removed in reverse pool order. Replaced or retired rows are
 	 * restored as metadata-only identities; their prior payload pointers were
@@ -1820,7 +1859,16 @@ static s32 registerBodyHeadPublicIni(const ini_section_t *ini, const char *id,
     }
     if (slot >= (is_head ? CATALOG_MGR_HEAD_TOTAL : CATALOG_MGR_BODY_TOTAL) ||
             (slot >= 0 && !bodyHeadNativeSlotAvailable(type, id, slot))) goto done;
-    if (!externalScanTransactionBegin(&transaction)) goto done;
+    const asset_entry_t *mesh_row = assetCatalogResolveAny(mesh.id);
+    const asset_entry_t *hand_row = hand.present ? assetCatalogResolveAny(hand.id) : NULL;
+    if (force_bundled > 0 && !retained_transaction && existing && existing->bundled &&
+            existing->runtime_index >= 0 && mesh_row && mesh_row->bundled &&
+            mesh.plan.source_filenum > 0 &&
+            (!hand.present || (hand_row && hand_row->bundled && hand.plan.source_filenum > 0))) {
+        const asset_entry_t *rows[] = { existing, mesh_row, hand_row };
+        if (!externalScanTransactionBeginExistingRows(&transaction, rows,
+                hand.present && hand_row != mesh_row ? 3 : 2)) goto done;
+    } else if (!externalScanTransactionBegin(&transaction)) goto done;
     if (slot < 0) slot = is_head ? assetCatalogResolveHeadPrivateSlot(id) : assetCatalogResolveBodyPrivateSlot(id);
     if (slot < 0 || !bodyHeadNativeSlotAvailable(type, id, slot)) goto done;
     if (!catalogDepReserve(2 + ini->count)) goto done;
@@ -1864,12 +1912,12 @@ static s32 registerBodyHeadPublicIni(const ini_section_t *ini, const char *id,
     }
     catalogSetPrimary(entry, primary);
     if (force_bundled > 0) loaderWalkerMarkBaseArchiveEntry(entry);
-    if (is_head ? !loaderPoolInstallPublicHead(&head) : !loaderPoolInstallPublicBody(&body)) goto done;
     if (!catalogDepRegisterTyped(id, mesh.id, ASSET_MODEL, bundled) ||
             (hand.present && !catalogDepRegisterTyped(id, hand.id, ASSET_MODEL, bundled)) ||
             !bodyHeadRegisterDeclaredDependencies(id, deps.declared, bundled)) goto done;
     catalogDepPruneOwner(id, bodyHeadKeepDependency, &deps);
     if (deps.invalid) goto done;
+    if (is_head ? !loaderPoolInstallPublicHead(&head) : !loaderPoolInstallPublicBody(&body)) goto done;
     ok = 1;
 done:
     if (!ok) {
@@ -1933,32 +1981,146 @@ done:
     return ok;
 }
 
+typedef struct prepared_body_head_archive {
+    ini_section_t ini;
+    char descriptor_path[FS_MAXPATH];
+    char id[CATALOG_ID_LEN];
+    s32 base_slot_hint;
+} prepared_body_head_archive_t;
+
+static s32 bodyHeadArchiveSlotHint(const void *bytes, u32 size, s32 is_head)
+{
+    u32 manifest_size = 0;
+    char *manifest = modArchiveExtractMemAlloc(bytes, size,
+        ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
+    if (!manifest && modArchiveLastError() == MODARCHIVE_ERR_NOTFOUND) {
+        manifest = modArchiveExtractMemAlloc(bytes, size,
+            ASSET_ARCHIVE_META_MANIFEST, &manifest_size);
+    }
+    s64 hint = -1;
+    loaderWalkerEnvelopeInt(manifest, manifest_size, is_head ? "headnum" : "bodynum", &hint);
+    free(manifest);
+    return hint >= 0 && hint < (is_head ? CATALOG_MGR_HEAD_COUNT : CATALOG_MGR_BODY_COUNT) ? (s32)hint : -1;
+}
+
+static s32 prepareBodyHeadArchive(const void *bytes, u32 size, const char *archive_path,
+    s32 is_head, const char *expected_id, prepared_body_head_archive_t *prepared,
+    char *error, size_t error_capacity)
+{
+    const char *member = is_head ? "head.ini" : "body.ini";
+    u32 descriptor_size = 0;
+    char *text = modArchiveExtractMemAlloc(bytes, size, member, &descriptor_size);
+    s32 parsed = bodyHeadSourceReadIniBytes(text, descriptor_size, is_head ? "head" : "body",
+        &prepared->ini, error, error_capacity);
+    free(text);
+    if (!parsed) return 0;
+
+    const char *alias = iniGet(&prepared->ini, "id", NULL);
+    const char *id = iniGet(&prepared->ini, "catalog_id", alias);
+    if (!bodyHeadSourceCatalogIdValid(id) || (alias && strcmp(alias, id)) ||
+            (expected_id && strcmp(expected_id, id))) {
+        if (error && error_capacity) snprintf(error, error_capacity, "invalid public body/head catalog_id");
+        return 0;
+    }
+    strcpy(prepared->id, id);
+
+    if (assetArchiveValidateBytes(bytes, size, archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
+            error, error_capacity) != 0) return -1;
+    if (!qualifyTypedArchiveSourcePaths(&prepared->ini, archive_path) ||
+            !assetPathJoinChecked(prepared->descriptor_path, sizeof(prepared->descriptor_path),
+                archive_path, "::", member)) return -1;
+    return 1;
+}
+
+static s32 publishBodyHeadArchive(const prepared_body_head_archive_t *prepared,
+    const char *archive_path, s32 bundled, char *error, size_t error_capacity)
+{
+    return registerBodyHeadPublicIni(&prepared->ini, prepared->id, archive_path,
+        prepared->descriptor_path, bundled ? "base" : iniGet(&prepared->ini, "category", "custom"),
+        prepared->base_slot_hint, bundled, -1, NULL, error, error_capacity);
+}
+
+/* The loose walker has already checked for a mounted replacement. Read the
+ * selected disk file without touching the VFS cache from a boot worker. */
+static void *readLooseBodyHeadArchive(const char *archive_path, u32 *size)
+{
+    char full_path[FS_MAXPATH + 1];
+    FILE *file = fopen(fsFullPath(archive_path, full_path, sizeof(full_path)), "rb");
+    if (!file) return NULL;
+    void *bytes = NULL;
+    if (fseek(file, 0, SEEK_END) == 0) {
+        long length = ftell(file);
+        if (length > 0 && (u64)length <= UINT32_MAX && fseek(file, 0, SEEK_SET) == 0) {
+            bytes = malloc((size_t)length);
+            if (bytes && fread(bytes, 1, (size_t)length, file) == (size_t)length) {
+                *size = (u32)length;
+            } else {
+                free(bytes);
+                bytes = NULL;
+            }
+        }
+    }
+    fclose(file);
+    return bytes;
+}
+
+static s32 prepareBodyHeadWalkerArchive(const char *archive_path, void **out)
+{
+    u32 size = 0;
+    char error[256] = {0};
+    s32 is_head = assetArchiveTypeForPath(archive_path) == ASSET_HEAD;
+    void *bytes = readLooseBodyHeadArchive(archive_path, &size);
+    prepared_body_head_archive_t *prepared = bytes ? malloc(sizeof(*prepared)) : NULL;
+    s32 result = prepared ? prepareBodyHeadArchive(bytes, size, archive_path, is_head,
+        NULL, prepared, error, sizeof(error)) : 0;
+    if (result > 0) {
+        prepared->base_slot_hint = bodyHeadArchiveSlotHint(bytes, size, is_head);
+        *out = prepared;
+    } else {
+        if (result < 0) {
+            sysLoudFailf("LOAD.BODYHEAD.PUBLIC_SOURCE", "%s: %s", prepared->id,
+                error[0] ? error : "invalid public body/head archive path");
+        } else {
+            sysLoudFailf("LOAD.UNIVERSAL.PUBLIC_SOURCE", "invalid public descriptor in %s", archive_path);
+        }
+        free(prepared);
+    }
+    free(bytes);
+    return result;
+}
+
+static s32 publishBodyHeadWalkerArchive(const void *data, const char *archive_path)
+{
+    const prepared_body_head_archive_t *prepared = data;
+    char error[256];
+    if (publishBodyHeadArchive(prepared, archive_path, 1, error, sizeof(error))) return 1;
+    sysLoudFailf("LOAD.BODYHEAD.PUBLIC_SOURCE", "%s: %s", prepared->id, error);
+    return -1;
+}
+
+const loader_walker_archive_preparation_t g_BodyHeadArchivePreparation = {
+    prepareBodyHeadWalkerArchive,
+    publishBodyHeadWalkerArchive,
+};
+
 s32 assetCatalogRegisterBodyHeadArchive(const char *archive_path, const char *expected_id,
     s32 is_head, s32 base_slot_hint, s32 bundled, char *error, size_t error_capacity)
 {
-    u32 size = 0, descriptor_size = 0;
+    u32 size = 0;
     void *bytes = NULL;
-    char *text = NULL;
-    ini_section_t *ini = calloc(1, sizeof(*ini));
-    char descriptor_path[FS_MAXPATH];
+    prepared_body_head_archive_t *prepared = NULL;
     s32 ok = 0;
     if (error && error_capacity) error[0] = 0;
     if (!archive_path || !archive_path[0] || !bodyHeadSourceCatalogIdValid(expected_id) ||
             assetArchiveTypeForPath(archive_path) != (is_head ? ASSET_HEAD : ASSET_BODY)) goto done;
     bytes = fsFileLoad(archive_path, &size);
-    if (!bytes || !ini || assetArchiveValidateBytes(bytes, size, archive_path,
-            ASSET_ARCHIVE_VALIDATE_RELEASE, error, error_capacity) != 0) goto done;
-    text = modArchiveExtractMemAlloc(bytes, size, is_head ? "head.ini" : "body.ini", &descriptor_size);
-    if (!bodyHeadSourceReadIniBytes(text, descriptor_size, is_head ? "head" : "body", ini,
-            error, error_capacity) || !qualifyTypedArchiveSourcePaths(ini, archive_path) ||
-            !assetPathJoinChecked(descriptor_path, sizeof(descriptor_path), archive_path,
-                "::", is_head ? "head.ini" : "body.ini")) goto done;
-    ok = registerBodyHeadPublicIni(ini, expected_id, archive_path, descriptor_path,
-        bundled ? "base" : iniGet(ini, "category", "custom"), base_slot_hint, bundled, -1, NULL,
-        error, error_capacity);
+    prepared = bytes ? malloc(sizeof(*prepared)) : NULL;
+    if (!prepared || prepareBodyHeadArchive(bytes, size, archive_path, is_head, expected_id,
+            prepared, error, error_capacity) <= 0) goto done;
+    prepared->base_slot_hint = base_slot_hint;
+    ok = publishBodyHeadArchive(prepared, archive_path, bundled, error, error_capacity);
 done:
-    free(text);
-    free(ini);
+    free(prepared);
     if (bytes) sysMemFree(bytes);
     if (!ok && error && error_capacity && !error[0]) snprintf(error, error_capacity,
         "could not read selected public body/head archive: %s", archive_path ? archive_path : "");

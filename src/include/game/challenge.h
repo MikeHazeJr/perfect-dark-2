@@ -20,7 +20,16 @@ bool challengeIsCompletedByAnyChrWithNumPlayersBySlot(s32 slot, s32 numplayers);
 struct mpconfigfull *challengeLoadConfig(s32 confignum, u8 *buffer, s32 len);
 s32 challengeForceUnlockFeature(s32 featurenum, u8 *array, s32 tail, s32 len);
 s32 challengeForceUnlockSetupFeatures(struct mpsetup *mpsetup, u8 *array, s32 len);
-void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 len, s32 challengeindex);
+struct challenge_bot_unlock_cache {
+	/* Entries cover all u8 profile keys and store the unlock feature plus one.
+	 * Zero is unresolved. */
+	u16 by_type[256];
+	u16 by_difficulty[256];
+	s32 profile_searches;
+};
+
+void challengeForceUnlockConfigFeatures(struct mpconfig *config, u8 *array, s32 len,
+		s32 challengeindex, struct challenge_bot_unlock_cache *cache);
 void challengeForceUnlockBotFeatures(void);
 void challengeApply(void);
 char *challengeGetCurrentDescription(void);

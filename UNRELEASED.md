@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Shortened startup by validating head and body archives in parallel, skipping stage-texture migration for unchanged archives, and avoiding repeated bot-profile searches during challenge setup.
+
 - Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
 
 - Networked objective modes now follow the host: King of the Hill hills and
