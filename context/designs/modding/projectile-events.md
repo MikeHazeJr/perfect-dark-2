@@ -204,9 +204,11 @@ slices 5 and 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a5
   events and rules name the gun and its function (`weapon=base:rocketlauncher
   func=primary object=base:rocket`) and use that archive's program. An unbound
   object is identified by its own weapon and function, right for everything
-  thrown. Launches that apply no record (a simulant's rocket, the chopper's,
-  an AI's thrown grenade) stay unbound and keep the native rules until the
-  spawn seam is one place.
+  thrown. A player's launches, a character's shots (`chrTickShoot`) and a
+  simulant's throws all apply a record and so bind. Launches that apply none
+  (a guard's thrown grenade, a dropped item, a simulant's Slayer rocket, the
+  chopper's rockets) and every copy a network client makes stay unbound and
+  keep the native rules until the spawn seam is one place.
 - **Validator** (2026-11-19): `validate_projectile_entity_graph` in
   `tools/asset_archive_conformance.py`. A projectile or entity graph names
   one of its family's two schemas; a v1 graph carries no program node; a v2
@@ -307,7 +309,17 @@ launches the object itself (a thrown item; a rocket, bolt or grenade round
 under its own number). A rocket launcher, a Devastator or a crossbow that
 is dropped or lies as a pickup is the gun: no archive describes it, so it
 has no program and the original rules answer (none, for a gun). Before the
-fix it would have been given its ammunition's contact rules.
+fix it would have been given its ammunition's contact rules. A bound object
+is held to the same test: the guards' launcher makes a rocket when a
+character fires it and an object with the launcher's own number when a
+player does, and only the rocket is what its archive is wired for.
+
+**An entity archive's program answers the fuse only.** It carries its item's
+fuse and nothing else, so it stands in for a missing projectile program at
+`timer_expired` alone; every other rule of such an item is the original's.
+(Before, an item whose projectile archive had no program while its entity
+archive had one would have lost its contact rules: no base item is like
+that, but a mod that replaces half of a base weapon's archives could be.)
 
 **Parity**: `rules.compared` and `rules.differ` in the stage totals; the
 first choice for a weapon, function and event logs `PROJECTILE.RULE: contact

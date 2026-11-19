@@ -95,7 +95,12 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(events.find("strcmp(held->projectile_ref, asset_id) == 0") != std::string::npos);
 	// The records, the fuse rule and the contact rules (slice 3).
 	REQUIRE(countOf(events, "!projectileIdentify(obj, &who)") == 3);
-	REQUIRE(events.find("program = projectileProgramFor(&who, &asset_id);") != std::string::npos);
+	// The fuse rule and the other rules each ask for the program of their
+	// event: an entity archive's program answers the fuse only.
+	REQUIRE(countOf(events, "program = projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, &asset_id);") == 1);
+	REQUIRE(countOf(events, "program = projectileProgramFor(&who, kind, &asset_id);") == 1);
+	REQUIRE(events.find("\tif (!program && who->gunnum >= 0\n"
+		"\t\t\t&& event_kind == MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) {") != std::string::npos);
 	REQUIRE(events.find("projectileProgramForWeapon") == std::string::npos);
 	// An object that is no weapon is recorded only when a launch bound it
 	// (the thrown Laptop gun is an autogun object).
@@ -105,13 +110,20 @@ TEST_CASE("projectile events are recorded at the native seams",
 	// launcher, a Devastator or a crossbow lying on the floor is the gun, not
 	// the rocket, the round or the bolt: it has no archive and no program,
 	// its projectile archive's or its entity archive's.
-	REQUIRE(events.find("static s32 projectileFunctionLaunchesItself(s32 weaponnum, s32 func)\n{") != std::string::npos);
-	REQUIRE(events.find("\tprojectileRulesLaunchedObject(weaponnum, func, f->type == INVENTORYFUNCTYPE_THROW,\n"
+	REQUIRE(events.find("static s32 projectileFunctionLaunches(s32 gunnum, s32 func, s32 weaponnum, s32 gunfunc)\n{") != std::string::npos);
+	REQUIRE(events.find("\tprojectileRulesLaunchedObject(gunnum, func, f->type == INVENTORYFUNCTYPE_THROW,\n"
 		"\t\t(f->flags & FUNCFLAG_HOMINGROCKET) != 0, &objweapon, &objfunc);\n"
-		"\treturn objweapon == weaponnum && objfunc == func;") != std::string::npos);
-	REQUIRE(events.find("\t\t\tif (projectileFunctionLaunchesItself(weapon->weaponnum, weapon->gunfunc)) {") != std::string::npos);
+		"\treturn objweapon == weaponnum && objfunc == gunfunc;") != std::string::npos);
+	REQUIRE(events.find("\t\t\tif (projectileFunctionLaunches(weapon->weaponnum, weapon->gunfunc,\n"
+		"\t\t\t\t\tweapon->weaponnum, weapon->gunfunc)) {") != std::string::npos);
 	REQUIRE(events.find("\t\t\t\tout->not_launched = 1;") != std::string::npos);
-	REQUIRE(events.find("\tif (!program && who->gunnum >= 0 && !who->not_launched) {") != std::string::npos);
+	// A bound object is held to the same test: a launch that made something
+	// other than what its archive is wired for (a player firing the guards'
+	// launcher makes no rocket) has no program either.
+	REQUIRE(events.find("\t\t\t\tif (!projectileFunctionLaunches(bind->gunnum, bind->func,\n"
+		"\t\t\t\t\t\tmade->weaponnum, made->gunfunc)) {\n"
+		"\t\t\t\t\tout->not_launched = 1;") != std::string::npos);
+	REQUIRE(events.find("\tif (who->not_launched) {\n\t\treturn NULL;\n\t}") != std::string::npos);
 
 	// Slices 2 and 4: the six fuses ask the rule what goes off (the four of
 	// slice 2, the remote mine's and the proximity items'), and the rule
