@@ -77,6 +77,26 @@ The source fixes are awaiting publication.
 
 2026-11-19, T-MENUS-003. Built and tested the canonical front-end control repairs in an isolated snapshot that excludes unrelated dirty work. All 2,261 native tests passed. In a focused game window the SDL virtual controller typed and saved Agent `12`, activated it and reached Main Menu Play (21/21). The separate Back route verified both editor and screen dismissal (31/31). The [front-end audit](audits/2026/frontend-control-2026-11-19.md#implementation-follow-up) records the changes and open V-004, multiplayer and Grid gates.
 
+2026-11-19, P-001 per-archive repair, weapon rollback and menu startup. The
+stage-only client verified unchanged, valid edited, missing and same-size
+corrupt scenarios on a private Base 9 install. A single edit or repair checked
+one stage job and reused 88. The two repairs took 375–388 ms in the stage phase
+and changed one file. The simulated format change preserved an edited scenario,
+rebuilt 86 other scenarios and 45 linked arenas, and needed zero later texture
+rewrites. An additional older-format fixture preserved an edited arena wrapper
+and an edited standalone scenario. The matched warm asset boot fell from
+16.21 to 9.51 seconds. Catalog walking took 6.48 seconds, down from 13.36.
+The merged client and tests built. All 2,525 native cases and 16 release
+checks passed. The isolated worker preserved an edited Extraction archive
+byte-for-byte and kept its timestamp. The first foreground run found that
+mission metadata still read the deferred scenario during boot. The paired
+repair skips both inputs during boot and publishes the mission and scenario
+together when the repaired source is ready. An extraction-only diagnostic
+verified boot with both rows pending, restored Extraction byte-for-byte, and
+resolved both rows in the live catalog after publication. The ordinary menu
+and Mauler runs remain queued. Source and runtime evidence are under
+`.claude/p001-stage-ledger-20261119/`.
+
 2026-11-19, P-001 warm startup follow-up. Both targets built from a clean
 `149820cb1` export with the scoped patch. The native-source guard, 15 release
 checks, 132 focused cases and all 2,262 native cases passed. The paired Base 9

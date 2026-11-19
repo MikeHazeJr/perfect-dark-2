@@ -15,6 +15,7 @@
 #include <string.h>
 #include <PR/ultratypes.h>
 
+#include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
@@ -26,6 +27,8 @@
 #include "loader_walker.h"
 #include "loader_walker_common.h"
 #include "pdeffect_source.h"
+#include "modvfs.h"
+#include "stage_archive_repair.h"
 #include "system.h"
 
 typedef struct {
@@ -871,6 +874,49 @@ static const meta_walker_desc_t s_MetaFamilies[] = {
 	{ ASSET_AI_LISTS,    "ai_lists",   "ai",          ".pdai",         "ai/global_ailists.json", { "ai_lists_file", NULL, NULL, NULL, NULL, NULL } },
 };
 
+s32 loaderWalkerPublishMissionArchive(const char *file_path, const char *scenario_id)
+{
+	static const char prefix[] = "base:scenario_";
+	if (!file_path || !scenario_id || strncmp(scenario_id, prefix, sizeof(prefix) - 1) != 0
+			|| modVfsCanResolve(file_path)) return 0;
+	const char *slug = scenario_id + sizeof(prefix) - 1;
+	if (!slug[0] || slug[strspn(slug, "abcdefghijklmnopqrstuvwxyz0123456789_-")]) return 0;
+	char id[CATALOG_ID_LEN];
+	int length = snprintf(id, sizeof(id), "base:mission_%s", slug);
+	if (length < 0 || (size_t)length >= sizeof(id) || assetCatalogResolveAny(id)) return 0;
+
+	char data_root[FS_MAXPATH + 1], canonical[FS_MAXPATH + 1];
+	fsDataDir(data_root, sizeof(data_root));
+	length = snprintf(canonical, sizeof(canonical), "%s/missions/base_mission_%s.pdmission", data_root, slug);
+	if (length < 0 || (size_t)length >= sizeof(canonical) || strcmp(file_path, canonical) != 0) return 0;
+	char base_path[FS_MAXPATH + 1], resolved[FS_MAXPATH + 1];
+	length = snprintf(base_path, sizeof(base_path), "%s/%s", fsGetBaseDir(), file_path);
+	if (length < 0 || (size_t)length >= sizeof(base_path)
+			|| strcmp(fsFullPath(file_path, resolved, sizeof(resolved)), base_path) != 0) return 0;
+
+	const meta_walker_desc_t *mission = NULL;
+	for (size_t i = 0; i < ARRAYCOUNT(s_MetaFamilies); i++) {
+		if (s_MetaFamilies[i].type == ASSET_MISSION) {
+			mission = &s_MetaFamilies[i];
+			break;
+		}
+	}
+	if (!mission) return 0;
+	char *manifest = NULL;
+	size_t size = 0;
+	if (!loaderWalkerArchiveTextMember(base_path, ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest, &size)) return 0;
+	char kind[32], declared_id[CATALOG_ID_LEN], declared_scenario[CATALOG_ID_LEN];
+	const s32 published = loaderWalkerEnvelopeStrCopy(manifest, size, "pd_kind", kind, sizeof(kind))
+		&& strcmp(kind, mission->kind) == 0
+		&& loaderWalkerEnvelopeStrCopy(manifest, size, "id", declared_id, sizeof(declared_id))
+		&& strcmp(id, declared_id) == 0
+		&& loaderWalkerEnvelopeStrCopy(manifest, size, "scenario", declared_scenario, sizeof(declared_scenario))
+		&& strcmp(scenario_id, declared_scenario) == 0
+		&& s_registerMeta(manifest, size, kind, id, file_path, mission) > 0;
+	free(manifest);
+	return published;
+}
+
 static const meta_walker_desc_t *s_ActiveMeta;
 static char (*s_WalkedEffectIds)[CATALOG_ID_LEN];
 static size_t s_WalkedEffectCount;
@@ -949,6 +995,7 @@ void loaderWalkerScanMetadataFamilies(const char *tier_dir,
 		desc.subdir = meta->subdir;
 		desc.extension = meta->ext;
 		desc.always_invoke = 1;
+		if (meta->type == ASSET_MISSION) desc.skip_path = stageArchiveRepairIsPendingMissionPath;
 
 		s_ActiveMeta = meta;
 		loaderWalkerScanKind(tier_dir, &desc, s_registerActiveMeta, &kr);

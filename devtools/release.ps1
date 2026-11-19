@@ -694,6 +694,7 @@ function Get-ReleaseRomDerivedReason {
     if ($normalized -match '(^|/)(ntsc|pal|jpn)-[a-z0-9]+/(files|segs)/') { return "raw ROM file or segment" }
     $leaf = ($normalized -split '/')[-1]
     if ($leaf -match '^\.pdextract-(?:cache|clean|stage-textures)(?:\.pd2tmp-\d+-\d+)?$') { return "extraction cache stamp" }
+    if ($leaf -match '\.pdscenario\.pd2repair-\d+-\d+\.tmp$') { return "temporary stage repair archive" }
     $magic = New-Object byte[] 4
     $stream = [System.IO.File]::OpenRead($FullName)
     try { $read = $stream.Read($magic, 0, 4) } finally { $stream.Dispose() }

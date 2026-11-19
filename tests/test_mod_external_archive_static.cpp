@@ -2447,7 +2447,7 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 		{ "port/src/loader_walker_ui.c",       "\"ui\", \"ui\", \".pdui\"" },
 		{ "port/src/loader_walker_font.c",     "\"font\", \"fonts\", \".pdfont\"" },
 		{ "port/src/loader_walker_lang.c",     "\"lang\", \"lang\", \".pdlang\"" },
-		{ "port/src/loader_walker_scenario.c", "\"scenario\", \"scenarios\", \".pdscenario\"" },
+		{ "port/src/loader_walker_scenario.c", ".kind_str = \"scenario\"" },
 	};
 	for (const auto &pin : legacyWalkers) {
 		INFO(pin.first);
@@ -9571,8 +9571,9 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("rzipInflate") != std::string::npos);
 	REQUIRE(arena.find("preprocessTilesFile") != std::string::npos);
 	REQUIRE(arena.find("preprocessPadsFile") != std::string::npos);
-	REQUIRE(arena.find("Stage preprocessors share process-global scratch state") !=
-	        std::string::npos);
+	REQUIRE(arena.find("s_pdarenaWork(i, &actx, verified);") != std::string::npos);
+	REQUIRE(arena.find("s_pdscenarioStageWork(spec, &actx, verified || deferred);") != std::string::npos);
+	REQUIRE(arena.find("bootPoolForRangeBlocking(0, count, s_hashStageTextureSource") != std::string::npos);
 	REQUIRE(arena.find("s_buildBgVisualExports") != std::string::npos);
 	REQUIRE(arena.find("preprocessBgSection1") != std::string::npos);
 	REQUIRE(arena.find("preprocessBgRoom") != std::string::npos);
@@ -9585,7 +9586,7 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	REQUIRE(arena.find("stbi_write_png_to_mem") != std::string::npos);
 	REQUIRE(arena.find("bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend") != std::string::npos);
 	REQUIRE(arena.find("\\\"alphaMode\\\":\\\"MASK\\\",\\\"alphaCutoff\\\":0.01") != std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
+	REQUIRE(arena.find("s_existingArchiveEntryContains(check, \"scene.glb\",") !=
 	        std::string::npos);
 	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
 	        std::string::npos);
@@ -9980,13 +9981,13 @@ TEST_CASE("base scenario extractor emits standard map and text payloads",
 	        std::string::npos);
 	REQUIRE(arena.find("texture_manifest_file = visual/materials.tsv") ==
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"scene.glb\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(check, \"scene.glb\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"level.graph.json\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(check, \"level.graph.json\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"rooms.obj\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(check, \"rooms.obj\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"tiles.tsv\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(check, \"tiles.tsv\")") !=
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"scene.glb\"") !=
 	        std::string::npos);
@@ -10965,11 +10966,14 @@ TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot inde
 	REQUIRE(netmsg.find("strstr(e->dirpath, \"::\") != NULL") !=
 		std::string::npos);
 	const auto nestedRegister = walker.find(
-		"assetCatalogRegisterWeaponNestedDependencies(id, file_path");
+		"assetCatalogRegisterBootWeaponNestedDependencies(id, file_path");
+	const auto generalRegister = walker.find(
+		"assetCatalogRegisterWeaponNestedDependencies(id, file_path", nestedRegister);
 	const auto weaponParse = walker.find("loaderPoolParseWeaponJson", nestedRegister);
 	REQUIRE(nestedRegister != std::string::npos);
+	REQUIRE(generalRegister != std::string::npos);
 	REQUIRE(weaponParse != std::string::npos);
-	REQUIRE(nestedRegister < weaponParse);
+	REQUIRE(generalRegister < weaponParse);
 }
 
 TEST_CASE("SP-74 nested meshes hydrate compatible stable rows transactionally",
