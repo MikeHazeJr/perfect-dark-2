@@ -79,7 +79,9 @@ TEST_CASE("typed scenario archives carry the canonical room domain",
 		"e->ext.scenario.source_room_count = (s32)room_count;") !=
 		std::string::npos);
 	REQUIRE(loader.find(
-		"/* always_invoke: */ 1") != std::string::npos);
+		".always_invoke = 1") != std::string::npos);
+	REQUIRE(loader.find(".subdir = \"scenarios\"") != std::string::npos);
+	REQUIRE(loader.find(".extension = \".pdscenario\"") != std::string::npos);
 	REQUIRE(conformance.find(
 		"scenario.ini must declare source_room_count") !=
 		std::string::npos);
@@ -11055,7 +11057,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("pd2.scenario.collision.flags.v1") !=
 	        std::string::npos);
-	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"collision.flags.json\")") !=
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(check, \"collision.flags.json\")") !=
 	        std::string::npos);
 	// Runtime must consume the sidecar as the authoritative flag source and
 	// carry floortype/floorcol into the tile cache (not hardcode 0).
@@ -11072,7 +11074,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("pd2.scenario.room.lights.v1") !=
 	        std::string::npos);
-	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"room_lights.json\")") !=
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(check, \"room_lights.json\")") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("s_buildBgRoomLightsJson") !=
 	        std::string::npos);
@@ -11090,7 +11092,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("\\\"collision\\\": \\\"collision.obj\\\"") !=
 	        std::string::npos);
-	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(relpath, \"collision.obj\")") !=
+	REQUIRE(scenario_extractor.find("s_existingArchiveHasEntry(check, \"collision.obj\")") !=
 	        std::string::npos);
 	REQUIRE(scenario_extractor.find("s_collectStandaloneStageScenario") !=
 	        std::string::npos);
@@ -15963,9 +15965,9 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddPublicMem(&asset_writer, \"portals.json\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveHasEntry(relpath, \"portals.tsv\")") !=
+	REQUIRE(arena.find("s_existingArchiveHasEntry(check, \"portals.tsv\")") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath)") !=
+	REQUIRE(arena.find("s_existingPdscenarioGeneratedNavmeshIsCurrent(check.archive)") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_existingPdscenarioNavmeshMetadataMatches") !=
 	        std::string::npos);
@@ -15995,7 +15997,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(arena.find("\\\"alphaMode\\\":\\\"MASK\\\",\\\"alphaCutoff\\\":0.01") !=
 	        std::string::npos);
-	REQUIRE(arena.find("s_existingArchiveEntryContains(relpath, \"scene.glb\",") !=
+	REQUIRE(arena.find("s_existingArchiveEntryContains(check, \"scene.glb\",") !=
 	        std::string::npos);
 	REQUIRE(arena.find("PDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
 	        std::string::npos);

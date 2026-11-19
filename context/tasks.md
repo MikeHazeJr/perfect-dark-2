@@ -2244,6 +2244,12 @@ Remaining 1.0 work:
   on the previous client and 17.25 and 28.32 seconds on the updated client. A
   concurrent build overlapped the second pair. Challenge initialization took
   14.05 seconds on the instrumented reference and 4 ms on the updated client.
+  The next pass records per-archive content verification, preserves edited
+  sources during format updates and limits rollback for ordinary bundled
+  weapons. In private Base 9, a missing or corrupt scenario checked one stage
+  job and reused 88 others. The arena/scenario phase took 375–388 ms. The
+  combined warm asset boot measured 9.51 seconds. A normal menu launch can
+  defer independent campaign archives on a previously verified install.
   The other P-001 timing budgets remain open.
 
 Host authority migration after authority departure remains post-1.0 under

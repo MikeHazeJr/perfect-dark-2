@@ -47,6 +47,7 @@
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "actionmap.h"
 #include "system.h"
+#include "stage_archive_repair.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
@@ -457,6 +458,10 @@ static s32 s_OptionsTabIdx    = 0;  /* 0=Audio, 1=Video, 2=Controls */
 static s32 soloMissionGraphStart(void *userdata)
 {
     (void)userdata;
+    catalog_stage_result_t stage;
+    const s32 stagenum = g_MissionConfig.stage_id[0] && catalogResolveStage(g_MissionConfig.stage_id, &stage)
+        ? stage.stagenum : (s32)(u8)g_MissionConfig.stagenum;
+    if (stageArchiveRepairStatus(stagenum) != 0) return 0;
     menuhandlerAcceptMission(MENUOP_SET, nullptr, nullptr);
     if (inputCtxIsActive(&g_CtxImGuiMenu)) {
         inputCtxPopDeferred(&g_CtxImGuiMenu);
@@ -1406,17 +1411,21 @@ static s32 renderMissionSelect(struct menudialog *dialog,
         /* PD Mode is gated by pdModeVisible row visibility, not isStageDifficultyUnlocked */
         bool diffLocked = (selDiff == DIFF_PD) ? false
                                                : !isStageDifficultyUnlocked(si, selDiff);
+        const s32 repair = stageArchiveRepairStatus(g_SoloStages[si].stagenum);
+        const char *startLabel = "Start Mission##ms_start";
+        if (repair > 0) startLabel = "Checking mission files##ms_start";
+        if (repair < 0) startLabel = "Mission files unavailable##ms_start";
 
         if (pdguiBeginActionBar("##ms_action_bar")) {
             float barW = ImGui::GetContentRegionAvail().x;
 
-            if (diffLocked) {
+            if (diffLocked || repair != 0) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
             } else {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 1.0f, 0.4f, 1.0f));
             }
 
-            bool activated = pdguiActionBarButton("Start Mission##ms_start",
+            bool activated = pdguiActionBarButton(startLabel,
                                                    startFocus ? 1 : 0,
                                                    barW);
             ImGui::PopStyleColor();
@@ -1428,7 +1437,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                 s_FocusGroup = FOCUS_START;
             }
 
-            if (activated && !diffLocked) {
+            if (activated && !diffLocked && repair == 0) {
                 if (selDiff == DIFF_PD) {
                     /* PD Mode: set PA as base difficulty and open PD Mode settings */
                     SM_CLEAR_PDMODE(&g_MissionConfig);
@@ -1445,7 +1454,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
                         soloMissionGraphStart, NULL);
                 }
-            } else if (activated && diffLocked) {
+            } else if (activated) {
                 /* Action-bar button already played SND_SELECT; override
                  * with an error cue so the user knows the diff is locked. */
                 pdguiPlaySound(PDGUI_SND_ERROR);

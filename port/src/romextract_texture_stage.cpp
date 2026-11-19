@@ -2,10 +2,12 @@
 #include "texture_source_upgrade.h"
 #include "assetcatalog.h"
 #include "../external/imgui-node-editor/crude_json.h"
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <exception>
 #include <map>
+#include <new>
 #include <stdexcept>
 #include <string>
 namespace {
@@ -223,11 +225,12 @@ int groupForStage(const char *id) {
             || !std::strcmp(id, "base:extra23")) return 2;
     return -1;
 }
-}
-extern "C" int romExtractTextureStageProperties(const char *path, const char *member,
-    const char *stage_id, char *error, size_t error_cap) {
-    try {
-        const int group = groupForStage(stage_id);
+std::string extractStageProperties(const char *stage_id) {
+    const int group = groupForStage(stage_id);
+    auto result = crude_json::value(crude_json::object{});
+    result["mode"] = "multiplayer";
+    result["entries"] = crude_json::array{};
+    if (group >= 0) {
         std::map<int, std::string> ids;
         for (int i = 0; i < assetCatalogGetPoolSize(); ++i) {
             const auto *entry = assetCatalogGetByIndex(i);
@@ -242,17 +245,32 @@ extern "C" int romExtractTextureStageProperties(const char *path, const char *me
             row["texture"] = id->second;
             row[rule.field] = rule.surface;
         }
-        crude_json::value result(crude_json::object{});
-        result["mode"] = "multiplayer";
-        result["entries"] = crude_json::array{};
         for (const auto &entry : entries) result["entries"].push_back(entry.second);
-        const std::string json = result.dump(2);
-        return textureSourceUpgradeStageArchive(path, member, json.c_str(), error, error_cap);
+    }
+    return result.dump(2);
+}
+}
+extern "C" char *romExtractStageTexturePropertiesJson(const char *stage_id, char *error,
+    size_t error_cap) {
+    try {
+        const auto json = extractStageProperties(stage_id);
+        char *copy = static_cast<char *>(std::malloc(json.size() + 1));
+        if (!copy) throw std::bad_alloc();
+        std::memcpy(copy, json.c_str(), json.size() + 1);
+        return copy;
     } catch (const std::exception &e) {
         if (error && error_cap) std::snprintf(error, error_cap, "%s", e.what());
-        return -1;
     } catch (...) {
         if (error && error_cap) std::snprintf(error, error_cap, "%s", "stage property extraction failed");
-        return -1;
     }
+    return nullptr;
+}
+
+extern "C" int romExtractTextureStageProperties(const char *path, const char *member,
+    const char *stage_id, char *error, size_t error_cap) {
+    char *json = romExtractStageTexturePropertiesJson(stage_id, error, error_cap);
+    if (!json) return -1;
+    const int result = textureSourceUpgradeStageArchive(path, member, json, error, error_cap);
+    std::free(json);
+    return result;
 }

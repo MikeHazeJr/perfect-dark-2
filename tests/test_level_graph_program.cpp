@@ -657,7 +657,7 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 		REQUIRE(source->find(R"({ \"from\": \"object.rules.glass.damaged_broken\", \"to\": \"object.rules.glass.break\", \"input\": \"exec\", \"output\": \"pass\" })")
 			!= std::string::npos);
 	}
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
 		"\t\t\t\"\\\"object.rules.glass.break\\\"\") &&") != std::string::npos);
 	for (const char *row : { "{ \"gate.lift.native_vacant\", s_gateLiftNativeVacant },",
 			"{ \"og.lift.go_to_stop\", s_runLiftGoToStop },",
@@ -706,7 +706,7 @@ TEST_CASE("Level graph program: the rule wiring is written, required and decided
 		"\t\t\t\t\ts_setupWeaponCatalogIdByRuntime(w->weaponnum));") != std::string::npos);
 	REQUIRE(extractor.find("catalogWeaponIdByRuntimeWeaponNum(w->weaponnum)") == std::string::npos);
 	// An archive without the wiring is stale for the extractor.
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"level.graph.json\",\n"
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"level.graph.json\",\n"
 		"\t\t\t\"\\\"object.rules.door.activate_automatic\\\"\") &&") != std::string::npos);
 
 	// The rule gates and modules, each only inside its own rule events.

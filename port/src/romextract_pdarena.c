@@ -48,6 +48,7 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <math.h>
+#include <windows.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 
@@ -58,6 +59,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "loader_walker_common.h"
 #include "native_write_policy.h"
 #include "ai_command_schema.h"
 #include "ai_catalog_refs.h"
@@ -70,6 +72,7 @@
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "romextract_texture_stage.h"
+#include "stage_archive_repair.h"
 #include "scenario_stage_rules.h"
 #include "scenario_dyntex.h"
 #include "save_atomic.h"
@@ -4801,6 +4804,7 @@ fail:
 
 static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       const char *kind,
+                                      s32 stagenum,
                                       u32 room_count, u32 tri_count,
                                       u32 portal_count,
                                       u32 pad_count, u32 object_count,
@@ -4869,8 +4873,19 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 		return -1;
 	}
 
+	char property_error[192];
+	char *properties = romExtractStageTexturePropertiesJson(catalogStageIdByStagenum(stagenum),
+		property_error, sizeof(property_error));
+	if (!properties) {
+		sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", scenario_id, property_error);
+		return -1;
+	}
+	s32 graph_start = s_textbufAppendf(level_graph_json,
+		"{\n  \"texture_properties_version\": 1,\n  \"texture_properties\": %s,\n", properties);
+	free(properties);
+	if (graph_start != 0) return -1;
+
 	if (s_textbufAppendf(level_graph_json,
-			"{\n"
 			"  \"schema\": \"pd2.level.graph.v1\",\n"
 			"  \"scenario\": \"%s\",\n"
 			"  \"source\": \"scene.glb\",\n"
@@ -8847,28 +8862,31 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 	return scene->tri_count > 0 ? 0 : -1;
 }
 
-static s32 s_existingZipArchive(const char *relpath)
-{
-	u32 size = 0;
-	void *bytes = fsFileLoad(relpath, &size);
-	if (!bytes) return 0;
-	s32 is_zip = size >= 2
-		&& ((const u8 *)bytes)[0] == 'P'
-		&& ((const u8 *)bytes)[1] == 'K';
-	sysMemFree(bytes);
-	return is_zip;
-}
+typedef struct {
+	mod_archive_t *archive;
+	const char *member;
+	u8 *bytes;
+	u32 size;
+} existing_archive_check_t;
 
-static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+static mod_archive_t *s_existingZipArchive(const char *relpath)
 {
+	if (!relpath || fsFileSize(relpath) <= 0) return NULL;
 	char full_buf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
-	modArchiveClose(arc);
-	return has_entry;
+	if (!full || !full[0]) return NULL;
+	FILE *file = fopen(full, "rb");
+	if (!file) return NULL;
+	u8 signature[2];
+	const s32 is_zip = fread(signature, 1, sizeof(signature), file) == sizeof(signature)
+		&& signature[0] == 'P' && signature[1] == 'K';
+	fclose(file);
+	return is_zip ? modArchiveOpen(full) : NULL;
+}
+
+static s32 s_existingArchiveHasEntry(const existing_archive_check_t *check, const char *entry)
+{
+	return modArchiveFindEntry(check->archive, entry) >= 0;
 }
 
 /* B-946: size-aware substring search. The old implementation copied the
@@ -8895,52 +8913,33 @@ static s32 s_bytesContain(const u8 *hay, u32 hay_len, const char *needle)
 	return 0;
 }
 
-static s32 s_existingArchiveEntryContains(const char *relpath,
+static s32 s_existingArchiveEntryContains(existing_archive_check_t *check,
                                           const char *entry,
                                           const char *needle)
 {
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	s32 found = 0;
-
-	if (!full || !full[0] || !entry || !needle) return 0;
-
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-
-	s32 idx = modArchiveFindEntry(arc, entry);
-	if (idx >= 0) {
-		u32 size = 0;
-		u8 *bytes = (u8 *)modArchiveExtractAlloc(arc, idx, &size);
-		if (bytes && size > 0) {
-			found = s_bytesContain(bytes, size, needle);
-		}
-		if (bytes) free(bytes);
+	if (!entry || !needle) return 0;
+	/* Retain only the most recent probed member. The checks group most
+	 * probes by member, including hundreds against level.graph.json. */
+	if (!check->member || strcmp(check->member, entry) != 0) {
+		free(check->bytes);
+		check->member = entry;
+		check->size = 0;
+		const s32 index = modArchiveFindEntry(check->archive, entry);
+		check->bytes = index < 0 ? NULL : modArchiveExtractAlloc(check->archive, index, &check->size);
 	}
-
-	modArchiveClose(arc);
-	return found;
+	return s_bytesContain(check->bytes, check->size, needle);
 }
 
-static s32 s_existingArchiveHasEntryPrefix(const char *relpath,
+static s32 s_existingArchiveHasEntryPrefix(const existing_archive_check_t *check,
                                            const char *prefix)
 {
-	if (!relpath || !prefix || !prefix[0]) return 0;
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-	size_t prefix_len = strlen(prefix);
-	s32 count = modArchiveGetEntryCount(arc);
+	if (!prefix || !prefix[0]) return 0;
+	const size_t prefix_len = strlen(prefix);
+	const s32 count = modArchiveGetEntryCount(check->archive);
 	for (s32 i = 0; i < count; i++) {
-		const char *name = modArchiveGetEntryName(arc, i);
-		if (name && strncmp(name, prefix, prefix_len) == 0) {
-			modArchiveClose(arc);
-			return 1;
-		}
+		const char *name = modArchiveGetEntryName(check->archive, i);
+		if (name && strncmp(name, prefix, prefix_len) == 0) return 1;
 	}
-	modArchiveClose(arc);
 	return 0;
 }
 
@@ -9037,7 +9036,7 @@ static s32 s_existingPdscenarioNavmeshMetadataMatches(
 	return s_existingArchiveTextContains(navmesh_text, navmesh_size, needle);
 }
 
-static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
+static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(mod_archive_t *arc)
 {
 	static const struct {
 		const char *entry;
@@ -9059,16 +9058,8 @@ static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
 		"spawns.json",
 	};
 
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-
 	s32 nav_idx = modArchiveFindEntry(arc, "_meta/generated-navmesh.json");
 	if (nav_idx < 0) {
-		modArchiveClose(arc);
 		return 0;
 	}
 
@@ -9077,7 +9068,6 @@ static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
 		&navmesh_size);
 	if (!navmesh || navmesh_size == 0) {
 		if (navmesh) free(navmesh);
-		modArchiveClose(arc);
 		return 0;
 	}
 
@@ -9117,7 +9107,6 @@ static s32 s_existingPdscenarioGeneratedNavmeshIsCurrent(const char *relpath)
 	}
 
 	free(navmesh);
-	modArchiveClose(arc);
 	return ok;
 }
 
@@ -9172,967 +9161,1002 @@ static void s_cleanupLegacyPdarenaZipSiblings(const char *arenas_dir,
 	}
 }
 
-static s32 s_existingPdarenaArchiveIsClean(const char *relpath,
-                                           s32 expect_scenario)
+/* Check members beyond the currentness probes too. The archive reader
+ * verifies the CRC when it inflates a member. */
+static s32 s_existingStageArchivePayloadsReadable(mod_archive_t *archive)
 {
-	if (!relpath || fsFileSize(relpath) <= 0 || !s_existingZipArchive(relpath)) {
-		return 0;
+	if (!modArchiveCanRewriteSources(archive)) return 0;
+	for (s32 i = 0; i < modArchiveGetEntryCount(archive); ++i) {
+		void *bytes = modArchiveExtractAlloc(archive, i, NULL);
+		if (!bytes) return 0;
+		free(bytes);
 	}
-	if (s_existingArchiveHasEntryPrefix(relpath, "scenario/") ||
-	    s_existingArchiveHasEntryPrefix(relpath, "_meta/scenario/") ||
-	    s_existingArchiveHasEntry(relpath, "geometry.obj") ||
-	    s_existingArchiveHasEntry(relpath, "setup.ini") ||
-	    s_existingArchiveHasEntry(relpath, "pads.ini") ||
-	    s_existingArchiveHasEntry(relpath, "arena.mtl")) {
-		return 0;
-	}
-	if (!s_existingArchiveHasEntry(relpath, "arena.ini") ||
-	    !s_existingArchiveHasEntry(relpath, "_meta/manifest.json")) {
-		return 0;
-	}
-	if (!expect_scenario) return 1;
-	return s_existingArchiveHasEntryPrefix(relpath,
-		"dependencies/assets/scenarios/") &&
-		s_existingArchiveEntryContains(relpath, "arena.ini",
-			"scenario_graph_cache = " ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+	return 1;
 }
 
-static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
+static s32 s_existingPdarenaArchiveMatches(const char *relpath, s32 expect_scenario,
+                                           s32 require_current_kind)
 {
-	if (!relpath || fsFileSize(relpath) <= 0 || !s_existingZipArchive(relpath)) {
+	existing_archive_check_t check = {.archive = s_existingZipArchive(relpath)};
+	if (!check.archive) return 0;
+	const s32 clean = !s_existingArchiveHasEntryPrefix(&check, "scenario/") &&
+		!s_existingArchiveHasEntryPrefix(&check, "_meta/scenario/") &&
+		!s_existingArchiveHasEntry(&check, "geometry.obj") &&
+		!s_existingArchiveHasEntry(&check, "setup.ini") &&
+		!s_existingArchiveHasEntry(&check, "pads.ini") &&
+		!s_existingArchiveHasEntry(&check, "arena.mtl") &&
+		s_existingArchiveHasEntry(&check, "arena.ini") &&
+		s_existingArchiveHasEntry(&check, "_meta/manifest.json") &&
+		(!expect_scenario ||
+		 (s_existingArchiveHasEntryPrefix(&check, "dependencies/assets/scenarios/") &&
+		  (!require_current_kind || s_existingArchiveEntryContains(&check, "arena.ini",
+			"scenario_graph_cache = " ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND)))) &&
+		s_existingStageArchivePayloadsReadable(check.archive);
+	free(check.bytes);
+	modArchiveClose(check.archive);
+	return clean;
+}
+
+static s32 s_existingPdarenaArchiveIsClean(const char *relpath, s32 expect_scenario)
+{
+	return s_existingPdarenaArchiveMatches(relpath, expect_scenario, 1);
+}
+
+static s32 s_stageArchiveIsStock(const char *relpath)
+{
+	existing_archive_check_t check = {.archive = s_existingZipArchive(relpath)};
+	if (!check.archive) return 0;
+	const s32 extracted = s_existingArchiveEntryContains(&check, "_meta/provenance.json",
+		"\"tool\": \"romextract_pdarena\"");
+	free(check.bytes);
+	modArchiveClose(check.archive);
+	return extracted && romExtractPdArchivePublicUnmodified(relpath);
+}
+
+static s32 s_existingPdscenarioArchiveMatches(existing_archive_check_t *check)
+{
+	if (s_existingArchiveHasEntryPrefix(check, "_meta/_meta/")) {
 		return 0;
 	}
-	if (s_existingArchiveHasEntryPrefix(relpath, "_meta/_meta/")) {
+	if (s_existingArchiveHasEntry(check, "rooms.obj") ||
+	    s_existingArchiveHasEntry(check, "tiles.tsv") ||
+	    s_existingArchiveHasEntry(check, "scenario.mtl") ||
+	    s_existingArchiveHasEntryPrefix(check, "visual/")) {
 		return 0;
 	}
-	if (s_existingArchiveHasEntry(relpath, "rooms.obj") ||
-	    s_existingArchiveHasEntry(relpath, "tiles.tsv") ||
-	    s_existingArchiveHasEntry(relpath, "scenario.mtl") ||
-	    s_existingArchiveHasEntryPrefix(relpath, "visual/")) {
-		return 0;
-	}
-	return s_existingArchiveHasEntry(relpath, "scenario.ini") &&
-		s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-		s_existingArchiveHasEntry(relpath, "scene.glb") &&
-		s_existingArchiveHasEntry(relpath, "collision.obj") &&
-		s_existingArchiveHasEntry(relpath, "collision.flags.json") &&
-		s_existingArchiveEntryContains(relpath, "collision.flags.json",
+	return s_existingArchiveHasEntry(check, "scenario.ini") &&
+		s_existingArchiveHasEntry(check, "_meta/manifest.json") &&
+		s_existingArchiveHasEntry(check, "scene.glb") &&
+		s_existingArchiveHasEntry(check, "collision.obj") &&
+		s_existingArchiveHasEntry(check, "collision.flags.json") &&
+		s_existingArchiveEntryContains(check, "collision.flags.json",
 			"pd2.scenario.collision.flags.v1") &&
-		s_existingArchiveHasEntry(relpath, "portals.json") &&
-		s_existingArchiveEntryContains(relpath, "portals.json",
+		s_existingArchiveHasEntry(check, "portals.json") &&
+		s_existingArchiveEntryContains(check, "portals.json",
 			"Optional light rules on a row") &&
-		!s_existingArchiveHasEntry(relpath, "portals.tsv") &&
-		s_existingArchiveHasEntry(relpath, "room_lights.json") &&
-		s_existingArchiveEntryContains(relpath, "room_lights.json",
+		!s_existingArchiveHasEntry(check, "portals.tsv") &&
+		s_existingArchiveHasEntry(check, "room_lights.json") &&
+		s_existingArchiveEntryContains(check, "room_lights.json",
 			"pd2.scenario.room.lights.v1") &&
-		s_existingArchiveHasEntry(relpath, "rooms.json") &&
-		s_existingArchiveEntryContains(relpath, "rooms.json",
+		s_existingArchiveHasEntry(check, "rooms.json") &&
+		s_existingArchiveEntryContains(check, "rooms.json",
 			"pd2.scenario.rooms.v1") &&
-		s_existingArchiveEntryContains(relpath, "rooms.json",
+		s_existingArchiveEntryContains(check, "rooms.json",
 			"\"origin\": [") &&
-		s_existingArchiveEntryContains(relpath, "rooms.json",
+		s_existingArchiveEntryContains(check, "rooms.json",
 			"sky true draws it relative to the player") &&
-		s_existingArchiveEntryContains(relpath, "stage.json",
+		s_existingArchiveEntryContains(check, "stage.json",
 			"stars: the starfield of a stage") &&
-		s_existingArchiveHasEntry(relpath, "pads.json") &&
-		s_existingArchiveHasEntry(relpath, "spawns.json") &&
-		s_existingArchiveHasEntry(relpath, "volumes.json") &&
-		s_existingArchiveHasEntry(relpath, "navigation/waypoints.json") &&
-		s_existingArchiveHasEntry(relpath, "navigation/waygroups.json") &&
-		s_existingArchiveHasEntry(relpath, "navigation/covers.json") &&
-		!s_existingArchiveHasEntry(relpath, "navigation/waypoints.tsv") &&
-		!s_existingArchiveHasEntry(relpath, "navigation/waygroups.tsv") &&
-		!s_existingArchiveHasEntry(relpath, "navigation/covers.tsv") &&
-		s_existingArchiveEntryContains(relpath, "navigation/waypoints.json",
+		s_existingArchiveHasEntry(check, "pads.json") &&
+		s_existingArchiveHasEntry(check, "spawns.json") &&
+		s_existingArchiveHasEntry(check, "volumes.json") &&
+		s_existingArchiveHasEntry(check, "navigation/waypoints.json") &&
+		s_existingArchiveHasEntry(check, "navigation/waygroups.json") &&
+		s_existingArchiveHasEntry(check, "navigation/covers.json") &&
+		!s_existingArchiveHasEntry(check, "navigation/waypoints.tsv") &&
+		!s_existingArchiveHasEntry(check, "navigation/waygroups.tsv") &&
+		!s_existingArchiveHasEntry(check, "navigation/covers.tsv") &&
+		s_existingArchiveEntryContains(check, "navigation/waypoints.json",
 			"pd2.scenario.waypoints.v1") &&
-		s_existingArchiveEntryContains(relpath, "navigation/waygroups.json",
+		s_existingArchiveEntryContains(check, "navigation/waygroups.json",
 			"pd2.scenario.waygroups.v1") &&
-		s_existingArchiveEntryContains(relpath, "navigation/covers.json",
+		s_existingArchiveEntryContains(check, "navigation/covers.json",
 			"pd2.scenario.covers.v1") &&
-		s_existingArchiveHasEntry(relpath, "navigation/paths.json") &&
-		s_existingArchiveEntryContains(relpath, "navigation/paths.json",
+		s_existingArchiveHasEntry(check, "navigation/paths.json") &&
+		s_existingArchiveEntryContains(check, "navigation/paths.json",
 			"pd2.scenario.paths.v1") &&
-		!s_existingArchiveHasEntry(relpath, "navigation/paths.tsv") &&
-		s_existingArchiveHasEntry(relpath, "objects.json") &&
-		!s_existingArchiveHasEntry(relpath, "objects.tsv") &&
-		s_existingArchiveEntryContains(relpath, "intro.json",
+		!s_existingArchiveHasEntry(check, "navigation/paths.tsv") &&
+		s_existingArchiveHasEntry(check, "objects.json") &&
+		!s_existingArchiveHasEntry(check, "objects.tsv") &&
+		s_existingArchiveEntryContains(check, "intro.json",
 			"pd2.scenario.intro.v1") &&
-		s_existingArchiveEntryContains(relpath, "objects.json",
+		s_existingArchiveEntryContains(check, "objects.json",
 			"pd2.scenario.objects.v1") &&
-		s_existingArchiveHasEntry(relpath, "setup.fields.json") &&
-		!s_existingArchiveHasEntry(relpath, "setup.fields.tsv") &&
-		s_existingArchiveEntryContains(relpath, "setup.fields.json",
+		s_existingArchiveHasEntry(check, "setup.fields.json") &&
+		!s_existingArchiveHasEntry(check, "setup.fields.tsv") &&
+		s_existingArchiveEntryContains(check, "setup.fields.json",
 			"pd2.scenario.setup.fields.v1") &&
-		s_existingArchiveHasEntry(relpath, "ai/ailists.json") &&
-		s_existingArchiveHasEntry(relpath, "objectives.json") &&
-		s_existingArchiveEntryContains(relpath, "objectives.json",
+		s_existingArchiveHasEntry(check, "ai/ailists.json") &&
+		s_existingArchiveHasEntry(check, "objectives.json") &&
+		s_existingArchiveEntryContains(check, "objectives.json",
 			"pd2.scenario.objectives.v1") &&
-		!s_existingArchiveHasEntry(relpath, "objectives.tsv") &&
-		!s_existingArchiveEntryContains(relpath, "setup.fields.json",
+		!s_existingArchiveHasEntry(check, "objectives.tsv") &&
+		!s_existingArchiveEntryContains(check, "setup.fields.json",
 			"objective_step.argument") &&
-		s_existingArchiveHasEntry(relpath, "navigation.ini") &&
-		s_existingArchiveHasEntry(relpath, "level.graph.json") &&
-		s_existingArchiveEntryContains(relpath, "scene.glb",
+		s_existingArchiveHasEntry(check, "navigation.ini") &&
+		s_existingArchiveHasEntry(check, "level.graph.json") &&
+		s_existingArchiveEntryContains(check, "scene.glb",
 			PDSCENARIO_BG_VISUAL_EXPORT_VERSION) &&
 		/* B-946: the texCoord:0 DCC-UV marker only exists on textured
 		 * materials. Untextured test stages (base:scenario_test_ash) have no
 		 * baseColorTexture at all; demanding the marker unconditionally made
 		 * them permanently "stale" and re-extracted every boot. */
-		(!s_existingArchiveEntryContains(relpath, "scene.glb",
+		(!s_existingArchiveEntryContains(check, "scene.glb",
 			"baseColorTexture") ||
-		s_existingArchiveEntryContains(relpath, "scene.glb",
+		s_existingArchiveEntryContains(check, "scene.glb",
 			"\"texCoord\":0")) &&
-		s_existingArchiveEntryContains(relpath, "scene.glb",
+		s_existingArchiveEntryContains(check, "scene.glb",
 			"\"TEXCOORD_1\"") &&
-		s_existingArchiveEntryContains(relpath, "scene.glb",
+		s_existingArchiveEntryContains(check, "scene.glb",
 			"\"COLOR_0\"") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.global.settings.source") &&
 		/* object-events.md slices 4 and 5: the pickup, door, lift and glass
 		 * rule wiring. */
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"object.rules.door.activate_automatic\"") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"object.rules.glass.break\"") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.portals.source") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"portals\": \"portals.json\"") &&
-		s_existingArchiveEntryContains(relpath, "scenario.ini",
+		s_existingArchiveEntryContains(check, "scenario.ini",
 			"collision_source = collision.obj") &&
-		s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+		s_existingArchiveEntryContains(check, "_meta/manifest.json",
 			"\"collision_source\": \"collision.obj\"") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"collision\": \"collision.obj\"") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.pads.source") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.lists.source") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_return_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_shot_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.return_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.stop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.kneel") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.surrender") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.fade_out") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.remove_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_sidestep") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_jump_out") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_run_sideways") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_walk") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_run") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_roll") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_stand") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_kneel") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_lie") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_attack_locked") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_attacking") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_modify_attack") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.face_entity") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.apply_gset_damage") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_damage_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.consider_grenade_throw") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.drop_item") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_run_from_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_jog_to_target_prop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_walk_to_target_prop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_run_to_target_prop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_go_to_cover_prop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_jog_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_walk_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_run_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_can_hear_alarm") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_patrolling") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_alarm_active") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_gas_active") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_hears_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_saw_injury") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_saw_death") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_los_to_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_los_to_attack_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_nearly_in_sight") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_nearly_in_targets_sight") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_pad_preset_to_pad_on_route_to_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_saw_target_recently") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_heard_target_recently") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_los_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_never_been_on_screen") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_on_screen") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_in_on_screen_room") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_room_is_on_screen") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_aiming_at_me") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_near_miss") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_sees_suspicious_item") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_in_fov_left") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_check_fov_with_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_out_of_fov_left") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_in_fov") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_out_of_fov") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_target_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_target_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_distance_to_pad_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_distance_to_pad_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_chr_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_chr_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_any_chr_near_self") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_from_target_to_pad_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_from_target_to_pad_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_in_room") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_in_room") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_has_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_weapon_thrown") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_weapon_thrown_on_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_has_weapon_equipped") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_gun_unclaimed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_object_healthy") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_activated_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.obj_interact") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.destroy_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.drop_object_from_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_drop_items") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_drop_weapon") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.give_object_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.object_move_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_waypoint_within_quadrant") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_pad_preset_to_target_quadrant") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_do_animation") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.be_surprised_one_hand") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.be_surprised_look_around") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.be_surprised_surrender") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.random") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_random_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_random_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_punch_dodge_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_shooting_at_me_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_dark_room_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_player_dead_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.navigation.paths.source") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.jog_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.go_to_pad_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.walk_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.run_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_path") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.start_patrol") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_start_alarm") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.activate_alarm") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.deactivate_alarm") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_morale") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.add_morale") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_add_morale") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.subtract_morale") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.add_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_add_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.subtract_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.increase_squadron_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_hear_distance") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_view_distance") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_grenade_probability") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_num") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_max_damage") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.add_health") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_shield") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_reaction_speed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_recovery_speed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_accuracy") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_dodge_rating") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_unarmed_dodge_rating") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unset_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_has_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_unset_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_chr_has_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_stage_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unset_stage_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_stage_flag_eq") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unset_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_has_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_unset_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_chr_has_chrflag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_hidden_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_unset_hidden_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_chr_has_hidden_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_obj_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unset_obj_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_obj_has_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_savefile_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unset_savefile_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_savefile_flag_set") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_savefile_flag_unset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.restart_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.reset_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.pause_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.resume_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_timer_stopped") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_timer_greater_than_random") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_timer_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_timer_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.show_countdown_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.hide_countdown_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_countdown_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.stop_countdown_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.start_countdown_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_countdown_timer_stopped") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_countdown_timer_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_countdown_timer_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.show_hudmsg") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.show_hudmsg_middle") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.show_hudmsg_top_middle") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.hovercar_begin_path") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_vehicle_speed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_rotor_speed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_explosions") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_tinted_glass_enabled") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.hovercopter_fire_rocket") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_adjust_motion_blur") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.punch_or_kick") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_target_to_eyespy_if_in_sight") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.mini_skedar_try_pounce") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_object_distance_to_pad_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.avoid") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.title_init_mode") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_exit_title") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_emit_sparks") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_dr_caroll_images") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.say_quip") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.say_ci_staff_quip") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.shuffle_ruins_pillars") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.shuffle_pelagic_switches") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.open_door") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.close_door") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_door_state") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_object_is_door") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.lock_door") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.unlock_door") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_door_locked") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_lift_stationary") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.lift_go_to_stop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_lift_at_stop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.activate_lift") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_using_lift") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.configure_rain") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.configure_snow") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.switch_to_alt_sky") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_wind_speed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_lights") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_room_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.show_cutscene_chrs") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.configure_environment") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_target2_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_target2_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.speak") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_sound") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.assign_sound") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.audio_mute_channel") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_channel_free") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_object_sound_volume") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_object_sound_volume_by_distance") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_object_sound_playing") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_repeating_sound_from_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_sound_from_entity") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_repeating_sound_from_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_object_sound_volume_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_sound_from_prop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_temporary_primary_track") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.play_x_track") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.stop_ambient_track") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_draw_weapon") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_has_no_gun") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_delete_weapon") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_trigger_shot_list") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.end_level") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.end_cutscene") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.warp_jo_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.warp_jo_to_tag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.revoke_control") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.grant_control") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.player_fade_in") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.players_fade_out") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_colour_fade_complete") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.prepare_warp_orbit") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.begin_warp_latch") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_warp_latch_complete") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_camera_animation") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_in_cutscene") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_cutscene_button_pressed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.reorient_for_cutscene_stop") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.spawn_chr_at_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.spawn_chr_at_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_equip_weapon") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_equip_hat") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_obj_image") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.object_do_animation") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_door_open") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.duplicate_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.enable_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.disable_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.enable_obj") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.disable_obj") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_move_to_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_team") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.damage_chr_by_amount") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.do_preset_animation") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_player_chr_portal_distance_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_reposition_valid") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.do_gun_command") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_distance_to_gun_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.recover_gun") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_copy_properties") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.player_auto_walk") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_player_auto_walk_finished") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_obj_in_room") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_player_looking_at_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_is_player") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_kill") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.remove_weapon_from_inventory") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.clear_inventory") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.release_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_grab_object") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.toggle_p1p2") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_p1p2") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_cloaked") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_autogun_target_team") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_objective_complete") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_objective_failed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_all_objectives_complete") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_difficulty_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_difficulty_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_stage_timer_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_stage_timer_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_stage_id_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_stage_id_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_players_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_kill_count_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_knocked_out_chrs") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.kill_bond") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_arghs_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_arghs_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_close_arghs_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_close_arghs_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_health_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_health_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_shield_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_shield_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_injured") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_shield_damaged") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_morale_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_morale_less_than_random") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_alertness") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_alertness_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_alertness_less_than_random") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_idle") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_stopped") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_dead") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_death_animation_finished") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_knocked_out") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_can_see_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_pouncebits_eq") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_training_pc_holographed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_player_using_device") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_begin_or_end_teleport") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_teleport_full_white") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_cutscene_weapon") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.fade_screen") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_fade_complete") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_hudpiece_visible") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_passive_mode") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_firing_in_cutscene") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_portal_flag") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_music_event_queue_is_empty") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_coop_mode") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_same_floor_distance_to_pad_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.remove_references_to_chr") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_toggle_model_part") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.obj_set_model_part_visible") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.if_obj_health_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_obj_health") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_special_death_animation") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_room_to_search") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_action") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_team_orders") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.retreat") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.find_cover") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.find_cover_within_dist") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.find_cover_outside_dist") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.go_to_cover") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.check_cover_out_of_sight") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.orbit_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_preset_to_unalerted_teammate") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_squadron") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.face_cover") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.danger_cover") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.release_cover") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.rebuild_teams") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.rebuild_squadrons") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_listening") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_not_talking") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_orders") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_has_orders") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_in_squadron_doing_action") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_listening") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_not_listening") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_injured_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_action") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_ammo_quantity_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_chr_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_compare_chr_presets_team") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_human") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_skedar") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_prop_preset_blocking_sight_to_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.remove_object_at_prop_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_prop_preset_height_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_presets_target_is_not_my_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_preset_to_chr_near_self") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_preset_to_chr_near_pad") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_dangerous_object_nearby") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_heli_weapons_armed") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_hoverbot_next_step") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.shuffle_investigation_terminals") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_pad_preset_to_investigation_terminal") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.heli_arm_weapons") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.heli_unarm_weapons") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_safety2_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_player_using_cmp_or_ar34") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.detect_enemy_on_same_floor") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.detect_enemy") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_safety_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_moving_slowly") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_moving_closer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_moving_away") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_squadron_is_dead") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_true") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_num_chrs_in_squadron_greater_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_natural_anim") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_y") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_sound_timer") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_target_y_difference_less_than") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.try_attack_amount") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_chr_target") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.set_pad_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_set_pad_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.chr_copy_pad_preset") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.condition.if_bot_respawning") &&
-		s_existingArchiveEntryContains(relpath, "level.graph.json",
+		s_existingArchiveEntryContains(check, "level.graph.json",
 			"scenario.ai.action.mp_init_simulants") &&
-		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
-		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json") &&
-		s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath);
+		s_existingArchiveHasEntry(check, "_meta/generated-collision.json") &&
+		s_existingArchiveHasEntry(check, "_meta/generated-navmesh.json");
+}
+
+static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
+{
+	existing_archive_check_t check = {.archive = s_existingZipArchive(relpath)};
+	if (!check.archive) return 0;
+	s32 clean = s_existingPdscenarioArchiveMatches(&check);
+	free(check.bytes);
+	if (clean) clean = s_existingPdscenarioGeneratedNavmeshIsCurrent(check.archive);
+	if (clean) clean = s_existingStageArchivePayloadsReadable(check.archive);
+	modArchiveClose(check.archive);
+	return clean;
 }
 
 static s32 s_pdarenaOutputsCleanForFastCache(const char *arenas_dir,
@@ -10305,8 +10329,12 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 	s_scenarioArchiveRelPath(scenarios_dir, scenario_id,
 		scenario_rel, sizeof(scenario_rel));
 
-	if (!force_rewrite &&
-	    s_existingPdarenaArchiveIsClean(relpath, scenario_id[0] != '\0')) {
+	const s32 current = s_existingPdarenaArchiveIsClean(relpath, scenario_id[0] != '\0');
+	/* The nested extractor-kind field is a cache check. An older edited
+	 * wrapper can still own valid public arena and embedded scenario bytes. */
+	if (!current && s_existingPdarenaArchiveMatches(relpath, scenario_id[0] != '\0', 0) &&
+			!s_stageArchiveIsStock(relpath)) return 0;
+	if (current && (!force_rewrite || !s_stageArchiveIsStock(relpath))) {
 		if (!scenario_id[0]) return 0;
 		char member[FS_MAXPATH];
 		int n = snprintf(member, sizeof(member),
@@ -10315,7 +10343,11 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		s32 match = romExtractPdNestedDependencyMatches(relpath,
 			member, scenario_rel);
 		if (match == 1) return 0;
-		if (match < 0 || !romExtractPdArchivePublicUnmodified(relpath)) {
+		if (match == 0 && !s_stageArchiveIsStock(relpath)) {
+			/* An authored arena has its own embedded scenario source. */
+			return 0;
+		}
+		if (match < 0) {
 			sysLoudFailf("EXTRACT.PDARENA",
 				"nested scenario conflict in %s; preserving edited/unreadable public archive",
 				relpath);
@@ -10474,7 +10506,19 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	char dst_rel[FS_MAXPATH];
 	s_scenarioArchiveRelPath(out_dir, scenario_id, dst_rel, sizeof(dst_rel));
 
-	if (!force_rewrite && s_existingPdscenarioArchiveIsClean(dst_rel)) return 0;
+	const s32 current = s_existingPdscenarioArchiveIsClean(dst_rel);
+	if (current && (!force_rewrite || !s_stageArchiveIsStock(dst_rel))) return 0;
+	if (!current) {
+		mod_archive_t *archive = s_existingZipArchive(dst_rel);
+		const s32 readable_source = archive && modArchiveFindEntry(archive, "scenario.ini") >= 0 &&
+			modArchiveFindEntry(archive, "level.graph.json") >= 0 &&
+			s_existingStageArchivePayloadsReadable(archive);
+		if (archive) modArchiveClose(archive);
+		if (readable_source && !s_stageArchiveIsStock(dst_rel)) {
+			sysLoudFailf("EXTRACT.PDSCENARIO", "preserving edited archive requiring migration: %s", dst_rel);
+			return -1;
+		}
+	}
 
 	char dst_full_buf[FS_MAXPATH + 1];
 	const char *dst_full = fsFullPath(dst_rel, dst_full_buf, sizeof(dst_full_buf));
@@ -10738,7 +10782,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		has_bg = -1;
 	}
 
-	if (s_buildScenarioSourceFiles(scenario_id, kind, room_count, tri_count,
+	if (s_buildScenarioSourceFiles(scenario_id, kind, spec->stagenum, room_count, tri_count,
 			portal_count, pad_count, object_count, objective_count,
 			ai_list_count, ai_command_count,
 			waypoint_count, waygroup_count, cover_count, path_count,
@@ -11118,7 +11162,8 @@ static s32 s_emitOnePdscenario(const arena_authored_record_t *a,
 typedef struct {
 	const char  *arenas_dir;
 	const char  *scenarios_dir;
-	s32          force_rewrite;
+	s32          force_arenas;
+	s32          force_scenarios;
 	s32          arena_count;
 	s32          count;
 	SDL_atomic_t arenas_written;
@@ -11131,7 +11176,7 @@ typedef struct {
 } pdarena_fanout_ctx_t;
 
 static void s_pdscenarioStageWork(const pdscenario_emit_spec_t *spec,
-	pdarena_fanout_ctx_t *c)
+	pdarena_fanout_ctx_t *c, s32 verified)
 {
 	s32 r;
 	int done;
@@ -11140,7 +11185,7 @@ static void s_pdscenarioStageWork(const pdscenario_emit_spec_t *spec,
 		return;
 	}
 
-	r = s_emitOnePdscenarioSpec(spec, c->scenarios_dir, c->force_rewrite);
+	r = verified ? 0 : s_emitOnePdscenarioSpec(spec, c->scenarios_dir, c->force_scenarios);
 	if (r > 0)       SDL_AtomicAdd(&c->scenarios_written, 1);
 	else if (r == 0) SDL_AtomicAdd(&c->scenarios_skipped, 1);
 	else             SDL_AtomicAdd(&c->scenarios_failed,  1);
@@ -11151,20 +11196,20 @@ static void s_pdscenarioStageWork(const pdscenario_emit_spec_t *spec,
 	}
 }
 
-static void s_pdarenaWork(int i, void *user)
+static void s_pdarenaWork(s32 i, pdarena_fanout_ctx_t *c, s32 verified)
 {
-	pdarena_fanout_ctx_t *c = (pdarena_fanout_ctx_t *)user;
 	if (i < 0 || i >= c->arena_count) return;
 
 	const arena_authored_record_t *a = &g_ArenaData[i];
 
-	s32 r2 = s_emitOnePdscenario(a, c->scenarios_dir, c->force_rewrite);
+	s32 r2 = verified ? 0 : s_emitOnePdscenario(a, c->scenarios_dir, c->force_scenarios);
 	if (r2 > 0)       SDL_AtomicAdd(&c->scenarios_written, 1);
 	else if (r2 == 0) SDL_AtomicAdd(&c->scenarios_skipped, 1);
 	else              SDL_AtomicAdd(&c->scenarios_failed,  1);
 
-	s32 r1 = s_emitOnePdarena(a, i, c->arenas_dir, c->scenarios_dir,
-		c->force_rewrite);
+	const s32 force_arena = c->force_arenas ||
+		(c->force_scenarios && s_arenaStageIndexForScenario(a->stagenum) >= 0);
+	s32 r1 = verified ? 0 : s_emitOnePdarena(a, i, c->arenas_dir, c->scenarios_dir, force_arena);
 	if (r1 > 0)       SDL_AtomicAdd(&c->arenas_written, 1);
 	else if (r1 == 0) SDL_AtomicAdd(&c->arenas_skipped, 1);
 	else              SDL_AtomicAdd(&c->arenas_failed,  1);
@@ -11214,17 +11259,34 @@ static void s_stageTextureArenaPath(const arena_authored_record_t *arena,
  * The revision only invalidates the migration result. */
 #define PDARENA_STAGE_TEXTURE_REVISION "stage-textures-v1"
 #define PDARENA_STAGE_TEXTURE_MARKER ".pdextract-stage-textures"
+#define PDARENA_STAGE_LEDGER_SCHEMA "pdstage-ledger-v1"
 
 typedef struct {
     u8 digest[SHA256_DIGEST_SIZE];
     s32 valid;
 } stage_texture_digest_t;
 
+static struct {
+    stage_texture_digest_t *records;
+    size_t count;
+    s32 remaining;
+    s32 slots[256];
+    char arenas_dir[FS_MAXPATH];
+    u8 key[SHA256_DIGEST_SIZE];
+} s_DeferredStageLedger;
+
 typedef struct {
     const char *arenas_dir, *scenarios_dir;
     const pdscenario_stage_specs_t *standalone;
     stage_texture_digest_t *sources;
 } stage_texture_hash_work_t;
+
+static s32 s_stageRecordsMatch(const stage_texture_digest_t *known,
+    const stage_texture_digest_t *live)
+{
+    return known->valid == 1 && live->valid == 1 &&
+        memcmp(known->digest, live->digest, sizeof(known->digest)) == 0;
+}
 
 static void s_hashStageTextureString(sha256_ctx *hash, const char *value)
 {
@@ -11264,39 +11326,53 @@ static void s_hashStageTextureSource(s32 i, void *arg)
     work->sources[i].valid = 1;
 }
 
-static s32 s_stageTextureDigest(const char *arenas_dir, const char *scenarios_dir,
-    const pdscenario_stage_specs_t *standalone, u8 digest[SHA256_DIGEST_SIZE])
+static void s_hashStageTextureMapping(sha256_ctx *hash)
 {
-    const s32 count = g_ArenaDataCount + standalone->count;
-    stage_texture_digest_t *sources = calloc(count, sizeof(*sources));
-    if (!sources) return 0;
-    stage_texture_hash_work_t work = {arenas_dir, scenarios_dir, standalone, sources};
-    bootPoolForRangeBlocking(0, count, s_hashStageTextureSource, &work);
-
-    sha256_ctx hash;
-    sha256Init(&hash);
-    s_hashStageTextureString(&hash, PDARENA_STAGE_TEXTURE_REVISION);
-    s_hashStageTextureString(&hash, ROMEXTRACT_PDARENA_FAST_CACHE_KIND);
-    s_hashStageTextureString(&hash, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
-    for (s32 i = 0; i < count; ++i) {
-        if (!sources[i].valid) {
-            free(sources);
-            return 0;
-        }
-        sha256Update(&hash, sources[i].digest, sizeof(sources[i].digest));
-    }
-    free(sources);
-
     /* The migration resolves ROM texture numbers against bundled public IDs
      * in catalog order, retaining the first row for each texture number. */
     for (s32 i = 0; i < assetCatalogGetPoolSize(); ++i) {
         const asset_entry_t *entry = assetCatalogGetByIndex(i);
         if (entry && entry->occupied && entry->bundled && entry->type == ASSET_TEXTURE) {
-            sha256Update(&hash, &entry->ext.texture.texture_id,
+            sha256Update(hash, &entry->ext.texture.texture_id,
                 sizeof(entry->ext.texture.texture_id));
-            s_hashStageTextureString(&hash, entry->id);
+            s_hashStageTextureString(hash, entry->id);
         }
     }
+}
+
+static void s_beginStageTextureHash(sha256_ctx *hash)
+{
+    sha256Init(hash);
+    s_hashStageTextureString(hash, PDARENA_STAGE_TEXTURE_REVISION);
+    s_hashStageTextureString(hash, ROMEXTRACT_PDARENA_FAST_CACHE_KIND);
+    s_hashStageTextureString(hash, ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND);
+}
+
+static void s_stageLedgerKey(u8 key[SHA256_DIGEST_SIZE])
+{
+    sha256_ctx hash;
+    s_beginStageTextureHash(&hash);
+    s_hashStageTextureString(&hash, PDARENA_STAGE_LEDGER_SCHEMA);
+    s_hashStageTextureMapping(&hash);
+    sha256Final(&hash, key);
+}
+
+static s32 s_stageTextureDigest(const char *arenas_dir, const char *scenarios_dir,
+    const pdscenario_stage_specs_t *standalone, stage_texture_digest_t *sources,
+    u8 digest[SHA256_DIGEST_SIZE])
+{
+    const s32 count = g_ArenaDataCount + standalone->count;
+    memset(sources, 0, (size_t)count * sizeof(*sources));
+    stage_texture_hash_work_t work = {arenas_dir, scenarios_dir, standalone, sources};
+    bootPoolForRangeBlocking(0, count, s_hashStageTextureSource, &work);
+
+    sha256_ctx hash;
+    s_beginStageTextureHash(&hash);
+    for (s32 i = 0; i < count; ++i) {
+        if (!sources[i].valid) return 0;
+        sha256Update(&hash, sources[i].digest, sizeof(sources[i].digest));
+    }
+    s_hashStageTextureMapping(&hash);
     sha256Final(&hash, digest);
     return 1;
 }
@@ -11312,44 +11388,85 @@ static s32 s_stageTextureMarkerPath(const char *arenas_dir, char *path, size_t p
         fsFullPath(rel, path, path_size) && path[0];
 }
 
-static s32 s_stageTextureMarkerRead(const char *arenas_dir, u8 digest[SHA256_DIGEST_SIZE])
+static s32 s_stageTextureMarkerRead(const char *arenas_dir,
+    u8 digest[SHA256_DIGEST_SIZE], const u8 key[SHA256_DIGEST_SIZE],
+    stage_texture_digest_t *records, size_t count, s32 *has_ledger)
 {
     char path[FS_MAXPATH + 1];
     if (!s_stageTextureMarkerPath(arenas_dir, path, sizeof(path))) return 0;
     FILE *file = fopen(path, "rb");
     if (!file) return 0;
-    const s32 valid = fread(digest, 1, SHA256_DIGEST_SIZE, file) == SHA256_DIGEST_SIZE &&
+    u8 recorded_key[SHA256_DIGEST_SIZE];
+    const s32 valid = fread(digest, 1, SHA256_DIGEST_SIZE, file) == SHA256_DIGEST_SIZE;
+    *has_ledger = valid &&
+        fread(recorded_key, 1, sizeof(recorded_key), file) == sizeof(recorded_key) &&
+        memcmp(recorded_key, key, sizeof(recorded_key)) == 0 &&
+        fread(records, sizeof(*records), count, file) == count &&
         fgetc(file) == EOF && !ferror(file);
+    if (!*has_ledger) memset(records, 0, count * sizeof(*records));
     fclose(file);
     return valid;
 }
 
 static void s_stageTextureMarkerWrite(const char *arenas_dir,
-    const u8 digest[SHA256_DIGEST_SIZE])
+    const u8 digest[SHA256_DIGEST_SIZE], const u8 key[SHA256_DIGEST_SIZE],
+    const stage_texture_digest_t *records, size_t count)
 {
     char path[FS_MAXPATH + 1];
     save_atomic_file_t transaction;
     if (!s_stageTextureMarkerPath(arenas_dir, path, sizeof(path)) ||
         saveAtomicBegin(&transaction, path) != 0) return;
-    if (fwrite(digest, 1, SHA256_DIGEST_SIZE, saveAtomicStream(&transaction)) == SHA256_DIGEST_SIZE &&
+    FILE *file = saveAtomicStream(&transaction);
+    if (fwrite(digest, 1, SHA256_DIGEST_SIZE, file) == SHA256_DIGEST_SIZE &&
+        fwrite(key, 1, SHA256_DIGEST_SIZE, file) == SHA256_DIGEST_SIZE &&
+        fwrite(records, sizeof(*records), count, file) == count &&
         saveAtomicCommit(&transaction) == 0) return;
     saveAtomicAbort(&transaction);
     sysLogPrintf(LOG_WARNING, "EXTRACT.STAGE.TEXTURE: could not record verified archives");
+}
+
+void romExtractRecordStandaloneScenarioVerified(s32 stagenum, const char *relative_path,
+    const u8 digest[SHA256_DIGEST_SIZE])
+{
+    if (!s_DeferredStageLedger.records || stagenum < 0 ||
+        stagenum >= ARRAYCOUNT(s_DeferredStageLedger.slots)) return;
+    const s32 slot = s_DeferredStageLedger.slots[stagenum];
+    if (!slot) return;
+
+    stage_texture_digest_t *record = &s_DeferredStageLedger.records[slot - 1];
+    sha256_ctx hash;
+    sha256Init(&hash);
+    s_hashStageTextureString(&hash, catalogStageIdByStagenum(stagenum));
+    s_hashStageTextureString(&hash, relative_path);
+    sha256Update(&hash, digest, SHA256_DIGEST_SIZE);
+    sha256Final(&hash, record->digest);
+    record->valid = 1;
+
+    /* Leave the family stamp pending until the next boot computes the aggregate. */
+    const u8 pending[SHA256_DIGEST_SIZE] = {0};
+    s_stageTextureMarkerWrite(s_DeferredStageLedger.arenas_dir, pending,
+        s_DeferredStageLedger.key, s_DeferredStageLedger.records, s_DeferredStageLedger.count);
+    s_DeferredStageLedger.slots[stagenum] = 0;
+    if (--s_DeferredStageLedger.remaining == 0) {
+        free(s_DeferredStageLedger.records);
+        memset(&s_DeferredStageLedger, 0, sizeof(s_DeferredStageLedger));
+    }
 }
 
 /* Add public material rules without re-emitting authored geometry/graphs. Also
  * upgrade each arena's own embedded scenario, preserving edits in that copy. */
 static s32 s_upgradeStageTextureProperties(const char *arenas_dir,
     const char *scenarios_dir, const pdscenario_stage_specs_t *standalone,
-    const u8 *before)
+    const stage_texture_digest_t *prior, const stage_texture_digest_t *live,
+    s32 force_rewrite)
 {
     s32 upgraded = 0, failed = 0;
-    u8 fresh[SHA256_DIGEST_SIZE];
-    if (!before && s_stageTextureDigest(arenas_dir, scenarios_dir, standalone, fresh)) before = fresh;
     for (s32 i = 0; i < g_ArenaDataCount + standalone->count; ++i) {
+        if (!force_rewrite && s_stageRecordsMatch(&prior[i], &live[i])) continue;
         char rel[FS_MAXPATH], full_buf[FS_MAXPATH + 1], error[192];
         const stage_texture_source_t source = s_stageTextureSource(i, standalone);
         if (!source.scenario_id[0]) continue;
+        if (!source.arena && stageArchiveRepairStatus(source.stagenum) != 0) continue;
         const char *stage_id = catalogStageIdByStagenum(source.stagenum);
         s_scenarioArchiveRelPath(scenarios_dir, source.scenario_id, rel, sizeof(rel));
         const char *full = fsFullPath(rel, full_buf, sizeof(full_buf));
@@ -11366,14 +11483,6 @@ static s32 s_upgradeStageTextureProperties(const char *arenas_dir,
             if (result < 0) { ++failed; sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", rel, error); }
             else upgraded += result;
         }
-    }
-    /* A warm skip may only vouch for the exact bytes the migration checked.
-     * Leave verification pending after repairs, failed I/O, or concurrent edits. */
-    u8 after[SHA256_DIGEST_SIZE];
-    if (failed == 0 && upgraded == 0 && before &&
-        s_stageTextureDigest(arenas_dir, scenarios_dir, standalone, after) &&
-        memcmp(before, after, sizeof(after)) == 0) {
-        s_stageTextureMarkerWrite(arenas_dir, after);
     }
     sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=%d failed=%d", upgraded, failed);
     return failed ? -1 : upgraded;
@@ -11417,23 +11526,24 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		&stage_specs);
 	s32 total_work = g_ArenaDataCount + stage_specs.count;
 
-	/* B-946 boot-time fix: check the cheap fingerprint stamps FIRST, and
-	 * memoize the expensive per-archive content scan behind a marker file.
-	 * s_pdarenaOutputsCleanForFastCache opens every arena/scenario ZIP dozens
-	 * of times (~5,000 member probes); running it unconditionally on every
-	 * boot cost ~20s even when everything was current. Any archive change
-	 * invalidates the fingerprint stamps (count/bytes/mtime), which also
-	 * invalidates the marker, so content re-verification still happens after
-	 * every emit or external modification. */
+	stage_texture_digest_t *checks = calloc((size_t)total_work * 2, sizeof(*checks));
+	if (!checks) return -1;
+	stage_texture_digest_t *prior = checks;
+	stage_texture_digest_t *live = checks + total_work;
+	u8 key[SHA256_DIGEST_SIZE];
 	u8 stage_texture_previous[SHA256_DIGEST_SIZE], stage_texture_live[SHA256_DIGEST_SIZE];
-	const s32 has_stage_texture_marker = s_stageTextureMarkerRead(arenas_dir, stage_texture_previous);
-	if (romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir,
-			".pdarena", force_rewrite) &&
-	    romExtractPdFastCacheCanSkip(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir,
-			".pdscenario", force_rewrite) &&
-	    s_stageTextureDigest(arenas_dir, scenarios_dir, &stage_specs, stage_texture_live) &&
-	    (!has_stage_texture_marker ||
-	     memcmp(stage_texture_previous, stage_texture_live, sizeof(stage_texture_live)) == 0) &&
+	s32 has_ledger = 0;
+	s_stageLedgerKey(key);
+	const s32 has_stage_texture_marker = s_stageTextureMarkerRead(arenas_dir,
+		stage_texture_previous, key, prior, total_work, &has_ledger);
+	const s32 arenas_current = romExtractPdFastCacheCanSkip(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
+		arenas_dir, ".pdarena", force_rewrite);
+	const s32 scenarios_current = romExtractPdFastCacheCanSkip(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
+		scenarios_dir, ".pdscenario", force_rewrite);
+	const s32 has_live_digest = s_stageTextureDigest(arenas_dir, scenarios_dir,
+		&stage_specs, live, stage_texture_live);
+	if (arenas_current && scenarios_current && has_stage_texture_marker && has_live_digest &&
+	    memcmp(stage_texture_previous, stage_texture_live, sizeof(stage_texture_live)) == 0 &&
 	    (s_pdarenaCleanMarkerIsValid(arenas_dir) ||
 	     (s_pdarenaOutputsCleanForFastCache(arenas_dir, scenarios_dir,
 			&stage_specs) &&
@@ -11445,37 +11555,26 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdscenario: written=0 skipped=%d failed=0 standalone=%d (fast-cache)",
 			g_ArenaDataCount + stage_specs.count, stage_specs.count);
-		if (has_stage_texture_marker) {
-			sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=0 failed=0 (fast-cache)");
-			return 0;
-		}
-		const s32 upgraded = s_upgradeStageTextureProperties(arenas_dir, scenarios_dir,
-			&stage_specs, stage_texture_live);
-		if (upgraded > 0) {
-			romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir, ".pdarena");
-			romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir, ".pdscenario");
-		}
-		return upgraded;
+		if (!has_ledger) s_stageTextureMarkerWrite(arenas_dir, stage_texture_live, key, live, total_work);
+		sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=0 failed=0 (fast-cache)");
+		free(checks);
+		return 0;
 	}
 
-	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite of
-	 * the arenas/scenarios dirs when a prior stamp recorded a different kind,
-	 * so in-place updates re-extract with new fields (collision.flags.json /
-	 * room_lights.json). The per-file scenario validator is already
-	 * version-aware, so this is belt-and-suspenders for it and the cure for
-	 * any per-file marker that lags a FAST_CACHE_KIND bump. No-op on a clean
-	 * install or when both kinds are unchanged. */
-	s32 effective_force = force_rewrite |
-		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
-			arenas_dir) |
-		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
-			scenarios_dir);
+	/* A cache-kind change regenerates the affected stock family. The arena
+	 * job also refreshes its wrapper when its embedded scenario kind changes. */
+	const s32 force_arenas = force_rewrite || romExtractPdFastCacheKindMismatch(
+		ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir);
+	const s32 force_scenarios = force_rewrite || romExtractPdFastCacheKindMismatch(
+		ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir);
+	const s32 effective_force = force_arenas || force_scenarios;
 
 	pdarena_fanout_ctx_t actx;
 	memset(&actx, 0, sizeof(actx));
 	actx.arenas_dir    = arenas_dir;
 	actx.scenarios_dir = scenarios_dir;
-	actx.force_rewrite = effective_force;
+	actx.force_arenas  = force_arenas;
+	actx.force_scenarios = force_scenarios;
 	actx.arena_count   = g_ArenaDataCount;
 	actx.count         = total_work;
 	SDL_AtomicSet(&actx.arenas_written,    0);
@@ -11486,16 +11585,35 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 	SDL_AtomicSet(&actx.scenarios_failed,  0);
 	SDL_AtomicSet(&actx.processed,         0);
 
-	/* Stage preprocessors share process-global scratch state; emit
-	 * scenarios in order rather than running preprocess work in parallel. */
+	/* Hashes are checked in parallel. Keep actual generation serialized because
+	 * stage preprocessors share process-global scratch state. */
+	s32 verified_jobs = 0, deferred_jobs = 0;
 	bootProgressUpdate(0, total_work);
 	for (s32 i = 0; i < g_ArenaDataCount; i++) {
-		s_pdarenaWork(i, &actx);
+		s32 verified = !effective_force && s_stageRecordsMatch(&prior[i], &live[i]);
+		verified_jobs += verified;
+		s_pdarenaWork(i, &actx, verified);
 	}
 	for (s32 i = 0; i < stage_specs.count; i++) {
-		s_pdscenarioStageWork(&stage_specs.specs[i], &actx);
+		const s32 job = i + g_ArenaDataCount;
+		s32 verified = !effective_force && s_stageRecordsMatch(&prior[job], &live[job]);
+		verified_jobs += verified;
+		const pdscenario_emit_spec_t *spec = &stage_specs.specs[i];
+		s32 deferred = 0;
+		if (!verified && has_ledger && !effective_force && strcmp(spec->kind, "solo") == 0 &&
+				spec->stagenum >= 0 && spec->stagenum < ARRAYCOUNT(s_DeferredStageLedger.slots)) {
+			char rel[FS_MAXPATH];
+			if (romExtractStandaloneScenarioPath(spec->stagenum, rel, sizeof(rel)) == 0) {
+				deferred = stageArchiveRepairQueue(spec->stagenum, spec->scenario_id, rel);
+				if (deferred) s_DeferredStageLedger.slots[spec->stagenum] = job + 1;
+			}
+		}
+		deferred_jobs += deferred;
+		s_pdscenarioStageWork(spec, &actx, verified || deferred);
 	}
 	bootProgressUpdate(total_work, total_work);
+	sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.VALIDATE: verified=%d checked=%d deferred=%d",
+		verified_jobs, total_work - verified_jobs - deferred_jobs, deferred_jobs);
 
 	s32 arenas_written    = SDL_AtomicGet(&actx.arenas_written);
 	s32 arenas_skipped    = SDL_AtomicGet(&actx.arenas_skipped);
@@ -11513,22 +11631,152 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		stage_specs.count);
 
 	if (arenas_failed == 0 && scenarios_failed == 0
-			&& s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs, NULL) < 0) {
+			&& s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs,
+				prior, live, effective_force) < 0) {
 		scenarios_failed++;
 	}
 
 	if (arenas_failed == 0 && scenarios_failed == 0) {
-		romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,
-			arenas_dir, ".pdarena");
-		romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND,
-			scenarios_dir, ".pdscenario");
-		/* B-946: a completed emit pass leaves clean-by-construction output;
-		 * refresh the content-verified marker so the next boot's fast-cache
-		 * gate does not pay the full per-archive content scan once more. */
-		s_pdarenaCleanMarkerWrite(arenas_dir);
+		if (deferred_jobs == 0) {
+			romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir, ".pdarena");
+			romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir, ".pdscenario");
+			s_pdarenaCleanMarkerWrite(arenas_dir);
+		}
+
+		/* Certify only bytes that stayed stable from validation through texture
+		 * migration. Written or concurrently edited jobs are checked next boot. */
+		u8 after[SHA256_DIGEST_SIZE];
+		s32 all_verified = s_stageTextureDigest(arenas_dir, scenarios_dir,
+			&stage_specs, prior, after);
+		for (s32 i = 0; i < total_work; i++) {
+			const stage_texture_source_t source = s_stageTextureSource(i, &stage_specs);
+			if (!s_stageRecordsMatch(&prior[i], &live[i]) ||
+					(!source.arena && stageArchiveRepairStatus(source.stagenum) != 0)) {
+				prior[i].valid = 0;
+				all_verified = 0;
+			}
+		}
+		if (!all_verified) memset(after, 0, sizeof(after));
+		s_stageTextureMarkerWrite(arenas_dir, after, key, prior, total_work);
+		if (deferred_jobs) {
+			s_DeferredStageLedger.records = prior;
+			s_DeferredStageLedger.count = total_work;
+			s_DeferredStageLedger.remaining = deferred_jobs;
+			snprintf(s_DeferredStageLedger.arenas_dir, sizeof(s_DeferredStageLedger.arenas_dir), "%s", arenas_dir);
+			memcpy(s_DeferredStageLedger.key, key, sizeof(key));
+			checks = NULL;
+		}
 	}
 
+	free(checks);
 	return (arenas_failed || scenarios_failed)
 		? -1
 		: arenas_written + scenarios_written;
+}
+
+static s32 s_findStandaloneScenarioSpec(s32 stagenum, pdscenario_emit_spec_t *spec)
+{
+	if (stagenum == STAGE_CITRAINING) return 0;
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		if (g_ArenaData[i].stagenum == stagenum) return 0;
+	}
+
+	pdscenario_stage_specs_t specs = {0};
+	assetCatalogIterateByType(ASSET_MAP, s_collectStandaloneStageScenario, &specs);
+	const pdscenario_emit_spec_t *match = NULL;
+	for (s32 i = 0; i < specs.count; i++) {
+		if (specs.specs[i].stagenum != stagenum) continue;
+		if (match) return 0;
+		match = &specs.specs[i];
+	}
+	if (!match) return 0;
+	*spec = *match;
+	return 1;
+}
+
+static s32 s_standaloneCandidatePath(const char *out_dir,
+		const pdscenario_emit_spec_t *spec, char *path, size_t capacity)
+{
+	const size_t bytes = strlen(out_dir) + strlen(spec->scenario_id) + sizeof("/.pdscenario");
+	if (bytes > capacity || bytes > FS_MAXPATH) return 0;
+	s_scenarioArchiveRelPath(out_dir, spec->scenario_id, path, capacity);
+	return 1;
+}
+
+s32 romExtractStandaloneScenarioPath(s32 stagenum, char *relative, size_t capacity)
+{
+	if (!relative || !capacity) return -1;
+	relative[0] = '\0';
+	pdscenario_emit_spec_t spec;
+	if (!s_findStandaloneScenarioSpec(stagenum, &spec)) return -1;
+	char scenarios[FS_MAXPATH];
+	fsDataPathFor("scenarios", scenarios, sizeof(scenarios));
+	return s_standaloneCandidatePath(scenarios, &spec, relative, capacity) ? 0 : -1;
+}
+
+static s32 s_standaloneCandidateIdentityMatches(mod_archive_t *archive,
+		const pdscenario_emit_spec_t *spec)
+{
+	const s32 index = modArchiveFindEntry(archive, "_meta/manifest.json");
+	if (index < 0) return 0;
+	u32 size = 0;
+	char *json = modArchiveExtractAlloc(archive, index, &size);
+	if (!json) return 0;
+	const char *id, *kind;
+	size_t id_length, kind_length;
+	s64 stagenum, schema;
+	const s32 matches = loaderWalkerEnvelopeStr(json, size, "id", &id, &id_length) &&
+		id_length == strlen(spec->scenario_id) && memcmp(id, spec->scenario_id, id_length) == 0 &&
+		loaderWalkerEnvelopeStr(json, size, "pd_kind", &kind, &kind_length) &&
+		kind_length == sizeof("scenario") - 1 && memcmp(kind, "scenario", kind_length) == 0 &&
+		loaderWalkerEnvelopeInt(json, size, "stagenum", &stagenum) && stagenum == spec->stagenum &&
+		loaderWalkerEnvelopeInt(json, size, "pd_schema_version", &schema) && schema == 1;
+	free(json);
+	return matches;
+}
+
+s32 romExtractStandaloneScenarioCandidate(s32 stagenum, const char *out_dir)
+{
+	pdscenario_emit_spec_t spec;
+	if (!out_dir || !isalpha((unsigned char)out_dir[0]) || out_dir[1] != ':' ||
+		(out_dir[2] != '\\' && out_dir[2] != '/') || !s_findStandaloneScenarioSpec(stagenum, &spec)) return -1;
+	const char *stage_id = catalogStageIdByStagenum(stagenum);
+	if (!stage_id || !stage_id[0]) return -1;
+	const DWORD dir_flags = GetFileAttributesA(out_dir);
+	if (dir_flags == INVALID_FILE_ATTRIBUTES || !(dir_flags & FILE_ATTRIBUTE_DIRECTORY) ||
+		(dir_flags & FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
+
+	char path[FS_MAXPATH], temp_path[FS_MAXPATH + sizeof(".tmp")];
+	if (!s_standaloneCandidatePath(out_dir, &spec, path, sizeof(path))) return -1;
+	snprintf(temp_path, sizeof(temp_path), "%s.tmp", path);
+	if (GetFileAttributesA(temp_path) != INVALID_FILE_ATTRIBUTES || GetLastError() != ERROR_FILE_NOT_FOUND) return -1;
+	const DWORD path_flags = GetFileAttributesA(path);
+	if (path_flags == INVALID_FILE_ATTRIBUTES) {
+		if (GetLastError() != ERROR_FILE_NOT_FOUND) return -1;
+	} else {
+		if (path_flags & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) return -1;
+		mod_archive_t *archive = modArchiveOpen(path);
+		if (archive) {
+			const s32 readable = s_existingStageArchivePayloadsReadable(archive);
+			const s32 matches = readable && s_standaloneCandidateIdentityMatches(archive, &spec);
+			modArchiveClose(archive);
+			/* Existing public edits are authoritative. Refuse an incompatible
+			 * readable edit rather than replacing it with a stock candidate. */
+			if (readable && (!matches || (!s_existingPdscenarioArchiveIsClean(path) &&
+				!romExtractPdArchivePublicUnmodified(path)))) return -1;
+		}
+	}
+
+	if (s_emitOnePdscenarioSpec(&spec, out_dir, 0) < 0) return -1;
+	char error[192];
+	if (romExtractTextureStageProperties(path, NULL, stage_id, error, sizeof(error)) < 0) {
+		sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", path, error);
+		return -1;
+	}
+	if (!s_existingPdscenarioArchiveIsClean(path)) return -1;
+	mod_archive_t *archive = modArchiveOpen(path);
+	if (!archive) return -1;
+	const s32 matches = s_standaloneCandidateIdentityMatches(archive, &spec);
+	modArchiveClose(archive);
+	return matches && modArchiveDerivedBarrier(out_dir) == 0 ? 0 : -1;
 }
