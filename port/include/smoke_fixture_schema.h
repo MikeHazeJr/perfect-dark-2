@@ -38,7 +38,8 @@ enum smoke_fixture_event_field {
 	SMOKE_FIXTURE_FIELD_CLIENT_ID = 1u << 19,
 	SMOKE_FIXTURE_FIELD_HAND = 1u << 20,
 	SMOKE_FIXTURE_FIELD_AXIS = 1u << 21,
-	SMOKE_FIXTURE_FIELD_VALUE = 1u << 22
+	SMOKE_FIXTURE_FIELD_VALUE = 1u << 22,
+	SMOKE_FIXTURE_FIELD_SLOT = 1u << 23
 };
 
 /* Pure fixture-schema boundary shared by the shipping harness and tests.

@@ -37,6 +37,10 @@ pdgui_menu_input_observation_t pdguiMenuObserveInput(
  * separately checks current dialog, pool, settling and input-context facts. */
 int pdguiMenuWindowOwnsInput(const char *window_name, int application_focused);
 
+/* Read-only observation of a named top modal and its focused default item. */
+int pdguiMenuModalOwnsInput(const char *window_name, const char *focused_item,
+    int application_focused);
+
 typedef struct pdgui_menu_view_readiness {
     int view;
     int submitted_tab;

@@ -90,3 +90,16 @@ int pdguiMenuWindowOwnsInput(const char *window_name, int application_focused)
 {
     return pdguiMenuObserveInput(window_name, application_focused).rejection_mask == 0;
 }
+
+int pdguiMenuModalOwnsInput(const char *window_name, const char *focused_item,
+    int application_focused)
+{
+    if (!focused_item ||
+        pdguiMenuObserveInput(window_name, application_focused).rejection_mask != PDGUI_MENU_INPUT_POPUP)
+        return 0;
+    const ImGuiContext &context = *ImGui::GetCurrentContext();
+    ImGuiWindow *window = ImGui::FindWindowByName(window_name);
+    return (window->Flags & ImGuiWindowFlags_Modal)
+        && context.OpenPopupStack.back().Window == window
+        && context.ActiveId == 0 && context.NavId == window->GetID(focused_item);
+}

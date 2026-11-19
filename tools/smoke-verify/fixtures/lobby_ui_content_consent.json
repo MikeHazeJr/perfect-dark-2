@@ -1,0 +1,13 @@
+{
+  "scenario_name": "lobby_ui_content_consent_guest",
+  "timeout_seconds": 300,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "lobby_catalog_consent_ready", "timeout_ms": 210000 },
+    { "at_ms": 100, "type": "key", "key": "Left", "action": "tap", "comment": "Move from the visible Skip default to This Session." },
+    { "at_ms": 350, "type": "key", "key": "Return", "action": "tap" },
+    { "at_ms": 650, "type": "wait_until", "condition": "lobby_manifest_consent_ready", "timeout_ms": 30000 },
+    { "at_ms": 850, "type": "key", "key": "Escape", "action": "tap", "comment": "Mapped Back elects Skip on the distinct match offer." },
+    { "at_ms": 1200, "type": "wait_until", "condition": "network_declined_lobby", "timeout_ms": 15000, "stable_ms": 8000 },
+    { "at_ms": 8000, "type": "exit" }
+  ]
+}

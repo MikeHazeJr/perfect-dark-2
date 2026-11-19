@@ -1473,6 +1473,40 @@ function Invoke-MultiProcessWindowFocusTransition {
     return $true
 }
 
+function Invoke-MultiProcessWindowFocusTarget {
+    param([Parameter(Mandatory)] [string] $Name,
+          [Parameter(Mandatory)] [array] $Processes)
+
+    $script:lastWindowFocusTransitionFailure = $null
+    $targets = @($Processes | Where-Object { $_.Name -eq $Name })
+    if ($targets.Count -ne 1) {
+        return (Set-WindowFocusTransitionFailure -Stage 'target-process-resolution' `
+            -Message "Expected exactly one foreground process named '$Name'.")
+    }
+    if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
+        try { Add-Type -TypeDefinition $captureSource } catch {
+            return (Set-WindowFocusTransitionFailure -Stage 'interop-compile' `
+                -Message "Window focus interop unavailable: $($_.Exception.Message)")
+        }
+    }
+
+    $process = $targets[0].Process
+    $deadline = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not $process.HasExited -and $deadline.ElapsedMilliseconds -lt 15000) {
+        $window = [PdSmokeWindowCapture]::ResolveUniqueProcessWindow([uint32]$process.Id)
+        if ($window -ne [IntPtr]::Zero -and
+                ([PdSmokeWindowCapture]::HasInputFocus($window) -or
+                 [PdSmokeWindowCapture]::Focus($window, 500))) {
+            Write-Info ("  window-focus: target={0} pid={1} acquired" -f $Name, $process.Id)
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    return (Set-WindowFocusTransitionFailure -Stage 'target-native-focus' `
+        -Message "Could not establish GUI-thread focus for '$Name'." `
+        -Diagnostics ([PdSmokeWindowCapture]::DescribeProcessWindows([uint32]$process.Id)))
+}
+
 function Wait-SmokeProcessLaunchMarker {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [object] $Entry,
@@ -1518,6 +1552,11 @@ function Invoke-SmokeTestMultiProcess {
 
     $name = $Test.Name
     $def = $Test.Definition
+    $hasFocusTarget = $def.PSObject.Properties.Match('window_focus_target').Count -gt 0
+    if ($hasFocusTarget -and ([string]::IsNullOrWhiteSpace([string]$def.window_focus_target) -or
+            $def.PSObject.Properties.Match('window_focus_transition').Count -gt 0)) {
+        throw "Smoke fixture '$name' requires a named window_focus_target without a window_focus_transition."
+    }
 
     $separateProcessInstalls = $false
     if ($def.PSObject.Properties.Match('separate_process_installs').Count -gt 0) {
@@ -1624,14 +1663,13 @@ function Invoke-SmokeTestMultiProcess {
                 $explicitProcessState = $true
             }
             if ($ExistingInstall -and -not $explicitProcessState) {
-                # A template run seeds every process's own install from the same
-                # template as the shared install (state current, no extraction).
-                # Before, each peer started clean and re-extracted the whole game,
-                # which on a hard disk outlasted every network fixture's waits.
-                # A process that names its own install_state still gets that.
-                $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
-                    -TestName ("{0}-{1}" -f $name, $pname) `
-                    -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+                # The first process can use the private template copy already
+                # reserved above. Every other process gets its own copy.
+                if ($processIndex -ne 0) {
+                    $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
+                        -TestName ("{0}-{1}" -f $name, $pname) `
+                        -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+                }
             } else {
                 $processRom = $RomOverride
                 if (-not $processRom -and $installInfo.SourceRom) {
@@ -2003,7 +2041,10 @@ function Invoke-SmokeTestMultiProcess {
     }
 
     if (-not $launchFailed -and -not $focusTransitionAttempted) {
-        if ($focusBeforeTargetBarrier) {
+        if ($hasFocusTarget) {
+            $focusTransitionPassed = Invoke-MultiProcessWindowFocusTarget `
+                -Name ([string]$def.window_focus_target) -Processes $procs
+        } elseif ($focusBeforeTargetBarrier) {
             $focusTransitionPassed = Set-WindowFocusTransitionFailure -Stage 'target-resolution' `
                 -Message ("window focus transition did not reach its target launch barrier: '{0}'" -f $focusTarget)
         } else {

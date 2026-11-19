@@ -4602,8 +4602,8 @@ void pdguiForgeEditorRender(s32 winW, s32 winH)
 	const bool popupOpen = ImGui::IsPopupOpen(nullptr,
 		ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 	const ImGuiContext &gui = *ImGui::GetCurrentContext();
-	const bool textActive = gui.ActiveId && gui.InputTextState.ID == gui.ActiveId
-		&& ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+	const bool textActive = ImGui::GetInputTextState(gui.ActiveId) && gui.ActiveIdWindow &&
+		ImGui::IsWindowChildOf(gui.ActiveIdWindow, ImGui::GetCurrentWindow(), true);
 	/* A field or popup opened by mouse can still be operated by controller. */
 	if (((popupOpen && !popupWasOpen) || textActive)
 			&& !forgeEditorControlsActive() && forgeEditorAcquireControls()) {
