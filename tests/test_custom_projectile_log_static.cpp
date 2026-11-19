@@ -132,6 +132,42 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(extractor.find("_projref_fuseprogram_contactrules\"") != std::string::npos);
 }
 
+// B-1265: a base throw's launch record carries placeholders for what a
+// throw does not have ("timer60": -1, "reflect_angle": 0). Applied as
+// authored values they wiped the thrown item's fuse (its activation time,
+// set at the launch site just before) and its first-bounce boost.
+TEST_CASE("a launch record's placeholders do not overwrite a throw's fuse and bounce",
+	"[weapon][graph][projectile][static]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string bgun = readSource("src/game/bondgun.c");
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+
+	const size_t apply = propobj.find("void projectileApplyGraphRuntime(struct defaultobj *obj,");
+	REQUIRE(apply != std::string::npos);
+	const std::string body = propobj.substr(apply, propobj.find("\n}\n", apply) - apply);
+	CHECK(body.find("\t} else if (runtime->has_timer60 && runtime->timer60 >= 0) {\n") != std::string::npos);
+	CHECK(body.find("\t} else if (runtime->has_timer60) {\n") == std::string::npos);
+	CHECK(body.find("\tif (runtime->has_reflect_angle && runtime->reflect_angle > 0.0f) {\n") != std::string::npos);
+	CHECK(body.find("\tif (runtime->has_reflect_angle) {\n") == std::string::npos);
+
+	// The launch site sets the fuse and the boost, then applies the record.
+	const size_t fuse = bgun.find("\t\t\t\tweaponobj->timer240 = activatetime60;");
+	const size_t boost = bgun.find("\t\t\tobj->projectile->unk08c = 0.1f;\n"
+		"\t\t\tobj->projectile->pickuptimer240 = TICKS(240);\n"
+		"\t\t\tprojectileApplyGraphRuntime(obj, projectilegraph);");
+	REQUIRE(fuse != std::string::npos);
+	REQUIRE(boost != std::string::npos);
+	CHECK(fuse < boost);
+
+	// The extractor still writes the placeholders: a throw has no timer60
+	// (it starts at -1) and no reflect angle (0).
+	CHECK(extractor.find("\ts32 timer60 = -1;\n") != std::string::npos);
+	CHECK(extractor.find("\tf32 reflectangle = 0.0f;\n") != std::string::npos);
+	CHECK(extractor.find("\t\t\"        \\\"timer60\\\": %d,\\n\"\n") != std::string::npos);
+	CHECK(extractor.find("\t\t\"        \\\"reflect_angle\\\": %.7g,\\n\"\n") != std::string::npos);
+}
+
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")
 {
 	const std::string bgun = readSource("src/game/bondgun.c");
