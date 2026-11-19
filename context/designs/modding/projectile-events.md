@@ -640,6 +640,34 @@ slice):
   program and a decision about each record clause (which are data, which
   are decisions).
 
+The record clauses in question, as read on `week-pd/core-s10` (all in
+`propobj.c`; each is reached only by a mod weapon's object, v1 or v2):
+
+| Seam | Record clause | What it is |
+|---|---|---|
+| contact, the stick decision | the v1 wall hugger's latch (its timer, its background-only filter) | a decision; `og.projectile.wall_hug` is the program's |
+| contact, the stick decision | `sticky_attach`: stick or not by what was hit (background, character, object) | a decision with no module yet |
+| contact, the stick decision | `impact_stick_on_hit` | a decision; `og.projectile.stick` is the program's |
+| contact, the stick decision | the entity record's sticky device (background-only filter) | a decision |
+| contact with a target | the record impact (`consume_on_hit` spends the fuse) | a decision; `og.projectile.impact` is the program's |
+| after it sticks | `timer_starts` on attach seeds the fuse | a decision with no module yet |
+| in flight | `timer_starts` on impact; the record impact on geometry; the trail's smoke | two decisions, one presentation |
+| a bounce | the bounce limit and the rest speed | data |
+| the landing | the sticky device's flags (cannot be shot away, hidden) | a decision; `og.projectile.shield_device` is the program's |
+| damage taken | the record damage response (a record fuse or impact spends the fuse; the armed entity's response) | a decision; `og.projectile.spend_fuse` at `damaged` is the program's |
+| the watch list | `bgunModProxyDecision` (the record's radius, owner and team filters) | a decision; the `proximity` rule is the program's, without those filters |
+| `weaponTick`, before the arms | owner cleanup (explode or delete when the owner dies) | a decision with no module yet; it composes with any arm |
+| pickup | the interaction sound; the sticky pickup policy | presentation; a decision |
+
+For a mod weapon copied from a base archive the base record nodes that come
+with the copy can trigger some of these (the wall hugger's record node, a
+mine's entity record). Two ways to close it, for Mike and MODS to choose
+between: an object whose archive has a program skips every clause marked
+"a decision" (the program and the launch data decide, as for a base weapon),
+or a v2 archive that carries a decision record node is refused. The first
+keeps a copied archive working unchanged; the second is stricter and makes
+the conflict visible to the author.
+
 **Proof asked of the game run:** `projectile_events_smoke` requires the
 first `armed` decision of fourteen weapon functions, the program's arm equal
 to the original's, and the detonations it already required now pass through
