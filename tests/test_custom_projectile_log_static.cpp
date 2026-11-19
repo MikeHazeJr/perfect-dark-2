@@ -100,6 +100,18 @@ TEST_CASE("projectile events are recorded at the native seams",
 	// An object that is no weapon is recorded only when a launch bound it
 	// (the thrown Laptop gun is an autogun object).
 	REQUIRE(events.find("\treturn bind != NULL;\n}") != std::string::npos);
+	// B-1264: an unbound weapon object is described by its own function's
+	// archive only when that function launches the object itself. A rocket
+	// launcher, a Devastator or a crossbow lying on the floor is the gun, not
+	// the rocket, the round or the bolt: it has no archive and no program,
+	// its projectile archive's or its entity archive's.
+	REQUIRE(events.find("static s32 projectileFunctionLaunchesItself(s32 weaponnum, s32 func)\n{") != std::string::npos);
+	REQUIRE(events.find("\tprojectileRulesLaunchedObject(weaponnum, func, f->type == INVENTORYFUNCTYPE_THROW,\n"
+		"\t\t(f->flags & FUNCFLAG_HOMINGROCKET) != 0, &objweapon, &objfunc);\n"
+		"\treturn objweapon == weaponnum && objfunc == func;") != std::string::npos);
+	REQUIRE(events.find("\t\t\tif (projectileFunctionLaunchesItself(weapon->weaponnum, weapon->gunfunc)) {") != std::string::npos);
+	REQUIRE(events.find("\t\t\t\tout->not_launched = 1;") != std::string::npos);
+	REQUIRE(events.find("\tif (!program && who->gunnum >= 0 && !who->not_launched) {") != std::string::npos);
 
 	// Slice 2: the four fuses ask the rule, and the rule fires the program's
 	// timer event, runs the fuse module and counts parity.
