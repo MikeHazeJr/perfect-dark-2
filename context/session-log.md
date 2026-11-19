@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+2026-11-19 CORE, 17:00 to 21:00 UTC. Slice 5 of the object events landed on
+`dev` as `fdea04a9` (`week-pd/core-s5`, PR 11): each level's graph decides
+lifts and glass, the base hoverbike runs its vehicle graph, levels authored
+before the slice keep the game's own lift and glass rules. Proof
+`q_20261119172450995_6b801788` passed 15 of 16 smokes; the red one,
+`maian_vehicle_drive_smoke`, is B-1241 on Escape and predates the branch. A
+re-proof on dev's own tree (`q_20261119184026613_448cb310`) passed 6 of 6
+and published shared base 10 (`D:\PD2-wt\shared-base-10`). The Doors,
+lifts and glass, Pickups and Vehicles rows of the conversion checklist are
+ticked.
+The Projectiles row has slices 1 to 5 written on `week-pd/core-s6` to
+`core-s9` (PRs 12, 14, 15, 16) and none of it run in the game yet: slice 3
+(contacts), slice 4 (what sets an explosive off and what goes off), slice 5
+(a throw's sentry and its fire). Each asks the object's archive program at
+the seam where the original decided by weapon number, with the original
+rules in one table (`port/src/projectile_rules.c`) and a parity probe.
+Three faults were found by reading before any game run: B-1263 (a fired
+projectile carries its own weapon number), B-1264 (a gun on the floor is not
+what it fires) and B-1265 (a base throw's launch record carried placeholder
+values that the runtime applied over the thrown item's fuse and first
+bounce). B-1265 is on `dev` if it is real; it is not yet confirmed in play.
+An independent review of slice 4 found no way to break "the base game
+behaves as before"; its two edge cases are closed. Plans, no code: slice 6
+(the arms of `weaponTick` become one) in `projectile-events.md`, and the
+Combat Simulator modes in `gamemode-graphs.md`.
+Next: the projectile branch's first game run
+(`q_20261119195806671_3e9c0162`, on `week-pd/core-s9`), then land it.
+
 2026-11-19, Grid PR #8 integration. Mike authorized resolving the conflicts,
 testing the combined build, merging to `dev` and updating the local build.
 The merge combines Grid `8556dc8de` with `dev` `91a67aa03`. It carries the
