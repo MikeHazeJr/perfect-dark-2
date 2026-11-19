@@ -547,14 +547,17 @@ TEST_CASE("AI list edges: the extractor writes them and conformance recomputes t
 	REQUIRE(arena.find("\"  \\\"schema\\\": \\\"pd2.scenario.ai.graph.v1\\\",\\n\"") !=
 		std::string::npos);
 	// SP-86: the scenario kind moved with the edges.
-	REQUIRE(arena.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents\"") != std::string::npos);
+	REQUIRE(arena.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
 
 	// Conformance: the scenario's graph against its rows, required when the
 	// embedding arena's kind is the new one; the bank's graph member.
 	REQUIRE(conformance.find("def ai_list_control_flow(") != std::string::npos);
 	REQUIRE(conformance.find("def ai_list_edge_errors(") != std::string::npos);
-	REQUIRE(conformance.find("require=parent_scenario_graph_cache\n") != std::string::npos);
-	REQUIRE(conformance.find("== ARENA_SCENARIO_GRAPH_CACHE_KIND,") != std::string::npos);
+	// Required of the current kind and of each older kind still loaded
+	// (object-events.md, "Levels authored before slice 5").
+	REQUIRE(conformance.find("def arena_kind_promises_ai_edges(kind: str | None) -> bool:") != std::string::npos);
+	REQUIRE(conformance.find("require=arena_kind_promises_ai_edges(\n") != std::string::npos);
+	REQUIRE(conformance.find("require=parent_scenario_graph_cache\n") == std::string::npos);
 	REQUIRE(conformance.find("parent_scenario_graph_cache=(") != std::string::npos);
 	REQUIRE(conformance.find("PDAI_AI_EDGES_EXTRACT_VERSION = \"global_ailists_rows_v2_aiedges\"") !=
 		std::string::npos);
@@ -563,5 +566,5 @@ TEST_CASE("AI list edges: the extractor writes them and conformance recomputes t
 	REQUIRE(conformance.find("errors.extend(validate_ai_lists_graph_member(label, zf, rows))") !=
 		std::string::npos);
 	REQUIRE(conformance.find("missing {kind} edge to {describe(target)}") != std::string::npos);
-	REQUIRE(conformance.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents\"") != std::string::npos);
+	REQUIRE(conformance.find("_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
 }

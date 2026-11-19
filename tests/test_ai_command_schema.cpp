@@ -515,7 +515,7 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(extractor.find("s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],")
 		!= std::string::npos);
 	// SP-86: the scenario kind and the bank's version moved with the output.
-	REQUIRE(extractor.find("_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents\"") != std::string::npos);
+	REQUIRE(extractor.find("_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
 	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v5_assetargs\"") != std::string::npos);
 
 	// The compiler encodes a row's args and compares them with its operands

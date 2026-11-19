@@ -109,6 +109,23 @@ extern void statIncrement(const char *key, u64 amount);
 #include "weapondata_authored.h"
 #include <stdio.h>
 
+/* object-events.md slice 2: an object event's payload, captured from the
+ * object before a pickup or a free can retire it: its objects.json record_id
+ * (its setup command index; "" for an object the setup did not place), its
+ * tag, its type and its catalog id (a weapon pickup's weapon, else its
+ * model). */
+struct objgraphevent {
+	char object[24];
+	s32 tag;
+	s32 type;
+	const char *catalog_id;
+};
+
+static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out);
+static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 playernum);
+static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user, s32 stop,
+	mission_graph_object_rule_t *rule, struct objgraphevent *ev);
+
 void rng2SetSeed(u32 seed);
 
 static union modelrodata *modelGetType19PartRodata(struct modeldef *modeldef, s32 partnum)
@@ -268,6 +285,47 @@ void thrownLaptopLatchResetAll(void)
  * Lifts will not be called if it's occupied by anyone. This prevents chrs from
  * from calling lifts back when players are in them.
  */
+/* object-events.md slice 5: whether no player and no chr rides the lift
+ * (gate.lift.native_vacant; the original doorCallLift test). */
+bool liftIsVacant(struct liftobj *lift)
+{
+	struct prop *liftprop = lift->base.prop;
+	s32 numchrslots = chrsGetNumSlots();
+	s32 i;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (g_Vars.players[i] && g_Vars.players[i]->lift == liftprop) {
+			return false;
+		}
+	}
+
+	for (i = 0; i < numchrslots; i++) {
+		/**
+		 * @bug: This is missing a chrIsDead check.
+		 * If a chr dies in a lift it can no longer be called.
+		 */
+		if (g_ChrSlots[i].prop && g_ChrSlots[i].lift == liftprop) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/* object-events.md slice 5: a lift door calls its lift to the door's stop;
+ * the level program decides (gate.lift.native_vacant, og.lift.go_to_stop),
+ * compared with the original rule. */
+static void liftCalled(struct prop *liftprop, s32 stopnum)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = liftIsVacant((struct liftobj *)liftprop->obj);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_LIFT_CALLED, liftprop, NULL, stopnum, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_LIFT_CALLED, ev.object,
+		native ? "go" : "stay", rule.acted ? "go" : "stay", (rule.acted != 0) != native);
+}
+
 bool doorCallLift(struct prop *doorprop, bool allowclose)
 {
 	struct doorobj *door = doorprop->door;
@@ -303,36 +361,11 @@ bool doorCallLift(struct prop *doorprop, bool allowclose)
 							&& door->base.type == OBJTYPE_DOOR
 							&& !doorIsClosed(door)) {
 						handled = false;
-					} else {
-						bool vacant = true;
-						s32 numchrslots = chrsGetNumSlots();
-						s32 i;
-
-						for (i = 0; i < MAX_PLAYERS; i++) {
-							if (!g_Vars.players[i]) {
-								continue;
-							}
-							if (g_Vars.players[i]->lift == link->lift) {
-								vacant = false;
-							}
-						}
-
-						if (vacant) {
-							for (i = 0; i < numchrslots; i++) {
-								/**
-								 * @bug: This is missing a chrIsDead check.
-								 * If a chr dies in a lift it can no longer be called.
-								 */
-								if (g_ChrSlots[i].prop && g_ChrSlots[i].lift == link->lift) {
-									vacant = false;
-									break;
-								}
-							}
-						}
-
-						if (vacant) {
-							liftGoToStop((struct liftobj *) link->lift->obj, link->stopnum);
-						}
+					} else if (scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_CALLED)) {
+						/* object-events.md slice 5: the level program decides. */
+						liftCalled(link->lift, link->stopnum);
+					} else if (liftIsVacant((struct liftobj *)link->lift->obj)) {
+						liftGoToStop((struct liftobj *) link->lift->obj, link->stopnum);
 					}
 				}
 			}
@@ -7541,36 +7574,33 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		return;
 	}
 	source = assetRuntimeVehicleForModelnum(bike->base.modelnum);
-	if (!source) {
+	if (!source || !source->vehicle_graph) {
 		sysLoudFailf("VEHICLE.SOURCE",
 			"hoverbike modelnum=%d has no hydrated .pdvehicle physics source",
 			bike->base.modelnum);
 		return;
 	}
-	if (source->vehicle_graph) {
-		/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here,
-		 * where the original movement runs, and its modules say what the
-		 * movement does: hover or not, take the driver's inputs or not, the
-		 * extra forward speed (replacing the original bonus below) and the
-		 * steering scale. A vehicle with no instance (refused, logged) does
-		 * not move. */
-		graph = hoverbikeGraphInstance(bike, source);
-		if (!graph) {
-			return;
-		}
-		hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
-		if (!drive.hover) {
-			return;
-		}
-		if (!drive.drive) {
-			speedforwards = 0;
-			speedsideways = 0;
-			speedtheta = 0;
-		}
-		steerscale = drive.steer_scale;
-	} else if (!source->vehicle_allow_drive) {
+	/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here, where
+	 * the original movement runs, and its modules say what the movement
+	 * does: hover or not, take the driver's inputs or not, the extra forward
+	 * speed (the original full-throttle bonus is og.vehicle.throttle_boost)
+	 * and the steering scale. Every vehicle moves through its graph (a v2
+	 * behavior is refused when the catalog hydrates it); one with no
+	 * instance (refused, logged) does not move. */
+	graph = hoverbikeGraphInstance(bike, source);
+	if (!graph) {
 		return;
 	}
+	hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
+	if (!drive.hover) {
+		return;
+	}
+	if (!drive.drive) {
+		speedforwards = 0;
+		speedsideways = 0;
+		speedtheta = 0;
+	}
+	steerscale = drive.steer_scale;
 
 	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
 
@@ -7689,36 +7719,11 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (graph) {
-		/* The graph's og.vehicle.throttle_boost keeps its own timer. */
-		bike->maxspeedtime240 = 0;
-	} else if (speedforwards >= 0.99f) {
-		bike->maxspeedtime240 += g_Vars.lvupdate240;
-
-		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
-			bike->maxspeedtime240 = TICKS(source->vehicle_boost_time_ticks60);
-		}
-	} else if (bike->maxspeedtime240 > 0) {
-		if (speedforwards >= 0.8f) {
-			// empty
-		} else if (speedforwards >= -0.1f) {
-			bike->maxspeedtime240 -= g_Vars.lvupdate240;
-
-			if (bike->maxspeedtime240 < 0) {
-				bike->maxspeedtime240 = 0;
-			}
-		} else {
-			bike->maxspeedtime240 = 0;
-		}
-	}
-
-	if (graph) {
-		bike->speedrel[1] = drive.extra_speed;
-	} else {
-		bike->speedrel[1] = bike->maxspeedtime240 *
-			source->vehicle_boost_speed /
-			TICKS(source->vehicle_boost_time_ticks60);
-	}
+	/* The original full-throttle bonus (maxspeedtime240 rising at full
+	 * throttle and falling below 0.8 of it) is og.vehicle.throttle_boost,
+	 * which keeps its own timer: drive.extra_speed is its bonus. */
+	bike->maxspeedtime240 = 0;
+	bike->speedrel[1] = drive.extra_speed;
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;
@@ -7755,10 +7760,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->leanspeed = 0;
 			bike->leandiff = 0;
 			bike->maxspeedtime240 = 0;
-			if (graph) {
-				/* The original rest reset, for the graph's timers. */
-				vehicleGraphInstanceRest(graph);
-			}
+			/* The original rest reset, for the graph's timers. */
+			vehicleGraphInstanceRest(graph);
 			bike->speedabs[0] = 0;
 			bike->speedabs[1] = 0;
 			bike->speedrel[0] = 0;
@@ -10111,6 +10114,78 @@ void platformDisplaceProps(struct prop *platform, s16 *propnums, struct coord *p
 	}
 }
 
+/* object-events.md slice 5: whether the lift at its aim stop may move on
+ * (gate.lift.native_ready): the stop has no door, or its door is closed and
+ * unlocked. */
+bool liftStopIsReady(struct liftobj *lift)
+{
+	struct doorobj *door = lift->doors[lift->levelcur];
+
+	return !door || (doorIsClosed(door) && door->keyflags == 0);
+}
+
+/* The lift moves on to its next stop in turn (og.lift.go_to_next_stop). */
+void liftGoToNextStop(struct liftobj *lift)
+{
+	s32 stop = lift->levelaim;
+
+	do {
+		stop = (stop + 1) % 4;
+	} while (lift->pads[stop] < 0);
+
+	liftGoToStop(lift, stop);
+}
+
+/* Whether the stop the lift arrived at has a door with no key flags
+ * (gate.lift.native_door_unlocked). */
+bool liftArrivalDoorUnlocked(struct liftobj *lift)
+{
+	struct doorobj *door = lift->doors[lift->levelcur];
+
+	return door && door->keyflags == 0;
+}
+
+/* The door of the stop the lift arrived at opens (og.lift.open_door). */
+void liftOpenArrivalDoor(struct liftobj *lift)
+{
+	struct doorobj *door = lift->doors[lift->levelcur];
+
+	if (door) {
+		doorsRequestMode(door, DOORMODE_OPENING);
+	}
+}
+
+/* object-events.md slice 5: the lift waits at its aim stop; the level
+ * program decides whether it moves on (gate.lift.native_ready,
+ * og.lift.go_to_next_stop), compared with the original rule. */
+static void liftIdled(struct prop *liftprop)
+{
+	struct liftobj *lift = (struct liftobj *)liftprop->obj;
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = liftStopIsReady(lift);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_LIFT_IDLE, liftprop, NULL, lift->levelcur, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_LIFT_IDLE, ev.object,
+		native ? "move" : "wait", rule.acted ? "move" : "wait", (rule.acted != 0) != native);
+}
+
+/* object-events.md slice 5: the lift arrived at its aim stop; the level
+ * program decides whether that stop's door opens
+ * (gate.lift.native_door_unlocked, og.lift.open_door), compared with the
+ * original rule. */
+static void liftArrived(struct prop *liftprop)
+{
+	struct liftobj *lift = (struct liftobj *)liftprop->obj;
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = liftArrivalDoorUnlocked(lift);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_LIFT_ARRIVED, liftprop, NULL, lift->levelcur, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_LIFT_ARRIVED, ev.object,
+		native ? "open" : "shut", rule.acted ? "open" : "shut", (rule.acted != 0) != native);
+}
+
 void liftTick(struct prop *prop)
 {
 	struct liftobj *lift = (struct liftobj *)prop->obj;
@@ -10219,7 +10294,11 @@ void liftTick(struct prop *prop)
 
 				door = lift->doors[lift->levelcur];
 
-				if (door && door->keyflags == 0) {
+				if (g_NetMode != NETMODE_CLIENT
+						&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_ARRIVED)) {
+					/* object-events.md slice 5: the level program decides. */
+					liftArrived(prop);
+				} else if (door && door->keyflags == 0) {
 					doorsRequestMode(door, DOORMODE_OPENING);
 				}
 			}
@@ -10238,6 +10317,13 @@ void liftTick(struct prop *prop)
 		}
 	} else {
 		// Lift is at the aim stop
+		if (g_NetMode != NETMODE_CLIENT
+				&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_LIFT_IDLE)) {
+			/* object-events.md slice 5: the level program decides. */
+			liftIdled(prop);
+			return;
+		}
+
 		door = lift->doors[lift->levelcur];
 
 		if (!door || (doorIsClosed(door) && door->keyflags == 0)) {
@@ -17629,10 +17715,21 @@ u32 add43214321(u32 value)
 }
 #endif
 
+/* object-events.md slice 5: whether the glass's damage has reached its
+ * limit (gate.glass.native_broken). */
+bool glassIsBroken(struct defaultobj *obj)
+{
+	return obj->damage >= obj->maxdamage;
+}
+
 void glassDestroy(struct defaultobj *obj)
 {
 	struct prop *prop = obj->prop;
 	struct modelrodata_bbox *bbox = objFindBboxRodata(obj);
+	struct objgraphevent broken;
+
+	/* object-events.md slice 5: the payload before the glass is retired. */
+	objGraphEventCapture(obj, &broken);
 
 	wallhitsFreeByProp(prop, 0);
 	wallhitsFreeByProp(prop, 1);
@@ -17673,6 +17770,23 @@ void glassDestroy(struct defaultobj *obj)
 	obj->hidden |= OBJHFLAG_DELETING;
 	obj->hidden2 |= OBJH2FLAG_DESTROYED;
 	objectiveRecordObjectState(obj);
+
+	/* object-events.md slice 5: the glass broke, whatever broke it. */
+	objGraphEventFire(MISSION_GRAPH_EVENT_GLASS_BROKEN, &broken, -1);
+}
+
+/* object-events.md slice 5: a glass object took damage; the level program
+ * decides whether it breaks (gate.glass.native_broken, og.glass.break),
+ * compared with the original rule. */
+static void glassDamaged(struct defaultobj *obj)
+{
+	mission_graph_object_rule_t rule;
+	struct objgraphevent ev;
+	const bool native = glassIsBroken(obj);
+
+	objGraphRuleFire(MISSION_GRAPH_EVENT_GLASS_DAMAGED, obj->prop, NULL, -1, &rule, &ev);
+	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_GLASS_DAMAGED, ev.object,
+		native ? "break" : "hold", rule.acted ? "break" : "hold", (rule.acted != 0) != native);
 }
 
 void doorDestroyGlass(struct doorobj *door)
@@ -17997,7 +18111,11 @@ void objDamage(struct defaultobj *obj, f32 damage, struct coord *pos, s32 weapon
 		// empty
 	} else {
 		if (obj->type == OBJTYPE_GLASS || obj->type == OBJTYPE_TINTEDGLASS) {
-			if (obj->damage >= obj->maxdamage) {
+			if (g_NetMode != NETMODE_CLIENT
+					&& scenarioSourceGraphObjectRuleHandled(MISSION_GRAPH_EVENT_GLASS_DAMAGED)) {
+				/* object-events.md slice 5: the level program decides. */
+				glassDamaged(obj);
+			} else if (obj->damage >= obj->maxdamage) {
 				glassDestroy(obj);
 			}
 		} else {
@@ -19058,39 +19176,21 @@ static s32 hoverbikeChooseMountSeat(struct prop *prop)
 		? VEHICLE_GRAPH_SEAT_GUNNER : VEHICLE_GRAPH_SEAT_DRIVER;
 }
 
-/* A vehicle with a pd.vehicle_graph.v1 graph mounts through it (vehiclegraph.c):
+/* Every vehicle mounts through its pd.vehicle_graph.v1 graph (vehiclegraph.c):
  * the request is event.vehicle.mount_requested, and og.vehicle.mount_seat runs
- * the native mount. A v2 vehicle takes the native path directly. On a vehicle
- * whose graph has a gunner seat the request names the seat the player's place
- * and view chose. */
+ * the native mount. There is no other way on: a prop that is not a vehicle
+ * with a graph (a v2 behavior is refused when the catalog hydrates it) cannot
+ * be mounted. On a vehicle whose graph has a gunner seat the request names the
+ * seat the player's place and view chose. */
 bool currentPlayerTryMountHoverbike(struct prop *prop)
 {
-	s32 result;
-
 	if (hoverbikeChooseMountSeat(prop) == VEHICLE_GRAPH_SEAT_GUNNER) {
 		return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
 			VEHICLE_GRAPH_SEAT_GUNNER, hoverbikeMountDriverAction, prop) == 1;
 	}
-	result = hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
-		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);
-
-	if (result >= 0) {
-		return result == 1;
-	}
-	return currentPlayerTryMountHoverbikeNative(prop);
+	return hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop) == 1;
 }
-
-/* object-events.md slice 2: an object event's payload, captured from the
- * object before a pickup or a free can retire it: its objects.json record_id
- * (its setup command index; "" for an object the setup did not place), its
- * tag, its type and its catalog id (a weapon pickup's weapon, else its
- * model). */
-struct objgraphevent {
-	char object[24];
-	s32 tag;
-	s32 type;
-	const char *catalog_id;
-};
 
 static void objGraphEventCapture(struct defaultobj *obj, struct objgraphevent *out)
 {
@@ -19133,7 +19233,7 @@ static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 play
  * player, or the eyespy) into the level program, which decides through the
  * rule gates and modules; rule holds what they did. Only on a stage whose
  * rules are the level program's (scenarioSourceGraphObjectRulesActive). */
-static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user,
+static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user, s32 stop,
 	mission_graph_object_rule_t *rule, struct objgraphevent *ev)
 {
 	mission_graph_object_rule_t *outer;
@@ -19141,6 +19241,7 @@ static void objGraphRuleFire(s32 kind, struct prop *prop, struct prop *user,
 	memset(rule, 0, sizeof(*rule));
 	rule->prop = prop;
 	rule->user = user;
+	rule->stop = stop;
 	rule->tickop = TICKOP_NONE;
 	objGraphEventCapture(prop->obj, ev);
 	if (ev->type < 0) {
@@ -20619,7 +20720,7 @@ static s32 objPickupTouched(struct prop *prop)
 	struct objgraphevent ev;
 	const bool native = objPickupRulesAllow(prop);
 
-	objGraphRuleFire(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, prop, g_Vars.currentplayer->prop, &rule, &ev);
+	objGraphRuleFire(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, prop, g_Vars.currentplayer->prop, -1, &rule, &ev);
 	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_PICKUP_TOUCHED, ev.object,
 		native ? "collect" : "refuse", rule.collected ? "collect" : "refuse",
 		(rule.collected != 0) != native);
@@ -20653,6 +20754,24 @@ s32 objTestForPickup(struct prop *prop)
 		return TICKOP_NONE;
 	}
 	return propPickupByPlayer(prop, true);
+}
+
+/* The smoke harness's touch (touch_pickup): the decision objTestForPickup
+ * makes once the player touches the prop, without the distance test, so a
+ * smoke can show the level program's pickup rule in play. The caller
+ * applies the tick operation as the prop loop does. */
+s32 objPickupTouchForSmoke(struct prop *prop)
+{
+	struct defaultobj *obj = prop ? prop->obj : NULL;
+
+	if (!obj || (obj->hidden & OBJHFLAG_DELETING) || g_NetMode == NETMODE_CLIENT
+			|| !objPickupIsCandidate(obj)) {
+		return TICKOP_NONE;
+	}
+	if (scenarioSourceGraphObjectRulesActive()) {
+		return objPickupTouched(prop);
+	}
+	return objPickupRulesAllow(prop) ? propPickupByPlayer(prop, true) : TICKOP_NONE;
 }
 
 /* The original pickup rules for the current player, after the candidate
@@ -22561,7 +22680,7 @@ static void doorApproached(struct prop *doorprop)
 	struct objgraphevent ev;
 	const bool native = doorIsUnlocked(g_Vars.currentplayer->prop, doorprop);
 
-	objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_APPROACH, doorprop, g_Vars.currentplayer->prop, &rule, &ev);
+	objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_APPROACH, doorprop, g_Vars.currentplayer->prop, -1, &rule, &ev);
 	scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_APPROACH, ev.object,
 		native ? "open" : "stay", rule.activated ? "open" : "stay", (rule.activated != 0) != native);
 }
@@ -24392,7 +24511,7 @@ bool propdoorInteract(struct prop *doorprop)
 		struct objgraphevent ev;
 		const bool native = doorIsUnlocked(playerprop, doorprop);
 
-		objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_USE, doorprop, playerprop, &rule, &ev);
+		objGraphRuleFire(MISSION_GRAPH_EVENT_DOOR_USE, doorprop, playerprop, -1, &rule, &ev);
 		scenarioSourceGraphObjectRuleCompared(MISSION_GRAPH_EVENT_DOOR_USE, ev.object,
 			native ? "activate" : "locked",
 			rule.activated ? (rule.locked_message ? "both" : "activate")
