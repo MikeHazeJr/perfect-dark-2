@@ -82,6 +82,24 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(harness.find("projectileEventsReport(\"smoke_exit\");") != std::string::npos);
 	REQUIRE(harness.find("case SMOKE_EVENT_GIVE_WEAPON:") != std::string::npos);
 
+	// B-1263: a launch binds the object to the archive whose record it
+	// applies (a fired rocket, bolt or grenade round carries its own weapon
+	// number, not the gun's), and the events and the fuse rule identify a
+	// projectile by that binding before its own weapon and function.
+	const size_t applyRecord = propobj.find("void projectileApplyGraphRuntime(struct defaultobj *obj,");
+	REQUIRE(applyRecord != std::string::npos);
+	REQUIRE(propobj.find("\tprojectileEventBind(obj, runtime->asset_id);", applyRecord) <
+		propobj.find("\n}\n", applyRecord));
+	REQUIRE(countOf(propobj, "projectileEventBind(") == 1);
+	REQUIRE(events.find("s_ProjectileBinds[i].generation == obj->prop->lifecycle_generation") != std::string::npos);
+	REQUIRE(events.find("strcmp(held->projectile_ref, asset_id) == 0") != std::string::npos);
+	REQUIRE(countOf(events, "!projectileIdentify(obj, &who)") == 2);
+	REQUIRE(events.find("program = projectileProgramFor(&who, &asset_id);") != std::string::npos);
+	REQUIRE(events.find("projectileProgramForWeapon") == std::string::npos);
+	// An object that is no weapon is recorded only when a launch bound it
+	// (the thrown Laptop gun is an autogun object).
+	REQUIRE(events.find("\treturn bind != NULL;\n}") != std::string::npos);
+
 	// Slice 2: the four fuses ask the rule, and the rule fires the program's
 	// timer event, runs the fuse module and counts parity.
 	REQUIRE(countOf(propobj, "projectileFuseRule(obj)") == 4);

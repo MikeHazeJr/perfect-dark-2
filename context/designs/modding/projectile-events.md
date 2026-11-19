@@ -194,6 +194,18 @@ run in the game; slices 2 to 6 are plans. Facts from a read-only survey of `week
   Parity: `fuse.compared` and `fuse.differ` in the stage totals.
 - **Extractor** (e41fc471): every base projectile and entity archive is v2
   with `fuse` wired to `fuse_expired`; the weapon export version moved.
+- **Which archive a projectile belongs to** (B-1263, 2026-11-19): the launch
+  binds it. A fired rocket, bolt or grenade round carries its own weapon
+  number (WEAPON_ROCKET, WEAPON_BOLT, WEAPON_GRENADEROUND), not the gun's,
+  and the thrown Laptop gun is an autogun object, so the object alone names
+  another weapon's archive or none. `projectileApplyGraphRuntime` binds the
+  object's prop (and its generation) to the archive whose record it applies;
+  events and rules name the gun and its function (`weapon=base:rocketlauncher
+  func=primary object=base:rocket`) and use that archive's program. An unbound
+  object is identified by its own weapon and function, right for everything
+  thrown. Launches that apply no record (a simulant's rocket, the chopper's,
+  an AI's thrown grenade) stay unbound and keep the native rules until the
+  spawn seam is one place.
 - **Validator** (2026-11-19): `validate_projectile_entity_graph` in
   `tools/asset_archive_conformance.py`. A projectile or entity graph names
   one of its family's two schemas; a v1 graph carries no program node; a v2

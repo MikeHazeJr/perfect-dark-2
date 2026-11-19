@@ -37,6 +37,17 @@ struct defaultobj;
 
 void projectileEventRecord(s32 kind, struct defaultobj *obj);
 
+/* Names the archive a projectile was launched from (its projectile record's
+ * asset id). A fired rocket, bolt or grenade round carries its own weapon
+ * number (WEAPON_ROCKET, WEAPON_BOLT, WEAPON_GRENADEROUND), not the gun's,
+ * and the thrown Laptop gun is no weapon object at all, so the object alone
+ * does not say which archive's program is its own. projectileApplyGraphRuntime
+ * calls this at every launch that applies a record; the events and the fuse
+ * rule then name the gun and its function and use that archive's program. An
+ * object never bound is identified by its own weapon and function, as
+ * everything thrown can be. */
+void projectileEventBind(struct defaultobj *obj, const char *asset_id);
+
 /* Logs "PROJECTILE.EVENTS: <why> spawned=N bounced=N hit_target=N landed=N
  * ended=N detonated=N fuse.compared=N fuse.differ=N" and starts the counts
  * again. */

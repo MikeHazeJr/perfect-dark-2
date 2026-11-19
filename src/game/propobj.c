@@ -1444,6 +1444,9 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	}
 
 	projectile = obj->projectile;
+	/* B-1263: this object was launched from this archive. Its events and its
+	 * fuse rule go to that archive's program (projectile_events.h). */
+	projectileEventBind(obj, runtime->asset_id);
 	/* B-1261: the record's `flags` are its weapon function's FUNCFLAG_* bits
 	 * (the extractor writes them so, and every other reader takes them so);
 	 * they are not projectile flags. The spawn sites derive the projectile

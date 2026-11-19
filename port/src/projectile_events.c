@@ -73,33 +73,138 @@ static s32 projectileEventFirst(s32 weaponnum, s32 func, s32 kind)
 	return 1;
 }
 
-void projectileEventRecord(s32 kind, struct defaultobj *obj)
+/* The archive each projectile was launched from (projectileEventBind), by
+ * its prop and that prop's generation, so a freed prop's entry never names a
+ * later object. A ring: when a projectile outlives its entry (64 newer
+ * launches) its own weapon and function identify it again, which is right
+ * for everything thrown. A fired rocket, bolt or grenade round carries its
+ * own weapon number and needs the entry; none lives that long. */
+#define PROJECTILE_BIND_MAX 64
+typedef struct projectile_bind {
+	const struct prop *prop;
+	u64 generation;
+	s16 gunnum; /* the weapon whose function names the archive, or -1 */
+	s8 func;
+	char asset_id[CATALOG_ID_LEN];
+} projectile_bind_t;
+static projectile_bind_t s_ProjectileBinds[PROJECTILE_BIND_MAX];
+static s32 s_ProjectileBindNext;
+
+static projectile_bind_t *projectileBindFind(const struct defaultobj *obj)
 {
-	struct weaponobj *weapon;
-	const weapon_graph_projectile_runtime_t *record;
-	s32 gunnum;
+	s32 i;
+
+	if (!obj || !obj->prop || obj->prop->lifecycle_generation == 0) {
+		return NULL;
+	}
+	for (i = 0; i < PROJECTILE_BIND_MAX; i++) {
+		if (s_ProjectileBinds[i].prop == obj->prop
+				&& s_ProjectileBinds[i].generation == obj->prop->lifecycle_generation) {
+			return &s_ProjectileBinds[i];
+		}
+	}
+	return NULL;
+}
+
+void projectileEventBind(struct defaultobj *obj, const char *asset_id)
+{
+	projectile_bind_t *bind;
+	s32 weaponnum;
 	s32 func;
 
-	if (kind < 0 || kind >= PROJECTILE_EVENT_COUNT || !obj
-			|| obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT) {
+	if (!obj || !obj->prop || obj->prop->lifecycle_generation == 0 || !asset_id || !asset_id[0]) {
 		return;
 	}
-	weapon = (struct weaponobj *)obj;
+	bind = projectileBindFind(obj);
+	if (!bind) {
+		bind = &s_ProjectileBinds[s_ProjectileBindNext];
+		s_ProjectileBindNext = (s_ProjectileBindNext + 1) % PROJECTILE_BIND_MAX;
+	}
+	memset(bind, 0, sizeof(*bind));
+	bind->prop = obj->prop;
+	bind->generation = obj->prop->lifecycle_generation;
+	bind->gunnum = -1;
+	bind->func = FUNC_PRIMARY;
+	snprintf(bind->asset_id, sizeof(bind->asset_id), "%s", asset_id);
+	/* The weapon function that names this archive: the gun, for the log, the
+	 * first-event table and a deployed item's entity archive. */
+	for (weaponnum = 0; weaponnum < g_WeaponDataCount && bind->gunnum < 0; weaponnum++) {
+		for (func = FUNC_PRIMARY; func <= FUNC_SECONDARY; func++) {
+			const weapon_graph_held_function_t *held = weaponGraphRuntimeGetHeldFunction(weaponnum, func);
+
+			if (held && held->valid && strcmp(held->projectile_ref, asset_id) == 0) {
+				bind->gunnum = (s16)weaponnum;
+				bind->func = (s8)func;
+				break;
+			}
+		}
+	}
+}
+
+/* Who launched an object, and from which archive. */
+typedef struct projectile_identity {
+	s32 gunnum;           /* the weapon whose function launched it, or -1 */
+	s32 func;
+	const char *asset_id; /* the projectile archive it was launched from, or NULL */
+} projectile_identity_t;
+
+/* The object's binding; for a weapon object without one, its own weapon and
+ * function (everything thrown carries those). 0 when neither says: an
+ * unbound object that is no weapon is not a projectile of a weapon. */
+static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out)
+{
+	const projectile_bind_t *bind = projectileBindFind(obj);
+
+	out->gunnum = -1;
+	out->func = FUNC_PRIMARY;
+	out->asset_id = NULL;
+	if (bind) {
+		out->asset_id = bind->asset_id;
+		if (bind->gunnum >= 0) {
+			out->gunnum = bind->gunnum;
+			out->func = bind->func;
+			return 1;
+		}
+	}
+	if (obj && obj->type == OBJTYPE_WEAPON) {
+		struct weaponobj *weapon = (struct weaponobj *)obj;
+
+		out->gunnum = weapon->gset.weaponnum;
+		out->func = weapon->gset.weaponfunc;
+		if (!out->asset_id) {
+			const weapon_graph_projectile_runtime_t *record =
+				weaponGraphRuntimeGetProjectileForHeldFunction(
+					weaponGraphRuntimeGetHeldFunctionForGameplay(out->gunnum, out->func));
+
+			if (record && record->asset_id[0]) {
+				out->asset_id = record->asset_id;
+			}
+		}
+		return 1;
+	}
+	return bind != NULL;
+}
+
+void projectileEventRecord(s32 kind, struct defaultobj *obj)
+{
+	projectile_identity_t who;
+
+	if (kind < 0 || kind >= PROJECTILE_EVENT_COUNT || !obj || g_NetMode == NETMODE_CLIENT
+			|| !projectileIdentify(obj, &who)) {
+		return;
+	}
 	s_ProjectileEventTotals[kind]++;
 
-	gunnum = weapon->gset.weaponnum;
-	func = weapon->gset.weaponfunc;
-	if (!projectileEventFirst(gunnum, func, kind)) {
+	if (!projectileEventFirst(who.gunnum, who.func, kind)) {
 		return;
 	}
-	record = weaponGraphRuntimeGetProjectileForHeldFunction(
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gunnum, func));
 	sysLogPrintf(LOG_NOTE,
 		"PROJECTILE.EVENT: %s weapon=%s func=%s object=%s projectile=%s owner=%d flags=0x%08x",
-		s_ProjectileEventNames[kind], projectileEventWeaponId(gunnum),
-		func == FUNC_SECONDARY ? "secondary" : "primary",
-		projectileEventWeaponId(weapon->weaponnum),
-		record && record->asset_id[0] ? record->asset_id : "-",
+		s_ProjectileEventNames[kind], projectileEventWeaponId(who.gunnum),
+		who.func == FUNC_SECONDARY ? "secondary" : "primary",
+		obj->type == OBJTYPE_WEAPON
+			? projectileEventWeaponId(((struct weaponobj *)obj)->weaponnum) : "-",
+		who.asset_id ? who.asset_id : "-",
 		(s32)((u32)obj->hidden >> 28),
 		(obj->hidden & OBJHFLAG_PROJECTILE) && obj->projectile
 			? (u32)obj->projectile->flags : 0u);
@@ -146,28 +251,27 @@ static s32 projectileProgramModuleRun(const char *kind, const char *node_id,
 	return 0;
 }
 
-/* The program that decides for this weapon object: its function's
- * projectile archive's, else its entity archive's (a deployed item). */
-static const mission_graph_program_t *projectileProgramForWeapon(struct weaponobj *weapon,
+/* The program that decides for a projectile: the one of the archive it was
+ * launched from, else its entity archive's (a deployed item). */
+static const mission_graph_program_t *projectileProgramFor(const projectile_identity_t *who,
 		const char **asset_id)
 {
-	const weapon_graph_held_function_t *held = weaponGraphRuntimeGetHeldFunctionForGameplay(
-		weapon->gset.weaponnum, weapon->gset.weaponfunc);
-	const weapon_graph_projectile_runtime_t *projectile =
-		weaponGraphRuntimeGetProjectileForHeldFunction(held);
-	const weapon_graph_entity_runtime_t *entity =
-		weaponGraphRuntimeGetEntityForHeldFunction(held);
 	const mission_graph_program_t *program = NULL;
 
 	*asset_id = NULL;
-	if (projectile && projectile->asset_id[0]) {
-		program = weaponGraphRuntimeProjectileProgram(projectile->asset_id);
-		*asset_id = projectile->asset_id;
+	if (who->asset_id) {
+		program = weaponGraphRuntimeProjectileProgram(who->asset_id);
+		*asset_id = who->asset_id;
 	}
-	if (!program && entity && entity->asset_id[0]) {
-		program = weaponGraphRuntimeProjectileProgram(entity->asset_id);
-		if (program) {
-			*asset_id = entity->asset_id;
+	if (!program && who->gunnum >= 0) {
+		const weapon_graph_entity_runtime_t *entity = weaponGraphRuntimeGetEntityForHeldFunction(
+			weaponGraphRuntimeGetHeldFunctionForGameplay(who->gunnum, who->func));
+
+		if (entity && entity->asset_id[0]) {
+			program = weaponGraphRuntimeProjectileProgram(entity->asset_id);
+			if (program) {
+				*asset_id = entity->asset_id;
+			}
 		}
 	}
 	return program;
@@ -179,24 +283,22 @@ s32 projectileFuseRule(struct defaultobj *obj)
 	const mission_graph_program_t *program;
 	const char *asset_id = NULL;
 	mission_graph_event_t event;
+	projectile_identity_t who;
 	projectile_rule_t rule;
-	s32 gunnum;
-	s32 func;
 
-	if (!obj || obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT) {
+	if (!obj || obj->type != OBJTYPE_WEAPON || g_NetMode == NETMODE_CLIENT
+			|| !projectileIdentify(obj, &who)) {
 		return 1;
 	}
 	weapon = (struct weaponobj *)obj;
-	program = projectileProgramForWeapon(weapon, &asset_id);
+	program = projectileProgramFor(&who, &asset_id);
 	if (!program) {
 		return 1; /* a v1 archive: the native rule decides */
 	}
-	gunnum = weapon->gset.weaponnum;
-	func = weapon->gset.weaponfunc;
 	memset(&event, 0, sizeof(event));
 	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
 	event.player = (s32)((u32)obj->hidden >> 28);
-	event.catalog_id = projectileEventWeaponId(gunnum);
+	event.catalog_id = projectileEventWeaponId(who.gunnum);
 	event.instance = obj;
 	memset(&rule, 0, sizeof(rule));
 	if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
@@ -206,10 +308,10 @@ s32 projectileFuseRule(struct defaultobj *obj)
 	if (!rule.fuse) {
 		s_ProjectileFuseDiffer++;
 	}
-	if (projectileEventFirst(gunnum, func, PROJECTILE_EVENT_SEEN_FUSE_RULE)) {
+	if (projectileEventFirst(who.gunnum, who.func, PROJECTILE_EVENT_SEEN_FUSE_RULE)) {
 		sysLogPrintf(LOG_NOTE,
 			"PROJECTILE.RULE: timer_expired weapon=%s func=%s object=%s program=%s fuse=%d",
-			projectileEventWeaponId(gunnum), func == FUNC_SECONDARY ? "secondary" : "primary",
+			projectileEventWeaponId(who.gunnum), who.func == FUNC_SECONDARY ? "secondary" : "primary",
 			projectileEventWeaponId(weapon->weaponnum), asset_id ? asset_id : "-", rule.fuse);
 	}
 	return rule.fuse;
