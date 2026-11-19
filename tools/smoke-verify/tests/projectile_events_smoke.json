@@ -1,6 +1,6 @@
 {
   "scenario_name": "projectile_events_smoke",
-  "description": "Projectile events, record-only (context/designs/modding/projectile-events.md, slice 1). On Felicity with no simulants, player 0 is given each base weapon that throws or fires something (give_weapon) and uses it (a secondary function after ACTION_FIRE_MODE, as a player switches): both grenade functions, both N-bomb functions, the rocket launcher, the Slayer's rocket and its fly-by-wire rocket, both Devastator functions, the crossbow, the thrown combat knife, the three mines (the remote mine set off by its detonator), the Laptop gun's thrown sentry, the Super Dragon's grenade and the thrown Dragon. Each must log its spawn and a later event (bounce, landing, hit, end or detonation), and the Slayer's fly-by-wire rocket must not carry PROJECTILEFLAG_SLIDING (B-1261). The stage's totals go out at the scripted exit.",
+  "description": "Projectile events, record-only (context/designs/modding/projectile-events.md, slice 1). On Felicity with no simulants, player 0 is given each base weapon that throws or fires something (give_weapon) and uses it (a secondary function after ACTION_FIRE_MODE, as a player switches): both grenade functions, both N-bomb functions, the rocket launcher, the Slayer's rocket and its fly-by-wire rocket, both Devastator functions, the crossbow, the thrown combat knife, the three mines (the remote mine set off by its detonator), the Laptop gun's thrown sentry, the Super Dragon's grenade and the thrown Dragon. Each must log its spawn and a later event (bounce, landing, hit, end or detonation), and the Slayer's fly-by-wire rocket must not carry PROJECTILEFLAG_SLIDING (B-1261). The stage's totals go out at the scripted exit. Slice 3: each contact rule's first decision is logged with the modules the program chose and the ones the original rules choose (mines stick; a bolt and a thrown knife stick and pierce and land their own way, the knife poisoning; a rocket is spent by what it strikes; a Devastator round goes off where it comes to rest), and no decision may differ.",
   "tags": [
     "graph",
     "projectiles",
@@ -96,6 +96,15 @@
       "PROJECTILE\\.RULE: timer_expired weapon=base:grenade func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
       "PROJECTILE\\.RULE: timer_expired weapon=base:rocketlauncher func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
       "PROJECTILE\\.RULE: timer_expired weapon=base:timedmine func=primary [^\\n]*program=base:[a-z0-9_]+ fuse=1",
+      "PROJECTILE\\.RULE: contact weapon=base:proximitymine func=primary [^\\n]*modules=stick native=stick",
+      "PROJECTILE\\.RULE: contact weapon=base:timedmine func=primary [^\\n]*modules=stick native=stick",
+      "PROJECTILE\\.RULE: contact weapon=base:remotemine func=primary [^\\n]*modules=stick native=stick",
+      "PROJECTILE\\.RULE: contact weapon=base:crossbow func=primary object=base:bolt [^\\n]*modules=stick\\+pierce native=stick\\+pierce",
+      "PROJECTILE\\.RULE: landed weapon=base:crossbow func=primary object=base:bolt [^\\n]*modules=land_bolt native=land_bolt",
+      "PROJECTILE\\.RULE: contact weapon=base:combatknife func=secondary [^\\n]*modules=stick\\+pierce native=stick\\+pierce",
+      "PROJECTILE\\.RULE: landed weapon=base:combatknife func=secondary [^\\n]*modules=land_knife\\+poison_target native=land_knife\\+poison_target",
+      "PROJECTILE\\.RULE: (?:bounced|contact|launch_blocked) weapon=base:rocketlauncher func=primary object=base:rocket [^\\n]*modules=(?:spend_fuse|impact) native=(?:spend_fuse|impact)",
+      "PROJECTILE\\.RULE: came_to_rest weapon=base:devastator func=primary object=base:grenaderound [^\\n]*modules=spend_fuse native=spend_fuse",
       "PROJECTILE\\.EVENT: spawned weapon=base:grenade func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:nbomb func=primary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:rocketlauncher func=primary object=base:[a-z0-9_]+ ",
@@ -115,7 +124,7 @@
       "PROJECTILE\\.EVENT: spawned weapon=base:laptopgun func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:superdragon func=secondary ",
       "PROJECTILE\\.EVENT: spawned weapon=base:dragon func=secondary ",
-      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]* fuse\\.compared=[1-9][0-9]* fuse\\.differ=0",
+      "PROJECTILE\\.EVENTS: smoke_exit spawned=[1-9][0-9]* bounced=[0-9]+ hit_target=[0-9]+ landed=[1-9][0-9]* ended=[1-9][0-9]* detonated=[1-9][0-9]* fuse\\.compared=[1-9][0-9]* fuse\\.differ=0 rules\\.compared=[1-9][0-9]* rules\\.differ=0",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -126,6 +135,7 @@
       "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
       "PROJECTILE\\.EVENT: spawned weapon=base:slayer func=secondary [^\\n]*flags=0x[0-9a-f]{5}[89a-f][0-9a-f]{2}",
       "PROJECTILE\\.RULE: timer_expired [^\\n]*fuse=0",
+      "PROJECTILE\\.RULE differs",
       "program refused",
       "ASSET\\.FALLBACK",
       "LOUDFAIL\\.FALLBACK"

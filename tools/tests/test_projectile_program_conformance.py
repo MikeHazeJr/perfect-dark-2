@@ -70,6 +70,13 @@ def with_node(node: dict, *edges: dict) -> dict:
     return graph
 
 
+def with_nodes(nodes: list, edges: list) -> dict:
+    graph = copy.deepcopy(V2_PROJECTILE)
+    graph["nodes"].extend(nodes)
+    graph["edges"].extend(edges)
+    return graph
+
+
 class Schemas(unittest.TestCase):
     def test_the_two_schemas_of_each_family(self):
         self.assertEqual(conf.PROJECTILE_GRAPH_SCHEMAS[".pdprojectile"],
@@ -105,12 +112,45 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES, ("og.projectile.fuse_expired",))
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 7)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 10)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 10)
+        self.assertIn("gate.projectile.fuse_armed", conf.PROJECTILE_GRAPH_GATES)
+        # Each event applies its own modules: wired to one of them, valid.
+        for event, modules in conf.PROJECTILE_GRAPH_EVENT_MODULES.items():
+            self.assertIn(event, conf.PROJECTILE_GRAPH_EVENTS)
+            for module in modules:
+                self.assertIn(module, conf.PROJECTILE_GRAPH_MODULES)
+                graph = with_nodes([{"id": "more", "kind": event}, {"id": "chosen", "kind": module}],
+                                   [{"from": "more", "to": "chosen", "input": "exec"}])
+                self.assertEqual(program_errors(graph), [], (event, module))
+        # Every event may stand unwired (a record an author has not used yet).
         for kind in conf.PROJECTILE_GRAPH_EVENTS:
-            graph = with_node({"id": "more", "kind": kind},
-                              {"from": "more", "to": "fuse_expired", "input": "exec"})
-            self.assertEqual(program_errors(graph), [], kind)
+            self.assertEqual(program_errors(with_node({"id": "more", "kind": kind})), [], kind)
+
+    def test_a_module_wired_where_it_does_nothing(self):
+        # A record applies no module; a rule applies only its own.
+        for event, module in (("event.projectile.spawned", "og.projectile.stick"),
+                              ("event.projectile.hit_target", "og.projectile.spend_fuse"),
+                              ("event.projectile.bounced", "og.projectile.stick"),
+                              ("event.projectile.contact", "og.projectile.spend_fuse"),
+                              ("event.projectile.landed", "og.projectile.fuse_expired"),
+                              ("event.projectile.timer_expired", "og.projectile.land_knife")):
+            graph = with_nodes([{"id": "more", "kind": event}, {"id": "chosen", "kind": module}],
+                               [{"from": "more", "to": "chosen", "input": "exec"}])
+            errors = program_errors(graph)
+            self.assertEqual(len(errors), 1, (event, module, errors))
+            self.assertIn("%s 'chosen' has no effect on %s ('more')" % (module, event), errors[0])
+        # Reached through a gate, the same.
+        graph = with_nodes([{"id": "rest", "kind": "event.projectile.came_to_rest"},
+                            {"id": "armed", "kind": "gate.projectile.fuse_armed"},
+                            {"id": "spend", "kind": "og.projectile.spend_fuse"},
+                            {"id": "stick", "kind": "og.projectile.stick"}],
+                           [{"from": "rest", "to": "armed", "input": "exec"},
+                            {"from": "armed", "output": "pass", "to": "spend", "input": "exec"},
+                            {"from": "armed", "output": "fail", "to": "stick", "input": "exec"}])
+        errors = program_errors(graph)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("og.projectile.stick 'stick' has no effect on event.projectile.came_to_rest", errors[0])
 
     def test_events_of_other_graphs_are_refused(self):
         for kind in ("event.pickup.touched", "event.mission.completed", "event.projectile.unknown",

@@ -222,6 +222,102 @@ loading with the rules it was made under; a v1 projectile keeps the native
 rules the same way, and the guards that go are the ones that keep base
 weapons off the program path.
 
+## Slice 3 as written: contacts (CORE, 2026-11-19; on `week-pd/core-s7`, not run in the game yet)
+
+What a thrown or fired projectile does when it strikes something was
+decided in `projectileTick`, `projectileLaunch` and `objLand` by tests on
+the object's weapon number (16 of them). Those tests are gone from the
+contact code. Each seam asks the projectile's program which modules its
+rule event runs, and then runs the original code for the modules chosen,
+where that code has always run. A module is a choice, not a call: the
+physics, the sweep and the order of operations stay the game's.
+
+**The original rules are one table**, `port/src/projectile_rules.c`
+(no game state, linked into pd-tests): which modules each event runs for a
+weapon number and function. The extractor writes every base projectile
+archive's wiring from it (the object a function launches, then that
+object's rules), the seams compare a program's choice with it (the parity
+probe), and a projectile with no program (a v1 archive, or an unbound
+launch) is answered by it. So a base program and the original agree by
+construction, and the probe proves it in play.
+
+| Event (kind) | Fired | Modules it applies |
+|---|---|---|
+| `event.projectile.contact` (26) | the sweep of a sticky projectile (everything thrown or fired) struck the background, a character or an object, before anything is decided | `stick`, `wall_hug`, `pierce`, `impact` |
+| `event.projectile.launch_blocked` (27) | its first step, from where it was made to the muzzle, struck something (`projectileLaunch`) | `spend_fuse` |
+| `event.projectile.bounced` (20, was a record) | it bounced off a wall or floor | `spend_fuse` |
+| `event.projectile.came_to_rest` (28) | it lies or all but lies still while still in flight (on the floor, falling, speed or movement under 0.1) | `spend_fuse` |
+| `event.projectile.landed` (22, was a record) | it stuck or came down (`objLand`) | `shield_device`, `land_bolt`, `land_knife`, `poison_target` |
+| `event.projectile.timer_expired` (25, slice 2) | a fuse ran out | `fuse_expired` |
+
+`spawned`, `hit_target`, `ended` and `detonated` stay records with no
+module. A module wired to an event that does not apply it would do nothing,
+so registration refuses the program and the validator fails the archive,
+both naming the pair ("og.projectile.stick has no effect on
+event.projectile.bounced").
+
+| Module | The original code it selects | Base wiring |
+|---|---|---|
+| `og.projectile.stick` | it sticks where it struck, unless the target is itself in flight, is glass, or is a shielded character | the three mines, the ECM mine, the comms rider, the tracer bug, the target amplifier, a bolt, a thrown knife, and any function flagged to stick to walls |
+| `og.projectile.wall_hug` | it sticks, hangs for its wall timer (8 seconds), falls, and goes off where it lands | the Devastator's second function |
+| `og.projectile.pierce` | a bolt's or thrown knife's contact: it does not stick into another weapon object, breaks glass it hits, wounds a character on its first flight (the weapon's damage; the sedative bolt's dizziness comes with that), leaves a spark, and counts in the owner's shot statistics | a bolt, a thrown knife |
+| `og.projectile.impact` | a rocket's contact with a target: 2 damage to a character, 100 to an object, then it is consumed and its fuse is spent | a rocket, a homing rocket |
+| `og.projectile.spend_fuse` | its fuse runs out now; the fuse rule (`timer_expired`) decides what follows | a rocket on `bounced` and `launch_blocked`; a grenade round on `came_to_rest`; the N-bomb's first function on `came_to_rest` behind `gate.projectile.fuse_armed` |
+| `og.projectile.shield_device` | once planted it cannot be shot away or knocked off | the ECM mine, the comms rider, the tracer bug, the target amplifier |
+| `og.projectile.land_bolt` | it lands as a crossbow bolt (pushed in along its flight, then quivers) | a bolt |
+| `og.projectile.land_knife` | it lands as a thrown knife (set by the surface) | a thrown knife |
+| `og.projectile.poison_target` | it poisons the character it sticks in | a thrown knife |
+
+`gate.projectile.fuse_armed` passes while the weapon object's timer is not
+idle (0 or more).
+
+A hand grenade, a Dragon and anything else with no contact wiring bounces
+and comes to rest, as before.
+
+**Which archive**: B-1263's binding. A bolt's rules are the crossbow's
+archive's, a rocket's the rocket launcher's or the Slayer's, a grenade
+round's the Devastator's or the Super Dragon's. The bolt item's and the
+grenade round item's own archives carry the same wiring for an object no
+launch bound.
+
+**Parity**: `rules.compared` and `rules.differ` in the stage totals; the
+first choice for a weapon, function and event logs `PROJECTILE.RULE: contact
+weapon=base:crossbow func=primary object=base:bolt program=... modules=stick+pierce
+native=stick+pierce`; the first eight differences log `PROJECTILE.RULE
+differs: ...`. `projectile_events_smoke` requires nine of the first-choice
+lines and forbids a difference.
+
+**Authority**: host and client alike choose by the program (a client's copy
+of a thrown item is simulated locally, and a fired one it did not launch is
+unbound there and keeps the original rules, which are the same for base
+programs); damage stays the host's through its callees, and only the host
+counts parity. This is the answer to "which client branches are presentation
+only" for contacts: none of the contact decisions is, so the client runs the
+same rule. A mod that rewires a fired projectile is decided on the host; the
+client learns the launch's archive only when the spawn message carries it
+(MULTIPLAYER's, with graph weapons over the network).
+
+**Left native, on purpose** (each keyed by weapon number still): the flight
+model (homing, the Slayer's fly-by-wire, the rocket's thrust cap and power
+limit, the bot Slayer's waypoint steering in `rocketTickFbw`, which also
+spends its own fuse); presentation (trails, the pinball grenade's smoke and
+sounds, the knife's woosh and hit sound); the continuations of a module in
+`weaponTick` (the wall hugger's countdown and fall, the bolt's quiver and
+beam); the thrown Laptop gun, an autogun object that sticks to the
+background only (slice 5); and the custom-weapon record clauses beside each
+seam (`has_sticky_attach`, `has_impact`, `has_wall_hugger`, bounce limits),
+which a v1 mod archive still drives.
+
+**Not covered**: a projectile whose weapon has no fuse of its own in
+`weaponTick` ignores `spend_fuse` (slice 4 gives every program a fuse).
+
+Tests: `tests/test_projectile_rules.cpp` (the table, a program compiled and
+fired through the runner, and the source pins of the seams, the extractor
+and the validator), `tools/tests/test_projectile_program_conformance.py`
+(the applicability rule), pins in `tests/test_custom_projectile_log_static.cpp`.
+The weapon cache kind moved (`_contactrules`), so an install re-extracts its
+weapon archives once.
+
 ## Not in scope
 
 - Held weapons (the fire types in `bondgun.c`): the week note's Held weapons

@@ -120,6 +120,10 @@ const struct {
 	{ "event.projectile.ended", MISSION_GRAPH_EVENT_PROJECTILE_ENDED },
 	{ "event.projectile.detonated", MISSION_GRAPH_EVENT_PROJECTILE_DETONATED },
 	{ "event.projectile.timer_expired", MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED },
+	// Slice 3: the contact rule events.
+	{ "event.projectile.contact", MISSION_GRAPH_EVENT_PROJECTILE_CONTACT },
+	{ "event.projectile.launch_blocked", MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED },
+	{ "event.projectile.came_to_rest", MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST },
 };
 
 // The projectile event kind of a node kind, or 0 for none.
@@ -134,7 +138,7 @@ s32 projectileEventKindOf(const std::string &kind)
 bool isProjectileEventKind(s32 kind)
 {
 	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
-		kind <= MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+		kind <= MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST;
 }
 
 // A node's scalar fields other than id and kind, as text.

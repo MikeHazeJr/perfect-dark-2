@@ -108,6 +108,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "scenario_source_runtime.h"
 #include "weapondata_authored.h"
 #include "projectile_events.h"
+#include "projectile_rules.h"
 #include <stdio.h>
 
 /* object-events.md slice 2: an object event's payload, captured from the
@@ -5125,6 +5126,28 @@ void func0f06e9cc(struct coord *arg0, Mtxf *arg1)
 	mtx4MultMtx4(&sp70, &sp30, arg1);
 }
 
+/* projectile-events.md slice 3: the modules a contact rule event runs for
+ * this object (PROJECTILE_MODULE_* bits): its program's choice, or with no
+ * program the original rules by weapon number (projectile_rules.c), which
+ * the parity probe also compares against. Only weapon objects have rules. */
+static u32 projectileRuleFor(s32 kind, struct defaultobj *obj)
+{
+	struct weaponobj *weapon;
+	u32 native;
+
+	if (!obj || obj->type != OBJTYPE_WEAPON) {
+		return 0;
+	}
+	weapon = (struct weaponobj *)obj;
+	native = projectileRulesNative(kind, weapon->weaponnum, weapon->gunfunc,
+		gsetHasFunctionFlags(&weapon->gset, FUNCFLAG_STICKTOWALL));
+	if (native & PROJECTILE_RULE_GATE_FUSE_ARMED) {
+		/* gate.projectile.fuse_armed: only while the timer is not idle. */
+		native = weapon->timer240 >= 0 ? (native & ~PROJECTILE_RULE_GATE_FUSE_ARMED) : 0;
+	}
+	return projectileRuleModules(kind, obj, native);
+}
+
 void objLand2(struct defaultobj *obj, struct coord *arg1, struct coord *arg2)
 {
 	Mtxf sp40;
@@ -5331,9 +5354,12 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	struct defaultobj *obj = prop->obj;
 	struct prop *ownerprop = NULL;
 	s32 attached = false;
+	u32 landedmods;
 
 	/* projectile-events.md slice 1, record-only: it stuck or came down. */
 	projectileEventRecord(PROJECTILE_EVENT_LANDED, obj);
+	/* Slice 3: how it lands is its program's choice (event.projectile.landed). */
+	landedmods = projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_LANDED, obj);
 
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
@@ -5345,10 +5371,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 	if (obj->type == OBJTYPE_WEAPON) {
 		struct weaponobj *weapon = (struct weaponobj *)obj;
 
-		if (weapon->weaponnum == WEAPON_ECMMINE
-				|| weapon->weaponnum == WEAPON_COMMSRIDER
-				|| weapon->weaponnum == WEAPON_TRACERBUG
-				|| weapon->weaponnum == WEAPON_TARGETAMPLIFIER) {
+		if (landedmods & PROJECTILE_MODULE_SHIELD_DEVICE) {
 			obj->flags |= OBJFLAG_INVINCIBLE;
 			obj->flags |= OBJFLAG_FORCENOBOUNCE;
 			obj->flags2 |= OBJFLAG2_IMMUNETOGUNFIRE;
@@ -5379,9 +5402,9 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 		objectiveCheckThrowInRoom(weapon->weaponnum, prop->rooms);
 
-		if (weapon->weaponnum == WEAPON_BOLT) {
+		if (landedmods & PROJECTILE_MODULE_LAND_BOLT) {
 			boltLand(weapon, arg1);
-		} else if (weapon->weaponnum == WEAPON_COMBATKNIFE) {
+		} else if (landedmods & PROJECTILE_MODULE_LAND_KNIFE) {
 			knifeLand(obj, arg1, arg2);
 		} else {
 			objLand2(obj, arg1, arg2);
@@ -5404,7 +5427,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 			bgunPlayPropHitSound(&weapon->gset, g_EmbedProp, -1);
 
-			if (weapon->weaponnum == WEAPON_COMBATKNIFE
+			if ((landedmods & PROJECTILE_MODULE_POISON_TARGET)
 					&& (g_EmbedProp->type == PROPTYPE_CHR || g_EmbedProp->type == PROPTYPE_PLAYER)) {
 				chrSetPoisoned(g_EmbedProp->chr, ownerprop);
 			}
@@ -8085,7 +8108,10 @@ s32 projectileLaunch(struct defaultobj *obj, struct projectile *projectile, stru
 		const weapon_graph_projectile_runtime_t *impactgraph =
 			weaponGetContactImpactGraph(weapon);
 
-		if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET
+		/* projectile-events.md slice 3: a blocked launch may spend the fuse
+		 * (event.projectile.launch_blocked): the rocket's rule. */
+		if ((projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, obj)
+					& PROJECTILE_MODULE_SPEND_FUSE)
 				|| (impactgraph != NULL && impactgraph->impact_filter_mode <= 1)) {
 			weapon->timer240 = 0;
 
@@ -8797,6 +8823,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						struct prop *hitprop = NULL;
 						struct weaponobj *weapon2;
 						struct weaponobj *weapon;
+						u32 contactmods;
 
 						if (g_EmbedProp != NULL) {
 							hitprop = g_EmbedProp;
@@ -8805,6 +8832,12 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								hitprop = hitprop->parent;
 							}
 						}
+
+						/* projectile-events.md slice 3: what this contact does is
+						 * the choice of the projectile's program
+						 * (event.projectile.contact: stick, wall_hug, pierce,
+						 * impact), or of the original rules with no program. */
+						contactmods = projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, obj);
 
 						if (obj->type == OBJTYPE_AUTOGUN) {
 							// Thrown laptops can stick to the BG but not props
@@ -8820,19 +8853,10 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							weapon2 = (struct weaponobj *) obj;
 							stickgraph = weaponGetCustomProjectileGraph(weapon2);
 
-							if (weapon2->weaponnum == WEAPON_REMOTEMINE
-									|| weapon2->weaponnum == WEAPON_TIMEDMINE
-									|| weapon2->weaponnum == WEAPON_PROXIMITYMINE
-									|| weapon2->weaponnum == WEAPON_COMMSRIDER
-									|| weapon2->weaponnum == WEAPON_TRACERBUG
-									|| weapon2->weaponnum == WEAPON_TARGETAMPLIFIER
-									|| weapon2->weaponnum == WEAPON_BOLT
-									|| weapon2->weaponnum == WEAPON_COMBATKNIFE
-									|| weapon2->weaponnum == WEAPON_ECMMINE
-									|| gsetHasFunctionFlags(&weapon2->gset, FUNCFLAG_STICKTOWALL)) {
+							if (contactmods & (PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_WALL_HUG)) {
 								stick = true;
 
-								if (weapon2->weaponnum == WEAPON_GRENADEROUND && weapon2->gunfunc == FUNC_SECONDARY) {
+								if (contactmods & PROJECTILE_MODULE_WALL_HUG) {
 									if (weapon2->timer240 == 1) {
 										stick = false;
 										weapon2->timer240 = 0;
@@ -8925,7 +8949,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								struct defaultobj *embedobj = g_EmbedProp->obj;
 
 								if (weapon
-										&& (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE)
+										&& (contactmods & PROJECTILE_MODULE_PIERCE)
 										&& embedobj->type == OBJTYPE_WEAPON) {
 									stick = false;
 								}
@@ -8945,7 +8969,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										stick = false;
 									}
 
-									if (weapon && (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE)) {
+									if (weapon && (contactmods & PROJECTILE_MODULE_PIERCE)) {
 #if VERSION < VERSION_NTSC_1_0
 										if (hitobj->type == OBJTYPE_WEAPON) {
 											stick = false;
@@ -8993,7 +9017,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								}
 							}
 
-							if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+							if (contactmods & PROJECTILE_MODULE_PIERCE) {
 								if (hitprop->type == PROPTYPE_CHR || (hitprop->type == PROPTYPE_PLAYER && hitprop->chr)) {
 									struct chrdata *hitchr = hitprop->chr;
 
@@ -9039,8 +9063,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										frCalculateHit(hitobj, &sp5e8, 0.0f);
 									}
 								}
-							} else if (weapon->weaponnum == WEAPON_ROCKET || weapon->weaponnum == WEAPON_HOMINGROCKET
-									|| impactgraph != NULL) {
+							} else if ((contactmods & PROJECTILE_MODULE_IMPACT) || impactgraph != NULL) {
 								/* B-912: the impactgraph clause routes a custom
 								 * graph projectile through the proven rocket
 								 * contact-consume path (direct-hit damage +
@@ -9099,7 +9122,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							if (obj->type == OBJTYPE_WEAPON) {
 								struct weaponobj *weapon = (struct weaponobj *) obj;
 
-								if (weapon->weaponnum == WEAPON_BOLT || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+								if (contactmods & PROJECTILE_MODULE_PIERCE) {
 									if (obj->projectile->ownerprop && obj->projectile->ownerprop->type == PROPTYPE_PLAYER) {
 										s32 prevplayernum = g_Vars.currentplayernum;
 										setCurrentPlayerNum(playermgrGetPlayerNumByProp(obj->projectile->ownerprop));
@@ -9235,6 +9258,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 				if (!handled) {
 					u16 geoflags;
+					u32 bouncedmods = 0;
 
 					sp37c = objGetRotatedLocalYMinByMtx3(objFindBboxRodata(obj), obj->realrot);
 
@@ -9378,6 +9402,8 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						projectile->bouncecount++;
 						/* projectile-events.md slice 1, record-only. */
 						projectileEventRecord(PROJECTILE_EVENT_BOUNCED, obj);
+						/* Slice 3: a bounce may spend the fuse (the rocket's rule). */
+						bouncedmods = projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, obj);
 						projectile->bounceframe = g_Vars.lvframe60;
 
 						if ((obj->hidden & OBJHFLAG_00010000) == 0) {
@@ -9414,13 +9440,35 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 						 * below; NULL for every base weapon. */
 						const weapon_graph_projectile_runtime_t *customproj =
 							weaponGetCustomProjectileGraph(weapon);
+						/* projectile-events.md slice 3: whether it lies or all
+						 * but lies still, for the came_to_rest rule and for the
+						 * grenade round's trail below. */
+						const bool atrest = sp350
+							|| (projectile->flags & PROJECTILEFLAG_FALLING)
+							|| (projectile->speed.x < 0.1f && projectile->speed.x > -0.1f
+								&& projectile->speed.y < 0.1f && projectile->speed.y > -0.1f
+								&& projectile->speed.z < 0.1f && projectile->speed.z > -0.1f)
+							|| (prop->pos.x - sp5c8.x < 0.1f && prop->pos.x - sp5c8.x > -0.1f
+								&& prop->pos.y - sp5c8.y < 0.1f && prop->pos.y - sp5c8.y > -0.1f
+								&& prop->pos.z - sp5c8.z < 0.1f && prop->pos.z - sp5c8.z > -0.1f);
+
+						/* The fuse is spent by the bounce rule (a rocket that
+						 * struck something) or by the came_to_rest rule (a
+						 * grenade round, and the N-bomb once its fuse is armed);
+						 * weaponTick's fuse rule then decides what follows. */
+						if (bouncedmods & PROJECTILE_MODULE_SPEND_FUSE) {
+							weapon->timer240 = 0;
+						}
+
+						if (atrest && (projectileRuleFor(MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, obj)
+								& PROJECTILE_MODULE_SPEND_FUSE)) {
+							weapon->timer240 = 0;
+						}
 
 						if (weapon->weaponnum == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
 							knifePlayWooshSound(obj);
 						} else if (weapon->weaponnum == WEAPON_ROCKET) {
-							if (cdresult == CDRESULT_COLLISION) {
-								weapon->timer240 = 0;
-							} else {
+							if (cdresult != CDRESULT_COLLISION) {
 								f32 tmp = projectile->speed.f[0] * projectile->speed.f[0]
 									+ projectile->speed.f[1] * projectile->speed.f[1]
 									+ projectile->speed.f[2] * projectile->speed.f[2];
@@ -9451,9 +9499,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								}
 							}
 						} else if (weapon->weaponnum == WEAPON_HOMINGROCKET) {
-							if (cdresult == CDRESULT_COLLISION) {
-								weapon->timer240 = 0;
-							} else {
+							if (cdresult != CDRESULT_COLLISION) {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_HOMINGTAIL);
 							}
 						} else if (customproj != NULL
@@ -9494,20 +9540,10 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									projectile->smoketimer240 -= g_Vars.lvupdate240;
 								}
 							}
-						} else if (weapon->weaponnum == WEAPON_GRENADEROUND
-								|| (weapon->weaponnum == WEAPON_NBOMB && weapon->gunfunc == FUNC_PRIMARY)) {
-							if (sp350
-									|| (projectile->flags & PROJECTILEFLAG_FALLING)
-									|| (projectile->speed.x < 0.1f && projectile->speed.x > -0.1f
-										&& projectile->speed.y < 0.1f && projectile->speed.y > -0.1f
-										&& projectile->speed.z < 0.1f && projectile->speed.z > -0.1f)
-									|| (prop->pos.x - sp5c8.x < 0.1f && prop->pos.x - sp5c8.x > -0.1f
-										&& prop->pos.y - sp5c8.y < 0.1f && prop->pos.y - sp5c8.y > -0.1f
-										&& prop->pos.z - sp5c8.z < 0.1f && prop->pos.z - sp5c8.z > -0.1f)) {
-								if (weapon->weaponnum != WEAPON_NBOMB || weapon->timer240 >= 0) {
-									weapon->timer240 = 0;
-								}
-							} else if (weapon->weaponnum != WEAPON_NBOMB) {
+						} else if (weapon->weaponnum == WEAPON_GRENADEROUND) {
+							/* Its trail while it moves; the fuse is the
+							 * came_to_rest rule's above. */
+							if (!atrest) {
 								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_GRENADETAIL);
 							}
 						}

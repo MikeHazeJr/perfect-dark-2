@@ -110,6 +110,14 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_PROJECTILE_ENDED 23
 #define MISSION_GRAPH_EVENT_PROJECTILE_DETONATED 24
 #define MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED 25
+/* projectile-events.md slice 3: the contact rule events. A projectile's
+ * sweep struck something (contact); its first step, from where it was made
+ * to the muzzle, was blocked (launch_blocked); it lies or all but lies still
+ * while still in flight (came_to_rest). With bounced and landed they choose
+ * the contact modules (projectile_rules.h). */
+#define MISSION_GRAPH_EVENT_PROJECTILE_CONTACT 26
+#define MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED 27
+#define MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST 28
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts

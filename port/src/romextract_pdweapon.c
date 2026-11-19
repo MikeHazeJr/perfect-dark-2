@@ -42,11 +42,14 @@
 #include "weapon_graph_archive.h"
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
+#include "mission_graph_runner.h"
+#include "projectile_rules.h"
 
 #define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v15"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
- * fuse wired (projectile-events.md slice 2), so installs re-extract them. */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram"
+ * fuse wired (projectile-events.md slice 2), so installs re-extract them.
+ * _contactrules: projectile archives also wire the contact rules (slice 3). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1180,6 +1183,7 @@ typedef struct {
 	s32 mode_index;
 	s32 projectile_modelnum;
 	const char *archetype;
+	s32 weaponnum; /* the weapon whose function this payload belongs to */
 } pdweapon_nested_payload_t;
 
 typedef struct {
@@ -1756,6 +1760,97 @@ static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
 	}
 }
 
+/* projectile-events.md slice 3: the contact rule wiring of the weapon object
+ * a function launches, from the original rules by weapon number
+ * (projectile_rules.c): an event node, its modules and their execution
+ * edges, and gate.projectile.fuse_armed where the original asks whether the
+ * fuse is armed. Each fragment begins ",\n    " so it follows the fuse node
+ * and the fuse edge. A function that launches no weapon object (the thrown
+ * Laptop gun's sentry) and one whose object the original gives no rule get
+ * nothing. */
+static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p,
+	char *nodes, size_t nodes_cap, char *edges, size_t edges_cap)
+{
+	static const struct {
+		s32 kind;
+		const char *id;
+	} events[] = {
+		{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, "contact" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, "launch_blocked" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, "bounced" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, "came_to_rest" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_LANDED, "landed" },
+	};
+	const struct weaponfunc *f = p->func;
+	size_t nlen = 0;
+	size_t elen = 0;
+	s32 objweapon = -1;
+	s32 objfunc = 0;
+	s32 sticks = 0;
+
+	nodes[0] = '\0';
+	edges[0] = '\0';
+	if (!f) return 0;
+	projectileRulesLaunchedObject(p->weaponnum, p->mode_index,
+		f->type == INVENTORYFUNCTYPE_THROW, (f->flags & FUNCFLAG_HOMINGROCKET) != 0,
+		&objweapon, &objfunc);
+	if (objweapon < 0 || objweapon >= g_WeaponDataCount) return 0;
+	if (objfunc >= 0 && objfunc < 2 && g_WeaponData[objweapon]) {
+		/* The object's own function decides whether it sticks to walls
+		 * (gsetHasFunctionFlags on the flying object's weapon and function). */
+		const struct weaponfunc *objf =
+			(const struct weaponfunc *)g_WeaponData[objweapon]->functions[objfunc];
+		sticks = objf && (objf->flags & FUNCFLAG_STICKTOWALL) != 0;
+	}
+
+	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
+		u32 modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);
+		const s32 gated = (modules & PROJECTILE_RULE_GATE_FUSE_ARMED) != 0;
+		char source[64];
+		int n;
+
+		modules &= PROJECTILE_MODULE_ALL;
+		if (!modules) continue;
+		n = snprintf(nodes + nlen, nodes_cap - nlen,
+			",\n    { \"id\": \"%s\", \"kind\": \"%s\" }",
+			events[i].id, projectileRulesEventName(events[i].kind));
+		if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+		nlen += (size_t)n;
+		snprintf(source, sizeof(source), "%s", events[i].id);
+		if (gated) {
+			n = snprintf(nodes + nlen, nodes_cap - nlen,
+				",\n    { \"id\": \"%s_fuse_armed\", \"kind\": \"" PROJECTILE_GATE_FUSE_ARMED_KIND "\" }",
+				events[i].id);
+			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+			nlen += (size_t)n;
+			n = snprintf(edges + elen, edges_cap - elen,
+				",\n    { \"from\": \"%s\", \"output\": \"out\", \"to\": \"%s_fuse_armed\", \"input\": \"exec\" }",
+				events[i].id, events[i].id);
+			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
+			elen += (size_t)n;
+			snprintf(source, sizeof(source), "%s_fuse_armed", events[i].id);
+		}
+		for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+			const char *kind = (modules & (1u << m)) ? projectileRulesModuleKind(1u << m) : NULL;
+			const char *shortname;
+
+			if (!kind) continue;
+			shortname = kind + strlen("og.projectile.");
+			n = snprintf(nodes + nlen, nodes_cap - nlen,
+				",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
+				events[i].id, shortname, kind);
+			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+			nlen += (size_t)n;
+			n = snprintf(edges + elen, edges_cap - elen,
+				",\n    { \"from\": \"%s\", \"output\": \"%s\", \"to\": \"%s_%s\", \"input\": \"exec\" }",
+				source, gated ? "pass" : "out", events[i].id, shortname);
+			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
+			elen += (size_t)n;
+		}
+	}
+	return 0;
+}
+
 static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 {
 	if (!p || p->type != ASSET_PROJECTILE) return -1;
@@ -1831,9 +1926,18 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
 	}
 
+	/* projectile-events.md slice 3: the contact rules of what this function
+	 * launches, wired as the original has them. */
+	char rule_nodes[2048];
+	char rule_edges[2048];
+	if (s_projectileRuleWiring(p, rule_nodes, sizeof(rule_nodes),
+			rule_edges, sizeof(rule_edges)) != 0) {
+		return -1;
+	}
+
 	/* projectile-events.md slice 2: v2, the records plus the program that
 	 * decides the fuse; the base archive wires the original fuse. */
-	char graph[4096];
+	char graph[8192];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
 		"  \"schema\": \"pd.projectile_graph.v2\",\n"
@@ -1869,11 +1973,11 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"      }\n"
 		"    }%s%s%s%s,\n"
 		"    { \"id\": \"fuse\", \"kind\": \"event.projectile.timer_expired\" },\n"
-		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }\n"
+		"    { \"id\": \"fuse_expired\", \"kind\": \"og.projectile.fuse_expired\" }%s\n"
 		"  ],\n"
 		"  \"edges\": [\n"
 		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s,\n"
-		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }\n"
+		"    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"fuse_expired\", \"input\": \"exec\" }%s\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"%s\" }\n"
@@ -1900,11 +2004,13 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    {\n      \"id\": \"fly_by_wire\",\n      \"kind\": \"projectile.fly_by_wire\",\n      \"params\": { \"control_source\": \"owner\", \"bot_route_policy\": \"runtime_existing\" }\n    }" : "",
 		(flags & FUNCFLAG_STICKTOWALL) ? ",\n    {\n      \"id\": \"wall_hugger\",\n      \"kind\": \"projectile.wall_hugger\",\n      \"params\": { \"stick_surface_filter\": \"background\", \"post_fall_timer60\": 360 }\n    }" : "",
 		bounce_node,
+		rule_nodes,
 		(flags & FUNCFLAG_HOMINGROCKET) ? ",\n    " : "",
 		(flags & FUNCFLAG_HOMINGROCKET) ? "{ \"from\": \"motion\", \"to\": \"homing\" }" : "",
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    { \"from\": \"motion\", \"to\": \"fly_by_wire\" }" :
 			((flags & FUNCFLAG_STICKTOWALL) ? ",\n    { \"from\": \"motion\", \"to\": \"wall_hugger\" }" : ""),
 		bounce_edge,
+		rule_edges,
 		(flags & FUNCFLAG_FLYBYWIRE) ? "fly_by_wire" :
 			((flags & FUNCFLAG_HOMINGROCKET) ? "homing" :
 			((flags & FUNCFLAG_STICKTOWALL) ? "wall_hugger" : "motion")));
@@ -2616,6 +2722,11 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 				"nested payload planning failed for \"%s\"", catalog_id);
 			return -1;
 		}
+	}
+
+	/* Each payload's weapon, for the contact rules of what it launches. */
+	for (s32 i = 0; i < payload_plan.count; i++) {
+		payload_plan.payloads[i].weaponnum = weapon_id;
 	}
 
 	if (s_emitNestedPayloadArchives(&payload_plan) != 0) {

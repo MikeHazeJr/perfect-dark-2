@@ -2046,9 +2046,31 @@ PROJECTILE_GRAPH_SCHEMAS = {
 PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced",
                            "event.projectile.hit_target", "event.projectile.landed",
                            "event.projectile.ended", "event.projectile.detonated",
-                           "event.projectile.timer_expired")
-PROJECTILE_GRAPH_MODULES = ("og.projectile.fuse_expired",)
-PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase")
+                           "event.projectile.timer_expired",
+                           # slice 3: the contact rule events
+                           "event.projectile.contact", "event.projectile.launch_blocked",
+                           "event.projectile.came_to_rest")
+# Slice 3: a module is a choice the seam of its event acts on, so each event
+# applies only the modules listed for it; one wired anywhere else would do
+# nothing, and the game refuses the program. Keep in step with
+# port/src/projectile_rules.c (s_ProjectileEvents, s_ProjectileModules).
+PROJECTILE_GRAPH_EVENT_MODULES = {
+    "event.projectile.timer_expired": ("og.projectile.fuse_expired",),
+    "event.projectile.contact": ("og.projectile.stick", "og.projectile.wall_hug",
+                                 "og.projectile.pierce", "og.projectile.impact"),
+    "event.projectile.launch_blocked": ("og.projectile.spend_fuse",),
+    "event.projectile.bounced": ("og.projectile.spend_fuse",),
+    "event.projectile.came_to_rest": ("og.projectile.spend_fuse",),
+    "event.projectile.landed": ("og.projectile.shield_device", "og.projectile.land_bolt",
+                                "og.projectile.land_knife", "og.projectile.poison_target"),
+}
+PROJECTILE_GRAPH_MODULES = ("og.projectile.fuse_expired", "og.projectile.stick",
+                            "og.projectile.wall_hug", "og.projectile.pierce",
+                            "og.projectile.impact", "og.projectile.spend_fuse",
+                            "og.projectile.shield_device", "og.projectile.land_bolt",
+                            "og.projectile.land_knife", "og.projectile.poison_target")
+PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase",
+                          "gate.projectile.fuse_armed")
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
 
@@ -2132,6 +2154,29 @@ def validate_projectile_graph_program(where: str, graph: dict) -> list[str]:
                 errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
         elif output is not None and output != "out":
             errors.append(f"{where} edge {idx} output must be \"out\"")
+    # Slice 3: every module an event reaches (through any gates) is one its
+    # seam applies. The game refuses the program otherwise, naming the pair.
+    exec_out: dict[str, list[str]] = {}
+    for edge in edges:
+        if isinstance(edge, dict) and edge.get("input") == "exec" \
+                and edge.get("from") in kinds and edge.get("to") in kinds:
+            exec_out.setdefault(edge["from"], []).append(edge["to"])
+    for event_id, event_kind in kinds.items():
+        if event_kind not in PROJECTILE_GRAPH_EVENTS:
+            continue
+        applied = PROJECTILE_GRAPH_EVENT_MODULES.get(event_kind, ())
+        seen: set[str] = set()
+        queue = list(exec_out.get(event_id, []))
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node_kind = kinds[node_id]
+            if node_kind in PROJECTILE_GRAPH_MODULES and node_kind not in applied:
+                errors.append(f"{where} {node_kind} {node_id!r} has no effect on {event_kind} "
+                              f"({event_id!r})")
+            queue.extend(exec_out.get(node_id, []))
     return errors
 
 

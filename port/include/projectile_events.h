@@ -49,8 +49,8 @@ void projectileEventRecord(s32 kind, struct defaultobj *obj);
 void projectileEventBind(struct defaultobj *obj, const char *asset_id);
 
 /* Logs "PROJECTILE.EVENTS: <why> spawned=N bounced=N hit_target=N landed=N
- * ended=N detonated=N fuse.compared=N fuse.differ=N" and starts the counts
- * again. */
+ * ended=N detonated=N fuse.compared=N fuse.differ=N rules.compared=N
+ * rules.differ=N" and starts the counts again. */
 void projectileEventsReport(const char *why);
 
 /*
@@ -71,6 +71,28 @@ void projectileEventsReport(const char *why);
  * weapon=... func=... object=... program=... fuse=0|1".
  */
 s32 projectileFuseRule(struct defaultobj *obj);
+
+/*
+ * The contact rules (projectile-events.md slice 3). At a contact seam the
+ * native code asks which modules the rule event `kind`
+ * (MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, _LAUNCH_BLOCKED, _BOUNCED,
+ * _CAME_TO_REST, _LANDED) runs for this object, and then runs the original
+ * code of the modules chosen (PROJECTILE_MODULE_* bits, projectile_rules.h).
+ * When the object's archive has a program, the program chooses: the event
+ * runs its gates and modules, and a module the event's seam does not apply
+ * is dropped. With no program (a v1 archive, or an object no launch bound
+ * and no archive names) the answer is `native`, the original rules' choice
+ * by weapon number (projectileRulesNative), which the caller passes in.
+ * Host and client alike choose by the program; only the host counts.
+ *
+ * The parity probe counts each choice a program made or the original would
+ * have made (rules.compared) and the ones where they are not the same set
+ * (rules.differ, the first eight logged as "PROJECTILE.RULE differs: ...");
+ * the base programs must leave rules.differ at 0. The first choice for a
+ * weapon, function and event logs "PROJECTILE.RULE: <event> weapon=...
+ * func=... object=... program=... modules=a+b native=a+b".
+ */
+u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native);
 
 #ifdef __cplusplus
 }

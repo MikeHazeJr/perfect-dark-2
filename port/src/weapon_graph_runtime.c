@@ -26,6 +26,7 @@
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "mission_graph_runner.h"
+#include "projectile_rules.h"
 
 typedef struct json_span {
 	const char *start;
@@ -648,19 +649,39 @@ typedef struct projectile_program_slot {
 } projectile_program_slot_t;
 static projectile_program_slot_t s_projectile_programs[WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS];
 
-/* The native modules a projectile program may name; their code runs at the
- * game's seams (propobj.c), which pass the run function when they fire. */
+/* The native modules and gates a projectile program may name
+ * (projectile_rules.h); their code runs at the game's seams (propobj.c),
+ * which pass the run function when they fire. */
 static s32 projectileProgramModuleKnown(const char *kind)
 {
-	static const char *const known[] = {
-		"og.projectile.fuse_expired",
-	};
-
 	if (!kind) return 0;
-	for (size_t i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
-		if (strcmp(kind, known[i]) == 0) return 1;
+	return projectileRulesModuleBit(kind) != 0 ||
+		strcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0;
+}
+
+/* projectile-events.md slice 3: a module chooses what the seam of its event
+ * does, so one wired to an event whose seam does not apply it would do
+ * nothing. Such a program is refused, with the pair named. */
+static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
+	char *why, size_t why_cap)
+{
+	for (s32 e = 0; projectileRulesEventAt(e) >= 0; e++) {
+		const s32 event_kind = projectileRulesEventAt(e);
+		const u32 applied = projectileRulesEventModules(event_kind);
+
+		for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+			const u32 bit = 1u << m;
+			const char *module_kind = projectileRulesModuleKind(bit);
+
+			if ((applied & bit) == 0 && module_kind &&
+					missionGraphProgramEventReachesModule(program, event_kind, module_kind)) {
+				snprintf(why, why_cap, "%s has no effect on %s", module_kind,
+					projectileRulesEventName(event_kind));
+				return 0;
+			}
+		}
 	}
-	return 0;
+	return 1;
 }
 
 static void projectileProgramForget(const char *asset_id)
@@ -699,6 +720,11 @@ static s32 projectileProgramRegister(const weapon_graph_ir_t *ir, char *err, siz
 	if (!program) {
 		setErr(err, err_cap, "%s program refused: %s", ir->asset_id,
 			why[0] ? why : "it does not compile");
+		return -1;
+	}
+	if (!projectileProgramModulesApply(program, why, sizeof(why))) {
+		missionGraphProgramFree(program);
+		setErr(err, err_cap, "%s program refused: %s", ir->asset_id, why);
 		return -1;
 	}
 	for (s32 i = 0; i < WEAPON_GRAPH_RUNTIME_MAX_PROGRAMS; i++) {

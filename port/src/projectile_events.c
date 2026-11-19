@@ -14,6 +14,7 @@
 #include "weapondata_authored.h"
 #include "weapon_graph_runtime.h"
 #include "mission_graph_runner.h"
+#include "projectile_rules.h"
 #include "projectile_events.h"
 
 static const char *const s_ProjectileEventNames[PROJECTILE_EVENT_COUNT] = {
@@ -25,14 +26,20 @@ static s32 s_ProjectileEventTotals[PROJECTILE_EVENT_COUNT];
 /* The fuse rule's parity counters (projectileFuseRule). */
 static s32 s_ProjectileFuseCompared;
 static s32 s_ProjectileFuseDiffer;
+/* The contact rules' (projectileRuleModules). */
+static s32 s_ProjectileRuleCompared;
+static s32 s_ProjectileRuleDiffer;
 
-/* The seen-table kind of the fuse rule's first-decision line. */
+/* The seen-table kind of the fuse rule's first-decision line, and of each
+ * other rule event's. */
 #define PROJECTILE_EVENT_SEEN_FUSE_RULE PROJECTILE_EVENT_COUNT
+#define PROJECTILE_EVENT_SEEN_RULE(event_kind) \
+	(PROJECTILE_EVENT_COUNT + 1 + ((event_kind) - MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED))
 
 /* The first event of each kind for a weapon and function logs a line;
  * later ones only count. Bounded, so an automatic launcher cannot flood
  * the log. */
-#define PROJECTILE_EVENT_SEEN_MAX 192
+#define PROJECTILE_EVENT_SEEN_MAX 384
 typedef struct projectile_event_seen {
 	s16 weaponnum;
 	s8 func;
@@ -214,7 +221,7 @@ void projectileEventsReport(const char *why)
 {
 	sysLogPrintf(LOG_NOTE,
 		"PROJECTILE.EVENTS: %s spawned=%d bounced=%d hit_target=%d landed=%d ended=%d detonated=%d"
-		" fuse.compared=%d fuse.differ=%d",
+		" fuse.compared=%d fuse.differ=%d rules.compared=%d rules.differ=%d",
 		why ? why : "report",
 		s_ProjectileEventTotals[PROJECTILE_EVENT_SPAWNED],
 		s_ProjectileEventTotals[PROJECTILE_EVENT_BOUNCED],
@@ -222,30 +229,49 @@ void projectileEventsReport(const char *why)
 		s_ProjectileEventTotals[PROJECTILE_EVENT_LANDED],
 		s_ProjectileEventTotals[PROJECTILE_EVENT_ENDED],
 		s_ProjectileEventTotals[PROJECTILE_EVENT_DETONATED],
-		s_ProjectileFuseCompared, s_ProjectileFuseDiffer);
+		s_ProjectileFuseCompared, s_ProjectileFuseDiffer,
+		s_ProjectileRuleCompared, s_ProjectileRuleDiffer);
 	memset(s_ProjectileEventTotals, 0, sizeof(s_ProjectileEventTotals));
 	s_ProjectileFuseCompared = 0;
 	s_ProjectileFuseDiffer = 0;
+	s_ProjectileRuleCompared = 0;
+	s_ProjectileRuleDiffer = 0;
 	s_ProjectileEventSeenCount = 0;
 }
 
-/* What a projectile program's modules decided for one event. */
+/* What a projectile program's modules chose for one event. */
 typedef struct projectile_rule {
-	s32 fuse; /* og.projectile.fuse_expired ran */
+	s32 fuse;               /* og.projectile.fuse_expired ran */
+	u32 modules;            /* every module that ran (PROJECTILE_MODULE_*) */
+	struct defaultobj *obj; /* the projectile, for the gates */
 } projectile_rule_t;
 
-/* The projectile programs' native modules (weapon_graph_runtime.c's
- * projectileProgramModuleKnown lists the same kinds). */
+/* The projectile programs' modules and gates (projectile_rules.h lists the
+ * kinds, and weapon_graph_runtime.c's projectileProgramModuleKnown accepts
+ * the same). A module is a choice the seam then acts on; the gate reads the
+ * projectile. */
 static s32 projectileProgramModuleRun(const char *kind, const char *node_id,
 		const mission_graph_params_t *params, const mission_graph_event_t *event, void *user)
 {
 	projectile_rule_t *rule = (projectile_rule_t *)user;
+	const u32 bit = projectileRulesModuleBit(kind);
 
 	(void)node_id;
 	(void)params;
 	(void)event;
-	if (rule && kind && strcmp(kind, "og.projectile.fuse_expired") == 0) {
-		rule->fuse = 1;
+	if (!rule || !kind) {
+		return 0;
+	}
+	if (strcmp(kind, PROJECTILE_GATE_FUSE_ARMED_KIND) == 0) {
+		/* The fuse counts or is spent: the weapon object's timer is not idle. */
+		return rule->obj && rule->obj->type == OBJTYPE_WEAPON
+			&& ((struct weaponobj *)rule->obj)->timer240 >= 0 ? 1 : 0;
+	}
+	if (bit) {
+		rule->modules |= bit;
+		if (bit == PROJECTILE_MODULE_FUSE_EXPIRED) {
+			rule->fuse = 1;
+		}
 		return 1;
 	}
 	return 0;
@@ -301,6 +327,7 @@ s32 projectileFuseRule(struct defaultobj *obj)
 	event.catalog_id = projectileEventWeaponId(who.gunnum);
 	event.instance = obj;
 	memset(&rule, 0, sizeof(rule));
+	rule.obj = obj;
 	if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
 		rule.fuse = 0;
 	}
@@ -315,4 +342,101 @@ s32 projectileFuseRule(struct defaultobj *obj)
 			projectileEventWeaponId(weapon->weaponnum), asset_id ? asset_id : "-", rule.fuse);
 	}
 	return rule.fuse;
+}
+
+/* "contact" for MISSION_GRAPH_EVENT_PROJECTILE_CONTACT. */
+static const char *projectileRuleName(s32 kind)
+{
+	const char *name = projectileRulesEventName(kind);
+
+	return name ? name + strlen("event.projectile.") : "?";
+}
+
+/* "stick+pierce" for a set of modules, "-" for none. */
+static const char *projectileModulesText(u32 modules, char *buf, size_t cap)
+{
+	size_t used = 0;
+	s32 m;
+
+	buf[0] = '\0';
+	for (m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+		const char *kind = (modules & (1u << m)) ? projectileRulesModuleKind(1u << m) : NULL;
+
+		if (kind) {
+			const int n = snprintf(buf + used, cap - used, "%s%s", used ? "+" : "",
+				kind + strlen("og.projectile."));
+
+			if (n < 0 || (size_t)n >= cap - used) {
+				break;
+			}
+			used += (size_t)n;
+		}
+	}
+	if (!used) {
+		snprintf(buf, cap, "-");
+	}
+	return buf;
+}
+
+u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
+{
+	const mission_graph_program_t *program;
+	const char *asset_id = NULL;
+	mission_graph_event_t event;
+	projectile_identity_t who;
+	projectile_rule_t rule;
+	s32 handled;
+
+	if (!obj || !projectileIdentify(obj, &who)) {
+		return native;
+	}
+	program = projectileProgramFor(&who, &asset_id);
+	if (!program) {
+		return native; /* a v1 archive: the original rules decide */
+	}
+	memset(&rule, 0, sizeof(rule));
+	rule.obj = obj;
+	handled = missionGraphProgramHandlesEvent(program, kind);
+	if (handled) {
+		memset(&event, 0, sizeof(event));
+		event.kind = kind;
+		event.player = (s32)((u32)obj->hidden >> 28);
+		event.catalog_id = projectileEventWeaponId(who.gunnum);
+		event.instance = obj;
+		if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
+			rule.modules = 0; /* a module refused: nothing is chosen */
+		}
+		rule.modules &= projectileRulesEventModules(kind);
+	}
+	if (g_NetMode != NETMODE_CLIENT && (handled || native)) {
+		char chose[96];
+		char original[96];
+
+		s_ProjectileRuleCompared++;
+		if (rule.modules != native) {
+			s_ProjectileRuleDiffer++;
+			if (s_ProjectileRuleDiffer <= 8) {
+				sysLogPrintf(LOG_WARNING,
+					"PROJECTILE.RULE differs: %s weapon=%s func=%s program=%s modules=%s native=%s",
+					projectileRuleName(kind),
+					projectileEventWeaponId(who.gunnum),
+					who.func == FUNC_SECONDARY ? "secondary" : "primary", asset_id ? asset_id : "-",
+					projectileModulesText(rule.modules, chose, sizeof(chose)),
+					projectileModulesText(native, original, sizeof(original)));
+			}
+		}
+		if (projectileEventFirst(who.gunnum, who.func, PROJECTILE_EVENT_SEEN_RULE(kind))) {
+			sysLogPrintf(LOG_NOTE,
+				"PROJECTILE.RULE: %s weapon=%s func=%s object=%s program=%s modules=%s native=%s",
+				projectileRuleName(kind),
+				projectileEventWeaponId(who.gunnum),
+				who.func == FUNC_SECONDARY ? "secondary" : "primary",
+				obj->type == OBJTYPE_WEAPON
+					? projectileEventWeaponId(((struct weaponobj *)obj)->weaponnum) : "-",
+				asset_id ? asset_id : "-",
+				projectileModulesText(rule.modules, chose, sizeof(chose)),
+				projectileModulesText(native, original, sizeof(original)));
+		}
+	}
+	return rule.modules;
 }

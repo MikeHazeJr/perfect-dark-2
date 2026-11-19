@@ -104,7 +104,7 @@ TEST_CASE("projectile events are recorded at the native seams",
 	// timer event, runs the fuse module and counts parity.
 	REQUIRE(countOf(propobj, "projectileFuseRule(obj)") == 4);
 	REQUIRE(events.find("event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;") != std::string::npos);
-	REQUIRE(events.find("strcmp(kind, \"og.projectile.fuse_expired\") == 0") != std::string::npos);
+	REQUIRE(events.find("\t\tif (bit == PROJECTILE_MODULE_FUSE_EXPIRED) {\n\t\t\trule->fuse = 1;") != std::string::npos);
 	REQUIRE(events.find("return 1; /* a v1 archive: the native rule decides */") != std::string::npos);
 	REQUIRE(events.find(" fuse.compared=%d fuse.differ=%d") != std::string::npos);
 
@@ -116,7 +116,7 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(countOf(extractor, "{ \\\"id\\\": \\\"fuse\\\", \\\"kind\\\": \\\"event.projectile.timer_expired\\\" }") == 2);
 	REQUIRE(countOf(extractor, "{ \\\"id\\\": \\\"fuse_expired\\\", \\\"kind\\\": \\\"og.projectile.fuse_expired\\\" }") == 2);
 	REQUIRE(countOf(extractor, "{ \\\"from\\\": \\\"fuse\\\", \\\"output\\\": \\\"out\\\", \\\"to\\\": \\\"fuse_expired\\\", \\\"input\\\": \\\"exec\\\" }") == 2);
-	REQUIRE(extractor.find("_projref_fuseprogram\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules\"") != std::string::npos);
 }
 
 TEST_CASE("custom projectiles log their spawn and their landing", "[weapon][graph][mods][static]")
