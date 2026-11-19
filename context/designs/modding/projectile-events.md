@@ -123,7 +123,7 @@ slices 5 and 6 are plans. Facts from a read-only survey of `week-pd/core-s5` (a5
 4. **Mines and damage taken:** proximity, remote and timed, a projectile set
    off by a shot (written: see "Slice 4 as written").
 5. **Deployment and autoguns:** the Laptop sentry and `autogunTick` as
-   modules.
+   modules (written: see "Slice 5 as written").
 6. **One contract:** the base guards go, the v1 path is refused, the row
    ticks.
 
@@ -467,6 +467,87 @@ gate it cannot answer and an explosion outside the table),
 the validator). The weapon cache kind moved (`_devicerules`), so an install
 re-extracts its weapon archives once.
 
+## Slice 5 as written: deployment and the sentry (CORE, 2026-11-19; on `week-pd/core-s9`, not run in the game yet)
+
+A survey of the sentry code first (2026-11-19, read-only), because it
+changes what this slice is:
+
+- **A thrown Laptop gun is never a weapon object.** `laptopDeploy` makes an
+  autogun object in its owner's slot at the instant of the throw, and
+  nothing in `autogunTick` asks whether it has landed, so it is a live
+  sentry while still in flight. Its landing only sets its rest pose.
+- **One code path serves every autogun.** A mission's turrets and the
+  sentry differ by data (the team it targets, ammunition, arc, range), by
+  whether a Combat Simulator match is running, and by four model tests for
+  sound, sparks and beam. Targeting, turning and firing are the host's
+  alone; a network client's copy does none of it.
+- **The sentry already reads its record.** `laptopDeploy` reads the Laptop
+  gun's entity record with no weapon-number test (ammunition, aim distance,
+  turn speed, team policy, cadence, muzzles, beam, friendly fire, recovery,
+  owner death), and the base archive authors none of those, so each reader
+  takes its original default. Base and mod sentries were one contract by
+  data before this slice; what the weapon number still decided was that a
+  throw becomes a sentry at all.
+
+So the slice is two rule events, in the pattern of slices 3 and 4.
+
+| Event (kind) | Fired | Modules it applies |
+|---|---|---|
+| `event.projectile.thrown` (32) | a throw is about to make its object (`bgunCreateThrownProjectile2`: a player's throw, a simulant's, a mod weapon's charge launch); no object exists yet | `deploy_sentry` |
+| `event.projectile.sentry_aimed` (33) | a deployed sentry has its target in its sights and would fire (`autogunTick`, each tick, on the host) | `sentry_fire` |
+
+| Module | What it selects | Base wiring |
+|---|---|---|
+| `og.projectile.deploy_sentry` | the throw makes a sentry gun (`laptopDeploy`: its owner's one sentry, replacing the last), not a thrown weapon object | the Laptop gun's second function |
+| `og.projectile.sentry_fire` | the sentry fires; without it an aimed sentry holds its fire (its barrel still spins up) | the Laptop gun's second function |
+
+Both live in the throwing function's projectile archive, like every other
+rule of what a function launches. A mod that unwires `thrown` gets a Laptop
+gun that is thrown as an ordinary object; one that gates `sentry_fire` gets
+a sentry that only watches.
+
+**Neither is asked about a weapon object**, so each is told which archive
+answers. The throw rule names the throwing function's launch record
+(`projectileThrowModules`). A sentry outlives the launch's binding (a ring
+of 64) and is no weapon object, so the archive it was thrown from is kept
+with its deploy record (`g_ThrownLaptopLatch`: weapon, function, archive
+id), and `autogunSentryRule` asks that archive's program
+(`projectileSentryModules`). A mission's own turret has no archive: the
+original answers (it fires). So does a network client's copy of a sentry,
+which is made without a launch record and never ticks anyway.
+
+**The table answers for the original**: at `thrown` by the thrower's weapon
+(the Laptop gun), at `sentry_aimed` with one answer for every autogun. The
+extractor writes the `thrown` rule from it for each throw, and the sentry's
+rule into an archive whose throw deploys one; the weapon cache kind moved
+(`_sentryrules`). Parity counts with the other rules;
+`projectile_events_smoke` requires the Laptop gun's `thrown` line (nothing
+in that smoke gives the sentry a target, so `sentry_aimed` is not required
+there).
+
+**Left native, on purpose**:
+
+- Who a sentry targets, how it turns and what its shot does: the autogun
+  code, with the record's numbers. Every autogun's shot still takes its
+  damage and sounds from the Laptop gun's first function.
+- That a thrown sentry sticks to the background only and takes its rest
+  pose from the surface: keyed by the object being an autogun, not by a
+  weapon number.
+- The held side of the throw (the Laptop gun leaves the hand), recovery
+  with the use button, the one sentry per owner, and the owner's death.
+- A mod weapon's v1 transition record still deploys its sentry.
+
+**Found by the survey, not this slice's** (for MULTIPLAYER, unverified in
+play): a simulant's throw writes no spawn message, so a client may never
+see a simulant's sentry or thrown item; a client draws no muzzle flash,
+beam, spark or sound for any sentry (the shoot code returns first on a
+client); and the periodic prop resync writes a sentry's owner as a client
+id but reads it back as a player number.
+
+Tests: `tests/test_projectile_rules.cpp` (the table's two answers, the
+Laptop gun's wiring fired through the runner, and the source pins of the
+throw and the sentry seams), `tools/tests/test_projectile_program_conformance.py`.
+
 ## Slice 6 plan: one contract (CORE, 2026-11-19)
 
 After slices 2 to 4 a program decides what happens inside each fuse arm of
@@ -531,7 +612,7 @@ campaigns exercise the fuse and struck fuse arms (guards throw grenades and
 fire rockets); `projectile_events_smoke` exercises all five.
 
 **What it does not do:** the flight model, the presentation, a held
-weapon's detonator, and the autogun, which is slice 5's.
+weapon's detonator, and the sentry, whose two rules are slice 5's.
 
 ## Not in scope
 

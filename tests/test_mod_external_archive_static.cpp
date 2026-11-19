@@ -2588,7 +2588,7 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v15\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"primary_graph\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"shared_context_file\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("shared_context = \" PDWEAPON_SHARED_CONTEXT_ENTRY") != std::string::npos);
@@ -4444,7 +4444,9 @@ TEST_CASE("wave 5 unit 7 deployed-entity consumer pins stay wired",
 	 * production caller of weaponGraphRuntimeGetEntityForProjectile, OG
 	 * laptop clause first, and the laptopDeploy projectile-chain fallback. */
 	REQUIRE(bondgun.find("weaponGraphRuntimeGetEntityForProjectile") != std::string::npos);
-	REQUIRE(bondgun.find("gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL") != std::string::npos);
+	/* projectile-events.md slice 5: the base Laptop's throw is the throw
+	 * rule's choice now; a mod weapon's transition entity still deploys. */
+	REQUIRE(bondgun.find("& PROJECTILE_MODULE_DEPLOY_SENTRY)\n\t\t\t\t|| transitionentity != NULL) {") != std::string::npos);
 	REQUIRE(propobj.find("weaponGraphRuntimeGetEntityForProjectile(projectilerec)") != std::string::npos);
 
 	/* Laptop ammo-transfer literals replaced by the carrier weaponnum

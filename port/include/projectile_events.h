@@ -34,6 +34,7 @@ extern "C" {
 #define PROJECTILE_EVENT_COUNT 6
 
 struct defaultobj;
+struct gset;
 
 void projectileEventRecord(s32 kind, struct defaultobj *obj);
 
@@ -88,6 +89,30 @@ typedef struct projectile_rule_context {
 u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native);
 u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 	const projectile_rule_context_t *context);
+
+/*
+ * The sentry rules (projectile-events.md slice 5). Neither is asked about a
+ * weapon object, so each is told which archive's program answers.
+ *
+ * projectileThrowModules: a throw is about to make its object, and
+ * bgunCreateThrownProjectile2 asks what it makes
+ * (event.projectile.thrown): PROJECTILE_MODULE_DEPLOY_SENTRY for a sentry
+ * gun, 0 for the thrown weapon object. asset_id is the throwing function's
+ * projectile archive (its launch record's), or NULL when it has none: then
+ * the original answers.
+ *
+ * projectileSentryModules: a deployed sentry asks a rule of its own
+ * (event.projectile.sentry_aimed: PROJECTILE_MODULE_SENTRY_FIRE). The
+ * weapon, function and archive are the ones it was thrown from, kept with
+ * the sentry since its deploy: the launch's binding does not last as long
+ * as a sentry does. A mission's own turrets have no archive and never ask.
+ *
+ * Parity is counted with the other rules (rules.compared, rules.differ),
+ * and the first decision logs the same "PROJECTILE.RULE: <event> ..." line.
+ */
+u32 projectileThrowModules(const struct gset *gset, const char *asset_id, u32 native);
+u32 projectileSentryModules(s32 kind, struct defaultobj *obj, s32 gunnum, s32 func,
+	const char *asset_id, u32 native);
 
 /*
  * The fuse rule (projectile-events.md slices 2 and 4). Where a weapon

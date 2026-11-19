@@ -37,7 +37,9 @@ extern "C" {
 #define PROJECTILE_MODULE_LAND_KNIFE    (1u << 8) /* og.projectile.land_knife: it lands as a thrown knife */
 #define PROJECTILE_MODULE_POISON_TARGET (1u << 9) /* og.projectile.poison_target: it poisons the character it sticks in */
 #define PROJECTILE_MODULE_NBOMB_STORM   (1u << 10) /* og.projectile.nbomb_storm: it becomes an N-bomb storm */
-#define PROJECTILE_MODULE_COUNT 11
+#define PROJECTILE_MODULE_DEPLOY_SENTRY (1u << 11) /* og.projectile.deploy_sentry: the throw makes a sentry gun, not a weapon object */
+#define PROJECTILE_MODULE_SENTRY_FIRE   (1u << 12) /* og.projectile.sentry_fire: the sentry fires */
+#define PROJECTILE_MODULE_COUNT 13
 #define PROJECTILE_MODULE_ALL ((1u << PROJECTILE_MODULE_COUNT) - 1)
 
 /*
@@ -97,7 +99,10 @@ u32 projectileRulesEventModules(s32 event_kind);
  * asks first. sticks_to_wall is whether that function has
  * FUNCFLAG_STICKTOWALL. 0 for an object the original never brings to the
  * event's seam (a thrown knife has no fuse; only a remote mine listens for
- * the detonator).
+ * the detonator). Two events are not about a weapon object: at
+ * event.projectile.thrown the weapon number and function are the thrower's
+ * (a thrown Laptop gun becomes its sentry), and event.projectile.sentry_aimed
+ * has one answer for every sentry and every other autogun (it fires).
  */
 u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks_to_wall);
 

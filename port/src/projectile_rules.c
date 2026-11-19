@@ -25,6 +25,8 @@ static const struct {
 	{ PROJECTILE_MODULE_LAND_KNIFE, "og.projectile.land_knife" },
 	{ PROJECTILE_MODULE_POISON_TARGET, "og.projectile.poison_target" },
 	{ PROJECTILE_MODULE_NBOMB_STORM, "og.projectile.nbomb_storm" },
+	{ PROJECTILE_MODULE_DEPLOY_SENTRY, "og.projectile.deploy_sentry" },
+	{ PROJECTILE_MODULE_SENTRY_FIRE, "og.projectile.sentry_fire" },
 };
 
 static const struct {
@@ -66,6 +68,10 @@ static const struct {
 		PROJECTILE_MODULE_SPEND_FUSE },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "event.projectile.damaged",
 		PROJECTILE_MODULE_SPEND_FUSE },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, "event.projectile.thrown",
+		PROJECTILE_MODULE_DEPLOY_SENTRY },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "event.projectile.sentry_aimed",
+		PROJECTILE_MODULE_SENTRY_FIRE },
 };
 #define PROJECTILE_EVENT_ROWS ((s32)(sizeof(s_ProjectileEvents) / sizeof(s_ProjectileEvents[0])))
 
@@ -281,6 +287,15 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 			return PROJECTILE_MODULE_SPEND_FUSE;
 		}
 		return 0;
+	case MISSION_GRAPH_EVENT_PROJECTILE_THROWN:
+		/* The thrower's weapon here: a thrown Laptop gun becomes its
+		 * sentry (bgunCreateThrownProjectile2); anything else thrown is a
+		 * weapon object. */
+		return weaponnum == WEAPON_LAPTOPGUN ? PROJECTILE_MODULE_DEPLOY_SENTRY : 0;
+	case MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED:
+		/* An aimed sentry fires, and so does every other autogun
+		 * (autogunTick). */
+		return PROJECTILE_MODULE_SENTRY_FIRE;
 	default:
 		return 0;
 	}

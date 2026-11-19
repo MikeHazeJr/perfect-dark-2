@@ -49,7 +49,7 @@
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1766,10 +1766,13 @@ static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
  * modules and their execution edges; an explode module carries the
  * explosion the original names for that object. Each fragment begins
  * ",\n    " so it follows the data nodes and the data edge. A function that
- * launches no weapon object (the thrown Laptop gun's sentry) and one whose
- * object the original gives no rule get nothing. fuse_only keeps the fuse
- * rule alone: an entity archive's program, which decides only for an item
- * that has no projectile program. */
+ * launches no weapon object and one whose object the original gives no
+ * rule get no object rules. Slice 5: a throw also gets what the original
+ * makes of the throw itself, by the thrower's weapon (the Laptop gun's
+ * throw deploys a sentry), and a throw that deploys a sentry gets the
+ * sentry's own rule. fuse_only keeps the fuse rule alone: an entity
+ * archive's program, which answers the fuse of an item that has no
+ * projectile program. */
 static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,
 	char *nodes, size_t nodes_cap, char *edges, size_t edges_cap)
 {
@@ -1786,6 +1789,8 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 		{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, "proximity" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, "remote_signal" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "damaged" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, "thrown" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "sentry_aimed" },
 	};
 	const struct weaponfunc *f = p->func;
 	size_t nlen = 0;
@@ -1793,6 +1798,8 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 	s32 objweapon = -1;
 	s32 objfunc = 0;
 	s32 sticks = 0;
+	s32 has_object;
+	u32 thrown;
 
 	nodes[0] = '\0';
 	edges[0] = '\0';
@@ -1800,8 +1807,13 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 	projectileRulesLaunchedObject(p->weaponnum, p->mode_index,
 		f->type == INVENTORYFUNCTYPE_THROW, (f->flags & FUNCFLAG_HOMINGROCKET) != 0,
 		&objweapon, &objfunc);
-	if (objweapon < 0 || objweapon >= g_WeaponDataCount) return 0;
-	if (objfunc >= 0 && objfunc < 2 && g_WeaponData[objweapon]) {
+	/* What the original makes of the throw itself, by the thrower's weapon. */
+	thrown = f->type == INVENTORYFUNCTYPE_THROW
+		? projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_THROWN, p->weaponnum, p->mode_index, 0)
+		: 0;
+	has_object = objweapon >= 0 && objweapon < g_WeaponDataCount;
+	if (!has_object && !(thrown & PROJECTILE_MODULE_ALL)) return 0;
+	if (has_object && objfunc >= 0 && objfunc < 2 && g_WeaponData[objweapon]) {
 		/* The object's own function decides whether it sticks to walls
 		 * (gsetHasFunctionFlags on the flying object's weapon and function). */
 		const struct weaponfunc *objf =
@@ -1810,13 +1822,23 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 	}
 
 	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
-		u32 modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);
+		u32 modules = 0;
 		const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);
 		const char *output = "out";
 		char source[64];
 		int n;
 
 		if (fuse_only && events[i].kind != MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) continue;
+		if (events[i].kind == MISSION_GRAPH_EVENT_PROJECTILE_THROWN) {
+			modules = thrown;
+		} else if (events[i].kind == MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED) {
+			/* The sentry's own rule, for a throw that deploys one. */
+			if (thrown & PROJECTILE_MODULE_DEPLOY_SENTRY) {
+				modules = projectileRulesNative(events[i].kind, p->weaponnum, p->mode_index, 0);
+			}
+		} else if (has_object) {
+			modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);
+		}
 		if (!(modules & PROJECTILE_MODULE_ALL)) continue;
 		n = snprintf(nodes + nlen, nodes_cap - nlen,
 			",\n    { \"id\": \"%s\", \"kind\": \"%s\" }",

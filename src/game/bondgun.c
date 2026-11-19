@@ -83,6 +83,8 @@
 #include "scenario_source_runtime.h"
 #include "scenario_stage_rules.h"
 #include "projectile_events.h"
+#include "projectile_rules.h"
+#include "mission_graph_runner.h"
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -5711,7 +5713,15 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 			}
 		}
 
-		if (gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL) {
+		/* projectile-events.md slice 5: the throw rule says what this throw
+		 * makes: a sentry gun (the original: a thrown Laptop gun), or the
+		 * thrown weapon object. A mod weapon's v1 record still says so
+		 * with its transition entity. */
+		if ((projectileThrowModules(gset, projectilegraph ? projectilegraph->asset_id : NULL,
+					projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_THROWN,
+						gset->weaponnum, gset->weaponfunc, 0))
+					& PROJECTILE_MODULE_DEPLOY_SENTRY)
+				|| transitionentity != NULL) {
 			autogun = laptopDeploy(projectilemodelnum, gset, chr);
 
 			if (autogun != NULL) {

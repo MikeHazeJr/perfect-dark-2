@@ -2052,7 +2052,9 @@ PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced
                            "event.projectile.came_to_rest",
                            # slice 4: the device rule events
                            "event.projectile.proximity", "event.projectile.remote_signal",
-                           "event.projectile.damaged")
+                           "event.projectile.damaged",
+                           # slice 5: the sentry rule events
+                           "event.projectile.thrown", "event.projectile.sentry_aimed")
 # Slice 3: a module is a choice the seam of its event acts on, so each event
 # applies only the modules listed for it; one wired anywhere else would do
 # nothing, and the game refuses the program. Keep in step with
@@ -2062,6 +2064,8 @@ PROJECTILE_GRAPH_EVENT_MODULES = {
     "event.projectile.proximity": ("og.projectile.spend_fuse",),
     "event.projectile.remote_signal": ("og.projectile.spend_fuse",),
     "event.projectile.damaged": ("og.projectile.spend_fuse",),
+    "event.projectile.thrown": ("og.projectile.deploy_sentry",),
+    "event.projectile.sentry_aimed": ("og.projectile.sentry_fire",),
     "event.projectile.contact": ("og.projectile.stick", "og.projectile.wall_hug",
                                  "og.projectile.pierce", "og.projectile.impact"),
     "event.projectile.launch_blocked": ("og.projectile.spend_fuse",),
@@ -2075,7 +2079,8 @@ PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
                             "og.projectile.impact", "og.projectile.spend_fuse",
                             "og.projectile.shield_device", "og.projectile.land_bolt",
                             "og.projectile.land_knife", "og.projectile.poison_target",
-                            "og.projectile.nbomb_storm")
+                            "og.projectile.nbomb_storm", "og.projectile.deploy_sentry",
+                            "og.projectile.sentry_fire")
 PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase",
                           "gate.projectile.fuse_armed", "gate.projectile.trigger_close",
                           "gate.projectile.trigger_character",

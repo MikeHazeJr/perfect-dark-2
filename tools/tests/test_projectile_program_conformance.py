@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the archive validator's projectile and entity graph checks
-(context/designs/modding/projectile-events.md, slices 2 to 4).
+(context/designs/modding/projectile-events.md, slices 2 to 5).
 
 A projectile or entity archive's behavior.graph.json is v1 (the launch and
 deploy data alone) or v2 (the same data plus a program of event.*, gate.* and
@@ -113,8 +113,12 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 11)
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 13)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 13)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 15)
+        self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.thrown"],
+                         ("og.projectile.deploy_sentry",))
+        self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.sentry_aimed"],
+                         ("og.projectile.sentry_fire",))
         for gate in ("gate.projectile.fuse_armed", "gate.projectile.trigger_close",
                      "gate.projectile.trigger_character", "gate.projectile.damage_not_blast"):
             self.assertIn(gate, conf.PROJECTILE_GRAPH_GATES)
@@ -145,6 +149,9 @@ class Programs(unittest.TestCase):
                               ("event.projectile.damaged", "og.projectile.explode"),
                               ("event.projectile.proximity", "og.projectile.nbomb_storm"),
                               ("event.projectile.remote_signal", "og.projectile.stick"),
+                              ("event.projectile.thrown", "og.projectile.sentry_fire"),
+                              ("event.projectile.sentry_aimed", "og.projectile.deploy_sentry"),
+                              ("event.projectile.contact", "og.projectile.deploy_sentry"),
                               ("event.projectile.timer_expired", "og.projectile.land_knife")):
             graph = with_nodes([{"id": "more", "kind": event}, {"id": "chosen", "kind": module}],
                                [{"from": "more", "to": "chosen", "input": "exec"}])

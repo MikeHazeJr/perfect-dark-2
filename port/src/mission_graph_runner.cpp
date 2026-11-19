@@ -128,6 +128,9 @@ const struct {
 	{ "event.projectile.proximity", MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY },
 	{ "event.projectile.remote_signal", MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL },
 	{ "event.projectile.damaged", MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED },
+	// Slice 5: the sentry rule events.
+	{ "event.projectile.thrown", MISSION_GRAPH_EVENT_PROJECTILE_THROWN },
+	{ "event.projectile.sentry_aimed", MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED },
 };
 
 // The projectile event kind of a node kind, or 0 for none.
@@ -142,7 +145,7 @@ s32 projectileEventKindOf(const std::string &kind)
 bool isProjectileEventKind(s32 kind)
 {
 	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
-		kind <= MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED;
+		kind <= MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED;
 }
 
 // A node's scalar fields other than id and kind, as text.

@@ -144,7 +144,7 @@ TEST_CASE("projectile events are recorded at the native seams",
 	REQUIRE(extractor.find("{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },") != std::string::npos);
 	REQUIRE(extractor.find("og.projectile.fuse_expired") == std::string::npos);
 	REQUIRE(countOf(extractor, "if (s_projectileRuleWiring(p, ") == 2);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules\"") != std::string::npos);
 }
 
 // B-1265: a base throw's launch record carries placeholders for what a

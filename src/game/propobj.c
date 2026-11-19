@@ -243,6 +243,14 @@ struct thrownlaptoplatch {
 	s32 pickupsound;      /* resolved soundnum (> 0) replacing weaponPlayPickupSound */
 	s32 interactanyone;   /* interact_filter "anyone": relax the owner-slot equality */
 	s32 ownerdeathmode;   /* 0 persist (OG), 1 explode, 2 delete (owner_death_behavior) */
+	/* projectile-events.md slice 5: the weapon function and the projectile
+	 * archive this sentry was thrown from, for its rules (the launch's
+	 * binding does not last as long as a sentry does). programasset is
+	 * empty for a sentry made without a launch record (a network client's
+	 * copy), which keeps the original rules. */
+	s32 throwweaponnum;
+	s32 throwfunc;
+	char programasset[CATALOG_ID_LEN];
 };
 
 static struct thrownlaptoplatch g_ThrownLaptopLatch[12];
@@ -261,6 +269,24 @@ static struct thrownlaptoplatch *thrownLaptopLatchGet(struct autogunobj *laptop)
 	}
 
 	return NULL;
+}
+
+/* projectile-events.md slice 5: the modules a sentry rule event runs for
+ * this autogun. A thrown sentry asks the program of the archive it was
+ * thrown from; a mission's own turret has none, and the original answers. */
+static u32 autogunSentryRule(s32 kind, struct defaultobj *obj)
+{
+	const u32 native = projectileRulesNative(kind, WEAPON_NONE, FUNC_PRIMARY, 0);
+
+	if (obj->flags & OBJFLAG_THROWNLAPTOP) {
+		struct thrownlaptoplatch *latch = thrownLaptopLatchGet((struct autogunobj *)obj);
+
+		if (latch != NULL && latch->programasset[0]) {
+			return projectileSentryModules(kind, obj, latch->throwweaponnum, latch->throwfunc,
+				latch->programasset, native);
+		}
+	}
+	return native & PROJECTILE_MODULE_ALL;
 }
 
 void thrownLaptopLatchResetAll(void)
@@ -11260,6 +11286,14 @@ void autogunTick(struct prop *prop)
 		}
 	}
 
+	/* projectile-events.md slice 5: it is aimed and would fire. The sentry
+	 * rule says whether it does; its barrel spins up either way. */
+	if (autogun->firing
+			&& !(autogunSentryRule(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, obj)
+				& PROJECTILE_MODULE_SENTRY_FIRE)) {
+		autogun->firing = false;
+	}
+
 	// Increase or decrease the barrel speed and apply the rotation
 	if (spinup) {
 		autogun->barrelspeed += 0.009971722f * g_Vars.lvupdate60freal;
@@ -22245,6 +22279,13 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 
 				memset(latch, 0, sizeof(*latch));
 				latch->recoverweaponnum = carrierweaponnum;
+
+				if (gset && projectilerec && projectilerec->asset_id[0]) {
+					latch->throwweaponnum = gset->weaponnum;
+					latch->throwfunc = gset->weaponfunc;
+					snprintf(latch->programasset, sizeof(latch->programasset), "%s",
+						projectilerec->asset_id);
+				}
 
 				if (entitygraph != NULL) {
 					latch->valid = 1;

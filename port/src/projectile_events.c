@@ -461,20 +461,18 @@ u32 projectileRuleModules(s32 kind, struct defaultobj *obj, u32 native)
 	return projectileRuleModulesWith(kind, obj, native, NULL);
 }
 
-u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
-		const projectile_rule_context_t *context)
+/* One rule event, for an object already identified (or, for a throw, for
+ * the thrower: obj is NULL then and instance is its gset): the program's
+ * choice, or the original's when the archive has no program. */
+static u32 projectileRuleDecide(s32 kind, struct defaultobj *obj, void *instance,
+		projectile_identity_t who, u32 original, const projectile_rule_context_t *context)
 {
-	const u32 original = projectileNativeChoice(native, obj, context);
 	const mission_graph_program_t *program;
 	const char *asset_id = NULL;
 	mission_graph_event_t event;
-	projectile_identity_t who;
 	projectile_rule_t rule;
 	s32 handled;
 
-	if (!obj || !projectileIdentify(obj, &who)) {
-		return original;
-	}
 	program = projectileProgramFor(&who, kind, &asset_id);
 	if (!program) {
 		return original; /* a v1 archive: the original rules decide */
@@ -487,9 +485,9 @@ u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 	if (handled) {
 		memset(&event, 0, sizeof(event));
 		event.kind = kind;
-		event.player = (s32)((u32)obj->hidden >> 28);
+		event.player = obj ? (s32)((u32)obj->hidden >> 28) : -1;
 		event.catalog_id = projectileEventWeaponId(who.gunnum);
-		event.instance = obj;
+		event.instance = instance;
 		if (missionGraphProgramFire(program, &event, projectileProgramModuleRun, &rule) < 0) {
 			rule.modules = 0; /* a module refused: nothing is chosen */
 		}
@@ -518,7 +516,7 @@ u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 				projectileRuleName(kind),
 				projectileEventWeaponId(who.gunnum),
 				who.func == FUNC_SECONDARY ? "secondary" : "primary",
-				obj->type == OBJTYPE_WEAPON
+				obj && obj->type == OBJTYPE_WEAPON
 					? projectileEventWeaponId(((struct weaponobj *)obj)->weaponnum) : "-",
 				asset_id ? asset_id : "-",
 				projectileModulesText(rule.modules, chose, sizeof(chose)),
@@ -526,6 +524,54 @@ u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
 		}
 	}
 	return rule.modules;
+}
+
+u32 projectileRuleModulesWith(s32 kind, struct defaultobj *obj, u32 native,
+		const projectile_rule_context_t *context)
+{
+	const u32 original = projectileNativeChoice(native, obj, context);
+	projectile_identity_t who;
+
+	if (!obj || !projectileIdentify(obj, &who)) {
+		return original;
+	}
+	return projectileRuleDecide(kind, obj, obj, who, original, context);
+}
+
+/* The archive a sentry rule is asked of, named by the caller: a throw has no
+ * object yet, and a sentry is no weapon object and outlives its binding. */
+static void projectileIdentityOf(projectile_identity_t *who, s32 gunnum, s32 func, const char *asset_id)
+{
+	who->gunnum = gunnum;
+	who->func = func;
+	who->asset_id = asset_id && asset_id[0] ? asset_id : NULL;
+	who->not_launched = 0;
+}
+
+u32 projectileThrowModules(const struct gset *gset, const char *asset_id, u32 native)
+{
+	const u32 original = projectileNativeChoice(native, NULL, NULL);
+	projectile_identity_t who;
+
+	if (!gset || !asset_id || !asset_id[0]) {
+		return original;
+	}
+	projectileIdentityOf(&who, gset->weaponnum, gset->weaponfunc, asset_id);
+	return projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_THROWN, NULL, (void *)gset, who,
+		original, NULL);
+}
+
+u32 projectileSentryModules(s32 kind, struct defaultobj *obj, s32 gunnum, s32 func,
+		const char *asset_id, u32 native)
+{
+	const u32 original = projectileNativeChoice(native, obj, NULL);
+	projectile_identity_t who;
+
+	if (!obj || !asset_id || !asset_id[0]) {
+		return original;
+	}
+	projectileIdentityOf(&who, gunnum, func, asset_id);
+	return projectileRuleDecide(kind, obj, obj, who, original, NULL);
 }
 
 u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosion,

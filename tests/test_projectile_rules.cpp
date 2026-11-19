@@ -1,7 +1,7 @@
 /*
  * test_projectile_rules.cpp -- the modules of a projectile program and the
  * original game's rules (port/src/projectile_rules.c;
- * context/designs/modding/projectile-events.md, slices 3 and 4).
+ * context/designs/modding/projectile-events.md, slices 3 to 5).
  *
  * The table is the one source the game's seams, the extractor's wiring and
  * the archive validator share, so these cases pin it three ways: its own
@@ -84,13 +84,17 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 		seen |= bit;
 	}
 	CHECK(seen == PROJECTILE_MODULE_ALL);
-	CHECK(PROJECTILE_MODULE_COUNT == 11);
+	CHECK(PROJECTILE_MODULE_COUNT == 13);
 	CHECK(projectileRulesModuleKind(0) == nullptr);
 	CHECK(projectileRulesModuleKind(PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_PIERCE) == nullptr);
 	CHECK(projectileRulesModuleKind(1u << PROJECTILE_MODULE_COUNT) == nullptr);
 	CHECK(projectileRulesModuleBit("og.projectile.stick") == PROJECTILE_MODULE_STICK);
 	CHECK(projectileRulesModuleBit("og.projectile.explode") == PROJECTILE_MODULE_EXPLODE);
 	CHECK(projectileRulesModuleBit("og.projectile.nbomb_storm") == PROJECTILE_MODULE_NBOMB_STORM);
+	CHECK(projectileRulesModuleBit("og.projectile.deploy_sentry") == PROJECTILE_MODULE_DEPLOY_SENTRY);
+	CHECK(projectileRulesModuleBit("og.projectile.sentry_fire") == PROJECTILE_MODULE_SENTRY_FIRE);
+	// The module bits stay below the gate bits.
+	CHECK((PROJECTILE_MODULE_ALL & PROJECTILE_RULE_GATE_ALL) == 0);
 	// Slice 2's name for the fuse's outcome is gone: explode and nbomb_storm say what goes off.
 	CHECK(projectileRulesModuleBit("og.projectile.fuse_expired") == 0);
 	CHECK(projectileRulesModuleBit("og.projectile.vanish") == 0);
@@ -170,11 +174,11 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 		CHECK((projectileRulesEventModules(kind) & ~PROJECTILE_MODULE_ALL) == 0);
 		count++;
 	}
-	CHECK(count == 13);
+	CHECK(count == 15);
 	CHECK(projectileRulesEventAt(-1) == -1);
 	CHECK(projectileRulesEventName(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == nullptr);
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == 0);
-	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED + 1) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED + 1) == 0);
 
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) ==
 		(PROJECTILE_MODULE_EXPLODE | PROJECTILE_MODULE_NBOMB_STORM));
@@ -190,6 +194,10 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_LANDED) ==
 		(PROJECTILE_MODULE_SHIELD_DEVICE | PROJECTILE_MODULE_LAND_BOLT | PROJECTILE_MODULE_LAND_KNIFE |
 			PROJECTILE_MODULE_POISON_TARGET));
+	// Slice 5: what a throw makes, and what an aimed sentry does.
+	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_THROWN) == PROJECTILE_MODULE_DEPLOY_SENTRY);
+	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED) ==
+		PROJECTILE_MODULE_SENTRY_FIRE);
 	// The records apply nothing.
 	for (s32 kind : { MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED, MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET,
 			MISSION_GRAPH_EVENT_PROJECTILE_ENDED, MISSION_GRAPH_EVENT_PROJECTILE_DETONATED }) {
@@ -375,6 +383,72 @@ TEST_CASE("projectile rules: the original game's fuses and what sets them off", 
 			}
 		}
 	}
+}
+
+TEST_CASE("projectile rules: the original game's sentry rules", "[projectile][rules]")
+{
+	const s32 thrown = MISSION_GRAPH_EVENT_PROJECTILE_THROWN;
+	const s32 aimed = MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED;
+
+	// At a throw the weapon is the thrower's: a thrown Laptop gun becomes
+	// its sentry, whichever function index asks; nothing else does.
+	for (s32 func : { FUNC_PRIMARY, FUNC_SECONDARY }) {
+		CHECK(projectileRulesNative(thrown, WEAPON_LAPTOPGUN, func, 0) == PROJECTILE_MODULE_DEPLOY_SENTRY);
+	}
+	for (s32 weaponnum = 0; weaponnum < 0x60; weaponnum++) {
+		if (weaponnum != WEAPON_LAPTOPGUN) {
+			INFO("weapon " << weaponnum);
+			CHECK(projectileRulesNative(thrown, weaponnum, FUNC_SECONDARY, 0) == 0);
+		}
+	}
+	// An aimed sentry fires, and so does every other autogun: one answer.
+	for (s32 weaponnum : { -1, 0, (s32)WEAPON_LAPTOPGUN, (s32)WEAPON_GRENADE }) {
+		CHECK(projectileRulesNative(aimed, weaponnum, FUNC_PRIMARY, 0) == PROJECTILE_MODULE_SENTRY_FIRE);
+	}
+	// The thrown Laptop gun is no weapon object, so it has no object rules.
+	s32 objweapon = 0;
+	s32 objfunc = 0;
+	projectileRulesLaunchedObject(WEAPON_LAPTOPGUN, FUNC_SECONDARY, 1, 0, &objweapon, &objfunc);
+	CHECK(objweapon == -1);
+
+	// The Laptop gun's wiring, as the extractor writes it, through the runner.
+	const std::string graph = R"({
+  "schema": "pd.projectile_graph.v2",
+  "nodes": [
+    { "id": "motion", "kind": "projectile.motion", "params": {} },
+    { "id": "thrown", "kind": "event.projectile.thrown" },
+    { "id": "thrown_deploy_sentry", "kind": "og.projectile.deploy_sentry" },
+    { "id": "sentry_aimed", "kind": "event.projectile.sentry_aimed" },
+    { "id": "sentry_aimed_sentry_fire", "kind": "og.projectile.sentry_fire" }
+  ],
+  "edges": [
+    { "from": "thrown", "output": "out", "to": "thrown_deploy_sentry", "input": "exec" },
+    { "from": "sentry_aimed", "output": "out", "to": "sentry_aimed_sentry_fire", "input": "exec" }
+  ]
+})";
+	char err[256] = "";
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(graph.data(), graph.size(),
+		moduleKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	int thrower = 0;
+	const auto fire = [&](s32 kind) {
+		mission_graph_event_t event = {};
+		event.kind = kind;
+		event.instance = &thrower; // a throw has no object yet: its gset stands in
+		Choice choice;
+		CHECK(missionGraphProgramFire(program, &event, runModule, &choice) >= 0);
+		return choice.modules;
+	};
+	CHECK(fire(thrown) == PROJECTILE_MODULE_DEPLOY_SENTRY);
+	CHECK(fire(aimed) == PROJECTILE_MODULE_SENTRY_FIRE);
+	CHECK(fire(MISSION_GRAPH_EVENT_PROJECTILE_CONTACT) == 0);
+	// An event still needs an instance.
+	mission_graph_event_t bare = {};
+	bare.kind = thrown;
+	Choice none;
+	CHECK(missionGraphProgramFire(program, &bare, runModule, &none) < 0);
+	missionGraphProgramFree(program);
 }
 
 TEST_CASE("projectile rules: the explosion an explode node names", "[projectile][rules]")
@@ -719,11 +793,19 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	// function launches, behind the weapon cache kind.
 	REQUIRE(extractor.find("static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,")
 		!= std::string::npos);
-	REQUIRE(extractor.find("u32 modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);") != std::string::npos);
+	REQUIRE(extractor.find("\t\t\tmodules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);") != std::string::npos);
+	// Slice 5: the throw's own rule is by the thrower's weapon, and the
+	// sentry's rule goes only to a throw that deploys one.
+	REQUIRE(extractor.find("\tthrown = f->type == INVENTORYFUNCTYPE_THROW\n"
+		"\t\t? projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_THROWN, p->weaponnum, p->mode_index, 0)\n"
+		"\t\t: 0;") != std::string::npos);
+	REQUIRE(extractor.find("\tif (!has_object && !(thrown & PROJECTILE_MODULE_ALL)) return 0;") != std::string::npos);
+	REQUIRE(extractor.find("\t\t\tif (thrown & PROJECTILE_MODULE_DEPLOY_SENTRY) {\n"
+		"\t\t\t\tmodules = projectileRulesNative(events[i].kind, p->weaponnum, p->mode_index, 0);") != std::string::npos);
 	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules\"") != std::string::npos);
 	// Every rule event of the table is wired, the fuse first.
 	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, \"contact\" },",
@@ -733,7 +815,9 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_LANDED, \"landed\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, \"proximity\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, \"remote_signal\" },",
-			"{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, \"damaged\" }," }) {
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, \"damaged\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, \"thrown\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, \"sentry_aimed\" }," }) {
 		INFO(row);
 		CHECK(extractor.find(row) != std::string::npos);
 	}
@@ -862,4 +946,55 @@ TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[p
 	REQUIRE(events.find("\t\tif (bit == PROJECTILE_MODULE_EXPLODE) {") != std::string::npos);
 	REQUIRE(events.find("missionGraphParamText(params, PROJECTILE_EXPLODE_TYPE_PARAM));") != std::string::npos);
 	REQUIRE(events.find("projectileFuseRule") == std::string::npos);
+}
+
+TEST_CASE("projectile rules: a throw and a sentry ask the rules", "[projectile][rules][static]")
+{
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string bgun = readSource("src/game/bondgun.c");
+	const std::string events = readSource("port/src/projectile_events.c");
+
+	// The throw: the rule says whether it makes a sentry; no weapon number
+	// is asked. A mod weapon's v1 record still says so with its transition.
+	REQUIRE(bgun.find("\t\tif ((projectileThrowModules(gset, projectilegraph ? projectilegraph->asset_id : NULL,\n"
+		"\t\t\t\t\tprojectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_THROWN,\n"
+		"\t\t\t\t\t\tgset->weaponnum, gset->weaponfunc, 0))\n"
+		"\t\t\t\t\t& PROJECTILE_MODULE_DEPLOY_SENTRY)\n"
+		"\t\t\t\t|| transitionentity != NULL) {\n"
+		"\t\t\tautogun = laptopDeploy(projectilemodelnum, gset, chr);") != std::string::npos);
+	REQUIRE(bgun.find("gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL") == std::string::npos);
+
+	// The sentry keeps the archive it was thrown from with its deploy record,
+	// because the launch's binding does not last as long as a sentry does.
+	REQUIRE(propobj.find("\ts32 throwweaponnum;\n\ts32 throwfunc;\n\tchar programasset[CATALOG_ID_LEN];\n};") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\tif (gset && projectilerec && projectilerec->asset_id[0]) {\n"
+		"\t\t\t\t\tlatch->throwweaponnum = gset->weaponnum;\n"
+		"\t\t\t\t\tlatch->throwfunc = gset->weaponfunc;") != std::string::npos);
+	REQUIRE(propobj.find("static u32 autogunSentryRule(s32 kind, struct defaultobj *obj)\n{") != std::string::npos);
+	REQUIRE(propobj.find("\t\tif (latch != NULL && latch->programasset[0]) {\n"
+		"\t\t\treturn projectileSentryModules(kind, obj, latch->throwweaponnum, latch->throwfunc,\n"
+		"\t\t\t\tlatch->programasset, native);") != std::string::npos);
+	// A mission's own turret has no archive: the original answers.
+	REQUIRE(propobj.find("\treturn native & PROJECTILE_MODULE_ALL;\n}\n\nvoid thrownLaptopLatchResetAll(void)") != std::string::npos);
+
+	// The sentry: aimed and about to fire, it asks the rule, on the host
+	// (autogunTick returns at once on a network client).
+	const size_t tick = propobj.find("void autogunTick(struct prop *prop)\n{");
+	REQUIRE(tick != std::string::npos);
+	const std::string body = propobj.substr(tick, propobj.find("\n}\n", tick) - tick);
+	CHECK(body.find("\tif (g_NetMode == NETMODE_CLIENT) {\n\t\treturn;\n\t}") != std::string::npos);
+	CHECK(body.find("\tif (autogun->firing\n"
+		"\t\t\t&& !(autogunSentryRule(MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, obj)\n"
+		"\t\t\t\t& PROJECTILE_MODULE_SENTRY_FIRE)) {\n"
+		"\t\tautogun->firing = false;\n\t}") != std::string::npos);
+
+	// Both rules name their archive themselves and go through the one
+	// decision the object rules use.
+	REQUIRE(events.find("u32 projectileThrowModules(const struct gset *gset, const char *asset_id, u32 native)\n{") != std::string::npos);
+	REQUIRE(events.find("\treturn projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_THROWN, NULL, (void *)gset, who,\n"
+		"\t\toriginal, NULL);") != std::string::npos);
+	REQUIRE(events.find("u32 projectileSentryModules(s32 kind, struct defaultobj *obj, s32 gunnum, s32 func,\n"
+		"\t\tconst char *asset_id, u32 native)\n{") != std::string::npos);
+	REQUIRE(countOf(events, "return projectileRuleDecide(") == 3);
+	REQUIRE(events.find("\tif (!gset || !asset_id || !asset_id[0]) {\n\t\treturn original;\n\t}") != std::string::npos);
 }

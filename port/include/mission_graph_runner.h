@@ -126,6 +126,13 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY 29
 #define MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL 30
 #define MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED 31
+/* projectile-events.md slice 5: the sentry rule events. A throw is about to
+ * make its object (thrown: no object exists yet, and the event's instance is
+ * the thrower's gset); a deployed sentry gun has its target in its sights
+ * (sentry_aimed). They choose og.projectile.deploy_sentry and
+ * og.projectile.sentry_fire. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_THROWN 32
+#define MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED 33
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -161,7 +168,7 @@ typedef struct mission_graph_event {
 	const char *object_kind; /* its objects.json kind ("door", "weapon_pickup", ...) */
 	const char *catalog_id;  /* a pickup's weapon, else the object's model; may be NULL */
 	/* projectile events (projectile-events.md slice 2) */
-	void *instance;          /* the weapon object (struct defaultobj *); never NULL */
+	void *instance;          /* the object (struct defaultobj *), or for event.projectile.thrown the thrower's gset; never NULL */
 } mission_graph_event_t;
 
 /* "active", "complete" or "failed" as a MISSION_GRAPH_PHASE_* value, or -1. */
