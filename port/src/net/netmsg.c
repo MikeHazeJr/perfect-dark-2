@@ -5774,7 +5774,7 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				"NET.RECONNECT.WORLD scheduler detail slot=%d syncid=%u proptype=%u objtype=%u"
 				" modelnum=%d propflags=0x%02x lifecycle=0x%02x had_parent=%d active=%d"
 				" objflags=0x%08x objflags2=0x%08x objflags3=0x%08x hidden=0x%08x hidden2=0x%02x"
-				" room=%d first_dynamic=%u",
+				" room=%d first_dynamic=%u prev=%d next=%d paused_head_listed=%d",
 				slot, prop->syncid, (unsigned)prop->type, (unsigned)prop->obj->type,
 				(s32)prop->obj->modelnum, (unsigned)prop->flags,
 				(unsigned)s_ReconnectPropReceive.lifecycle_by_slot[slot],
@@ -5782,7 +5782,10 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				(unsigned)prop->obj->flags, (unsigned)prop->obj->flags2,
 				(unsigned)prop->obj->flags3, (unsigned)prop->obj->hidden,
 				(unsigned)prop->obj->hidden2, (s32)prop->rooms[0],
-				(unsigned)g_NetFirstDynamicSyncId);
+				(unsigned)g_NetFirstDynamicSyncId,
+				prop->prev ? 1 : 0, prop->next ? 1 : 0,
+				g_Vars.pausedprops
+					? netmsgPropSchedulerMembershipCount(g_Vars.pausedprops) : -2);
 			return netmsgReconnectPropEndReject("scheduler", slot, prop->syncid,
 				parent_id, (u32)scheduler_membership);
 		}
