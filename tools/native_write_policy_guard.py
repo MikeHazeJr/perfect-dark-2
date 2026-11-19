@@ -80,6 +80,8 @@ REVIEWED = {
     "port/src/pdca_extract_transaction.c": {"routes": ["mkdir"], "sha256": "ea7c9891ad5a20663da577577cc846a1fdd1f6e550e057821be09e45d956ffe8"},
     "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "14ae26828e8f5b75c32415b870c2a0489ce57aef47f2f55d0bc4dffa86bffe37"},
     "port/src/theater_format.c": {"routes": ["ftruncate"], "sha256": "b684bb220e080efa8b7780260ff10002c527127f26b3778b6b1060fb9645dceb"},
+    # POSIX exclusive publication. Windows uses the wrapped MoveFileExA.
+    "port/src/save_atomic.c": {"routes": ["link"], "sha256": "99446e8b34d6d494352f48a071013015b2cd692e26152e32ffe7f9830a6f2a19"},
     # Dynamic resolution is restricted to random bytes and a waitable timer.
     "port/src/net/net_candidate.c": {"routes": ["GetProcAddress", "LoadLibraryA"], "sha256": "8aabafc20491a90e664f81b0ef8df5ed9b12b558a764696741c3eb25183184b8"},
     "port/src/system.c": {"routes": ["GetProcAddress"], "sha256": "bf6b770d4cb62f430834beb52cb74c4438f93f113ca4e764310da4091c0e3cd3"},
