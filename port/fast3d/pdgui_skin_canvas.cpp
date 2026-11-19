@@ -15,6 +15,7 @@
  */
 
 #include "glad/glad.h"
+#include "gfx_bgfx.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -266,6 +267,14 @@ static void glTextureCreate(void)
 {
     if (s_GlTexture != 0) return;
 
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: RGBA8, GL_NEAREST, GL_CLAMP_TO_EDGE. */
+        s_GlTexture = gfxBgfxPdguiTexCreate(s_Width, s_Height, s_Composite, 0, 1);
+        sysLogPrintf(LOG_NOTE, "skin_canvas: bgfx texture %u created (%dx%d)",
+                     s_GlTexture, s_Width, s_Height);
+        return;
+    }
+
     glGenTextures(1, &s_GlTexture);
     glBindTexture(GL_TEXTURE_2D, s_GlTexture);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -284,6 +293,11 @@ static void glTextureUpload(void)
 {
     if (s_GlTexture == 0) return;
 
+    if (gfxBgfxActive()) {
+        gfxBgfxPdguiTexUpdate(s_GlTexture, 0, 0, s_Width, s_Height, s_Composite, 0);
+        return;
+    }
+
     glBindTexture(GL_TEXTURE_2D, s_GlTexture);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                     s_Width, s_Height, GL_RGBA, GL_UNSIGNED_BYTE, s_Composite);
@@ -293,7 +307,11 @@ static void glTextureUpload(void)
 static void glTextureDestroy(void)
 {
     if (s_GlTexture != 0) {
-        glDeleteTextures(1, &s_GlTexture);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(s_GlTexture);
+        } else {
+            glDeleteTextures(1, &s_GlTexture);
+        }
         s_GlTexture = 0;
     }
 }

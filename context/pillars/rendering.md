@@ -2,6 +2,35 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-11-17 2.0 renderer phase 2a step 1: classic on bgfx's OpenGL backend (branch only)
+
+On `week-pd/bgfx-classic`, not merged into dev. Decision D5 and refactor R10
+of [designs/rendering/renderer-2.0-scope.md](../designs/rendering/renderer-2.0-scope.md);
+design and results in [designs/rendering/bgfx-classic-gl.md](../designs/rendering/bgfx-classic-gl.md).
+
+- A second fast3d backend, `port/fast3d/gfx_bgfx.cpp`, on bgfx's GL 4.3
+  renderer, chosen with `--renderer bgfx`. With no flag the 1.0 GL renderer
+  (`gfx_opengl.cpp`) runs unchanged and bgfx is never initialised. Below GL
+  4.3 the game logs why and uses the 1.0 renderer.
+- The colour combiner is one precompiled uber-shader (`port/fast3d/shaders/fs_fast3d.sc`)
+  driven by uniforms, written per formula shape so the driver folds and fuses
+  the same arithmetic as the generated GLSL. No GLSL is written at runtime in
+  bgfx mode.
+- Every other raw-GL user has a bgfx path or a stated reason: the scenario
+  scene renderer (`scenario_scene_renderer_bgfx.cpp`), ImGui
+  (`imgui_impl_bgfx.cpp` behind `pdgui_render_backend.cpp`), the pdgui
+  textures (`gfxBgfxPdguiTex*`), the GPU swarm (compute only, unchanged), the
+  mesh debug view (reports unavailable), the dedicated server window (1.0
+  renderer).
+- `--renderer-parity` draws each frame through both renderers in one process
+  and compares the frames on every smoke screenshot (`gfx_tee.cpp`,
+  `gfx_parity.cpp`).
+
+Gotcha: bgfx records and executes the frame in `bgfx::frame()`, called from
+`gfx_sdl_swap_buffers_begin`. Raw GL issued during the frame in bgfx mode
+runs before any of bgfx's draws, so a new raw-GL draw path must go through
+bgfx (or be skipped) rather than draw directly.
+
 ## 2026-08-26 B-1086/B-1106 typed geometry-state repair (replacement source connected)
 
 The Carrington door trace found a shared public-source boundary, not a white
@@ -310,6 +339,8 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 
 ## Active design references
 
+- [designs/rendering/renderer-2.0-scope.md](../designs/rendering/renderer-2.0-scope.md) - the 2.0 classic/remastered renderer scope and decisions D1 to D7.
+- [designs/rendering/bgfx-classic-gl.md](../designs/rendering/bgfx-classic-gl.md) - phase 2a step 1: classic on bgfx's OpenGL backend (`--renderer bgfx`, `--renderer-parity`).
 - [designs/menus/hud-layer-order.md](../designs/menus/hud-layer-order.md) - HUD render ordering + context-aware gating.
 - [designs/in-flight/gpu-swarm-and-test-scenarios.md](../designs/in-flight/gpu-swarm-and-test-scenarios.md) - GPU compute boid swarm benchmark.
 - [designs/menus/activemenu-radial-architecture.md](../designs/menus/activemenu-radial-architecture.md) - the legacy GBI radial system (not ImGui).

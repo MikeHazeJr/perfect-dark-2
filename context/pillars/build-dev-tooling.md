@@ -338,6 +338,22 @@ Decision flowchart in `config-pd-ini-audit.md` (file is being folded into this d
 
 [CMakeLists.txt](../../CMakeLists.txt) statically links SDL2 from MSYS2, zlib, libcurl with the full TLS chain (libssl, libcrypto, libnghttp2/3, brotli, idn2, psl, zstd), libgcc, libstdc++, and winpthread for player-facing Windows executables. Embedded Mozilla CA bundle remains in the updater/client TLS path. `opengl32.dll` is the only allowed dynamic dep for release binaries. `pd-tests.exe` is a test-only exception: CMake copies the matching `C:/msys64/mingw64/bin/libwinpthread-1.dll` beside the binary so Catch2/std::chrono `clock_gettime64` imports resolve locally instead of through PATH.
 
+### bgfx (2.0 renderer, branch `week-pd/bgfx-classic`, 2026-11-17)
+
+bx, bimg and bgfx are pinned shallow submodules in `third_party/bgfx/`
+(the first configure fetches them; CI runs
+`git submodule update --init --depth 1 -- third_party/bgfx/bx third_party/bgfx/bimg third_party/bgfx/bgfx`).
+`third_party/bgfx-pd/CMakeLists.txt` builds them as the static libraries
+`pd_bx`, `pd_bimg` and `pd_bgfx` (GL 4.3 renderer only, single-threaded, no
+RenderDoc, NVAPI or DXGI sources) before the game's global flags, plus the
+host tool `pd-shaderc`, which compiles `port/fast3d/shaders/*.sc` into C
+headers at build time. Two upstream files are patched into the build tree at
+exact anchors (configure fails if an anchor moves). No DLL is added: the
+import table is the same as a classic build's.
+`tools/bgfx_dependency_audit.py` reviews bgfx's own library loads (the
+write-policy guard only scans the `pd` target) and the linked client; CI runs
+it after the build. Details: [designs/rendering/bgfx-classic-gl.md](../designs/rendering/bgfx-classic-gl.md).
+
 ---
 
 ## Active invariants
