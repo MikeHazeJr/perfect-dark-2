@@ -153,7 +153,39 @@ typedef struct projectile_identity {
 	s32 gunnum;           /* the weapon whose function launched it, or -1 */
 	s32 func;
 	const char *asset_id; /* the projectile archive it was launched from, or NULL */
+	s32 not_launched;     /* a gun whose function launches something else: no archive describes it */
 } projectile_identity_t;
+
+/* B-1264: whether a weapon object with this weapon number and function is
+ * what that function launches. A thrown item is (a grenade, a mine, a knife,
+ * the Dragon's second function); so is a rocket, a bolt or a grenade round
+ * that carries its own number. A gun that fires something else is not: a
+ * rocket launcher, a Devastator or a crossbow lying on the floor, or
+ * dropped by a guard, is a weapon object too, and its function's archive
+ * describes the rocket, the round or the bolt. A mod weapon's objects carry
+ * the weapon's own number whatever they are, so the number cannot say; the
+ * launch binds those. */
+static s32 projectileFunctionLaunchesItself(s32 weaponnum, s32 func)
+{
+	const struct weaponfunc *f;
+	s32 objweapon = -1;
+	s32 objfunc = -1;
+
+	if (weaponnum >= WEAPON_CUSTOM_START) {
+		return 1;
+	}
+	if (weaponnum < 0 || weaponnum >= g_WeaponDataCount || !g_WeaponData[weaponnum]
+			|| func < FUNC_PRIMARY || func > FUNC_SECONDARY) {
+		return 0;
+	}
+	f = (const struct weaponfunc *)g_WeaponData[weaponnum]->functions[func];
+	if (!f) {
+		return 0;
+	}
+	projectileRulesLaunchedObject(weaponnum, func, f->type == INVENTORYFUNCTYPE_THROW,
+		(f->flags & FUNCFLAG_HOMINGROCKET) != 0, &objweapon, &objfunc);
+	return objweapon == weaponnum && objfunc == func;
+}
 
 /* The object's binding; for a weapon object without one, its own weapon and
  * function (everything thrown carries those). 0 when neither says: an
@@ -165,6 +197,7 @@ static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out
 	out->gunnum = -1;
 	out->func = FUNC_PRIMARY;
 	out->asset_id = NULL;
+	out->not_launched = 0;
 	if (bind) {
 		out->asset_id = bind->asset_id;
 		if (bind->gunnum >= 0) {
@@ -179,12 +212,17 @@ static s32 projectileIdentify(struct defaultobj *obj, projectile_identity_t *out
 		out->gunnum = weapon->gset.weaponnum;
 		out->func = weapon->gset.weaponfunc;
 		if (!out->asset_id) {
-			const weapon_graph_projectile_runtime_t *record =
-				weaponGraphRuntimeGetProjectileForHeldFunction(
-					weaponGraphRuntimeGetHeldFunctionForGameplay(out->gunnum, out->func));
+			if (projectileFunctionLaunchesItself(weapon->weaponnum, weapon->gunfunc)) {
+				const weapon_graph_projectile_runtime_t *record =
+					weaponGraphRuntimeGetProjectileForHeldFunction(
+						weaponGraphRuntimeGetHeldFunctionForGameplay(out->gunnum, out->func));
 
-			if (record && record->asset_id[0]) {
-				out->asset_id = record->asset_id;
+				if (record && record->asset_id[0]) {
+					out->asset_id = record->asset_id;
+				}
+			} else {
+				/* B-1264: the gun itself, not what it fires. */
+				out->not_launched = 1;
 			}
 		}
 		return 1;
@@ -333,7 +371,7 @@ static const mission_graph_program_t *projectileProgramFor(const projectile_iden
 		program = weaponGraphRuntimeProjectileProgram(who->asset_id);
 		*asset_id = who->asset_id;
 	}
-	if (!program && who->gunnum >= 0) {
+	if (!program && who->gunnum >= 0 && !who->not_launched) {
 		const weapon_graph_entity_runtime_t *entity = weaponGraphRuntimeGetEntityForHeldFunction(
 			weaponGraphRuntimeGetHeldFunctionForGameplay(who->gunnum, who->func));
 

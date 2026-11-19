@@ -291,6 +291,14 @@ launches (`projectileRulesLaunchedObject`, pinned against `bondgun.c` and
 character fires, makes a rocket too, so its archive carries the rocket's
 wiring.
 
+**A gun is not what it fires** (B-1264, 2026-11-19): a weapon object no
+launch bound takes its own function's archive only when that function
+launches the object itself (a thrown item; a rocket, bolt or grenade round
+under its own number). A rocket launcher, a Devastator or a crossbow that
+is dropped or lies as a pickup is the gun: no archive describes it, so it
+has no program and the original rules answer (none, for a gun). Before the
+fix it would have been given its ammunition's contact rules.
+
 **Parity**: `rules.compared` and `rules.differ` in the stage totals; the
 first choice for a weapon, function and event logs `PROJECTILE.RULE: contact
 weapon=base:crossbow func=primary object=base:bolt program=... modules=stick+pierce
