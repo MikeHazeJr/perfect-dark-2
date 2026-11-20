@@ -57,6 +57,12 @@ extern "C" {
  *       event.lift.arrived, event.glass.damaged (slices 4 and 5, level
  *       programs only): an object's event; optional "object": "any" (the
  *       default) or an objects.json record_id.
+ *   event.projectile.spawned, .bounced, .hit_target, .landed, .ended,
+ *       .detonated and .timer_expired (projectile-events.md slice 2):
+ *       projectile and entity programs only
+ *       (missionGraphProgramCompileProjectile); the event's instance is the
+ *       weapon object. A mission or level graph that names one is refused,
+ *       and a projectile program refuses every other event.
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
@@ -95,6 +101,43 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_LIFT_ARRIVED 16
 #define MISSION_GRAPH_EVENT_GLASS_DAMAGED 17
 #define MISSION_GRAPH_EVENT_GLASS_BROKEN 18
+/* projectile-events.md slice 2: the projectile events, projectile and entity
+ * programs only. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED 19
+#define MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED 20
+#define MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET 21
+#define MISSION_GRAPH_EVENT_PROJECTILE_LANDED 22
+#define MISSION_GRAPH_EVENT_PROJECTILE_ENDED 23
+#define MISSION_GRAPH_EVENT_PROJECTILE_DETONATED 24
+#define MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED 25
+/* projectile-events.md slice 3: the contact rule events. A projectile's
+ * sweep struck something (contact); its first step, from where it was made
+ * to the muzzle, was blocked (launch_blocked); it lies or all but lies still
+ * while still in flight (came_to_rest). With bounced and landed they choose
+ * the contact modules (projectile_rules.h). */
+#define MISSION_GRAPH_EVENT_PROJECTILE_CONTACT 26
+#define MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED 27
+#define MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST 28
+/* projectile-events.md slice 4: the device rule events. Something is within
+ * reach of an armed proximity item (proximity); a remote mine's owner
+ * pressed the detonator (remote_signal); a weapon object took damage
+ * (damaged). They choose og.projectile.spend_fuse; timer_expired then
+ * chooses what goes off. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY 29
+#define MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL 30
+#define MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED 31
+/* projectile-events.md slice 5: the sentry rule events. A throw is about to
+ * make its object (thrown: no object exists yet, and the event's instance is
+ * the thrower's gset); a deployed sentry gun has its target in its sights
+ * (sentry_aimed). They choose og.projectile.deploy_sentry and
+ * og.projectile.sentry_fire. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_THROWN 32
+#define MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED 33
+/* projectile-events.md slice 6: the arm rule event. A weapon object is about
+ * to be ticked for the first time (armed). It chooses the arm weaponTick
+ * runs for it from then on (og.projectile.arm_*): what its timer means and
+ * what it listens for. */
+#define MISSION_GRAPH_EVENT_PROJECTILE_ARMED 34
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -129,6 +172,8 @@ typedef struct mission_graph_event {
 	s32 tag;                 /* the id of the tag record that names it, or -1 */
 	const char *object_kind; /* its objects.json kind ("door", "weapon_pickup", ...) */
 	const char *catalog_id;  /* a pickup's weapon, else the object's model; may be NULL */
+	/* projectile events (projectile-events.md slice 2) */
+	void *instance;          /* the object (struct defaultobj *), or for event.projectile.thrown the thrower's gset; never NULL */
 } mission_graph_event_t;
 
 /* "active", "complete" or "failed" as a MISSION_GRAPH_PHASE_* value, or -1. */
@@ -162,6 +207,14 @@ mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t jso
  * nodes. A level graph without program nodes compiles to an empty program. */
 mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
+/* projectile-events.md slice 2: compile a projectile or entity archive's
+ * program (its behavior.graph.json). As for a level graph, only the event.*,
+ * gate.* and og.* nodes are the program and every other node is data
+ * (projectile.spawn_state, entity.*), skipped and not counted; its events
+ * are the projectile events and no other. A graph without program nodes
+ * compiles to an empty program. */
+mission_graph_program_t *missionGraphProgramCompileProjectile(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
 void missionGraphProgramFree(mission_graph_program_t *program);
 
 s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);
@@ -185,8 +238,13 @@ s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 
  * _LIFT_CALLED, _LIFT_IDLE, _LIFT_ARRIVED, _GLASS_DAMAGED). */
 s32 missionGraphEventIsObjectRule(s32 event_kind);
 
-/* Whether an event of this kind can reach a native module of this og.* kind
- * along execution edges (both branches of every gate). */
+/* projectile-events.md slice 2: whether the kind is a projectile event
+ * (MISSION_GRAPH_EVENT_PROJECTILE_*). */
+s32 missionGraphEventIsProjectile(s32 event_kind);
+
+/* Whether an event of this kind can reach a native module of this og.* kind,
+ * or a native gate of this gate.* kind, along execution edges (both branches
+ * of every gate). */
 s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,
 	s32 event_kind, const char *module_kind);
 

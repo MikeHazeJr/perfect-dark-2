@@ -42,9 +42,18 @@
 #include "weapon_graph_archive.h"
 #include "weapondata_authored.h"
 #include "animdata_authored.h"
+#include "mission_graph_runner.h"
+#include "projectile_rules.h"
 
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v15"
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref"
+/* v16 (projectile-events.md slice 6): each archive is checked for this marker
+ * by itself, with or without the directory's cache stamp, so no weapon
+ * archive written before the arm rule survives an extraction (one that did
+ * would arm nothing). */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v16"
+/* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
+ * fuse wired (projectile-events.md slice 2), so installs re-extract them.
+ * _contactrules: projectile archives also wire the contact rules (slice 3). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1178,6 +1187,7 @@ typedef struct {
 	s32 mode_index;
 	s32 projectile_modelnum;
 	const char *archetype;
+	s32 weaponnum; /* the weapon whose function this payload belongs to */
 } pdweapon_nested_payload_t;
 
 typedef struct {
@@ -1754,6 +1764,143 @@ static void s_payloadPlanCleanup(pdweapon_payload_plan_t *plan)
 	}
 }
 
+/* projectile-events.md slices 3 and 4: the rule wiring of the weapon object
+ * a function launches, from the original rules by weapon number
+ * (projectile_rules.c): an event node, the gates the original asks, its
+ * modules and their execution edges; an explode module carries the
+ * explosion the original names for that object. Each fragment begins
+ * ",\n    " so it follows the data nodes and the data edge. A function that
+ * launches no weapon object and one whose object the original gives no
+ * rule get no object rules. Slice 5: a throw also gets what the original
+ * makes of the throw itself, by the thrower's weapon (the Laptop gun's
+ * throw deploys a sentry), and a throw that deploys a sentry gets the
+ * sentry's own rule. Slice 6: the object's arm comes first
+ * (event.projectile.armed: the arm weaponTick gives it), since nothing else
+ * of a fuse runs without one. fuse_only keeps the fuse rule alone: an entity
+ * archive's program, which answers the fuse of an item that has no
+ * projectile program. */
+static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_only,
+	char *nodes, size_t nodes_cap, char *edges, size_t edges_cap)
+{
+	static const struct {
+		s32 kind;
+		const char *id;
+	} events[] = {
+		{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, "armed" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, "fuse" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_CONTACT, "contact" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED, "launch_blocked" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED, "bounced" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST, "came_to_rest" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_LANDED, "landed" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY, "proximity" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, "remote_signal" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "damaged" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, "thrown" },
+		{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "sentry_aimed" },
+	};
+	const struct weaponfunc *f = p->func;
+	size_t nlen = 0;
+	size_t elen = 0;
+	s32 objweapon = -1;
+	s32 objfunc = 0;
+	s32 sticks = 0;
+	s32 has_object;
+	u32 thrown;
+
+	nodes[0] = '\0';
+	edges[0] = '\0';
+	if (!f) return 0;
+	projectileRulesLaunchedObject(p->weaponnum, p->mode_index,
+		f->type == INVENTORYFUNCTYPE_THROW, (f->flags & FUNCFLAG_HOMINGROCKET) != 0,
+		&objweapon, &objfunc);
+	/* What the original makes of the throw itself, by the thrower's weapon. */
+	thrown = f->type == INVENTORYFUNCTYPE_THROW
+		? projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_THROWN, p->weaponnum, p->mode_index, 0)
+		: 0;
+	has_object = objweapon >= 0 && objweapon < g_WeaponDataCount;
+	if (!has_object && !(thrown & PROJECTILE_MODULE_ALL)) return 0;
+	if (has_object && objfunc >= 0 && objfunc < 2 && g_WeaponData[objweapon]) {
+		/* The object's own function decides whether it sticks to walls
+		 * (gsetHasFunctionFlags on the flying object's weapon and function). */
+		const struct weaponfunc *objf =
+			(const struct weaponfunc *)g_WeaponData[objweapon]->functions[objfunc];
+		sticks = objf && (objf->flags & FUNCFLAG_STICKTOWALL) != 0;
+	}
+
+	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
+		u32 modules = 0;
+		const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);
+		const char *output = "out";
+		char source[64];
+		int n;
+
+		if (fuse_only && events[i].kind != MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) continue;
+		if (events[i].kind == MISSION_GRAPH_EVENT_PROJECTILE_THROWN) {
+			modules = thrown;
+		} else if (events[i].kind == MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED) {
+			/* The sentry's own rule, for a throw that deploys one. */
+			if (thrown & PROJECTILE_MODULE_DEPLOY_SENTRY) {
+				modules = projectileRulesNative(events[i].kind, p->weaponnum, p->mode_index, 0);
+			}
+		} else if (has_object) {
+			modules = projectileRulesNative(events[i].kind, objweapon, objfunc, sticks);
+		}
+		if (!(modules & PROJECTILE_MODULE_ALL)) continue;
+		n = snprintf(nodes + nlen, nodes_cap - nlen,
+			",\n    { \"id\": \"%s\", \"kind\": \"%s\" }",
+			events[i].id, projectileRulesEventName(events[i].kind));
+		if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+		nlen += (size_t)n;
+		snprintf(source, sizeof(source), "%s", events[i].id);
+		/* The gates the original asks, one behind the other. */
+		for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) {
+			const u32 gate = PROJECTILE_RULE_GATE_FUSE_ARMED << g;
+			const char *gate_kind = (modules & gate) ? projectileRulesGateKind(gate) : NULL;
+			const char *gate_short;
+
+			if (!gate_kind) continue;
+			gate_short = gate_kind + strlen("gate.projectile.");
+			n = snprintf(nodes + nlen, nodes_cap - nlen,
+				",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
+				events[i].id, gate_short, gate_kind);
+			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+			nlen += (size_t)n;
+			n = snprintf(edges + elen, edges_cap - elen,
+				",\n    { \"from\": \"%s\", \"output\": \"%s\", \"to\": \"%s_%s\", \"input\": \"exec\" }",
+				source, output, events[i].id, gate_short);
+			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
+			elen += (size_t)n;
+			snprintf(source, sizeof(source), "%s_%s", events[i].id, gate_short);
+			output = "pass";
+		}
+		for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+			const char *kind = (modules & (1u << m)) ? projectileRulesModuleKind(1u << m) : NULL;
+			const char *shortname;
+
+			if (!kind) continue;
+			shortname = kind + strlen("og.projectile.");
+			if ((1u << m) == PROJECTILE_MODULE_EXPLODE && explosion >= 0) {
+				n = snprintf(nodes + nlen, nodes_cap - nlen,
+					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\", \"" PROJECTILE_EXPLODE_TYPE_PARAM "\": %d }",
+					events[i].id, shortname, kind, explosion);
+			} else {
+				n = snprintf(nodes + nlen, nodes_cap - nlen,
+					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
+					events[i].id, shortname, kind);
+			}
+			if (n <= 0 || (size_t)n >= nodes_cap - nlen) return -1;
+			nlen += (size_t)n;
+			n = snprintf(edges + elen, edges_cap - elen,
+				",\n    { \"from\": \"%s\", \"output\": \"%s\", \"to\": \"%s_%s\", \"input\": \"exec\" }",
+				source, output, events[i].id, shortname);
+			if (n <= 0 || (size_t)n >= edges_cap - elen) return -1;
+			elen += (size_t)n;
+		}
+	}
+	return 0;
+}
+
 static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 {
 	if (!p || p->type != ASSET_PROJECTILE) return -1;
@@ -1829,10 +1976,22 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 			",\n    { \"from\": \"motion\", \"to\": \"bounce_slide\" }");
 	}
 
-	char graph[4096];
+	/* projectile-events.md slices 3 to 6: the rules of what this function
+	 * launches (its arm, its fuse, its contacts, what sets it off), wired as
+	 * the original has them. */
+	char rule_nodes[3072];
+	char rule_edges[3072];
+	if (s_projectileRuleWiring(p, 0, rule_nodes, sizeof(rule_nodes),
+			rule_edges, sizeof(rule_edges)) != 0) {
+		return -1;
+	}
+
+	/* projectile-events.md slice 2: v2, the records plus the program that
+	 * decides for the object; the base archive wires the original rules. */
+	char graph[8192];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
-		"  \"schema\": \"pd.projectile_graph.v1\",\n"
+		"  \"schema\": \"pd.projectile_graph.v2\",\n"
 		"  \"asset_id\": \"%s\",\n"
 		"  \"graph_id\": \"base_projectile_payload_v1\",\n"
 		"  \"nodes\": [\n"
@@ -1863,10 +2022,10 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		"        \"powered\": %s,\n"
 		"        \"calculate_trajectory\": %s\n"
 		"      }\n"
-		"    }%s%s%s%s\n"
+		"    }%s%s%s%s%s\n"
 		"  ],\n"
 		"  \"edges\": [\n"
-		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s\n"
+		"    { \"from\": \"spawn_state\", \"to\": \"motion\" }%s%s%s%s%s\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"%s\" }\n"
@@ -1893,11 +2052,13 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    {\n      \"id\": \"fly_by_wire\",\n      \"kind\": \"projectile.fly_by_wire\",\n      \"params\": { \"control_source\": \"owner\", \"bot_route_policy\": \"runtime_existing\" }\n    }" : "",
 		(flags & FUNCFLAG_STICKTOWALL) ? ",\n    {\n      \"id\": \"wall_hugger\",\n      \"kind\": \"projectile.wall_hugger\",\n      \"params\": { \"stick_surface_filter\": \"background\", \"post_fall_timer60\": 360 }\n    }" : "",
 		bounce_node,
+		rule_nodes,
 		(flags & FUNCFLAG_HOMINGROCKET) ? ",\n    " : "",
 		(flags & FUNCFLAG_HOMINGROCKET) ? "{ \"from\": \"motion\", \"to\": \"homing\" }" : "",
 		(flags & FUNCFLAG_FLYBYWIRE) ? ",\n    { \"from\": \"motion\", \"to\": \"fly_by_wire\" }" :
 			((flags & FUNCFLAG_STICKTOWALL) ? ",\n    { \"from\": \"motion\", \"to\": \"wall_hugger\" }" : ""),
 		bounce_edge,
+		rule_edges,
 		(flags & FUNCFLAG_FLYBYWIRE) ? "fly_by_wire" :
 			((flags & FUNCFLAG_HOMINGROCKET) ? "homing" :
 			((flags & FUNCFLAG_STICKTOWALL) ? "wall_hugger" : "motion")));
@@ -1974,10 +2135,20 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 	else if (strstr(archetype, "timed")) entity_kind = "entity.timed_detonatable";
 	else if (strstr(archetype, "storm")) entity_kind = "entity.nbomb_storm";
 
+	/* projectile-events.md slices 2 and 4: v2, the record plus the program
+	 * that decides the fuse of an item with no projectile program; the base
+	 * archive wires the original fuse, when its item has one. */
+	char rule_nodes[512];
+	char rule_edges[512];
+	if (s_projectileRuleWiring(p, 1, rule_nodes, sizeof(rule_nodes),
+			rule_edges, sizeof(rule_edges)) != 0) {
+		return -1;
+	}
+
 	char graph[4096];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
-		"  \"schema\": \"pd.entity_graph.v1\",\n"
+		"  \"schema\": \"pd.entity_graph.v2\",\n"
 		"  \"asset_id\": \"%s\",\n"
 		"  \"graph_id\": \"base_entity_payload_v1\",\n"
 		"  \"nodes\": [\n"
@@ -1994,9 +2165,10 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		"        \"flags\": %u,\n"
 		"        \"runtime_detail\": \"module adapter extracts current C constants\"\n"
 		"      }\n"
-		"    }\n"
+		"    }%s\n"
 		"  ],\n"
-		"  \"edges\": [],\n"
+		"  \"edges\": [%s\n"
+		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"main\", \"node\": \"entity_behavior\" }\n"
 		"  ]\n"
@@ -2008,7 +2180,10 @@ static s32 s_writeEntityArchive(const pdweapon_nested_payload_t *p)
 		s_modeName(p->mode_index),
 		activatetime60,
 		recoverytime60,
-		(unsigned)flags);
+		(unsigned)flags,
+		rule_nodes,
+		/* the first edge of the array: without the fragment's comma */
+		rule_edges[0] ? rule_edges + 1 : "");
 	if (graph_len <= 0 || (size_t)graph_len >= sizeof(graph)) return -1;
 
 	char bindings[512];
@@ -2603,6 +2778,11 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 				"nested payload planning failed for \"%s\"", catalog_id);
 			return -1;
 		}
+	}
+
+	/* Each payload's weapon, for the contact rules of what it launches. */
+	for (s32 i = 0; i < payload_plan.count; i++) {
+		payload_plan.payloads[i].weaponnum = weapon_id;
 	}
 
 	if (s_emitNestedPayloadArchives(&payload_plan) != 0) {

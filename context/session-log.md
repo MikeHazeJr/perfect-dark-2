@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+2026-11-19 CORE, 17:00 to 21:00 UTC. Slice 5 of the object events landed on
+`dev` as `fdea04a9` (`week-pd/core-s5`, PR 11): each level's graph decides
+lifts and glass, the base hoverbike runs its vehicle graph, levels authored
+before the slice keep the game's own lift and glass rules. Proof
+`q_20261119172450995_6b801788` passed 15 of 16 smokes; the red one,
+`maian_vehicle_drive_smoke`, is B-1241 on Escape and predates the branch. A
+re-proof on dev's own tree (`q_20261119184026613_448cb310`) passed 6 of 6
+and published shared base 10 (`D:\PD2-wt\shared-base-10`). The Doors,
+lifts and glass, Pickups and Vehicles rows of the conversion checklist are
+ticked.
+The Projectiles row has slices 1 to 5 written on `week-pd/core-s6` to
+`core-s9` (PRs 12, 14, 15, 16) and none of it run in the game yet: slice 3
+(contacts), slice 4 (what sets an explosive off and what goes off), slice 5
+(a throw's sentry and its fire). Each asks the object's archive program at
+the seam where the original decided by weapon number, with the original
+rules in one table (`port/src/projectile_rules.c`) and a parity probe.
+Three faults were found by reading before any game run: B-1263 (a fired
+projectile carries its own weapon number), B-1264 (a gun on the floor is not
+what it fires) and B-1265 (a base throw's launch record carried placeholder
+values that the runtime applied over the thrown item's fuse and first
+bounce). B-1265 is on `dev` if it is real; it is not yet confirmed in play.
+An independent review of slice 4 found no way to break "the base game
+behaves as before"; its two edge cases are closed. Plans, no code: slice 6
+(the arms of `weaponTick` become one) in `projectile-events.md`, and the
+Combat Simulator modes in `gamemode-graphs.md`.
+Next: the projectile branch's first game run
+(`q_20261119195806671_3e9c0162`, on `week-pd/core-s9`), then land it.
+
 2026-11-19 BGFX CLASSIC, landing (written 19:10 UTC; `week-pd/bgfx-classic`, worktree `D:\PD2-wt\bgfx-classic`). Mike: "Commit, push, merge, update local dev", which replaces the goal's "no merge into dev". Merged dev 730aa8bb into the branch. Two conflicts: this log (union, dev's entries first) and `freeScene` in `scenario_scene_renderer.cpp` (both sides kept: dev's room lighting texture and the bgfx resources). Dev's B-1172 scene renderer made the branch's bgfx scene path stale (a 52-byte vertex with an integer room, sky offset, room lighting, fog, per-view passes, animated surfaces, Grid swaps), so it was rebuilt in the merge to match (`bgfx-classic-gl.md`, "Dev merge"): the shaders mirror dev's GL shader line for line, a dynamic vertex buffer with the room as a float, one room lighting texture per pass, the scissor from fast3d (`gfxBgfxApplyScissor`), the sky and animated-surface vertex updates shared by both backends, Grid prepare without GL in bgfx mode, probe stubs updated. The classic path draws exactly as dev's: its only changes are the room lighting choice moved into `viewRoomLights` and the vertex updates computed before the GL upload. Hosted CI green on 6ae2f3a8 (run 44595775055). Then dev moved twice and both were merged in cleanly: CORE's slice 5 (fdea04a9, as ac84c3bc; CI run 44603961721 green) and a Menus smoke parser fix (92200bbd, as 66878814; CI run 44613111811 green, 2,525 cases). Landing proof q_20261119191534312_82e5bc62, 20:49 to 21:49 UTC, shared base 10 (CORE's, paired with dev fdea04a9): client and pd-tests exit 0, pd-tests 2,525 pass, write guard and bgfx audit pass, all seven renderer smokes pass (classic default 10/10, bgfx boot 12/12, parity solo, mp and menu 14/14, 14/14, 13/13, GL fallback 12/12, swarm 15/15). Parity of 3,686,400 pixels: Agent Select 4,630 and 4,581 (max 8; the front-buffer fix removed the thumbnail difference; the rest is one noise-like patch in the menu's screen thumbnail, cause not proven), Defection 180 to 448 (max 15), Felicity 158 to 193 (max 52 at five edge pixels); split-screen not drawable. My mistake: the turn started at 20:49, earlier than its queue position suggested (MULTIPLAYER pulled its proof on Mike's word), and I merged 92200bbd at 20:52 while its client built; the one compiled file that merge changed was compiled after it, so the binary's code is the 66878814 tree's (stamped ac84c3bc); memory note updated. Old smoke installs of this worktree (2.09 GB on D:) went to the Recycle Bin by `storage.py compact`. Next: the landing on dev by the recorded procedure (trial clean at 19:20 UTC: 3 overlapping in-flight files, all merge cleanly) and the local dev update, including the bgfx submodules.
 
 2026-11-19, Grid PR #8 integration. Mike authorized resolving the conflicts,
