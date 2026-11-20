@@ -2,18 +2,22 @@
 
 2.0 renderer, phase 2a step 1: decision D5 and refactor R10 in
 [renderer-2.0-scope.md](renderer-2.0-scope.md). Branch `week-pd/bgfx-classic`
-(worktree `D:\PD2-wt\bgfx-classic`), started 2026-11-16. Not merged into dev.
+(worktree `D:\PD2-wt\bgfx-classic`), started 2026-11-16, on dev since
+2026-11-19 (merge `a1751113`, PR #9). The next session starts from
+[renderer-2.0-handoff.md](renderer-2.0-handoff.md), which also lists what the
+whole 2.0 renderer needs to be finished.
 
 **Goal.** The classic renderer runs on bgfx's OpenGL 4.3 backend and is
 pixel-identical to the 1.0 GL renderer (`port/fast3d/gfx_opengl.cpp`), which
 stays the default. bgfx is chosen at launch with a flag. Nothing about the
 classic look changes.
 
-**Status (2026-11-17).** Built, audited and run in game; the parity check
-works in one process on menus, a solo stage and a Combat Simulator match.
-Gameplay frames differ in under 0.014% of pixels, almost all by one level;
-menus differed in a front-buffer thumbnail, fixed but not yet re-run. See
-[Results](#results).
+**Status (2026-11-20).** On dev, opt-in. Built, audited and run in game; the
+parity check works in one process on menus, a solo stage and a Combat
+Simulator match. The landing proof (2026-11-19, shared base 10) passed all
+seven renderer smokes; the remaining parity differences wait for Mike's
+verdict. See "Results (2026-11-19, landing proof)" below; the 2026-11-17
+results are kept as history.
 
 ## Running it
 
@@ -394,3 +398,6 @@ storage (not in git).
 2. Remove the 1.0 GL backend once parity holds on every R9 capture.
 3. Split-screen parity once split-screen exists (today a single local player
    is the active constraint, so no split-screen frame can be drawn).
+
+The full list, with the other phases, the open decisions and the requests
+from other lanes, is in [renderer-2.0-handoff.md](renderer-2.0-handoff.md).
