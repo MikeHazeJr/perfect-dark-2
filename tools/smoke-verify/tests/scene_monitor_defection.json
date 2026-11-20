@@ -1,0 +1,104 @@
+{
+  "scenario_name": "scene_monitor_defection",
+  "description": "Visual check (B-1290): a PC monitor on Defection (pad_0418, room 144, base:model_pc1), seen from 140 units in front. tvscreenRender read the screen's fourth corner from vertex 3 of a compiled model's flattened node, which is the first corner again, so half of every monitor and TV screen was not drawn (the Carrington Institute computer face of the v0.1.105 reports). The player is placed after the mission's intro and the view is held on the screen (B-1291); the log proves the view with look_dot and the screenshots show the screen whole.",
+  "tags": [
+    "solo",
+    "mission",
+    "render",
+    "visual"
+  ],
+  "paths_of_interest": [
+    "src/game/propobj.c",
+    "port/src/modasset_compiler.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 220,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent",
+    "--debug-spawn-at",
+    "233,-1983,741,144",
+    "--debug-spawn-at-after-intro",
+    "--debug-spawn-at-look-at",
+    "337,-1958,801"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 150000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Skip the intro and wait until the player is live. The placement hook waits for the same second of control, then teleports."
+    },
+    {
+      "at_ms": 4000,
+      "type": "screenshot",
+      "path": "defection_monitor_a.bmp",
+      "comment": "the PC on pad_0418, from the front, about three seconds after the teleport"
+    },
+    {
+      "at_ms": 6500,
+      "type": "screenshot",
+      "path": "defection_monitor_b.bmp"
+    },
+    {
+      "at_ms": 9000,
+      "type": "screenshot",
+      "path": "defection_monitor_c.bmp"
+    },
+    {
+      "at_ms": 10500,
+      "type": "exit",
+      "comment": "scripted exit after the last screenshot"
+    }
+  ],
+  "screenshots": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=scene_monitor_defection",
+      "BOOT: --debug-spawn-at armed: pos=\\(233\\.0+,-1983\\.0+,741\\.0+\\) room=144",
+      "BOOT: --debug-spawn-at-after-intro armed ",
+      "BOOT: --debug-spawn-at-look-at armed: point=\\(337\\.0+,-1958\\.0+,801\\.0+\\)",
+      "BOOT: --debug-spawn-at-after-intro waiting: stagenum=0x30 ",
+      "BOOT: --debug-spawn-at-after-intro control held: stagenum=0x30 frame=[0-9]+ waited_for_intro=1",
+      "BOOT: --debug-spawn-at consumed: prop=\\S+ stagenum=0x30 result=OK ",
+      "BOOT: --debug-spawn-at-look-at facing: theta=\\S+ verta=\\S+ look_dot=(0\\.99[0-9]|1\\.000) ",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*defection_monitor_a\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_monitor_b\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_monitor_c\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "BOOT: --debug-spawn-at consumed: .* result=FAILED",
+      "BOOT: --debug-spawn-at-(after-intro|look-at) ignored"
+    ],
+    "required_counts": []
+  },
+  "retain_artifacts": [
+    {
+      "src": "defection_monitor_a.bmp"
+    },
+    {
+      "src": "defection_monitor_b.bmp"
+    },
+    {
+      "src": "defection_monitor_c.bmp"
+    }
+  ]
+}

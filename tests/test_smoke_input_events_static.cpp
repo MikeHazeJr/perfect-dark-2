@@ -1672,3 +1672,47 @@ TEST_CASE("B-1170 every fixture key name resolves through the smoke key table",
     }
     REQUIRE(checked > 20);
 }
+
+TEST_CASE("B-1291 a placement in a mission can wait for the intro and hold the view",
+          "[smoke][tooling][static][b1291]")
+{
+    // A mission's intro animates the player's own body with absolute
+    // positions and the character tick moves the prop along with it, so the
+    // one-shot teleport of --debug-spawn-at, made on frame 4, was undone on
+    // the same frame while the hook reported success (the first monitor
+    // capture showed the helipad). The old hook stays as it was; two
+    // companions add the wait and a view that follows a point.
+    const std::string source = readTextFile("port/src/main.c");
+    const std::string tick = requireSlice(source, "s32 bootDebugSpawnAtTick(void)", "\n}\n");
+    const size_t wait = tick.find("if (g_BootSpawnAtAfterIntro) {");
+    const size_t move = tick.find("chrMoveToPos(chr, &target, rooms, 0.0f, true)");
+    REQUIRE(wait != std::string::npos);
+    REQUIRE(move != std::string::npos);
+    CHECK(wait < move);
+    requireContains(tick, "g_Vars.tickmode != TICKMODE_NORMAL");
+    requireContains(tick, "bondmovemode != MOVEMODE_WALK");
+    requireContains(tick, "g_BootSpawnAtControl60 = 0;");
+    requireContains(tick, "if (g_BootSpawnAtControl60 < 60) {");
+    requireContains(tick, "g_BootSpawnAtDone = ok ? 1 : 0;");
+
+    // The view is held only once the teleport is done, from the same
+    // per-frame call, so pdmain.c needs no second hook.
+    requireContains(tick, "return bootDebugSpawnAtLookAtTick();");
+    const std::string hold = requireSlice(source, "static s32 bootDebugSpawnAtLookAtTick(void)", "\n}\n");
+    requireContains(hold, "if (!g_BootSpawnAtLookAt || !g_BootSpawnAtDone) {");
+    requireContains(hold, "pl->vv_theta = theta;");
+    requireContains(hold, "pl->vv_verta = atan2f(dy, flat) * (180.0f / 3.14159265f);");
+    requireContains(hold, "look_dot=%.3f");
+
+    // Without --debug-spawn-at the companions do nothing and say so.
+    const std::string companions =
+        requireSlice(source, "static void bootApplyDebugSpawnAtCompanions(", "\n}\n");
+    requireContains(companions, "--debug-spawn-at-after-intro ignored");
+    requireContains(companions, "--debug-spawn-at-look-at ignored");
+
+    // The capture that needs them asks for both and requires the proof line.
+    const std::string fixture = readTextFile("tools/smoke-verify/tests/scene_monitor_defection.json");
+    requireContains(fixture, "\"--debug-spawn-at-after-intro\"");
+    requireContains(fixture, "\"--debug-spawn-at-look-at\"");
+    requireContains(fixture, R"re(look_dot=(0\\.99[0-9]|1\\.000))re");
+}
