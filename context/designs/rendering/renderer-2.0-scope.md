@@ -763,6 +763,10 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   toggle, with a short hitch. [I]
 - Default mode: remastered on hardware that supports it, classic otherwise.
   (*Proposal*; Mike may prefer classic first.)
+- *Decided (D-042, 2026-11-20):* the setting belongs to a player. With one
+  local player that is the one setting above; if split-screen returns, each
+  local player has their own, their toggle acts on their own view, and a
+  frame may mix both modes (5.9).
 - Capability gate: with bgfx (D2), remastered needs a backend with compute
   shaders (D3D11, D3D12, Vulkan, or GL 4.3) [W], [I]; otherwise the option is
   greyed out and classic still runs. bgfx's GL backend itself needs GL 4.3+

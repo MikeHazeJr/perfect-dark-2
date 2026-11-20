@@ -35,9 +35,8 @@ collects what a fresh session would otherwise have to rediscover.
    to 11): the 2.0 renderer item is **T-RENDERING-001** (created 2026-11-20).
    Mike's answers to the step 1 report are decisions **D-041** (parity:
    prove the causes, then accept the rest) and **D-042** (split-screen, with
-   the renderer mode chosen per local player). Turn each question still open in
-   section 4 into a decision item with two to four options; never hand-pick
-   Workbench IDs. Commits: the commit-msg hook checks the item ID against the
+   the renderer mode chosen per local player); the questions still open in
+   section 4 are decisions D-043 to D-051. Never hand-pick Workbench IDs. Commits: the commit-msg hook checks the item ID against the
    roadmap of the checkout it runs in. The canonical checkout's roadmap has
    T-RENDERING-001 (`Rendering - T-RENDERING-001: <summary>`, `Refs:
    T-RENDERING-001`); a worktree's tracked copy may predate it, so a worktree
@@ -349,8 +348,8 @@ residency, streaming), long sessions; the release gate.
 
 ## 4. Decisions still needed from Mike
 
-Turn each open one into a Workbench decision item (two to four options with
-trade-offs). The scope doc section 10 has the background.
+Each is a Workbench decision item (D-041 to D-051, created 2026-11-20 with
+two to four options each); the scope doc section 10 has the background.
 
 1. **Step 1 parity verdict. Decided (D-041, Mike 2026-11-20): B**, prove the
    causes with the two experiments of 5.1, then accept what remains.
@@ -360,20 +359,20 @@ trade-offs). The scope doc section 10 has the background.
    local player (3.1 item 3); its parity check waits until split-screen
    exists (no split-screen frame can be drawn today) and then covers mixed
    frames (phase 10).
-3. **Decision 6, hybrid frames.** May 2.0 ship with some passes still classic
+3. **Decision 6, hybrid frames (D-043).** May 2.0 ship with some passes still classic
    in remastered mode? (Scope recommends yes.)
-4. **Decision 7, budgets.** How many remastered views (split-screen, listen
+4. **Decision 7, budgets (D-044).** How many remastered views (split-screen, listen
    host) at what frame rate on Mike's reference machine. Gates phase 6.
-5. **Decision 8, frame interpolation** in 2.0 or 2.x (scope recommends 2.x).
-6. **Decision 9, Theater** in both renderers in 2.0 (scope recommends yes).
-7. **Decision 10, Forge F4 lighting** remastered only, or also baked for
+5. **Decision 8, frame interpolation (D-045)** in 2.0 or 2.x (scope recommends 2.x).
+6. **Decision 9, Theater (D-046)** in both renderers in 2.0 (scope recommends yes).
+7. **Decision 10, Forge F4 lighting (D-047)** remastered only, or also baked for
    classic (scope recommends both, one schema).
-8. **Decision 11, who owns R1** and when its source freeze runs.
-9. **Decision 4 (open part):** an original showcase pack, and whether local
+8. **Decision 11, who owns R1 (D-048)** and when its source freeze runs.
+9. **Decision 4, open part (D-049):** an original showcase pack, and whether local
    tools such as AI upscaling of the player's own textures are acceptable.
-10. **Default mode:** remastered where supported, or classic first (scope 5.6
+10. **Default mode (D-050):** remastered where supported, or classic first (scope 5.6
     proposes remastered).
-11. **Step 2 toolchain:** the HLSL compiler host tool (fxc or DXC), and the
+11. **Step 2 toolchain (D-051):** the HLSL compiler host tool (fxc or DXC), and the
     `dll/` folder name if a DLL is ever needed (D6 proposes `dll/`).
 
 ---
@@ -509,8 +508,8 @@ scene shader and scene renderer files.
 
 ## 8. Suggested order for the next session
 
-1. Startup reading, hub registration, and decision items for the questions
-   still open in section 4 (T-RENDERING-001, D-041 and D-042 exist).
+1. Startup reading, hub registration, and the Workbench: T-RENDERING-001 and
+   decisions D-041 to D-051 (section 4) exist; read their state first.
 2. Finish the parity experiments of D-041 (5.1) if they are not done, and
    record each cause in 5.1 and the step 1 design doc.
 3. Phase 2a step 2 (D3D11): first a design section like
