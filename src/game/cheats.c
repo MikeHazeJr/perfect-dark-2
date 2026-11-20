@@ -6,6 +6,7 @@
 #include "game/lv.h"
 #include "game/cheats.h"
 #include "game/inv.h"
+#include "game/menu.h"
 #include "game/playermgr.h"
 #include "game/training.h"
 #include "game/gamefile.h"
@@ -13,6 +14,9 @@
 #include "game/pak.h"
 #include "bss.h"
 #include "data.h"
+#include "net/net.h"
+#include "prefs_agent.h"
+#include "savefile.h"
 #include "string.h"
 #include "types.h"
 
@@ -96,8 +100,32 @@ struct cheat g_Cheats[] = {
 	{ L_MPWEAPONS_215, 0,                 SOLOSTAGEINDEX_EXTRACTION,     DIFF_A,  CHEATFLAG_COMPLETION                         }, // Dual wield all guns
 };
 
+enum { CHEAT_BANK_BITS = 32 };
+_Static_assert(ARRAYCOUNT(g_Cheats) <= 2 * CHEAT_BANK_BITS, "Cheat bank capacity exceeded");
+
+static u32 cheatMask(s32 cheat_id)
+{
+	if ((u32)cheat_id >= ARRAYCOUNT(g_Cheats)) {
+		return 0;
+	}
+
+	return 1u << ((u32)cheat_id % CHEAT_BANK_BITS);
+}
+
+static u32 *cheatBank(s32 cheat_id, u32 *bank0, u32 *bank1)
+{
+	return cheat_id < CHEAT_BANK_BITS ? bank0 : bank1;
+}
+
 u32 cheatIsUnlocked(s32 cheat_id)
 {
+	if (cheatMask(cheat_id) == 0) {
+		return 0;
+	}
+	if (gamefileHasUnlockAll()) {
+		return 1;
+	}
+
 	struct cheat *cheat = &g_Cheats[cheat_id];
 	u32 unlocked = 0;
 
@@ -133,36 +161,37 @@ u32 cheatIsUnlocked(s32 cheat_id)
 
 bool cheatIsActive(s32 cheat_id)
 {
-	if (cheat_id < 32) {
-		return g_CheatsActiveBank0 & (1 << cheat_id);
-	}
+	u32 *bank = cheatBank(cheat_id, &g_CheatsActiveBank0, &g_CheatsActiveBank1);
+	return (*bank & cheatMask(cheat_id)) != 0;
+}
 
-	return g_CheatsActiveBank1 & (1 << (cheat_id - 32));
+static void cheatSetPlayersInvincible(bool enabled)
+{
+	for (s32 playernum = 0; playernum < ARRAYCOUNT(g_Vars.players); playernum++) {
+		struct player *player = g_Vars.players[playernum];
+		if (player) {
+			player->invincible = enabled;
+		}
+	}
 }
 
 void cheatActivate(s32 cheat_id)
 {
-	u32 prevplayernum;
-	s32 playernum;
+	u32 mask = cheatMask(cheat_id);
+	if (mask == 0) {
+		return;
+	}
 
 	switch (cheat_id) {
 	case CHEAT_INVINCIBLE:
-		// Make all players invincible
-		prevplayernum = g_Vars.currentplayernum;
-
-		for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
-			setCurrentPlayerNum(playernum);
-			g_Vars.currentplayer->invincible = 1;
-		}
-
-		setCurrentPlayerNum(prevplayernum);
+		cheatSetPlayersInvincible(true);
 		break;
 	case CHEAT_ALLGUNS:
 		// Give all guns if only one player playing
 		if (PLAYERCOUNT() == 1 && g_Vars.normmplayerisrunning == false) {
-			prevplayernum = g_Vars.currentplayernum;
+			s32 prevplayernum = g_Vars.currentplayernum;
 
-			for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
+			for (s32 playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
 				setCurrentPlayerNum(playernum);
 				invSetAllGuns(true);
 			}
@@ -172,34 +201,26 @@ void cheatActivate(s32 cheat_id)
 		break;
 	}
 
-	if (cheat_id < 32) {
-		g_CheatsActiveBank0 = g_CheatsActiveBank0 | (1 << cheat_id);
-	} else {
-		g_CheatsActiveBank1 = g_CheatsActiveBank1 | (1 << (cheat_id - 32));
-	}
+	*cheatBank(cheat_id, &g_CheatsActiveBank0, &g_CheatsActiveBank1) |= mask;
 }
 
 void cheatDeactivate(s32 cheat_id)
 {
-	u32 prevplayernum;
-	s32 playernum;
+	u32 mask = cheatMask(cheat_id);
+	u32 *bank = cheatBank(cheat_id, &g_CheatsActiveBank0, &g_CheatsActiveBank1);
+	if ((*bank & mask) == 0) {
+		return;
+	}
 
 	switch (cheat_id) {
 	case CHEAT_INVINCIBLE:
-		prevplayernum = g_Vars.currentplayernum;
-
-		for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
-			setCurrentPlayerNum(playernum);
-			g_Vars.currentplayer->invincible = 1; // @bug?
-		}
-
-		setCurrentPlayerNum(prevplayernum);
+		cheatSetPlayersInvincible(false);
 		break;
 	case CHEAT_ALLGUNS:
 		if (PLAYERCOUNT() == 1 && g_Vars.normmplayerisrunning == false) {
-			prevplayernum = g_Vars.currentplayernum;
+			s32 prevplayernum = g_Vars.currentplayernum;
 
-			for (playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
+			for (s32 playernum = 0; playernum < PLAYERCOUNT(); playernum++) {
 				setCurrentPlayerNum(playernum);
 				invSetAllGuns(false);
 			}
@@ -209,11 +230,7 @@ void cheatDeactivate(s32 cheat_id)
 		break;
 	}
 
-	if (cheat_id < 32) {
-		g_CheatsActiveBank0 = g_CheatsActiveBank0 & ~(1 << cheat_id);
-	} else {
-		g_CheatsActiveBank1 = g_CheatsActiveBank1 & ~(1 << (cheat_id - 32));
-	}
+	*bank &= ~mask;
 }
 
 void cheatsInit(void)
@@ -224,58 +241,67 @@ void cheatsInit(void)
 	g_CheatsEnabledBank1 = 0;
 }
 
-/**
- * Apply cheats at level startup.
- */
+static bool cheatAppliesInMode(s32 cheat_id)
+{
+	switch (cheat_id) {
+	case CHEAT_ALLGUNS:
+	case CHEAT_TRENTSMAGNUM:
+	case CHEAT_FARSIGHT:
+	case CHEAT_ROCKETLAUNCHER:
+	case CHEAT_SNIPERRIFLE:
+	case CHEAT_XRAYSCANNER:
+	case CHEAT_SUPERDRAGON:
+	case CHEAT_LAPTOPGUN:
+	case CHEAT_PHOENIX:
+	case CHEAT_PSYCHOSISGUN:
+		return !g_Vars.normmplayerisrunning && !g_MissionConfig.iscoop
+			&& !g_MissionConfig.isanti && g_Vars.coopplayernum < 0
+			&& g_Vars.antiplayernum < 0;
+	case CHEAT_PUGILIST:
+	case CHEAT_HOTSHOT:
+	case CHEAT_HITANDRUN:
+	case CHEAT_ALIEN:
+		return !g_Vars.normmplayerisrunning && g_MissionConfig.iscoop && g_Vars.numaibuddies > 0;
+	case CHEAT_SLOMO:
+	case CHEAT_PLAYASELVIS:
+		return !g_Vars.normmplayerisrunning;
+	default:
+		return true;
+	}
+}
+
+// Apply selected cheats at level startup, after the stage rules are available.
 void cheatsReset(void)
 {
-	s32 cheat_id;
+	// Player allocation can inherit the previous stage's Invincible bit.
+	cheatDeactivate(CHEAT_INVINCIBLE);
 
-	// Copy enabled cheats to active cheats, unless in CI training
-	// or weapon cheats not in solo
-	if (!lvStageIsHub()) {
-		g_CheatsActiveBank0 = g_CheatsEnabledBank0;
-		g_CheatsActiveBank1 = g_CheatsEnabledBank1;
-
-		if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 || g_Vars.normmplayerisrunning) {
-			// Co-op/counter-op/multi - deactivate "Weapons for Jo in Solo" cheats
-			g_CheatsActiveBank0 &= ~(
-				(1 << CHEAT_TRENTSMAGNUM) |
-				(1 << CHEAT_FARSIGHT) |
-				(1 << CHEAT_ROCKETLAUNCHER) |
-				(1 << CHEAT_SNIPERRIFLE) |
-				(1 << CHEAT_XRAYSCANNER) |
-				(1 << CHEAT_SUPERDRAGON) |
-				(1 << CHEAT_LAPTOPGUN)
-			);
-			g_CheatsActiveBank1 &= ~(
-				(1 << (CHEAT_PHOENIX - 32)) |
-				(1 << (CHEAT_PSYCHOSISGUN - 32))
-			);
-		}
-	} else {
+	// Local selections cannot change either peer's simulation of an online stage.
+	if (g_NetMode != NETMODE_NONE || STAGE_IS_SYSTEM(g_Vars.stagenum) || lvStageIsHub()) {
 		g_CheatsActiveBank0 = 0;
 		g_CheatsActiveBank1 = 0;
+		return;
 	}
 
-	// Set any "always on" cheats to active and properly activate all active cheats
-	for (cheat_id = 0; cheat_id < ARRAYCOUNT(g_Cheats); cheat_id++) {
-		if (g_Cheats[cheat_id].flags & CHEATFLAG_ALWAYSON) {
+	g_CheatsActiveBank0 = g_CheatsEnabledBank0;
+	g_CheatsActiveBank1 = g_CheatsEnabledBank1;
+
+	for (s32 cheat_id = 0; cheat_id < ARRAYCOUNT(g_Cheats); cheat_id++) {
+		u32 mask = cheatMask(cheat_id);
+		u32 *bank = cheatBank(cheat_id, &g_CheatsActiveBank0, &g_CheatsActiveBank1);
+
+		if (!cheatAppliesInMode(cheat_id)) {
+			*bank &= ~mask;
+		} else if (g_Cheats[cheat_id].flags & CHEATFLAG_ALWAYSON) {
 			if (cheatIsUnlocked(cheat_id)) {
-				if (cheat_id < 32) {
-					g_CheatsActiveBank0 = g_CheatsActiveBank0 | (1 << cheat_id);
-				} else {
-					g_CheatsActiveBank1 = g_CheatsActiveBank1 | (1 << (cheat_id - 32));
-				}
+				*bank |= mask;
 			} else {
-				if (cheat_id < 32) {
-					g_CheatsActiveBank0 = g_CheatsActiveBank0 & ~(1 << cheat_id);
-				} else {
-					g_CheatsActiveBank1 = g_CheatsActiveBank1 & ~(1 << (cheat_id - 32));
-				}
+				*bank &= ~mask;
 			}
 		}
+	}
 
+	for (s32 cheat_id = 0; cheat_id < ARRAYCOUNT(g_Cheats); cheat_id++) {
 		if (cheatIsActive(cheat_id)) {
 			cheatActivate(cheat_id);
 		}
@@ -284,48 +310,28 @@ void cheatsReset(void)
 
 MenuItemHandlerResult cheatCheckboxMenuHandler(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	s32 cheat_id = item->param;
+	u32 mask = cheatMask(cheat_id);
+	u32 *bank = cheatBank(cheat_id, &g_CheatsEnabledBank0, &g_CheatsEnabledBank1);
+
 	switch (operation) {
 	case MENUOP_GET:
-		if (item->param < 32) {
-			if (g_CheatsEnabledBank0 & (1 << item->param)) {
-				return true;
-			}
-
-			return false;
-		}
-
-		if (g_CheatsEnabledBank1 & (1 << item->param)) {
-			return true;
-		}
-
-		return false;
+		return (*bank & mask) != 0;
 	case MENUOP_SET:
-		if (cheatIsUnlocked(item->param)) {
-			if (item->param < 32) {
-				// Bank 0
-				if (g_CheatsEnabledBank0 & (1 << item->param)) {
-					g_CheatsEnabledBank0 = g_CheatsEnabledBank0 & ~(1 << item->param);
-				} else {
-					// If enabling Marquis or enemy rockets, turn off the other
-					if (item->param == CHEAT_MARQUIS) {
-						g_CheatsEnabledBank0 &= ~(1 << CHEAT_ENEMYROCKETS);
-					}
-
-					if (item->param == CHEAT_ENEMYROCKETS) {
-						g_CheatsEnabledBank0 &= ~(1 << CHEAT_MARQUIS);
-					}
-
-					g_CheatsEnabledBank0 = g_CheatsEnabledBank0 | 1 << item->param;
-				}
-			} else {
-				// Bank 1
-				if (g_CheatsEnabledBank1 & (1 << item->param)) {
-					if (1);
-					g_CheatsEnabledBank1 = g_CheatsEnabledBank1 & ~(1 << item->param);
-				} else {
-					g_CheatsEnabledBank1 = g_CheatsEnabledBank1 | 1 << item->param;
-				}
+		if (cheatIsUnlocked(cheat_id)) {
+			if (*bank & mask) {
+				*bank &= ~mask;
+				break;
 			}
+
+			// Marquis and Enemy Rockets are mutually exclusive.
+			if (cheat_id == CHEAT_MARQUIS) {
+				*bank &= ~cheatMask(CHEAT_ENEMYROCKETS);
+			} else if (cheat_id == CHEAT_ENEMYROCKETS) {
+				*bank &= ~cheatMask(CHEAT_MARQUIS);
+			}
+
+			*bank |= mask;
 		}
 		break;
 	}
@@ -335,39 +341,23 @@ MenuItemHandlerResult cheatCheckboxMenuHandler(s32 operation, struct menuitem *i
 
 MenuItemHandlerResult cheatMenuHandleBuddyCheckbox(s32 operation, struct menuitem *item, union handlerdata *data)
 {
+	u32 buddies = cheatMask(CHEAT_PUGILIST) | cheatMask(CHEAT_HOTSHOT) |
+		cheatMask(CHEAT_HITANDRUN) | cheatMask(CHEAT_ALIEN);
+	u32 mask = item->param < CHEAT_BANK_BITS ? cheatMask(item->param) & buddies : 0;
+
 	switch (operation) {
 	case MENUOP_GET:
 		if (item->param == 0) {
-			if (g_CheatsEnabledBank0 & (1 << CHEAT_PUGILIST | 1 << CHEAT_HOTSHOT | 1 << CHEAT_HITANDRUN | 1 << CHEAT_ALIEN)) {
-				return false;
-			}
-
-			return true;
+			return (g_CheatsEnabledBank0 & buddies) == 0;
 		}
 
-		if (g_CheatsEnabledBank0 & (1 << item->param)) {
-			return true;
-		}
-
-		return false;
+		return (g_CheatsEnabledBank0 & mask) != 0;
 	case MENUOP_SET:
 		if (item->param == 0) {
 			// Velvet
-			g_CheatsEnabledBank0 &= ~(
-				(1 << CHEAT_PUGILIST) |
-				(1 << CHEAT_HOTSHOT) |
-				(1 << CHEAT_HITANDRUN) |
-				(1 << CHEAT_ALIEN)
-			);
-		} else if (cheatIsUnlocked(item->param)) {
-			// Not Velvet
-			g_CheatsEnabledBank0 = g_CheatsEnabledBank0 & ~(
-				(1 << CHEAT_PUGILIST) |
-				(1 << CHEAT_HOTSHOT) |
-				(1 << CHEAT_HITANDRUN) |
-				(1 << CHEAT_ALIEN)
-			);
-			g_CheatsEnabledBank0 = g_CheatsEnabledBank0 | (1 << item->param);
+			g_CheatsEnabledBank0 &= ~buddies;
+		} else if (mask && cheatIsUnlocked(item->param)) {
+			g_CheatsEnabledBank0 = (g_CheatsEnabledBank0 & ~buddies) | mask;
 		}
 	}
 
@@ -852,10 +842,37 @@ char *cheatGetName(s32 cheat_id)
 #endif
 
 
+static char s_CheatsUnlockAgent[SAVE_NAME_MAX];
+static bool s_CheatsUnlockSaveFailed;
+
+static MenuDialogHandlerResult cheatUnlockAllDialogHandler(s32 operation, struct menudialogdef *dialogdef, union handlerdata *data)
+{
+	if (operation == MENUOP_OPEN) {
+		snprintf(s_CheatsUnlockAgent, sizeof(s_CheatsUnlockAgent), "%s", prefsAgentGetActive());
+		s_CheatsUnlockSaveFailed = false;
+	}
+	return 0;
+}
+
+static char *cheatUnlockAllMessage(struct menuitem *item)
+{
+	if (!s_CheatsUnlockAgent[0]) {
+		return "Sign in to an Agent to unlock all content.\n";
+	}
+	if (s_CheatsUnlockSaveFailed) {
+		return "Could not save. Choose Yes to retry.\n";
+	}
+	return "Save unlocks for the current Agent?\nEarned records are preserved.\n";
+}
+
 static MenuItemHandlerResult menuhandlerUnlockEverything(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
-		gamefileUnlockEverything();
+		if (saveAgentUnlockAll(s_CheatsUnlockAgent) == 0) {
+			menuPopDialog();
+		} else {
+			s_CheatsUnlockSaveFailed = true;
+		}
 	}
 	return 0;
 }
@@ -864,8 +881,8 @@ struct menuitem g_CheatsConfirmUnlockMenuItems[] = {
 	{
 		MENUITEMTYPE_LABEL,
 		0,
-		MENUITEMFLAG_LITERAL_TEXT,
-		(uintptr_t)"Are you sure?\n\nThis will overwrite any progress\nsaved to the current profile.\n",
+		0,
+		(uintptr_t)&cheatUnlockAllMessage,
 		0,
 		NULL,
 	},
@@ -904,7 +921,7 @@ struct menuitem g_CheatsConfirmUnlockMenuItems[] = {
 	{
 		MENUITEMTYPE_SELECTABLE,
 		0,
-		MENUITEMFLAG_SELECTABLE_CENTRE | MENUITEMFLAG_SELECTABLE_CLOSESDIALOG,
+		MENUITEMFLAG_SELECTABLE_CENTRE,
 		L_OPTIONS_190, // "Yes"
 		0,
 		menuhandlerUnlockEverything,
@@ -916,7 +933,7 @@ struct menudialogdef g_CheatsConfirmUnlockMenuDialog = {
 	MENUDIALOGTYPE_DANGER,
 	L_OPTIONS_188, // "Warning"
 	g_CheatsConfirmUnlockMenuItems,
-	NULL,
+	cheatUnlockAllDialogHandler,
 	0,
 	NULL,
 };

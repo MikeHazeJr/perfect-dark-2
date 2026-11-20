@@ -254,6 +254,59 @@ TEST_CASE("cheats menu exposes one Tiny Mode row with controller actions", "[che
     REQUIRE(cheats.find("menuGraphFirePushDialog(MENU_TYPE_CHEATS, \"unlock_all\"") != std::string::npos);
 }
 
+TEST_CASE("cheat banks share bounds and unsigned shifts across activation and selection", "[cheats][menu][static]")
+{
+    const std::string cheats = readTextFile("src/game/cheats.c");
+    const std::string mask = functionBlock(cheats, "cheatMask");
+    const std::string active = functionBlock(cheats, "cheatIsActive");
+    const std::string checkbox = functionBlock(cheats, "cheatCheckboxMenuHandler");
+    const std::string reset = functionBlock(cheats, "cheatsReset");
+    const std::string inventory = readTextFile("src/game/inv.c");
+
+    REQUIRE(mask.find("(u32)cheat_id >= ARRAYCOUNT(g_Cheats)") != std::string::npos);
+    REQUIRE(mask.find("1u << ((u32)cheat_id % CHEAT_BANK_BITS)") != std::string::npos);
+    REQUIRE(active.find("cheatMask(cheat_id)") != std::string::npos);
+    REQUIRE(checkbox.find("cheatMask(cheat_id)") != std::string::npos);
+    REQUIRE(checkbox.find("<<") == std::string::npos);
+    REQUIRE(cheats.find("cheatSetPlayersInvincible(false)") != std::string::npos);
+    REQUIRE(reset.find("cheatDeactivate(CHEAT_INVINCIBLE)") != std::string::npos);
+    REQUIRE(reset.find("g_NetMode != NETMODE_NONE") != std::string::npos);
+    REQUIRE(functionBlock(inventory, "invGiveSingleWeapon").find("if (!g_CheatsActiveBank0 && !g_CheatsActiveBank1)") != std::string::npos);
+}
+
+TEST_CASE("locked cheat criteria participate in navigation without enabling cheats", "[cheats][menu][static]")
+{
+    const std::string cheats = readTextFile("port/fast3d/pdgui_menu_cheats.cpp");
+    const std::string locked = functionBlock(cheats, "sc_RenderLockedCheat");
+
+    REQUIRE(locked.find("ImGui::Selectable(") != std::string::npos);
+    REQUIRE(locked.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(locked.find("ImGui::IsItemHovered()") != std::string::npos);
+    REQUIRE(locked.find("pd.gbc") != std::string::npos);
+    REQUIRE(locked.find("sc_ToggleCheat(") == std::string::npos);
+    REQUIRE(locked.find("sc_SelectBuddy(") == std::string::npos);
+}
+
+TEST_CASE("Unlock All writes the selected Agent before publishing availability", "[cheats][menu][static]")
+{
+    const std::string saves = readTextFile("port/src/savefile.c");
+    const std::string unlock = functionBlock(saves, "saveAgentUnlockAll");
+    const std::string cheats = readTextFile("port/fast3d/pdgui_menu_cheats.cpp");
+    const std::string confirm = functionBlock(cheats, "renderCheatsConfirmUnlock");
+
+    const auto write = unlock.find("saveWriteAgentDocument(name, &document)");
+    const auto publish = unlock.find("gamefileSetFlag(GAMEFILEFLAG_UNLOCK_ALL)");
+    REQUIRE(unlock.find("strcmp(name, prefsAgentGetActive())") != std::string::npos);
+    REQUIRE(unlock.find("saveReadAgentDocument(name, &document") != std::string::npos);
+    REQUIRE(unlock.find("saveCaptureAgentDocument(") == std::string::npos);
+    REQUIRE(write != std::string::npos);
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(write < publish);
+    REQUIRE(confirm.find("if (doYes && !doNo)") != std::string::npos);
+    REQUIRE(confirm.find("if (saveAgentUnlockAll(s_CheatsUnlockAgent) == 0)") != std::string::npos);
+    REQUIRE(confirm.find("s_CheatsUnlockSaveFailed = true") != std::string::npos);
+}
+
 TEST_CASE("menu action helpers replace priority navigation and tab polling", "[input][menu_action][static]")
 {
     const std::string agent = readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");

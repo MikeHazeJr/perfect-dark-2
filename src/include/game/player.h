@@ -173,6 +173,12 @@ void playerDisplayShield(void);
 Gfx *playerRenderShield(Gfx *gdl);
 Gfx *playerRenderHud(Gfx *gdl);
 void playerDie(bool force);
+/* T-NETWORKING-007 S1: a dropped networked co-op partner leaves the world but
+ * keeps its state for a rejoin (host only). */
+void playerParkForNetwork(s32 playernum);
+/* T-NETWORKING-007 S2: a parked partner rejoins where it was parked; false
+ * when it was not parked (host only). */
+bool playerUnparkForNetwork(s32 playernum);
 /* shooter_runtime_index is a compact g_MpAllChrPtrs roster index in MP. */
 void playerDieByShooter(s32 shooter_runtime_index, bool force);
 bool playerRestoreDeadStateFromSnapshot(void);

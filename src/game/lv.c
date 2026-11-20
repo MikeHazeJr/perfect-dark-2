@@ -587,8 +587,6 @@ bool lvReset(s32 stagenum)
 		g_NotLoadMod = true;
 	}
 
-	cheatsReset();
-
 	var80084040 = true;
 	g_Vars.lvframenum = 0;
 	var80084050 = 0;
@@ -654,12 +652,11 @@ bool lvReset(s32 stagenum)
 		titleReset();
 	}
 
-	if (stagenum == STAGE_TITLE) {
-		titleReset();
-	} else if (stagenum == STAGE_BOOTPAKMENU) {
-		// empty
-	} else if (stagenum == STAGE_CREDITS) {
-		// empty
+	if (STAGE_IS_SYSTEM(stagenum)) {
+		cheatsReset();
+		if (stagenum == STAGE_TITLE) {
+			titleReset();
+		}
 	} else {
 		s32 i;
 		s32 j;
@@ -690,6 +687,8 @@ bool lvReset(s32 stagenum)
 		sysLogPrintf(LOG_NOTE, "LOAD: bgReset done");
 		bgBuildTables(g_Vars.stagenum);
 		sysLogPrintf(LOG_NOTE, "LOAD: bgBuildTables done");
+		// Authored hub rules are installed by the background tables.
+		cheatsReset();
 		meshWorldShutdown();
 		meshWorldInit();
 		{

@@ -18,6 +18,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/mpstats.h"
 #include "game/challenge.h"
+#include "game/gamefile.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pak.h"
@@ -438,7 +439,17 @@ void mpReset(void)
 	g_MpNumChrs = 0;
 	g_Vars.mplayerisrunning = true;
 
-	g_Vars.normmplayerisrunning = true;
+	/* B-1274: co-op and counter-op are missions, not a Combat Simulator
+	 * match. The original clears normmplayerisrunning for them, which keeps
+	 * the per-frame objective checks, the AI's co-op branches and the
+	 * mission death rules. 87e5347f0 made it always true when co-op and
+	 * counter-op were thought gone; networked co-op and counter-op reach
+	 * here through the same player roles. */
+	if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
+		g_Vars.normmplayerisrunning = false;
+	} else {
+		g_Vars.normmplayerisrunning = true;
+	}
 
 	sysLogPrintf(LOG_NOTE, "MATCH: mpReset normmplay=%d mplay=%d activeMask=0x%016llx hasSim=%d netmode=%d",
 		g_Vars.normmplayerisrunning, g_Vars.mplayerisrunning,
@@ -450,11 +461,12 @@ void mpReset(void)
 		g_Vars.lvmpbotlevel = true;
 	}
 
-	/* S188: no splitscreen, coop/anti mode is dead. The N64 coop branch swapped
+	/* S188: no splitscreen. The N64 coop branch swapped
 	 * g_PlayerConfigsArray[MAX_PLAYERS] (solo config slot) into slot 0 for Bond
 	 * and slot MAX_PLAYERS+1 into slot 1 for the coop partner. With solo now
-	 * using slot 0 directly (lv.c, Phase 1), and splitscreen removed, this
-	 * entire branch is unreachable. Only the normal MP path remains. */
+	 * using slot 0 directly (lv.c, Phase 1), and splitscreen removed, that swap
+	 * is gone; networked co-op and counter-op enumerate their two participants
+	 * here like a match (B-1274: they still are missions, see above). */
 	for (i = 0; i < MAX_PLAYERS; i++) {
 		if (mpIsParticipantActive(i)) { /* B-12 Phase 2 */
 			g_Vars.playerstats[mpindex].mpindex = i;
@@ -3238,7 +3250,7 @@ bool mpIsTrackUnlocked(s32 tracknum)
 	bool unlocked = false;
 	u32 i;
 
-	if (stageindex < 0 || stageindex > SOLOSTAGEINDEX_SKEDARRUINS) {
+	if (stageindex < 0 || stageindex > SOLOSTAGEINDEX_SKEDARRUINS || gamefileHasUnlockAll()) {
 		unlocked = true;
 	} else {
 		for (i = 0; i != 3; i++) {

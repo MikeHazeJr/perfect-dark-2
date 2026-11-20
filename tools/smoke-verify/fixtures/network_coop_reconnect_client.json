@@ -1,0 +1,71 @@
+{
+  "scenario_name": "network_coop_reconnect_client",
+  "description": "Client schedule for network_coop_reconnect_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 1020,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "Connected, ready gate passed, the mission is live here."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable co-op control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_reconnect_available",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "The host timed this client out: back where it can reconnect."
+    },
+    {
+      "at_ms": 3000,
+      "type": "network_reconnect",
+      "comment": "One endpoint-scoped production retry."
+    },
+    {
+      "at_ms": 3000,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 180000,
+      "comment": "Back in the running mission after the stage reload and the reconnect snapshot."
+    },
+    {
+      "at_ms": 3000,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 90000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "The rejoined partner has usable control again."
+    },
+    {
+      "at_ms": 3000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 240000,
+      "stable_ms": 1000,
+      "comment": "The host's debug end at 150 s ends the mission for both."
+    },
+    {
+      "at_ms": 7000,
+      "type": "exit",
+      "comment": "Scripted clean exit 4 s (script time) after the results."
+    }
+  ]
+}

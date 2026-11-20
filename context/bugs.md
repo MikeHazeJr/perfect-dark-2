@@ -1,5 +1,179 @@
 # Bug Tracker
 
+## 2026-11-20 B-1282 The Crystal Pistol ammo smoke fails when one frame stalls during its reload steps (T-MODDING-008, open, test only)
+
+Severity low (test only). `crystal_pistol_ammo_smoke` failed 29/31 on dev plus PR 13 (d1932f55, shared base 14,
+`results-20261120T182245Z.json`) and passed 31/31 on a rerun of the same build ten minutes later
+(`results-20261120T184249Z.json`). In the failing run the game stalled about 1.2 s at 13.2 s into the script
+(log 01:32.29 to 01:33.52, an install on the `D:` hard disk). The harness then delivered the 13.7 s fire tap, the
+14.2 s reload tap and the 14.5 s fire press within a few frames, so a third shot landed before the reload began:
+regrowth started at 3/6 instead of 4/6, and the "interrupted by trigger" step never happened. Firing, the empty
+clip's regrowth and the full clip all worked. The fixture already allows for a first-explosion stall at 6.6 to
+12.8 s but not for one at 13.2 s.
+
+Fix to make: wait on game state between the steps (for example on the regrow start line) instead of fixed times,
+or give the reload sequence a margin.
+
+## 2026-11-20 B-1281 Smokes cannot press menu buttons since 149820cb1: ImGui navigation is off while the game window lacks focus (T-MENUS-003, open, test harness)
+
+Severity medium (test only for players, but it stalls every smoke that drives an ImGui menu with injected
+actions in a background window, and that is every smoke the runner starts). Found 2026-11-20 in the cleanup:
+`network_coop_mission_end_smoke` failed 126/132 on dev plus PR 13 (d1932f55, shared base 14,
+`results-20261120T183429Z.json`). The co-op host reached its results screen, the smoke injected `ACTION_USE` at
+4 s (`SMOKE.ACTION.INJECT: player=0 action=24 down=1 ...`) and nothing followed: no `GAMELOOP.COOP: host chose
+next mission`, the next stage never went live, the wait timed out after 360 s. The same smoke passed 132/132 on
+ddac61d6 (2026-11-19), where the same tap chose the next mission in the same frame; that host had also logged
+`INPUTCTX: focus LOST`, as every runner-started game does (SP-51).
+
+Cause: 149820cb1 ("Preserve front-end input and controller text entry", 2026-11-19, on origin/dev) made
+`pdguiDriveImGuiNav` (`port/fast3d/pdgui_backend.cpp`) require `!inputCtxIsFocusLost()`. With focus lost, ImGui
+gets no nav input at all, so the endscreen's default button (`pdgui_menu_endscreen.cpp`, B-1193) is never
+activated. Neither the endscreen nor `pdguiNavActionAllowed` changed between the two runs. For a player with the
+window focused nothing changes. About 38 smoke tests and fixtures inject menu actions (`ACTION_USE`,
+`ACTION_MENU_*`); any that act on an ImGui menu after the focus loss stalls the same way.
+
+Fix to make: let actions the smoke harness injects drive ImGui navigation while it owns them (the action map
+already counts smoke-owned actions; see `SMOKE.ACTION.INJECT` in `port/src/actionmap.cpp`), or have the runner
+give the game window focus. Then re-run
+`network_coop_mission_end_smoke` and the other endscreen and Room smokes.
+
+## 2026-11-20 B-1280 The build wrapper never uses its compiler cache: the ccache probe always reads as failed (T-TOOLING-006, open, cause found)
+
+Severity medium (every AI build compiles cold; a clean client plus test binary took 3:01 on 2026-11-20).
+`devtools/build-headless.ps1` (the probe at lines 328 to 347) starts `ccache.exe cc.exe --version` with
+`Start-Process -PassThru` and redirected output, waits up to 5 s, and passes the launcher to CMake only when
+`$probe.ExitCode -eq 0`. Under Windows PowerShell 5.1, which `powershell -File devtools/build-session.ps1` runs, a
+process started that way reports an empty `ExitCode` unless its handle was read before it exited, so the test is
+always false: the wrapper prints "ccache compiler probe failed or timed out; building without ccache launcher" and
+configures without ccache. All seven session builds of the canonical checkout log that line. Reproduced
+2026-11-20: the same `Start-Process` call exits within the 5 s with an empty exit code; with `$null = $probe.Handle`
+right after `Start-Process`, the exit code is 0.
+
+Fix to make (not applied in the cleanup, because it turns ccache on for every session's build): read the handle
+after `Start-Process`. Check first that ccache does not hang in the sandboxes the probe guards against (the comment
+above it). The ccache store at `%USERPROFILE%/.cache/ccache` holds 0.9 of 5 GiB from older builds.
+
+## 2026-11-20 B-1279 Local dev did not build from its own commits: 264587ac called gun-noise functions only uncommitted files defined (T-MODDING-011, fixed)
+
+Severity high for anyone who built local dev from its commits (the client did not compile). Commit 264587ac
+(2026-11-19, "Migrate gun noise callers to delivery receipts", local only) changed `bgunDecreaseNoiseRadius` in
+`src/game/bondgun.c` to call `wgV2RuntimeNoiseBegin`, `wgV2RuntimeObserveNoise` and `wgV2RuntimeNoiseComplete`
+and to use `wg_v2_delivery`. Those existed only in the uncommitted copies of `port/include/weapon_graph_v2_runtime.h`
+and `port/src/weapon_graph_v2_runtime.cpp` in the canonical checkout, and every build there compiled the working
+copies, so no build saw the gap. Found in the 2026-11-20 cleanup by comparing the symbols at HEAD with the working
+copies.
+
+Fix: acbce249 commits the rest of the reviewed V5 patch the callers belong to (the runtime, the world-hit harness,
+the `prop.c` delivery path, with one lost seven-line hunk restored from week-pd/inflight-20261114). The merged tree
+(dev plus PR 13, d1932f55) built from commits alone, client and test binary, in a clean worktree and passed
+pd-tests in full. SP-99.
+
+## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, open, test only)
+
+Severity low (test only, but it leaves the offline co-op start with simulant buddies unproven in a run).
+`coop_ai_buddies_offline_smoke` failed 20/38 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,
+`results-20261119T014139Z.json`). The held-tap fault of the first run is gone: the tap lands on the PD logo, the
+title is left and Agent Select opens. The smoke then waits for `agent_select_ready`, and that condition needs the
+game window to hold keyboard focus; a game the smoke runner starts never has it (`focus_lost=1
+agent_select_imgui_reject=0x1`), so the wait runs out after 120 s and every later step fails. SP-51. The hosted
+start is proven (`network_coop_ai_buddies_smoke` 29/29, 2026-11-17). dev's front-end work of 2026-11-19
+(T-MENUS-003) does not change this: its own Agent Select run needed a focused window.
+
+Fix to make: a way into the offline Room that passes neither Agent Select nor the main menu, for example a boot
+flag that opens the offline Room as `--launch-mp-room` opens a hosted one; `--debug-room-tab campaign` and
+`--debug-auto-start-match` then start the mission as they do in the hosted smoke.
+
+## 2026-11-19 B-1277 A co-op client's rejoin is refused at the scheduler check of the reconnect prop set (T-NETWORKING-007 S2, open, cause not known)
+
+Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin; the host's mission carries on, S1).
+`network_coop_reconnect_smoke` failed 50/55 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,
+`results-20261119T013233Z.json`). B-1275's refusal is gone and the host side is complete: `MANIFEST-HOST: mission
+weapons listed`, the partner un-parked, `PLAYER.INIT.COMMIT reconnect`, the host's whole sequence matched. The
+client then refuses the end of the prop set at a later check of the same reader: `NET.RECONNECT.WORLD end rejected
+reason=scheduler slot=282 syncid=283 a=0 b=0` (`netmsgSvcReconnectPropEndRead`). An object the host sends with no
+parent is on neither the active nor the paused list on the client. The client disconnects for good (`terminal=1`,
+`retryable=0`) and returns to the menu; the host parks the partner a second time and ends the mission alone.
+
+Not known: which object slot 282 is. What narrows it: `NET.RECONNECT.WORLD begin ... removed=0 detached=0
+local_weapon_pruned=0`; the host only stood still; the refusal comes 0.1 s after the client's stage start. The
+reader changes list membership only for an object that had a parent on the client and has none on the host: it
+detaches it, then calls `propUnpause` (which always lists it) or `propPause`, and `propPause` does nothing for a
+prop whose flags carry `PROPFLAG_DONTPAUSE` (the row reader has already copied the host's flags by then). An object
+with no parent on either side keeps the membership the client's fresh stage gave it. The host's state writer does
+not check list membership for a level object (only the spawn writer does).
+
+Added 2026-11-19 with this entry: the scheduler refusal first logs `NET.RECONNECT.WORLD scheduler detail`: the prop
+type, object type, model number, the prop and object flags, the lifecycle bits the host sent (4 = on the host's
+active list), whether the client's prop had a parent before the snapshot, and the first dynamic sync id. Next: read
+that line from the next run of `network_coop_reconnect_smoke`, then fix the cause.
+
+## 2026-11-18 Training completion saves through the Controller Pak path (T-ENGINE-007)
+
+Firing Range, Device Training, and Holo Training awarded progress in memory and then invoked the legacy file manager. That path resolves a Controller Pak serial. The PC Agent Profile already serializes the medals and training flags through `saveSaveAgent`, which is also the Campaign result path. The three success handlers in `src/game/training.c` now use that save for the active named agent. Source and scoped diff review are complete. Build and ordinary tests still need a success and failure in each Training family, immediate restart through Agent Select, and persistent Duel eligibility.
+
+## 2026-11-17 B-1276 Two network stage-transaction smokes time out before the stage is live on shared base 9 (T-NETWORKING-011, fixed in the fixtures, proven 2026-11-17: 100/100 and 102/102)
+
+Severity low (test only, but it hides the co-op and counter-op start checks). `network_coop_stage_transaction_smoke`
+failed 81/100 in the co-op branch's turn q_20261117051637463_af6eb56c (`results-20261117T110217Z.json`): both
+processes waited for `network_stage_live` from boot with 220 s, and the host started the co-op stage at 217 s. On base
+9 the listen host's server is up about 1:50 after start and the client joins about 1:30 later; the mission-end smokes
+(300 s) went live at 3:29 and 3:44 in the same turns. `network_counterop_stage_transaction_smoke` has the same 220 s
+and passed narrowly. Fix: both first waits 300 s, test timeout 420 s (schedule bound 368 s). Other network fixtures
+with shorter first stage waits wait for `network_listen_ready` first, so the boot is not on their clock.
+
+## 2026-11-17 B-1275 A co-op client's rejoin is refused at the end of the reconnect prop set (T-NETWORKING-007 S2, fixed, proven 2026-11-19; the rejoin now stops at B-1277)
+
+Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin). First run of `network_coop_reconnect_smoke`
+(47/52, `results-20261117T103226Z.json`): the host parked the timed-out partner (S1), un-parked it at the same spot
+(spot_clear=1) and committed the reconnect; the client loaded the stage, began the world snapshot (`props=295`,
+matching the host's `prop=295 dynamic_prop=2`) and rejected `SVC_RECONNECT_PROP_END` (0x58) as malformed, terminal,
+so it disconnected with no retry and the host parked it again. `netmsgSvcReconnectPropEndRead` has eleven rejections
+and logged none. No chr was made after the stage start on the host (no `NET.NPC: host announced` line). Each
+rejection now logs `NET.RECONNECT.WORLD end rejected reason=<check> slot= syncid= a= b=`; the next run names it.
+
+Cause, from the rerun (`results-20261117T141505Z.json`): `reason=dual_weapon slot=270 syncid=271 a=272 b=271`,
+and SP-93 again. The host logged `NET: weapon 3 ('base:falcon2_silencer') has no session catalog id`, and the same
+for the comms rider (53), the tracer bug (54), the laptop gun (14) and the silenced Falcon's model (251), in every
+co-op and counter-op run today. A co-op or counter-op lobby start lists the stage, the players and the host's base
+set, but no weapons, while the mission names its own: the starting loadout, the guards' guns, the items a level
+script hands out. The reconnect snapshot names a weapon prop and its dual partner by session id, so on the client a
+pair of silenced Falcons came back as unarmed with no partner number, and the dual check refused the whole set. The
+same gap made any mission weapon a client receives by id (a drop, a spawn) unarmed.
+
+Fix: the co-op and counter-op lobby start lists every base weapon (`netLobbyManifestAppendMissionWeapons`,
+`MANIFEST-HOST: mission weapons listed=N`; a mod's custom weapon stays out, it is not on every client); their world
+models follow (B-1273). Every co-op and counter-op net smoke now forbids both session-id warnings. Pinned by
+`[b1275]` in `tests/test_net_mission_end_static.cpp`. SP-93.
+
+Proven by rerun 2 (2026-11-19, q_20261119011551074_865057f0): none of its five runs logged a session-id warning
+and the dual-weapon refusal is gone. The rejoin is refused at a later check instead (B-1277).
+
+## 2026-11-17 B-1274 Networked co-op and counter-op run as a Combat Simulator match: no objective checks during the mission, no co-op AI branches (T-NETWORKING-007, fixed in code on week-pd/multiplayer-coop, not yet run)
+
+Severity high for networked co-op and counter-op since 2026-04-09: the missions do not play as the original.
+Found while researching co-op drop-out (S1) on 2026-11-17: the host log of `network_coop_mission_end_smoke`
+(2026-11-16) shows `MATCH: mpReset normmplay=1 mplay=1 ... netmode=1` for a two-player co-op mission.
+
+Root cause: the stage load calls `mpReset` for the co-op and counter-op roles (`port/src/pdmain.c`, coopplayernum or
+antiplayernum set). The original `mpReset` then cleared `normmplayerisrunning` for those roles; commit 87e5347f0
+(2026-04-09, "remove dead coop/anti config swap (Phase 2)") collapsed that to always true, saying "with coop/anti
+gone, normmplayerisrunning is always true in mpReset()". Networked co-op and counter-op use the same roles, so every
+networked mission has run as a match since. What that turns off (all gated on `normmplayerisrunning == false`):
+the per-frame objective checks (`playerRenderHud`, `objectivesCheckAll`; objectives are checked once, at the mission
+end, so no "objective complete" during play and no mid-mission SVC_OBJ_STATUS), the AI's co-op branches
+(`if_coop_mode`, `scenario_source_runtime.c`), the guards' AI-versus-AI flag, and the mission death rules; the
+match's tune switching ran instead. The smokes did not see it: they end the mission with `--debug-end-mission`.
+The same commit also dropped the co-op and counter-op radar display option (`coopradaron`, `antiradaron`;
+`g_NetCoopRadar` is carried in the lobby plan but never applied): not fixed here.
+
+Fix (week-pd/multiplayer-coop): `mpReset` clears the flag again for the co-op and counter-op roles; a co-op host
+alone (AI buddies) and the offline Room's co-op start clear `mplayerisrunning` and `normmplayerisrunning` before the
+stage, as the original's mission list does, so a Combat Simulator match played before cannot leave them set; the
+smoke harness counts a co-op host alone as a network mission; a client's objective-check skip, which now runs
+every frame, logs once per stage. Pinned by `[b1274]` in
+`tests/test_net_mission_end_static.cpp`. To run: every co-op and counter-op net smoke, plus the two AI-buddy smokes.
+SP-95 (written as SP-94 at first; dev's SP-94 is B-1259's).
+
 ## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
 
 Severity medium to high for networked Combat Simulator with simulants and the token modes: visible on every client.
@@ -2968,7 +3142,7 @@ B-1107's replacement implementation and verification run under T-ASSETS-038.
 | B-1168 | Critical | source_connected | `devtools/release.ps1` ships the main checkout's `Build/data` wholesale: the dist step leaves out only `*.z64`, `base/`, `mod source files/` and `README.txt`, and `Test-ReleaseTypedArchiveTree` checks archive format, not where the content came from. A local launch from `Build/` extracts the ROM into `Build/data/ntsc-final`, so a release cut from that folder carries ROM-derived content. Checked read-only 2026-11-15: `Build/data` holds 8,050 `base_*` archives whose `_meta/provenance.json` names a `romextract_*` tool, 4,022 raw extracted ROM files (`files/`) and 52 ROM segments (`segs/`). The public stable release v0.1.102 (2026-06-18) has a 233.6 MB zip against 31.98 MB for v0.1.16, with the two executables about 84.6 MB uncompressed, which fits an extracted tree inside it; the zip's contents are NOT yet confirmed (needs Mike's OK to download it). Breaks the BYOR hard constraint. | T-RELEASE-002 | Script fixed 2026-11-15 on `week-pd/core`: the dist step leaves out raw ROM files and segments (`files/`, `segs/`), extraction cache stamps, and every archive whose provenance tool is `romextract_*` (a `base_` archive with no provenance too), then `Assert-ReleaseHasNoRomDerivedContent` refuses the release if anything ROM-derived or a `.z64` reached the dist. Run over today's `Build/data` (read-only): 12,140 files left out, 22 would ship (15 generated `ui_*.pdui`, 7 built-in palette themes, tool `pdgui_theme_loader`). `devtools/test-release-byor.ps1`: 12 checks, PS 5.1 and 7. Published asset removed 2026-11-15 on Mike's instruction ("go ahead and just remove it", no download to confirm): `PerfectDark-v0.1.102-win64.zip` and its `.sha256` and `.sig` are deleted from the v0.1.102 release; its page, tag, `PerfectDark.exe` and `Updater.exe` remain. Every other release zip, v0.0.34 to v0.1.16, is 27 to 35 MB (client and updater), so only v0.1.102 shipped the extracted tree. |
 | B-1169 | High | source_connected | With no `--moddir`, a player's client takes the first existing folder of `$E/../mods`, `./mods`, `$E/mods` and the base `mods` (`fsModRoots`, `port/src/fs.c`) as its mods folder, runs the one-shot folder migration there (`modMigrateRun`, `port/src/modmigrate.c`: every subfolder with a root `mod.json` is packaged into a `.pdmod` and renamed, and a `.pdmod-migration-done` marker is written) and mounts what it finds. `$E/../mods` is a developer convenience (the executable in `Build/`, mods at the repository root) and is checked first, so a player who unzips the game into `C:\Games\PD2\` gets `C:\Games\mods`, which may belong to another game whose mods also use `mod.json`; those folders would be renamed. `./mods` follows the working folder, which a shortcut can set anywhere. The release text tells players that `mods/` lives next to the executable. Found 2026-11-15 by the decision 3 setup check (code read; no player run). B-1160 fixed only a missing explicit `--moddir`. | T-MODINFRASTRUCTURE-002 | Mike, 2026-11-15: option A, fitted alongside the LocalAppData user mods folder MODS shipped on `week-pd/mods` (91198952; there the migration already runs only in that user folder, but the old install candidates were still scanned and mounted). Fixed: one rule, `modsInstallRoots` (`port/src/mods_install_roots.c`, one-commit branch `week-pd/installmods`, 546263fe on a8ab67f3): the repository-root mods folder when the executable's parent holds `CMakeLists.txt` and `.git`, then `<base>/mods`; nothing beside the install, nothing under the working folder. On `week-pd/core` `fsModRoots` uses it, the mod manager creates the install's own folder instead of `./mods`, and install-from-file and map import fall back to it instead of `./mods`; `[b1169]` plus the B-1160 scan (no file may name `$E/../mods` or `./mods`). Left: MODS wires `modsInstallRoots` into its candidate list after the user folder. |
 | B-1170 | Medium | source_connected | The `menu_settings_keyboard` smoke (settings and keyboard bindings) could not run on any branch: since 6044d0fa it pages with `PageUp` and `PageDown`, which the smoke harness key table (`s_KeyTable`, `port/src/smoke_harness.c`) did not have, so the harness refused the whole fixture at parse time (`SMOKE: key event has unresolved key (key='PageDown', scancode=0)`, a 3.1 s run with no scripted exit). Found 2026-11-15 by the decision 3 setup pack; a scan of every fixture's key names found no other unresolved key. Fixed: both keys added; `[b1170]` in `tests/test_smoke_input_events_static.cpp` fails when any fixture names a key the table lacks. | T-TOOLING-006 | Rerun on the fixed client (4f6ffe57, 2026-11-15 06:00 UTC): the fixture now parses and boots to the agent screen, but the window never got focus (`focus_lost=1`, `menu_key_ready:0`, also with `-MaintainForeground`), most likely because the desktop was locked overnight. Rerun with `-MaintainForeground` on 2026-11-15 17:05 UTC with the desktop unlocked: the window has focus and the menu comes up, so the focus part is resolved; the run now stops at the Tab navigation (B-1174). |
-| B-1174 | Medium | open | `menu_settings_keyboard` cannot move main-menu focus with Tab. Rerun of B-1170 on 2026-11-15 17:05 UTC (base 4, desktop unlocked, `-MaintainForeground`): the window has focus, the agent screen and the main menu come up (`main_menu_play_ready` satisfied; Return works), but four Tab taps leave focus on Play (`play_focus=1 settings_focus=0`) and `main_menu_settings_focused` times out after 5 s; the fixture stops at 8 of 28 events (22/49 assertions). The menu's keyboard navigation is Dear ImGui's (`ImGuiConfigFlags_NavEnableKeyboard`, `pdgui_backend.cpp`), where Tab moves focus; Tab is also bound to `ACTION_SCORECARD` (`actionmap.cpp`). Either the harness's injected Tab does not reach ImGui's key input, or the menu no longer takes Tab, or the fixture (42243a22, T-MENUS-003) expects an order that changed. | T-MENUS-003 | Not fixed: menus are not CORE's this week and no session owns them; logs in `D:\PD2-wt\core\.claude\week-pd-receipts\base4-campaign-20261115\menu_settings_keyboard-*`. |
+| B-1174 | Medium | fixture updated, rerun pending | The Nov 15 Base 4 `-MaintainForeground` run acquired the game window and used Return to load an Agent. The main menu stayed focused on Play after four Tab taps and the fixture timed out at 8 of 28 events (22/49 assertions). The raw client log records each Tab toggling the Social shell, consistent with the Menu/Pause `ACTION_SOCIAL_TOGGLE` mapping. | T-MENUS-003 | Nov 18 switched the fixture to three Down taps through the primary menu and retained the real Settings-focus and tab assertions. Source checks pass. A new ordinary-client run awaits canonical storage admission. Prior logs remain in `D:\PD2-wt\core\.claude\week-pd-receipts\base4-campaign-20261115\menu_settings_keyboard-*`. |
 | B-1175 | High | source_connected | On every stage built from scenario source the player started without the mission's intro weapons, ammo and outfit. The setup intro script also gives the starting loadout (`INTROCMD_WEAPON`, `INTROCMD_AMMO`), the outfit (`INTROCMD_OUTFIT`) and the watch time, but the extractor wrote only its spawn pads (`spawns.json`, `s_buildIntroSpawnsTable` in `port/src/romextract_pdarena.c`) and `s_setupBuildStageBlock` (`port/src/scenario_source_runtime.c`) rebuilt the intro from those alone, so `playerReset` never saw a weapon command: the Villa log of the base 4 run has `playerReset intro` with no `GAMELOOP.WEAPON ... INTRO gave` line. Read-only census of all 121 ROM setup files: the setups hold 59 weapon, 59 ammo and 79 outfit commands, nearly all in the solo setups (Crash Site in the snow outfit, Pelagic II in the wetsuit, Chicago in the trench coat, Air Force One as the stewardess, Maian SOS as Elvis), none of them reached the game. The campaign runs passed because they finish objectives through the debug path, not by play. Fixed on `week-pd/core`: a new scenario member `intro.json` (`pd2.scenario.intro.v1`, `port/include/scenario_intro.h`, strict reader `port/src/scenario_intro.cpp`) carries every intro command but the spawns, in order, with catalog weapon ids and outfit names; the runtime rebuilds the intro as spawns, then those rows, then the end. An unreadable `intro.json` stops the stage like an unreadable `spawns.json`; an absent one means no such commands (a custom level may have none). Credit offsets point into setup data the scenario does not carry, so the extractor refuses a setup with one (no base setup has one). Scenario cache kind gains `_intro_mpsetup`. | T-MODDING-011 | In game: the release campaign logs an `INTRO gave` line for each mission with an intro weapon, and a play screenshot of Crash Site shows the snow outfit. Propagation: every other `g_StageSetup.intro` reader (`player.c` inventory reset, `mplayer/scenarios.c`, `net/netmanifest.c`) reads the same rebuilt script. |
 | B-1176 | High | source_connected | Multiplayer arenas were extracted from the stage's solo setup file. Every scenario was built from `st->setupfileid`, but a match reads `mpsetupfileid` (`setupLoadFiles`, `src/game/setup.c`), and a multiplayer arena's solo setup is all but empty, so in public source 16 of 18 arenas had no setup objects (no weapons, ammo or shields; Ravine and Sewers had only a lift), and none had their spawn pads, briefcases, case respawns or hills. This is the root of MULTIPLAYER's 01:05 and 03:20 asks and of B-1125 (Hacker Central divided by zero with no crates) and B-1126 (cases off-world, a fixed hill); MULTIPLAYER worked around B-1126 with generated placements. The census: the multiplayer setups hold 241 spawns, 64 cases, 384 case respawns and 75 hills. Fixed on `week-pd/core`: a scenario of kind `mp` (the Dark, Classic and Bonus arenas) is built from the multiplayer setup, so its `objects.json`, `setup.fields.json`, `spawns.json`, AI lists, paths and the new `intro.json` (B-1175) come from the file a match reads; the manifest records `setup_source`. The Solo Missions arenas keep the solo setup, as today. | T-MODDING-011 | In game: an arena match logs its setup objects and intro rows (cases and hills), and MULTIPLAYER's generated placements add nothing on a base arena. Open question for MULTIPLAYER: in a match on a Solo Missions arena the original reads that stage's multiplayer setup (empty), while scenario source loads the solo setup with its guards. |
 | B-1177 | High | source_connected | Every multiplayer arena built from its multiplayer setup (B-1176) failed to load. **Seen in game 2026-11-15 22:25 UTC** (`mp_arena_setup_source` on the base 5 candidate, frozen CORE client 0056eae6): `SCENARIO.SOURCE: invalid public setup.fields.json for 'base:scenario_mp_complex': unsupported setup source field 'multi_ammo_crate.slots[0].model' on 'setup_0001'`, then the asset-chain FATAL, so Complex never started. Root cause: the slots of a multiplayer ammo crate are empty in the setup file (model 0, quantity 0; the match fills them when it starts), the extractor writes model 0 as an empty model catalog id, and the setup reader resolves every slot model through `s_setupResolveModelnum`, which refuses an empty id. All 9,956 crate slots in base 5 are empty (24 scenarios: every multiplayer arena and the extra scenarios). The offline checks missed it: the conformance checker does not compile setup fields against the catalog, and the in-game check was the first to load a multiplayer arena's setup. | T-MODDING-011 / scenario source | Fixed on `week-pd/core` (pd-tests 1,932 cases; in-game rerun queued): an empty crate slot model is model 0, as the setup file has it; a named model that does not resolve is still refused. Base 5's data stays valid, so no re-extraction is needed. Propagation: only this field carries an empty catalog id in base 5 (scan of every scenario's `setup.fields.json`). |

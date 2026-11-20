@@ -3200,7 +3200,13 @@ int bgunGraphV2Tick(struct player *player, int handnum)
 	struct hand *hand = &player->hands[handnum]; struct handweaponinfo info;
 	info.weaponnum = hand->gset.weaponnum; info.definition = (struct weapon *)wgV2RuntimeGsetWeapon(&hand->gset);
 	info.gunctrl = &player->gunctrl;
-	return !info.definition || bgunTickIncAttackingShoot(&info, handnum, hand);
+	const int before[2] = {hand->loadedammo[0], hand->loadedammo[1]};
+	wg_v2_runtime_snapshot observation = {0};
+	wgV2RuntimeSnapshot(player, handnum, &observation);
+	const int finished = !info.definition || bgunTickIncAttackingShoot(&info, handnum, hand);
+	const int after[2] = {hand->loadedammo[0], hand->loadedammo[1]};
+	wgV2RuntimeObserveDebit(&observation.delivery, before, after);
+	return finished;
 }
 void bgunGraphV2Cancel(struct player *player, int handnum)
 {
@@ -3995,17 +4001,23 @@ void bgunDecreaseNoiseRadius(void)
 	gsetPopulateFromCurrentPlayer(HAND_RIGHT, &gsetright);
 	uint64_t left_scope = wgV2RuntimeScopeOpen(player, HAND_LEFT, &gsetleft);
 	uint64_t right_scope = wgV2RuntimeScopeOpen(player, HAND_RIGHT, &gsetright);
+	wg_v2_delivery left_receipt = {0}, right_receipt = {0};
 
 	gsetGetNoiseSettings(&gsetleft, &noisesettingsleft);
 	gsetGetNoiseSettings(&gsetright, &noisesettingsright);
 
 	// Right hand
-	if (bgunIsFiring(HAND_RIGHT) && wgV2RuntimeNoiseAdmit(player, HAND_RIGHT)) {
+	if (bgunIsFiring(HAND_RIGHT) && (!wgV2RuntimeIsWeapon(gsetright.weaponnum)
+			|| (right_scope && wgV2RuntimeNoiseBegin(player, HAND_RIGHT, &right_receipt)))) {
+		const float before = player->hands[HAND_RIGHT].noiseradius;
 		player->hands[HAND_RIGHT].noiseradius += noisesettingsright.incradius;
 
 		if (player->hands[HAND_RIGHT].noiseradius > noisesettingsright.maxradius) {
 			player->hands[HAND_RIGHT].noiseradius = noisesettingsright.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetright.weaponnum))
+			wgV2RuntimeObserveNoise(&right_receipt, before, player->hands[HAND_RIGHT].noiseradius,
+				noisesettingsright.incradius, noisesettingsright.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsright.incradius / (noisesettingsright.decbasespeed * 60.0f);
@@ -4022,12 +4034,17 @@ void bgunDecreaseNoiseRadius(void)
 	}
 
 	// Left hand
-	if (bgunIsFiring(HAND_LEFT) && wgV2RuntimeNoiseAdmit(player, HAND_LEFT)) {
+	if (bgunIsFiring(HAND_LEFT) && (!wgV2RuntimeIsWeapon(gsetleft.weaponnum)
+			|| (left_scope && wgV2RuntimeNoiseBegin(player, HAND_LEFT, &left_receipt)))) {
+		const float before = player->hands[HAND_LEFT].noiseradius;
 		player->hands[HAND_LEFT].noiseradius += noisesettingsleft.incradius;
 
 		if (player->hands[HAND_LEFT].noiseradius > noisesettingsleft.maxradius) {
 			player->hands[HAND_LEFT].noiseradius = noisesettingsleft.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetleft.weaponnum))
+			wgV2RuntimeObserveNoise(&left_receipt, before, player->hands[HAND_LEFT].noiseradius,
+				noisesettingsleft.incradius, noisesettingsleft.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsleft.incradius / (noisesettingsleft.decbasespeed * 60.0f);
@@ -4043,7 +4060,7 @@ void bgunDecreaseNoiseRadius(void)
 		player->hands[HAND_LEFT].noiseradius = noisesettingsleft.minradius;
 	}
 	wgV2RuntimeScopeClose(left_scope); wgV2RuntimeScopeClose(right_scope);
-	wgV2RuntimeNoiseConsumed(player, HAND_LEFT); wgV2RuntimeNoiseConsumed(player, HAND_RIGHT);
+	wgV2RuntimeNoiseComplete(&left_receipt); wgV2RuntimeNoiseComplete(&right_receipt);
 }
 
 void bgunCalculateBlend(s32 handnum)
@@ -6691,13 +6708,24 @@ void bgun0f0a0c44(s32 handnum, struct coord *arg1, struct coord *arg2)
 	cam0f0b4c3c(g_Vars.currentplayer->hands[handnum].crosspos, arg2, 1);
 }
 
-void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2d, s32 handnum, bool dorandom)
+f32 bgunGetPlayerShotSpreadFromGset(struct gset *accepted, s32 burstbullets)
+{
+	struct weaponfunc *func = accepted ? gsetGetWeaponFunction(accepted) : NULL;
+	struct invaimsettings *aim = accepted ? gsetGetAimSettings(accepted) : NULL;
+	if (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || !aim) return -1;
+	f32 spread = ((struct weaponfunc_shoot *)func)->spread;
+	if ((aim->flags & INVAIMFLAG_ACCURATESINGLESHOT) && burstbullets == 1) spread *= 0.25f;
+	return spread;
+}
+
+static void bgunCalculatePlayerShotSpreadSource(struct coord *gunpos2d, struct coord *gundir2d,
+		s32 handnum, bool dorandom, struct gset *accepted, s32 burstbullets)
 {
 	f32 crosspos[2];
-	f32 spread = 0;
+	f32 spread = accepted ? bgunGetPlayerShotSpreadFromGset(accepted, burstbullets) : 0;
 	f32 scaledspread;
 	f32 randfactor;
-	struct weaponfunc *func = currentPlayerGetWeaponFunction(handnum);
+	struct weaponfunc *func = accepted ? NULL : currentPlayerGetWeaponFunction(handnum);
 	struct player *player = g_Vars.currentplayer;
 
 	if (func != NULL && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
@@ -6705,7 +6733,7 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 		spread = shootfunc->spread;
 	}
 
-	if (weaponHasAimFlag(bgunGetWeaponNum2(handnum), INVAIMFLAG_ACCURATESINGLESHOT)
+	if (!accepted && weaponHasAimFlag(bgunGetWeaponNum2(handnum), INVAIMFLAG_ACCURATESINGLESHOT)
 			&& player->hands[handnum].burstbullets == 1) {
 		spread *= 0.25f;
 	}
@@ -6745,6 +6773,20 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 	gunpos2d->z = 0;
 
 	cam0f0b4c3c(crosspos, gundir2d, 1);
+}
+
+void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2d, s32 handnum, bool dorandom)
+{
+	bgunCalculatePlayerShotSpreadSource(gunpos2d, gundir2d, handnum, dorandom, NULL, 0);
+}
+
+int bgunCalculatePlayerShotSpreadFromGset(struct coord *gunpos2d, struct coord *gundir2d,
+		s32 handnum, bool dorandom, struct gset *accepted, s32 burstbullets)
+{
+	struct weaponfunc *func = accepted ? gsetGetWeaponFunction(accepted) : NULL;
+	if (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || !gsetGetAimSettings(accepted)) return 0;
+	bgunCalculatePlayerShotSpreadSource(gunpos2d, gundir2d, handnum, dorandom, accepted, burstbullets);
+	return 1;
 }
 
 void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, bool arg3, s32 crouchpos, bool dual)

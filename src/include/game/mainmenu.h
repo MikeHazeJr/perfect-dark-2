@@ -19,6 +19,7 @@ MenuItemHandlerResult menuhandlerControlStyleImpl(s32 operation, struct menuitem
 char *soloMenuTitleStageOverview(struct menudialogdef *dialogdef);
 f32 func0f1036ac(u8 value, s32 prop);
 bool isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
+bool isPerfectDarkDifficultyUnlocked(void);
 char *soloMenuTextBestTime(struct menuitem *item);
 s32 getMaxAiBuddies(void);
 s32 getNumUnlockedSpecialStages(void);
@@ -94,5 +95,9 @@ MenuItemHandlerResult menuhandlerSoloDifficulty(s32 operation, struct menuitem *
 MenuItemHandlerResult menuhandlerSoundMode(s32 operation, struct menuitem *item, union handlerdata *data);
 
 MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
+
+/* PC (co-op AI buddies): getMaxAiBuddies() for a difficulty the mission
+ * config does not hold yet (the Room's Campaign tab). */
+s32 getMaxAiBuddiesForDifficulty(s32 difficulty);
 
 #endif

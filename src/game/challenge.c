@@ -9,6 +9,7 @@
 #include "game/chrai.h"
 #include "game/chraicommands.h"
 #include "game/debug.h"
+#include "game/gamefile.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/scenarios.h"
@@ -102,6 +103,7 @@ void challengeDetermineUnlockedFeatures(void)
 	s32 i;
 	s32 j;
 	s32 k;
+	bool unlockall = gamefileHasUnlockAll();
 
 	// Clear all challenge availability
 	for (challengeindex = 0; challengeindex < ARRAYCOUNT(g_MpChallenges); challengeindex++) {
@@ -114,7 +116,9 @@ void challengeDetermineUnlockedFeatures(void)
 	for (challengeindex = 0; challengeindex < ARRAYCOUNT(g_MpChallenges); challengeindex++) {
 		flag = 0;
 
-		if (challengeIsCompletedByAnyPlayerWithNumPlayers(challengeindex, 1)
+		if (unlockall) {
+			flag = 1;
+		} else if (challengeIsCompletedByAnyPlayerWithNumPlayers(challengeindex, 1)
 				|| challengeIsCompletedByAnyPlayerWithNumPlayers(challengeindex, 2)
 				|| challengeIsCompletedByAnyPlayerWithNumPlayers(challengeindex, 3)
 				|| challengeIsCompletedByAnyPlayerWithNumPlayers(challengeindex, 4)) {

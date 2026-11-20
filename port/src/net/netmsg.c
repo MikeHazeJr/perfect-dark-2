@@ -4049,6 +4049,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_Vars.bondplayernum = plan.bond_playernum;
 	g_Vars.coopplayernum = plan.coop_playernum;
 	g_Vars.antiplayernum = plan.anti_playernum;
+	/* Co-op AI buddies: a client's partner is the host, never simulants. A
+	 * count left from a co-op mission this machine hosted alone would make
+	 * only this machine spawn buddies and grow its chr table. */
+	g_Vars.numaibuddies = 0;
 
 	plan.status = NET_STAGE_START_OK;
 	sysLogPrintf(LOG_NOTE,
@@ -5620,6 +5624,17 @@ reject:
 	return 1;
 }
 
+/* T-NETWORKING-007 S2: a rejected prop-set end says which check failed (a
+ * co-op client's first rejoin was refused here with no reason). */
+static u32 netmsgReconnectPropEndReject(const char *reason, s32 slot,
+		u32 syncid, u32 a, u32 b)
+{
+	sysLogPrintf(LOG_ERROR,
+		"NET.RECONNECT.WORLD end rejected reason=%s slot=%d syncid=%u a=%u b=%u",
+		reason, slot, syncid, a, b);
+	return 1;
+}
+
 u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct netclient *srccl)
 {
@@ -5628,16 +5643,19 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 	if (!src || !srccl || srccl != g_NetLocalClient
 			|| srccl->state != CLSTATE_GAME || !srccl->stage_ready
 			|| !s_ReconnectPropReceive.active) {
-		return 1;
+		return netmsgReconnectPropEndReject("not_receiving", -1, 0,
+			srccl ? (u32)srccl->state : 0, (u32)s_ReconnectPropReceive.active);
 	}
 	count = netbufReadU16(src);
 	if (src->error || count != s_ReconnectPropReceive.expected_count
 			|| s_ReconnectPropReceive.received_count != count) {
-		return 1;
+		return netmsgReconnectPropEndReject("count", -1, (u32)count,
+			(u32)s_ReconnectPropReceive.expected_count,
+			(u32)s_ReconnectPropReceive.received_count);
 	}
 	for (u16 i = 0; i < count; ++i) {
 		if (!s_ReconnectPropReceive.received[i]) {
-			return 1;
+			return netmsgReconnectPropEndReject("row_missing", -1, 0, (u32)i, (u32)count);
 		}
 	}
 	/* Held-object arrays are a second gameplay-facing view of the prop graph.
@@ -5663,6 +5681,7 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct model *parent_model;
 		struct modelnode *attachment_node = NULL;
 		s16 attachment_mtx_index;
+		bool had_parent;
 		bool was_parented;
 		s32 scheduler_membership;
 
@@ -5673,7 +5692,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		parent_id = s_ReconnectPropReceive.parent_ids_by_slot[slot];
 		parent = parent_id ? netSyncIdLookup(parent_id) : NULL;
 		if ((parent_id && !parent) || parent == prop) {
-			return 1;
+			return netmsgReconnectPropEndReject(parent ? "parent_self" : "parent_unknown",
+				slot, prop->syncid, parent_id, (u32)prop->type);
 		}
 		refs = &s_ReconnectPropReceive.refs_by_slot[slot];
 		attachment_mtx_index = refs->attachment_mtx_index;
@@ -5687,7 +5707,12 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 					&& !netSyncIdLookup(refs->detail_target_id))
 				|| (refs->weapon_dual_id
 					&& !netSyncIdLookup(refs->weapon_dual_id))) {
-			return 1;
+			return netmsgReconnectPropEndReject("ref_unknown", slot, prop->syncid,
+				refs->projectile_owner_id ? refs->projectile_owner_id
+				: refs->projectile_target_id ? refs->projectile_target_id
+				: refs->projectile_pickupby_id ? refs->projectile_pickupby_id
+				: refs->detail_target_id ? refs->detail_target_id : refs->weapon_dual_id,
+				(u32)prop->type);
 		}
 		parent_model = netmsgReconnectModelForProp(parent);
 		if (attachment_mtx_index >= 0) {
@@ -5695,17 +5720,21 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 					|| !prop->obj->model
 					|| attachment_mtx_index
 						>= parent_model->definition->nummatrices) {
-				return 1;
+				return netmsgReconnectPropEndReject("attachment_parent", slot,
+					prop->syncid, parent_id, (u32)(s32)attachment_mtx_index);
 			}
 			attachment_node = modelFindNodeByMtxIndex(parent_model,
 				attachment_mtx_index);
 			if (!attachment_node) {
-				return 1;
+				return netmsgReconnectPropEndReject("attachment_node", slot,
+					prop->syncid, parent_id, (u32)(s32)attachment_mtx_index);
 			}
 		} else if (prop->obj->hidden & OBJHFLAG_EMBEDDED) {
-			return 1;
+			return netmsgReconnectPropEndReject("embedded_unattached", slot,
+				prop->syncid, parent_id, (u32)prop->type);
 		}
 
+		had_parent = prop->parent != NULL;
 		was_parented = prop->parent != NULL
 			|| (s_ReconnectPropReceive.lifecycle_by_slot[slot]
 				& NET_RECONNECT_LIFECYCLE_PRUNED_PARENT) != 0;
@@ -5739,7 +5768,26 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		if (scheduler_membership < 0
 				|| (parent && scheduler_membership != 0)
 				|| (!parent && scheduler_membership != 1)) {
-			return 1;
+			/* T-NETWORKING-007 S2: name the object and the state that left it
+			 * off the lists (or on them twice), so a refusal can be traced. */
+			sysLogPrintf(LOG_ERROR,
+				"NET.RECONNECT.WORLD scheduler detail slot=%d syncid=%u proptype=%u objtype=%u"
+				" modelnum=%d propflags=0x%02x lifecycle=0x%02x had_parent=%d active=%d"
+				" objflags=0x%08x objflags2=0x%08x objflags3=0x%08x hidden=0x%08x hidden2=0x%02x"
+				" room=%d first_dynamic=%u prev=%d next=%d paused_head_listed=%d",
+				slot, prop->syncid, (unsigned)prop->type, (unsigned)prop->obj->type,
+				(s32)prop->obj->modelnum, (unsigned)prop->flags,
+				(unsigned)s_ReconnectPropReceive.lifecycle_by_slot[slot],
+				had_parent ? 1 : 0, prop->active ? 1 : 0,
+				(unsigned)prop->obj->flags, (unsigned)prop->obj->flags2,
+				(unsigned)prop->obj->flags3, (unsigned)prop->obj->hidden,
+				(unsigned)prop->obj->hidden2, (s32)prop->rooms[0],
+				(unsigned)g_NetFirstDynamicSyncId,
+				prop->prev ? 1 : 0, prop->next ? 1 : 0,
+				g_Vars.pausedprops
+					? netmsgPropSchedulerMembershipCount(g_Vars.pausedprops) : -2);
+			return netmsgReconnectPropEndReject("scheduler", slot, prop->syncid,
+				parent_id, (u32)scheduler_membership);
 		}
 		if (prop->obj->model) {
 			prop->obj->model->attachedtomodel = attachment_node
@@ -5765,7 +5813,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				if (parent->chr->weapons_held[held_slot]
 						&& parent->chr->weapons_held[held_slot]
 							!= prop) {
-					return 1;
+					return netmsgReconnectPropEndReject("held_slot_taken", slot,
+						prop->syncid, parent_id, (u32)held_slot);
 				}
 				parent->chr->weapons_held[held_slot] = prop;
 			}
@@ -5797,7 +5846,8 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 						!= dualprop->weapon->weaponnum
 					|| s_ReconnectPropReceive.refs_by_slot[dualslot]
 						.weapon_dual_id != prop->syncid) {
-				return 1;
+				return netmsgReconnectPropEndReject("dual_weapon", slot, prop->syncid,
+					refs->weapon_dual_id, (u32)dualslot);
 			}
 			prop->weapon->dualweapon = dualprop->weapon;
 		}
@@ -11013,6 +11063,35 @@ static bool netLobbyStartWriteReject(const char *detail)
 	return false;
 }
 
+/* B-1275 (SP-93): a co-op or counter-op mission names its own weapons on the
+ * wire: the starting loadout, the guards' guns, the items a level script hands
+ * out. Their numbers come from the mission, not from a weapon set, so on
+ * Defection the Falcon 2 (silencer), comms rider, tracer bug and laptop gun had
+ * no session catalog id; a client read them as unarmed, and a co-op rejoin was
+ * refused when two silenced Falcons came back as a broken dual pair. List
+ * every base weapon (a mod's custom weapon is not on every client, so it stays
+ * out); their world models follow in netLobbyManifestAppendWeaponModels. */
+static bool netLobbyManifestAppendMissionWeapons(match_manifest_t *manifest)
+{
+	s32 listed = 0;
+
+	for (s32 weaponnum = WEAPON_UNARMED + 1; weaponnum < WEAPON_CUSTOM_START; weaponnum++) {
+		const char *id = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
+
+		if (!id || !id[0]) {
+			continue;
+		}
+		if (!manifestAppendCatalogClosure(manifest, id, MANIFEST_SLOT_MATCH)) {
+			sysLogPrintf(LOG_ERROR,
+				"MANIFEST-HOST: mission weapon %d '%s' could not be listed", weaponnum, id);
+			return false;
+		}
+		listed++;
+	}
+	sysLogPrintf(LOG_NOTE, "MANIFEST-HOST: mission weapons listed=%d", listed);
+	return true;
+}
+
 /* B-1273 (SP-93): a weapon prop sent to clients (a dying simulant's or
  * player's drop, a reconnect snapshot) names its world model by session catalog
  * id, and the reader builds the prop with model 0 (the roof gun) when the id is
@@ -11420,6 +11499,9 @@ static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 					"host manifest cannot publish bot closure");
 			}
 		}
+	} else if (!netLobbyManifestAppendMissionWeapons(&plan->manifest)) {
+		return netLobbyStartWriteReject(
+			"host manifest cannot publish the mission's weapons");
 	}
 	if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {
 		return netLobbyStartWriteReject(

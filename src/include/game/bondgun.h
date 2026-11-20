@@ -97,6 +97,9 @@ void bgunGetCrossPos(f32 *x, f32 *y);
 void bgun0f0a0c08(struct coord *arg0, struct coord *arg1);
 void bgun0f0a0c44(s32 handnum, struct coord *arg1, struct coord *arg2);
 void bgunCalculatePlayerShotSpread(struct coord *arg0, struct coord *arg1, s32 handnum, bool dorandom);
+int bgunCalculatePlayerShotSpreadFromGset(struct coord *arg0, struct coord *arg1,
+		s32 handnum, bool dorandom, struct gset *accepted, s32 burstbullets);
+f32 bgunGetPlayerShotSpreadFromGset(struct gset *accepted, s32 burstbullets);
 void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, bool arg3, s32 crouchpos, bool dual);
 void bgunSetLastShootInfo(struct coord *pos, struct coord *dir, s32 handnum);
 s32 bgunGetShotsToTake(s32 handnum);

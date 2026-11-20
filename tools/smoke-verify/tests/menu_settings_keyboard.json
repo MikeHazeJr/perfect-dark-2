@@ -1,6 +1,6 @@
 {
   "scenario_name": "menu_settings_keyboard",
-  "description": "Ordinary SDL keyboard traversal using a disposable smoke Agent, observed native focus and submitted Settings tabs. Run after the unchanged Agent Create/Cancel gate. No editing, restart persistence or physical controller claim.",
+  "description": "Ordinary SDL arrow-key navigation to Settings and PageUp/PageDown tab traversal using a disposable smoke Agent. Observes native focus and submitted tabs. Run after the Agent Create/Cancel gate.",
   "tags": [
     "menus",
     "input",
@@ -58,25 +58,19 @@
     {
       "at_ms": 1000,
       "type": "key",
-      "key": "Tab",
+      "key": "Down",
       "action": "tap"
     },
     {
       "at_ms": 1250,
       "type": "key",
-      "key": "Tab",
+      "key": "Down",
       "action": "tap"
     },
     {
       "at_ms": 1500,
       "type": "key",
-      "key": "Tab",
-      "action": "tap"
-    },
-    {
-      "at_ms": 1750,
-      "type": "key",
-      "key": "Tab",
+      "key": "Down",
       "action": "tap"
     },
     {
@@ -234,6 +228,7 @@
       "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-main-return\\.bmp"
     ],
     "forbidden_patterns": [
+      "MENUPOOL: acquired social_shell",
       "EXCEPTION_ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",

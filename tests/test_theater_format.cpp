@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -264,7 +265,7 @@ theater_format_writer_t *beginCampaign(const fs::path &path)
 	return writer;
 }
 
-void writeCompleteRecording(const fs::path &path)
+void writeCompleteRecording(const fs::path &path, u64 second_elapsed_ms = 22 * 1000 / 60)
 {
 	auto *writer = beginCampaign(path);
 	auto first = checkpointEntities(10.0f);
@@ -285,6 +286,7 @@ void writeCompleteRecording(const fs::path &path)
 	auto second = checkpointEntities(20.0f);
 	auto second_view = participantView(20.0f);
 	auto second_checkpoint = checkpointAt(22, second, second_view);
+	second_checkpoint.elapsed_ms = second_elapsed_ms;
 	REQUIRE(theaterFormatAppendCheckpoint(writer, &second_checkpoint)
 		== THEATER_FORMAT_OK);
 	REQUIRE(theaterFormatFinish(writer) == THEATER_FORMAT_OK);
@@ -358,8 +360,8 @@ TEST_CASE("Theater v2 writes deterministic bounded records and seek index",
 	const fs::path dir = theaterTemp("pd2-theater-format-index");
 	const fs::path first_path = dir / "first.pdth";
 	const fs::path second_path = dir / "second.pdth";
-	writeCompleteRecording(first_path);
-	writeCompleteRecording(second_path);
+	writeCompleteRecording(first_path, 710);
+	writeCompleteRecording(second_path, 710);
 
 	REQUIRE(readBytes(first_path) == readBytes(second_path));
 	REQUIRE_FALSE(fs::exists(first_path.string() + ".part"));
@@ -373,6 +375,7 @@ TEST_CASE("Theater v2 writes deterministic bounded records and seek index",
 	REQUIRE(info.record_count == 8);
 	REQUIRE(info.roster_count == 1);
 	REQUIRE(info.manifest_count == 5);
+	REQUIRE(info.index_length == 4 + 2 * 24);
 	REQUIRE(std::string(info.match.stage_id) == "base:stage_defection");
 	REQUIRE(std::string(info.match.mission_id) == "base:mission_defection");
 	REQUIRE(info.match.campaign_variant == THEATER_FORMAT_CAMPAIGN_SOLO);
@@ -384,6 +387,8 @@ TEST_CASE("Theater v2 writes deterministic bounded records and seek index",
 	REQUIRE(count == 2);
 	REQUIRE(index[0].tick == 10);
 	REQUIRE(index[1].tick == 22);
+	REQUIRE(index[0].elapsed_ms == 166);
+	REQUIRE(index[1].elapsed_ms == 710);
 	REQUIRE(index[0].sequence == 3);
 	REQUIRE(index[1].sequence == 5);
 	REQUIRE(index[0].file_offset < index[1].file_offset);
@@ -432,6 +437,74 @@ TEST_CASE("Theater v2 writes deterministic bounded records and seek index",
 	REQUIRE(loaded_views[0].forward[2] == Approx(-1.0f));
 	REQUIRE(loaded_views[0].fov_y_degrees == Approx(60.0f));
 	REQUIRE(loaded_views[0].aim_pitch_degrees == Approx(-4.0f));
+
+	theater_format_reader_t *handle = nullptr;
+	theater_format_metadata_t metadata{};
+	REQUIRE(theaterFormatReaderOpen(first_path.string().c_str(), &handle, &metadata)
+		== THEATER_FORMAT_OK);
+	std::unique_ptr<theater_format_reader_t, decltype(&theaterFormatReaderClose)>
+		reader(handle, theaterFormatReaderClose);
+	REQUIRE(metadata.info->checkpoint_count == 2);
+	REQUIRE(metadata.index[1].tick == 22);
+	REQUIRE(std::string(metadata.manifest[4].catalog_id) == "base:stage_defection");
+	REQUIRE(metadata.roster[0].role == THEATER_FORMAT_ROLE_CAMPAIGN_PRIMARY);
+	const std::array<std::array<u64, 3>, 5> seek_cases{{
+		{0, 0, 0}, {166, 0, 1}, {500, 0, 1}, {710, 1, 1}, {1000, 1, 1},
+	}};
+	u32 before = 0;
+	u32 after = 0;
+	for (const auto &seek : seek_cases) {
+		REQUIRE(theaterFormatReaderFindCheckpoints(reader.get(), seek[0], &before, &after)
+			== THEATER_FORMAT_OK);
+		REQUIRE(before == seek[1]);
+		REQUIRE(after == seek[2]);
+	}
+	for (const u32 checkpoint_index : {1u, 0u, 1u}) {
+		REQUIRE(theaterFormatReaderReadCheckpoint(reader.get(), checkpoint_index,
+			&loaded, loaded_entities.data(), static_cast<u32>(loaded_entities.size()),
+			loaded_views.data(), static_cast<u32>(loaded_views.size()))
+			== THEATER_FORMAT_OK);
+		REQUIRE(loaded.tick == metadata.index[checkpoint_index].tick);
+	}
+	REQUIRE(theaterFormatReaderReadCheckpoint(reader.get(), 0,
+		&loaded, loaded_entities.data(), 1, loaded_views.data(), 1)
+		== THEATER_FORMAT_LIMIT_EXCEEDED);
+	REQUIRE(loaded.tick == 22);
+	REQUIRE(loaded_entities[0].score == 7);
+	REQUIRE(loaded_views[0].position[0] == Approx(20.0f));
+	REQUIRE(theaterFormatReaderReadCheckpoint(reader.get(), 2,
+		&loaded, loaded_entities.data(), 2, loaded_views.data(), 1)
+		== THEATER_FORMAT_INVALID_ARGUMENT);
+	REQUIRE(theaterFormatReaderOpen((dir / "missing.pdth").string().c_str(),
+		&handle, &metadata) == THEATER_FORMAT_NOT_FOUND);
+	REQUIRE(handle == reader.get());
+	REQUIRE(metadata.info->checkpoint_count == 2);
+	reader.reset();
+
+	const fs::path equal_time_path = dir / "equal.pdth";
+	writeCompleteRecording(equal_time_path, 166);
+	REQUIRE(theaterFormatReaderOpen(equal_time_path.string().c_str(), &handle, &metadata)
+		== THEATER_FORMAT_OK);
+	reader.reset(handle);
+	REQUIRE(theaterFormatReaderFindCheckpoints(reader.get(), 166, &before, &after)
+		== THEATER_FORMAT_OK);
+	REQUIRE(before == 1);
+	REQUIRE(after == 1);
+	reader.reset();
+
+	const fs::path reversed_time_path = dir / "reversed.pdth";
+	writeCompleteRecording(reversed_time_path, 165);
+	REQUIRE(theaterFormatReaderOpen(reversed_time_path.string().c_str(), &handle, &metadata)
+		== THEATER_FORMAT_OK);
+	reader.reset(handle);
+	REQUIRE(theaterFormatReaderFindCheckpoints(reader.get(), 166, &before, &after)
+		== THEATER_FORMAT_CORRUPT);
+	REQUIRE(before == 1);
+	REQUIRE(after == 1);
+	REQUIRE(theaterFormatReaderReadCheckpoint(reader.get(), 1,
+		&loaded, loaded_entities.data(), 2, loaded_views.data(), 1) == THEATER_FORMAT_OK);
+	REQUIRE(loaded.elapsed_ms == 165);
+	reader.reset();
 
 	fs::remove_all(dir);
 }
@@ -650,6 +723,13 @@ TEST_CASE("Theater v2 validation rejects damage without partial publication",
 	const theater_format_info_t before = sentinel;
 	REQUIRE(theaterFormatValidate(corrupt_path.string().c_str(), &sentinel)
 		== THEATER_FORMAT_CORRUPT);
+	theater_format_reader_t *reader = nullptr;
+	theater_format_metadata_t metadata{};
+	metadata.info = &sentinel;
+	REQUIRE(theaterFormatReaderOpen(corrupt_path.string().c_str(), &reader, &metadata)
+		== THEATER_FORMAT_CORRUPT);
+	REQUIRE(reader == nullptr);
+	REQUIRE(metadata.info == &sentinel);
 	REQUIRE(std::memcmp(&sentinel, &before, sizeof(sentinel)) == 0);
 
 	const fs::path manifest_tamper_path = dir / "manifest-tamper.pdth";

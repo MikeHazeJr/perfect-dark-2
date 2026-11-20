@@ -4468,6 +4468,9 @@ In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
 - [x] Model refs: `netWriteModelRef` warns the same way (`NET: model N ('<id>') has no session catalog id`),
   for SVC_PROP_SPAWN's weapon and object models; its first run found B-1273.
 - [ ] Object models in SVC_PROP_SPAWN (thrown laptops and other spawned objects): watch the warning.
+- [x] Co-op and counter-op missions (B-1275, 2026-11-17): their manifest listed no weapons at all; a mission's
+  loadout and items reached clients as unarmed. Every base weapon is listed now, and the co-op and counter-op
+  net smokes forbid the warning.
 
 ---
 
@@ -4498,6 +4501,34 @@ object inside another looked up the wrong parent.
 - `rg -n "\(struct [a-z_]+ \*\)\s*(PD_BE32\()?[a-z_]+\[[0-9]+\]" src port`
   then check each array is pointer-sized (`uintptr_t *`, `struct x *[]`), not `u32 *`.
 - `rg -n "\(u32 \*\)[^;]*\)\[[0-9]+\]" src/game src/lib` for word reads of native structs.
+
+---
+
+## SP-95: A refactor collapses a branch for a mode it believes is gone
+
+**Pattern:** a cleanup removes or collapses code for a mode that looked dead at the time (split-screen co-op and
+counter-op after S188), and the mode comes back through the same globals (networked co-op and counter-op use the
+same `coopplayernum`/`antiplayernum` roles). The collapsed branch then silently gives the other mode's behavior.
+
+**Known instance (B-1274, 2026-11-17):** 87e5347f0 made `normmplayerisrunning` always true in `mpReset`, so
+networked co-op and counter-op ran as a match (no per-frame objective checks, no co-op AI branches) for seven months.
+The same commit dropped the co-op and counter-op radar display option.
+
+**Search:**
+```
+git log --format='%h %s' -i --grep='dead coop\|coop/anti\|unreachable\|no splitscreen' -- src port
+grep -rn "coop.*dead\|anti.*dead\|unreachable\|is always true" src/game port/src --include=*.c
+```
+
+**Rules:**
+- Before collapsing a mode branch, list who sets the mode's globals today (network code included), not only the
+  menus that used to.
+- A comment that calls a mode dead is a claim to re-check when the mode comes back.
+
+**Audit checklist:**
+- [x] `mpReset` normmplayerisrunning (B-1274).
+- [ ] The co-op and counter-op radar option (`g_NetCoopRadar` never reaches the display options).
+- [ ] Other S188 removals ("no splitscreen"): check each still holds with two networked players.
 
 ---
 
@@ -4656,6 +4687,40 @@ and pdanim_chr say so; romextract.c logs its skips. Scripts of the ROM
 check: CORE's scratchpad `sp98-check/` (check_tiles.py, check_portals.py).
 Next: make 1 to 4 fail their export with a log line (they guard against
 data the base game does not have), then 5 to 7.
+
+## SP-99: A commit made in a dirty checkout leans on files that stay uncommitted
+
+**Found:** 2026-11-20, B-1279. Local commit 264587ac took one hunk of
+`src/game/bondgun.c` out of a reviewed patch whose other files sat
+uncommitted in the canonical checkout. Every build there compiled the
+working copies, so the client always linked, while dev's own commits could
+not build. Nobody noticed until the cleanup compared HEAD with the tree.
+
+**The pattern:** several sessions share one checkout full of in-flight
+edits, and each commits "its" files by path. A build of the checkout proves
+the working tree, not the commit. Any symbol, include, CMake entry, fixture
+or pinned text that the committed files take from a file left uncommitted
+breaks dev silently. The same goes the other way: a test file committed
+without the source it pins.
+
+**Rule:** before a commit made from a shared dirty checkout is pushed, build
+and test the commit on its own, in a worktree or a clean clone at that
+commit. At the least, check that every identifier its staged hunks add or
+call is defined in the staged tree. Commit a reviewed patch whole, not one
+file of it.
+
+**Audit:**
+```
+# identifiers a commit calls that its own tree does not define
+git show <commit> -U0 | grep '^+' | grep -oE '\b[a-zA-Z_][a-zA-Z0-9_]{6,}\(' | sort -u
+git grep -n '<identifier>' <commit> -- src port tests
+# files the checkout compiles that the commit does not have
+git status --porcelain | grep -E '\.(c|cpp|h)$'
+```
+
+**Checked 2026-11-20:** after acbce249, the merged dev tree (d1932f55) built
+from commits alone in `D:\PD2-wt\multiplayer`, client and test binary, and
+passed pd-tests in full.
 
 ## Scripted pickup can clear the object-to-prop link
 

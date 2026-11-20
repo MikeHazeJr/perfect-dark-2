@@ -333,19 +333,8 @@ s32 currentStageForbidsSlayer(void)
 
 bool invCanHaveAllGunsWeapon(s32 weaponnum)
 {
-	bool canhave = true;
-
-	if (weaponnum == WEAPON_SLAYER) {
-		canhave = false;
-	}
-
-	// @bug: The stage conditions need an OR. This condition can never pass.
-	if ((mainGetStageNum() == STAGE_ATTACKSHIP && mainGetStageNum() == STAGE_SKEDARRUINS)
-			&& weaponnum == WEAPON_SLAYER) {
-		canhave = true;
-	}
-
-	return canhave;
+	return weaponnum != WEAPON_SLAYER || mainGetStageNum() == STAGE_ATTACKSHIP
+		|| mainGetStageNum() == STAGE_SKEDARRUINS;
 }
 
 bool invHasSingleWeaponIncAllGuns(s32 weaponnum)
@@ -382,7 +371,9 @@ bool invGiveSingleWeapon(s32 weaponnum)
 		return false;
 	}
 
-	frSetWeaponFound(weaponnum);
+	if (!g_CheatsActiveBank0 && !g_CheatsActiveBank1) {
+		frSetWeaponFound(weaponnum);
+	}
 
 	if (invHasSingleWeaponExcAllGuns(weaponnum) == 0) {
 		struct invitem *item;

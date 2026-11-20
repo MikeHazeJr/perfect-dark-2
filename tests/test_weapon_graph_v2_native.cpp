@@ -207,7 +207,25 @@ TEST_CASE("v2 selected damage copy survives source replacement and hand reselect
     REQUIRE(wgV2GsetLookup(r.get(), &delayed, &selected) == WG_V2_GSET_SELECTED);
     REQUIRE(wgV2NativeHeld(selected)->damage == Approx(1.5));
     REQUIRE(resolver.released == 0);
-    wgV2GsetClose(r.get(), copytoken); REQUIRE(resolver.released == 2);
+    // Production dispatch -> ray copies must keep the accepted action even
+    // after the hand selects a newer source and the dispatch scope closes.
+    struct gset ray{};
+    const auto raytoken = open(r.get(), &ray, &ray, 10);
+    REQUIRE(wgV2GsetCopy(r.get(), raytoken, &delayed, error, sizeof(error)));
+    wgV2GsetClose(r.get(), copytoken);
+    REQUIRE(resolver.released == 0);
+    REQUIRE(wgV2GsetLookup(r.get(), &ray, &selected) == WG_V2_GSET_SELECTED);
+    REQUIRE(wgV2NativeHeld(selected)->damage == Approx(1.5));
+    const auto *retired = wgV2GsetSource(r.get(), &ray);
+    REQUIRE(retired); REQUIRE_FALSE(wgV2CatalogEntryAccepting(retired));
+    wgV2GsetClose(r.get(), raytoken); REQUIRE(resolver.released == 2);
+    const auto reused = open(r.get(), &ray, &ray, 11);
+    REQUIRE(reused != raytoken);
+    REQUIRE(wgV2GsetCopy(r.get(), reused, &hand, error, sizeof(error)));
+    wgV2GsetClose(r.get(), raytoken); // Old close cannot retire new stack storage.
+    REQUIRE(wgV2GsetLookup(r.get(), &ray, &selected) == WG_V2_GSET_SELECTED);
+    REQUIRE(wgV2NativeHeld(selected)->damage == Approx(7));
+    wgV2GsetClose(r.get(), reused);
 }
 
 TEST_CASE("v2 secondary selection and copied action retain exact function generation",

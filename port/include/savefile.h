@@ -269,6 +269,7 @@ s32 saveLoadAgent(const char *name);
  * Returns 0 on success, -1 on failure.
  */
 s32 saveSaveAgent(const char *name);
+s32 saveAgentUnlockAll(const char *name);
 
 /** Copy the latest agent write receipt into out. Safe before the first write. */
 void saveGetLastAgentWriteReceipt(struct saveagentwritereceipt *out);

@@ -1,7 +1,8 @@
 {
   "schema": 1,
-  "min_free_gib": 200,
-  "max_full_installs": 5,
+  "min_free_gib": 0,
+  "min_build_free_gib": 0,
+  "max_full_installs": null,
   "max_full_install_gib": 8,
   "max_archive_gib": 8,
   "peak_run_gib": 2,

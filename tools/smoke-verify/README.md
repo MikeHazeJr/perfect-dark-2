@@ -115,15 +115,17 @@ Current PD budgets in `storage-policy.json` are:
 
 | Budget | Default |
 |---|---:|
-| Free-space floor after pending growth | 200 GiB, temporary D-011 decision |
+| Fixed free-space floor after pending growth | None by default |
 | Additional growth reserve | 2 GiB |
 | Pending run / queued smoke build | 2 GiB / 4 GiB |
-| Managed full installs, including active/pinned/restored copies | 3 total, 8 GiB |
+| Managed full installs, including active/pinned/restored copies | No fixed count by default; 8 GiB aggregate |
 | Compact archive, receipts, screenshots and artifacts | 8 GiB |
 
-Mike temporarily reduced only the PD floor on October 3. Pending growth and the
-additional reserve remain unchanged: 204 GiB for a run and 206 GiB for a build.
-No expiry was specified; this does not change Astral or global machine budgets.
+The PD defaults retain actual pending capacity and the additional growth reserve:
+4 GiB for a typical run and 6 GiB for a typical build, before larger measured
+allocations. A positive explicit install count or explicit disk floor still
+applies where configured. The 8 GiB aggregate install and archive budgets remain
+independent. This does not change Astral or other machine budgets.
 
 Use `-StoragePolicy <policy.json>` for an explicit policy. Unknown fields, invalid
 numbers and nonpositive caps are refused. Before a new copy, only completed,

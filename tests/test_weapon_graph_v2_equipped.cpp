@@ -234,11 +234,24 @@ TEST_CASE("deferred graph shot keeps complete equipment after catalog and hand r
     REQUIRE_FALSE(wgV2CatalogEntryAccepting(source));
     auto *retained = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(source));
     REQUIRE(wgV2EquippedWeapon(retained)->ammos[0]->clipsize == 13);
+    REQUIRE(wgV2EquippedWeapon(retained)->aimsettings->zoomfov == 55);
+    REQUIRE(wgV2EquippedWeapon(retained)->aimsettings->flags == INVAIMFLAG_AUTOAIM);
+    struct gset ray{};
+    const auto ray_token = wgV2GsetOpen(copies.get(), &ray, &ray, 3, error, sizeof(error));
+    REQUIRE(ray_token);
+    REQUIRE(wgV2GsetCopy(copies.get(), ray_token, &deferred, error, sizeof(error)));
     const int retirement = GENERATE(0, 1, 2);
     if (retirement == 0) wgV2GsetClose(copies.get(), d);
     else if (retirement == 1) wgV2GsetsRetireOwner(copies.get(), &deferred, 2);
     else REQUIRE(wgV2GsetCopy(copies.get(), d, &base, error, sizeof(error)));
     REQUIRE_FALSE(wgV2GsetSource(copies.get(), &deferred));
+    REQUIRE(f.host.models == 0); REQUIRE(f.host.released == 0);
+    auto *ray_source = wgV2GsetSource(copies.get(), &ray);
+    REQUIRE(ray_source); REQUIRE(wgV2CatalogEntryGeneration(ray_source) == generation);
+    auto *ray_equipment = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(ray_source));
+    REQUIRE(wgV2EquippedWeapon(ray_equipment)->aimsettings->flags == INVAIMFLAG_AUTOAIM);
+    REQUIRE(wgV2EquippedWeapon(ray_equipment)->ammos[0]->clipsize == 13);
+    wgV2GsetClose(copies.get(), ray_token);
     REQUIRE(f.host.models == 1); REQUIRE(f.host.released == f.host.acquired);
 }
 

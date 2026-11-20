@@ -82,6 +82,7 @@
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "swarm_test.h"
+#include "swarm_gpu.h"
 #include "system.h"
 #include "testscenarios.h"
 /* Track 2d (c3807, 2026-05-16): listen-host GPU swarm state sync. The
@@ -180,6 +181,9 @@ extern s32 swarmTestGetAndResetGpuAiFireCount(void);
 #endif
 #ifndef GL_SHADER_STORAGE_BUFFER
 #define GL_SHADER_STORAGE_BUFFER          0x90D2
+#endif
+#ifndef GL_BUFFER_UPDATE_BARRIER_BIT
+#define GL_BUFFER_UPDATE_BARRIER_BIT      0x00000200
 #endif
 #ifndef GL_SHADER_STORAGE_BARRIER_BIT
 #define GL_SHADER_STORAGE_BARRIER_BIT     0x00002000
@@ -531,6 +535,18 @@ static s16     s_ReadbackRingChrnum[SWARM_READBACK_RING_DEPTH][SWARM_GPU_MAX];
  * sample / AI loops to skip slots whose chr identity has changed. */
 static s16     s_ScratchChrnum[SWARM_GPU_MAX];
 
+/* These receipts travel with the same ring slot and fence as the GPU bytes. */
+struct swarm_baseline_submission {
+	s32 serial;
+	struct swarm_gpu_baseline identity;
+};
+static swarm_baseline_submission s_BaselineRing[SWARM_READBACK_RING_DEPTH];
+static u32 s_BaselineEpoch;
+static s32 s_BaselineSerial;
+static u32 s_BaselineNextSample;
+static s32 s_BaselineBurstRemaining;
+static const s32 kBaselineSubmissionLimit = 240;
+
 /* ------------------------------------------------------------------
  * c029 Slice 3 (2026-05-16): per-bot floor cache (Strategy 1A hybrid).
  *
@@ -879,6 +895,9 @@ void main() {
      * write side with bit-exact SSBO parity (CPU consumer reads SSBO,
      * texture is silent / observe-only).
      */
+    if (P._pad_s0 != 0) {
+        b[i]._pad_m0 = P._pad_s0;
+    }
     if (P.state_tex_enable != 0) {
         int x = int(i);
         imageStore(StateOut, ivec2(x, 0),
@@ -1151,6 +1170,7 @@ void swarmGpuInvalidateReadback(void)
 			s_ReadbackRingFence[i] = NULL;
 		}
 		s_ReadbackRingCount[i] = 0;
+		s_BaselineRing[i].serial = 0;
 		/* Wipe the per-slot chrnum snapshot. Defensive: even if a future
 		 * code path reads s_ReadbackRingChrnum without re-stamping, the
 		 * -1 sentinel guarantees the consumer's identity check fails
@@ -1397,14 +1417,107 @@ void swarmGpuApplyRemoteState(const float *raw_rgba32f_buf, int count,
  * stays readable at 4096-bot scale. */
 #define SWARM_AI_LOG_MAX        8
 
+static bool swarmBaselineCheckGl(const struct swarm_gpu_baseline *baseline, const char *operation)
+{
+	if (!baseline) return true;
+	const GLenum error = glGetError();
+	if (error == GL_NO_ERROR) return true;
+	sysLogPrintf(LOG_ERROR, "SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,"
+		"\"reason\":\"%s\",\"gl_error\":%u}", baseline->stage_epoch, operation, (u32)error);
+	return false;
+}
+
+static void swarmBaselineLogDispatch(const swarm_baseline_submission &submitted, s32 count)
+{
+	char inputs[448] = {};
+	s32 length = 0;
+	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
+		const struct boid_record &row = s_BoidScratch[i];
+		length += snprintf(inputs + length, sizeof(inputs) - length,
+			"%s[%.9g,%.9g,%.9g,%.9g,%.9g,%.9g]", i ? "," : "",
+			row.px, row.py, row.pz, row.sux, row.suy, row.suz);
+	}
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_dispatch\",\"stage_epoch\":%u,"
+		"\"mode\":\"GPU_FULL\",\"serial\":%d,\"count\":%d,\"inputs\":[%s],\"gl_error\":0}",
+		submitted.identity.stage_epoch, submitted.serial, count, inputs);
+}
+
+static bool swarmBaselineReadback(const swarm_baseline_submission &submitted,
+                                  const struct swarm_gpu_baseline *current,
+                                  struct chrdata **chrs, s32 count, const char *path)
+{
+	if (!current || count != SWARM_BASELINE_COUNT
+			|| current->stage_epoch != submitted.identity.stage_epoch) return false;
+
+	char actors[160] = {};
+	s32 length = 0;
+	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
+		const struct swarm_gpu_identity &id = submitted.identity.actors[i];
+		const struct swarm_gpu_identity &live = current->actors[i];
+		struct chrdata *chr = chrs[i];
+		if (s_BoidScratch[i]._pad_m0 != submitted.serial || id.generation != live.generation
+				|| !chr || !chr->prop || id.generation != chr->generation
+				|| id.chrnum != chr->chrnum || id.chrnum != s_ScratchChrnum[i]
+				|| id.prop != chr->prop || id.prop_index != live.prop_index) return false;
+		length += snprintf(actors + length, sizeof(actors) - length, "%s[%d,%u,%d,%d]",
+			i ? "," : "", i, id.generation, id.chrnum, id.prop_index);
+	}
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_readback\",\"stage_epoch\":%u,"
+		"\"serial\":%d,\"path\":\"%s\",\"markers\":[%d,%d,%d,%d],\"actors\":[%s],\"gl_error\":0}",
+		current->stage_epoch, submitted.serial, path,
+		s_BoidScratch[0]._pad_m0, s_BoidScratch[1]._pad_m0,
+		s_BoidScratch[2]._pad_m0, s_BoidScratch[3]._pad_m0, actors);
+	return true;
+}
+
+static void swarmBaselineLogApply(const swarm_baseline_submission &submitted, s32 slot,
+                                  const struct coord &before, const struct coord &requested,
+                                  const struct coord &actual)
+{
+	const struct swarm_gpu_identity &id = submitted.identity.actors[slot];
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_apply\",\"stage_epoch\":%u,"
+		"\"serial\":%d,\"slot\":%d,\"actor\":[%d,%u,%d,%d],\"committed\":true,"
+		"\"before\":[%.9g,%.9g,%.9g],\"requested\":[%.9g,%.9g,%.9g],"
+		"\"actual\":[%.9g,%.9g,%.9g],\"gl_error\":0}",
+		submitted.identity.stage_epoch, submitted.serial, slot, slot,
+		id.generation, id.chrnum, id.prop_index, before.x, before.y, before.z,
+		requested.x, requested.y, requested.z, actual.x, actual.y, actual.z);
+}
+
 void swarmGpuStepAndApply(struct coord *player_pos,
                           struct chrdata **chrs, s32 count,
-                          s32 method, s32 player_propnum)
+                          s32 method, s32 player_propnum,
+                          const struct swarm_gpu_baseline *baseline)
 {
 	if (!swarmGpuAvailable()) return;
 	if (count <= 0)           return;
 	if (count > SWARM_GPU_MAX) count = SWARM_GPU_MAX;
 	if (!ensure_resources())  return;
+	if (baseline && s_BaselineSerial < kBaselineSubmissionLimit
+			&& !swarmBaselineCheckGl(baseline, "gpu_pre_dispatch")) return;
+
+	swarm_baseline_submission submitted = {};
+	swarm_baseline_submission readback = {};
+	if (baseline) {
+		if (s_BaselineEpoch != baseline->stage_epoch) {
+			s_BaselineEpoch = baseline->stage_epoch;
+			s_BaselineSerial = 0;
+			s_BaselineNextSample = SDL_GetTicks();
+			s_BaselineBurstRemaining = 0;
+			sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_init\",\"stage_epoch\":%u,"
+				"\"compiled\":true,\"linked\":true,\"gl_error\":0}", baseline->stage_epoch);
+		}
+		const u32 now = SDL_GetTicks();
+		if ((s32)(now - s_BaselineNextSample) >= 0) {
+			s_BaselineNextSample = now + 1000;
+			s_BaselineBurstRemaining = 3;
+		}
+		if (s_BaselineBurstRemaining > 0 && s_BaselineSerial < kBaselineSubmissionLimit) {
+			s_BaselineBurstRemaining--;
+			submitted.serial = ++s_BaselineSerial;
+			submitted.identity = *baseline;
+		}
+	}
 
 	/* B-311 SAFE_MAX=64 rate-limited warning retired at c029/2026-05-15.
 	 * The CHRVTX pool exhaustion that caused display-list corruption at
@@ -1597,7 +1710,7 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * the shader sees state_tex_enable = 0 and runs the SSBO-only path
 	 * (bit-exact pre-2a). _pad fields stay zero for std430 hygiene. */
 	s_Params.state_tex_enable = s_StateTexArmed ? 1 : 0;
-	s_Params._pad_s0 = 0;
+	s_Params._pad_s0 = submitted.serial;
 	s_Params._pad_s1 = 0;
 	s_Params._pad_s2 = 0;
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ParamsSsbo);
@@ -1634,8 +1747,12 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 	 * subsequent CPU readback (glGetBufferSubData) and any image-sampling
 	 * consumer (none today; slated for 2b) see the dispatch's writes.
 	 * Bit cost is negligible vs the SSBO bit alone. */
-	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT
-		| GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+		| (submitted.serial ? GL_BUFFER_UPDATE_BARRIER_BIT : 0));
+	if (submitted.serial && !swarmBaselineCheckGl(baseline, "gpu_dispatch")) return;
+	if (submitted.serial) {
+		swarmBaselineLogDispatch(submitted, count);
+	}
 
 	/* Track 2a (c3807, 2026-05-16): ping-pong swap. Next dispatch writes
 	 * to the texture this dispatch just consumed as read (= started as
@@ -1710,6 +1827,8 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 			if (wait == GL_ALREADY_SIGNALED
 					|| wait == GL_CONDITION_SATISFIED) {
 				consumed_count = s_ReadbackRingCount[read_idx];
+				readback = s_BaselineRing[read_idx];
+				s_BaselineRing[read_idx].serial = 0;
 				if (consumed_count > 0) {
 					glBindBuffer(GL_COPY_READ_BUFFER,
 						s_ReadbackRingBuf[read_idx]);
@@ -1753,6 +1872,7 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		s_ReadbackRingFence[write_idx] =
 			s_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
 		s_ReadbackRingCount[write_idx] = count;
+		s_BaselineRing[write_idx] = submitted;
 		/* Stamp the chrnum the GPU just computed for. The consumer (next
 		 * frame's pass through this function) checks this against the
 		 * live chrs[i]->chrnum and skips the apply if death_poll_and_
@@ -1780,6 +1900,15 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 				? (s16)c->chrnum : (s16)-1;
 		}
 		consumed_count = count;
+		readback = submitted;
+	}
+	if ((submitted.serial || readback.serial)
+			&& !swarmBaselineCheckGl(baseline, "gpu_native_readback")) return;
+	if (readback.serial && !swarmBaselineReadback(readback, baseline, chrs, consumed_count,
+			ring_armed ? "fenced" : "blocking")) {
+		sysLogPrintf(LOG_ERROR, "SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,"
+			"\"reason\":\"gpu_readback_identity_or_serial\"}", readback.identity.stage_epoch);
+		return;
 	}
 
 	/* From here on, `consumed_count` is the authoritative number of
@@ -1916,6 +2045,8 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 		 * back to legacy chrSetPos if a future refactor breaks the
 		 * invariant. */
 		if (chr->actiontype != ACT_SKJUMP) {
+			const struct coord before = readback.serial ? chr->prop->pos : newpos;
+			s32 committed = 1;
 			if (ce->valid) {
 				chrSetPosWithCachedGround(chr, &newpos, rooms, face_deg,
 					ce->ground, ce->floorcol, ce->floortype, ce->floorroom);
@@ -1924,7 +2055,11 @@ void swarmGpuStepAndApply(struct coord *player_pos,
 				 * the pre-pass always populates ce on a MISS, and HIT
 				 * implies ce was already valid. Counted by s_PerfCacheMiss
 				 * external to this site so it shows up in playtest logs. */
-				chrSetPos(chr, &newpos, rooms, face_deg, true);
+				committed = chrSetPos(chr, &newpos, rooms, face_deg, true);
+			}
+			if (readback.serial && committed) {
+				const struct coord requested = {s_BoidScratch[i].px, s_BoidScratch[i].py, s_BoidScratch[i].pz};
+				swarmBaselineLogApply(readback, i, before, requested, chr->prop->pos);
 			}
 		}
 

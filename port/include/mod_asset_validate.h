@@ -13,11 +13,12 @@
  *      (the shared reader: UTF-8, no byte order mark, no duplicate keys, no
  *      trailing text); `.ini` must be UTF-8 with no NUL byte, and every line
  *      inside a section must be a comment, a section header or `key = value`.
- *   3. The family's own reader where one can run without game state: a body
- *      or head through the strict body/head source reader, a character
- *      through the character source reader.
+ *   3. The family's own reader where one can run without game state: body,
+ *      head and character source readers, and weapon, projectile and entity
+ *      graph compilers. Split v1 weapon graphs use the descriptor-selected
+ *      variables from their archive, including when embedded.
  *
- * It only reads. No catalog, no globals, no logging, nothing written.
+ * Validation does not register assets or write files.
  */
 #ifndef _IN_MOD_ASSET_VALIDATE_H
 #define _IN_MOD_ASSET_VALIDATE_H
@@ -57,10 +58,8 @@ s32 modAssetValidateArchiveFile(const char *path, char *err, size_t err_cap);
  * under another, the way a save stages `<name>.candidate` before it swaps it
  * in: read from `disk_path`, judged as `archive_name`.
  *
- * The file variants also compile a v1 weapon from the file, with its
- * variables file, so a $variable that is not defined is refused here. The
- * bytes variant cannot do that and lets a weapon that uses $variables pass
- * on its descriptor alone.
+ * The file variants also retain the file compiler checks for legacy v1
+ * weapons with a single combined behavior graph.
  */
 s32 modAssetValidateArchiveStaged(const char *disk_path, const char *archive_name,
 		char *err, size_t err_cap);

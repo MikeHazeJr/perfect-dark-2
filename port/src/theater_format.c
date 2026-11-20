@@ -1138,7 +1138,7 @@ static theater_format_result_t parseCheckpoint(const u8 *payload, u32 length,
 	u64 expected_tick, theater_format_checkpoint_t *out_checkpoint,
 	theater_format_entity_t **out_entities, theater_format_view_t **out_views,
 	const theater_format_manifest_entry_t *manifest, u32 manifest_count,
-	const theater_format_roster_entry_t *roster, u32 roster_count)
+	const theater_format_roster_entry_t *roster, u32 roster_count, u64 *out_elapsed_ms)
 {
 	theater_reader_t reader = { payload, length, 0, 0 };
 	theater_format_checkpoint_t candidate;
@@ -1259,6 +1259,7 @@ static theater_format_result_t parseCheckpoint(const u8 *payload, u32 length,
 		free(entities);
 		free(views);
 	}
+	if (out_elapsed_ms) *out_elapsed_ms = candidate.elapsed_ms;
 	return THEATER_FORMAT_OK;
 }
 
@@ -1535,6 +1536,7 @@ theater_format_result_t theaterFormatAppendCheckpoint(
 		entry->file_offset = offset;
 		entry->sequence = writer->next_sequence - 1;
 		entry->record_crc = crc;
+		entry->elapsed_ms = checkpoint->elapsed_ms;
 	}
 	blobFree(&blob);
 	return result;
@@ -1732,7 +1734,13 @@ typedef struct theater_scan_s {
 	s32 saw_index;
 	s32 saw_end;
 	s32 has_record_tick;
+	s32 checkpoint_time_reversed;
 } theater_scan_t;
+
+struct theater_format_reader_s {
+	FILE *stream;
+	theater_scan_t scan;
+};
 
 static void scanFree(theater_scan_t *scan)
 {
@@ -1749,9 +1757,11 @@ static theater_format_result_t scanAddCheckpoint(theater_scan_t *scan,
 	if (scan->parsed_checkpoints >= THEATER_FORMAT_MAX_CHECKPOINTS) {
 		return THEATER_FORMAT_LIMIT_EXCEEDED;
 	}
-	if (scan->parsed_checkpoints > 0
-			&& entry->tick <= scan->checkpoints[scan->parsed_checkpoints - 1].tick) {
-		return THEATER_FORMAT_CORRUPT;
+	if (scan->parsed_checkpoints > 0) {
+		const theater_format_index_entry_t *previous =
+			&scan->checkpoints[scan->parsed_checkpoints - 1];
+		if (entry->tick <= previous->tick) return THEATER_FORMAT_CORRUPT;
+		if (entry->elapsed_ms < previous->elapsed_ms) scan->checkpoint_time_reversed = 1;
 	}
 	if (scan->parsed_checkpoints >= scan->checkpoint_capacity) {
 		u32 capacity = scan->checkpoint_capacity ? scan->checkpoint_capacity * 2u : 64u;
@@ -1780,6 +1790,7 @@ static theater_format_result_t parseAndCompareIndex(const u8 *payload, u32 lengt
 		entry.file_offset = readerU64(&reader);
 		entry.sequence = readerU32(&reader);
 		entry.record_crc = readerU32(&reader);
+		entry.elapsed_ms = scan->checkpoints[i].elapsed_ms;
 		if (reader.failed
 				|| entry.tick != scan->checkpoints[i].tick
 				|| entry.file_offset != scan->checkpoints[i].file_offset
@@ -1946,11 +1957,11 @@ static theater_format_result_t scanStream(FILE *stream, u64 size,
 				result = THEATER_FORMAT_CORRUPT;
 				break;
 			}
+			theater_format_index_entry_t entry;
 			result = parseCheckpoint(payload, record.payload_length, record.tick,
 				NULL, NULL, NULL, scan->manifest, scan->parsed_manifest,
-				scan->roster, scan->parsed_roster);
+				scan->roster, scan->parsed_roster, &entry.elapsed_ms);
 			if (result == THEATER_FORMAT_OK) {
-				theater_format_index_entry_t entry;
 				entry.tick = record.tick;
 				entry.file_offset = record_position;
 				entry.sequence = record.sequence;
@@ -2134,75 +2145,114 @@ theater_format_result_t theaterFormatReadRoster(const char *path,
 	return result;
 }
 
-theater_format_result_t theaterFormatReadCheckpoint(const char *path,
-	u32 checkpoint_index, theater_format_checkpoint_t *out_checkpoint,
-	theater_format_entity_t *entities, u32 entity_capacity,
-	theater_format_view_t *views, u32 view_capacity)
+theater_format_result_t theaterFormatReaderOpen(const char *path,
+	theater_format_reader_t **out_reader, theater_format_metadata_t *out_metadata)
 {
-	if (!path || !out_checkpoint || (entity_capacity && !entities)
-			|| (view_capacity && !views)) return THEATER_FORMAT_INVALID_ARGUMENT;
+	if (!path || !out_reader || !out_metadata) return THEATER_FORMAT_INVALID_ARGUMENT;
 	FILE *stream = fopen(path, "rb");
 	if (!stream) return errno == ENOENT
 		? THEATER_FORMAT_NOT_FOUND : THEATER_FORMAT_IO_ERROR;
+	theater_format_reader_t *reader = (theater_format_reader_t *)calloc(1, sizeof(*reader));
+	if (!reader) {
+		fclose(stream);
+		return THEATER_FORMAT_IO_ERROR;
+	}
+	reader->stream = stream;
 	u64 size = 0;
 	theater_format_result_t result = fileSize(stream, &size);
-	theater_scan_t scan;
-	memset(&scan, 0, sizeof(scan));
 	if (result == THEATER_FORMAT_OK) {
-		result = scanStream(stream, size, 1, 0, &scan, NULL, 0, NULL);
+		result = scanStream(stream, size, 1, 0, &reader->scan, NULL, 0, NULL);
 	}
-	if (result == THEATER_FORMAT_OK
-			&& checkpoint_index >= scan.parsed_checkpoints) {
-		result = THEATER_FORMAT_INVALID_ARGUMENT;
+	if (result != THEATER_FORMAT_OK) {
+		theaterFormatReaderClose(reader);
+		return result;
 	}
+	out_metadata->info = &reader->scan.info;
+	out_metadata->manifest = reader->scan.manifest;
+	out_metadata->roster = reader->scan.roster;
+	out_metadata->index = reader->scan.checkpoints;
+	*out_reader = reader;
+	return THEATER_FORMAT_OK;
+}
+
+void theaterFormatReaderClose(theater_format_reader_t *reader)
+{
+	if (!reader) return;
+	fclose(reader->stream);
+	scanFree(&reader->scan);
+	free(reader);
+}
+
+theater_format_result_t theaterFormatReaderFindCheckpoints(
+	const theater_format_reader_t *reader, u64 elapsed_ms, u32 *out_before, u32 *out_after)
+{
+	if (!reader || !out_before || !out_after) return THEATER_FORMAT_INVALID_ARGUMENT;
+	const theater_scan_t *scan = &reader->scan;
+	if (scan->checkpoint_time_reversed) return THEATER_FORMAT_CORRUPT;
+
+	u32 low = 0;
+	u32 high = scan->parsed_checkpoints;
+	while (low < high) {
+		const u32 middle = low + (high - low) / 2u;
+		if (scan->checkpoints[middle].elapsed_ms <= elapsed_ms) low = middle + 1u;
+		else high = middle;
+	}
+	const u32 before = low > 0 ? low - 1u : 0;
+	*out_before = before;
+	*out_after = low > 0 && low < scan->parsed_checkpoints ? low : before;
+	return THEATER_FORMAT_OK;
+}
+
+theater_format_result_t theaterFormatReaderReadCheckpoint(
+	theater_format_reader_t *reader, u32 checkpoint_index,
+	theater_format_checkpoint_t *out_checkpoint,
+	theater_format_entity_t *entities, u32 entity_capacity,
+	theater_format_view_t *views, u32 view_capacity)
+{
+	if (!reader || !out_checkpoint || (entity_capacity && !entities)
+			|| (view_capacity && !views)
+			|| checkpoint_index >= reader->scan.parsed_checkpoints) {
+		return THEATER_FORMAT_INVALID_ARGUMENT;
+	}
+	FILE *stream = reader->stream;
+	const theater_scan_t *scan = &reader->scan;
+	const theater_format_index_entry_t *index = &scan->checkpoints[checkpoint_index];
+	if (fseek(stream, (long)index->file_offset, SEEK_SET) != 0) {
+		return THEATER_FORMAT_IO_ERROR;
+	}
+	u8 header_bytes[THEATER_FORMAT_RECORD_HEADER_SIZE];
+	if (fread(header_bytes, 1, sizeof(header_bytes), stream) != sizeof(header_bytes)) {
+		return THEATER_FORMAT_IO_ERROR;
+	}
+	theater_record_header_t header;
+	theater_format_result_t result = decodeRecordHeader(header_bytes, &header);
+	if (result != THEATER_FORMAT_OK) return result;
+	if (header.kind != THEATER_FORMAT_RECORD_CHECKPOINT
+			|| header.sequence != index->sequence || header.tick != index->tick
+			|| header.payload_crc != index->record_crc
+			|| header.payload_length == 0
+			|| header.payload_length > scan->info.index_offset - index->file_offset
+				- THEATER_FORMAT_RECORD_HEADER_SIZE) {
+		return THEATER_FORMAT_CORRUPT;
+	}
+	u8 *payload = (u8 *)malloc(header.payload_length);
+	if (!payload) return THEATER_FORMAT_IO_ERROR;
+	if (fread(payload, 1, header.payload_length, stream) != header.payload_length) {
+		free(payload);
+		return THEATER_FORMAT_IO_ERROR;
+	}
+	if (theaterCrc32(payload, header.payload_length) != header.payload_crc) {
+		free(payload);
+		return THEATER_FORMAT_CORRUPT;
+	}
+
 	theater_format_checkpoint_t candidate;
-	memset(&candidate, 0, sizeof(candidate));
 	theater_format_entity_t *candidate_entities = NULL;
 	theater_format_view_t *candidate_views = NULL;
-	if (result == THEATER_FORMAT_OK) {
-		const theater_format_index_entry_t *index =
-			&scan.checkpoints[checkpoint_index];
-		if (fseek(stream, (long)index->file_offset, SEEK_SET) != 0) {
-			result = THEATER_FORMAT_IO_ERROR;
-		} else {
-			u8 header_bytes[THEATER_FORMAT_RECORD_HEADER_SIZE];
-			theater_record_header_t header;
-			if (fread(header_bytes, 1, sizeof(header_bytes), stream)
-					!= sizeof(header_bytes)) {
-				result = THEATER_FORMAT_IO_ERROR;
-			} else {
-				result = decodeRecordHeader(header_bytes, &header);
-				if (result == THEATER_FORMAT_OK
-						&& (header.kind != THEATER_FORMAT_RECORD_CHECKPOINT
-							|| header.sequence != index->sequence
-							|| header.tick != index->tick
-							|| header.payload_crc != index->record_crc)) {
-					result = THEATER_FORMAT_CORRUPT;
-				}
-				if (result == THEATER_FORMAT_OK) {
-					u8 *payload = header.payload_length
-						? (u8 *)malloc(header.payload_length) : NULL;
-					if (header.payload_length && !payload) {
-						result = THEATER_FORMAT_IO_ERROR;
-					} else if (header.payload_length
-							&& fread(payload, 1, header.payload_length, stream)
-								!= header.payload_length) {
-						result = THEATER_FORMAT_IO_ERROR;
-					} else if (theaterCrc32(payload, header.payload_length)
-							!= header.payload_crc) {
-						result = THEATER_FORMAT_CORRUPT;
-					} else {
-						result = parseCheckpoint(payload, header.payload_length,
-							header.tick, &candidate, &candidate_entities,
-							&candidate_views, scan.manifest,
-							scan.parsed_manifest, scan.roster,
-							scan.parsed_roster);
-					}
-					free(payload);
-				}
-			}
-		}
-	}
+	result = parseCheckpoint(payload, header.payload_length, header.tick, &candidate,
+		&candidate_entities, &candidate_views, scan->manifest, scan->parsed_manifest,
+		scan->roster, scan->parsed_roster, NULL);
+	free(payload);
 	if (result == THEATER_FORMAT_OK
 			&& (candidate.entity_count > entity_capacity
 				|| candidate.view_count > view_capacity)) {
@@ -2219,8 +2269,24 @@ theater_format_result_t theaterFormatReadCheckpoint(const char *path,
 	}
 	free(candidate_entities);
 	free(candidate_views);
-	fclose(stream);
-	scanFree(&scan);
+	return result;
+}
+
+theater_format_result_t theaterFormatReadCheckpoint(const char *path,
+	u32 checkpoint_index, theater_format_checkpoint_t *out_checkpoint,
+	theater_format_entity_t *entities, u32 entity_capacity,
+	theater_format_view_t *views, u32 view_capacity)
+{
+	if (!out_checkpoint || (entity_capacity && !entities) || (view_capacity && !views)) {
+		return THEATER_FORMAT_INVALID_ARGUMENT;
+	}
+	theater_format_reader_t *reader;
+	theater_format_metadata_t metadata;
+	theater_format_result_t result = theaterFormatReaderOpen(path, &reader, &metadata);
+	if (result != THEATER_FORMAT_OK) return result;
+	result = theaterFormatReaderReadCheckpoint(reader, checkpoint_index,
+		out_checkpoint, entities, entity_capacity, views, view_capacity);
+	theaterFormatReaderClose(reader);
 	return result;
 }
 
