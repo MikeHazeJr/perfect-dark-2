@@ -1,5 +1,7 @@
 # Session Log (Active)
 
+2026-11-20 BGFX, handoff (14:33 UTC; branch `week-pd/renderer-handoff` from origin/dev d43a7f72). Mike asked for a handoff a fresh session can use to finish the 2.0 renderer, with every requirement for completion. Written as `context/designs/rendering/renderer-2.0-handoff.md`: how to start (startup reading, hub, Workbench, FIFOs, worktree permission), the state on dev (phase 2a step 1 landed as a1751113; CORE kept the bgfx scene path in step for B-1267; every raw-GL texture creator on dev has a bgfx branch except the compute-only swarm), the definition of done (cross-cutting requirements and all eleven phases of the scope doc with exit criteria and status: only phase 2a step 1 is done; R3 and R6 are not), eleven decisions still needed from Mike (first: the step 1 parity verdict), open items (parity numbers with tests to settle them; the Grid session's Blank Map floor UV request N-1092/N-1094; tagged ImGui textures, N-1107), a technical reference (files, flags, bgfx lessons, smoke practice) and the landing practice with the canonical's local-only commits. The step 1 design doc's header and the scope doc's progress section point to it. The Workbench server was not running, so no Workbench note was added.
+
 2026-11-20 CORE, 02:30 to 05:30 UTC. `week-pd/core-s11` (PR 18) was built,
 extracted and run in the game. Found and fixed on it besides B-1266 and
 B-1267: B-1290, half of every monitor and TV screen not drawn (the
