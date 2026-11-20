@@ -1401,6 +1401,10 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   the menu's screen thumbnail), Defection 180 to 448 (max 15), Felicity 158
   to 193 (max 52 at a few edge pixels). Details in
   [bgfx-classic-gl.md](bgfx-classic-gl.md), "Results (2026-11-19)".
+- **Handoff (2026-11-20).** [renderer-2.0-handoff.md](renderer-2.0-handoff.md)
+  is where the next session starts: the state on dev, the definition of done
+  for every phase below, the decisions still open for Mike, and requests from
+  other lanes.
 
 ---
 
