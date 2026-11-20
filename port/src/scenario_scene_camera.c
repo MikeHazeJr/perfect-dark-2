@@ -189,6 +189,66 @@ int scenarioScenePerspectiveMatrix(float out[4][4], float fovy_degrees,
 	return 1;
 }
 
+/* FTOFRAC8 (include/PR/gu.h): the float times 128, at most 127, to int,
+ * kept as the signed byte a Light_t direction holds. */
+static float s_frac8(float v)
+{
+	float scaled = v * 128.0f;
+
+	if (scaled > 127.0f) {
+		scaled = 127.0f;
+	}
+	return (float)(signed char)((int)scaled & 0xff);
+}
+
+int scenarioSceneLookAtReflect(const float look[3], const float up[3],
+	float out_x[3], float out_y[3])
+{
+	float l[3];
+	float r[3];
+	float u[3];
+	float qx[3];
+	float qy[3];
+	int i;
+
+	if (!s_finite3(look) || !s_finite3(up) || !out_x || !out_y) {
+		return 0;
+	}
+	/* guLookAtReflectF: the look from the eye to the point, negated. */
+	l[0] = -look[0];
+	l[1] = -look[1];
+	l[2] = -look[2];
+	if (!s_normalize3(l)) {
+		return 0;
+	}
+	/* Right = Up x Look */
+	r[0] = up[1] * l[2] - up[2] * l[1];
+	r[1] = up[2] * l[0] - up[0] * l[2];
+	r[2] = up[0] * l[1] - up[1] * l[0];
+	if (!s_normalize3(r)) {
+		return 0;
+	}
+	/* Up = Look x Right */
+	u[0] = l[1] * r[2] - l[2] * r[1];
+	u[1] = l[2] * r[0] - l[0] * r[2];
+	u[2] = l[0] * r[1] - l[1] * r[0];
+	if (!s_normalize3(u)) {
+		return 0;
+	}
+	for (i = 0; i < 3; i++) {
+		qx[i] = s_frac8(r[i]) / 127.0f;
+		qy[i] = s_frac8(u[i]) / 127.0f;
+	}
+	if (!s_normalize3(qx) || !s_normalize3(qy)) {
+		return 0;
+	}
+	for (i = 0; i < 3; i++) {
+		out_x[i] = qx[i];
+		out_y[i] = qy[i];
+	}
+	return 1;
+}
+
 int scenarioSceneCameraBuild(scenario_scene_camera_t *out,
 	const float position[3], const float look[3], const float up[3],
 	float fovy_degrees, float aspect, float znear, float zfar,
@@ -241,5 +301,16 @@ int scenarioSceneCameraBuild(scenario_scene_camera_t *out,
 	out->draw_offset[1] = offset[1];
 	out->draw_offset[2] = offset[2];
 	out->world_scale = scale;
+	/* B-1268: the reflection vectors of this camera. The view matrix above
+	 * accepted look and up, so these exist; the fallback is the camera
+	 * that looks down -z. */
+	if (!scenarioSceneLookAtReflect(look, up, out->lookat_x, out->lookat_y)) {
+		out->lookat_x[0] = 1.0f;
+		out->lookat_x[1] = 0.0f;
+		out->lookat_x[2] = 0.0f;
+		out->lookat_y[0] = 0.0f;
+		out->lookat_y[1] = 1.0f;
+		out->lookat_y[2] = 0.0f;
+	}
 	return 1;
 }

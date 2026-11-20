@@ -101,10 +101,10 @@
  * scene export version, which every scene.glb carries and the per-archive
  * check compares, and the arena kind, which takes an existing install off
  * the fast path so that check runs. */
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex_allrooms_b1266_cull_b1267"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex_allrooms_b1266_cull_b1267_texgen_b1268"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268"
 #define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
@@ -326,6 +326,12 @@ typedef struct {
 	s32 alpha_mode; /* PDSCENARIO_ALPHA_*; OPAQUE/MASK/BLEND, set from opa/xlu source */
 	s32 double_sided; /* B-1267: drawn with both cull bits clear, so from both sides */
 	s32 animation; /* SCENARIO_DYNTEX_*: the dyntex.c preset its texture moves by */
+	/* B-1268: how its triangles' vertices are lit (s_bgTexGenKind): 0 not
+	 * lit, 1 lit with texture generation (a reflective surface, keyed with
+	 * its G_TEXTURE scale), 2 lit some other way. */
+	s32 texgen;
+	u16 texgen_scale_s;
+	u16 texgen_scale_t;
 	u32 tri_count;
 	pdscenario_visual_vertex_t *vertices;
 	u32 vertex_count;
@@ -368,6 +374,10 @@ typedef struct {
 	u32 tris_two_sided;
 	u32 tris_cull_front;
 	u32 tris_cull_both;
+	/* B-1268: triangles drawn lit with texture generation, and lit some
+	 * other way (no room of the game does that). */
+	u32 tris_texgen;
+	u32 tris_lit_other;
 } pdscenario_bgscene_t;
 
 static void s_textbufFree(pdscenario_textbuf_t *b)
@@ -6221,7 +6231,8 @@ static s32 s_bgMaterialAddTri(pdscenario_bgmaterial_t *m,
 
 static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
                                    s32 texnum2, s32 subcmd, u32 w0, u32 w1,
-                                   s32 is_xlu, s32 double_sided)
+                                   s32 is_xlu, s32 double_sided,
+                                   s32 texgen, u16 scale_s, u16 scale_t)
 {
 	s32 smode = (s32)((w0 >> 22) & 3u);
 	s32 tmode = (s32)((w0 >> 20) & 3u);
@@ -6239,6 +6250,9 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 		if (m->texnum == texnum && m->texnum2 == texnum2 &&
 		    m->subcmd == subcmd && m->w0 == w0 && m->w1 == w1 &&
 		    m->alpha_mode == alpha_mode &&
+		    m->texgen == texgen &&
+		    m->texgen_scale_s == (texgen == 1 ? scale_s : 0) &&
+		    m->texgen_scale_t == (texgen == 1 ? scale_t : 0) &&
 		    m->double_sided == (double_sided ? 1 : 0)) {
 			return (s32)i;
 		}
@@ -6261,6 +6275,9 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	m->flag = flag;
 	m->alpha_mode = alpha_mode;
 	m->double_sided = double_sided ? 1 : 0;
+	m->texgen = texgen;
+	m->texgen_scale_s = texgen == 1 ? scale_s : 0;
+	m->texgen_scale_t = texgen == 1 ? scale_t : 0;
 	m->animation = texnum >= 0 ?
 		scenarioDyntexBaseKind(texnum, scene->stagenum) : SCENARIO_DYNTEX_NONE;
 	if (texnum >= 0 && texnum2 >= 0) {
@@ -6295,7 +6312,7 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 			"mtllib scene.mtl\n") != 0) {
 		return -1;
 	}
-	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, 0);
+	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0);
 }
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
@@ -6957,7 +6974,10 @@ static void s_bgMaterialGlbAuthorUv(f32 runtime_u, f32 runtime_v,
 static s32 s_bgMaterialAnimated(const pdscenario_bgscene_t *scene,
                                 const pdscenario_bgmaterial_t *m)
 {
-	return m->vertex_count > 0 && m->animation > SCENARIO_DYNTEX_NONE &&
+	/* B-1268: a texture-generated surface takes its coordinates from its
+	 * normals, so a preset that moves the vertex's own ones has nothing
+	 * to move. */
+	return m->vertex_count > 0 && !m->texgen && m->animation > SCENARIO_DYNTEX_NONE &&
 		m->animation < SCENARIO_DYNTEX_KIND_COUNT &&
 		s_bgSceneDecodedTextureIndex(scene, m->texnum) >= 0;
 }
@@ -7194,6 +7214,19 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				s_bgGltfWrapName(m->smode), s_bgGltfWrapName(m->tmode),
 				m->offset, m->shifts, m->shiftt, m->min,
 				m->flag ? 1 : 0, m->double_sided ? "none" : "back") != 0) goto fail_json;
+		if (m->texgen == 1) {
+			/* B-1268: a reflective surface. Its COLOR_0 holds the normals
+			 * the room's colour table holds; the renderer lights it and
+			 * makes its UVs from them with the G_TEXTURE scale and the
+			 * runtime UV scale, as fast3d does at G_VTX. */
+			f32 texgen_u_scale = 1.0f;
+			f32 texgen_v_scale = 1.0f;
+			s_bgMaterialUvScaleForGlb(scene, m, &texgen_u_scale, &texgen_v_scale);
+			if (s_textbufAppendf(&json,
+					",\"texgen\":true,\"texgen_scale\":[%u,%u],\"uv_scale\":[%.9g,%.9g]",
+					(unsigned)m->texgen_scale_s, (unsigned)m->texgen_scale_t,
+					(double)texgen_u_scale, (double)texgen_v_scale) != 0) goto fail_json;
+		}
 		if (mr[i].dyntex_accessor != 0xffffffffu) {
 			f32 anim_u_scale = 1.0f;
 			f32 anim_v_scale = 1.0f;
@@ -7573,6 +7606,25 @@ static s32 s_bgCullKind(u32 geometry_mode)
 	}
 }
 
+/* B-1268: how a triangle's vertices were lit, from the geometry mode its
+ * display list drew it with (fast3d lights a vertex and generates its
+ * texture coordinates at G_VTX; the rooms of the game never change the mode
+ * between a vertex load and its triangles): 0 not lit, the colour entry is
+ * a colour; 1 lit with texture generation, the colour entry is a normal
+ * (the game's reflective room surfaces); 2 lit some other way (lit without
+ * texture generation, or linear generation), which no room of the game
+ * does and the scene does not draw as the game would. */
+static s32 s_bgTexGenKind(u32 geometry_mode)
+{
+	const u32 lit = geometry_mode &
+		(u32)(G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+
+	if (!(lit & (u32)G_LIGHTING)) {
+		return 0;
+	}
+	return lit == (u32)(G_LIGHTING | G_TEXTURE_GEN) ? 1 : 2;
+}
+
 /* One display-list triangle, with its cull mode. A triangle whose front
  * faces are culled is the same triangle seen from behind, so it is written
  * with its order reversed and counts as single-sided; one with both faces
@@ -7615,6 +7667,13 @@ static s32 s_exportBgCulledTri(pdscenario_bgscene_t *scene,
 			scene->tris_cull_front++;
 		} else {
 			scene->tris_cull_back++;
+		}
+		if (material_index >= 0 && (u32)material_index < scene->material_count) {
+			if (scene->materials[material_index].texgen == 1) {
+				scene->tris_texgen++;
+			} else if (scene->materials[material_index].texgen == 2) {
+				scene->tris_lit_other++;
+			}
 		}
 	}
 	return 0;
@@ -7662,6 +7721,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	u32 tex_w1 = 0;
 	u32 geometry_mode = (u32)G_CULL_BACK;
 	s32 cull = 0;
+	s32 texgen = 0;
 	s32 material_stale = 1;
 	u16 texture_scale_s = 0xffffu;
 	u16 texture_scale_t = 0xffffu;
@@ -7713,6 +7773,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 w1 = (u32)cmd->words.w1;
 			texture_scale_s = (u16)((w1 >> 16) & 0xffffu);
 			texture_scale_t = (u16)(w1 & 0xffffu);
+			/* B-1268: a texture-generated material is keyed with its scale. */
+			material_stale = 1;
 		} else if (op == G_VTX) {
 			u32 w0 = (u32)cmd->words.w0;
 			u32 count = GBI_VTX_COUNT_FROM_W0(w0);
@@ -7749,10 +7811,13 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			if (material_stale) {
 				s32 next_mat;
 				cull = s_bgCullKind(geometry_mode);
+				texgen = s_bgTexGenKind(geometry_mode);
 				next_mat = tex_selected
 					? s_bgSceneEnsureMaterial(scene, tex_texnum, tex_texnum2,
-						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)
-					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1);
+						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1,
+						texgen, texture_scale_s, texture_scale_t)
+					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1,
+						texgen, texture_scale_s, texture_scale_t);
 				if (next_mat < 0) return -1;
 				material_index = next_mat;
 				material_stale = 0;
@@ -7772,10 +7837,13 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			if (material_stale) {
 				s32 next_mat;
 				cull = s_bgCullKind(geometry_mode);
+				texgen = s_bgTexGenKind(geometry_mode);
 				next_mat = tex_selected
 					? s_bgSceneEnsureMaterial(scene, tex_texnum, tex_texnum2,
-						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)
-					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1);
+						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1,
+						texgen, texture_scale_s, texture_scale_t)
+					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1,
+						texgen, texture_scale_s, texture_scale_t);
 				if (next_mat < 0) return -1;
 				material_index = next_mat;
 				material_stale = 0;
@@ -9033,13 +9101,14 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 	}
 
 	sysLogPrintf(scene->rooms_left_out ? LOG_ERROR : LOG_NOTE,
-		"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u empty=%u left_out=%u triangles=%u cull_back=%u two_sided=%u cull_front=%u cull_both=%u",
+		"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u empty=%u left_out=%u triangles=%u cull_back=%u two_sided=%u cull_front=%u cull_both=%u texgen=%u lit_other=%u",
 		(unsigned)stagenum, (unsigned)scene->rooms_with_data,
 		(unsigned)scene->room_count, (unsigned)scene->rooms_empty,
 		(unsigned)scene->rooms_left_out,
 		(unsigned)scene->tri_count, (unsigned)scene->tris_cull_back,
 		(unsigned)scene->tris_two_sided, (unsigned)scene->tris_cull_front,
-		(unsigned)scene->tris_cull_both);
+		(unsigned)scene->tris_cull_both, (unsigned)scene->tris_texgen,
+		(unsigned)scene->tris_lit_other);
 	if (scene->rooms_left_out) {
 		/* B-1266: a scene with rooms missing is not written. */
 		sysMemFree(primary);

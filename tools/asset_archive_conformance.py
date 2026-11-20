@@ -146,6 +146,10 @@ SCENE_DYNTEX_PRESETS = frozenset({
 # records each material's cull mode (PDSCENARIO_BG_VISUAL_EXPORT_VERSION in
 # port/src/romextract_pdarena.c).
 SCENE_CULL_EXPORT_MARK = "_cull_b1267"
+# B-1268: a lit, texture-generated room surface (pd2_material.texgen): the
+# G_TEXTURE scale its UVs are generated with, at most 0xffff, and the runtime
+# UV scale they are converted with.
+SCENE_TEXGEN_SCALE_MAX = 0xFFFF
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
@@ -1621,6 +1625,50 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                         f"{label} scene.glb material {index} pd2_material.cull "
                         "and doubleSided disagree"
                     )
+                # B-1268: a reflective surface: its COLOR_0 holds normals, and
+                # the renderer lights it and generates its UVs from them with
+                # the G_TEXTURE scale and the runtime UV scale. Its own UVs
+                # are never used, so it cannot also be animated.
+                if "texgen" in pd2_material:
+                    if pd2_material.get("texgen") is not True:
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.texgen "
+                            "must be true when present"
+                        )
+                    else:
+                        scale = pd2_material.get("texgen_scale")
+                        if not (
+                            isinstance(scale, list)
+                            and len(scale) == 2
+                            and all(
+                                isinstance(v, int) and not isinstance(v, bool)
+                                and 0 < v <= SCENE_TEXGEN_SCALE_MAX
+                                for v in scale
+                            )
+                        ):
+                            errors.append(
+                                f"{label} scene.glb material {index} pd2_material.texgen_scale "
+                                "must be two integers from 1 to 65535"
+                            )
+                        uv_scale = pd2_material.get("uv_scale")
+                        if not (
+                            isinstance(uv_scale, list)
+                            and len(uv_scale) == 2
+                            and all(
+                                isinstance(v, (int, float)) and not isinstance(v, bool)
+                                and math.isfinite(v) and v > 0
+                                for v in uv_scale
+                            )
+                        ):
+                            errors.append(
+                                f"{label} scene.glb material {index} pd2_material.uv_scale "
+                                "must be two positive numbers on a texgen material"
+                            )
+                        if "animation" in pd2_material:
+                            errors.append(
+                                f"{label} scene.glb material {index} is texgen and "
+                                "animated; a texgen surface's own UVs are unused"
+                            )
                 for key in ("primary_image", "secondary_image", "wrap_s", "wrap_t"):
                     if key not in pd2_material or not isinstance(pd2_material.get(key), str):
                         errors.append(

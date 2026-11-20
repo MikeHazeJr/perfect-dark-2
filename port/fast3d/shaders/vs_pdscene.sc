@@ -20,6 +20,12 @@ uniform mat4 u_sceneVP;
 uniform vec4 u_sceneSky;
 uniform vec4 u_sceneFog;
 SAMPLER2D(s_sceneRoomLight, 2);
+/* B-1268: reflective room surfaces, as the GL shader (u_TexGen, u_TexGenUv,
+ * u_LookX, u_LookY). */
+uniform vec4 u_sceneTexGen;
+uniform vec4 u_sceneTexGenUv;
+uniform vec4 u_sceneLookX;
+uniform vec4 u_sceneLookY;
 
 float pdRoomUnlit() {
 	int room = int(floor(a_texcoord3 + 0.5));
@@ -45,6 +51,18 @@ vec4 pdRoomLit(vec4 col) {
 	return vec4(clamp(c, 0.0, 255.0) / 255.0, col.a);
 }
 
+vec3 pdTexGenNormal() {
+	vec3 b = floor(pdRoomLit(a_color0).rgb * 255.0 + 0.5);
+	return b - 256.0 * step(128.0, b);
+}
+
+float pdTexGenBrightness() {
+	int room = int(floor(a_texcoord3 + 0.5));
+	if (room < 0 || room >= int(u_sceneFog.w)) return 255.0;
+	vec4 l0 = texelFetch(s_sceneRoomLight, ivec2(room, 0), 0);
+	return clamp(floor(l0.x + l0.y), 0.0, 255.0);
+}
+
 void main()
 {
 	vec4 clip = mul(u_sceneVP, vec4(a_position + a_texcoord2 * u_sceneSky.xyz, 1.0));
@@ -59,4 +77,13 @@ void main()
 	v_texcoord0 = a_texcoord0;
 	v_texcoord1 = a_texcoord1;
 	v_color0 = pdRoomLit(a_color0);
+	if (u_sceneTexGen.x > 0.5) {
+		vec3 n = pdTexGenNormal();
+		float b = pdTexGenBrightness();
+		float lit = floor(floor(b * 0.5882353) + max(dot(n, normalize(vec3(77.0, 77.0, 46.0))) / 127.0, 0.0) * b);
+		v_color0 = vec4(vec3(min(lit, 255.0) / 255.0, min(lit, 255.0) / 255.0, min(lit, 255.0) / 255.0), 1.0);
+		vec2 g = (clamp(vec2(dot(n, u_sceneLookX.xyz), dot(n, u_sceneLookY.xyz)) / 127.0, -1.0, 1.0) + 1.0) / 4.0;
+		v_texcoord0 = vec2(floor(g.x * u_sceneTexGen.y) * u_sceneTexGenUv.x, 1.0 - floor(g.y * u_sceneTexGen.z) * u_sceneTexGenUv.y);
+		v_texcoord1 = v_texcoord0;
+	}
 }
