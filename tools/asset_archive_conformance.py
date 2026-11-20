@@ -142,6 +142,10 @@ ROOT_METADATA = {
 SCENE_DYNTEX_PRESETS = frozenset({
     "river", "monitor", "ocean", "arrows", "teleportal", "powerring", "powerjuice",
 })
+# B-1267: the part of a scene.glb exporter stamp that says the exporter
+# records each material's cull mode (PDSCENARIO_BG_VISUAL_EXPORT_VERSION in
+# port/src/romextract_pdarena.c).
+SCENE_CULL_EXPORT_MARK = "_cull_b1267"
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
@@ -1596,6 +1600,26 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                     errors.append(
                         f"{label} scene.glb material {index} has invalid "
                         "pd2_material.texture_command"
+                    )
+                # B-1267: the cull mode the game drew the surface with. A scene
+                # from the exporter that records it names one on every
+                # material; glTF's own doubleSided says the same thing.
+                cull = pd2_material.get("cull")
+                if cull is None:
+                    if SCENE_CULL_EXPORT_MARK in generator:
+                        errors.append(
+                            f"{label} scene.glb material {index} is missing "
+                            "pd2_material.cull (back or none)"
+                        )
+                elif cull not in ("back", "none"):
+                    errors.append(
+                        f"{label} scene.glb material {index} pd2_material.cull "
+                        "must be back or none"
+                    )
+                elif (cull == "none") != (material.get("doubleSided") is True):
+                    errors.append(
+                        f"{label} scene.glb material {index} pd2_material.cull "
+                        "and doubleSided disagree"
                     )
                 for key in ("primary_image", "secondary_image", "wrap_s", "wrap_t"):
                     if key not in pd2_material or not isinstance(pd2_material.get(key), str):

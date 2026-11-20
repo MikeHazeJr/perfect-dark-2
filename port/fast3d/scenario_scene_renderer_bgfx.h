@@ -42,11 +42,13 @@ void sceneBgfxDestroyVertexBuffer(uint32_t vb);
 uint32_t sceneBgfxCreateTexture(int width, int height, const uint8_t *rgba);
 void sceneBgfxDestroyTexture(uint32_t tex);
 int sceneBgfxBeginPass(const scene_bgfx_pass_t *pass);
+/* cull (B-1267): 0 draws both faces; 1 culls the faces that read clockwise
+ * in clip space (x right, y up), 2 those that read counter-clockwise. */
 void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
                    uint32_t tex, int wrapS, int wrapT,
                    uint32_t tex2, int wrap2S, int wrap2T,
                    int hasTex2, int primaryTexcoord, int secondaryTexcoord,
-                   float alphaCutoff, int blendPass);
+                   float alphaCutoff, int blendPass, int cull);
 void sceneBgfxEndPass(void);
 /* --debug-clear-depth-after-scene: clear the whole target's depth, in order. */
 void sceneBgfxClearDepth(void);

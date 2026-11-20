@@ -145,3 +145,48 @@ TEST_CASE("Grid visits the native explicit catalog texture directives in declare
 		CHECK(std::strstr(err, "catalog ID") != nullptr);
 	}
 }
+
+// B-1290: a monitor's or TV's screen is drawn by tvscreenRender from the four
+// corners of its model node, as triangles (0,1,2) and (0,2,3). The game's own
+// node holds the corners as vertices 0 to 3. A model compiled from typed
+// source holds a node's triangles flattened, three vertices each, so the
+// screen is six vertices, A B C A C D, and vertex 3 is A again: the second
+// triangle had no area and half of every screen was not drawn (the Carrington
+// Institute computer face of the v0.1.105 reports).
+TEST_CASE("a compiled model's flattened screen node gives the screen its fourth corner",
+	"[modding][model][render][b-1290]")
+{
+	std::ifstream compiler_file("port/src/modasset_compiler.c", std::ios::binary);
+	REQUIRE(compiler_file.good());
+	std::ostringstream compiler_text;
+	compiler_text << compiler_file.rdbuf();
+	const std::string compiler = compiler_text.str();
+	// The layout the reader below relies on: three vertices per triangle.
+	CHECK(compiler.find("fillGeneratedTriVertices(&payload->vertices[emitted * 3],") != std::string::npos);
+	CHECK(compiler.find("rodata->dl.vertices = payload->vertices;") != std::string::npos);
+	CHECK(compiler.find("rodata->dl.numvertices = (s16)payload->vertex_count;") != std::string::npos);
+
+	std::ifstream game_file("src/game/propobj.c", std::ios::binary);
+	REQUIRE(game_file.good());
+	std::ostringstream game_text;
+	game_text << game_file.rdbuf();
+	const std::string game = game_text.str();
+	const size_t begin = game.find("Gfx *tvscreenRender(struct model *model, struct modelnode *node,");
+	REQUIRE(begin != std::string::npos);
+	const size_t end = game.find("\n}\n", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string body = game.substr(begin, end - begin);
+
+	// Six vertices whose fourth and fifth repeat the first and third: the
+	// flattened pair (0,1,2), (0,2,3). Its fourth corner is vertex 5.
+	CHECK(body.find("if (rodata->dl.numvertices == 6\n") != std::string::npos);
+	CHECK(body.find("&& corners[3].x == corners[0].x && corners[3].y == corners[0].y") != std::string::npos);
+	CHECK(body.find("&& corners[4].x == corners[2].x && corners[4].y == corners[2].y") != std::string::npos);
+	CHECK(body.find("fourth = 5;") != std::string::npos);
+	CHECK(body.find("vertices[3] = corners[fourth];") != std::string::npos);
+	// The old read, which took vertex 3 whatever the layout, is gone, and
+	// the draw is still the two triangles over corners 0 to 3.
+	CHECK(body.find("vertices[3] = rodata->dl.vertices[3];") == std::string::npos);
+	CHECK(body.find("gSPVertex(gdl++, SEGADDR(SPSEGMENT_MODEL_VTX << 24), 4, 0);\n\t\tgSPTri2(gdl++, 0, 1, 2, 0, 2, 3);") !=
+		std::string::npos);
+}
