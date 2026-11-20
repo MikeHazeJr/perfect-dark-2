@@ -82,6 +82,16 @@ struct Material {
 	 * written before the field, or an authored level) or "none": both
 	 * faces are drawn, as every surface was before. */
 	bool cull_back = false;
+	/* B-1268: pd2_material.texgen: a reflective room surface, lit and
+	 * texture-generated (G_LIGHTING | G_TEXTURE_GEN). Its vertex colours
+	 * are normals; the shader lights it and makes its UVs from them with
+	 * the G_TEXTURE scale (texgen_scale) and the runtime UV scale
+	 * (texgen_uv_scale, here per N64 texel step: the scale / 32). */
+	bool texgen = false;
+	float texgen_scale_s = 0.0f;
+	float texgen_scale_t = 0.0f;
+	float texgen_u_step = 0.0f;
+	float texgen_v_step = 0.0f;
 };
 
 struct Image {
@@ -276,6 +286,29 @@ static float floatField(const crude_json::object &obj, const char *key,
 	auto it = obj.find(key);
 	return it != obj.end() && it->second.is_number()
 		? (float)it->second.get<crude_json::number>() : fallback;
+}
+
+/* Two finite numbers under key, else false and out untouched. */
+static bool numberPairField(const crude_json::object &obj, const char *key,
+	float out[2])
+{
+	auto it = obj.find(key);
+	if (it == obj.end() || !it->second.is_array()) {
+		return false;
+	}
+	const crude_json::array *pair = it->second.get_ptr<crude_json::array>();
+	if (!pair || pair->size() != 2 || !(*pair)[0].is_number()
+			|| !(*pair)[1].is_number()) {
+		return false;
+	}
+	const float a = (float)(*pair)[0].get<crude_json::number>();
+	const float b = (float)(*pair)[1].get<crude_json::number>();
+	if (!std::isfinite(a) || !std::isfinite(b)) {
+		return false;
+	}
+	out[0] = a;
+	out[1] = b;
+	return true;
 }
 
 static std::string stringField(const crude_json::object &obj, const char *key)
@@ -576,6 +609,29 @@ static void parseMaterials(const crude_json::value &root,
 				} else {
 					sysLogPrintf(LOG_WARNING,
 						"SCENARIO.RENDER: material %zu has an animation the renderer cannot use; it stays still",
+						materials.size());
+				}
+			}
+		}
+		if (pd2) {
+			/* B-1268: a reflective room surface. */
+			auto texgen_it = pd2->find("texgen");
+			if (texgen_it != pd2->end()) {
+				float scale[2] = {0.0f, 0.0f};
+				float uv[2] = {0.0f, 0.0f};
+				if (texgen_it->second.is_boolean()
+						&& texgen_it->second.get<crude_json::boolean>()
+						&& numberPairField(*pd2, "texgen_scale", scale)
+						&& numberPairField(*pd2, "texgen_uv_scale", uv)
+						&& scale[0] > 0.0f && scale[1] > 0.0f) {
+					mat.texgen = true;
+					mat.texgen_scale_s = scale[0];
+					mat.texgen_scale_t = scale[1];
+					mat.texgen_u_step = uv[0] / 32.0f;
+					mat.texgen_v_step = uv[1] / 32.0f;
+				} else {
+					sysLogPrintf(LOG_WARNING,
+						"SCENARIO.RENDER: material %zu says texgen without a usable texgen_scale and texgen_uv_scale; it is drawn unlit",
 						materials.size());
 				}
 			}
@@ -1353,6 +1409,29 @@ static bool ensureShader(Scene &scene)
 		"  c = floor(c * l1.rgb);\n"
 		"  return vec4(clamp(c, 0.0, 255.0) / 255.0, col.a);\n"
 		"}\n"
+		/* B-1268: reflective room surfaces (G_LIGHTING | G_TEXTURE_GEN),
+		 * lit and mapped as fast3d does at G_VTX. The vertex's colour
+		 * entry is a normal, and roomHighlight has run over it as over
+		 * every colour of the room's table (G_COL points at its output),
+		 * so pdRoomLit runs first. Light: lightsSetForRoom's ambient,
+		 * brightness x 0.5882353, plus one light of the room's brightness
+		 * along (0x4d, 0x4d, 0x2e). UVs: the normal against this view's
+		 * reflection vectors (guLookAtReflect), (dot + 1) / 4 times the
+		 * G_TEXTURE scale, then the material's runtime UV scale. */
+		"uniform vec4 u_TexGen;\n"
+		"uniform vec4 u_TexGenUv;\n"
+		"uniform vec3 u_LookX;\n"
+		"uniform vec3 u_LookY;\n"
+		"vec3 pdTexGenNormal() {\n"
+		"  vec3 b = floor(pdRoomLit(a_Color).rgb * 255.0 + 0.5);\n"
+		"  return b - 256.0 * step(128.0, b);\n"
+		"}\n"
+		"float pdTexGenBrightness() {\n"
+		"  int room = int(floor(a_Room + 0.5));\n"
+		"  if (room < 0 || room >= u_RoomLightCount) return 255.0;\n"
+		"  vec4 l0 = texelFetch(u_RoomLight, ivec2(room, 0), 0);\n"
+		"  return clamp(floor(l0.x + l0.y), 0.0, 255.0);\n"
+		"}\n"
 		"out vec2 v_Uv0;\n"
 		"out vec2 v_Uv1;\n"
 		"out vec4 v_Color;\n"
@@ -1370,6 +1449,15 @@ static bool ensureShader(Scene &scene)
 		"  v_Uv0 = a_Uv0;\n"
 		"  v_Uv1 = a_Uv1;\n"
 		"  v_Color = pdRoomLit(a_Color);\n"
+		"  if (u_TexGen.x > 0.5) {\n"
+		"    vec3 n = pdTexGenNormal();\n"
+		"    float b = pdTexGenBrightness();\n"
+		"    float lit = floor(floor(b * 0.5882353) + max(dot(n, normalize(vec3(77.0, 77.0, 46.0))) / 127.0, 0.0) * b);\n"
+		"    v_Color = vec4(vec3(min(lit, 255.0) / 255.0), 1.0);\n"
+		"    vec2 g = (clamp(vec2(dot(n, u_LookX), dot(n, u_LookY)) / 127.0, -1.0, 1.0) + 1.0) / 4.0;\n"
+		"    v_Uv0 = vec2(floor(g.x * u_TexGen.y) * u_TexGenUv.x, 1.0 - floor(g.y * u_TexGen.z) * u_TexGenUv.y);\n"
+		"    v_Uv1 = v_Uv0;\n"
+		"  }\n"
 		"}\n";
 	static const char *fs =
 		"#version 130\n"
@@ -2062,6 +2150,14 @@ static const std::vector<float> &viewRoomLights(int light_slot)
 		? g_scene.slot_room_lights[light_slot] : g_scene.room_lights;
 }
 
+/* B-1268: the camera of the view that queued the draw, as
+ * scenarioSceneRendererSlotCamera picks it. */
+static const scenario_scene_camera_t &viewCamera(int slot)
+{
+	return (slot >= 0 && slot < g_scene.camera_slot_count)
+		? g_scene.camera_slots[slot] : g_scene.camera;
+}
+
 /* B-1267: once per scene, how much of it is drawn single-sided and which
  * way its front faces read in this view. */
 static void logSceneCulling(bool front_counter_clockwise)
@@ -2085,6 +2181,20 @@ static void logSceneCulling(bool front_counter_clockwise)
 		g_scene.scenario_id.c_str(), single_groups, g_scene.groups.size(),
 		single_vertices / 3, vertices / 3,
 		front_counter_clockwise ? "counter_clockwise" : "clockwise");
+
+	/* B-1268: and how much of it is lit and texture-generated. */
+	size_t texgen_groups = 0;
+	size_t texgen_vertices = 0;
+	for (const auto &group : g_scene.groups) {
+		if (group.material >= 0 && (size_t)group.material < g_scene.materials.size()
+				&& g_scene.materials[(size_t)group.material].texgen) {
+			texgen_groups++;
+			texgen_vertices += (size_t)group.count;
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.RENDER: reflective '%s' texgen_groups=%zu triangles=%zu",
+		g_scene.scenario_id.c_str(), texgen_groups, texgen_vertices / 3);
 }
 
 /* --renderer bgfx: the GL path below, draw for draw, through bgfx. The
@@ -2108,6 +2218,12 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 	memcpy(pass.fog_color, g_scene.fog_color, sizeof(pass.fog_color));
 	pass.room_texels = texels.empty() ? nullptr : texels.data();
 	pass.rooms = (int)(texels.size() / 8);
+	{
+		/* B-1268: this view's reflection vectors. */
+		const scenario_scene_camera_t &view_camera = viewCamera(light_slot);
+		memcpy(pass.look_x, view_camera.lookat_x, sizeof(pass.look_x));
+		memcpy(pass.look_y, view_camera.lookat_y, sizeof(pass.look_y));
+	}
 	if (!sceneBgfxBeginPass(&pass)) {
 		return;
 	}
@@ -2137,10 +2253,18 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 			int secondary_texcoord = 1;
 			float alpha_cutoff = 0.01f;
 			int cull = 0;
+			float texgen[8] = {};
 			if (group.material >= 0
 					&& (size_t)group.material < g_scene.materials.size()) {
 				const Material &mat = g_scene.materials[(size_t)group.material];
 				cull = mat.cull_back ? cull_back_faces : 0;
+				if (mat.texgen) {
+					texgen[0] = 1.0f;
+					texgen[1] = mat.texgen_scale_s;
+					texgen[2] = mat.texgen_scale_t;
+					texgen[4] = mat.texgen_u_step;
+					texgen[5] = mat.texgen_v_step;
+				}
 				primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
 				secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
 				wrap_s = mat.wrap_s;
@@ -2164,7 +2288,7 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 			sceneBgfxDraw(g_scene.bgfx_vb, group.first, group.count,
 				tex, wrap_s, wrap_t, tex2, wrap2_s, wrap2_t,
 				has_tex2, primary_texcoord, secondary_texcoord,
-				alpha_cutoff, scene_pass == 1 ? 1 : 0, cull);
+				alpha_cutoff, scene_pass == 1 ? 1 : 0, cull, texgen);
 		}
 	}
 	sceneBgfxEndPass();
@@ -2346,6 +2470,15 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		glGetUniformLocation(g_scene.shader, "u_SecondaryTexcoord");
 	GLint alpha_cutoff_loc =
 		glGetUniformLocation(g_scene.shader, "u_AlphaCutoff");
+	/* B-1268: reflective surfaces: the material's texgen per group, this
+	 * view's reflection vectors once. */
+	GLint texgen_loc = glGetUniformLocation(g_scene.shader, "u_TexGen");
+	GLint texgen_uv_loc = glGetUniformLocation(g_scene.shader, "u_TexGenUv");
+	{
+		const scenario_scene_camera_t &view_camera = viewCamera(light_slot);
+		glUniform3fv(glGetUniformLocation(g_scene.shader, "u_LookX"), 1, view_camera.lookat_x);
+		glUniform3fv(glGetUniformLocation(g_scene.shader, "u_LookY"), 1, view_camera.lookat_y);
+	}
 	glUniformMatrix4fv(vp_loc, 1, GL_FALSE, camera);
 	glUniform3f(glGetUniformLocation(g_scene.shader, "u_SkyOffset"),
 		sky_shift[0], sky_shift[1], sky_shift[2]);
@@ -2418,10 +2551,19 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		 * tiny floor so only fully-transparent texels drop. */
 		float alpha_cutoff = 0.01f;
 		bool cull_back = false;
+		float texgen[4] = {};
+		float texgen_uv[4] = {};
 		if (group.material >= 0
 				&& (size_t)group.material < g_scene.materials.size()) {
 			const Material &mat = g_scene.materials[(size_t)group.material];
 			cull_back = mat.cull_back;
+			if (mat.texgen) {
+				texgen[0] = 1.0f;
+				texgen[1] = mat.texgen_scale_s;
+				texgen[2] = mat.texgen_scale_t;
+				texgen_uv[0] = mat.texgen_u_step;
+				texgen_uv[1] = mat.texgen_v_step;
+			}
 			primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
 			secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
 			wrap_s = mat.wrap_s;
@@ -2446,6 +2588,8 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		glUniform1i(has_tex2_loc, has_tex2);
 		glUniform1i(primary_texcoord_loc, primary_texcoord);
 		glUniform1i(secondary_texcoord_loc, secondary_texcoord);
+		glUniform4fv(texgen_loc, 1, texgen);
+		glUniform4fv(texgen_uv_loc, 1, texgen_uv);
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, tex2);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap2_s);

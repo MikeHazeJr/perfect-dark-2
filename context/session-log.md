@@ -4,6 +4,26 @@
 
 2026-11-20 BGFX, Mike's answers to the step 1 report (16:17 UTC; branch `week-pd/bgfx-parity-proof` from origin/dev d7e17368). Parity: "B", prove the causes of the remaining classic-on-bgfx differences with the two experiments, then accept what remains. Split-screen: "We may add Split Screen back in, but each player might want to play on a different mode (classic vs new)", so split-screen stays in the 2.0 scope with the renderer mode chosen per local player, and one frame may mix classic and remastered views, each classic view pixel-identical in its viewport. The Workbench server runs again: created T-RENDERING-001 (the 2.0 renderer item) and decisions D-041 (parity) and D-042 (split-screen modes), both decided. Recorded in the handoff (3.1 item 3, 3.2, 3.3 phases 2b and 10, section 4, 5.1), the scope doc (5.9, questions 15 and 16, 11.1) and the step 1 design doc, with a pointer under the single-local-player constraint. Next: the Agent Select noise experiment (combiner files only); the Defection experiment after CORE's PR 21 (B-1268) lands, since it changes the same scene shader files.
 
+2026-11-20 CORE, 14:25 to 16:20 UTC. Mike in CORE's chat: "You may ignore
+the 200gb rule, yes" (T-TOOLING-016 integrated as local commit `d902ee18` on
+canonical dev, four smoke-verify files, checks before and after green, not
+pushed: it sits on T-TOOLING-015) and, asked about the full 4 GiB smoke
+archive, "remove the cap, let's just ensure we are cleaning up after
+ourselves": the cap is gone from CORE's location files and CORE recycles its
+C: smoke storage after every batch. `week-pd/core-s12` landed on dev as
+`10d63d7a`. Then B-1268 on `week-pd/core-s13` (PR 21): reflective room
+surfaces lit and texture-generated as fast3d does, per view, in both scene
+renderers; the first extraction failed conformance on every reflective
+material (its UV scale was written as `uv_scale`, which says a material is
+animated) and the key became `texgen_uv_scale`. Proof turn
+`q_20261120151958397_423b68b2`: every stage's reflective triangles equal the
+ROM's, captures before and after, renderer parity unchanged, campaigns
+green. A read-only audit of every exporter for silent skips (SP-98) found
+seven latent places; the two that could hurt (collision, portals) do not
+fire on the base ROM. Next: land core-s13 and publish shared base 14, then
+B-1269 (translucent order, decal depth), the SP-98 fixes, projectile slice
+7.
+
 2026-11-20 CORE, 05:30 to 06:15 UTC. `week-pd/core-s11` landed on `dev` as
 `d43a7f72` (PR 18; hosted CI run 44680975726 green on the branch head),
 local dev `6e1fff4b`, shared base 13 published (`D:\PD2-wt\shared-base-13`).

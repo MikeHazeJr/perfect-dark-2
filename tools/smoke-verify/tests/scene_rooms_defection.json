@@ -181,6 +181,7 @@
       "SMOKE: scenario=scene_rooms_defection",
       "SCENARIO\\.RENDER: activated source scene 'base:scenario_defection' source=\\S+ vertices=59340 ",
       "SCENARIO\\.RENDER: culling 'base:scenario_defection' single_sided_groups=[1-9][0-9]* of [0-9]+ triangles=18292 of 19780 front=(counter_clockwise|clockwise)",
+      "SCENARIO\\.RENDER: reflective 'base:scenario_defection' texgen_groups=[1-9][0-9]* triangles=1537",
       "SMOKE\\.WAIT: satisfied condition=cutscene_skip_ready ",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
       "SMOKE\\.GLSHOT: captured .*defection_intro_0\\.bmp",
