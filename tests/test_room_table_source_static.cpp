@@ -273,8 +273,8 @@ TEST_CASE("the scene export sizes a room from its inflated length and leaves non
 
 	// An install that already has scenes takes them through the per-archive
 	// check again, which compares the scene export version each scene carries.
-	CHECK(extractor.find("_iafix_b945_dyntex_allrooms_b1266_cull_b1267\"\n") != std::string::npos);
-	CHECK(extractor.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266\"") !=
+	CHECK(extractor.find("_iafix_b945_dyntex_allrooms_b1266_cull_b1267_texgen_b1268\"\n") != std::string::npos);
+	CHECK(extractor.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268\"") !=
 		std::string::npos);
 	CHECK(extractor.find("s_existingArchiveEntryContains(check, \"scene.glb\",\n\t\t\tPDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
 		std::string::npos);
@@ -303,7 +303,8 @@ TEST_CASE("the scene keeps each room triangle's cull mode and the renderer honou
 	CHECK(walk.find("} else if (op == (u8)G_CLEARGEOMETRYMODE) {\n\t\t\tgeometry_mode &= ~(u32)cmd->words.w1;") !=
 		std::string::npos);
 	CHECK(walk.find("u32 geometry_mode = (u32)G_CULL_BACK;") != std::string::npos);
-	CHECK(walk.find("tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)") != std::string::npos);
+	CHECK(walk.find("tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1,\n\t\t\t\t\t\ttexgen, texture_scale_s, texture_scale_t)") !=
+		std::string::npos);
 	CHECK(walk.find("s_exportBgTriByIndices(") == std::string::npos);
 	CHECK(extractor.find("m->double_sided == (double_sided ? 1 : 0)) {") != std::string::npos);
 	// Front faces culled is the same triangle seen from behind; both culled is never drawn.
@@ -333,4 +334,70 @@ TEST_CASE("the scene keeps each room triangle's cull mode and the renderer honou
 	const std::string bgfx = readSource("port/fast3d/scenario_scene_renderer_bgfx.cpp");
 	CHECK(bgfx.find("if (cull == 1) {\n        state |= BGFX_STATE_CULL_CW;\n    } else if (cull == 2) {\n        state |= BGFX_STATE_CULL_CCW;\n    }") !=
 		std::string::npos);
+}
+
+// B-1268: the room display lists light and texture-generate their reflective
+// surfaces (G_LIGHTING | G_TEXTURE_GEN: 3,761 triangles in 12 background
+// files of the ROM, never one without the other, never linear, never a mode
+// change between a vertex load and its triangles). Their colour-table
+// entries are normals. The scene names those materials with their G_TEXTURE
+// scale, and both renderers light and map them per view as fast3d does.
+TEST_CASE("reflective room surfaces are lit and mapped from each view's camera",
+		"[extraction][scenario][renderer][b-1268]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const size_t begin = extractor.find("static s32 s_exportBgGdl(");
+	REQUIRE(begin != std::string::npos);
+	const size_t end = extractor.find("\n}\n", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string walk = extractor.substr(begin, end - begin);
+
+	// The lit kind comes from the geometry mode at the triangle, with the
+	// cull mode, and a G_TEXTURE scale change re-resolves the material.
+	CHECK(extractor.find("return lit == (u32)(G_LIGHTING | G_TEXTURE_GEN) ? 1 : 2;") != std::string::npos);
+	CHECK(walk.find("texgen = s_bgTexGenKind(geometry_mode);") != std::string::npos);
+	CHECK(walk.find("texture_scale_t = (u16)(w1 & 0xffffu);\n\t\t\t/* B-1268: a texture-generated material is keyed with its scale. */\n\t\t\tmaterial_stale = 1;") !=
+		std::string::npos);
+	CHECK(extractor.find("m->texgen_scale_s == (texgen == 1 ? scale_s : 0) &&") != std::string::npos);
+	CHECK(extractor.find("scene->tris_texgen++;") != std::string::npos);
+	// The scene says it, with the scales the renderer needs; such a
+	// material is never also animated (its own coordinates are unused).
+	CHECK(extractor.find("\",\\\"texgen\\\":true,\\\"texgen_scale\\\":[%u,%u],\\\"texgen_uv_scale\\\":[%.9g,%.9g]\"") !=
+		std::string::npos);
+	CHECK(extractor.find("return m->vertex_count > 0 && !m->texgen && m->animation > SCENARIO_DYNTEX_NONE &&") !=
+		std::string::npos);
+	CHECK(extractor.find("cull_both=%u texgen=%u lit_other=%u\"") != std::string::npos);
+
+	// The GL renderer: the normal after roomHighlight, lightsSetForRoom's
+	// light, the UVs from this view's reflection vectors.
+	const std::string renderer = readSource("port/fast3d/scenario_scene_renderer.cpp");
+	CHECK(renderer.find("mat.texgen = true;") != std::string::npos);
+	CHECK(renderer.find("&& numberPairField(*pd2, \"texgen_uv_scale\", uv)") != std::string::npos);
+	CHECK(renderer.find("\"  vec3 b = floor(pdRoomLit(a_Color).rgb * 255.0 + 0.5);\\n\"") != std::string::npos);
+	CHECK(renderer.find("\"  return b - 256.0 * step(128.0, b);\\n\"") != std::string::npos);
+	CHECK(renderer.find("\"    float lit = floor(floor(b * 0.5882353) + max(dot(n, normalize(vec3(77.0, 77.0, 46.0))) / 127.0, 0.0) * b);\\n\"") !=
+		std::string::npos);
+	CHECK(renderer.find("\"    v_Uv0 = vec2(floor(g.x * u_TexGen.y) * u_TexGenUv.x, 1.0 - floor(g.y * u_TexGen.z) * u_TexGenUv.y);\\n\"") !=
+		std::string::npos);
+	CHECK(renderer.find("glUniform3fv(glGetUniformLocation(g_scene.shader, \"u_LookX\"), 1, view_camera.lookat_x);") !=
+		std::string::npos);
+	CHECK(renderer.find("glUniform4fv(texgen_loc, 1, texgen);") != std::string::npos);
+	CHECK(renderer.find("alpha_cutoff, scene_pass == 1 ? 1 : 0, cull, texgen);") != std::string::npos);
+	CHECK(renderer.find("\"SCENARIO.RENDER: reflective '%s' texgen_groups=%zu triangles=%zu\"") != std::string::npos);
+
+	// The bgfx path does the same arithmetic.
+	const std::string bgfx = readSource("port/fast3d/scenario_scene_renderer_bgfx.cpp");
+	CHECK(bgfx.find("s_uTexGen = bgfx::createUniform(\"u_sceneTexGen\", bgfx::UniformType::Vec4);") != std::string::npos);
+	CHECK(bgfx.find("bgfx::setUniform(s_uLookX, s_lookX);") != std::string::npos);
+	const std::string vs = readSource("port/fast3d/shaders/vs_pdscene.sc");
+	CHECK(vs.find("\tvec3 b = floor(pdRoomLit(a_color0).rgb * 255.0 + 0.5);") != std::string::npos);
+	CHECK(vs.find("\t\tfloat lit = floor(floor(b * 0.5882353) + max(dot(n, normalize(vec3(77.0, 77.0, 46.0))) / 127.0, 0.0) * b);") !=
+		std::string::npos);
+	CHECK(vs.find("\t\tv_texcoord0 = vec2(floor(g.x * u_sceneTexGen.y) * u_sceneTexGenUv.x, 1.0 - floor(g.y * u_sceneTexGen.z) * u_sceneTexGenUv.y);") !=
+		std::string::npos);
+
+	// Each view's camera carries its reflection vectors.
+	const std::string camera = readSource("port/src/scenario_scene_camera.c");
+	CHECK(camera.find("if (!scenarioSceneLookAtReflect(look, up, out->lookat_x, out->lookat_y)) {") != std::string::npos);
+	CHECK(camera.find("return (float)(signed char)((int)scaled & 0xff);") != std::string::npos);
 }

@@ -31,6 +31,9 @@ typedef struct scene_bgfx_pass {
 	/* This view's room lighting: rooms x 2 RGBA texels, row 0 then row 1. */
 	const float *room_texels;
 	int rooms;
+	/* B-1268: this view's reflection vectors (world, unit length). */
+	float look_x[3];
+	float look_y[3];
 } scene_bgfx_pass_t;
 
 int gfxBgfxActive(void);
@@ -43,12 +46,15 @@ uint32_t sceneBgfxCreateTexture(int width, int height, const uint8_t *rgba);
 void sceneBgfxDestroyTexture(uint32_t tex);
 int sceneBgfxBeginPass(const scene_bgfx_pass_t *pass);
 /* cull (B-1267): 0 draws both faces; 1 culls the faces that read clockwise
- * in clip space (x right, y up), 2 those that read counter-clockwise. */
+ * in clip space (x right, y up), 2 those that read counter-clockwise.
+ * texgen (B-1268): NULL, or 8 floats: on, the G_TEXTURE scale s and t, 0,
+ * then the material's UV per N64 texel step in u and v, 0, 0. */
 void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
                    uint32_t tex, int wrapS, int wrapT,
                    uint32_t tex2, int wrap2S, int wrap2T,
                    int hasTex2, int primaryTexcoord, int secondaryTexcoord,
-                   float alphaCutoff, int blendPass, int cull);
+                   float alphaCutoff, int blendPass, int cull,
+                   const float *texgen);
 void sceneBgfxEndPass(void);
 /* --debug-clear-depth-after-scene: clear the whole target's depth, in order. */
 void sceneBgfxClearDepth(void);

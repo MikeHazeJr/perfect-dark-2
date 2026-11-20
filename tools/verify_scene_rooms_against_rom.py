@@ -41,6 +41,12 @@ ROM_LAYOUTS = {
 BG_BASE = 0x0F000000
 G_VTX, G_TRI4, G_CLEARGEOMETRYMODE, G_SETGEOMETRYMODE, G_ENDDL, G_TRI1 = 0x04, 0xB1, 0xB6, 0xB7, 0xB8, 0xBF
 G_CULL_FRONT, G_CULL_BACK = 0x1000, 0x2000
+# B-1268: a lit, texture-generated room surface (the game's reflective ones).
+G_LIGHTING, G_TEXTURE_GEN, G_TEXTURE_GEN_LINEAR = 0x00020000, 0x00040000, 0x00080000
+LIT_BITS = G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR
+# The part of a scene.glb exporter stamp that says the exporter names those
+# materials (pd2_material.texgen; PDSCENARIO_BG_VISUAL_EXPORT_VERSION).
+TEXGEN_EXPORT_MARK = "_texgen_b1268"
 
 
 def inflate(buf: bytes) -> bytes:
@@ -81,8 +87,9 @@ def rom_background_files(rom: bytes, layout: str) -> dict[str, bytes]:
     return out
 
 
-def room_census(bg: bytes) -> dict[int, tuple[int, int]]:
-    """room number -> (triangles with back faces culled, triangles drawn from both sides)."""
+def room_census(bg: bytes) -> dict[int, tuple[int, int, int]]:
+    """room number -> (triangles with back faces culled, triangles drawn from both sides,
+    of all those the ones lit with texture generation)."""
     primary_inflated, _section1, primary_stored = struct.unpack_from(">III", bg, 0)
     primary = inflate(bg[12:12 + primary_stored])
     shift = primary_inflated - primary_stored - 0xC
@@ -102,11 +109,11 @@ def room_census(bg: bytes) -> dict[int, tuple[int, int]]:
         data = inflate(bg[start:start + ((span + 15) & ~15)])
         base = table[room]
         _vertices, _colours, opaque, translucent = struct.unpack_from(">IIII", data, 0)
-        single = double = 0
+        single = double = texgen = 0
         seen = set()
 
         def walk_list(offset: int) -> None:
-            nonlocal single, double
+            nonlocal single, double, texgen
             geometry = G_CULL_BACK
             valid = [False] * 16
             for _ in range(20000):
@@ -143,6 +150,9 @@ def room_census(bg: bytes) -> dict[int, tuple[int, int]]:
                             double += 1
                         elif cull != (G_CULL_FRONT | G_CULL_BACK):
                             single += 1
+                        if cull != (G_CULL_FRONT | G_CULL_BACK) and \
+                                (geometry & LIT_BITS) == (G_LIGHTING | G_TEXTURE_GEN):
+                            texgen += 1
 
         def walk_blocks(pointer: int, depth: int = 0) -> None:
             while pointer and depth < 64:
@@ -165,7 +175,7 @@ def room_census(bg: bytes) -> dict[int, tuple[int, int]]:
         walk_blocks(opaque)
         walk_blocks(translucent)
         if single or double:
-            census[room] = (single, double)
+            census[room] = (single, double, texgen)
     return census
 
 
@@ -173,9 +183,11 @@ COMPONENT = {5120: ("b", 1), 5121: ("B", 1), 5122: ("h", 2), 5123: ("H", 2), 512
 WIDTH = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
 
 
-def scene_census(glb: bytes) -> tuple[dict[int, tuple[int, int]], bool]:
-    """room number -> (single-sided triangles, double-sided triangles), and
-    whether the scene records cull modes (pd2_material.cull on its materials)."""
+def scene_census(glb: bytes) -> tuple[dict[int, tuple[int, int, int]], bool, bool]:
+    """room number -> (single-sided triangles, double-sided triangles, of those the
+    ones on reflective materials), whether the scene records cull modes
+    (pd2_material.cull on its materials) and whether its exporter names
+    reflective materials (B-1268)."""
     magic, _version, total = struct.unpack_from("<4sII", glb, 0)
     if magic != b"glTF":
         raise ValueError("scene.glb is not a glTF binary")
@@ -203,6 +215,7 @@ def scene_census(glb: bytes) -> tuple[dict[int, tuple[int, int]], bool]:
 
     records_cull = bool(materials) and any(
         isinstance(m.get("extras", {}).get("pd2_material", {}).get("cull"), str) for m in materials)
+    records_texgen = TEXGEN_EXPORT_MARK in str(doc.get("asset", {}).get("generator", ""))
     census: dict[int, list[int]] = {}
     for mesh in doc.get("meshes", []):
         for primitive in mesh.get("primitives", []):
@@ -210,10 +223,13 @@ def scene_census(glb: bytes) -> tuple[dict[int, tuple[int, int]], bool]:
             index = [t[0] for t in read(primitive["indices"])] if "indices" in primitive else list(range(len(rooms)))
             material = materials[primitive["material"]] if "material" in primitive else {}
             double = material.get("doubleSided") is True
+            texgen = material.get("extras", {}).get("pd2_material", {}).get("texgen") is True
             for t in range(0, len(index) - 2, 3):
-                entry = census.setdefault(int(rooms[index[t]][0]), [0, 0])
+                entry = census.setdefault(int(rooms[index[t]][0]), [0, 0, 0])
                 entry[1 if double else 0] += 1
-    return {room: (v[0], v[1]) for room, v in census.items()}, records_cull
+                if texgen:
+                    entry[2] += 1
+    return {room: (v[0], v[1], v[2]) for room, v in census.items()}, records_cull, records_texgen
 
 
 def scenes_of(data_dir: Path):
@@ -241,54 +257,64 @@ def main() -> int:
     backgrounds = {}
     for name, blob in rom_background_files(args.rom.read_bytes(), args.layout).items():
         backgrounds[name] = room_census(blob)
-    print("ROM: %d background files, %d rooms with triangles, %d triangles" % (
+    print("ROM: %d background files, %d rooms with triangles, %d triangles, %d of them lit with texture generation" % (
         len(backgrounds), sum(len(c) for c in backgrounds.values()),
-        sum(a + b for c in backgrounds.values() for a, b in c.values())))
+        sum(v[0] + v[1] for c in backgrounds.values() for v in c.values()),
+        sum(v[2] for c in backgrounds.values() for v in c.values())))
 
-    def key(census: dict[int, tuple[int, int]]):
+    def key(census: dict[int, tuple[int, int, int]], texgen: bool):
         if args.rooms_only:
-            return tuple(sorted((room, a + b) for room, (a, b) in census.items()))
-        return tuple(sorted(census.items()))
+            return tuple(sorted((room, v[0] + v[1]) for room, v in census.items()))
+        if texgen:
+            return tuple(sorted(census.items()))
+        return tuple(sorted((room, (v[0], v[1])) for room, v in census.items()))
 
-    by_key: dict[tuple, list[str]] = {}
+    by_key: dict[bool, dict[tuple, list[str]]] = {False: {}, True: {}}
     for name, census in backgrounds.items():
-        by_key.setdefault(key(census), []).append(name)
+        for texgen in (False, True):
+            by_key[texgen].setdefault(key(census, texgen), []).append(name)
 
-    scenes = failed = without_cull = 0
+    scenes = failed = without_cull = without_texgen = 0
     for label, glb in scenes_of(args.data):
         scenes += 1
-        census, records_cull = scene_census(glb)
+        census, records_cull, records_texgen = scene_census(glb)
         if not records_cull:
             without_cull += 1
-        match = by_key.get(key(census))
-        triangles = sum(a + b for a, b in census.values())
+        if not records_texgen:
+            without_texgen += 1
+        match = by_key[records_texgen].get(key(census, records_texgen))
+        triangles = sum(v[0] + v[1] for v in census.values())
         if match and (records_cull or args.rooms_only):
             if args.verbose:
-                print("ok    %-58s rooms %3d triangles %6d (two-sided %5d) = %s" % (
-                    label, len(census), triangles, sum(b for _, b in census.values()), "/".join(match[:3])))
+                print("ok    %-58s rooms %3d triangles %6d (two-sided %5d, texgen %4d) = %s" % (
+                    label, len(census), triangles, sum(v[1] for v in census.values()),
+                    sum(v[2] for v in census.values()), "/".join(match[:3])))
             continue
         failed += 1
         # Which background file is it closest to, by rooms in common?
         best = max(backgrounds, key=lambda n: (
             sum(1 for room, counts in census.items() if backgrounds[n].get(room) and
-                sum(backgrounds[n][room]) == sum(counts)), -abs(len(backgrounds[n]) - len(census))))
+                sum(backgrounds[n][room][:2]) == sum(counts[:2])), -abs(len(backgrounds[n]) - len(census))))
         rom_census = backgrounds[best]
         missing = sorted(set(rom_census) - set(census))
         differ = sorted(room for room in set(rom_census) & set(census)
-                        if (sum(rom_census[room]) != sum(census[room]) if args.rooms_only
-                            else rom_census[room] != census[room]))
+                        if (sum(rom_census[room][:2]) != sum(census[room][:2]) if args.rooms_only
+                            else rom_census[room] != census[room] if records_texgen
+                            else rom_census[room][:2] != census[room][:2]))
         extra = sorted(set(census) - set(rom_census))
         why = "does not record cull modes" if match and not records_cull else "equals no background file"
         print("FAIL  %-58s %s; nearest %s: scene %d triangles in %d rooms, ROM %d in %d; rooms missing %d (%d triangles), differing %d, not in the ROM %d" % (
-            label, why, best, triangles, len(census), sum(a + b for a, b in rom_census.values()), len(rom_census),
-            len(missing), sum(sum(rom_census[r]) for r in missing), len(differ), len(extra)))
+            label, why, best, triangles, len(census), sum(v[0] + v[1] for v in rom_census.values()), len(rom_census),
+            len(missing), sum(sum(rom_census[r][:2]) for r in missing), len(differ), len(extra)))
         if args.verbose:
             for room in missing[:40]:
-                print("        room %3d missing: ROM %d back-culled + %d two-sided" % (room, *rom_census[room]))
+                print("        room %3d missing: ROM %d back-culled + %d two-sided (%d texgen)" % (room, *rom_census[room]))
             for room in differ[:40]:
                 print("        room %3d differs: scene %s, ROM %s" % (room, census[room], rom_census[room]))
-    print("scenes: %d, failed: %d%s" % (scenes, failed,
-                                        ", without cull modes: %d" % without_cull if without_cull else ""))
+    print("scenes: %d, failed: %d%s%s" % (scenes, failed,
+                                          ", without cull modes: %d" % without_cull if without_cull else "",
+                                          ", without reflective materials named: %d" % without_texgen
+                                          if without_texgen else ""))
     return 1 if failed or not scenes else 0
 
 

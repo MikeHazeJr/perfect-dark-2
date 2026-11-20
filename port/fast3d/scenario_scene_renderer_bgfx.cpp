@@ -40,6 +40,11 @@ bgfx::UniformHandle s_uFogColor = BGFX_INVALID_HANDLE;
 bgfx::UniformHandle s_sTex = BGFX_INVALID_HANDLE;
 bgfx::UniformHandle s_sTex2 = BGFX_INVALID_HANDLE;
 bgfx::UniformHandle s_sRoomLight = BGFX_INVALID_HANDLE;
+/* B-1268: reflective surfaces (vs_pdscene.sc). */
+bgfx::UniformHandle s_uTexGen = BGFX_INVALID_HANDLE;
+bgfx::UniformHandle s_uTexGenUv = BGFX_INVALID_HANDLE;
+bgfx::UniformHandle s_uLookX = BGFX_INVALID_HANDLE;
+bgfx::UniformHandle s_uLookY = BGFX_INVALID_HANDLE;
 bgfx::TextureHandle s_noRoomLight = BGFX_INVALID_HANDLE;
 bgfx::VertexLayout s_layout;
 bgfx::ViewId s_view = 0;
@@ -47,6 +52,8 @@ float s_vp[16];
 float s_sky[4];
 float s_fog[4];
 float s_fogColor[4];
+float s_lookX[4];
+float s_lookY[4];
 /* This pass's room lighting texture, released at the end of the pass. */
 bgfx::TextureHandle s_roomLight = BGFX_INVALID_HANDLE;
 bool s_loggedRoomLight = false;
@@ -83,6 +90,10 @@ bool ensureProgram(void)
     s_sTex = bgfx::createUniform("s_sceneTex", bgfx::UniformType::Sampler);
     s_sTex2 = bgfx::createUniform("s_sceneTex2", bgfx::UniformType::Sampler);
     s_sRoomLight = bgfx::createUniform("s_sceneRoomLight", bgfx::UniformType::Sampler);
+    s_uTexGen = bgfx::createUniform("u_sceneTexGen", bgfx::UniformType::Vec4);
+    s_uTexGenUv = bgfx::createUniform("u_sceneTexGenUv", bgfx::UniformType::Vec4);
+    s_uLookX = bgfx::createUniform("u_sceneLookX", bgfx::UniformType::Vec4);
+    s_uLookY = bgfx::createUniform("u_sceneLookY", bgfx::UniformType::Vec4);
     bgfx::ShaderHandle vs = bgfx::createShader(bgfx::makeRef(vs_pdscene_glsl, sizeof(vs_pdscene_glsl)));
     bgfx::ShaderHandle fs = bgfx::createShader(bgfx::makeRef(fs_pdscene_glsl, sizeof(fs_pdscene_glsl)));
     s_program = bgfx::createProgram(vs, fs, true);
@@ -184,6 +195,14 @@ extern "C" int sceneBgfxBeginPass(const scene_bgfx_pass_t *pass)
     s_fogColor[1] = pass->fog_color[1];
     s_fogColor[2] = pass->fog_color[2];
     s_fogColor[3] = 0.0f;
+    s_lookX[0] = pass->look_x[0];
+    s_lookX[1] = pass->look_x[1];
+    s_lookX[2] = pass->look_x[2];
+    s_lookX[3] = 0.0f;
+    s_lookY[0] = pass->look_y[0];
+    s_lookY[1] = pass->look_y[1];
+    s_lookY[2] = pass->look_y[2];
+    s_lookY[3] = 0.0f;
     /* The GL path re-uploads one texture before each view's draws. bgfx runs
      * texture updates before the frame's first view, so one texture updated
      * per view would light every view like the last; each pass gets its own,
@@ -206,7 +225,8 @@ extern "C" void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
                               uint32_t tex, int wrapS, int wrapT,
                               uint32_t tex2, int wrap2S, int wrap2T,
                               int hasTex2, int primaryTexcoord, int secondaryTexcoord,
-                              float alphaCutoff, int blendPass, int cull)
+                              float alphaCutoff, int blendPass, int cull,
+                              const float *texgen)
 {
     if (vb == 0 || tex == 0 || tex2 == 0 || count == 0) {
         return;
@@ -238,6 +258,16 @@ extern "C" void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
     bgfx::setUniform(s_uSky, s_sky);
     bgfx::setUniform(s_uFog, s_fog);
     bgfx::setUniform(s_uFogColor, s_fogColor);
+    {
+        /* B-1268: the material's texgen (off without one) and the view's
+         * reflection vectors. */
+        const float off[8] = {};
+        const float *tg = texgen ? texgen : off;
+        bgfx::setUniform(s_uTexGen, tg);
+        bgfx::setUniform(s_uTexGenUv, tg + 4);
+        bgfx::setUniform(s_uLookX, s_lookX);
+        bgfx::setUniform(s_uLookY, s_lookY);
+    }
     bgfx::setTexture(0, s_sTex, bgfx::TextureHandle{ (uint16_t)(tex - 1) }, wrapFlags(wrapS, wrapT));
     bgfx::setTexture(1, s_sTex2, bgfx::TextureHandle{ (uint16_t)(tex2 - 1) }, wrapFlags(wrap2S, wrap2T));
     if (bgfx::isValid(s_roomLight)) {

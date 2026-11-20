@@ -233,6 +233,6 @@ extern "C" uint32_t sceneBgfxCreateTexture(int, int, const uint8_t *) { return 0
 extern "C" void sceneBgfxDestroyTexture(uint32_t) {}
 extern "C" int sceneBgfxBeginPass(const struct scene_bgfx_pass *) { return 0; }
 extern "C" void sceneBgfxDraw(uint32_t, uint32_t, uint32_t, uint32_t, int, int, uint32_t, int, int, int, int, int,
-                              float, int) {}
+                              float, int, int, const float *) {}
 extern "C" void sceneBgfxEndPass(void) {}
 extern "C" void sceneBgfxClearDepth(void) {}

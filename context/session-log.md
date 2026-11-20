@@ -1,5 +1,25 @@
 # Session Log (Active)
 
+2026-11-20 CORE, 14:25 to 16:20 UTC. Mike in CORE's chat: "You may ignore
+the 200gb rule, yes" (T-TOOLING-016 integrated as local commit `d902ee18` on
+canonical dev, four smoke-verify files, checks before and after green, not
+pushed: it sits on T-TOOLING-015) and, asked about the full 4 GiB smoke
+archive, "remove the cap, let's just ensure we are cleaning up after
+ourselves": the cap is gone from CORE's location files and CORE recycles its
+C: smoke storage after every batch. `week-pd/core-s12` landed on dev as
+`10d63d7a`. Then B-1268 on `week-pd/core-s13` (PR 21): reflective room
+surfaces lit and texture-generated as fast3d does, per view, in both scene
+renderers; the first extraction failed conformance on every reflective
+material (its UV scale was written as `uv_scale`, which says a material is
+animated) and the key became `texgen_uv_scale`. Proof turn
+`q_20261120151958397_423b68b2`: every stage's reflective triangles equal the
+ROM's, captures before and after, renderer parity unchanged, campaigns
+green. A read-only audit of every exporter for silent skips (SP-98) found
+seven latent places; the two that could hurt (collision, portals) do not
+fire on the base ROM. Next: land core-s13 and publish shared base 14, then
+B-1269 (translucent order, decal depth), the SP-98 fixes, projectile slice
+7.
+
 2026-11-20 CORE, 05:30 to 06:15 UTC. `week-pd/core-s11` landed on `dev` as
 `d43a7f72` (PR 18; hosted CI run 44680975726 green on the branch head),
 local dev `6e1fff4b`, shared base 13 published (`D:\PD2-wt\shared-base-13`).

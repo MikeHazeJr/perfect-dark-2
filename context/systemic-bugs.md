@@ -4612,6 +4612,51 @@ stream's own stated length (B-1113 did section 3). Not yet audited: the
 model, prop, character and texture exports (`romextract_pd*.c`) for skips
 that do not fail their archive.
 
+**Audited 2026-11-20 (CORE, code reading, every `romextract*.c`):** seven
+places can still drop exported data with no log line and no failure. None of
+them fires on the base ROM where it was checked; all are latent for authored
+or mod data.
+1. Collision: `s_buildTilesExports` `break`s out of a room's geo list on a
+   geo `s_tilesGeoStride` rejects (unknown type, TILE_I/F with fewer than 3 or
+   more than 64 vertices, BLOCK outside 3 to 8), losing every later geo of
+   the room. Checked against the ROM: 60 tiles files, 120,002 geos, all
+   TILE_I with 3 to 12 vertices, and all 132 archives equal the ROM's
+   collision exactly. Also: `convertTiles` (preprocess/filetiles.c) steps
+   over every geo as a TILE_I, so a tiles file with other geo types would be
+   misread before the exporter sees it.
+2. Portals: `s_buildBgPortalsJson` drops a portal row with fewer than 3 or
+   more than 32 vertices, and a block over 32 ends its walk; the runtime
+   packs rows by position, so one dropped row would renumber every later
+   portal. Checked against the ROM: 3,862 portals with 3 to 9 vertices, and
+   every archive's portals.json equals the game's count and vertices.
+3. Scene geometry below the room: a display list or command outside the
+   room buffer, a G_VTX outside the block's vertex span, a triangle using an
+   unloaded slot, an unresolved leaf block, an unknown block type: each is
+   skipped without a count. The ROM check would see all but the slot cases
+   (it shares them); it passes all 132 scenes.
+4. Weapon sounds: `s_addWeaponAudioDependency` (romextract_pdweapon.c)
+   returns success when no .pdsfx or .pdvoice archive matches, so the sound
+   leaves the weapon's archive; the next boot's reuse check then fails with a
+   misleading "preserving edited/unreadable public archive". Not checked.
+5. Model nodes: `s_exportGdlToObjWithState` and `s_exportNodeObj`
+   (romextract_pdmesh.c) treat an unreadable display list or vertex buffer as
+   an absent one (deliberate, pinned by test_modasset_render_stream.cpp;
+   only a model with no triangle at all gets a note). Not checked.
+6. Scene textures: a texture that fails to decode becomes an untextured
+   material, counted only in the manifest's `visual_textures_failed`.
+   Low: the texture exporter fails loudly on non-empty slots.
+7. Mesh jobs: more than 1,024 unique meshes are silently not queued; the
+   only sign is `unique_mesh_jobs=1024`. Unlikely for the base game.
+Borderline: `s_loadStageFileRaw` returns 0 for a missing file and for a
+failed load alike, and the scenario is then written without collision or
+pads while its manifest still names collision.obj.
+Clean: pads, navigation, paths, setup, intro, AI lists, room table, pdlang,
+pdai, pdcharacter, pdtexture, pdmeta; the empty-slot skips of pdsfx, pdsong
+and pdanim_chr say so; romextract.c logs its skips. Scripts of the ROM
+check: CORE's scratchpad `sp98-check/` (check_tiles.py, check_portals.py).
+Next: make 1 to 4 fail their export with a log line (they guard against
+data the base game does not have), then 5 to 7.
+
 ## Scripted pickup can clear the object-to-prop link
 
 A scripted grant must hold the incoming prop through
