@@ -268,3 +268,253 @@ TEST_CASE("Scene camera: degenerate inputs", "[scene_camera][b1172]")
 	CHECK(scenarioSceneCameraBuild(nullptr, cam.pos, cam.look, cam.up, cam.fovy, cam.aspect,
 		cam.znear, cam.zfar, 1.0f, cam.offset) == 0);
 }
+
+/* B-1267: the game culls a room triangle whose corners read clockwise on
+ * screen (fast3d: cross >= 0 with G_CULL_BACK), so its front faces read
+ * counter-clockwise from the eye. The scene renderer asks the matrix it draws
+ * with whether that is still so in clip space. */
+namespace {
+
+/* Twice the signed area of a triangle after the perspective divide: positive
+ * when its corners read counter-clockwise with x right and y up. */
+float ndcArea2(const float m[4][4], const float a[3], const float b[3], const float c[3])
+{
+	float ca[4];
+	float cb[4];
+	float cc[4];
+	scenarioSceneMatrixTransform(m, a, ca);
+	scenarioSceneMatrixTransform(m, b, cb);
+	scenarioSceneMatrixTransform(m, c, cc);
+	REQUIRE(ca[3] > 0.0f);
+	REQUIRE(cb[3] > 0.0f);
+	REQUIRE(cc[3] > 0.0f);
+	const float ax = ca[0] / ca[3], ay = ca[1] / ca[3];
+	const float bx = cb[0] / cb[3], by = cb[1] / cb[3];
+	const float cx = cc[0] / cc[3], cy = cc[1] / cc[3];
+	return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+/* A triangle 500 units ahead of the camera whose corners read
+ * counter-clockwise from the eye: centre, then to the right, then up. */
+void eyeFacingTriangle(const GameCamera &cam, float a[3], float b[3], float c[3])
+{
+	float look[3] = { cam.look[0], cam.look[1], cam.look[2] };
+	const float len = std::sqrt(look[0] * look[0] + look[1] * look[1] + look[2] * look[2]);
+	for (float &v : look) {
+		v /= len;
+	}
+	float right[3] = {
+		look[1] * cam.up[2] - look[2] * cam.up[1],
+		look[2] * cam.up[0] - look[0] * cam.up[2],
+		look[0] * cam.up[1] - look[1] * cam.up[0],
+	};
+	const float rlen = std::sqrt(right[0] * right[0] + right[1] * right[1] + right[2] * right[2]);
+	for (float &v : right) {
+		v /= rlen;
+	}
+	const float up[3] = {
+		right[1] * look[2] - right[2] * look[1],
+		right[2] * look[0] - right[0] * look[2],
+		right[0] * look[1] - right[1] * look[0],
+	};
+	for (int i = 0; i < 3; i++) {
+		a[i] = cam.pos[i] + look[i] * 500.0f;
+		b[i] = a[i] + right[i] * 100.0f;
+		c[i] = a[i] + up[i] * 100.0f;
+	}
+}
+
+} // namespace
+
+TEST_CASE("Scene camera: the view-projection says whether a triangle keeps its winding",
+	"[scene_camera][b1267]")
+{
+	for (const float scale : { 1.0f, 0.1f, 4.0f }) {
+		const GameCamera cam = villaLikeCamera(scale);
+		scenario_scene_camera_t scene;
+		REQUIRE(buildSceneCamera(cam, cam.scale, &scene));
+		float a[3];
+		float b[3];
+		float c[3];
+		eyeFacingTriangle(cam, a, b, c);
+
+		/* The scene's own matrix: counter-clockwise from the eye stays so. */
+		CHECK(scenarioSceneMatrixKeepsWinding(scene.view_projection) == 1);
+		CHECK(ndcArea2(scene.view_projection, a, b, c) > 0.0f);
+		/* Seen from behind, the same corners read clockwise. */
+		CHECK(ndcArea2(scene.view_projection, a, c, b) < 0.0f);
+
+		/* fast3d's adjustments of a clip position (gfx_scene_clip_adjust):
+		 * the aspect scale and shift of x and the 0..1 depth range keep the
+		 * winding; the y flip of a flipped framebuffer reverses it. */
+		float adjusted[4][4];
+		std::memcpy(adjusted, scene.view_projection, sizeof(adjusted));
+		for (int r = 0; r < 4; r++) {
+			const float x = adjusted[r][0];
+			const float z = adjusted[r][2];
+			const float w = adjusted[r][3];
+			adjusted[r][0] = x * 0.75f + w * 0.1f;
+			adjusted[r][2] = (z + w) * 0.5f;
+		}
+		CHECK(scenarioSceneMatrixKeepsWinding(adjusted) == 1);
+		CHECK(ndcArea2(adjusted, a, b, c) > 0.0f);
+
+		float flipped[4][4];
+		std::memcpy(flipped, adjusted, sizeof(flipped));
+		for (int r = 0; r < 4; r++) {
+			flipped[r][1] = -flipped[r][1];
+		}
+		CHECK(scenarioSceneMatrixKeepsWinding(flipped) == 0);
+		CHECK(ndcArea2(flipped, a, b, c) < 0.0f);
+	}
+}
+
+TEST_CASE("Scene camera: the game's own matrices keep a triangle's winding",
+	"[scene_camera][b1267]")
+{
+	/* The oracle transcribed from the game (its lookat and perspective): the
+	 * matrix a world draw of the scene is given. If this mirrored, the scene
+	 * would cull the faces the game shows. */
+	const GameCamera cam = villaLikeCamera(0.1f);
+	float view[4][4];
+	float persp[4][4];
+	float vp[4][4];
+	const float eye[3] = {
+		(cam.pos[0] - cam.offset[0]) * cam.scale,
+		(cam.pos[1] - cam.offset[1]) * cam.scale,
+		(cam.pos[2] - cam.offset[2]) * cam.scale,
+	};
+	gameLookAt(view, eye[0], eye[1], eye[2], cam.look[0], cam.look[1], cam.look[2],
+		cam.up[0], cam.up[1], cam.up[2]);
+	gamePerspective(persp, cam.fovy, cam.aspect, cam.znear, cam.zfar);
+	scenarioSceneMatrixMultiply(vp, view, persp);
+	CHECK(scenarioSceneMatrixKeepsWinding(vp) == 1);
+
+	float a[3];
+	float b[3];
+	float c[3];
+	eyeFacingTriangle(cam, a, b, c);
+	float qa[3];
+	float qb[3];
+	float qc[3];
+	for (int i = 0; i < 3; i++) {
+		qa[i] = (a[i] - cam.offset[i]) * cam.scale;
+		qb[i] = (b[i] - cam.offset[i]) * cam.scale;
+		qc[i] = (c[i] - cam.offset[i]) * cam.scale;
+	}
+	CHECK(ndcArea2(vp, qa, qb, qc) > 0.0f);
+}
+
+namespace {
+
+// guLookAtReflectF (src/lib/ultra/gu/lookatref.c) for the camera's look and
+// up, then each vector as fast3d reads a Light_t direction: the signed byte
+// FTOFRAC8 stores, divided by 127 and normalised (calculate_normal_dir).
+void gameReflectionVectors(const float look[3], const float up[3], float x[3], float y[3])
+{
+	float xLook = look[0];
+	float yLook = look[1];
+	float zLook = look[2];
+	float len = -1.0f / std::sqrt(xLook * xLook + yLook * yLook + zLook * zLook);
+	xLook *= len;
+	yLook *= len;
+	zLook *= len;
+	float xRight = up[1] * zLook - up[2] * yLook;
+	float yRight = up[2] * xLook - up[0] * zLook;
+	float zRight = up[0] * yLook - up[1] * xLook;
+	len = 1.0f / std::sqrt(xRight * xRight + yRight * yRight + zRight * zRight);
+	xRight *= len;
+	yRight *= len;
+	zRight *= len;
+	float xUp = yLook * zRight - zLook * yRight;
+	float yUp = zLook * xRight - xLook * zRight;
+	float zUp = xLook * yRight - yLook * xRight;
+	len = 1.0f / std::sqrt(xUp * xUp + yUp * yUp + zUp * zUp);
+	xUp *= len;
+	yUp *= len;
+	zUp *= len;
+	const float right[3] = {xRight, yRight, zRight};
+	const float upv[3] = {xUp, yUp, zUp};
+	for (int which = 0; which < 2; which++) {
+		const float *v = which == 0 ? right : upv;
+		float *out = which == 0 ? x : y;
+		float q[3];
+		for (int i = 0; i < 3; i++) {
+			const float scaled = v[i] * 128.0f < 127.0f ? v[i] * 128.0f : 127.0f; // FTOFRAC8
+			const signed char dir = (signed char)((int)scaled & 0xff);
+			q[i] = dir / 127.0f;
+		}
+		const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+		for (int i = 0; i < 3; i++) {
+			out[i] = q[i] / n;
+		}
+	}
+}
+
+}
+
+// B-1268: texture generation maps a reflective surface from the normal
+// against two vectors the game makes from the camera.
+TEST_CASE("Scene camera: its reflection vectors are the game's", "[scene_camera][b1268]")
+{
+	// Looking down -z with y up: right is +x, up is +y.
+	{
+		const float look[3] = {0.0f, 0.0f, -1.0f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		float x[3];
+		float y[3];
+		REQUIRE(scenarioSceneLookAtReflect(look, up, x, y) == 1);
+		CHECK(x[0] == Approx(1.0f).margin(1e-6));
+		CHECK(x[1] == Approx(0.0f).margin(1e-6));
+		CHECK(x[2] == Approx(0.0f).margin(1e-6));
+		CHECK(y[0] == Approx(0.0f).margin(1e-6));
+		CHECK(y[1] == Approx(1.0f).margin(1e-6));
+		CHECK(y[2] == Approx(0.0f).margin(1e-6));
+	}
+	// Arbitrary cameras, quantisation included.
+	const float cameras[][6] = {
+		{0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f},
+		{0.3f, -0.6f, 0.74f, 0.0f, 1.0f, 0.0f},
+		{-0.785f, -0.423f, 0.453f, 0.0f, 1.0f, 0.0f},
+		{0.2f, 0.9f, -0.1f, 0.0f, 0.0f, 1.0f},
+		{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f},
+	};
+	for (const auto &cam : cameras) {
+		float want_x[3];
+		float want_y[3];
+		float got_x[3];
+		float got_y[3];
+		gameReflectionVectors(&cam[0], &cam[3], want_x, want_y);
+		REQUIRE(scenarioSceneLookAtReflect(&cam[0], &cam[3], got_x, got_y) == 1);
+		for (int i = 0; i < 3; i++) {
+			CHECK(got_x[i] == Approx(want_x[i]).margin(1e-5));
+			CHECK(got_y[i] == Approx(want_y[i]).margin(1e-5));
+		}
+	}
+	// The camera a view is drawn with carries them.
+	{
+		const float pos[3] = {100.0f, 50.0f, -20.0f};
+		const float look[3] = {0.3f, -0.6f, 0.74f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		scenario_scene_camera_t cam;
+		REQUIRE(scenarioSceneCameraBuild(&cam, pos, look, up, 60.0f, 16.0f / 9.0f, 10.0f, 10000.0f, 1.0f, nullptr) == 1);
+		float want_x[3];
+		float want_y[3];
+		gameReflectionVectors(look, up, want_x, want_y);
+		for (int i = 0; i < 3; i++) {
+			CHECK(cam.lookat_x[i] == Approx(want_x[i]).margin(1e-5));
+			CHECK(cam.lookat_y[i] == Approx(want_y[i]).margin(1e-5));
+		}
+	}
+	// A degenerate look or up is refused.
+	{
+		const float zero[3] = {0.0f, 0.0f, 0.0f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		const float along_up[3] = {0.0f, 1.0f, 0.0f};
+		float x[3] = {9.0f, 9.0f, 9.0f};
+		float y[3] = {9.0f, 9.0f, 9.0f};
+		CHECK(scenarioSceneLookAtReflect(zero, up, x, y) == 0);
+		CHECK(scenarioSceneLookAtReflect(along_up, up, x, y) == 0);
+		CHECK(x[0] == 9.0f);
+	}
+}

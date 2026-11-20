@@ -84,7 +84,7 @@ TEST_CASE("A compiled part longer than the native command cap keeps its whole co
 {
 	// The model compiler writes a vertex load and a triangle for every face,
 	// so a part's display list is two commands per triangle. The Maian hull
-	// is one part of 2,681 triangles: more than twice the 2,044 that fit
+	// is one part of 2,681 triangles: more than the 2,044 that fit
 	// under the collision mesh extraction's 4,096-command cap, which used to
 	// apply to every list and cut the hull off without a log line (the game
 	// said `MESHCOL: extracted 5192` for this 5,829-triangle model).
@@ -97,6 +97,7 @@ TEST_CASE("A compiled part longer than the native command cap keeps its whole co
 			at = render.find(hullRow, at + 1)) {
 		++hull;
 	}
+	REQUIRE(hull == 2681);
 	CHECK(hull * 2 > 4096);
 
 	const std::string source = partsReadFile("src/lib/meshcollision.c");

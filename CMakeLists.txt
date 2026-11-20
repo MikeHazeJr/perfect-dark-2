@@ -23,6 +23,14 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# 2.0 renderer phase 2a (D5): bgfx, bx and bimg from the pinned submodules in
+# third_party/bgfx, as static libraries with only bgfx's OpenGL 4.3 renderer,
+# plus the lean pd-shaderc host tool that compiles our shaders ahead of time.
+# Added before the game's global definitions, include directories and warning
+# flags below so none of them reach third-party code. --renderer bgfx selects
+# the backend at launch; without it the classic GL renderer runs unchanged.
+add_subdirectory("${CMAKE_SOURCE_DIR}/third_party/bgfx-pd" "${CMAKE_BINARY_DIR}/third_party/bgfx-pd")
+
 # On first build set the build type to RelWithDebInfo if it's not already set
 if (NOT EXISTS ${CMAKE_BINARY_DIR}/CMakeCache.txt)
   if (NOT CMAKE_BUILD_TYPE)
@@ -647,6 +655,18 @@ add_executable(pd ${SRC})
 add_dependencies(pd pd_headers pd_grid_room_seed)
 target_link_libraries(pd PRIVATE ${LIBS})
 
+# The bgfx backend (port/fast3d/gfx_bgfx.cpp) and its ahead-of-time shaders.
+target_link_libraries(pd PRIVATE pd_bgfx)
+set(PD_BGFX_SHADER_DIR "${CMAKE_SOURCE_DIR}/port/fast3d/shaders")
+pd_bgfx_compile_shaders(pd VARYING "${PD_BGFX_SHADER_DIR}/varying_fast3d.def.sc"
+  VERTEX "${PD_BGFX_SHADER_DIR}/vs_fast3d.sc" FRAGMENT "${PD_BGFX_SHADER_DIR}/fs_fast3d.sc")
+pd_bgfx_compile_shaders(pd VARYING "${PD_BGFX_SHADER_DIR}/varying_pdcopy.def.sc"
+  VERTEX "${PD_BGFX_SHADER_DIR}/vs_pdcopy.sc" FRAGMENT "${PD_BGFX_SHADER_DIR}/fs_pdcopy.sc")
+pd_bgfx_compile_shaders(pd VARYING "${PD_BGFX_SHADER_DIR}/varying_pdimgui.def.sc"
+  VERTEX "${PD_BGFX_SHADER_DIR}/vs_pdimgui.sc" FRAGMENT "${PD_BGFX_SHADER_DIR}/fs_pdimgui.sc")
+pd_bgfx_compile_shaders(pd VARYING "${PD_BGFX_SHADER_DIR}/varying_pdscene.def.sc"
+  VERTEX "${PD_BGFX_SHADER_DIR}/vs_pdscene.sc" FRAGMENT "${PD_BGFX_SHADER_DIR}/fs_pdscene.sc")
+
 # Existing-install smoke reuse confines native mutations to a retained profile.
 # MinGW emits both direct calls and references to __imp_* pointers; intercept
 # both. Ordinary launches delegate to the original imports without policy.
@@ -1116,6 +1136,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
   # Custom (graph) projectiles log their spawn and their landing.
   ${CMAKE_SOURCE_DIR}/tests/test_custom_projectile_log_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_projectile_rules.cpp
   # Weapon source compile with the variables text ($name scope, MODS ask).
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_source_variables.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
@@ -1313,6 +1334,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/projectile_rules.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_catalog.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_owners.cpp

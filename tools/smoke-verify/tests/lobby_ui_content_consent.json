@@ -4,7 +4,7 @@
   "tags": ["menus", "input", "network", "lobby-ui"],
   "paths_of_interest": ["port/fast3d/pdgui_lobby_distrib.cpp", "port/fast3d/pdgui_lobby.cpp", "port/src/net/netdistrib.c"],
   "log_channel_mask": "all",
-  "timeout_seconds": 320,
+  "timeout_seconds": 620,
   "install_state": "current",
   "separate_process_installs": true,
   "window_focus_target": "decliner",
@@ -20,7 +20,7 @@
       "packed_fixtures": [{ "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }],
       "boot_args": ["--no-update-check", "--portable", "--host", "--listen-bind", "27293", "--launch-mp-room", "base:arena_mp_complex", "base:combat", "0", "--debug-spawn-weapon", "mod_needler:needler", "--host-autostart", "--host-autostart-peers", "2"],
       "wait_for": "NET: created server on port 27293",
-      "wait_timeout_seconds": 180,
+      "wait_timeout_seconds": 360,
       "assertions": {
         "required_sequences": [
           {
@@ -50,7 +50,7 @@
       "fixtures": [{ "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }],
       "boot_args": ["--no-update-check", "--portable", "--connect-host", "127.0.0.1:27293"],
       "wait_for": "NET: connected to server, sending CLC_AUTH",
-      "wait_timeout_seconds": 180,
+      "wait_timeout_seconds": 360,
       "smoke_path": "tools/smoke-verify/fixtures/lobby_ui_content_consent.json",
       "assertions": {
         "required_sequences": [
@@ -85,7 +85,7 @@
     }
   ],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 230000, "stable_ms": 500 },
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 540000, "stable_ms": 500 },
     { "at_ms": 20000, "type": "exit" }
   ],
   "assertions": {

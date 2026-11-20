@@ -608,7 +608,73 @@ TEST_CASE("in-game Validate reads the members release validation does not",
 		CHECK(v.code == c.expected);
 		CHECK(!v.err.empty());
 		CHECK(v.err.find(c.names) != std::string::npos);
+
+		const std::string bytes = validateReadFile(archive);
+		char err[320] = {};
+		CHECK(modAssetValidateArchiveBytes(bytes.data(), static_cast<u32>(bytes.size()),
+			archive.string().c_str(), err, sizeof(err)) == c.expected);
+		CHECK(std::string(err).find(c.names) != std::string::npos);
 	}
+}
+
+TEST_CASE("nested split weapon validation uses its own public variables",
+          "[modding][validate][pdmod][pdxxx][c3842]") {
+	ValidateTempDir dir;
+	const std::string weapon = validateReadFile(validateExample(kWeapon));
+	std::string primary = validateEntry(weapon, "behavior/primary.graph.json");
+	const std::string mode = "\"function_type\": \"shoot_projectile\"";
+	const size_t insertAt = primary.find(mode);
+	REQUIRE(insertAt != std::string::npos);
+	primary.insert(insertAt + mode.size(), ", \"damage\": \"$impact\"");
+
+	const fs::path weaponPath = validateWithMember(dir, kWeapon, "example:tri_weapon",
+		"behavior/primary.graph.json", primary, "inner.pdweapon");
+	const char *nested = "dependencies/assets/weapons/inner.pdweapon";
+	const fs::path vehiclePath = validateWithMember(dir, kVehicle, "example:tri_vehicle",
+		nested, validateReadFile(weaponPath), "carrier.pdvehicle");
+	const std::string vehicle = validateReadFile(vehiclePath);
+	const std::string manifest =
+		"{\"id\":\"mod.carrier\",\"name\":\"Carrier\",\"version\":\"1.0.0\"}";
+	const std::string package = (dir.path / "carrier.pdmod").string();
+	modpack_entry_t entry{};
+	entry.entry_name = "vehicles/carrier.pdvehicle";
+	entry.data = vehicle.data();
+	entry.len = static_cast<u32>(vehicle.size());
+
+	char err[320] = {};
+	CHECK(modAssetValidateArchiveBytes(vehicle.data(), static_cast<u32>(vehicle.size()),
+		"carrier.pdvehicle", err, sizeof(err)) == MOD_ASSET_VALIDATE_ERR_FAMILY);
+	CHECK(std::string(err).find(std::string("carrier.pdvehicle::") + nested)
+		!= std::string::npos);
+	CHECK(std::string(err).find("unresolved weapon variable '$impact'") != std::string::npos);
+	CHECK(modpackPdmodWriteSingle(package.c_str(), manifest.data(),
+		static_cast<u32>(manifest.size()), &entry, 1) == MODPACK_PDMOD_ERR_LAYOUT);
+	CHECK(std::string(modpackPdmodLastError()).find("unresolved weapon variable '$impact'")
+		!= std::string::npos);
+	CHECK(!fs::exists(package));
+
+	/* Edit the embedded public variables, leaving the referencing graph intact. */
+	const std::string variables =
+		"{\"schema\":\"pd.weapon_variables.v1\","
+		"\"variables\":[{\"name\":\"impact\",\"value\":2.5}]}";
+	const std::string variablesPath = std::string(nested) + "::behavior/variables.json";
+	asset_archive_clone_override_t override{};
+	override.entry = variablesPath.c_str();
+	override.data = variables.data();
+	override.len = static_cast<u32>(variables.size());
+	const fs::path fixedPath = dir.path / "fixed.pdvehicle";
+	REQUIRE(assetArchiveRebuildFile(vehiclePath.string().c_str(), fixedPath.string().c_str(),
+		"example:tri_vehicle", "pd-tests", &override, 1, nullptr, err, sizeof(err))
+		== ASSET_ARCHIVE_CLONE_OK);
+	const Verdict fixed = validateFile(fixedPath);
+	INFO(fixed.err);
+	REQUIRE(fixed.code == MOD_ASSET_VALIDATE_OK);
+	const std::string fixedBytes = validateReadFile(fixedPath);
+	entry.data = fixedBytes.data();
+	entry.len = static_cast<u32>(fixedBytes.size());
+	CHECK(modpackPdmodWriteSingle(package.c_str(), manifest.data(),
+		static_cast<u32>(manifest.size()), &entry, 1) == MODPACK_PDMOD_OK);
+	CHECK(fs::exists(package));
 }
 
 TEST_CASE("in-game Validate refuses what is not a typed archive",

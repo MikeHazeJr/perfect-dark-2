@@ -142,6 +142,15 @@ ROOT_METADATA = {
 SCENE_DYNTEX_PRESETS = frozenset({
     "river", "monitor", "ocean", "arrows", "teleportal", "powerring", "powerjuice",
 })
+# B-1267: the part of a scene.glb exporter stamp that says the exporter
+# records each material's cull mode (PDSCENARIO_BG_VISUAL_EXPORT_VERSION in
+# port/src/romextract_pdarena.c).
+SCENE_CULL_EXPORT_MARK = "_cull_b1267"
+# B-1268: a lit, texture-generated room surface (pd2_material.texgen): the
+# G_TEXTURE scale its UVs are generated with, at most 0xffff, and the runtime
+# UV scale they are converted with (texgen_uv_scale: "uv_scale" says a
+# material is animated).
+SCENE_TEXGEN_SCALE_MAX = 0xFFFF
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
@@ -1597,6 +1606,70 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                         f"{label} scene.glb material {index} has invalid "
                         "pd2_material.texture_command"
                     )
+                # B-1267: the cull mode the game drew the surface with. A scene
+                # from the exporter that records it names one on every
+                # material; glTF's own doubleSided says the same thing.
+                cull = pd2_material.get("cull")
+                if cull is None:
+                    if SCENE_CULL_EXPORT_MARK in generator:
+                        errors.append(
+                            f"{label} scene.glb material {index} is missing "
+                            "pd2_material.cull (back or none)"
+                        )
+                elif cull not in ("back", "none"):
+                    errors.append(
+                        f"{label} scene.glb material {index} pd2_material.cull "
+                        "must be back or none"
+                    )
+                elif (cull == "none") != (material.get("doubleSided") is True):
+                    errors.append(
+                        f"{label} scene.glb material {index} pd2_material.cull "
+                        "and doubleSided disagree"
+                    )
+                # B-1268: a reflective surface: its COLOR_0 holds normals, and
+                # the renderer lights it and generates its UVs from them with
+                # the G_TEXTURE scale and the runtime UV scale. Its own UVs
+                # are never used, so it cannot also be animated.
+                if "texgen" in pd2_material:
+                    if pd2_material.get("texgen") is not True:
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.texgen "
+                            "must be true when present"
+                        )
+                    else:
+                        scale = pd2_material.get("texgen_scale")
+                        if not (
+                            isinstance(scale, list)
+                            and len(scale) == 2
+                            and all(
+                                isinstance(v, int) and not isinstance(v, bool)
+                                and 0 < v <= SCENE_TEXGEN_SCALE_MAX
+                                for v in scale
+                            )
+                        ):
+                            errors.append(
+                                f"{label} scene.glb material {index} pd2_material.texgen_scale "
+                                "must be two integers from 1 to 65535"
+                            )
+                        uv_scale = pd2_material.get("texgen_uv_scale")
+                        if not (
+                            isinstance(uv_scale, list)
+                            and len(uv_scale) == 2
+                            and all(
+                                isinstance(v, (int, float)) and not isinstance(v, bool)
+                                and math.isfinite(v) and v > 0
+                                for v in uv_scale
+                            )
+                        ):
+                            errors.append(
+                                f"{label} scene.glb material {index} pd2_material.texgen_uv_scale "
+                                "must be two positive numbers"
+                            )
+                        if "animation" in pd2_material:
+                            errors.append(
+                                f"{label} scene.glb material {index} is texgen and "
+                                "animated; a texgen surface's own UVs are unused"
+                            )
                 for key in ("primary_image", "secondary_image", "wrap_s", "wrap_t"):
                     if key not in pd2_material or not isinstance(pd2_material.get(key), str):
                         errors.append(
@@ -2033,6 +2106,245 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
         )
 
 
+# Projectile and entity graphs (projectile-events.md slice 2). v1 is the
+# launch and deploy data alone; v2 adds a program of event.*, gate.* and og.*
+# nodes joined by execution edges. Keep in step with
+# port/src/mission_graph_runner.cpp (kProjectileEventKinds, compileProgram's
+# projectile domain) and port/src/weapon_graph_runtime.c
+# (weaponGraphSchemaHasProgram, projectileProgramModuleKnown).
+PROJECTILE_GRAPH_SCHEMAS = {
+    ".pdprojectile": ("pd.projectile_graph.v1", "pd.projectile_graph.v2"),
+    ".pdentity": ("pd.entity_graph.v1", "pd.entity_graph.v2"),
+}
+PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced",
+                           "event.projectile.hit_target", "event.projectile.landed",
+                           "event.projectile.ended", "event.projectile.detonated",
+                           "event.projectile.timer_expired",
+                           # slice 3: the contact rule events
+                           "event.projectile.contact", "event.projectile.launch_blocked",
+                           "event.projectile.came_to_rest",
+                           # slice 4: the device rule events
+                           "event.projectile.proximity", "event.projectile.remote_signal",
+                           "event.projectile.damaged",
+                           # slice 5: the sentry rule events
+                           "event.projectile.thrown", "event.projectile.sentry_aimed",
+                           # slice 6: the arm rule event
+                           "event.projectile.armed")
+# Slice 3: a module is a choice the seam of its event acts on, so each event
+# applies only the modules listed for it; one wired anywhere else would do
+# nothing, and the game refuses the program. Keep in step with
+# port/src/projectile_rules.c (s_ProjectileEvents, s_ProjectileModules).
+PROJECTILE_GRAPH_EVENT_MODULES = {
+    "event.projectile.timer_expired": ("og.projectile.explode", "og.projectile.nbomb_storm"),
+    "event.projectile.proximity": ("og.projectile.spend_fuse",),
+    "event.projectile.remote_signal": ("og.projectile.spend_fuse",),
+    "event.projectile.damaged": ("og.projectile.spend_fuse",),
+    "event.projectile.thrown": ("og.projectile.deploy_sentry",),
+    "event.projectile.sentry_aimed": ("og.projectile.sentry_fire",),
+    "event.projectile.armed": ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                               "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                               "og.projectile.arm_remote", "og.projectile.arm_proximity",
+                               "og.projectile.arm_bolt"),
+    "event.projectile.contact": ("og.projectile.stick", "og.projectile.wall_hug",
+                                 "og.projectile.pierce", "og.projectile.impact"),
+    "event.projectile.launch_blocked": ("og.projectile.spend_fuse",),
+    "event.projectile.bounced": ("og.projectile.spend_fuse",),
+    "event.projectile.came_to_rest": ("og.projectile.spend_fuse",),
+    "event.projectile.landed": ("og.projectile.shield_device", "og.projectile.land_bolt",
+                                "og.projectile.land_knife", "og.projectile.poison_target"),
+}
+PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
+                            "og.projectile.wall_hug", "og.projectile.pierce",
+                            "og.projectile.impact", "og.projectile.spend_fuse",
+                            "og.projectile.shield_device", "og.projectile.land_bolt",
+                            "og.projectile.land_knife", "og.projectile.poison_target",
+                            "og.projectile.nbomb_storm", "og.projectile.deploy_sentry",
+                            "og.projectile.sentry_fire",
+                            # slice 6: the arms (what weaponTick runs for the object)
+                            "og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                            "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                            "og.projectile.arm_remote", "og.projectile.arm_proximity",
+                            "og.projectile.arm_bolt")
+# Slice 6: only an arm asks the fuse rule, and the bolt's arm runs no fuse. A
+# projectile archive's program that wires event.projectile.timer_expired must
+# reach one of these from event.projectile.armed, or it would never go off
+# (projectileProgramModulesApply). An entity archive carries its item's fuse
+# alone: the item's projectile archive arms it.
+PROJECTILE_GRAPH_FUSE_ARMS = ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
+                              "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
+                              "og.projectile.arm_remote", "og.projectile.arm_proximity")
+PROJECTILE_GRAPH_GATES = ("gate.objective.status", "gate.mission.phase",
+                          "gate.projectile.fuse_armed", "gate.projectile.trigger_close",
+                          "gate.projectile.trigger_character",
+                          "gate.projectile.damage_not_blast")
+# Slice 4: a gate that reads what its event carries can only be answered at
+# that event (projectileRulesGateApplies); fuse_armed reads the projectile
+# and answers anywhere.
+PROJECTILE_GRAPH_GATE_EVENTS = {
+    "gate.projectile.trigger_close": ("event.projectile.proximity",),
+    "gate.projectile.trigger_character": ("event.projectile.proximity",),
+    "gate.projectile.damage_not_blast": ("event.projectile.damaged",),
+}
+# Slice 4: og.projectile.explode may name an explosion of the game's table
+# (EXPLOSIONTYPE_BASE_COUNT rows; 0 is "none") with a whole number.
+PROJECTILE_GRAPH_EXPLOSION_PARAM = "explosion_type"
+PROJECTILE_GRAPH_EXPLOSION_TYPES = 26
+PROJECTILE_GRAPH_MAX_NODES = 4096
+PROJECTILE_GRAPH_MAX_EDGES = 16384
+
+
+def validate_projectile_graph_program(where: str, graph: dict, entity: bool = False) -> list[str]:
+    """The program of a v2 projectile or entity graph, as the runner compiles
+    it: its event.*, gate.* and og.* nodes (every other node is launch or
+    deploy data), unique ids, only projectile events, only the modules a
+    projectile program has, and execution edges ("input": "exec") from an
+    event, gate or module to a gate or module with the right output port. A
+    program the runner would refuse keeps its archive from registering, so
+    its weapon could not fire. entity: an entity archive's program, which
+    carries its item's fuse alone and need not arm it."""
+    errors: list[str] = []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return [f"{where} has no nodes array"]
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(nodes):
+        if not (isinstance(node, dict) and _is_graph_program_kind(node.get("kind"))):
+            continue  # launch or deploy data, not the program
+        node_id, kind = node.get("id"), node["kind"]
+        if not isinstance(node_id, str) or not node_id:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+        if kind.startswith("event."):
+            if kind not in PROJECTILE_GRAPH_EVENTS:
+                errors.append(f"{where} event {node_id!r} ({kind}) is not a projectile event")
+            elif "objective" in node:
+                errors.append(f"{where} projectile event {node_id!r} has no objective to filter")
+        elif kind.startswith("og."):
+            if kind not in PROJECTILE_GRAPH_MODULES:
+                errors.append(f"{where} native module {kind!r} does not exist")
+            elif kind == "og.projectile.explode" and PROJECTILE_GRAPH_EXPLOSION_PARAM in node:
+                value = node[PROJECTILE_GRAPH_EXPLOSION_PARAM]
+                if isinstance(value, bool) or not isinstance(value, int) \
+                        or not 1 <= value < PROJECTILE_GRAPH_EXPLOSION_TYPES:
+                    errors.append(f"{where} og.projectile.explode {node_id!r} needs "
+                                  f"{PROJECTILE_GRAPH_EXPLOSION_PARAM} from 1 to "
+                                  f"{PROJECTILE_GRAPH_EXPLOSION_TYPES - 1}, or none")
+        elif kind == "gate.objective.status":
+            if node.get("status") not in MISSION_GRAPH_STATUSES:
+                errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        elif kind == "gate.mission.phase":
+            if node.get("phase") not in MISSION_GRAPH_PHASES:
+                errors.append(f"{where} gate {node_id!r} needs phase active, complete or failed")
+            if "objective" in node:
+                errors.append(f"{where} gate {node_id!r} is a phase gate; it has no objective to filter")
+        elif kind not in PROJECTILE_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+    if len(kinds) > PROJECTILE_GRAPH_MAX_NODES:
+        errors.append(f"{where} has more than {PROJECTILE_GRAPH_MAX_NODES} program nodes")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > PROJECTILE_GRAPH_MAX_EDGES:
+        errors.append(f"{where} has more than {PROJECTILE_GRAPH_MAX_EDGES} edges")
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if "input" not in edge:
+            if src in kinds and dst in kinds and "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue  # a structural edge of the data, or between program nodes: never walked
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if src_kind.startswith("event.") and src_kind not in PROJECTILE_GRAPH_EVENTS:
+            continue  # already reported: not a projectile event
+        if not dst_kind.startswith(("gate.", "og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind.startswith("gate."):
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    # Slices 3 and 4: every module an event reaches (through any gates) is one
+    # its seam applies, and every gate it reaches is one it can answer. The
+    # game refuses the program otherwise, naming the pair.
+    exec_out: dict[str, list[str]] = {}
+    for edge in edges:
+        if isinstance(edge, dict) and edge.get("input") == "exec" \
+                and edge.get("from") in kinds and edge.get("to") in kinds:
+            exec_out.setdefault(edge["from"], []).append(edge["to"])
+    handled: set[str] = set()                # the events with an execution edge
+    reached: dict[str, set[str]] = {}        # event kind -> the node kinds it reaches
+    for event_id, event_kind in kinds.items():
+        if event_kind not in PROJECTILE_GRAPH_EVENTS:
+            continue
+        applied = PROJECTILE_GRAPH_EVENT_MODULES.get(event_kind, ())
+        seen: set[str] = set()
+        queue = list(exec_out.get(event_id, []))
+        if queue:
+            handled.add(event_kind)
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node_kind = kinds[node_id]
+            if node_kind in PROJECTILE_GRAPH_MODULES and node_kind not in applied:
+                errors.append(f"{where} {node_kind} {node_id!r} has no effect on {event_kind} "
+                              f"({event_id!r})")
+            if event_kind not in PROJECTILE_GRAPH_GATE_EVENTS.get(node_kind, (event_kind,)):
+                errors.append(f"{where} {node_kind} {node_id!r} cannot be answered at "
+                              f"{event_kind} ({event_id!r})")
+            reached.setdefault(event_kind, set()).add(node_kind)
+            queue.extend(exec_out.get(node_id, []))
+    # Slice 6: a fuse runs only for an object that arms itself.
+    if not entity and "event.projectile.timer_expired" in handled \
+            and not reached.get("event.projectile.armed", set()) & set(PROJECTILE_GRAPH_FUSE_ARMS):
+        errors.append(f"{where} wires event.projectile.timer_expired but event.projectile.armed "
+                      "reaches no arm that runs a fuse")
+    return errors
+
+
+def validate_projectile_entity_graph(label: str, ext: str, text: str) -> list[str]:
+    """behavior.graph.json of a projectile or entity archive: one of its
+    family's two schemas; a v1 graph carries no program nodes (the runtime
+    reads a program from a v2 graph only); a v2 graph's program compiles."""
+    where = f"{label} behavior.graph.json"
+    try:
+        graph = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is invalid JSON: {exc}"]
+    if not isinstance(graph, dict):
+        return [f"{where} is not one JSON object"]
+    v1, v2 = PROJECTILE_GRAPH_SCHEMAS[ext]
+    schema = graph.get("schema")
+    if schema not in (v1, v2):
+        return [f"{where} schema must be {v1} or {v2}"]
+    if schema == v2:
+        return validate_projectile_graph_program(where, graph, entity=ext == ".pdentity")
+    errors = []
+    for node in graph.get("nodes") or []:
+        if isinstance(node, dict) and _is_graph_program_kind(node.get("kind")):
+            errors.append(f"{where} node {node.get('id')!r} ({node['kind']}) is a program node: "
+                          f"a program needs schema {v2}")
+    return errors
+
+
 def validate_projectile_entity_source_contract(label: str, ext: str,
                                                zf: zipfile.ZipFile,
                                                name_set: set[str],
@@ -2060,6 +2372,11 @@ def validate_projectile_entity_source_contract(label: str, ext: str,
     for field, expected in expected_fields:
         if expected in name_set and descriptor_values.get(field) != expected:
             errors.append(f"{label} {descriptor} must declare {field} = {expected}")
+
+    # projectile-events.md slice 2: the graph's schema and, for v2, its program.
+    if "behavior.graph.json" in name_set:
+        errors.extend(validate_projectile_entity_graph(
+            label, ext, zf.read("behavior.graph.json").decode("utf-8", errors="replace")))
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -3183,6 +3500,9 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
         if kind in MISSION_GRAPH_RULE_EVENTS and not level:
             errors.append(f"{where} rule event {node_id!r} ({kind}) belongs to the level graph, "
                           "not the mission graph")
+        if kind in PROJECTILE_GRAPH_EVENTS:
+            errors.append(f"{where} projectile event {node_id!r} ({kind}) belongs to a projectile "
+                          "or entity graph")
         if kind in MISSION_GRAPH_OBJECT_EVENTS:
             if "objective" in node:
                 errors.append(f"{where} object event {node_id!r} has no objective to filter")

@@ -2,6 +2,8 @@
 
 Nov 19 T-MENUS-003 restores menu ownership for New Agent, lobby preparation and Grid editor controls. It preserves Social ownership above the picker and lobbies, recovers controller navigation, and uses elapsed first-run timing. Foreground virtual-controller name entry and Back both passed. The remaining device, multiplayer and Grid gates are listed in the [front-end audit](../audits/2026/frontend-control-2026-11-19.md#implementation-follow-up).
 
+Nov 18 T-MENUS-008 changes cheat selection and activation to share a bounded unsigned bank mask. Stage reset clears inherited Invincible, honors authored hubs, and applies mode-specific eligibility before setup and player effects. Weapons obtained during cheated stages no longer award Firing Range discoveries. Locked criteria are focusable, including the optional PC `pd.gbc` route. Unlock All atomically saves availability on the active Agent and keeps earned records. T-MENUS-003 changes the B-1174 Settings fixture to use Down navigation after the retained foreground run showed Tab intentionally toggling Social. V-004 records the current desktop readiness pass and canonical storage admission failure. Pending gates include native builds, the corrected foreground fixture, physical input, ordinary save/restart, cheat effects and progression, and Manager 1's online authority review.
+
 Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
 native navigation, Agent Select requests its selected row on entry, and the
 virtual SDL fixture maps every advertised button (including Touchpad) without

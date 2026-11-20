@@ -15,6 +15,6 @@ void gamefileLoadDefaults(struct gamefile *file);
 s32 gamefileLoad(s32 device);
 s32 gamefileSave(s32 device, s32 filenum, u16 deviceserial);
 void gamefileGetOverview(char *arg0, char *name, u8 *stage, u8 *difficulty, u32 *time);
-void gamefileUnlockEverything(void);
+u32 gamefileHasUnlockAll(void);
 
 #endif

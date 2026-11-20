@@ -131,11 +131,11 @@ MenuItemHandlerResult frWeaponListMenuHandler(s32 operation, struct menuitem *it
 		frLoadData();
 		frSetSlot(data->list.value);
 
-		if (score) {
-			frSetDifficulty(ciGetFiringRangeScore(frGetWeaponIndexByWeapon(weaponnum)));
+		frSetDifficulty(score);
+
+		if (frIsDifficultyAvailable(weaponnum, FRDIFFICULTY_SILVER)) {
 			menuPushDialog(&g_FrDifficultyMenuDialog);
 		} else {
-			frSetDifficulty(FRDIFFICULTY_BRONZE);
 			menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
 		}
 		break;
@@ -295,13 +295,15 @@ MenuItemHandlerResult frDifficultyMenuHandler(s32 operation, struct menuitem *it
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if (ciGetFiringRangeScore(frGetWeaponIndexByWeapon(frGetWeaponBySlot(frGetSlot()))) < item->param) {
+		if (!frIsDifficultyAvailable(frGetWeaponBySlot(frGetSlot()), item->param)) {
 			return true;
 		}
 		break;
 	case MENUOP_SET:
-		frSetDifficulty(item->param);
-		menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+		if (frIsDifficultyAvailable(frGetWeaponBySlot(frGetSlot()), item->param)) {
+			frSetDifficulty(item->param);
+			menuPushDialog(&g_FrTrainingInfoPreGameMenuDialog);
+		}
 		break;
 	case MENUOP_CHECKPREFOCUSED:
 		if (ciGetFiringRangeScore(frGetWeaponIndexByWeapon(frGetWeaponBySlot(frGetSlot()))) >= item->param) {

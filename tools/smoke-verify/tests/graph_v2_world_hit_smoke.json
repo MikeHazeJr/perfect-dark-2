@@ -1,0 +1,923 @@
+{
+  "scenario_name": "graph_v2_world_hit_smoke",
+  "description": "Run only after separate target/aim qualification with the same frozen client. Armed setup selects a queried real visible unshielded human bot in normal offline MP and raises only its maximum health. Native camera/query geometry determines aim; actual ray/chrHit damage must match independently authored 3/9 then 6/12 times observed body-part scaling. Both hands/modes, public source replacement, closed gate, recursive rejection, dispatch retirement and context loss after actual damage are required. Missing or mismatched applied-damage witnesses fail; no manual acceptance claim.",
+  "tags": [
+    "runtime",
+    "weapon",
+    "graph-v2",
+    "world-hit",
+    "c3842"
+  ],
+  "paths_of_interest": [
+    "port/src/weapon_graph_v2_runtime.cpp",
+    "port/src/weapon_nested_runtime_harness.c",
+    "src/game/prop.c",
+    "src/game/bondgun.c",
+    "tools/smoke-verify/generate_weapon_mesh_ingress_fixtures.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "weapon_mesh_ingress_fixtures": true,
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/tests/graph_v2_world_hit_smoke.json",
+      "dst": "graph-world-hit.enabled"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-graph-world-hit-proof",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "1",
+    "--debug-spawn-weapon",
+    "graphproof:weapon",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 120000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900
+    },
+    {
+      "at_ms": 6000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 6200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 7500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 7700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 9000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 9200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 10500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 10700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 12000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 12200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 13500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 13700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 14300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 14700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 15000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 15200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 16500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 16700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 18000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 18200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 19500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 19700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 21000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 21200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 22500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 22700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 23300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 23700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 24000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 24200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 25500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 25700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 27000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 27200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 28500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 28700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 30000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 30200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 31500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 31700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 32300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 32700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 33000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 33200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 34500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 34700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 36000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 36200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 37500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 37700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 39000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 39200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 40500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 40700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 41300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 41700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 42000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 42200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 43500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 43700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 45000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 45200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 46500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 46700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 48000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 48200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 49500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 49700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 50300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 50700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 51000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 51200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 52500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 52700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 54000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 54200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 55500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 55700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 57000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 57200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 58500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 58700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 59300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 59700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 60000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 60200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 61500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 61700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 63000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 63200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 64500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 64700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 66000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 66200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 67500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 67700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 68300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 68700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 69000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 69200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 70500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 70700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 72000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 72200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 73500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 73700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 75000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 75200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 76500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 76700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 77300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 77700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 78000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 78200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 79500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 79700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 81000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 81200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 82500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 82700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 84000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 84200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 85500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 85700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 86300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "press"
+    },
+    {
+      "at_ms": 86700,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "release"
+    },
+    {
+      "at_ms": 87000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 87200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 88500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 88700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 90000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 90200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 91500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 91700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 93000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 93200,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 94500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 94700,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 99000,
+      "type": "exit",
+      "comment": "A scripted exit with any missing world witness fails assertions; no component acknowledgment substitutes for an actual target damage increase."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "GRAPH\\.V2\\.WORLD: armed=1 equipped=dual source=graphproof:weapon",
+      "GRAPH\\.V2\\.WORLD: target_aim_qualified=PASS hand=0 .*actual_query=1",
+      "GRAPH\\.V2\\.WORLD: target_aim_qualified=PASS hand=1 .*actual_query=1",
+      "GRAPH\\.V2\\.WORLD: reentrant_dispatch=PASS",
+      "GRAPH\\.V2\\.WORLD: dispatch_retirement=PASS old_permission=denied after_outer_return=1 subsequent_damage_shots_hits=0 scopes_closed=1 shot_region_clear=1 other_hand_unchanged=1 committed_ammo_noise_preserved=1",
+      "GRAPH\\.V2\\.WORLD: context_loss_after_actual_damage=PASS terminal=1 retry_denied=1 repeated_effects=0",
+      "GRAPH\\.V2\\.WORLD: interruption_recovered=PASS same_binding=1 native_idle_admission=1 new_press_ticket=1",
+      "GRAPH\\.V2\\.WORLD: post_consumed_stale_replay=PASS same_binding=1 new_ticket=1 reused_live_scope_storage=1 callbacks_separate_repeated=1 native_effects_unchanged=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=0 hand=0 mode=0 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=0 hand=0 mode=1 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=0 hand=1 mode=0 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=0 hand=1 mode=1 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=1 hand=0 mode=0 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=1 hand=0 mode=1 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=1 hand=1 mode=0 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: accounting=PASS phase=1 hand=1 mode=1 .*debit=1 other_debit=0 noise_increment=1 .*consumption=1 hit_effect=1 native_shots=1",
+      "GRAPH\\.V2\\.LEDGER: reconciled=PASS missing=0 duplicate=0 unmatched=0 overflow=0",
+      "GRAPH\\.V2\\.WORLD: both_hands_both_modes=PASS phase=0 actual_damage=1",
+      "GRAPH\\.V2\\.WORLD: public_source_replacement=PASS phase=1",
+      "GRAPH\\.V2\\.WORLD: both_hands_both_modes=PASS phase=1 actual_damage=1",
+      "GRAPH\\.V2\\.WORLD: public_source_replacement=PASS phase=2",
+      "GRAPH\\.V2\\.WORLD: closed_gate=PASS both_hands_both_modes=1 ammo_noise_shots_unchanged=1",
+      "SMOKE: result=graph_world_hit_pass"
+    ],
+    "forbidden_patterns": [
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "GRAPH\\.V2\\.WORLD: applied_delta=FAIL",
+      "GRAPH\\.V2\\.LEDGER: result=FAIL",
+      "GRAPH\\.V2\\.COPY:",
+      "graph_world_.*(?:failed|mismatch|side_effect|native_effect|dispatch|statistics)"
+    ]
+  }
+}

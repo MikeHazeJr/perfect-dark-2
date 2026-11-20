@@ -28,6 +28,10 @@ typedef struct scenario_scene_camera {
 	float world[4][4];
 	float draw_offset[3];
 	float world_scale;
+	/* B-1268: the two reflection vectors the game makes for this camera
+	 * (scenarioSceneLookAtReflect), world directions of unit length. */
+	float lookat_x[3];
+	float lookat_y[3];
 } scenario_scene_camera_t;
 
 /* Builds the camera from the game's camera (world units), its viewport's
@@ -51,6 +55,23 @@ void scenarioSceneMatrixMultiply(float out[4][4], const float a[4][4],
 /* clip = (p, 1) x m. */
 void scenarioSceneMatrixTransform(const float m[4][4], const float p[3],
 	float clip[4]);
+/* B-1267: 1 when a triangle that reads counter-clockwise from the eye
+ * still reads counter-clockwise in this view-projection's clip space (x
+ * right, y up), 0 when the matrix mirrors it, as the y flip of a flipped
+ * framebuffer does. A projection that looks down -z has a negative
+ * determinant and a view is a rotation, so the sign of the whole
+ * determinant says which. */
+int scenarioSceneMatrixKeepsWinding(const float m[4][4]);
+/* B-1268: the reflection vectors guLookAtReflect makes from a camera
+ * looking along look (src/lib/ultra/gu/lookatref.c, called by
+ * playerAllocateMatrices with the camera's look and up), as fast3d reads
+ * them for texture generation: the look-at's right and up, each stored as
+ * a signed byte (FTOFRAC8), then divided by 127 and normalised
+ * (calculate_normal_dir). A room's model matrix has no rotation
+ * (roomPopulateMtx), so they are world directions. Returns 0, leaving the
+ * outputs untouched, for a degenerate look or up. */
+int scenarioSceneLookAtReflect(const float look[3], const float up[3],
+	float out_x[3], float out_y[3]);
 
 #ifdef __cplusplus
 }

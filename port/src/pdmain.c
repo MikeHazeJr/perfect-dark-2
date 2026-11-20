@@ -85,6 +85,7 @@
 #include "lib/main.h"
 #include "lib/meshcollision.h"
 #include "scenario_source_runtime.h"
+#include "projectile_events.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
 #include "lib/mema.h"
@@ -1057,6 +1058,7 @@ void mainTick(void)
 	 * Runs at the top of mainTick so any pushed events land before the
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
+	weaponGraphWorldHitTick();
 
 	/* Continue the bounded audio scheduler window after startup probes finish.
 	 * The smoke watchdog runs first; ordinary launches have no armed probe. */
@@ -1501,6 +1503,8 @@ void mainEndStage(void)
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
 	/* object-events.md slice 2: the stage's object event totals. */
 	scenarioSourceGraphObjectEventsReport("stage_end");
+	/* projectile-events.md slice 1: the stage's projectile event totals. */
+	projectileEventsReport("stage_end");
 	sndStopNosedive();
 	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 

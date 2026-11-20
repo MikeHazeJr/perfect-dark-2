@@ -5,8 +5,7 @@
  * every field explicitly in little-endian order; it never dumps a C layout,
  * pointer, runtime asset index, or renderer/cache state. Version 2 stores
  * uncompressed full checkpoints and is deliberately bounded to 512 MiB; full
- * campaign retention still requires a compression/delta unit and a persistent
- * reader.
+ * campaign retention still requires a compression/delta unit.
  */
 
 #ifndef PD_THEATER_FORMAT_H
@@ -281,6 +280,7 @@ typedef struct theater_format_index_entry_s {
 	u64 file_offset;
 	u32 sequence;
 	u32 record_crc;
+	u64 elapsed_ms; /* Read from the validated checkpoint payload, outside the v2 index bytes. */
 } theater_format_index_entry_t;
 
 typedef struct theater_format_info_s {
@@ -297,6 +297,15 @@ typedef struct theater_format_info_s {
 } theater_format_info_t;
 
 typedef struct theater_format_writer_s theater_format_writer_t;
+typedef struct theater_format_reader_s theater_format_reader_t;
+
+/* Borrowed immutable data valid until theaterFormatReaderClose. */
+typedef struct theater_format_metadata_s {
+	const theater_format_info_t *info;
+	const theater_format_manifest_entry_t *manifest;
+	const theater_format_roster_entry_t *roster;
+	const theater_format_index_entry_t *index;
+} theater_format_metadata_t;
 
 typedef struct theater_format_mark_s {
 	u64 file_offset;
@@ -336,6 +345,22 @@ void theaterFormatAbort(theater_format_writer_t *writer);
 
 /* Close while deliberately retaining <final>.part for crash-recovery tests. */
 void theaterFormatAbandon(theater_format_writer_t *writer);
+
+/* Validate once and retain the opened file and its metadata for indexed reads.
+ * Outputs are left untouched on failure. Each reader is used by one thread. */
+theater_format_result_t theaterFormatReaderOpen(const char *path,
+	theater_format_reader_t **out_reader, theater_format_metadata_t *out_metadata);
+void theaterFormatReaderClose(theater_format_reader_t *reader);
+/* Find the latest checkpoint at or before the elapsed time and the next one.
+ * Clamp seeks outside the recording to one checkpoint. Equal timestamps use
+ * the last checkpoint at that time. A reversed clock cannot be used to seek. */
+theater_format_result_t theaterFormatReaderFindCheckpoints(
+	const theater_format_reader_t *reader, u64 elapsed_ms, u32 *out_before, u32 *out_after);
+theater_format_result_t theaterFormatReaderReadCheckpoint(
+	theater_format_reader_t *reader, u32 checkpoint_index,
+	theater_format_checkpoint_t *out_checkpoint,
+	theater_format_entity_t *entities, u32 entity_capacity,
+	theater_format_view_t *views, u32 view_capacity);
 
 /* Validate a completed file without publishing partial output on failure. */
 theater_format_result_t theaterFormatValidate(

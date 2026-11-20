@@ -40,6 +40,7 @@
 #include "lib/ailist.h"
 #include "lib/collision.h"
 #include "game/bg.h"
+#include "game/pad.h"
 #include "game/spawnpool.h"  /* spawnPoolCorrectPosition for ring spawn fix-up */
 #include "game/chr.h"
 #include "game/chraction.h"
@@ -61,6 +62,7 @@
  * the local GL texture. g_NetMode + NETMODE_CLIENT come from here. */
 #include "net/net.h"
 #include "swarm_test.h"
+#include "swarm_gpu.h"
 
 /* Forward decls -- these come from src/game (no public header includes them
  * with the right linkage from C++/legacy headers). */
@@ -169,38 +171,6 @@ static void swarm_drain_death_state(struct chrdata *chr)
 	chr->fadealpha = -1;
 }
 
-/* GPU swarm module (port/fast3d/swarm_gpu.cpp). When that module is not
- * yet built, the stub below is used and swarmGpuAvailable() returns 0.
- *
- * B-308 first slice (c3807, 2026-05-15): swarmGpuStepAndApply now takes
- * a `method` argument and a `player_propnum`. `method` is one of
- * SWARM_METHOD_GPU_POS_ONLY or SWARM_METHOD_GPU_FULL (passing CPU here is
- * a no-op caller error); the GPU side gates the AI compute step on it.
- * player_propnum is the CPU's prop index for the local player; the GPU
- * writes it back into the per-bot target_propnum field so the CPU
- * consumer can correlate. */
-extern s32  swarmGpuAvailable(void);
-extern void swarmGpuStepAndApply(struct coord *player_pos,
-                                 struct chrdata **chrs, s32 count,
-                                 s32 method, s32 player_propnum);
-/* Slice 2 c029 (2026-05-16): invalidate the async readback ring.
- * Called after any respawn that changes chr identity at slot indices
- * (cycler tick, session start, session end, despawn_all). The ring
- * holds last frame's positions; if the chr at slot i has been replaced
- * by a different chrnum, applying the stale snapshot would teleport
- * the new chr. Invalidating drops the next 2 frames of position
- * application, which is visually imperceptible during the cycler's
- * own respawn burst. No-op if the ring isn't armed (driver fell back
- * to blocking readback). */
-extern void swarmGpuInvalidateReadback(void);
-
-/* c029 Slice 3 (2026-05-16): invalidate the per-bot floor cache.
- * Same call-sites as swarmGpuInvalidateReadback above. The drift
- * threshold (60 cm) would catch most respawn relocations on its own,
- * but explicit invalidation is correct-by-construction and costs only
- * a memset of the cache array on the next dispatch. */
-extern void swarmGpuInvalidateFloorCache(void);
-
 /* ------------------------------------------------------------------
  * Cycle ladder (S594h-Unit-A, 2026-05-01).
  *
@@ -250,6 +220,13 @@ static s32          s_SwarmInitialized; /* 1 after session-start work done */
 static s32          s_SwarmLastStage;   /* detect stage transitions */
 static s32          s_SwarmLogTickAcc;  /* throttle per-frame log to ~1 / 60 frames */
 static s32          s_SwarmRespawnsThisCycle; /* count of replacement spawns since last cycle change */
+
+static struct swarm_gpu_baseline s_Baseline;
+static u32 s_BaselineStageEpoch;
+static swarm_method_t s_BaselineMethod;
+static s32 s_BaselineLastFrame;
+static s32 s_BaselineLastPopulation;
+static s32 s_BaselineFailed;
 
 /* S594h-A2 (2026-05-01): team mode + visibility mode module state. */
 static swarm_team_mode_t s_TeamMode = SWARM_TEAMS_SIMS_VS_PLAYERS;
@@ -767,7 +744,7 @@ static void apply_player_setup(void)
  *   (see context/designs/in-flight/gpu-swarm-bot-pipeline.md).
  * ------------------------------------------------------------------ */
 static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
-                                        s32 team_idx, f32 *out_scale)
+                                        s32 team_idx, f32 scale_override, f32 *out_scale)
 {
 	const swarm_method_t method = testScenarioActiveMethod();
 
@@ -826,7 +803,7 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
 	 * collision and chr->model->scale only for rendering. Applying
 	 * the same factor to all three keeps the visual and collider
 	 * footprints matched. */
-	const f32 rand_scale = swarm_pick_scale();
+	const f32 rand_scale = scale_override > 0.0f ? scale_override : swarm_pick_scale();
 	chr->radius = (s32)(30.0f * rand_scale);
 	if (chr->radius < 4) chr->radius = 4;
 	chr->height = (s32)(185.0f * rand_scale);
@@ -893,7 +870,7 @@ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
 		 * (chr.c-style merge_to_running): speed=0.5 keeps the cycle
 		 * readable at the swarm's per-frame translation rate, merge=16
 		 * smooths the transition from the body's bind pose. */
-		if (chr->model) {
+		if (chr->model && scale_override <= 0.0f) {
 			modelSetAnimation(chr->model, (s16)ANIM_SKEDAR_RUNNING,
 				0,       /* flip */
 				0.0f,    /* startframe */
@@ -1147,6 +1124,160 @@ static s32 swarm_finalize_spawn_candidate(struct coord *pos,
 	return swarm_snap_spawn_to_safe_floor(pos, room, chr_radius);
 }
 
+/* This fixture deliberately uses authored pads and a private PRNG. Benchmark
+ * setup must not seed the engine RNG or change the ordinary spawn ladder. */
+#define SWARM_BASELINE_SEED 0x534b4544u
+#define SWARM_BASELINE_PLAYER_PAD 175
+
+static s32 swarm_baseline_fail(const char *reason)
+{
+	if (!s_BaselineFailed) {
+		sysLogPrintf(LOG_ERROR,
+			"SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,\"reason\":\"%s\"}",
+			s_Baseline.stage_epoch, reason);
+	}
+	s_BaselineFailed = 1;
+	return 0;
+}
+
+static s32 swarm_baseline_pad(s32 number, struct pad *pad, f32 radius, f32 height)
+{
+	if (!g_PadsFile || number < 0 || number >= g_PadsFile->numpads
+			|| padGetPackedOffset(number) == 0) return 0;
+	padUnpack(number, PADFIELD_POS | PADFIELD_ROOM, pad);
+	RoomNum room = (RoomNum)pad->room;
+	if (room < 0 && !swarm_snap_spawn_to_safe_floor(&pad->pos, &room, radius)) return 0;
+	if (!swarm_finalize_spawn_candidate(&pad->pos, &room, radius, height)) return 0;
+	pad->room = room;
+	return 1;
+}
+
+static f32 swarm_baseline_scale(u32 *rng)
+{
+	u32 value = *rng;
+	value ^= value << 13;
+	value ^= value >> 17;
+	value ^= value << 5;
+	*rng = value;
+	const f32 fraction = (f32)(value & 0xffffu) / 65536.0f;
+	return 0.35f + 0.30f * fraction * fraction;
+}
+
+static void swarm_baseline_log_actor(s32 slot, s32 pad, struct chrdata *chr)
+{
+	const struct swarm_gpu_identity *id = &s_Baseline.actors[slot];
+	const struct coord *pos = &chr->prop->pos;
+	char rooms[96] = {0};
+	s32 length = 0;
+	for (s32 i = 0; i < ARRAYCOUNT(chr->prop->rooms) && chr->prop->rooms[i] >= 0; i++) {
+		length += snprintf(rooms + length, sizeof(rooms) - length, "%s%d",
+			i ? "," : "", chr->prop->rooms[i]);
+	}
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"spawn\",\"stage_epoch\":%u,"
+		"\"slot\":%d,\"source_row\":%d,\"generation\":%u,\"chrnum\":%d,\"prop_index\":%d,"
+		"\"position\":[%.9g,%.9g,%.9g],\"rooms\":[%s],\"team\":%u,\"body\":\"base:skedar\","
+		"\"model_scale\":%.9g,\"radius\":%d,\"height\":%d,\"yaw\":%.9g,"
+		"\"animation\":%d,\"animation_frame\":%.9g,\"support_up\":[%.9g,%.9g,%.9g]}",
+		s_Baseline.stage_epoch, slot, pad, id->generation, id->chrnum, id->prop_index,
+		pos->x, pos->y, pos->z, rooms, (u32)chr->team, chr->model->scale, (s32)chr->radius,
+		(s32)chr->height, modelGetChrRotY(chr->model), modelGetAnimNum(chr->model),
+		modelGetCurAnimFrame(chr->model), chr->surface_up[0], chr->surface_up[1], chr->surface_up[2]);
+}
+
+static s32 swarm_baseline_spawn(void)
+{
+	static const s32 pads[SWARM_BASELINE_COUNT] = {0, 1, 2, 3};
+	const swarm_method_t method = testScenarioActiveMethod();
+	struct pad anchor = {0};
+	struct prop *player = g_Vars.currentplayer->prop;
+	const asset_entry_t *body = assetCatalogResolve("base:skedar");
+	if (g_NetMode != NETMODE_NONE || g_StageNum != STAGE_MP_SKEDAR
+			|| (method != SWARM_METHOD_CPU && method != SWARM_METHOD_GPU_FULL)
+			|| !g_StageSetup.padfiledata || !player->chr || !body || body->type != ASSET_BODY) {
+		return swarm_baseline_fail("wrong_stage_backend_or_body");
+	}
+	if (!swarm_baseline_pad(SWARM_BASELINE_PLAYER_PAD, &anchor, 30.0f, 185.0f)) {
+		return swarm_baseline_fail("player_pad_geometry");
+	}
+	RoomNum player_rooms[2] = {anchor.room, -1};
+	if (!chrMoveToPos(player->chr, &anchor.pos, player_rooms, 0.0f, true)) {
+		return swarm_baseline_fail("player_anchor_rejected");
+	}
+
+	s_Baseline.stage_epoch = ++s_BaselineStageEpoch;
+	s_BaselineMethod = method;
+	const char *mode = method == SWARM_METHOD_CPU ? "CPU" : "GPU_FULL";
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"start\",\"stage_epoch\":%u,"
+		"\"mode\":\"%s\",\"map\":\"base:mp_skedar\",\"seed\":%u,\"count\":%d,"
+		"\"player_anchor\":[%.9g,%.9g,%.9g]}",
+		s_Baseline.stage_epoch, mode, SWARM_BASELINE_SEED, SWARM_BASELINE_COUNT,
+		player->pos.x, player->pos.y, player->pos.z);
+
+	u32 rng = SWARM_BASELINE_SEED;
+	s_SwarmCount = SWARM_BASELINE_COUNT;
+	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
+		struct pad pad = {0};
+		const f32 scale = swarm_baseline_scale(&rng);
+		if (!swarm_baseline_pad(pads[i], &pad, (s32)(30.0f * scale), (s32)(185.0f * scale))) {
+			despawn_all();
+			return swarm_baseline_fail("actor_pad_geometry");
+		}
+		RoomNum rooms[2] = {pad.room, -1};
+		struct chrdata *chr = spawn_one_skedar(&pad.pos, rooms, 0, scale, NULL);
+		s_Swarm[i].chr = chr;
+		struct prop *prop = swarm_live_prop_for_chr(chr);
+		if (!prop || !chr->model || (method == SWARM_METHOD_CPU && !chr->aibot)) {
+			despawn_all();
+			return swarm_baseline_fail("actor_not_ready");
+		}
+		/* Both backends begin at the same actual clip, frame and blend. */
+		modelSetAnimation(chr->model, (s16)ANIM_SKEDAR_RUNNING, 0, 0.0f, 0.5f, 0.0f);
+		s_Baseline.actors[i].generation = chr->generation;
+		s_Baseline.actors[i].chrnum = chr->chrnum;
+		s_Baseline.actors[i].prop_index = (s32)(prop - g_Vars.props);
+		s_Baseline.actors[i].prop = prop;
+		swarm_baseline_log_actor(i, pads[i], chr);
+	}
+	s_BaselineLastFrame = g_Vars.lvframenum;
+	s_BaselineLastPopulation = g_Vars.lvframenum;
+	testScenarioSetCurrentSwarmCount(SWARM_BASELINE_COUNT);
+	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"ready\",\"stage_epoch\":%u}",
+		s_Baseline.stage_epoch);
+	return 1;
+}
+
+static s32 swarm_baseline_check_population(void)
+{
+	const s32 frame = g_Vars.lvframenum;
+	if (frame < s_BaselineLastFrame || s_SwarmCount != SWARM_BASELINE_COUNT
+			|| testScenarioActiveMethod() != s_BaselineMethod) {
+		return swarm_baseline_fail("stage_restart_size_or_backend_change");
+	}
+	s_BaselineLastFrame = frame;
+	char rows[160] = {0};
+	s32 length = 0;
+	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
+		struct chrdata *chr = s_Swarm[i].chr;
+		struct prop *prop = swarm_live_prop_for_chr(chr);
+		const struct swarm_gpu_identity *id = &s_Baseline.actors[i];
+		if (!prop || !chr->model || chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
+				|| chr->generation != id->generation || chr->chrnum != id->chrnum || prop != id->prop
+				|| prop - g_Vars.props != id->prop_index) {
+			return swarm_baseline_fail("actor_lost_or_replaced");
+		}
+		if (frame - s_BaselineLastPopulation >= 60) {
+			length += snprintf(rows + length, sizeof(rows) - length, "%s[%d,%u,%d,%d]",
+				i ? "," : "", i, id->generation, id->chrnum, id->prop_index);
+		}
+	}
+	if (frame - s_BaselineLastPopulation >= 60) {
+		s_BaselineLastPopulation = frame;
+		sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"population\",\"stage_epoch\":%u,"
+			"\"actors\":[%s]}", s_Baseline.stage_epoch, rows);
+	}
+	return 1;
+}
+
 /* Forward decl: respawn_ring is defined below respawn_swarm but
  * respawn_swarm needs to call it. */
 static void respawn_ring(s32 count);
@@ -1266,7 +1397,7 @@ static void respawn_volume(s32 count)
 			? (i & 1) : 0;
 		f32 chosen_scale = 0.5f;
 		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
-			team_idx, &chosen_scale);
+			team_idx, 0.0f, &chosen_scale);
 		if (chr) {
 			s_Swarm[i].chr           = chr;
 			s_Swarm[i].counted_kill  = 0;
@@ -1377,7 +1508,7 @@ static void respawn_ring(s32 count)
 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
 		f32 chosen_scale = 0.5f;
 		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
-			team_idx, &chosen_scale);
+			team_idx, 0.0f, &chosen_scale);
 		if (chr) {
 			s_Swarm[i].chr           = chr;
 			s_Swarm[i].counted_kill  = 0;
@@ -1595,7 +1726,7 @@ static s32 respawn_slot(s32 i)
 	const s32 team_idx = (s32)s_Swarm[i].team_idx;
 	f32 chosen_scale = 0.5f;
 	struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
-		team_idx, &chosen_scale);
+		team_idx, 0.0f, &chosen_scale);
 	if (!chr) return 0;
 	s_Swarm[i].chr           = chr;
 	s_Swarm[i].counted_kill  = 0;
@@ -2200,6 +2331,12 @@ s32 swarmTestGetAndResetGpuAiFireCount(void)
  * ------------------------------------------------------------------ */
 void swarmTestTick(void)
 {
+	if (s_BaselineFailed) return;
+	if (s_Baseline.stage_epoch && (!testScenarioIsSwarmActive()
+			|| g_StageNum != s_SwarmLastStage || g_NetMode != NETMODE_NONE)) {
+		swarm_baseline_fail("benchmark_left_stage");
+		return;
+	}
 	if (!testScenarioIsSwarmActive()) {
 		if (s_SwarmInitialized) {
 			swarmTestOnSessionEnd();
@@ -2271,6 +2408,8 @@ void swarmTestTick(void)
 			/* Player not yet alive; wait for next tick. */
 			return;
 		}
+		const s32 paired_baseline = sysArgCheck("--debug-swarm-paired-baseline");
+		if (paired_baseline && g_Vars.lvframenum < 4) return;
 		resolve_skedar_assets();
 		apply_player_setup();
 
@@ -2299,7 +2438,11 @@ void swarmTestTick(void)
 
 		/* Reset ladder position to the initial-count entry (idx 0 = 4). */
 		s_LadderIdx = 0;
-		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
+		if (paired_baseline) {
+			if (!swarm_baseline_spawn()) return;
+		} else {
+			respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
+		}
 		/* Slice 2 c029: drop any stale ring contents from a prior session
 		 * before the first dispatch fills it with current-session data. */
 		swarmGpuInvalidateReadback();
@@ -2522,6 +2665,8 @@ void swarmTestTick(void)
 		player_pos     = g_Vars.currentplayer->prop->pos;
 		player_propnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
 	}
+	if (s_Baseline.stage_epoch && !swarm_baseline_check_population()) return;
+
 	/* B-308 first slice (c3807, 2026-05-15): both GPU_POS_ONLY and
 	 * GPU_FULL run the same SSBO-driven seek path. The method argument
 	 * just gates the AI compute step inside the shader (do_ai uniform)
@@ -2552,15 +2697,20 @@ void swarmTestTick(void)
 					? s_Swarm[i].chr : NULL;
 			}
 			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount,
-				(s32)method_now, player_propnum);
+				(s32)method_now, player_propnum, s_Baseline.stage_epoch ? &s_Baseline : NULL);
+		} else if (s_Baseline.stage_epoch) {
+			swarm_baseline_fail("gpu_compute_unavailable");
+			return;
 		} else {
 			gpu_fallback_seek_tick(&player_pos);
 		}
 	}
 	/* CPU mode: AI handles everything; nothing to do here. */
 
-	death_poll_and_respawn();
-	cycler_tick();
+	if (!s_Baseline.stage_epoch) {
+		death_poll_and_respawn();
+		cycler_tick();
+	}
 
 	/* Throttle per-frame log to ~1 line per 60 frames. */
 	s_SwarmLogTickAcc++;

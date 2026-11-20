@@ -150,6 +150,12 @@ extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int heig
 extern "C" int modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 static int s_meshDebugModeCache = 0;
 
+/* 2.0 renderer phase 2a: the bgfx backend (gfx_bgfx.cpp, --renderer bgfx). */
+extern "C" struct GfxRenderingAPI *gfxBgfxSelectRenderingApi(struct GfxRenderingAPI *requested);
+extern "C" int gfxBgfxActive(void);
+extern "C" void gfxBgfxResetForOverlay(int width, int height);
+extern "C" int gfxBgfxTeeActive(void);
+
 /* B-936 diagnostic flags (off by default). --debug-force-chr-prim also turns on
  * clip-space logging of 3D world vertices here so we can see WHERE the generated
  * chr-body geometry projects. --debug-hide-scene skips the scenario scene (room)
@@ -3314,6 +3320,9 @@ extern "C" void gfx_init(const GfxInitSettings *settings) {
     gfx_wapi = settings->wapi;
     gfx_rapi = settings->rapi;
     gfx_wapi->init(&settings->window_settings);
+    /* The bgfx backend needs an OpenGL 4.3 context; without one this returns
+     * the classic GL backend and logs why. Any other backend is returned as is. */
+    gfx_rapi = gfxBgfxSelectRenderingApi(gfx_rapi);
     gfx_rapi->init();
     gfx_rapi->update_framebuffer_parameters(0, settings->window_settings.width, settings->window_settings.height, 1, false, true, true, true);
     gfx_current_dimensions.internal_mul = 1;
@@ -3494,14 +3503,33 @@ extern "C" void gfx_run(Gfx* commands) {
     gfx_rapi->end_frame();
 
     /* D3d: Reset GL state to full window and render ImGui overlay */
-    gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
-                                 gfx_current_window_dimensions.height);
+    if (gfxBgfxActive()) {
+        gfxBgfxResetForOverlay(gfx_current_window_dimensions.width,
+                               gfx_current_window_dimensions.height);
+    } else {
+        gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
+                                     gfx_current_window_dimensions.height);
+        if (gfxBgfxTeeActive()) {
+            /* --renderer-parity: bgfx composes the same frame offscreen. */
+            gfxBgfxResetForOverlay(gfx_current_window_dimensions.width,
+                                   gfx_current_window_dimensions.height);
+        }
+    }
 
     /* Mode 2: render collision mesh as colored triangles */
     if (s_meshDebugModeCache == 2) {
-        meshDebugRenderCollisionMesh(s_vpMatrix,
-            gfx_current_window_dimensions.width,
-            gfx_current_window_dimensions.height);
+        if (gfxBgfxActive()) {
+            /* Developer-only raw-GL view, not ported to bgfx. */
+            static bool s_meshDebugBgfxLogged = false;
+            if (!s_meshDebugBgfxLogged) {
+                s_meshDebugBgfxLogged = true;
+                sysLogPrintf(LOG_WARNING, "meshdebug: the collision mesh view is unavailable with --renderer bgfx");
+            }
+        } else {
+            meshDebugRenderCollisionMesh(s_vpMatrix,
+                gfx_current_window_dimensions.width,
+                gfx_current_window_dimensions.height);
+        }
     }
 
     pdguiNewFrame();
@@ -3548,8 +3576,18 @@ extern "C" void gfx_run_boot_overlay_frame(void (*draw_overlay_cb)(void *), void
     gfx_rapi->clear_framebuffer(true, true);
     gfx_rapi->end_frame();
 
-    gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
-                                 gfx_current_window_dimensions.height);
+    if (gfxBgfxActive()) {
+        gfxBgfxResetForOverlay(gfx_current_window_dimensions.width,
+                               gfx_current_window_dimensions.height);
+    } else {
+        gfx_opengl_reset_for_overlay(gfx_current_window_dimensions.width,
+                                     gfx_current_window_dimensions.height);
+        if (gfxBgfxTeeActive()) {
+            /* --renderer-parity: bgfx composes the same frame offscreen. */
+            gfxBgfxResetForOverlay(gfx_current_window_dimensions.width,
+                                   gfx_current_window_dimensions.height);
+        }
+    }
 
     /* ImGui frame is owned by the boot overlay module; it calls
      * ImGui_ImplOpenGL3_NewFrame / ImGui_ImplSDL2_NewFrame / ImGui::NewFrame

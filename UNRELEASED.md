@@ -1,5 +1,35 @@
 # Unreleased Changes
 
+- Every room of every stage is drawn again. Stage scenes were missing
+  their largest rooms: about half of dataDyne Central (Defection and
+  Extraction, its whole exterior included), between a tenth and two thirds
+  of every other single-player stage, and one or two rooms of Area 52,
+  Base, Complex and Felicity. Floors, walls and outside views were not
+  drawn although you could walk on them, and Defection's opening shots
+  looked at rooms that were not there. Stage archives update once on boot.
+- Monitor and TV screens show their whole picture. Half of every screen
+  (PCs, terminals, comms hubs, consoles, TV screens) was not drawn and
+  showed the casing behind it, split along the diagonal.
+- Room surfaces the original drew one-sided are one-sided again, so the
+  back of a wall or of a building's shell no longer shows where the
+  original showed nothing.
+- Reflective room surfaces (polished floors and desks, glass, metal panels)
+  shine and move with the camera again, lit by their room. They were drawn
+  in stray colours with a fixed texture: the scene used their surface
+  normals as colours.
+- A thrown grenade, mine, N-bomb or Dragon takes its fuse and its first
+  bounce from the throw itself. Placeholder values in a base weapon's launch
+  record are no longer applied over them.
+- Mod weapons: a projectile archive can carry a program
+  (`pd.projectile_graph.v2`). Its rules decide which fuse a thrown or fired
+  object runs (a countdown, a wall hugger's, a rocket's, a mine's, a proximity
+  item's), what it does when it strikes something and when it lands, what sets
+  it off (something coming near, the detonator, a shot or a blast), what goes
+  off then (an explosion of a chosen type, or an N-bomb storm), whether a
+  throw becomes a sentry gun and whether an aimed sentry fires. The original
+  weapons are wired to do what they always did, and a v1 archive keeps working
+  unchanged. Weapon archives update once on boot.
+
 - Repairs affected stage archives individually and preserves valid edits. Normal startup can check or repair standalone campaign missions while the menu is available. Bundled weapon registration also spends less time preparing rollback.
 
 - Stock bank audio plays at the original PC rate, including the Carrington
@@ -47,6 +77,8 @@
 - Shortened startup by validating head and body archives in parallel, skipping stage-texture migration for unchanged archives, and avoiding repeated bot-profile searches during challenge setup.
 
 - Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
+
+- Fixed selection of Phoenix, Psychosis Gun and Dual Wield All Guns, and cleared Invincible on the next stage after turning cheats off. Locked cheat criteria are accessible with keyboard and controller. Unlock All saves for the active Agent while preserving earned records, with Retry on save failure.
 
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
@@ -152,6 +184,9 @@
 
 - Keep held public model and texture sources alive through stage teardown,
   including when a catalog replacement releases the previous source.
+
+- Reject stale movement snapshots before they rewind positions or repeat
+  teleports; preserve acknowledgements when rejecting old client input.
 
 - Preserve complete equipment ownership for deferred executable-graph shots;
   prepare and publish primary/secondary modes together from one public archive.

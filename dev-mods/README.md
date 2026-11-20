@@ -41,9 +41,9 @@ Per build (`build-headless.ps1` / `build-session.ps1`):
 -DevMods needler   # include only the named mod(s), comma-separated
 ```
 
-Release packaging includes mods whose `"release": true`, overridable by the
-release script's mod flags. This lets you build or ship **with or without**
-specific mods without editing the mods themselves.
+Release packaging builds a `.pdmod` for each entry with `"release": true` and
+stages it under `mods/bundled/`. It verifies the editable typed archives
+survive the packaging round trip byte for byte.
 
 ## Adding a dev mod
 

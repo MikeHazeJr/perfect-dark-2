@@ -18,6 +18,7 @@
 extern "C" {
 #include "mission_graph_runner.h"
 #include "modarchive.h"
+#include "weapon_graph_runtime.h"
 }
 
 namespace {
@@ -466,6 +467,277 @@ TEST_CASE("every mission graph under PD2_MISSION_GRAPH_ROOT compiles and runs it
 	WARN("compiled " << checked << " mission graphs under " << root << ", " << wired << " run the status message");
 	CHECK(checked > 0);
 	CHECK(wired == checked);
+}
+
+// projectile-events.md slice 2: a projectile or entity archive's program.
+TEST_CASE("projectile programs take the projectile events, and only they do",
+	"[mission-graph][projectile-graph]")
+{
+	// A v1 projectile graph's data nodes and structural edge, plus a program.
+	const std::string projectile = R"({
+  "schema": "pd.projectile_graph.v2",
+  "asset_id": "base:test__projectile_timed",
+  "nodes": [
+    { "id": "spawn_state", "kind": "projectile.spawn_state", "params": { "scale": 1 } },
+    { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "explode", "kind": "og.test.a" }
+  ],
+  "edges": [
+    { "from": "spawn_state", "to": "motion" },
+    { "from": "fuse", "output": "out", "to": "explode", "input": "exec" }
+  ]
+})";
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(projectile.data(),
+		projectile.size(), knownModule, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 2);
+	CHECK(missionGraphProgramExecEdgeCount(program) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_LANDED) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED) == 1);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_GLASS_BROKEN) == 0);
+
+	int instance = 0;
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED;
+	event.player = -1;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == -1); // no instance
+	event.instance = &instance;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].node == "explode");
+	event.kind = MISSION_GRAPH_EVENT_PROJECTILE_LANDED;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 0); // nothing wired
+	missionGraphProgramFree(program);
+
+	// A data-only v1 graph is an empty program.
+	const std::string dataOnly = R"({ "nodes": [ { "id": "spawn_state", "kind": "projectile.spawn_state" } ], "edges": [] })";
+	program = missionGraphProgramCompileProjectile(dataOnly.data(), dataOnly.size(), knownModule, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 0);
+	missionGraphProgramFree(program);
+
+	// Any other event in a projectile program is refused, and a projectile
+	// event in a mission or level graph.
+	const std::string objectiveInProjectile = graph(
+		R"({ "id": "s", "kind": "event.objective.status_changed" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "s", "output": "out", "to": "m", "input": "exec" })");
+	program = missionGraphProgramCompileProjectile(objectiveInProjectile.data(), objectiveInProjectile.size(),
+		knownModule, err, sizeof(err));
+	CHECK(program == nullptr);
+	CHECK(std::string(err).find("is not a projectile event") != std::string::npos);
+	missionGraphProgramFree(program);
+
+	const std::string projectileEvent = graph(
+		R"({ "id": "f", "kind": "event.projectile.timer_expired" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "f", "output": "out", "to": "m", "input": "exec" })");
+	CHECK(refusal(projectileEvent).find("belongs to a projectile or entity graph") != std::string::npos);
+	program = missionGraphProgramCompileLevel(projectileEvent.data(), projectileEvent.size(),
+		knownModule, err, sizeof(err));
+	CHECK(program == nullptr);
+	CHECK(std::string(err).find("belongs to a projectile or entity graph") != std::string::npos);
+	missionGraphProgramFree(program);
+}
+
+// projectile-events.md slice 2: a v2 projectile archive registers its record
+// and its program; a program that does not compile refuses the archive.
+// Slice 6: a program that wires a fuse arms it (event.projectile.armed).
+TEST_CASE("a v2 projectile graph registers its record and its program",
+	"[mission-graph][projectile-graph][weapon-graph]")
+{
+	const std::string v2 = R"({
+  "schema": "pd.projectile_graph.v2",
+  "asset_id": "base:test__projectile_fuse",
+  "graph_id": "test_projectile_fuse",
+  "nodes": [
+    { "id": "spawn_state", "kind": "projectile.spawn_state", "params": { "scale": 1 } },
+    { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "ballistic_throw" } },
+    { "id": "armed", "kind": "event.projectile.armed" },
+    { "id": "armed_arm_fuse", "kind": "og.projectile.arm_fuse" },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "explode", "kind": "og.projectile.explode" }
+  ],
+  "edges": [
+    { "from": "spawn_state", "to": "motion" },
+    { "from": "armed", "output": "out", "to": "armed_arm_fuse", "input": "exec" },
+    { "from": "fuse", "output": "out", "to": "explode", "input": "exec" }
+  ],
+  "exports": [ { "name": "main", "node": "motion" } ]
+})";
+	// No model: the record resolves a model_catalog_id against the catalog,
+	// which pd-tests does not load; the motion makes it a record.
+	const char *const id = "base:test__projectile_fuse";
+	char err[256] = { 0 };
+
+	weaponGraphRuntimeClearAll();
+	const s32 registered = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id,
+		v2.data(), (u32)v2.size(), err, sizeof(err));
+	INFO("registration error: " << err);
+	REQUIRE(registered == 0);
+	const mission_graph_program_t *program = weaponGraphRuntimeProjectileProgram(id);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 4);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_ARMED,
+		"og.projectile.arm_fuse") == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED,
+		"og.projectile.explode") == 1);
+
+	// A module the projectile table does not know refuses the archive.
+	std::string unknown = v2;
+	unknown.replace(unknown.find("og.projectile.explode"),
+		std::string("og.projectile.explode").size(), "og.projectile.unknown");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, unknown.data(),
+		(u32)unknown.size(), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("program refused") != std::string::npos);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+
+	// projectile-events.md slice 4: an explode may name an explosion of the
+	// game's table; anything else refuses the archive, with the range named.
+	const std::string plain = R"({ "id": "explode", "kind": "og.projectile.explode" })";
+	const auto withExplode = [&](const char *node) {
+		std::string text = v2;
+		text.replace(text.find(plain), plain.size(), node);
+		return text;
+	};
+	const std::string dragon = withExplode(
+		R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 23 })");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, dragon.data(),
+		(u32)dragon.size(), err, sizeof(err)) == 0);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) != nullptr);
+	for (const char *node : {
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 0 })",
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": 26 })",
+			R"({ "id": "explode", "kind": "og.projectile.explode", "explosion_type": "big" })" }) {
+		const std::string bad = withExplode(node);
+		INFO(node);
+		CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, bad.data(),
+			(u32)bad.size(), err, sizeof(err)) != 0);
+		CHECK(std::string(err).find("og.projectile.explode needs explosion_type from 1 to 25, or none")
+			!= std::string::npos);
+		CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	}
+
+	// A gate that reads what its event carries is refused at an event that
+	// does not carry it; fuse_armed reads the projectile and stands anywhere.
+	const auto gated = [&](const char *gate_kind) {
+		std::string text = v2;
+		const std::string edge = R"({ "from": "fuse", "output": "out", "to": "explode", "input": "exec" })";
+		text.replace(text.find(edge), edge.size(),
+			R"({ "from": "fuse", "output": "out", "to": "asked", "input": "exec" },
+    { "from": "asked", "output": "pass", "to": "explode", "input": "exec" })");
+		text.replace(text.find(plain), plain.size(),
+			plain + ",\n    { \"id\": \"asked\", \"kind\": \"" + gate_kind + "\" }");
+		return text;
+	};
+	const std::string armed = gated("gate.projectile.fuse_armed");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, armed.data(),
+		(u32)armed.size(), err, sizeof(err)) == 0);
+	for (const char *gate_kind : { "gate.projectile.trigger_close", "gate.projectile.trigger_character",
+			"gate.projectile.damage_not_blast" }) {
+		const std::string bad = gated(gate_kind);
+		INFO(gate_kind);
+		CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, bad.data(),
+			(u32)bad.size(), err, sizeof(err)) != 0);
+		CHECK(std::string(err).find(std::string(gate_kind) +
+			" cannot be answered at event.projectile.timer_expired") != std::string::npos);
+		CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	}
+
+	// projectile-events.md slice 6: only an arm asks the fuse rule, so a
+	// projectile archive's program that wires a fuse and arms nothing would
+	// never go off, and the archive is refused.
+	const std::string armEdge =
+		R"({ "from": "armed", "output": "out", "to": "armed_arm_fuse", "input": "exec" },)";
+	const std::string noArm = "event.projectile.timer_expired is wired but "
+		"event.projectile.armed reaches no arm that runs a fuse";
+	std::string unarmed = v2;
+	REQUIRE(unarmed.find(armEdge) != std::string::npos);
+	unarmed.replace(unarmed.find(armEdge), armEdge.size(), "");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, unarmed.data(),
+		(u32)unarmed.size(), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find(noArm) != std::string::npos);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	// The bolt's arm runs no fuse; every other arm does.
+	const std::string armFuse = "og.projectile.arm_fuse";
+	const auto withArm = [&](const char *arm) {
+		std::string text = v2;
+		text.replace(text.find(armFuse), armFuse.size(), arm);
+		return text;
+	};
+	const std::string bolt = withArm("og.projectile.arm_bolt");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, bolt.data(),
+		(u32)bolt.size(), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find(noArm) != std::string::npos);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	for (const char *arm : { "og.projectile.arm_wall_fuse", "og.projectile.arm_struck_fuse",
+			"og.projectile.arm_mine_fuse", "og.projectile.arm_remote", "og.projectile.arm_proximity" }) {
+		const std::string other = withArm(arm);
+		INFO(arm);
+		CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, other.data(),
+			(u32)other.size(), err, sizeof(err)) == 0);
+		const mission_graph_program_t *armedProgram = weaponGraphRuntimeProjectileProgram(id);
+		REQUIRE(armedProgram != nullptr);
+		CHECK(missionGraphProgramEventReachesModule(armedProgram, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, arm) == 1);
+	}
+	// An arm is the armed event's choice: wired to another event it would do
+	// nothing there, and is refused like any module out of place.
+	const std::string fuseEdge = R"({ "from": "fuse", "output": "out", "to": "explode", "input": "exec" })";
+	std::string misplaced = v2;
+	misplaced.replace(misplaced.find(fuseEdge), fuseEdge.size(), fuseEdge +
+		",\n    { \"from\": \"fuse\", \"output\": \"out\", \"to\": \"armed_arm_fuse\", \"input\": \"exec\" }");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, misplaced.data(),
+		(u32)misplaced.size(), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.projectile.arm_fuse has no effect on event.projectile.timer_expired")
+		!= std::string::npos);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	// An entity archive carries its item's fuse alone (the item's projectile
+	// archive arms it), so the same fuse with no arm registers there.
+	const std::string entity = R"({
+  "schema": "pd.entity_graph.v2",
+  "asset_id": "base:test__entity_fuse",
+  "graph_id": "test_entity_fuse",
+  "nodes": [
+    { "id": "remote", "kind": "entity.remote_detonatable", "params": { "on_remote_signal": "detonate" } },
+    { "id": "fuse", "kind": "event.projectile.timer_expired" },
+    { "id": "explode", "kind": "og.projectile.explode" }
+  ],
+  "edges": [
+    { "from": "fuse", "output": "out", "to": "explode", "input": "exec" }
+  ],
+  "exports": [ { "name": "main", "node": "remote" } ]
+})";
+	const char *const entityId = "base:test__entity_fuse";
+	{
+		const s32 entityRegistered = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY, entityId,
+			entity.data(), (u32)entity.size(), err, sizeof(err));
+		INFO("entity registration error: " << err);
+		CHECK(entityRegistered == 0);
+		const mission_graph_program_t *entityProgram = weaponGraphRuntimeProjectileProgram(entityId);
+		CHECK(entityProgram != nullptr);
+		if (entityProgram) {
+			CHECK(missionGraphProgramHandlesEvent(entityProgram, MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED) == 1);
+			CHECK(missionGraphProgramHandlesEvent(entityProgram, MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == 0);
+		}
+	}
+
+	// A v1 graph is records only: no program, and a program node is refused.
+	std::string v1 = v2;
+	v1.replace(v1.find("pd.projectile_graph.v2"), std::string("pd.projectile_graph.v2").size(),
+		"pd.projectile_graph.v1");
+	CHECK(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id, v1.data(),
+		(u32)v1.size(), err, sizeof(err)) != 0);
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
+	CHECK(weaponGraphRuntimeProjectileProgram(entityId) == nullptr);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

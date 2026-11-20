@@ -195,11 +195,8 @@ std::string descriptorCatalogId(const std::string &text)
     return "";
 }
 
-/* The behavior of a weapon, a projectile or an entity, read by the compiler
- * the game loads it with. A weapon that uses $variables needs its variables
- * file to compile; that is done from the file on disk (see
- * modAssetValidateArchiveStaged), so such a weapon is only checked for a
- * readable descriptor here. */
+/* Compile the weapon, projectile or entity with the game's graph compiler.
+ * Read a split weapon's variable scope from the same archive as its graphs. */
 bool validateBehavior(const void *bytes, u32 size, asset_type_e type,
     const std::string &label, Failure &out)
 {
@@ -238,6 +235,7 @@ bool validateBehavior(const void *bytes, u32 size, asset_type_e type,
     std::string primary;
     std::string secondary;
     std::string shared;
+    std::string variables;
     if (!desc->primary_graph[0] || !desc->secondary_graph[0] ||
             !extract(bytes, size, desc->primary_graph, primary) ||
             !extract(bytes, size, desc->secondary_graph, secondary)) {
@@ -245,15 +243,17 @@ bool validateBehavior(const void *bytes, u32 size, asset_type_e type,
             " is missing its primary or secondary behavior graph");
     }
     if (desc->shared_context[0]) extract(bytes, size, desc->shared_context, shared);
-    if (primary.find("\"$") != std::string::npos ||
-            secondary.find("\"$") != std::string::npos) {
-        return true;
+    if (desc->variables[0] &&
+            (!extract(bytes, size, desc->variables, variables) || variables.empty())) {
+        return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label + "::" + desc->variables +
+            " is missing, empty or unreadable");
     }
     std::unique_ptr<weapon_graph_ir_t> ir(new weapon_graph_ir_t());
-    const s32 compiled = weaponGraphCompileWeaponSourceJson(desc->catalog_id,
+    const s32 compiled = weaponGraphCompileWeaponSourceJsonWithVariables(desc->catalog_id,
         primary.data(), static_cast<u32>(primary.size()),
         secondary.data(), static_cast<u32>(secondary.size()),
         shared.empty() ? nullptr : shared.data(), static_cast<u32>(shared.size()),
+        desc->variables[0] ? variables.data() : nullptr, static_cast<u32>(variables.size()),
         ir.get(), reason, sizeof(reason));
     weaponGraphIrFree(ir.get());
     if (compiled != 0) {
@@ -440,16 +440,15 @@ extern "C" s32 modAssetValidateArchiveStaged(const char *disk_path, const char *
             static_cast<u32>(bytes.size()), archive_name, err, err_cap);
         if (code != MOD_ASSET_VALIDATE_OK) return code;
 
-        /* A v1 weapon once more, from the file: this compile reads the
-         * weapon's variables file, so $variables resolve as they will in
-         * the game and one that is not defined is an error. */
+        /* Preserve the legacy combined graph's file compile and identity
+         * checks. Public split v1 graphs already compiled from these bytes. */
         if (assetArchiveTypeForPath(archive_name) == ASSET_WEAPON) {
             char reason[256];
             reason[0] = '\0';
             std::unique_ptr<weapon_graph_archive_descriptor_t> desc(
                 new weapon_graph_archive_descriptor_t());
             if (wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), desc.get(),
-                    reason, sizeof(reason)) == 0) {
+                    reason, sizeof(reason)) == 0 && desc->behavior_graph[0]) {
                 std::unique_ptr<weapon_graph_ir_t> ir(new weapon_graph_ir_t());
                 const s32 compiled = weaponGraphCompileArchiveFile(disk_path, ASSET_WEAPON,
                     ir.get(), reason, sizeof(reason));

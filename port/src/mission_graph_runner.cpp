@@ -17,6 +17,12 @@ namespace {
 
 enum NodeType { NODE_DATA, NODE_EVENT, NODE_EVENT_INERT, NODE_GATE, NODE_MODULE };
 
+// Which graph a program comes from: a mission graph keeps its data nodes as
+// structure; a level graph and a projectile or entity graph skip them, and a
+// projectile program has the projectile events only (projectile-events.md
+// slice 2).
+enum Domain { DOMAIN_MISSION, DOMAIN_LEVEL, DOMAIN_PROJECTILE };
+
 } // namespace
 
 // object-events.md slice 3: a node's scalar fields as text.
@@ -102,6 +108,48 @@ s32 objectEventKindOf(const std::string &kind)
 	return 0;
 }
 
+// The projectile events by name (projectile-events.md slice 2).
+const struct {
+	const char *name;
+	s32 kind;
+} kProjectileEventKinds[] = {
+	{ "event.projectile.spawned", MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED },
+	{ "event.projectile.bounced", MISSION_GRAPH_EVENT_PROJECTILE_BOUNCED },
+	{ "event.projectile.hit_target", MISSION_GRAPH_EVENT_PROJECTILE_HIT_TARGET },
+	{ "event.projectile.landed", MISSION_GRAPH_EVENT_PROJECTILE_LANDED },
+	{ "event.projectile.ended", MISSION_GRAPH_EVENT_PROJECTILE_ENDED },
+	{ "event.projectile.detonated", MISSION_GRAPH_EVENT_PROJECTILE_DETONATED },
+	{ "event.projectile.timer_expired", MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED },
+	// Slice 3: the contact rule events.
+	{ "event.projectile.contact", MISSION_GRAPH_EVENT_PROJECTILE_CONTACT },
+	{ "event.projectile.launch_blocked", MISSION_GRAPH_EVENT_PROJECTILE_LAUNCH_BLOCKED },
+	{ "event.projectile.came_to_rest", MISSION_GRAPH_EVENT_PROJECTILE_CAME_TO_REST },
+	// Slice 4: the device rule events.
+	{ "event.projectile.proximity", MISSION_GRAPH_EVENT_PROJECTILE_PROXIMITY },
+	{ "event.projectile.remote_signal", MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL },
+	{ "event.projectile.damaged", MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED },
+	// Slice 5: the sentry rule events.
+	{ "event.projectile.thrown", MISSION_GRAPH_EVENT_PROJECTILE_THROWN },
+	{ "event.projectile.sentry_aimed", MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED },
+	// Slice 6: the arm rule event.
+	{ "event.projectile.armed", MISSION_GRAPH_EVENT_PROJECTILE_ARMED },
+};
+
+// The projectile event kind of a node kind, or 0 for none.
+s32 projectileEventKindOf(const std::string &kind)
+{
+	for (const auto &entry : kProjectileEventKinds) {
+		if (kind == entry.name) return entry.kind;
+	}
+	return 0;
+}
+
+bool isProjectileEventKind(s32 kind)
+{
+	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
+		kind <= MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
+}
+
 // A node's scalar fields other than id and kind, as text.
 void readParams(const crude_json::value &node, mission_graph_params &out)
 {
@@ -172,13 +220,20 @@ bool isProgramKind(const std::string &kind)
 // level data, skipped and not counted, and an edge that is not an
 // execution edge may name it.
 mission_graph_program_t *compileProgram(const char *json, size_t json_size,
-	mission_graph_module_known_fn module_known, char *err, size_t err_cap, bool level)
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap, Domain domain)
 {
-	const std::string file = level ? "level.graph.json" : "mission.graph.json";
+	// A level graph and a projectile or entity graph carry data nodes that
+	// are not the program (object-events.md slice 1, projectile-events.md
+	// slice 2).
+	const bool data_nodes = domain != DOMAIN_MISSION;
+	const std::string what = domain == DOMAIN_LEVEL ? "level graph"
+		: domain == DOMAIN_PROJECTILE ? "projectile graph" : "mission graph";
+	const std::string file = domain == DOMAIN_LEVEL ? "level.graph.json"
+		: domain == DOMAIN_PROJECTILE ? "behavior.graph.json" : "mission.graph.json";
 
 	setError(err, err_cap, "");
 	if (!json || !json_size) {
-		setError(err, err_cap, level ? "empty level graph" : "empty mission graph");
+		setError(err, err_cap, "empty " + what);
 		return nullptr;
 	}
 	try {
@@ -192,7 +247,7 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 			return nullptr;
 		}
 		const crude_json::array &nodes = root["nodes"].get<crude_json::array>();
-		if (!level && nodes.size() > MISSION_GRAPH_MAX_NODES) {
+		if (!data_nodes && nodes.size() > MISSION_GRAPH_MAX_NODES) {
 			setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) + " nodes");
 			return nullptr;
 		}
@@ -202,10 +257,10 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 		for (size_t i = 0; i < nodes.size(); i++) {
 			const crude_json::value &node = nodes[i];
 			Node compiled;
-			if (level) {
+			if (data_nodes) {
 				std::string kind;
 				if (!node.is_object() || !stringField(node, "kind", kind) || !isProgramKind(kind)) {
-					continue; // level data, not the program
+					continue; // level or projectile data, not the program
 				}
 				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
 					setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) +
@@ -230,7 +285,28 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 			}
 			if (objective == "any") objective.clear();
 
-			if (compiled.kind == kObjectiveStatusEvent) {
+			// projectile-events.md slice 2: a projectile program has the
+			// projectile events and no other; no other graph has them.
+			const s32 projectile_kind = projectileEventKindOf(compiled.kind);
+			if (domain == DOMAIN_PROJECTILE && compiled.kind.rfind("event.", 0) == 0 &&
+					projectile_kind == 0) {
+				setError(err, err_cap, "event '" + compiled.id + "' (" + compiled.kind +
+					") is not a projectile event");
+				return nullptr;
+			}
+			if (projectile_kind != 0) {
+				if (domain != DOMAIN_PROJECTILE) {
+					setError(err, err_cap, "projectile event '" + compiled.id + "' (" + compiled.kind +
+						") belongs to a projectile or entity graph");
+					return nullptr;
+				}
+				if (has_objective) {
+					setError(err, err_cap, "projectile event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = projectile_kind;
+			} else if (compiled.kind == kObjectiveStatusEvent) {
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 				compiled.objective = objective;
@@ -284,7 +360,7 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = objectEventKindOf(compiled.kind);
 				// slice 4: the level's own rules; a mission graph does not take them.
-				if (!level && missionGraphEventIsObjectRule(compiled.event_kind)) {
+				if (domain == DOMAIN_MISSION && missionGraphEventIsObjectRule(compiled.event_kind)) {
 					setError(err, err_cap, "rule event '" + compiled.id + "' (" + compiled.kind +
 						") belongs to the level graph, not the mission graph");
 					return nullptr;
@@ -357,9 +433,9 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				}
 				auto source = index.find(from);
 				auto target = index.find(to);
-				if (level && !edge.contains("input") &&
+				if (data_nodes && !edge.contains("input") &&
 						(source == index.end() || target == index.end())) {
-					continue; // structural edge of the level data
+					continue; // structural edge of the level or projectile data
 				}
 				if (source == index.end() || target == index.end()) {
 					setError(err, err_cap, where + " names a missing node ('" +
@@ -414,7 +490,7 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 		}
 		return program.release();
 	} catch (...) {
-		setError(err, err_cap, level ? "level graph could not be read" : "mission graph could not be read");
+		setError(err, err_cap, what + " could not be read");
 		return nullptr;
 	}
 }
@@ -424,13 +500,19 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
 {
-	return compileProgram(json, json_size, module_known, err, err_cap, false);
+	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_MISSION);
 }
 
 extern "C" mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
 {
-	return compileProgram(json, json_size, module_known, err, err_cap, true);
+	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_LEVEL);
+}
+
+extern "C" mission_graph_program_t *missionGraphProgramCompileProjectile(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_PROJECTILE);
 }
 
 extern "C" const char *missionGraphParamText(const mission_graph_params_t *params, const char *key)
@@ -514,6 +596,11 @@ extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *pr
 	return 0;
 }
 
+extern "C" s32 missionGraphEventIsProjectile(s32 event_kind)
+{
+	return isProjectileEventKind(event_kind) ? 1 : 0;
+}
+
 extern "C" s32 missionGraphEventIsObjectRule(s32 event_kind)
 {
 	return event_kind == MISSION_GRAPH_EVENT_PICKUP_TOUCHED || event_kind == MISSION_GRAPH_EVENT_DOOR_USE ||
@@ -538,7 +625,7 @@ extern "C" s32 missionGraphProgramEventReachesModule(const mission_graph_program
 			if (reached[at]) continue;
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
-			if (node.type == NODE_MODULE && node.kind == module_kind) return 1;
+			if ((node.type == NODE_MODULE || node.native_gate) && node.kind == module_kind) return 1;
 			for (const Edge &edge : node.out) queue.push_back(edge.target);
 		}
 	} catch (...) {
@@ -584,6 +671,10 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		}
 	} else if (isObjectEventKind(event->kind)) {
 		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->object) {
+			return -1;
+		}
+	} else if (isProjectileEventKind(event->kind)) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->instance) {
 			return -1;
 		}
 	} else {

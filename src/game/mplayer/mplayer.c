@@ -18,6 +18,7 @@
 #include "game/mplayer/scenarios.h"
 #include "game/mpstats.h"
 #include "game/challenge.h"
+#include "game/gamefile.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/pak.h"
@@ -3249,7 +3250,7 @@ bool mpIsTrackUnlocked(s32 tracknum)
 	bool unlocked = false;
 	u32 i;
 
-	if (stageindex < 0 || stageindex > SOLOSTAGEINDEX_SKEDARRUINS) {
+	if (stageindex < 0 || stageindex > SOLOSTAGEINDEX_SKEDARRUINS || gamefileHasUnlockAll()) {
 		unlocked = true;
 	} else {
 		for (i = 0; i != 3; i++) {

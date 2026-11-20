@@ -52,6 +52,8 @@ and archive conformance passed. Managed execution awaits capacity.
 
 2026-11-19, T-MENUS-003. Canonical input ownership repairs and foreground virtual-controller Agent create, save, select and Back passed. V-004 remains partial for physical controllers, device handoff and the related Settings route. Online consent/countdown and the separate Grid prerelease have their own follow-through. See the [front-end audit](audits/2026/frontend-control-2026-11-19.md#implementation-follow-up).
 
+2026-11-18, Manager 3. T-MENUS-008 owns the source-connected cheat bank, stage reset, progression and Agent-local Unlock All changes. T-MENUS-003 corrects the Settings keyboard fixture after the retained active-client receipt isolated Tab as the Social shortcut. V-004 holds the current foreground prerequisites and storage preflight receipts. Current build, runtime, and device acceptance are pending. Shared Cheat and Room authority remains with the Manager 1 handoff.
+
 2026-11-14 week PD (Nov 15 to 21): three parallel Claude sessions (CORE, MULTIPLAYER, MODS) work in `D:\PD2-wt\<name>` on branches `week-pd/<name>`. The live plan, the decisions waiting on Mike and the ordered work queue are in the PD2 Finish Tracker (a Claude Doc) and in `context/week-pd-coordination.md` in the canonical checkout (untracked, one shared copy). Step 0 is done: dev a8ab67f3 builds on this PC, 1,853 unit cases pass, and the boot smoke passes 14/14 from the pre-extracted shared base `D:\PD2-wt\shared-base`. The T-MODDING-011 entries below describe uncommitted, never-compiled work that is parked on branch `week-pd/inflight-20261114`; it is not part of any week branch, and whether it continues is decision 2 in the tracker. New this week: B-1109 (gun loader 64-bit queue targets, fixed on `week-pd/core`) and B-1110 (first-launch extraction about 20 times slower on a hard disk). See the 2026-11-14 entry at the end of `session-log.md`.
 
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
@@ -2284,6 +2286,14 @@ resource receipt overlapped.
 - T-INPUT-002 and deferred D-001: Queue Match.
 - T-BENCHMARKING-006: GPU swarm benchmark and scalability program.
 - T-NETWORKING-008: authority migration and richer friend-play continuity.
+- 2.0 renderer (decisions D1 to D7 under D-004; no Workbench item yet, so
+  commits use `Refs: D-004`): plan in
+  `context/designs/rendering/renderer-2.0-scope.md`. Phase 2a step 1 (classic
+  on bgfx's OpenGL backend, `--renderer bgfx`, parity mode) landed on dev on
+  2026-11-19 (merge of `week-pd/bgfx-classic`, PR #9; Mike: "Commit, push,
+  merge, update local dev"); the classic GL renderer stays the default.
+  State, parity results and next steps in
+  `context/designs/rendering/bgfx-classic-gl.md`.
 
 Items marked `historical-cut` retain their permanent IDs and evidence but are
 not live routing targets. They were consolidated into the milestone gates above

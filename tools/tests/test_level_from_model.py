@@ -21,8 +21,11 @@ import json
 import math
 import struct
 import sys
+import tempfile
 import unittest
 import zlib
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[1]
@@ -36,7 +39,7 @@ H = 10.0   # half the floor's side, metres
 TALL = 4.0
 
 
-def arena_model(starts=True) -> bytes:
+def arena_model(starts=True, *, tiles_texcoord=None, add_selected_uvs=True) -> bytes:
     w = GlbWriter()
     tiles = w.material("Tiles", (0.9, 0.9, 1.0, 1.0), plain_png())
     plain = w.material("Trim", (0.8, 0.3, 0.2, 1.0), None)
@@ -56,7 +59,7 @@ def arena_model(starts=True) -> bytes:
     banner = quad((-3, 2, -9.9), (3, 2, -9.9), (3, 3, -9.9), (-3, 3, -9.9))
     w.node("nocollide_banner", w.mesh("banner", banner, plain))
     blocker = quad((-1, 0, 6), (1, 0, 6), (1, 2, 6), (-1, 2, 6))
-    w.node("collision_blocker", w.mesh("blocker", blocker, plain))
+    w.node("collision_blocker", w.mesh("blocker", blocker, tiles if tiles_texcoord is not None else plain))
     if starts:
         for k in range(8):
             angle = 2.0 * math.pi * k / 8
@@ -65,6 +68,20 @@ def arena_model(starts=True) -> bytes:
             phi = math.atan2(-math.cos(angle), -math.sin(angle))
             w.node("start_%d" % (k + 1), translation=[x, y + 0.2, z],
                    rotation=[0.0, math.sin(phi / 2.0), 0.0, math.cos(phi / 2.0)])
+    if tiles_texcoord is not None:
+        w.doc["materials"][tiles]["pbrMetallicRoughness"]["baseColorTexture"]["texCoord"] = tiles_texcoord
+        if add_selected_uvs:
+            model = blm.Model(w.bytes())
+            for mesh in w.doc["meshes"]:
+                if mesh["name"] == "blocker":
+                    continue  # Collision-only geometry does not need render UVs.
+                for part in mesh["primitives"]:
+                    if part["material"] != tiles:
+                        continue
+                    attributes = part["attributes"]
+                    values = model.accessor(attributes["TEXCOORD_0"])
+                    tiled = b"".join(struct.pack("<2f", u * 4, v * 8) for u, v in values)
+                    attributes[f"TEXCOORD_{tiles_texcoord}"] = w.accessor(tiled, 5126, "VEC2", len(values))
     return w.bytes()
 
 
@@ -122,6 +139,122 @@ class LevelFromModel(unittest.TestCase):
         # Tiles: floor 2 + walls 8 + platform 2 + ramp 2 + mirrored ramp 2 = 16 triangles.
         # Trim: ceiling 2 + banner 2 = 4 (the blocker is collision only).
         self.assertEqual(counts, [48, 12])
+
+    def test_saved_level_reopens_with_the_materials_selected_uvs(self):
+        input_bytes = arena_model(tiles_texcoord=1)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_path = root / "model.glb"
+            model_path.write_bytes(arena_model())
+            _arena, _mod, base_members, level = blm.build(model_path, "model_room", "Model Room", 100.0, False)
+            model_path.write_bytes(input_bytes)
+            out = root / "grid_template"
+            self.assertEqual(blm.main([str(model_path), "--id", "model_room", "--name", "Model Room",
+                                       "--out", str(out)]), 0)
+            archive = (out / "model_room.pdarena").read_bytes()
+            self.assertEqual(model_path.read_bytes(), input_bytes)
+        self.assertEqual(la.conformance(archive, "model_room.pdarena"), [])
+        scenario = la.unpacked(archive)[level.scenario_member]
+        expected = blm.Model(base_members["scene.glb"])
+        actual = blm.Model(scenario["scene.glb"])
+        self.assertEqual([material["name"] for material in actual.doc["materials"]], ["Tiles", "Trim"])
+        for part in actual.doc["meshes"][0]["primitives"]:
+            material = part["material"]
+            original = expected.doc["meshes"][0]["primitives"][material]
+            for attribute in ("POSITION", "_PD_ROOM"):
+                self.assertEqual(actual.accessor(part["attributes"][attribute]),
+                                 expected.accessor(original["attributes"][attribute]))
+            old_uvs = expected.accessor(original["attributes"]["TEXCOORD_0"])
+            new_uvs = actual.accessor(part["attributes"]["TEXCOORD_0"])
+            if material == 0:
+                self.assertEqual(new_uvs, [(u * 4, v * 8) for u, v in old_uvs])
+                selected = actual.doc["materials"][material]["pbrMetallicRoughness"]["baseColorTexture"]
+                self.assertEqual(selected["texCoord"], 0)
+                sampler = actual.doc["samplers"][actual.doc["textures"][selected["index"]]["sampler"]]
+                self.assertEqual((sampler["wrapS"], sampler["wrapT"]), (10497, 10497))
+            else:
+                self.assertEqual(new_uvs, old_uvs)
+        for name in ("collision.obj", "collision.flags.json", "rooms.json", "pads.json"):
+            self.assertEqual(scenario[name], base_members[name])
+
+    def test_a_missing_selected_uv_set_is_refused(self):
+        with self.assertRaisesRegex(la.BuildError, "Tiles needs TEXCOORD_2"):
+            self.build(arena_model(tiles_texcoord=2, add_selected_uvs=False))
+
+    def test_stage_rules_round_trip_in_model_derived_arenas(self):
+        rules = (
+            '{\r\n  "schema": "pd2.scenario.stage.v1",\r\n  "note": "Café",\r\n'
+            '  "atmosphere": {"sky_rgb": [15, 35, 75], "fog": {"start": 120, "end": 480},\r\n'
+            '                 "ambient_light": 104, "primary_music": "base:song_sequence_b"}\r\n}\r\n'
+        ).encode("utf-8")
+        model = arena_model()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_path = root / "model.glb"
+            model_path.write_bytes(model)
+            rules_path = root / "settings.json"
+            rules_path.write_bytes(rules)
+
+            def reopen(level_id, out, options=()):
+                self.assertEqual(blm.main([str(model_path), "--id", level_id, "--name", "Model Room",
+                                           "--out", str(out), *options]), 0)
+                filename = f"{level_id}.pdarena"
+                archive = (out / filename).read_bytes()
+                self.assertEqual(la.conformance(archive, filename), [])
+                self.assertEqual(json.loads((out / "mod.json").read_bytes())["id"], level_id)
+                opened = la.unpacked(archive)
+                self.assertIn(f"catalog_id = mod_{level_id}:arena_{level_id}\n",
+                              opened["arena.ini"].decode("utf-8"))
+                return opened[f"dependencies/assets/scenarios/scenario_{level_id}.pdscenario"]
+
+            default = reopen("model_room", root / "default")
+            stage_option = ("--stage-rules", str(rules_path))
+            authored = reopen("model_room", root / "authored", stage_option)
+            self.assertNotIn("stage.json", default)
+            reopened_rules = authored.pop("stage.json")
+            self.assertEqual(reopened_rules, rules)
+            reopened_path = root / "reopened-stage.json"
+            reopened_path.write_bytes(reopened_rules)
+            variant = reopen("model_variant", root / "variant", ("--stage-rules", str(reopened_path)))
+            self.assertEqual(variant["stage.json"], rules)
+            self.assertEqual({name: la.sha(data) for name, data in authored.items()},
+                             {name: la.sha(data) for name, data in default.items()})
+            self.assertEqual(rules_path.read_bytes(), rules)
+            self.assertEqual(model_path.read_bytes(), model)
+
+    def test_invalid_stage_rules_do_not_write_outputs(self):
+        schema = b'{"schema":"pd2.scenario.stage.v1",'
+        cases = (
+            ("fog", schema + b'"atmosphere":{"fog":{"start":480,"end":120}}}', True),
+            ("duplicate", schema + br'"atmosphere":{"sky_rgb":[0,0,0],"sky_\u0072gb":[1,1,1]}}', False),
+            ("UTF-8", schema + b'"note":"\xff"}', False),
+            ("atmosphere", schema + b'"atmosphere":null}', True),
+            ("gas", schema + b'"gas":{"rooms":[1]}}', True),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_path = root / "model.glb"
+            model_path.write_bytes(arena_model())
+            for reason, rules, destination_exists in cases:
+                with self.subTest(reason=reason):
+                    rules_path = root / "settings.json"
+                    rules_path.write_bytes(rules)
+                    out = root / reason
+                    prior = {"model_room.pdarena": b"existing arena", "mod.json": b"existing manifest"}
+                    if destination_exists:
+                        out.mkdir()
+                        for name, data in prior.items():
+                            (out / name).write_bytes(data)
+                    output = StringIO()
+                    with redirect_stdout(output):
+                        self.assertEqual(blm.main([str(model_path), "--id", "model_room", "--name", "Model Room",
+                                                   "--out", str(out), "--stage-rules", str(rules_path)]), 1)
+                    self.assertRegex(output.getvalue(), f"(?i){reason}")
+                    if destination_exists:
+                        self.assertEqual({item.name: item.read_bytes() for item in out.iterdir()}, prior)
+                    else:
+                        self.assertFalse(out.exists())
+                    self.assertEqual(rules_path.read_bytes(), rules)
 
     def test_starts_stand_above_their_floor_facing_the_middle_in_ring_order(self):
         _arena, _mod, members, level = self.build(arena_model())

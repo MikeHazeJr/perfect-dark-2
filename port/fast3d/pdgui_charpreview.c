@@ -22,6 +22,7 @@
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 #include "gfx_api.h"
+#include "gfx_bgfx.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -476,6 +477,14 @@ u32 pdguiCharPreviewBakeToTexture(void)
     const s32 w = CHARPREVIEW_WIDTH;
     const s32 h = CHARPREVIEW_HEIGHT;
 
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: an in-order GPU copy of the preview framebuffer
+         * into a new GL_LINEAR, GL_CLAMP_TO_EDGE texture. */
+        u32 baked = gfxBgfxPdguiTexFromFramebuffer(s_PreviewFb, 1, 1);
+        s_PreviewReady = 0;
+        return baked;
+    }
+
     /* Read the FBO color texture into a temporary RGBA pixel buffer.
      * The underlying texture is GL_RGB8; OpenGL fills alpha=255. */
     u8 *pixels = (u8 *)malloc((size_t)w * h * 4);
@@ -513,7 +522,11 @@ u32 pdguiCharPreviewBakeToTexture(void)
 void pdguiCharPreviewFreeTexture(u32 texId)
 {
     if (texId != 0) {
-        glDeleteTextures(1, &texId);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(texId);
+        } else {
+            glDeleteTextures(1, &texId);
+        }
     }
 }
 
@@ -1053,7 +1066,19 @@ void pdguiCharPreviewSkinCapturePoll(void)
         return;
     }
 
-    u8 *pixels = (u8 *)malloc((size_t)w * h * 4);
+    u8 *pixels = NULL;
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: the pixels as uploaded, from the backend's copy. */
+        int bw = 0, bh = 0;
+        if (!gfxBgfxReadFast3dTexture(texId, &pixels, &bw, &bh) || bw != w || bh != h) {
+            free(pixels);
+            sysLogPrintf(LOG_WARNING, "skin_capture: bgfx readback failed for tex=%u %dx%d", texId, w, h);
+            s_SkinCaptureState = SKIN_CAPTURE_IDLE;
+            gfxSkinCaptureClear();
+            return;
+        }
+    } else {
+    pixels = (u8 *)malloc((size_t)w * h * 4);
     if (!pixels) {
         sysLogPrintf(LOG_WARNING, "skin_capture: malloc failed for %dx%d readback", w, h);
         s_SkinCaptureState = SKIN_CAPTURE_IDLE;
@@ -1064,6 +1089,7 @@ void pdguiCharPreviewSkinCapturePoll(void)
     glBindTexture(GL_TEXTURE_2D, texId);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     glBindTexture(GL_TEXTURE_2D, 0);
+    } /* classic GL renderer */
 
     if (s_SkinCapturePixels) {
         free(s_SkinCapturePixels);

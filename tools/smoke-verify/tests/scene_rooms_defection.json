@@ -1,0 +1,240 @@
+{
+  "scenario_name": "scene_rooms_defection",
+  "description": "Visual check (B-1266, B-1267): Defection through --launch-mission. Five screenshots of the intro, which is not skipped for them (its camera looks at the dataDyne building from outside), then five at the start looking ahead, down, left, back and right. The scene must hold every triangle the ROM draws for the stage (19,780 in 167 rooms; the export used to leave out 14 rooms with 10,479 of them, the exterior among them) and draw 18,292 of them with back faces culled, as the room display lists do.",
+  "tags": [
+    "solo",
+    "mission",
+    "render",
+    "visual"
+  ],
+  "paths_of_interest": [
+    "port/src/romextract_pdarena.c",
+    "port/fast3d/scenario_scene_renderer.cpp",
+    "tools/verify_scene_rooms_against_rom.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "cutscene_skip_ready",
+      "timeout_ms": 150000,
+      "comment": "The intro is running and is NOT skipped: its camera looks at the building's exterior, rooms the scene used to lack (B-1266)."
+    },
+    {
+      "at_ms": 300,
+      "type": "screenshot",
+      "path": "defection_intro_0.bmp",
+      "comment": "the intro, 0.3 s after it could first be skipped"
+    },
+    {
+      "at_ms": 1300,
+      "type": "screenshot",
+      "path": "defection_intro_1.bmp",
+      "comment": "the intro, 1.3 s after it could first be skipped"
+    },
+    {
+      "at_ms": 2300,
+      "type": "screenshot",
+      "path": "defection_intro_2.bmp",
+      "comment": "the intro, 2.3 s after it could first be skipped"
+    },
+    {
+      "at_ms": 3300,
+      "type": "screenshot",
+      "path": "defection_intro_3.bmp",
+      "comment": "the intro, 3.3 s after it could first be skipped"
+    },
+    {
+      "at_ms": 4300,
+      "type": "screenshot",
+      "path": "defection_intro_4.bmp",
+      "comment": "the intro, 4.3 s after it could first be skipped"
+    },
+    {
+      "at_ms": 5000,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 90000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Now end what is left of the intro and wait until the player stands on the roof."
+    },
+    {
+      "at_ms": 6500,
+      "type": "screenshot",
+      "path": "defection_play_ahead.bmp",
+      "comment": "at the start, looking ahead"
+    },
+    {
+      "at_ms": 7000,
+      "type": "action",
+      "name": "ACTION_AIM_DOWN",
+      "action": "press",
+      "comment": "look down at the roof"
+    },
+    {
+      "at_ms": 7900,
+      "type": "action",
+      "name": "ACTION_AIM_DOWN",
+      "action": "release"
+    },
+    {
+      "at_ms": 9000,
+      "type": "screenshot",
+      "path": "defection_play_down.bmp",
+      "comment": "at the start, looking down"
+    },
+    {
+      "at_ms": 9500,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "press",
+      "comment": "level again"
+    },
+    {
+      "at_ms": 10400,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "release"
+    },
+    {
+      "at_ms": 10900,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "press",
+      "comment": "turn left"
+    },
+    {
+      "at_ms": 12400,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "release"
+    },
+    {
+      "at_ms": 13500,
+      "type": "screenshot",
+      "path": "defection_play_left.bmp",
+      "comment": "at the start, looking left"
+    },
+    {
+      "at_ms": 14000,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "press",
+      "comment": "turn left"
+    },
+    {
+      "at_ms": 15500,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "release"
+    },
+    {
+      "at_ms": 16600,
+      "type": "screenshot",
+      "path": "defection_play_back.bmp",
+      "comment": "at the start, looking back"
+    },
+    {
+      "at_ms": 17100,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "press",
+      "comment": "turn left"
+    },
+    {
+      "at_ms": 18600,
+      "type": "action",
+      "name": "ACTION_AIM_LEFT",
+      "action": "release"
+    },
+    {
+      "at_ms": 19700,
+      "type": "screenshot",
+      "path": "defection_play_right.bmp",
+      "comment": "at the start, looking right"
+    },
+    {
+      "at_ms": 21200,
+      "type": "exit",
+      "comment": "scripted exit after the last screenshot"
+    }
+  ],
+  "screenshots": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=scene_rooms_defection",
+      "SCENARIO\\.RENDER: activated source scene 'base:scenario_defection' source=\\S+ vertices=59340 ",
+      "SCENARIO\\.RENDER: culling 'base:scenario_defection' single_sided_groups=[1-9][0-9]* of [0-9]+ triangles=18292 of 19780 front=(counter_clockwise|clockwise)",
+      "SCENARIO\\.RENDER: reflective 'base:scenario_defection' texgen_groups=[1-9][0-9]* triangles=1537",
+      "SMOKE\\.WAIT: satisfied condition=cutscene_skip_ready ",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*defection_intro_0\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_intro_1\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_intro_2\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_intro_3\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_intro_4\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_ahead\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_down\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_left\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_back\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_right\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ROMEXTRACT\\.SCENE: .* cannot be exported",
+      "SCENARIO\\.RENDER: rejected camera frame"
+    ],
+    "required_counts": []
+  },
+  "retain_artifacts": [
+    {
+      "src": "defection_intro_0.bmp"
+    },
+    {
+      "src": "defection_intro_1.bmp"
+    },
+    {
+      "src": "defection_intro_2.bmp"
+    },
+    {
+      "src": "defection_intro_3.bmp"
+    },
+    {
+      "src": "defection_intro_4.bmp"
+    },
+    {
+      "src": "defection_play_ahead.bmp"
+    },
+    {
+      "src": "defection_play_down.bmp"
+    },
+    {
+      "src": "defection_play_left.bmp"
+    },
+    {
+      "src": "defection_play_back.bmp"
+    },
+    {
+      "src": "defection_play_right.bmp"
+    }
+  ]
+}

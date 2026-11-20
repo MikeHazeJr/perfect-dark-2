@@ -13,6 +13,7 @@
 #   - Updater.exe (standalone GUI updater; recovery path if client self-update breaks)
 #   - pd.ini (default config), put_your_rom_here.txt (BYOR onboarding text)
 #   - examples/modding/typed-pdxxx-basic (typed .pdxxx sample content)
+#   - mods/bundled (first-party packages selected by dev-mods/dev-mods.json)
 #   - data/<romid>/... (skeleton for first-launch ROM extraction; ships any
 #     pre-generated per-asset .pd<ext> seeds present in Build/data)
 #
@@ -824,7 +825,7 @@ if ($hasData) {
         #   base/              -- Step 5 retired the .pdbase aggregate.
         #   mod source files/  -- dev scratch, never shipped.
         #   README.txt         -- B-322 retired in favour of put_your_rom_here.txt.
-        if ($relForward -match '^(base/|mod source files/|README\.txt$)') {
+        if ($relForward -match '^(base/|mod source files/|README\.txt$|mods/bundled/|crystal_pistol-default\.sha256$)') {
             $top = $relForward -split '/' | Select-Object -First 1
             $skippedDirs[$top] = $true
             continue
@@ -864,6 +865,40 @@ if ($hasData) {
     }
 } else {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
+}
+
+# --- Release mod packages ---
+
+$releaseModRoot = Join-Path $ProjectRoot "dev-mods"
+$releaseModManifest = Get-Content -LiteralPath (Join-Path $releaseModRoot "dev-mods.json") -Raw |
+    ConvertFrom-Json
+$packageRoot = "$DistDir/mods/bundled"
+foreach ($entry in $releaseModManifest.mods | Where-Object { $_.release -eq $true }) {
+    if ($entry.id -notmatch '^[a-z0-9][a-z0-9_.-]*$' -or
+            $entry.path -notmatch '^[a-z0-9][a-z0-9_-]*$') {
+        throw "Release mod id and path must be single safe names"
+    }
+    $source = Join-Path $releaseModRoot $entry.path
+    $manifest = Get-Content -LiteralPath (Join-Path $source "mod.json") -Raw | ConvertFrom-Json
+    if ($manifest.id -cne $entry.id) {
+        throw "Release mod package id '$($entry.id)' disagrees with mod.json"
+    }
+    Test-ReleaseTypedArchiveTree -Root $source -Label "release-mod/$($entry.id)"
+    Assert-ReleaseHasNoRomDerivedContent -Root $source
+    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
+    $package = "$packageRoot/$($entry.id).pdmod"
+    $packagePython = "C:/Python312/python.exe"
+    if (-not (Test-Path -LiteralPath $packagePython)) {
+        $packagePython = "C:/msys64/usr/bin/python3.exe"
+    }
+    & $packagePython "tools/verify_pdxxx_modder_workflow.py" --source-root "dev-mods/$($entry.path)" --release-package $package
+    if ($LASTEXITCODE -ne 0) { throw "Release mod '$($entry.id)' could not be packaged" }
+    if ($entry.id -ceq "crystal_pistol") {
+        $digest = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
+        [System.IO.File]::WriteAllText(
+            (Join-Path (Resolve-Path -LiteralPath $DistDir).Path "crystal_pistol-default.sha256"),
+            $digest, [System.Text.Encoding]::ASCII)
+    }
 }
 
 # --- Original Grid authoring seed ---

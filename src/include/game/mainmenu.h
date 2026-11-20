@@ -19,6 +19,7 @@ MenuItemHandlerResult menuhandlerControlStyleImpl(s32 operation, struct menuitem
 char *soloMenuTitleStageOverview(struct menudialogdef *dialogdef);
 f32 func0f1036ac(u8 value, s32 prop);
 bool isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
+bool isPerfectDarkDifficultyUnlocked(void);
 char *soloMenuTextBestTime(struct menuitem *item);
 s32 getMaxAiBuddies(void);
 s32 getNumUnlockedSpecialStages(void);

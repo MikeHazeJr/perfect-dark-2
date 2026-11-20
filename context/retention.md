@@ -37,17 +37,20 @@ Prevent the live `context/` tree from re-accreting cruft over time. A doc that c
   reused. Failed/pinned shared copies move into managed private retention.
 - `tools/smoke-verify/storage-policy.json` defaults: five full installs globally
   within 8 GiB (active/pinned/restored included), 8 GiB compact archive, 200 GiB
-  free floor plus 2 GiB extra growth and pending 2 GiB run / 4 GiB smoke-build
-  growth. All values are explicit configurable preflight budgets. Prefer the
+  run/install free floor plus 2 GiB extra growth and pending 2 GiB run / 4 GiB
+  build growth. Builds default to no fixed floor (`min_build_free_gib: 0`).
+  All values are explicit configurable preflight budgets. Prefer the
   latest successful full copy; older successes then oldest failures yield space.
   Every completed run keeps reconstructable content even after full-copy pruning.
   Pins, active/incomplete work, edited fixtures, locked/reparse/hardlinked paths,
   corrupt/incomplete receipts and exhausted budgets refuse further copies.
-- The 200 GiB PD floor is Mike's temporary October 3 decision, recorded in
-  D-011 and Slack `#perfect-dark1791031891.654889`. Per-operation allowances
-  remain unchanged: a build needs 206 GiB available (200 + 4 pending + 2 extra).
-  No automatic expiry was specified. This does not change Astral budgets,
-  cleanup permission, GUI approval or any global machine rule.
+- Mike removed the fixed build reserve on November 19, 2026 (T-TOOLING-015).
+  The default build preflight now needs 6 GiB (4 pending + 2 extra), not 206.
+  The October 3 D-011 200 GiB floor remains for non-build operations. Explicit
+  custom policies with `min_free_gib` but no `min_build_free_gib` retain their
+  old build floor; set the latter explicitly to choose a separate build floor.
+  Location policies cannot override the checkout's build floor. Archive caps,
+  queues, Astral budgets, cleanup permission and global machine rules are unchanged.
 - This policy applies only to newly registered `.claude/smoke-storage/` work.
   It never imports/prunes historical evidence or deletes archive blobs/receipts.
   Explicit `-Install` is a read-only template copied privately. Generic preflight

@@ -1,3 +1,15 @@
 [submodule "tools/recomp"]
 	path = tools/recomp
 	url = https://github.com/Emill/ido-static-recomp.git
+[submodule "third_party/bgfx/bx"]
+	path = third_party/bgfx/bx
+	url = https://github.com/bkaradzic/bx.git
+	shallow = true
+[submodule "third_party/bgfx/bimg"]
+	path = third_party/bgfx/bimg
+	url = https://github.com/bkaradzic/bimg.git
+	shallow = true
+[submodule "third_party/bgfx/bgfx"]
+	path = third_party/bgfx/bgfx
+	url = https://github.com/bkaradzic/bgfx.git
+	shallow = true

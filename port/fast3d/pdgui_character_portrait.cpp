@@ -7,6 +7,7 @@
 
 #include "glad/glad.h"
 #include "../external/stb_image.h"
+#include "gfx_bgfx.h"
 
 extern "C" {
 #include "asset_runtime.h"
@@ -29,6 +30,10 @@ static std::unordered_map<std::string, CharacterPortraitCacheEntry>
 static GLuint uploadPortrait(const u8 *rgba, u32 width, u32 height)
 {
     GLuint texture = 0;
+    if (gfxBgfxActive()) {
+        /* --renderer bgfx: the same RGBA8 image, GL_LINEAR, GL_CLAMP_TO_EDGE. */
+        return (GLuint)gfxBgfxPdguiTexCreate((int)width, (int)height, rgba, 1, 1);
+    }
     glGenTextures(1, &texture);
     if (!texture) return 0;
 
@@ -111,7 +116,11 @@ extern "C" s32 pdguiCharacterPortraitGet(
 
     if (cached != s_CharacterPortraits.end() && cached->second.texture) {
         GLuint old = cached->second.texture;
-        glDeleteTextures(1, &old);
+        if (gfxBgfxActive()) {
+            gfxBgfxPdguiTexDestroy(old);
+        } else {
+            glDeleteTextures(1, &old);
+        }
     }
     CharacterPortraitCacheEntry entry = {
         texture, (u32)width, (u32)height, binding->dependency_b
@@ -131,7 +140,11 @@ extern "C" void pdguiCharacterPortraitReset(void)
     for (auto &item : s_CharacterPortraits) {
         if (item.second.texture) {
             GLuint texture = item.second.texture;
-            glDeleteTextures(1, &texture);
+            if (gfxBgfxActive()) {
+                gfxBgfxPdguiTexDestroy(texture);
+            } else {
+                glDeleteTextures(1, &texture);
+            }
         }
     }
     s_CharacterPortraits.clear();

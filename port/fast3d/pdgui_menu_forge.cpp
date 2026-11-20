@@ -43,42 +43,43 @@ static s32 forgeStageIsGridEligible(s32 stagenum)
 	return 1;
 }
 
-s32 pdguiForgeStartSessionOn(s32 stagenum)
+static s32 forgeStartOnStage(s32 target, bool canvas)
 {
 	if (g_MainChangeToStageNum >= 0) {
-		sysLogPrintf(LOG_WARNING,
-				"GRID: start rejected -- stage transition already pending (%d)",
-				g_MainChangeToStageNum);
+		sysLogPrintf(LOG_WARNING, "GRID: start rejected -- stage transition already pending (%d)",
+			g_MainChangeToStageNum);
 		return 0;
 	}
-
-	/* Default to CI Training only when the caller passed 0 / negative --
-	 * the "no stage in mind" path. Any explicit stagenum must be
-	 * eligible; otherwise refuse loudly rather than silently rewriting
-	 * the caller's intent. */
-	s32 target = (stagenum > 0) ? stagenum : (s32)STAGE_CITRAINING;
-
 	if (!forgeStageIsGridEligible(target)) {
-		sysLogPrintf(LOG_ERROR,
-				"GRID: start ABORT -- stagenum 0x%02x is not Grid-eligible "
-				"(system stage or unregistered). Caller supplied a bad stagenum; "
-				"fix the data source rather than silently rewriting the target.",
-				(u32)target);
+		sysLogPrintf(LOG_ERROR, "GRID: start rejected -- stage 0x%02x is not Grid-eligible",
+			(u32)target);
 		return 0;
 	}
 
-	sysLogPrintf(LOG_NOTE, "GRID: launching session (base stage 0x%02x)",
-			(u32)target);
-
-	forgeLevelSessionBegin("");
-	forgeRequestEnterSession();
-	/* B-216: re-entering the same stage used to queue a full stage transition
-	 * (inputCtxShutdown + reload), breaking menus. Skip redundant
-	 * mainChangeToStage -- forgemode activates on the next tick. */
+	/* A different stage is queued synchronously but loads later. Do not
+	 * close the current document or arm Forge if preparation refused or
+	 * chose a fallback stage. Preserve the in-place path for the current
+	 * stage, so it neither reloads nor tears down its input context. */
 	if (g_StageNum != target) {
 		mainChangeToStage(target);
+		if (g_MainChangeToStageNum != target) {
+			sysLogPrintf(LOG_WARNING, "GRID: stage 0x%02x was not queued (pending=%d)",
+				(u32)target, g_MainChangeToStageNum);
+			return 0;
+		}
 	}
+
+	sysLogPrintf(LOG_NOTE, canvas ? "GRID: launching CANVAS session (base stage 0x%02x)"
+		: "GRID: launching session (base stage 0x%02x)", (u32)target);
+	forgeLevelSessionBegin("");
+	if (canvas) forgeRequestEnterSessionCanvas();
+	else forgeRequestEnterSession();
 	return 1;
+}
+
+s32 pdguiForgeStartSessionOn(s32 stagenum)
+{
+	return forgeStartOnStage(stagenum > 0 ? stagenum : (s32)STAGE_CITRAINING, false);
 }
 
 s32 pdguiForgeStartSession(void)
@@ -86,34 +87,7 @@ s32 pdguiForgeStartSession(void)
 	return pdguiForgeStartSessionOn((s32)STAGE_CITRAINING);
 }
 
-/* B-254 (2026-04-25): start a Grid session on a SP campaign stage as a
- * build canvas. Same as pdguiForgeStartSessionOn but routes through
- * forgeRequestEnterSessionCanvas so setup-time chr / AI / script paths
- * suppress mission state. Caller is the Grid arena picker; canvas-mode
- * dispatch is keyed on the catalog entry's ext.arena.load_mode field. */
 s32 pdguiForgeStartSessionOnCanvas(s32 stagenum)
 {
-	if (g_MainChangeToStageNum >= 0) {
-		sysLogPrintf(LOG_WARNING,
-				"GRID: canvas start rejected -- stage transition already pending (%d)",
-				g_MainChangeToStageNum);
-		return 0;
-	}
-
-	if (stagenum <= 0 || !forgeStageIsGridEligible(stagenum)) {
-		sysLogPrintf(LOG_ERROR,
-				"GRID: canvas start ABORT -- stagenum 0x%02x is not Grid-eligible.",
-				(u32)stagenum);
-		return 0;
-	}
-
-	sysLogPrintf(LOG_NOTE, "GRID: launching CANVAS session (base stage 0x%02x)",
-			(u32)stagenum);
-
-	forgeLevelSessionBegin("");
-	forgeRequestEnterSessionCanvas();
-	if (g_StageNum != stagenum) {
-		mainChangeToStage(stagenum);
-	}
-	return 1;
+	return forgeStartOnStage(stagenum, true);
 }

@@ -475,11 +475,19 @@ static inline void sync_framerate_with_timer(void) {
 static char s_smokeShotPath[1024] = {0};
 static volatile int s_smokeShotPending = 0;
 
+extern "C" void gfxBgfxRequestParityCapture(void);
+extern "C" int gfxBgfxTakeParityPixels(const uint8_t **rgba, int *width, int *height);
+extern "C" void gfxParityCompare(const char *path, const uint8_t *glRgb, int w, int h,
+                                 const uint8_t *bgfxRgba, int bw, int bh);
+
 extern "C" void gfxRequestSmokeScreenshot(const char *path) {
     if (path && path[0]) {
         strncpy(s_smokeShotPath, path, sizeof(s_smokeShotPath) - 1);
         s_smokeShotPath[sizeof(s_smokeShotPath) - 1] = '\0';
         s_smokeShotPending = 1;
+        /* --renderer-parity: read bgfx's copy of the same frame back too
+         * (a no-op in every other mode). */
+        gfxBgfxRequestParityCapture();
     }
 }
 
@@ -540,11 +548,22 @@ static void gfx_sdl_capture_pending_screenshot(void) {
     glPixelStorei(GL_PACK_ALIGNMENT, 1);
     glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, buf);
     s_writeBmp24FromGlRgb(s_smokeShotPath, w, h, buf);
-    free(buf);
     sysLogPrintf(LOG_NOTE, "SMOKE.GLSHOT: captured %dx%d -> %s", w, h, s_smokeShotPath);
+    const uint8_t *bgfxPixels = NULL;
+    int bw = 0, bh = 0;
+    if (gfxBgfxTakeParityPixels(&bgfxPixels, &bw, &bh)) {
+        gfxParityCompare(s_smokeShotPath, buf, w, h, bgfxPixels, bw, bh);
+    }
+    free(buf);
 }
 
+extern "C" void gfxBgfxSubmitFrame(void);
+
 static void gfx_sdl_swap_buffers_begin(void) {
+    /* With --renderer bgfx the frame is recorded until here; bgfx::frame()
+     * executes it on this GL context so the back buffer is complete before
+     * the screenshot and the swap. A no-op with the classic renderer. */
+    gfxBgfxSubmitFrame();
     gfx_sdl_capture_pending_screenshot();
     if (target_fps) {
         sync_framerate_with_timer();

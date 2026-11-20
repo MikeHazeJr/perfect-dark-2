@@ -28,6 +28,7 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_impl_sdl2.h"
 #include "imgui/imgui_impl_opengl3.h"
+#include "pdgui_render_backend.h"
 
 #include "pdgui_bootoverlay.h"
 #include "pdgui_style.h"
@@ -190,7 +191,7 @@ void overlayDrawCallback(void *user)
 
     /* Begin ImGui frame (matches the begin/end ownership pattern of
      * gfx_run -> pdguiNewFrame/Render). */
-    ImGui_ImplOpenGL3_NewFrame();
+    pdguiRenderBackendNewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
 
@@ -201,7 +202,7 @@ void overlayDrawCallback(void *user)
     drawOverlay(screenW, screenH);
 
     ImGui::Render();
-    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    pdguiRenderBackendRenderDrawData(ImGui::GetDrawData());
 }
 
 } /* namespace */

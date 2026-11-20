@@ -2586,9 +2586,9 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("projectile_model_ref") == std::string::npos);
 	REQUIRE(extractor.find("shoot_sound_catalog_id") != std::string::npos);
 	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v15\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v16\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"primary_graph\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"shared_context_file\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("shared_context = \" PDWEAPON_SHARED_CONTEXT_ENTRY") != std::string::npos);
@@ -4387,9 +4387,13 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	REQUIRE(propobj.find("proxy_line_of_sight") != std::string::npos);
 	REQUIRE(propobj.find("cdTestLos05") != std::string::npos);
 
-	/* Wave 5 Unit 6: objFree custom-slot unregister clause (a custom proxy
-	 * left in g_Proxies = use-after-free in coordTriggerProxies). */
-	REQUIRE(propobj.find("custom proxy left in g_Proxies") != std::string::npos);
+	/* Wave 5 Unit 6: objFree's unregister clause (a proxy left in g_Proxies
+	 * = use-after-free in coordTriggerProxies). Since projectile slice 6 it is
+	 * every weapon object's, not the custom slots' alone: a program can give
+	 * the proximity arm to any weapon object. */
+	REQUIRE(propobj.find("a proxy left in g_Proxies would dangle") != std::string::npos);
+	REQUIRE(propobj.find("\t\tweaponUnregisterProxy(weapon);\n\n"
+		"\t\tif (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {") != std::string::npos);
 
 	/* Wave 5 Unit 6: detonator provenance. Sidecar array beside the mask,
 	 * the predicate exported from the runtime, the widened
@@ -4444,7 +4448,9 @@ TEST_CASE("wave 5 unit 7 deployed-entity consumer pins stay wired",
 	 * production caller of weaponGraphRuntimeGetEntityForProjectile, OG
 	 * laptop clause first, and the laptopDeploy projectile-chain fallback. */
 	REQUIRE(bondgun.find("weaponGraphRuntimeGetEntityForProjectile") != std::string::npos);
-	REQUIRE(bondgun.find("gset->weaponnum == WEAPON_LAPTOPGUN || transitionentity != NULL") != std::string::npos);
+	/* projectile-events.md slice 5: the base Laptop's throw is the throw
+	 * rule's choice now; a mod weapon's transition entity still deploys. */
+	REQUIRE(bondgun.find("& PROJECTILE_MODULE_DEPLOY_SENTRY)\n\t\t\t\t|| transitionentity != NULL) {") != std::string::npos);
 	REQUIRE(propobj.find("weaponGraphRuntimeGetEntityForProjectile(projectilerec)") != std::string::npos);
 
 	/* Laptop ammo-transfer literals replaced by the carrier weaponnum

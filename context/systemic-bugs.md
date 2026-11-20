@@ -4262,6 +4262,34 @@ and build on the machine.
 - In a run's game log, `save dir:` must name the run's install or profile
   folder, never `AppData/Roaming/perfectdark`.
 
+## SP-96: A field named `flags` copied from one bit set into another
+
+**Severity: MEDIUM. Every bit that happens to share a position turns on an
+unrelated behavior, silently, for every record that carries it.**
+
+The game has many flag words (FUNCFLAG_* on weapon functions,
+PROJECTILEFLAG_* on projectiles, OBJFLAG_*/OBJFLAG2_*/OBJFLAG3_* on objects,
+CHRCFLAG_* on chrs). A public record's `flags` field holds one of them, and
+its name does not say which. A consumer that ORs it into a different word
+compiles, runs and passes every test that only checks one bit.
+
+**Known instance (B-1261, 2026-11-17):** a projectile record's `flags` are
+the weapon function's FUNCFLAG_* bits, and `projectileApplyGraphRuntime`
+ORed them into PROJECTILEFLAG_*: the Slayer's fly-by-wire rocket became
+SLIDING, the N-bomb FALLING, the homing rocket LIGHTWEIGHT.
+
+**Rules:**
+- A record field that holds a native flag word says which one, in the
+  schema doc and in the reader's comment; a new field gets a name that says it
+  (`function_flags`, `object_flags`).
+- Never copy a flag word into another word. Translate bit by bit where the
+  original does (`if (funcflags & FUNCFLAG_PROJECTILE_POWERED) projectile->flags
+  |= PROJECTILEFLAG_POWERED`).
+
+**Search:**
+- `rg -n "flags[0-9]* \|?= [a-z_>.-]*(runtime|graph|record|entity|source|binding)[a-z_]*->[a-z_]*flags" src port`
+  and check that both sides are the same flag set.
+
 ---
 
 ## SP-91: A one-shot message written in the game tick is dropped by a frame that discards the shared buffers
@@ -4575,6 +4603,90 @@ estimate in a comment: a sampler on the running client found this in one run
 reading the code had produced a wrong guess.
 
 `rg -n "modelRodataIsReadable(InSpan)?\(" src port`
+
+## SP-98: An export loop drops what it cannot handle with a bare `continue`
+
+**Found:** 2026-11-20, B-1266. The scene export skipped every room that did
+not fit a wrongly sized buffer. The skip was a `continue` with no log line
+and no count, the function still returned success, the archive was written
+and validated, and every later check compared the scene with itself. Half of
+Defection was missing for six months and no test could see it.
+
+**The pattern:** a loop over the parts of a source asset (rooms, blocks,
+textures, records) where a part that fails a size or range test is skipped
+and the loop goes on. Each such test was written as a guard against corrupt
+data, but the same line also fires for valid data the code did not foresee,
+and then the output is quietly smaller than the source.
+
+**Rule:** in an export, a part is either absent in the source (say so in a
+comment: that `continue` is the only quiet one) or exported. Anything else is
+counted, logged with its number and the reason, and fails the export. A
+buffer for inflated data is sized from the inflated size, which an rzip
+header states, never from the stored size. And an export has one count that
+comes from somewhere other than itself: here
+`tools/verify_scene_rooms_against_rom.py` reads the ROM's room display lists
+on its own and compares room by room.
+
+**Audit:**
+```
+grep -n -E "continue;" port/src/romextract_*.c | wc -l
+grep -n -B6 -E "^\s+continue;" port/src/romextract_pdarena.c | grep -E "inflat|size|cap|span|len"
+grep -n -E "rzipInflate\(" port/src/*.c port/src/preprocess/*.c src/game/*.c
+```
+For each inflate: where does the destination size come from? For each
+`continue` after a size test in an export loop: is the skipped part counted?
+
+**Checked 2026-11-20:** `romextract_pdarena.c` has five inflate calls. The
+room loop of the scene export was the one sized from the stored length
+(fixed). The primary section, section 2 and section 3 are sized from the
+stream's own stated length (B-1113 did section 3). Not yet audited: the
+model, prop, character and texture exports (`romextract_pd*.c`) for skips
+that do not fail their archive.
+
+**Audited 2026-11-20 (CORE, code reading, every `romextract*.c`):** seven
+places can still drop exported data with no log line and no failure. None of
+them fires on the base ROM where it was checked; all are latent for authored
+or mod data.
+1. Collision: `s_buildTilesExports` `break`s out of a room's geo list on a
+   geo `s_tilesGeoStride` rejects (unknown type, TILE_I/F with fewer than 3 or
+   more than 64 vertices, BLOCK outside 3 to 8), losing every later geo of
+   the room. Checked against the ROM: 60 tiles files, 120,002 geos, all
+   TILE_I with 3 to 12 vertices, and all 132 archives equal the ROM's
+   collision exactly. Also: `convertTiles` (preprocess/filetiles.c) steps
+   over every geo as a TILE_I, so a tiles file with other geo types would be
+   misread before the exporter sees it.
+2. Portals: `s_buildBgPortalsJson` drops a portal row with fewer than 3 or
+   more than 32 vertices, and a block over 32 ends its walk; the runtime
+   packs rows by position, so one dropped row would renumber every later
+   portal. Checked against the ROM: 3,862 portals with 3 to 9 vertices, and
+   every archive's portals.json equals the game's count and vertices.
+3. Scene geometry below the room: a display list or command outside the
+   room buffer, a G_VTX outside the block's vertex span, a triangle using an
+   unloaded slot, an unresolved leaf block, an unknown block type: each is
+   skipped without a count. The ROM check would see all but the slot cases
+   (it shares them); it passes all 132 scenes.
+4. Weapon sounds: `s_addWeaponAudioDependency` (romextract_pdweapon.c)
+   returns success when no .pdsfx or .pdvoice archive matches, so the sound
+   leaves the weapon's archive; the next boot's reuse check then fails with a
+   misleading "preserving edited/unreadable public archive". Not checked.
+5. Model nodes: `s_exportGdlToObjWithState` and `s_exportNodeObj`
+   (romextract_pdmesh.c) treat an unreadable display list or vertex buffer as
+   an absent one (deliberate, pinned by test_modasset_render_stream.cpp;
+   only a model with no triangle at all gets a note). Not checked.
+6. Scene textures: a texture that fails to decode becomes an untextured
+   material, counted only in the manifest's `visual_textures_failed`.
+   Low: the texture exporter fails loudly on non-empty slots.
+7. Mesh jobs: more than 1,024 unique meshes are silently not queued; the
+   only sign is `unique_mesh_jobs=1024`. Unlikely for the base game.
+Borderline: `s_loadStageFileRaw` returns 0 for a missing file and for a
+failed load alike, and the scenario is then written without collision or
+pads while its manifest still names collision.obj.
+Clean: pads, navigation, paths, setup, intro, AI lists, room table, pdlang,
+pdai, pdcharacter, pdtexture, pdmeta; the empty-slot skips of pdsfx, pdsong
+and pdanim_chr say so; romextract.c logs its skips. Scripts of the ROM
+check: CORE's scratchpad `sp98-check/` (check_tiles.py, check_portals.py).
+Next: make 1 to 4 fail their export with a log line (they guard against
+data the base game does not have), then 5 to 7.
 
 ## Scripted pickup can clear the object-to-prop link
 

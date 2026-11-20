@@ -52,6 +52,8 @@
 #include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
+#include "prefs_agent.h"
+#include "savefile.h"
 
 extern "C" {
 #include "pdgui_menus.h"  /* for pdguiMenuCheatsRegister declaration */
@@ -103,10 +105,6 @@ struct s202_menuitem {
 uintptr_t cheatCheckboxMenuHandler     (s32, struct s202_menuitem *, union s202_handlerdata *);
 uintptr_t cheatMenuHandleBuddyCheckbox (s32, struct s202_menuitem *, union s202_handlerdata *);
 uintptr_t cheatMenuHandleTurnOffAllCheats(s32, struct s202_menuitem *, union s202_handlerdata *);
-/* menuhandlerUnlockEverything in cheats.c is file-static; exposed via
- * gamefileUnlockEverything directly which is what the handler does. */
-void gamefileUnlockEverything(void);
-
 /* ---- Cheat metadata (for locked-row tooltip strings) ---- */
 struct sc_cheat {
     u16 nametextid;
@@ -195,7 +193,6 @@ enum CheatsTab {
 static bool s_Registered      = false;
 static s32  s_CheatsTab       = SC_TAB_FUN;   /* currently-shown tab */
 static s32  s_PendingTab      = -1;           /* set by redirect renderer */
-static bool s_ConfirmUnlockModal = false;     /* inline confirm open? */
 static s32  s_CheatsActionFocus = 2;          /* 0=off, 1=unlock, 2=back */
 /* S300: s_CheatsHubPushedCtx removed — menu pool owns the ctx for
  * MENU_TYPE_CHEATS via menupoolAcquireDialog / menupoolReleaseDialog. */
@@ -326,7 +323,7 @@ static inline void sc_TurnOffAllCheats(void)
  *
  *    [Locked/ ✓]   Cheat Name
  *
- * Locked rows are disabled and show a hover tooltip describing how to unlock.
+ * Locked rows show their unlock criteria on hover or navigation focus.
  * Unlocked rows are checkboxes backed by g_CheatsEnabledBank0/1 via the
  * legacy handler (so Marquis/EnemyRockets mutual exclusion stays single-
  * sourced). */
@@ -357,9 +354,17 @@ static const char *sc_stageName(s32 stage_index, char *buf, size_t bufn)
     return buf;
 }
 
-static void sc_buildUnlockTooltip(s32 cheat_id, char *out, size_t outn)
+static void sc_RenderLockedCheat(s32 cheat_id)
 {
     const struct sc_cheat *c = &g_Cheats[cheat_id];
+
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::Selectable("----------", false, ImGuiSelectableFlags_NoAutoClosePopups);
+    ImGui::PopStyleColor();
+
+    if (!ImGui::IsItemFocused() && !ImGui::IsItemHovered()) {
+        return;
+    }
 
     char stagebuf[128]; stagebuf[0] = '\0';
     if (c->stage_index < 21 /* NUM_SOLOSTAGES */) {
@@ -371,23 +376,24 @@ static void sc_buildUnlockTooltip(s32 cheat_id, char *out, size_t outn)
     else if (c->difficulty == 2) diffName = "Perfect Agent";
 
     if (c->flags & SC_CHEATFLAG_FIRINGRANGE) {
-        snprintf(out, outn,
-                 "Locked.\nWin gold medals on the firing range to unlock.");
+        ImGui::SetTooltip("Locked.\nWin gold medals on the firing range to unlock.");
     } else if (c->flags & SC_CHEATFLAG_COMPLETION) {
-        snprintf(out, outn,
-                 "Locked.\nComplete %s on Agent to unlock.", stagebuf);
+        if (c->flags & SC_CHEATFLAG_TRANSFERPAK) {
+            ImGui::SetTooltip("Locked.\nComplete %s on any difficulty, or start the game with a valid pd.gbc file.", stagebuf);
+        } else {
+            ImGui::SetTooltip("Locked.\nComplete %s on any difficulty to unlock.", stagebuf);
+        }
     } else {
-        /* Timed */
         s32 mins = c->time / 60;
         s32 secs = c->time % 60;
-        snprintf(out, outn,
-                 "Locked.\nComplete %s on %s in under %d:%02d to unlock.",
-                 stagebuf, diffName, mins, secs);
-    }
 
-    if (c->flags & SC_CHEATFLAG_TRANSFERPAK) {
-        /* Transfer-pak alt-unlock doesn't apply on PC port (no GB peripheral),
-         * but the message is still accurate for the canonical unlock path. */
+        if (c->flags & SC_CHEATFLAG_TRANSFERPAK) {
+            ImGui::SetTooltip("Locked.\nComplete %s on %s in %d:%02d or less, or start the game with a valid pd.gbc file.",
+                              stagebuf, diffName, mins, secs);
+        } else {
+            ImGui::SetTooltip("Locked.\nComplete %s on %s in %d:%02d or less to unlock.",
+                              stagebuf, diffName, mins, secs);
+        }
     }
 }
 
@@ -450,8 +456,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(titleH);
 
     /* B / Escape closes the hub entirely. */
-    if (!ImGui::IsWindowAppearing() && !s_ConfirmUnlockModal &&
-        pdguiMenuCancelPressed()) {
+    if (!ImGui::IsWindowAppearing() && pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         /* S300: menuCloseDialog (invoked by menuPopDialog) releases the
          * pool slot and pops the owned ctx; no explicit ctx pop here. */
@@ -514,21 +519,11 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                             const char *name = br.english;
                             if (br.param != 0) {
                                 name = sc_localizedCheatName(br.param, br.english);
-                                if (locked) name = "----------";
                             }
 
                             ImGui::PushID((int)r);
                             if (locked) {
-                                /* Disabled row -- no interaction. */
-                                ImGui::BeginDisabled();
-                                bool dummy = false;
-                                ImGui::RadioButton(name, dummy);
-                                ImGui::EndDisabled();
-                                if (ImGui::IsItemHovered()) {
-                                    char tip[256];
-                                    sc_buildUnlockTooltip(br.param, tip, sizeof(tip));
-                                    ImGui::SetTooltip("%s", tip);
-                                }
+                                sc_RenderLockedCheat(br.param);
                             } else {
                                 bool clicked = ImGui::RadioButton(name, enabled);
                                 bool accepted = sc_FocusedItemAcceptPressed();
@@ -549,22 +544,12 @@ static s32 renderCheatsHub(struct menudialog *dialog,
                             const CheatRow &cr = rows[r];
                             bool locked  = (cheatIsUnlocked(cr.cheat_id) == 0);
                             bool enabled = sc_GetCheatEnabled(cr.cheat_id);
-                            const char *name = locked
-                                ? "----------"
-                                : sc_localizedCheatName(cr.cheat_id, cr.english);
 
                             ImGui::PushID((int)(r + 0x100));
                             if (locked) {
-                                ImGui::BeginDisabled();
-                                bool dummy = false;
-                                ImGui::Checkbox(name, &dummy);
-                                ImGui::EndDisabled();
-                                if (ImGui::IsItemHovered()) {
-                                    char tip[256];
-                                    sc_buildUnlockTooltip(cr.cheat_id, tip, sizeof(tip));
-                                    ImGui::SetTooltip("%s", tip);
-                                }
+                                sc_RenderLockedCheat(cr.cheat_id);
                             } else {
+                                const char *name = sc_localizedCheatName(cr.cheat_id, cr.english);
                                 bool before = enabled;
                                 bool clicked = ImGui::Checkbox(name, &enabled);
                                 bool accepted = false;
@@ -627,6 +612,7 @@ static s32 renderCheatsHub(struct menudialog *dialog,
         }
         if (ImGui::IsItemFocused() || ImGui::IsItemHovered()) {
             s_CheatsActionFocus = 0;
+            ImGui::SetTooltip("Clears all cheat selections. Active cheats end when the next stage loads.");
         }
         ImGui::SameLine();
         bool unlockPressed = pdguiActionBarButton("Unlock All...", actionBarFocused && s_CheatsActionFocus == 1, btnW);
@@ -791,8 +777,8 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(titleH);
 
     ImGui::TextWrapped(
-        "If you activate any cheats, you will be unable to progress "
-        "further in the game while those cheats are active.");
+        "Active cheats pause progression in offline play. Local cheat selections "
+        "do not apply to online games.");
 
     float avail = ImGui::GetContentRegionAvail().y;
     float bodyH = pdguiBodyHeightForActionBar(avail);
@@ -841,6 +827,8 @@ static s32 renderCheatsWarning(struct menudialog *dialog,
  * ever active at a time (structural dedup via menu pool). */
 static void *s_CheatsUnlockOpenedForDialog = nullptr;
 static s32   s_CheatsUnlockOpenFrame = -1;
+static char  s_CheatsUnlockAgent[SAVE_NAME_MAX];
+static bool  s_CheatsUnlockSaveFailed = false;
 #define CHEATS_UNLOCK_FRAME_DEBOUNCE     3
 #define CHEATS_UNLOCK_FORCE_FOCUS_FRAMES 5
 
@@ -871,6 +859,8 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
         ImGui::OpenPopup(popupId);
         s_CheatsUnlockOpenedForDialog = (void *)dialog;
         s_CheatsUnlockOpenFrame = curFrame;
+        snprintf(s_CheatsUnlockAgent, sizeof(s_CheatsUnlockAgent), "%s", prefsAgentGetActive());
+        s_CheatsUnlockSaveFailed = false;
         pdguiPlaySound(PDGUI_SND_ERROR);
     }
 
@@ -927,20 +917,27 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     pdguiSetCursorBelowTitle(pdTitleH);
     ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 8.0f * scale);
 
+    const bool canSave = s_CheatsUnlockAgent[0] != '\0'
+        && strcmp(s_CheatsUnlockAgent, prefsAgentGetActive()) == 0;
     {
         float availW = dialogW - ImGui::GetStyle().WindowPadding.x * 2.0f;
         ImGui::SetCursorPosX(ImGui::GetStyle().WindowPadding.x);
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + availW);
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.85f, 1.0f));
-        ImGui::TextWrapped("Are you sure?");
+        ImGui::TextWrapped("Save Unlock All for this Agent?");
         ImGui::PopStyleColor();
         ImGui::Spacing();
-        ImGui::TextWrapped(
-            "This will overwrite any progress saved to the current profile.");
+        ImGui::TextWrapped("Makes cheats, missions, weapons, challenges and Combat Simulator items available. Earned records are preserved.");
         ImGui::Spacing();
-        ImGui::TextWrapped(
-            "Unlocks all cheats, weapons, missions, challenges and combat "
-            "simulator items.");
+        if (!s_CheatsUnlockAgent[0]) {
+            ImGui::TextWrapped("Sign in to an Agent to save these unlocks.");
+        } else if (!canSave) {
+            ImGui::TextWrapped("The active Agent changed. Reopen Unlock All to continue.");
+        } else if (s_CheatsUnlockSaveFailed) {
+            ImGui::TextWrapped("Could not save unlocks for %s. Try again or cancel.", s_CheatsUnlockAgent);
+        } else {
+            ImGui::TextWrapped("Applies to %s's Agent save.", s_CheatsUnlockAgent);
+        }
         ImGui::PopTextWrapPos();
     }
 
@@ -970,21 +967,23 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     }
 
     /* No (Cancel) first — safer default focus for destructive confirm. */
-    if (ImGui::Button("No##cheats_unlock_cancel", ImVec2(btnW, btnH))) {
-        if (!inputDebounced) doNo = true;
-    }
+    const bool cancelClicked = ImGui::Button("Cancel##cheats_unlock_cancel", ImVec2(btnW, btnH));
+    doNo = !inputDebounced && (cancelClicked || sc_FocusedItemAcceptPressed());
     ImGui::SetItemDefaultFocus();
 
     ImGui::SameLine(0.0f, gap);
 
-    /* Red "Yes" confirm. */
+    /* Red confirm. */
+    ImGui::BeginDisabled(!canSave);
     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
-    if (ImGui::Button("Yes##cheats_unlock_confirm", ImVec2(btnW, btnH))) {
-        if (!inputDebounced) doYes = true;
-    }
+    const char *confirmLabel = s_CheatsUnlockSaveFailed
+        ? "Retry###cheats_unlock_confirm" : "Unlock All###cheats_unlock_confirm";
+    const bool confirmClicked = ImGui::Button(confirmLabel, ImVec2(btnW, btnH));
+    doYes = canSave && !inputDebounced && (confirmClicked || sc_FocusedItemAcceptPressed());
     ImGui::PopStyleColor(3);
+    ImGui::EndDisabled();
 
     /* Keybinding hints */
     {
@@ -1017,15 +1016,17 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     }
 
     if (doYes && !doNo) {
-        /* Legacy menuhandlerUnlockEverything is file-static in cheats.c; it
-         * just calls gamefileUnlockEverything().  Zero-function-loss. */
-        gamefileUnlockEverything();
-        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats -- Unlock Everything applied");
-        pdguiPlaySound(PDGUI_SND_SELECT);
-        ImGui::CloseCurrentPopup();
-        s_CheatsUnlockOpenedForDialog = nullptr;
-        s_CheatsUnlockOpenFrame = -1;
-        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
+        if (saveAgentUnlockAll(s_CheatsUnlockAgent) == 0) {
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: Cheats -- Unlock All saved for Agent '%s'", s_CheatsUnlockAgent);
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            ImGui::CloseCurrentPopup();
+            s_CheatsUnlockOpenedForDialog = nullptr;
+            s_CheatsUnlockOpenFrame = -1;
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
+        } else {
+            s_CheatsUnlockSaveFailed = true;
+            pdguiPlaySound(PDGUI_SND_ERROR);
+        }
     } else if (doNo) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
