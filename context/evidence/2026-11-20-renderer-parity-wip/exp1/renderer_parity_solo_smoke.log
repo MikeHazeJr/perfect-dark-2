@@ -1,0 +1,15 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+Selected 1 of 319 tests.
+  - renderer_parity_solo_smoke
+Install mode: private copy of read-only template D:\PD2-wt\shared-base-13
+  binary under test replaces the template's own: D:\PD2-wt\bgfx-classic\.claude\smoke-ref\PerfectDark.exe
+
+=== renderer_parity_solo_smoke ===
+  2.0 renderer phase 2a (D5): renderer parity (see renderer_parity_menu_smoke) on one solo stage, Defection, in first-person play: rooms from the scenario scene renderer, props, guns, sky and HUD from fast3d. Three captures after offline gameplay is ready, on the virtual timeline.
+  install dir: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T171315507949Z-renderer_parity_solo_smoke-842edb14
+  state: current
+  mem: free commit 29740 MB / 48628 MB limit; free RAM 16512 MB
+  mem: pagefile fixed maximum 24000 MB
+  target: pd (PerfectDark.exe)
+  strategy: harness
+  owned process identity: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T171315507949Z-renderer_parity_solo_smoke-842edb14\logs\smoke-process-ownership\owned-7732.json

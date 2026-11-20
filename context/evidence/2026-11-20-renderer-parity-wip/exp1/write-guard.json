@@ -1,0 +1,9 @@
+{
+  "schema": "pd2.native-write-inventory.v1",
+  "passed": true,
+  "client_translation_units": 870,
+  "repository_files": 1638,
+  "wrapped_symbols": 64,
+  "failures": [],
+  "limits": "Known source API guard; native link/behavior/dependency audit required separately."
+}

@@ -1361,16 +1361,11 @@ static bool finiteVec3(const float v[3])
 		&& finiteFloat(v[2]);
 }
 
-static bool ensureShader(Scene &scene)
+/* The scene's GLSL source, one copy. ensureShader compiles it; the bgfx path
+ * reads it for its developer-only parity experiment
+ * (--debug-bgfx-scene-classic-glsl, scenario_scene_renderer_bgfx.cpp). */
+static void classicShaderSource(const char **out_vs, const char **out_fs)
 {
-	if (scene.shader) {
-		return true;
-	}
-
-	if (scene.shader_failed) {
-		return false;
-	}
-
 	static const char *vs =
 		"#version 130\n"
 		"uniform mat4 u_VP;\n"
@@ -1489,6 +1484,28 @@ static bool ensureShader(Scene &scene)
 		"  outColor.rgb = mix(outColor.rgb, u_FogColor, v_Fog);\n"
 		"  fragColor = outColor;\n"
 		"}\n";
+	*out_vs = vs;
+	*out_fs = fs;
+}
+
+extern "C" void sceneRendererClassicShaderSource(const char **vs, const char **fs)
+{
+	classicShaderSource(vs, fs);
+}
+
+static bool ensureShader(Scene &scene)
+{
+	if (scene.shader) {
+		return true;
+	}
+
+	if (scene.shader_failed) {
+		return false;
+	}
+
+	const char *vs = nullptr;
+	const char *fs = nullptr;
+	classicShaderSource(&vs, &fs);
 
 	GLuint vert = compileShader(GL_VERTEX_SHADER, vs, "vertex");
 	if (!vert) {

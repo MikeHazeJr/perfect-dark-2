@@ -181,6 +181,23 @@ static inline int dbgTexSample(void) {
     if (s_dbgTexSample < 0) { s_dbgTexSample = sysArgCheck("--debug-texsample") ? 1 : 0; }
     return s_dbgTexSample;
 }
+/* --debug-renderer-constant-noise: a developer flag for renderer parity
+ * experiments (2.0 renderer, Workbench D-041). Every backend gives the
+ * combiner's noise term frame count 0 and noise scale 0, so random() sees
+ * vec3(0.0) and returns exactly 0: the noise input is 0.5 and the dithered
+ * alpha test keeps only opaque texels, in the GL and bgfx backends alike. Only
+ * the uniform values change, never the shader text; without the flag nothing
+ * differs. */
+static int s_dbgConstantNoise = -1;
+extern "C" int gfxDebugConstantNoiseGet(void) {
+    if (s_dbgConstantNoise < 0) {
+        s_dbgConstantNoise = sysArgCheck("--debug-renderer-constant-noise") ? 1 : 0;
+        if (s_dbgConstantNoise) {
+            sysLogPrintf(LOG_NOTE, "renderer: --debug-renderer-constant-noise: combiner noise held at 0.5 in every backend (developer parity experiment)");
+        }
+    }
+    return s_dbgConstantNoise;
+}
 static float s_vpMatrix[4][4]; /* View-Projection matrix for collision mesh rendering */
 
 struct RawTexMetadata {

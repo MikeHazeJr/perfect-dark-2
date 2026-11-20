@@ -1,0 +1,39 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+Selected 1 of 316 tests.
+  - renderer_classic_default_smoke
+Install mode: private copy of read-only template D:\PD2-wt\shared-base-13
+  binary under test replaces the template's own: D:\PD2-wt\bgfx-classic\.claude\smoke-ref\PerfectDark.exe
+
+=== renderer_classic_default_smoke ===
+  2.0 renderer phase 2a (D5): with no renderer flag the client runs the classic GL renderer exactly as before: gfx_init keeps gfx_opengl_api, bgfx is never initialised, and no bgfx code path logs anything. Boots to Agent Select and captures it twice. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get.
+  install dir: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T164409701406Z-renderer_classic_default_smoke-41216c2a
+  state: current
+  fixture: tools/smoke-verify/fixtures/agent_smoke.json -> classic-home/agent_smoke.json
+  staged 1 fixture(s)
+  mem: free commit 30539 MB / 48628 MB limit; free RAM 18200 MB
+  mem: pagefile fixed maximum 24000 MB
+  target: pd (PerfectDark.exe)
+  strategy: harness
+  owned process identity: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T164409701406Z-renderer_classic_default_smoke-41216c2a\logs\smoke-process-ownership\owned-21664.json
+  log: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T164409701406Z-renderer_classic_default_smoke-41216c2a\logs\game client\pd-client.log
+  exit code: 0
+  elapsed: 101.9s
+  ok  forbidden absent: EXCEPTION_ACCESS_VIOLATION
+  ok  forbidden absent: FATAL: 
+  ok  forbidden absent: SMOKE: result=timeout
+  ok  forbidden absent: bgfx: 
+  ok  forbidden absent: PARITY: 
+  ok  required matched: SMOKE: scenario=renderer_classic_default_smoke
+  ok  required matched: MENUPOOL: acquired agent_select
+  ok  required matched: SMOKE\.GLSHOT: captured .*classic-agent-select\.bmp
+  ok  required matched: SMOKE\.GLSHOT: captured .*classic-agent-select-later\.bmp
+  ok  required matched: SMOKE: result=scripted_exit
+  PASS 10/10 assertions
+  retained reconstructable receipt: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\receipts\20261120T164409701406Z-renderer_classic_default_smoke-41216c2a\recipe.json.gz
+
+  Summary
+  -------
+  [PASS] renderer_classic_default_smoke (101.9s) assertions=10/10
+
+  Total: 1 pass, 0 fail
+Results written to: D:\PD2-wt\bgfx-classic\.claude\smoke-verify-runs\results-20261120T164914Z.json

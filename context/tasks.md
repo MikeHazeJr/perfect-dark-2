@@ -2286,14 +2286,19 @@ resource receipt overlapped.
 - T-INPUT-002 and deferred D-001: Queue Match.
 - T-BENCHMARKING-006: GPU swarm benchmark and scalability program.
 - T-NETWORKING-008: authority migration and richer friend-play continuity.
-- 2.0 renderer (decisions D1 to D7 under D-004; no Workbench item yet, so
-  commits use `Refs: D-004`): plan in
+- 2.0 renderer (Workbench T-RENDERING-001, decisions D-041 and D-042; scope
+  decisions D1 to D7 under D-004; worktree commits use `Refs: D-004`): plan in
   `context/designs/rendering/renderer-2.0-scope.md`. Phase 2a step 1 (classic
   on bgfx's OpenGL backend, `--renderer bgfx`, parity mode) landed on dev on
   2026-11-19 (merge of `week-pd/bgfx-classic`, PR #9; Mike: "Commit, push,
   merge, update local dev"); the classic GL renderer stays the default.
   State, parity results and next steps in
-  `context/designs/rendering/bgfx-classic-gl.md`.
+  `context/designs/rendering/bgfx-classic-gl.md`; definition of done in
+  `context/designs/rendering/renderer-2.0-handoff.md`. Mike 2026-11-20:
+  prove the causes of step 1's parity differences, then accept the rest
+  (D-041, experiments on `week-pd/bgfx-parity-proof`); split-screen (D-042):
+  a developer-only two-view frame now, and split-screen stays in scope with
+  the mode chosen per local player.
 
 Items marked `historical-cut` retain their permanent IDs and evidence but are
 not live routing targets. They were consolidated into the milestone gates above

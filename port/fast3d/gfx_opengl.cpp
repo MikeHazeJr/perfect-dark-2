@@ -51,6 +51,8 @@ static bool current_depth_mask;
 
 static uint32_t frame_count;
 
+extern "C" int gfxDebugConstantNoiseGet(void);
+
 static std::vector<Framebuffer> framebuffers;
 static size_t current_framebuffer;
 static float current_noise_scale;
@@ -92,11 +94,13 @@ static void gfx_opengl_vertex_array_set_attribs(struct ShaderProgram* prg) {
 }
 
 static void gfx_opengl_set_uniforms(struct ShaderProgram* prg) {
+    /* --debug-renderer-constant-noise (gfx_pc.cpp): noise inputs of zero. */
+    const bool constant_noise = gfxDebugConstantNoiseGet() != 0;
     if (prg->frame_count_location >= 0) {
-        glUniform1i(prg->frame_count_location, frame_count);
+        glUniform1i(prg->frame_count_location, constant_noise ? 0 : (GLint)frame_count);
     }
     if (prg->noise_scale_location >= 0) {
-        glUniform1f(prg->noise_scale_location, current_noise_scale);
+        glUniform1f(prg->noise_scale_location, constant_noise ? 0.0f : current_noise_scale);
     }
     if (prg->three_point_filter_locations[0] >= 0) {
         glUniform1i(prg->three_point_filter_locations[0], current_textures_linear_filter[0]);

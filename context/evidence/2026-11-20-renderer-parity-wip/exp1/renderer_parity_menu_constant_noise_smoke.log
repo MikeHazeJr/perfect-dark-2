@@ -1,0 +1,43 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+Selected 1 of 319 tests.
+  - renderer_parity_menu_constant_noise_smoke
+Install mode: private copy of read-only template D:\PD2-wt\shared-base-13
+  binary under test replaces the template's own: D:\PD2-wt\bgfx-classic\.claude\smoke-ref\PerfectDark.exe
+
+=== renderer_parity_menu_constant_noise_smoke ===
+  2.0 renderer parity experiment (Workbench D-041): the same run as renderer_parity_menu_smoke with --debug-renderer-constant-noise, which gives the combiner's noise term frame count 0 and noise scale 0 in both backends, so its random() returns exactly 0 (noise input 0.5; the dithered alpha test keeps only opaque texels). Differences that remain do not come from the noise hash. 2.0 renderer phase 2a (D5): with --renderer-parity the classic GL renderer presents and the bgfx backend renders the same frames offscreen from the same fast3d, scene-renderer and ImGui commands. Each screenshot event compares the two finished frames pixel for pixel (port/fast3d/gfx_parity.cpp): <shot> is the GL frame, <shot>.bgfx.bmp the bgfx frame, <shot>.diff.bmp the difference (x64) and <shot>.parity.json the counts. Front-end menu: Agent Select, ImGui over the 3D Carrington Institute background with the character preview. The wait is core_boot_ready plus time, not agent_select_ready: that condition needs keyboard focus, which a runner in the background does not get; for the same reason the Main Menu (a keypress away) is not captured.
+  install dir: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T170604532678Z-renderer_parity_menu_constant_noise_smoke-cf35f6f4
+  state: current
+  fixture: tools/smoke-verify/fixtures/agent_smoke.json -> parity-home/agent_smoke.json
+  staged 1 fixture(s)
+  mem: free commit 31643 MB / 48628 MB limit; free RAM 18106 MB
+  mem: pagefile fixed maximum 24000 MB
+  target: pd (PerfectDark.exe)
+  strategy: harness
+  owned process identity: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T170604532678Z-renderer_parity_menu_constant_noise_smoke-cf35f6f4\logs\smoke-process-ownership\owned-15596.json
+  log: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\installs\20261120T170604532678Z-renderer_parity_menu_constant_noise_smoke-cf35f6f4\logs\game client\pd-client.log
+  exit code: 0
+  elapsed: 91.6s
+  ok  forbidden absent: EXCEPTION_ACCESS_VIOLATION
+  ok  forbidden absent: FATAL: 
+  ok  forbidden absent: bgfx: fatal
+  ok  forbidden absent: SMOKE: result=timeout
+  ok  forbidden absent: PARITY: .* size mismatch
+  ok  forbidden absent: PARITY: could not write
+  ok  required matched: SMOKE: scenario=renderer_parity_menu_constant_noise_smoke
+  ok  required matched: bgfx: renderer parity mode
+  ok  required matched: renderer: --debug-renderer-constant-noise: combiner noise held at 0.5 in every backend
+  ok  required matched: MENUPOOL: acquired agent_select
+  ok  required matched: SMOKE\.GLSHOT: captured .*parity-agent-select\.bmp
+  ok  required matched: PARITY: .*parity-agent-select\.bmp size=\d+x\d+ differing=
+  ok  required matched: PARITY: .*parity-agent-select-later\.bmp size=\d+x\d+ differing=
+  ok  required matched: SMOKE: result=scripted_exit
+  PASS 14/14 assertions
+  retained reconstructable receipt: D:\PD2-wt\bgfx-classic\.claude\smoke-storage\receipts\20261120T170604532678Z-renderer_parity_menu_constant_noise_smoke-cf35f6f4\recipe.json.gz
+
+  Summary
+  -------
+  [PASS] renderer_parity_menu_constant_noise_smoke (91.6s) assertions=14/14
+
+  Total: 1 pass, 0 fail
+Results written to: D:\PD2-wt\bgfx-classic\.claude\smoke-verify-runs\results-20261120T171003Z.json

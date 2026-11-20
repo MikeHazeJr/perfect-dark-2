@@ -31,14 +31,17 @@ collects what a fresh session would otherwise have to rediscover.
    (`context/week-pd-coordination.md`, an untracked shared file in the
    canonical checkout) for other lanes' landings and the current shared smoke
    base.
-3. Workbench: no 2.0 renderer item exists. The only anchor is D-004 ("Define
-   Perfect Dark 2 1.0 product scope", which places 2.0 after 1.0), so commits
-   use `Release - D-004: <summary>` with a `Refs: D-004` trailer (the
-   commit-msg hook enforces the format). When the Workbench server runs
-   (`http://127.0.0.1:8378`; it was not running on 2026-11-20 14:30 UTC),
-   follow `AGENTS.md` standing orders 1 to 11: create a 2.0 renderer item
-   through the API and turn every open question in section 4 below into a
-   decision item with two to four options. Never hand-pick Workbench IDs.
+3. Workbench (`http://127.0.0.1:8378`; follow `AGENTS.md` standing orders 1
+   to 11): the 2.0 renderer item is **T-RENDERING-001** (created 2026-11-20).
+   Mike's answers to the step 1 report are decisions **D-041** (parity:
+   prove the causes, then accept the rest) and **D-042** (split-screen, with
+   the renderer mode chosen per local player); the questions still open in
+   section 4 are decisions D-043 to D-051. Never hand-pick Workbench IDs. Commits: the commit-msg hook checks the item ID against the
+   roadmap of the checkout it runs in. The canonical checkout's roadmap has
+   T-RENDERING-001 (`Rendering - T-RENDERING-001: <summary>`, `Refs:
+   T-RENDERING-001`); a worktree's tracked copy may predate it, so a worktree
+   commit uses `Release - D-004: <summary>` with `Refs: D-004` (D-004 places
+   2.0 after 1.0).
 4. Exclusive resources (`AGENTS.md` order 7; T-TOOLING-004): builds go through
    the coordination queue and `devtools/build-session.ps1` (never `-NoQueue`,
    never shared `Build/`, never pd-server); pd-tests through the `test-runner`
@@ -141,6 +144,14 @@ parallel.
    stage load even in classic (a low-memory fallback may build them on the
    first toggle); remastered greyed out on hardware without a compute-capable
    backend, while classic still runs (scope 5.6).
+   **The mode belongs to a player, not to the process (D-042, Mike
+   2026-11-20).** Split-screen may come back, and then each local player picks
+   classic or remastered: store the choice so it can become per player, let
+   each player's toggle act on their own view only, and let one frame mix
+   classic and remastered views. A classic view in a mixed frame stays
+   pixel-identical to classic inside its viewport (scope 5.9). A
+   developer-only two-view frame tests per-view state on bgfx now (D-042 B,
+   section 5.1); it creates no second local player.
 4. **Built in (D4).** Remastered looks right with no packs installed; base
    materials get a built-in PBR derivation; art packs are ordinary mods.
 5. **No prerequisites (D6).** Static linking by default; the graphics DLLs
@@ -184,7 +195,7 @@ parallel.
 |---|---|---|---|
 | 0. 1.x guardrails | Section 9 rules; B-1172 landed; R3 and R6 if cheap; the standard-glTF materials plan | No new couplings in review; extracted materials carry catalog IDs | Partial: B-1172 is on dev; R3 and R6 are not done (no presentation RNG on dev; `extras.pd2_material` carries no texture catalog ID) |
 | 1. Separation | R1, R2, R4, R5, R9; the presentation snapshot schema and its producers | Classic captures and gameplay logs unchanged; the listen host no longer builds remote views; the snapshot covers every opaque world draw | Not started; needs decision 11 (who owns R1) and a source freeze |
-| 2a. Classic onto bgfx | Step 1: classic on bgfx GL (done). Step 2: D3D11 as the Windows default, GL 4.3 as fallback, Vulkan as an option, SDL windows without a GL context, the DLL rule | On bgfx GL, classic pixel-identical on R9 captures; on D3D11 every remaining difference explained and accepted; then the 1.0 GL backend is removed | Step 1 done, waiting for Mike's verdict on its parity differences; step 2 not started |
+| 2a. Classic onto bgfx | Step 1: classic on bgfx GL (done). Step 2: D3D11 as the Windows default, GL 4.3 as fallback, Vulkan as an option, SDL windows without a GL context, the DLL rule | On bgfx GL, classic pixel-identical on R9 captures; on D3D11 every remaining difference explained and accepted; then the 1.0 GL backend is removed | Step 1 done; Mike's verdict (D-041): prove the causes of its parity differences, then accept the rest; the experiments run on `week-pd/bgfx-parity-proof` (5.1); step 2 not started |
 | 2b. Remastered skeleton | bgfx views and passes; HDR target; `G_REMASTER_PASS_EXT`; the toggle; rooms in neutral shading; tone mapping | Toggling changes only pixels: gameplay logs identical in both modes | Not started |
 | 3. Objects | GPU model cache; per-instance matrices, visibility and shading; characters, props, viewmodel, attachments; translucency order; opaque instancing | All models remastered; neutral mode matches classic composition | Not started |
 | 4. Lighting, shadows, GI (D3) | Normals; clustered lights; fixtures as real lights bounded by rooms; the per-stage lighting file; cached fixture shadows and sun cascades; the per-light probe bake; one showcase stage first | Mike signs off the showcase stage's look; flash and light-op timing match classic | Not started |
@@ -193,7 +204,7 @@ parallel.
 | 7. Packs | Schema 2 `.pdmaterial` and `.pdtexture`, targeting, modes, cache, Mod Manager conflicts; an original showcase pack if decision 4 says so | A pack changes only remastered mode, and old clients refuse it cleanly | Not started |
 | 8. Sky and effects | Sky dome, stars, fog, particles, decals, beams, flares, x-ray and the vision modes | No classic fallback left in normal play | Not started |
 | 9. Forge lighting | One light schema shared with Forge F4; optional lightmaps for custom maps | A custom map lit in both modes | Not started |
-| 10. Qualification | Fallback hardware, split-screen, listen host, Theater, memory, long sessions | Release gate | Not started |
+| 10. Qualification | Fallback hardware, split-screen with mixed classic and remastered views (D-042), listen host, Theater, memory, long sessions | Release gate | Not started |
 
 ### 3.3 What each remaining phase requires
 
@@ -260,7 +271,11 @@ either classic GBI or the inline command, never both, and moves its side
 effects out first (R3 to R5); the toggle of 3.1; rooms in neutral shading;
 HDR target and tone mapping; drawing in the game's draw space with its
 projection so depth stays compatible with fast3d passes (scope 5.7; the B-936
-lesson).
+lesson). The mode is decided per view from the start (D-042): each view's
+`lvRenderView` emits classic GBI or the remastered commands according to its
+player's mode, the HDR target, tone mapping and post run only for remastered
+views, and nothing a remastered view sets (bgfx view state, targets,
+uniforms) leaks into a classic view of the same frame.
 
 **Phase 3 (objects).** A GPU mesh cache per modeldef node (native modeldefs
 first, then `.pdmesh` float packets) with per-vertex matrix indices;
@@ -326,35 +341,41 @@ if decision 10 says so.
 
 **Phase 10 (qualification).** Fallback hardware (classic everywhere,
 remastered greyed out below the capability gate), split-screen (once it
-exists), the listen host, Theater, memory and VRAM (stage-scoped residency,
-streaming), long sessions; the release gate.
+exists; D-042: frames that mix classic and remastered views, each classic
+view pixel-identical to classic in its viewport, each player's toggle acting
+on their own view), the listen host, Theater, memory and VRAM (stage-scoped
+residency, streaming), long sessions; the release gate.
 
 ---
 
 ## 4. Decisions still needed from Mike
 
-Turn each into a Workbench decision item (two to four options with
-trade-offs). The scope doc section 10 has the background.
+Each is a Workbench decision item (D-041 to D-051, created 2026-11-20 with
+two to four options each); the scope doc section 10 has the background.
 
-1. **Step 1 parity verdict.** Accept the remaining differences (5.1), or chase
-   them first (the Agent Select thumbnail patch, then the scene's rounding).
-2. **Split-screen parity.** The game allows one local player today
-   (`context/constraints.md`), so no split-screen frame can be drawn; confirm
-   it waits until split-screen exists (phase 10).
-3. **Decision 6, hybrid frames.** May 2.0 ship with some passes still classic
+1. **Step 1 parity verdict. Decided (D-041, Mike 2026-11-20): B**, prove the
+   causes with the two experiments of 5.1, then accept what remains.
+2. **Split-screen. Decided (D-042, Mike 2026-11-20): B**, a developer-only
+   two-view frame now, to test per-view state on bgfx before split-screen
+   returns. Mike: "We may add Split Screen back in, but each player might
+   want to play on a different mode (classic vs new)." So split-screen stays
+   in scope with the mode chosen per local player (3.1 item 3), and phase 10
+   covers mixed frames. (His first "B" answered this question; his
+   follow-up "B for the first question as well" answered decision 1.)
+3. **Decision 6, hybrid frames (D-043).** May 2.0 ship with some passes still classic
    in remastered mode? (Scope recommends yes.)
-4. **Decision 7, budgets.** How many remastered views (split-screen, listen
+4. **Decision 7, budgets (D-044).** How many remastered views (split-screen, listen
    host) at what frame rate on Mike's reference machine. Gates phase 6.
-5. **Decision 8, frame interpolation** in 2.0 or 2.x (scope recommends 2.x).
-6. **Decision 9, Theater** in both renderers in 2.0 (scope recommends yes).
-7. **Decision 10, Forge F4 lighting** remastered only, or also baked for
+5. **Decision 8, frame interpolation (D-045)** in 2.0 or 2.x (scope recommends 2.x).
+6. **Decision 9, Theater (D-046)** in both renderers in 2.0 (scope recommends yes).
+7. **Decision 10, Forge F4 lighting (D-047)** remastered only, or also baked for
    classic (scope recommends both, one schema).
-8. **Decision 11, who owns R1** and when its source freeze runs.
-9. **Decision 4 (open part):** an original showcase pack, and whether local
+8. **Decision 11, who owns R1 (D-048)** and when its source freeze runs.
+9. **Decision 4, open part (D-049):** an original showcase pack, and whether local
    tools such as AI upscaling of the player's own textures are acceptable.
-10. **Default mode:** remastered where supported, or classic first (scope 5.6
+10. **Default mode (D-050):** remastered where supported, or classic first (scope 5.6
     proposes remastered).
-11. **Step 2 toolchain:** the HLSL compiler host tool (fxc or DXC), and the
+11. **Step 2 toolchain (D-051):** the HLSL compiler host tool (fxc or DXC), and the
     `dll/` folder name if a DLL is ever needed (D6 proposes `dll/`).
 
 ---
@@ -374,7 +395,14 @@ Landing proof on shared base 10 (2026-11-19), differing pixels out of
 
 The captures, bgfx images, difference images and `.parity.json` files are in
 the smoke installs of `D:\PD2-wt\bgfx-classic\.claude\smoke-storage` (not in
-git). Mike has not given a verdict yet.
+git). Mike's verdict (D-041, 2026-11-20): prove the causes, then accept what
+remains. The experiments run on `week-pd/bgfx-parity-proof`: first the Agent
+Select noise test (combiner files only); the Defection test after CORE's PR
+21 (B-1268, reflective room surfaces) lands, because that PR changes the same
+scene shader and scene renderer files. Then the developer-only two-view frame
+of D-042 (no split-screen frame exists today: the game allows one local
+player, and a netplay host draws each remote player's view and then drops
+it, `src/game/lv.c`, `gdl = savedgdl`).
 
 ### 5.2 Requests from other lanes
 
@@ -486,10 +514,11 @@ git). Mike has not given a verdict yet.
 
 ## 8. Suggested order for the next session
 
-1. Startup reading, hub registration, and (with the Workbench server running)
-   a 2.0 renderer item plus decision items for section 4.
-2. Mike's step 1 parity verdict. If he asks to chase, start with the Agent
-   Select patch (5.1).
+1. Startup reading, hub registration, and the Workbench: T-RENDERING-001 and
+   decisions D-041 to D-051 (section 4) exist; read their state first.
+2. Finish the parity experiments of D-041 (5.1) if they are not done, and
+   record each cause in 5.1 and the step 1 design doc; then the two-view
+   frame of D-042.
 3. Phase 2a step 2 (D3D11): first a design section like
    [bgfx-classic-gl.md](bgfx-classic-gl.md) (shader toolchain, windows
    without GL, D6 review of the D3D11 renderer, swarm, readback and parity

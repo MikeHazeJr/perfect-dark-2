@@ -1,0 +1,79 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     client
+  Version:    0.1.105
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic
+  ProjectDir: D:\PD2-wt\bgfx-classic
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+  WARNING: 69 new commit(s) since last successful build
+  Last built: 66878814f6b7185c92c0085063a66acb8c81b7bc
+  Current:    38881c773ef16611f791f85c49f8f5ba26262f0f
+
+  [smart-clean] Incremental build (no clean needed)
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112639-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112639-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112639-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112639-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112639-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-11-20T11:26:41] Configure (CMake - Ninja + ccache) running 1s pid=25244 stdout=0b stderr=0b ninja_log=218949b
+ +                                                                          + >>> Configure (CMake - Ninja + ccache) OK (5s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112645-generate-headers-pd_headers.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112645-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112645-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112645-generate-headers-pd_headers.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112645-generate-headers-pd_headers.cmdline.txt
+  [heartbeat] [2026-11-20T11:26:46] Generate Headers [pd_headers] running 1s pid=30712 stdout=220b stderr=0b ninja_log=194354b
+ +                                                                          + >>> Generate Headers [pd_headers] OK (1s) <<<
+
+============================================================
+  Building: Client  (target: pd)
+  Dir:      D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic
+============================================================
+
+------------------------------------------------------------
+  Compile [Client]
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112648-compile-client.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112648-compile-client.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112648-compile-client.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112648-compile-client.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112648-compile-client.cmdline.txt
+  [heartbeat] [2026-11-20T11:26:49] Compile [Client] running 1s pid=20640 stdout=220b stderr=0b ninja_log=194614b
+  |  Compile [Client]  (6s)     /  Compile [Client]  (11s)     -  Compile [Client]  (17s)     [heartbeat] [2026-11-20T11:27:04] Compile [Client] running 17s pid=20640 stdout=76327b stderr=0b ninja_log=198661b
+  \  Compile [Client]  (23s)     |  Compile [Client]  (28s)     [heartbeat] [2026-11-20T11:27:19] Compile [Client] running 32s pid=20640 stdout=150304b stderr=0b ninja_log=201900b
+  /  Compile [Client]  (33s)     -  Compile [Client]  (38s)     \  Compile [Client]  (43s)     [heartbeat] [2026-11-20T11:27:34] Compile [Client] running 47s pid=20640 stdout=184745b stderr=0b ninja_log=202454b
+  |  Compile [Client]  (48s)     /  Compile [Client]  (54s)     -  Compile [Client]  (59s)     [heartbeat] [2026-11-20T11:27:50] Compile [Client] running 62s pid=20640 stdout=184745b stderr=0b ninja_log=202454b
+  \  Compile [Client]  (64s)     |  Compile [Client]  (69s)     /  Compile [Client]  (74s)    +                                                                          + >>> Compile [Client] OK (76s) <<<
+
+------------------------------------------------------------
+  Post-Build: Copy Dev Mods
+------------------------------------------------------------
+  Dev mod 'needler' -> D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\mods\needler
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [PASS  ]  CLIENT      76s
+           -> D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\PerfectDark.exe  (106 MB)
+
+  Total time: 88s
+  Result: SUCCESS
+============================================================
