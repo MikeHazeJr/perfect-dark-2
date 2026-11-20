@@ -1,5 +1,73 @@
 # Bug Tracker
 
+## 2026-11-20 B-1282 The Crystal Pistol ammo smoke fails when one frame stalls during its reload steps (T-MODDING-008, open, test only)
+
+Severity low (test only). `crystal_pistol_ammo_smoke` failed 29/31 on dev plus PR 13 (d1932f55, shared base 14,
+`results-20261120T182245Z.json`) and passed 31/31 on a rerun of the same build ten minutes later
+(`results-20261120T184249Z.json`). In the failing run the game stalled about 1.2 s at 13.2 s into the script
+(log 01:32.29 to 01:33.52, an install on the `D:` hard disk). The harness then delivered the 13.7 s fire tap, the
+14.2 s reload tap and the 14.5 s fire press within a few frames, so a third shot landed before the reload began:
+regrowth started at 3/6 instead of 4/6, and the "interrupted by trigger" step never happened. Firing, the empty
+clip's regrowth and the full clip all worked. The fixture already allows for a first-explosion stall at 6.6 to
+12.8 s but not for one at 13.2 s.
+
+Fix to make: wait on game state between the steps (for example on the regrow start line) instead of fixed times,
+or give the reload sequence a margin.
+
+## 2026-11-20 B-1281 Smokes cannot press menu buttons since 149820cb1: ImGui navigation is off while the game window lacks focus (T-MENUS-003, open, test harness)
+
+Severity medium (test only for players, but it stalls every smoke that drives an ImGui menu with injected
+actions in a background window, and that is every smoke the runner starts). Found 2026-11-20 in the cleanup:
+`network_coop_mission_end_smoke` failed 126/132 on dev plus PR 13 (d1932f55, shared base 14,
+`results-20261120T183429Z.json`). The co-op host reached its results screen, the smoke injected `ACTION_USE` at
+4 s (`SMOKE.ACTION.INJECT: player=0 action=24 down=1 ...`) and nothing followed: no `GAMELOOP.COOP: host chose
+next mission`, the next stage never went live, the wait timed out after 360 s. The same smoke passed 132/132 on
+ddac61d6 (2026-11-19), where the same tap chose the next mission in the same frame; that host had also logged
+`INPUTCTX: focus LOST`, as every runner-started game does (SP-51).
+
+Cause: 149820cb1 ("Preserve front-end input and controller text entry", 2026-11-19, on origin/dev) made
+`pdguiDriveImGuiNav` (`port/fast3d/pdgui_backend.cpp`) require `!inputCtxIsFocusLost()`. With focus lost, ImGui
+gets no nav input at all, so the endscreen's default button (`pdgui_menu_endscreen.cpp`, B-1193) is never
+activated. Neither the endscreen nor `pdguiNavActionAllowed` changed between the two runs. For a player with the
+window focused nothing changes. About 38 smoke tests and fixtures inject menu actions (`ACTION_USE`,
+`ACTION_MENU_*`); any that act on an ImGui menu after the focus loss stalls the same way.
+
+Fix to make: let actions the smoke harness injects drive ImGui navigation while it owns them (the action map
+already counts smoke-owned actions; see `SMOKE.ACTION.INJECT` in `port/src/actionmap.cpp`), or have the runner
+give the game window focus. Then re-run
+`network_coop_mission_end_smoke` and the other endscreen and Room smokes.
+
+## 2026-11-20 B-1280 The build wrapper never uses its compiler cache: the ccache probe always reads as failed (T-TOOLING-006, open, cause found)
+
+Severity medium (every AI build compiles cold; a clean client plus test binary took 3:01 on 2026-11-20).
+`devtools/build-headless.ps1` (the probe at lines 328 to 347) starts `ccache.exe cc.exe --version` with
+`Start-Process -PassThru` and redirected output, waits up to 5 s, and passes the launcher to CMake only when
+`$probe.ExitCode -eq 0`. Under Windows PowerShell 5.1, which `powershell -File devtools/build-session.ps1` runs, a
+process started that way reports an empty `ExitCode` unless its handle was read before it exited, so the test is
+always false: the wrapper prints "ccache compiler probe failed or timed out; building without ccache launcher" and
+configures without ccache. All seven session builds of the canonical checkout log that line. Reproduced
+2026-11-20: the same `Start-Process` call exits within the 5 s with an empty exit code; with `$null = $probe.Handle`
+right after `Start-Process`, the exit code is 0.
+
+Fix to make (not applied in the cleanup, because it turns ccache on for every session's build): read the handle
+after `Start-Process`. Check first that ccache does not hang in the sandboxes the probe guards against (the comment
+above it). The ccache store at `%USERPROFILE%/.cache/ccache` holds 0.9 of 5 GiB from older builds.
+
+## 2026-11-20 B-1279 Local dev did not build from its own commits: 264587ac called gun-noise functions only uncommitted files defined (T-MODDING-011, fixed)
+
+Severity high for anyone who built local dev from its commits (the client did not compile). Commit 264587ac
+(2026-11-19, "Migrate gun noise callers to delivery receipts", local only) changed `bgunDecreaseNoiseRadius` in
+`src/game/bondgun.c` to call `wgV2RuntimeNoiseBegin`, `wgV2RuntimeObserveNoise` and `wgV2RuntimeNoiseComplete`
+and to use `wg_v2_delivery`. Those existed only in the uncommitted copies of `port/include/weapon_graph_v2_runtime.h`
+and `port/src/weapon_graph_v2_runtime.cpp` in the canonical checkout, and every build there compiled the working
+copies, so no build saw the gap. Found in the 2026-11-20 cleanup by comparing the symbols at HEAD with the working
+copies.
+
+Fix: acbce249 commits the rest of the reviewed V5 patch the callers belong to (the runtime, the world-hit harness,
+the `prop.c` delivery path, with one lost seven-line hunk restored from week-pd/inflight-20261114). The merged tree
+(dev plus PR 13, d1932f55) built from commits alone, client and test binary, in a clean worktree and passed
+pd-tests in full. SP-99.
+
 ## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, open, test only)
 
 Severity low (test only, but it leaves the offline co-op start with simulant buddies unproven in a run).

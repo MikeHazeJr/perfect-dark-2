@@ -4688,6 +4688,40 @@ check: CORE's scratchpad `sp98-check/` (check_tiles.py, check_portals.py).
 Next: make 1 to 4 fail their export with a log line (they guard against
 data the base game does not have), then 5 to 7.
 
+## SP-99: A commit made in a dirty checkout leans on files that stay uncommitted
+
+**Found:** 2026-11-20, B-1279. Local commit 264587ac took one hunk of
+`src/game/bondgun.c` out of a reviewed patch whose other files sat
+uncommitted in the canonical checkout. Every build there compiled the
+working copies, so the client always linked, while dev's own commits could
+not build. Nobody noticed until the cleanup compared HEAD with the tree.
+
+**The pattern:** several sessions share one checkout full of in-flight
+edits, and each commits "its" files by path. A build of the checkout proves
+the working tree, not the commit. Any symbol, include, CMake entry, fixture
+or pinned text that the committed files take from a file left uncommitted
+breaks dev silently. The same goes the other way: a test file committed
+without the source it pins.
+
+**Rule:** before a commit made from a shared dirty checkout is pushed, build
+and test the commit on its own, in a worktree or a clean clone at that
+commit. At the least, check that every identifier its staged hunks add or
+call is defined in the staged tree. Commit a reviewed patch whole, not one
+file of it.
+
+**Audit:**
+```
+# identifiers a commit calls that its own tree does not define
+git show <commit> -U0 | grep '^+' | grep -oE '\b[a-zA-Z_][a-zA-Z0-9_]{6,}\(' | sort -u
+git grep -n '<identifier>' <commit> -- src port tests
+# files the checkout compiles that the commit does not have
+git status --porcelain | grep -E '\.(c|cpp|h)$'
+```
+
+**Checked 2026-11-20:** after acbce249, the merged dev tree (d1932f55) built
+from commits alone in `D:\PD2-wt\multiplayer`, client and test binary, and
+passed pd-tests in full.
+
 ## Scripted pickup can clear the object-to-prop link
 
 A scripted grant must hold the incoming prop through

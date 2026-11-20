@@ -1,5 +1,21 @@
 # Session Log (Active)
 
+2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
+week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions
+start. The record is `context/audits/2026/repo-cleanup-2026-11-20.md`: what landed, what stays
+uncommitted and why, the per-file table of the canonical checkout's 169 uncommitted entries, the
+build time. Every in-flight file was first saved on origin as `week-pd/inflight-20261120`.
+Landed on dev: the V5 world-hit delivery (`acbce249`; B-1279: dev had not built from its own
+commits), Manager 3's Unlock All and cheat repairs with Manager 1's training saves (`65bf5d00`),
+the replay reader (`993765b4`), Manager 2's embedded weapon validation (`490f2f34`) and sample-mod
+packaging, switched off (`4ac5f8c7`), and PR 13 (`43665b0f`). The committed tree built from its
+commits alone and passed pd-tests in full (2,564 cases); smokes on it: scorelimit 24/24, Crystal Pistol 31/31 on a rerun (29/31 first, a frame stall, B-1282), co-op mission end 126/132 (B-1281, a dev input change, not the cleanup). New decisions for
+Mike: D-052 (Manager 4's movement rewrite), D-053 (bundle the Crystal Pistol in releases). Renderer
+wrap-up: its batch ended at 3 of 7 smokes, all passed; its drafts are WIP `0f03f29c` on
+`week-pd/bgfx-parity-proof`; Mike's two parity answers are recorded word for word (N-1147, N-1148).
+A clean full build takes 3:01; the build wrapper never uses ccache (B-1280). Next: D-052, D-053,
+B-1280; co-op B-1277 and B-1278.
+
 2026-11-20 CORE, 14:25 to 16:20 UTC. Mike in CORE's chat: "You may ignore
 the 200gb rule, yes" (T-TOOLING-016 integrated as local commit `d902ee18` on
 canonical dev, four smoke-verify files, checks before and after green, not
