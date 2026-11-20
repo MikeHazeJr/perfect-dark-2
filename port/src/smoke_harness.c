@@ -129,6 +129,11 @@
  *        so failure rollback and active-delete rules can be observed in one
  *        live process.
  *
+ *   { "at_ms": N, "type": "give_weapon", "path": "base:grenade" }
+ *     -- player 0 gets the weapon with full ammunition for both functions
+ *        and draws it (projectile-events.md slice 1), so one smoke can fire
+ *        every projectile weapon in turn. Logs SMOKE.GIVE_WEAPON.
+ *
  *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
  *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
  *     -- acquire or release one explicit owner through the production typed
@@ -183,6 +188,10 @@
 #include "forge_level_io.h"
 #include "game/setuputils.h"
 #include "scenario_source_runtime.h"
+#include "projectile_events.h"
+#include "constants.h"
+#include "game/inv.h"
+#include "game/bondgun.h"
 #include "input.h"
 #include "input_device_identity.h"
 #include "inputctx.h"
@@ -268,6 +277,7 @@ typedef enum {
     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
     SMOKE_EVENT_USE_LIFT_DOOR,      /* T-MODDING-011: player 0 uses the nearest lift door */
     SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
+    SMOKE_EVENT_GIVE_WEAPON,        /* T-MODDING-011: player 0 gets and draws the weapon at path */
     SMOKE_EVENT_TOUCH_PICKUP,       /* T-MODDING-011: player 0 touches the nearest pickup (objPickupTouchForSmoke) */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
@@ -1250,6 +1260,15 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "damage_glass")) {
 		ev->type = SMOKE_EVENT_DAMAGE_GLASS;
+		return 1;
+	}
+	if (!strcmp(type_str, "give_weapon")) {
+		if (!ev->path[0]) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: give_weapon event missing 'path' (at_ms=%d)", ev->at_ms);
+			return 0;
+		}
+		ev->type = SMOKE_EVENT_GIVE_WEAPON;
 		return 1;
 	}
 	if (!strcmp(type_str, "touch_pickup")) {
@@ -3610,6 +3629,37 @@ void smokeHarnessTick(void)
 			}
 			break;
 		}
+		case SMOKE_EVENT_GIVE_WEAPON:
+		{
+			/* projectile-events.md slice 1: player 0 gets the weapon with
+			 * full ammunition for both functions and draws it. */
+			catalog_weapon_result_t given;
+			s32 ok = 0;
+
+			memset(&given, 0, sizeof(given));
+			if (g_Vars.players[0] && g_Vars.players[0]->prop
+					&& catalogResolveWeapon(ev->path, &given) && given.weapon_num > 0) {
+				const s32 prevplayernum = g_Vars.currentplayernum;
+				s32 func;
+
+				setCurrentPlayerNum(0);
+				invGiveSingleWeapon(given.weapon_num);
+				for (func = FUNC_PRIMARY; func <= FUNC_SECONDARY; func++) {
+					const s32 capacity = bgunGetAmmoCapacityForWeapon(given.weapon_num, func);
+
+					if (capacity > 0) {
+						bgunSetAmmoQtyForWeapon(given.weapon_num, func, capacity);
+					}
+				}
+				bgunEquipWeapon(given.weapon_num);
+				setCurrentPlayerNum(prevplayernum);
+				ok = 1;
+			}
+			sysLogPrintf(ok ? LOG_NOTE : LOG_WARNING,
+				"SMOKE.GIVE_WEAPON: weapon=%s weaponnum=%d result=%d at_ms=%d",
+				ev->path, ok ? given.weapon_num : -1, ok, ev->at_ms);
+			break;
+		}
 		case SMOKE_EVENT_TOUCH_PICKUP:
 		{
 			/* T-MODDING-011 (object-events.md slice 4): player 0 touches the
@@ -3790,6 +3840,7 @@ void smokeHarnessTick(void)
             /* object-events.md: a stage the smoke leaves before it ends
              * still logs its object event totals. */
             scenarioSourceGraphObjectEventsReport("smoke_exit");
+            projectileEventsReport("smoke_exit");
             s_State.next_event_idx++;
             s_State.events_fired++;
             smokeHarnessExit(0, "scripted_exit");

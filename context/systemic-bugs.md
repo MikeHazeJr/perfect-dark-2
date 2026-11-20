@@ -4262,6 +4262,34 @@ and build on the machine.
 - In a run's game log, `save dir:` must name the run's install or profile
   folder, never `AppData/Roaming/perfectdark`.
 
+## SP-96: A field named `flags` copied from one bit set into another
+
+**Severity: MEDIUM. Every bit that happens to share a position turns on an
+unrelated behavior, silently, for every record that carries it.**
+
+The game has many flag words (FUNCFLAG_* on weapon functions,
+PROJECTILEFLAG_* on projectiles, OBJFLAG_*/OBJFLAG2_*/OBJFLAG3_* on objects,
+CHRCFLAG_* on chrs). A public record's `flags` field holds one of them, and
+its name does not say which. A consumer that ORs it into a different word
+compiles, runs and passes every test that only checks one bit.
+
+**Known instance (B-1261, 2026-11-17):** a projectile record's `flags` are
+the weapon function's FUNCFLAG_* bits, and `projectileApplyGraphRuntime`
+ORed them into PROJECTILEFLAG_*: the Slayer's fly-by-wire rocket became
+SLIDING, the N-bomb FALLING, the homing rocket LIGHTWEIGHT.
+
+**Rules:**
+- A record field that holds a native flag word says which one, in the
+  schema doc and in the reader's comment; a new field gets a name that says it
+  (`function_flags`, `object_flags`).
+- Never copy a flag word into another word. Translate bit by bit where the
+  original does (`if (funcflags & FUNCFLAG_PROJECTILE_POWERED) projectile->flags
+  |= PROJECTILEFLAG_POWERED`).
+
+**Search:**
+- `rg -n "flags[0-9]* \|?= [a-z_>.-]*(runtime|graph|record|entity|source|binding)[a-z_]*->[a-z_]*flags" src port`
+  and check that both sides are the same flag set.
+
 ---
 
 ## SP-91: A one-shot message written in the game tick is dropped by a frame that discards the shared buffers

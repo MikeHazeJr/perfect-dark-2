@@ -238,6 +238,12 @@ typedef struct weapon_graph_ir {
 	size_t subgraph_capacity;
 	weapon_graph_ir_param_t params[WEAPON_GRAPH_IR_MAX_PARAMS];
 	s32 param_count;
+	/* projectile-events.md slice 2: a v2 projectile or entity graph's text,
+	 * from which its program is compiled at registration (the record IR
+	 * skips the program's nodes and edges); NULL for every other graph.
+	 * Owned by the IR, freed by weaponGraphIrFree. */
+	char *program_json;
+	u32 program_json_size;
 } weapon_graph_ir_t;
 
 typedef struct weapon_graph_held_function {
@@ -698,6 +704,14 @@ s32 weaponGraphRuntimeRegisterBehaviorGraphJson(asset_type_e graph_type,
 s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
                                               const char *archive_path,
                                               char *err, size_t err_cap);
+
+/* projectile-events.md slice 2: the program of a v2 projectile or entity
+ * archive, by its asset id, compiled from its behavior.graph.json when its
+ * record registered (missionGraphProgramCompileProjectile); NULL for a v1
+ * archive or an unknown id. A v2 archive whose program does not compile
+ * does not register. */
+struct mission_graph_program;
+const struct mission_graph_program *weaponGraphRuntimeProjectileProgram(const char *asset_id);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
 	s32 weaponnum, s32 funcindex);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay(
