@@ -15,6 +15,7 @@ extern "C" {
 #include "asset_archive_clone.h"
 #include "sha256.h"
 #include "asset_archive_policy.h"
+#include "loader_walker_mesh_source.h"
 #include "modarchive.h"
 #include "weapon_graph_archive.h"
 }
@@ -26,6 +27,7 @@ extern "C" {
 #include <fstream>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <system_error>
@@ -888,6 +890,63 @@ TEST_CASE("a rebuilt scenario's navigation record says what its members hold",
 		/* The record's other members are carried as they were. */
 		CHECK(record.find("\"cache_only\": true") != std::string::npos);
 		CHECK(record.find("mod_clonetest:nav_edit__") != std::string::npos);
+	}
+}
+
+TEST_CASE("a new mesh identity relinquishes its template's native file",
+          "[modding][pdxxx][clone][c3842][b1152]") {
+	CloneTempDir dir;
+	const std::string source = cloneReadFileBytes(
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh"));
+	const std::string templatePath = (dir.path / "template.pdmesh").string();
+	const std::string outputPath = (dir.path / "result.pdmesh").string();
+	const char *const baseId = "base:model_falcon2_hi";
+	const char *const exampleId = "example:tri_mesh";
+	const char *const manifestPath = "_meta/manifest.json";
+	const std::string provenance = "\"source_filenum_symbol\": \"FILE_GFALCON2Z\"";
+
+	std::unique_ptr<mod_archive_writer_t, decltype(&modArchiveAbort)> archive(
+		modArchiveBegin(templatePath.c_str()), modArchiveAbort);
+	REQUIRE(archive);
+	for (const std::string &member : cloneEntryNames(source)) {
+		std::string data = cloneEntryBytes(source, member);
+		const size_t id = data.find(exampleId);
+		if (id != std::string::npos) data.replace(id, std::strlen(exampleId), baseId);
+		if (member == manifestPath) {
+			REQUIRE(data.front() == '{');
+			data.insert(1, "\n  " + provenance + ",");
+		}
+		REQUIRE(modArchiveAddFileMem(archive.get(), member.c_str(), data.data(),
+			static_cast<u32>(data.size())) == MODARCHIVE_OK);
+	}
+	REQUIRE(modArchiveFinish(archive.release()) == MODARCHIVE_OK);
+
+	char err[256] = {};
+	SECTION("a mod clone plans the editable geometry without claiming the base file") {
+		const char *const cloneId = "mod_clonetest:falcon_mesh";
+		REQUIRE(assetArchiveCloneFile(templatePath.c_str(), outputPath.c_str(), cloneId,
+			"pd-tests", nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+		const std::string output = cloneReadFileBytes(outputPath);
+		const std::string manifest = cloneEntryBytes(output, manifestPath);
+		CHECK(manifest.find("source_filenum_symbol") == std::string::npos);
+		CHECK(cloneEntryBytes(output, "model.gltf") == cloneEntryBytes(source, "model.gltf"));
+
+		loader_walker_mesh_source_plan_t plan{};
+		REQUIRE(loaderWalkerMeshSourcePlanManifest(manifest.data(), manifest.size(), cloneId,
+			outputPath.c_str(), "model.gltf", -1, &plan, err, sizeof(err)) == 1);
+		CHECK(plan.source_symbol_present == 0);
+		CHECK(plan.source_filenum == -1);
+		CHECK(std::string(plan.geometry_member) == "model.gltf");
+	}
+	SECTION("an in-place edit of the same base mesh retains its native file binding") {
+		const std::string edited = cloneEntryBytes(cloneReadFileBytes(templatePath), "mesh.ini")
+			+ "\n; authored edit\n";
+		const asset_archive_clone_override_t override = cloneReplace("mesh.ini", edited);
+		REQUIRE(assetArchiveRebuildFile(templatePath.c_str(), outputPath.c_str(), baseId,
+			"pd-tests", &override, 1, nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+		const std::string output = cloneReadFileBytes(outputPath);
+		CHECK(cloneEntryBytes(output, manifestPath).find(provenance) != std::string::npos);
+		CHECK(cloneEntryBytes(output, "mesh.ini") == edited);
 	}
 }
 
