@@ -916,6 +916,7 @@ requires `counts.ai_commands` to match `ai/ailists.json`, requires every command
 row's `graph_node` to exist in `level.graph.json`, and requires the graph link.
 The extractor-only regeneration path now skips window/UI/input startup and full
 gameplay/window teardown, so safe archive regeneration does not require OpenGL.
+
 Verification passed the native-source guard, checked-in all-family example
 conformance, focused c3844 static tests, isolated all-target build, extractor-only
 runtime run exit 0, strict Scenario conformance on session output and durable

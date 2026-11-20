@@ -1,0 +1,51 @@
+{
+  "scenario_name": "complex_ledge_simulant_smoke",
+  "description": "A NormalSim in a local Combat Simulator match follows two ordinary Hold orders to climb the stock Complex room 24 ledge with Bot Jump, stay on its y=551 support, then walk off and land on the y=512 floor. The fixture places the simulant once and observes the same actor throughout.",
+  "tags": ["combatsim", "movement", "jump", "collision", "simulants"],
+  "paths_of_interest": ["port/src/smoke_harness.c", "src/game/bot.c", "src/game/chr.c", "src/lib/capsule.c"],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--launch-mp-room", "base:arena_mp_complex", "base:combat", "1",
+    "--debug-auto-start-match", "--debug-mp-options", "0x10000000"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 270000, "stable_ms": 1000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 1200 },
+    { "at_ms": 100, "type": "movement_ledge", "name": "place_simulant" },
+    { "at_ms": 4500, "type": "movement_ledge", "name": "walk_off" },
+    { "at_ms": 8000, "type": "movement_ledge", "name": "verify" },
+    { "at_ms": 8100, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=complex_ledge_simulant_smoke",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-mp-options applied -- user=0x10000000",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+    ],
+    "required_sequences": [
+      {
+        "name": "simulant-takeoff-land-stay-walk-off",
+        "patterns": [
+          "SMOKE\\.LEDGE: phase=place actor=simulant .* room=24 feet=51[01234]\\.",
+          "BOT\\.JUMP: chrnum=[0-9]+ reason=OBST",
+          "SMOKE\\.LEDGE: phase=takeoff",
+          "SMOKE\\.LEDGE: phase=land .* room=24 feet=(?:549|55[0-3])\\.",
+          "SMOKE\\.LEDGE: phase=stay .* room=24 feet=(?:549|55[0-3])\\.",
+          "SMOKE\\.LEDGE: phase=drop",
+          "SMOKE\\.LEDGE: phase=lower_land .* room=24 feet=51[01234]\\.",
+          "SMOKE\\.LEDGE: result=pass actor=simulant",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [{ "pattern": "SMOKE\\.LEDGE: phase=place", "min": 1, "max": 1 }],
+    "forbidden_patterns": [
+      "SMOKE\\.LEDGE: result=fail", "SMOKE: result=movement_ledge_failed",
+      "SMOKE\\.WAIT: timeout", "EXCEPTION_ACCESS_VIOLATION", "FATAL: "
+    ]
+  }
+}

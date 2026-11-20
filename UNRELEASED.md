@@ -78,6 +78,74 @@
 
 - Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
 
+- Fixed selection of Phoenix, Psychosis Gun and Dual Wield All Guns, and cleared Invincible on the next stage after turning cheats off. Locked cheat criteria are accessible with keyboard and controller. Unlock All saves for the active Agent while preserving earned records, with Retry on save failure.
+
+- Gun loading now rejects unsupported source providers instead of continuing into legacy model bytes; runtime validation remains deferred (N-0829).
+
+- Gun texture batches now use graph dispatch with the cursor fix and full-width resident-texture checks; gameplay validation remains deferred (N-0827).
+
+- Fixed the gun texture cursor so a three-entry loading batch does not revisit its last processed entry on the next tick; runtime validation remains deferred (N-0826).
+
+- Gun-model source checks and hand-source publication now use a graph component; legacy loading and full-conversion testing remain unresolved (N-0825).
+
+- Retained gun models now use graph-based identity checks and publication; remaining loader conversion and full-conversion testing stay open (N-0824).
+
+- Failed gun-model requests now use graph-based catalog-generation recovery; loader conversion and full-conversion testing remain open (N-0823).
+
+- Master-loader parent gates and stage dispatch now use the graph path; loader dependencies and full-conversion testing remain open (N-0822).
+
+- Master-loader model initialization, command storage and final loaded transition now dispatch a graph component; parent conversion and full-conversion testing remain open (N-0821).
+
+- Master-loader cartridge selection and pending-load gate now dispatch a graph component; final model setup and full-conversion testing remain open (N-0820).
+
+- Master-loader HANDS-stage source refresh and queue retries now dispatch a graph component; remaining stages and full-conversion testing stay open (N-0819).
+
+- Master-loader GUN-stage queue selection and completion now dispatch a graph component; remaining stages and full-conversion testing stay open (N-0818).
+
+- Corrected gun-loader queue target widths so 64-bit builds do not write pointer-sized values into 32-bit capacity fields; two regression cases await testing (N-0817).
+
+- Master-loader FLUX-to-HANDS cleanup now dispatches a graph component; remaining loader stages and full-conversion testing stay open (N-0814).
+
+- Master-loader source selection and refresh decisions now dispatch a graph component; remaining loader stages and full-conversion testing stay open (N-0813).
+
+- Master-loader admission and lock-timer logic now dispatch a graph component; the remaining loader body and full-conversion testing are still open (N-0812).
+
+- Weapon flux reset now dispatches a graph program preserving asset-handle clearing and casing cleanup; three authored cases await full-conversion testing (N-0811).
+
+- Load-all weapon recovery now dispatches a graph parent preserving retry and load-loop behavior; four authored cases await full-conversion testing (N-0810).
+
+- Gun-memory ownership transitions now dispatch a graph program, including diagnostic throttles and timer storage behavior; four authored cases await full-conversion testing (N-0809).
+
+- Gun memory release, pending weapon assignment and load ticking now dispatch graph programs; three authored cases await the full-conversion gameplay test gate (N-0808).
+
+- Equip requests and hand animation initialization now dispatch graph programs; source-reviewed with five authored cases pending the full-conversion gameplay test gate (N-0807).
+
+- Connected weapon cleanup, regional reload bookkeeping and ammo return through graph control; source reviewed, runtime validation pending.
+
+- Connected hand ammo configuration and ammo-display reset through graph control; corrected fixture field widths. Runtime validation pending.
+
+- Connected queued weapon switching, dual-wield reconciliation and disguise handling through graph control; source reviewed, runtime validation pending.
+
+- Moved per-hand weapon-switch reset into graph control while preserving captured ownership and audio callback order; runtime validation pending.
+
+- Connected weapon visibility commands, hand/gun part selection and ammo-driven visibility through graph control; runtime validation pending.
+
+- Reject invalid repeat spans in editable weapon animation source before runtime loading; source reviewed, runtime validation pending.
+
+- Connected animation setup, regional ticking, visibility and sound command handling through the graph driver; source reviewed, runtime validation pending.
+
+- Converted animation visibility/wait/repeat traversal to graph control, preserving regional formulas and rejecting non-progressing repeats; runtime validation pending.
+
+- Converted animation part lookup/update to graph control and replaced its fixed temporary array with growable storage; runtime validation pending.
+
+- Moved animation sound commands and output-counter updates into graph control; source reviewed, gameplay validation pending.
+
+- Moved change-gun phase transitions and equip sound selection into graph control; source reviewed, gameplay validation pending.
+
+- Source work in progress: route reload, weapon-function changes, arm pitch,
+  hand readiness, animation eligibility, frame evaluation, wait checks, recursive animation start, hand-state dispatch, idle, autoswitch selection, rocket cleanup and function selection through reusable graph operations.
+  Differential coverage is authored; compilation and gameplay parity pending.
+
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
   the Case holders, uplink downloads and bases. Final scores and rankings are
@@ -182,6 +250,9 @@
 
 - Keep held public model and texture sources alive through stage teardown,
   including when a catalog replacement releases the previous source.
+
+- Reject stale movement snapshots before they rewind positions or repeat
+  teleports; preserve acknowledgements when rejecting old client input.
 
 - Preserve complete equipment ownership for deferred executable-graph shots;
   prepare and publish primary/secondary modes together from one public archive.

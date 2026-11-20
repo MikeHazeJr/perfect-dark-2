@@ -75,6 +75,13 @@ bool      g_ModManagerInitialized = false;
 // Config-persisted string: comma-separated enabled mod IDs
 static char g_ModEnabledList[2048] = "";
 
+/* Initial selection from the release package. Saved choices take over. */
+static bool g_DefaultReleaseSampleSelected;
+static const char kReleaseSampleId[] = "crystal_pistol";
+static const char kReleaseSampleArchive[] = "$E/mods/bundled/crystal_pistol.pdmod";
+static const char kReleaseSampleDigest[] = "$E/crystal_pistol-default.sha256";
+static const char kReleaseSampleChanged[] = "The release sample package changed. Disable it before applying changes.";
+
 // Size threshold in MB — mods exceeding this trigger a confirmation prompt
 static s32 g_ModSizeThresholdMB = 50;
 
@@ -2045,6 +2052,51 @@ static bool modmgrBuildEnabledList(void)
 
 #define MODS_ENABLED_JSON_PATH "$S/mods-enabled.json"
 
+static s32 modmgrFindDefaultReleaseSample(void)
+{
+	fs_mod_roots_t roots;
+	fsModRoots(&roots);
+	if (roots.explicit_dir) return -1;
+
+	s32 candidate = -1;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (strcmp(g_ModRegistry[i].id, kReleaseSampleId) != 0) continue;
+		if (candidate >= 0) return -1;
+		candidate = i;
+	}
+	if (candidate < 0) return -1;
+
+	const modinfo_t *mod = &g_ModRegistry[candidate];
+	char path[FS_MAXPATH + 1];
+	const char *archive = fsFullPath(kReleaseSampleArchive, path, sizeof(path));
+	if (!mod->valid || !mod->is_archive || mod->session_only ||
+			!modmgrPathEqualsNoCase(mod->archive_path, archive)) {
+		return -1;
+	}
+
+	char digest_path[FS_MAXPATH + 1];
+	FILE *file = fopen(fsFullPath(kReleaseSampleDigest, digest_path, sizeof(digest_path)), "rb");
+	if (!file) return -1;
+	char digest[SHA256_HEX_SIZE] = { 0 };
+	const size_t len = sizeof(digest) - 1;
+	const s32 complete = fread(digest, 1, len, file) == len &&
+		fgetc(file) == EOF && !ferror(file);
+	fclose(file);
+	return complete && sha256VerifyFile(archive, digest) == 1 ? candidate : -1;
+}
+
+static s32 modmgrDefaultReleaseSampleCanSave(void)
+{
+	if (!g_DefaultReleaseSampleSelected) return 1;
+	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		const modinfo_t *mod = &g_ModRegistry[i];
+		if (mod->enabled && !mod->session_only && strcmp(mod->id, kReleaseSampleId) == 0) {
+			return modmgrFindDefaultReleaseSample() == i;
+		}
+	}
+	return 1;
+}
+
 static bool modmgrSaveModsEnabledJson(void)
 {
 	char pathBuf[FS_MAXPATH + 1];
@@ -2054,6 +2106,7 @@ static bool modmgrSaveModsEnabledJson(void)
 		sysLogPrintf(LOG_WARNING, "modmgr: could not save %s: %s", path, error);
 		return false;
 	}
+	g_DefaultReleaseSampleSelected = false;
 	sysLogPrintf(LOG_NOTE, "modmgr: saved mods-enabled.json");
 	return true;
 }
@@ -2086,10 +2139,18 @@ static int modmgrSaveDestination(enum modmgr_save_phase phase,
 	(void)user;
 	switch (phase) {
 	case MODMGR_SAVE_PREPARE:
+		if (!modmgrDefaultReleaseSampleCanSave()) {
+			snprintf(error, capacity, "%s", kReleaseSampleChanged);
+			break;
+		}
 		if (modmgrBuildEnabledList()) return 1;
 		snprintf(error, capacity, "Could not prepare the enabled-mod list.");
 		break;
 	case MODMGR_SAVE_ENABLED_JSON:
+		if (!modmgrDefaultReleaseSampleCanSave()) {
+			snprintf(error, capacity, "%s", kReleaseSampleChanged);
+			break;
+		}
 		if (modmgrSaveModsEnabledJson()) return 1;
 		snprintf(error, capacity, "Could not save mods-enabled.json.");
 		break;
@@ -2128,6 +2189,7 @@ void modmgrSaveConfig(void)
 
 void modmgrLoadConfig(void)
 {
+	g_DefaultReleaseSampleSelected = false;
 	// Try mods-enabled.json first (primary, ordered)
 	if (modmgrLoadModsEnabledJson() != 0) {
 		return;
@@ -2135,6 +2197,14 @@ void modmgrLoadConfig(void)
 
 	// Fallback: comma-separated config string from pd.ini
 	modmgrParseEnabledList();
+	if (!g_ModEnabledList[0]) {
+		const s32 sample = modmgrFindDefaultReleaseSample();
+		if (sample >= 0) {
+			g_ModRegistry[sample].enabled = true;
+			g_DefaultReleaseSampleSelected = true;
+			sysLogPrintf(LOG_NOTE, "modmgr: selected release sample '%s'", kReleaseSampleId);
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -2177,6 +2247,17 @@ static bool modmgrLoadMod(modinfo_t *mod)
 {
 	if (mod->loaded) return true;
 	if (!mod->valid) return false; // Don't load invalid mods
+
+	if (g_DefaultReleaseSampleSelected && !mod->session_only &&
+			strcmp(mod->id, kReleaseSampleId) == 0) {
+		const s32 sample = modmgrFindDefaultReleaseSample();
+		if (sample < 0 || mod != &g_ModRegistry[sample]) {
+			mod->enabled = false;
+			sysLogPrintf(LOG_WARNING, "modmgr: release sample '%s' no longer matched its package",
+				kReleaseSampleId);
+			return false;
+		}
+	}
 
 	if (mod->is_archive) {
 		/* Priority M / B-238: archive load path. Reopen the archive (it was
@@ -2455,7 +2536,13 @@ void modmgrRescanDirectory(void)
 	// loaded=1 with a NULL handle would mis-state the unload path. So
 	// archive mods always come back as loaded=0 after rescan and are
 	// brought back live by the next modmgrLoadMod() pass.
+	const s32 release_sample = g_DefaultReleaseSampleSelected
+		? modmgrFindDefaultReleaseSample() : -1;
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
+		if (g_DefaultReleaseSampleSelected && i != release_sample &&
+				strcmp(g_ModRegistry[i].id, kReleaseSampleId) == 0) {
+			continue;
+		}
 		for (s32 j = 0; j < numSaved; j++) {
 			if (strcmp(g_ModRegistry[i].id, saved[j].id) == 0) {
 				g_ModRegistry[i].enabled = saved[j].enabled;
@@ -2986,6 +3073,8 @@ int modmgrApplyPreparedChanges(const modmgr_apply_plan_t *plan, modmgr_apply_res
         return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Installed packages changed; pending choices were retained.");
     if (strcmp(plan->agent, prefsAgentGetActive()) != 0)
         return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Active Agent changed; pending choices were retained.");
+    if (!modmgrDefaultReleaseSampleCanSave())
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, kReleaseSampleId, kReleaseSampleChanged);
     bool intended[MODMGR_MAX_MODS], originalLoaded[MODMGR_MAX_MODS];
     for (s32 i = 0; i < g_ModRegistryCount; ++i) {
         const modinfo_t *mod = &g_ModRegistry[i];

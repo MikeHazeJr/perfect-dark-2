@@ -37,6 +37,7 @@ struct Calls {
     std::vector<std::string> order;
 } calls;
 std::array<bool, ACTION_COUNT> held{}, pressed{};
+bool unlockAllEnabled = false;
 constexpr int weaponCount = 3;
 const char *weaponNames[weaponCount] = { "Falcon 2\n", "MagSec 4\n", "CMP150\n" };
 
@@ -62,8 +63,9 @@ struct RendererHarness {
     ImGuiID rows[weaponCount]{};
     ImGuiID back = 0;
 
-    RendererHarness()
+    explicit RendererHarness(bool unlockAll = false)
     {
+        unlockAllEnabled = unlockAll;
         auto &io = ImGui::GetIO();
         io.DisplaySize = ImVec2(1280, 720);
         io.DeltaTime = 1.0f / 60.0f;
@@ -87,6 +89,7 @@ struct RendererHarness {
     }
     ~RendererHarness()
     {
+        unlockAllEnabled = false;
         pdguiNavSetActionFilter(nullptr);
         ImGui::DestroyContext(context);
         ImGui::SetCurrentContext(previous);
@@ -168,6 +171,10 @@ s32 pdguiTrFrGetSlot(void) { return 0; }
 u32 pdguiTrFrWeaponBySlot(s32 slot) { return 100u + (u32)slot; }
 const char *pdguiTrFrWeaponName(u32 weapon) { return weaponNames[weapon - 100u]; }
 s32 pdguiTrFrWeaponScoreTier(u32 weapon) { return weapon == 100u ? 0 : 1; }
+s32 frIsDifficultyAvailable(u32 weapon, s32 difficulty)
+{
+    return unlockAllEnabled || pdguiTrFrWeaponScoreTier(weapon) >= difficulty;
+}
 void frLoadData(void) { ++calls.loads; calls.order.emplace_back("load"); }
 void pdguiTrFrSetSlot(s32 slot)
 {
@@ -210,6 +217,24 @@ TEST_CASE("Actual Firing Range row Accept dispatches once after End", "[input][m
         REQUIRE(calls.order == expected);
         ui.frame(); ui.frame();
         REQUIRE(calls.pushes == 1);
+    }
+}
+
+TEST_CASE("Unlocked Firing Range weapon opens difficulty without an earned medal", "[input][menus][imgui][training_renderer]")
+{
+    for (bool controller : {false, true}) {
+        CAPTURE(controller);
+        RendererHarness ui(true);
+        ui.accept(controller);
+
+        REQUIRE(calls.pushes == 1);
+        REQUIRE(calls.pops == 0);
+        REQUIRE(calls.slot == 0);
+        REQUIRE(calls.difficulty == 0);
+        REQUIRE(calls.destination == &g_FrDifficultyMenuDialog);
+        REQUIRE_FALSE(calls.dispatchInWindow);
+        const std::vector<std::string> expected{"load", "slot", "difficulty", "push:difficulty"};
+        REQUIRE(calls.order == expected);
     }
 }
 

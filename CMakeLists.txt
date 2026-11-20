@@ -1186,6 +1186,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_metadata_lifecycle.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/model_rodata_guard.c
+  ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_prop_graph_runtime.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
@@ -1334,6 +1336,16 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/graph_persistent_actor.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_graph_persistent_actor.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_values.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_integer.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_effect4.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_divshift.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_gameplay_graph_values.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_gun_load_target_storage.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/native_shooting_flow_oracle.c
+  ${CMAKE_SOURCE_DIR}/tests/support/native_hand_lifecycle_oracle.c
   ${CMAKE_SOURCE_DIR}/port/src/projectile_rules.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_catalog.cpp

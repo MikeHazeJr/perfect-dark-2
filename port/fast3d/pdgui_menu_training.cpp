@@ -106,9 +106,8 @@ void frSetDifficulty(s32 difficulty);
 /* Weapon slot selection */
 s32  frGetSlot(void);
 u32  frGetWeaponBySlot(s32 slot);
-u32  frGetWeaponIndexByWeapon(u32 weaponnum);
 s32  frIsInTraining(void);
-u8   ciGetFiringRangeScore(s32 weaponindex);  /* score tier for visibility */
+s32  frIsDifficultyAvailable(u32 weaponnum, s32 difficulty);
 
 /* FR session setup — must be called before entering a challenge */
 void frLoadData(void);
@@ -368,9 +367,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     bool  locked;
     bool  active;
 
-    /* Score tier for the current weapon slot: 0=none, >=1=Bronze done, >=2=Silver done */
-    s32 weaponIndex = (s32)frGetWeaponIndexByWeapon(frGetWeaponBySlot(frGetSlot()));
-    u8  score       = ciGetFiringRangeScore(weaponIndex);
+    u32 weaponnum = frGetWeaponBySlot(frGetSlot());
 
     if (!beginTrainingWindow("##fr_diff", "Difficulty", winW, winH)) {
         ImGui::End();
@@ -399,7 +396,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     ImGui::SetCursorPosX(startX);
 
     /* Silver — requires at least Bronze completed */
-    locked = (score < 1);
+    locked = !frIsDifficultyAvailable(weaponnum, FRDIFFICULTY_SILVER);
     if (locked) ImGui::BeginDisabled();
     active = (frGetDifficulty() == FRDIFFICULTY_SILVER);
     if (active)
@@ -417,7 +414,7 @@ static s32 renderFrDifficulty(struct menudialog *dialog,
     ImGui::SetCursorPosX(startX);
 
     /* Gold — requires Silver completed */
-    locked = (score < 2);
+    locked = !frIsDifficultyAvailable(weaponnum, FRDIFFICULTY_GOLD);
     if (locked) ImGui::BeginDisabled();
     active = (frGetDifficulty() == FRDIFFICULTY_GOLD);
     if (active)
@@ -1382,11 +1379,11 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         frLoadData();
         pdguiTrFrSetSlot(selectedSlot);
         u32 weaponnum = pdguiTrFrWeaponBySlot(selectedSlot);
-        s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
-        frSetDifficulty(tier > 0 ? tier : FRDIFFICULTY_BRONZE);
+        frSetDifficulty(pdguiTrFrWeaponScoreTier(weaponnum));
+        bool chooseDifficulty = frIsDifficultyAvailable(weaponnum, FRDIFFICULTY_SILVER) != 0;
         menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST,
-            tier > 0 ? "difficulty" : "info",
-            tier > 0 ? &g_FrDifficultyMenuDialog : &g_FrTrainingInfoPreGameMenuDialog);
+            chooseDifficulty ? "difficulty" : "info",
+            chooseDifficulty ? &g_FrDifficultyMenuDialog : &g_FrTrainingInfoPreGameMenuDialog);
         pdguiPlaySound(PDGUI_SND_SELECT);
     }
     return 1;

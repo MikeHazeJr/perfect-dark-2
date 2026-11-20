@@ -200,6 +200,18 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
                              f32 *io_best_frac, struct coord *out_normal,
                              struct prop **out_prop);
 
+struct meshfloorcontact {
+	struct prop *prop;
+	RoomNum room;
+	u16 flags;
+	u16 colour;
+	u8 material;
+};
+
+/* Closest floor on a vertical descending ray, with its triangle's metadata. */
+f32 meshRayCastFloor(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct prop *selfprop, struct meshfloorcontact *out);
+
 /* ---- API: per-prop dynamic mesh ---- */
 
 /* Attach a collision mesh to a prop (for dynamic objects).

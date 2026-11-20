@@ -310,11 +310,19 @@ TEST_CASE("owner address reuse and stale source retirement cannot affect a newer
         &ops, host.get(), destroyOwnedHost, error, sizeof(error));
     REQUIRE(instance); host.release();
     auto source_generation = wgV2CatalogEntryGeneration(entry.get());
+    wgV2Press(instance, 1, generation2, source_generation);
+    wgV2NativeIdle(instance, 1, 1, generation2, source_generation);
+    REQUIRE(wgV2Busy(instance));
+    const auto ticket = wgV2ActiveTicket(instance, "shot");
+    REQUIRE(ticket);
+    REQUIRE(wgV2Wake(instance, ticket, 1, generation1, source_generation) == WG_V2_IGNORED);
+    REQUIRE(wgV2Wake(instance, ticket, 1, generation2, source_generation + 1) == WG_V2_IGNORED);
+    REQUIRE(wgV2Busy(instance)); REQUIRE(wgV2ActiveTicket(instance, "shot") == ticket);
     wgV2OwnersRetireOwner(owners.get(), &owner, generation1, "stale owner event");
     wgV2OwnersRetireSource(owners.get(), "mod:single", source_generation + 1);
     REQUIRE(wgV2OwnersFind(owners.get(), &owner, generation2, 1, source_generation, nullptr) == instance);
     REQUIRE(destroyed == 0);
     wgV2OwnersRetireHand(owners.get(), &owner, generation2, 1, "equip replacement");
     REQUIRE(destroyed == 1);
-    REQUIRE(cancelled == 0); REQUIRE(cleaned == 0); // Never started a native job.
+    REQUIRE(cancelled == 1); REQUIRE(cleaned == 1);
 }

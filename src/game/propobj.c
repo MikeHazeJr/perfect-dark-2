@@ -1471,6 +1471,9 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
 	}
 
 	projectile = obj->projectile;
+	/* B-1261: graph records carry the held function's FUNCFLAG_* bits.
+	 * Spawn paths map function flags into projectile state. The latches
+	 * below apply explicit projectile behavior from the graph. */
 	/* B-1263: this object was launched from this archive. Its events and its
 	 * fuse rule go to that archive's program (projectile_events.h). */
 	projectileEventBind(obj, runtime->asset_id);

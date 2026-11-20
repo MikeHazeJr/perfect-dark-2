@@ -2267,6 +2267,8 @@ f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *fl
 			*floorflags = geo->flags;
 		} else if (ground > -30000.0f) {
 			*floorflags = GEOFLAG_FLOOR1;
+		} else {
+			*floorflags = 0;
 		}
 	}
 

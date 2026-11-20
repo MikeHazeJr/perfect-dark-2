@@ -40,6 +40,7 @@
 #include "net/netbuf.h"
 #include "modmgr.h"
 #include "game/challenge.h"  /* unlock-state filter for assetCatalogIterateUnlockedByType */
+#include "game/gamefile.h"
 #include "catalog_checked.h"  /* INV-1: pure validators backing _Checked accessors */
 #include "asset_source_debug.h"  /* Gate 5 (c3844): source-only enforcement query for catalogAssertHealthy */
 #include "catalog_mgr_heads.h"  /* Catalog Gate 3 F2: head accessors route through manager */
@@ -1136,7 +1137,7 @@ static int s_musicTrackUnlocked(s16 unlockstage)
 {
     s32 i;
     if (unlockstage < 0) return 1;
-    if (unlockstage > SOLOSTAGEINDEX_SKEDARRUINS) return 1;
+    if (unlockstage > SOLOSTAGEINDEX_SKEDARRUINS || gamefileHasUnlockAll()) return 1;
     for (i = 0; i < 3; i++) {
         if (g_GameFile.besttimes[unlockstage][i] != 0) return 1;
     }

@@ -30,6 +30,24 @@ size_t countOf(const std::string &text, const std::string &needle)
 
 } // namespace
 
+TEST_CASE("projectile state keeps the weapon function flag domain separate",
+	"[weapon][graph][projectile][static][b1261]")
+{
+	const std::string source = readSource("src/game/propobj.c");
+	const size_t apply = source.find("void projectileApplyGraphRuntime(struct defaultobj *obj,");
+	REQUIRE(apply != std::string::npos);
+	const size_t end = source.find("\n}\n", apply);
+	REQUIRE(end != std::string::npos);
+	const std::string body = source.substr(apply, end - apply);
+	CHECK(body.find("runtime->flags") == std::string::npos);
+	CHECK(body.find("projectile->flags |= PROJECTILEFLAG_HOMING;") != std::string::npos);
+
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	CHECK(extractor.find("u32 flags = f ? f->flags : 0;") != std::string::npos);
+	const std::string gun = readSource("src/game/bondgun.c");
+	CHECK(gun.find("u32 funcflags = graph ? graph->flags : func->flags;") != std::string::npos);
+}
+
 // B-1261: a projectile record's `flags` are its weapon function's FUNCFLAG_*
 // bits; applying the record never copies them into PROJECTILEFLAG_*.
 TEST_CASE("a projectile record's function flags never become projectile flags",

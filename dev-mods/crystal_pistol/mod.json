@@ -1,9 +1,9 @@
 {
   "id": "crystal_pistol",
-  "name": "Maian Crystal Pistol (test)",
+  "name": "Maian Crystal Pistol",
   "version": "0.2.0",
   "author": "PD2",
-  "description": "Test build of the Maian crystal pistol: a Tripo-generated, Blender-retopologised held model with a baked body texture and six crystals in sockets (five on the spine, one in the barrel). The crystals are the magazine: each shot fires one, it vanishes from its socket, and reload regrows them one at a time. Primary fire launches a crystal that sticks where it lands; three landed crystals near each other detonate. Secondary charges every loaded crystal and launches each from its own socket as a proximity mine.",
+  "description": "The Maian crystal pistol has a Tripo-generated, Blender-retopologised held model with a baked body texture and six crystals in sockets (five on the spine, one in the barrel). The crystals are the magazine: each shot fires one, it vanishes from its socket, and reload regrows them one at a time. Primary fire launches a crystal that sticks where it lands; three landed crystals near each other detonate. Secondary charges every loaded crystal and launches each from its own socket as a proximity mine.",
   "contents": [
     "weapon",
     "texture"

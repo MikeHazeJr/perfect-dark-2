@@ -399,6 +399,24 @@ class ArchivePreflightTests(unittest.TestCase):
         damaged[offset] ^= 1
         self.reject([ArchiveFile("crc.pdweapon", bytes(damaged))], "not a zip-openable")
 
+    def test_release_checks_rom_provenance_inside_nested_typed_members(self):
+        child = source_entries(".pdmesh")
+        child["_meta/provenance.json"] = b'{"tool":"romextract_pdmesh"}'
+        root = source_entries(".pdweapon")
+        root["dependencies/assets/models/child.pdmesh"] = memory_archive(child)
+        data = memory_archive(root)
+        workflow_errors = []
+        VERIFIER.validate_archive(Path("author.pdweapon"), VERIFIER.WorkflowStats(),
+                                  workflow_errors, source_bytes=data)
+        self.assertEqual([], workflow_errors)
+
+        release_errors = []
+        VERIFIER.validate_archive(Path("author.pdweapon"), VERIFIER.WorkflowStats(),
+                                  release_errors, source_bytes=data, release=True)
+        self.assertEqual(1, len(release_errors))
+        self.assertIn("child.pdmesh", release_errors[0])
+        self.assertIn("ROM-derived archive cannot ship", release_errors[0])
+
     def test_archive_diagnostics_preserve_existing_eighty_error_limit(self):
         def change(ext, entries):
             if ext == ".pdweapon":

@@ -1561,14 +1561,11 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				data_size = synced_size;
 			}
 			if (strcmp(leaf, ASSET_ARCHIVE_META_MANIFEST) == 0
-					&& cloneEqNoCase(ext, ".pdmesh")) {
-				/* A cloned mesh is a new asset. The native file its template
-				 * stands for (source_filenum_symbol, which the extractor writes
-				 * for every base mesh) stays the template's: a copy that kept it
-				 * claimed that file's slot when it was a weapon's mesh (B-1152:
-				 * the base gun then loaded the mod's copy) and is refused as a
-				 * second owner when it is a body's or a head's. Without it the
-				 * loader gives the mesh a private slot. */
+					&& cloneEqNoCase(ext, ".pdmesh")
+					&& (strcmp(old_id, new_id) != 0 || strncmp(new_id, "base:", 5) != 0)) {
+				/* The extractor's file belongs to its base mesh. Keep the
+					* binding on in-place edits of that identity. Other meshes
+					* get their own slot (B-1152). */
 				(void)assetArchiveCloneJsonDropTopMember(data, &data_size,
 					"source_filenum_symbol");
 			}

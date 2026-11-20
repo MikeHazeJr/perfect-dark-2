@@ -1,6 +1,6 @@
 {
   "schema": "pd2-dev-mods-v1",
-  "description": "Authored dev mods that are git-tracked here (so a clean build cannot erase them) and copied into <install>/mods on every build by devtools/build-headless.ps1. Each entry's source lives at dev-mods/<path>/. Per-mod 'dev' and 'release' flags control default inclusion; override at build time with -DevMods all|none|<comma-list>, or at release time with the release script's mod flags.",
+  "description": "Git-tracked mod sources in dev-mods/<path>/. The dev flag copies loose sources into <install>/mods on a normal build. The release flag packs a first-party .pdmod into mods/bundled. Build selection can be overridden with -DevMods all|none|<comma-list>.",
   "mods": [
     {
       "id": "needler",
@@ -13,7 +13,7 @@
       "id": "crystal_pistol",
       "path": "crystal_pistol",
       "dev": false,
-      "release": false,
+      "release": true,
       "summary": "Maian crystal pistol test weapon: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Include with -DevMods crystal_pistol."
     },
     {

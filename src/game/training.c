@@ -7,7 +7,6 @@
 #include "game/debug.h"
 #include "game/dlights.h"
 #include "game/explosions.h"
-#include "game/filemgr.h"
 #include "game/game_0b0fd0.h"
 #include "game/game_1531a0.h"
 #include "game/gamefile.h"
@@ -37,6 +36,7 @@
 #include "data.h"
 #include "types.h"
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
+#include "savefile.h"
 
 #define FRSCRIPTINDEX_WEAPONS 0x00
 #define FRSCRIPTINDEX_TARGETS 0x22
@@ -65,6 +65,13 @@ u16 g_FrPads[] = {
 bool ciIsTourDone(void)
 {
 	return gamefileHasFlag(GAMEFILEFLAG_CI_TOUR_DONE);
+}
+
+static void ciSaveTrainingProgress(void)
+{
+	if (g_GameFile.name[0]) {
+		saveSaveAgent(g_GameFile.name);
+	}
 }
 
 u8 ciGetFiringRangeScore(s32 weaponindex)
@@ -184,17 +191,26 @@ s32 ciIsStageComplete(s32 stageindex)
 		|| g_GameFile.besttimes[stageindex][2];
 }
 
+static bool ciIsStageContentAvailable(s32 stageindex)
+{
+	return gamefileHasUnlockAll() || ciIsStageComplete(stageindex);
+}
+
 bool func0f19cbcc(s32 weapon)
 {
 	if (weapon <= 0 || weapon == WEAPON_PSYCHOSISGUN) {
 		return false;
 	}
 
-	if (weapon == WEAPON_XRAYSCANNER && ciIsStageComplete(SOLOSTAGEINDEX_INFILTRATION)) {
+	if (gamefileHasUnlockAll() && (u32)weapon < sizeof(g_GameFile.weaponsfound) * 8) {
 		return true;
 	}
 
-	if (weapon == WEAPON_CLOAKINGDEVICE && ciIsStageComplete(SOLOSTAGEINDEX_CHICAGO)) {
+	if (weapon == WEAPON_XRAYSCANNER && ciIsStageContentAvailable(SOLOSTAGEINDEX_INFILTRATION)) {
+		return true;
+	}
+
+	if (weapon == WEAPON_CLOAKINGDEVICE && ciIsStageContentAvailable(SOLOSTAGEINDEX_CHICAGO)) {
 		return true;
 	}
 
@@ -211,7 +227,7 @@ bool frIsWeaponAvailable(s32 weapon)
 		return false;
 	}
 
-	if (weapon == WEAPON_FALCON2 || weapon == WEAPON_CMP150) {
+	if (gamefileHasUnlockAll() || weapon == WEAPON_FALCON2 || weapon == WEAPON_CMP150) {
 		return true;
 	}
 
@@ -224,6 +240,13 @@ bool frIsWeaponAvailable(s32 weapon)
 #endif
 
 	return frIsWeaponFound(weapon);
+}
+
+s32 frIsDifficultyAvailable(u32 weaponnum, s32 difficulty)
+{
+	return difficulty >= FRDIFFICULTY_BRONZE && difficulty <= FRDIFFICULTY_GOLD
+		&& frIsWeaponAvailable(weaponnum)
+		&& (gamefileHasUnlockAll() || ciGetFiringRangeScore(frGetWeaponIndexByWeapon(weaponnum)) >= difficulty);
 }
 
 u32 frGetWeaponIndexByWeapon(u32 weaponnum)
@@ -1680,7 +1703,7 @@ void frTick(void)
 			case FRMENUTYPE_COMPLETED:
 				sndStart(var80095200, SFX_TRAINING_COMPLETE, NULL, -1, -1, -1, -1, -1);
 				func0f0f85e0(&g_FrCompletedMenuDialog, MENUROOT_TRAINING);
-				filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+				ciSaveTrainingProgress();
 				break;
 			}
 		}
@@ -2265,19 +2288,19 @@ bool ciIsChrBioUnlocked(u32 bodynum)
 	case BODY_CARRINGTON:
 		return true;
 	case BODY_CASSANDRA:
-		return ciIsStageComplete(SOLOSTAGEINDEX_DEFECTION);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_DEFECTION);
 	case BODY_DRCAROLL:
-		return ciIsStageComplete(SOLOSTAGEINDEX_INVESTIGATION);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_INVESTIGATION);
 	case BODY_MRBLONDE:
-		return ciIsStageComplete(SOLOSTAGEINDEX_EXTRACTION);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_EXTRACTION);
 	case BODY_TRENT:
-		return ciIsStageComplete(SOLOSTAGEINDEX_G5BUILDING);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_G5BUILDING);
 	case BODY_JONATHAN:
-		return ciIsStageComplete(SOLOSTAGEINDEX_INFILTRATION);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_INFILTRATION);
 	case BODY_THEKING:
-		return ciIsStageComplete(SOLOSTAGEINDEX_RESCUE);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_RESCUE);
 	case BODY_PRESIDENT:
-		return ciIsStageComplete(SOLOSTAGEINDEX_AIRFORCEONE);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_AIRFORCEONE);
 	}
 
 	return false;
@@ -2333,7 +2356,7 @@ struct chrbio *ciGetChrBioByBodynum(u32 bodynum)
 	case BODY_THEKING:
 		return &bios[6];
 	case BODY_MRBLONDE:
-		if (ciIsStageComplete(SOLOSTAGEINDEX_CRASHSITE)) {
+		if (ciIsStageContentAvailable(SOLOSTAGEINDEX_CRASHSITE)) {
 			return &bios[8];
 		}
 		return &bios[7];
@@ -2458,12 +2481,12 @@ bool ciIsMiscBioUnlocked(s32 index)
 {
 	switch (index) {
 	case MISCBIO_MAIANS:
-		return ciIsStageComplete(SOLOSTAGEINDEX_RESCUE);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_RESCUE);
 	case MISCBIO_SKEDAR:
-		return ciIsStageComplete(SOLOSTAGEINDEX_ATTACKSHIP);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_ATTACKSHIP);
 	case MISCBIO_BACKGROUND:
 	case MISCBIO_STORY:
-		return ciIsStageComplete(SOLOSTAGEINDEX_MBR);
+		return ciIsStageContentAvailable(SOLOSTAGEINDEX_MBR);
 	}
 
 	return false;
@@ -2667,7 +2690,7 @@ bool ciIsHangarBioUnlocked(u32 bioindex)
 		return false;
 	}
 
-	return ciIsStageComplete(stage);
+	return ciIsStageContentAvailable(stage);
 }
 
 s32 ciGetNumUnlockedLocationBios(void)
@@ -2794,7 +2817,7 @@ void dtTick(void)
 				g_DtData.completed = true;
 				g_DtData.timeleft = 1;
 				g_DtData.finished = true;
-				filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+				ciSaveTrainingProgress();
 			}
 		} else if (g_DtData.finished) {
 			if (g_DtData.timeleft <= 0) {
@@ -2872,7 +2895,7 @@ bool dtIsAvailable(s32 deviceindex)
 		return true;
 	}
 
-	if (deviceindex < 0 || gamefileHasFlag(flags[deviceindex])) {
+	if (deviceindex < 0 || gamefileHasUnlockAll() || gamefileHasFlag(flags[deviceindex])) {
 		return true;
 	}
 
@@ -3082,7 +3105,7 @@ void htTick(void)
 				g_HtData.completed = true;
 				g_HtData.timeleft = 1;
 				g_HtData.finished = true;
-				filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+				ciSaveTrainingProgress();
 			}
 		} else if (g_HtData.finished) {
 			if (g_HtData.timeleft <= 0) {

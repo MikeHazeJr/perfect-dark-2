@@ -41,6 +41,7 @@
 #include "game/gamefile.h"
 #include "game/mplayer/mplayer.h"
 #include "game/options.h"
+#include "game/pak.h"
 #include "game/training.h"
 #include "lib/snd.h"
 
@@ -799,6 +800,32 @@ s32 saveSaveAgent(const char *name)
 		return -1;
 	}
 	return saveWriteAgentDocument(name, &document);
+}
+
+s32 saveAgentUnlockAll(const char *name)
+{
+	char path[512];
+	struct agent_profile_document document;
+	enum agent_profile_source_shape source;
+
+	if (!saveAgentNameIsValid(name) || strcmp(name, prefsAgentGetActive()) != 0
+			|| saveReadAgentDocument(name, &document, path, sizeof(path), &source) != 0
+			|| source != AGENT_PROFILE_SOURCE_CURRENT) {
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
+	}
+
+	// Update the stored Agent document without capturing unrelated live settings or progress.
+	if (!pakHasBitflag(GAMEFILEFLAG_UNLOCK_ALL, document.flags)) {
+		pakSetBitflag(GAMEFILEFLAG_UNLOCK_ALL, document.flags, true);
+		if (saveWriteAgentDocument(name, &document) != 0) {
+			return -1;
+		}
+	}
+
+	gamefileSetFlag(GAMEFILEFLAG_UNLOCK_ALL);
+	challengeDetermineUnlockedFeatures();
+	return 0;
 }
 
 s32 saveLoadAgent(const char *name)
