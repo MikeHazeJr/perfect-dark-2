@@ -404,3 +404,117 @@ TEST_CASE("Scene camera: the game's own matrices keep a triangle's winding",
 	}
 	CHECK(ndcArea2(vp, qa, qb, qc) > 0.0f);
 }
+
+namespace {
+
+// guLookAtReflectF (src/lib/ultra/gu/lookatref.c) for the camera's look and
+// up, then each vector as fast3d reads a Light_t direction: the signed byte
+// FTOFRAC8 stores, divided by 127 and normalised (calculate_normal_dir).
+void gameReflectionVectors(const float look[3], const float up[3], float x[3], float y[3])
+{
+	float xLook = look[0];
+	float yLook = look[1];
+	float zLook = look[2];
+	float len = -1.0f / std::sqrt(xLook * xLook + yLook * yLook + zLook * zLook);
+	xLook *= len;
+	yLook *= len;
+	zLook *= len;
+	float xRight = up[1] * zLook - up[2] * yLook;
+	float yRight = up[2] * xLook - up[0] * zLook;
+	float zRight = up[0] * yLook - up[1] * xLook;
+	len = 1.0f / std::sqrt(xRight * xRight + yRight * yRight + zRight * zRight);
+	xRight *= len;
+	yRight *= len;
+	zRight *= len;
+	float xUp = yLook * zRight - zLook * yRight;
+	float yUp = zLook * xRight - xLook * zRight;
+	float zUp = xLook * yRight - yLook * xRight;
+	len = 1.0f / std::sqrt(xUp * xUp + yUp * yUp + zUp * zUp);
+	xUp *= len;
+	yUp *= len;
+	zUp *= len;
+	const float right[3] = {xRight, yRight, zRight};
+	const float upv[3] = {xUp, yUp, zUp};
+	for (int which = 0; which < 2; which++) {
+		const float *v = which == 0 ? right : upv;
+		float *out = which == 0 ? x : y;
+		float q[3];
+		for (int i = 0; i < 3; i++) {
+			const float scaled = v[i] * 128.0f < 127.0f ? v[i] * 128.0f : 127.0f; // FTOFRAC8
+			const signed char dir = (signed char)((int)scaled & 0xff);
+			q[i] = dir / 127.0f;
+		}
+		const float n = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+		for (int i = 0; i < 3; i++) {
+			out[i] = q[i] / n;
+		}
+	}
+}
+
+}
+
+// B-1268: texture generation maps a reflective surface from the normal
+// against two vectors the game makes from the camera.
+TEST_CASE("Scene camera: its reflection vectors are the game's", "[scene_camera][b1268]")
+{
+	// Looking down -z with y up: right is +x, up is +y.
+	{
+		const float look[3] = {0.0f, 0.0f, -1.0f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		float x[3];
+		float y[3];
+		REQUIRE(scenarioSceneLookAtReflect(look, up, x, y) == 1);
+		CHECK(x[0] == Approx(1.0f).margin(1e-6));
+		CHECK(x[1] == Approx(0.0f).margin(1e-6));
+		CHECK(x[2] == Approx(0.0f).margin(1e-6));
+		CHECK(y[0] == Approx(0.0f).margin(1e-6));
+		CHECK(y[1] == Approx(1.0f).margin(1e-6));
+		CHECK(y[2] == Approx(0.0f).margin(1e-6));
+	}
+	// Arbitrary cameras, quantisation included.
+	const float cameras[][6] = {
+		{0.0f, 0.0f, -1.0f, 0.0f, 1.0f, 0.0f},
+		{0.3f, -0.6f, 0.74f, 0.0f, 1.0f, 0.0f},
+		{-0.785f, -0.423f, 0.453f, 0.0f, 1.0f, 0.0f},
+		{0.2f, 0.9f, -0.1f, 0.0f, 0.0f, 1.0f},
+		{1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f},
+	};
+	for (const auto &cam : cameras) {
+		float want_x[3];
+		float want_y[3];
+		float got_x[3];
+		float got_y[3];
+		gameReflectionVectors(&cam[0], &cam[3], want_x, want_y);
+		REQUIRE(scenarioSceneLookAtReflect(&cam[0], &cam[3], got_x, got_y) == 1);
+		for (int i = 0; i < 3; i++) {
+			CHECK(got_x[i] == Approx(want_x[i]).margin(1e-5));
+			CHECK(got_y[i] == Approx(want_y[i]).margin(1e-5));
+		}
+	}
+	// The camera a view is drawn with carries them.
+	{
+		const float pos[3] = {100.0f, 50.0f, -20.0f};
+		const float look[3] = {0.3f, -0.6f, 0.74f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		scenario_scene_camera_t cam;
+		REQUIRE(scenarioSceneCameraBuild(&cam, pos, look, up, 60.0f, 16.0f / 9.0f, 10.0f, 10000.0f, 1.0f, nullptr) == 1);
+		float want_x[3];
+		float want_y[3];
+		gameReflectionVectors(look, up, want_x, want_y);
+		for (int i = 0; i < 3; i++) {
+			CHECK(cam.lookat_x[i] == Approx(want_x[i]).margin(1e-5));
+			CHECK(cam.lookat_y[i] == Approx(want_y[i]).margin(1e-5));
+		}
+	}
+	// A degenerate look or up is refused.
+	{
+		const float zero[3] = {0.0f, 0.0f, 0.0f};
+		const float up[3] = {0.0f, 1.0f, 0.0f};
+		const float along_up[3] = {0.0f, 1.0f, 0.0f};
+		float x[3] = {9.0f, 9.0f, 9.0f};
+		float y[3] = {9.0f, 9.0f, 9.0f};
+		CHECK(scenarioSceneLookAtReflect(zero, up, x, y) == 0);
+		CHECK(scenarioSceneLookAtReflect(along_up, up, x, y) == 0);
+		CHECK(x[0] == 9.0f);
+	}
+}

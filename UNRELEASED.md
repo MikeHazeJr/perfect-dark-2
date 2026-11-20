@@ -13,6 +13,10 @@
 - Room surfaces the original drew one-sided are one-sided again, so the
   back of a wall or of a building's shell no longer shows where the
   original showed nothing.
+- Reflective room surfaces (polished floors and desks, glass, metal panels)
+  shine and move with the camera again, lit by their room. They were drawn
+  in stray colours with a fixed texture: the scene used their surface
+  normals as colours.
 - A thrown grenade, mine, N-bomb or Dragon takes its fuse and its first
   bounce from the throw itself. Placeholder values in a base weapon's launch
   record are no longer applied over them.
