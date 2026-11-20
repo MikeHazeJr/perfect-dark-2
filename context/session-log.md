@@ -1,5 +1,24 @@
 # Session Log (Active)
 
+2026-11-20 CORE, 05:30 to 06:15 UTC. `week-pd/core-s11` landed on `dev` as
+`d43a7f72` (PR 18; hosted CI run 44680975726 green on the branch head),
+local dev `6e1fff4b`, shared base 13 published (`D:\PD2-wt\shared-base-13`).
+Workbench N-1072 and N-1074 marked incorporated. Then `week-pd/core-s12` (PR
+19), made in the same worktree so the session build stayed incremental:
+B-1291, two companions of `--debug-spawn-at` (`--debug-spawn-at-after-intro`
+waits for one second of control, `--debug-spawn-at-look-at` holds the view
+on a point and logs `look_dot`). With them `scene_monitor_defection` shows a
+PC on Defection from the same place with two clients (turn
+`q_20261120055333846_bc8b2bf6`, 18/18 each): the head without B-1290's
+change draws half of the screen, the head with it draws the whole screen.
+That is the proof B-1290 lacked. pd-tests 2,552 cases / 583,043 assertions.
+The first smoke of a new base on D: spent eight minutes staging its install
+(a cold copy of 13,130 files), the second three. Next: land core-s12, then
+reflective room surfaces (B-1268: the light is fixed in world space, so the
+lit colour can be written at export time, and only the texture coordinates
+follow the camera, on the path the animated surfaces already use),
+translucent order (B-1269), projectile slice 7.
+
 2026-11-20 CORE, 02:30 to 05:30 UTC. `week-pd/core-s11` (PR 18) was built,
 extracted and run in the game. Found and fixed on it besides B-1266 and
 B-1267: B-1290, half of every monitor and TV screen not drawn (the
