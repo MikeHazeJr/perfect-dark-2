@@ -27,6 +27,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "glad/glad.h"
+#include "gfx_bgfx.h"
+#include "../external/stb_image.h"
 /* S306: direct.h / unistd.h provide rmdir() for the BATCH 2 theme/mod
  * deletion flow. MinGW uses _rmdir; POSIX uses rmdir. */
 #ifdef _WIN32
@@ -48,6 +55,8 @@
 #include "pdgui_menu_theme_editor.h"
 #include "pdgui_forge.h"
 #include "pdgui_menu_grid.h"
+#include "pdgui_grid_browser_data.h"
+#include "pdgui_grid_browser_logic.h"
 #include "pdgui_friends.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -5633,7 +5642,11 @@ static GridArenaEntry *s_GridArenas = NULL;
 static int             s_GridArenaCount = 0;
 static int             s_GridArenaCapacity = 0;
 static bool            s_GridArenasBuilt = false;
-static int             s_GridSelectedArena = 0;
+static bool            s_GridBrowserBuilt = false;
+static bool            s_GridBrowserBuilding = false;
+// An empty ID identifies the synthetic Blank Map. Catalog rows have IDs.
+static char            s_GridSelectedArenaId[CATALOG_ID_LEN];
+static char            s_GridLaunchError[160];
 
 /* AUDIT-24-M6 (2026-04-25): scenarios are catalog-driven; the built
  * flag and dynamic storage are co-located with the arena counterparts
@@ -5660,6 +5673,8 @@ static bool               s_GridScenariosBuilt = false;
 extern "C" void pdguiGridArenasInvalidate(void)
 {
     s_GridArenasBuilt = false;
+    s_GridBrowserBuilt = false;
+    s_GridBrowserBuilding = false;
     s_GridScenariosBuilt = false;
 }
 
@@ -5674,20 +5689,8 @@ static GridArenaCategory gridClassifyCategory(const char *cat)
     return GRID_CAT_UNKNOWN;
 }
 
-static const char *gridCategoryTag(GridArenaCategory c)
-{
-    switch (c) {
-    case GRID_CAT_MP:      return "MP";
-    case GRID_CAT_SP:      return "SP";
-    case GRID_CAT_CLASSIC: return "Classic";
-    case GRID_CAT_BONUS:   return "Bonus";
-    case GRID_CAT_RANDOM:  return "Random";
-    default:               return "?";
-    }
-}
-
 /* Variant state.  Simple local mirror until the user commits via Enter. */
-static int   s_GridScenarioIdx = 0;     /* index into s_GridScenarios[] */
+static char  s_GridScenarioId[CATALOG_ID_LEN] = "base:combat";
 static int   s_GridTimeLimit   = 10;    /* minutes, 0 = unlimited */
 static int   s_GridScoreLimit  = 10;    /* kills/points, 0 = unlimited */
 static bool  s_GridTeamsOn     = false;
@@ -5767,7 +5770,14 @@ static int gridArenaCompare(const void *a, const void *b)
     const GridArenaEntry *eb = (const GridArenaEntry *)b;
     /* Blank Map always first, then alphabetical. */
     if (ea->is_blank != eb->is_blank) return ea->is_blank ? -1 : 1;
-    return strcasecmp(ea->name, eb->name);
+    const int byName = strcasecmp(ea->name, eb->name);
+    return byName ? byName : strcmp(ea->id, eb->id);
+}
+
+static const GridArenaEntry *gridSelectedArena(void)
+{
+    const int row = gridBrowserLogic::findArenaById(s_GridArenas, s_GridArenaCount, s_GridSelectedArenaId);
+    return row >= 0 ? &s_GridArenas[row] : nullptr;
 }
 
 static void gridArenaListBuild(void)
@@ -5784,9 +5794,8 @@ static void gridArenaListBuild(void)
             (size_t)s_GridArenaCapacity * sizeof(GridArenaEntry));
     if (s_GridArenas) {
         GridArenaEntry *a = &s_GridArenas[0];
-        strncpy(a->name, "Blank Map", sizeof(a->name) - 1);
-        a->name[sizeof(a->name) - 1] = '\0';
-        a->id[0] = '\0';
+        *a = {};
+        snprintf(a->name, sizeof(a->name), "Blank Map");
         a->stagenum = (s32)GRID_BLANK_STAGE;
         a->is_blank = true;
         s_GridArenaCount = 1;
@@ -5802,7 +5811,6 @@ static void gridArenaListBuild(void)
 
     sysLogPrintf(LOG_NOTE, "GRID.MENU: arena list built (%d entries)",
                  s_GridArenaCount);
-    if (s_GridSelectedArena >= s_GridArenaCount) s_GridSelectedArena = 0;
     s_GridArenasBuilt = true;
 }
 
@@ -5852,7 +5860,8 @@ static int gridScenarioCompare(const void *a, const void *b)
     bool aIsCombat = (strcmp(ea->id, "base:combat") == 0);
     bool bIsCombat = (strcmp(eb->id, "base:combat") == 0);
     if (aIsCombat != bIsCombat) return aIsCombat ? -1 : 1;
-    return strcasecmp(ea->label, eb->label);
+    const int byName = strcasecmp(ea->label, eb->label);
+    return byName ? byName : strcmp(ea->id, eb->id);
 }
 
 static void gridScenarioListBuild(void)
@@ -5871,8 +5880,15 @@ static void gridScenarioListBuild(void)
 
     sysLogPrintf(LOG_NOTE, "GRID.MENU: scenario list built (%d entries)",
                  s_GridScenarioCount);
-    if (s_GridScenarioIdx >= s_GridScenarioCount) s_GridScenarioIdx = 0;
     s_GridScenariosBuilt = true;
+}
+
+static const GridScenarioEntry *gridSelectedScenario()
+{
+    for (int i = 0; i < s_GridScenarioCount; ++i) {
+        if (strcmp(s_GridScenarios[i].id, s_GridScenarioId) == 0) return &s_GridScenarios[i];
+    }
+    return nullptr;
 }
 
 static void gridScenarioListEnsure(void)
@@ -5884,88 +5900,112 @@ static void gridScenarioListEnsure(void)
 
 /* forge_level_io.h: names the arena a Forge session was started on. */
 extern "C" void forgeLevelSessionBegin(const char *arena_id);
+extern "C" s32 forgeLevelMountVariantDependencies(const char *arena_id, char *err, size_t err_cap);
+extern "C" s32 forgeLevelVariantDependenciesStage(void);
+extern "C" s32 forgeLevelRetireVariantDependencies(char *err, size_t err_cap);
+extern "C" s32 mainStageChangePending(void);
+extern "C" s32 stageArchiveRepairStatus(s32 stagenum);
+extern "C" u32 rngRandom(void);
 
-/* Apply the submenu state to g_MatchConfig and call
- * pdguiForgeStartSessionOn(stagenum).  Returns true on success. */
+static bool gridLaunchFailed(const char *message)
+{
+    snprintf(s_GridLaunchError, sizeof(s_GridLaunchError), "%s", message);
+    sysLogPrintf(LOG_WARNING, "GRID.MENU: %s", s_GridLaunchError);
+    return false;
+}
+
+static bool gridStageIsValid(s32 stage)
+{
+    return stage > 0 && stage <= 255 && GRID_STAGE_IS_GAMEPLAY(stage) && stageGetIndex(stage) >= 0;
+}
+
+static bool gridRandomCandidate(const GridArenaEntry &candidate, bool solo)
+{
+    if (candidate.is_blank || !gridStageIsValid(candidate.stagenum)
+            || stageArchiveRepairStatus(candidate.stagenum) != 0) return false;
+    return solo ? candidate.category == GRID_CAT_SP
+        : candidate.category == GRID_CAT_MP || candidate.category == GRID_CAT_CLASSIC
+            || candidate.category == GRID_CAT_BONUS;
+}
+
+/* Choose one concrete catalog row. Several rows can share a stage number. */
+static const GridArenaEntry *gridResolveLaunchArena(const GridArenaEntry *selected)
+{
+    if (selected->category != GRID_CAT_RANDOM) return selected;
+
+    const bool solo = selected->stagenum == GRID_STAGE_MP_RANDOM_SOLO;
+    if (!solo && selected->stagenum != GRID_STAGE_MP_RANDOM_MULTI) return nullptr;
+    u32 count = 0;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        if (gridRandomCandidate(s_GridArenas[i], solo)) ++count;
+    }
+    if (count == 0) return nullptr;
+    u32 choice = rngRandom() % count;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        if (gridRandomCandidate(s_GridArenas[i], solo) && choice-- == 0) return &s_GridArenas[i];
+    }
+    return nullptr;
+}
+
+static void gridRetireFailedVariantMount(s32 originalMount, s32 attemptedStage)
+{
+    if (originalMount >= 0 || forgeLevelVariantDependenciesStage() != attemptedStage) return;
+
+    char error[256];
+    if (!forgeLevelRetireVariantDependencies(error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING, "GRID.MENU: variant source cleanup failed: %s", error);
+    }
+}
+
 static bool gridCommitEnter(void)
 {
-    if (s_GridArenaCount <= 0) {
-        sysLogPrintf(LOG_WARNING, "GRID.MENU: commit rejected -- arena list empty");
-        return false;
-    }
-    if (s_GridSelectedArena < 0 || s_GridSelectedArena >= s_GridArenaCount) {
-        sysLogPrintf(LOG_WARNING, "GRID.MENU: commit rejected -- selected=%d of %d",
-                     s_GridSelectedArena, s_GridArenaCount);
-        return false;
-    }
+    if (!s_GridArenasBuilt) gridArenaListBuild();
+    const GridArenaEntry *selected = gridSelectedArena();
+    if (!selected) return gridLaunchFailed("Choose an available map to enter.");
 
-    const GridArenaEntry *a = &s_GridArenas[s_GridSelectedArena];
+    const GridArenaEntry *resolved = gridResolveLaunchArena(selected);
+    if (!resolved) return gridLaunchFailed("No eligible map could be resolved for this Random choice.");
+    const GridArenaEntry arena = *resolved;
+    char selectedName[sizeof(selected->name)];
+    snprintf(selectedName, sizeof(selectedName), "%s", selected->name);
+    const s32 stage = arena.stagenum;
+    if (!gridStageIsValid(stage)) return gridLaunchFailed("The selected map does not have a playable stage.");
+    if (mainStageChangePending()) return gridLaunchFailed("Try again after the current stage transition.");
+    const s32 repair = stageArchiveRepairStatus(stage);
+    if (repair > 0) return gridLaunchFailed("This map is being prepared. Try again when preparation finishes.");
+    if (repair < 0) return gridLaunchFailed("The local map files could not be prepared.");
 
-    /* Resolve meta-arenas (Random Multi / Random Solo) to a concrete
-     * stagenum at commit time. The user sees "Random Multi" as a row in
-     * the picker; Enter rolls the dice and lands on a real stage. */
-    s32 commit_stagenum = a->stagenum;
-    const char *commit_id = a->id;
-    if (!a->is_blank) {
-        if (commit_stagenum == GRID_STAGE_MP_RANDOM_MULTI) {
-            commit_stagenum = (s32)mpChooseRandomMultiStage();
-            commit_id = "";   /* resolved stagenum wins; clear catalog id */
-        } else if (commit_stagenum == GRID_STAGE_MP_RANDOM_SOLO) {
-            commit_stagenum = (s32)mpChooseRandomSoloStage();
-            commit_id = "";
-        }
-    }
-
-    /* One loud sanity assertion before handing off to the stage-load
-     * pipeline. Catches any remaining registration or random-resolver bug
-     * -- a hit here means real data corruption, not a soft reject. */
-    if (!a->is_blank) {
-        if (commit_stagenum <= 0
-                || !GRID_STAGE_IS_GAMEPLAY(commit_stagenum)
-                || stageGetIndex(commit_stagenum) < 0) {
-            sysLogPrintf(LOG_ERROR,
-                "GRID.MENU: commit ABORT -- resolved stagenum 0x%02x for arena "
-                "\"%s\" is not a loadable gameplay stage (data bug)",
-                (u32)commit_stagenum, a->name);
-            return false;
-        }
-    }
-
-    /* Establish a clean match config (resets slots, defaults, options) then
-     * overwrite the variant-shaped fields from the submenu. */
-    matchConfigInit();
-
-    if (a->is_blank || !commit_id[0]) {
-        g_MatchConfig.stage_id[0] = '\0';
-    } else {
-        strncpy(g_MatchConfig.stage_id, commit_id,
-                sizeof(g_MatchConfig.stage_id) - 1);
-        g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
-    }
-    g_MatchConfig.stagenum = (u8)commit_stagenum;
-
-    /* AUDIT-24-M6: scenarios are now catalog-driven; ensure the list is
-     * built before reading from it. */
     gridScenarioListEnsure();
-    if (s_GridScenarioCount <= 0) {
-        sysLogPrintf(LOG_WARNING,
-            "GRID.MENU: no scenarios registered in catalog; defaulting to base:combat");
-        strncpy(g_MatchConfig.scenario_id, "base:combat",
-                sizeof(g_MatchConfig.scenario_id) - 1);
-        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
-    } else {
-        if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
-            s_GridScenarioIdx = 0;
+    const GridScenarioEntry *scenario = gridSelectedScenario();
+    if (!scenario && s_GridScenarioCount > 0) return gridLaunchFailed("Choose an available gametype.");
+
+    const char *id = arena.is_blank ? "" : arena.id;
+    const s32 originalMount = forgeLevelVariantDependenciesStage();
+    if (!arena.is_blank) {
+        char error[256];
+        if (!forgeLevelMountVariantDependencies(id, error, sizeof(error))) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: variant source preparation failed: %s", error);
+            return gridLaunchFailed("The saved map's required content could not be prepared.");
         }
-        const GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioIdx];
-        strncpy(g_MatchConfig.scenario_id, sc->id,
-                sizeof(g_MatchConfig.scenario_id) - 1);
-        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+        const asset_entry_t *entry = assetCatalogResolve(id);
+        if (!entry || entry->type != ASSET_ARENA || strcmp(entry->id, id) != 0
+                || !entry->enabled || entry->ext.arena.stagenum != stage
+                || entry->ext.arena.load_mode != arena.load_mode) {
+            gridRetireFailedVariantMount(originalMount, stage);
+            return gridLaunchFailed("This map changed while it was opening. Select it again.");
+        }
     }
 
-    g_MatchConfig.timelimit       = (u8)(s_GridTimeLimit & 0xff);
-    g_MatchConfig.scorelimit      = (u8)(s_GridScoreLimit & 0xff);
-    g_MatchConfig.teamscorelimit  = (u16)s_GridScoreLimit;
+    matchConfigInit();
+    snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", id);
+    g_MatchConfig.stagenum = (u8)stage;
+
+    snprintf(g_MatchConfig.scenario_id, sizeof(g_MatchConfig.scenario_id), "%s",
+        scenario ? scenario->id : "base:combat");
+
+    g_MatchConfig.timelimit = (u8)(s_GridTimeLimit > 0 ? s_GridTimeLimit - 1 : 60);
+    g_MatchConfig.scorelimit = (u8)(s_GridScoreLimit > 0 ? s_GridScoreLimit - 1 : 100);
+    g_MatchConfig.teamscorelimit = (u16)(s_GridScoreLimit > 0 ? s_GridScoreLimit - 1 : 400);
 
     u32 opts = matchConfigGetUserOptions();
     if (s_GridTeamsOn)     opts |=  (u32)MPOPTION_TEAMSENABLED;
@@ -5976,30 +6016,20 @@ static bool gridCommitEnter(void)
     else                   opts &= ~(u32)MPOPTION_SLOWMOTION_ON;
     matchConfigReplaceUserOptions(opts, "Grid menu commit");
 
-    sysLogPrintf(LOG_NOTE,
-            "GRID.MENU: enter map='%s' stagenum=0x%02x scenario='%s' "
-            "tl=%d sl=%d teams=%d ohk=%d slo=%d",
-            a->is_blank ? "(blank)" : a->name, (u32)a->stagenum,
-            g_MatchConfig.scenario_id, s_GridTimeLimit, s_GridScoreLimit,
-            (int)s_GridTeamsOn, (int)s_GridOneHitKills, (int)s_GridSlowMotion);
-
-    /* Hand off.  pdguiForgeStartSessionOn calls mainChangeToStage when the
-     * current stage differs; forgemode activates on next tick.
-     *
-     * B-254 (2026-04-25): catalog-keyed dispatch.  Arenas registered with
-     * load_mode == ARENA_LOADMODE_CANVAS route to the canvas variant so
-     * setup-time chr / AI / script paths suppress mission state.
-     * Default (PLAYABLE) is unchanged. */
-    const bool started = (a->load_mode == ARENA_LOADMODE_CANVAS)
-        ? pdguiForgeStartSessionOnCanvas(a->stagenum) != 0
-        : pdguiForgeStartSessionOn(a->stagenum) != 0;
-    /* Forge F2: tell the editor which level this session is on, so its
-     * Level File section can open that level's own placements. The blank
-     * map and a random pick have no arena to name. */
-    if (started) {
-        forgeLevelSessionBegin((a->is_blank || !commit_id[0]) ? "" : commit_id);
+    const bool started = (arena.load_mode == ARENA_LOADMODE_CANVAS)
+        ? pdguiForgeStartSessionOnCanvas(stage) != 0
+        : pdguiForgeStartSessionOn(stage) != 0;
+    if (!started) {
+        gridRetireFailedVariantMount(originalMount, stage);
+        return gridLaunchFailed("The selected map could not open.");
     }
-    return started;
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.MENU: enter selected='%s' map='%s' stagenum=0x%02x scenario='%s'",
+            selectedName, arena.name, (u32)stage, g_MatchConfig.scenario_id);
+    forgeLevelSessionBegin(id);
+    s_GridLaunchError[0] = '\0';
+    return true;
 }
 
 static s32 pdguiMainMenuGraphEnterGrid(void *userdata)
@@ -6008,120 +6038,652 @@ static s32 pdguiMainMenuGraphEnterGrid(void *userdata)
     return gridCommitEnter() ? 0 : -1;
 }
 
-static void renderGridSubmenu(float scale, float buttonW, float buttonH,
-                              float spacing)
-{
-    ImGui::Dummy(ImVec2(0, 4.0f * scale));
+namespace {
 
-    if (!s_GridArenasBuilt) {
-        gridArenaListBuild();
+enum class GridBrowserPane { Maps, Versions, Details, Rules };
+struct GridMapFamily {
+    std::string key;
+    int base;
+    bool parentUnavailable;
+    std::vector<int> variants;
+};
+
+struct GridFamilyRoot {
+    std::string key;
+    int base;
+    bool parentUnavailable;
+};
+
+struct GridPreviewCursor {
+    int hover = -1;
+    int focus = -1;
+
+    void track(int index)
+    {
+        if (ImGui::IsItemFocused()) focus = index;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride)) hover = index;
+    }
+};
+
+struct GridMapPreview {
+    int arena;
+    GLuint texture = 0;
+    ImVec2 nativeSize{0, 0};
+    std::vector<GridBrowserRoomFootprint> rooms;
+};
+
+static std::vector<GridBrowserMetadata> s_GridMapMetadata;
+static std::vector<bool> s_GridMapValid;
+static int s_GridMetadataNext = 0;
+static std::vector<GridMapFamily> s_GridFamilies;
+static std::vector<std::string> s_GridFamilyKeys;
+static std::string s_GridShownFamily;
+static GridBrowserPane s_GridBrowserPane = GridBrowserPane::Maps;
+static bool s_GridFocusVersions = false;
+static int s_GridInspectedArena = -1;
+static SDL_GLContext s_GridPreviewContext = nullptr;
+static bool s_GridPreviewBgfx = false;
+static std::vector<GridMapPreview> s_GridMapPreviews;
+static u32 s_GridBrowserCatalogGeneration = 0;
+static bool s_GridPreviewStale = false;
+static int s_GridPreviewPending = -1;
+static double s_GridPreviewSince = 0;
+
+static void gridReleaseMapPreview(const GridMapPreview &image, SDL_GLContext context)
+{
+    if (!image.texture) return;
+    if (s_GridPreviewBgfx) {
+        gfxBgfxPdguiTexDestroy(image.texture);
+    } else if (context && context == s_GridPreviewContext && glDeleteTextures) {
+        glDeleteTextures(1, &image.texture);
+    }
+}
+
+static void gridResetMapPreviews(SDL_GLContext context, bool bgfx)
+{
+    for (const auto &image : s_GridMapPreviews) {
+        gridReleaseMapPreview(image, context);
+    }
+    s_GridMapPreviews.clear();
+    s_GridPreviewContext = context;
+    s_GridPreviewBgfx = bgfx;
+    s_GridPreviewStale = false;
+}
+
+static int gridFamilyTitleArena(const GridMapFamily &family)
+{
+    return family.base >= 0 ? family.base : family.variants.front();
+}
+
+static const GridMapFamily *gridCurrentFamily()
+{
+    for (const auto &family : s_GridFamilies) {
+        if (family.key == s_GridShownFamily) return &family;
+    }
+    return nullptr;
+}
+
+static GridFamilyRoot gridFindFamilyRoot(int arena, const std::vector<int> &parents)
+{
+    const auto family = gridBrowserLogic::resolveFamily(parents.data(), s_GridArenaCount, arena);
+    switch (family.state) {
+    case gridBrowserLogic::FamilyState::Root:
+        return {std::string("map:") + s_GridArenas[family.anchor].id, family.anchor, false};
+    case gridBrowserLogic::FamilyState::MissingParent:
+        return {"missing:" + s_GridMapMetadata[family.anchor].parentIdHash, -1, true};
+    case gridBrowserLogic::FamilyState::Cycle:
+        return {std::string("unverified:") + s_GridArenas[arena].id, -1, true};
+    }
+    return {std::string("unverified:") + s_GridArenas[arena].id, -1, true};
+}
+
+static void gridBuildBrowser()
+{
+    if (!s_GridBrowserBuilding) {
+        s_GridFamilies.clear();
+        s_GridMapMetadata.assign(s_GridArenaCount, {});
+        s_GridMapValid.assign(s_GridArenaCount, false);
+        s_GridFamilyKeys.resize(s_GridArenaCount);
+        s_GridInspectedArena = -1;
+        s_GridPreviewStale = true;
+        s_GridMetadataNext = 0;
+        s_GridBrowserBuilding = true;
     }
 
-    ImGui::TextWrapped("Choose a level and match rules for editing and bot playtest.");
-    ImGui::Spacing();
+    // Catalog iteration has ended. Hydrate at most one descriptor per
+    // frame so a library of wrapped maps does not open all at once.
+    while (s_GridMetadataNext < s_GridArenaCount) {
+        const int index = s_GridMetadataNext++;
+        const auto &arena = s_GridArenas[index];
+        if (arena.category == GRID_CAT_RANDOM) continue;
+        s_GridMapValid[index] = gridStageIsValid(arena.stagenum);
+        if (arena.is_blank) continue;
+        s_GridMapMetadata[index] = gridBrowserReadMetadata(arena.id);
+        return;
+    }
 
-    /* ----------------------------------------------------------------
-     * Map picker (category tag per row)
-     * ---------------------------------------------------------------- */
-    ImGui::SeparatorText("Base Map");
+    std::unordered_map<std::string, int> byHash;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto &hash = s_GridMapMetadata[i].idHash;
+        if (!hash.empty()) byHash.emplace(hash, i);
+    }
+    std::vector<int> parents(s_GridArenaCount, gridBrowserLogic::NoParent);
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto &parent = s_GridMapMetadata[i].parentIdHash;
+        if (parent.empty()) continue;
+        const auto found = byHash.find(parent);
+        parents[i] = found == byHash.end() ? gridBrowserLogic::ParentUnavailable : found->second;
+    }
 
-    if (s_GridArenaCount <= 0) {
-        ImGui::TextDisabled("No playable arenas registered in the catalog.");
-    } else {
-        float listH = buttonH * 5.5f;
-        if (listH < 120.0f) listH = 120.0f;
-        if (ImGui::BeginListBox("##grid_arena_list",
-                                ImVec2(buttonW, listH))) {
-            for (int i = 0; i < s_GridArenaCount; i++) {
-                const GridArenaEntry *a = &s_GridArenas[i];
-                char label[112];
-                if (a->is_blank) {
-                    snprintf(label, sizeof(label),
-                             "%-32s  [Blank]", a->name);
-                } else {
-                    /* Category tag right-justified for scan-ability. */
-                    snprintf(label, sizeof(label), "%-32s  [%s]",
-                             a->name, gridCategoryTag(a->category));
-                }
-                const bool sel = (i == s_GridSelectedArena);
-                ImGui::PushID(i);
-                if (ImGui::Selectable(label, sel)) {
-                    s_GridSelectedArena = i;
-                }
-                if (sel && ImGui::IsWindowAppearing()) {
-                    ImGui::SetScrollHereY(0.25f);
-                }
-                ImGui::PopID();
-            }
-            ImGui::EndListBox();
+    std::unordered_map<std::string, size_t> byFamily;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto root = gridFindFamilyRoot(i, parents);
+        s_GridFamilyKeys[i] = root.key;
+        auto slot = byFamily.emplace(root.key, s_GridFamilies.size());
+        if (slot.second) s_GridFamilies.push_back({root.key, root.base, root.parentUnavailable, {}});
+        if (i != root.base) s_GridFamilies[slot.first->second].variants.push_back(i);
+    }
+    std::sort(s_GridFamilies.begin(), s_GridFamilies.end(), [](const GridMapFamily &a, const GridMapFamily &b) {
+        return gridArenaCompare(&s_GridArenas[gridFamilyTitleArena(a)],
+            &s_GridArenas[gridFamilyTitleArena(b)]) < 0;
+    });
+
+    if (!gridCurrentFamily()) {
+        const auto *committed = gridSelectedArena();
+        s_GridShownFamily = committed ? s_GridFamilyKeys[committed - s_GridArenas]
+            : s_GridFamilies.empty() ? "" : s_GridFamilies.front().key;
+    }
+    s_GridBrowserBuilt = true;
+    s_GridBrowserBuilding = false;
+}
+
+static void gridLoadScreenshot(GridMapPreview &image)
+{
+    constexpr size_t MAX_IMAGE_BYTES = 1024 * 1024;
+    constexpr int MAX_IMAGE_DIMENSION = 1024;
+    const auto &meta = s_GridMapMetadata[image.arena];
+    for (const auto *locator : {&meta.previewLocator, &meta.thumbnailLocator}) {
+        if (locator->empty()) continue;
+        const auto encoded = gridBrowserReadPreview(*locator, MAX_IMAGE_BYTES);
+        int width = 0, height = 0, channels = 0;
+        const auto bytes = static_cast<int>(encoded.size());
+        if (encoded.empty() || !stbi_info_from_memory(encoded.data(), bytes, &width, &height, &channels)
+                || width <= 0 || height <= 0 || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+            continue;
+        }
+        auto *rgba = stbi_load_from_memory(encoded.data(), bytes, &width, &height, &channels, 4);
+        if (!rgba) continue;
+        if (s_GridPreviewBgfx) {
+            image.texture = gfxBgfxPdguiTexCreate(width, height, rgba, 1, 1);
+        } else {
+            glGenTextures(1, &image.texture);
+        }
+        if (!s_GridPreviewBgfx && image.texture) {
+            GLint bound = 0, alignment = 0, rowLength = 0, unpackBuffer = 0, skipRows = 0, skipPixels = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+            glGetIntegerv(GL_UNPACK_ROW_LENGTH, &rowLength);
+            glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skipRows);
+            glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skipPixels);
+            glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpackBuffer);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            glBindTexture(GL_TEXTURE_2D, image.texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, rowLength);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, skipRows);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, skipPixels);
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(bound));
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpackBuffer));
+        }
+        stbi_image_free(rgba);
+        if (image.texture) {
+            image.nativeSize = ImVec2((float)width, (float)height);
+            return;
         }
     }
+}
 
-    /* ----------------------------------------------------------------
-     * Variant: gametype + rules
-     * ---------------------------------------------------------------- */
-    ImGui::SeparatorText("Variant");
+static void gridDrawRoomLayout(const std::vector<GridBrowserRoomFootprint> &rooms, float scale)
+{
+    const float width = ImGui::GetContentRegionAvail().x;
+    if (width <= 0.0f) return;
+    const ImVec2 size(width, std::min(width * 0.58f, 175.0f * scale));
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(size);
+    if (!ImGui::IsItemVisible()) return;
 
-    /* AUDIT-24-M6: scenarios are catalog-driven; ensure built. */
+    auto *draw = ImGui::GetWindowDrawList();
+    const ImVec2 end(origin.x + size.x, origin.y + size.y);
+    const ImU32 outline = ImGui::GetColorU32(ImGuiCol_Border);
+    draw->AddRectFilled(origin, end, ImGui::GetColorU32(ImGuiCol_FrameBg));
+    for (int line = 1; line < 8; ++line) {
+        const float fraction = line / 8.0f;
+        const float x = origin.x + size.x * fraction;
+        const float y = origin.y + size.y * fraction;
+        draw->AddLine(ImVec2(x, origin.y), ImVec2(x, end.y), outline);
+        draw->AddLine(ImVec2(origin.x, y), ImVec2(end.x, y), outline);
+    }
+
+    if (!rooms.empty()) {
+        auto extent = rooms.front();
+        for (const auto &room : rooms) {
+            extent.minX = std::min(extent.minX, room.minX);
+            extent.minZ = std::min(extent.minZ, room.minZ);
+            extent.maxX = std::max(extent.maxX, room.maxX);
+            extent.maxZ = std::max(extent.maxZ, room.maxZ);
+        }
+        const double worldWidth = extent.maxX - extent.minX;
+        const double worldHeight = extent.maxZ - extent.minZ;
+        const double pixelsPerUnit = 0.86 * std::min(size.x / worldWidth, size.y / worldHeight);
+        const ImVec2 center(origin.x + size.x * 0.5f, origin.y + size.y * 0.5f);
+        const double worldX = extent.minX + worldWidth * 0.5;
+        const double worldZ = extent.minZ + worldHeight * 0.5;
+        const ImU32 fill = ImGui::GetColorU32(ImGuiCol_Header, 0.38f);
+        const ImU32 edge = ImGui::GetColorU32(ImGuiCol_Text);
+        for (const auto &room : rooms) {
+            const ImVec2 lo(center.x + float((room.minX - worldX) * pixelsPerUnit),
+                center.y + float((room.minZ - worldZ) * pixelsPerUnit));
+            const ImVec2 hi(center.x + float((room.maxX - worldX) * pixelsPerUnit),
+                center.y + float((room.maxZ - worldZ) * pixelsPerUnit));
+            draw->AddRectFilled(lo, hi, fill);
+            draw->AddRect(lo, hi, edge);
+        }
+    }
+    draw->AddRect(origin, end, outline);
+}
+
+static void gridDrawMapPreview(int arena, float scale)
+{
+    SDL_GLContext context = SDL_GL_GetCurrentContext();
+    const bool bgfx = gfxBgfxActive() != 0;
+    if (s_GridPreviewStale || context != s_GridPreviewContext || bgfx != s_GridPreviewBgfx) {
+        gridResetMapPreviews(context, bgfx);
+        s_GridPreviewPending = -1;
+    }
+
+    auto cached = std::find_if(s_GridMapPreviews.begin(), s_GridMapPreviews.end(),
+        [arena](const GridMapPreview &image) { return image.arena == arena; });
+    if (cached == s_GridMapPreviews.end()) {
+        // Wait for brief, stable inspection. Fast pointer sweeps and D-pad
+        // repeats should not open a succession of archives.
+        if (s_GridPreviewPending != arena) {
+            s_GridPreviewPending = arena;
+            s_GridPreviewSince = ImGui::GetTime();
+        }
+        const auto &entry = s_GridArenas[arena];
+        if (!entry.is_blank && ImGui::GetTime() - s_GridPreviewSince < 0.15) {
+            ImGui::TextDisabled("Loading map preview");
+            return;
+        }
+        constexpr size_t MAX_PREVIEWS = 4;
+        if (s_GridMapPreviews.size() == MAX_PREVIEWS) {
+            gridReleaseMapPreview(s_GridMapPreviews.front(), context);
+            s_GridMapPreviews.erase(s_GridMapPreviews.begin());
+        }
+        s_GridMapPreviews.push_back(GridMapPreview{arena, 0, ImVec2(0, 0), {}});
+        cached = s_GridMapPreviews.end() - 1;
+        if (!entry.is_blank) {
+            if (bgfx || (context && glGenTextures && glGetIntegerv && glBindBuffer)) gridLoadScreenshot(*cached);
+            if (!cached->texture) cached->rooms = gridBrowserReadRoomLayout(entry.id);
+        }
+    }
+    if (!cached->texture) {
+        gridDrawRoomLayout(cached->rooms, scale);
+        if (!cached->rooms.empty()) ImGui::TextDisabled("Room layout");
+        else if (!s_GridArenas[arena].is_blank) ImGui::TextDisabled("No map image available");
+        return;
+    }
+    const float width = ImGui::GetContentRegionAvail().x;
+    if (width <= 0.0f) return;
+    const float factor = std::min(width / cached->nativeSize.x, 210.0f * scale / cached->nativeSize.y);
+    ImGui::Image((ImTextureID)(uintptr_t)cached->texture,
+        ImVec2(cached->nativeSize.x * factor, cached->nativeSize.y * factor));
+}
+
+static bool gridMapRow(int arena, bool selected, GridPreviewCursor &cursor)
+{
+    const auto &entry = s_GridArenas[arena];
+    const auto padding = ImGui::GetStyle().FramePadding;
+    const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x - padding.x * 2.0f);
+    const float height = ImGui::CalcTextSize(entry.name, nullptr, false, width).y + padding.y;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImGui::PushID(entry.id);
+    const bool clicked = ImGui::Selectable("##grid_arena", selected, ImGuiSelectableFlags_None,
+        ImVec2(0, height));
+    if (ImGui::IsItemVisible()) {
+        ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+            ImVec2(origin.x + padding.x, origin.y + padding.y * 0.5f),
+            ImGui::GetColorU32(ImGuiCol_Text), entry.name, nullptr, width);
+    }
+    if (selected) ImGui::SetItemDefaultFocus();
+    cursor.track(arena);
+    ImGui::PopID();
+    return clicked;
+}
+
+static void gridBrowseMaps(GridPreviewCursor &cursor, bool narrow, bool focusFirst)
+{
+    if (s_GridFamilies.empty()) {
+        ImGui::TextWrapped("No maps are registered.");
+        return;
+    }
+    const char *sections[] = {"Blank canvas", "Built-in maps", "Installed maps", "Random"};
+    for (int section = 0; section < 4; ++section) {
+        bool shown = false;
+        for (const auto &family : s_GridFamilies) {
+            const int index = gridFamilyTitleArena(family);
+            const auto &arena = s_GridArenas[index];
+            const auto &meta = s_GridMapMetadata[index];
+            const int group = arena.is_blank ? 0 : arena.category == GRID_CAT_RANDOM ? 3
+                : meta.source == GridBrowserSource::BuiltIn ? 1 : 2;
+            if (group != section) continue;
+            if (!shown) {
+                ImGui::SeparatorText(sections[section]);
+                shown = true;
+            }
+            if (focusFirst) {
+                ImGui::SetKeyboardFocusHere();
+                focusFirst = false;
+            }
+            if (gridMapRow(index, family.key == s_GridShownFamily, cursor)) {
+                s_GridShownFamily = family.key;
+                s_GridInspectedArena = index;
+                s_GridLaunchError[0] = '\0';
+                if (narrow) {
+                    s_GridBrowserPane = GridBrowserPane::Versions;
+                    s_GridFocusVersions = true;
+                }
+            }
+        }
+    }
+}
+
+static void gridBrowseVersions(const GridMapFamily *family, GridPreviewCursor &cursor, bool focusFirst = false)
+{
+    if (!family) {
+        ImGui::TextWrapped("Choose a map to see its versions.");
+        return;
+    }
+    auto pick = [&cursor, &focusFirst](int index) {
+        if (focusFirst) {
+            ImGui::SetKeyboardFocusHere();
+            focusFirst = false;
+        }
+        const auto &arena = s_GridArenas[index];
+        if (gridMapRow(index, strcmp(arena.id, s_GridSelectedArenaId) == 0, cursor)) {
+            snprintf(s_GridSelectedArenaId, sizeof(s_GridSelectedArenaId), "%s", arena.id);
+            s_GridInspectedArena = index;
+            s_GridLaunchError[0] = '\0';
+        }
+    };
+
+    if (family->base >= 0) {
+        ImGui::SeparatorText(s_GridArenas[family->base].category == GRID_CAT_RANDOM ? "Map choice" : "Base map");
+        pick(family->base);
+    } else {
+        ImGui::TextWrapped("This map's base is unavailable.");
+    }
+    if (family->base >= 0 && s_GridArenas[family->base].category == GRID_CAT_RANDOM) return;
+    ImGui::SeparatorText("Saved variants");
+    if (family->variants.empty()) ImGui::TextDisabled("No linked saved variants for this map.");
+    for (int index : family->variants) pick(index);
+}
+
+static const char *gridSourceLabel(GridBrowserSource source)
+{
+    switch (source) {
+    case GridBrowserSource::BuiltIn: return "Built-in map";
+    case GridBrowserSource::Original: return "Original map";
+    case GridBrowserSource::LocalOnly: return "Local-only map";
+    case GridBrowserSource::Unverified: return "Source unverified";
+    case GridBrowserSource::Installed: return "Installed map";
+    }
+    return "Source unverified";
+}
+
+static void gridBrowseDetails(int index, float scale)
+{
+    if (index < 0) {
+        ImGui::TextWrapped("Focus or hover a map to see its details.");
+        return;
+    }
+    const auto &arena = s_GridArenas[index];
+    const auto &meta = s_GridMapMetadata[index];
+    ImGui::TextWrapped("%s", arena.name);
+    if (arena.category == GRID_CAT_RANDOM) {
+        ImGui::TextWrapped("An available %s map is chosen when you enter.",
+            arena.stagenum == GRID_STAGE_MP_RANDOM_SOLO ? "solo" : "multiplayer");
+        return;
+    }
+    gridDrawMapPreview(index, scale);
+    if (!meta.description.empty()) ImGui::TextWrapped("%s", meta.description.c_str());
+    else if (arena.is_blank) ImGui::TextWrapped("An empty canvas for building and bot playtests.");
+    else ImGui::TextDisabled("No description provided.");
+    ImGui::TextUnformatted(arena.is_blank ? "Built-in canvas" : gridSourceLabel(meta.source));
+    const auto family = std::find_if(s_GridFamilies.begin(), s_GridFamilies.end(),
+        [index](const GridMapFamily &item) { return item.key == s_GridFamilyKeys[index]; });
+    if (family != s_GridFamilies.end() && family->parentUnavailable) {
+        ImGui::TextWrapped("The base map is unavailable.");
+    }
+
+    const bool missingContent = std::any_of(meta.dependencies.begin(), meta.dependencies.end(),
+        [](const GridBrowserDependency &dep) { return !dep.available; });
+    const s32 repair = stageArchiveRepairStatus(arena.stagenum);
+    if (repair > 0) ImGui::TextWrapped("Map preparation in progress.");
+    else if (repair < 0 || !s_GridMapValid[index]) ImGui::TextWrapped("Local stage unavailable.");
+    else if (missingContent) ImGui::TextWrapped("Some required content is unavailable.");
+    else if (!arena.is_blank && !meta.dependenciesKnown) ImGui::TextWrapped("Local stage found. Content requirements are unknown.");
+    else ImGui::TextWrapped("Local stage available.");
+    if (!meta.dependencyPlan.empty()) {
+        ImGui::TextWrapped("Exact saved-variant dependencies are checked on entry.");
+    }
+    for (const auto &dep : meta.dependencies) {
+        const char *name = dep.name.empty() ? dep.id.c_str() : dep.name.c_str();
+        ImGui::TextWrapped("%s (%s)", name, dep.available ? "installed" : "unavailable");
+    }
+}
+
+static void gridBrowseRules()
+{
     gridScenarioListEnsure();
     if (s_GridScenarioCount <= 0) {
-        ImGui::TextDisabled("(no scenarios registered in catalog)");
+        ImGui::TextDisabled("Combat is used when no game types are installed.");
     } else {
-        if (s_GridScenarioIdx < 0 || s_GridScenarioIdx >= s_GridScenarioCount) {
-            s_GridScenarioIdx = 0;
-        }
-        const char *preview = s_GridScenarios[s_GridScenarioIdx].label;
-        ImGui::SetNextItemWidth(buttonW);
-        if (ImGui::BeginCombo("Gametype", preview)) {
-            for (int i = 0; i < s_GridScenarioCount; i++) {
-                const bool sel = (i == s_GridScenarioIdx);
-                if (ImGui::Selectable(s_GridScenarios[i].label, sel)) {
-                    s_GridScenarioIdx = i;
-                    /* Auto-flip teams on when picking a team-based mode. */
-                    if (s_GridScenarios[i].teams) s_GridTeamsOn = true;
+        const auto *scenario = gridSelectedScenario();
+        ImGui::TextUnformatted("Gametype");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##grid_gametype", scenario ? scenario->label : "Choose a gametype")) {
+            for (int i = 0; i < s_GridScenarioCount; ++i) {
+                const auto &candidate = s_GridScenarios[i];
+                ImGui::PushID(candidate.id);
+                if (ImGui::Selectable(candidate.label, &candidate == scenario)) {
+                    snprintf(s_GridScenarioId, sizeof(s_GridScenarioId), "%s", candidate.id);
+                    if (candidate.teams) s_GridTeamsOn = true;
+                    s_GridLaunchError[0] = '\0';
                 }
+                ImGui::PopID();
             }
             ImGui::EndCombo();
         }
     }
 
-    ImGui::SetNextItemWidth(buttonW);
-    ImGui::SliderInt("Time Limit (min, 0 = unlimited)",
-                     &s_GridTimeLimit, 0, 60);
-    ImGui::SetNextItemWidth(buttonW);
-    ImGui::SliderInt("Score Limit (0 = unlimited)",
-                     &s_GridScoreLimit, 0, 100);
+    ImGui::TextWrapped("Time limit in minutes (0 for unlimited)");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SliderInt("##grid_time_limit", &s_GridTimeLimit, 0, 60);
+    ImGui::TextWrapped("Score limit (0 for unlimited)");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SliderInt("##grid_score_limit", &s_GridScoreLimit, 0, 100);
 
     ImGui::Checkbox("Teams enabled", &s_GridTeamsOn);
-    ImGui::SameLine();
     ImGui::Checkbox("One-hit kills", &s_GridOneHitKills);
-    ImGui::SameLine();
     ImGui::Checkbox("Slow motion", &s_GridSlowMotion);
+}
 
-    /* ----------------------------------------------------------------
-     * Enter The Grid
-     * ---------------------------------------------------------------- */
-    ImGui::Dummy(ImVec2(0, spacing));
+static int gridBrowserPreviewIndex(const GridPreviewCursor &cursor)
+{
+    const ImGuiContext &nav = *ImGui::GetCurrentContext();
+    if (cursor.focus >= 0 && nav.NavHighlightItemUnderNav && nav.NavCursorVisible) {
+        s_GridInspectedArena = cursor.focus;
+    } else if (cursor.hover >= 0) {
+        s_GridInspectedArena = cursor.hover;
+    }
+    // Keep the inspected row while the pointer moves into Details to scroll.
+    if (s_GridInspectedArena >= 0) return s_GridInspectedArena;
+    if (cursor.focus >= 0) return cursor.focus;
+    const auto *arena = gridSelectedArena();
+    return arena ? (int)(arena - s_GridArenas) : -1;
+}
 
-    const bool canEnter = (s_GridArenaCount > 0);
-    if (!canEnter) ImGui::BeginDisabled();
+static const GridArenaEntry *gridCommittedVersion()
+{
+    if (!s_GridBrowserBuilt) return nullptr;
+    const auto *arena = gridSelectedArena();
+    if (!arena) return nullptr;
+    return s_GridFamilyKeys[arena - s_GridArenas] == s_GridShownFamily ? arena : nullptr;
+}
+
+} // namespace
+
+static void renderGridSubmenu(float scale, float buttonW, float buttonH, float bottomInset)
+{
+    const u32 generation = assetCatalogGetGeneration();
+    if (s_GridBrowserCatalogGeneration != generation) {
+        s_GridBrowserCatalogGeneration = generation;
+        pdguiGridArenasInvalidate();
+    }
+    if (!s_GridArenasBuilt) gridArenaListBuild();
+    if (!s_GridBrowserBuilt) gridBuildBrowser();
+    const bool focusMaps = s_NeedsFocus && s_GridBrowserBuilt;
+    if (focusMaps) {
+        s_NeedsFocus = false;
+        s_GridBrowserPane = GridBrowserPane::Maps;
+        s_GridFocusVersions = false;
+    }
+
+    const auto &style = ImGui::GetStyle();
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const float width = std::max(1.0f, std::min(buttonW, available.x));
+    const bool wide = gridBrowserLogic::useColumns(width, scale, ImGui::GetFontSize());
     char enterLabel[FORGE_DISPLAY_NAME_CAP + sizeof("Enter ###grid_enter")];
     snprintf(enterLabel, sizeof(enterLabel), "Enter %s###grid_enter", forgeDisplayName());
-    if (PdButton(enterLabel, ImVec2(buttonW, buttonH * 1.2f))) {
+    const float halfButton = (width - style.ItemSpacing.x) * 0.5f;
+    const char *enter = ImGui::CalcTextSize(enterLabel, nullptr, true).x + style.FramePadding.x * 2.0f <= width
+        ? enterLabel : "Enter###grid_enter";
+    const float requiredButtonW = std::max(ImGui::CalcTextSize(enter, nullptr, true).x,
+        ImGui::CalcTextSize("Back").x) + style.FramePadding.x * 2.0f;
+    const bool sideBySide = gridBrowserLogic::useActionRow(width, style.ItemSpacing.x, requiredButtonW);
+    const float buttonRows = sideBySide ? buttonH : buttonH * 2 + style.ItemSpacing.y;
+    const auto *committed = gridCommittedVersion();
+    const char *status = s_GridLaunchError[0] ? s_GridLaunchError
+        : !s_GridBrowserBuilt ? "Reading map library"
+        : committed ? committed->name : "Choose a version to enter.";
+    const float statusHeight = ImGui::CalcTextSize(status, nullptr, false, width).y + style.ItemSpacing.y;
+    const float bodyH = gridBrowserLogic::bodyHeight(available.y,
+        bottomInset + buttonRows + statusHeight + style.ItemSpacing.y);
+    GridPreviewCursor preview;
+
+    // Share one navigation root so D-pad and keyboard can cross the lists,
+    // preview controls, and action buttons without activating a child first.
+    constexpr auto browserNavigation = ImGuiChildFlags_NavFlattened;
+    constexpr auto browserPanel = ImGuiChildFlags_Borders | browserNavigation;
+    if (ImGui::BeginChild("##grid_browser", ImVec2(width, bodyH), browserNavigation)) {
+        if (!s_GridBrowserBuilt) {
+            ImGui::TextDisabled("Reading map descriptions and variant links");
+        } else if (wide) {
+            const auto tableWidth = ImGui::GetContentRegionAvail().x;
+            const auto columnHeight = ImGui::GetContentRegionAvail().y;
+            if (ImGui::BeginTable("##grid_wide", 3, ImGuiTableFlags_SizingStretchProp, ImVec2(tableWidth, columnHeight))) {
+                ImGui::TableSetupColumn("Maps", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Versions", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Details", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_maps", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseMaps(preview, false, focusMaps);
+                }
+                ImGui::EndChild();
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_versions", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseVersions(gridCurrentFamily(), preview);
+                }
+                ImGui::EndChild();
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_details", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseDetails(gridBrowserPreviewIndex(preview), scale);
+                    ImGui::SeparatorText("Match rules");
+                    gridBrowseRules();
+                }
+                ImGui::EndChild();
+                ImGui::EndTable();
+            }
+        } else {
+            const char *paneNames[] = {"Maps", "Versions", "Details", "Match rules"};
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##grid_panel", paneNames[(int)s_GridBrowserPane])) {
+                for (int i = 0; i < 4; ++i) {
+                    if (ImGui::Selectable(paneNames[i], i == (int)s_GridBrowserPane)) {
+                        s_GridBrowserPane = (GridBrowserPane)i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            const auto pane = s_GridBrowserPane;
+            if (pane == GridBrowserPane::Maps || pane == GridBrowserPane::Versions) {
+                const float remaining = ImGui::GetContentRegionAvail().y;
+                const bool inlinePreview = remaining >= 5.0f * ImGui::GetFrameHeightWithSpacing();
+                const float listHeight = inlinePreview ? remaining * 0.60f : 0.0f;
+                const bool showMaps = pane == GridBrowserPane::Maps;
+                const bool takeFocus = showMaps ? focusMaps : s_GridFocusVersions;
+                if (!showMaps) s_GridFocusVersions = false;
+                if (ImGui::BeginChild(showMaps ? "##grid_narrow_maps" : "##grid_narrow_versions",
+                        ImVec2(0, listHeight), browserPanel)) {
+                    if (showMaps) gridBrowseMaps(preview, true, takeFocus);
+                    else gridBrowseVersions(gridCurrentFamily(), preview, takeFocus);
+                }
+                ImGui::EndChild();
+                const int previewIndex = gridBrowserPreviewIndex(preview);
+                if (inlinePreview) {
+                    if (ImGui::BeginChild("##grid_narrow_preview", ImVec2(0, 0), browserPanel)) {
+                        gridBrowseDetails(previewIndex, scale);
+                    }
+                    ImGui::EndChild();
+                }
+            } else if (pane == GridBrowserPane::Details) {
+                gridBrowseDetails(gridBrowserPreviewIndex(preview), scale);
+            } else {
+                gridBrowseRules();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    const auto *visibleSelection = gridCommittedVersion();
+    if (s_GridLaunchError[0]) ImGui::TextWrapped("%s", s_GridLaunchError);
+    else if (visibleSelection) ImGui::TextWrapped("%s", visibleSelection->name);
+    else ImGui::TextWrapped("%s", s_GridBrowserBuilt ? "Choose a version to enter." : "Reading map library");
+
+    const ImVec2 actionSize(sideBySide ? halfButton : width, buttonH);
+    ImGui::BeginDisabled(!visibleSelection);
+    if (PdButton(enter, actionSize)) {
         if (menuGraphFireSceneOp(MENU_TYPE_GRID_SUBMENU, "enter",
                                  pdguiMainMenuGraphEnterGrid, NULL) == 0) {
             pdguiPlaySound(PDGUI_SND_OPENDIALOG);
             pdguiMainMenuSetView(0, "grid-enter");
         } else {
-            /* Stay on the submenu; gridCommitEnter already logged why. */
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
         }
     }
-    if (!canEnter) ImGui::EndDisabled();
-
-    ImGui::Dummy(ImVec2(0, spacing));
-
-    if (PdButton("Back", ImVec2(buttonW, buttonH))) {
+    ImGui::EndDisabled();
+    if (sideBySide) ImGui::SameLine();
+    if (PdButton("Back", actionSize)) {
         pdguiMainMenuFireSubviewBackEdge("grid-back");
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
@@ -6197,6 +6759,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
     float dialogW = pdguiMenuWidth();
     float dialogH = pdguiMenuHeight();
     ImVec2 menuPos = pdguiMenuPos();
+    if (s_MenuView == 6) {
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        dialogW = std::min(display.x * 0.96f, std::max(dialogW, 1120.0f * scale));
+        dialogH = display.y * 0.91f;
+        menuPos = pdguiCenterPos(dialogW, dialogH);
+    }
     float dialogX = menuPos.x;
     float dialogY = menuPos.y;
 
@@ -6296,8 +6864,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
     bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
     bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
     const s32 backView = s_MenuView;
+    const bool gridPopupOwnsBack = s_MenuView == 6 && ImGui::IsPopupOpen(nullptr,
+        ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
     const bool requestBack = !ImGui::IsWindowAppearing() && !s_CaptureActive &&
-        !socialSurfaceOpen && (titleClose || actionCancelEdge);
+        !socialSurfaceOpen && !gridPopupOwnsBack && (titleClose || actionCancelEdge);
     if (!ImGui::IsWindowAppearing()
         && !s_CaptureActive
         && !socialSurfaceOpen
@@ -6600,7 +7170,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * See pdgui_menu_grid.h and the evening-decisions-2026-04-23
          * audit entry for why the entry is currently suppressed.
          * ================================================================ */
-        renderGridSubmenu(scale, buttonW, buttonH, spacing);
+        renderGridSubmenu(scale, buttonW, buttonH, padB);
     }
 
     ImGui::EndDisabled();
