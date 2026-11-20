@@ -45,11 +45,17 @@ collects what a fresh session would otherwise have to rediscover.
    queue; the `game-runtime` slot only for a ready batch of game runs, released
    as soon as the game processes exit. Do not build or launch the game while
    another session's game run holds the slot.
-5. Worktrees: `AGENTS.md` says worktrees stay disabled unless Mike re-enables
-   them. Step 1 ran in `D:\PD2-wt\bgfx-classic` on his explicit direction; get
-   the same direction for the next step. Never edit, stash, reset or switch
-   branches in the canonical checkout: it holds other lanes' uncommitted work
-   and local-only commits.
+5. Where to work. By default (`AGENTS.md`, "Codex live-session mode"),
+   worktrees are disabled and a session works directly in the canonical
+   checkout: claim exact Workbench item and file ownership of the surfaces
+   before editing them, and take the serialized Git lane (source-freeze, then
+   stage, commit and push only while it is yours). Step 1 ran in a worktree,
+   `D:\PD2-wt\bgfx-classic`, because Mike directed it; a worktree is used only
+   when Mike explicitly re-enables one for this lane, and then the canonical
+   checkout is not edited at all. Either way the canonical checkout holds other
+   lanes' uncommitted work and local-only commits: never switch its branch,
+   never reset it, never run a bare `git stash` there, and leave files you do
+   not own untouched.
 6. Client launches by hand always pass `--portable` or `--savedir`. Deletions
    go to the Recycle Bin. Captures never go in git (BYOR).
 
