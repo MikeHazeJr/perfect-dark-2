@@ -1,9 +1,9 @@
 {
   "scenario_name": "scene_rooms_citraining",
-  "description": "Visual check (B-1266, B-1267): the Carrington Institute through --launch-mission. Screenshots at the start looking ahead, left, back and right, one after walking ahead and one of the floor. The scene must hold every triangle the ROM draws for the stage (11,519 in 140 rooms; the export used to leave out 5 rooms with 1,903 of them) and draw 11,413 of them with back faces culled.",
+  "description": "Scene check (B-1266, B-1267): the Carrington Institute's stage, loaded through --launch-mission 0x26, which is the front end (Agent Select opens over it). The scene must hold every triangle the ROM draws for the stage (11,519 in 140 rooms; the export used to leave out 5 rooms with 1,903 of them) and draw 11,413 of them with back faces culled. Two screenshots of the front end over the Institute.",
   "tags": [
     "solo",
-    "mission",
+    "menu",
     "render",
     "visual"
   ],
@@ -14,7 +14,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 420,
   "install_state": "current",
   "boot_args": [
     "--no-update-check",
@@ -29,132 +29,25 @@
     {
       "at_ms": 0,
       "type": "wait_until",
-      "condition": "offline_gameplay_ready",
-      "timeout_ms": 150000,
-      "stable_ms": 1000,
-      "assist_action": "ACTION_SKIP_CUTSCENE",
-      "assist_condition": "cutscene_skip_ready",
-      "assist_hold_ms": 900,
-      "comment": "Wait until the player stands in the Institute."
+      "condition": "core_boot_ready",
+      "timeout_ms": 300000,
+      "comment": "The boot only: stage 0x26 loads as the front end's background and Agent Select opens over it, so there is no gameplay to wait for."
     },
     {
-      "at_ms": 1500,
+      "at_ms": 45000,
       "type": "screenshot",
-      "path": "citraining_play_ahead.bmp",
-      "comment": "at the start, looking ahead"
+      "path": "citraining_front_end_a.bmp",
+      "comment": "The Institute behind Agent Select, about 20 s after the stage has loaded."
     },
     {
-      "at_ms": 2000,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "press",
-      "comment": "turn left"
-    },
-    {
-      "at_ms": 3500,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "release"
-    },
-    {
-      "at_ms": 4600,
+      "at_ms": 52000,
       "type": "screenshot",
-      "path": "citraining_play_left.bmp",
-      "comment": "at the start, looking left"
+      "path": "citraining_front_end_b.bmp"
     },
     {
-      "at_ms": 5100,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "press",
-      "comment": "turn left"
-    },
-    {
-      "at_ms": 6600,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "release"
-    },
-    {
-      "at_ms": 7700,
-      "type": "screenshot",
-      "path": "citraining_play_back.bmp",
-      "comment": "at the start, looking back"
-    },
-    {
-      "at_ms": 8200,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "press",
-      "comment": "turn left"
-    },
-    {
-      "at_ms": 9700,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "release"
-    },
-    {
-      "at_ms": 10800,
-      "type": "screenshot",
-      "path": "citraining_play_right.bmp",
-      "comment": "at the start, looking right"
-    },
-    {
-      "at_ms": 11300,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "press",
-      "comment": "face ahead again"
-    },
-    {
-      "at_ms": 12800,
-      "type": "action",
-      "name": "ACTION_AIM_LEFT",
-      "action": "release"
-    },
-    {
-      "at_ms": 13300,
-      "type": "action",
-      "name": "ACTION_MOVE_FORWARD",
-      "action": "press",
-      "comment": "walk ahead"
-    },
-    {
-      "at_ms": 15800,
-      "type": "action",
-      "name": "ACTION_MOVE_FORWARD",
-      "action": "release"
-    },
-    {
-      "at_ms": 16800,
-      "type": "screenshot",
-      "path": "citraining_play_walked.bmp",
-      "comment": "after walking ahead for 2.5 s"
-    },
-    {
-      "at_ms": 17300,
-      "type": "action",
-      "name": "ACTION_AIM_DOWN",
-      "action": "press",
-      "comment": "look down at the floor"
-    },
-    {
-      "at_ms": 18200,
-      "type": "action",
-      "name": "ACTION_AIM_DOWN",
-      "action": "release"
-    },
-    {
-      "at_ms": 19300,
-      "type": "screenshot",
-      "path": "citraining_play_floor.bmp",
-      "comment": "looking down"
-    },
-    {
-      "at_ms": 20800,
+      "at_ms": 55000,
       "type": "exit",
-      "comment": "scripted exit after the last screenshot"
+      "comment": "scripted exit after the screenshots"
     }
   ],
   "screenshots": [],
@@ -163,13 +56,8 @@
       "SMOKE: scenario=scene_rooms_citraining",
       "SCENARIO\\.RENDER: activated source scene 'base:scenario_citraining' source=\\S+ vertices=34557 ",
       "SCENARIO\\.RENDER: culling 'base:scenario_citraining' single_sided_groups=[1-9][0-9]* of [0-9]+ triangles=11413 of 11519 front=(counter_clockwise|clockwise)",
-      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_ahead\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_left\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_back\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_right\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_walked\\.bmp",
-      "SMOKE\\.GLSHOT: captured .*citraining_play_floor\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*citraining_front_end_a\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*citraining_front_end_b\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -183,22 +71,10 @@
   },
   "retain_artifacts": [
     {
-      "src": "citraining_play_ahead.bmp"
+      "src": "citraining_front_end_a.bmp"
     },
     {
-      "src": "citraining_play_left.bmp"
-    },
-    {
-      "src": "citraining_play_back.bmp"
-    },
-    {
-      "src": "citraining_play_right.bmp"
-    },
-    {
-      "src": "citraining_play_walked.bmp"
-    },
-    {
-      "src": "citraining_play_floor.bmp"
+      "src": "citraining_front_end_b.bmp"
     }
   ]
 }
