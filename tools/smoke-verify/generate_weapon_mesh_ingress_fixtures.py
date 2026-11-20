@@ -290,6 +290,49 @@ def executable_weapon_sources(output):
         "primary.json": json.dumps(primary), "secondary.json": json.dumps(secondary), "settings.json": json.dumps(settings),
         "dependencies/assets/models/held.pdmesh": mesh(owner + "_held", section="model")}
     (output / "executable.pdweapon").write_bytes(archive(members))
+    # A closed gate has no blocked-output route to any action. Keep this
+    # separate from the alternating-state fixture, whose blocked route fires.
+    closed_members = dict(members)
+    for mode in ("primary", "secondary"):
+        closed = {"schema": "pd.weapon_graph.v2", "profile": "held_single_shot.v1", "asset_id": owner,
+            "graph_id": mode, "mode": mode, "nodes": [
+                {"id": "press", "kind": "event.trigger_pressed"},
+                {"id": "closed", "kind": "gate.state_bool", "params": {"key": "never_open", "equals": True}},
+                action("shot", mode, 0 if mode == "primary" else 1, 3 if mode == "primary" else 9)],
+            "edges": [edge("press", "exec", "closed"), edge("closed", "pass", "shot")],
+            "exports": [{"name": "trigger_pressed", "node": "press"}]}
+        closed_members[mode + ".json"] = json.dumps(closed)
+    (output / "executable_closed.pdweapon").write_bytes(archive(closed_members))
+    spread_members = dict(members)
+    spread_primary = json.loads(spread_members["primary.json"])
+    for node in spread_primary["nodes"]:
+        if node["kind"] == "fire.hitscan":
+            node["params"]["spread"] = 8
+    spread_settings = json.loads(spread_members["settings.json"])
+    spread_settings["equipped"]["aim"]["flags"] = ["accurate_single_shot"]
+    spread_members["primary.json"] = json.dumps(spread_primary)
+    spread_members["settings.json"] = json.dumps(spread_settings)
+    (output / "executable_spread.pdweapon").write_bytes(archive(spread_members))
+    if (output.parent / "graph-world-hit.enabled").is_file():
+        world_members = dict(members)
+        world_primary = dict(secondary, graph_id="primary", mode="primary")
+        world_primary["nodes"] = [{"id": "press", "kind": "event.trigger_pressed"}, action("shot", "primary", 0, 3)]
+        world_primary["edges"] = [edge("press", "exec", "shot")]
+        world_members["primary.json"] = json.dumps(world_primary)
+        world_root = output.parent / "mods/mod_graph_world"
+        (world_root / "weapons").mkdir(parents=True, exist_ok=True)
+        (world_root / "mod.json").write_text(json.dumps({"id": "mod_graph_world", "name": "Graph World Hit Proof",
+            "version": "1.0.0", "author": "PD2 test fixtures", "description": "Private ordinary-hit fixture",
+            "category": "weapons", "enabled": True}), encoding="utf-8")
+        (world_root / "weapons/graphproof.pdweapon").write_bytes(archive(world_members))
+        world_primary["nodes"][1]["params"]["damage"] = 6
+        world_secondary = json.loads(world_members["secondary.json"])
+        world_secondary["nodes"][1]["params"]["damage"] = 12
+        world_members["primary.json"] = json.dumps(world_primary)
+        world_members["secondary.json"] = json.dumps(world_secondary)
+        (output / "world_edit.pdweapon").write_bytes(archive(world_members))
+        (output / "world_closed.pdweapon").write_bytes(archive(closed_members))
+        (output.parent / "mods-enabled.json").write_text(json.dumps(["mod_graph_world"]), encoding="utf-8")
     primary["nodes"][3]["params"]["damage"] = 6
     members["primary.json"] = json.dumps(primary)
     (output / "executable_edit.pdweapon").write_bytes(archive(members))

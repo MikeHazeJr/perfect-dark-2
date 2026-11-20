@@ -50,6 +50,7 @@
 #include "net/netmsg.h"
 #include "actionmap.h"
 #include "weapon_graph_v2_runtime.h"
+#include "weapon_nested_runtime_harness.h"
 
 #include <stdint.h>
 
@@ -655,7 +656,8 @@ void func0f060bac(s32 weaponnum, struct prop *prop)
  *
  * The return value is the final prop that was hit.
  */
-struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpos2d, struct coord *gundir2d, struct coord *gunpos3d, struct coord *gundir3d, u32 arg6, f32 distance, bool cheap)
+static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct coord *gunpos2d, struct coord *gundir2d, struct coord *gunpos3d, struct coord *gundir3d, u32 arg6, f32 distance, bool cheap,
+		struct gset *accepted, const wg_v2_delivery *receipt, bool *delivered)
 {
 	u32 index;
 	struct prop **propptr;
@@ -701,6 +703,30 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	RoomNum rooms2[8];
 	struct prop *hitprop;
 
+	uint64_t graph_scope = 0;
+	bool graph_effects = false;
+	if (delivered) *delivered = false;
+	if (accepted) {
+		if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) return NULL;
+		shotdata.gset = *accepted;
+		graph_scope = wgV2RuntimeScopeCopy(accepted, &shotdata.gset, receipt->owner_generation);
+		if (!graph_scope) return NULL;
+		weaponGraphWorldHitDispatch(receipt, &shotdata.gset);
+		if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) goto graph_done;
+		if (!wgV2RuntimeShotEffectsBegin(receipt)) goto graph_done;
+		graph_effects = true;
+		/* No rejected or reentrant dispatch reaches these side effects. The
+		 * selected per-ray scope has already been retained successfully. */
+		const int shots_before = frGetData()->numshots;
+		const int region_before = g_Vars.currentplayerstats->shotcount[0];
+		frIncrementNumShots();
+		chrUncloakTemporarily(receipt->owner->prop->chr);
+		mpstatsIncrementPlayerShotCount2(&shotdata.gset, 0);
+		wgV2RuntimeObserveShotStats(receipt, frGetData()->numshots - shots_before,
+			g_Vars.currentplayerstats->shotcount[0] - region_before);
+	} else {
+		if (isshooting && wgV2RuntimeIsWeapon(bgunGetWeaponNum(handnum))) return NULL;
+	}
 	bgun0f0a9494(arg6);
 
 	shotdata.gunpos3d.x = gunpos3d->x;
@@ -719,8 +745,12 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	shotdata.gundir2d.y = gundir2d->y;
 	shotdata.gundir2d.z = gundir2d->z;
 
-	gsetPopulateFromCurrentPlayer(handnum, &shotdata.gset);
-	uint64_t graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &shotdata.gset);
+	if (!accepted) {
+		/* Keep ordinary query/base population at its original seam. */
+		gsetPopulateFromCurrentPlayer(handnum, &shotdata.gset);
+		graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &shotdata.gset);
+	}
+
 	func = gsetGetWeaponFunction(&shotdata.gset);
 
 	if (func) {
@@ -915,6 +945,10 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 			hitprop = shotdata.hits[i].prop;
 
 			if (hitprop && !(laserstream && shotdata.hits[i].distance > 300)) {
+				if (accepted) {
+					weaponGraphWorldHitObserve(receipt, &shotdata.gset, &shotdata.hits[i], 0);
+					if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) goto graph_done;
+				}
 				obj = hitprop->obj;
 				doexplosiveshells = false;
 				root = hitprop;
@@ -928,11 +962,17 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 					 * chrHit → chrBruise → modelApplyDistanceRelations path */
 					if (root->chr && chrPtrIsValid(root->chr)) {
 						chrHit(&shotdata, &shotdata.hits[i]);
+						if (accepted) wgV2RuntimeObserveHit(receipt);
 					} else {
 						sysLogPrintf(LOG_WARNING, "CHRCRASH: shotCalculateHits skipped hit %d — chr %p is stale/invalid", i, (void *)root->chr);
 					}
 				} else if (hitprop->type == PROPTYPE_OBJ || hitprop->type == PROPTYPE_WEAPON || hitprop->type == PROPTYPE_DOOR) {
 					objHit(&shotdata, &shotdata.hits[i]);
+					if (accepted) wgV2RuntimeObserveHit(receipt);
+				}
+				if (accepted) {
+					weaponGraphWorldHitObserve(receipt, &shotdata.gset, &shotdata.hits[i], 1);
+					if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) goto graph_done;
 				}
 
 				if (shotdata.hits[i].bulletproof) {
@@ -1124,8 +1164,17 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		}
 	}
 
+	if (delivered) *delivered = true;
+graph_done:
+	if (graph_effects) mpstats0f0b0520();
 	wgV2RuntimeScopeClose(graph_scope);
 	return result;
+}
+
+struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpos2d, struct coord *gundir2d, struct coord *gunpos3d, struct coord *gundir3d, u32 arg6, f32 distance, bool cheap)
+{
+	return shotCalculateHitsSource(handnum, isshooting, gunpos2d, gundir2d, gunpos3d, gundir3d,
+		arg6, distance, cheap, NULL, NULL, NULL);
 }
 
 
@@ -1267,25 +1316,44 @@ struct prop *propFindAimingAt(s32 handnum, bool isshooting, u32 context)
 	return shotCalculateHits(handnum, isshooting, &gunpos2d, &gundir2d, &gunpos3d, &gundir3d, 0, 4294836224, PLAYERCOUNT() >= 2);
 }
 
-void shotCreate(s32 handnum, bool isshooting, bool dorandom, s32 numshots, bool cheap)
+static bool shotCreateSource(s32 handnum, bool isshooting, bool dorandom, s32 numshots, bool cheap,
+		struct gset *accepted, const wg_v2_delivery *receipt)
 {
 	struct coord gundir3d;
 	struct coord gunpos3d;
 	struct coord gundir2d;
 	struct coord gunpos2d;
+	bool delivered = false;
 
-	bgunCalculatePlayerShotSpread(&gunpos2d, &gundir2d, handnum, dorandom);
+	if (accepted) {
+		if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) return false;
+		const f32 saved_crosspos[2] = {receipt->owner->crosspos[0], receipt->owner->crosspos[1]};
+		bool aimed = weaponGraphWorldHitAim(receipt);
+		bool spread_ok = aimed && bgunCalculatePlayerShotSpreadFromGset(&gunpos2d, &gundir2d,
+			handnum, dorandom, accepted, receipt->burstbullets);
+		receipt->owner->crosspos[0] = saved_crosspos[0]; receipt->owner->crosspos[1] = saved_crosspos[1];
+		if (!spread_ok) return false;
+	} else {
+		bgunCalculatePlayerShotSpread(&gunpos2d, &gundir2d, handnum, dorandom);
+	}
 
 	if (numshots > 0) {
 		mtx4TransformVec(camGetProjectionMtxF(), &gunpos2d, &gunpos3d);
 		mtx4RotateVec(camGetProjectionMtxF(), &gundir2d, &gundir3d);
 
-		shotCalculateHits(handnum, isshooting, &gunpos2d, &gundir2d, &gunpos3d, &gundir3d, 0, 4294836224, cheap);
+		shotCalculateHitsSource(handnum, isshooting, &gunpos2d, &gundir2d, &gunpos3d, &gundir3d,
+			0, 4294836224, cheap, accepted, receipt, &delivered);
 
-		if (numshots <= 1) {
+		if (numshots <= 1 && (!accepted || (wgV2RuntimeDeliveryValid(receipt) && g_Vars.currentplayer == receipt->owner))) {
 			bgunSetLastShootInfo(&gunpos3d, &gundir3d, handnum);
 		}
 	}
+	return delivered;
+}
+
+void shotCreate(s32 handnum, bool isshooting, bool dorandom, s32 numshots, bool cheap)
+{
+	shotCreateSource(handnum, isshooting, dorandom, numshots, cheap, NULL, NULL);
 }
 
 /**
@@ -1564,7 +1632,8 @@ void handInflictMeleeDamage(s32 handnum, struct gset *gset, bool arg2)
 
 void handTickAttack(s32 handnum)
 {
-	if (g_Vars.currentplayer->hands[handnum].unk0d0f_02) {
+	const bool graph_weapon = wgV2RuntimeIsWeapon(bgunGetWeaponNum(handnum));
+	if (!graph_weapon && g_Vars.currentplayer->hands[handnum].unk0d0f_02) {
 		s32 doit = true;
 
 		if (bgunGetWeaponNum(handnum) == WEAPON_REAPER
@@ -1584,11 +1653,26 @@ void handTickAttack(s32 handnum)
 		s32 weaponnum = bgunGetWeaponNum(handnum);
 		struct gset gset;
 		bool cloaked;
+		wg_v2_delivery receipt = {0};
+		uint64_t graph_scope = 0;
+		if (graph_weapon) {
+			if (bgunGetShotsToTake(handnum) <= 0 || !wgV2RuntimeShotBegin(g_Vars.currentplayer,
+					handnum, &gset, &graph_scope, &receipt)) return;
+			/* The supported profile is hitscan only. Native ammo/firing admission
+			 * has already happened; this boundary owns exactly one delivery. */
+			bool delivered = shotCreateSource(handnum, true, true, bgunGetShotsToTake(handnum), g_Vars.mplayerisrunning,
+				&gset, &receipt);
+			wgV2RuntimeScopeClose(graph_scope);
+			if (delivered) wgV2RuntimeShotComplete(&receipt);
+			else wgV2RuntimeShotAbort(&receipt);
+			weaponGraphWorldHitCloseout(&receipt);
+			return;
+		}
 
 		g_Vars.currentplayer->hands[handnum].activatesecondary = false;
 
 		gsetPopulateFromCurrentPlayer(handnum, &gset);
-		uint64_t graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &gset);
+		graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &gset);
 		frIncrementNumShots();
 
 		switch (type) {
@@ -1660,7 +1744,6 @@ void handTickAttack(s32 handnum)
 			break;
 		}
 		wgV2RuntimeScopeClose(graph_scope);
-		wgV2RuntimeShotConsumed(g_Vars.currentplayer, handnum);
 	}
 }
 
