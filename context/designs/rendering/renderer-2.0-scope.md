@@ -909,7 +909,9 @@ resources and passes so that a later move to B stays contained.
   and post run per remastered view; a classic view stays pixel-identical to
   classic inside its viewport, so no remastered state may reach it. The cost
   budget (question 7) counts remastered views per frame; the fallback above N
-  now overrides a player's choice only when the budget requires it. [I]
+  now overrides a player's choice only when the budget requires it. Mike chose
+  to test per-view state on bgfx now, with a developer-only two-view frame
+  (D-042 B), before split-screen itself returns. [I]
 - Netplay: the renderer only snapshots views that will be drawn locally. R1
   stops the host building views for remote players. This respects
   receiver-local presentation identity ([D] `context/constraints.md:29`). [I]
@@ -1363,10 +1365,10 @@ proposals.*
     experiments (the noise term held constant for Agent Select; the classic
     shader text in the bgfx scene shader for Defection), then accept what
     remains.
-16. **Split-screen modes. Decided (Workbench D-042, Mike 2026-11-20):**
-    split-screen stays in scope, and each local player may choose classic or
-    remastered, so frames can mix both (5.9). The split-screen parity check
-    waits until split-screen exists and then covers mixed frames.
+16. **Split-screen modes. Decided (Workbench D-042, Mike 2026-11-20): B,**
+    a developer-only two-view frame now, to test per-view state on bgfx.
+    Split-screen stays in scope, and each local player may choose classic or
+    remastered, so frames can mix both (5.9); phase 10 covers mixed frames.
 
 ---
 
@@ -1430,9 +1432,10 @@ classic port in phase 2a. Phases 1 and 2a touch different code (game logic in
   other lanes.
 - **Mike's answers to the step 1 report (2026-11-20).** Parity (D-041): prove
   the causes, then accept the rest; the experiments run on
-  `week-pd/bgfx-parity-proof`. Split-screen (D-042): stays in scope with the
-  mode chosen per local player (5.9, question 16). Workbench item for the
-  renderer: T-RENDERING-001.
+  `week-pd/bgfx-parity-proof`. Split-screen (D-042): B, a developer-only
+  two-view frame now; split-screen stays in scope with the mode chosen per
+  local player (5.9, question 16). Workbench item for the renderer:
+  T-RENDERING-001.
 
 ---
 

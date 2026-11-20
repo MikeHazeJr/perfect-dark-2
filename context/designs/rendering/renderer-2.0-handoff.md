@@ -149,7 +149,9 @@ parallel.
    classic or remastered: store the choice so it can become per player, let
    each player's toggle act on their own view only, and let one frame mix
    classic and remastered views. A classic view in a mixed frame stays
-   pixel-identical to classic inside its viewport (scope 5.9).
+   pixel-identical to classic inside its viewport (scope 5.9). A
+   developer-only two-view frame tests per-view state on bgfx now (D-042 B,
+   section 5.1); it creates no second local player.
 4. **Built in (D4).** Remastered looks right with no packs installed; base
    materials get a built-in PBR derivation; art packs are ordinary mods.
 5. **No prerequisites (D6).** Static linking by default; the graphics DLLs
@@ -353,12 +355,13 @@ two to four options each); the scope doc section 10 has the background.
 
 1. **Step 1 parity verdict. Decided (D-041, Mike 2026-11-20): B**, prove the
    causes with the two experiments of 5.1, then accept what remains.
-2. **Split-screen. Decided (D-042, Mike 2026-11-20):** "We may add Split
-   Screen back in, but each player might want to play on a different mode
-   (classic vs new)." Split-screen stays in scope with the mode chosen per
-   local player (3.1 item 3); its parity check waits until split-screen
-   exists (no split-screen frame can be drawn today) and then covers mixed
-   frames (phase 10).
+2. **Split-screen. Decided (D-042, Mike 2026-11-20): B**, a developer-only
+   two-view frame now, to test per-view state on bgfx before split-screen
+   returns. Mike: "We may add Split Screen back in, but each player might
+   want to play on a different mode (classic vs new)." So split-screen stays
+   in scope with the mode chosen per local player (3.1 item 3), and phase 10
+   covers mixed frames. (His first "B" answered this question; his
+   follow-up "B for the first question as well" answered decision 1.)
 3. **Decision 6, hybrid frames (D-043).** May 2.0 ship with some passes still classic
    in remastered mode? (Scope recommends yes.)
 4. **Decision 7, budgets (D-044).** How many remastered views (split-screen, listen
@@ -396,7 +399,10 @@ git). Mike's verdict (D-041, 2026-11-20): prove the causes, then accept what
 remains. The experiments run on `week-pd/bgfx-parity-proof`: first the Agent
 Select noise test (combiner files only); the Defection test after CORE's PR
 21 (B-1268, reflective room surfaces) lands, because that PR changes the same
-scene shader and scene renderer files.
+scene shader and scene renderer files. Then the developer-only two-view frame
+of D-042 (no split-screen frame exists today: the game allows one local
+player, and a netplay host draws each remote player's view and then drops
+it, `src/game/lv.c`, `gdl = savedgdl`).
 
 ### 5.2 Requests from other lanes
 
@@ -511,7 +517,8 @@ scene shader and scene renderer files.
 1. Startup reading, hub registration, and the Workbench: T-RENDERING-001 and
    decisions D-041 to D-051 (section 4) exist; read their state first.
 2. Finish the parity experiments of D-041 (5.1) if they are not done, and
-   record each cause in 5.1 and the step 1 design doc.
+   record each cause in 5.1 and the step 1 design doc; then the two-view
+   frame of D-042.
 3. Phase 2a step 2 (D3D11): first a design section like
    [bgfx-classic-gl.md](bgfx-classic-gl.md) (shader toolchain, windows
    without GL, D6 review of the D3D11 renderer, swarm, readback and parity

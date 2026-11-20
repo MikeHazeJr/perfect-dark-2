@@ -392,9 +392,9 @@ storage (not in git).
 with the two experiments named above (the noise term held constant for
 Agent Select; the classic shader text in the bgfx scene shader for
 Defection), then accept what remains; they run on
-`week-pd/bgfx-parity-proof`. Split-screen (D-042): it may come back with each
-local player choosing classic or remastered, so its parity check waits until
-split-screen exists and then covers frames that mix both (scope 5.9).
+`week-pd/bgfx-parity-proof`. Split-screen (D-042): B, a developer-only
+two-view frame now, to test per-view state on bgfx; split-screen may come
+back with each local player choosing classic or remastered (scope 5.9).
 
 ## Next steps (phase 2a, from section 11 of the scope doc)
 
@@ -404,10 +404,12 @@ split-screen exists and then covers frames that mix both (scope 5.9).
    AGS and NVAPI loads patched out of `renderer_d3d11.cpp` (D6); and swarm
    compute ported to bgfx compute or kept GL-only.
 2. Remove the 1.0 GL backend once parity holds on every R9 capture.
-3. Split-screen parity once split-screen exists (today a single local player
-   is the active constraint, so no split-screen frame can be drawn). D-042:
-   each local player may then choose classic or remastered, so the check
-   covers mixed frames, each classic view pixel-identical in its viewport.
+3. A developer-only two-view frame (D-042 B): two views in one frame on
+   bgfx, compared with GL, before split-screen returns (today a single local
+   player is the active constraint, so the game draws no split-screen
+   frame). When split-screen returns, each local player may choose classic
+   or remastered, and each classic view stays pixel-identical in its
+   viewport.
 
 The full list, with the other phases, the open decisions and the requests
 from other lanes, is in [renderer-2.0-handoff.md](renderer-2.0-handoff.md).

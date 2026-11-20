@@ -2294,8 +2294,9 @@ resource receipt overlapped.
   `context/designs/rendering/bgfx-classic-gl.md`; definition of done in
   `context/designs/rendering/renderer-2.0-handoff.md`. Mike 2026-11-20:
   prove the causes of step 1's parity differences, then accept the rest
-  (D-041, experiments on `week-pd/bgfx-parity-proof`); split-screen stays in
-  scope with the mode chosen per local player (D-042).
+  (D-041, experiments on `week-pd/bgfx-parity-proof`); split-screen (D-042):
+  a developer-only two-view frame now, and split-screen stays in scope with
+  the mode chosen per local player.
 
 Items marked `historical-cut` retain their permanent IDs and evidence but are
 not live routing targets. They were consolidated into the milestone gates above
