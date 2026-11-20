@@ -216,8 +216,8 @@ def policy_from(value):
     if value and "min_free_gib" in value and "min_build_free_gib" not in value:
         defaults["min_build_free_gib"] = value["min_free_gib"]
     count = defaults["max_full_installs"]
-    if isinstance(count, bool) or not isinstance(count, int) or count < 1:
-        raise StorageError("max_full_installs must be a positive integer")
+    if count is not None and (isinstance(count, bool) or not isinstance(count, int) or count < 1):
+        raise StorageError("max_full_installs must be a positive integer or null")
     for k in ["min_free_gib", "min_build_free_gib", "max_full_install_gib", "max_archive_gib", "peak_run_gib", "extra_growth_gib", "peak_build_gib"]:
         x = defaults[k]
         if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) or x < 0:
@@ -705,7 +705,8 @@ class Storage:
         if not binary or request.get("binary_sha256") != binary[0]:
             raise StorageError("Reuse tested binary hash mismatch")
         full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
-        if len(full) > self.policy["max_full_installs"]:
+        limit_count = self.policy["max_full_installs"]
+        if limit_count is not None and len(full) > limit_count:
             raise StorageError("Existing full-copy count exceeds policy; no relaxation")
         reserve = self.policy["peak_run_gib_bytes"]
         if sum(x["full_bytes"] for x in full) + self.profile_bytes() + reserve > self.policy["max_full_install_gib_bytes"]:
@@ -854,7 +855,9 @@ class Storage:
                 % (limit_bytes / 2**30, (self.profile_bytes() + required) / 2**30))
         while True:
             full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
-            if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes:
+            count_fits = limit_count is None or len(full) + 1 <= limit_count
+            bytes_fit = sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes
+            if count_fits and bytes_fit:
                 return
             if self.retain_housekeeping:
                 raise StorageError("Retained housekeeping refuses eviction; full-install budget exceeded")

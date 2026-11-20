@@ -516,19 +516,37 @@ class StorageTests(unittest.TestCase):
                 usage.return_value.free = 6 * gib - 1
                 with self.assertRaisesRegex(storage.StorageError, 'Disk preflight refused'):
                     s.preflight(4 * gib, build=True)
-                # Non-build admission remains 200 + 2 run + 2 growth GiB.
-                usage.return_value.free = 204 * gib - 1
+                # Run admission still reserves 2 GiB run + 2 GiB growth.
+                usage.return_value.free = 4 * gib - 1
                 with self.assertRaisesRegex(storage.StorageError, 'Disk preflight refused'):
                     s.preflight(2 * gib)
-                usage.return_value.free = 204 * gib
-                self.assertEqual(s.preflight(2 * gib)['floor_bytes'], 200 * gib)
+                usage.return_value.free = 4 * gib
+                self.assertEqual(s.preflight(2 * gib)['floor_bytes'], 0)
                 self.assertEqual(s.policy['max_archive_gib_bytes'], 8 * gib)
                 self.assertEqual(s.policy['max_full_install_gib_bytes'], 8 * gib)
-                self.assertEqual(s.policy['max_full_installs'], 5)
+                self.assertIsNone(s.policy['max_full_installs'])
+                usage.return_value.free = 6 * gib
                 s.archive_used = 8 * gib
                 s.preflight(4 * gib, build=True)
                 with self.assertRaisesRegex(storage.StorageError, 'Archive budget refused'):
                     s.preflight(4 * gib, archive_pending=1, build=True)
+
+    def test_default_count_allows_fitting_reservation_without_evicting(self):
+        gib = 2**30
+        for policy, refused in ((None, False), ({"max_full_installs": 5}, True)):
+            s = storage.Storage(self.project, policy)
+            s.state["installs"] = {str(i): dict(status="active", full_bytes=gib)
+                                   for i in range(5)}
+            with patch.object(s, "remove") as remove:
+                if refused:
+                    with self.assertRaisesRegex(storage.StorageError, "active/pinned evidence"):
+                        s.make_room(2 * gib)
+                else:
+                    s.make_room(2 * gib)
+                    s.state["reuse_runs"] = {"other": {"reserved_bytes": 2 * gib}}
+                    with self.assertRaisesRegex(storage.StorageError, "active/pinned evidence"):
+                        s.make_room(2 * gib)
+                remove.assert_not_called()
 
     def test_custom_build_floor_is_explicit_and_legacy_policies_are_preserved(self):
         gib = 2**30
