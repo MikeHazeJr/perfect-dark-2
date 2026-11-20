@@ -3992,17 +3992,23 @@ void bgunDecreaseNoiseRadius(void)
 	gsetPopulateFromCurrentPlayer(HAND_RIGHT, &gsetright);
 	uint64_t left_scope = wgV2RuntimeScopeOpen(player, HAND_LEFT, &gsetleft);
 	uint64_t right_scope = wgV2RuntimeScopeOpen(player, HAND_RIGHT, &gsetright);
+	wg_v2_delivery left_receipt = {0}, right_receipt = {0};
 
 	gsetGetNoiseSettings(&gsetleft, &noisesettingsleft);
 	gsetGetNoiseSettings(&gsetright, &noisesettingsright);
 
 	// Right hand
-	if (bgunIsFiring(HAND_RIGHT) && wgV2RuntimeNoiseAdmit(player, HAND_RIGHT)) {
+	if (bgunIsFiring(HAND_RIGHT) && (!wgV2RuntimeIsWeapon(gsetright.weaponnum)
+			|| (right_scope && wgV2RuntimeNoiseBegin(player, HAND_RIGHT, &right_receipt)))) {
+		const float before = player->hands[HAND_RIGHT].noiseradius;
 		player->hands[HAND_RIGHT].noiseradius += noisesettingsright.incradius;
 
 		if (player->hands[HAND_RIGHT].noiseradius > noisesettingsright.maxradius) {
 			player->hands[HAND_RIGHT].noiseradius = noisesettingsright.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetright.weaponnum))
+			wgV2RuntimeObserveNoise(&right_receipt, before, player->hands[HAND_RIGHT].noiseradius,
+				noisesettingsright.incradius, noisesettingsright.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsright.incradius / (noisesettingsright.decbasespeed * 60.0f);
@@ -4019,12 +4025,17 @@ void bgunDecreaseNoiseRadius(void)
 	}
 
 	// Left hand
-	if (bgunIsFiring(HAND_LEFT) && wgV2RuntimeNoiseAdmit(player, HAND_LEFT)) {
+	if (bgunIsFiring(HAND_LEFT) && (!wgV2RuntimeIsWeapon(gsetleft.weaponnum)
+			|| (left_scope && wgV2RuntimeNoiseBegin(player, HAND_LEFT, &left_receipt)))) {
+		const float before = player->hands[HAND_LEFT].noiseradius;
 		player->hands[HAND_LEFT].noiseradius += noisesettingsleft.incradius;
 
 		if (player->hands[HAND_LEFT].noiseradius > noisesettingsleft.maxradius) {
 			player->hands[HAND_LEFT].noiseradius = noisesettingsleft.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetleft.weaponnum))
+			wgV2RuntimeObserveNoise(&left_receipt, before, player->hands[HAND_LEFT].noiseradius,
+				noisesettingsleft.incradius, noisesettingsleft.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsleft.incradius / (noisesettingsleft.decbasespeed * 60.0f);
@@ -4040,7 +4051,7 @@ void bgunDecreaseNoiseRadius(void)
 		player->hands[HAND_LEFT].noiseradius = noisesettingsleft.minradius;
 	}
 	wgV2RuntimeScopeClose(left_scope); wgV2RuntimeScopeClose(right_scope);
-	wgV2RuntimeNoiseConsumed(player, HAND_LEFT); wgV2RuntimeNoiseConsumed(player, HAND_RIGHT);
+	wgV2RuntimeNoiseComplete(&left_receipt); wgV2RuntimeNoiseComplete(&right_receipt);
 }
 
 void bgunCalculateBlend(s32 handnum)
