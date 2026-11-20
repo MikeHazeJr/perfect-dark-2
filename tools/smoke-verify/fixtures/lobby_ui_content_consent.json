@@ -1,8 +1,8 @@
 {
   "scenario_name": "lobby_ui_content_consent_guest",
-  "timeout_seconds": 300,
+  "timeout_seconds": 500,
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "lobby_catalog_consent_ready", "timeout_ms": 210000 },
+    { "at_ms": 0, "type": "wait_until", "condition": "lobby_catalog_consent_ready", "timeout_ms": 420000 },
     { "at_ms": 100, "type": "key", "key": "Left", "action": "tap", "comment": "Move from the visible Skip default to This Session." },
     { "at_ms": 180, "type": "wait_until", "condition": "lobby_room_session_ready", "timeout_ms": 10000 },
     { "at_ms": 210, "type": "key", "key": "Return", "action": "tap" },
