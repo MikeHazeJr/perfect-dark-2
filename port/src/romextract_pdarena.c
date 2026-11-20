@@ -362,6 +362,7 @@ typedef struct {
 	 * fails. B-1267: each triangle keeps the cull mode its display list
 	 * drew it with. */
 	u32 rooms_with_data;
+	u32 rooms_empty;
 	u32 rooms_left_out;
 	u32 tris_cull_back;
 	u32 tris_two_sided;
@@ -8919,7 +8920,8 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 			continue;
 		}
 		/* B-1266: from here on the room has display data, and a room that
-		 * cannot be read is counted and fails the export below. The old
+		 * cannot be read is counted and fails the export below (a room
+		 * that is only a header is empty, not unreadable). The old
 		 * code left such a room out without a word, and its size test left
 		 * out every room whose data inflated past 8192 bytes: the largest
 		 * rooms of every stage, up to two thirds of a stage's triangles. */
@@ -8973,6 +8975,18 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 			sysMemFree(room);
 			continue;
 		}
+		/* A room that is a header and nothing else: its four pointers
+		 * (vertices, colours, the opaque and the translucent block list)
+		 * are all null. The game has four: two of Crash Site, one of Air
+		 * Force One, one of the Skedar Ruins. Nothing to draw, nothing
+		 * left out. Read here, while the room is still in the file's
+		 * big-endian layout. */
+		if (inflatedlen >= 16 && s_readBe32(room) == 0 && s_readBe32(room + 4) == 0 &&
+		    s_readBe32(room + 8) == 0 && s_readBe32(room + 12) == 0) {
+			scene->rooms_empty++;
+			sysMemFree(room);
+			continue;
+		}
 		u32 new_len = preprocessBgRoom(room, (u32)inflatedlen, room_ofs);
 		if (new_len == 0 || new_len > room_cap ||
 		    s_promoteBgRoomPointers(room, new_len, room_ofs) != 0) {
@@ -9019,9 +9033,10 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 	}
 
 	sysLogPrintf(scene->rooms_left_out ? LOG_ERROR : LOG_NOTE,
-		"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u left_out=%u triangles=%u cull_back=%u two_sided=%u cull_front=%u cull_both=%u",
+		"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u empty=%u left_out=%u triangles=%u cull_back=%u two_sided=%u cull_front=%u cull_both=%u",
 		(unsigned)stagenum, (unsigned)scene->rooms_with_data,
-		(unsigned)scene->room_count, (unsigned)scene->rooms_left_out,
+		(unsigned)scene->room_count, (unsigned)scene->rooms_empty,
+		(unsigned)scene->rooms_left_out,
 		(unsigned)scene->tri_count, (unsigned)scene->tris_cull_back,
 		(unsigned)scene->tris_two_sided, (unsigned)scene->tris_cull_front,
 		(unsigned)scene->tris_cull_both);

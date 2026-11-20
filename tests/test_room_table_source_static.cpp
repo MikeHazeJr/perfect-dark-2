@@ -246,7 +246,9 @@ TEST_CASE("the scene export sizes a room from its inflated length and leaves non
 	CHECK(filebg.find("#define PREPROCESS_BG_ROOM_MULT_LOCAL 8u") != std::string::npos);
 
 	// A room that has data and cannot be exported is counted, logged and
-	// fails the export: the one silent continue left is the room with no data.
+	// fails the export. Two continues are quiet: the room with no data,
+	// and the room that is a header and nothing else (four in the game),
+	// which is counted as empty.
 	size_t left_out = 0;
 	for (size_t at = body.find("s_bgSceneRoomLeftOut(scene, roomnum,"); at != std::string::npos;
 			at = body.find("s_bgSceneRoomLeftOut(scene, roomnum,", at + 1)) {
@@ -257,12 +259,16 @@ TEST_CASE("the scene export sizes a room from its inflated length and leaves non
 	for (size_t at = body.find("continue;"); at != std::string::npos; at = body.find("continue;", at + 1)) {
 		continues++;
 	}
-	CHECK(continues == left_out + 1);
+	CHECK(continues == left_out + 2);
+	CHECK(body.find("if (inflatedlen >= 16 && s_readBe32(room) == 0 && s_readBe32(room + 4) == 0 &&") !=
+		std::string::npos);
+	CHECK(body.find("scene->rooms_empty++;") != std::string::npos);
+	CHECK(body.find("scene->rooms_empty++;") < body.find("preprocessBgRoom(room, (u32)inflatedlen, room_ofs)"));
 	CHECK(body.find("scene->rooms_with_data++;") != std::string::npos);
 	const size_t fail = body.find("if (scene->rooms_left_out) {");
 	REQUIRE(fail != std::string::npos);
 	CHECK(body.find("return -1;", fail) < body.find("s_exportBgSection2Textures(bg, bg_size, scene)", fail));
-	CHECK(body.find("\"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u left_out=%u triangles=%u") !=
+	CHECK(body.find("\"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u empty=%u left_out=%u triangles=%u") !=
 		std::string::npos);
 
 	// An install that already has scenes takes them through the per-archive
