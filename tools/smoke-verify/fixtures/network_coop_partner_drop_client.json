@@ -1,0 +1,40 @@
+{
+  "scenario_name": "network_coop_partner_drop_client",
+  "description": "Client schedule for network_coop_partner_drop_smoke.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 700,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 300000,
+      "comment": "Connected, ready gate passed, the mission is live here."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "gameplay_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Usable co-op control, with one bounded Skip if the authored intro owns input."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_reconnect_available",
+      "timeout_ms": 120000,
+      "stable_ms": 1000,
+      "comment": "The host timed this client out: back where it could reconnect (S2 does the rejoin)."
+    },
+    {
+      "at_ms": 4000,
+      "type": "exit",
+      "comment": "Scripted clean exit; no reconnect in this smoke."
+    }
+  ]
+}

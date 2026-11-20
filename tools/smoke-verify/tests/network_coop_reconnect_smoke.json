@@ -1,0 +1,193 @@
+{
+  "scenario_name": "network_coop_reconnect_smoke",
+  "description": "T-NETWORKING-007 S2 (Mike, 2026-11-16: a player who drops from a networked co-op mission can rejoin into it). A listen host and one client start co-op Defection on Agent. Once both have usable control the host times the client out through the production disconnect path (network_timeout_client); the host parks the partner (S1) and plays on. The client waits until it can reconnect and makes one production retry (network_reconnect); the host un-parks the partner where it was parked, alive with what it kept, before the reconnect snapshot, and both play on until --debug-end-mission ends the mission at 150 s with every objective complete. Passes when the partner is parked once and un-parked once, the reconnect commits, the client is live and controllable a second time, and each machine shows its own results. Written 2026-11-17; port 27271.",
+  "tags": [
+    "network",
+    "campaign",
+    "coop",
+    "drop-in-drop-out",
+    "reconnect",
+    "multi-process",
+    "smoke",
+    "t-networking-007"
+  ],
+  "paths_of_interest": [
+    "port/src/net/net.c",
+    "src/game/player.c",
+    "src/game/propobj.c",
+    "port/src/pdmain.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 1080,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27271",
+        "--launch-mp-room",
+        "base:defection",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--host-autostart-mode",
+        "coop",
+        "--difficulty",
+        "agent",
+        "--debug-end-mission",
+        "150:complete"
+      ],
+      "wait_for": "NET: created server on port 27271",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "SMOKE\\.NETWORK: timeout_client client=1 ",
+          "COOP\\.PARK: parked player 1 health=",
+          "NET: parked dropped co-op partner .* \\(player 1\\) retryable=1",
+          "COOP\\.PARK: unparked player 1 health=",
+          "PLAYER\\.INIT\\.COMMIT reconnect client=[0-9]+ player=1 ",
+          "BOOT: --debug-end-mission ending stage=0x[0-9a-f]+ result=complete",
+          "GAMELOOP\\.COOP: endscreenPushCoop entry playernum=0 ",
+          "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+          "MANIFEST-HOST: mission weapons listed=[1-9][0-9]*"
+        ],
+        "required_sequences": [
+          {
+            "name": "parked-then-rejoined-then-mission-end",
+            "patterns": [
+              "SMOKE\\.NETWORK: timeout_client client=1 ",
+              "COOP\\.PARK: parked player 1 health=",
+              "COOP\\.PARK: unparked player 1 health=",
+              "PLAYER\\.INIT\\.COMMIT reconnect client=[0-9]+ player=1 ",
+              "BOOT: --debug-end-mission ending stage=",
+              "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "NET: killed disconnected player",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/network_coop_reconnect_host.json"
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27271"
+      ],
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_reconnect_available",
+          "SMOKE\\.NETWORK: reconnect rc=0 ",
+          "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+        ],
+        "required_sequences": [
+          {
+            "name": "live-dropped-reconnected-live-results",
+            "patterns": [
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+              "SMOKE\\.WAIT: satisfied condition=network_reconnect_available",
+              "SMOKE\\.NETWORK: reconnect rc=0 ",
+              "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+              "SMOKE\\.WAIT: satisfied condition=endscreen_visible"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/network_coop_reconnect_client.json"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 1020000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=network_coop_reconnect_host",
+      "SMOKE: scenario=network_coop_reconnect_client",
+      "NET: created server on port 27271",
+      "NET: incoming connection",
+      "BOOT: --debug-end-mission armed: seconds=150 result=complete",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "prop with syncid .* does not exist",
+      "SVC_NPC_SYNC checksum mismatch",
+      "SVC_NPC_SYNC snapshot mismatch",
+      "SVC_NPC_SYNC rejected",
+      "SVC_NPC_RESYNC rejected",
+      "requesting npc resync",
+      "NET.STAGE.REPLICATION release=retry",
+      "NET.STAGE.REPLICATION ready=rejected",
+      "malformed or unknown message 0x4b",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ROSTER_MISMATCH",
+      "MENU\\.GRAPH\\.FIRE .* ok=0",
+      "LOBBY: results screen did not open within",
+      "GAMELOOP\\.COOP: no next mission",
+      "start request failed",
+      "BOOT: --debug-end-mission rejected",
+      "BOOT: --debug-clone-guard (found no|could not|rejected)",
+      "NET\\.NPC: client could not make the host's chr",
+      "NET\\.NPC: client has no chr for syncid=",
+      "SAVE: Agent Profile serialization failed",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE: scenario=network_coop_reconnect_(host|client)",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "COOP\\.PARK: parked player ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "COOP\\.PARK: unparked player ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "GAMELOOP\\.COOP: endscreenPushCoop entry",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}

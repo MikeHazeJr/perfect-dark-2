@@ -47,12 +47,70 @@ a player can also join a co-op mission already in progress, and leave it, withou
   (a friend joins the next one); a mission started with a free partner slot is the one friends drop into. The
   original never mixed a human partner with AI buddies.
 
+## AI buddies (built 2026-11-17, branch week-pd/multiplayer-coop, 26557b90; not run yet)
+
+Mike's 2026-11-16 call (the co-op AI-buddy entry comes back) and the 2026-11-17 answer above, as built:
+
+- **The Room's Campaign tab** has a Partner section under Difficulty. With a second player in the Room, that player
+  is the partner. With three or more, the tab says co-op is for two players (the lobby start already refuses more).
+  Alone, a Perfect Buddy choice offers 1 to N simulants, where N is the original's limit for the difficulty shown:
+  one buddy, plus more once the whole co-op campaign is finished on harder difficulties, at most 4
+  (`getMaxAiBuddiesForDifficulty`, split out of `getMaxAiBuddies`). The choice lives in `g_NetCoopAiBuddies`.
+- **Hosted Room, host alone:** `netServerCoopStageStart` sets `g_Vars.numaibuddies` from the choice only when the
+  co-op roster is the host alone, clamps it after the mission difficulty is set, and puts the old value back on each
+  of its three rollbacks. With a partner it is 0, so the original never-mixed rule holds. The buddies spawn at the
+  player as in the original (`playerTick`, `GAILIST_INIT_DEFAULT_BUDDY`). Log: `COOP.AIBUDDIES: host alone=1
+  buddies=N requested=R max=M difficulty=D`, then `COOP.AIBUDDIES: spawned N of N at lvframe F`.
+- **A client** clears `g_Vars.numaibuddies` in its stage start: its partner is the host, and a count left from a
+  mission it hosted alone would spawn buddies on that machine only.
+- **Offline Room** (Play, Combat Simulator, no network): the Campaign tab's Start used to fail (it asked the network
+  lobby). It now runs the original's one-player co-op through the Solo Missions start (`pdguiRoomStartOfflineCoop`,
+  `menuhandlerAcceptMission`: one player, no co-op player, the clamped buddies).
+- The Campaign tab's old text ("Drop-in co-op: players join at next safe spawn. Up to 4 players.") is gone; S4 still
+  owns showing a mission in progress with a free slot.
+- Smokes: `network_coop_ai_buddies_smoke` (one listen host, `--host-autostart-peers 0`, `--coop-ai-buddies 2`; a
+  fresh profile clamps to 1) and `coop_ai_buddies_offline_smoke` (Agent Select, the real Main Menu and Play graph
+  into the offline Room, `--debug-room-tab campaign`, the Room's own Start Match). Static pins: `[aibuddies]` in
+  `tests/test_net_mission_end_static.cpp`.
+
+## S1 research (2026-11-17, read-only; line numbers at 5454c4fb)
+
+- **B-1274 first:** two-player networked co-op ran with `normmplayerisrunning` set (fixed on this branch). Several
+  answers below assume the fixed flag.
+- **What `playerDie(true)` does to the partner on the host** (net.c `netServerEvDisconnect`, player.c 7264-7402):
+  the live-death event (menus closed, HUD messages removed, an MP death recorded, uncloak); with `mplayerisrunning`
+  set it drops every droppable weapon as a world prop (`currentPlayerDropAllItems`, SVC_PROP_SPAWN); dead flags,
+  death camera, off a vehicle, guns thrown; later frames play the death sequence and the co-op restart rule (half
+  the host's health), and after `netClientReset` the partner's respawn input is read from local slot 1.
+- **Already covered by `isdead`:** damage, pickups, collision (with `mplayerisrunning`), auto-aim, `chrIsDead`, the
+  guards' p1p2 player choice, autoguns, radar. **Not covered:** automatic doors (`doorIsRangeEmpty` counts any player
+  prop in the rooms), CCTV cameras (they alternate between the players and turn the target's collision back on),
+  level scripts that target CHR_COOP directly or clear its hidden flag in cutscenes, explosions and bullets (room
+  lists), and the results loop (`mainEndStage` pushes results for every non-remote player; after a drop the
+  partner is no longer remote, so the host would get a second dialog).
+- **Taking the prop out and back:** the original's chr pair is the template: `aiDisableChr` (propDeregisterRooms,
+  propDelist, propDisable) and `aiEnableChr` (propActivate, propEnable, room rebuild). A delisted prop is neither
+  ticked nor drawn. The PC cutscene layer's `cutscene_protect` already makes a player unseen and undamageable.
+- **Plan for S1:** at the disconnect, for the co-op partner, park instead of `playerDie`: off any vehicle, hands
+  idle, dead flags plus a new parked flag (so a host death ends the mission as both-dead does, and the restart rule
+  cannot take health), hidden, rooms deregistered, delisted, disabled, guards' references cleared; no drops, no
+  stats. Skip the parked player in the player loops (pdmain 1031-1042, lv.c's render loop: tick accounting only),
+  in the results loop, and for CCTV and autoguns; keep `cutscene_protect` on while parked; chat "<name> dropped
+  out". Items the partner holds stay with it (a throw or plant objective waits for its return: ask Mike whether the
+  host should get them).
+- **Un-park in S2:** inside `netServerCompleteReconnect`, before the reconnect snapshot: the parked spot if clear
+  (`spawnPoolFindClearPosition`), else next to the host; activate, enable, rooms, hidden flag back, dead and parked
+  cleared. The snapshot already carries co-op's NPC resync, stage flags and objective statuses; it lacks chrs made
+  after the stage start (SVC_NPC_SPAWN replay), the alarm and the mission timers.
+
 ## Steps
 
-- **S1 Park, don't kill (co-op).** In the disconnect path, a co-op partner is parked instead of killed; the
+- **S1 Park, don't kill (co-op). Built 2026-11-17 (9f06ecae), proven in runs (`network_coop_partner_drop_smoke` 49/49 on 2026-11-17, 51/51 on 2026-11-19):** `playerParkForNetwork` from `netServerEvDisconnect` for the co-op partner; the parked tick, HUD, CCTV and results skips; smoke `network_coop_partner_drop_smoke`; pins `[s1]`. Known gaps: a laptop gun the partner deployed keeps working (the death path's owner cleanup does not run), and a reconnect into a parked partner is not handled until S2.
+  Original text: In the disconnect path, a co-op partner is parked instead of killed; the
   host's game ignores a parked partner (guards, objectives that count players, the mission-failed rule when both
   players are dead). Static pins; a smoke where the partner times out and the host plays on to the mission end.
-- **S2 Rejoin into a co-op mission.** Reuse the reconnect path; add what co-op needs (NPC snapshot, objective
+- **S2 Rejoin into a co-op mission. Host side built 2026-11-17 and proven in runs; the client still refuses the snapshot (B-1277, open):** `netServerCompleteReconnect` un-parks the partner (`playerUnparkForNetwork`) before the dead-player respawn check and the snapshot, and parks it again if the send fails; it comes back where it was parked (the spot's clearance is only logged so far). Smoke `network_coop_reconnect_smoke`; pins `[s2]`. First run 2026-11-17: the host side worked (parked, un-parked, reconnect committed) but the client refused the reconnect prop set's end (B-1275, diagnostics added). S1's smoke passed 49/49. Rerun 2 (2026-11-19): B-1275 is fixed (the mission's weapons are listed) and the client now refuses at the scheduler check of the same reader, an object with no parent that is on no list on the client (B-1277; the refusal logs the object since 2026-11-19). Still open: B-1277, the next-to-the-host fallback, chrs made after the stage start, the alarm and the mission timers.
+  Original text: Reuse the reconnect path; add what co-op needs (NPC snapshot, objective
   statuses, cutscene state, timers) and the un-park. New `network_coop_reconnect_smoke`: the client times out
   mid-mission (`network_timeout_client`), reconnects (`network_reconnect`), and both reach the mission end with
   the partner's character back.

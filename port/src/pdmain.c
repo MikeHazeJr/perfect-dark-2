@@ -1526,9 +1526,11 @@ void mainEndStage(void)
 				/* B-1193: in a networked mission each machine shows only its
 				 * own player's results; the other player's are shown on its
 				 * machine. isremote is per machine and still set here (the
-				 * host's stage end commit below does not clear it for co-op). */
+				 * host's stage end commit below does not clear it for co-op).
+				 * T-NETWORKING-007 S1: a parked partner dropped out (its
+				 * client is gone, so it is no longer remote): no results. */
 				if (g_NetMode != NETMODE_NONE && g_Vars.players[i]
-						&& g_Vars.players[i]->isremote) {
+						&& (g_Vars.players[i]->isremote || g_Vars.players[i]->parked)) {
 					continue;
 				}
 				setCurrentPlayerNum(i);

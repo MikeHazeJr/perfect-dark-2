@@ -250,7 +250,9 @@
       "start request failed",
       "BOOT: --debug-end-mission",
       "SMOKE\\.KILL_PLAYER: player 0 unavailable",
-      "SAVE: Agent Profile serialization failed"
+      "SAVE: Agent Profile serialization failed",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

@@ -557,7 +557,8 @@ static void playerRefreshCutsceneProtect(void)
 		struct player *player = g_Vars.players[i];
 
 		if (player && player->prop && player->prop->chr) {
-			player->prop->chr->cutscene_protect = playerInCutscene(i);
+			/* T-NETWORKING-007 S1: a parked partner stays protected. */
+			player->prop->chr->cutscene_protect = playerInCutscene(i) || player->parked;
 		}
 	}
 }
@@ -5424,6 +5425,8 @@ void playerConfigureVi(void)
 	viSetBufSize(playerGetFbWidth(), playerGetFbHeight());
 }
 
+static void playerTickParked(void); /* T-NETWORKING-007 S1, below playerDie */
+
 void playerTick(bool arg0)
 {
 	f32 aspectratio;
@@ -5627,7 +5630,11 @@ void playerTick(bool arg0)
 		playerSetCutsceneActive(g_Vars.currentplayernum, false);
 	}
 
-	if (g_Vars.tickmode == (u32)TICKMODE_CUTSCENE) {
+	if (g_Vars.currentplayer->parked) {
+		/* T-NETWORKING-007 S1: a parked co-op partner has no movement,
+		 * input, camera or body of its own until it rejoins. */
+		playerTickParked();
+	} else if (g_Vars.tickmode == (u32)TICKMODE_CUTSCENE) {
 		// In a cutscene
 		s32 i;
 
@@ -6311,6 +6318,19 @@ void playerTick(bool arg0)
 
 				g_Vars.aibuddies[i] = prop;
 			}
+
+			{
+				/* PC: the co-op AI-buddy smoke's witness. */
+				s32 spawned = 0;
+
+				for (i = 0; i < g_Vars.numaibuddies && i < ARRAYCOUNT(g_Vars.aibuddies); i++) {
+					if (g_Vars.aibuddies[i]) {
+						spawned++;
+					}
+				}
+				sysLogPrintf(LOG_NOTE, "COOP.AIBUDDIES: spawned %d of %d at lvframe %d",
+					spawned, (s32)g_Vars.numaibuddies, (s32)g_Vars.lvframenum);
+			}
 		}
 	} else if (g_Vars.tickmode == TICKMODE_GE_FADEIN || g_Vars.tickmode == TICKMODE_GE_FADEOUT) {
 		playerRemoveChrBody();
@@ -6991,7 +7011,9 @@ Gfx *playerRenderHud(Gfx *gdl)
 		}
 	}
 
-	if (g_Vars.currentplayer->isdead) {
+	/* T-NETWORKING-007 S1: a parked partner counts as dead for the rules but
+	 * has no death sequence, death music or co-op restart. */
+	if (g_Vars.currentplayer->isdead && !g_Vars.currentplayer->parked) {
 		g_Vars.currentplayer->coopcanrestart = false;
 
 		if (g_Vars.currentplayer->deathanimfinished == false) {
@@ -7331,6 +7353,148 @@ void playerDie(bool force)
 	if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
 		netmsgSvcPlayerStatsWrite(&g_NetMsgRel, g_Vars.currentplayer->client);
 	}
+}
+
+/**
+ * PC (T-NETWORKING-007 S1, Mike 2026-11-16): a networked co-op partner who
+ * drops out is parked, not killed. Its character leaves the world (out of the
+ * prop and room lists: not drawn, ticked, collided with or hit, and hidden
+ * from guards) but keeps its health, shield, weapons, ammo, position and
+ * facing for a rejoin. For the mission rules it counts as dead, so the host's
+ * death still ends the mission as both players dead does, and the co-op
+ * restart cannot take the host's health. No drops, no death sequence, no
+ * stats. Host only; the caller has checked the role.
+ */
+void playerParkForNetwork(s32 playernum)
+{
+	const s32 prevplayernum = g_Vars.currentplayernum;
+	struct player *player;
+	struct prop *prop;
+	struct chrdata *chr;
+
+	if (g_NetMode == NETMODE_CLIENT || playernum < 0 || playernum >= MAX_PLAYERS
+			|| g_Vars.players[playernum] == NULL || g_Vars.players[playernum]->parked
+			|| g_Vars.players[playernum]->prop == NULL) {
+		return;
+	}
+
+	setCurrentPlayerNum(playernum);
+	player = g_Vars.currentplayer;
+	prop = player->prop;
+	chr = prop->chr;
+
+	/* Off a vehicle, and let go of a grabbed prop; the bike stays put. */
+	if (player->bondmovemode != MOVEMODE_WALK) {
+		bmoveSetMode(MOVEMODE_WALK);
+	}
+
+	player->parked = 1;
+	player->isdead = 2;
+	player->redbloodfinished = true;
+	player->deathanimfinished = true;
+	player->coopcanrestart = false;
+	player->dostartnewlife = false;
+
+	if (chr) {
+		player->parkedwashidden = (chr->chrflags & CHRCFLAG_HIDDEN) ? 1 : 0;
+		chr->chrflags |= CHRCFLAG_HIDDEN;
+		chr->cutscene_protect = true;
+	}
+
+	propDeregisterRooms(prop);
+	propDelist(prop);
+	propDisable(prop);
+	chrsClearRefsToPlayer(playernum);
+
+	sysLogPrintf(LOG_NOTE,
+		"COOP.PARK: parked player %d health=%.2f pos=(%.0f,%.0f,%.0f) room=%d weapon=%d",
+		playernum, player->bondhealth, prop->pos.x, prop->pos.y, prop->pos.z,
+		(s32)prop->rooms[0], (s32)player->hands[HAND_RIGHT].gset.weaponnum);
+
+	setCurrentPlayerNum(prevplayernum);
+}
+
+/**
+ * PC (T-NETWORKING-007 S2): a parked co-op partner rejoins. Its character
+ * comes back where it was parked, with the health, weapons and ammo it kept,
+ * before the host writes the reconnect snapshot (so the client restores a
+ * live player there, not a dead one sent to a spawn pad). Whether that spot
+ * is still clear is logged; moving it next to the host when it is not is
+ * still to do. Host only. Returns false when the player was not parked.
+ */
+bool playerUnparkForNetwork(s32 playernum)
+{
+	struct player *player;
+	struct prop *prop;
+	struct chrdata *chr;
+	struct coord pos;
+	RoomNum rooms[8];
+	bool clear = false;
+	s32 i;
+
+	if (g_NetMode == NETMODE_CLIENT || playernum < 0 || playernum >= MAX_PLAYERS
+			|| g_Vars.players[playernum] == NULL || !g_Vars.players[playernum]->parked
+			|| g_Vars.players[playernum]->prop == NULL) {
+		return false;
+	}
+
+	player = g_Vars.players[playernum];
+	prop = player->prop;
+	chr = prop->chr;
+
+	pos = prop->pos;
+	for (i = 0; i < (s32)ARRAYCOUNT(rooms); i++) {
+		rooms[i] = i < (s32)ARRAYCOUNT(prop->rooms) ? prop->rooms[i] : -1;
+	}
+	rooms[ARRAYCOUNT(rooms) - 1] = -1;
+	if (chr) {
+		const f32 height = spawnPoolGetChrCapsuleHeight(chr);
+		const f32 radius = chr->radius > 0.0f ? chr->radius : 30.0f;
+
+		clear = spawnPoolFindClearPosition(&pos, rooms, radius, height, prop) ? true : false;
+	}
+
+	player->parked = 0;
+	player->isdead = false;
+	player->redbloodfinished = false;
+	player->deathanimfinished = false;
+	player->coopcanrestart = false;
+	player->dostartnewlife = false;
+
+	if (chr) {
+		if (!player->parkedwashidden) {
+			chr->chrflags &= ~CHRCFLAG_HIDDEN;
+		}
+		chr->cutscene_protect = playerInCutscene(playernum);
+	}
+
+	propActivate(prop);
+	propEnable(prop);
+	propRegisterRooms(prop);
+
+	sysLogPrintf(LOG_NOTE,
+		"COOP.PARK: unparked player %d health=%.2f pos=(%.0f,%.0f,%.0f) room=%d spot_clear=%d",
+		playernum, player->bondhealth, prop->pos.x, prop->pos.y, prop->pos.z,
+		(s32)prop->rooms[0], clear ? 1 : 0);
+	return true;
+}
+
+/* T-NETWORKING-007 S1: each frame a parked player's own tick only keeps it
+ * out of the world, in case a level script moved it or retargeted it. */
+static void playerTickParked(void)
+{
+	struct prop *prop = g_Vars.currentplayer->prop;
+
+	if (prop) {
+		/* Keeps prop->rooms; unlinking an unlinked prop finds nothing. */
+		propDeregisterRooms(prop);
+		if (prop->chr) {
+			prop->chr->chrflags |= CHRCFLAG_HIDDEN;
+			prop->chr->cutscene_protect = true;
+		}
+	}
+
+	chrsClearRefsToPlayer(g_Vars.currentplayernum);
 }
 
 static bool playerApplyDeadState(s32 shooter_runtime_index, bool force,

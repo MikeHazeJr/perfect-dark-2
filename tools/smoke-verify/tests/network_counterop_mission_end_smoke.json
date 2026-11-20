@@ -252,7 +252,9 @@
       "start request failed",
       "BOOT: --debug-end-mission rejected",
       "CLC_LOBBY_START gamemode=2 stage='base:investigation'.* antiClient=255",
-      "SAVE: Agent Profile serialization failed"
+      "SAVE: Agent Profile serialization failed",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {

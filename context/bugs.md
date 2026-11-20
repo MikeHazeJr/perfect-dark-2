@@ -1,8 +1,110 @@
 # Bug Tracker
 
+## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, open, test only)
+
+Severity low (test only, but it leaves the offline co-op start with simulant buddies unproven in a run).
+`coop_ai_buddies_offline_smoke` failed 20/38 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,
+`results-20261119T014139Z.json`). The held-tap fault of the first run is gone: the tap lands on the PD logo, the
+title is left and Agent Select opens. The smoke then waits for `agent_select_ready`, and that condition needs the
+game window to hold keyboard focus; a game the smoke runner starts never has it (`focus_lost=1
+agent_select_imgui_reject=0x1`), so the wait runs out after 120 s and every later step fails. SP-51. The hosted
+start is proven (`network_coop_ai_buddies_smoke` 29/29, 2026-11-17). dev's front-end work of 2026-11-19
+(T-MENUS-003) does not change this: its own Agent Select run needed a focused window.
+
+Fix to make: a way into the offline Room that passes neither Agent Select nor the main menu, for example a boot
+flag that opens the offline Room as `--launch-mp-room` opens a hosted one; `--debug-room-tab campaign` and
+`--debug-auto-start-match` then start the mission as they do in the hosted smoke.
+
+## 2026-11-19 B-1277 A co-op client's rejoin is refused at the scheduler check of the reconnect prop set (T-NETWORKING-007 S2, open, cause not known)
+
+Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin; the host's mission carries on, S1).
+`network_coop_reconnect_smoke` failed 50/55 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,
+`results-20261119T013233Z.json`). B-1275's refusal is gone and the host side is complete: `MANIFEST-HOST: mission
+weapons listed`, the partner un-parked, `PLAYER.INIT.COMMIT reconnect`, the host's whole sequence matched. The
+client then refuses the end of the prop set at a later check of the same reader: `NET.RECONNECT.WORLD end rejected
+reason=scheduler slot=282 syncid=283 a=0 b=0` (`netmsgSvcReconnectPropEndRead`). An object the host sends with no
+parent is on neither the active nor the paused list on the client. The client disconnects for good (`terminal=1`,
+`retryable=0`) and returns to the menu; the host parks the partner a second time and ends the mission alone.
+
+Not known: which object slot 282 is. What narrows it: `NET.RECONNECT.WORLD begin ... removed=0 detached=0
+local_weapon_pruned=0`; the host only stood still; the refusal comes 0.1 s after the client's stage start. The
+reader changes list membership only for an object that had a parent on the client and has none on the host: it
+detaches it, then calls `propUnpause` (which always lists it) or `propPause`, and `propPause` does nothing for a
+prop whose flags carry `PROPFLAG_DONTPAUSE` (the row reader has already copied the host's flags by then). An object
+with no parent on either side keeps the membership the client's fresh stage gave it. The host's state writer does
+not check list membership for a level object (only the spawn writer does).
+
+Added 2026-11-19 with this entry: the scheduler refusal first logs `NET.RECONNECT.WORLD scheduler detail`: the prop
+type, object type, model number, the prop and object flags, the lifecycle bits the host sent (4 = on the host's
+active list), whether the client's prop had a parent before the snapshot, and the first dynamic sync id. Next: read
+that line from the next run of `network_coop_reconnect_smoke`, then fix the cause.
+
 ## 2026-11-18 Training completion saves through the Controller Pak path (T-ENGINE-007)
 
 Firing Range, Device Training, and Holo Training awarded progress in memory and then invoked the legacy file manager. That path resolves a Controller Pak serial. The PC Agent Profile already serializes the medals and training flags through `saveSaveAgent`, which is also the Campaign result path. The three success handlers in `src/game/training.c` now use that save for the active named agent. Source and scoped diff review are complete. Build and ordinary tests still need a success and failure in each Training family, immediate restart through Agent Select, and persistent Duel eligibility.
+
+## 2026-11-17 B-1276 Two network stage-transaction smokes time out before the stage is live on shared base 9 (T-NETWORKING-011, fixed in the fixtures, proven 2026-11-17: 100/100 and 102/102)
+
+Severity low (test only, but it hides the co-op and counter-op start checks). `network_coop_stage_transaction_smoke`
+failed 81/100 in the co-op branch's turn q_20261117051637463_af6eb56c (`results-20261117T110217Z.json`): both
+processes waited for `network_stage_live` from boot with 220 s, and the host started the co-op stage at 217 s. On base
+9 the listen host's server is up about 1:50 after start and the client joins about 1:30 later; the mission-end smokes
+(300 s) went live at 3:29 and 3:44 in the same turns. `network_counterop_stage_transaction_smoke` has the same 220 s
+and passed narrowly. Fix: both first waits 300 s, test timeout 420 s (schedule bound 368 s). Other network fixtures
+with shorter first stage waits wait for `network_listen_ready` first, so the boot is not on their clock.
+
+## 2026-11-17 B-1275 A co-op client's rejoin is refused at the end of the reconnect prop set (T-NETWORKING-007 S2, fixed, proven 2026-11-19; the rejoin now stops at B-1277)
+
+Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin). First run of `network_coop_reconnect_smoke`
+(47/52, `results-20261117T103226Z.json`): the host parked the timed-out partner (S1), un-parked it at the same spot
+(spot_clear=1) and committed the reconnect; the client loaded the stage, began the world snapshot (`props=295`,
+matching the host's `prop=295 dynamic_prop=2`) and rejected `SVC_RECONNECT_PROP_END` (0x58) as malformed, terminal,
+so it disconnected with no retry and the host parked it again. `netmsgSvcReconnectPropEndRead` has eleven rejections
+and logged none. No chr was made after the stage start on the host (no `NET.NPC: host announced` line). Each
+rejection now logs `NET.RECONNECT.WORLD end rejected reason=<check> slot= syncid= a= b=`; the next run names it.
+
+Cause, from the rerun (`results-20261117T141505Z.json`): `reason=dual_weapon slot=270 syncid=271 a=272 b=271`,
+and SP-93 again. The host logged `NET: weapon 3 ('base:falcon2_silencer') has no session catalog id`, and the same
+for the comms rider (53), the tracer bug (54), the laptop gun (14) and the silenced Falcon's model (251), in every
+co-op and counter-op run today. A co-op or counter-op lobby start lists the stage, the players and the host's base
+set, but no weapons, while the mission names its own: the starting loadout, the guards' guns, the items a level
+script hands out. The reconnect snapshot names a weapon prop and its dual partner by session id, so on the client a
+pair of silenced Falcons came back as unarmed with no partner number, and the dual check refused the whole set. The
+same gap made any mission weapon a client receives by id (a drop, a spawn) unarmed.
+
+Fix: the co-op and counter-op lobby start lists every base weapon (`netLobbyManifestAppendMissionWeapons`,
+`MANIFEST-HOST: mission weapons listed=N`; a mod's custom weapon stays out, it is not on every client); their world
+models follow (B-1273). Every co-op and counter-op net smoke now forbids both session-id warnings. Pinned by
+`[b1275]` in `tests/test_net_mission_end_static.cpp`. SP-93.
+
+Proven by rerun 2 (2026-11-19, q_20261119011551074_865057f0): none of its five runs logged a session-id warning
+and the dual-weapon refusal is gone. The rejoin is refused at a later check instead (B-1277).
+
+## 2026-11-17 B-1274 Networked co-op and counter-op run as a Combat Simulator match: no objective checks during the mission, no co-op AI branches (T-NETWORKING-007, fixed in code on week-pd/multiplayer-coop, not yet run)
+
+Severity high for networked co-op and counter-op since 2026-04-09: the missions do not play as the original.
+Found while researching co-op drop-out (S1) on 2026-11-17: the host log of `network_coop_mission_end_smoke`
+(2026-11-16) shows `MATCH: mpReset normmplay=1 mplay=1 ... netmode=1` for a two-player co-op mission.
+
+Root cause: the stage load calls `mpReset` for the co-op and counter-op roles (`port/src/pdmain.c`, coopplayernum or
+antiplayernum set). The original `mpReset` then cleared `normmplayerisrunning` for those roles; commit 87e5347f0
+(2026-04-09, "remove dead coop/anti config swap (Phase 2)") collapsed that to always true, saying "with coop/anti
+gone, normmplayerisrunning is always true in mpReset()". Networked co-op and counter-op use the same roles, so every
+networked mission has run as a match since. What that turns off (all gated on `normmplayerisrunning == false`):
+the per-frame objective checks (`playerRenderHud`, `objectivesCheckAll`; objectives are checked once, at the mission
+end, so no "objective complete" during play and no mid-mission SVC_OBJ_STATUS), the AI's co-op branches
+(`if_coop_mode`, `scenario_source_runtime.c`), the guards' AI-versus-AI flag, and the mission death rules; the
+match's tune switching ran instead. The smokes did not see it: they end the mission with `--debug-end-mission`.
+The same commit also dropped the co-op and counter-op radar display option (`coopradaron`, `antiradaron`;
+`g_NetCoopRadar` is carried in the lobby plan but never applied): not fixed here.
+
+Fix (week-pd/multiplayer-coop): `mpReset` clears the flag again for the co-op and counter-op roles; a co-op host
+alone (AI buddies) and the offline Room's co-op start clear `mplayerisrunning` and `normmplayerisrunning` before the
+stage, as the original's mission list does, so a Combat Simulator match played before cannot leave them set; the
+smoke harness counts a co-op host alone as a network mission; a client's objective-check skip, which now runs
+every frame, logs once per stage. Pinned by `[b1274]` in
+`tests/test_net_mission_end_static.cpp`. To run: every co-op and counter-op net smoke, plus the two AI-buddy smokes.
+SP-95 (written as SP-94 at first; dev's SP-94 is B-1259's).
 
 ## 2026-11-17 B-1273 A dropped gun, and a replacement uplink, reach clients drawn as the roof gun (T-NETWORKING-011, fixed, checked in play)
 

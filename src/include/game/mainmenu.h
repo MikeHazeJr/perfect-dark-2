@@ -96,4 +96,8 @@ MenuItemHandlerResult menuhandlerSoundMode(s32 operation, struct menuitem *item,
 
 MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
 
+/* PC (co-op AI buddies): getMaxAiBuddies() for a difficulty the mission
+ * config does not hold yet (the Room's Campaign tab). */
+s32 getMaxAiBuddiesForDifficulty(s32 difficulty);
+
 #endif

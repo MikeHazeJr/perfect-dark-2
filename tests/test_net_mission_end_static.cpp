@@ -673,3 +673,273 @@ TEST_CASE("net frame: a cutscene authority frame keeps the tick's reliable messa
 			!= std::string::npos);
 	}
 }
+
+TEST_CASE("co-op AI buddies: a host alone, or the offline Room, takes the Partner choice's buddies",
+          "[net][coop][aibuddies]") {
+	const size_t npos = std::string::npos;
+
+	// The original's limit for a given difficulty; getMaxAiBuddies asks it
+	// with the mission's difficulty
+	const std::string mainmenu = code_only(read_text_file("src/game/mainmenu.c"));
+	const std::string limit = function_body(mainmenu, "s32 getMaxAiBuddiesForDifficulty(s32 difficulty)\n{");
+	REQUIRE(limit.find("s32 max = 1 - difficulty;") != npos);
+	REQUIRE(limit.find("(g_GameFile.coopcompletions[d] | 0xfffe0000) == 0xffffffff") != npos);
+	REQUIRE(limit.find("if (max > 4) {") != npos);
+	REQUIRE(limit.find("if (max < 1) {") != npos);
+	const std::string legacy = function_body(mainmenu, "s32 getMaxAiBuddies(void)\n{");
+	REQUIRE(legacy.find("return getMaxAiBuddiesForDifficulty(g_MissionConfig.difficulty);") != npos);
+
+	// The host's co-op stage start: buddies only for a co-op host alone,
+	// clamped once the difficulty is set, before the stage loads; every
+	// rollback puts the count back
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string start = function_body(net, "s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)\n{");
+	const size_t diff = start.find("g_MissionConfig.difficulty = difficulty;");
+	const size_t zero = start.find("g_Vars.numaibuddies = 0;");
+	const size_t alone = start.find("if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {");
+	const size_t clamp = start.find("const s32 max_buddies = getMaxAiBuddies();");
+	const size_t take = start.find("g_Vars.numaibuddies = buddies;");
+	const size_t change = start.find("mainChangeToStage(stagenum);");
+	REQUIRE(diff != npos);
+	REQUIRE(zero != npos);
+	REQUIRE(alone != npos);
+	REQUIRE(clamp != npos);
+	REQUIRE(take != npos);
+	REQUIRE(change != npos);
+	REQUIRE(diff < zero);
+	REQUIRE(zero < alone);
+	REQUIRE(alone < clamp);
+	REQUIRE(clamp < take);
+	REQUIRE(take < change);
+	size_t restores = 0;
+	for (size_t at = start.find("g_Vars.numaibuddies = aibuddies_before;"); at != npos;
+			at = start.find("g_Vars.numaibuddies = aibuddies_before;", at + 1)) {
+		restores++;
+	}
+	REQUIRE(restores == 3);
+	REQUIRE(start.find("\"COOP.AIBUDDIES: host alone=%d buddies=%d requested=%u max=%d difficulty=%u\"") != npos);
+
+	// A client's partner is the host: its stage start clears any count left
+	// from a mission this machine hosted alone
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string read = function_body(netmsg,
+		"u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t roles = read.find("g_Vars.antiplayernum = plan.anti_playernum;");
+	const size_t cleared = read.find("g_Vars.numaibuddies = 0;");
+	REQUIRE(roles != npos);
+	REQUIRE(cleared != npos);
+	REQUIRE(roles < cleared);
+	REQUIRE(cleared < read.find("mainChangeToStage(stagenum);"));
+
+	// The offline Room's Campaign start: the Solo Missions start, one player
+	// and the clamped buddies
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string offline = function_body(bridge,
+		"s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)\n{");
+	REQUIRE(offline.find("if (g_NetMode != NETMODE_NONE) {") != npos);
+	REQUIRE(offline.find("max_buddies = getMaxAiBuddiesForDifficulty(difficulty);") != npos);
+	REQUIRE(offline.find("g_MissionConfig.iscoop = 1;") != npos);
+	REQUIRE(offline.find("g_MissionConfig.isanti = 0;") != npos);
+	const size_t buddies = offline.find("g_Vars.numaibuddies = buddies;");
+	const size_t accept = offline.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);");
+	REQUIRE(buddies != npos);
+	REQUIRE(accept != npos);
+	REQUIRE(buddies < accept);
+
+	// The Room: the Partner choice when alone; offline goes to that start
+	// before the lobby start; the old drop-in text is gone
+	const std::string room = code_only(read_text_file("port/fast3d/pdgui_menu_room.cpp"));
+	const std::string campaign = function_body(room,
+		"static void renderCampaignTab(float panelW, float panelH, bool leader)\n{");
+	REQUIRE(campaign.find("const s32 players = s_IsSoloMode ? 1 : lobbyRoomGetPlayerCount();") != npos);
+	REQUIRE(campaign.find("getMaxAiBuddiesForDifficulty(s_CampaignDiff)") != npos);
+	REQUIRE(campaign.find("g_NetCoopAiBuddies = (u8)bi;") != npos);
+	REQUIRE(campaign.find("Up to 4 players") == npos);
+	REQUIRE(campaign.find("Drop-in co-op") == npos);
+	const std::string room_start = function_body(room, "static s32 roomGraphStartMatch(void *userdata)\n{");
+	const size_t solo = room_start.find("if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {");
+	const size_t lobby = room_start.find("return netLobbyRequestStart(GAMEMODE_COOP, coop_id, (u8)s_CampaignDiff);");
+	REQUIRE(solo != npos);
+	REQUIRE(lobby != npos);
+	REQUIRE(solo < lobby);
+
+	// The spawn's witness for the smokes
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	REQUIRE(player.find("\"COOP.AIBUDDIES: spawned %d of %d at lvframe %d\"") != npos);
+}
+
+TEST_CASE("B-1274: co-op and counter-op run as missions, not as a Combat Simulator match",
+          "[net][coop][counterop][b1274]") {
+	const size_t npos = std::string::npos;
+
+	// mpReset clears normmplayerisrunning for the co-op and counter-op roles,
+	// as the original does, and nothing later in it sets the flag again
+	const std::string mplayer = code_only(read_text_file("src/game/mplayer/mplayer.c"));
+	const std::string reset = function_body(mplayer, "void mpReset(void)\n{");
+	const std::string roles = "\tif (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {\n"
+		"\t\tg_Vars.normmplayerisrunning = false;\n"
+		"\t} else {\n"
+		"\t\tg_Vars.normmplayerisrunning = true;\n"
+		"\t}\n";
+	const size_t at = reset.find(roles);
+	REQUIRE(at != npos);
+	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ", at + roles.size()) == npos);
+	REQUIRE(reset.find("g_Vars.normmplayerisrunning = ") > reset.find("g_Vars.mplayerisrunning = true;"));
+
+	// What the flag keeps for a mission: the per-frame objective checks. A
+	// co-op or counter-op client then reaches its server-authoritative skip
+	// every frame, so it says so once per stage
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	REQUIRE(player.find("\tif (g_Vars.normmplayerisrunning == false) {\n\t\tobjectivesCheckAll();") != npos);
+	const std::string objectives = code_only(read_text_file("src/game/objectives.c"));
+	const std::string check = function_body(objectives, "void objectivesCheckAll(void)\n{");
+	const size_t once = check.find("if (s_ClientSkipLoggedStage != g_Vars.stagenum) {");
+	REQUIRE(once != npos);
+	REQUIRE(once < check.find("\"NET: objectivesCheckAll skipped on client (server-authoritative)\""));
+
+	// A co-op host alone, and the offline Room, start the mission with the
+	// match flags clear, as the original's mission list does
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string start = function_body(net, "s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)\n{");
+	const size_t clear = start.find("if (g_NetGameMode == NETGAMEMODE_COOP && roster_count == 1) {\n"
+		"\t\tg_Vars.mplayerisrunning = false;\n"
+		"\t\tg_Vars.normmplayerisrunning = false;\n");
+	const size_t last_rollback = start.rfind("PLAYER.INIT.ROLLBACK coop-stage");
+	REQUIRE(clear != npos);
+	REQUIRE(last_rollback != npos);
+	REQUIRE(last_rollback < clear);
+	REQUIRE(clear < start.find("mainChangeToStage(stagenum);"));
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string offline = function_body(bridge,
+		"s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)\n{");
+	const size_t accept = offline.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);");
+	REQUIRE(offline.find("g_Vars.mplayerisrunning = false;") < accept);
+	REQUIRE(offline.find("g_Vars.normmplayerisrunning = false;") < accept);
+	REQUIRE(accept != npos);
+
+	// The smoke harness counts a co-op host alone as a network mission
+	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
+	REQUIRE(harness.find("|| (facts.network_active && g_MissionConfig.iscoop);") != npos);
+}
+
+TEST_CASE("co-op drop-out (S1): a dropped partner is parked, not killed, and the host plays on",
+          "[net][coop][dropinout][s1]") {
+	const size_t npos = std::string::npos;
+
+	// The host's disconnect path parks the co-op partner before the kill
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string dis = function_body(net, "static void netServerEvDisconnect(struct netclient *cl,");
+	const size_t role = dis.find("if (g_NetGameMode == NETGAMEMODE_COOP && cl->player");
+	const size_t park = dis.find("playerParkForNetwork(cl->playernum);");
+	const size_t kill = dis.find("playerDie(true);");
+	REQUIRE(role != npos);
+	REQUIRE(park != npos);
+	REQUIRE(kill != npos);
+	REQUIRE(role < park);
+	REQUIRE(park < kill);
+	REQUIRE(dis.find("(s32)cl->playernum == g_Vars.coopplayernum", role) < park);
+	REQUIRE(dis.find("\"%s dropped out; the mission carries on\"") != npos);
+
+	// The park: out of the world, hidden, counted dead, no drops or death
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	const std::string parkfn = function_body(player, "void playerParkForNetwork(s32 playernum)\n{");
+	for (const char *step : { "player->parked = 1;", "player->redbloodfinished = true;",
+			"player->deathanimfinished = true;", "chr->chrflags |= CHRCFLAG_HIDDEN;",
+			"propDeregisterRooms(prop);", "propDelist(prop);", "propDisable(prop);",
+			"chrsClearRefsToPlayer(playernum);" }) {
+		INFO(step);
+		REQUIRE(parkfn.find(step) != npos);
+	}
+	for (const char *never : { "playerDie", "currentPlayerDropAllItems", "bgunHandlePlayerDead",
+			"netmsgSvcPlayerStatsWrite" }) {
+		INFO(never);
+		REQUIRE(parkfn.find(never) == npos);
+	}
+
+	// While parked: its own tick only keeps it out; no death sequence or
+	// restart in the HUD; cutscene protection stays on
+	const std::string tick = function_body(player, "void playerTick(bool arg0)\n{");
+	const size_t parked = tick.find("if (g_Vars.currentplayer->parked) {");
+	const size_t cutscene = tick.find("} else if (g_Vars.tickmode == (u32)TICKMODE_CUTSCENE) {");
+	REQUIRE(parked != npos);
+	REQUIRE(cutscene != npos);
+	REQUIRE(parked < cutscene);
+	REQUIRE(tick.find("playerTickParked();", parked) < cutscene);
+	const std::string hud = function_body(player, "Gfx *playerRenderHud(Gfx *gdl)\n{");
+	REQUIRE(hud.find("if (g_Vars.currentplayer->isdead && !g_Vars.currentplayer->parked) {") != npos);
+	const std::string protect = function_body(player, "static void playerRefreshCutsceneProtect(void)\n{");
+	REQUIRE(protect.find("playerInCutscene(i) || player->parked") != npos);
+
+	// CCTV looks at Bond only while the partner is parked; the results skip it
+	const std::string propobj = code_only(read_text_file("src/game/propobj.c"));
+	const std::string cctv = function_body(propobj, "void cctvTick(struct prop *camprop)\n{");
+	REQUIRE(cctv.find("if (g_Vars.coopplayernum >= 0 && !(g_Vars.coop && g_Vars.coop->parked)) {") != npos);
+	const std::string pdmain = code_only(read_text_file("port/src/pdmain.c"));
+	const std::string end = function_body(pdmain, "void mainEndStage(void)\n{");
+	REQUIRE(end.find("(g_Vars.players[i]->isremote || g_Vars.players[i]->parked)") != npos);
+
+	// The fields are u8 (SP-75) and a new player starts unparked
+	const std::string types = read_text_file("src/include/types.h");
+	REQUIRE(types.find("\tu8 parked;\n\tu8 parkedwashidden;\n};") != npos);
+	const std::string mgr = code_only(read_text_file("src/game/playermgr.c"));
+	REQUIRE(mgr.find("player->parked = 0;") != npos);
+}
+
+TEST_CASE("co-op rejoin (S2): a parked partner comes back alive where it was, before the snapshot",
+          "[net][coop][dropinout][s2]") {
+	const size_t npos = std::string::npos;
+
+	// The reconnect commit un-parks before the dead-player respawn check and
+	// before the snapshot, and parks again if the send fails
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string done = function_body(net, "enum net_restore_result netServerCompleteReconnect(struct netclient *cl)\n{");
+	const size_t unpark = done.find("unparked = playerUnparkForNetwork(pp->playernum);");
+	const size_t newlife = done.find("if (candidate.player->isdead) {\n\t\tcandidate.player->dostartnewlife = true;");
+	const size_t send = done.find("state_send_result = netServerSendReconnectState(cl);");
+	const size_t repark = done.find("if (unparked) {\n\t\t\tplayerParkForNetwork(pp->playernum);");
+	REQUIRE(unpark != npos);
+	REQUIRE(newlife != npos);
+	REQUIRE(send != npos);
+	REQUIRE(repark != npos);
+	REQUIRE(unpark < newlife);
+	REQUIRE(newlife < send);
+	REQUIRE(send < repark);
+	REQUIRE(repark < done.find("return netServerRestoreReject(", send));
+
+	// The un-park: back in the prop and room lists, enabled, alive
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	const std::string fn = function_body(player, "bool playerUnparkForNetwork(s32 playernum)\n{");
+	for (const char *step : { "player->parked = 0;", "player->isdead = false;",
+			"player->redbloodfinished = false;", "player->deathanimfinished = false;",
+			"propActivate(prop);", "propEnable(prop);", "propRegisterRooms(prop);",
+			"\"COOP.PARK: unparked player %d health=%.2f pos=(%.0f,%.0f,%.0f) room=%d spot_clear=%d\"" }) {
+		INFO(step);
+		REQUIRE(fn.find(step) != npos);
+	}
+	REQUIRE(fn.find("if (!player->parkedwashidden) {") != npos);
+}
+
+TEST_CASE("B-1275: a co-op or counter-op lobby start lists every base weapon the mission can name",
+          "[net][coop][counterop][sp93][b1275]") {
+	const size_t npos = std::string::npos;
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+
+	// The list: every base weapon with a catalog id; no mod custom weapon
+	const std::string fn = function_body(netmsg,
+		"static bool netLobbyManifestAppendMissionWeapons(match_manifest_t *manifest)\n{");
+	REQUIRE(fn.find("for (s32 weaponnum = WEAPON_UNARMED + 1; weaponnum < WEAPON_CUSTOM_START; weaponnum++) {") != npos);
+	REQUIRE(fn.find("catalogWeaponIdByRuntimeWeaponNum(weaponnum)") != npos);
+	REQUIRE(fn.find("manifestAppendCatalogClosure(manifest, id, MANIFEST_SLOT_MATCH)") != npos);
+	REQUIRE(fn.find("\"MANIFEST-HOST: mission weapons listed=%d\"") != npos);
+
+	// The lobby start lists them for every mode but the Combat Simulator,
+	// before the weapon world models are added
+	const std::string write = function_body(netmsg,
+		"static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,");
+	const size_t mission = write.find("} else if (!netLobbyManifestAppendMissionWeapons(&plan->manifest)) {");
+	const size_t models = write.find("if (!netLobbyManifestAppendWeaponModels(&plan->manifest)) {");
+	REQUIRE(mission != npos);
+	REQUIRE(models != npos);
+	REQUIRE(mission < models);
+	REQUIRE(write.rfind("if (gamemode == NETGAMEMODE_MP) {", mission) != npos);
+}

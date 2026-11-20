@@ -252,7 +252,9 @@
       "NET\\.NPC: client could not make the host's chr",
       "NET\\.NPC: client has no chr for syncid=",
       "SAVE: Agent Profile serialization failed",
-      "GAMELOOP\\.COOP: Deep Sea auto-advance"
+      "GAMELOOP\\.COOP: Deep Sea auto-advance",
+      "NET: weapon [0-9]+ .* has no session catalog id",
+      "NET: model [0-9]+ .* has no session catalog id"
     ],
     "required_counts": [
       {
