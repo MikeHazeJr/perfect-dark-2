@@ -70,6 +70,43 @@ void scenarioSceneMatrixTransform(const float m[4][4], const float p[3],
 	}
 }
 
+int scenarioSceneMatrixKeepsWinding(const float m[4][4])
+{
+	/* The determinant, by the first row's cofactors, in double: the
+	 * entries span the BG scale and the depth range. */
+	double d[4][4];
+	double det = 0.0;
+	int row;
+	int col;
+	int skip;
+
+	for (row = 0; row < 4; row++) {
+		for (col = 0; col < 4; col++) {
+			d[row][col] = (double)m[row][col];
+		}
+	}
+	for (skip = 0; skip < 4; skip++) {
+		double s[3][3];
+		double minor;
+		int c = 0;
+
+		for (col = 0; col < 4; col++) {
+			if (col == skip) {
+				continue;
+			}
+			for (row = 1; row < 4; row++) {
+				s[row - 1][c] = d[row][col];
+			}
+			c++;
+		}
+		minor = s[0][0] * (s[1][1] * s[2][2] - s[1][2] * s[2][1])
+			- s[0][1] * (s[1][0] * s[2][2] - s[1][2] * s[2][0])
+			+ s[0][2] * (s[1][0] * s[2][1] - s[1][1] * s[2][0]);
+		det += ((skip & 1) ? -1.0 : 1.0) * d[0][skip] * minor;
+	}
+	return det < 0.0 ? 1 : 0;
+}
+
 int scenarioSceneViewMatrix(float out[4][4], const float position[3],
 	const float look[3], const float up[3])
 {

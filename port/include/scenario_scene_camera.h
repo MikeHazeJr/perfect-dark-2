@@ -51,6 +51,13 @@ void scenarioSceneMatrixMultiply(float out[4][4], const float a[4][4],
 /* clip = (p, 1) x m. */
 void scenarioSceneMatrixTransform(const float m[4][4], const float p[3],
 	float clip[4]);
+/* B-1267: 1 when a triangle that reads counter-clockwise from the eye
+ * still reads counter-clockwise in this view-projection's clip space (x
+ * right, y up), 0 when the matrix mirrors it, as the y flip of a flipped
+ * framebuffer does. A projection that looks down -z has a negative
+ * determinant and a view is a rotation, so the sign of the whole
+ * determinant says which. */
+int scenarioSceneMatrixKeepsWinding(const float m[4][4]);
 
 #ifdef __cplusplus
 }

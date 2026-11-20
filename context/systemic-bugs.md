@@ -4573,6 +4573,45 @@ reading the code had produced a wrong guess.
 
 `rg -n "modelRodataIsReadable(InSpan)?\(" src port`
 
+## SP-98: An export loop drops what it cannot handle with a bare `continue`
+
+**Found:** 2026-11-20, B-1266. The scene export skipped every room that did
+not fit a wrongly sized buffer. The skip was a `continue` with no log line
+and no count, the function still returned success, the archive was written
+and validated, and every later check compared the scene with itself. Half of
+Defection was missing for six months and no test could see it.
+
+**The pattern:** a loop over the parts of a source asset (rooms, blocks,
+textures, records) where a part that fails a size or range test is skipped
+and the loop goes on. Each such test was written as a guard against corrupt
+data, but the same line also fires for valid data the code did not foresee,
+and then the output is quietly smaller than the source.
+
+**Rule:** in an export, a part is either absent in the source (say so in a
+comment: that `continue` is the only quiet one) or exported. Anything else is
+counted, logged with its number and the reason, and fails the export. A
+buffer for inflated data is sized from the inflated size, which an rzip
+header states, never from the stored size. And an export has one count that
+comes from somewhere other than itself: here
+`tools/verify_scene_rooms_against_rom.py` reads the ROM's room display lists
+on its own and compares room by room.
+
+**Audit:**
+```
+grep -n -E "continue;" port/src/romextract_*.c | wc -l
+grep -n -B6 -E "^\s+continue;" port/src/romextract_pdarena.c | grep -E "inflat|size|cap|span|len"
+grep -n -E "rzipInflate\(" port/src/*.c port/src/preprocess/*.c src/game/*.c
+```
+For each inflate: where does the destination size come from? For each
+`continue` after a size test in an export loop: is the skipped part counted?
+
+**Checked 2026-11-20:** `romextract_pdarena.c` has five inflate calls. The
+room loop of the scene export was the one sized from the stored length
+(fixed). The primary section, section 2 and section 3 are sized from the
+stream's own stated length (B-1113 did section 3). Not yet audited: the
+model, prop, character and texture exports (`romextract_pd*.c`) for skips
+that do not fail their archive.
+
 ## Scripted pickup can clear the object-to-prop link
 
 A scripted grant must hold the incoming prop through
