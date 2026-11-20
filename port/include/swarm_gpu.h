@@ -3,9 +3,6 @@
  * extraction layer (port/fast3d/swarm_gpu.cpp).
  *
  * Track 2c (c3807, 2026-05-16): the extraction primitive lives here.
- * Most callers (port/src/swarm_test.c) still forward-declare the older
- * step / invalidate entry points inline; new callers should #include
- * this header instead so the surface is auditable in one place.
  *
  * The extraction API reads rows of the ping-pong RGBA32F state texture
  * that Track 2a (commit 2af02855) wrote alongside the boid SSBO. The
@@ -22,19 +19,31 @@ extern "C" {
 
 #include <PR/ultratypes.h>
 
-/* Probe + dispatch entry points (defined in port/fast3d/swarm_gpu.cpp).
- * port/src/swarm_test.c forward-declares these inline today; new
- * callers should #include this header instead. The fully-typed
- * signatures live in the .cpp; the prototypes here intentionally use
- * forward-declared struct types so this header stays light and is
- * safe to include from either C or C++ TUs. */
+/* Probe + dispatch entry points (defined in port/fast3d/swarm_gpu.cpp). */
 struct coord;
 struct chrdata;
+struct prop;
+
+enum { SWARM_BASELINE_COUNT = 4 };
+
+struct swarm_gpu_identity {
+	u32 generation;
+	s32 chrnum;
+	s32 prop_index;
+	const struct prop *prop;
+};
+
+/* Optional, fixed-size evidence for the paired offline diagnostic. */
+struct swarm_gpu_baseline {
+	u32 stage_epoch;
+	struct swarm_gpu_identity actors[SWARM_BASELINE_COUNT];
+};
 
 s32  swarmGpuAvailable(void);
 void swarmGpuStepAndApply(struct coord *player_pos,
                           struct chrdata **chrs, s32 count,
-                          s32 method, s32 player_propnum);
+                          s32 method, s32 player_propnum,
+                          const struct swarm_gpu_baseline *baseline);
 void swarmGpuInvalidateReadback(void);
 void swarmGpuInvalidateFloorCache(void);
 
