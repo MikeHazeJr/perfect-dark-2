@@ -59,6 +59,10 @@ void sceneBgfxEndPass(void);
 /* --debug-clear-depth-after-scene: clear the whole target's depth, in order. */
 void sceneBgfxClearDepth(void);
 
+/* The GL path's scene shader source (scenario_scene_renderer.cpp), read by
+ * the bgfx path's developer-only --debug-bgfx-scene-classic-glsl. */
+void sceneRendererClassicShaderSource(const char **vs, const char **fs);
+
 #ifdef __cplusplus
 }
 #endif

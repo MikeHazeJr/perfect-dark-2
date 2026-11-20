@@ -1,0 +1,130 @@
+{
+  "scenario_name": "renderer_parity_solo_classic_glsl_smoke",
+  "description": "2.0 renderer parity experiment (Workbench D-041): the same run as renderer_parity_solo_smoke with --debug-bgfx-scene-classic-glsl, which builds the bgfx scene program from the GL path's own GLSL 1.30 text (attribute names and vec4 uniform widths changed for bgfx, the arithmetic character for character). Differences that remain in the scene's surfaces do not come from the shader text. 2.0 renderer phase 2a (D5): renderer parity (see renderer_parity_menu_smoke) on one solo stage, Defection, in first-person play: rooms from the scenario scene renderer, props, guns, sky and HUD from fast3d. Three captures after offline gameplay is ready, on the virtual timeline.",
+  "tags": [
+    "render",
+    "bgfx",
+    "parity",
+    "visual",
+    "solo",
+    "smoke",
+    "classic-glsl"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/scenario_scene_renderer.cpp",
+    "port/fast3d/gfx_bgfx.cpp",
+    "port/fast3d/gfx_tee.cpp",
+    "port/fast3d/gfx_parity.cpp",
+    "port/fast3d/scenario_scene_renderer_bgfx.cpp",
+    "port/fast3d/shaders/fs_fast3d.sc"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mission",
+    "base:defection",
+    "--difficulty",
+    "agent",
+    "--renderer-parity",
+    "--debug-bgfx-scene-classic-glsl"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 330000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Stage load with the intro cutscene skipped, as vehicle_flow does."
+    },
+    {
+      "at_ms": 3000,
+      "type": "screenshot",
+      "path": "parity-solo-a.bmp"
+    },
+    {
+      "at_ms": 6000,
+      "type": "screenshot",
+      "path": "parity-solo-b.bmp"
+    },
+    {
+      "at_ms": 9000,
+      "type": "screenshot",
+      "path": "parity-solo-c.bmp"
+    },
+    {
+      "at_ms": 11000,
+      "type": "exit"
+    }
+  ],
+  "retain_artifacts": [
+    {
+      "src": "parity-solo-a.bmp"
+    },
+    {
+      "src": "parity-solo-a.bmp.bgfx.bmp"
+    },
+    {
+      "src": "parity-solo-a.bmp.diff.bmp"
+    },
+    {
+      "src": "parity-solo-a.bmp.parity.json"
+    },
+    {
+      "src": "parity-solo-b.bmp"
+    },
+    {
+      "src": "parity-solo-b.bmp.bgfx.bmp"
+    },
+    {
+      "src": "parity-solo-b.bmp.diff.bmp"
+    },
+    {
+      "src": "parity-solo-b.bmp.parity.json"
+    },
+    {
+      "src": "parity-solo-c.bmp"
+    },
+    {
+      "src": "parity-solo-c.bmp.bgfx.bmp"
+    },
+    {
+      "src": "parity-solo-c.bmp.diff.bmp"
+    },
+    {
+      "src": "parity-solo-c.bmp.parity.json"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=renderer_parity_solo_classic_glsl_smoke",
+      "bgfx: renderer parity mode",
+      "SCENARIO\\.RENDER: --debug-bgfx-scene-classic-glsl: bgfx scene program from the GL path's GLSL text",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*parity-solo-a\\.bmp",
+      "PARITY: .*parity-solo-a\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-solo-b\\.bmp size=\\d+x\\d+ differing=",
+      "PARITY: .*parity-solo-c\\.bmp size=\\d+x\\d+ differing=",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "bgfx: fatal",
+      "SMOKE: result=timeout",
+      "PARITY: .* size mismatch",
+      "PARITY: could not write",
+      "SCENARIO\\.RENDER: --debug-bgfx-scene-classic-glsl: (GL scene shader source unavailable|attribute|uniform declarations|program not created)"
+    ],
+    "required_counts": []
+  }
+}
