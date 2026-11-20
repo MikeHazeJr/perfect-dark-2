@@ -20,11 +20,17 @@ collects what a fresh session would otherwise have to rediscover.
    sections 0, 1, 5, 6, 7, 8, 9, 10, 11 and 12) and the step 1 design doc.
 2. Coordination: run the hub from the canonical checkout with `pwsh`
    (`Tools/CodexCoordination/CodexCoordination.ps1`, guide in
-   `docs/CODEX_COORDINATION.md`): `status`, then `register` with a stable
-   session id, goal, task and ETA; heartbeat at least every 20 minutes. Read
-   the hub chat and the week note (`context/week-pd-coordination.md`, an
-   untracked shared file in the canonical checkout) for other lanes' landings
-   and the current shared smoke base.
+   `docs/CODEX_COORDINATION.md`). Reuse the coordination session id that the
+   repository's lifecycle hook injects (Codex sessions with
+   `.codex/hooks.json` trusted): the hook checks Workbench ownership against
+   that identity, so a second one splits the coordination state and keeps
+   edit tools blocked. Only a session with no hook-provided identity (a Claude
+   Code session, for example) runs `status`, then `register` with a stable
+   session id, goal, task and ETA (`AGENTS.md` standing order 3). Heartbeat at
+   least every 20 minutes. Read the hub chat and the week note
+   (`context/week-pd-coordination.md`, an untracked shared file in the
+   canonical checkout) for other lanes' landings and the current shared smoke
+   base.
 3. Workbench: no 2.0 renderer item exists. The only anchor is D-004 ("Define
    Perfect Dark 2 1.0 product scope", which places 2.0 after 1.0), so commits
    use `Release - D-004: <summary>` with a `Refs: D-004` trailer (the
