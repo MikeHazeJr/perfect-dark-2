@@ -1,0 +1,44 @@
+driver start exp1 on week-pd/bgfx-parity-proof 38881c77; smokes: renderer_classic_default_smoke renderer_parity_menu_smoke renderer_parity_menu_constant_noise_smoke renderer_parity_solo_smoke renderer_parity_solo_constant_noise_smoke renderer_parity_mp_smoke renderer_parity_mp_constant_noise_smoke 16:26:32Z
+Heartbeat recorded for claude-week-pd-bgfx-classic.
+queued build q_20261120162632916_e7287c50 16:26:33Z
+wait-turn: queue item q_20261120162632916_e7287c50 is next for its resource. Run start, then begin.
+Started queue item q_20261120162632916_e7287c50.
+started build q_20261120162632916_e7287c50 16:26:34Z
+Build queue: starting 'bgfx-classic' after waiting 0s.
+Build output: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-session.out.log
+Build errors: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-session.err.log
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session bgfx-classic
+build client rc=0 16:28:07Z
+Build queue: starting 'bgfx-classic' after waiting 0s.
+Build output: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-session.out.log
+Build errors: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-session.err.log
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session bgfx-classic
+build tests rc=0 16:30:14Z
+Finished queue item q_20261120162632916_e7287c50 as done and cleared it from the live queue.
+finished q_20261120162632916_e7287c50 done 16:30:14Z
+queued test-runner q_20261120163014852_fb458305 16:30:15Z
+wait-turn: queue item q_20261120163014852_fb458305 is next for its resource. Run start, then begin.
+Started queue item q_20261120163014852_fb458305.
+started test-runner q_20261120163014852_fb458305 16:30:15Z
+
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session bgfx-classic
+pd-tests exit=0 16:30:45Z
+Finished queue item q_20261120163014852_fb458305 as done and cleared it from the live queue.
+finished q_20261120163014852_fb458305 done 16:30:46Z
+write guard rc=0 "passed": true 16:31:05Z
+bgfx audit rc=0 "passed": true 16:31:12Z
+frozen sha256 23a37bdbbab66111 week-pd/bgfx-parity-proof 38881c77 16:31:13Z
+queued game-runtime q_20261120163113586_5dba97df 16:31:13Z
+wait-turn: queue item q_20261120163113586_5dba97df is next for its resource. Run start, then begin.
+Started queue item q_20261120163113586_5dba97df.
+started game-runtime q_20261120163113586_5dba97df 16:31:14Z
+renderer_classic_default_smoke rc=0 1080s :: PASS 10/10 assertions ::  16:49:14Z
+renderer_parity_menu_smoke rc=0 573s :: PASS 13/13 assertions :: [01:36.32] PARITY: parity-agent-select.bmp size=2560x1440 differing=580 maxdelta=2 hist(1,2-3,4-15,16+)=566,14,0,0 bbox=3,181-2482,1438;[01:43.32] PARITY: parity-agent-select-later.bmp size=2560x1440 differing=601 maxdelta=2 hist(1,2-3,4-15,16+)=587,14,0,0 bbox=3,178-2482,1438; 16:58:47Z
+renderer_parity_menu_constant_noise_smoke rc=0 676s :: PASS 14/14 assertions :: [01:20.17] PARITY: parity-agent-select.bmp size=2560x1440 differing=497 maxdelta=2 hist(1,2-3,4-15,16+)=488,9,0,0 bbox=3,176-2482,1438;[01:27.17] PARITY: parity-agent-select-later.bmp size=2560x1440 differing=493 maxdelta=2 hist(1,2-3,4-15,16+)=484,9,0,0 bbox=3,181-2482,1438; 17:10:03Z
+BATCH STOPPED by claude-week-pd-multiplayer on Mike's order (renderer session archived): driver, runner and the renderer_parity_solo_smoke game process (started 17:23:38Z) stopped 17:23:53Z to 17:24:00Z; renderer_parity_solo_constant_noise_smoke, renderer_parity_mp_smoke and renderer_parity_mp_constant_noise_smoke never started; hub item q_20261120163113586_5dba97df finished as abandoned 17:24:19Z

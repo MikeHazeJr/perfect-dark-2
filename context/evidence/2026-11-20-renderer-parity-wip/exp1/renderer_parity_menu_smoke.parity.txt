@@ -1,0 +1,2 @@
+[01:36.32] PARITY: parity-agent-select.bmp size=2560x1440 differing=580 maxdelta=2 hist(1,2-3,4-15,16+)=566,14,0,0 bbox=3,181-2482,1438
+[01:43.32] PARITY: parity-agent-select-later.bmp size=2560x1440 differing=601 maxdelta=2 hist(1,2-3,4-15,16+)=587,14,0,0 bbox=3,178-2482,1438

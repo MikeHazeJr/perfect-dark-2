@@ -1,0 +1,73 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     tests
+  Version:    0.1.105
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic
+  ProjectDir: D:\PD2-wt\bgfx-classic
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+  [smart-clean] Incremental build (no clean needed)
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112812-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112812-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112812-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112812-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112812-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-11-20T11:28:13] Configure (CMake - Ninja + ccache) running 1s pid=6580 stdout=0b stderr=0b ninja_log=202516b
+ +                                                                          + >>> Configure (CMake - Ninja + ccache) OK (3s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112817-generate-headers-pd_headers.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112817-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112817-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112817-generate-headers-pd_headers.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112817-generate-headers-pd_headers.cmdline.txt
+  [heartbeat] [2026-11-20T11:28:18] Generate Headers [pd_headers] running 2s pid=27264 stdout=220b stderr=0b ninja_log=194371b
+ +                                                                          + >>> Generate Headers [pd_headers] OK (2s) <<<
+
+============================================================
+  Building: Tests  (target: pd-tests)
+  Dir:      D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic
+============================================================
+
+------------------------------------------------------------
+  Compile [Tests]
+------------------------------------------------------------
+  [step-log] stdout: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112820-compile-tests.out.log
+  [step-log] stderr: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112820-compile-tests.err.log
+  [step-log] heartbeat: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112820-compile-tests.heartbeat.log
+  [step-log] exit:   D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112820-compile-tests.exit
+  [step-log] cmdline: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\_build-headless-20261120-112820-compile-tests.cmdline.txt
+  [heartbeat] [2026-11-20T11:28:21] Compile [Tests] running 1s pid=26988 stdout=220b stderr=0b ninja_log=194501b
+  |  Compile [Tests]  (6s)     /  Compile [Tests]  (11s)     -  Compile [Tests]  (16s)     [heartbeat] [2026-11-20T11:28:36] Compile [Tests] running 16s pid=26988 stdout=50715b stderr=0b ninja_log=198321b
+  \  Compile [Tests]  (21s)     |  Compile [Tests]  (27s)     [heartbeat] [2026-11-20T11:28:51] Compile [Tests] running 32s pid=26988 stdout=83585b stderr=0b ninja_log=200481b
+  /  Compile [Tests]  (32s)     -  Compile [Tests]  (38s)     \  Compile [Tests]  (43s)     [heartbeat] [2026-11-20T11:29:07] Compile [Tests] running 47s pid=26988 stdout=87458b stderr=0b ninja_log=200714b
+  |  Compile [Tests]  (48s)     /  Compile [Tests]  (53s)     -  Compile [Tests]  (58s)     [heartbeat] [2026-11-20T11:29:22] Compile [Tests] running 62s pid=26988 stdout=87458b stderr=0b ninja_log=200714b
+  \  Compile [Tests]  (63s)     |  Compile [Tests]  (68s)     /  Compile [Tests]  (74s)     [heartbeat] [2026-11-20T11:29:37] Compile [Tests] running 77s pid=26988 stdout=87458b stderr=0b ninja_log=200714b
+  -  Compile [Tests]  (79s)     \  Compile [Tests]  (84s)     |  Compile [Tests]  (89s)     [heartbeat] [2026-11-20T11:29:52] Compile [Tests] running 92s pid=26988 stdout=87458b stderr=0b ninja_log=200714b
+  /  Compile [Tests]  (94s)     -  Compile [Tests]  (100s)     \  Compile [Tests]  (105s)     [heartbeat] [2026-11-20T11:30:07] Compile [Tests] running 107s pid=26988 stdout=87458b stderr=0b ninja_log=200714b
+  |  Compile [Tests]  (110s)    +                                                                          + >>> Compile [Tests] OK (112s) <<<
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [PASS  ]  TESTS      112s
+           -> D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic\pd-tests.exe  (222.9 MB)
+
+  Total time: 121s
+  Result: SUCCESS
+============================================================
