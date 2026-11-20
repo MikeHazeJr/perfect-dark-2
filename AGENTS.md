@@ -106,6 +106,13 @@ Every agent session must:
    wait until the item is next, run `start`, and run `finish` immediately after.
    The existing `build-session.ps1` queue remains an additional build safety
    layer and must not be bypassed.
+   Hold the `game-runtime` slot only for a runnable game-test batch, from
+   launch through testing and normal process teardown. Prepare binaries,
+   storage, fixtures, and commands before taking the slot. Do not hold it
+   for builds, staging, extraction, offline analysis, or other waiting.
+   Let active tests finish uninterrupted. Release your slot promptly once
+   the test processes exit; if another batch is not ready, requeue through
+   the normal FIFO only when it is ready.
 8. Update Workbench evidence and status as truth changes. `implemented` means
    connected to the production path and requires evidence plus model
    attribution. `validated` requires durable passing evidence; validation and
