@@ -15877,10 +15877,33 @@ Gfx *tvscreenRender(struct model *model, struct modelnode *node, struct tvscreen
 		rwdata->dl.vertices = vertices;
 		rwdata->dl.colours = colours;
 
-		vertices[0] = rodata->dl.vertices[0];
-		vertices[1] = rodata->dl.vertices[1];
-		vertices[2] = rodata->dl.vertices[2];
-		vertices[3] = rodata->dl.vertices[3];
+		/* B-1290: the screen's four corners, drawn below as triangles
+		 * (0,1,2) and (0,2,3). The game's own model node holds them as its
+		 * vertices 0 to 3. A model compiled from typed source holds each
+		 * node's triangles flattened, three vertices each
+		 * (modasset_compiler.c, fillGeneratedTriVertices), so the same two
+		 * triangles are six vertices, A B C A C D: its fourth corner is
+		 * vertex 5. Reading vertex 3 there gave A again, a second triangle
+		 * with no area, and half of every monitor and TV screen showed the
+		 * casing behind it. Every base screen node is one load of four
+		 * vertices drawn in that order (15 nodes in 12 models). */
+		{
+			const Vtx *corners = rodata->dl.vertices;
+			s32 fourth = 3;
+
+			if (rodata->dl.numvertices == 6
+					&& corners[3].x == corners[0].x && corners[3].y == corners[0].y
+					&& corners[3].z == corners[0].z
+					&& corners[4].x == corners[2].x && corners[4].y == corners[2].y
+					&& corners[4].z == corners[2].z) {
+				fourth = 5;
+			}
+
+			vertices[0] = corners[0];
+			vertices[1] = corners[1];
+			vertices[2] = corners[2];
+			vertices[3] = corners[fourth];
+		}
 
 		if ((u32)screen->tconfig < 100) {
 			tconfig = &g_TexScreenConfigs[(s32)screen->tconfig];

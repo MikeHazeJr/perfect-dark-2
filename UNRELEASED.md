@@ -7,6 +7,9 @@
   Base, Complex and Felicity. Floors, walls and outside views were not
   drawn although you could walk on them, and Defection's opening shots
   looked at rooms that were not there. Stage archives update once on boot.
+- Monitor and TV screens show their whole picture. Half of every screen
+  (PCs, terminals, comms hubs, consoles, TV screens) was not drawn and
+  showed the casing behind it, split along the diagonal.
 - Room surfaces the original drew one-sided are one-sided again, so the
   back of a wall or of a building's shell no longer shows where the
   original showed nothing.
