@@ -1,5 +1,27 @@
 # Session Log (Active)
 
+2026-11-20 CORE, 02:30 to 05:30 UTC. `week-pd/core-s11` (PR 18) was built,
+extracted and run in the game. Found and fixed on it besides B-1266 and
+B-1267: B-1290, half of every monitor and TV screen not drawn (the
+Carrington Institute computer face of N-1073), and four rooms of the game
+that are a header and nothing else, which the first version of the B-1266
+fix refused as unreadable. Re-extraction with the fix: 132 scenes equal
+their background files room by room
+(`tools/verify_scene_rooms_against_rom.py`), `left_out=0` for every stage,
+conformance ok. Game turn `q_20261120032344891_82b8da70` (03:23 to 05:01
+UTC, client built from 7bdfbdad, re-extracted base): `scene_rooms_defection`
+19 of 21 on dev's client and 21 of 21 with the fix; the captures show
+Defection's intro (black before) and the rooftop's floor, skyline and sign
+frame; GL against bgfx on the menu backdrop differs in 464 pixels with a
+largest difference of 2 (2,290 and 7 before); 12 other smokes and the
+three campaigns green (AI edges 22,548,778 compared, object rules 55,125,
+none differ). Not proven: B-1290 in a capture. The capture meant for it did
+not reach a monitor, because `--debug-spawn-at` is undone by a mission's
+intro (B-1291). `scene_rooms_citraining` was red for a reason of its script
+(the Institute through `--launch-mission` is the front end) and passes
+rewritten (turn `q_20261120051438463_9b96f251`). Next: land, publish shared
+base 13, then the placement hook and the monitor capture, B-1268, B-1269.
+
 2026-11-20 CORE, 01:50 to 04:00 UTC. Projectile slices 1 to 6 landed on
 `dev` as `cbb7bdf0` (`week-pd/core-s10`; PRs 12, 14, 15, 16, 17) after a
 game turn with 11 green smokes; shared base 12 is published. Then Mike's
