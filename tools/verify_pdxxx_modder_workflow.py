@@ -138,7 +138,8 @@ def extract_pdmod(pdmod: Path, output_root: Path) -> None:
 
 
 def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
-                     prefix: str = "", *, source_bytes: bytes | None = None) -> None:
+                     prefix: str = "", *, source_bytes: bytes | None = None,
+                     release: bool = False) -> None:
     ext = path.suffix.lower()
     if ext not in TYPED_DESCRIPTORS:
         errors.append(f"{prefix}{path}: unknown typed archive extension")
@@ -156,10 +157,23 @@ def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
                 errors.append(f"{prefix}{path}: missing descriptor {descriptor}")
             if "_meta/manifest.json" not in name_set:
                 errors.append(f"{prefix}{path}: missing _meta/manifest.json")
+            if release:
+                tool = ""
+                if "_meta/provenance.json" in name_set:
+                    provenance = json.loads(zf.read("_meta/provenance.json"))
+                    tool = provenance.get("tool", "") if isinstance(provenance, dict) else None
+                    if not isinstance(tool, str):
+                        errors.append(f"{prefix}{path}: invalid archive provenance")
+                        tool = ""
+                if tool.lower().startswith("romextract") or (
+                        not tool and path.name.lower().startswith("base_")):
+                    errors.append(f"{prefix}{path}: ROM-derived archive cannot ship")
 
             public_sources = []
             for name in names:
                 lower = name.lower()
+                if release and Path(lower).suffix in {".z64", ".v64", ".n64"}:
+                    errors.append(f"{prefix}{path}: ROM member cannot ship: {name}")
                 if lower.startswith("_meta/"):
                     continue
                 suffix = Path(lower).suffix
@@ -178,7 +192,7 @@ def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
                     stats.nested_archives += 1
                     validate_archive(Path(name), stats, errors,
                                      prefix=f"{prefix}{path.name}::{name}: ",
-                                     source_bytes=zf.read(name))
+                                     source_bytes=zf.read(name), release=release)
 
             if not public_sources:
                 errors.append(f"{prefix}{path}: no editable public source entries")
@@ -186,6 +200,8 @@ def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
         errors.append(f"{prefix}{path}: not a zip-openable typed archive")
     except OSError as exc:
         errors.append(f"{prefix}{path}: unreadable typed archive: {exc}")
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        errors.append(f"{prefix}{path}: unreadable archive provenance: {exc}")
 
 
 def validate_manifest(source_root: Path, errors: list[str]) -> None:
@@ -243,7 +259,8 @@ def verify_roundtrip(source_root: Path, work_root: Path,
     return pdmod, unpacked
 
 
-def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int:
+def validate_workflow(source_root: Path, keep_output: Path | None = None,
+                      *, release_package: Path | None = None) -> int:
     source_root = source_root.resolve()
     errors: list[str] = []
     stats = WorkflowStats()
@@ -257,11 +274,17 @@ def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int
     if not archives:
         errors.append(f"{source_root}: no typed .pdxxx archives found")
 
+    release = release_package is not None
+    if release:
+        allowed = {source_root / "mod.json", *archives}
+        for path in source_root.rglob("*"):
+            if path.is_symlink() or (path.is_file() and path not in allowed):
+                errors.append(f"{path}: release package accepts only mod.json and typed archives")
     for archive in archives:
-        validate_archive(archive, stats, errors)
+        validate_archive(archive, stats, errors, release=release)
 
     missing_families = set(TYPED_DESCRIPTORS) - stats.families
-    if missing_families:
+    if missing_families and not release:
         errors.append("missing typed family examples: " + ", ".join(sorted(missing_families)))
 
     if stats.standard_source_entries == 0:
@@ -281,14 +304,15 @@ def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int
         work_root = keep_output.resolve()
         clean_work = False
     else:
-        work_root = Path(tempfile.mkdtemp(prefix="pdxxx-workflow-"))
+        work_root = Path(tempfile.mkdtemp(
+            prefix="pdxxx-workflow-", dir=release_package.parent if release_package else None))
         clean_work = True
 
     try:
         pdmod, unpacked = verify_roundtrip(source_root, work_root, errors)
         roundtrip_stats = WorkflowStats()
         for archive in typed_archives(unpacked):
-            validate_archive(archive, roundtrip_stats, errors, prefix="roundtrip: ")
+            validate_archive(archive, roundtrip_stats, errors, prefix="roundtrip: ", release=release)
         if roundtrip_stats.families != stats.families:
             errors.append("roundtrip family set changed")
         if errors:
@@ -298,6 +322,8 @@ def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int
                 print(f"ERROR: ... {len(errors) - 80} more error(s)", file=sys.stderr)
             return 1
 
+        if release_package:
+            pdmod.replace(release_package)
         print(
             "pdxxx modder workflow ok: "
             f"families={len(stats.families)} archives={stats.archives} "
@@ -316,10 +342,18 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-root", type=Path, default=DEFAULT_SOURCE_ROOT,
                         help="modder-authored folder containing mod.json and typed .pdxxx archives")
-    parser.add_argument("--keep-output", type=Path, default=None,
+    outputs = parser.add_mutually_exclusive_group()
+    outputs.add_argument("--keep-output", type=Path, default=None,
                         help="optional directory for the generated .pdmod and unpacked roundtrip")
+    outputs.add_argument("--release-package", type=Path,
+                         help="stage one new .pdmod after validating the source and roundtrip")
     args = parser.parse_args(argv)
-    return validate_workflow(args.source_root, args.keep_output)
+    if args.release_package:
+        output = args.release_package
+        if output.suffix.lower() != ".pdmod" or output.exists() or not output.parent.is_dir():
+            parser.error("--release-package requires a new .pdmod path in an existing directory")
+    return validate_workflow(args.source_root, args.keep_output,
+                             release_package=args.release_package)
 
 
 if __name__ == "__main__":
