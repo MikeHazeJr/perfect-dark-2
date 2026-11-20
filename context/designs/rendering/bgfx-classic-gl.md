@@ -388,6 +388,14 @@ Parity, differing pixels out of 3,686,400 per capture (deltas 1, 2-3, 4-15,
 The captures, bgfx images and difference images stay in the worktree's smoke
 storage (not in git).
 
+**Mike's verdict (2026-11-20).** Parity (Workbench D-041): prove the causes
+with the two experiments named above (the noise term held constant for
+Agent Select; the classic shader text in the bgfx scene shader for
+Defection), then accept what remains; they run on
+`week-pd/bgfx-parity-proof`. Split-screen (D-042): it may come back with each
+local player choosing classic or remastered, so its parity check waits until
+split-screen exists and then covers frames that mix both (scope 5.9).
+
 ## Next steps (phase 2a, from section 11 of the scope doc)
 
 1. D3D11 as the Windows default, GL 4.3 as the fallback, Vulkan as an option.
@@ -397,7 +405,9 @@ storage (not in git).
    compute ported to bgfx compute or kept GL-only.
 2. Remove the 1.0 GL backend once parity holds on every R9 capture.
 3. Split-screen parity once split-screen exists (today a single local player
-   is the active constraint, so no split-screen frame can be drawn).
+   is the active constraint, so no split-screen frame can be drawn). D-042:
+   each local player may then choose classic or remastered, so the check
+   covers mixed frames, each classic view pixel-identical in its viewport.
 
 The full list, with the other phases, the open decisions and the requests
 from other lanes, is in [renderer-2.0-handoff.md](renderer-2.0-handoff.md).
