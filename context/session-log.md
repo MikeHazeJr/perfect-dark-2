@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+2026-11-20 CORE, 01:50 to 04:00 UTC. Projectile slices 1 to 6 landed on
+`dev` as `cbb7bdf0` (`week-pd/core-s10`; PRs 12, 14, 15, 16, 17) after a
+game turn with 11 green smokes; shared base 12 is published. Then Mike's
+three visual reports on the published v0.1.105 (Workbench N-1072, N-1073,
+N-1074), which had sat unread for four hours because I was not sweeping
+Workbench notes. Root cause found offline from the ROM and the archives,
+B-1266: the scene export left out every room whose display data inflated
+past 8192 bytes, silently, since May: 53 percent of Defection's triangles
+and between 10 and 64 percent of every single-player stage. Written on
+`week-pd/core-s11`: the fix, a hard failure where the silent skip was, the
+cull mode of every room triangle carried into the scene and honoured by
+the renderer (B-1267), `tools/verify_scene_rooms_against_rom.py` as an
+independent count, and SP-98 for the pattern. Open and measured, not
+fixed: reflective room surfaces (B-1268), translucent order and decals
+(B-1269). Not yet built or run. New rule from Mike (AGENTS.md order 7):
+the game-runtime slot is for a ready game-test batch only; builds, tests
+and extraction go outside it.
+
 2026-11-19 CORE, 17:00 to 21:00 UTC. Slice 5 of the object events landed on
 `dev` as `fdea04a9` (`week-pd/core-s5`, PR 11): each level's graph decides
 lifts and glass, the base hoverbike runs its vehicle graph, levels authored

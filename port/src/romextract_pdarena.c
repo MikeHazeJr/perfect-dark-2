@@ -94,10 +94,17 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex"
+/* B-1266: the three stamps below do different jobs. The scenario kind is
+ * also the level format an authored level declares (arena.ini's
+ * scenario_graph_cache, the validator's kind lists), so it changes only
+ * when the format does. A change to what a base scene holds changes the
+ * scene export version, which every scene.glb carries and the per-archive
+ * check compares, and the arena kind, which takes an existing install off
+ * the fast path so that check runs. */
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex_allrooms_b1266_cull_b1267"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266"
 #define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
@@ -317,6 +324,7 @@ typedef struct {
 	s32 min;
 	s32 flag;
 	s32 alpha_mode; /* PDSCENARIO_ALPHA_*; OPAQUE/MASK/BLEND, set from opa/xlu source */
+	s32 double_sided; /* B-1267: drawn with both cull bits clear, so from both sides */
 	s32 animation; /* SCENARIO_DYNTEX_*: the dyntex.c preset its texture moves by */
 	u32 tri_count;
 	pdscenario_visual_vertex_t *vertices;
@@ -350,6 +358,15 @@ typedef struct {
 	u32 light_flag_rooms;
 	u32 light_flag_colours;
 	u32 light_colours_total;
+	/* B-1266: every room that has display data is exported, or the export
+	 * fails. B-1267: each triangle keeps the cull mode its display list
+	 * drew it with. */
+	u32 rooms_with_data;
+	u32 rooms_left_out;
+	u32 tris_cull_back;
+	u32 tris_two_sided;
+	u32 tris_cull_front;
+	u32 tris_cull_both;
 } pdscenario_bgscene_t;
 
 static void s_textbufFree(pdscenario_textbuf_t *b)
@@ -6203,7 +6220,7 @@ static s32 s_bgMaterialAddTri(pdscenario_bgmaterial_t *m,
 
 static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
                                    s32 texnum2, s32 subcmd, u32 w0, u32 w1,
-                                   s32 is_xlu)
+                                   s32 is_xlu, s32 double_sided)
 {
 	s32 smode = (s32)((w0 >> 22) & 3u);
 	s32 tmode = (s32)((w0 >> 20) & 3u);
@@ -6220,7 +6237,8 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 		pdscenario_bgmaterial_t *m = &scene->materials[i];
 		if (m->texnum == texnum && m->texnum2 == texnum2 &&
 		    m->subcmd == subcmd && m->w0 == w0 && m->w1 == w1 &&
-		    m->alpha_mode == alpha_mode) {
+		    m->alpha_mode == alpha_mode &&
+		    m->double_sided == (double_sided ? 1 : 0)) {
 			return (s32)i;
 		}
 	}
@@ -6241,6 +6259,7 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	m->min = min;
 	m->flag = flag;
 	m->alpha_mode = alpha_mode;
+	m->double_sided = double_sided ? 1 : 0;
 	m->animation = texnum >= 0 ?
 		scenarioDyntexBaseKind(texnum, scene->stagenum) : SCENARIO_DYNTEX_NONE;
 	if (texnum >= 0 && texnum2 >= 0) {
@@ -6275,7 +6294,7 @@ static s32 s_bgSceneInit(pdscenario_bgscene_t *scene)
 			"mtllib scene.mtl\n") != 0) {
 		return -1;
 	}
-	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0);
+	return s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, 0);
 }
 
 static s32 s_bgSceneAddTri(pdscenario_bgscene_t *scene, s32 material_index,
@@ -7144,31 +7163,36 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 		} else if (prim_has_alpha) {
 			alpha_attr = "\"alphaMode\":\"MASK\",\"alphaCutoff\":0.01,";
 		}
+		/* B-1267: a surface the game drew from both sides says so in glTF's
+		 * own terms. pd2_material.cull below is what the scene renderer
+		 * reads, so a scene written before the field keeps drawing every
+		 * surface from both sides. */
+		const char *sided_attr = m->double_sided ? "\"doubleSided\":true," : "";
 		if (i && s_textbufAppend(&json, ",") != 0) goto fail_json;
 		if (mr[i].texture_index != 0xffffffffu) {
 			if (s_textbufAppendf(&json,
-					"{\"name\":\"%s\",%s"
+					"{\"name\":\"%s\",%s%s"
 					"\"pbrMetallicRoughness\":{\"baseColorTexture\":{\"index\":%d,\"texCoord\":0},"
 					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
-					m->name, alpha_attr, (s32)mr[i].texture_index) != 0) goto fail_json;
+					m->name, alpha_attr, sided_attr, (s32)mr[i].texture_index) != 0) goto fail_json;
 		} else {
 			if (s_textbufAppendf(&json,
-					"{\"name\":\"%s\",%s"
+					"{\"name\":\"%s\",%s%s"
 					"\"pbrMetallicRoughness\":{\"baseColorFactor\":[1.0,1.0,1.0,1.0],"
 					"\"metallicFactor\":0.0,\"roughnessFactor\":1.0}",
-					m->name, alpha_attr) != 0) goto fail_json;
+					m->name, alpha_attr, sided_attr) != 0) goto fail_json;
 		}
 		if (s_textbufAppendf(&json,
 				",\"extras\":{\"pd2_material\":{\"texture_command\":\"%s\","
 				"\"primary_image\":\"%s\",\"secondary_image\":\"%s\","
 				"\"wrap_s\":\"%s\",\"wrap_t\":\"%s\","
 				"\"offset\":%d,\"shift_s\":%d,\"shift_t\":%d,"
-				"\"min_lod\":%d,\"tile_flag\":%d",
+				"\"min_lod\":%d,\"tile_flag\":%d,\"cull\":\"%s\"",
 				s_bgMaterialTextureCommandName(m->subcmd),
 				primary_image, secondary_image,
 				s_bgGltfWrapName(m->smode), s_bgGltfWrapName(m->tmode),
 				m->offset, m->shifts, m->shiftt, m->min,
-				m->flag ? 1 : 0) != 0) goto fail_json;
+				m->flag ? 1 : 0, m->double_sided ? "none" : "back") != 0) goto fail_json;
 		if (mr[i].dyntex_accessor != 0xffffffffu) {
 			f32 anim_u_scale = 1.0f;
 			f32 anim_v_scale = 1.0f;
@@ -7535,6 +7559,66 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 	return 0;
 }
 
+/* B-1267: a triangle's cull mode, from the geometry mode its display list
+ * set: 0 back faces culled (the usual room surface), 1 both faces drawn,
+ * 2 front faces culled, 3 both culled (the game never draws it). */
+static s32 s_bgCullKind(u32 geometry_mode)
+{
+	switch (geometry_mode & (u32)G_CULL_BOTH) {
+	case G_CULL_BACK:  return 0;
+	case 0:            return 1;
+	case G_CULL_FRONT: return 2;
+	default:           return 3;
+	}
+}
+
+/* One display-list triangle, with its cull mode. A triangle whose front
+ * faces are culled is the same triangle seen from behind, so it is written
+ * with its order reversed and counts as single-sided; one with both faces
+ * culled is not written. */
+static s32 s_exportBgCulledTri(pdscenario_bgscene_t *scene,
+                               s32 material_index, s32 cull,
+                               const Vtx loaded[16],
+                               const Col loaded_colours[16],
+                               const s32 loaded_s[16],
+                               const s32 loaded_t[16],
+                               const u32 loaded_scale[16],
+                               const u8 valid[16],
+                               u32 a, u32 b, u32 c,
+                               const struct coord *room_pos,
+                               u32 roomnum)
+{
+	const u32 before = scene->tri_count;
+
+	if (cull == 3) {
+		if (a < 16u && b < 16u && c < 16u && valid[a] && valid[b] && valid[c] &&
+			!(a == b && b == c)) {
+			scene->tris_cull_both++;
+		}
+		return 0;
+	}
+	if (cull == 2) {
+		const u32 swap = b;
+		b = c;
+		c = swap;
+	}
+	if (s_exportBgTriByIndices(scene, material_index, loaded,
+			loaded_colours, loaded_s, loaded_t, loaded_scale, valid, a, b, c,
+			room_pos, roomnum) != 0) {
+		return -1;
+	}
+	if (scene->tri_count != before) {
+		if (cull == 1) {
+			scene->tris_two_sided++;
+		} else if (cull == 2) {
+			scene->tris_cull_front++;
+		} else {
+			scene->tris_cull_back++;
+		}
+	}
+	return 0;
+}
+
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
                          const u8 *room_base, u32 room_size,
                          const Vtx *vertices, u32 vertex_span,
@@ -7562,6 +7646,22 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	memset(loaded_scale, 0xff, sizeof(loaded_scale));
 	memset(valid, 0, sizeof(valid));
 	s32 material_index = 0;
+	/* B-1267: the texture last selected and the geometry mode in effect.
+	 * A material is that texture selection, this block list and the cull
+	 * mode, so it is resolved when a triangle is drawn, not when the
+	 * texture is selected. Every room display list of the game sets or
+	 * clears G_CULL_BACK before its first triangle (measured over all
+	 * the background files); one that did not would draw single-sided,
+	 * the mode nine in ten room triangles have. */
+	s32 tex_selected = 0;
+	s32 tex_texnum = -1;
+	s32 tex_texnum2 = -1;
+	s32 tex_subcmd = -1;
+	u32 tex_w0 = 0;
+	u32 tex_w1 = 0;
+	u32 geometry_mode = (u32)G_CULL_BACK;
+	s32 cull = 0;
+	s32 material_stale = 1;
 	u16 texture_scale_s = 0xffffu;
 	u16 texture_scale_t = 0xffffu;
 	u32 max_cmds = room_size / (u32)sizeof(Gfx);
@@ -7582,11 +7682,20 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			s32 subcmd = (s32)cmd->unkc0.subcmd;
 			if (subcmd == 1) texnum2 = (s32)((w1 >> 12) & 0xfffu);
 			if (texnum >= 0 && texnum < NUM_TEXTURES) {
-				s32 next_mat = s_bgSceneEnsureMaterial(scene, texnum,
-					(texnum2 >= 0 && texnum2 < NUM_TEXTURES) ? texnum2 : -1,
-					subcmd, w0, w1, is_xlu);
-				if (next_mat >= 0) material_index = next_mat;
+				tex_selected = 1;
+				tex_texnum = texnum;
+				tex_texnum2 = (texnum2 >= 0 && texnum2 < NUM_TEXTURES) ? texnum2 : -1;
+				tex_subcmd = subcmd;
+				tex_w0 = w0;
+				tex_w1 = w1;
+				material_stale = 1;
 			}
+		} else if (op == (u8)G_SETGEOMETRYMODE) {
+			geometry_mode |= (u32)cmd->words.w1;
+			material_stale = 1;
+		} else if (op == (u8)G_CLEARGEOMETRYMODE) {
+			geometry_mode &= ~(u32)cmd->words.w1;
+			material_stale = 1;
 		} else if (op == G_COL) {
 			u32 count = ((u32)cmd->words.w0 & 0xffffu) / (u32)sizeof(Col);
 			u32 off = (u32)(UNSEGADDR(cmd->words.w1) & 0x00ffffffu);
@@ -7636,7 +7745,18 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 a = ((w1 >> 16) & 0xffu) / 10u;
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
-			if (s_exportBgTriByIndices(scene, material_index, loaded,
+			if (material_stale) {
+				s32 next_mat;
+				cull = s_bgCullKind(geometry_mode);
+				next_mat = tex_selected
+					? s_bgSceneEnsureMaterial(scene, tex_texnum, tex_texnum2,
+						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)
+					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1);
+				if (next_mat < 0) return -1;
+				material_index = next_mat;
+				material_stale = 0;
+			}
+			if (s_exportBgCulledTri(scene, material_index, cull, loaded,
 					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, a, b, c,
 					room_pos, roomnum) != 0) {
 				return -1;
@@ -7648,16 +7768,27 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x2 = (w1 >> 8) & 0x0fu, y2 = (w1 >> 12) & 0x0fu, z2 = (w0 >> 4) & 0x0fu;
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
-			if (s_exportBgTriByIndices(scene, material_index, loaded,
+			if (material_stale) {
+				s32 next_mat;
+				cull = s_bgCullKind(geometry_mode);
+				next_mat = tex_selected
+					? s_bgSceneEnsureMaterial(scene, tex_texnum, tex_texnum2,
+						tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)
+					: s_bgSceneEnsureMaterial(scene, -1, -1, -1, 0, 0, 0, cull == 1);
+				if (next_mat < 0) return -1;
+				material_index = next_mat;
+				material_stale = 0;
+			}
+			if (s_exportBgCulledTri(scene, material_index, cull, loaded,
 					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x1, y1, z1,
 					room_pos, roomnum) != 0 ||
-			    s_exportBgTriByIndices(scene, material_index, loaded,
+			    s_exportBgCulledTri(scene, material_index, cull, loaded,
 					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x2, y2, z2,
 					room_pos, roomnum) != 0 ||
-			    s_exportBgTriByIndices(scene, material_index, loaded,
+			    s_exportBgCulledTri(scene, material_index, cull, loaded,
 					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x3, y3, z3,
 					room_pos, roomnum) != 0 ||
-			    s_exportBgTriByIndices(scene, material_index, loaded,
+			    s_exportBgCulledTri(scene, material_index, cull, loaded,
 					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x4, y4, z4,
 					room_pos, roomnum) != 0) {
 				return -1;
@@ -8745,6 +8876,22 @@ static s32 s_exportBgSection2Textures(const u8 *bg, u32 bg_size,
 	return 0;
 }
 
+/* B-1266: the largest room of the game inflates to under 64 KiB; a stated
+ * size past this is not a room. */
+#define PDSCENARIO_BG_ROOM_MAX_INFLATED (4u * 1024u * 1024u)
+
+/* B-1266: a room that has display data and cannot be exported. Logged and
+ * counted; s_buildBgVisualExports fails when the count is not zero. */
+static void s_bgSceneRoomLeftOut(pdscenario_bgscene_t *scene, u32 roomnum,
+                                 const char *why, u32 span, u32 infsize)
+{
+	scene->rooms_left_out++;
+	sysLogPrintf(LOG_ERROR,
+		"ROMEXTRACT.SCENE: stage=0x%02x room %u cannot be exported: %s (stored %u bytes, inflated %u)",
+		(unsigned)scene->stagenum, (unsigned)roomnum, why, (unsigned)span,
+		(unsigned)infsize);
+}
+
 static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
                                   pdscenario_bgscene_t *scene, s32 stagenum)
 {
@@ -8766,45 +8913,71 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 	s32 file_bias = (s32)primary_infsize - (s32)primary_cmpsize - 12;
 
 	for (u32 roomnum = 1; roomnum < room_count; roomnum++) {
+		/* A room with no display data: nothing to draw, nothing left out. */
 		if (!rooms[roomnum].unk00 || !rooms[roomnum + 1].unk00 ||
 		    rooms[roomnum + 1].unk00 <= rooms[roomnum].unk00) {
 			continue;
 		}
+		/* B-1266: from here on the room has display data, and a room that
+		 * cannot be read is counted and fails the export below. The old
+		 * code left such a room out without a word, and its size test left
+		 * out every room whose data inflated past 8192 bytes: the largest
+		 * rooms of every stage, up to two thirds of a stage's triangles. */
+		scene->rooms_with_data++;
 		u32 room_ofs = (u32)rooms[roomnum].unk00;
 		u32 next_ofs = (u32)rooms[roomnum + 1].unk00;
 		u32 room_span = next_ofs - room_ofs;
-		if (room_span > 0x1ffff000u) continue;
 		u32 readlen = ALIGN16(room_span);
 		s32 fileoffset = (s32)(room_ofs - 0x0f000000u) - file_bias;
-		if (fileoffset < 0 || (u32)fileoffset >= bg_size ||
+		if (room_span > 0x1ffff000u || fileoffset < 0 ||
+		    (u32)fileoffset >= bg_size ||
 		    readlen > bg_size - (u32)fileoffset) {
+			s_bgSceneRoomLeftOut(scene, roomnum, "its data lies outside the background file",
+				room_span, 0);
 			continue;
 		}
-		u32 room_cap = s_alignTo(room_span * 8u + 4096u, 16);
+		const u8 *src = bg + (u32)fileoffset;
+		/* The room's inflated size. An rzip block states it in its header
+		 * (0x11 0x73, then three bytes of size); a stored room is its span.
+		 * preprocessBgRoom writes the room back in the PC layout, up to
+		 * eight times the inflated size (PREPROCESS_BG_ROOM_MULT_LOCAL in
+		 * port/src/preprocess/filebg.c), so that is what the buffer holds.
+		 * The size used to be taken from the COMPRESSED span. */
+		u32 room_infsize = room_span;
+		if (rzipIs1173((u8 *)src)) {
+			room_infsize = ((u32)src[2] << 16) | ((u32)src[3] << 8) | (u32)src[4];
+		}
+		if (room_infsize == 0 || room_infsize > PDSCENARIO_BG_ROOM_MAX_INFLATED) {
+			s_bgSceneRoomLeftOut(scene, roomnum, "its stated size is not a room's",
+				room_span, room_infsize);
+			continue;
+		}
+		u32 room_cap = s_alignTo(room_infsize * 8u + 4096u, 16);
 		if (room_cap < 65536u) room_cap = 65536u;
 		u8 *room = (u8 *)sysMemZeroAlloc(room_cap);
 		if (!room) {
 			sysMemFree(primary);
 			return -1;
 		}
-		const u8 *src = bg + (u32)fileoffset;
 		s32 inflatedlen = 0;
 		if (rzipIs1173((u8 *)src)) {
 			u8 scratch[5 * 1024];
 			inflatedlen = rzipInflate((u8 *)src, room, scratch);
 		} else {
-			u32 copylen = room_span;
-			if (copylen > room_cap) copylen = room_cap;
-			memcpy(room, src, copylen);
-			inflatedlen = (s32)copylen;
+			memcpy(room, src, room_span);
+			inflatedlen = (s32)room_span;
 		}
 		if (inflatedlen <= 0 || (u32)inflatedlen > room_cap / 8u) {
+			s_bgSceneRoomLeftOut(scene, roomnum, "it did not inflate to its stated size",
+				room_span, room_infsize);
 			sysMemFree(room);
 			continue;
 		}
 		u32 new_len = preprocessBgRoom(room, (u32)inflatedlen, room_ofs);
 		if (new_len == 0 || new_len > room_cap ||
 		    s_promoteBgRoomPointers(room, new_len, room_ofs) != 0) {
+			s_bgSceneRoomLeftOut(scene, roomnum, "its blocks could not be read",
+				room_span, room_infsize);
 			sysMemFree(room);
 			continue;
 		}
@@ -8843,6 +9016,19 @@ static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
 		}
 		scene->room_count++;
 		sysMemFree(room);
+	}
+
+	sysLogPrintf(scene->rooms_left_out ? LOG_ERROR : LOG_NOTE,
+		"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u left_out=%u triangles=%u cull_back=%u two_sided=%u cull_front=%u cull_both=%u",
+		(unsigned)stagenum, (unsigned)scene->rooms_with_data,
+		(unsigned)scene->room_count, (unsigned)scene->rooms_left_out,
+		(unsigned)scene->tri_count, (unsigned)scene->tris_cull_back,
+		(unsigned)scene->tris_two_sided, (unsigned)scene->tris_cull_front,
+		(unsigned)scene->tris_cull_both);
+	if (scene->rooms_left_out) {
+		/* B-1266: a scene with rooms missing is not written. */
+		sysMemFree(primary);
+		return -1;
 	}
 
 	if (s_exportBgSection2Textures(bg, bg_size, scene) != 0) {

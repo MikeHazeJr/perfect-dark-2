@@ -1,5 +1,15 @@
 # Unreleased Changes
 
+- Every room of every stage is drawn again. Stage scenes were missing
+  their largest rooms: about half of dataDyne Central (Defection and
+  Extraction, its whole exterior included), between a tenth and two thirds
+  of every other single-player stage, and one or two rooms of Area 52,
+  Base, Complex and Felicity. Floors, walls and outside views were not
+  drawn although you could walk on them, and Defection's opening shots
+  looked at rooms that were not there. Stage archives update once on boot.
+- Room surfaces the original drew one-sided are one-sided again, so the
+  back of a wall or of a building's shell no longer shows where the
+  original showed nothing.
 - A thrown grenade, mine, N-bomb or Dragon takes its fuse and its first
   bounce from the throw itself. Placeholder values in a base weapon's launch
   record are no longer applied over them.

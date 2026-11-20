@@ -217,3 +217,114 @@ TEST_CASE("the archive checker knows the room table member",
 	REQUIRE(conformance.find("\"rooms.json\": slot(") != std::string::npos);
 	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
 }
+
+// B-1266: the scene export left out every room whose display data inflated
+// past 8192 bytes. Its work buffer was sized from the room's COMPRESSED
+// length (span * 8 + 4096, at least 65536) and a room was skipped, without a
+// word, when its inflated length exceeded an eighth of that. Measured against
+// the ROM: 14 of Defection's 167 rooms with 53 percent of its triangles, and
+// between 10 and 64 percent of every single-player stage. The collision, the
+// room boxes and the portals come from other tables, so play went on over
+// floors that were not drawn.
+TEST_CASE("the scene export sizes a room from its inflated length and leaves none out",
+		"[extraction][scenario][b-1266]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const size_t begin = extractor.find("static s32 s_buildBgVisualExports(");
+	REQUIRE(begin != std::string::npos);
+	const size_t end = extractor.find("\n}\n", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string body = extractor.substr(begin, end - begin);
+
+	// The inflated size is the rzip header's, and the buffer is eight times
+	// that (preprocessBgRoom's own bound), never a multiple of the stored span.
+	CHECK(body.find("room_infsize = ((u32)src[2] << 16) | ((u32)src[3] << 8) | (u32)src[4];") !=
+		std::string::npos);
+	CHECK(body.find("u32 room_cap = s_alignTo(room_infsize * 8u + 4096u, 16);") != std::string::npos);
+	CHECK(body.find("room_span * 8u") == std::string::npos);
+	const std::string filebg = readSource("port/src/preprocess/filebg.c");
+	CHECK(filebg.find("#define PREPROCESS_BG_ROOM_MULT_LOCAL 8u") != std::string::npos);
+
+	// A room that has data and cannot be exported is counted, logged and
+	// fails the export: the one silent continue left is the room with no data.
+	size_t left_out = 0;
+	for (size_t at = body.find("s_bgSceneRoomLeftOut(scene, roomnum,"); at != std::string::npos;
+			at = body.find("s_bgSceneRoomLeftOut(scene, roomnum,", at + 1)) {
+		left_out++;
+	}
+	CHECK(left_out == 4);
+	size_t continues = 0;
+	for (size_t at = body.find("continue;"); at != std::string::npos; at = body.find("continue;", at + 1)) {
+		continues++;
+	}
+	CHECK(continues == left_out + 1);
+	CHECK(body.find("scene->rooms_with_data++;") != std::string::npos);
+	const size_t fail = body.find("if (scene->rooms_left_out) {");
+	REQUIRE(fail != std::string::npos);
+	CHECK(body.find("return -1;", fail) < body.find("s_exportBgSection2Textures(bg, bg_size, scene)", fail));
+	CHECK(body.find("\"ROMEXTRACT.SCENE: stage=0x%02x rooms=%u exported=%u left_out=%u triangles=%u") !=
+		std::string::npos);
+
+	// An install that already has scenes takes them through the per-archive
+	// check again, which compares the scene export version each scene carries.
+	CHECK(extractor.find("_iafix_b945_dyntex_allrooms_b1266_cull_b1267\"\n") != std::string::npos);
+	CHECK(extractor.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266\"") !=
+		std::string::npos);
+	CHECK(extractor.find("s_existingArchiveEntryContains(check, \"scene.glb\",\n\t\t\tPDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
+		std::string::npos);
+	// The scenario kind is the level format authored levels declare: unchanged.
+	CHECK(extractor.find("_catalogargs_assetargs_ruleevents_liftglass\"\n") != std::string::npos);
+}
+
+// B-1267: the room display lists set and clear G_CULL_BACK (on Defection
+// 92.5 percent of the triangles are drawn with back faces culled, 7.5 percent
+// from both sides) and the scene kept none of it: the renderer drew every
+// surface from both sides.
+TEST_CASE("the scene keeps each room triangle's cull mode and the renderer honours it",
+		"[extraction][scenario][renderer][b-1267]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const size_t begin = extractor.find("static s32 s_exportBgGdl(");
+	REQUIRE(begin != std::string::npos);
+	const size_t end = extractor.find("\n}\n", begin);
+	REQUIRE(end != std::string::npos);
+	const std::string walk = extractor.substr(begin, end - begin);
+
+	// The walk follows the geometry mode, and a material is resolved when a
+	// triangle is drawn: the texture selection, the block list and the cull mode.
+	CHECK(walk.find("} else if (op == (u8)G_SETGEOMETRYMODE) {\n\t\t\tgeometry_mode |= (u32)cmd->words.w1;") !=
+		std::string::npos);
+	CHECK(walk.find("} else if (op == (u8)G_CLEARGEOMETRYMODE) {\n\t\t\tgeometry_mode &= ~(u32)cmd->words.w1;") !=
+		std::string::npos);
+	CHECK(walk.find("u32 geometry_mode = (u32)G_CULL_BACK;") != std::string::npos);
+	CHECK(walk.find("tex_subcmd, tex_w0, tex_w1, is_xlu, cull == 1)") != std::string::npos);
+	CHECK(walk.find("s_exportBgTriByIndices(") == std::string::npos);
+	CHECK(extractor.find("m->double_sided == (double_sided ? 1 : 0)) {") != std::string::npos);
+	// Front faces culled is the same triangle seen from behind; both culled is never drawn.
+	CHECK(extractor.find("if (cull == 2) {\n\t\tconst u32 swap = b;\n\t\tb = c;\n\t\tc = swap;\n\t}") !=
+		std::string::npos);
+	CHECK(extractor.find("scene->tris_cull_both++;") != std::string::npos);
+
+	// The scene says it twice: glTF's doubleSided, and pd2_material.cull,
+	// which is the one the renderer reads.
+	CHECK(extractor.find("m->double_sided ? \"\\\"doubleSided\\\":true,\" : \"\"") != std::string::npos);
+	CHECK(extractor.find("\\\"min_lod\\\":%d,\\\"tile_flag\\\":%d,\\\"cull\\\":\\\"%s\\\"\"") !=
+		std::string::npos);
+	CHECK(extractor.find("m->flag ? 1 : 0, m->double_sided ? \"none\" : \"back\") != 0) goto fail_json;") !=
+		std::string::npos);
+
+	// The renderer culls only where the scene asks, so a scene written before
+	// the field, and an authored level, draw as they did.
+	const std::string renderer = readSource("port/fast3d/scenario_scene_renderer.cpp");
+	CHECK(renderer.find("bool cull_back = false;") != std::string::npos);
+	CHECK(renderer.find("mat.cull_back = stringField(*pd2, \"cull\") == \"back\";") != std::string::npos);
+	CHECK(renderer.find("glFrontFace(front_counter_clockwise ? GL_CCW : GL_CW);") != std::string::npos);
+	CHECK(renderer.find("if (cull_back) {\n\t\t\tglEnable(GL_CULL_FACE);\n\t\t} else {\n\t\t\tglDisable(GL_CULL_FACE);\n\t\t}\n\t\tglDrawArrays(GL_TRIANGLES,") !=
+		std::string::npos);
+	CHECK(renderer.find("glFrontFace((GLenum)prev_front_face);\n\tglCullFace((GLenum)prev_cull_mode);") !=
+		std::string::npos);
+	CHECK(renderer.find("cull = mat.cull_back ? cull_back_faces : 0;") != std::string::npos);
+	const std::string bgfx = readSource("port/fast3d/scenario_scene_renderer_bgfx.cpp");
+	CHECK(bgfx.find("if (cull == 1) {\n        state |= BGFX_STATE_CULL_CW;\n    } else if (cull == 2) {\n        state |= BGFX_STATE_CULL_CCW;\n    }") !=
+		std::string::npos);
+}

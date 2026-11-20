@@ -206,7 +206,7 @@ extern "C" void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
                               uint32_t tex, int wrapS, int wrapT,
                               uint32_t tex2, int wrap2S, int wrap2T,
                               int hasTex2, int primaryTexcoord, int secondaryTexcoord,
-                              float alphaCutoff, int blendPass)
+                              float alphaCutoff, int blendPass, int cull)
 {
     if (vb == 0 || tex == 0 || tex2 == 0 || count == 0) {
         return;
@@ -222,6 +222,16 @@ extern "C" void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
         state |= BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA);
     } else {
         state |= BGFX_STATE_WRITE_Z;
+    }
+    /* B-1267: on bgfx's OpenGL backend (the one phase 2a runs) the front
+     * face is GL_CW and BGFX_STATE_CULL_CW culls it, so CULL_CW removes the
+     * triangles that read clockwise in GL's clip space and CULL_CCW the
+     * others. A backend whose screen space is flipped against its clip
+     * space (Direct3D) wants this looked at again with its first capture. */
+    if (cull == 1) {
+        state |= BGFX_STATE_CULL_CW;
+    } else if (cull == 2) {
+        state |= BGFX_STATE_CULL_CCW;
     }
     bgfx::setUniform(s_uVP, s_vp);
     bgfx::setUniform(s_uParams, params);

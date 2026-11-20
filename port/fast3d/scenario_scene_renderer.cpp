@@ -77,6 +77,11 @@ struct Material {
 	int animation = SCENARIO_DYNTEX_NONE;
 	float anim_u_scale = 0.0f;
 	float anim_v_scale = 0.0f;
+	/* B-1267: pd2_material.cull is "back": the game drew this surface
+	 * with back faces culled, and so does the scene. Absent (a scene
+	 * written before the field, or an authored level) or "none": both
+	 * faces are drawn, as every surface was before. */
+	bool cull_back = false;
 };
 
 struct Image {
@@ -541,6 +546,7 @@ static void parseMaterials(const crude_json::value &root,
 			extras ? objectField(*extras, "pd2_material") : nullptr;
 		if (pd2) {
 			mat.primary_texcoord = 1;
+			mat.cull_back = stringField(*pd2, "cull") == "back";
 		}
 		if (pd2) {
 			auto anim_it = pd2->find("animation");
@@ -2056,6 +2062,31 @@ static const std::vector<float> &viewRoomLights(int light_slot)
 		? g_scene.slot_room_lights[light_slot] : g_scene.room_lights;
 }
 
+/* B-1267: once per scene, how much of it is drawn single-sided and which
+ * way its front faces read in this view. */
+static void logSceneCulling(bool front_counter_clockwise)
+{
+	size_t single_groups = 0;
+	size_t single_vertices = 0;
+	size_t vertices = 0;
+
+	for (const auto &group : g_scene.groups) {
+		const bool cull_back = group.material >= 0
+			&& (size_t)group.material < g_scene.materials.size()
+			&& g_scene.materials[(size_t)group.material].cull_back;
+		vertices += (size_t)group.count;
+		if (cull_back) {
+			single_groups++;
+			single_vertices += (size_t)group.count;
+		}
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.RENDER: culling '%s' single_sided_groups=%zu of %zu triangles=%zu of %zu front=%s",
+		g_scene.scenario_id.c_str(), single_groups, g_scene.groups.size(),
+		single_vertices / 3, vertices / 3,
+		front_counter_clockwise ? "counter_clockwise" : "clockwise");
+}
+
 /* --renderer bgfx: the GL path below, draw for draw, through bgfx. The
  * viewport, camera, sky offset, fog, room lighting, material choice and
  * passes are the same; scenario_scene_renderer_bgfx.cpp applies the same
@@ -2080,6 +2111,9 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 	if (!sceneBgfxBeginPass(&pass)) {
 		return;
 	}
+	/* B-1267: the game's front faces read counter-clockwise from the eye. */
+	const int cull_back_faces =
+		scenarioSceneMatrixKeepsWinding((const float (*)[4])camera) ? 1 : 2;
 	for (int scene_pass = 0; scene_pass < 2; ++scene_pass) {
 		if (!(passes & (scene_pass == 0 ? SCENARIO_SCENE_PASS_OPAQUE : SCENARIO_SCENE_PASS_BLEND))) {
 			continue;
@@ -2102,9 +2136,11 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 			int primary_texcoord = 0;
 			int secondary_texcoord = 1;
 			float alpha_cutoff = 0.01f;
+			int cull = 0;
 			if (group.material >= 0
 					&& (size_t)group.material < g_scene.materials.size()) {
 				const Material &mat = g_scene.materials[(size_t)group.material];
+				cull = mat.cull_back ? cull_back_faces : 0;
 				primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
 				secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
 				wrap_s = mat.wrap_s;
@@ -2128,7 +2164,7 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 			sceneBgfxDraw(g_scene.bgfx_vb, group.first, group.count,
 				tex, wrap_s, wrap_t, tex2, wrap2_s, wrap2_t,
 				has_tex2, primary_texcoord, secondary_texcoord,
-				alpha_cutoff, scene_pass == 1 ? 1 : 0);
+				alpha_cutoff, scene_pass == 1 ? 1 : 0, cull);
 		}
 	}
 	sceneBgfxEndPass();
@@ -2143,6 +2179,7 @@ static void renderSceneBgfx(int view_x, int view_y, int width, int height,
 			"SCENARIO.RENDER: rendered native source scene '%s' vertices=%zu groups=%zu textures=%zu (bgfx)",
 			g_scene.scenario_id.c_str(), g_scene.vertices.size(),
 			g_scene.groups.size(), g_scene.images.size());
+		logSceneCulling(cull_back_faces == 1);
 	}
 }
 
@@ -2276,11 +2313,25 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture2);
 	glActiveTexture(GL_TEXTURE0);
 
+	/* B-1267: back faces are culled for the surfaces the game drew that
+	 * way (Material::cull_back), group by group below. The game's front
+	 * faces read counter-clockwise from the eye; a view-projection that
+	 * mirrors (the y flip of a flipped framebuffer) reverses how they
+	 * read in clip space. */
+	GLint prev_front_face = GL_CCW;
+	GLint prev_cull_mode = GL_BACK;
+	glGetIntegerv(GL_FRONT_FACE, &prev_front_face);
+	glGetIntegerv(GL_CULL_FACE_MODE, &prev_cull_mode);
+	const bool front_counter_clockwise =
+		scenarioSceneMatrixKeepsWinding((const float (*)[4])camera) != 0;
+
 	glViewport(view_x, view_y, width, height);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
 	glDisable(GL_CULL_FACE);
+	glFrontFace(front_counter_clockwise ? GL_CCW : GL_CW);
+	glCullFace(GL_BACK);
 	glEnable(GL_TEXTURE_2D);
 	glDisable(GL_BLEND);
 
@@ -2366,9 +2417,11 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		/* MASK -> honor the material cutoff for crisp cutout edges; OPAQUE/BLEND ->
 		 * tiny floor so only fully-transparent texels drop. */
 		float alpha_cutoff = 0.01f;
+		bool cull_back = false;
 		if (group.material >= 0
 				&& (size_t)group.material < g_scene.materials.size()) {
 			const Material &mat = g_scene.materials[(size_t)group.material];
+			cull_back = mat.cull_back;
 			primary_texcoord = mat.primary_texcoord == 0 ? 0 : 1;
 			secondary_texcoord = mat.secondary_texcoord == 0 ? 0 : 1;
 			wrap_s = mat.wrap_s;
@@ -2401,6 +2454,11 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 		glBindTexture(GL_TEXTURE_2D, tex);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_s);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_t);
+		if (cull_back) {
+			glEnable(GL_CULL_FACE);
+		} else {
+			glDisable(GL_CULL_FACE);
+		}
 		glDrawArrays(GL_TRIANGLES, (GLint)group.first, (GLsizei)group.count);
 	};
 	/* c3844 glass fix: alphaMode-driven two-pass. Pass 0 = OPAQUE + MASK materials
@@ -2459,6 +2517,7 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 			"SCENARIO.RENDER: rendered native source scene '%s' vertices=%zu groups=%zu textures=%zu",
 			g_scene.scenario_id.c_str(), g_scene.vertices.size(),
 			g_scene.groups.size(), g_scene.images.size());
+		logSceneCulling(front_counter_clockwise);
 	}
 
 	glActiveTexture(GL_TEXTURE2);
@@ -2485,6 +2544,8 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	} else {
 		glDisable(GL_CULL_FACE);
 	}
+	glFrontFace((GLenum)prev_front_face);
+	glCullFace((GLenum)prev_cull_mode);
 	if (prev_blend) {
 		glEnable(GL_BLEND);
 	} else {
