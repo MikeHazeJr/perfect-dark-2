@@ -408,6 +408,21 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       parsed as integers via strtol with float coercion for x/y/z;
  *       room is s16 / RoomNum).  One-shot per boot.
  *
+ *   --debug-spawn-at-after-intro
+ *       Companion for --debug-spawn-at in a mission that has an
+ *       intro: the teleport waits until player 0 has had control
+ *       (normal tick mode, walking) for one second of game time. An
+ *       intro animates the player's own body with absolute positions
+ *       and the character tick moves the prop along with it, so a
+ *       teleport made while the intro plays is undone on the same
+ *       frame (B-1291).
+ *
+ *   --debug-spawn-at-look-at x,y,z
+ *       Companion for --debug-spawn-at: once the teleport has run,
+ *       every frame turns player 0's view, yaw and pitch, toward the
+ *       given world point, and logs how well the camera looks at it
+ *       (look_dot, 1.000 when it looks straight at the point).
+ *
  *   --debug-force-first-person
  *       Pre-render smoke hook: after the gameplay stage is loaded, holds
  *       player 0 in CAMERAMODE_DEFAULT for a short window so first-person
@@ -649,6 +664,17 @@ static f32         g_BootSpawnAtX = 0.0f;
 static f32         g_BootSpawnAtY = 0.0f;
 static f32         g_BootSpawnAtZ = 0.0f;
 static s32         g_BootSpawnAtRoom = 0;
+/* B-1291: companions of --debug-spawn-at (after-intro wait, look-at hold). */
+static s32         g_BootSpawnAtAfterIntro = 0;
+static s32         g_BootSpawnAtControl60 = 0;
+static s32         g_BootSpawnAtWaitLogged = 0;
+static s32         g_BootSpawnAtDone = 0;
+static s32         g_BootSpawnAtLookAt = 0;
+static f32         g_BootSpawnAtLookX = 0.0f;
+static f32         g_BootSpawnAtLookY = 0.0f;
+static f32         g_BootSpawnAtLookZ = 0.0f;
+static s32         g_BootSpawnAtLookLogs = 0;
+static u32         g_BootSpawnAtLookLastLogMs = 0;
 static bool        g_BootDebugForceFirstPerson = false;
 static s32         g_BootDebugForceFirstPersonPending = 0;
 static s32         g_BootDebugForceFirstPersonFrames = 0;
@@ -1900,6 +1926,51 @@ static void bootApplyDebugSpawnAt(const char *arg)
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-spawn-at armed: pos=(%f,%f,%f) room=%d",
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
+}
+
+/* B-1291: the companions of --debug-spawn-at. Without --debug-spawn-at they
+ * do nothing, and say so. */
+static void bootApplyDebugSpawnAtCompanions(s32 after_intro, const char *look_at)
+{
+	if (after_intro) {
+		if (!g_BootSpawnAtPending) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-spawn-at-after-intro ignored: --debug-spawn-at is not armed");
+		} else {
+			g_BootSpawnAtAfterIntro = 1;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-spawn-at-after-intro armed (the teleport waits for one second of control)");
+		}
+	}
+
+	if (look_at && look_at[0]) {
+		char buf[128];
+		const char *tokX;
+		const char *tokY;
+		const char *tokZ;
+
+		strncpy(buf, look_at, sizeof(buf) - 1);
+		buf[sizeof(buf) - 1] = 0;
+		tokX = strtok(buf, ",");
+		tokY = strtok(NULL, ",");
+		tokZ = strtok(NULL, ",");
+		if (!tokX || !tokY || !tokZ) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-spawn-at-look-at expects 3 comma-separated tokens (x,y,z); got: '%s'",
+				look_at);
+		} else if (!g_BootSpawnAtPending) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-spawn-at-look-at ignored: --debug-spawn-at is not armed");
+		} else {
+			g_BootSpawnAtLookX = (f32)strtod(tokX, NULL);
+			g_BootSpawnAtLookY = (f32)strtod(tokY, NULL);
+			g_BootSpawnAtLookZ = (f32)strtod(tokZ, NULL);
+			g_BootSpawnAtLookAt = 1;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-spawn-at-look-at armed: point=(%f,%f,%f)",
+				g_BootSpawnAtLookX, g_BootSpawnAtLookY, g_BootSpawnAtLookZ);
+		}
+	}
 }
 
 /* B-769 (2026-06-06): Arm a smoke-only camera override. The actual
@@ -3293,6 +3364,8 @@ static void bootApplyCliFastPaths(void)
 		}
 	}
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
+	bootApplyDebugSpawnAtCompanions(sysArgCheck("--debug-spawn-at-after-intro") ? 1 : 0,
+		sysArgGetString("--debug-spawn-at-look-at"));
 	bootApplyDebugForceFirstPerson();
 	bootApplyDebugPlaceBotNearPlayer();
 	bootApplyLaunchLoadAgent(sysArgGetString("--launch-load-agent"));
@@ -4687,6 +4760,68 @@ s32 bootDebugMountBikeTick(void)
 	return 0;
 }
 
+/* B-1291: --debug-spawn-at-look-at. Once the teleport has run, every frame
+ * turns player 0's view toward the point. Yaw by the engine's convention for
+ * players (a player faces (360 - vv_theta) degrees, measured like
+ * atan2f(dx, dz)); pitch is vv_verta, up positive (bmoveUpdateHead builds the
+ * look vector as (0, sin(verta), cos(verta)) before the yaw). The prop of a
+ * player sits at eye height, so it is the origin of the view. */
+static s32 bootDebugSpawnAtLookAtTick(void)
+{
+	struct player *pl;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	f32 flat;
+	f32 theta;
+
+	if (!g_BootSpawnAtLookAt || !g_BootSpawnAtDone) {
+		return 0;
+	}
+	pl = g_Vars.players[0];
+	if (!pl || !pl->prop || g_Vars.tickmode != TICKMODE_NORMAL) {
+		return 0;
+	}
+
+	dx = g_BootSpawnAtLookX - pl->prop->pos.x;
+	dy = g_BootSpawnAtLookY - pl->prop->pos.y;
+	dz = g_BootSpawnAtLookZ - pl->prop->pos.z;
+	flat = sqrtf(dx * dx + dz * dz);
+	if (flat < 1.0f) {
+		return 0;
+	}
+
+	theta = 360.0f - atan2f(dx, dz) * (180.0f / 3.14159265f);
+	while (theta >= 360.0f) {
+		theta -= 360.0f;
+	}
+	while (theta < 0.0f) {
+		theta += 360.0f;
+	}
+	pl->vv_theta = theta;
+	pl->vv_verta = atan2f(dy, flat) * (180.0f / 3.14159265f);
+
+	{
+		const u32 now = SDL_GetTicks();
+
+		if (g_BootSpawnAtLookLogs < 12
+				&& (g_BootSpawnAtLookLogs == 0 || now - g_BootSpawnAtLookLastLogMs >= 1000)) {
+			const f32 dist = sqrtf(dx * dx + dy * dy + dz * dz);
+			/* 1.000 when the camera of the last frame looks straight at the point */
+			const f32 lookdot = (pl->cam_look.x * dx + pl->cam_look.y * dy + pl->cam_look.z * dz) / dist;
+
+			g_BootSpawnAtLookLastLogMs = now;
+			g_BootSpawnAtLookLogs++;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-spawn-at-look-at facing: theta=%.1f verta=%.1f look_dot=%.3f dist=%.0f eye=(%.0f,%.0f,%.0f) room=%d",
+				pl->vv_theta, pl->vv_verta, lookdot, dist,
+				pl->prop->pos.x, pl->prop->pos.y, pl->prop->pos.z,
+				(s32)pl->prop->rooms[0]);
+		}
+	}
+	return 1;
+}
+
 /* c115 (2026-05-14): Called once per frame from pdmain.c's mainTick
  * when the --debug-spawn-at one-shot is armed. Teleports the current
  * player (player 0) to the JSON-parsed (x,y,z,room) using chrMoveToPos
@@ -4703,13 +4838,41 @@ s32 bootDebugMountBikeTick(void)
 s32 bootDebugSpawnAtTick(void)
 {
 	if (!g_BootSpawnAtPending) {
-		return 0;
+		return bootDebugSpawnAtLookAtTick();
 	}
 	if (g_Vars.lvframenum < 4) {
 		return 0;
 	}
 	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
 		return 0;
+	}
+
+	if (g_BootSpawnAtAfterIntro) {
+		/* B-1291: a mission's intro animates the player's own body with
+		 * absolute positions, and while the tick mode is the cutscene's the
+		 * character tick moves the prop along with the animation
+		 * (chr0f0220ec), so a teleport made now is undone on this frame. An
+		 * intro of several shots re-enters the cutscene a frame after it
+		 * was left, so one second of uninterrupted control is asked for. */
+		if (g_Vars.tickmode != TICKMODE_NORMAL
+				|| g_Vars.players[0]->bondmovemode != MOVEMODE_WALK) {
+			if (!g_BootSpawnAtWaitLogged) {
+				g_BootSpawnAtWaitLogged = 1;
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --debug-spawn-at-after-intro waiting: stagenum=0x%02x frame=%d tickmode=%d movemode=%d",
+					(u32)g_Vars.stagenum, (s32)g_Vars.lvframenum,
+					(s32)g_Vars.tickmode, (s32)g_Vars.players[0]->bondmovemode);
+			}
+			g_BootSpawnAtControl60 = 0;
+			return 0;
+		}
+		g_BootSpawnAtControl60 += g_Vars.lvupdate60;
+		if (g_BootSpawnAtControl60 < 60) {
+			return 0;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --debug-spawn-at-after-intro control held: stagenum=0x%02x frame=%d waited_for_intro=%d",
+			(u32)g_Vars.stagenum, (s32)g_Vars.lvframenum, g_BootSpawnAtWaitLogged);
 	}
 
 	struct prop *prop = g_Vars.players[0]->prop;
@@ -4741,6 +4904,7 @@ s32 bootDebugSpawnAtTick(void)
 		g_BootSpawnAtX, g_BootSpawnAtY, g_BootSpawnAtZ, g_BootSpawnAtRoom);
 
 	g_BootSpawnAtPending = 0;
+	g_BootSpawnAtDone = ok ? 1 : 0;
 	return 1;
 }
 
