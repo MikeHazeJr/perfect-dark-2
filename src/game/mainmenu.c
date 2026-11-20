@@ -441,7 +441,7 @@ MenuItemHandlerResult menuhandlerAlternativeTitle(s32 operation, struct menuitem
 {
 	switch (operation) {
 	case MENUOP_CHECKHIDDEN:
-		if (g_Vars.stagenum != STAGE_CITRAINING || (u8)g_AltTitleUnlocked == false) {
+		if (g_Vars.stagenum != STAGE_CITRAINING || (!g_AltTitleUnlocked && !gamefileHasUnlockAll())) {
 			return true;
 		}
 		break;
@@ -1080,6 +1080,10 @@ bool isStageDifficultyUnlocked(s32 stageindex, s32 difficulty)
 		return true;
 	}
 
+	if (difficulty >= DIFF_A && difficulty <= DIFF_PA && gamefileHasUnlockAll()) {
+		return true;
+	}
+
 	// Handle special missions
 	if (stageindex > SOLOSTAGEINDEX_SKEDARRUINS) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -1254,6 +1258,11 @@ MenuItemHandlerResult menuhandlerSoloDifficulty(s32 operation, struct menuitem *
 	return 0;
 }
 
+bool isPerfectDarkDifficultyUnlocked(void)
+{
+	return gamefileHasUnlockAll() || g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0;
+}
+
 MenuItemHandlerResult menuhandlerPdMode(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	switch (operation) {
@@ -1261,7 +1270,7 @@ MenuItemHandlerResult menuhandlerPdMode(s32 operation, struct menuitem *item, un
 		menuPushDialog(&g_PdModeSettingsMenuDialog);
 		break;
 	case MENUOP_CHECKHIDDEN:
-		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] == 0) {
+		if (!isPerfectDarkDifficultyUnlocked()) {
 			return true;
 		}
 	}
@@ -1388,9 +1397,13 @@ s32 getMaxAiBuddies(void)
 	s32 max = 1 - g_MissionConfig.difficulty;
 	s32 d;
 
-	for (d = 0; d != 3; d++) {
-		if ((g_GameFile.coopcompletions[d] | 0xfffe0000) == 0xffffffff) {
-			extra = d + 1;
+	if (g_NetMode == NETMODE_NONE && gamefileHasUnlockAll()) {
+		extra = ARRAYCOUNT(g_GameFile.coopcompletions);
+	} else {
+		for (d = 0; d != 3; d++) {
+			if ((g_GameFile.coopcompletions[d] | 0xfffe0000) == 0xffffffff) {
+				extra = d + 1;
+			}
 		}
 	}
 
@@ -1910,47 +1923,49 @@ struct solostage g_SoloStages[NUM_SOLOSTAGES] = {
 	{ STAGE_DUEL,          0x1c, L_OPTIONS_171, L_OPTIONS_003, L_OPTIONS_171,   "base:duel"          },
 };
 
-s32 getNumUnlockedSpecialStages(void)
+static s32 soloUnlockedSkedarAssignments(void)
 {
 	s32 count = 0;
-	s32 offsetforduel = 1;
-	s32 i;
 
-	for (i = 0; i < ARRAYCOUNT(g_GameFile.besttimes[0]); i++) {
+	if (gamefileHasUnlockAll()) {
+		return SOLOSTAGEINDEX_DUEL - SOLOSTAGEINDEX_MBR;
+	}
+
+	for (s32 i = 0; i < ARRAYCOUNT(g_GameFile.besttimes[0]); i++) {
 		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][i]) {
 			count = i + 1;
 		}
 	}
 
+	return count;
+}
+
+s32 getNumUnlockedSpecialStages(void)
+{
+	s32 count = soloUnlockedSkedarAssignments();
+
 	if (g_MissionConfig.iscoop || g_MissionConfig.isanti) {
-		offsetforduel = 0;
-	} else {
-		for (i = 0; i < (VERSION >= VERSION_NTSC_1_0 ? 32 : 33); i++) {
-			if (ciGetFiringRangeScore(i) <= 0) {
-				offsetforduel = 0;
+		return count;
+	}
+
+	if (!gamefileHasUnlockAll()) {
+		for (s32 i = 0; i < (VERSION >= VERSION_NTSC_1_0 ? 32 : 33); i++) {
+			if (ciGetFiringRangeScore(i) == 0) {
+				return count;
 			}
 		}
 	}
 
-	return count + offsetforduel;
+	return count + 1;
 }
 
 s32 func0f104720(s32 value)
 {
-	s32 next = 0;
-	s32 d;
-
-	for (d = 0; d < ARRAYCOUNT(g_GameFile.besttimes[0]); d++) {
-		if (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][d]) {
-			next = d + 1;
-		}
+	if (soloUnlockedSkedarAssignments() > value) {
+		return SOLOSTAGEINDEX_MBR + value;
 	}
 
-	if (next > value) {
-		return 17 + value;
-	}
-
-	return 20;
+	return SOLOSTAGEINDEX_DUEL;
 }
 
 /**
@@ -2022,6 +2037,11 @@ MenuItemHandlerResult menuhandlerMissionList(s32 operation, struct menuitem *ite
 
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
+		if (gamefileHasUnlockAll()) {
+			data->list.value = SOLOSTAGEINDEX_MBR + getNumUnlockedSpecialStages();
+			break;
+		}
+
 		data->list.value = 0;
 
 		for (i = 0; i <= SOLOSTAGEINDEX_SKEDARRUINS; i++) {
@@ -4839,6 +4859,12 @@ s32 getNumCompletedMissions(void)
 	return count;
 }
 
+static s32 cinemaNumAvailableCutscenes(void)
+{
+	s32 missioncount = gamefileHasUnlockAll() ? SOLOSTAGEINDEX_MBR : getNumCompletedMissions();
+	return g_CutsceneCountsByMission[missioncount];
+}
+
 struct cutscenegroup {
 	u32 first_cutscene_index;
 	u16 name;
@@ -4874,7 +4900,7 @@ MenuItemHandlerResult menuhandlerCinema(s32 operation, struct menuitem *item, un
 	switch (operation) {
 	case MENUOP_GETOPTIONCOUNT:
 		// Add one for Play All option
-		data->list.value = g_CutsceneCountsByMission[getNumCompletedMissions()] + 1;
+		data->list.value = cinemaNumAvailableCutscenes() + 1;
 		break;
 	case MENUOP_GETOPTIONTEXT:
 		if (data->list.value == 0) {
@@ -4885,9 +4911,8 @@ MenuItemHandlerResult menuhandlerCinema(s32 operation, struct menuitem *item, un
 	case MENUOP_SET:
 		if (data->list.value == 0) {
 			// Play all
-			s32 index = getNumCompletedMissions();
 			g_Vars.autocutgroupcur = 0;
-			g_Vars.autocutgroupleft = g_CutsceneCountsByMission[index];
+			g_Vars.autocutgroupleft = cinemaNumAvailableCutscenes();
 			menuPopDialog();
 			menuStop();
 		} else {

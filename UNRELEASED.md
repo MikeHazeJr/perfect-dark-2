@@ -78,6 +78,8 @@
 
 - Restored controller input and on-screen text entry in New Agent. Added controller navigation for Grid editor fields, kept lobby content consent and countdown Cancel available, and let another connected controller take over menus if the first disconnects.
 
+- Fixed selection of Phoenix, Psychosis Gun and Dual Wield All Guns, and cleared Invincible on the next stage after turning cheats off. Locked cheat criteria are accessible with keyboard and controller. Unlock All saves for the active Agent while preserving earned records, with Retry on save failure.
+
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
   the Case holders, uplink downloads and bases. Final scores and rankings are
@@ -182,6 +184,9 @@
 
 - Keep held public model and texture sources alive through stage teardown,
   including when a catalog replacement releases the previous source.
+
+- Reject stale movement snapshots before they rewind positions or repeat
+  teleports; preserve acknowledgements when rejecting old client input.
 
 - Preserve complete equipment ownership for deferred executable-graph shots;
   prepare and publish primary/secondary modes together from one public archive.

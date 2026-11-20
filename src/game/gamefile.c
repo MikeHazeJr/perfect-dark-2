@@ -533,54 +533,7 @@ void gamefileGetOverview(char *arg0, char *name, u8 *stage, u8 *difficulty, u32 
 }
 
 
-// Unlock all of the unlockables.
-// These hacks are taken from the original debug mode.
-void gamefileUnlockEverything(void)
+u32 gamefileHasUnlockAll(void)
 {
-	s32 i, j;
-
-	// unlock all challenges
-	for (i = 0; i < ARRAYCOUNT(g_MpChallenges); ++i) {
-		for (j = 0; j < MAX_LOCAL_PLAYERS; ++j) {
-			g_MpChallenges[i].completions[j] = 0xff;
-		}
-	}
-	challengeDetermineUnlockedFeatures();
-
-	// complete all missions in coop
-	for (i = 0; i < ARRAYCOUNT(g_GameFile.coopcompletions); ++i) {
-		g_GameFile.coopcompletions[i] = 0x1fffff;
-	}
-
-	// unlock all guns
-	for (i = 0; i < ARRAYCOUNT(g_GameFile.weaponsfound); ++i) {
-		g_GameFile.weaponsfound[i] = 0xff;
-	}
-
-	// unlock all campaign levels
-	for (i = 0; i < NUM_SOLOSTAGES; i++) {
-		for (j = 0; j < 3; j++) {
-			g_GameFile.besttimes[i][j] = 7;
-		}
-	}
-
-	// unlock alternate intro sequence
-	g_AltTitleUnlocked = true;
-
-	// unlock all firing range challenges
-	for (i = 0; i < ARRAYCOUNT(g_GameFile.firingrangescores); ++i) {
-		g_GameFile.firingrangescores[i] = 0xff;
-	}
-
-	// unlock all device training
-	gamefileSetFlag(GAMEFILEFLAG_CI_CLOAK_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_DISGUISE_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_XRAY_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_IR_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_RTRACKER_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_DOORDECODER_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_NIGHTVISION_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_CAMSPY_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_ECMMINE_DONE);
-	gamefileSetFlag(GAMEFILEFLAG_CI_UPLINK_DONE);
+	return gamefileHasFlag(GAMEFILEFLAG_UNLOCK_ALL);
 }

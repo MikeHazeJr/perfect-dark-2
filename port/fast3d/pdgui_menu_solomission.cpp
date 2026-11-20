@@ -267,6 +267,7 @@ extern struct sm_briefing g_Briefing;
  * (s32). This file does not include types.h, so `bool` here would be the
  * one-byte C++ keyword and would not match them. */
 s32          isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
+s32          isPerfectDarkDifficultyUnlocked(void);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
 /* B-1117: the C definition returns the project bool (s32); spelled s32 here
@@ -885,7 +886,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
                     s32 chapTotal = chapLast - chapFirst + 1;
                     s32 chapDone  = 0;
                     for (s32 ci = chapFirst; ci <= chapLast; ci++) {
-                        if (isStageDifficultyUnlocked(ci, DIFF_A)) chapDone++;
+                        if (g_GameFile.besttimes[ci][DIFF_A] != 0) chapDone++;
                     }
 
                     char chapHdr[96];
@@ -1129,7 +1130,7 @@ static s32 renderMissionSelect(struct menudialog *dialog,
 
         /* ---- Difficulty Picker (B-96: inline in detail panel) ---- */
         /* Detail panel navigation: 0–2 = diff, [3 = PD Mode], last = Start */
-        bool pdModeVisible = (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0);
+        bool pdModeVisible = isPerfectDarkDifficultyUnlocked() != 0;
         if (!pdModeVisible && s_DetailDiffIdx >= 3) s_DetailDiffIdx = 2;
         s32 k_NumDetailItems = 3 + (pdModeVisible ? 1 : 0) + 1; /* diffs + [PD] + Start */
         s32 startFocusIdx    = k_NumDetailItems - 1;
@@ -1519,8 +1520,7 @@ static s32 renderDifficulty(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* Show PD Mode option? Only when Skedar Ruins is beaten on PA */
-    bool pdModeVisible = (g_GameFile.besttimes[SOLOSTAGEINDEX_SKEDARRUINS][DIFF_PA] != 0);
+    bool pdModeVisible = isPerfectDarkDifficultyUnlocked() != 0;
 
     /* Difficulty rows: Agent, Special Agent, Perfect Agent, [PD Mode], Cancel */
     static const s32 k_Diffs[]  = { DIFF_A, DIFF_SA, DIFF_PA };

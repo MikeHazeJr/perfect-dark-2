@@ -1217,7 +1217,7 @@
 #define GAMEFILEFLAG_HOWTO_DOORS          0x49
 #define GAMEFILEFLAG_HOWTO_ELEVATORS      0x4a
 #define GAMEFILEFLAG_HOWTO_TERMINALS      0x4b
-#define GAMEFILEFLAG_4C                   0x4c
+#define GAMEFILEFLAG_UNLOCK_ALL            0x4c
 #define GAMEFILEFLAG_4D                   0x4d
 #define GAMEFILEFLAG_4E                   0x4e
 
