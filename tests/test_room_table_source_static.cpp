@@ -362,7 +362,7 @@ TEST_CASE("reflective room surfaces are lit and mapped from each view's camera",
 	CHECK(extractor.find("scene->tris_texgen++;") != std::string::npos);
 	// The scene says it, with the scales the renderer needs; such a
 	// material is never also animated (its own coordinates are unused).
-	CHECK(extractor.find("\",\\\"texgen\\\":true,\\\"texgen_scale\\\":[%u,%u],\\\"uv_scale\\\":[%.9g,%.9g]\"") !=
+	CHECK(extractor.find("\",\\\"texgen\\\":true,\\\"texgen_scale\\\":[%u,%u],\\\"texgen_uv_scale\\\":[%.9g,%.9g]\"") !=
 		std::string::npos);
 	CHECK(extractor.find("return m->vertex_count > 0 && !m->texgen && m->animation > SCENARIO_DYNTEX_NONE &&") !=
 		std::string::npos);
@@ -372,6 +372,7 @@ TEST_CASE("reflective room surfaces are lit and mapped from each view's camera",
 	// light, the UVs from this view's reflection vectors.
 	const std::string renderer = readSource("port/fast3d/scenario_scene_renderer.cpp");
 	CHECK(renderer.find("mat.texgen = true;") != std::string::npos);
+	CHECK(renderer.find("&& numberPairField(*pd2, \"texgen_uv_scale\", uv)") != std::string::npos);
 	CHECK(renderer.find("\"  vec3 b = floor(pdRoomLit(a_Color).rgb * 255.0 + 0.5);\\n\"") != std::string::npos);
 	CHECK(renderer.find("\"  return b - 256.0 * step(128.0, b);\\n\"") != std::string::npos);
 	CHECK(renderer.find("\"    float lit = floor(floor(b * 0.5882353) + max(dot(n, normalize(vec3(77.0, 77.0, 46.0))) / 127.0, 0.0) * b);\\n\"") !=

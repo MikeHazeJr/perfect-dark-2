@@ -148,7 +148,8 @@ SCENE_DYNTEX_PRESETS = frozenset({
 SCENE_CULL_EXPORT_MARK = "_cull_b1267"
 # B-1268: a lit, texture-generated room surface (pd2_material.texgen): the
 # G_TEXTURE scale its UVs are generated with, at most 0xffff, and the runtime
-# UV scale they are converted with.
+# UV scale they are converted with (texgen_uv_scale: "uv_scale" says a
+# material is animated).
 SCENE_TEXGEN_SCALE_MAX = 0xFFFF
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
@@ -1650,7 +1651,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                                 f"{label} scene.glb material {index} pd2_material.texgen_scale "
                                 "must be two integers from 1 to 65535"
                             )
-                        uv_scale = pd2_material.get("uv_scale")
+                        uv_scale = pd2_material.get("texgen_uv_scale")
                         if not (
                             isinstance(uv_scale, list)
                             and len(uv_scale) == 2
@@ -1661,8 +1662,8 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                             )
                         ):
                             errors.append(
-                                f"{label} scene.glb material {index} pd2_material.uv_scale "
-                                "must be two positive numbers on a texgen material"
+                                f"{label} scene.glb material {index} pd2_material.texgen_uv_scale "
+                                "must be two positive numbers"
                             )
                         if "animation" in pd2_material:
                             errors.append(

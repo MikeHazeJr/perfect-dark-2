@@ -7218,12 +7218,13 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			/* B-1268: a reflective surface. Its COLOR_0 holds the normals
 			 * the room's colour table holds; the renderer lights it and
 			 * makes its UVs from them with the G_TEXTURE scale and the
-			 * runtime UV scale, as fast3d does at G_VTX. */
+			 * runtime UV scale, as fast3d does at G_VTX. The UV scale has
+			 * its own key: "uv_scale" says a material is animated. */
 			f32 texgen_u_scale = 1.0f;
 			f32 texgen_v_scale = 1.0f;
 			s_bgMaterialUvScaleForGlb(scene, m, &texgen_u_scale, &texgen_v_scale);
 			if (s_textbufAppendf(&json,
-					",\"texgen\":true,\"texgen_scale\":[%u,%u],\"uv_scale\":[%.9g,%.9g]",
+					",\"texgen\":true,\"texgen_scale\":[%u,%u],\"texgen_uv_scale\":[%.9g,%.9g]",
 					(unsigned)m->texgen_scale_s, (unsigned)m->texgen_scale_t,
 					(double)texgen_u_scale, (double)texgen_v_scale) != 0) goto fail_json;
 		}

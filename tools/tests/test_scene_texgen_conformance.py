@@ -7,8 +7,9 @@ entry is a normal, and fast3d generates its texture coordinates from that
 normal and the camera's reflection vectors. A base scene.glb names those
 materials (pd2_material.texgen true) with the G_TEXTURE scale the UVs are
 generated with (texgen_scale) and the runtime UV scale they are converted
-with (uv_scale); the scene renderer lights and maps them per view. Such a
-material's own UVs are never used, so it is never also animated.
+with (texgen_uv_scale; "uv_scale" says a material is animated); the scene
+renderer lights and maps them per view. Such a material's own UVs are
+never used, so it is never also animated.
 
 Run: python -B tools/tests/test_scene_texgen_conformance.py -v
 """
@@ -61,13 +62,19 @@ def glb(materials):
             + struct.pack("<II", len(body), 0x004E4942) + body)
 
 
-def texgen_errors(materials):
+def material_errors(materials):
+    # Every error about a material (the minimal scene above lacks the
+    # runtime UVs and colours, which the validator reports apart).
     errors: list[str] = []
     conf.validate_scene_glb_texture_contract("test", glb(materials), errors)
-    return [e for e in errors if "texgen" in e]
+    return [e for e in errors if "material" in e]
 
 
-GOOD = dict(texgen=True, texgen_scale=[2816, 2816], uv_scale=[0.03125, 0.03125])
+def texgen_errors(materials):
+    return [e for e in material_errors(materials) if "texgen" in e]
+
+
+GOOD = dict(texgen=True, texgen_scale=[2816, 2816], texgen_uv_scale=[0.03125, 0.03125])
 
 
 class SceneTexgenConformance(unittest.TestCase):
@@ -80,8 +87,11 @@ class SceneTexgenConformance(unittest.TestCase):
         self.assertIn(conf.SCENE_CULL_EXPORT_MARK, line)
 
     def test_a_reflective_material_with_its_scales_passes(self):
-        self.assertEqual(texgen_errors([material(**GOOD)]), [])
-        self.assertEqual(texgen_errors([material(**dict(GOOD, texgen_scale=[2048, 4096]))]), [])
+        # No material error of any kind: in particular, it is not taken for an
+        # animated material (the first extraction wrote its UV scale as
+        # "uv_scale", and the animation rule refused every one).
+        self.assertEqual(material_errors([material(**GOOD)]), [])
+        self.assertEqual(material_errors([material(**dict(GOOD, texgen_scale=[2048, 4096]))]), [])
 
     def test_a_material_without_the_field_is_not_held_to_it(self):
         self.assertEqual(texgen_errors([material()]), [])
@@ -105,13 +115,13 @@ class SceneTexgenConformance(unittest.TestCase):
 
     def test_the_uv_scale_is_two_positive_numbers(self):
         for uv in ([0, 0.03125], [0.03125], ["a", 1], [-1.0, 1.0], None):
-            with self.subTest(uv_scale=uv):
-                pd2 = dict(GOOD, uv_scale=uv)
+            with self.subTest(texgen_uv_scale=uv):
+                pd2 = dict(GOOD, texgen_uv_scale=uv)
                 if uv is None:
-                    del pd2["uv_scale"]
+                    del pd2["texgen_uv_scale"]
                 bad = texgen_errors([material(**pd2)])
                 self.assertEqual(len(bad), 1, bad)
-                self.assertIn("uv_scale must be two positive numbers on a texgen material", bad[0])
+                self.assertIn("texgen_uv_scale must be two positive numbers", bad[0])
 
     def test_a_reflective_material_is_never_animated(self):
         bad = texgen_errors([material(**dict(GOOD, animation="river"))])

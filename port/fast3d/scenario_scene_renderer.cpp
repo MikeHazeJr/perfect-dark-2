@@ -86,7 +86,7 @@ struct Material {
 	 * texture-generated (G_LIGHTING | G_TEXTURE_GEN). Its vertex colours
 	 * are normals; the shader lights it and makes its UVs from them with
 	 * the G_TEXTURE scale (texgen_scale) and the runtime UV scale
-	 * (uv_scale, here per N64 texel step: uv_scale / 32). */
+	 * (texgen_uv_scale, here per N64 texel step: the scale / 32). */
 	bool texgen = false;
 	float texgen_scale_s = 0.0f;
 	float texgen_scale_t = 0.0f;
@@ -622,7 +622,7 @@ static void parseMaterials(const crude_json::value &root,
 				if (texgen_it->second.is_boolean()
 						&& texgen_it->second.get<crude_json::boolean>()
 						&& numberPairField(*pd2, "texgen_scale", scale)
-						&& numberPairField(*pd2, "uv_scale", uv)
+						&& numberPairField(*pd2, "texgen_uv_scale", uv)
 						&& scale[0] > 0.0f && scale[1] > 0.0f) {
 					mat.texgen = true;
 					mat.texgen_scale_s = scale[0];
@@ -631,7 +631,7 @@ static void parseMaterials(const crude_json::value &root,
 					mat.texgen_v_step = uv[1] / 32.0f;
 				} else {
 					sysLogPrintf(LOG_WARNING,
-						"SCENARIO.RENDER: material %zu says texgen without a usable texgen_scale and uv_scale; it is drawn unlit",
+						"SCENARIO.RENDER: material %zu says texgen without a usable texgen_scale and texgen_uv_scale; it is drawn unlit",
 						materials.size());
 				}
 			}
