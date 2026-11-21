@@ -3361,7 +3361,7 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 		REQUIRE(mod.find("(5.0f * M_PI / 180.0f)") == std::string::npos);
 	}
 	REQUIRE(mod.find("void bgunModProjectileLanded(struct weaponobj *weapon)") != std::string::npos);
-	REQUIRE(bondgun.find("finished = bgunModTickIncAttackCharge(info, handnum, hand, graph);") !=
+	REQUIRE(bondgun.find("finished = bgunModTickIncAttackCharge(info, handnum, hand, graph, bgunHandPlan(handnum)->charge_time);") !=
 		std::string::npos);
 	REQUIRE(lv.find("bgunModChargeTick();") != std::string::npos);
 	REQUIRE(propobj.find("bgunModProjectileLanded((struct weaponobj *) obj);") != std::string::npos);

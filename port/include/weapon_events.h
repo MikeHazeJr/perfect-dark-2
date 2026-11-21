@@ -100,6 +100,13 @@ s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native);
  * starts one, else the original's for its record. */
 void weaponFunctionPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *out);
 
+/* slice 5: the weapon's charge that builds while its function is selected
+ * (og.weapon.charge, start while_selected; the Mauler's secondary): its
+ * function number plus one with its plan, 0 when it has none. The charge
+ * level is the weapon's (the hand's matmot1, in steps): every function's shot
+ * carries it, as the original's Mauler did. */
+s32 weaponWeaponCharge(s32 weaponnum, struct weapon_rule_trigger *out);
+
 /* slice 4: whether one of the weapon's functions toggles the cloak
  * (og.weapon.mode_toggle, mode cloak): 1 with its drain in rounds a second
  * and its clip's ammo slot. */

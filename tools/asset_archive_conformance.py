@@ -2346,7 +2346,8 @@ WEAPON_GRAPH_EVENTS = ("event.weapon.trigger_pressed", "event.weapon.ready_while
                        "event.weapon.reload_done")
 # Slice 3: the attack is one of three trigger modules, and use_ammo names the
 # rounds each of its shots takes.
-WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic")
+WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic",
+                         "og.weapon.charge", "og.weapon.cook")
 WEAPON_GRAPH_IDLE_ACTIONS = WEAPON_GRAPH_TRIGGERS + ("og.weapon.dry_fire", "og.weapon.reload")
 # Slice 4: the attack's shot, one module per attack family, each fitting
 # only its function's record type.
@@ -2394,6 +2395,12 @@ WEAPON_GRAPH_SETTINGS = {
     "og.weapon.special": {"action": ("choice", ("shoot", "launch", "throw", "melee", "detonate", "boost",
                                                 "revert_boost", "crouch", "melee_no_uncloak", "uplink"))},
     "og.weapon.mode_toggle": {"mode": ("choice", ("cloak",)), "drain": ("number", WEAPON_GRAPH_MAX_RATE)},
+    # Slice 5: charge then release, hold to cook.
+    "og.weapon.charge": {"start": ("choice", ("while_selected", "on_press")), "time": ("whole", 1, 10000),
+                         "steps": ("whole", 1, 50), "ammo_per_step": ("whole", 0, 255),
+                         "min_clip": ("whole", 0, 255), "fall_time": ("whole", 0, 10000),
+                         "release": ("choice", ("on_press", "on_full")), "damage_per_step": ("nonneg", 100)},
+    "og.weapon.cook": {"fuse": ("whole", 1, 10000)},
     # Slice 4b: how og.weapon.reload fills the clip.
     "og.weapon.reload": {"style": ("choice", ("magazine", "one_at_a_time", "regrow")),
                          "regrow_time": ("whole", 1, 10000)},
@@ -2410,6 +2417,9 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
         if isinstance(value, bool) or not isinstance(value, (int, float)) \
                 or not 0 < value <= WEAPON_GRAPH_MAX_RATE:
             return f"needs {key} in rounds per minute, above 0 and up to {WEAPON_GRAPH_MAX_RATE}"
+    elif spec[0] == "nonneg":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= spec[1]:
+            return f"needs {key} from 0 up to {spec[1]}"
     elif spec[0] == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= spec[1]:
             return f"needs {key} above 0 and up to {spec[1]}"

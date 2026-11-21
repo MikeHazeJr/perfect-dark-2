@@ -56,7 +56,8 @@
  * program lacks (its og.weapon.fire no longer exists). v19 (slice 4): and
  * end it with its shot node; a throw and a special spend through use_ammo.
  * v20 (slice 4b): and name their reload's style. */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v20"
+/* v21 (slice 5): the Mauler's charge and the grenade's cook are trigger nodes. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v21"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
@@ -64,7 +65,7 @@
  * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
  * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
  * styles (slice 4b). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads"
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2544,6 +2545,29 @@ static void s_emitHeldTriggerNode(jw_t *w, const char *id, const weapon_rule_tri
 		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_BURST), 0);
 		jw_field_int(w, WEAPON_RULE_COUNT_PARAM, plan->count, 0);
 		jw_field_int(w, WEAPON_RULE_GAP_PARAM, plan->gap, 1);
+	} else if (plan->module == WEAPON_MODULE_CHARGE) {
+		/* held-weapon-events.md slice 5: the charge's settings; its damage
+		 * with every digit a float holds, so 10/3 reads back the same. */
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_CHARGE), 0);
+		jw_field_str(w, WEAPON_RULE_START_PARAM,
+			plan->charge_start == WEAPON_RULE_CHARGE_ON_PRESS ? "on_press" : "while_selected", 0);
+		jw_field_int(w, WEAPON_RULE_TIME_PARAM, plan->charge_time, 0);
+		jw_field_int(w, WEAPON_RULE_STEPS_PARAM, plan->charge_steps, 0);
+		jw_field_int(w, WEAPON_RULE_AMMO_PER_STEP_PARAM, plan->charge_ammo, 0);
+		jw_field_int(w, WEAPON_RULE_MIN_CLIP_PARAM, plan->charge_min_clip, 0);
+		jw_field_int(w, WEAPON_RULE_FALL_TIME_PARAM, plan->charge_fall, 0);
+		jw_field_str(w, WEAPON_RULE_RELEASE_PARAM,
+			plan->charge_release == WEAPON_RULE_RELEASE_ON_FULL ? "on_full" : "on_press", 0);
+		jw_indent(w);
+		fprintf(w->fp, "\"%s\": %.9g\n", WEAPON_RULE_DAMAGE_PER_STEP_PARAM, (double)plan->charge_damage);
+	} else if (plan->module == WEAPON_MODULE_COOK) {
+		/* A fuse a node could not hold is left to the record's default. */
+		if (plan->cook_fuse > 0 && plan->cook_fuse <= WEAPON_RULE_MAX_SPIN) {
+			jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_COOK), 0);
+			jw_field_int(w, WEAPON_RULE_FUSE_PARAM, plan->cook_fuse, 1);
+		} else {
+			jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_COOK), 1);
+		}
 	} else if (plan->module == WEAPON_MODULE_AUTOMATIC) {
 		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_AUTOMATIC), 0);
 		/* A rate a node could not hold (none of the base weapons has one)
@@ -2655,6 +2679,9 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 		record.ammo_slot = f->ammoindex;
 		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
 			record.specialfunc = ((const struct weaponfunc_special *)f)->specialfunc;
+		}
+		if ((f->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+			record.activation_time = ((const struct weaponfunc_throw *)f)->activatetime60;
 		}
 		if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
 			const struct weaponfunc_shootauto *sa = (const struct weaponfunc_shootauto *)f;

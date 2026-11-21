@@ -697,6 +697,33 @@ class HeldWeaponPrograms(unittest.TestCase):
                 self.assertEqual(len(messages), 1, messages)
                 self.assertIn(why, messages[0])
 
+    def test_charge_and_cook(self):
+        """held-weapon-events.md slice 5: Charge then release and Hold to
+        cook are triggers with settings of their kinds."""
+        def with_attack(node: dict) -> dict:
+            graph = copy.deepcopy(V2_HELD)
+            for idx, old in enumerate(graph["nodes"]):
+                if old["id"] == "primary_attack":
+                    graph["nodes"][idx] = dict(node, id="primary_attack")
+            return graph
+
+        for node in ({"kind": "og.weapon.charge", "start": "while_selected", "time": 100, "steps": 5,
+                      "ammo_per_step": 1, "min_clip": 2, "fall_time": 200, "release": "on_press",
+                      "damage_per_step": 3.33333325},
+                     {"kind": "og.weapon.charge", "start": "on_press", "release": "on_full", "damage_per_step": 0},
+                     {"kind": "og.weapon.cook", "fuse": 240}):
+            with self.subTest(node=node):
+                self.assertEqual(weapon_errors(with_attack(node)), [])
+        for node, why in (({"kind": "og.weapon.charge", "start": "held"}, "needs start while_selected, on_press"),
+                          ({"kind": "og.weapon.charge", "release": "late"}, "needs release on_press, on_full"),
+                          ({"kind": "og.weapon.charge", "steps": 0}, "needs steps from 1 to 50"),
+                          ({"kind": "og.weapon.charge", "damage_per_step": -1}, "needs damage_per_step from 0 up to 100"),
+                          ({"kind": "og.weapon.cook", "fuse": 0}, "needs fuse from 1 to 10000")):
+            with self.subTest(node=node):
+                messages = weapon_errors(with_attack(node))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
     def test_the_kinds_agree_with_the_runner_and_the_table(self):
         runner = (REPO / "port" / "src" / "mission_graph_runner.cpp").read_text(encoding="utf-8")
         rules = (REPO / "port" / "include" / "weapon_rules.h").read_text(encoding="utf-8")

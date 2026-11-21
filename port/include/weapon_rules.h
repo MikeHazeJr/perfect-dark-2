@@ -49,9 +49,14 @@ extern "C" {
 #define WEAPON_MODULE_MELEE       (1u << 11) /* og.weapon.melee: a strike */
 #define WEAPON_MODULE_SPECIAL     (1u << 12) /* og.weapon.special: an action ("action") */
 #define WEAPON_MODULE_MODE_TOGGLE (1u << 13) /* og.weapon.mode_toggle: a mode on or off ("mode", "drain") */
-#define WEAPON_MODULE_COUNT 14
+/* The two triggers of slice 5: a charge, then its release; a throw that
+ * primes while the trigger is held. */
+#define WEAPON_MODULE_CHARGE      (1u << 14) /* og.weapon.charge ("start", "time", "steps", "release", ...) */
+#define WEAPON_MODULE_COOK        (1u << 15) /* og.weapon.cook ("fuse") */
+#define WEAPON_MODULE_COUNT 16
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
-#define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC)
+#define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC \
+	| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK)
 #define WEAPON_MODULE_SHOTS (WEAPON_MODULE_HITSCAN | WEAPON_MODULE_BEAM | WEAPON_MODULE_LAUNCH | WEAPON_MODULE_THROW \
 	| WEAPON_MODULE_MELEE | WEAPON_MODULE_SPECIAL | WEAPON_MODULE_MODE_TOGGLE)
 /* The modules that decide what an idle hand does; the seam runs the first
@@ -103,6 +108,7 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
 		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
 		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
+		"og.weapon.charge", "og.weapon.cook",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -342,6 +348,16 @@ typedef struct weapon_rule_trigger {
 	s32 action;        /* special: the HANDATTACKTYPE_* it performs */
 	s32 mode;          /* mode toggle: WEAPON_RULE_MODE_CLOAK */
 	f32 drain;         /* mode toggle: rounds a second while the mode is on */
+	/* slice 5: a charge trigger's settings, and a cook trigger's fuse. */
+	s32 charge_start;    /* WEAPON_RULE_CHARGE_WHILE_SELECTED (the Mauler) or _ON_PRESS (the crystal pistol) */
+	s32 charge_time;     /* 60 Hz ticks from empty to full */
+	s32 charge_steps;    /* steps to full */
+	s32 charge_ammo;     /* rounds each step takes */
+	s32 charge_min_clip; /* a step needs the clip to hold this many */
+	s32 charge_fall;     /* 60 Hz ticks a step falls back while the other function is held; 0 never */
+	s32 charge_release;  /* WEAPON_RULE_RELEASE_ON_PRESS or _ON_FULL */
+	f32 charge_damage;   /* each step adds this many times the shot's damage */
+	s32 cook_fuse;       /* cook: 60 Hz ticks the throw may be held before it goes off in the hand */
 } weapon_rule_trigger_t;
 
 #define WEAPON_RULE_ITEM_OWN (-1)              /* the function's own projectile object */
@@ -371,6 +387,9 @@ typedef struct weapon_rule_function {
 	s32 incremental; /* its clip reloads a round at a time (AMMOFLAG_INCREMENTALRELOAD; slice 4b) */
 	s32 regrow;      /* its clip regrows (a mod magazine's "regrow" reload) */
 	s32 regrow_ticks60; /* 60 Hz ticks a regrowing round takes */
+	s32 has_charge;     /* a mod function's committed charge launch (T-MODDING-008; slice 5) */
+	s32 charge_ticks60; /* its charge time */
+	s32 activation_time; /* a throw's activation time (60 Hz ticks): a cooked grenade's fuse */
 	s32 has_rate;    /* the record names a rate (an automatic) */
 	f32 initial_rpm;
 	f32 max_rpm;
@@ -511,13 +530,64 @@ static inline s32 weaponRulesShotFits(u32 shot, s32 functype)
 	return (functype & 0xff) == family;
 }
 
+#define WEAPON_RULE_CHARGE_WHILE_SELECTED 1 /* builds while the function is selected (the Mauler) */
+#define WEAPON_RULE_CHARGE_ON_PRESS 2       /* a press starts it and the hand waits for it (the crystal pistol) */
+#define WEAPON_RULE_RELEASE_ON_PRESS 1      /* the trigger fires the charged shot */
+#define WEAPON_RULE_RELEASE_ON_FULL 2       /* it goes by itself when full */
+#define WEAPON_RULE_MAULER_CHARGE_DAMAGE (10.0f / 3.0f)
+
+/*
+ * held-weapon-events.md slice 5: the Mauler's charge (its secondary): it
+ * builds while the function is selected, five steps in 100 ticks, each step
+ * taking a round while the clip holds two, falls back a step every 200 ticks
+ * while the primary is held, and each step adds 10/3 of the shot's damage;
+ * the trigger fires the charged shot.
+ */
+static inline void weaponRulesMaulerCharge(weapon_rule_trigger_t *out)
+{
+	out->module = WEAPON_MODULE_CHARGE;
+	out->charge_start = WEAPON_RULE_CHARGE_WHILE_SELECTED;
+	out->charge_time = 100;
+	out->charge_steps = 5;
+	out->charge_ammo = 1;
+	out->charge_min_clip = 2;
+	out->charge_fall = 200;
+	out->charge_release = WEAPON_RULE_RELEASE_ON_PRESS;
+	out->charge_damage = WEAPON_RULE_MAULER_CHARGE_DAMAGE;
+}
+
+/* A mod function's committed charge launch (the crystal pistol): a press
+ * starts it, the hand waits its charge time, and it goes by itself. */
+static inline void weaponRulesCommittedCharge(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->module = WEAPON_MODULE_CHARGE;
+	out->charge_start = WEAPON_RULE_CHARGE_ON_PRESS;
+	out->charge_time = f && f->charge_ticks60 > 0 ? f->charge_ticks60 : 1;
+	out->charge_steps = 1;
+	out->charge_ammo = 0;
+	out->charge_min_clip = 1;
+	out->charge_fall = 0;
+	out->charge_release = WEAPON_RULE_RELEASE_ON_FULL;
+	out->charge_damage = 0.0f;
+}
+
 static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
 {
 	memset(out, 0, sizeof(*out));
 	out->aimed_burst = 1;
 	weaponRulesNativeShot(f, out);
+	if (f && f->has_charge && f->weaponnum >= WEAPON_CUSTOM_START) {
+		/* slice 5: the committed charge spends its own rounds on release. */
+		weaponRulesCommittedCharge(f, out);
+		return;
+	}
 	if (!f || !weaponRulesFunctionShoots(f)) {
 		out->module = WEAPON_MODULE_FIRE_ONCE;
+		if (f && (f->functype & 0xff) == 2 && f->weaponnum == WEAPON_GRENADE && f->func == FUNC_PRIMARY) {
+			/* slice 5: the hand grenade cooks while held. */
+			out->module = WEAPON_MODULE_COOK;
+			out->cook_fuse = f->activation_time;
+		}
 		if (f && f->ammo_slot >= 0) {
 			if ((f->functype & 0xff) == 2 || (f->functype & 0xff) == 4) {
 				out->rounds = 1; /* a throw or a special */
@@ -526,6 +596,11 @@ static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, wea
 				out->rounds = 4; /* the sedative strike */
 			}
 		}
+		return;
+	}
+	if (f->weaponnum == WEAPON_MAULER && f->func == FUNC_SECONDARY) {
+		weaponRulesMaulerCharge(out);
+		out->rounds = f->ammo_slot >= 0 ? 1 : 0;
 		return;
 	}
 	if (weaponRulesFunctionAutomatic(f)) {
@@ -596,6 +671,18 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_SETTING_ACTION 7        /* a special's action by name */
 #define WEAPON_RULE_SETTING_MODE 8          /* a toggled mode by name ("cloak") */
 #define WEAPON_RULE_SETTING_STYLE 9         /* a reload style by name */
+#define WEAPON_RULE_SETTING_CHARGE_START 10 /* "while_selected" or "on_press" */
+#define WEAPON_RULE_SETTING_RELEASE 11      /* "on_press" or "on_full" */
+#define WEAPON_RULE_SETTING_NONNEG 12       /* a number from 0 up to hi */
+#define WEAPON_RULE_START_PARAM "start"
+#define WEAPON_RULE_TIME_PARAM "time"
+#define WEAPON_RULE_STEPS_PARAM "steps"
+#define WEAPON_RULE_AMMO_PER_STEP_PARAM "ammo_per_step"
+#define WEAPON_RULE_MIN_CLIP_PARAM "min_clip"
+#define WEAPON_RULE_FALL_TIME_PARAM "fall_time"
+#define WEAPON_RULE_RELEASE_PARAM "release"
+#define WEAPON_RULE_DAMAGE_PER_STEP_PARAM "damage_per_step"
+#define WEAPON_RULE_FUSE_PARAM "fuse"
 #define WEAPON_RULE_STYLE_PARAM "style"
 #define WEAPON_RULE_REGROW_TIME_PARAM "regrow_time"
 #define WEAPON_RULE_PELLETS_PARAM "pellets"
@@ -615,7 +702,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 21
+#define WEAPON_RULE_SETTING_COUNT 30
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -643,6 +730,15 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_MODE_TOGGLE, WEAPON_RULE_DRAIN_PARAM, WEAPON_RULE_SETTING_NUMBER, 0, (s32)WEAPON_RULE_MAX_RATE },
 		{ WEAPON_MODULE_RELOAD, WEAPON_RULE_STYLE_PARAM, WEAPON_RULE_SETTING_STYLE, 0, 0 },
 		{ WEAPON_MODULE_RELOAD, WEAPON_RULE_REGROW_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_START_PARAM, WEAPON_RULE_SETTING_CHARGE_START, 0, 0 },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_STEPS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, 50 },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_AMMO_PER_STEP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_ROUNDS },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_MIN_CLIP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_ROUNDS },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_FALL_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_RELEASE_PARAM, WEAPON_RULE_SETTING_RELEASE, 0, 0 },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_DAMAGE_PER_STEP_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, 100 },
+		{ WEAPON_MODULE_COOK, WEAPON_RULE_FUSE_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -798,6 +894,12 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 		return weaponRulesModeFromText(text) > 0;
 	case WEAPON_RULE_SETTING_STYLE:
 		return weaponRulesStyleFromText(text) > 0;
+	case WEAPON_RULE_SETTING_CHARGE_START:
+		return strcmp(text, "while_selected") == 0 || strcmp(text, "on_press") == 0;
+	case WEAPON_RULE_SETTING_RELEASE:
+		return strcmp(text, "on_press") == 0 || strcmp(text, "on_full") == 0;
+	case WEAPON_RULE_SETTING_NONNEG:
+		return strcmp(text, "0") == 0 || weaponRulesNumberFromText(text, (f32)setting->hi, -1.0f) > 0.0f;
 	}
 	return 0;
 }
@@ -828,6 +930,9 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 	plan->count = plan->gap = plan->spin_up = plan->spin_down = plan->burst = 0;
 	plan->rate = plan->start_rate = 0.0f;
 	plan->aimed_burst = 1;
+	plan->charge_start = plan->charge_time = plan->charge_steps = plan->charge_ammo = 0;
+	plan->charge_min_clip = plan->charge_fall = plan->charge_release = plan->cook_fuse = 0;
+	plan->charge_damage = 0.0f;
 	if (module == WEAPON_MODULE_BURST) {
 		const s32 burst = native.module == WEAPON_MODULE_BURST;
 		const s32 dcount = burst ? native.count : 3;
@@ -839,6 +944,64 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		ok = count >= 0 && gap >= 0;
 		plan->count = count >= 0 ? count : dcount;
 		plan->gap = gap >= 0 ? gap : dgap;
+	} else if (module == WEAPON_MODULE_CHARGE) {
+		/* slice 5: the record's own charge, else the Mauler's. */
+		weapon_rule_trigger_t base;
+		const char *start_text = get(WEAPON_RULE_START_PARAM, user);
+		const char *release_text = get(WEAPON_RULE_RELEASE_PARAM, user);
+		const char *damage_text = get(WEAPON_RULE_DAMAGE_PER_STEP_PARAM, user);
+		s32 v;
+
+		memset(&base, 0, sizeof(base));
+		if (native.module == WEAPON_MODULE_CHARGE) base = native;
+		else weaponRulesMaulerCharge(&base);
+		plan->charge_start = base.charge_start;
+		plan->charge_time = base.charge_time;
+		plan->charge_steps = base.charge_steps;
+		plan->charge_ammo = base.charge_ammo;
+		plan->charge_min_clip = base.charge_min_clip;
+		plan->charge_fall = base.charge_fall;
+		plan->charge_release = base.charge_release;
+		plan->charge_damage = base.charge_damage;
+		if (start_text) {
+			if (strcmp(start_text, "while_selected") == 0) plan->charge_start = WEAPON_RULE_CHARGE_WHILE_SELECTED;
+			else if (strcmp(start_text, "on_press") == 0) plan->charge_start = WEAPON_RULE_CHARGE_ON_PRESS;
+			else ok = 0;
+		}
+		if (release_text) {
+			if (strcmp(release_text, "on_press") == 0) plan->charge_release = WEAPON_RULE_RELEASE_ON_PRESS;
+			else if (strcmp(release_text, "on_full") == 0) plan->charge_release = WEAPON_RULE_RELEASE_ON_FULL;
+			else ok = 0;
+		}
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_TIME_PARAM, user), 1, WEAPON_RULE_MAX_SPIN, plan->charge_time);
+		if (v < 0) ok = 0; else plan->charge_time = v;
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_STEPS_PARAM, user), 1, 50, plan->charge_steps);
+		if (v < 0) ok = 0; else plan->charge_steps = v;
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_AMMO_PER_STEP_PARAM, user), 0, WEAPON_RULE_MAX_ROUNDS,
+			plan->charge_ammo);
+		if (v < 0) ok = 0; else plan->charge_ammo = v;
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_MIN_CLIP_PARAM, user), 0, WEAPON_RULE_MAX_ROUNDS,
+			plan->charge_min_clip);
+		if (v < 0) ok = 0; else plan->charge_min_clip = v;
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_FALL_TIME_PARAM, user), 0, WEAPON_RULE_MAX_SPIN, plan->charge_fall);
+		if (v < 0) ok = 0; else plan->charge_fall = v;
+		if (damage_text) {
+			if (strcmp(damage_text, "0") == 0) {
+				plan->charge_damage = 0.0f;
+			} else {
+				const f32 d = weaponRulesNumberFromText(damage_text, 100.0f, -1.0f);
+
+				if (d > 0.0f) plan->charge_damage = d;
+				else ok = 0;
+			}
+		}
+	} else if (module == WEAPON_MODULE_COOK) {
+		const s32 dfuse = native.module == WEAPON_MODULE_COOK && native.cook_fuse > 0 ? native.cook_fuse
+			: (record && record->activation_time > 0 ? record->activation_time : 240);
+		const s32 fuse = weaponRulesWholeFromText(get(WEAPON_RULE_FUSE_PARAM, user), 1, WEAPON_RULE_MAX_SPIN, dfuse);
+
+		ok = fuse >= 0;
+		plan->cook_fuse = fuse >= 0 ? fuse : dfuse;
 	} else if (module == WEAPON_MODULE_AUTOMATIC) {
 		const s32 automatic = native.module == WEAPON_MODULE_AUTOMATIC;
 		const char *rate_text = get(WEAPON_RULE_RATE_PARAM, user);
@@ -879,7 +1042,12 @@ static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const 
 		&& a->shot == b->shot && a->pellets == b->pellets && a->through_walls == b->through_walls
 		&& a->shield_damage == b->shield_damage && a->range == b->range && a->item == b->item
 		&& a->item_function == b->item_function && a->give_up_gun == b->give_up_gun
-		&& a->action == b->action && a->mode == b->mode && a->drain == b->drain;
+		&& a->action == b->action && a->mode == b->mode && a->drain == b->drain
+		&& a->charge_start == b->charge_start && a->charge_time == b->charge_time
+		&& a->charge_steps == b->charge_steps && a->charge_ammo == b->charge_ammo
+		&& a->charge_min_clip == b->charge_min_clip && a->charge_fall == b->charge_fall
+		&& a->charge_release == b->charge_release && a->charge_damage == b->charge_damage
+		&& a->cook_fuse == b->cook_fuse;
 }
 
 /* A catalog id's weapon number, -1 for none (the game reads its weapon

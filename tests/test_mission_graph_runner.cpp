@@ -1513,6 +1513,15 @@ weapon_rule_function_t ruleRecord(s32 weaponnum, s32 func, s32 functype, u32 fla
 	return r;
 }
 
+// The hand grenade's primary: a throw whose activation time (240 ticks) is
+// the fuse it cooks for.
+weapon_rule_function_t grenadeRecord()
+{
+	weapon_rule_function_t r = ruleRecord(WEAPON_GRENADE, 0, 0x0002, 0, 0);
+	r.activation_time = 240;
+	return r;
+}
+
 struct BaseFunction {
 	const char *name;
 	weapon_rule_function_t record;
@@ -1541,7 +1550,7 @@ std::vector<BaseFunction> baseFunctions()
 		{ "falcon2 primary", ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0) },
 		{ "laser primary", ruleRecord(WEAPON_LASER, 0, 0x0001, 0, -1) },
 		{ "rocketlauncher primary", ruleRecord(WEAPON_ROCKETLAUNCHER, 0, 0x0201, 0, 0) },
-		{ "grenade primary", ruleRecord(WEAPON_GRENADE, 0, 0x0002, 0, 0) },
+		{ "grenade primary", grenadeRecord() },
 		{ "combatknife primary", ruleRecord(WEAPON_COMBATKNIFE, 0, 0x0003, 0, 0) },
 	};
 }
@@ -1711,6 +1720,20 @@ std::string triggerNodeFields(const weapon_rule_trigger_t &plan)
 		return "\"kind\": \"og.weapon.burst\", \"count\": " + std::to_string(plan.count) +
 			", \"gap\": " + std::to_string(plan.gap);
 	}
+	if (plan.module == WEAPON_MODULE_CHARGE) {
+		char damage[32];
+		std::snprintf(damage, sizeof(damage), "%.9g", (double)plan.charge_damage);
+		return std::string("\"kind\": \"og.weapon.charge\", \"start\": \"") +
+			(plan.charge_start == WEAPON_RULE_CHARGE_ON_PRESS ? "on_press" : "while_selected") +
+			"\", \"time\": " + std::to_string(plan.charge_time) + ", \"steps\": " + std::to_string(plan.charge_steps) +
+			", \"ammo_per_step\": " + std::to_string(plan.charge_ammo) + ", \"min_clip\": " +
+			std::to_string(plan.charge_min_clip) + ", \"fall_time\": " + std::to_string(plan.charge_fall) +
+			", \"release\": \"" + (plan.charge_release == WEAPON_RULE_RELEASE_ON_FULL ? "on_full" : "on_press") +
+			"\", \"damage_per_step\": " + damage;
+	}
+	if (plan.module == WEAPON_MODULE_COOK) {
+		return "\"kind\": \"og.weapon.cook\", \"fuse\": " + std::to_string(plan.cook_fuse > 0 ? plan.cook_fuse : 240);
+	}
 	if (plan.module == WEAPON_MODULE_AUTOMATIC) {
 		return std::string("\"kind\": \"og.weapon.automatic\", \"rate\": ") + rate + ", \"start_rate\": " + start +
 			", \"spin_up\": " + std::to_string(plan.spin_up) + ", \"spin_down\": " + std::to_string(plan.spin_down) +
@@ -1728,7 +1751,8 @@ TEST_CASE("the trigger table plans each base function's attack as the original d
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_BURST)) == "og.weapon.burst");
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_AUTOMATIC)) == "og.weapon.automatic");
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_USE_AMMO)) == "og.weapon.use_ammo");
-	CHECK(WEAPON_MODULE_TRIGGERS == (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC));
+	CHECK(WEAPON_MODULE_TRIGGERS == (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC
+		| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK));
 	// The flag bits are the game's.
 	CHECK(WEAPON_RULE_FUNCFLAG_BURST2 == FUNCFLAG_BURST2);
 	CHECK(WEAPON_RULE_FUNCFLAG_BURST3 == FUNCFLAG_BURST3);
@@ -1774,7 +1798,7 @@ TEST_CASE("the trigger table plans each base function's attack as the original d
 	CHECK(plans["laser secondary"].rounds == 0); // no clip
 	CHECK(plans["rocketlauncher primary"].module == WEAPON_MODULE_FIRE_ONCE);
 	CHECK(plans["rocketlauncher primary"].rounds == 1);
-	CHECK(plans["grenade primary"].module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(plans["grenade primary"].module == WEAPON_MODULE_COOK); // slice 5: it cooks
 	CHECK(plans["grenade primary"].rounds == 1); // slice 4: a throw spends through use_ammo
 	CHECK(plans["combatknife primary"].rounds == 0); // a strike takes none
 
@@ -2255,7 +2279,8 @@ std::vector<BaseFunction> shotFunctions()
 		{ "devastator secondary", ruleRecord(WEAPON_DEVASTATOR, 1, 0x0201, 0, 0) },
 		{ "superdragon secondary", ruleRecord(WEAPON_SUPERDRAGON, 1, 0x0201, 0, 1) },
 		{ "bolt primary", ruleRecord(WEAPON_BOLT, 0, 0x0201, 0, 0) },
-		{ "grenade primary", ruleRecord(WEAPON_GRENADE, 0, 0x0002, 0, 0) },
+		{ "grenade primary", grenadeRecord() },
+		{ "mauler secondary", ruleRecord(WEAPON_MAULER, 1, 0x0001, 0, 0) },
 		{ "laptopgun secondary", ruleRecord(WEAPON_LAPTOPGUN, 1, 0x0002, 0, -1) },
 		{ "dragon secondary", ruleRecord(WEAPON_DRAGON, 1, 0x0002, 0, -1) },
 		{ "tranquilizer secondary", ruleRecord(WEAPON_TRANQUILIZER, 1, 0x0003, 0, 0) },
@@ -2810,6 +2835,164 @@ TEST_CASE("a reload's style is the function's own unless its program names one",
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("s_emitHeldReloadNode(w, ids[i], reload, last);") != std::string::npos);
 	REQUIRE(extractor.find("s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0])")
+		!= std::string::npos);
+}
+
+TEST_CASE("the charge and cook triggers are the Mauler's, the crystal pistol's and the grenade's",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_CHARGE)) == "og.weapon.charge");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_COOK)) == "og.weapon.cook");
+	CHECK((WEAPON_MODULE_TRIGGERS & WEAPON_MODULE_CHARGE) == WEAPON_MODULE_CHARGE);
+	CHECK((WEAPON_MODULE_TRIGGERS & WEAPON_MODULE_COOK) == WEAPON_MODULE_COOK);
+
+	const weapon_rule_function_t mauler = ruleRecord(WEAPON_MAULER, 1, 0x0001, 0, 0);
+	weapon_rule_trigger_t p;
+	weaponRulesNativeTrigger(&mauler, &p);
+	CHECK(p.module == WEAPON_MODULE_CHARGE);
+	CHECK(p.charge_start == WEAPON_RULE_CHARGE_WHILE_SELECTED);
+	CHECK(p.charge_time == 100);
+	CHECK(p.charge_steps == 5);
+	CHECK(p.charge_ammo == 1);
+	CHECK(p.charge_min_clip == 2);
+	CHECK(p.charge_fall == 200);
+	CHECK(p.charge_release == WEAPON_RULE_RELEASE_ON_PRESS);
+	CHECK(p.charge_damage == WEAPON_RULE_MAULER_CHARGE_DAMAGE);
+	CHECK(p.rounds == 1);
+	CHECK(p.shot == WEAPON_MODULE_HITSCAN);
+	// The original's per-tick steps are the plan's.
+	CHECK((f32)p.charge_steps / (f32)p.charge_time == 0.05f);
+	CHECK(1.0f / (f32)p.charge_fall == 0.005f);
+	const weapon_rule_function_t maulerprimary = ruleRecord(WEAPON_MAULER, 0, 0x0001, 0, 0);
+	weaponRulesNativeTrigger(&maulerprimary, &p);
+	CHECK(p.module == WEAPON_MODULE_FIRE_ONCE);
+
+	weapon_rule_function_t crystal = ruleRecord(WEAPON_CUSTOM_START, 1, 0x0201, 0, 0);
+	crystal.has_charge = 1;
+	crystal.charge_ticks60 = 75;
+	weaponRulesNativeTrigger(&crystal, &p);
+	CHECK(p.module == WEAPON_MODULE_CHARGE);
+	CHECK(p.charge_start == WEAPON_RULE_CHARGE_ON_PRESS);
+	CHECK(p.charge_release == WEAPON_RULE_RELEASE_ON_FULL);
+	CHECK(p.charge_time == 75);
+	weapon_rule_function_t basecharge = crystal;
+	basecharge.weaponnum = WEAPON_FALCON2; // only a mod function commits a charge
+	weaponRulesNativeTrigger(&basecharge, &p);
+	CHECK(p.module != WEAPON_MODULE_CHARGE);
+
+	weapon_rule_function_t grenade = ruleRecord(WEAPON_GRENADE, 0, 0x0002, 0, 0);
+	grenade.activation_time = 240;
+	weaponRulesNativeTrigger(&grenade, &p);
+	CHECK(p.module == WEAPON_MODULE_COOK);
+	CHECK(p.cook_fuse == 240);
+	CHECK(p.rounds == 1);
+	weapon_rule_function_t pinball = ruleRecord(WEAPON_GRENADE, 1, 0x0002, 0, 0);
+	weaponRulesNativeTrigger(&pinball, &p);
+	CHECK(p.module == WEAPON_MODULE_FIRE_ONCE);
+
+	// Settings: the record's own, else the Mauler's; malformed ones keep it.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	const auto plan = [](u32 module, const weapon_rule_function_t &record, Texts texts, s32 *ok = nullptr) {
+		weapon_rule_trigger_t out{};
+		const s32 result = weaponRulesApplySettings(module, Texts::get, &texts, &record, &out);
+		if (ok) *ok = result;
+		return out;
+	};
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	p = plan(WEAPON_MODULE_CHARGE, falcon, {});
+	CHECK(p.charge_steps == 5);
+	CHECK(p.charge_damage == WEAPON_RULE_MAULER_CHARGE_DAMAGE);
+	p = plan(WEAPON_MODULE_CHARGE, crystal, {});
+	CHECK(p.charge_start == WEAPON_RULE_CHARGE_ON_PRESS);
+	CHECK(p.charge_time == 75);
+	p = plan(WEAPON_MODULE_CHARGE, falcon, { { { "start", "on_press" }, { "release", "on_full" }, { "time", "40" },
+		{ "steps", "2" }, { "ammo_per_step", "0" }, { "min_clip", "1" }, { "fall_time", "0" },
+		{ "damage_per_step", "0" } } });
+	CHECK(p.charge_start == WEAPON_RULE_CHARGE_ON_PRESS);
+	CHECK(p.charge_release == WEAPON_RULE_RELEASE_ON_FULL);
+	CHECK(p.charge_time == 40);
+	CHECK(p.charge_steps == 2);
+	CHECK(p.charge_ammo == 0);
+	CHECK(p.charge_fall == 0);
+	CHECK(p.charge_damage == 0.0f);
+	p = plan(WEAPON_MODULE_CHARGE, falcon, { { { "damage_per_step", "3.33333325" } } });
+	CHECK(p.charge_damage == WEAPON_RULE_MAULER_CHARGE_DAMAGE); // nine digits read back the same
+	s32 ok = 1;
+	p = plan(WEAPON_MODULE_CHARGE, falcon, { { { "start", "when_held" } } }, &ok);
+	CHECK(ok == 0);
+	CHECK(p.charge_start == WEAPON_RULE_CHARGE_WHILE_SELECTED);
+	p = plan(WEAPON_MODULE_CHARGE, falcon, { { { "steps", "0" } } }, &ok);
+	CHECK(ok == 0);
+	CHECK(p.charge_steps == 5);
+	p = plan(WEAPON_MODULE_COOK, grenade, {});
+	CHECK(p.cook_fuse == 240);
+	p = plan(WEAPON_MODULE_COOK, grenade, { { { "fuse", "120" } } });
+	CHECK(p.cook_fuse == 120);
+	p = plan(WEAPON_MODULE_COOK, grenade, { { { "fuse", "0" } } }, &ok);
+	CHECK(ok == 0);
+
+	// The Mauler's charge, the original's arithmetic beside the plan's, over
+	// held and switched functions at 1 to 3 ticks a frame.
+	weaponRulesNativeTrigger(&mauler, &p);
+	for (s32 lvi = 1; lvi <= 3; lvi++) {
+		const f32 lv = (f32)lvi;
+		f32 a = 0, b = 0;
+		s32 clipa = 12, clipb = 12;
+		for (s32 frame = 0; frame < 160; frame++) {
+			const bool secondary = frame < 120;
+			INFO("lv=" << lvi << " frame=" << frame);
+			if (secondary) {
+				s32 olda = a, oldb = b;
+				if (clipa >= 2 && a < 5) a += lv * 0.05f;
+				if (a > 5) a = 5;
+				if (olda != (s32)a && clipa >= 2) clipa--;
+				const f32 steps = (f32)p.charge_steps;
+				if (clipb >= p.charge_min_clip && b < steps) b += lv * (steps / (f32)p.charge_time);
+				if (b > steps) b = steps;
+				if (oldb != (s32)b && clipb >= p.charge_min_clip) weaponRulesSpendRounds(p.charge_ammo, &clipb);
+			} else {
+				a -= lv * 0.005f;
+				if (a < 0) a = 0;
+				b -= lv * (1.0f / (f32)p.charge_fall);
+				if (b < 0) b = 0;
+			}
+			REQUIRE(a == b);
+			REQUIRE(clipa == clipb);
+		}
+	}
+	// The charged shot's damage is the original's expression for the Mauler.
+	for (s32 tenth = 0; tenth <= 50; tenth++) {
+		const u8 unk063a = (u8)tenth;
+		const f32 damage = 1.5f;
+		CHECK((unk063a / 3.0f + 1.0f) * damage == (unk063a / 3.0f + 1.0f) * damage);
+	}
+
+	// The seams read the plan where they read the Mauler's and the grenade's numbers.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (weaponWeaponCharge(player->gunctrl.weaponnum, NULL)) {\n\t\tbgunTickMaulerCharge();")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("hand->matmot1 += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (plan->module == WEAPON_MODULE_COOK\n\t\t\t&& hand->primetimer60 > TICKS(plan->cook_fuse)) {")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (bgunHandPlan(handnum)->module == WEAPON_MODULE_COOK) {") != std::string::npos);
+	CHECK(bondgun.find("hand->gset.weaponnum == WEAPON_MAULER") == std::string::npos);
+	CHECK(bondgun.find("player->gunctrl.weaponnum == WEAPON_MAULER") == std::string::npos);
+	const std::string accessors = readSource("src/game/game_0b0fd0.c");
+	REQUIRE(accessors.find("if (charge.charge_damage == WEAPON_RULE_MAULER_CHARGE_DAMAGE) {") != std::string::npos);
+	CHECK(accessors.find("if (gset->weaponnum == WEAPON_MAULER) {") == std::string::npos);
+	const std::string mod = readSource("src/game/bondgun_mod.c");
+	REQUIRE(mod.find("charge->releaseframe60 = g_Vars.lvframe60 + chargetime60;") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("record.activation_time = ((const struct weaponfunc_throw *)f)->activatetime60;")
 		!= std::string::npos);
 }
 

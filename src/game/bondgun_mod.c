@@ -975,7 +975,7 @@ static void bgunModChargeCaptureSockets(struct bgunmodcharge *charge,
 }
 
 bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum, struct hand *hand,
-		const weapon_graph_held_function_t *held)
+		const weapon_graph_held_function_t *held, s32 chargetime60)
 {
 	struct bgunmodcharge *charge = bgunModChargeForCurrentPlayer();
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
@@ -999,7 +999,8 @@ bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum, struct
 		charge->ammoindex = ammoindex;
 		charge->count = loaded < BGUN_MOD_CHARGE_ROUNDS ? loaded : BGUN_MOD_CHARGE_ROUNDS;
 		charge->startframe60 = g_Vars.lvframe60;
-		charge->releaseframe60 = g_Vars.lvframe60 + held->charge_time_ticks60;
+		/* held-weapon-events.md slice 5: the charge's time is its plan's. */
+		charge->releaseframe60 = g_Vars.lvframe60 + chargetime60;
 		charge->gset = hand->gset;
 		charge->ownerprop = g_Vars.currentplayer->prop;
 
@@ -1009,7 +1010,7 @@ bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum, struct
 
 		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: start weapon=%d player=%d func=%d count=%d release_in=%d",
 			charge->weaponnum, g_Vars.currentplayernum, charge->funcnum, charge->count,
-			held->charge_time_ticks60);
+			chargetime60);
 	}
 
 	/* Committed: the hand stays busy (no fire, reload, mode or weapon change)

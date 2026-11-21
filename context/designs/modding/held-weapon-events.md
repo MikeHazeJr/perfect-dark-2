@@ -431,7 +431,7 @@ Tests: `tests/test_mission_graph_runner.cpp` ("a reload's style is the
 function's own unless its program names one"),
 `tools/tests/test_projectile_program_conformance.py` (`test_reload_styles`).
 
-## Slice 5 survey (Core Weapons, 2026-11-21, before code)
+## Slice 5 as written (Core Weapons, 2026-11-21)
 
 Charge then release and Hold to cook, one charge module shared with the
 crystal pistol. What the three behave like today:
@@ -459,17 +459,46 @@ crystal pistol. What the three behave like today:
   (`HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT`); a thrown grenade's fuse is
   shortened by the prime (`timer240 -= primetimer60 * 4`).
 
-Proposed (to settle before code): `og.weapon.charge` with `start`
-(`while_selected` for the Mauler, `on_press` for the crystal pistol), `time`
-(ticks to full), `steps`, `ammo_per_step` and `min_clip`, `fall_time` (ticks a
-step falls back while another function is held), `release` (`on_press`: the
-trigger fires the charged shot; `on_full`: it goes when full) and
-`damage_per_step` (the Mauler's 10/3); the crystal pistol's fan stays its
-launch's settings. `og.weapon.cook` for the grenade with `fuse` (the record's
-activation time) and what holding it too long does (`explode_in_hand`). The
-charge level becomes the hand's own state, which the damage, the sound's pitch
-and the tint read. Parity as before: a copy of the original charge code beside
-the plan's steps in pd-tests, and the probe at the seams.
+**What slice 5 does.** Both are trigger modules (the
+audit's Trigger group: Fire once, Burst, Automatic, Charge then release, Hold
+to cook), so they live in the attack's plan beside the other triggers:
+
+| Module | Settings (the original's) | Replaces |
+|---|---|---|
+| `og.weapon.charge` | `start` (`while_selected`: the Mauler; `on_press`: the crystal pistol), `time` (ticks empty to full; Mauler 100, crystal pistol its `charge_time_ticks60`), `steps` (Mauler 5), `ammo_per_step` (Mauler 1) and `min_clip` (Mauler 2), `fall_time` (ticks a step falls back while the other function is held; Mauler 200), `release` (`on_press`: the trigger fires the charged shot; `on_full`: it goes by itself), `damage_per_step` (Mauler 10/3) | `bgunTickMaulerCharge`'s weapon test, secondary test, clip 0, the 0.05 and 0.005 a tick, the five steps; `gsetPopulateFromCurrentPlayer` and `gsetGetDamage`'s Mauler tests; the shot sound's pitch and the gun's tint; the reset after a shot; the crystal pistol's `has_charge` dispatch |
+| `og.weapon.cook` | `fuse` (ticks the throw may be held; the record's activation time) | the grenade primary's forced throw and the fuse shortened by the prime |
+
+The charge level stays the hand's (`matmot1`, in steps) and the damage reads
+it as before (`unk063a` is tenths of a step): with the Mauler's 10/3 the
+multiplier is the original's own expression, any other `damage_per_step` is
+`1 + level * damage_per_step`. A charge trigger's attack is one round (as
+Fire once). Simulants' Mauler charge stays in `bot.c` (Multiplayer & Rules'
+file), noted like the burst.
+
+- **Where it runs:** `weaponWeaponCharge` (`weapon_events.c`) finds a
+  weapon's while-selected charge; `bgunTickMaulerCharge` runs it from the
+  plan (steps over time, ammo per step from the clip of its function, the
+  fall while the other function is held), and the shot sound's pitch, the
+  reset after a shot, the gun's tint, the charge the shot carries
+  (`gsetPopulateFromCurrentPlayer`) and the damage (`gsetGetDamage`) follow
+  the weapon's charge where they followed the Mauler's number. The committed
+  charge (`bgunTickIncAttack`) is the plan's `on_press` charge, for its
+  `time` (`bgunModTickIncAttackCharge`); the crystal's glow still ramps over
+  the record's time. The grenade's forced throw and its shortened fuse read
+  the plan's `og.weapon.cook`.
+- **Extractor:** the Mauler's secondary is written as `og.weapon.charge`
+  with every setting (its damage with nine digits, so 10/3 reads back the
+  same), the grenade's primary as `og.weapon.cook` with its activation time;
+  marker `embedded.v21`, cache kind `_heldcharges`.
+- **Not exact, on purpose:** none for base weapons; a mod's
+  `damage_per_step` other than 10/3 multiplies as `1 + level x
+  damage_per_step` in float.
+
+Tests: `tests/test_mission_graph_runner.cpp` ("the charge and cook triggers
+are the Mauler's, the crystal pistol's and the grenade's": the native plans,
+the settings, and the original's charge arithmetic beside the plan's over held
+and switched functions at 1 to 3 ticks a frame),
+`tools/tests/test_projectile_program_conformance.py` (`test_charge_and_cook`).
 
 ## Smokes for Integration's finalization batch
 
@@ -492,6 +521,9 @@ Listed as each slice lands; none is run by Core Weapons.
 | 4 | `boot_smoke` on a freshly extracted install | `embedded.v20`; every base program registers with its shot node and its reload's style |
 | 4b | any smoke that empties a Shotgun's or crossbow's clip | the clip_empty `WEAPON.RULE` line shows `reload=one_at_a_time native_reload=one_at_a_time`; no `WEAPON.RULE differs` |
 | 4b | `crystal_pistol_bot_charge_smoke` | the crystal pistol (a v1 graph, its record's regrow) still regrows its crystals (`BONDGUN.REGROW` lines) |
+| 5 | any smoke that charges the Mauler and fires it (none written yet: give `base:mauler`, switch to the secondary, wait two seconds, fire) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
+| 5 | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's committed charge still waits its time and launches (`BONDGUN.CHARGE: start ... release_in=`) |
+| 5 | `projectile_events_smoke` | the timed grenade still cooks and throws (its fuse lines unchanged) |
 
 ## Where to look
 

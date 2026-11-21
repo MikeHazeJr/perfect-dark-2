@@ -238,6 +238,16 @@ static const char *weaponPlanText(const weapon_rule_trigger_t *plan, char *buf, 
 			plan->aimed_burst ? "true" : "false", plan->rounds);
 	} else if (plan->module == WEAPON_MODULE_BURST) {
 		n = snprintf(buf, cap, "burst count=%d gap=%d rounds=%d", plan->count, plan->gap, plan->rounds);
+	} else if (plan->module == WEAPON_MODULE_CHARGE) {
+		n = snprintf(buf, cap,
+			"charge start=%s time=%d steps=%d ammo_per_step=%d min_clip=%d fall_time=%d release=%s"
+			" damage_per_step=%.9g rounds=%d",
+			plan->charge_start == WEAPON_RULE_CHARGE_ON_PRESS ? "on_press" : "while_selected", plan->charge_time,
+			plan->charge_steps, plan->charge_ammo, plan->charge_min_clip, plan->charge_fall,
+			plan->charge_release == WEAPON_RULE_RELEASE_ON_FULL ? "on_full" : "on_press",
+			(double)plan->charge_damage, plan->rounds);
+	} else if (plan->module == WEAPON_MODULE_COOK) {
+		n = snprintf(buf, cap, "cook fuse=%d rounds=%d", plan->cook_fuse, plan->rounds);
 	} else {
 		n = snprintf(buf, cap, "fire_once rounds=%d", plan->rounds);
 	}
@@ -477,6 +487,9 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 		out->flags = held->flags;
 		out->ammo_slot = held->ammo_slot;
 		out->specialfunc = held->has_specialfunc ? held->specialfunc : 0;
+		out->has_charge = held->has_charge;
+		out->charge_ticks60 = held->has_charge ? held->charge_time_ticks60 : 0;
+		out->activation_time = held->has_activation_time_ticks60 ? held->activation_time_ticks60 : 0;
 		out->has_rate = held->has_max_rpm;
 		out->initial_rpm = held->has_initial_rpm ? held->initial_rpm : 0.0f;
 		out->max_rpm = held->has_max_rpm ? held->max_rpm : 0.0f;
@@ -491,6 +504,9 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 			out->ammo_slot = f->ammoindex;
 			if ((f->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
 				out->specialfunc = ((struct weaponfunc_special *)f)->specialfunc;
+			}
+			if ((f->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+				out->activation_time = ((struct weaponfunc_throw *)f)->activatetime60;
 			}
 			if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
 				const struct weaponfunc_shootauto *a = (const struct weaponfunc_shootauto *)f;
@@ -582,6 +598,20 @@ void weaponFunctionPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *out
 	}
 	weaponRuleFunctionOfHeld(weaponnum, func, &record);
 	weaponRulesNativeTrigger(&record, out);
+}
+
+s32 weaponWeaponCharge(s32 weaponnum, struct weapon_rule_trigger *out)
+{
+	for (s32 f = 0; f < 2; f++) {
+		weapon_rule_trigger_t plan;
+
+		weaponFunctionPlan(weaponnum, f, &plan);
+		if (plan.module == WEAPON_MODULE_CHARGE && plan.charge_start == WEAPON_RULE_CHARGE_WHILE_SELECTED) {
+			if (out) *out = plan;
+			return f + 1;
+		}
+	}
+	return 0;
 }
 
 s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot)
