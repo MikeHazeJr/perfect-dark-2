@@ -431,6 +431,46 @@ Tests: `tests/test_mission_graph_runner.cpp` ("a reload's style is the
 function's own unless its program names one"),
 `tools/tests/test_projectile_program_conformance.py` (`test_reload_styles`).
 
+## Slice 5 survey (Core Weapons, 2026-11-21, before code)
+
+Charge then release and Hold to cook, one charge module shared with the
+crystal pistol. What the three behave like today:
+
+- **Mauler secondary** (`fire.charge_release`, shoot single): the charge
+  builds while the secondary is *selected*, not while the trigger is held
+  (`bgunTickMaulerCharge`, every frame; the audit's recorded hazard): `matmot1`
+  rises 0.05 a 60 Hz tick to 5 (five steps in 100 ticks), and each whole step
+  takes a round while the clip holds 2 or more; on the primary it falls 0.005 a
+  tick; a reload empties it. The shot carries it: `gsetPopulateFromCurrentPlayer`
+  sets `unk063a` to `matmot1 * 10` and `gsetGetDamage` multiplies the damage by
+  `unk063a / 3 + 1`; the shot sound's pitch (`bondgun.c` near 2474) and the
+  gun's red tint (near 12991) follow it; firing resets it (near 2746).
+  Simulants charge the same way in `bot.c` (Multiplayer & Rules' file:
+  `maulercharge`).
+- **Crystal pistol secondary** (mod, `has_charge`, T-MODDING-008): a
+  committed charge launch: a press with a loaded clip starts it
+  (`bgunModTickIncAttackCharge`), the hand stays busy for
+  `charge_time_ticks60`, then `bgunModChargeRelease` launches up to its round
+  count of crystals in a fan (`launch_speed`, `launch_fan_deg`, its parts);
+  simulants through `bgunModChargeForChr`.
+- **Grenade primary** (throw): the prime timer runs while the trigger is held
+  in the throw (`primetimer60`); held past the function's activation time the
+  grenade is forced out and goes off in the hand
+  (`HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT`); a thrown grenade's fuse is
+  shortened by the prime (`timer240 -= primetimer60 * 4`).
+
+Proposed (to settle before code): `og.weapon.charge` with `start`
+(`while_selected` for the Mauler, `on_press` for the crystal pistol), `time`
+(ticks to full), `steps`, `ammo_per_step` and `min_clip`, `fall_time` (ticks a
+step falls back while another function is held), `release` (`on_press`: the
+trigger fires the charged shot; `on_full`: it goes when full) and
+`damage_per_step` (the Mauler's 10/3); the crystal pistol's fan stays its
+launch's settings. `og.weapon.cook` for the grenade with `fuse` (the record's
+activation time) and what holding it too long does (`explode_in_hand`). The
+charge level becomes the hand's own state, which the damage, the sound's pitch
+and the tint read. Parity as before: a copy of the original charge code beside
+the plan's steps in pd-tests, and the probe at the seams.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
