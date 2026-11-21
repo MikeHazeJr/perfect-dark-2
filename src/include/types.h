@@ -841,8 +841,8 @@ struct aibot {
 	/*0x2cc*/ s32 random2ttl60;
 	/*0x2d0*/ u32 random2;
 	/*0x2d4*/ f32 randomfrac;
-	/*0x2d8*/ u32 unk2d8; // unused
-	/*0x2dc*/ u32 unk2dc; // unused
+	/*0x2d8*/ u32 jumplastevalms;
+	/*0x2dc*/ s32 jumpcooldownuntil60;
 };
 
 struct geo {

@@ -766,6 +766,9 @@ void mpInit(bool resetplayers)
 
 	g_MpSetup.options |= MPOPTION_FRIENDLYFIRE;
 
+	/* PC: simulants jump by default (Mike 2026-11-21: "bots must use our jump"). */
+	g_MpSetup.options |= MPOPTION_BOTJUMP;
+
 	g_Vars.mphilltime = 10;
 
 	func0f187fec();
@@ -4601,6 +4604,11 @@ void mpApplyConfig(struct mpconfigfull *config)
 	 * whole-struct assignment from the challenge template is safe — it
 	 * does not clobber participant state. */
 	g_MpSetup = config->config.setup;
+
+	/* PC: the original preset and challenge table predates simulant jumping,
+	 * so its option words never carry the bit; simulants jump by default
+	 * there too (Mike 2026-11-21: "bots must use our jump"). */
+	g_MpSetup.options |= MPOPTION_BOTJUMP;
 
 	/* PC (finding 10): the challenge and preset table (mpconfigs.c) names its
 	 * stage by number; everything after this keys on the catalog id. */

@@ -1,0 +1,56 @@
+{
+  "scenario_name": "complex_ledge_player_smoke",
+  "description": "A local player jumps onto the stock Complex room 24 ledge, remains on its y=551 support, then steps off and lands on the y=512 floor. The fixture places the actor once and uses the normal player jump and movement actions from there.",
+  "tags": ["combatsim", "movement", "jump", "collision"],
+  "paths_of_interest": ["port/src/smoke_harness.c", "src/game/bondwalk.c", "src/lib/capsule.c"],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "jump_logging": 1,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--launch-mp-room", "base:arena_mp_complex", "base:combat", "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 270000, "stable_ms": 1000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 1200 },
+    { "at_ms": 100, "type": "movement_ledge", "name": "place_player" },
+    { "at_ms": 600, "type": "action", "name": "ACTION_JUMP", "action": "tap" },
+    { "at_ms": 735, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "press" },
+    { "at_ms": 1290, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "release" },
+    { "at_ms": 2800, "type": "movement_ledge", "name": "walk_off" },
+    { "at_ms": 2850, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "press" },
+    { "at_ms": 3850, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "release" },
+    { "at_ms": 4450, "type": "movement_ledge", "name": "verify" },
+    { "at_ms": 4550, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=complex_ledge_player_smoke",
+      "BOOT: --launch-mp-room direct match start",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+    ],
+    "required_sequences": [
+      {
+        "name": "player-takeoff-land-stay-walk-off",
+        "patterns": [
+          "SMOKE\\.LEDGE: phase=place actor=player .* room=24 feet=51[01234]\\.",
+          "JUMP: APPLIED impulse=",
+          "SMOKE\\.LEDGE: phase=takeoff",
+          "SMOKE\\.LEDGE: phase=land .* room=24 feet=(?:549|55[0-3])\\.",
+          "SMOKE\\.LEDGE: phase=stay .* room=24 feet=(?:549|55[0-3])\\.",
+          "SMOKE\\.LEDGE: phase=drop",
+          "SMOKE\\.LEDGE: phase=lower_land .* room=24 feet=51[01234]\\.",
+          "SMOKE\\.LEDGE: result=pass actor=player",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [{ "pattern": "SMOKE\\.LEDGE: phase=place", "min": 1, "max": 1 }],
+    "forbidden_patterns": [
+      "SMOKE\\.LEDGE: result=fail", "SMOKE: result=movement_ledge_failed",
+      "SMOKE\\.WAIT: timeout", "EXCEPTION_ACCESS_VIOLATION", "FATAL: "
+    ]
+  }
+}
