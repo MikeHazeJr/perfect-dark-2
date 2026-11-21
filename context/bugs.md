@@ -1,5 +1,28 @@
 # Bug Tracker
 
+## 2026-11-21 B-1293 A .pdpack import could write outside the mods folder, and into another mod's folder (CAT-C01, T-MODDING-022, fixed in code, no live caller)
+
+Found by the 2026-11-20 full audit (CAT-C01) and widened in the fix (claude-pd-authored-mods-20261121).
+`port/src/modpack.c` joined each component archive's member path to its destination verbatim, so `..`
+steps, absolute paths and Windows device names reached the filesystem; it joined the pack's own category
+and component id strings the same way; and its root was `fsGetModDir()`, which returns the first enabled
+mod's own folder, so an import landed inside another mod. Fix: every folder name a pack supplies must be
+one safe path component (`modpackArchiveNameIsSafe`, checked for the whole pack before anything is
+written); members go only through `pdcaExtractArchiveBegin` (the received-PDCA extractor's path and alias
+rules); every component is published, then all are committed together or all rolled back; sizes and the
+compression byte are checked; the root is `modmgrGetModsDir()`. CAT-C02 in the same file: members in
+sorted path order and no `created=` date, so the same components give the same pack
+(`port/src/modpack_archive.c`). Nothing in the game calls `modpackImport` or `modpackExport` today.
+Tests: `[modpack]` (`tests/test_modpack_archive.cpp`).
+
+## 2026-11-21 B-1294 Network distribution packs a loose mod's PDCA archive in directory order (T-MODDING-023 propagation, open, networking's file)
+
+Found while fixing CAT-C02 (claude-pd-authored-mods-20261121). `buildArchiveDir` in
+`port/src/net/netdistrib.c` appends a loose mod folder's files in `readdir` order, the order CAT-C02
+named for `.pdpack`, so two hosts can send different bytes for the same files. Harmless while nothing
+hashes that archive; it matters as soon as a digest covers it. Not changed here (networking's file).
+Fix: collect, sort by path, then append, as `modpackArchiveBuild` does.
+
 ## 2026-11-21 B-1292 A refused mod game mode stays in the legacy mode picker, whose ASSET.CHAIN check would stop the game (T-MODDING-026, open, found in review, not seen in a game)
 
 Found while writing gamemode-graphs slice 2 (claude-pd-mp-rules-20261121). When a `.pdgamemode` does not

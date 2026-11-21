@@ -53,6 +53,8 @@ def load_verifier(repo: Path):
     path = repo / "tools" / "verify_pdxxx_modder_workflow.py"
     spec = importlib.util.spec_from_file_location("pdxxx_workflow_for_staging", path)
     module = importlib.util.module_from_spec(spec)
+    # Registered before it runs: its dataclasses look their module up there.
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 

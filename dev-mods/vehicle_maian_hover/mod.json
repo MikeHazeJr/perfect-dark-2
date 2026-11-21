@@ -1,0 +1,9 @@
+{
+  "id": "mod.vehicle_maian_hover",
+  "name": "Maian Hover",
+  "version": "0.4.0",
+  "author": "PD2",
+  "description": "Maian two-seat hover vehicle: hull and driver's cockpit, the gunner's pod on a ring of 18 seafoam crystals, and the crystal cannon. Boost and heat from its vehicle graph; the gunner seat and the turret follow.",
+  "tags": ["vehicle", "pdvehicle", "user"],
+  "contents": ["vehicle"]
+}
