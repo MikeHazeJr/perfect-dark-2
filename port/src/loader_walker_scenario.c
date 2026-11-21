@@ -130,6 +130,13 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     e->ext.scenario.stagenum = (s32)stagenum;
     e->ext.scenario.mode = s_kindToMode(kind);
     e->ext.scenario.source_room_count = (s32)room_count;
+    /* The stage's language bank (stage text banks off lang.c, 2026-11-21):
+     * an ASSET_LANG catalog id the stage names itself. langGetStageBank
+     * resolves it; an archive that names none keeps the game's stage table. */
+    e->ext.scenario.text_bank[0] = '\0';
+    loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "text_bank",
+                                 e->ext.scenario.text_bank,
+                                 sizeof(e->ext.scenario.text_bank));
 
     if (loaderWalkerArchiveMemberPath(file_path, scene_member,
                                       member_path, sizeof(member_path))) {

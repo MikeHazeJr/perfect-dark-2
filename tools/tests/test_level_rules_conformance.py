@@ -105,9 +105,15 @@ class LevelGraphRules(unittest.TestCase):
 
     def test_the_formats(self):
         current = conf.ARENA_SCENARIO_GRAPH_CACHE_KIND
-        self.assertTrue(current.endswith("_ruleevents_liftglass"), current[-48:])
+        self.assertTrue(current.endswith("_ruleevents_liftglass_textbank"), current[-48:])
+        # Before the lift and glass rules, and before the stage's text bank
+        # (a level of that kind wires every rule and names no text_bank).
+        before_liftglass = current[:-len("_liftglass_textbank")]
+        before_textbank = current[:-len("_textbank")]
         self.assertEqual(conf.ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED,
-                         (current[:-len("_liftglass")],))
+                         (before_liftglass, before_textbank))
+        self.assertEqual(conf.ARENA_SCENARIO_GRAPH_CACHE_KINDS_BEFORE_LIFTGLASS,
+                         (before_liftglass,))
         self.assertNotIn(current, conf.ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED)
         self.assertEqual(conf.LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS,
                          ("event.pickup.touched", "event.door.use", "event.door.approach"))

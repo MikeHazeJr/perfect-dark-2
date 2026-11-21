@@ -1704,7 +1704,9 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		langbuffer = &buffer[setupfilesize];
 		langbufferlen = bufferlen - setupfilesize;
 
-		briefing->langbank = langGetLangBankIndexFromStagenum(stagenum);
+		/* Stage text banks off lang.c: the stage's own archive names its bank;
+		 * a briefing is for a mission, so the solo scenario answers. */
+		briefing->langbank = langGetStageBank(stagenum, 0);
 
 		langLoadToAddr(briefing->langbank, langbuffer, langbufferlen);
 
@@ -1834,7 +1836,7 @@ void setupLoadFiles(s32 stagenum)
 		}
 		setup = (struct stagesetup *)g_GeCreditsData;
 		{
-			s32 stagebank = (s32)langGetLangBankIndexFromStagenum(stagenum);
+			s32 stagebank = langGetStageBank(stagenum, g_Vars.normmplayerisrunning);
 			langLoad(stagebank);
 			langManifestRecordBank(stagebank);
 		}

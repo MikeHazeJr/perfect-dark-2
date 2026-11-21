@@ -1824,6 +1824,10 @@ static const char *s_bindScenarioSourceFields(asset_entry_t *e, const ini_sectio
 	e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
 	e->ext.scenario.source_room_count = iniGetInt(ini,
 		"source_room_count", 0);
+	/* The stage's language bank, an ASSET_LANG catalog id (langGetStageBank). */
+	strncpy(e->ext.scenario.text_bank, iniGet(ini, "text_bank", ""),
+		sizeof(e->ext.scenario.text_bank) - 1);
+	e->ext.scenario.text_bank[sizeof(e->ext.scenario.text_bank) - 1] = '\0';
 	const char *sf, *rf;
 	const char *primary = s_scenarioPrimarySource(ini, &sf, &rf);
 	const char *cf = iniGet(ini, "collision_file",
