@@ -135,6 +135,49 @@ TEST_CASE("network prop placement gives links to one ownership domain",
 		NET_RECONNECT_PROP_PLACEMENT_INVALID);
 }
 
+TEST_CASE("reconnect world rows place every prop by the host's scheduler presence",
+		"[net][reconnect][prop][b1277]")
+{
+	/* A child is on no list, whatever the receiver had. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(1, 0, 0, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_ATTACHED);
+	REQUIRE(netReconnectPlanWorldPropPlacement(1, 0, 0, 1) ==
+		NET_RECONNECT_WORLD_PLACEMENT_ATTACHED);
+	REQUIRE(netReconnectPlanWorldPropPlacement(1, 1, 0, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_INVALID);
+	REQUIRE(netReconnectPlanWorldPropPlacement(1, 0, 1, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_INVALID);
+
+	/* B-1277: a pad -1 placeholder is on no list on the host and on the
+	 * receiver's fresh stage; that is a valid world row, not a refusal. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 0, 0, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED);
+	/* The host took it off the lists; the receiver follows. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 0, 0, 1) ==
+		NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED);
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 0, 1, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_INVALID);
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 0, 1, 1) ==
+		NET_RECONNECT_WORLD_PLACEMENT_INVALID);
+
+	/* Listed on both sides: active/paused stays receiver-local. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 1, 0, 1) ==
+		NET_RECONNECT_WORLD_PLACEMENT_KEEP);
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 1, 1, 1) ==
+		NET_RECONNECT_WORLD_PLACEMENT_KEEP);
+
+	/* Listed on the host only (placed by a level script, or a child put back
+	 * into the world): start it as the host has it. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 1, 1, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_ACTIVE);
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 1, 0, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_PAUSED);
+
+	/* Inputs are truth values, not a wire-width contract. */
+	REQUIRE(netReconnectPlanWorldPropPlacement(0, 8, 4, 0) ==
+		NET_RECONNECT_WORLD_PLACEMENT_ACTIVE);
+}
+
 TEST_CASE("reconnect world snapshots publish durable lifecycle state",
 		"[net][reconnect][b1064][b1096]")
 {

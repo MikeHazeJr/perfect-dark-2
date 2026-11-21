@@ -302,6 +302,7 @@ typedef enum net_reconnect_prop_state_status_e {
 	NET_RECONNECT_PROP_STATE_EMBEDDED_ATTACHMENT,
 	NET_RECONNECT_PROP_STATE_WEAPON_IDENTITY,
 	NET_RECONNECT_PROP_STATE_WEAPON_DUAL_REFERENCE,
+	NET_RECONNECT_PROP_STATE_SCHEDULER_MEMBERSHIP, /* v66, B-1277 */
 } net_reconnect_prop_state_status_e;
 
 typedef struct net_reconnect_snapshot_result_s {

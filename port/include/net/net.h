@@ -11,7 +11,16 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 65  /* v65 (2026-11-17, D-027): exact Grid match identity,
+#define NET_PROTOCOL_VER 66  /* v66 (2026-11-21, MULTIPLAYER AND RULES, B-1277):
+                             * a reconnect world row's lifecycle byte carries
+                             * the host's scheduler presence (bit 8, on the
+                             * active or paused part of the prop chain), so a
+                             * setup placeholder with no parent and on no list
+                             * (pad -1, or a missing container) is a valid row
+                             * and the receiver lists exactly what the host
+                             * lists. A v65 host never sends the bit, so a v66
+                             * client must not take its rows.
+                             * v65 (2026-11-17, D-027): exact Grid match identity,
                              * native arena transfer and private creator topics.
                              * v64 (2026-11-16, MULTIPLAYER; numbered v62 on
                              * week-pd/multiplayer and renumbered when dev's

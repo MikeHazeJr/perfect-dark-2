@@ -1300,6 +1300,16 @@ enum netmsg_reconnect_projectile_kind_e {
 	NET_RECONNECT_PROJECTILE_INVALID = 0xff,
 };
 
+/* Reconnect world-row lifecycle byte. Bits 1 and 2 are forcetick and
+ * forceonetick; ACTIVE is prop->active on the host. SCHEDULED (v66, B-1277)
+ * is the host's scheduler presence: on the active or the paused part of the
+ * one prop chain. A setup object can have no parent and be on no list (a
+ * pad -1 placeholder, or one whose container was never created), so ACTIVE
+ * alone cannot say whether the receiver must list it. PRUNED_PARENT is
+ * receiver-local bookkeeping and never on the wire. */
+#define NET_RECONNECT_LIFECYCLE_ACTIVE 0x04u
+#define NET_RECONNECT_LIFECYCLE_SCHEDULED 0x08u
+#define NET_RECONNECT_LIFECYCLE_WIRE_MASK 0x0fu
 #define NET_RECONNECT_LIFECYCLE_PRUNED_PARENT 0x80u
 
 _Static_assert(NET_MAX_CLIENTS > 0 && NET_MAX_CLIENTS <= 32,
@@ -1437,6 +1447,8 @@ const char *netmsgReconnectPropStateStatusString(
 		return "weapon_identity";
 	case NET_RECONNECT_PROP_STATE_WEAPON_DUAL_REFERENCE:
 		return "weapon_dual_reference";
+	case NET_RECONNECT_PROP_STATE_SCHEDULER_MEMBERSHIP:
+		return "scheduler_membership";
 	default: return "unknown";
 	}
 }
@@ -4932,11 +4944,25 @@ static u32 netmsgSvcReconnectPropStateWrite(struct netbuf *dst,
 {
 	u8 detail = NET_RECONNECT_PROP_DETAIL_NONE;
 	s16 attachment_mtx_index = -1;
+	s32 scheduler_membership;
 
 	if (!dst || !netmsgReconnectIsWorldProp(prop)) {
 		return netmsgReconnectSnapshotFailProp(result,
 			NET_RECONNECT_SNAPSHOT_WORLD_PROP_STATE, prop,
 			NET_RECONNECT_PROP_STATE_INVALID_ARGUMENT, -1);
+	}
+	/* B-1277: publish the scheduler presence the receiver reproduces. A child
+	 * is on no list; a prop without a parent is on one list, or on none when
+	 * it is a setup placeholder (pad -1, or a missing container); an active
+	 * prop is always listed. Anything else is a corrupt chain. */
+	scheduler_membership = netmsgPropSchedulerMembershipCount(prop);
+	if (scheduler_membership < 0 || scheduler_membership > 1
+			|| (prop->parent && scheduler_membership != 0)
+			|| (prop->active && scheduler_membership != 1)) {
+		return netmsgReconnectSnapshotFailProp(result,
+			NET_RECONNECT_SNAPSHOT_WORLD_PROP_STATE, prop,
+			NET_RECONNECT_PROP_STATE_SCHEDULER_MEMBERSHIP,
+			scheduler_membership);
 	}
 	if (prop->obj->model && prop->obj->model->scale <= 0.0f) {
 		return netmsgReconnectSnapshotFailProp(result,
@@ -5044,7 +5070,9 @@ static u32 netmsgSvcReconnectPropStateWrite(struct netbuf *dst,
 	netbufWriteU8(dst, prop->flags);
 	netbufWriteU8(dst, (prop->forcetick ? 1u : 0u)
 		| (prop->forceonetick ? 2u : 0u)
-		| (prop->active ? 4u : 0u));
+		| (prop->active ? NET_RECONNECT_LIFECYCLE_ACTIVE : 0u)
+		| (scheduler_membership == 1
+			? NET_RECONNECT_LIFECYCLE_SCHEDULED : 0u));
 	netbufWriteS16(dst, prop->timetoregen);
 	netbufWriteCoord(dst, &prop->pos);
 	netbufWriteRooms(dst, prop->rooms, ARRAYCOUNT(prop->rooms));
@@ -5194,7 +5222,12 @@ u32 netmsgSvcReconnectPropStateRead(struct netbuf *src,
 	}
 	if (netmsgReconnectProjectileRead(src, &wire.projectile) != 0
 			|| src->error || wire.syncid == 0
-			|| (wire.lifecycle_flags & ~7u) != 0
+			|| (wire.lifecycle_flags & ~NET_RECONNECT_LIFECYCLE_WIRE_MASK) != 0
+			/* B-1277: only a listed prop is active, and a child is on no list. */
+			|| ((wire.lifecycle_flags & NET_RECONNECT_LIFECYCLE_ACTIVE)
+				&& !(wire.lifecycle_flags & NET_RECONNECT_LIFECYCLE_SCHEDULED))
+			|| ((wire.lifecycle_flags & NET_RECONNECT_LIFECYCLE_SCHEDULED)
+				&& wire.parent_id != 0)
 			|| wire.attachment_mtx_index < -1
 			|| (wire.attachment_mtx_index >= 0 && wire.parent_id == 0)
 			|| ((wire.projectile.kind
@@ -5624,6 +5657,27 @@ reject:
 	return 1;
 }
 
+/* B-1277: list a world prop that the host lists and this receiver does not (a
+ * placeholder a level script placed, or a child put back into the world), as
+ * the host has it. Active and paused props are both registered in the rooms of
+ * their list (SP-92), so registration is rebuilt once from prop->rooms.
+ * PROPFLAG_DONTPAUSE only stops the game from pausing a prop by itself; it must
+ * not leave an authoritative paused row on no list (propPause would do nothing). */
+static void netmsgReconnectListWorldProp(struct prop *prop, bool active)
+{
+	if (active) {
+		propUnpause(prop);
+	} else {
+		const u8 dontpause = prop->flags & PROPFLAG_DONTPAUSE;
+
+		prop->flags &= ~PROPFLAG_DONTPAUSE;
+		propPause(prop);
+		prop->flags |= dontpause;
+	}
+	propDeregisterRooms(prop);
+	propRegisterRooms(prop);
+}
+
 /* T-NETWORKING-007 S2: a rejected prop-set end says which check failed (a
  * co-op client's first rejoin was refused here with no reason). */
 static u32 netmsgReconnectPropEndReject(const char *reason, s32 slot,
@@ -5682,8 +5736,9 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct modelnode *attachment_node = NULL;
 		s16 attachment_mtx_index;
 		bool had_parent;
-		bool was_parented;
+		bool want_listed;
 		s32 scheduler_membership;
+		net_reconnect_world_placement_e placement;
 
 		if (!netmsgReconnectIsWorldProp(prop)
 				|| netmsgReconnectPropExpectedIndex(prop->syncid) < 0) {
@@ -5735,9 +5790,6 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		}
 
 		had_parent = prop->parent != NULL;
-		was_parented = prop->parent != NULL
-			|| (s_ReconnectPropReceive.lifecycle_by_slot[slot]
-				& NET_RECONNECT_LIFECYCLE_PRUNED_PARENT) != 0;
 		if (prop->parent != parent) {
 			if (prop->parent) {
 				propDetach(prop);
@@ -5750,35 +5802,51 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				propReparent(prop, parent);
 			}
 		}
-		/* Active/paused placement is normally receiver-local spatial state. Only
-		 * reconstruct it when this snapshot actually detaches an inventory or
-		 * attachment child back into the world. Dynamic spawns already consumed
-		 * their authoritative initial list state in SVC_PROP_SPAWN. */
-		if (!parent && was_parented) {
-			const bool want_active =
-				(s_ReconnectPropReceive.lifecycle_by_slot[slot] & 4u) != 0;
-			if (want_active) {
-				propUnpause(prop);
-				propRegisterRooms(prop);
-			} else {
-				propPause(prop);
-			}
-		}
+		/* B-1277: place the prop by the host's scheduler presence. Active/paused
+		 * placement stays receiver-local spatial state while both sides list the
+		 * prop (dynamic spawns consumed theirs in SVC_PROP_SPAWN). A prop the
+		 * host lists and this receiver does not (a placeholder a level script
+		 * placed, or a child put back into the world) starts as the host has it.
+		 * A prop the host has on no list is taken off: a setup placeholder with
+		 * pad -1, or one whose container was never created, has no parent and
+		 * is on no list on either machine. */
 		scheduler_membership = netmsgPropSchedulerMembershipCount(prop);
-		if (scheduler_membership < 0
-				|| (parent && scheduler_membership != 0)
-				|| (!parent && scheduler_membership != 1)) {
+		placement = NET_RECONNECT_WORLD_PLACEMENT_INVALID;
+		if (scheduler_membership >= 0) {
+			const u8 lifecycle = s_ReconnectPropReceive.lifecycle_by_slot[slot];
+			placement = netReconnectPlanWorldPropPlacement(parent != NULL,
+				(lifecycle & NET_RECONNECT_LIFECYCLE_SCHEDULED) != 0,
+				(lifecycle & NET_RECONNECT_LIFECYCLE_ACTIVE) != 0,
+				scheduler_membership == 1);
+		}
+		if (placement == NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED
+				&& scheduler_membership == 1) {
+			propDeregisterRooms(prop);
+			propDelist(prop);
+		} else if (placement == NET_RECONNECT_WORLD_PLACEMENT_ACTIVE
+				|| placement == NET_RECONNECT_WORLD_PLACEMENT_PAUSED) {
+			netmsgReconnectListWorldProp(prop,
+				placement == NET_RECONNECT_WORLD_PLACEMENT_ACTIVE);
+		}
+		want_listed = placement == NET_RECONNECT_WORLD_PLACEMENT_KEEP
+			|| placement == NET_RECONNECT_WORLD_PLACEMENT_ACTIVE
+			|| placement == NET_RECONNECT_WORLD_PLACEMENT_PAUSED;
+		scheduler_membership = netmsgPropSchedulerMembershipCount(prop);
+		if (placement == NET_RECONNECT_WORLD_PLACEMENT_INVALID
+				|| scheduler_membership < 0
+				|| (!want_listed && scheduler_membership != 0)
+				|| (want_listed && scheduler_membership != 1)) {
 			/* T-NETWORKING-007 S2: name the object and the state that left it
 			 * off the lists (or on them twice), so a refusal can be traced. */
 			sysLogPrintf(LOG_ERROR,
 				"NET.RECONNECT.WORLD scheduler detail slot=%d syncid=%u proptype=%u objtype=%u"
-				" modelnum=%d propflags=0x%02x lifecycle=0x%02x had_parent=%d active=%d"
+				" modelnum=%d propflags=0x%02x lifecycle=0x%02x placement=%d had_parent=%d active=%d"
 				" objflags=0x%08x objflags2=0x%08x objflags3=0x%08x hidden=0x%08x hidden2=0x%02x"
 				" room=%d first_dynamic=%u prev=%d next=%d paused_head_listed=%d",
 				slot, prop->syncid, (unsigned)prop->type, (unsigned)prop->obj->type,
 				(s32)prop->obj->modelnum, (unsigned)prop->flags,
 				(unsigned)s_ReconnectPropReceive.lifecycle_by_slot[slot],
-				had_parent ? 1 : 0, prop->active ? 1 : 0,
+				(s32)placement, had_parent ? 1 : 0, prop->active ? 1 : 0,
 				(unsigned)prop->obj->flags, (unsigned)prop->obj->flags2,
 				(unsigned)prop->obj->flags3, (unsigned)prop->obj->hidden,
 				(unsigned)prop->obj->hidden2, (s32)prop->rooms[0],
