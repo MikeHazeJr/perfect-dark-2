@@ -26,6 +26,7 @@
 #include "modmgr_component_catalog.h"
 #include "modmgr_save_status.h"
 #include "modmgr_apply.h"
+#include "modmgr_bundled_samples.h"
 #include "assetcatalog_mutation.h"
 #include "modarchive.h"
 #include "modvfs.h"
@@ -75,12 +76,14 @@ bool      g_ModManagerInitialized = false;
 // Config-persisted string: comma-separated enabled mod IDs
 static char g_ModEnabledList[2048] = "";
 
-/* Initial selection from the release package. Saved choices take over. */
-static bool g_DefaultReleaseSampleSelected;
-static const char kReleaseSampleId[] = "crystal_pistol";
-static const char kReleaseSampleArchive[] = "$E/mods/bundled/crystal_pistol.pdmod";
-static const char kReleaseSampleDigest[] = "$E/crystal_pistol-default.sha256";
-static const char kReleaseSampleChanged[] = "The release sample package changed. Disable it before applying changes.";
+/* Initial selection from the install's bundled samples
+ * (modmgr_bundled_samples.h). Saved choices take over. */
+static bool g_BundledDefaultSelected;
+static modmgr_bundled_inventory_t g_BundledInventory;
+static const char kBundledInventoryPath[] = "$E/" MODMGR_BUNDLED_INVENTORY_NAME;
+static const char kBundledChanged[] = "A bundled sample package changed. Disable it before applying changes.";
+_Static_assert(MODMGR_BUNDLED_ID_LEN == MODMGR_ID_LEN,
+	"bundled sample ids are mod ids");
 
 // Size threshold in MB — mods exceeding this trigger a confirmation prompt
 static s32 g_ModSizeThresholdMB = 50;
@@ -2052,46 +2055,74 @@ static bool modmgrBuildEnabledList(void)
 
 #define MODS_ENABLED_JSON_PATH "$S/mods-enabled.json"
 
-static s32 modmgrFindDefaultReleaseSample(void)
+/* Reads the install's bundled sample inventory; an absent, oversized or
+ * malformed one is an empty inventory (nothing is auto-enabled). */
+static void modmgrReadBundledInventory(void)
 {
+	memset(&g_BundledInventory, 0, sizeof(g_BundledInventory));
+	fs_mod_roots_t roots;
+	fsModRoots(&roots);
+	if (roots.explicit_dir) return;
+
+	char path[FS_MAXPATH + 1];
+	FILE *file = fopen(fsFullPath(kBundledInventoryPath, path, sizeof(path)), "rb");
+	if (!file) return;
+	char text[MODMGR_BUNDLED_MAX_BYTES + 1];
+	const size_t len = fread(text, 1, sizeof(text), file);
+	const s32 complete = len < sizeof(text) && !ferror(file);
+	fclose(file);
+	char error[160] = "the inventory is too large";
+	if (!complete || !modmgrBundledParse(text, len, &g_BundledInventory, error, sizeof(error))) {
+		memset(&g_BundledInventory, 0, sizeof(g_BundledInventory));
+		sysLogPrintf(LOG_WARNING, "modmgr: ignored bundled sample inventory %s: %s", path, error);
+	}
+}
+
+static s32 modmgrBundledVerifyFile(const char *path, const char *digest, void *user)
+{
+	(void)user;
+	return sha256VerifyFile(path, digest) == 1;
+}
+
+/* Registry row of inventory entry `index`'s verified package, or -1. */
+static s32 modmgrFindBundledSample(s32 index)
+{
+	static modmgr_bundled_candidate_t rows[MODMGR_MAX_MODS];
+	if (index < 0 || index >= g_BundledInventory.count) return -1;
 	fs_mod_roots_t roots;
 	fsModRoots(&roots);
 	if (roots.explicit_dir) return -1;
 
-	s32 candidate = -1;
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (strcmp(g_ModRegistry[i].id, kReleaseSampleId) != 0) continue;
-		if (candidate >= 0) return -1;
-		candidate = i;
+		rows[i].id = g_ModRegistry[i].id;
+		rows[i].archive_path = g_ModRegistry[i].archive_path;
+		rows[i].valid = g_ModRegistry[i].valid ? 1 : 0;
+		rows[i].is_archive = g_ModRegistry[i].is_archive ? 1 : 0;
+		rows[i].session_only = g_ModRegistry[i].session_only ? 1 : 0;
 	}
-	if (candidate < 0) return -1;
-
-	const modinfo_t *mod = &g_ModRegistry[candidate];
+	char relative[FS_MAXPATH];
 	char path[FS_MAXPATH + 1];
-	const char *archive = fsFullPath(kReleaseSampleArchive, path, sizeof(path));
-	if (!mod->valid || !mod->is_archive || mod->session_only ||
-			!modmgrPathEqualsNoCase(mod->archive_path, archive)) {
-		return -1;
-	}
-
-	char digest_path[FS_MAXPATH + 1];
-	FILE *file = fopen(fsFullPath(kReleaseSampleDigest, digest_path, sizeof(digest_path)), "rb");
-	if (!file) return -1;
-	char digest[SHA256_HEX_SIZE] = { 0 };
-	const size_t len = sizeof(digest) - 1;
-	const s32 complete = fread(digest, 1, len, file) == len &&
-		fgetc(file) == EOF && !ferror(file);
-	fclose(file);
-	return complete && sha256VerifyFile(archive, digest) == 1 ? candidate : -1;
+	const int n = snprintf(relative, sizeof(relative), "$E/%s/%s%s", MODMGR_BUNDLED_DIR_NAME,
+		g_BundledInventory.entries[index].id, MODMGR_BUNDLED_EXT);
+	if (n <= 0 || n >= (int)sizeof(relative)) return -1;
+	const char *expected = fsFullPath(relative, path, sizeof(path));
+	return modmgrBundledFindVerified(&g_BundledInventory, index, rows, g_ModRegistryCount,
+		expected, modmgrBundledVerifyFile, NULL);
 }
 
-static s32 modmgrDefaultReleaseSampleCanSave(void)
+/* While the unsaved bundled default is in use, every enabled bundled id must
+ * still be its verified package before choices are saved or applied. */
+static s32 modmgrBundledDefaultCanSave(const char **changed_id)
 {
-	if (!g_DefaultReleaseSampleSelected) return 1;
+	if (changed_id) *changed_id = NULL;
+	if (!g_BundledDefaultSelected) return 1;
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		const modinfo_t *mod = &g_ModRegistry[i];
-		if (mod->enabled && !mod->session_only && strcmp(mod->id, kReleaseSampleId) == 0) {
-			return modmgrFindDefaultReleaseSample() == i;
+		if (!mod->enabled || mod->session_only) continue;
+		const s32 index = modmgrBundledIndexOf(&g_BundledInventory, mod->id);
+		if (index >= 0 && modmgrFindBundledSample(index) != i) {
+			if (changed_id) *changed_id = mod->id;
+			return 0;
 		}
 	}
 	return 1;
@@ -2106,7 +2137,7 @@ static bool modmgrSaveModsEnabledJson(void)
 		sysLogPrintf(LOG_WARNING, "modmgr: could not save %s: %s", path, error);
 		return false;
 	}
-	g_DefaultReleaseSampleSelected = false;
+	g_BundledDefaultSelected = false;
 	sysLogPrintf(LOG_NOTE, "modmgr: saved mods-enabled.json");
 	return true;
 }
@@ -2139,16 +2170,16 @@ static int modmgrSaveDestination(enum modmgr_save_phase phase,
 	(void)user;
 	switch (phase) {
 	case MODMGR_SAVE_PREPARE:
-		if (!modmgrDefaultReleaseSampleCanSave()) {
-			snprintf(error, capacity, "%s", kReleaseSampleChanged);
+		if (!modmgrBundledDefaultCanSave(NULL)) {
+			snprintf(error, capacity, "%s", kBundledChanged);
 			break;
 		}
 		if (modmgrBuildEnabledList()) return 1;
 		snprintf(error, capacity, "Could not prepare the enabled-mod list.");
 		break;
 	case MODMGR_SAVE_ENABLED_JSON:
-		if (!modmgrDefaultReleaseSampleCanSave()) {
-			snprintf(error, capacity, "%s", kReleaseSampleChanged);
+		if (!modmgrBundledDefaultCanSave(NULL)) {
+			snprintf(error, capacity, "%s", kBundledChanged);
 			break;
 		}
 		if (modmgrSaveModsEnabledJson()) return 1;
@@ -2189,7 +2220,8 @@ void modmgrSaveConfig(void)
 
 void modmgrLoadConfig(void)
 {
-	g_DefaultReleaseSampleSelected = false;
+	g_BundledDefaultSelected = false;
+	modmgrReadBundledInventory();
 	// Try mods-enabled.json first (primary, ordered)
 	if (modmgrLoadModsEnabledJson() != 0) {
 		return;
@@ -2198,11 +2230,19 @@ void modmgrLoadConfig(void)
 	// Fallback: comma-separated config string from pd.ini
 	modmgrParseEnabledList();
 	if (!g_ModEnabledList[0]) {
-		const s32 sample = modmgrFindDefaultReleaseSample();
-		if (sample >= 0) {
+		/* No saved choice at all: start with the install's own bundled
+		 * samples, each only while it is its verified package. */
+		for (s32 index = 0; index < g_BundledInventory.count; index++) {
+			const char *id = g_BundledInventory.entries[index].id;
+			const s32 sample = modmgrFindBundledSample(index);
+			if (sample < 0) {
+				sysLogPrintf(LOG_NOTE, "modmgr: bundled sample '%s' not selected: no unique "
+					"matching package in %s", id, MODMGR_BUNDLED_DIR_NAME);
+				continue;
+			}
 			g_ModRegistry[sample].enabled = true;
-			g_DefaultReleaseSampleSelected = true;
-			sysLogPrintf(LOG_NOTE, "modmgr: selected release sample '%s'", kReleaseSampleId);
+			g_BundledDefaultSelected = true;
+			sysLogPrintf(LOG_NOTE, "modmgr: selected bundled sample '%s'", id);
 		}
 	}
 }
@@ -2248,13 +2288,14 @@ static bool modmgrLoadMod(modinfo_t *mod)
 	if (mod->loaded) return true;
 	if (!mod->valid) return false; // Don't load invalid mods
 
-	if (g_DefaultReleaseSampleSelected && !mod->session_only &&
-			strcmp(mod->id, kReleaseSampleId) == 0) {
-		const s32 sample = modmgrFindDefaultReleaseSample();
+	const s32 bundled_index = g_BundledDefaultSelected && !mod->session_only
+		? modmgrBundledIndexOf(&g_BundledInventory, mod->id) : -1;
+	if (bundled_index >= 0) {
+		const s32 sample = modmgrFindBundledSample(bundled_index);
 		if (sample < 0 || mod != &g_ModRegistry[sample]) {
 			mod->enabled = false;
-			sysLogPrintf(LOG_WARNING, "modmgr: release sample '%s' no longer matched its package",
-				kReleaseSampleId);
+			sysLogPrintf(LOG_WARNING, "modmgr: bundled sample '%s' no longer matched its package",
+				mod->id);
 			return false;
 		}
 	}
@@ -2536,11 +2577,16 @@ void modmgrRescanDirectory(void)
 	// loaded=1 with a NULL handle would mis-state the unload path. So
 	// archive mods always come back as loaded=0 after rescan and are
 	// brought back live by the next modmgrLoadMod() pass.
-	const s32 release_sample = g_DefaultReleaseSampleSelected
-		? modmgrFindDefaultReleaseSample() : -1;
+	/* An unsaved bundled default never moves to another mod with the same id
+	 * (a user copy found by this rescan): only the verified package keeps it. */
+	s32 bundled_rows[MODMGR_BUNDLED_MAX];
+	for (s32 index = 0; index < g_BundledInventory.count; index++) {
+		bundled_rows[index] = g_BundledDefaultSelected ? modmgrFindBundledSample(index) : -1;
+	}
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_DefaultReleaseSampleSelected && i != release_sample &&
-				strcmp(g_ModRegistry[i].id, kReleaseSampleId) == 0) {
+		const s32 bundled_index = g_BundledDefaultSelected
+			? modmgrBundledIndexOf(&g_BundledInventory, g_ModRegistry[i].id) : -1;
+		if (bundled_index >= 0 && i != bundled_rows[bundled_index]) {
 			continue;
 		}
 		for (s32 j = 0; j < numSaved; j++) {
@@ -3073,8 +3119,9 @@ int modmgrApplyPreparedChanges(const modmgr_apply_plan_t *plan, modmgr_apply_res
         return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Installed packages changed; pending choices were retained.");
     if (strcmp(plan->agent, prefsAgentGetActive()) != 0)
         return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Active Agent changed; pending choices were retained.");
-    if (!modmgrDefaultReleaseSampleCanSave())
-        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, kReleaseSampleId, kReleaseSampleChanged);
+    const char *bundled_changed = NULL;
+    if (!modmgrBundledDefaultCanSave(&bundled_changed))
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, bundled_changed, kBundledChanged);
     bool intended[MODMGR_MAX_MODS], originalLoaded[MODMGR_MAX_MODS];
     for (s32 i = 0; i < g_ModRegistryCount; ++i) {
         const modinfo_t *mod = &g_ModRegistry[i];

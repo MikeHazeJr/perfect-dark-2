@@ -1,6 +1,6 @@
 {
   "schema": "pd2-dev-mods-v1",
-  "description": "Authored dev mods that are git-tracked here (so a clean build cannot erase them) and copied into <install>/mods on every build by devtools/build-headless.ps1. Each entry's source lives at dev-mods/<path>/. Per-mod 'dev' and 'release' flags control default inclusion; override at build time with -DevMods all|none|<comma-list>, or at release time with the release script's mod flags.",
+  "description": "Authored dev mods that are git-tracked here (so a clean build cannot erase them). Each entry's source lives at dev-mods/<path>/. 'dev': true copies it into <install>/mods on every build (devtools/build-headless.ps1; override with -DevMods all|none|<comma-list>). 'release': true makes it a bundled sample: tools/stage_bundled_samples.py packs its mod.json and top-level typed archives into <install>/mods/bundled/<id>.pdmod and lists it in <install>/bundled-mods.sha256, and a fresh profile starts with it enabled (port/include/modmgr_bundled_samples.h).",
   "mods": [
     {
       "id": "needler",
@@ -12,23 +12,37 @@
     {
       "id": "crystal_pistol",
       "path": "crystal_pistol",
-      "dev": false,
-      "release": false,
-      "summary": "Maian crystal pistol test weapon: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Include with -DevMods crystal_pistol."
+      "dev": true,
+      "release": true,
+      "summary": "Maian Crystal Pistol: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Rebuilt from its source vault by build_pdweapon.py."
+    },
+    {
+      "id": "mod.vehicle_maian_hover",
+      "path": "vehicle_maian_hover",
+      "dev": true,
+      "release": true,
+      "summary": "Maian Hover: the two-seat hover vehicle, exactly what the game's mod author builds from dev-mods/maian_hover_vehicle/recipe.json (pd-tests \"[maian-vehicle]\" fails if the two differ)."
     },
     {
       "id": "blank_room",
       "path": "blank_room",
-      "dev": false,
-      "release": false,
-      "summary": "Blank Room: a small original level (one room, four pillars, eight player starts) that holds nothing of the original game. The template Forge starts a shareable level from. Built by dev-mods/blank_room/build_blank_room.py. Include with -DevMods blank_room."
+      "dev": true,
+      "release": true,
+      "summary": "Blank Room: a small original level (one room, four pillars, eight player starts) that holds nothing of the original game. The template Forge starts a shareable level from. Built by dev-mods/blank_room/build_blank_room.py."
     },
     {
       "id": "model_room",
       "path": "model_room",
-      "dev": false,
-      "release": false,
-      "summary": "Model Room: an original level made from a model (model_room.glb, written by dev-mods/model_room/make_model_room.py) by tools/build_level_from_model.py: two platforms on ramps, pillars, cover, eight starts. Forge step F5's example. Include with -DevMods model_room."
+      "dev": true,
+      "release": true,
+      "summary": "Model Room: an original level made from a model (model_room.glb, written by dev-mods/model_room/make_model_room.py) by tools/build_level_from_model.py: two platforms on ramps, pillars, cover, eight starts. Forge step F5's example."
+    },
+    {
+      "id": "grid_two_rooms",
+      "path": "grid_two_rooms",
+      "dev": true,
+      "release": true,
+      "summary": "Grid Test Rooms: an original arena with two rooms joined by one portal and a navigation loop. Its .pdarena is also the Grid's room template (grid/templates/, CMake PD_GRID_ROOM_SEED; kTemplateSha256 in port/src/forge_room_builder.cpp pins its bytes)."
     }
   ]
 }

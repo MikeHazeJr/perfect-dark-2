@@ -1367,10 +1367,17 @@ foreach ($t in $targets) {
             }
         }
 
-        # Dev mods: copy selected git-tracked dev mods (dev-mods/<path>) into
-        # <install>/mods so they survive clean builds. Selection via -DevMods:
-        # "" => manifest "dev":true (default); "all"; "none"; "id1,id2".
-        # See dev-mods/README.md. Non-fatal.
+        # Dev mods (dev-mods/README.md). The bundled samples, every entry with
+        # "release": true, are staged exactly as a release stages them:
+        # tools/stage_bundled_samples.py writes <install>/mods/bundled/<id>.pdmod
+        # and <install>/bundled-mods.sha256, so a fresh profile of a local build
+        # starts with the same samples enabled as the packaged dev and stable
+        # builds (T-RELEASE-007, N-1064). Other selected entries are copied
+        # loose into <install>/mods/<path> so they survive clean builds.
+        # Selection via -DevMods: "" => every bundled sample plus every
+        # "dev":true entry (default); "all"; "none" (nothing, and the build's
+        # old bundled packages and inventory are removed); "id1,id2" (only the
+        # named entries). Non-fatal.
         $devModsManifest = Join-Path $ProjectDir "dev-mods\dev-mods.json"
         if (Test-Path -LiteralPath $devModsManifest) {
             try {
@@ -1379,15 +1386,38 @@ foreach ($t in $targets) {
                 if     ($sel -eq "none") { $names = @() }
                 elseif ($sel -eq "all")  { $names = @($dm.mods | ForEach-Object { $_.id }) }
                 elseif ($sel -ne "")     { $names = @($sel -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ }) }
-                else                     { $names = @($dm.mods | Where-Object { $_.dev } | ForEach-Object { $_.id }) }
+                else                     { $names = @($dm.mods | Where-Object { $_.dev -or ($_.release -eq $true) } | ForEach-Object { $_.id }) }
+                $modsRoot = Join-Path $BuildDir "mods"
 
-                if ($names.Count -gt 0) {
+                # A bundled sample goes in only as its package, never also loose:
+                # one id twice in one install would be two mods.
+                $bundledIds = @($dm.mods | Where-Object { $_.release -eq $true } | ForEach-Object { $_.id })
+                $stageIds = @($bundledIds | Where-Object { $names -contains $_ })
+                Write-Header "Post-Build: Stage Bundled Samples"
+                $stagePython = "C:/Python312/python.exe"
+                if (-not (Test-Path -LiteralPath $stagePython)) { $stagePython = "C:/msys64/usr/bin/python3.exe" }
+                & $stagePython -B (Join-Path $ProjectDir "tools\stage_bundled_samples.py") --repo $ProjectDir --install-root $BuildDir --python $stagePython "--only=$($stageIds -join ',')" | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Ok "  Bundled samples: $($stageIds.Count) staged in mods\bundled ($($stageIds -join ', '))"
+                } else {
+                    Write-Warn "  Bundled sample staging failed (non-fatal; this install starts with no bundled samples)"
+                }
+                foreach ($entry in $dm.mods) {
+                    if ($stageIds -contains $entry.id) {
+                        $stale = Join-Path $modsRoot $entry.path
+                        if (Test-Path -LiteralPath (Join-Path $stale "mod.json")) {
+                            Write-Warn "  $stale is an earlier loose copy of bundled sample '$($entry.id)'; remove it (two copies of one id)"
+                        }
+                    }
+                }
+
+                $looseNames = @($names | Where-Object { $bundledIds -notcontains $_ })
+                if ($looseNames.Count -gt 0) {
                     Write-Header "Post-Build: Copy Dev Mods"
-                    $modsRoot = Join-Path $BuildDir "mods"
                     if (-not (Test-Path $modsRoot)) { New-Item -ItemType Directory -Path $modsRoot -Force | Out-Null }
                     $rc = Get-Command robocopy.exe -ErrorAction SilentlyContinue
                     foreach ($entry in $dm.mods) {
-                        if ($names -notcontains $entry.id) { continue }
+                        if ($looseNames -notcontains $entry.id) { continue }
                         $src = Join-Path $ProjectDir (Join-Path "dev-mods" $entry.path)
                         if (-not (Test-Path -LiteralPath $src)) {
                             Write-Warn "  Dev mod '$($entry.id)' source missing: $src (skipped)"
@@ -1403,7 +1433,7 @@ foreach ($t in $targets) {
                         Write-Ok "  Dev mod '$($entry.id)' -> $dst"
                     }
                 } else {
-                    Write-Info "  Dev mods: none selected (DevMods='$DevMods')"
+                    Write-Info "  Dev mods: no loose mods selected (DevMods='$DevMods')"
                 }
             } catch {
                 Write-Warn "  Dev-mods copy failed (non-fatal): $($_.Exception.Message)"

@@ -3,13 +3,18 @@
  *
  * See modpack.h for the PDPK wire format.
  *
- * PDCA archive builder and extractor are adapted from D3R-9 (netdistrib.c)
- * and kept as file-local statics to avoid coupling. The hot-registration
- * path follows the identical pattern to netDistribClientHandleEnd().
+ * Component archives are built by modpack_archive.c: members in sorted path
+ * order and no wall-clock field anywhere, so the same components always give
+ * the same pack bytes (CAT-C02, T-MODDING-023). They are extracted only
+ * through pdcaExtractArchiveBegin (pdca_extract_transaction.c), and every
+ * folder name a pack supplies (category, component id) must be one safe path
+ * component under the writable mods folder, so a pack can write nowhere else
+ * (CAT-C01, T-MODDING-022). An import is all or nothing: if any component is
+ * refused, every component already published is rolled back. The
+ * hot-registration path follows netDistribClientHandleEnd().
  *
  * Dependencies (all already linked):
  *   - zlib  : compress2 / uncompress
- *   - dirent: opendir / readdir (MinGW/MSYS2)
  *
  * Note: C11 game-code conventions apply here:
  *   - bool is s32 (never include <stdbool.h>)
@@ -19,21 +24,22 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <dirent.h>
-#include <sys/stat.h>
 #include <zlib.h>
-#include <time.h>
 
 #include <PR/ultratypes.h>
 #include "types.h"
 #include "modpack.h"
+#include "modpack_archive.h"
+#include "modmgr.h"
+#include "pdca_extract_transaction.h"
+#include "asset_path_contract.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 #include "system.h"
 #include "fs.h"
 
-/* PDCA archive magic — same as D3R-9 netdistrib.c */
-#define PDCA_MAGIC 0x41434450u   /* "PDCA" little-endian */
+/* Largest component a pack may carry, stored or unpacked. */
+#define MODPACK_MAX_COMPONENT_BYTES (512u * 1024u * 1024u)
 
 /* ========================================================================
  * INI filename lookup (mirrors pdgui_menu_moddinghub.cpp iniNameForType)
@@ -133,193 +139,56 @@ static const asset_entry_t *catalogFindByIdAny(const char *id)
 }
 
 /* ========================================================================
- * PDCA Archive Builder — adapted from D3R-9 buildArchiveDir
- *
- * Recursively walks abspath, appending file entries to a heap buffer.
- * relprefix is the path prefix relative to the component root (empty for root).
+ * Component folders named by a pack (CAT-C01)
  * ======================================================================== */
 
-static u8 *buildArchiveDir(u8 *buf, u32 *buf_len, u32 *buf_cap,
-                            const char *abspath, const char *relprefix)
+static s32 lowerEquals(const char *a, const char *b)
 {
-    DIR *d = opendir(abspath);
-    if (!d) return buf;
-
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL) {
-        if (ent->d_name[0] == '.') continue;   /* skip . .. hidden files */
-
-        char childabs[FS_MAXPATH];
-        char childrel[FS_MAXPATH];
-        snprintf(childabs, sizeof(childabs), "%s/%s", abspath, ent->d_name);
-        if (relprefix[0]) {
-            snprintf(childrel, sizeof(childrel), "%s/%s", relprefix, ent->d_name);
-        } else {
-            snprintf(childrel, sizeof(childrel), "%s", ent->d_name);
-        }
-
-        struct stat st;
-        if (stat(childabs, &st) != 0) continue;
-
-        if (S_ISDIR(st.st_mode)) {
-            buf = buildArchiveDir(buf, buf_len, buf_cap, childabs, childrel);
-            continue;
-        }
-
-        if (!S_ISREG(st.st_mode)) continue;
-
-        FILE *fp = fopen(childabs, "rb");
-        if (!fp) {
-            sysLogPrintf(LOG_WARNING, "MODPACK: can't open %s", childabs);
-            continue;
-        }
-
-        fseek(fp, 0, SEEK_END);
-        u32 fsize = (u32)ftell(fp);
-        fseek(fp, 0, SEEK_SET);
-
-        u16 path_len  = (u16)(strlen(childrel) + 1);
-        u32 entry_sz  = 2u + path_len + 4u + fsize;
-
-        /* Grow buffer to fit entry */
-        while (*buf_len + entry_sz > *buf_cap) {
-            u32 newcap = (*buf_cap < 65536u) ? 65536u : *buf_cap * 2u;
-            u8 *nb = (u8 *)realloc(buf, newcap);
-            if (!nb) {
-                sysLogPrintf(LOG_ERROR, "MODPACK: OOM building archive");
-                fclose(fp);
-                closedir(d);
-                return buf;
-            }
-            buf      = nb;
-            *buf_cap = newcap;
-        }
-
-        u8 *p = buf + *buf_len;
-        memcpy(p, &path_len, 2);       p += 2;
-        memcpy(p, childrel, path_len); p += path_len;
-        memcpy(p, &fsize, 4);          p += 4;
-
-        if (fread(p, 1, fsize, fp) != fsize) {
-            sysLogPrintf(LOG_WARNING, "MODPACK: short read %s", childabs);
-            fclose(fp);
-            continue;
-        }
-        *buf_len += entry_sz;
-        fclose(fp);
+    for (; *a && *b; a++, b++) {
+        char ca = (*a >= 'A' && *a <= 'Z') ? (char)(*a - 'A' + 'a') : *a;
+        char cb = (*b >= 'A' && *b <= 'Z') ? (char)(*b - 'A' + 'a') : *b;
+        if (ca != cb) return 0;
     }
-
-    closedir(d);
-    return buf;
+    return *a == *b;
 }
 
 /**
- * Build a PDCA archive from a component directory.
- * Returns heap-allocated buffer (caller must free), or NULL on error.
- * Sets *out_len to the archive size.
+ * Why a pack's component list cannot be installed, or NULL when it can.
+ * Every category and id must be one safe folder name, and no two components
+ * may land in the same folder (Windows ignores case).
  */
-static u8 *buildComponentArchive(const char *dirpath, u32 *out_len)
+static const char *modpackFindUnsafeComponent(const modpack_manifest_t *mf,
+                                              const char **which)
 {
-    u32 buf_cap = 65536u;
-    u32 buf_len = 6u;       /* magic(4) + file_count(2) placeholder */
-    u8 *buf = (u8 *)malloc(buf_cap);
-    if (!buf) return NULL;
-
-    memset(buf, 0, 6);
-    u32 magic = PDCA_MAGIC;
-    memcpy(buf, &magic, 4);
-
-    buf = buildArchiveDir(buf, &buf_len, &buf_cap, dirpath, "");
-
-    /* Count files by scanning data section (offset 6 onward) */
-    u16 file_count = 0;
-    {
-        const u8 *p   = buf + 6;
-        const u8 *end = buf + buf_len;
-        while (p < end) {
-            u16 plen;
-            if (p + 2 > end) break;
-            memcpy(&plen, p, 2); p += 2;
-            if (p + plen > end) break;
-            p += plen;
-            if (p + 4 > end) break;
-            u32 dlen;
-            memcpy(&dlen, p, 4);
-            p += 4 + dlen;
-            file_count++;
+    *which = "";
+    for (s32 i = 0; i < mf->component_count; i++) {
+        const modpack_component_info_t *ci = &mf->components[i];
+        *which = ci->id;
+        if (!modpackArchiveNameIsSafe(ci->category)) return "names an unsafe category folder";
+        if (!modpackArchiveNameIsSafe(ci->id)) return "names an unsafe component folder";
+        for (s32 j = 0; j < i; j++) {
+            if (lowerEquals(mf->components[j].category, ci->category)
+                    && lowerEquals(mf->components[j].id, ci->id)) {
+                return "appears twice in the pack";
+            }
         }
     }
-    memcpy(buf + 4, &file_count, 2);
-
-    *out_len = buf_len;
-    sysLogPrintf(LOG_NOTE, "MODPACK: archive %u files, %u bytes raw",
-                 file_count, buf_len);
-    return buf;
+    *which = "";
+    return NULL;
 }
 
-/* ========================================================================
- * PDCA Archive Extractor — adapted from D3R-9 extractArchive
- * ======================================================================== */
-
-static s32 extractArchive(const u8 *data, u32 data_len, const char *destdir)
+static const char *modpackExtractReason(pdca_extract_result_t result)
 {
-    if (data_len < 6) return 0;
-
-    u32 magic;
-    memcpy(&magic, data, 4);
-    if (magic != PDCA_MAGIC) {
-        sysLogPrintf(LOG_ERROR, "MODPACK: bad archive magic 0x%08x", magic);
-        return 0;
+    switch (result) {
+    case PDCA_EXTRACT_INVALID:           return "the archive is malformed";
+    case PDCA_EXTRACT_PATH_REJECTED:     return "a file path would leave its folder";
+    case PDCA_EXTRACT_STAGE_FAILED:      return "the folder could not be prepared";
+    case PDCA_EXTRACT_OPEN_FAILED:       return "a file could not be created";
+    case PDCA_EXTRACT_WRITE_FAILED:      return "a file could not be written";
+    case PDCA_EXTRACT_PUBLISH_FAILED:    return "the folder could not be published";
+    case PDCA_EXTRACT_RECOVERY_REQUIRED: return "an earlier import left a backup that needs recovery";
+    default:                             return "extraction failed";
     }
-
-    u16 file_count;
-    memcpy(&file_count, data + 4, 2);
-
-    const u8 *p   = data + 6;
-    const u8 *end = data + data_len;
-    s32 extracted = 0;
-
-    for (u16 i = 0; i < file_count; i++) {
-        if (p + 2 > end) break;
-        u16 path_len;
-        memcpy(&path_len, p, 2); p += 2;
-
-        if (p + path_len > end) break;
-        const char *relpath = (const char *)p; p += path_len;
-
-        if (p + 4 > end) break;
-        u32 dlen;
-        memcpy(&dlen, p, 4); p += 4;
-
-        if (p + dlen > end) break;
-        const u8 *fdata = p; p += dlen;
-
-        char outpath[FS_MAXPATH];
-        snprintf(outpath, sizeof(outpath), "%s/%s", destdir, relpath);
-
-        /* Create parent directory if needed */
-        char dirpath[FS_MAXPATH];
-        snprintf(dirpath, sizeof(dirpath), "%s", outpath);
-        char *slash = strrchr(dirpath, '/');
-        if (slash) { *slash = '\0'; fsCreateDir(dirpath); }
-
-        FILE *fp = fopen(outpath, "wb");
-        if (!fp) {
-            sysLogPrintf(LOG_WARNING, "MODPACK: can't write %s", outpath);
-            continue;
-        }
-        if (fwrite(fdata, 1, dlen, fp) != dlen) {
-            sysLogPrintf(LOG_WARNING, "MODPACK: short write %s", outpath);
-            fclose(fp);
-            continue;
-        }
-        fclose(fp);
-        extracted++;
-    }
-
-    sysLogPrintf(LOG_NOTE, "MODPACK: extracted %d/%d files to %s",
-                 extracted, file_count, destdir);
-    return (extracted > 0) ? 1 : 0;
 }
 
 /* ========================================================================
@@ -466,12 +335,10 @@ s32 modpackExport(const char * const *component_ids, s32 count,
     }
 
     /* --- Manifest text --- */
+    /* No date or other wall-clock value: the same components must give the
+     * same pack (CAT-C02). Readers ignore keys they do not know, so packs
+     * written earlier with a created= line still read the same. */
     {
-        char date[32] = "unknown";
-        time_t t = time(NULL);
-        struct tm *ti = localtime(&t);
-        if (ti) strftime(date, sizeof(date), "%Y-%m-%d", ti);
-
         /* Build comma-separated component list */
         char complist[2048] = "";
         for (s32 i = 0; i < count; i++) {
@@ -487,13 +354,12 @@ s32 modpackExport(const char * const *component_ids, s32 count,
             "name=%s\n"
             "author=%s\n"
             "version=%s\n"
-            "created=%s\n"
             "component_count=%d\n"
             "components=%s\n",
             pack_name    ? pack_name    : "Unnamed Pack",
             pack_author  ? pack_author  : "Unknown",
             pack_version ? pack_version : "1.0.0",
-            date, count, complist);
+            count, complist);
 
         u32 manifest_len = (mlen > 0) ? (u32)mlen : 0u;
         if (fwrite(&manifest_len, 4, 1, f) != 1) {
@@ -544,10 +410,12 @@ s32 modpackExport(const char * const *component_ids, s32 count,
         if (!writeStr(f, ver))             goto write_error;
 
         /* Build PDCA archive for this component's directory */
+        char build_err[256];
         u32 raw_len = 0;
-        u8 *raw = buildComponentArchive(entry->dirpath, &raw_len);
+        u8 *raw = modpackArchiveBuild(entry->dirpath, &raw_len, build_err, sizeof(build_err));
         if (!raw || !raw_len) {
-            sysLogPrintf(LOG_ERROR, "MODPACK: export: archive failed for '%s'", id);
+            sysLogPrintf(LOG_ERROR, "MODPACK: export: archive failed for '%s': %s", id,
+                         build_err[0] ? build_err : "empty archive");
             /* Write a zero-size placeholder so the file stays parseable */
             if (raw) free(raw);
             u32 zero = 0; u8 no_comp = 0;
@@ -706,6 +574,17 @@ s32 modpackValidate(const char *pack_path, modpack_validate_result_t *out)
         return 0;
     }
 
+    /* A pack whose folder names could reach outside the mods folder is not
+     * importable at all (CAT-C01); modpackImport refuses it the same way. */
+    const char *unsafe_id = "";
+    const char *unsafe = modpackFindUnsafeComponent(&mf, &unsafe_id);
+    if (unsafe) {
+        snprintf(out->warnings, sizeof(out->warnings),
+                 "Refused: component '%s' %s", unsafe_id, unsafe);
+        out->valid = 0;
+        return 1;
+    }
+
     char wbuf[512] = "";
     for (s32 i = 0; i < mf.component_count; i++) {
         const char *id = mf.components[i].id;
@@ -726,8 +605,31 @@ s32 modpackValidate(const char *pack_path, modpack_validate_result_t *out)
 }
 
 /* ========================================================================
- * Public API — Import
+ * Public API: Import
  * ======================================================================== */
+
+/* One component published but not yet committed. */
+typedef struct modpack_pending {
+    pdca_extract_transaction_t transaction;
+    char id[CATALOG_ID_LEN];
+    char category[CATALOG_CATEGORY_LEN];
+    char destdir[FS_MAXPATH];
+} modpack_pending_t;
+
+/* <mods>/<category>/<id>, or <mods>/.temp/<category>/<id> for a session. */
+static s32 modpackDestination(char *out, size_t out_cap, const char *modsdir,
+                              s32 session_only, const char *category, const char *id)
+{
+    char parent[FS_MAXPATH];
+    if (session_only) {
+        if (!assetPathJoinChecked(parent, sizeof(parent), modsdir, "/", ".temp")) return 0;
+    } else if (!assetPathCopyChecked(parent, sizeof(parent), modsdir)) {
+        return 0;
+    }
+    char category_dir[FS_MAXPATH];
+    return assetPathJoinChecked(category_dir, sizeof(category_dir), parent, "/", category)
+        && assetPathJoinChecked(out, out_cap, category_dir, "/", id);
+}
 
 s32 modpackImport(const char *pack_path, s32 session_only,
                   modpack_import_result_t *out)
@@ -741,6 +643,38 @@ s32 modpackImport(const char *pack_path, s32 session_only,
         return -1;
     }
 
+    /* Every folder name the pack supplies is checked before anything is
+     * written (CAT-C01). */
+    modpack_manifest_t *mf = (modpack_manifest_t *)calloc(1, sizeof(*mf));
+    if (!mf) {
+        snprintf(out->error_msg, sizeof(out->error_msg), "Out of memory");
+        return -1;
+    }
+    if (!modpackReadManifest(pack_path, mf)) {
+        free(mf);
+        snprintf(out->error_msg, sizeof(out->error_msg),
+                 "Pack file corrupt or wrong version (expected PDPK v%u)", PDPK_VERSION);
+        return -1;
+    }
+    const char *unsafe_id = "";
+    const char *unsafe = modpackFindUnsafeComponent(mf, &unsafe_id);
+    if (unsafe) {
+        sysLogPrintf(LOG_WARNING, "MODPACK: refused %s: component '%s' %s",
+                     pack_path, unsafe_id, unsafe);
+        snprintf(out->error_msg, sizeof(out->error_msg),
+                 "Pack refused: component '%s' %s", unsafe_id, unsafe);
+        free(mf);
+        return -1;
+    }
+    free(mf);
+
+    /* The writable mods folder, never an enabled mod's own folder. */
+    const char *modsdir = modmgrGetModsDir();
+    if (!modsdir || !modsdir[0]) {
+        snprintf(out->error_msg, sizeof(out->error_msg), "mods/ directory not found");
+        return -1;
+    }
+
     FILE *f = fopen(pack_path, "rb");
     if (!f) {
         snprintf(out->error_msg, sizeof(out->error_msg),
@@ -748,12 +682,22 @@ s32 modpackImport(const char *pack_path, s32 session_only,
         return -1;
     }
 
+    modpack_pending_t *pending = NULL;
+    s32 pending_count = 0;
+    s32 refused = 0;
+
     /* Verify header */
     u32 magic, version, component_count;
     if (fread(&magic,           4, 1, f) != 1 || magic   != PDPK_MAGIC)  goto bad_file;
     if (fread(&version,         4, 1, f) != 1 || version != PDPK_VERSION) goto bad_file;
     if (fread(&component_count, 4, 1, f) != 1) goto bad_file;
-    if (component_count > (u32)MODPACK_MAX_COMPONENTS * 4) goto bad_file;
+    if (component_count > (u32)MODPACK_MAX_COMPONENTS) {
+        snprintf(out->error_msg, sizeof(out->error_msg),
+                 "Pack refused: %u components, the limit is %d",
+                 component_count, MODPACK_MAX_COMPONENTS);
+        fclose(f);
+        return -1;
+    }
 
     /* Skip manifest text */
     {
@@ -763,19 +707,14 @@ s32 modpackImport(const char *pack_path, s32 session_only,
         if (manifest_len > 0 && fseek(f, manifest_len, SEEK_CUR) != 0) goto bad_file;
     }
 
-    const char *modsdir = fsGetModDir();
-    if (!modsdir) {
-        snprintf(out->error_msg, sizeof(out->error_msg),
-                 "mods/ directory not found");
+    pending = (modpack_pending_t *)calloc(MODPACK_MAX_COMPONENTS, sizeof(*pending));
+    if (!pending) {
+        snprintf(out->error_msg, sizeof(out->error_msg), "Out of memory");
         fclose(f);
         return -1;
     }
 
-    /* Process each component */
-    u32 import_limit = (component_count < (u32)MODPACK_MAX_COMPONENTS)
-                       ? component_count : (u32)MODPACK_MAX_COMPONENTS;
-
-    for (u32 i = 0; i < import_limit; i++) {
+    for (u32 i = 0; i < component_count && !refused; i++) {
         char id[CATALOG_ID_LEN]        = "";
         char category[CATALOG_CATEGORY_LEN] = "";
         char ver[MODPACK_VERSION_LEN]  = "";
@@ -796,30 +735,48 @@ s32 modpackImport(const char *pack_path, s32 session_only,
             continue;
         }
 
+        /* The names were checked above; this pass reads the same file again,
+         * so check what it actually read. */
+        if (!modpackArchiveNameIsSafe(category) || !modpackArchiveNameIsSafe(id)) {
+            snprintf(out->error_msg, sizeof(out->error_msg),
+                     "Pack refused: component '%s' names an unsafe folder", id);
+            refused = 1;
+            break;
+        }
+        if (raw_size > MODPACK_MAX_COMPONENT_BYTES || stored_size > MODPACK_MAX_COMPONENT_BYTES
+                || compression > 1 || (compression == 0 && stored_size != raw_size)) {
+            snprintf(out->error_msg, sizeof(out->error_msg),
+                     "Pack refused: component '%s' has an invalid size or compression", id);
+            refused = 1;
+            break;
+        }
+
         /* Read stored archive data */
         u8 *stored = (u8 *)malloc(stored_size);
         if (!stored) {
-            sysLogPrintf(LOG_ERROR, "MODPACK: OOM for '%s' (%u bytes)", id, stored_size);
-            out->error_count++;
-            fseek(f, stored_size, SEEK_CUR);
-            continue;
+            snprintf(out->error_msg, sizeof(out->error_msg),
+                     "Out of memory for component '%s'", id);
+            refused = 1;
+            break;
         }
         if (fread(stored, 1, stored_size, f) != (size_t)stored_size) {
-            free(stored); out->error_count++; continue;
+            free(stored);
+            goto bad_file;
         }
 
         /* Decompress if needed */
         u8 *raw;
         if (compression == 1) {
             raw = (u8 *)malloc(raw_size);
-            if (!raw) {
-                sysLogPrintf(LOG_ERROR, "MODPACK: OOM decompress '%s'", id);
-                free(stored); out->error_count++; continue;
-            }
             uLongf actual = (uLongf)raw_size;
-            if (uncompress(raw, &actual, stored, (uLong)stored_size) != Z_OK) {
-                sysLogPrintf(LOG_ERROR, "MODPACK: decompress failed for '%s'", id);
-                free(raw); free(stored); out->error_count++; continue;
+            if (!raw || uncompress(raw, &actual, stored, (uLong)stored_size) != Z_OK
+                    || actual != (uLongf)raw_size) {
+                free(raw);
+                free(stored);
+                snprintf(out->error_msg, sizeof(out->error_msg),
+                         "Pack refused: component '%s' does not decompress", id);
+                refused = 1;
+                break;
             }
             free(stored);
         } else {
@@ -828,50 +785,75 @@ s32 modpackImport(const char *pack_path, s32 session_only,
             stored = NULL;
         }
 
-        /* Build destination directory path */
-        char destdir[FS_MAXPATH];
-        if (session_only) {
-            snprintf(destdir, sizeof(destdir), "%s/.temp/%s/%s",
-                     modsdir, category, id);
-        } else {
-            snprintf(destdir, sizeof(destdir), "%s/%s/%s",
-                     modsdir, category, id);
+        modpack_pending_t *slot = &pending[pending_count];
+        if (!modpackDestination(slot->destdir, sizeof(slot->destdir), modsdir,
+                                session_only, category, id)) {
+            free(raw);
+            snprintf(out->error_msg, sizeof(out->error_msg),
+                     "Pack refused: the folder for component '%s' is too long", id);
+            refused = 1;
+            break;
         }
 
-        /* Ensure intermediate directories exist */
-        {
-            char parent[FS_MAXPATH];
-            if (session_only) {
-                snprintf(parent, sizeof(parent), "%s/.temp", modsdir);
-                fsCreateDir(parent);
-                snprintf(parent, sizeof(parent), "%s/.temp/%s", modsdir, category);
-            } else {
-                snprintf(parent, sizeof(parent), "%s/%s", modsdir, category);
-            }
-            fsCreateDir(parent);
-        }
-        fsCreateDir(destdir);
-
-        /* Extract files and hot-register */
-        if (extractArchive(raw, raw_size, destdir)) {
-            hotRegisterComponent(id, category, destdir, session_only);
-            out->imported_count++;
-        } else {
-            sysLogPrintf(LOG_WARNING, "MODPACK: extract failed for '%s'", id);
-            out->error_count++;
-        }
-
+        /* Publish the component through the checked extractor: no member can
+         * leave slot->destdir, and a prior copy is kept until commit. */
+        pdca_extract_result_t extracted = pdcaExtractArchiveBegin(raw, raw_size,
+            slot->destdir, NULL, &slot->transaction);
         free(raw);
+        if (extracted != PDCA_EXTRACT_OK) {
+            sysLogPrintf(LOG_WARNING, "MODPACK: refused component '%s' (%s): %s",
+                         id, slot->destdir, modpackExtractReason(extracted));
+            snprintf(out->error_msg, sizeof(out->error_msg),
+                     "Pack refused: component '%s': %s", id, modpackExtractReason(extracted));
+            refused = 1;
+            break;
+        }
+        snprintf(slot->id, sizeof(slot->id), "%s", id);
+        snprintf(slot->category, sizeof(slot->category), "%s", category);
+        pending_count++;
+    }
+    fclose(f);
+
+    if (refused) {
+        /* All or nothing: undo every component this pack already published,
+         * restoring whatever was there before. */
+        for (s32 k = pending_count - 1; k >= 0; k--) {
+            if (!pdcaExtractTransactionRollback(&pending[k].transaction)) {
+                sysLogPrintf(LOG_ERROR, "MODPACK: could not undo '%s' at %s; "
+                             "its earlier copy is kept beside it for recovery",
+                             pending[k].id, pending[k].destdir);
+            }
+        }
+        out->error_count++;
+        free(pending);
+        return -1;
     }
 
-    /* Skip remaining components if component_count > import_limit */
-    fclose(f);
+    for (s32 k = 0; k < pending_count; k++) {
+        if (pdcaExtractTransactionCommit(&pending[k].transaction) ==
+                PDCA_EXTRACT_OK_BACKUP_RETAINED) {
+            sysLogPrintf(LOG_WARNING, "MODPACK: '%s' installed; its earlier copy could not "
+                         "be removed", pending[k].id);
+        }
+        hotRegisterComponent(pending[k].id, pending[k].category, pending[k].destdir,
+                             session_only);
+        out->imported_count++;
+    }
+    free(pending);
 
     sysLogPrintf(LOG_NOTE, "MODPACK: import done: %d imported, %d skipped, %d errors",
                  out->imported_count, out->skipped_count, out->error_count);
     return out->imported_count;
 
 bad_file:
+    for (s32 k = pending_count - 1; k >= 0; k--) {
+        if (!pdcaExtractTransactionRollback(&pending[k].transaction)) {
+            sysLogPrintf(LOG_ERROR, "MODPACK: could not undo '%s' at %s; "
+                         "its earlier copy is kept beside it for recovery",
+                         pending[k].id, pending[k].destdir);
+        }
+    }
+    free(pending);
     snprintf(out->error_msg, sizeof(out->error_msg),
              "Pack file corrupt or wrong version (expected PDPK v%u)", PDPK_VERSION);
     fclose(f);

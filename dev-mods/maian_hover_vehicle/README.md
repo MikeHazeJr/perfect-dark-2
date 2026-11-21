@@ -3,8 +3,9 @@
 The source of the custom vehicle mod `mod:vehicle_maian_hover`. The in-game mod
 author builds the mod from `recipe.json` (`--mod-author <recipe.json>`, as the
 smokes below do). Nothing here is a finished archive, and nothing comes from
-the base game. It is not listed in `dev-mods.json`, because it is a recipe the
-game builds, not a ready mod folder to copy.
+the base game. This folder is the recipe, not a mod folder; what the recipe
+builds is `dev-mods/vehicle_maian_hover/`, the bundled sample listed in
+`dev-mods.json` (pd-tests `"[maian-vehicle][bundled]"` fails if the two differ).
 
 ## Files
 
