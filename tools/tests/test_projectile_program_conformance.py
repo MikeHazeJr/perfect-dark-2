@@ -428,9 +428,10 @@ class Archives(unittest.TestCase):
                 self.assertEqual(len(messages), 4, messages)
 
 
-# held-weapon-events.md slice 2: a base held function graph as the extractor
-# writes it (romextract_pdweapon.c, s_emitHeldProgramNodes and
-# s_emitHeldProgramEdges): the record, then the original's idle rule.
+# held-weapon-events.md slices 2 and 3: a base held function graph as the
+# extractor writes it (romextract_pdweapon.c, s_emitHeldProgramNodes and
+# s_emitHeldProgramEdges): the record, then the original's idle rule, whose
+# attack is the function's trigger and its use_ammo.
 V2_HELD = {
     "schema": "pd.weapon_graph.v2",
     "asset_id": "base:test__weapon",
@@ -444,16 +445,18 @@ V2_HELD = {
         {"id": "primary_held", "kind": "event.weapon.ready_while_held"},
         {"id": "primary_has_ammo", "kind": "gate.weapon.has_ammo", "rounds": 2},
         {"id": "primary_has_reserve", "kind": "gate.weapon.has_reserve"},
-        {"id": "primary_fire", "kind": "og.weapon.fire"},
+        {"id": "primary_attack", "kind": "og.weapon.fire_once"},
         {"id": "primary_dry_fire", "kind": "og.weapon.dry_fire"},
         {"id": "primary_clip_empty", "kind": "event.weapon.clip_empty"},
         {"id": "primary_reload", "kind": "og.weapon.reload"},
+        {"id": "primary_use_ammo", "kind": "og.weapon.use_ammo", "rounds": 1},
     ],
     "edges": [
         {"from": "primary_trigger", "to": "primary_action"},
         {"from": "primary_pressed", "output": "out", "to": "primary_has_ammo", "input": "exec"},
         {"from": "primary_held", "output": "out", "to": "primary_has_ammo", "input": "exec"},
-        {"from": "primary_has_ammo", "output": "pass", "to": "primary_fire", "input": "exec"},
+        {"from": "primary_has_ammo", "output": "pass", "to": "primary_attack", "input": "exec"},
+        {"from": "primary_attack", "output": "out", "to": "primary_use_ammo", "input": "exec"},
         {"from": "primary_has_ammo", "output": "fail", "to": "primary_has_reserve", "input": "exec"},
         {"from": "primary_has_reserve", "output": "pass", "to": "primary_dry_fire", "input": "exec"},
         {"from": "primary_clip_empty", "output": "out", "to": "primary_reload", "input": "exec"},
@@ -484,7 +487,7 @@ class HeldWeaponPrograms(unittest.TestCase):
         # A v1 graph's program nodes would never be read.
         stale = dict(copy.deepcopy(V2_HELD), schema="pd.weapon_graph.v1")
         messages = weapon_errors(stale)
-        self.assertEqual(len(messages), 8, messages)
+        self.assertEqual(len(messages), 9, messages)
         self.assertTrue(all("a program needs schema pd.weapon_graph.v2" in m for m in messages))
         # A v2 function graph names its function.
         self.assertIn("graph_id", weapon_errors(dict(V2_HELD, graph_id="first"))[0])
@@ -544,12 +547,79 @@ class HeldWeaponPrograms(unittest.TestCase):
         graph["edges"][3]["output"] = "blocked"
         self.assertIn("needs output pass, fail or failed", weapon_errors(graph)[0])
         graph = copy.deepcopy(V2_HELD)
-        graph["edges"].append({"from": "primary_trigger", "output": "out", "to": "primary_fire", "input": "exec"})
+        graph["edges"].append({"from": "primary_trigger", "output": "out", "to": "primary_attack", "input": "exec"})
         # The record's own event node is record data: no execution edge starts there.
         self.assertIn("names a missing node", weapon_errors(graph)[0])
         graph = copy.deepcopy(V2_HELD)
-        graph["edges"].append({"from": "primary_fire", "output": "done", "to": "primary_reload", "input": "exec"})
+        graph["edges"].append({"from": "primary_attack", "output": "done", "to": "primary_reload", "input": "exec"})
         self.assertIn("output must be \"out\"", weapon_errors(graph)[0])
+
+    def test_a_program_node_cannot_take_a_record_nodes_id(self):
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_attack":
+                node["id"] = "primary_trigger"
+        for edge in graph["edges"]:
+            for end in ("from", "to"):
+                if edge.get(end) == "primary_attack":
+                    edge[end] = "primary_trigger"
+        self.assertIn("node id 'primary_trigger' is used twice", weapon_errors(graph)[0])
+
+    def test_triggers_and_their_settings(self):
+        """held-weapon-events.md slice 3: fire once, burst and automatic start
+        the attack, use_ammo spends; each setting is a value of its kind (a
+        "$name" is the game's to check), and one left out is the record's."""
+        def with_attack(node: dict) -> dict:
+            graph = copy.deepcopy(V2_HELD)
+            for idx, old in enumerate(graph["nodes"]):
+                if old["id"] == "primary_attack":
+                    graph["nodes"][idx] = dict(node, id="primary_attack")
+            return graph
+
+        good = [
+            {"kind": "og.weapon.burst", "count": 3, "gap": 3},
+            {"kind": "og.weapon.burst"},
+            {"kind": "og.weapon.automatic", "rate": 750, "start_rate": 60.5, "spin_up": 88, "spin_down": 0,
+             "burst": 3, "aimed_burst": False},
+            {"kind": "og.weapon.automatic", "rate": "$fire_rate"},
+            {"kind": "og.weapon.fire_once"},
+        ]
+        for node in good:
+            with self.subTest(node=node):
+                self.assertEqual(weapon_errors(with_attack(node)), [])
+        bad = [
+            ({"kind": "og.weapon.burst", "count": 1}, "needs count from 2 to 50"),
+            ({"kind": "og.weapon.burst", "count": 51}, "needs count from 2 to 50"),
+            ({"kind": "og.weapon.burst", "count": "3"}, "needs count from 2 to 50"),
+            ({"kind": "og.weapon.burst", "count": True}, "needs count from 2 to 50"),
+            ({"kind": "og.weapon.burst", "gap": 256}, "needs gap from 0 to 255"),
+            ({"kind": "og.weapon.burst", "gap": 2.5}, "needs gap from 0 to 255"),
+            ({"kind": "og.weapon.automatic", "rate": 0}, "needs rate in rounds per minute"),
+            ({"kind": "og.weapon.automatic", "rate": 3601}, "needs rate in rounds per minute"),
+            ({"kind": "og.weapon.automatic", "start_rate": "fast"}, "needs start_rate in rounds per minute"),
+            ({"kind": "og.weapon.automatic", "rate": True}, "needs rate in rounds per minute"),
+            ({"kind": "og.weapon.automatic", "spin_up": 10001}, "needs spin_up from 0 to 10000"),
+            ({"kind": "og.weapon.automatic", "burst": -1}, "needs burst from 0 to 255"),
+            ({"kind": "og.weapon.automatic", "aimed_burst": "no"}, "needs aimed_burst true or false"),
+        ]
+        for node, why in bad:
+            with self.subTest(node=node):
+                messages = weapon_errors(with_attack(node))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        for rounds in (0, 256, "1", 1.5, False):
+            with self.subTest(rounds=rounds):
+                graph = copy.deepcopy(V2_HELD)
+                graph["nodes"][-1]["rounds"] = rounds
+                self.assertIn("og.weapon.use_ammo 'primary_use_ammo' needs rounds from 1 to 255",
+                              weapon_errors(graph)[0])
+        # A trigger, or use_ammo, on a record event does nothing.
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "late", "kind": "event.weapon.trigger_released"})
+        graph["nodes"].append({"id": "late_burst", "kind": "og.weapon.burst"})
+        graph["edges"].append({"from": "late", "output": "out", "to": "late_burst", "input": "exec"})
+        self.assertIn("og.weapon.burst 'late_burst' has no effect on event.weapon.trigger_released",
+                      weapon_errors(graph)[0])
 
     def test_the_kinds_agree_with_the_runner_and_the_table(self):
         runner = (REPO / "port" / "src" / "mission_graph_runner.cpp").read_text(encoding="utf-8")
@@ -564,6 +634,11 @@ class HeldWeaponPrograms(unittest.TestCase):
         for kind in conf.WEAPON_GRAPH_GATES:
             with self.subTest(gate=kind):
                 self.assertIn('"' + kind + '"', rules)
+        for kind, settings in conf.WEAPON_GRAPH_SETTINGS.items():
+            self.assertIn(kind, conf.WEAPON_GRAPH_MODULES)
+            for key in settings:
+                with self.subTest(module=kind, setting=key):
+                    self.assertIn('_PARAM "' + key + '"', rules)
 
 
 if __name__ == "__main__":

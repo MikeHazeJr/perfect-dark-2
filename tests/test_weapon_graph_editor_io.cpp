@@ -883,12 +883,14 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
     { "id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_single", "ammo_slot": 0 } },
     { "id": "primary_pressed", "kind": "event.weapon.trigger_pressed" },
     { "id": "primary_has_ammo", "kind": "gate.weapon.has_ammo", "rounds": 2 },
-    { "id": "primary_fire", "kind": "og.weapon.fire" }
+    { "id": "primary_attack", "kind": "og.weapon.burst", "count": 3, "gap": 4 },
+    { "id": "primary_use_ammo", "kind": "og.weapon.use_ammo", "rounds": 1 }
   ],
   "edges": [
     { "from": "primary_trigger", "to": "primary_action" },
     { "from": "primary_pressed", "output": "out", "to": "primary_has_ammo", "input": "exec" },
-    { "from": "primary_has_ammo", "output": "pass", "to": "primary_fire", "input": "exec" }
+    { "from": "primary_has_ammo", "output": "pass", "to": "primary_attack", "input": "exec" },
+    { "from": "primary_attack", "output": "out", "to": "primary_use_ammo", "input": "exec" }
   ],
   "exports": [ { "name": "primary", "node": "primary_action" } ]
 })";
@@ -911,6 +913,7 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 	CHECK(ioStrict(editor.get()));
 	CHECK(joined.find("\"schema\": \"pd.weapon_graph.v2\"") != std::string::npos);
 	CHECK(joined.find("\"rounds\": 2") != std::string::npos);
+	CHECK(joined.find("\"gap\": 4") != std::string::npos);
 	CHECK(joined.find("\"output\": \"pass\"") != std::string::npos);
 	CHECK(joined.find("\"input\": \"exec\"") != std::string::npos);
 	REQUIRE(weaponGraphValidateJson(ASSET_WEAPON, editor.get(), static_cast<u32>(joined.size()),
@@ -923,6 +926,7 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 	const std::string writtenSecondary = split.files.secondary;
 	CHECK(writtenPrimary.find("\"schema\": \"pd.weapon_graph.v2\"") != std::string::npos);
 	CHECK(writtenPrimary.find("\"rounds\": 2") != std::string::npos);
+	CHECK(writtenPrimary.find("\"count\": 3") != std::string::npos);
 	CHECK(writtenPrimary.find("\"output\": \"pass\"") != std::string::npos);
 	CHECK(writtenSecondary.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
 	CHECK(ioStrict(split.files.primary));
@@ -934,7 +938,8 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 	CHECK(graph.exported("primary") == "primary_action");
 	REQUIRE(graph.ir->held_program_json[0] != nullptr);
 	CHECK(graph.ir->held_program_json[1] == nullptr);
-	CHECK(std::string(graph.ir->held_program_json[0]).find("og.weapon.fire") != std::string::npos);
+	CHECK(std::string(graph.ir->held_program_json[0]).find("og.weapon.burst") != std::string::npos);
+	CHECK(std::string(graph.ir->held_program_json[0]).find("og.weapon.use_ammo") != std::string::npos);
 
 	/* The joined document's programs are checked as registration checks
 	 * them: a module wired where it does nothing fails validation. */
@@ -944,5 +949,14 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 	broken.replace(broken.find(kind), kind.size(), "\"kind\": \"event.weapon.trigger_released\"");
 	CHECK(weaponGraphValidateJson(ASSET_WEAPON, broken.data(), static_cast<u32>(broken.size()),
 		err, sizeof(err)) != 0);
-	CHECK(std::string(err).find("og.weapon.fire has no effect on event.weapon.trigger_released") != std::string::npos);
+	CHECK(std::string(err).find("og.weapon.burst has no effect on event.weapon.trigger_released") != std::string::npos);
+
+	/* held-weapon-events.md slice 3: a trigger's settings are checked too. */
+	std::string slow = joined;
+	const std::string gap = "\"gap\": 4";
+	REQUIRE(slow.find(gap) != std::string::npos);
+	slow.replace(slow.find(gap), gap.size(), "\"gap\": 300");
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, slow.data(), static_cast<u32>(slow.size()),
+		err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.weapon.burst needs gap from 0 to 255, got 300") != std::string::npos);
 }

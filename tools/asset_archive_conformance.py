@@ -2320,7 +2320,7 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
     return errors
 
 
-# Held weapon function graphs (held-weapon-events.md slices 1 and 2). v1 is the
+# Held weapon function graphs (held-weapon-events.md slices 1 to 3). v1 is the
 # function's record alone; v2 adds a program of event.weapon.*, gate.* and og.*
 # nodes joined by execution edges (the record's own event.trigger_* node is
 # inert). pd.weapon_graph.v2 with "profile": "held_single_shot.v1" is the
@@ -2333,10 +2333,14 @@ WEAPON_GRAPH_PROFILE = "held_single_shot.v1"
 WEAPON_GRAPH_EVENTS = ("event.weapon.trigger_pressed", "event.weapon.ready_while_held",
                        "event.weapon.clip_empty", "event.weapon.trigger_released",
                        "event.weapon.reload_done")
-WEAPON_GRAPH_IDLE_ACTIONS = ("og.weapon.fire", "og.weapon.dry_fire", "og.weapon.reload")
-WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state",)
+# Slice 3: the attack is one of three trigger modules, and use_ammo names the
+# rounds each of its shots takes.
+WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic")
+WEAPON_GRAPH_IDLE_ACTIONS = WEAPON_GRAPH_TRIGGERS + ("og.weapon.dry_fire", "og.weapon.reload")
+WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo")
 # A module is a choice the seam of its event acts on: the idle seam's three
-# rule events apply the idle actions and set_state, the records set_state.
+# rule events apply the idle actions, use_ammo and set_state, the records
+# set_state.
 WEAPON_GRAPH_EVENT_MODULES = {
     "event.weapon.trigger_pressed": WEAPON_GRAPH_MODULES,
     "event.weapon.ready_while_held": WEAPON_GRAPH_MODULES,
@@ -2349,6 +2353,31 @@ WEAPON_GRAPH_GATES = ("gate.weapon.has_ammo", "gate.weapon.has_reserve",
 WEAPON_GRAPH_MAX_ROUNDS = 255
 WEAPON_GRAPH_STATE_KEY_LEN = 64
 WEAPON_GRAPH_MAX_STATES = 8
+WEAPON_GRAPH_MAX_RATE = 3600
+# The trigger and use_ammo settings (weapon_rules.h weaponRulesSettingAt):
+# ("whole", lo, hi), ("rate",) rounds per minute above 0 and up to
+# WEAPON_GRAPH_MAX_RATE, or ("bool",). A setting left out is the record's.
+WEAPON_GRAPH_SETTINGS = {
+    "og.weapon.burst": {"count": ("whole", 2, 50), "gap": ("whole", 0, 255)},
+    "og.weapon.automatic": {"rate": ("rate",), "start_rate": ("rate",),
+                            "spin_up": ("whole", 0, 10000), "spin_down": ("whole", 0, 10000),
+                            "burst": ("whole", 0, 255), "aimed_burst": ("bool",)},
+    "og.weapon.use_ammo": {"rounds": ("whole", 1, WEAPON_GRAPH_MAX_ROUNDS)},
+}
+
+
+def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> str | None:
+    """Why a trigger or use_ammo setting is not a value of its kind, or None."""
+    if spec[0] == "whole":
+        if isinstance(value, bool) or not isinstance(value, int) or not spec[1] <= value <= spec[2]:
+            return f"needs {key} from {spec[1]} to {spec[2]}"
+    elif spec[0] == "rate":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or not 0 < value <= WEAPON_GRAPH_MAX_RATE:
+            return f"needs {key} in rounds per minute, above 0 and up to {WEAPON_GRAPH_MAX_RATE}"
+    elif not isinstance(value, bool):
+        return f"needs {key} true or false"
+    return None
 
 
 def _is_weapon_program_kind(kind: object) -> bool:
@@ -2381,6 +2410,11 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
         errors.append(f"{where} names its function in graph_id (primary or secondary)")
     kinds: dict[str, str] = {}
     keys: set[str] = set()
+    # A program node may not take a record node's id (slice 3; the runner
+    # refuses it): the record compiler reads every node.
+    record_ids = {node.get("id") for node in nodes if isinstance(node, dict)
+                  and not (_is_weapon_program_kind(node.get("kind")) or (isinstance(node.get("kind"), str)
+                           and node["kind"].startswith(_OTHER_PROGRAM_EVENT_PREFIXES)))}
     for idx, node in enumerate(nodes):
         if not isinstance(node, dict):
             continue
@@ -2392,7 +2426,7 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
         if not isinstance(node_id, str) or not node_id:
             errors.append(f"{where} node {idx} needs a non-empty id and kind")
             continue
-        if node_id in kinds:
+        if node_id in kinds or node_id in record_ids:
             errors.append(f"{where} node id {node_id!r} is used twice")
             continue
         kinds[node_id] = kind
@@ -2412,6 +2446,11 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                     or not 1 <= rounds <= WEAPON_GRAPH_MAX_ROUNDS):
                 errors.append(f"{where} gate.weapon.has_ammo {node_id!r} needs rounds from 1 to "
                               f"{WEAPON_GRAPH_MAX_ROUNDS}")
+        for key, spec in WEAPON_GRAPH_SETTINGS.get(kind, {}).items():
+            if key in node and not _weapon_variable_name(node[key]):
+                why = _weapon_setting_error(kind, key, spec, node[key])
+                if why:
+                    errors.append(f"{where} {kind} {node_id!r} {why}")
         if kind in ("gate.weapon.state_is", "og.weapon.set_state"):
             flag = "equals" if kind == "gate.weapon.state_is" else "value"
             key = node.get("key")

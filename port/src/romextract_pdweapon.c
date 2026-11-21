@@ -51,14 +51,17 @@
  * archive written before the arm rule survives an extraction (one that did
  * would arm nothing). v17 (held-weapon-events.md slice 2): the held function
  * graphs are pd.weapon_graph.v2 with their programs, so no v1 base function
- * graph survives either. */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v17"
+ * graph survives either. v18 (slice 3): the programs start their attack
+ * with a trigger node and spend with og.weapon.use_ammo, which a slice 2
+ * program lacks (its og.weapon.fire no longer exists). */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v18"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
 /* _heldprograms: the held function graphs carry their programs
- * (held-weapon-events.md slice 2). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms"
+ * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
+ * and use_ammo nodes (slice 3). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2328,9 +2331,9 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 				? "charge_release"
 				: "press_release",
 			0);
-		if (s_burstCountForFlags(f->flags) > 0) {
-			jw_field_int(w, "burst_count", s_burstCountForFlags(f->flags), 0);
-		}
+		/* held-weapon-events.md slice 3: a burst's rounds are the program's
+		 * og.weapon.burst count, so the record no longer names them
+		 * (burst_count); the flags keep the bits for the parity probe. */
 		s_emitShootGraphParams(w, &ss->base, 0);
 		break;
 	}
@@ -2338,9 +2341,7 @@ static void s_emitWeaponGraphParams(jw_t *w, const char *catalog_id,
 		const struct weaponfunc_shootauto *sa =
 			(const struct weaponfunc_shootauto *)f;
 		jw_field_str(w, "trigger_policy", "held_repeat", 0);
-		if (s_burstCountForFlags(f->flags) > 0) {
-			jw_field_int(w, "burst_count", s_burstCountForFlags(f->flags), 0);
-		}
+		/* slice 3: the burst is og.weapon.automatic's burst setting. */
 		s_emitShootGraphParams(w, &sa->base, 1);
 		jw_field_f32(w, "initial_rpm", sa->initialrpm, 0);
 		jw_field_f32(w, "max_rpm", sa->maxrpm, 0);
@@ -2526,53 +2527,135 @@ static void s_emitHeldProgramEdge(jw_t *w, const char *from, const char *output,
 	jw_close_object(w, last);
 }
 
+/* held-weapon-events.md slice 3: the trigger node of a held function's
+ * program, with every setting of its plan written out (the base weapon's
+ * cadence as visible settings). Rates use the record's own number format,
+ * so the program's rate and the record's max_rpm read back equal. */
+static void s_emitHeldTriggerNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "id", id, 0);
+	if (plan->module == WEAPON_MODULE_BURST) {
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_BURST), 0);
+		jw_field_int(w, WEAPON_RULE_COUNT_PARAM, plan->count, 0);
+		jw_field_int(w, WEAPON_RULE_GAP_PARAM, plan->gap, 1);
+	} else if (plan->module == WEAPON_MODULE_AUTOMATIC) {
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_AUTOMATIC), 0);
+		/* A rate a node could not hold (none of the base weapons has one)
+		 * is left to the record's default rather than refusing the weapon. */
+		if (plan->rate > 0.0f && plan->rate <= WEAPON_RULE_MAX_RATE) {
+			jw_field_f32(w, WEAPON_RULE_RATE_PARAM, plan->rate, 0);
+		}
+		if (plan->start_rate > 0.0f && plan->start_rate <= WEAPON_RULE_MAX_RATE) {
+			jw_field_f32(w, WEAPON_RULE_START_RATE_PARAM, plan->start_rate, 0);
+		}
+		jw_field_int(w, WEAPON_RULE_SPIN_UP_PARAM, plan->spin_up, 0);
+		jw_field_int(w, WEAPON_RULE_SPIN_DOWN_PARAM, plan->spin_down, 0);
+		jw_field_int(w, WEAPON_RULE_BURST_PARAM, plan->burst, 0);
+		jw_field_bool(w, WEAPON_RULE_AIMED_BURST_PARAM, plan->aimed_burst, 1);
+	} else {
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_FIRE_ONCE), 1);
+	}
+	w->indent--;
+	jw_indent(w);
+	fputs(last ? "}\n" : "},\n", w->fp);
+}
+
+/* The original's plan for a ROM function (weapon_rules.h
+ * weaponRulesNativeTrigger), read from the fields the record writes. */
+static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 mode,
+                                weapon_rule_trigger_t *out)
+{
+	weapon_rule_function_t record;
+
+	memset(&record, 0, sizeof(record));
+	record.weaponnum = weapon_id;
+	record.func = mode;
+	record.ammo_slot = -1;
+	if (f) {
+		record.functype = f->type;
+		record.flags = f->flags;
+		record.ammo_slot = f->ammoindex;
+		if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+			const struct weaponfunc_shootauto *sa = (const struct weaponfunc_shootauto *)f;
+
+			record.has_rate = 1;
+			record.initial_rpm = sa->initialrpm;
+			record.max_rpm = sa->maxrpm;
+			record.accel = sa->turretaccel;
+			record.decel = sa->turretdecel;
+		}
+	}
+	weaponRulesNativeTrigger(&record, out);
+}
+
 /*
- * held-weapon-events.md slice 2: the original's idle rule as a program
- * (weapon_rules.h, weaponRulesNativeIdle): a press or a held trigger fires
- * when the clip holds what a shot needs (has_ammo, whose rounds are the
- * original's minimum for the weapon and function), clicks when it does not
- * and there is reserve, and does nothing otherwise; an empty clip with the
- * trigger up reloads. pd-tests fire this wiring through the runner against
+ * held-weapon-events.md slices 2 and 3: the original's idle rule and attack
+ * as a program (weapon_rules.h, weaponRulesNativeIdle and
+ * weaponRulesNativeTrigger): a press or a held trigger starts the
+ * function's attack when the clip holds what a shot needs (has_ammo, whose
+ * rounds are the original's minimum for the weapon and function), clicks
+ * when it does not and there is reserve, and does nothing otherwise; an
+ * empty clip with the trigger up reloads. The attack is the function's
+ * trigger (fire once, burst or automatic, with the original's settings),
+ * then og.weapon.use_ammo with the rounds a shot takes, which a function
+ * that spends nothing here (no clip, the Laser's single shot, a throw or a
+ * swing) has none of. pd-tests fire this wiring through the runner against
  * the table for every hand state, so a base program and the original agree
  * by construction.
  */
-#define PDWEAPON_HELD_PROGRAM_NODES 8
-static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds)
+#define PDWEAPON_HELD_PROGRAM_NODES 9
+static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
+                                   const weapon_rule_trigger_t *plan)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
-		"pressed", "held", "has_ammo", "has_reserve", "fire", "dry_fire", "clip_empty", "reload",
+		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
+		"use_ammo",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
-		"og.weapon.fire", "og.weapon.dry_fire",
+		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
+		"og.weapon.use_ammo",
 	};
+	const s32 count = plan->rounds > 0 ? PDWEAPON_HELD_PROGRAM_NODES : PDWEAPON_HELD_PROGRAM_NODES - 1;
 
-	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
+	for (s32 i = 0; i < count; i++) {
+		const s32 last = i + 1 == count;
+
 		snprintf(ids[i], sizeof(ids[i]), "%s_%s", mode_name, suffix[i]);
-		s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : 0,
-			i + 1 == PDWEAPON_HELD_PROGRAM_NODES);
+		if (!kind[i]) {
+			s_emitHeldTriggerNode(w, ids[i], plan, last);
+		} else {
+			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
+		}
 	}
 }
 
-static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name)
+static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_rule_trigger_t *plan)
 {
 	char pressed[48], held[48], has_ammo[48], has_reserve[48];
-	char fire[48], dry_fire[48], clip_empty[48], reload[48];
+	char attack[48], dry_fire[48], clip_empty[48], reload[48], use_ammo[48];
 
 	snprintf(pressed, sizeof(pressed), "%s_pressed", mode_name);
 	snprintf(held, sizeof(held), "%s_held", mode_name);
 	snprintf(has_ammo, sizeof(has_ammo), "%s_has_ammo", mode_name);
 	snprintf(has_reserve, sizeof(has_reserve), "%s_has_reserve", mode_name);
-	snprintf(fire, sizeof(fire), "%s_fire", mode_name);
+	snprintf(attack, sizeof(attack), "%s_attack", mode_name);
 	snprintf(dry_fire, sizeof(dry_fire), "%s_dry_fire", mode_name);
 	snprintf(clip_empty, sizeof(clip_empty), "%s_clip_empty", mode_name);
 	snprintf(reload, sizeof(reload), "%s_reload", mode_name);
+	snprintf(use_ammo, sizeof(use_ammo), "%s_use_ammo", mode_name);
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
-	s_emitHeldProgramEdge(w, has_ammo, "pass", fire, 0);
+	s_emitHeldProgramEdge(w, has_ammo, "pass", attack, 0);
+	if (plan->rounds > 0) {
+		s_emitHeldProgramEdge(w, attack, "out", use_ammo, 0);
+	}
 	s_emitHeldProgramEdge(w, has_ammo, "fail", has_reserve, 0);
 	s_emitHeldProgramEdge(w, has_reserve, "pass", dry_fire, 0);
 	s_emitHeldProgramEdge(w, clip_empty, "out", reload, 1);
@@ -2599,8 +2682,12 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	const char *action_node = mode == 0 ? "primary_action" : "secondary_action";
 
 	/* held-weapon-events.md slice 2: every function that exists has the
-	 * original's idle rule as its program; an empty function has none. */
+	 * original's idle rule as its program; an empty function has none.
+	 * Slice 3: its attack is the original's plan for the function. */
 	const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;
+	weapon_rule_trigger_t plan;
+
+	s_heldNativeTrigger(func, weapon_id, mode, &plan);
 
 	fputs("{\n", fp);
 	w.indent = 1;
@@ -2616,7 +2703,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	s_emitWeaponGraphNode(&w, action_node, catalog_id, mode, func,
 		projectile_ref, entity_ref, !program);
 	if (program) {
-		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode));
+		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);
 	}
 	jw_close_array(&w, 0);
 
@@ -2626,7 +2713,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	jw_field_str(&w, "to", action_node, 1);
 	jw_close_object(&w, !program);
 	if (program) {
-		s_emitHeldProgramEdges(&w, mode_name);
+		s_emitHeldProgramEdges(&w, mode_name, &plan);
 	}
 	jw_close_array(&w, 0);
 
