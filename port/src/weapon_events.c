@@ -1,7 +1,8 @@
 /*
  * weapon_events.c -- held weapon events at the game's seams: see
  * weapon_events.h and context/designs/modding/held-weapon-events.md
- * (slice 2).
+ * (slices 2 and 3). The walk itself is weapon_rules.h's (weaponRulesWalk),
+ * which pd-tests run too.
  */
 
 #include <stdio.h>
@@ -19,16 +20,18 @@
 #include "weapon_rules.h"
 #include "weapon_events.h"
 
-/* Each player hand: a press waiting for the idle seam, and the named states
- * of the function it holds (every state is false when the hand takes a
- * weapon or changes function). */
+/* Each player hand: a press waiting for the idle seam, the named states of
+ * the function it holds (every state is false when the hand takes a weapon
+ * or changes function), and the plan of the attack its idle seam last
+ * started for that function (slice 3). */
 typedef struct weapon_hand_record {
 	u8 press;
-	u8 count;
+	u8 planned;
 	s16 weaponnum;
 	s8 func;
-	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
-	u8 values[WEAPON_RULE_MAX_STATES];
+	weapon_rule_states_t states;
+	weapon_rule_trigger_t plan;
+	weapon_rule_trigger_t native; /* the original's plan, when none was kept */
 } weapon_hand_record_t;
 static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 
@@ -39,7 +42,9 @@ static s32 s_WeaponRuleCompared;
 static s32 s_WeaponRuleDiffer;
 
 /* The first choice for a weapon, function and event logs a line; later ones
- * only count. Bounded, so an automatic weapon cannot flood the log. */
+ * only count. Bounded, so an automatic weapon cannot flood the log. The
+ * ticks per shot of a simulant's or a guard's weapon use kind
+ * WEAPON_RULE_EVENT_COUNT. */
 #define WEAPON_EVENT_SEEN_MAX 512
 typedef struct weapon_event_seen {
 	s16 weaponnum;
@@ -87,8 +92,8 @@ static s32 weaponEventFirst(s32 weaponnum, s32 func, s32 kind)
 	return 1;
 }
 
-/* The current player's record of this hand, its states reset when the hand
- * holds another weapon or function than they belong to. */
+/* The current player's record of this hand, its states and plan reset when
+ * the hand holds another weapon or function than they belong to. */
 static weapon_hand_record_t *weaponHandRecord(s32 handnum, const struct hand *hand)
 {
 	weapon_hand_record_t *record;
@@ -107,14 +112,6 @@ static weapon_hand_record_t *weaponHandRecord(s32 handnum, const struct hand *ha
 		record->func = (s8)hand->gset.weaponfunc;
 	}
 	return record;
-}
-
-static s32 weaponHandStateIndex(const weapon_hand_record_t *record, const char *key)
-{
-	for (s32 i = 0; i < record->count; i++) {
-		if (strcmp(record->keys[i], key) == 0) return i;
-	}
-	return -1;
 }
 
 /* The hand as the gates read it, as the native ammunition check
@@ -139,87 +136,6 @@ static void weaponRuleHandOf(const struct hand *hand, weapon_rule_hand_t *out)
 	}
 }
 
-/* What a held program's walk chose for one event. */
-typedef struct weapon_rule {
-	u32 modules;
-	s32 handnum;
-	const struct hand *hand;
-	weapon_hand_record_t *record;
-} weapon_rule_t;
-
-/* The held programs' modules and gates (weapon_rules.h lists the kinds,
- * and weapon_graph_runtime.c's heldProgramModuleKnown accepts the same). */
-static s32 weaponProgramModuleRun(const char *kind, const char *node_id,
-		const mission_graph_params_t *params, const mission_graph_event_t *event, void *user)
-{
-	weapon_rule_t *rule = (weapon_rule_t *)user;
-	const u32 bit = weaponRulesModuleBit(kind);
-	const u32 gate = weaponRulesGateBit(kind);
-	const s32 weaponnum = rule && rule->hand ? rule->hand->gset.weaponnum : -1;
-	char buf[WEAPON_RULE_STATE_KEY_LEN];
-	char vbuf[16];
-	weapon_rule_hand_t hand;
-
-	(void)node_id;
-	(void)event;
-	if (!rule || !rule->hand || !kind) {
-		return 0;
-	}
-	if (gate) {
-		weaponRuleHandOf(rule->hand, &hand);
-		switch (gate) {
-		case WEAPON_RULE_GATE_HAS_AMMO: {
-			const s32 rounds = weaponRulesRoundsFromText(weaponGraphRuntimeHeldParamText(weaponnum, params,
-				WEAPON_RULE_ROUNDS_PARAM, vbuf, sizeof(vbuf)));
-
-			return weaponRulesHasAmmo(&hand, rounds > 0 ? rounds : 1) ? 1 : 0;
-		}
-		case WEAPON_RULE_GATE_HAS_RESERVE:
-			return weaponRulesHasReserve(&hand) ? 1 : 0;
-		case WEAPON_RULE_GATE_READY_TO_FIRE:
-			return hand.idle ? 1 : 0;
-		case WEAPON_RULE_GATE_STATE_IS: {
-			const char *key = weaponGraphRuntimeHeldParamText(weaponnum, params, WEAPON_RULE_KEY_PARAM,
-				buf, sizeof(buf));
-			const s32 equals = weaponRulesBoolFromText(weaponGraphRuntimeHeldParamText(weaponnum, params,
-				WEAPON_RULE_EQUALS_PARAM, vbuf, sizeof(vbuf)));
-			const s32 at = key && rule->record ? weaponHandStateIndex(rule->record, key) : -1;
-			const s32 value = at >= 0 ? rule->record->values[at] : 0;
-
-			return equals >= 0 && value == equals ? 1 : 0;
-		}
-		}
-		return 0;
-	}
-	if (bit == WEAPON_MODULE_SET_STATE) {
-		const char *key = weaponGraphRuntimeHeldParamText(weaponnum, params, WEAPON_RULE_KEY_PARAM,
-			buf, sizeof(buf));
-		const s32 value = weaponRulesBoolFromText(weaponGraphRuntimeHeldParamText(weaponnum, params,
-			WEAPON_RULE_VALUE_PARAM, vbuf, sizeof(vbuf)));
-		s32 at;
-
-		/* Registration refused a node without a key or a boolean value and a
-		 * program with more keys than the table holds. */
-		if (!key || !key[0] || value < 0 || !rule->record) {
-			return 0;
-		}
-		at = weaponHandStateIndex(rule->record, key);
-		if (at < 0) {
-			if (rule->record->count >= WEAPON_RULE_MAX_STATES) return 0;
-			at = rule->record->count++;
-			snprintf(rule->record->keys[at], sizeof(rule->record->keys[at]), "%s", key);
-		}
-		rule->record->values[at] = (u8)value;
-		rule->modules |= bit;
-		return 1;
-	}
-	if (bit) {
-		rule->modules |= bit;
-		return 1;
-	}
-	return 0;
-}
-
 /* "trigger_pressed" for MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED. */
 static const char *weaponRuleName(s32 kind)
 {
@@ -228,7 +144,7 @@ static const char *weaponRuleName(s32 kind)
 	return name ? name + strlen("event.weapon.") : "?";
 }
 
-/* "fire" for a set of modules, "-" for none. */
+/* "fire_once+dry_fire" for a set of modules, "-" for none. */
 static const char *weaponModulesText(u32 modules, char *buf, size_t cap)
 {
 	size_t used = 0;
@@ -249,71 +165,104 @@ static const char *weaponModulesText(u32 modules, char *buf, size_t cap)
 	return buf;
 }
 
+/* "automatic rate=750 start_rate=750 ..." for a plan, "-" for none. */
+static const char *weaponPlanText(const weapon_rule_trigger_t *plan, char *buf, size_t cap)
+{
+	if (!plan || !plan->module) {
+		snprintf(buf, cap, "-");
+	} else if (plan->module == WEAPON_MODULE_AUTOMATIC) {
+		snprintf(buf, cap,
+			"automatic rate=%.9g start_rate=%.9g spin_up=%d spin_down=%d burst=%d aimed_burst=%s rounds=%d",
+			(double)plan->rate, (double)plan->start_rate, plan->spin_up, plan->spin_down, plan->burst,
+			plan->aimed_burst ? "true" : "false", plan->rounds);
+	} else if (plan->module == WEAPON_MODULE_BURST) {
+		snprintf(buf, cap, "burst count=%d gap=%d rounds=%d", plan->count, plan->gap, plan->rounds);
+	} else {
+		snprintf(buf, cap, "fire_once rounds=%d", plan->rounds);
+	}
+	return buf;
+}
+
 /* One event for a hand: the program walks it (gates, set_state), and the
- * modules it chose are returned; with no program, `native`. */
-static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native)
+ * modules it chose are returned; with no program, `native`. A trigger's
+ * plan goes to `plan`: the program's, or the original's (`native_plan`)
+ * with no program. */
+static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native,
+	const weapon_rule_function_t *function, const weapon_rule_trigger_t *native_plan,
+	weapon_rule_trigger_t *plan)
 {
 	const s32 weaponnum = hand->gset.weaponnum;
 	const s32 func = hand->gset.weaponfunc;
 	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
 	const s32 index = weaponEventTotalIndex(kind);
 	const u32 applied = weaponRulesEventModules(kind);
-	mission_graph_event_t event;
-	weapon_rule_t rule;
+	weapon_hand_record_t *record;
+	weapon_rule_walk_t walk;
 	s32 handled;
 
 	if (index >= 0) {
 		s_WeaponEventTotals[index]++;
 	}
+	if (plan && native_plan) {
+		*plan = *native_plan;
+	}
 	if (!program) {
 		return native; /* a v1 function: the original decides */
 	}
-	memset(&rule, 0, sizeof(rule));
-	rule.handnum = handnum;
-	rule.hand = hand;
-	rule.record = weaponHandRecord(handnum, hand);
-	handled = missionGraphProgramHandlesEvent(program, kind);
-	if (handled) {
-		memset(&event, 0, sizeof(event));
-		event.kind = kind;
-		event.player = g_Vars.currentplayernum;
-		event.catalog_id = weaponEventWeaponId(weaponnum);
-		event.instance = hand;
-		if (missionGraphProgramFire(program, &event, weaponProgramModuleRun, &rule) < 0) {
-			rule.modules = 0; /* a module refused: nothing is chosen */
-		}
-		rule.modules &= applied;
+	record = weaponHandRecord(handnum, hand);
+	memset(&walk, 0, sizeof(walk));
+	walk.weaponnum = weaponnum;
+	weaponRuleHandOf(hand, &walk.hand);
+	walk.states = record ? &record->states : NULL;
+	walk.function = function;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	handled = weaponRulesWalk(program, kind, g_Vars.currentplayernum, weaponEventWeaponId(weaponnum), hand, &walk);
+	if (plan && (walk.modules & WEAPON_MODULE_TRIGGERS)) {
+		*plan = walk.plan;
 	}
 	if ((applied & WEAPON_MODULE_IDLE_ACTIONS) && (handled || native)) {
-		char chose[64];
-		char orig[64];
-		const u32 chosen = rule.modules & WEAPON_MODULE_IDLE_ACTIONS;
+		char chose[96];
+		char orig[96];
+		char chose_plan[192];
+		char orig_plan[192];
+		const u32 chosen = walk.modules & WEAPON_MODULE_IDLE_ACTIONS;
+		/* slice 3: when both start an attack, the attacks are compared too:
+		 * the trigger, its settings and the rounds a shot takes. */
+		const s32 plans_differ = native_plan && (chosen & WEAPON_MODULE_TRIGGERS)
+			&& (native & WEAPON_MODULE_TRIGGERS) && !weaponRulesTriggerEqual(&walk.plan, native_plan);
 		/* A mod weapon's number has no original rule: its choices are
 		 * logged and not counted. */
 		const s32 counted = weaponnum < WEAPON_CUSTOM_START;
 
 		s_WeaponRuleCompared += counted;
-		if (counted && chosen != native) {
+		if (counted && (chosen != native || plans_differ)) {
 			s_WeaponRuleDiffer++;
 			if (s_WeaponRuleDiffer <= 8) {
 				sysLogPrintf(LOG_WARNING,
-					"WEAPON.RULE differs: %s weapon=%s func=%s hand=%d modules=%s native=%s",
+					"WEAPON.RULE differs: %s weapon=%s func=%s hand=%d modules=%s native=%s"
+					" plan=%s native_plan=%s",
 					weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 					func == FUNC_SECONDARY ? "secondary" : "primary", handnum,
 					weaponModulesText(chosen, chose, sizeof(chose)),
-					weaponModulesText(native, orig, sizeof(orig)));
+					weaponModulesText(native, orig, sizeof(orig)),
+					weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
+					weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
+						orig_plan, sizeof(orig_plan)));
 			}
 		}
 		if (weaponEventFirst(weaponnum, func, (s32)(kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED))) {
 			sysLogPrintf(LOG_NOTE,
-				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s",
+				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s",
 				weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 				func == FUNC_SECONDARY ? "secondary" : "primary",
 				weaponModulesText(chosen, chose, sizeof(chose)),
-				weaponModulesText(native, orig, sizeof(orig)));
+				weaponModulesText(native, orig, sizeof(orig)),
+				weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
+				weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
+					orig_plan, sizeof(orig_plan)));
 		}
 	}
-	return rule.modules;
+	return walk.modules;
 }
 
 void weaponEventTrigger(s32 handnum, struct hand *hand, s32 on, s32 previous)
@@ -328,7 +277,7 @@ void weaponEventTrigger(s32 handnum, struct hand *hand, s32 on, s32 previous)
 	} else if (!on && previous) {
 		record->press = 0;
 		if (hand->inuse) {
-			weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, handnum, hand, 0);
+			weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, handnum, hand, 0, NULL, NULL, NULL);
 		}
 	}
 }
@@ -346,20 +295,162 @@ s32 weaponEventTakePress(s32 handnum)
 	return press;
 }
 
-u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_status, u32 native)
+u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_status, u32 native,
+	const struct weapon_rule_function *record)
 {
+	weapon_rule_trigger_t native_plan;
+	weapon_rule_trigger_t plan;
+	weapon_hand_record_t *kept;
+	u32 chosen;
+
 	(void)ammo_status;
 	if (!hand) {
 		return native;
 	}
-	return weaponRuleDecide(event_kind, handnum, hand, native & WEAPON_MODULE_IDLE_ACTIONS)
+	weaponRulesNativeTrigger(record, &native_plan);
+	/* The original's attack is its plan's trigger. */
+	native &= WEAPON_MODULE_IDLE_ACTIONS;
+	if (native & WEAPON_MODULE_TRIGGERS) {
+		native = (native & ~WEAPON_MODULE_TRIGGERS) | native_plan.module;
+	}
+	chosen = weaponRuleDecide(event_kind, handnum, hand, native, record, &native_plan, &plan)
 		& WEAPON_MODULE_IDLE_ACTIONS;
+	kept = weaponHandRecord(handnum, hand);
+	if (kept && (chosen & WEAPON_MODULE_TRIGGERS)) {
+		kept->plan = plan;
+		kept->planned = 1;
+	}
+	return chosen;
+}
+
+const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const struct weapon_rule_function *record)
+{
+	static weapon_rule_trigger_t s_Native;
+	weapon_hand_record_t *kept = NULL;
+
+	if (hand && g_Vars.currentplayer) {
+		if (hand == &g_Vars.currentplayer->hands[HAND_RIGHT]) {
+			kept = weaponHandRecord(HAND_RIGHT, hand);
+		} else if (hand == &g_Vars.currentplayer->hands[HAND_LEFT]) {
+			kept = weaponHandRecord(HAND_LEFT, hand);
+		}
+	}
+	if (kept && kept->planned) {
+		return &kept->plan;
+	}
+	if (kept) {
+		weaponRulesNativeTrigger(record, &kept->native);
+		return &kept->native;
+	}
+	weaponRulesNativeTrigger(record, &s_Native);
+	return &s_Native;
+}
+
+/* A function's record as the cadence code reads it, from its held graph
+ * record (a function with a program always has one). */
+static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_function_t *out)
+{
+	const weapon_graph_held_function_t *held = weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, func);
+
+	memset(out, 0, sizeof(*out));
+	out->weaponnum = weaponnum;
+	out->func = func;
+	out->ammo_slot = -1;
+	if (held) {
+		out->functype = held->has_function_type_id ? held->function_type_id : 0;
+		out->flags = held->flags;
+		out->ammo_slot = held->ammo_slot;
+		out->has_rate = held->has_max_rpm;
+		out->initial_rpm = held->has_initial_rpm ? held->initial_rpm : 0.0f;
+		out->max_rpm = held->has_max_rpm ? held->max_rpm : 0.0f;
+		out->accel = held->has_turret_accel ? held->turret_accel : 0;
+		out->decel = held->has_turret_decel ? held->turret_decel : 0;
+	}
+}
+
+/* The press plan of each weapon function, kept while its program stays
+ * (no program was registered or dropped since: a new program can take a
+ * freed one's address). */
+typedef struct weapon_press_cache {
+	const mission_graph_program_t *program;
+	u32 generation;
+	s32 started;
+	weapon_rule_trigger_t plan;
+} weapon_press_cache_t;
+static weapon_press_cache_t s_WeaponPress[WEAPON_CUSTOM_END][2];
+
+s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *out)
+{
+	const mission_graph_program_t *program;
+	weapon_press_cache_t *cache;
+	const u32 generation = weaponGraphRuntimeHeldProgramsGeneration();
+
+	if (weaponnum < 0 || weaponnum >= WEAPON_CUSTOM_END || func < 0 || func > 1) {
+		return 0;
+	}
+	program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	if (!program) {
+		return 0;
+	}
+	cache = &s_WeaponPress[weaponnum][func];
+	if (cache->program != program || cache->generation != generation) {
+		weapon_rule_function_t record;
+		weapon_rule_walk_t walk;
+
+		weaponRuleFunctionOfHeld(weaponnum, func, &record);
+		memset(&walk, 0, sizeof(walk));
+		walk.weaponnum = weaponnum;
+		weaponRulesReadyHand(&walk.hand);
+		walk.states = NULL;
+		walk.function = &record;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, weaponEventWeaponId(weaponnum),
+			&walk, &walk);
+		cache->program = program;
+		cache->generation = generation;
+		cache->started = (walk.modules & WEAPON_MODULE_TRIGGERS) != 0;
+		cache->plan = walk.plan;
+	}
+	if (cache->started && out) {
+		*out = cache->plan;
+	}
+	return cache->started;
+}
+
+s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+	s32 ticks;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func)) {
+		return native;
+	}
+	ticks = weaponProgramPressPlan(weaponnum, func, &plan) ? weaponRulesTicksPerShot(&plan) : 0;
+	if (ticks != native && weaponnum < WEAPON_CUSTOM_START
+			&& weaponEventFirst(weaponnum, func, WEAPON_RULE_EVENT_COUNT)) {
+		sysLogPrintf(LOG_WARNING, "WEAPON.RULE differs: ticks_per_shot weapon=%s func=%s ticks=%d native=%d",
+			weaponEventWeaponId(weaponnum), func == FUNC_SECONDARY ? "secondary" : "primary", ticks, native);
+	}
+	return ticks;
+}
+
+s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func)) {
+		return native;
+	}
+	if (!weaponProgramPressPlan(weaponnum, func, &plan) || plan.module != WEAPON_MODULE_BURST) {
+		return 0;
+	}
+	return plan.count;
 }
 
 void weaponEventReloadDone(s32 handnum, struct hand *hand)
 {
 	if (hand && hand->inuse) {
-		weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE, handnum, hand, 0);
+		weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE, handnum, hand, 0, NULL, NULL, NULL);
 	}
 }
 

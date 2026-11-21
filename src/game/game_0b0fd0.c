@@ -19,6 +19,7 @@
 #include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
 #include "weapon_graph_runtime.h"
 #include "weapon_graph_v2_runtime.h"
+#include "weapon_events.h"
 
 /**
  * Canonical weapon accessor. Routes through the Catalog Manager
@@ -706,7 +707,11 @@ s8 weaponGetNumTicksPerShot(u32 weaponnum, u32 funcindex)
 		result = TICKS(result);
 	}
 #endif
-	return result;
+
+	/* held-weapon-events.md slice 3: simulants and guards fire the same
+	 * programs as players: a function with one gets the rate of the
+	 * automatic a press starts (none for any other trigger). */
+	return weaponProgramTicksPerShot((s32)weaponnum, (s32)funcindex, result);
 }
 
 u32 currentPlayerGetSight(void)

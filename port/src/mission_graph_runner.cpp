@@ -341,6 +341,10 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 		auto program = std::make_unique<mission_graph_program>();
 		program->weapon = domain == DOMAIN_WEAPON;
 		std::map<std::string, int> index;
+		// held-weapon-events.md slice 3: a weapon program node may not take
+		// the id of one of its function record's nodes (the record compiler
+		// reads every node, so one id would name two nodes).
+		std::map<std::string, int> record_ids;
 		for (size_t i = 0; i < nodes.size(); i++) {
 			const crude_json::value &node = nodes[i];
 			Node compiled;
@@ -348,6 +352,14 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				std::string kind;
 				if (!node.is_object() || !stringField(node, "kind", kind) ||
 						!(domain == DOMAIN_WEAPON ? isWeaponProgramKind(kind) : isProgramKind(kind))) {
+					std::string record_id;
+					if (domain == DOMAIN_WEAPON && node.is_object() && stringField(node, "id", record_id)) {
+						if (index.count(record_id)) {
+							setError(err, err_cap, "node id '" + record_id + "' is used twice");
+							return nullptr;
+						}
+						record_ids[record_id] = 1;
+					}
 					continue; // level, projectile or weapon record data, not the program
 				}
 				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
@@ -361,7 +373,7 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				setError(err, err_cap, "node " + std::to_string(i) + " needs a non-empty id and kind");
 				return nullptr;
 			}
-			if (index.count(compiled.id)) {
+			if (index.count(compiled.id) || record_ids.count(compiled.id)) {
 				setError(err, err_cap, "node id '" + compiled.id + "' is used twice");
 				return nullptr;
 			}

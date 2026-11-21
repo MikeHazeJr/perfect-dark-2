@@ -31,16 +31,22 @@
 extern "C" {
 #endif
 
-/* The modules, as bits. */
-#define WEAPON_MODULE_FIRE      (1u << 0) /* og.weapon.fire: the hand starts its attack with its function */
+/* The modules, as bits. The three trigger modules (slice 3) each start the
+ * hand's attack, with the cadence their settings name. */
+#define WEAPON_MODULE_FIRE_ONCE (1u << 0) /* og.weapon.fire_once: the attack fires one round */
 #define WEAPON_MODULE_DRY_FIRE  (1u << 1) /* og.weapon.dry_fire: the hand clicks on an empty clip */
 #define WEAPON_MODULE_RELOAD    (1u << 2) /* og.weapon.reload: the hand reloads its function's clip */
 #define WEAPON_MODULE_SET_STATE (1u << 3) /* og.weapon.set_state: a named state of the hand ("key") becomes "value" */
-#define WEAPON_MODULE_COUNT 4
+#define WEAPON_MODULE_BURST     (1u << 4) /* og.weapon.burst: the attack fires "count" rounds, "gap" ticks apart */
+#define WEAPON_MODULE_AUTOMATIC (1u << 5) /* og.weapon.automatic: the attack fires at "rate" while the trigger is held */
+#define WEAPON_MODULE_USE_AMMO  (1u << 6) /* og.weapon.use_ammo: each round of the attack takes "rounds" from the clip */
+#define WEAPON_MODULE_COUNT 7
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
-/* The modules that decide what an idle hand does; the first chosen in this
- * order runs. */
-#define WEAPON_MODULE_IDLE_ACTIONS (WEAPON_MODULE_FIRE | WEAPON_MODULE_DRY_FIRE | WEAPON_MODULE_RELOAD)
+#define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC)
+/* The modules that decide what an idle hand does; the seam runs the first
+ * chosen of: a trigger (the first the walk reached, with its settings), the
+ * empty click, the reload. */
+#define WEAPON_MODULE_IDLE_ACTIONS (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_DRY_FIRE | WEAPON_MODULE_RELOAD)
 
 /*
  * The gates. A gate reads the hand, so it can be answered at every weapon
@@ -82,7 +88,8 @@ extern "C" {
 static inline const char *weaponRulesModuleKind(u32 bit)
 {
 	static const char *const kinds[WEAPON_MODULE_COUNT] = {
-		"og.weapon.fire", "og.weapon.dry_fire", "og.weapon.reload", "og.weapon.set_state",
+		"og.weapon.fire_once", "og.weapon.dry_fire", "og.weapon.reload", "og.weapon.set_state",
+		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -151,16 +158,16 @@ static inline const char *weaponRulesEventName(s32 event_kind)
 }
 
 /* The modules the event's seam applies. The idle seam's three rule events
- * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions and
- * set_state; the records (trigger_released, reload_done) apply set_state
- * only. */
+ * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions,
+ * use_ammo (the attack a trigger starts) and set_state; the records
+ * (trigger_released, reload_done) apply set_state only. */
 static inline u32 weaponRulesEventModules(s32 event_kind)
 {
 	switch (event_kind) {
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED:
 	case MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD:
 	case MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY:
-		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_SET_STATE;
+		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SET_STATE;
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED:
 	case MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE:
 		return WEAPON_MODULE_SET_STATE;
@@ -182,7 +189,7 @@ static inline u32 weaponRulesNativeIdle(s32 event_kind, s32 ammo_status, s32 wea
 	switch (event_kind) {
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED:
 	case MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD:
-		if (ammo_status > 0) return weapon_is_none ? 0 : WEAPON_MODULE_FIRE;
+		if (ammo_status > 0) return weapon_is_none ? 0 : WEAPON_MODULE_FIRE_ONCE;
 		if (ammo_status == 0) return weapon_is_none ? WEAPON_MODULE_RELOAD : WEAPON_MODULE_DRY_FIRE;
 		return 0;
 	case MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY:
@@ -255,6 +262,607 @@ static inline s32 weaponRulesHasReserve(const weapon_rule_hand_t *hand)
 {
 	if (!hand) return 0;
 	return !hand->uses_ammo || hand->reserve;
+}
+
+/*
+ * held-weapon-events.md slice 3: the attack a trigger module starts, as the
+ * cadence code runs it (bondgun.c bgun0f09a3f8 and bgun0f09a6f8 call the
+ * steps below): which trigger, its settings, and the rounds each shot
+ * takes. The idle seam keeps the plan of the attack it started; with no
+ * program the plan is the original's for the function
+ * (weaponRulesNativeTrigger), so a v1 function fires as it always has.
+ *
+ * Settings (node fields, each with the unit it is read in):
+ *   og.weapon.burst      count (rounds in the burst, 2 to 50), gap (60 Hz
+ *                        ticks between its rounds, 0 to 255)
+ *   og.weapon.automatic  rate and start_rate (rounds per minute, above 0 and
+ *                        up to 3600), spin_up and spin_down (60 Hz ticks from
+ *                        start_rate to rate and back, 0 to 10000), burst
+ *                        (rounds it fires once started, released or not, 0
+ *                        to 255), aimed_burst (whether that burst holds while
+ *                        the player aims)
+ *   og.weapon.use_ammo   rounds (rounds each shot takes, 1 to 255)
+ * og.weapon.fire_once has none. A setting a node leaves out is the function
+ * record's own (the base weapon's), so a node dropped in works before it is
+ * edited; the base programs write every setting, so a base gun's quirks
+ * (the Shotgun's slower double blast, the Reaper's spin, the bursts that
+ * give way while aiming) are visible settings.
+ */
+#define WEAPON_RULE_COUNT_PARAM "count"
+#define WEAPON_RULE_GAP_PARAM "gap"
+#define WEAPON_RULE_RATE_PARAM "rate"
+#define WEAPON_RULE_START_RATE_PARAM "start_rate"
+#define WEAPON_RULE_SPIN_UP_PARAM "spin_up"
+#define WEAPON_RULE_SPIN_DOWN_PARAM "spin_down"
+#define WEAPON_RULE_BURST_PARAM "burst"
+#define WEAPON_RULE_AIMED_BURST_PARAM "aimed_burst"
+#define WEAPON_RULE_MAX_RATE 3600.0f
+#define WEAPON_RULE_DEFAULT_RATE 600.0f
+#define WEAPON_RULE_MAX_SPIN 10000
+#define WEAPON_RULE_DEFAULT_GAP 3
+#define WEAPON_RULE_MIN_BURST_COUNT 2
+#define WEAPON_RULE_MAX_BURST_COUNT 50
+#define WEAPON_RULE_MAX_GAP 255
+#define WEAPON_RULE_MAX_AUTO_BURST 255
+
+typedef struct weapon_rule_trigger {
+	u32 module;      /* WEAPON_MODULE_FIRE_ONCE, _BURST or _AUTOMATIC; 0 none */
+	s32 count;       /* burst: rounds in the burst */
+	s32 gap;         /* burst: 60 Hz ticks between its rounds */
+	f32 rate;        /* automatic: rounds per minute at full speed */
+	f32 start_rate;  /* automatic: rounds per minute as it starts */
+	s32 spin_up;     /* automatic: ticks from start_rate to rate (0: at once) */
+	s32 spin_down;   /* automatic: ticks back down after release (0: at once) */
+	s32 burst;       /* automatic: rounds it fires once started, released or not */
+	s32 aimed_burst; /* automatic: that burst holds while the player aims */
+	s32 rounds;      /* use_ammo: rounds a shot takes; 0 when the attack takes none */
+} weapon_rule_trigger_t;
+
+/* The cadence a function's record describes (bondgun.c reads the same
+ * fields): the function type (its family in the low byte, 0x100 for an
+ * automatic), its flags, its clip's ammo slot (-1 for none), and an
+ * automatic's rates and spin. */
+typedef struct weapon_rule_function {
+	s32 weaponnum;
+	s32 func;
+	s32 functype;
+	u32 flags;
+	s32 ammo_slot;
+	s32 has_rate;    /* the record names a rate (an automatic) */
+	f32 initial_rpm;
+	f32 max_rpm;
+	s32 accel;
+	s32 decel;
+} weapon_rule_function_t;
+
+#define WEAPON_RULE_FUNCFLAG_BURST3  0x00000002u /* FUNCFLAG_BURST3 */
+#define WEAPON_RULE_FUNCFLAG_BURST50 0x00000020u /* FUNCFLAG_BURST50 */
+#define WEAPON_RULE_FUNCFLAG_BURST2  0x00001000u /* FUNCFLAG_BURST2 */
+#define WEAPON_RULE_FUNCFLAG_BURST5  0x00020000u /* FUNCFLAG_BURST5 */
+
+static inline s32 weaponRulesFunctionShoots(const weapon_rule_function_t *f)
+{
+	return f && (f->functype & 0xff) == 1; /* INVENTORYFUNCTYPE_SHOOT */
+}
+
+static inline s32 weaponRulesFunctionAutomatic(const weapon_rule_function_t *f)
+{
+	return f && (f->has_rate || (f->functype & 0xff00) == 0x100);
+}
+
+/*
+ * The original's plan for a function: a function that does not shoot fires
+ * once (its attack is a throw, a swing or a special) and spends nothing
+ * here; an automatic is og.weapon.automatic at the record's rates and spin,
+ * with the burst its flags give it (2, 3, 5 or 50 rounds; the 3-round one
+ * gives way while aiming); any other shooting function with a 2-, 3- or
+ * 5-round burst flag is og.weapon.burst (the shortest flagged, 3 ticks
+ * apart, 13 for the Shotgun's double blast); the rest fire once. A shot
+ * takes one round from the clip, except where the function has no clip and
+ * for the Laser's single shot, which take none.
+ *
+ * Exact for every base function (each has at most one burst flag). For a v1
+ * record whose flags give an automatic both the 3-round burst and the
+ * 2-round one, the plan keeps the 3-round burst while aiming, where the
+ * original kept 2.
+ */
+static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	memset(out, 0, sizeof(*out));
+	out->aimed_burst = 1;
+	if (!f || !weaponRulesFunctionShoots(f)) {
+		out->module = WEAPON_MODULE_FIRE_ONCE;
+		return;
+	}
+	if (weaponRulesFunctionAutomatic(f)) {
+		out->module = WEAPON_MODULE_AUTOMATIC;
+		out->rate = f->max_rpm;
+		out->start_rate = f->initial_rpm;
+		out->spin_up = f->accel > 0 ? f->accel : 0;
+		out->spin_down = f->decel > 0 ? f->decel : 0;
+		if (f->flags & WEAPON_RULE_FUNCFLAG_BURST2) out->burst = 2;
+		if (f->flags & WEAPON_RULE_FUNCFLAG_BURST3) out->burst = 3;
+		if (f->flags & WEAPON_RULE_FUNCFLAG_BURST5) out->burst = 5;
+		if (f->flags & WEAPON_RULE_FUNCFLAG_BURST50) out->burst = 50;
+		out->aimed_burst = !((f->flags & WEAPON_RULE_FUNCFLAG_BURST3)
+			&& !(f->flags & (WEAPON_RULE_FUNCFLAG_BURST5 | WEAPON_RULE_FUNCFLAG_BURST50)));
+		out->rounds = f->ammo_slot >= 0 ? 1 : 0;
+		return;
+	}
+	if (f->flags & (WEAPON_RULE_FUNCFLAG_BURST2 | WEAPON_RULE_FUNCFLAG_BURST3 | WEAPON_RULE_FUNCFLAG_BURST5)) {
+		out->module = WEAPON_MODULE_BURST;
+		out->count = (f->flags & WEAPON_RULE_FUNCFLAG_BURST2) ? 2 : (f->flags & WEAPON_RULE_FUNCFLAG_BURST3) ? 3 : 5;
+		out->gap = f->weaponnum == WEAPON_SHOTGUN ? TICKS(13) : WEAPON_RULE_DEFAULT_GAP;
+	} else {
+		out->module = WEAPON_MODULE_FIRE_ONCE;
+	}
+	out->rounds = f->ammo_slot >= 0 && f->weaponnum != WEAPON_LASER ? 1 : 0;
+}
+
+/* A whole number setting: its text (NULL for none) within lo..hi. Returns
+ * the number, `dflt` for NULL, and -1 for anything else. */
+static inline s32 weaponRulesWholeFromText(const char *text, s32 lo, s32 hi, s32 dflt)
+{
+	long value;
+	char *end = NULL;
+
+	if (!text) return dflt;
+	if (!text[0]) return -1;
+	for (const char *p = text; *p; p++) {
+		if (*p < '0' || *p > '9') return -1;
+	}
+	value = strtol(text, &end, 10);
+	if (!end || *end || value < lo || value > hi) return -1;
+	return (s32)value;
+}
+
+/* A rate setting in rounds per minute: above 0 and up to
+ * WEAPON_RULE_MAX_RATE. Returns the rate, `dflt` for NULL, and -1 for
+ * anything else. */
+static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
+{
+	char *end = NULL;
+	double value;
+
+	if (!text) return dflt;
+	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
+	value = strtod(text, &end);
+	if (!end || *end || !(value > 0.0) || value > WEAPON_RULE_MAX_RATE) return -1.0f;
+	return (f32)value;
+}
+
+/* The settings of the trigger and use_ammo modules, by kind of value, for
+ * registration's check, conformance's mirror and the creator. */
+#define WEAPON_RULE_SETTING_WHOLE 1 /* a whole number from lo to hi */
+#define WEAPON_RULE_SETTING_RATE  2 /* rounds per minute, above 0 and up to WEAPON_RULE_MAX_RATE */
+#define WEAPON_RULE_SETTING_BOOL  3 /* true or false */
+typedef struct weapon_rule_setting {
+	u32 module;
+	const char *key;
+	s32 type;
+	s32 lo;
+	s32 hi;
+} weapon_rule_setting_t;
+#define WEAPON_RULE_SETTING_COUNT 9
+
+static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
+{
+	static const weapon_rule_setting_t settings[WEAPON_RULE_SETTING_COUNT] = {
+		{ WEAPON_MODULE_BURST, WEAPON_RULE_COUNT_PARAM, WEAPON_RULE_SETTING_WHOLE,
+			WEAPON_RULE_MIN_BURST_COUNT, WEAPON_RULE_MAX_BURST_COUNT },
+		{ WEAPON_MODULE_BURST, WEAPON_RULE_GAP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_GAP },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_RATE_PARAM, WEAPON_RULE_SETTING_RATE, 0, 0 },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_START_RATE_PARAM, WEAPON_RULE_SETTING_RATE, 0, 0 },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_SPIN_UP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_SPIN_DOWN_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_BURST_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_AUTO_BURST },
+		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_AIMED_BURST_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_USE_AMMO, WEAPON_RULE_ROUNDS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_ROUNDS },
+	};
+	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
+}
+
+/* Whether a setting's text (not NULL) is a value of its kind. */
+static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, const char *text)
+{
+	if (!setting || !text) return 0;
+	switch (setting->type) {
+	case WEAPON_RULE_SETTING_WHOLE:
+		return weaponRulesWholeFromText(text, setting->lo, setting->hi, -1) >= 0;
+	case WEAPON_RULE_SETTING_RATE:
+		return weaponRulesRateFromText(text, -1.0f) > 0.0f;
+	case WEAPON_RULE_SETTING_BOOL:
+		return weaponRulesBoolFromText(text) >= 0;
+	}
+	return 0;
+}
+
+/* The settings of one trigger or use_ammo node, read by `get` (a node's
+ * text for a key, NULL when it has none), with the record's plan as the
+ * defaults. A trigger module sets the plan's trigger and its settings (and
+ * leaves its rounds); use_ammo sets the rounds. Returns 1, or 0 when a
+ * setting is malformed, which then keeps its default. */
+typedef const char *(*weapon_rule_text_fn)(const char *key, void *user);
+static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	weapon_rule_trigger_t native;
+	s32 ok = 1;
+
+	weaponRulesNativeTrigger(record, &native);
+	if (module == WEAPON_MODULE_USE_AMMO) {
+		const s32 rounds = weaponRulesWholeFromText(get(WEAPON_RULE_ROUNDS_PARAM, user), 1, WEAPON_RULE_MAX_ROUNDS, 1);
+
+		plan->rounds = rounds < 0 ? 1 : rounds;
+		return rounds >= 0;
+	}
+	if (!(module & WEAPON_MODULE_TRIGGERS) || (module & (module - 1))) {
+		return 0;
+	}
+	plan->module = module;
+	plan->count = plan->gap = plan->spin_up = plan->spin_down = plan->burst = 0;
+	plan->rate = plan->start_rate = 0.0f;
+	plan->aimed_burst = 1;
+	if (module == WEAPON_MODULE_BURST) {
+		const s32 burst = native.module == WEAPON_MODULE_BURST;
+		const s32 dcount = burst ? native.count : 3;
+		const s32 dgap = burst ? native.gap : WEAPON_RULE_DEFAULT_GAP;
+		const s32 count = weaponRulesWholeFromText(get(WEAPON_RULE_COUNT_PARAM, user),
+			WEAPON_RULE_MIN_BURST_COUNT, WEAPON_RULE_MAX_BURST_COUNT, dcount);
+		const s32 gap = weaponRulesWholeFromText(get(WEAPON_RULE_GAP_PARAM, user), 0, WEAPON_RULE_MAX_GAP, dgap);
+
+		ok = count >= 0 && gap >= 0;
+		plan->count = count >= 0 ? count : dcount;
+		plan->gap = gap >= 0 ? gap : dgap;
+	} else if (module == WEAPON_MODULE_AUTOMATIC) {
+		const s32 automatic = native.module == WEAPON_MODULE_AUTOMATIC;
+		const char *rate_text = get(WEAPON_RULE_RATE_PARAM, user);
+		const f32 drate = automatic && native.rate > 0.0f ? native.rate : WEAPON_RULE_DEFAULT_RATE;
+		const f32 rate = weaponRulesRateFromText(rate_text, drate);
+		/* A start rate left out is the record's when the rate is too, else
+		 * the rate (no spin from a rate the record never had). */
+		const f32 dstart = !rate_text && automatic && native.start_rate > 0.0f ? native.start_rate
+			: (rate > 0.0f ? rate : drate);
+		const f32 start = weaponRulesRateFromText(get(WEAPON_RULE_START_RATE_PARAM, user), dstart);
+		const s32 dup = automatic ? native.spin_up : 0;
+		const s32 ddown = automatic ? native.spin_down : 0;
+		const s32 dburst = automatic ? native.burst : 0;
+		const s32 daimed = automatic ? native.aimed_burst : 1;
+		const s32 up = weaponRulesWholeFromText(get(WEAPON_RULE_SPIN_UP_PARAM, user), 0, WEAPON_RULE_MAX_SPIN, dup);
+		const s32 down = weaponRulesWholeFromText(get(WEAPON_RULE_SPIN_DOWN_PARAM, user), 0, WEAPON_RULE_MAX_SPIN, ddown);
+		const s32 burst = weaponRulesWholeFromText(get(WEAPON_RULE_BURST_PARAM, user), 0, WEAPON_RULE_MAX_AUTO_BURST, dburst);
+		const char *aimed_text = get(WEAPON_RULE_AIMED_BURST_PARAM, user);
+		const s32 aimed = aimed_text ? weaponRulesBoolFromText(aimed_text) : daimed;
+
+		ok = rate > 0.0f && start > 0.0f && up >= 0 && down >= 0 && burst >= 0 && aimed >= 0;
+		plan->rate = rate > 0.0f ? rate : drate;
+		plan->start_rate = start > 0.0f ? start : dstart;
+		plan->spin_up = up >= 0 ? up : dup;
+		plan->spin_down = down >= 0 ? down : ddown;
+		plan->burst = burst >= 0 ? burst : dburst;
+		plan->aimed_burst = aimed >= 0 ? aimed : daimed;
+	}
+	return ok;
+}
+
+static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const weapon_rule_trigger_t *b)
+{
+	return a->module == b->module && a->count == b->count && a->gap == b->gap
+		&& a->rate == b->rate && a->start_rate == b->start_rate
+		&& a->spin_up == b->spin_up && a->spin_down == b->spin_down
+		&& a->burst == b->burst && a->aimed_burst == b->aimed_burst && a->rounds == b->rounds;
+}
+
+/*
+ * The hand's cadence as the trigger reads and moves it each tick of the
+ * attack (bondgun.c copies these from the hand and back).
+ */
+typedef struct weapon_rule_cadence {
+	s32 triggeron;    /* the trigger is down */
+	s32 fired;        /* the attack has fired a round (HANDSTATEFLAG_00000010) */
+	s32 aiming;       /* the player aims (insightaimmode) */
+	s32 burstbullets; /* rounds the attack has fired */
+	s32 stateframes;  /* ticks since the burst's last round; the step resets it */
+	f32 spin;         /* an automatic's speed, 0 stopped to 1 at rate */
+	s32 clip_empty;   /* the clip cannot pay for a shot */
+	f32 lvupdate60;   /* this tick's length in 60 Hz ticks */
+} weapon_rule_cadence_t;
+
+/* The clip cannot pay for a shot: the function has a clip with an ammo type,
+ * the attack takes rounds, and fewer than a shot's are loaded. */
+static inline s32 weaponRulesClipEmpty(const weapon_rule_trigger_t *plan, s32 has_clip, s32 loaded)
+{
+	return has_clip && plan && plan->rounds > 0 && loaded < plan->rounds;
+}
+
+/*
+ * One tick of the attack's trigger (bgun0f09a3f8): -1 the attack stops, 0
+ * it waits (between a burst's rounds), 1 it fires and goes on, 2 it fires
+ * its last round. A burst goes on after the trigger is released; an
+ * automatic fires while it is held (and through its burst), speeding up
+ * over spin_up ticks and, released, slowing over spin_down.
+ */
+static inline s32 weaponRulesCadenceStep(const weapon_rule_trigger_t *plan, weapon_rule_cadence_t *c)
+{
+	const s32 automatic = plan->module == WEAPON_MODULE_AUTOMATIC;
+	s32 burst = 0;
+	s32 smallburst = 0;
+
+	if (automatic) {
+		burst = plan->burst > 0 && c->burstbullets < plan->burst && (plan->aimed_burst || !c->aiming);
+	} else if (plan->module == WEAPON_MODULE_BURST) {
+		smallburst = c->burstbullets < plan->count;
+		burst = smallburst;
+	}
+	if (c->triggeron || !c->fired || burst) {
+		if (c->clip_empty) {
+			return -1;
+		}
+		if (automatic) {
+			if (plan->spin_up > 0) {
+				if (c->spin < 1) {
+					c->spin += c->lvupdate60 / plan->spin_up;
+					if (c->spin > 1) {
+						c->spin = 1;
+						return 1;
+					}
+				}
+			} else {
+				c->spin = 1;
+			}
+			return 1;
+		}
+		c->spin = 1;
+		if (smallburst) {
+			if (c->burstbullets > 0 && c->stateframes < plan->gap) {
+				return 0;
+			}
+			c->stateframes = 0;
+			if (c->burstbullets == plan->count - 1) {
+				smallburst = 0; /* the burst's last round */
+			}
+		}
+		return smallburst ? 1 : 2;
+	}
+	if (automatic) {
+		if (plan->spin_down > 0) {
+			if (c->spin > 0) {
+				c->spin -= c->lvupdate60 / plan->spin_down;
+				if (c->spin < 0) {
+					c->spin = 0;
+					return -1;
+				}
+				return 1;
+			}
+		} else {
+			c->spin = 0;
+		}
+		return -1;
+	}
+	return -1;
+}
+
+/* The rounds per minute an automatic fires at, at its spin (bgun0f09a6f8). */
+static inline f32 weaponRulesRateAt(const weapon_rule_trigger_t *plan, f32 spin)
+{
+	return plan->start_rate + (plan->rate - plan->start_rate) * spin;
+}
+
+/* The shots the clip pays for, of `shots` wanted, each `rounds` from
+ * *loaded (bgun0f09a6f8): all of them, or as many as it holds. A shot that
+ * takes no rounds is free. */
+static inline s32 weaponRulesPayShots(s32 rounds, s32 *loaded, s32 shots)
+{
+	s32 cost;
+
+	if (rounds <= 0 || shots <= 0) {
+		return shots;
+	}
+	cost = shots * rounds;
+	if (*loaded >= cost) {
+		*loaded -= cost;
+		return shots;
+	}
+	shots = *loaded > 0 ? *loaded / rounds : 0;
+	*loaded -= shots * rounds;
+	if (*loaded < 0) *loaded = 0;
+	return shots;
+}
+
+/* The ticks between a simulant's or a guard's shots (chrTickShoot): an
+ * automatic's rate as whole 60 Hz ticks, 0 for one round per decision
+ * (weaponGetNumTicksPerShot gives the same for its plan). At most 127, the
+ * most the callers' byte holds. */
+static inline s32 weaponRulesTicksPerShot(const weapon_rule_trigger_t *plan)
+{
+	s32 ticks;
+
+	if (!plan || plan->module != WEAPON_MODULE_AUTOMATIC || !(plan->rate > 0.0f)) return 0;
+	ticks = (s32)(3600.0f / plan->rate);
+	if (ticks > 3) ticks = TICKS(ticks);
+	return ticks > 127 ? 127 : ticks;
+}
+
+/*
+ * One walk of a held program for one weapon event, shared by the game's
+ * seams (weapon_events.c) and pd-tests, so what a program chooses is
+ * decided by one piece of code:
+ *
+ * - the gates read `hand` (a snapshot the seam takes before the walk: the
+ *   walk spends nothing, so it stays true) and the named states;
+ * - og.weapon.set_state writes a named state as the walk reaches it, so a
+ *   later gate of the same walk sees it;
+ * - the first trigger reached plans the attack with its settings, and
+ *   og.weapon.use_ammo names the rounds a shot takes (0 without one); a
+ *   later trigger of the same walk is chosen too but plans nothing;
+ * - every setting is read through `param_text`, which resolves a "$name"
+ *   setting from the weapon's variables (weaponGraphRuntimeHeldParamText).
+ *
+ * A walk for a simulant or a guard passes no states (`states` NULL): every
+ * state is false and set_state writes nothing.
+ */
+typedef struct weapon_rule_states {
+	s32 count;
+	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
+	u8 values[WEAPON_RULE_MAX_STATES];
+} weapon_rule_states_t;
+
+static inline s32 weaponRulesStateIndex(const weapon_rule_states_t *states, const char *key)
+{
+	if (!states || !key) return -1;
+	for (s32 i = 0; i < states->count; i++) {
+		if (strcmp(states->keys[i], key) == 0) return i;
+	}
+	return -1;
+}
+
+typedef const char *(*weapon_rule_param_fn)(s32 weaponnum, const mission_graph_params_t *params,
+	const char *key, char *buf, size_t cap);
+
+typedef struct weapon_rule_walk {
+	s32 weaponnum;
+	weapon_rule_hand_t hand;                /* what the gates read */
+	weapon_rule_states_t *states;           /* the hand's named states; NULL: all false, none written */
+	const weapon_rule_function_t *function; /* the function's record: its settings' defaults */
+	weapon_rule_param_fn param_text;
+	u32 modules;                            /* what the walk chose */
+	weapon_rule_trigger_t plan;             /* the first trigger reached, with use_ammo's rounds */
+} weapon_rule_walk_t;
+
+typedef struct weapon_rule_setting_read {
+	const weapon_rule_walk_t *walk;
+	const mission_graph_params_t *params;
+	char buf[32];
+} weapon_rule_setting_read_t;
+
+static inline const char *weaponRulesWalkSettingText(const char *key, void *user)
+{
+	weapon_rule_setting_read_t *read = (weapon_rule_setting_read_t *)user;
+
+	return read->walk->param_text(read->walk->weaponnum, read->params, key, read->buf, sizeof(read->buf));
+}
+
+/* The runner's module callback for a walk (mission_graph_module_run_fn). */
+static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
+	const mission_graph_params_t *params, const mission_graph_event_t *event, void *user)
+{
+	weapon_rule_walk_t *walk = (weapon_rule_walk_t *)user;
+	const u32 bit = weaponRulesModuleBit(kind);
+	const u32 gate = weaponRulesGateBit(kind);
+	char buf[WEAPON_RULE_STATE_KEY_LEN];
+	char vbuf[16];
+
+	(void)node_id;
+	(void)event;
+	if (!walk || !kind || !walk->param_text) {
+		return 0;
+	}
+	if (gate) {
+		switch (gate) {
+		case WEAPON_RULE_GATE_HAS_AMMO: {
+			const s32 rounds = weaponRulesRoundsFromText(walk->param_text(walk->weaponnum, params,
+				WEAPON_RULE_ROUNDS_PARAM, vbuf, sizeof(vbuf)));
+
+			return weaponRulesHasAmmo(&walk->hand, rounds > 0 ? rounds : 1) ? 1 : 0;
+		}
+		case WEAPON_RULE_GATE_HAS_RESERVE:
+			return weaponRulesHasReserve(&walk->hand) ? 1 : 0;
+		case WEAPON_RULE_GATE_READY_TO_FIRE:
+			return walk->hand.idle ? 1 : 0;
+		case WEAPON_RULE_GATE_STATE_IS: {
+			const char *key = walk->param_text(walk->weaponnum, params, WEAPON_RULE_KEY_PARAM, buf, sizeof(buf));
+			const s32 equals = weaponRulesBoolFromText(walk->param_text(walk->weaponnum, params,
+				WEAPON_RULE_EQUALS_PARAM, vbuf, sizeof(vbuf)));
+			const s32 at = weaponRulesStateIndex(walk->states, key);
+			const s32 value = at >= 0 ? walk->states->values[at] : 0;
+
+			return equals >= 0 && value == equals ? 1 : 0;
+		}
+		}
+		return 0;
+	}
+	if (bit == WEAPON_MODULE_SET_STATE) {
+		const char *key = walk->param_text(walk->weaponnum, params, WEAPON_RULE_KEY_PARAM, buf, sizeof(buf));
+		const s32 value = weaponRulesBoolFromText(walk->param_text(walk->weaponnum, params,
+			WEAPON_RULE_VALUE_PARAM, vbuf, sizeof(vbuf)));
+		s32 at;
+
+		/* Registration refused a node without a key or a boolean value and a
+		 * program with more keys than the table holds. */
+		if (!key || !key[0] || strlen(key) >= WEAPON_RULE_STATE_KEY_LEN || value < 0) {
+			return 0;
+		}
+		if (walk->states) {
+			at = weaponRulesStateIndex(walk->states, key);
+			if (at < 0) {
+				if (walk->states->count >= WEAPON_RULE_MAX_STATES) return 0;
+				at = walk->states->count++;
+				memcpy(walk->states->keys[at], key, strlen(key) + 1);
+			}
+			walk->states->values[at] = (u8)value;
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO)) {
+		const u32 first = (bit & WEAPON_MODULE_TRIGGERS) ? WEAPON_MODULE_TRIGGERS : WEAPON_MODULE_USE_AMMO;
+
+		if (!(walk->modules & first)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			weaponRulesApplySettings(bit, weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit) {
+		walk->modules |= bit;
+		return 1;
+	}
+	return 0;
+}
+
+/* Walks one event of `program` for `walk`: 1 when the program handles the
+ * event (walk->modules and walk->plan then say what it chose; a module that
+ * refused chooses nothing), 0 when it does not. instance must not be NULL
+ * (the runner refuses a weapon event without one). */
+static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 event_kind, s32 player,
+	const char *catalog_id, void *instance, weapon_rule_walk_t *walk)
+{
+	mission_graph_event_t event;
+
+	walk->modules = 0;
+	memset(&walk->plan, 0, sizeof(walk->plan));
+	walk->plan.aimed_burst = 1;
+	if (!program || !missionGraphProgramHandlesEvent(program, event_kind)) {
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = event_kind;
+	event.player = player;
+	event.catalog_id = catalog_id;
+	event.instance = instance;
+	if (missionGraphProgramFire(program, &event, weaponRulesWalkModule, walk) < 0) {
+		walk->modules = 0;
+	}
+	walk->modules &= weaponRulesEventModules(event_kind);
+	if (!(walk->modules & WEAPON_MODULE_TRIGGERS)) {
+		memset(&walk->plan, 0, sizeof(walk->plan));
+		walk->plan.aimed_burst = 1;
+	} else if (!(walk->modules & WEAPON_MODULE_USE_AMMO)) {
+		walk->plan.rounds = 0;
+	}
+	return 1;
+}
+
+/* The hand a simulant or a guard walks a press with: ready, its function
+ * spending from no clip (has_ammo and has_reserve pass). */
+static inline void weaponRulesReadyHand(weapon_rule_hand_t *hand)
+{
+	memset(hand, 0, sizeof(*hand));
+	hand->idle = 1;
 }
 
 /* The native ammunition check (bgun0f098ca0) of a hand that holds a

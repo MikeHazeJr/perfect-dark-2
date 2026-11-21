@@ -1304,6 +1304,10 @@ bool bgun0f099188(struct hand *hand, s32 gunfunc)
 	return bgun0f0990b0(func, weapon);
 }
 
+/* held-weapon-events.md slice 3: the hand's function as the cadence code reads
+ * it (defined with the graph accessors below). */
+static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapon_rule_function_t *out);
+
 s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
 	bool usesec;
@@ -1402,10 +1406,16 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 				event = MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY;
 			}
 			if (event) {
-				act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none));
+				weapon_rule_function_t record;
+
+				bgunRuleFunctionOf(hand, gsetGetWeaponFunction(&hand->gset), &record);
+				act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none),
+					&record);
 			}
 
-			if (act & WEAPON_MODULE_FIRE) {
+			/* slice 3: a trigger (fire once, burst, automatic) starts the
+			 * attack; the hand keeps its plan for the cadence code. */
+			if (act & WEAPON_MODULE_TRIGGERS) {
 				if (!none) {
 					g_Vars.currentplayer->doautoselect = false;
 
@@ -1936,6 +1946,38 @@ static s32 bgunGetAmmoIndexFromGraph(struct weaponfunc *func,
 	return func ? func->ammoindex : -1;
 }
 
+/* held-weapon-events.md slice 3: the hand's function as the cadence code
+ * has always read it (the held graph's record, else the function's own; an
+ * automatic's rates and spin from the shootauto function where the record
+ * has none), for the trigger plan of its attack. */
+static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapon_rule_function_t *out)
+{
+	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	const s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
+
+	memset(out, 0, sizeof(*out));
+	out->weaponnum = hand->gset.weaponnum;
+	out->func = hand->gset.weaponfunc;
+	out->functype = functype;
+	out->flags = graph ? graph->flags : (func ? func->flags : 0);
+	out->ammo_slot = bgunGetAmmoIndexFromGraph(func, graph);
+	out->has_rate = graph && graph->has_max_rpm;
+
+	if (weaponRulesFunctionAutomatic(out)) {
+		struct weaponfunc_shootauto *autofunc = (functype & 0xff00) == 0x100 && func
+			? (struct weaponfunc_shootauto *) func : NULL;
+
+		out->initial_rpm = graph && graph->has_initial_rpm ? graph->initial_rpm
+			: (autofunc ? autofunc->initialrpm : 0.0f);
+		out->max_rpm = graph && graph->has_max_rpm ? graph->max_rpm
+			: (autofunc ? autofunc->maxrpm : 0.0f);
+		out->accel = graph && graph->has_turret_accel ? graph->turret_accel
+			: (autofunc ? autofunc->turretaccel : 0);
+		out->decel = graph && graph->has_turret_decel ? graph->turret_decel
+			: (autofunc ? autofunc->turretdecel : 0);
+	}
+}
+
 static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
 		const weapon_graph_held_function_t *graph)
 {
@@ -2209,153 +2251,59 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 	}
 }
 
+/*
+ * held-weapon-events.md slice 3: one tick of the attack's trigger. The
+ * attack's plan (weaponHandTrigger: the trigger its program chose with its
+ * settings, or the original's for the function) decides it; the step is the
+ * original's code (weapon_rules.h weaponRulesCadenceStep), with the burst
+ * flags, the automatic's spin and the burst gap (13 ticks for the Shotgun,
+ * 3 for the rest) read from the plan. -1 the attack stops, 0 it waits
+ * between a burst's rounds, 1 it fires and goes on, 2 it fires its last
+ * round.
+ */
 s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 {
-	bool burst = false;
-	bool smallburst = false;
 	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	u32 funcflags = graph ? graph->flags : func->flags;
 	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
-	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
-	bool legacyauto = (functype & 0xff00) == 0x100;
-	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
-	s32 turretaccel = 0;
-	s32 turretdecel = 0;
+	weapon_rule_function_t record;
+	weapon_rule_cadence_t cadence;
+	const weapon_rule_trigger_t *plan;
+	s32 result;
 
-	if (isauto) {
-		if (graph && graph->has_turret_accel) {
-			turretaccel = graph->turret_accel;
-		} else if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			turretaccel = autofunc->turretaccel;
-		}
+	bgunRuleFunctionOf(hand, func, &record);
+	plan = weaponHandTrigger(hand, &record);
 
-		if (graph && graph->has_turret_decel) {
-			turretdecel = graph->turret_decel;
-		} else if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			turretdecel = autofunc->turretdecel;
-		}
-	}
+	cadence.triggeron = hand->triggeron;
+	cadence.fired = (hand->stateflags & HANDSTATEFLAG_00000010) != 0;
+	// Make automatics do single shot when holding aim (an automatic's
+	// burst may give way while aiming: its aimed_burst setting)
+	cadence.aiming = g_Vars.currentplayer->insightaimmode;
+	cadence.burstbullets = hand->burstbullets;
+	cadence.stateframes = hand->stateframes;
+	cadence.spin = hand->gs_float1;
+	cadence.clip_empty = weaponRulesClipEmpty(plan, ammoindex >= 0 && ctrl->ammotypes[ammoindex] >= 0,
+		ammoindex >= 0 ? hand->loadedammo[ammoindex] : 0);
+	cadence.lvupdate60 = LVUPDATE60FREAL();
 
-	if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets < 3) {
-		// Make automatics do single shot when holding aim
-		if (!g_Vars.currentplayer->insightaimmode || !isauto) {
-			// Not aiming and not an automatic weapon
-			smallburst = true;
-		}
-	}
+	result = weaponRulesCadenceStep(plan, &cadence);
 
-	if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets < 2) {
-		smallburst = true;
-	}
+	hand->stateframes = cadence.stateframes;
+	hand->gs_float1 = cadence.spin;
 
-	if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets < 5) {
-		smallburst = true;
-	}
-
-	if ((funcflags & FUNCFLAG_BURST50) && hand->burstbullets < 50) {
-		burst = true;
-	}
-
-	if (smallburst) {
-		burst = true;
-	}
-
-	if (hand->triggeron || (hand->stateflags & HANDSTATEFLAG_00000010) == 0 || burst) {
-		if (ammoindex >= 0
-				&& hand->loadedammo[ammoindex] == 0
-				&& ctrl->ammotypes[ammoindex] >= 0) {
-			// Clip is empty
-			return -1;
-		}
-
-		if (isauto) {
-			if (turretaccel > 0) {
-				if (hand->gs_float1 < 1) {
-					hand->gs_float1 += LVUPDATE60FREAL() / turretaccel;
-
-					if (hand->gs_float1 > 1) {
-						hand->gs_float1 = 1;
-						return 1;
-					}
-				}
-			} else {
-				hand->gs_float1 = 1;
-			}
-
-			return 1;
-		}
-
-		hand->gs_float1 = 1;
-
-		if (smallburst) {
-			if (hand->burstbullets > 0) {
-				s32 delay = 3;
-
-				if (hand->gset.weaponnum == WEAPON_SHOTGUN) {
-					delay = TICKS(13);
-				}
-
-				if (hand->stateframes < delay) {
-					return 0;
-				}
-			}
-
-			hand->stateframes = 0;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets == 2) {
-			smallburst = false;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets == 1) {
-			smallburst = false;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets == 4) {
-			smallburst = false;
-		}
-
-		if (smallburst) {
-			return 1;
-		}
-
-		return 2;
-	}
-
-	if (isauto) {
-		if (turretdecel > 0) {
-			if (hand->gs_float1 > 0) {
-				hand->gs_float1 -= LVUPDATE60FREAL() / turretdecel;
-
-				if (hand->gs_float1 < 0) {
-					hand->gs_float1 = 0;
-					return -1;
-				}
-
-				return 1;
-			}
-		} else {
-			hand->gs_float1 = 0;
-		}
-
-		return -1;
-	}
-
-	return -1;
+	return result;
 }
 
 void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, struct weaponfunc *func)
 {
-	bool usesammo = true;
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	u32 funcflags = graph ? graph->flags : func->flags;
 	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
 	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
-	bool legacyauto = (functype & 0xff00) == 0x100;
-	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
+	bool isauto;
+	bool usesammo;
 
 	static u32 rontime = 2;
 	static u32 rofftime = 4;
@@ -2363,25 +2311,22 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 	mainOverrideVariable("rontime", &rontime);
 	mainOverrideVariable("rofftime", &rofftime);
 
+	/* held-weapon-events.md slice 3: the attack's plan names whether it is
+	 * an automatic, its rates, and the rounds a shot takes
+	 * (og.weapon.use_ammo; the Laser's single shot and a function with no
+	 * clip take none). */
+	bgunRuleFunctionOf(hand, func, &record);
+	plan = weaponHandTrigger(hand, &record);
+	isauto = plan->module == WEAPON_MODULE_AUTOMATIC;
+	usesammo = plan->rounds > 0;
+
 	hand->firing = true;
 
 	if (isauto) {
 		f32 tmp;
 		f32 tmp2;
-		f32 initialrpm = graph && graph->has_initial_rpm ? graph->initial_rpm : 0.0f;
-		f32 maxrpm = graph && graph->has_max_rpm ? graph->max_rpm : 0.0f;
 
-		if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			if (!graph || !graph->has_initial_rpm) {
-				initialrpm = autofunc->initialrpm;
-			}
-			if (!graph || !graph->has_max_rpm) {
-				maxrpm = autofunc->maxrpm;
-			}
-		}
-
-		tmp = initialrpm + (maxrpm - initialrpm) * hand->gs_float1;
+		tmp = weaponRulesRateAt(plan, hand->gs_float1);
 		tmp2 = tmp / 60.0f * (LVUPDATE60FREAL() / 60.0f) + hand->shotremainder;
 
 		hand->shotstotake = tmp2;
@@ -2396,10 +2341,6 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 		}
 	} else {
 		hand->shotstotake = 1;
-
-		if (hand->gset.weaponnum == WEAPON_LASER) {
-			usesammo = false;
-		}
 	}
 
 	hand->burstbullets += hand->shotstotake;
@@ -2430,13 +2371,10 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 		bgunRumble(handnum, info->weaponnum);
 
 		if (usesammo && ammoindex >= 0) {
-			hand->loadedammo[ammoindex] -= hand->shotstotake;
-
-			if (hand->loadedammo[ammoindex] < 0) {
-				// Note: loadedammo is negative
-				hand->shotstotake += hand->loadedammo[ammoindex];
-				hand->loadedammo[ammoindex] = 0;
-			}
+			// Each shot takes the plan's rounds; a clip that runs short
+			// pays for the shots it can
+			hand->shotstotake = weaponRulesPayShots(plan->rounds, &hand->loadedammo[ammoindex],
+				hand->shotstotake);
 		}
 
 		switch (functype & 0xff00) {

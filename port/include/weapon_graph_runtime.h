@@ -735,6 +735,10 @@ const struct mission_graph_program *weaponGraphRuntimeHeldProgram(s32 weaponnum,
 struct mission_graph_params;
 const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_graph_params *params,
 	const char *key, char *buf, size_t cap);
+/* held-weapon-events.md slice 3: a number that changes whenever a held
+ * program is registered or dropped, so a cache of what a program answers
+ * (weapon_events.c's press plans) knows to ask again. */
+u32 weaponGraphRuntimeHeldProgramsGeneration(void);
 /* Whether a weapon graph text is a held function graph with a program
  * (pd.weapon_graph.v2 without a "profile"). */
 s32 weaponGraphTextIsHeldProgram(const char *json, u32 json_size);

@@ -1151,7 +1151,7 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 		CHECK(std::string(kind).rfind("og.weapon.", 0) == 0);
 		CHECK(weaponRulesModuleBit(kind) == bit);
 	}
-	CHECK(weaponRulesModuleKind(WEAPON_MODULE_FIRE | WEAPON_MODULE_RELOAD) == nullptr);
+	CHECK(weaponRulesModuleKind(WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_RELOAD) == nullptr);
 	CHECK(weaponRulesModuleBit("og.projectile.explode") == 0);
 	CHECK(weaponRulesModuleBit(nullptr) == 0);
 	for (s32 g = 0; g < WEAPON_GATE_COUNT; g++) {
@@ -1162,7 +1162,7 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 		CHECK(weaponRulesGateBit(kind) == gate);
 	}
 	CHECK(weaponRulesGateBit("gate.projectile.fuse_armed") == 0);
-	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_FIRE)) == "og.weapon.fire");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_FIRE_ONCE)) == "og.weapon.fire_once");
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_DRY_FIRE)) == "og.weapon.dry_fire");
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_RELOAD)) == "og.weapon.reload");
 	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_SET_STATE)) == "og.weapon.set_state");
@@ -1189,16 +1189,16 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 	}
 	CHECK(weaponRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == nullptr);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) == WEAPON_MODULE_SET_STATE);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) == WEAPON_MODULE_SET_STATE);
 
 	// The original's idle rule and its rounds.
 	for (s32 kind : { MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD }) {
-		CHECK(weaponRulesNativeIdle(kind, 3, 0) == WEAPON_MODULE_FIRE);
-		CHECK(weaponRulesNativeIdle(kind, 1, 0) == WEAPON_MODULE_FIRE);
+		CHECK(weaponRulesNativeIdle(kind, 3, 0) == WEAPON_MODULE_FIRE_ONCE);
+		CHECK(weaponRulesNativeIdle(kind, 1, 0) == WEAPON_MODULE_FIRE_ONCE);
 		CHECK(weaponRulesNativeIdle(kind, 0, 0) == WEAPON_MODULE_DRY_FIRE);
 		CHECK(weaponRulesNativeIdle(kind, -1, 0) == 0);
 		CHECK(weaponRulesNativeIdle(kind, 1, 1) == 0);
@@ -1235,10 +1235,20 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 namespace {
 
 // The base idle wiring as the extractor writes it (romextract_pdweapon.c,
-// s_emitHeldProgramNodes and s_emitHeldProgramEdges) for one function.
-std::string baseIdleProgram(const std::string &mode, s32 rounds)
+// s_emitHeldProgramNodes and s_emitHeldProgramEdges) for one function: the
+// attack is the trigger node `attack` (its kind and settings) and, when
+// use_rounds is above 0, og.weapon.use_ammo with those rounds.
+std::string baseIdleProgram(const std::string &mode, s32 rounds,
+	const std::string &attack = "\"kind\": \"og.weapon.fire_once\"", s32 use_rounds = 1)
 {
 	const std::string m = mode;
+	const std::string useNode = use_rounds > 0
+		? ",{ \"id\": \"" + m + "_use_ammo\", \"kind\": \"og.weapon.use_ammo\", \"rounds\": " +
+			std::to_string(use_rounds) + " }"
+		: std::string();
+	const std::string useEdge = use_rounds > 0
+		? "{ \"from\": \"" + m + "_attack\", \"output\": \"out\", \"to\": \"" + m + "_use_ammo\", \"input\": \"exec\" },"
+		: std::string();
 	return "{ \"schema\": \"pd.weapon_graph.v2\", \"asset_id\": \"base:test__weapon\", \"graph_id\": \"" + m +
 		"\", \"nodes\": ["
 		"{ \"id\": \"" + m + "_trigger\", \"kind\": \"event.trigger_pressed\", \"subgraph\": \"" + m +
@@ -1249,15 +1259,15 @@ std::string baseIdleProgram(const std::string &mode, s32 rounds)
 		"{ \"id\": \"" + m + "_held\", \"kind\": \"event.weapon.ready_while_held\" },"
 		"{ \"id\": \"" + m + "_has_ammo\", \"kind\": \"gate.weapon.has_ammo\", \"rounds\": " + std::to_string(rounds) + " },"
 		"{ \"id\": \"" + m + "_has_reserve\", \"kind\": \"gate.weapon.has_reserve\" },"
-		"{ \"id\": \"" + m + "_fire\", \"kind\": \"og.weapon.fire\" },"
+		"{ \"id\": \"" + m + "_attack\", " + attack + " },"
 		"{ \"id\": \"" + m + "_dry_fire\", \"kind\": \"og.weapon.dry_fire\" },"
 		"{ \"id\": \"" + m + "_clip_empty\", \"kind\": \"event.weapon.clip_empty\" },"
-		"{ \"id\": \"" + m + "_reload\", \"kind\": \"og.weapon.reload\" }"
+		"{ \"id\": \"" + m + "_reload\", \"kind\": \"og.weapon.reload\" }" + useNode +
 		"], \"edges\": ["
 		"{ \"from\": \"" + m + "_trigger\", \"to\": \"" + m + "_action\" },"
 		"{ \"from\": \"" + m + "_pressed\", \"output\": \"out\", \"to\": \"" + m + "_has_ammo\", \"input\": \"exec\" },"
 		"{ \"from\": \"" + m + "_held\", \"output\": \"out\", \"to\": \"" + m + "_has_ammo\", \"input\": \"exec\" },"
-		"{ \"from\": \"" + m + "_has_ammo\", \"output\": \"pass\", \"to\": \"" + m + "_fire\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_has_ammo\", \"output\": \"pass\", \"to\": \"" + m + "_attack\", \"input\": \"exec\" }," + useEdge +
 		"{ \"from\": \"" + m + "_has_ammo\", \"output\": \"fail\", \"to\": \"" + m + "_has_reserve\", \"input\": \"exec\" },"
 		"{ \"from\": \"" + m + "_has_reserve\", \"output\": \"pass\", \"to\": \"" + m + "_dry_fire\", \"input\": \"exec\" },"
 		"{ \"from\": \"" + m + "_clip_empty\", \"output\": \"out\", \"to\": \"" + m + "_reload\", \"input\": \"exec\" }"
@@ -1267,29 +1277,6 @@ std::string baseIdleProgram(const std::string &mode, s32 rounds)
 s32 heldKnown(const char *kind)
 {
 	return weaponRulesModuleBit(kind) != 0 || weaponRulesGateBit(kind) != 0;
-}
-
-struct HeldWalk {
-	weapon_rule_hand_t hand{};
-	u32 modules = 0;
-};
-
-// The gates answered from a hand, as weapon_events.c answers them.
-s32 heldRun(const char *kind, const char *, const mission_graph_params_t *params,
-	const mission_graph_event_t *, void *user)
-{
-	HeldWalk &walk = *static_cast<HeldWalk *>(user);
-	switch (weaponRulesGateBit(kind)) {
-	case WEAPON_RULE_GATE_HAS_AMMO:
-		return weaponRulesHasAmmo(&walk.hand,
-			weaponRulesRoundsFromText(missionGraphParamText(params, WEAPON_RULE_ROUNDS_PARAM)));
-	case WEAPON_RULE_GATE_HAS_RESERVE:
-		return weaponRulesHasReserve(&walk.hand);
-	case WEAPON_RULE_GATE_READY_TO_FIRE:
-		return walk.hand.idle;
-	}
-	walk.modules |= weaponRulesModuleBit(kind);
-	return 1;
 }
 
 } // namespace
@@ -1311,13 +1298,14 @@ TEST_CASE("the base idle wiring chooses what the original does, for every hand s
 			for (s32 clip = 1; clip <= 8; clip++)
 			for (s32 loaded = 0; loaded <= clip; loaded++)
 			for (s32 reserve = 0; reserve <= 1; reserve++) {
-				HeldWalk walk;
+				// The walk the seam runs (weapon_rules.h weaponRulesWalk).
+				weapon_rule_walk_t walk{};
+				weapon_rule_states_t states{};
+				walk.weaponnum = -1;
 				walk.hand = weapon_rule_hand_t{ uses, loaded, clip, reserve, 1 };
-				mission_graph_event_t event = {};
-				event.kind = kind;
-				event.player = 0;
-				event.instance = &instance;
-				REQUIRE(missionGraphProgramFire(program, &event, heldRun, &walk) >= 0);
+				walk.states = &states;
+				walk.param_text = weaponGraphRuntimeHeldParamText;
+				REQUIRE(weaponRulesWalk(program, kind, 0, "base:test__weapon", &instance, &walk) == 1);
 				const u32 chosen = walk.modules & WEAPON_MODULE_IDLE_ACTIONS;
 				const u32 native = weaponRulesNativeIdle(kind,
 					weaponRulesNativeAmmoStatus(&walk.hand, rounds), 0);
@@ -1332,19 +1320,23 @@ TEST_CASE("the base idle wiring chooses what the original does, for every hand s
 	// The extractor writes exactly this wiring, from the table's rounds.
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("jw_field_str(&w, \"schema\", \"pd.weapon_graph.v2\", 0);") != std::string::npos);
-	REQUIRE(extractor.find("\"pressed\", \"held\", \"has_ammo\", \"has_reserve\", \"fire\", \"dry_fire\", "
-		"\"clip_empty\", \"reload\",") != std::string::npos);
+	REQUIRE(extractor.find("\"pressed\", \"held\", \"has_ammo\", \"has_reserve\", \"attack\", \"dry_fire\", "
+		"\"clip_empty\", \"reload\",\n\t\t\"use_ammo\",") != std::string::npos);
 	REQUIRE(extractor.find("\"event.weapon.trigger_pressed\", \"event.weapon.ready_while_held\",\n"
 		"\t\tWEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,\n"
-		"\t\t\"og.weapon.fire\", \"og.weapon.dry_fire\",\n"
-		"\t\t\"event.weapon.clip_empty\", \"og.weapon.reload\",") != std::string::npos);
+		"\t\tNULL, \"og.weapon.dry_fire\",\n"
+		"\t\t\"event.weapon.clip_empty\", \"og.weapon.reload\",\n"
+		"\t\t\"og.weapon.use_ammo\",") != std::string::npos);
 	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, pressed, \"out\", has_ammo, 0);\n"
 		"\ts_emitHeldProgramEdge(w, held, \"out\", has_ammo, 0);\n"
-		"\ts_emitHeldProgramEdge(w, has_ammo, \"pass\", fire, 0);\n"
+		"\ts_emitHeldProgramEdge(w, has_ammo, \"pass\", attack, 0);\n"
+		"\tif (plan->rounds > 0) {\n"
+		"\t\ts_emitHeldProgramEdge(w, attack, \"out\", use_ammo, 0);\n"
+		"\t}\n"
 		"\ts_emitHeldProgramEdge(w, has_ammo, \"fail\", has_reserve, 0);\n"
 		"\ts_emitHeldProgramEdge(w, has_reserve, \"pass\", dry_fire, 0);\n"
 		"\ts_emitHeldProgramEdge(w, clip_empty, \"out\", reload, 1);") != std::string::npos);
-	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode));")
+	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);")
 		!= std::string::npos);
 	REQUIRE(extractor.find("const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;")
 		!= std::string::npos);
@@ -1352,8 +1344,8 @@ TEST_CASE("the base idle wiring chooses what the original does, for every hand s
 	// The idle seam asks the program where the original decided, and keeps
 	// the original's branches after it.
 	const std::string bondgun = readSource("src/game/bondgun.c");
-	REQUIRE(bondgun.find("act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none));")
-		!= std::string::npos);
+	REQUIRE(bondgun.find("act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none),\n"
+		"\t\t\t\t\t&record);") != std::string::npos);
 	REQUIRE(bondgun.find("event = weaponEventTakePress(handnum) ? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED\n"
 		"\t\t\t\t\t: MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD;") != std::string::npos);
 	REQUIRE(bondgun.find("|| (sp34 > 0 && hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY);")
@@ -1484,6 +1476,742 @@ TEST_CASE("a held program registers only with modules its events apply and setti
 	}
 	CHECK_FALSE(registers(withState(nine, nineEdges)));
 	CHECK(std::string(err).find("more than 8 state keys") != std::string::npos);
+
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
+}
+
+// held-weapon-events.md slice 3: the trigger table.
+namespace {
+
+// A function record as the cadence code reads it.
+weapon_rule_function_t ruleRecord(s32 weaponnum, s32 func, s32 functype, u32 flags, s32 slot,
+	f32 initial = 0.0f, f32 max = 0.0f, s32 accel = 0, s32 decel = 0)
+{
+	weapon_rule_function_t r{};
+	r.weaponnum = weaponnum;
+	r.func = func;
+	r.functype = functype;
+	r.flags = flags;
+	r.ammo_slot = slot;
+	r.has_rate = functype == 0x0101 || max > 0.0f;
+	r.initial_rpm = initial;
+	r.max_rpm = max;
+	r.accel = accel;
+	r.decel = decel;
+	return r;
+}
+
+struct BaseFunction {
+	const char *name;
+	weapon_rule_function_t record;
+};
+
+// Every shooting cadence the base weapons have (the extracted records, Nov
+// 2026): each automatic with its rates and spin, each burst, the single
+// shots, the Laser's two functions, a projectile, a throw and a swing.
+std::vector<BaseFunction> baseFunctions()
+{
+	const u32 B2 = WEAPON_RULE_FUNCFLAG_BURST2, B3 = WEAPON_RULE_FUNCFLAG_BURST3;
+	const u32 B50 = WEAPON_RULE_FUNCFLAG_BURST50;
+	return {
+		{ "ar34 primary", ruleRecord(WEAPON_AR34, 0, 0x0101, B3, 0, 750, 750) },
+		{ "k7avenger secondary", ruleRecord(WEAPON_K7AVENGER, 1, 0x0101, B3, 0, 950, 950) },
+		{ "laptopgun primary", ruleRecord(WEAPON_LAPTOPGUN, 0, 0x0101, B3, 0, 1000, 1000) },
+		{ "reaper primary", ruleRecord(WEAPON_REAPER, 0, 0x0101, B3, 0, 60, 1800, 88, 88) },
+		{ "cyclone primary", ruleRecord(WEAPON_CYCLONE, 0, 0x0101, 0, 0, 900, 900) },
+		{ "cyclone secondary", ruleRecord(WEAPON_CYCLONE, 1, 0x0101, B50, 0, 2000, 2000) },
+		{ "callisto secondary", ruleRecord(WEAPON_CALLISTO, 1, 0x0101, 0, 0, 300, 300) },
+		{ "rcp120 primary", ruleRecord(WEAPON_RCP120, 0, 0x0101, 0, 0, 1100, 1100) },
+		{ "laser secondary", ruleRecord(WEAPON_LASER, 1, 0x0101, 0, -1, 3600, 3600) },
+		{ "magsec secondary", ruleRecord(WEAPON_MAGSEC4, 1, 0x0001, B3, 0) },
+		{ "shotgun secondary", ruleRecord(WEAPON_SHOTGUN, 1, 0x0001, B2, 0) },
+		{ "shotgun primary", ruleRecord(WEAPON_SHOTGUN, 0, 0x0001, 0, 0) },
+		{ "falcon2 primary", ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0) },
+		{ "laser primary", ruleRecord(WEAPON_LASER, 0, 0x0001, 0, -1) },
+		{ "rocketlauncher primary", ruleRecord(WEAPON_ROCKETLAUNCHER, 0, 0x0201, 0, 0) },
+		{ "grenade primary", ruleRecord(WEAPON_GRENADE, 0, 0x0002, 0, 0) },
+		{ "combatknife primary", ruleRecord(WEAPON_COMBATKNIFE, 0, 0x0003, 0, -1) },
+	};
+}
+
+// The original's trigger tick (bondgun.c bgun0f09a3f8 before slice 3),
+// kept here to prove weaponRulesCadenceStep is the same code.
+struct OrigHand {
+	s32 triggeron = 0, fired = 0, aiming = 0, burstbullets = 0, stateframes = 0;
+	f32 spin = 0.0f;
+	s32 loaded = 0, has_clip = 1;
+	s32 shotstotake = 0;
+	f32 shotremainder = 0.0f;
+	s32 firing = 0;
+};
+
+s32 origStep(const weapon_rule_function_t &f, OrigHand &h, f32 lv)
+{
+	bool burst = false, smallburst = false;
+	const u32 funcflags = f.flags;
+	const bool legacyauto = (f.functype & 0xff00) == 0x100;
+	const bool isauto = f.has_rate ? true : legacyauto;
+	const s32 turretaccel = isauto ? f.accel : 0;
+	const s32 turretdecel = isauto ? f.decel : 0;
+
+	if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST3) && h.burstbullets < 3) {
+		if (!h.aiming || !isauto) smallburst = true;
+	}
+	if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST2) && h.burstbullets < 2) smallburst = true;
+	if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST5) && h.burstbullets < 5) smallburst = true;
+	if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST50) && h.burstbullets < 50) burst = true;
+	if (smallburst) burst = true;
+	if (h.triggeron || !h.fired || burst) {
+		if (f.ammo_slot >= 0 && h.loaded == 0 && h.has_clip) return -1;
+		if (isauto) {
+			if (turretaccel > 0) {
+				if (h.spin < 1) {
+					h.spin += lv / turretaccel;
+					if (h.spin > 1) {
+						h.spin = 1;
+						return 1;
+					}
+				}
+			} else {
+				h.spin = 1;
+			}
+			return 1;
+		}
+		h.spin = 1;
+		if (smallburst) {
+			if (h.burstbullets > 0) {
+				s32 delay = 3;
+				if (f.weaponnum == WEAPON_SHOTGUN) delay = TICKS(13);
+				if (h.stateframes < delay) return 0;
+			}
+			h.stateframes = 0;
+		}
+		if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST3) && h.burstbullets == 2) smallburst = false;
+		if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST2) && h.burstbullets == 1) smallburst = false;
+		if ((funcflags & WEAPON_RULE_FUNCFLAG_BURST5) && h.burstbullets == 4) smallburst = false;
+		return smallburst ? 1 : 2;
+	}
+	if (isauto) {
+		if (turretdecel > 0) {
+			if (h.spin > 0) {
+				h.spin -= lv / turretdecel;
+				if (h.spin < 0) {
+					h.spin = 0;
+					return -1;
+				}
+				return 1;
+			}
+		} else {
+			h.spin = 0;
+		}
+		return -1;
+	}
+	return -1;
+}
+
+// The original's shot (bondgun.c bgun0f09a6f8 before slice 3): the rounds
+// it takes and what it spends.
+void origFire(const weapon_rule_function_t &f, OrigHand &h, f32 lv)
+{
+	bool usesammo = true;
+	const bool isauto = f.has_rate ? true : (f.functype & 0xff00) == 0x100;
+
+	h.firing = 1;
+	if (isauto) {
+		const f32 tmp = f.initial_rpm + (f.max_rpm - f.initial_rpm) * h.spin;
+		const f32 tmp2 = tmp / 60.0f * (lv / 60.0f) + h.shotremainder;
+		h.shotstotake = (s32)tmp2;
+		h.shotremainder = tmp2 - h.shotstotake;
+		if (h.shotstotake <= 0) {
+			if (!h.fired) h.shotstotake++;
+			else h.firing = 0;
+		}
+	} else {
+		h.shotstotake = 1;
+		if (f.weaponnum == WEAPON_LASER) usesammo = false;
+	}
+	h.burstbullets += h.shotstotake;
+	if (h.firing) {
+		h.fired = 1;
+		if (usesammo && f.ammo_slot >= 0) {
+			h.loaded -= h.shotstotake;
+			if (h.loaded < 0) {
+				h.shotstotake += h.loaded;
+				h.loaded = 0;
+			}
+		}
+	}
+}
+
+// The same tick as bondgun.c runs it now, from the plan.
+s32 planStep(const weapon_rule_trigger_t &plan, const weapon_rule_function_t &f, OrigHand &h, f32 lv)
+{
+	weapon_rule_cadence_t c{};
+	c.triggeron = h.triggeron;
+	c.fired = h.fired;
+	c.aiming = h.aiming;
+	c.burstbullets = h.burstbullets;
+	c.stateframes = h.stateframes;
+	c.spin = h.spin;
+	c.clip_empty = weaponRulesClipEmpty(&plan, f.ammo_slot >= 0 && h.has_clip, f.ammo_slot >= 0 ? h.loaded : 0);
+	c.lvupdate60 = lv;
+	const s32 result = weaponRulesCadenceStep(&plan, &c);
+	h.stateframes = c.stateframes;
+	h.spin = c.spin;
+	return result;
+}
+
+void planFire(const weapon_rule_trigger_t &plan, const weapon_rule_function_t &f, OrigHand &h, f32 lv)
+{
+	const bool isauto = plan.module == WEAPON_MODULE_AUTOMATIC;
+
+	h.firing = 1;
+	if (isauto) {
+		const f32 tmp = weaponRulesRateAt(&plan, h.spin);
+		const f32 tmp2 = tmp / 60.0f * (lv / 60.0f) + h.shotremainder;
+		h.shotstotake = (s32)tmp2;
+		h.shotremainder = tmp2 - h.shotstotake;
+		if (h.shotstotake <= 0) {
+			if (!h.fired) h.shotstotake++;
+			else h.firing = 0;
+		}
+	} else {
+		h.shotstotake = 1;
+	}
+	h.burstbullets += h.shotstotake;
+	if (h.firing) {
+		h.fired = 1;
+		if (plan.rounds > 0 && f.ammo_slot >= 0) {
+			h.shotstotake = weaponRulesPayShots(plan.rounds, &h.loaded, h.shotstotake);
+		}
+	}
+}
+
+// The base function's trigger node and use_ammo as the extractor writes them
+// (romextract_pdweapon.c s_emitHeldTriggerNode: every setting, rates as
+// "%.7g").
+std::string triggerNodeFields(const weapon_rule_trigger_t &plan)
+{
+	char rate[32], start[32];
+	std::snprintf(rate, sizeof(rate), "%.7g", (double)plan.rate);
+	std::snprintf(start, sizeof(start), "%.7g", (double)plan.start_rate);
+	if (plan.module == WEAPON_MODULE_BURST) {
+		return "\"kind\": \"og.weapon.burst\", \"count\": " + std::to_string(plan.count) +
+			", \"gap\": " + std::to_string(plan.gap);
+	}
+	if (plan.module == WEAPON_MODULE_AUTOMATIC) {
+		return std::string("\"kind\": \"og.weapon.automatic\", \"rate\": ") + rate + ", \"start_rate\": " + start +
+			", \"spin_up\": " + std::to_string(plan.spin_up) + ", \"spin_down\": " + std::to_string(plan.spin_down) +
+			", \"burst\": " + std::to_string(plan.burst) + ", \"aimed_burst\": " + (plan.aimed_burst ? "true" : "false");
+	}
+	return "\"kind\": \"og.weapon.fire_once\"";
+}
+
+} // namespace
+
+TEST_CASE("the trigger table plans each base function's attack as the original does",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_FIRE_ONCE)) == "og.weapon.fire_once");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_BURST)) == "og.weapon.burst");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_AUTOMATIC)) == "og.weapon.automatic");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_USE_AMMO)) == "og.weapon.use_ammo");
+	CHECK(WEAPON_MODULE_TRIGGERS == (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC));
+	// The flag bits are the game's.
+	CHECK(WEAPON_RULE_FUNCFLAG_BURST2 == FUNCFLAG_BURST2);
+	CHECK(WEAPON_RULE_FUNCFLAG_BURST3 == FUNCFLAG_BURST3);
+	CHECK(WEAPON_RULE_FUNCFLAG_BURST5 == FUNCFLAG_BURST5);
+	CHECK(WEAPON_RULE_FUNCFLAG_BURST50 == FUNCFLAG_BURST50);
+
+	std::map<std::string, weapon_rule_trigger_t> plans;
+	for (const BaseFunction &base : baseFunctions()) {
+		weapon_rule_trigger_t plan;
+		weaponRulesNativeTrigger(&base.record, &plan);
+		plans[base.name] = plan;
+	}
+	const auto &ar34 = plans["ar34 primary"];
+	CHECK(ar34.module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(ar34.rate == 750.0f);
+	CHECK(ar34.start_rate == 750.0f);
+	CHECK(ar34.spin_up == 0);
+	CHECK(ar34.burst == 3);
+	CHECK(ar34.aimed_burst == 0); // the 3-round burst gives way while aiming
+	CHECK(ar34.rounds == 1);
+	const auto &reaper = plans["reaper primary"];
+	CHECK(reaper.rate == 1800.0f);
+	CHECK(reaper.start_rate == 60.0f);
+	CHECK(reaper.spin_up == 88);
+	CHECK(reaper.spin_down == 88);
+	const auto &cyclone = plans["cyclone secondary"];
+	CHECK(cyclone.burst == 50);
+	CHECK(cyclone.aimed_burst == 1);
+	CHECK(plans["cyclone primary"].burst == 0);
+	const auto &magsec = plans["magsec secondary"];
+	CHECK(magsec.module == WEAPON_MODULE_BURST);
+	CHECK(magsec.count == 3);
+	CHECK(magsec.gap == 3);
+	const auto &shotgun = plans["shotgun secondary"];
+	CHECK(shotgun.module == WEAPON_MODULE_BURST);
+	CHECK(shotgun.count == 2);
+	CHECK(shotgun.gap == TICKS(13));
+	CHECK(plans["shotgun primary"].module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(plans["falcon2 primary"].module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(plans["falcon2 primary"].rounds == 1);
+	CHECK(plans["laser primary"].rounds == 0);
+	CHECK(plans["laser secondary"].module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(plans["laser secondary"].rounds == 0); // no clip
+	CHECK(plans["rocketlauncher primary"].module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(plans["rocketlauncher primary"].rounds == 1);
+	CHECK(plans["grenade primary"].module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(plans["grenade primary"].rounds == 0); // a throw spends in its own code
+	CHECK(plans["combatknife primary"].rounds == 0);
+
+	// The Laser's single shot takes nothing even with a clip.
+	weapon_rule_function_t laser = ruleRecord(WEAPON_LASER, 0, 0x0001, 0, 0);
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&laser, &plan);
+	CHECK(plan.rounds == 0);
+	// Flags the original reads but that make no burst; combined flags.
+	weapon_rule_function_t odd = ruleRecord(WEAPON_FALCON2, 0, 0x0001, WEAPON_RULE_FUNCFLAG_BURST50, 0);
+	weaponRulesNativeTrigger(&odd, &plan);
+	CHECK(plan.module == WEAPON_MODULE_FIRE_ONCE);
+	odd.flags = WEAPON_RULE_FUNCFLAG_BURST2 | WEAPON_RULE_FUNCFLAG_BURST3;
+	weaponRulesNativeTrigger(&odd, &plan);
+	CHECK(plan.module == WEAPON_MODULE_BURST);
+	CHECK(plan.count == 2);
+	odd.flags = WEAPON_RULE_FUNCFLAG_BURST3 | WEAPON_RULE_FUNCFLAG_BURST5;
+	weaponRulesNativeTrigger(&odd, &plan);
+	CHECK(plan.count == 3);
+	// A record that names a rate is an automatic, whatever its type.
+	weapon_rule_function_t rated = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0, 0, 450);
+	weaponRulesNativeTrigger(&rated, &plan);
+	CHECK(plan.module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(plan.rate == 450.0f);
+	weaponRulesNativeTrigger(nullptr, &plan);
+	CHECK(plan.module == WEAPON_MODULE_FIRE_ONCE);
+
+	// Ticks per shot for simulants and guards: weaponGetNumTicksPerShot's
+	// formula for an automatic, none for the rest; at most a byte's 127.
+	for (const BaseFunction &base : baseFunctions()) {
+		INFO(base.name);
+		weaponRulesNativeTrigger(&base.record, &plan);
+		s32 expected = 0;
+		if (base.record.has_rate && base.record.max_rpm > 0.0f) {
+			expected = (s32)(3600.0f / base.record.max_rpm);
+			if (expected > 3) expected = TICKS(expected);
+		}
+		CHECK(weaponRulesTicksPerShot(&plan) == expected);
+	}
+	weapon_rule_trigger_t slow{};
+	slow.module = WEAPON_MODULE_AUTOMATIC;
+	slow.rate = 10.0f;
+	CHECK(weaponRulesTicksPerShot(&slow) == 127);
+	const std::string ticks = readSource("src/game/game_0b0fd0.c");
+	REQUIRE(ticks.find("result = 3600.0f / graph->max_rpm;") != std::string::npos);
+	REQUIRE(ticks.find("return weaponProgramTicksPerShot((s32)weaponnum, (s32)funcindex, result);")
+		!= std::string::npos);
+}
+
+TEST_CASE("the trigger's cadence is the original's, for every base function",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	// Trigger patterns: hold, tap, hold then release, each with and without
+	// aiming, at one, two and three 60 Hz ticks a frame, from full and
+	// nearly empty clips.
+	struct Pattern {
+		const char *name;
+		s32 hold; // ticks the trigger is down from the start
+		s32 aim;
+	};
+	const Pattern patterns[] = {
+		{ "hold", 1000, 0 }, { "hold aiming", 1000, 1 }, { "tap", 1, 0 }, { "tap aiming", 1, 1 },
+		{ "short hold", 7, 0 }, { "short hold aiming", 7, 1 }, { "release after 40", 40, 0 },
+	};
+	s32 cases = 0;
+	for (const BaseFunction &base : baseFunctions()) {
+		const weapon_rule_function_t &f = base.record;
+		if (!weaponRulesFunctionShoots(&f)) continue;
+		weapon_rule_trigger_t plan;
+		weaponRulesNativeTrigger(&f, &plan);
+		for (const Pattern &pattern : patterns)
+		for (s32 lvi = 1; lvi <= 3; lvi++)
+		for (s32 loaded : { 1, 2, 5, 30 }) {
+			const f32 lv = (f32)lvi;
+			OrigHand a, b;
+			a.loaded = b.loaded = loaded;
+			a.has_clip = b.has_clip = 1;
+			s32 tick = 0;
+			bool stoppedA = false, stoppedB = false;
+			for (s32 frame = 0; frame < 200 && !(stoppedA && stoppedB); frame++) {
+				a.triggeron = b.triggeron = tick < pattern.hold;
+				a.aiming = b.aiming = pattern.aim;
+				const s32 ra = stoppedA ? -9 : origStep(f, a, lv);
+				const s32 rb = stoppedB ? -9 : planStep(plan, f, b, lv);
+				INFO(base.name << " " << pattern.name << " lv=" << lvi << " loaded=" << loaded << " frame=" << frame);
+				REQUIRE(ra == rb);
+				if (ra > 0) {
+					origFire(f, a, lv);
+					planFire(plan, f, b, lv);
+				}
+				if (ra < 0 || ra == 2) {
+					stoppedA = stoppedB = true;
+				}
+				REQUIRE(a.spin == b.spin);
+				REQUIRE(a.burstbullets == b.burstbullets);
+				REQUIRE(a.stateframes == b.stateframes);
+				REQUIRE(a.loaded == b.loaded);
+				REQUIRE(a.shotstotake == b.shotstotake);
+				REQUIRE(a.shotremainder == b.shotremainder);
+				REQUIRE(a.fired == b.fired);
+				a.stateframes += lvi;
+				b.stateframes += lvi;
+				tick += lvi;
+			}
+			cases++;
+		}
+	}
+	CHECK(cases > 300);
+
+	// A plan the original never had: rounds per shot, a free automatic.
+	weapon_rule_trigger_t heavy{};
+	heavy.module = WEAPON_MODULE_FIRE_ONCE;
+	heavy.rounds = 3;
+	CHECK(weaponRulesClipEmpty(&heavy, 1, 2) == 1);
+	CHECK(weaponRulesClipEmpty(&heavy, 1, 3) == 0);
+	CHECK(weaponRulesClipEmpty(&heavy, 0, 0) == 0);
+	s32 clip = 7;
+	CHECK(weaponRulesPayShots(3, &clip, 1) == 1);
+	CHECK(clip == 4);
+	CHECK(weaponRulesPayShots(3, &clip, 2) == 1); // pays for one, keeps one round
+	CHECK(clip == 1);
+	CHECK(weaponRulesPayShots(0, &clip, 4) == 4); // free
+	CHECK(clip == 1);
+	heavy.rounds = 0;
+	CHECK(weaponRulesClipEmpty(&heavy, 1, 0) == 0);
+
+	// bondgun.c runs these steps, from the plan, and no longer reads the
+	// burst flags, the Shotgun's gap or the Laser's number itself.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("result = weaponRulesCadenceStep(plan, &cadence);") != std::string::npos);
+	REQUIRE(bondgun.find("tmp = weaponRulesRateAt(plan, hand->gs_float1);") != std::string::npos);
+	REQUIRE(bondgun.find("hand->shotstotake = weaponRulesPayShots(plan->rounds, &hand->loadedammo[ammoindex],")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("plan = weaponHandTrigger(hand, &record);") != std::string::npos);
+	CHECK(bondgun.find("FUNCFLAG_BURST") == std::string::npos);
+	CHECK(bondgun.find("delay = TICKS(13);") == std::string::npos);
+	CHECK(bondgun.find("usesammo = false;") == std::string::npos);
+}
+
+TEST_CASE("a trigger node's settings default to the function's record and refuse what they cannot read",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	const auto plan = [](u32 module, const weapon_rule_function_t &record, Texts texts, s32 *ok = nullptr) {
+		weapon_rule_trigger_t out{};
+		const s32 result = weaponRulesApplySettings(module, Texts::get, &texts, &record, &out);
+		if (ok) *ok = result;
+		return out;
+	};
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	const weapon_rule_function_t shotgun = ruleRecord(WEAPON_SHOTGUN, 1, 0x0001, WEAPON_RULE_FUNCFLAG_BURST2, 0);
+	const weapon_rule_function_t reaper = ruleRecord(WEAPON_REAPER, 0, 0x0101, WEAPON_RULE_FUNCFLAG_BURST3, 0,
+		60, 1800, 88, 88);
+
+	// A burst dropped on a pistol: 3 rounds, 3 ticks apart; on the Shotgun's
+	// double blast its own 2 rounds, 13 ticks apart.
+	weapon_rule_trigger_t p = plan(WEAPON_MODULE_BURST, falcon, {});
+	CHECK(p.module == WEAPON_MODULE_BURST);
+	CHECK(p.count == 3);
+	CHECK(p.gap == 3);
+	p = plan(WEAPON_MODULE_BURST, shotgun, {});
+	CHECK(p.count == 2);
+	CHECK(p.gap == TICKS(13));
+	p = plan(WEAPON_MODULE_BURST, falcon, { { { "count", "5" }, { "gap", "0" } } });
+	CHECK(p.count == 5);
+	CHECK(p.gap == 0);
+	// Mike's example: an automatic on the Falcon, 600 a minute, no spin.
+	p = plan(WEAPON_MODULE_AUTOMATIC, falcon, {});
+	CHECK(p.module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(p.rate == 600.0f);
+	CHECK(p.start_rate == 600.0f);
+	CHECK(p.spin_up == 0);
+	CHECK(p.burst == 0);
+	CHECK(p.aimed_burst == 1);
+	p = plan(WEAPON_MODULE_AUTOMATIC, falcon, { { { "rate", "900" } } });
+	CHECK(p.rate == 900.0f);
+	CHECK(p.start_rate == 900.0f);
+	// The Reaper's own spin, unless the node names a rate of its own.
+	p = plan(WEAPON_MODULE_AUTOMATIC, reaper, {});
+	CHECK(p.rate == 1800.0f);
+	CHECK(p.start_rate == 60.0f);
+	CHECK(p.spin_up == 88);
+	CHECK(p.spin_down == 88);
+	CHECK(p.burst == 3);
+	CHECK(p.aimed_burst == 0);
+	p = plan(WEAPON_MODULE_AUTOMATIC, reaper, { { { "rate", "1200" } } });
+	CHECK(p.start_rate == 1200.0f);
+	p = plan(WEAPON_MODULE_AUTOMATIC, reaper, { { { "rate", "1200" }, { "start_rate", "100.5" },
+		{ "aimed_burst", "true" } } });
+	CHECK(p.start_rate == 100.5f);
+	CHECK(p.aimed_burst == 1);
+	p = plan(WEAPON_MODULE_FIRE_ONCE, reaper, {});
+	CHECK(p.module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(p.burst == 0);
+	// use_ammo leaves the trigger alone and names the rounds.
+	p = plan(WEAPON_MODULE_BURST, falcon, {});
+	Texts three;
+	three.values["rounds"] = "3";
+	CHECK(weaponRulesApplySettings(WEAPON_MODULE_USE_AMMO, Texts::get, &three, &falcon, &p) == 1);
+	CHECK(p.module == WEAPON_MODULE_BURST);
+	CHECK(p.rounds == 3);
+
+	// A malformed setting fails and keeps its default.
+	s32 ok = 1;
+	p = plan(WEAPON_MODULE_BURST, shotgun, { { { "count", "1" } } }, &ok);
+	CHECK(ok == 0);
+	CHECK(p.count == 2);
+	p = plan(WEAPON_MODULE_AUTOMATIC, reaper, { { { "spin_up", "-3" } } }, &ok);
+	CHECK(ok == 0);
+	CHECK(p.spin_up == 88);
+	p = plan(WEAPON_MODULE_AUTOMATIC, falcon, { { { "rate", "0" } } }, &ok);
+	CHECK(ok == 0);
+	CHECK(p.rate == 600.0f);
+	Texts zero;
+	zero.values["rounds"] = "0";
+	CHECK(weaponRulesApplySettings(WEAPON_MODULE_USE_AMMO, Texts::get, &zero, &falcon, &p) == 0);
+	CHECK(p.rounds == 1);
+	CHECK(weaponRulesApplySettings(WEAPON_MODULE_RELOAD, Texts::get, &zero, &falcon, &p) == 0);
+
+	// Each setting by its kind.
+	for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+		const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+		INFO(setting->key);
+		CHECK(weaponRulesModuleKind(setting->module) != nullptr);
+		CHECK_FALSE(weaponRulesSettingValid(setting, ""));
+		CHECK_FALSE(weaponRulesSettingValid(setting, "maybe"));
+		CHECK_FALSE(weaponRulesSettingValid(setting, nullptr));
+		if (setting->type == WEAPON_RULE_SETTING_WHOLE) {
+			CHECK(weaponRulesSettingValid(setting, std::to_string(setting->lo).c_str()));
+			CHECK(weaponRulesSettingValid(setting, std::to_string(setting->hi).c_str()));
+			CHECK_FALSE(weaponRulesSettingValid(setting, std::to_string(setting->hi + 1).c_str()));
+			CHECK_FALSE(weaponRulesSettingValid(setting, "2.5"));
+			CHECK_FALSE(weaponRulesSettingValid(setting, "-1"));
+		} else if (setting->type == WEAPON_RULE_SETTING_RATE) {
+			CHECK(weaponRulesSettingValid(setting, "750"));
+			CHECK(weaponRulesSettingValid(setting, "0.5"));
+			CHECK(weaponRulesSettingValid(setting, "3600"));
+			CHECK_FALSE(weaponRulesSettingValid(setting, "0"));
+			CHECK_FALSE(weaponRulesSettingValid(setting, "3601"));
+			CHECK_FALSE(weaponRulesSettingValid(setting, "-5"));
+			CHECK_FALSE(weaponRulesSettingValid(setting, " 5"));
+		} else {
+			CHECK(weaponRulesSettingValid(setting, "true"));
+			CHECK(weaponRulesSettingValid(setting, "false"));
+		}
+	}
+}
+
+TEST_CASE("the base wiring starts the original's attack, for players and for simulants",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	int instance = 0;
+	for (const BaseFunction &base : baseFunctions()) {
+		INFO(base.name);
+		weapon_rule_trigger_t native;
+		weaponRulesNativeTrigger(&base.record, &native);
+		const std::string json = baseIdleProgram("primary", 1, triggerNodeFields(native), native.rounds);
+		char err[256] = { 0 };
+		mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			heldKnown, err, sizeof(err));
+		INFO(err);
+		REQUIRE(program != nullptr);
+
+		// A player's press with a loaded clip starts the original's attack.
+		weapon_rule_walk_t walk{};
+		walk.weaponnum = -1;
+		walk.hand = weapon_rule_hand_t{ 1, 5, 10, 1, 1 };
+		weapon_rule_states_t states{};
+		walk.states = &states;
+		walk.function = &base.record;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+			&instance, &walk) == 1);
+		CHECK((walk.modules & WEAPON_MODULE_IDLE_ACTIONS) == native.module);
+		CHECK(weaponRulesTriggerEqual(&walk.plan, &native));
+
+		// A simulant's press (a ready hand, no states) starts the same one,
+		// so its ticks per shot are the original's.
+		weapon_rule_walk_t bot{};
+		bot.weaponnum = -1;
+		weaponRulesReadyHand(&bot.hand);
+		bot.function = &base.record;
+		bot.param_text = weaponGraphRuntimeHeldParamText;
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+			&instance, &bot) == 1);
+		CHECK(weaponRulesTriggerEqual(&bot.plan, &native));
+		CHECK(weaponRulesTicksPerShot(&bot.plan) == weaponRulesTicksPerShot(&native));
+
+		// An empty clip with reserve clicks; nothing is planned.
+		walk.hand = weapon_rule_hand_t{ 1, 0, 10, 1, 1 };
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD, 0, "base:test__weapon",
+			&instance, &walk) == 1);
+		CHECK((walk.modules & WEAPON_MODULE_IDLE_ACTIONS) == WEAPON_MODULE_DRY_FIRE);
+		CHECK(walk.plan.module == 0);
+		missionGraphProgramFree(program);
+	}
+
+	// A program that swaps the trigger starts its own attack: the Falcon's
+	// primary as a machine gun (Mike's example).
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	const std::string machine = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.automatic\", \"rate\": 600", 1);
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(machine.data(), machine.size(),
+		heldKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk{};
+	walk.weaponnum = -1;
+	weaponRulesReadyHand(&walk.hand);
+	walk.function = &falcon;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+		&instance, &walk) == 1);
+	CHECK(walk.plan.module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(walk.plan.rate == 600.0f);
+	CHECK(walk.plan.rounds == 1);
+	CHECK(weaponRulesTicksPerShot(&walk.plan) == 6);
+	missionGraphProgramFree(program);
+
+	// Without use_ammo the attack is free.
+	const std::string free = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 0);
+	program = missionGraphProgramCompileWeapon(free.data(), free.size(), heldKnown, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+		&instance, &walk) == 1);
+	CHECK(walk.plan.module == WEAPON_MODULE_FIRE_ONCE);
+	CHECK(walk.plan.rounds == 0);
+	missionGraphProgramFree(program);
+
+	// The extractor writes this wiring from the table's plan, and the record
+	// no longer names the burst's rounds.
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("s_heldNativeTrigger(func, weapon_id, mode, &plan);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);")
+		!= std::string::npos);
+	REQUIRE(extractor.find("weaponRulesNativeTrigger(&record, out);") != std::string::npos);
+	REQUIRE(extractor.find("jw_field_f32(w, WEAPON_RULE_RATE_PARAM, plan->rate, 0);") != std::string::npos);
+	REQUIRE(extractor.find("jw_field_bool(w, WEAPON_RULE_AIMED_BURST_PARAM, plan->aimed_burst, 1);")
+		!= std::string::npos);
+	CHECK(extractor.find("jw_field_int(w, \"burst_count\"") == std::string::npos);
+	// The seam keeps the plan, and simulants read the same programs.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("bgunRuleFunctionOf(hand, gsetGetWeaponFunction(&hand->gset), &record);")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (act & WEAPON_MODULE_TRIGGERS) {") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("handled = weaponRulesWalk(program, kind, g_Vars.currentplayernum,") != std::string::npos);
+	REQUIRE(events.find("weaponRulesReadyHand(&walk.hand);") != std::string::npos);
+	REQUIRE(events.find("cache->generation != generation") != std::string::npos);
+}
+
+TEST_CASE("a held program's trigger settings are checked when its weapon registers",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 2;
+	char err[256] = { 0 };
+	const auto registers = [&](const std::string &primary, const char *variables = nullptr) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, "base:test__weapon", primary.data(),
+			(u32)primary.size(), secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0,
+			variables, variables ? (u32)std::strlen(variables) : 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	const u32 before = weaponGraphRuntimeHeldProgramsGeneration();
+	REQUIRE(registers(baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.burst\", \"count\": 3, \"gap\": 3", 1)));
+	CHECK(weaponGraphRuntimeHeldProgramsGeneration() != before);
+	const struct {
+		const char *fields;
+		const char *why;
+	} refused[] = {
+		{ "\"kind\": \"og.weapon.burst\", \"count\": 1", "og.weapon.burst needs count from 2 to 50, got 1" },
+		{ "\"kind\": \"og.weapon.burst\", \"gap\": \"soon\"", "og.weapon.burst needs gap from 0 to 255, got soon" },
+		{ "\"kind\": \"og.weapon.automatic\", \"rate\": 0",
+			"og.weapon.automatic needs rate in rounds per minute, above 0 and up to 3600, got 0" },
+		{ "\"kind\": \"og.weapon.automatic\", \"start_rate\": 4000",
+			"og.weapon.automatic needs start_rate in rounds per minute" },
+		{ "\"kind\": \"og.weapon.automatic\", \"aimed_burst\": \"maybe\"",
+			"og.weapon.automatic needs aimed_burst true or false, got maybe" },
+		{ "\"kind\": \"og.weapon.automatic\", \"spin_down\": 2.5", "og.weapon.automatic needs spin_down from 0 to 10000" },
+	};
+	for (const auto &bad : refused) {
+		INFO(bad.fields);
+		CHECK_FALSE(registers(baseIdleProgram("primary", 1, bad.fields, 1)));
+		CHECK(std::string(err).find(bad.why) != std::string::npos);
+		CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
+	}
+	std::string heavy = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+	heavy.replace(heavy.find("\"kind\": \"og.weapon.use_ammo\", \"rounds\": 1"),
+		std::string("\"kind\": \"og.weapon.use_ammo\", \"rounds\": 1").size(),
+		"\"kind\": \"og.weapon.use_ammo\", \"rounds\": 0");
+	CHECK_FALSE(registers(heavy));
+	CHECK(std::string(err).find("og.weapon.use_ammo needs rounds from 1 to 255, got 0") != std::string::npos);
+
+	// A "$name" setting reads the weapon's variables.
+	const std::string fromVariable = baseIdleProgram("primary", 1,
+		"\"kind\": \"og.weapon.automatic\", \"rate\": \"$fire_rate\"", 1);
+	CHECK_FALSE(registers(fromVariable));
+	CHECK(std::string(err).find("og.weapon.automatic needs rate") != std::string::npos);
+	const char *variables = R"({"schema":"pd.weapon_variables.v1","asset_id":"base:test__weapon",
+		"variables":[{"name":"fire_rate","value":950}]})";
+	REQUIRE(registers(fromVariable, variables));
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	weapon_rule_walk_t walk{};
+	walk.weaponnum = weaponnum;
+	weaponRulesReadyHand(&walk.hand);
+	walk.function = &falcon;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	int instance = 0;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+		&instance, &walk) == 1);
+	CHECK(walk.plan.module == WEAPON_MODULE_AUTOMATIC);
+	CHECK(walk.plan.rate == 950.0f);
+
+	// A program node may not take the id of a record node.
+	std::string clash = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+	for (size_t at = clash.find("primary_attack"); at != std::string::npos; at = clash.find("primary_attack")) {
+		clash.replace(at, std::string("primary_attack").size(), "primary_action");
+	}
+	CHECK_FALSE(registers(clash));
+	const std::string why = err;
+	CHECK(why.find("primary_action") != std::string::npos);
+	CHECK((why.find("is used twice") != std::string::npos || why.find("duplicate graph node id") != std::string::npos));
+	// The runner refuses it by itself, whatever reads the record.
+	mission_graph_program_t *clashing = missionGraphProgramCompileWeapon(clash.data(), clash.size(), heldKnown,
+		err, sizeof(err));
+	CHECK(clashing == nullptr);
+	CHECK(std::string(err).find("node id 'primary_action' is used twice") != std::string::npos);
+	missionGraphProgramFree(clashing);
 
 	weaponGraphRuntimeClearAll();
 	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);

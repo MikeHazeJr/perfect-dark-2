@@ -943,7 +943,9 @@ const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_
 /* held-weapon-events.md slice 2: a held program's settings, checked when its
  * weapon registers: has_ammo's "rounds" a whole number from 1 to
  * WEAPON_RULE_MAX_ROUNDS (or none), state_is and set_state a key with a
- * boolean, and no more distinct keys than a hand holds. */
+ * boolean, and no more distinct keys than a hand holds. Slice 3: each
+ * setting of a trigger or use_ammo node a value of its kind
+ * (weaponRulesSettingAt). */
 typedef struct held_param_check {
 	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
 	s32 key_count;
@@ -967,6 +969,31 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			snprintf(check->why, sizeof(check->why), "%s needs rounds from 1 to %d, got %s",
 				kind, WEAPON_RULE_MAX_ROUNDS, raw);
 			return 0;
+		}
+		return 1;
+	}
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO)) {
+		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
+			const char *text;
+
+			if (!raw || heldParamDeferred(raw)) continue;
+			text = heldParamTextIn(s_held_register_variables, params, setting->key, vbuf, sizeof(vbuf));
+			if (!text || !weaponRulesSettingValid(setting, text)) {
+				if (setting->type == WEAPON_RULE_SETTING_BOOL) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s true or false, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_RATE) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s in rounds per minute, above 0 and up to %d, got %s",
+						kind, setting->key, (int)WEAPON_RULE_MAX_RATE, raw);
+				} else {
+					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
+						kind, setting->key, setting->lo, setting->hi, raw);
+				}
+				return 0;
+			}
 		}
 		return 1;
 	}
@@ -1036,10 +1063,18 @@ static s32 heldProgramModulesApply(const mission_graph_program_t *program, char 
 	return 1;
 }
 
+static u32 s_held_programs_generation = 1;
+
+u32 weaponGraphRuntimeHeldProgramsGeneration(void)
+{
+	return s_held_programs_generation;
+}
+
 static void heldProgramsForget(s32 weaponnum)
 {
 	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
 	for (s32 f = 0; f < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; f++) {
+		if (s_held_programs[weaponnum][f]) s_held_programs_generation++;
 		missionGraphProgramFree(s_held_programs[weaponnum][f]);
 		s_held_programs[weaponnum][f] = NULL;
 	}
@@ -1076,6 +1111,7 @@ static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
 			return -1;
 		}
 		s_held_programs[weaponnum][f] = program;
+		s_held_programs_generation++;
 	}
 	return 0;
 }
