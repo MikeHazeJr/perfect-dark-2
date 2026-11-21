@@ -876,7 +876,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/tools/pdmod_prophandler")
 #
 # Self-contained: does NOT link the full game (no SDL, no GL, no ImGui, no
 # ENet). Cherry-picks a handful of pure source files from src/ and port/src/
-# and links them against tests/main.cpp + tests/test_*.cpp under Catch2.
+# and links them against tests/test_*.cpp and pd-catch-main (Catch2's main).
 #
 # Build:  ninja -C Build pd-tests
 # Run:    ./Build/pd-tests          (all tests)
@@ -886,8 +886,7 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/tools/pdmod_prophandler")
 # design, coverage roadmap, and conventions.
 # ---------------------------------------------------------------------------
 set(SRC_TESTS
-  # Catch2 entry point + test cases
-  ${CMAKE_SOURCE_DIR}/tests/main.cpp
+  # Test cases. Catch2's entry point is the pd-catch-main library below.
   ${CMAKE_SOURCE_DIR}/tests/test_smoke.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_netbuf.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_net_client_settings_wire.cpp
@@ -938,6 +937,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/modelasm_character_fixture.c
   ${CMAKE_SOURCE_DIR}/src/game/acosasin.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static_2.cpp
   # Simulant pickups and drops in networked play (v62, finding 3).
   ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
   # In-match team switches stay within the scenario's teams (B-1132).
@@ -1186,6 +1186,11 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_metadata_lifecycle.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract_stage_payloads_1.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract_stage_payloads_2.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract_stage_payloads_3.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract_walkers.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract_families.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_prop_graph_runtime.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
@@ -1205,6 +1210,8 @@ set(SRC_TESTS
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static_2.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static_3.cpp
   # B-1110: extraction archives wait for one flush before their cache stamp.
   ${CMAKE_SOURCE_DIR}/tests/test_modarchive_derived.cpp
   # SP-79 / B-1167: graph requirement helpers honour their failures.
@@ -1258,6 +1265,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/forge_room_builder.cpp
   ${CMAKE_SOURCE_DIR}/port/src/forge_level_live.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_forge_level_doc_2.cpp
   # The rules of the Modding Hub's Levels tool (Forge F4).
   ${CMAKE_SOURCE_DIR}/port/src/level_tool.c
   ${CMAKE_SOURCE_DIR}/tests/test_level_tool.cpp
@@ -1546,7 +1554,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_updater_rom_cleanup_static.cpp
 )
 
+# Catch2's main() and implementation (tests/main.cpp, the only
+# CATCH_CONFIG_MAIN translation unit). Built once as its own library and
+# linked into every test executable, so its compile (about 30 s) neither
+# repeats per executable nor reruns when a test target changes (T-TOOLING-018).
+add_library(pd-catch-main STATIC ${CMAKE_SOURCE_DIR}/tests/main.cpp)
+target_include_directories(pd-catch-main PRIVATE ${CMAKE_SOURCE_DIR}/port/include)
+
 add_executable(pd-tests ${SRC_TESTS})
+target_link_libraries(pd-tests PRIVATE pd-catch-main)
 target_sources(pd-tests PRIVATE
   ${CMAKE_SOURCE_DIR}/port/src/native_write_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/native_write_policy_windows.c
@@ -1640,7 +1656,6 @@ set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")
 # Settings save uses queued -Target settings-tests; run via run-pd-tests.ps1
 # with -TestTarget settings-tests for the canonical DLL environment.
 add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
-  ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_config_save.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_settings_save_status.cpp
   ${CMAKE_SOURCE_DIR}/tests/support/settings_save_support.c
@@ -1651,11 +1666,11 @@ add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_settings_save_status.cpp
 )
+target_link_libraries(pd-settings-save-tests PRIVATE pd-catch-main)
 target_compile_definitions(pd-settings-save-tests PRIVATE
   PD_SETTINGS_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
 
 add_executable(pd-training-renderer-tests EXCLUDE_FROM_ALL
-  ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_training_renderer_imgui.cpp
   ${CMAKE_SOURCE_DIR}/tests/training_renderer_dialog_stubs.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_menu_training.cpp
@@ -1668,6 +1683,7 @@ add_executable(pd-training-renderer-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_tables.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_widgets.cpp
 )
+target_link_libraries(pd-training-renderer-tests PRIVATE pd-catch-main)
 target_compile_definitions(pd-training-renderer-tests PRIVATE
   PDGUI_TRAINING_RENDER_TEST=1)
 # The test define selects the actual FR renderer and shared native helpers.
@@ -1680,7 +1696,6 @@ target_link_libraries(pd-training-renderer-tests PRIVATE
 
 # Direct production catalog mutation tests; lifecycle doubles stay isolated.
 add_executable(pd-catalog-mutation-tests EXCLUDE_FROM_ALL
-  ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_mutation.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_modmgr_component_catalog.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modmgr_component_state.cpp
@@ -1690,6 +1705,7 @@ add_executable(pd-catalog-mutation-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_reset_plan.c
 )
+target_link_libraries(pd-catalog-mutation-tests PRIVATE pd-catch-main)
 target_include_directories(pd-catalog-mutation-tests PRIVATE
   ${CMAKE_SOURCE_DIR}/tests/support)
 target_link_libraries(pd-catalog-mutation-tests PRIVATE
