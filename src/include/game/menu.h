@@ -9,6 +9,8 @@ extern const struct menucolourpalette g_MenuWave1Colours[];
 extern const struct menucolourpalette g_MenuWave2Colours[];
 
 void menuTick(void);
+/* B-1278: 1 once the CI stage can open a menu (fly-in settled). */
+s32 menuCiReadyForMenuOpen(void);
 
 void menuStop(void);
 

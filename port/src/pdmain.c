@@ -1170,6 +1170,13 @@ void mainTick(void)
 		(void)bootLaunchLoadAgentTick();
 	}
 
+	/* B-1278: --launch-offline-room one-shot, after the agent tick so the
+	 * staged agent is active before the offline Room opens. */
+	{
+		extern s32 bootLaunchOfflineRoomTick(void);
+		(void)bootLaunchOfflineRoomTick();
+	}
+
 	/* c118 (2026-05-15): --listen-bind one-shot. Invokes netStartServer
 	 * on the first frame where g_NetInit is true so the client boots
 	 * straight into a listen-host UDP bind. Sister to --connect-host

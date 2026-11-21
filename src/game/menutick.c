@@ -72,6 +72,13 @@ static bool ciReadyForMenuOpen(void)
 	return true;
 }
 
+/* B-1278: the same gate for a boot flag that opens a menu surface in CI
+ * (--launch-offline-room), so it waits for the fly-in exactly as the menus do. */
+s32 menuCiReadyForMenuOpen(void)
+{
+	return ciReadyForMenuOpen() ? 1 : 0;
+}
+
 static void ciHoldMenuOpenUntilCameraReady(void)
 {
 	if (g_Vars.stagenum == STAGE_CITRAINING) {
