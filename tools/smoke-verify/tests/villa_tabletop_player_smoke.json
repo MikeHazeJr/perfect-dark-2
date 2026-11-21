@@ -1,0 +1,57 @@
+{
+  "scenario_name": "villa_tabletop_player_smoke",
+  "description": "The local Combat Simulator player jumps onto Villa's room 17 coffee table, stays grounded on that exact live prop, then walks off to the room floor. Only the initial player placement is scripted outside ordinary controls.",
+  "tags": ["combatsim", "movement", "jump", "collision", "tabletop"],
+  "paths_of_interest": ["port/src/smoke_harness.c", "src/game/bondwalk.c", "src/lib/capsule.c", "src/lib/meshcollision.c"],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "jump_logging": 1,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--launch-mp-room", "base:arena_villa", "base:combat", "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 330000, "stable_ms": 1000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 1200 },
+    { "at_ms": 100, "type": "movement_tabletop", "name": "place_player" },
+    { "at_ms": 600, "type": "action", "name": "ACTION_JUMP", "action": "tap" },
+    { "at_ms": 775, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "press" },
+    { "at_ms": 1300, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "release" },
+    { "at_ms": 2850, "type": "movement_tabletop", "name": "walk_off" },
+    { "at_ms": 2900, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "press" },
+    { "at_ms": 3950, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "release" },
+    { "at_ms": 4550, "type": "movement_tabletop", "name": "verify" },
+    { "at_ms": 4650, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=villa_tabletop_player_smoke",
+      "BOOT: --launch-mp-room direct match start",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+    ],
+    "required_sequences": [
+      {
+        "name": "player-coffee-table-landing-and-walk-off",
+        "patterns": [
+          "SMOKE\\.TABLETOP: phase=table_bound command=492 model=base:model_cv_coffee_table pad=428 room=17 collision=dynamic_mesh",
+          "SMOKE\\.TABLETOP: phase=place actor=player .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "JUMP: APPLIED impulse=",
+          "SMOKE\\.TABLETOP: phase=takeoff",
+          "SMOKE\\.TABLETOP: phase=land .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=drop",
+          "SMOKE\\.TABLETOP: phase=lower_land .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "SMOKE\\.TABLETOP: result=pass actor=player",
+          "SMOKE: result=scripted_exit"
+        ]
+      }
+    ],
+    "required_counts": [{ "pattern": "SMOKE\\.TABLETOP: phase=place", "min": 1, "max": 1 }],
+    "forbidden_patterns": [
+      "SMOKE\\.TABLETOP: result=fail", "SMOKE: result=movement_ledge_failed",
+      "SMOKE\\.WAIT: timeout", "EXCEPTION_ACCESS_VIOLATION", "FATAL: "
+    ]
+  }
+}

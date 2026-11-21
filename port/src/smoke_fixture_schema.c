@@ -326,6 +326,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
 		"kill_player", "kill_simulant", "use_door", "use_lift_door", "damage_glass",
 		"give_weapon", "touch_pickup", "kill_token_holder",
+		"movement_ledge", "movement_tabletop",
 	};
 
 	if (!type) {
@@ -392,7 +393,8 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 			|| !strcmp(type, "give_weapon")) {
 		return common | SMOKE_FIXTURE_FIELD_PATH;
 	}
-	if (!strcmp(type, "agent_activate") || !strcmp(type, "agent_delete")) {
+	if (!strcmp(type, "agent_activate") || !strcmp(type, "agent_delete")
+			|| !strcmp(type, "movement_ledge") || !strcmp(type, "movement_tabletop")) {
 		return common | SMOKE_FIXTURE_FIELD_NAME;
 	}
 	if (!strcmp(type, "key")) {

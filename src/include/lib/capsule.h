@@ -131,6 +131,19 @@ f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
                      RoomNum *rooms, u32 cdtypes,
                      struct prop **out_prop, u16 *out_flags);
 
+struct capsulesupport {
+	f32 y;
+	struct prop *lift;
+	RoomNum room;
+	u16 flags;
+	u16 colour;
+	u8 material;
+};
+
+/* Select one floor and publish its height, material, hazard and lift together. */
+struct capsulesupport capsuleFindSupportForProp(struct prop *selfprop,
+		const struct coord *pos, f32 radius, RoomNum *rooms, f32 support_top);
+
 /**
  * Stage 2 collision-owned mesh ray cast (c038/B-339).
  *

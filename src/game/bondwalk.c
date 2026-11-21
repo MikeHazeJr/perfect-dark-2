@@ -1212,6 +1212,28 @@ void bwalkUpdateVertical(void)
 		ground = -30000;
 	}
 
+#if PC_CAPSULE_ENABLED
+	/* A rendered tabletop or lift can win over the tile beneath it. Publish
+	 * the same contact's material, room, hazard flags and lift owner. */
+	if ((g_Vars.currentplayer->vv_manground > ground + 2.0f
+			|| g_Vars.currentplayer->floorroom < 0)
+			&& g_Vars.bondcollisions && g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
+		const struct capsulesupport support = capsuleFindSupportForProp(g_Vars.currentplayer->prop,
+				&testpos, radius, rooms, g_Vars.currentplayer->vv_manground + 20.0f);
+		const f32 support_y = support.y + g_Vars.currentplayer->bondonground;
+		if (support_y <= g_Vars.currentplayer->vv_manground + 20.0f
+				&& (support_y > ground + 1.0f || g_Vars.currentplayer->floorroom < 0)) {
+			ground = support_y;
+			g_Vars.currentplayer->floorcol = support.colour;
+			g_Vars.currentplayer->floortype = support.material;
+			g_Vars.currentplayer->floorflags = support.flags;
+			g_Vars.currentplayer->floorroom = support.room;
+			lift = support.lift;
+			newinlift = lift != NULL;
+		}
+	}
+#endif
+
 	/* B-49: Prop surface floor detection (non-capsule).
 	 *
 	 * cdFindGroundInfoAtCyl only finds TILE geometry with FLOOR1/FLOOR2 flags.
@@ -1247,36 +1269,6 @@ void bwalkUpdateVertical(void)
 			ground = g_Vars.currentplayer->vv_manground;
 		}
 	}
-
-#if PC_CAPSULE_ENABLED
-	/* PC: Capsule-based prop and rendered surface detection. Secondary fallback after
-	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary
-	 * ground detection (auto-generated floor tiles from model bounding boxes).
-	 * This probe catches edge cases where the capsule system or rendered
-	 * triangle skin detects surfaces that the tile system misses.
-	 *
-	 * Only skip during strong upward movement (jump ascent) — during descent
-	 * and when grounded, the probe should always run. */
-	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
-			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
-		struct coord floorpos;
-
-		floorpos.x = g_Vars.currentplayer->prop->pos.x;
-		floorpos.y = g_Vars.currentplayer->prop->pos.y;
-		floorpos.z = g_Vars.currentplayer->prop->pos.z;
-
-		f32 capsuleGround = capsuleFindFloorForProp(g_Vars.currentplayer->prop, &floorpos, radius,
-				ymin - g_Vars.currentplayer->prop->pos.y,
-				ymax - g_Vars.currentplayer->prop->pos.y,
-				g_Vars.currentplayer->prop->rooms,
-				CDTYPE_ALL, NULL, NULL);
-
-		if (capsuleGround > ground + 1.0f
-				&& capsuleGround <= g_Vars.currentplayer->vv_manground + 20.0f) {
-			ground = capsuleGround;
-		}
-	}
-#endif /* PC_CAPSULE_ENABLED */
 
 #if PIRACYCHECKS
 	if (g_Vars.currentplayer->inlift && newinlift == false) {

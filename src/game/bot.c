@@ -10,6 +10,7 @@
 #include "grid_match_runtime.h"
 #include "smoke_harness.h"
 #include "game/chraction.h"
+#include "game/game_096360.h"
 #include "game/debug.h"
 #include "game/chr.h"
 #include "game/prop.h"
@@ -143,12 +144,18 @@ enum bot_spawn_result {
 static s32 s_BotSpawnWaveNextUncommitted;
 static bool s_BotSpawnFailsafeDone;
 static bool s_BotSpawnFailsafeRetryPending;
+static u32 s_BotJumpBudgetSampleMs;
+static u32 s_BotJumpBudgetIntervalMs = 60;
+
+static void botJumpTickEval(struct chrdata *chr);
 
 void botSpawnWaveReset(void)
 {
 	s_BotSpawnWaveNextUncommitted = 0;
 	s_BotSpawnFailsafeDone = false;
 	s_BotSpawnFailsafeRetryPending = false;
+	s_BotJumpBudgetSampleMs = 0;
+	s_BotJumpBudgetIntervalMs = 60;
 	s_BotRepeatPassLogged = false;
 	s_BotGoalLogLines = 0;
 	memset(s_BotGoalLastProp, 0, sizeof(s_BotGoalLastProp));
@@ -350,6 +357,9 @@ void botReset(struct chrdata *chr, u8 respawning)
 		chr->hidden &= ~CHRHFLAG_CLOAKED;
 		chr->myaction = MA_AIBOTMAINLOOP;
 		chr->shotbondsum = 0;
+		chr->fallspeed.y = 0.0f;
+		aibot->jumplastevalms = 0;
+		aibot->jumpcooldownuntil60 = 0;
 
 		if (respawning) {
 			chr->numclosearghs = 0;
@@ -2174,6 +2184,9 @@ s32 botTick(struct prop *prop)
 		}
 
 		botApplyMovement(chr);
+		if (updateable && g_Vars.lvframe60 >= 145 && !chrIsDead(chr) && botShouldTickAI(chr)) {
+			botJumpTickEval(chr);
+		}
 
 		result = chrTick(prop);
 
@@ -3720,17 +3733,23 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
 /* ============================================================
  * Bot jumping (Mike directive 2026-05-17)
  *
- * Gated on MPOPTION_BOTJUMP in g_MpSetup.options (default OFF). When
+ * Gated on MPOPTION_BOTJUMP in g_MpSetup.options, which is on by default
+ * (Mike 2026-11-21: "bots must use our jump"; mpInit, mpApplyConfig and
+ * matchConfigInit set it, the Room's Bot Jumping toggle clears it). When
  * the flag is set, bots evaluate jump opportunities and apply the
  * standard FIXED_JUMP_IMPULSE 8.2f to chr->fallspeed.y when grounded
  * + a trigger fires. Decision frequency is wall-clock budgeted (~200
  * evals/sec divided across active bots) so the cost stays flat as
  * bot count rises and remains frame-rate independent across clients.
  *
- * Difficulty tiers (per Mike Q2 2026-05-17):
- *   MEAT/EASY/NORMAL: obstacle-jump only (blocked forward + clear above)
- *   HARD/PERFECT/DARK: + reach target Y when target_y > my_y + threshold
- *                      + crouch-jump boost (+1.5) for just-out-of-reach
+ * Difficulty tiers (per Mike Q2 2026-05-17; every difficulty jumps, kept by
+ * Mike 2026-11-21 when D-052 landed):
+ *   every difficulty: obstacle jump, and a jump toward an opponent standing
+ *                     higher than the difficulty's reach threshold (easier
+ *                     simulants need a larger height difference), both only
+ *                     along a swept arc that lands on safe support
+ *   HARD/PERFECT/DARK: also try a crouch boost when the standard arc cannot
+ *                      land there
  *
  * Telemetry: BOT.JUMP: chrnum=N reason=X target_y=Y dy=N fires under
  * the BOTAI log channel (both dev + release with channel enabled).
@@ -3741,14 +3760,13 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
 
 #define BOT_JUMP_BUDGET_PER_SEC      200u   /* total decisions/sec across all bots */
 #define BOT_JUMP_COOLDOWN_TICKS60     30    /* ~0.5 sec post-landing before re-eval */
+#define BOT_JUMP_AWAITING_LANDING    (-1)
 #define BOT_JUMP_FORWARD_PROBE_UNITS  60.0f /* forward distance to probe for obstacle */
-#define BOT_JUMP_STEP_UP_UNITS        30.0f /* obstacle height threshold */
-#define BOT_JUMP_REACH_UP_UNITS       40.0f /* target-Y above this triggers HARD+ reach */
-#define BOT_JUMP_CROUCH_UPPER_UNITS   60.0f /* crouch-jump unlocks for 30-60 unit zone */
+#define BOT_JUMP_REACH_UP_UNITS       40.0f /* HARD reach threshold; see botJumpReachThreshold */
+#define BOT_JUMP_IMPULSE              8.2f
 #define BOT_JUMP_CROUCH_BOOST         1.5f  /* matches player crouch-jump from bondmove.c */
-
-static u32 s_BotJumpLastEvalMs[MAX_MPCHRS]   = {0};
-static s32 s_BotJumpCooldownFrame[MAX_MPCHRS] = {0};
+#define BOT_JUMP_ARC_STEP_TICKS60     6.0f
+#define BOT_JUMP_ARC_MAX_TICKS60      80.0f
 
 /* "BOTJUMP.<reason>" tags the telemetry line so the smoke harness can
  * regex on a specific reason. Keep short: OBST=obstacle, REACH=target-y. */
@@ -3765,147 +3783,179 @@ static const char *botJumpReasonName(s32 reason)
 static bool botJumpIsGrounded(struct chrdata *chr)
 {
 	if (!chr || !chr->prop) return false;
-	if (chr->fallspeed.y != 0.0f) return false;
+	if (chr->onladder || chr->fallspeed.y != 0.0f) return false;
 	const f32 groundgap = chr->manground - chr->ground;
-	return groundgap < 3.0f;
+	return chr->ground > -30000.0f && groundgap > -3.0f && groundgap < 3.0f;
 }
 
-/* Index a bot in the global mpchr table. For normal MP/mission bots
- * the chrnum maps directly to a slot in [0, MAX_MPCHRS); swarm bench
- * bots have chrnums >= 5000 (testscenarios.c) which fell out of the
- * range and made botJumpDecide silently bail. Fold large chrnums via
- * modulo so swarm bots share cooldown slots harmlessly (cooldown
- * collisions just mean some bots wait a frame longer than ideal). */
-static s32 botJumpChrIndex(struct chrdata *chr)
+static bool botJumpProbeFlight(const struct capsulecast *body, f32 ground,
+		f32 vx, f32 vz, f32 run_ticks, f32 clear_ticks, f32 impulse,
+		const struct chrdata *target, f32 *out_dy)
 {
-	if (!chr) return -1;
-	const s32 idx = chr->chrnum;
-	if (idx < 0) return -1;
-	if (idx >= MAX_MPCHRS) return idx % MAX_MPCHRS;
-	return idx;
+	struct capsulecast arc = *body;
+	struct chrdata *chr = body->selfprop->chr;
+	f32 height = 0.0f;
+	f32 moved_ticks = 0.0f;
+
+	for (f32 tick = 0.0f; tick < BOT_JUMP_ARC_MAX_TICKS60; tick += BOT_JUMP_ARC_STEP_TICKS60) {
+		const f32 travel_ticks = MIN(BOT_JUMP_ARC_STEP_TICKS60, MAX(0.0f, run_ticks - moved_ticks));
+		f32 step_y = 0.0f;
+		func0f0965e4(&step_y, &impulse, BOT_JUMP_ARC_STEP_TICKS60);
+		arc.move = (struct coord){vx * travel_ticks, step_y, vz * travel_ticks};
+
+		struct coord end = {
+			arc.start.x + arc.move.x,
+			arc.start.y + arc.move.y,
+			arc.start.z + arc.move.z,
+		};
+		RoomNum endrooms[8];
+		func0f065e74(&arc.start, arc.rooms, &end, endrooms);
+		chr0f021fa8(chr, &end, endrooms);
+
+		bool landing = false;
+		f32 floor = -30000.0f;
+		if (step_y < 0.0f) {
+			/* Sample ahead horizontally at the current height, before sweeping
+			 * down to the selected support. The cast still has to reach it. */
+			struct coord probe = end;
+			probe.y = arc.start.y;
+			const struct capsulesupport support = capsuleFindSupportForProp(body->selfprop,
+					&probe, arc.radius, endrooms, ground + height + 0.5f);
+			floor = support.y;
+			landing = floor > -30000.0f && floor >= ground + height + step_y;
+			if (landing) {
+				if ((support.flags & GEOFLAG_DIE) || floor > ground + height + 0.5f || floor < ground - 8.0f) {
+					return false;
+				}
+				if (target) {
+					const f32 dx = end.x - target->prop->pos.x;
+					const f32 dz = end.z - target->prop->pos.z;
+					if (fabsf(floor - target->manground) > 12.0f || dx * dx + dz * dz > 100.0f * 100.0f) {
+						return false;
+					}
+				}
+				arc.move.y = floor - ground - height;
+			}
+		}
+
+		if (capsuleSweep(&arc) < 1.0f) {
+			/* Near a lip, the real horizontal move can be blocked for a few
+			 * ticks while the independent vertical move climbs above it. */
+			if (landing || arc.move.y <= 0.0f || travel_ticks == 0.0f) return false;
+			arc.move.x = arc.move.z = 0.0f;
+			if (capsuleSweep(&arc) < 1.0f) return false;
+			end.x = arc.start.x;
+			end.z = arc.start.z;
+			func0f065e74(&arc.start, arc.rooms, &end, endrooms);
+			chr0f021fa8(chr, &end, endrooms);
+		} else {
+			moved_ticks += travel_ticks;
+		}
+		if (landing) {
+			if (moved_ticks <= clear_ticks) return false;
+			*out_dy = floor - ground;
+			return true;
+		}
+		height += step_y;
+		arc.start = end;
+		roomsCopy(endrooms, arc.rooms);
+	}
+
+	return false;
 }
 
-static bool botJumpProbeObstacle(struct chrdata *chr, f32 *out_dy)
+/* How much higher an opponent must stand before a simulant jumps toward it.
+ * Easier bots need a more pronounced height difference; harder bots react
+ * earlier. Values in chr units (~50 = a hop, ~100 = chest-high platform;
+ * the standard 8.2 impulse rises about 121 units). */
+static f32 botJumpReachThreshold(s32 difficulty)
 {
-	if (!chr || !chr->prop) return false;
-
-	f32 radius;
-	f32 ymax;
-	f32 ymin;
-	chrGetBbox(chr->prop, &radius, &ymax, &ymin);
-
-	const f32 angle = chrGetInverseTheta(chr);
-	const f32 fx = sinf(angle);
-	const f32 fz = cosf(angle);
-
-	struct capsulecast low;
-	low.start = chr->prop->pos;
-	low.radius = radius;
-	low.ymin_offset = ymin - chr->prop->pos.y;
-	low.ymax_offset = ymax - chr->prop->pos.y;
-	low.move.x = fx * BOT_JUMP_FORWARD_PROBE_UNITS;
-	low.move.y = 0.0f;
-	low.move.z = fz * BOT_JUMP_FORWARD_PROBE_UNITS;
-	roomsCopy(chr->prop->rooms, low.rooms);
-	low.cdtypes = CDTYPE_ALL;
-	low.selfprop = chr->prop;
-
-	if (capsuleSweep(&low) >= 1.0f) {
-		return false;
+	switch (difficulty) {
+	case BOTDIFF_MEAT:
+	case BOTDIFF_EASY:    return 90.0f;
+	case BOTDIFF_NORMAL:  return 60.0f;
+	case BOTDIFF_HARD:    return BOT_JUMP_REACH_UP_UNITS;
+	case BOTDIFF_PERFECT:
+	case BOTDIFF_DARK:    return BOT_JUMP_REACH_UP_UNITS - 10.0f;
+	default:              return 60.0f;
 	}
-
-	struct capsulecast raised = low;
-	raised.start.y += BOT_JUMP_STEP_UP_UNITS;
-	if (capsuleSweep(&raised) < 1.0f) {
-		return false;
-	}
-
-	struct coord landing = raised.start;
-	landing.x += raised.move.x;
-	landing.z += raised.move.z;
-	RoomNum landingrooms[8];
-	func0f065e74(&chr->prop->pos, chr->prop->rooms, &landing, landingrooms);
-	chr0f021fa8(chr, &landing, landingrooms);
-
-	struct prop *floorprop = NULL;
-	u16 floorflags = 0;
-	f32 floor = capsuleFindFloorForProp(chr->prop, &landing, radius,
-		ymin - chr->prop->pos.y, ymax - chr->prop->pos.y,
-		landingrooms, CDTYPE_ALL, &floorprop, &floorflags);
-
-	if (floor < -100000.0f) {
-		return false;
-	}
-	if (floor < chr->manground - 8.0f) {
-		return false;
-	}
-	if (floor > chr->manground + BOT_JUMP_CROUCH_UPPER_UNITS) {
-		return false;
-	}
-
-	*out_dy = floor - chr->manground;
-	return true;
 }
 
 /* Evaluate jump conditions for one bot, return decision in *out_reason
  * (0 = no jump, 1 = obstacle, 2 = target-Y reach, 3 = tactical reserved)
  * and out_dy (delta Y the jump aims to clear).
  *
- * v1 trigger (Mike directive 2026-05-17, all difficulties): the bot's
- * attack target is on a higher platform. Difficulty differs by reach
- * threshold -- easier bots need a larger Y delta before they decide to
- * jump (i.e. they don't try fancy small-step navigation), HARD+ bots
- * react to smaller deltas. Obstacle-jump uses the same capsule solver as
- * player vertical motion: low forward sweep blocked, raised sweep clear,
- * and a landing floor exists. */
-static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
+ * Use the live movement input and the same gravity and swept volume as
+ * movement. A target's height can select a candidate, but only a reachable
+ * descending contact can authorize a jump. */
+static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy,
+		f32 *out_impulse)
 {
-	if (!chr || !chr->aibot || !chr->prop) return false;
-	if (!botJumpIsGrounded(chr)) return false;
-	const s32 idx = botJumpChrIndex(chr);
-	if (idx < 0) return false;
-	if (s_BotJumpCooldownFrame[idx] > g_Vars.lvframe60) return false;
+	const struct aibot *aibot = chr->aibot;
+	const s32 difficulty = aibot->config->difficulty;
+	const bool advanced = difficulty >= BOTDIFF_HARD && difficulty <= BOTDIFF_DARK;
+	const f32 angle = chrGetRotY(chr);
+	const f32 speed = botCalculateMaxSpeed(chr);
+	const f32 forward = aibot->speedmultforwards * speed;
+	const f32 strafe = aibot->speedmultsideways * speed;
+	const f32 vx = strafe * cosf(angle) + forward * sinf(angle);
+	const f32 vz = forward * cosf(angle) - strafe * sinf(angle);
+	const f32 speed_sq = vx * vx + vz * vz;
+	if (speed_sq < 0.01f) return false;
 
-	const s32 difficulty = chr->aibot->config->difficulty;
-	/* Per-difficulty reach threshold. Easier bots need a more pronounced
-	 * height difference; harder bots react earlier. Values in chr units
-	 * (~50 units = a hop, ~100 units = chest-high platform). */
-	f32 reach_threshold;
-	switch (difficulty) {
-	case BOTDIFF_MEAT:
-	case BOTDIFF_EASY:    reach_threshold = 90.0f;  break;
-	case BOTDIFF_NORMAL:  reach_threshold = 60.0f;  break;
-	case BOTDIFF_HARD:    reach_threshold = BOT_JUMP_REACH_UP_UNITS;       break;
-	case BOTDIFF_PERFECT:
-	case BOTDIFF_DARK:    reach_threshold = BOT_JUMP_REACH_UP_UNITS - 10.0f; break;
-	default:              reach_threshold = 60.0f;  break;
+	f32 run_ticks = BOT_JUMP_ARC_MAX_TICKS60;
+	if (chr->actiontype == ACT_GOPOS && chr->act_gopos.waypoints[chr->act_gopos.curindex] == NULL) {
+		const f32 dx = chr->act_gopos.endpos.x - chr->prop->pos.x;
+		const f32 dz = chr->act_gopos.endpos.z - chr->prop->pos.z;
+		const f32 goal_ticks = (dx * vx + dz * vz) / speed_sq;
+		run_ticks = MIN(run_ticks, goal_ticks);
 	}
+	if (run_ticks <= 0.0f) return false;
 
-	if (botJumpProbeObstacle(chr, out_dy)) {
-		*out_reason = 1;
-		return true;
-	}
+	struct capsulecast low = {0};
+	f32 min_y, max_y;
+	chrGetBbox(chr->prop, &low.radius, &max_y, &min_y);
+	low.start = chr->prop->pos;
+	low.ymin_offset = min_y - low.start.y;
+	low.ymax_offset = max_y - low.start.y;
+	const f32 probe_limit = BOT_JUMP_FORWARD_PROBE_UNITS / sqrtf(speed_sq);
+	const f32 probe_ticks = MIN(run_ticks, probe_limit);
+	low.move.x = vx * probe_ticks;
+	low.move.z = vz * probe_ticks;
+	roomsCopy(chr->prop->rooms, low.rooms);
+	low.cdtypes = CDTYPE_ALL;
+	low.selfprop = chr->prop;
 
-	if (chr->aibot->attackpropnum >= 0) {
-		struct chrdata *targetchr = botLiveChrFromPropnum(chr->aibot->attackpropnum);
-		if (targetchr) {
-			const f32 dy = targetchr->manground - chr->manground;
-			/* Sanity gate (Mike 2026-05-17): swarm bench bots have
-			 * chr->manground set to a -1e30 sentinel until the chr
-			 * tick reads ground; dy = target_y - sentinel yields ~1e30
-			 * and triggers a permanent jump-spam. Reject dy beyond a
-			 * sane upper bound (BOT_JUMP_CROUCH_UPPER * 2 ~ a generous
-			 * vertical reach in any real arena). */
-			const f32 dy_upper_sane = BOT_JUMP_CROUCH_UPPER_UNITS * 2.0f;
-			if (dy >= reach_threshold && dy <= dy_upper_sane) {
-				*out_reason = 2;
-				*out_dy = dy;
-				return true;
-			}
+	const f32 clear_fraction = capsuleSweep(&low);
+	const bool obstacle = clear_fraction < 1.0f;
+	struct chrdata *target = NULL;
+	if (!obstacle && chr->aibot->attackpropnum >= 0) {
+		target = botLiveChrFromPropnum(chr->aibot->attackpropnum);
+		if (target && target->manground - chr->manground < botJumpReachThreshold(difficulty)) {
+			target = NULL;
 		}
 	}
+	if (!obstacle && !target) return false;
 
-	return false;
+	const f32 clear_ticks = obstacle ? probe_ticks * clear_fraction + 1.0f : 0.0f;
+	f32 impulse = BOT_JUMP_IMPULSE;
+	if (!botJumpProbeFlight(&low, chr->manground, vx, vz, run_ticks, clear_ticks, impulse, target, out_dy)) {
+		impulse += BOT_JUMP_CROUCH_BOOST;
+		if (!advanced || !botJumpProbeFlight(&low, chr->manground, vx, vz, run_ticks, clear_ticks, impulse, target, out_dy)) {
+			return false;
+		}
+	}
+	*out_reason = obstacle ? 1 : 2;
+	*out_impulse = impulse;
+	return true;
+}
+
+void botJumpOnLand(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	if (aibot && aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING) {
+		aibot->jumpcooldownuntil60 = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;
+	}
 }
 
 /* Budgeted scheduler. Each bot gets evaluated at most
@@ -3914,57 +3964,43 @@ static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
  * wall clock, so this is independent of client render FPS). */
 static void botJumpTickEval(struct chrdata *chr)
 {
-	if (!chr || !chr->aibot) return;
-	if ((g_MpSetup.options & MPOPTION_BOTJUMP) == 0) return;
+	struct aibot *aibot = chr->aibot;
+	const s32 frame = g_Vars.lvframe60;
+	if ((g_MpSetup.options & MPOPTION_BOTJUMP) == 0 || !botJumpIsGrounded(chr)
+			|| aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING
+			|| aibot->jumpcooldownuntil60 > frame) return;
 
-	const s32 idx = botJumpChrIndex(chr);
-	if (idx < 0) return;
-
-	/* Count active bots once per tick so the budget scales. */
-	static u32 s_LastBudgetCalcMs = 0;
-	static u32 s_BudgetIntervalMs = 60; /* ~16 evals/sec per bot at 4 active */
-	/* Approximate "wall-clock ms" via the 60Hz frame counter -- avoids
-	 * adding an SDL.h dependency to src/game/bot.c. Each frame is
-	 * ~16.67 ms; the budget math is robust to frame-rate drift because
-	 * the engine pins lvupdate60 to wall-clock progress. */
-	const u32 now_ms = (u32)g_Vars.lvframe60 * 17u;
-	if ((now_ms - s_LastBudgetCalcMs) >= 250u) {
-		s_LastBudgetCalcMs = now_ms;
+	/* Recount the live roster periodically using the stage's 60 Hz clock. */
+	const u32 now_ms = (u32)frame * 17u;
+	if ((now_ms - s_BotJumpBudgetSampleMs) >= 250u) {
+		s_BotJumpBudgetSampleMs = now_ms;
 		s32 active = 0;
 		for (s32 mi = 0; mi < MAX_MPCHRS; mi++) {
 			struct chrdata *mc = g_MpAllChrPtrs[mi];
 			if (mc && mc->aibot && !chrIsDead(mc)) active++;
 		}
 		if (active < 1) active = 1;
-		s_BudgetIntervalMs = (1000u * (u32)active) / BOT_JUMP_BUDGET_PER_SEC;
-		if (s_BudgetIntervalMs < 16u) s_BudgetIntervalMs = 16u; /* >= one frame */
+		s_BotJumpBudgetIntervalMs = (1000u * (u32)active) / BOT_JUMP_BUDGET_PER_SEC;
+		if (s_BotJumpBudgetIntervalMs < 16u) s_BotJumpBudgetIntervalMs = 16u;
 	}
 
-	if ((now_ms - s_BotJumpLastEvalMs[idx]) < s_BudgetIntervalMs) return;
-	s_BotJumpLastEvalMs[idx] = now_ms;
+	if ((now_ms - aibot->jumplastevalms) < s_BotJumpBudgetIntervalMs) return;
+	aibot->jumplastevalms = now_ms;
 
 	s32 reason = 0;
 	f32 dy = 0.0f;
-	if (!botJumpDecide(chr, &reason, &dy)) return;
+	f32 impulse = 0.0f;
+	if (!botJumpDecide(chr, &reason, &dy, &impulse)) return;
 
-	/* Apply jump. Mirror player path's bondwalk.c:907 -- write the
-	 * impulse onto the vertical-velocity field. Crouch-jump boost is
-	 * HARD+ only and applies only when dy is in the just-barely zone
-	 * (matches player crouch-jump intent: cap apex by a small lift). */
-	f32 impulse = 8.2f;
-	const bool advanced = (chr->aibot->config->difficulty >= BOTDIFF_HARD);
-	if (advanced && dy >= BOT_JUMP_STEP_UP_UNITS && dy <= BOT_JUMP_CROUCH_UPPER_UNITS) {
-		impulse += BOT_JUMP_CROUCH_BOOST;
-	}
+	const f32 landing_y = chr->manground + dy;
 	chr->fallspeed.y = impulse;
-	chr->manground += 1.0f; /* nudge above ground so the airborne branch fires */
-	s_BotJumpCooldownFrame[idx] = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;
+	aibot->jumpcooldownuntil60 = BOT_JUMP_AWAITING_LANDING;
 
 	sysLogPrintf(LOG_NOTE,
 		"BOT.JUMP: chrnum=%d reason=%s target_y=%.1f dy=%.1f diff=%d boost=%.1f",
 		(int)chr->chrnum, botJumpReasonName(reason),
-		chr->manground + dy, dy, (int)chr->aibot->config->difficulty,
-		impulse - 8.2f);
+		landing_y, dy, (int)aibot->config->difficulty,
+		impulse - BOT_JUMP_IMPULSE);
 }
 
 /**
@@ -4006,10 +4042,6 @@ void botTickUnpaused(struct chrdata *chr)
 			aibot->random2 = rngRandom();
 			aibot->randomfrac = RANDOMFRAC();
 		}
-
-		/* Mike directive 2026-05-17: evaluate bot jump opportunity each
-		 * AI tick. Gated on MPOPTION_BOTJUMP + wall-clock budget. */
-		botJumpTickEval(chr);
 
 		// Consider reloading
 		for (i = 0; i != 2; i++) {

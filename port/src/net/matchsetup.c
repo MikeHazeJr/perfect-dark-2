@@ -314,8 +314,10 @@ void matchConfigInit(void)
 	g_MatchConfig.timelimit = 60;     /* no time limit (>=60 disables timer) */
 	g_MatchConfig.scorelimit = 9;     /* first to 10 kills */
 	g_MatchConfig.teamscorelimit = 400; /* no team score limit */
-	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed. */
-	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON;
+	/* F.6/B-70: Default spawn-with-weapon ON so bots and players always start armed.
+	 * Simulants jump by default (Mike 2026-11-21: "bots must use our jump");
+	 * the Room's Bot Jumping toggle turns it off. */
+	g_MatchConfig.options = MPOPTION_SPAWNWITHWEAPON | MPOPTION_BOTJUMP;
 	/* INV-4 / Cohort D: engine-forced bit history starts empty. */
 	g_MatchConfig.options_engine_forced = 0;
 	g_MatchConfig.weaponSetIndex = 0;   /* default to first available preset (Pistols) */
