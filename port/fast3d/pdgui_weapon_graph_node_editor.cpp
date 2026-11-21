@@ -1051,6 +1051,34 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 				copyString(node.subgraph, sizeof(node.subgraph), item["subgraph"]);
 			}
 			if (!node.subgraph[0]) snprintf(node.subgraph, sizeof(node.subgraph), "primary");
+			{
+				/* held-weapon-events.md: a program node (event.weapon.*,
+				 * gate.weapon.*, og.*) keeps its settings as its own members;
+				 * keep every member the editor does not model, so a base
+				 * weapon's program survives the editor. */
+				std::string extra;
+				for (const auto &field : item.get<crude_json::object>()) {
+					const std::string &key = field.first;
+					if (key == "id" || key == "kind" || key == "subgraph" || key == "params") continue;
+					std::string escaped;
+					for (char c : key) {
+						if (c == '"' || c == '\\') escaped += '\\';
+						escaped += c;
+					}
+					if (!extra.empty()) extra += ", ";
+					extra += "\"" + escaped + "\": " + weaponGraphEditorValueText(field.second);
+				}
+				if (extra.size() >= sizeof(node.extra)) {
+					if (err && err_cap) {
+						snprintf(err, err_cap,
+							"node %s has more settings text than the editor holds (%u of %u bytes)",
+							node.id, (unsigned)extra.size(), (unsigned)sizeof(node.extra) - 1);
+					}
+					pdguiWeaponGraphModelReset(model, contexts, context_count);
+					return false;
+				}
+				snprintf(node.extra, sizeof(node.extra), "%s", extra.c_str());
+			}
 			if (item.contains("params") && item["params"].is_object()) {
 				std::string dumped = weaponGraphEditorValueText(item["params"]);
 				if (dumped.size() >= sizeof(node.params)) {
@@ -1096,9 +1124,17 @@ bool pdguiWeaponGraphModelLoadJson(PdWeaponGraphEditModel *model,
 			}
 			if (from_index >= 0 && to_index >= 0) {
 				PdWeaponGraphEdgeEdit &edge = model->edges[model->edge_count++];
+				memset(&edge, 0, sizeof(edge));
 				edge.editor_id = nextEditorId(model);
 				edge.from = from_index;
 				edge.to = to_index;
+				/* An execution edge keeps its ports (held-weapon-events.md). */
+				if (item.contains("output") && item["output"].is_string()) {
+					copyString(edge.output, sizeof(edge.output), item["output"]);
+				}
+				if (item.contains("input") && item["input"].is_string()) {
+					copyString(edge.input, sizeof(edge.input), item["input"]);
+				}
 			}
 		}
 	}

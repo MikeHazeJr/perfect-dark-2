@@ -44,6 +44,9 @@ struct PdWeaponGraphNodeEdit {
 	char kind[WEAPON_GRAPH_IR_ID_LEN];
 	char subgraph[PDGUI_WEAPON_GRAPH_SCOPE_LEN];
 	char params[PDGUI_WEAPON_GRAPH_PARAM_LEN];
+	/* held-weapon-events.md: a program node's own top-level settings
+	 * ("rounds": 2, "count": 3), kept as JSON members for the writer. */
+	char extra[PDGUI_WEAPON_GRAPH_PARAM_LEN];
 	float pos_x;
 	float pos_y;
 	bool pos_valid;
@@ -53,6 +56,9 @@ struct PdWeaponGraphEdgeEdit {
 	int editor_id;
 	int from;
 	int to;
+	/* An execution edge's ports ("pass", "exec"); empty for a record edge. */
+	char output[16];
+	char input[16];
 };
 
 struct PdWeaponGraphEditModel {

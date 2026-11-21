@@ -1380,17 +1380,25 @@ typedef struct weapon_rule_walk {
 	weapon_rule_reload_t reload;            /* the first reload reached (slice 4b) */
 } weapon_rule_walk_t;
 
+/* A node's settings as one module reads them: each read gets a buffer of
+ * its own (a module reads at most WEAPON_RULE_SETTING_READS settings), as
+ * long as an item's catalog id, so a "$name" setting read after another does
+ * not overwrite it. */
+#define WEAPON_RULE_SETTING_READS 12
 typedef struct weapon_rule_setting_read {
 	const weapon_rule_walk_t *walk;
 	const mission_graph_params_t *params;
-	char buf[32];
+	s32 next;
+	char bufs[WEAPON_RULE_SETTING_READS][WEAPON_RULE_ITEM_LEN];
 } weapon_rule_setting_read_t;
 
 static inline const char *weaponRulesWalkSettingText(const char *key, void *user)
 {
 	weapon_rule_setting_read_t *read = (weapon_rule_setting_read_t *)user;
+	char *buf = read->bufs[read->next % WEAPON_RULE_SETTING_READS];
 
-	return read->walk->param_text(read->walk->weaponnum, read->params, key, read->buf, sizeof(read->buf));
+	read->next++;
+	return read->walk->param_text(read->walk->weaponnum, read->params, key, buf, WEAPON_RULE_ITEM_LEN);
 }
 
 /* The runner's module callback for a walk (mission_graph_module_run_fn). */
@@ -1462,6 +1470,7 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 
 			read.walk = walk;
 			read.params = params;
+			read.next = 0;
 			weaponRulesApplyReloadSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->reload);
 		}
 		walk->modules |= bit;
@@ -1474,6 +1483,7 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 
 			read.walk = walk;
 			read.params = params;
+			read.next = 0;
 			weaponRulesApplyShotSettings(bit, weaponRulesWalkSettingText, &read, walk->item_number,
 				walk->function, &walk->plan);
 		}
@@ -1488,6 +1498,7 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 
 			read.walk = walk;
 			read.params = params;
+			read.next = 0;
 			weaponRulesApplySettings(bit, weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
 		}
 		walk->modules |= bit;

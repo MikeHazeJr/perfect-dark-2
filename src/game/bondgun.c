@@ -1340,6 +1340,22 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 	if (hand->inuse) {
 		sp34 = bgun0f098ca0(hand->gset.weaponfunc, info, hand);
 
+		/* held-weapon-events.md slice 3 (review): an attack whose shots take
+		 * more rounds than the original's minimum (og.weapon.use_ammo): a
+		 * clip that holds fewer than a shot's is below what a shot needs, so
+		 * the trigger up reloads it (clip_empty) and the trigger down clicks;
+		 * with no reserve there is nothing to fire. */
+		if (sp34 == 1 || sp34 == 2) {
+			struct weaponfunc *idlefunc = gsetGetWeaponFunction(&hand->gset);
+			weapon_rule_trigger_t press;
+
+			weaponFunctionPlan(info->weaponnum, hand->gset.weaponfunc, &press);
+			if (idlefunc && idlefunc->ammoindex >= 0 && idlefunc->ammoindex <= 1 && press.rounds > 1
+					&& hand->loadedammo[idlefunc->ammoindex] < press.rounds) {
+				sp34 = sp34 == 1 ? 0 : -1;
+			}
+		}
+
 		// Handle changing gun function
 		if (gunfunc != hand->gset.weaponfunc && hand->modenext != HANDMODE_RELOAD) {
 			changefunc = true;
@@ -6330,6 +6346,13 @@ void bgunCreateFiredProjectile(s32 handnum)
 			sp210.m[3][1] = 0.0f;
 			sp210.m[3][2] = 0.0f;
 
+			/* held-weapon-events.md slice 4 (review): a launch whose item is
+			 * not the rocket the launcher holds fires its own item; the held
+			 * rocket goes. */
+			if (hand->rocket && shotplan->item != WEAPON_ROCKET && shotplan->item != WEAPON_HOMINGROCKET) {
+				bgunFreeHeldRocket(handnum);
+			}
+
 			if (hand->rocket) {
 				hand->firedrocket = true;
 
@@ -6356,11 +6379,6 @@ void bgunCreateFiredProjectile(s32 handnum)
 				}
 
 				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, item, g_Vars.currentplayer->prop->chr);
-
-				if (weapon && shotplan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP) {
-					weapon->gunfunc = shotplan->item_function == WEAPON_RULE_ITEM_FUNCTION_GUN
-						? hand->gset.weaponfunc : shotplan->item_function;
-				}
 			} else if (shotplan->item == WEAPON_RULE_ITEM_UNKNOWN) {
 				/* An item no weapon names: nothing is fired. */
 				weapon = NULL;
@@ -6368,6 +6386,14 @@ void bgunCreateFiredProjectile(s32 handnum)
 					hand->gset.weaponnum, hand->gset.weaponfunc);
 			} else {
 				weapon = weaponCreateProjectileFromGset(projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
+			}
+
+			/* og.weapon.launch's item_function, whichever object it fires
+			 * (the crossbow's and Devastator's the gun's, the Super Dragon's
+			 * 2; left out, the object keeps the function it was made with). */
+			if (weapon && shotplan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP) {
+				weapon->gunfunc = shotplan->item_function == WEAPON_RULE_ITEM_FUNCTION_GUN
+					? hand->gset.weaponfunc : shotplan->item_function;
 			}
 
 			if (weapon) {

@@ -959,7 +959,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 	const u32 bit = weaponRulesModuleBit(kind);
 	const u32 gate = weaponRulesGateBit(kind);
 	char buf[WEAPON_RULE_STATE_KEY_LEN];
-	char vbuf[32];
+	char vbuf[WEAPON_RULE_ITEM_LEN]; /* as long as an item's catalog id */
 
 	if (gate == WEAPON_RULE_GATE_HAS_AMMO) {
 		const char *raw = missionGraphParamText(params, WEAPON_RULE_ROUNDS_PARAM);

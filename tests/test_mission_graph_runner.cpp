@@ -2996,6 +2996,97 @@ TEST_CASE("the charge and cook triggers are the Mauler's, the crystal pistol's a
 		!= std::string::npos);
 }
 
+// PR reviews of slices 2 to 5: settings read through variables, the held
+// rocket, the launch item's function, the shield damage, idle admission and
+// the Weapons creator.
+namespace {
+
+std::map<std::string, std::string> g_ReviewVariables;
+
+// Resolves "$name" into the caller's buffer, as weaponGraphRuntimeHeldParamText does.
+const char *reviewParamText(s32, const mission_graph_params_t *params, const char *key, char *buf, size_t cap)
+{
+	const char *text = missionGraphParamText(params, key);
+	if (!text || text[0] != '$') return text;
+	const auto it = g_ReviewVariables.find(text + 1);
+	if (it == g_ReviewVariables.end()) return nullptr;
+	std::snprintf(buf, cap, "%s", it->second.c_str());
+	return buf;
+}
+
+s32 reviewItemNumber(const char *catalog_id)
+{
+	return catalog_id && std::string(catalog_id) == "base:a_launcher_item_with_a_long_catalog_id" ? WEAPON_ROCKET : -1;
+}
+
+} // namespace
+
+TEST_CASE("a node's settings read through variables keep every value, however long",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	g_ReviewVariables = { { "projectile", "base:a_launcher_item_with_a_long_catalog_id" }, { "function", "gun" },
+		{ "start", "on_press" }, { "release", "on_full" }, { "damage", "2" } };
+	REQUIRE(g_ReviewVariables["projectile"].size() > 31);
+	const std::string launch = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.launch\", \"item\": \"$projectile\", \"item_function\": \"$function\"");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(launch.data(), launch.size(), heldKnown,
+		err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	const weapon_rule_function_t crossbow = ruleRecord(WEAPON_CROSSBOW, 0, 0x0201, 0, 0);
+	int instance = 0;
+	weapon_rule_walk_t walk{};
+	walk.weaponnum = -1;
+	weaponRulesReadyHand(&walk.hand);
+	walk.function = &crossbow;
+	walk.param_text = reviewParamText;
+	walk.item_number = reviewItemNumber;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK(walk.plan.shot == WEAPON_MODULE_LAUNCH);
+	CHECK(walk.plan.item == WEAPON_ROCKET); // the whole id, not cut at 31 and not overwritten by the function
+	CHECK(walk.plan.item_function == WEAPON_RULE_ITEM_FUNCTION_GUN);
+	missionGraphProgramFree(program);
+
+	const std::string charge = baseIdleProgram("primary", 1,
+		"\"kind\": \"og.weapon.charge\", \"start\": \"$start\", \"release\": \"$release\", \"damage_per_step\": \"$damage\"", 1);
+	program = missionGraphProgramCompileWeapon(charge.data(), charge.size(), heldKnown, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	walk.function = &falcon;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK(walk.plan.charge_start == WEAPON_RULE_CHARGE_ON_PRESS);
+	CHECK(walk.plan.charge_release == WEAPON_RULE_RELEASE_ON_FULL);
+	CHECK(walk.plan.charge_damage == 2.0f);
+	missionGraphProgramFree(program);
+	g_ReviewVariables.clear();
+
+	// The seams the reviews named.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (hand->rocket && shotplan->item != WEAPON_ROCKET && shotplan->item != WEAPON_HOMINGROCKET) {")
+		!= std::string::npos);
+	const size_t own = bondgun.find("weapon = weaponCreateProjectileFromGset(projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);");
+	const size_t function = bondgun.find("if (weapon && shotplan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP) {");
+	REQUIRE(own != std::string::npos);
+	REQUIRE(function != std::string::npos);
+	CHECK(own < function); // the item's function applies to the gun's own object too
+	REQUIRE(bondgun.find("weaponFunctionPlan(info->weaponnum, hand->gset.weaponfunc, &press);") != std::string::npos);
+	REQUIRE(bondgun.find("sp34 = sp34 == 1 ? 0 : -1;") != std::string::npos);
+	const std::string chraction = readSource("src/game/chraction.c");
+	REQUIRE(chraction.find("handplan = bgunHandPlan(h);") != std::string::npos);
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("char vbuf[WEAPON_RULE_ITEM_LEN]; /* as long as an item's catalog id */") != std::string::npos);
+	// The Weapons creator keeps a program's settings and ports and writes v2.
+	const std::string editor = readSource("port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	REQUIRE(editor.find("snprintf(node.extra, sizeof(node.extra), \"%s\", extra.c_str());") != std::string::npos);
+	REQUIRE(editor.find("copyString(edge.input, sizeof(edge.input), item[\"input\"]);") != std::string::npos);
+	const std::string hub = readSource("port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(hub.find("program ? \"pd.weapon_graph.v2\" : \"pd.weapon_graph.v1\",") != std::string::npos);
+	REQUIRE(hub.find("s_WeaponGraphNodes[i].extra,") != std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

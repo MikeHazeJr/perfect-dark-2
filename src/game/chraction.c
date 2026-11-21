@@ -4674,8 +4674,23 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// Farsight's 10) forces it, times the damage.
 	if (gset) {
 		weapon_rule_trigger_t shotplan;
+		const weapon_rule_trigger_t *handplan = NULL;
 
-		weaponFunctionPlan(gset->weaponnum, gset->weaponfunc, &shotplan);
+		/* A player's shot carries the plan of the attack that fired it (its
+		 * states chose it); a simulant's or a guard's, its function's. */
+		if (g_Vars.currentplayer && aprop && aprop == g_Vars.currentplayer->prop) {
+			for (s32 h = 0; h < 2 && !handplan; h++) {
+				if (g_Vars.currentplayer->hands[h].gset.weaponnum == gset->weaponnum
+						&& g_Vars.currentplayer->hands[h].gset.weaponfunc == gset->weaponfunc) {
+					handplan = bgunHandPlan(h);
+				}
+			}
+		}
+		if (handplan) {
+			shotplan = *handplan;
+		} else {
+			weaponFunctionPlan(gset->weaponnum, gset->weaponfunc, &shotplan);
+		}
 		if (shotplan.shot == WEAPON_MODULE_HITSCAN && shotplan.shield_damage != 1.0f) {
 			damageshield = true;
 			damage *= shotplan.shield_damage;
