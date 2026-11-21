@@ -85,6 +85,11 @@ REVIEWED = {
     # Dynamic resolution is restricted to random bytes and a waitable timer.
     "port/src/net/net_candidate.c": {"routes": ["GetProcAddress", "LoadLibraryA"], "sha256": "8aabafc20491a90e664f81b0ef8df5ed9b12b558a764696741c3eb25183184b8"},
     "port/src/system.c": {"routes": ["GetProcAddress"], "sha256": "bf6b770d4cb62f430834beb52cb74c4438f93f113ca4e764310da4091c0e3cd3"},
+    # A C++ method named open, not the CRT open: the Grid browser's
+    # ArenaArchive::open (T-MODDING-021) reads archives through modArchiveOpen
+    # (fopen "rb") or gridMatchPackageLoad (bytes into memory) and writes
+    # nothing. Reviewed 2026-11-20 (dev e6485468 failed this guard on it).
+    "port/fast3d/pdgui_grid_browser_data.cpp": {"routes": ["open"], "sha256": "8dede98238c31dd17d3ad9e9697b036ee840d20792f47e2027c75e1fddedfb26"},
 }
 
 
