@@ -447,19 +447,25 @@ static s32 endsWith(const char *value, const char *suffix)
 
 /* projectile-events.md slice 2: the executable versions of the projectile
  * and entity graphs, the v1 data nodes plus a program of event.*, gate.* and
- * og.* nodes joined by execution edges. */
+ * og.* nodes joined by execution edges. held-weapon-events.md slice 1: and of
+ * a held weapon function graph (pd.weapon_graph.v2). */
 static s32 weaponGraphSchemaHasProgram(asset_type_e graph_type, const char *schema)
 {
 	return schema && ((graph_type == ASSET_PROJECTILE &&
 			strcmp(schema, "pd.projectile_graph.v2") == 0) ||
-		(graph_type == ASSET_ENTITY && strcmp(schema, "pd.entity_graph.v2") == 0));
+		(graph_type == ASSET_ENTITY && strcmp(schema, "pd.entity_graph.v2") == 0) ||
+		(graph_type == ASSET_WEAPON && strcmp(schema, "pd.weapon_graph.v2") == 0));
 }
 
-/* A program node of a v2 graph: the graph runner's, not the record IR's. */
-static s32 weaponGraphKindIsProgram(const char *kind)
+/* A program node of a v2 graph: the graph runner's, not the record IR's. A
+ * held function record has event nodes of its own (event.trigger_pressed);
+ * its program's events are the weapon events (event.weapon.*). */
+static s32 weaponGraphKindIsProgram(asset_type_e graph_type, const char *kind)
 {
-	return kind && (strncmp(kind, "event.", 6) == 0 || strncmp(kind, "gate.", 5) == 0 ||
-		strncmp(kind, "og.", 3) == 0);
+	if (!kind) return 0;
+	if (strncmp(kind, "gate.", 5) == 0 || strncmp(kind, "og.", 3) == 0) return 1;
+	return graph_type == ASSET_WEAPON ? strncmp(kind, "event.weapon.", 13) == 0
+		: strncmp(kind, "event.", 6) == 0;
 }
 
 const char *weaponGraphSchemaForType(asset_type_e type)
@@ -850,9 +856,71 @@ static void weaponGraphRuntimeClearWeaponDependencies(s32 weaponnum)
 	}
 }
 
+/* held-weapon-events.md slice 1: the program of each held weapon function
+ * whose graph is pd.weapon_graph.v2, by weapon number and function. Kept
+ * beside the records, not in them, because the records are cleared with
+ * memset. */
+static mission_graph_program_t *s_held_programs[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS][WEAPON_GRAPH_RUNTIME_MAX_FUNCS];
+
+/* The native modules and gates a held program may name. Their code runs at
+ * the game's seams (bondgun.c), which pass the run function when they fire;
+ * slice 1 brings the weapon events and none yet (held-weapon-events.md). */
+static s32 heldProgramModuleKnown(const char *kind)
+{
+	(void)kind;
+	return 0;
+}
+
+static void heldProgramsForget(s32 weaponnum)
+{
+	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
+	for (s32 f = 0; f < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; f++) {
+		missionGraphProgramFree(s_held_programs[weaponnum][f]);
+		s_held_programs[weaponnum][f] = NULL;
+	}
+}
+
+static void heldProgramsClearAll(void)
+{
+	for (s32 w = 0; w < WEAPON_GRAPH_RUNTIME_MAX_WEAPONS; w++) heldProgramsForget(w);
+}
+
+/* Compiles the IR's function programs in place of the weapon's old ones. -1
+ * with the reason when one does not compile: the weapon then refuses (fail
+ * closed), and none of its programs is kept. */
+static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
+	char *err, size_t err_cap)
+{
+	heldProgramsForget(weaponnum);
+	for (s32 f = 0; f < WEAPON_GRAPH_RUNTIME_MAX_FUNCS; f++) {
+		char why[256];
+		mission_graph_program_t *program;
+
+		if (!ir->held_program_json[f]) continue;
+		why[0] = '\0';
+		program = missionGraphProgramCompileWeapon(ir->held_program_json[f],
+			ir->held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
+		if (!program) {
+			heldProgramsForget(weaponnum);
+			setErr(err, err_cap, "%s %s program refused: %s", ir->asset_id,
+				f ? "secondary" : "primary", why[0] ? why : "it does not compile");
+			return -1;
+		}
+		s_held_programs[weaponnum][f] = program;
+	}
+	return 0;
+}
+
+const struct mission_graph_program *weaponGraphRuntimeHeldProgram(s32 weaponnum, s32 funcindex)
+{
+	if (!heldIndexValid(weaponnum, funcindex)) return NULL;
+	return s_held_programs[weaponnum][funcindex];
+}
+
 void weaponGraphRuntimeClearWeapon(s32 weaponnum)
 {
 	if (weaponnum < 0 || weaponnum >= WEAPON_GRAPH_RUNTIME_MAX_WEAPONS) return;
+	heldProgramsForget(weaponnum);
 	memset(s_held_functions[weaponnum], 0, sizeof(s_held_functions[weaponnum]));
 	/* c3849 Wave 5f Unit 2: tunables share the held-record lifecycle. */
 	memset(&s_weapon_settings[weaponnum], 0, sizeof(s_weapon_settings[weaponnum]));
@@ -965,6 +1033,7 @@ void weaponGraphRuntimeClearAsset(const char *asset_id)
 
 void weaponGraphRuntimeClearAll(void)
 {
+	heldProgramsClearAll();
 	memset(s_held_functions, 0, sizeof(s_held_functions));
 	memset(s_weapon_settings, 0, sizeof(s_weapon_settings));
 	memset(s_projectile_runtimes, 0, sizeof(s_projectile_runtimes));
@@ -1676,7 +1745,7 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 			setErr(err, err_cap, "graph node %s missing kind", node->id);
 			return -1;
 		}
-		if (ir->program_json && weaponGraphKindIsProgram(node->kind)) {
+		if (ir->program_json && weaponGraphKindIsProgram(graph_type, node->kind)) {
 			/* projectile-events.md slice 2: the graph runner compiles a v2
 			 * graph's program nodes (projectileProgramRegister). */
 			memset(node, 0, sizeof(*node));
@@ -1958,8 +2027,61 @@ static void finalizeIrDigest(weapon_graph_ir_t *ir)
 		hashString(&ctx, ir->subgraphs[i].entry);
 		hashS32(&ctx, ir->subgraphs[i].entry_node);
 	}
+	/* held-weapon-events.md slice 1: a held function's program, when it has
+	 * one; a v1 weapon's digest is what it always was. */
+	for (s32 f = 0; f < 2; f++) {
+		if (!ir->held_program_json[f]) continue;
+		hashString(&ctx, f ? "held_program.secondary" : "held_program.primary");
+		hashS32(&ctx, (s32)ir->held_program_json_size[f]);
+		sha256Update(&ctx, ir->held_program_json[f], ir->held_program_json_size[f]);
+	}
 	sha256Final(&ctx, digest);
 	sha256ToHex(digest, ir->ir_sha256);
+}
+
+/* held-weapon-events.md slice 1: keeps a copy of a held function graph's text
+ * as that function's program. */
+static s32 weaponGraphHeldProgramAttach(weapon_graph_ir_t *ir, s32 func,
+	const char *json, u32 json_size, char *err, size_t err_cap)
+{
+	char *copy;
+
+	if (!ir || func < 0 || func > 1 || !json || !json_size) {
+		setErr(err, err_cap, "a held function program needs its function and its text");
+		return -1;
+	}
+	if (ir->held_program_json[func]) {
+		setErr(err, err_cap, "two graphs claim the %s function's program",
+			func ? "secondary" : "primary");
+		return -1;
+	}
+	copy = (char *)malloc((size_t)json_size + 1);
+	if (!copy) {
+		setErr(err, err_cap, "no memory for the function's program");
+		return -1;
+	}
+	memcpy(copy, json, json_size);
+	copy[json_size] = '\0';
+	ir->held_program_json[func] = copy;
+	ir->held_program_json_size[func] = json_size;
+	return 0;
+}
+
+/* Whether a schema member names a held function graph with a program: the
+ * text is a strict JSON object whose schema is pd.weapon_graph.v2 and that
+ * has no profile (held_single_shot.v1 is the profile executor's). */
+s32 weaponGraphTextIsHeldProgram(const char *json, u32 json_size)
+{
+	json_span_t root;
+	char schema[WEAPON_GRAPH_IR_ID_LEN];
+
+	if (!json || !json_size || !modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		return 0;
+	}
+	schema[0] = '\0';
+	if (!jsonObjectString(root, "schema", schema, sizeof(schema))) return 0;
+	return strcmp(schema, "pd.weapon_graph.v2") == 0 && !jsonFindKeyInObject(root, "profile");
 }
 
 s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
@@ -2042,6 +2164,23 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 		out->program_json[json_size] = '\0';
 		out->program_json_size = json_size;
 	}
+	/* held-weapon-events.md slice 1: a held function graph with a program
+	 * names its function in graph_id. The held_single_shot.v1 profile is the
+	 * profile executor's (wgV2Compile), not a record. */
+	if (graph_type == ASSET_WEAPON && out->program_json) {
+		s32 func = strcmp(out->graph_id, "primary") == 0 ? 0
+			: strcmp(out->graph_id, "secondary") == 0 ? 1 : -1;
+		if (jsonFindKeyInObject(root, "profile")) {
+			setErr(err, err_cap, "a pd.weapon_graph.v2 graph with a profile is run by the profile executor, not compiled as a record");
+			goto fail;
+		}
+		if (func < 0) {
+			setErr(err, err_cap, "a pd.weapon_graph.v2 function graph names its function in graph_id (\"primary\" or \"secondary\"), got %s",
+				out->graph_id);
+			goto fail;
+		}
+		if (weaponGraphHeldProgramAttach(out, func, json, json_size, err, err_cap) != 0) goto fail;
+	}
 
 	if (compileSharedContexts(root, out, err, err_cap) != 0) goto fail;
 	if (compileNodes(graph_type, root, out, err, err_cap) != 0) goto fail;
@@ -2067,6 +2206,10 @@ void weaponGraphIrFree(weapon_graph_ir_t *ir)
 	free(ir->exports);
 	free(ir->subgraphs);
 	free(ir->program_json);
+	free(ir->held_program_json[0]);
+	free(ir->held_program_json[1]);
+	ir->held_program_json[0] = ir->held_program_json[1] = NULL;
+	ir->held_program_json_size[0] = ir->held_program_json_size[1] = 0;
 	ir->contexts = NULL;
 	ir->exports = NULL;
 	ir->subgraphs = NULL;
@@ -2170,6 +2313,93 @@ static s32 builderAppendArrayMembers(graph_source_builder_t *b,
 	return 0;
 }
 
+/* held-weapon-events.md slice 1: a v2 function graph's record members only.
+ * Its program nodes (event.weapon.*, gate.*, og.*) and its execution edges
+ * are its program, which the graph runner compiles; the composed record IR
+ * never sees them. */
+static s32 builderAppendRecordMembers(graph_source_builder_t *b,
+                                      const char *json, u32 json_size,
+                                      const char *key, s32 required,
+                                      s32 *wrote_any,
+                                      char *err, size_t err_cap)
+{
+	json_span_t root;
+	json_span_t array;
+	json_span_t row;
+	const char *cursor = NULL;
+	s32 wrote = 0;
+	if (!json || json_size == 0 || !wrote_any ||
+			!modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "source graph must be a complete strict JSON object");
+		return -1;
+	}
+	s32 rows_result = jsonObjectRows(root, key, required, &array, err, err_cap);
+	if (rows_result < 0) return -1;
+	while (rows_result == 1 && jsonArrayNextObject(array, &cursor, &row)) {
+		const json_span_t whole = { row.start - 1, row.end + 1 };
+		if (strcmp(key, "nodes") == 0) {
+			char kind[96];
+			kind[0] = '\0';
+			jsonObjectString(row, "kind", kind, sizeof(kind));
+			if (weaponGraphKindIsProgram(ASSET_WEAPON, kind)) continue;
+		} else if (strcmp(key, "edges") == 0) {
+			char input[16];
+			input[0] = '\0';
+			if (jsonObjectString(row, "input", input, sizeof(input)) &&
+					strcmp(input, "exec") == 0) {
+				continue;
+			}
+		}
+		if (*wrote_any && builderAppend(b, ",\n") != 0) return -1;
+		if (builderAppendSpan(b, whole) != 0) return -1;
+		*wrote_any = 1;
+		wrote = 1;
+	}
+	if (required && !wrote) {
+		setErr(err, err_cap, "source graph missing non-empty %s array", key);
+		return -1;
+	}
+	return 0;
+}
+
+/* The members of one function graph: all of a v1 graph's, a v2 graph's
+ * record only. */
+static s32 builderAppendFunctionMembers(graph_source_builder_t *b,
+                                        const char *json, u32 json_size,
+                                        const char *key, s32 required,
+                                        s32 *wrote_any,
+                                        char *err, size_t err_cap)
+{
+	if (weaponGraphTextIsHeldProgram(json, json_size)) {
+		return builderAppendRecordMembers(b, json, json_size, key, required,
+			wrote_any, err, err_cap);
+	}
+	return builderAppendArrayMembers(b, json, json_size, key, required,
+		wrote_any, err, err_cap);
+}
+
+/* held-weapon-events.md slice 1: after the composed record compiled, each v2
+ * function graph's text becomes that function's program, and the IR digest
+ * covers it. */
+static s32 weaponGraphAttachFunctionPrograms(weapon_graph_ir_t *ir,
+                                             const char *primary_json, u32 primary_size,
+                                             const char *secondary_json, u32 secondary_size,
+                                             char *err, size_t err_cap)
+{
+	s32 attached = 0;
+	if (weaponGraphTextIsHeldProgram(primary_json, primary_size)) {
+		if (weaponGraphHeldProgramAttach(ir, 0, primary_json, primary_size, err, err_cap) != 0) return -1;
+		attached = 1;
+	}
+	if (weaponGraphTextIsHeldProgram(secondary_json, secondary_size)) {
+		if (weaponGraphHeldProgramAttach(ir, 1, secondary_json, secondary_size, err, err_cap) != 0) return -1;
+		attached = 1;
+	}
+	if (attached) finalizeIrDigest(ir);
+	return 0;
+}
+
 static s32 builderAppendSharedContexts(graph_source_builder_t *b,
                                        const char *json, u32 json_size,
                                        s32 *wrote_any,
@@ -2201,9 +2431,15 @@ static s32 composeWeaponGraphFromAuthoringFiles(
 	const weapon_graph_archive_descriptor_t *desc,
 	char **out_graph,
 	u32 *out_graph_size,
+	char *out_programs[2],
+	u32 out_program_sizes[2],
 	char *err,
 	size_t err_cap)
 {
+	if (out_programs) {
+		out_programs[0] = out_programs[1] = NULL;
+		out_program_sizes[0] = out_program_sizes[1] = 0;
+	}
 	char *primary = NULL;
 	char *secondary = NULL;
 	char *shared = NULL;
@@ -2266,17 +2502,17 @@ static s32 composeWeaponGraphFromAuthoringFiles(
 
 	if (builderAppend(&b, "  \"nodes\": [\n") != 0) goto overflow;
 	wrote = 0;
-	if (builderAppendArrayMembers(&b, primary, primary_size, "nodes", 1,
+	if (builderAppendFunctionMembers(&b, primary, primary_size, "nodes", 1,
 			&wrote, err, err_cap) != 0 ||
-			builderAppendArrayMembers(&b, secondary, secondary_size, "nodes", 1,
+			builderAppendFunctionMembers(&b, secondary, secondary_size, "nodes", 1,
 			&wrote, err, err_cap) != 0) goto fail;
 	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
 
 	if (builderAppend(&b, "  \"edges\": [\n") != 0) goto overflow;
 	wrote = 0;
-	if (builderAppendArrayMembers(&b, primary, primary_size, "edges", 0,
+	if (builderAppendFunctionMembers(&b, primary, primary_size, "edges", 0,
 			&wrote, err, err_cap) != 0 ||
-			builderAppendArrayMembers(&b, secondary, secondary_size, "edges", 0,
+			builderAppendFunctionMembers(&b, secondary, secondary_size, "edges", 0,
 			&wrote, err, err_cap) != 0) goto fail;
 	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
 
@@ -2288,8 +2524,19 @@ static s32 composeWeaponGraphFromAuthoringFiles(
 			&wrote, err, err_cap) != 0) goto fail;
 	if (builderAppend(&b, "\n  ]\n}\n") != 0) goto overflow;
 
-	free(primary);
-	free(secondary);
+	/* held-weapon-events.md slice 1: a v2 function graph's text is its
+	 * program; the caller attaches it once the record compiled. */
+	if (out_programs) {
+		out_programs[0] = weaponGraphTextIsHeldProgram(primary, primary_size) ? primary : NULL;
+		out_programs[1] = weaponGraphTextIsHeldProgram(secondary, secondary_size) ? secondary : NULL;
+		out_program_sizes[0] = out_programs[0] ? primary_size : 0;
+		out_program_sizes[1] = out_programs[1] ? secondary_size : 0;
+		if (!out_programs[0]) free(primary);
+		if (!out_programs[1]) free(secondary);
+	} else {
+		free(primary);
+		free(secondary);
+	}
 	free(shared);
 	*out_graph = b.buf;
 	if (out_graph_size) *out_graph_size = (u32)b.len;
@@ -2354,17 +2601,17 @@ s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
 
 	if (builderAppend(&b, "  \"nodes\": [\n") != 0) goto overflow;
 	wrote = 0;
-	if (builderAppendArrayMembers(&b, primary_json, primary_size, "nodes", 1,
+	if (builderAppendFunctionMembers(&b, primary_json, primary_size, "nodes", 1,
 			&wrote, err, err_cap) != 0 ||
-			builderAppendArrayMembers(&b, secondary_json, secondary_size,
+			builderAppendFunctionMembers(&b, secondary_json, secondary_size,
 			"nodes", 1, &wrote, err, err_cap) != 0) goto fail;
 	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
 
 	if (builderAppend(&b, "  \"edges\": [\n") != 0) goto overflow;
 	wrote = 0;
-	if (builderAppendArrayMembers(&b, primary_json, primary_size, "edges", 0,
+	if (builderAppendFunctionMembers(&b, primary_json, primary_size, "edges", 0,
 			&wrote, err, err_cap) != 0 ||
-			builderAppendArrayMembers(&b, secondary_json, secondary_size,
+			builderAppendFunctionMembers(&b, secondary_json, secondary_size,
 			"edges", 0, &wrote, err, err_cap) != 0) goto fail;
 	if (builderAppend(&b, "\n  ],\n") != 0) goto overflow;
 
@@ -2379,6 +2626,13 @@ s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
 	result = weaponGraphCompileJson(ASSET_WEAPON, b.buf, (u32)b.len, out,
 		err, err_cap);
 	free(b.buf);
+	/* held-weapon-events.md slice 1: each v2 function graph is its function's
+	 * program. */
+	if (result == 0 && weaponGraphAttachFunctionPrograms(out, primary_json, primary_size,
+			secondary_json, secondary_size, err, err_cap) != 0) {
+		weaponGraphIrFree(out);
+		return -1;
+	}
 	return result;
 
 overflow:
@@ -2958,6 +3212,8 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 	weapon_graph_weapon_settings_t vartable;
 	char *graph = NULL;
 	u32 graph_size = 0;
+	char *programs[2] = { NULL, NULL };
+	u32 program_sizes[2] = { 0, 0 };
 	s32 result;
 	if (!archive_path || !out) {
 		setErr(err, err_cap, "compile archive called with null input");
@@ -3003,7 +3259,7 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 		}
 	} else if (graph_type == ASSET_WEAPON) {
 		if (composeWeaponGraphFromAuthoringFiles(archive_path, &desc,
-				&graph, &graph_size, err, err_cap) != 0) {
+				&graph, &graph_size, programs, program_sizes, err, err_cap) != 0) {
 			s_compile_variables = NULL;
 			return -1;
 		}
@@ -3016,6 +3272,16 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 		err, err_cap);
 	s_compile_variables = NULL;
 	free(graph);
+	/* held-weapon-events.md slice 1: each v2 function graph is its function's
+	 * program. */
+	if (result == 0 && (programs[0] || programs[1]) &&
+			weaponGraphAttachFunctionPrograms(out, programs[0], program_sizes[0],
+				programs[1], program_sizes[1], err, err_cap) != 0) {
+		weaponGraphIrFree(out);
+		result = -1;
+	}
+	free(programs[0]);
+	free(programs[1]);
 	if (result == 0 && desc.catalog_id[0] && out->asset_id[0] &&
 			strcmp(desc.catalog_id, out->asset_id) != 0) {
 		setErr(err, err_cap, "graph asset_id %s does not match descriptor %s",
@@ -4557,6 +4823,12 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 
 	if (registered == 0) {
 		setErr(err, err_cap, "weapon graph contains no held function exports");
+		return -1;
+	}
+	/* held-weapon-events.md slice 1: a v2 function's program; one that does
+	 * not compile refuses the whole weapon. */
+	if (heldProgramsRegister(weaponnum, ir, err, err_cap) != 0) {
+		weaponGraphRuntimeClearWeapon(weaponnum);
 		return -1;
 	}
 	return 0;

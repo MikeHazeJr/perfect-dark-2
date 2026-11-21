@@ -244,6 +244,12 @@ typedef struct weapon_graph_ir {
 	 * Owned by the IR, freed by weaponGraphIrFree. */
 	char *program_json;
 	u32 program_json_size;
+	/* held-weapon-events.md slice 1: a held function's program, the text of
+	 * its pd.weapon_graph.v2 function graph (the record IR above skips the
+	 * program's nodes and execution edges), by function: 0 primary, 1
+	 * secondary. NULL for a v1 function. Owned by the IR. */
+	char *held_program_json[2];
+	u32 held_program_json_size[2];
 } weapon_graph_ir_t;
 
 typedef struct weapon_graph_held_function {
@@ -712,6 +718,17 @@ s32 weaponGraphRuntimeRegisterBehaviorArchive(asset_type_e graph_type,
  * does not register. */
 struct mission_graph_program;
 const struct mission_graph_program *weaponGraphRuntimeProjectileProgram(const char *asset_id);
+/* held-weapon-events.md slice 1: the program of a held weapon function (a
+ * pd.weapon_graph.v2 function graph, compiled by the shared graph runner's
+ * weapon domain when the weapon's records registered), by weapon number and
+ * function (0 primary, 1 secondary); NULL for a v1 function. A v2 function
+ * whose program does not compile does not register. The profile weapons
+ * (pd.weapon_graph.v2 with "profile": "held_single_shot.v1") are not here:
+ * weapon_graph_v2_runtime.h runs them. */
+const struct mission_graph_program *weaponGraphRuntimeHeldProgram(s32 weaponnum, s32 funcindex);
+/* Whether a weapon graph text is a held function graph with a program
+ * (pd.weapon_graph.v2 without a "profile"). */
+s32 weaponGraphTextIsHeldProgram(const char *json, u32 json_size);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunction(
 	s32 weaponnum, s32 funcindex);
 const weapon_graph_held_function_t *weaponGraphRuntimeGetHeldFunctionForGameplay(

@@ -63,6 +63,11 @@ extern "C" {
  *       (missionGraphProgramCompileProjectile); the event's instance is the
  *       weapon object. A mission or level graph that names one is refused,
  *       and a projectile program refuses every other event.
+ *   event.weapon.trigger_pressed and .ready_while_held
+ *       (held-weapon-events.md slice 1): weapon programs only
+ *       (missionGraphProgramCompileWeapon); the event's instance is the
+ *       hand's executor. Any other graph that names one is refused, and a
+ *       weapon program refuses every other program event.
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
@@ -138,6 +143,12 @@ extern "C" {
  * runs for it from then on (og.projectile.arm_*): what its timer means and
  * what it listens for. */
 #define MISSION_GRAPH_EVENT_PROJECTILE_ARMED 34
+/* held-weapon-events.md slice 1: the held weapon events, weapon programs
+ * only (missionGraphProgramCompileWeapon). A weapon function's hand saw a new
+ * trigger press, or is ready again with the trigger still held; the event's
+ * instance is the hand's executor. */
+#define MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED 35
+#define MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD 36
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -215,7 +226,88 @@ mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_
  * compiles to an empty program. */
 mission_graph_program_t *missionGraphProgramCompileProjectile(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
+/*
+ * held-weapon-events.md slice 1: compile a held weapon function's program (a
+ * .pdweapon function graph, pd.weapon_graph.v2). As for a projectile graph,
+ * only the event.*, gate.* and og.* nodes are the program; every other node
+ * is the function's record (fire.hitscan, melee.strike, ...), skipped and not
+ * counted. Its events are the weapon events (event.weapon.*) and no other; an
+ * event.* node of the record (event.trigger_pressed) is inert and may only
+ * have structural edges.
+ *
+ * A weapon program's native modules may finish later than the walk that
+ * reached them (a shot is accepted now and delivered ticks later). For such a
+ * module, module_known returns MISSION_GRAPH_MODULE_ASYNC instead of 1; it
+ * leaves by its outcome, "completed", "blocked", "failed" or "cancelled",
+ * and never by "out". Its run returns the outcome
+ * (MISSION_GRAPH_RUN_COMPLETED .. _CANCELLED), or MISSION_GRAPH_RUN_PENDING
+ * while the work goes on; the caller later routes the outcome into the same
+ * activation (missionGraphActivationRoute). A gate of a weapon program may
+ * also leave by "failed": its run returns MISSION_GRAPH_RUN_GATE_FAILED when
+ * it cannot be answered, and then neither "pass" nor "fail" is followed.
+ */
+mission_graph_program_t *missionGraphProgramCompileWeapon(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
 void missionGraphProgramFree(mission_graph_program_t *program);
+
+/* module_known's answer for a weapon program's module that finishes later
+ * (see missionGraphProgramCompileWeapon); 1 is a module or gate that is done
+ * when its run returns. */
+#define MISSION_GRAPH_MODULE_ASYNC 2
+
+/* What a run returns. Every program: 0 refused, MISSION_GRAPH_RUN_OUT ran (a
+ * module) or passed (a gate). A weapon program's asynchronous module returns
+ * one of the outcomes below instead, and a weapon program's gate may return
+ * MISSION_GRAPH_RUN_GATE_FAILED. */
+#define MISSION_GRAPH_RUN_GATE_FAILED (-1)
+#define MISSION_GRAPH_RUN_OUT 1
+#define MISSION_GRAPH_RUN_PENDING 2
+#define MISSION_GRAPH_RUN_COMPLETED 3
+#define MISSION_GRAPH_RUN_BLOCKED 4
+#define MISSION_GRAPH_RUN_FAILED 5
+#define MISSION_GRAPH_RUN_CANCELLED 6
+
+/* held-weapon-events.md slice 1: whether the kind is a weapon event
+ * (MISSION_GRAPH_EVENT_WEAPON_*). */
+s32 missionGraphEventIsWeapon(s32 event_kind);
+
+/* A program node's place (0 .. node count - 1) by its id, or -1; and the id
+ * and kind at a place, or NULL. Places are the program's own: a record node
+ * a weapon or projectile program skipped has none. */
+s32 missionGraphProgramNodeIndex(const mission_graph_program_t *program, const char *node_id);
+const char *missionGraphProgramNodeId(const mission_graph_program_t *program, s32 index);
+const char *missionGraphProgramNodeKind(const mission_graph_program_t *program, s32 index);
+
+/*
+ * Activations (held-weapon-events.md slice 1). missionGraphProgramFire walks
+ * one event and forgets it. An activation keeps what one event reached, so a
+ * walk that stops at a pending module can go on from it later: every node
+ * still runs at most once per activation, and a node an outcome reaches
+ * joins the same breadth-first order the event started. One activation
+ * belongs to one caller (a hand); it must not outlive its program.
+ *
+ *   Begin  every node may run again; the event's roots are queued (each
+ *          matching event node leaves by "out").
+ *   Route  a pending module's outcome is queued: its edges of that port.
+ *   Walk   the queue runs to empty, breadth first in authored order. Returns
+ *          the modules run, or -1 when the event is malformed or a module
+ *          refused it (the walk still runs to empty, as Fire's does).
+ *
+ * The optional trace sees every port the activation routes, in order: the
+ * node's id and "out", "pass", "fail", "failed", "completed", "blocked" or
+ * "cancelled". missionGraphProgramFire is Begin and Walk on a fresh
+ * activation.
+ */
+typedef struct mission_graph_activation mission_graph_activation_t;
+typedef void (*mission_graph_trace_fn)(const char *node_id, const char *port, void *user);
+mission_graph_activation_t *missionGraphActivationCreate(const mission_graph_program_t *program);
+void missionGraphActivationFree(mission_graph_activation_t *activation);
+void missionGraphActivationSetTrace(mission_graph_activation_t *activation,
+	mission_graph_trace_fn trace, void *user);
+s32 missionGraphActivationBegin(mission_graph_activation_t *activation, const mission_graph_event_t *event);
+s32 missionGraphActivationRoute(mission_graph_activation_t *activation, s32 node_index, s32 outcome);
+s32 missionGraphActivationWalk(mission_graph_activation_t *activation, const mission_graph_event_t *event,
+	mission_graph_module_run_fn run, void *user);
 
 s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);
 s32 missionGraphProgramExecEdgeCount(const mission_graph_program_t *program);
