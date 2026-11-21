@@ -191,6 +191,7 @@
 #include "lib/meshcollision.h"
 #include "scenario_source_runtime.h"
 #include "projectile_events.h"
+#include "mode_events.h"
 #include "constants.h"
 #include "game/inv.h"
 #include "game/bondgun.h"
@@ -4207,6 +4208,7 @@ void smokeHarnessTick(void)
              * still logs its object event totals. */
             scenarioSourceGraphObjectEventsReport("smoke_exit");
             projectileEventsReport("smoke_exit");
+            modeEventsReport("smoke_exit");
             s_State.next_event_idx++;
             s_State.events_fired++;
             smokeHarnessExit(0, "scripted_exit");

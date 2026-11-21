@@ -86,6 +86,7 @@
 #include "lib/meshcollision.h"
 #include "scenario_source_runtime.h"
 #include "projectile_events.h"
+#include "mode_events.h"
 #include "lib/snd.h"
 #include "lib/memp.h"
 #include "lib/mema.h"
@@ -1512,6 +1513,8 @@ void mainEndStage(void)
 	scenarioSourceGraphObjectEventsReport("stage_end");
 	/* projectile-events.md slice 1: the stage's projectile event totals. */
 	projectileEventsReport("stage_end");
+	/* gamemode-graphs.md slice 1: the match's mode event totals. */
+	modeEventsReport("stage_end");
 	sndStopNosedive();
 	sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 

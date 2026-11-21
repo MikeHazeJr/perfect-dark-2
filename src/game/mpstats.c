@@ -19,6 +19,7 @@
 #include "system.h"
 #include "pdgui_hud.h"
 #include "mpstats_attribution.h"
+#include "mode_events.h" /* gamemode-graphs.md slice 1 */
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -359,6 +360,9 @@ void mpstatsRecordDeathByRuntimeIndex(s32 attacker_runtime_index,
 
 	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP) {
 		pacHandleDeath(aplayernum, vplayernum);
+	}
+	if (g_Vars.normmplayerisrunning) {
+		modeEventRecord(MODE_EVENT_PLAYER_DIED, vplayernum);
 	}
 
 	// Find attacker and victim mpchrs
