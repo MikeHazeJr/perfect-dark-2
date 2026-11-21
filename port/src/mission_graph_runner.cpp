@@ -180,6 +180,10 @@ const struct {
 } kWeaponEventKinds[] = {
 	{ "event.weapon.trigger_pressed", MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED },
 	{ "event.weapon.ready_while_held", MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD },
+	// Slice 2: the idle seam's third rule event and two records.
+	{ "event.weapon.clip_empty", MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY },
+	{ "event.weapon.trigger_released", MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED },
+	{ "event.weapon.reload_done", MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE },
 };
 
 // The weapon event kind of a node kind, or 0 for none.
@@ -194,7 +198,7 @@ s32 weaponEventKindOf(const std::string &kind)
 bool isWeaponEventKind(s32 kind)
 {
 	return kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED &&
-		kind <= MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD;
+		kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE;
 }
 
 // An event kind another kind of program owns (a weapon program refuses it):
@@ -284,6 +288,17 @@ bool isProgramKind(const std::string &kind)
 	return kind.rfind("event.", 0) == 0 || kind.rfind("gate.", 0) == 0 || kind.rfind("og.", 0) == 0;
 }
 
+// held-weapon-events.md slice 2: a held function's record has event.* and
+// gate.* nodes of its own (event.trigger_pressed, gate.cooldown_ready); its
+// program is the weapon events, the weapon gates and the native modules. A
+// known event of another program is kept so that it is refused by name.
+bool isOtherProgramEvent(const std::string &kind);
+bool isWeaponProgramKind(const std::string &kind)
+{
+	return kind.rfind("event.weapon.", 0) == 0 || kind.rfind("gate.weapon.", 0) == 0 ||
+		kind.rfind("og.", 0) == 0 || isOtherProgramEvent(kind);
+}
+
 // level (object-events.md slice 1): the graph is a level graph, whose
 // program is only its event.*, gate.* and og.* nodes; every other node is
 // level data, skipped and not counted, and an edge that is not an
@@ -331,8 +346,9 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 			Node compiled;
 			if (data_nodes) {
 				std::string kind;
-				if (!node.is_object() || !stringField(node, "kind", kind) || !isProgramKind(kind)) {
-					continue; // level or projectile data, not the program
+				if (!node.is_object() || !stringField(node, "kind", kind) ||
+						!(domain == DOMAIN_WEAPON ? isWeaponProgramKind(kind) : isProgramKind(kind))) {
+					continue; // level, projectile or weapon record data, not the program
 				}
 				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
 					setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) +

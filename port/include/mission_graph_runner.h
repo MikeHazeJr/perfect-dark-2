@@ -149,6 +149,13 @@ extern "C" {
  * instance is the hand's executor. */
 #define MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED 35
 #define MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD 36
+/* held-weapon-events.md slice 2: an idle hand's trigger is up and its clip
+ * is below what a shot needs while there is reserve (clip_empty, a rule
+ * event); the trigger came up (trigger_released) and a reload finished
+ * (reload_done), records. weapon_rules.h says what each event applies. */
+#define MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY 37
+#define MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED 38
+#define MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE 39
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts

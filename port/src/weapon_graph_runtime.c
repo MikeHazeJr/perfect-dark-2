@@ -27,6 +27,7 @@
 #include "weapon_graph_runtime.h"
 #include "mission_graph_runner.h"
 #include "projectile_rules.h"
+#include "weapon_rules.h"
 
 typedef struct json_span {
 	const char *start;
@@ -458,14 +459,19 @@ static s32 weaponGraphSchemaHasProgram(asset_type_e graph_type, const char *sche
 }
 
 /* A program node of a v2 graph: the graph runner's, not the record IR's. A
- * held function record has event nodes of its own (event.trigger_pressed);
- * its program's events are the weapon events (event.weapon.*). */
+ * held function record has event and gate nodes of its own
+ * (event.trigger_pressed, gate.cooldown_ready); its program is the weapon
+ * events, the weapon gates and the native modules (event.weapon.*,
+ * gate.weapon.*, og.*). */
 static s32 weaponGraphKindIsProgram(asset_type_e graph_type, const char *kind)
 {
 	if (!kind) return 0;
-	if (strncmp(kind, "gate.", 5) == 0 || strncmp(kind, "og.", 3) == 0) return 1;
-	return graph_type == ASSET_WEAPON ? strncmp(kind, "event.weapon.", 13) == 0
-		: strncmp(kind, "event.", 6) == 0;
+	if (graph_type == ASSET_WEAPON) {
+		return strncmp(kind, "event.weapon.", 13) == 0 || strncmp(kind, "gate.weapon.", 12) == 0
+			|| strncmp(kind, "og.", 3) == 0;
+	}
+	return strncmp(kind, "event.", 6) == 0 || strncmp(kind, "gate.", 5) == 0 ||
+		strncmp(kind, "og.", 3) == 0;
 }
 
 const char *weaponGraphSchemaForType(asset_type_e type)
@@ -862,13 +868,172 @@ static void weaponGraphRuntimeClearWeaponDependencies(s32 weaponnum)
  * memset. */
 static mission_graph_program_t *s_held_programs[WEAPON_GRAPH_RUNTIME_MAX_WEAPONS][WEAPON_GRAPH_RUNTIME_MAX_FUNCS];
 
-/* The native modules and gates a held program may name. Their code runs at
- * the game's seams (bondgun.c), which pass the run function when they fire;
- * slice 1 brings the weapon events and none yet (held-weapon-events.md). */
+/* The native modules and gates a held program may name (weapon_rules.h).
+ * Their code runs at the game's seams (bondgun.c, weapon_events.c), which
+ * pass the run function when they fire. */
 static s32 heldProgramModuleKnown(const char *kind)
 {
-	(void)kind;
-	return 0;
+	if (!kind) return 0;
+	return weaponRulesModuleBit(kind) != 0 || weaponRulesGateBit(kind) != 0;
+}
+
+static const weapon_graph_setting_entry_t *weaponGraphFindVariable(
+	const weapon_graph_weapon_settings_t *table, const char *name);
+
+/* held-weapon-events.md slice 2: the variables a held program's "$name"
+ * settings read while its weapon registers (the register paths store the
+ * weapon's tunables only after its records), or NULL. */
+static const weapon_graph_weapon_settings_t *s_held_register_variables = NULL;
+/* Set while weaponGraphValidateJson checks a program with no variables to
+ * read: a "$name" setting is then left to the weapon's registration. */
+static s32 s_held_validate_only = 0;
+
+/* Whether a setting's text is a "$name" this check cannot read. */
+static s32 heldParamDeferred(const char *raw)
+{
+	return s_held_validate_only && !s_held_register_variables && raw && raw[0] == '$' && raw[1];
+}
+
+/* A "$name" setting's value as text, from a variables table. */
+static const char *heldVariableText(const weapon_graph_weapon_settings_t *table,
+	const char *name, char *buf, size_t cap)
+{
+	const weapon_graph_setting_entry_t *var;
+
+	if (!table || !name || !name[0] || !buf || !cap) return NULL;
+	var = weaponGraphFindVariable(table, name);
+	if (!var) return NULL;
+	switch (var->type) {
+	case WEAPON_GRAPH_PARAM_INT:
+		snprintf(buf, cap, "%d", (int)var->i_value);
+		return buf;
+	case WEAPON_GRAPH_PARAM_FLOAT:
+		snprintf(buf, cap, "%.9g", (double)var->f_value);
+		return buf;
+	case WEAPON_GRAPH_PARAM_BOOL:
+		snprintf(buf, cap, "%s", var->b_value ? "true" : "false");
+		return buf;
+	case WEAPON_GRAPH_PARAM_STRING:
+		snprintf(buf, cap, "%s", var->value);
+		return buf;
+	default:
+		return NULL;
+	}
+}
+
+static const char *heldParamTextIn(const weapon_graph_weapon_settings_t *table,
+	const mission_graph_params_t *params, const char *key, char *buf, size_t cap)
+{
+	const char *text = missionGraphParamText(params, key);
+
+	if (!text || text[0] != '$' || !text[1]) return text;
+	return heldVariableText(table, text + 1, buf, cap);
+}
+
+const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_graph_params *params,
+	const char *key, char *buf, size_t cap)
+{
+	const weapon_graph_weapon_settings_t *table =
+		heldIndexValid(weaponnum, 0) && s_weapon_settings[weaponnum].valid
+			? &s_weapon_settings[weaponnum] : s_held_register_variables;
+
+	return heldParamTextIn(table, params, key, buf, cap);
+}
+
+/* held-weapon-events.md slice 2: a held program's settings, checked when its
+ * weapon registers: has_ammo's "rounds" a whole number from 1 to
+ * WEAPON_RULE_MAX_ROUNDS (or none), state_is and set_state a key with a
+ * boolean, and no more distinct keys than a hand holds. */
+typedef struct held_param_check {
+	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
+	s32 key_count;
+	char why[160];
+} held_param_check_t;
+
+static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t *params, void *userdata)
+{
+	held_param_check_t *check = (held_param_check_t *)userdata;
+	const u32 bit = weaponRulesModuleBit(kind);
+	const u32 gate = weaponRulesGateBit(kind);
+	char buf[WEAPON_RULE_STATE_KEY_LEN];
+	char vbuf[32];
+
+	if (gate == WEAPON_RULE_GATE_HAS_AMMO) {
+		const char *raw = missionGraphParamText(params, WEAPON_RULE_ROUNDS_PARAM);
+		const char *rounds = heldParamTextIn(s_held_register_variables, params,
+			WEAPON_RULE_ROUNDS_PARAM, vbuf, sizeof(vbuf));
+
+		if (raw && !heldParamDeferred(raw) && (!rounds || weaponRulesRoundsFromText(rounds) < 0)) {
+			snprintf(check->why, sizeof(check->why), "%s needs rounds from 1 to %d, got %s",
+				kind, WEAPON_RULE_MAX_ROUNDS, raw);
+			return 0;
+		}
+		return 1;
+	}
+	if (gate == WEAPON_RULE_GATE_STATE_IS || bit == WEAPON_MODULE_SET_STATE) {
+		const char *flag_key = bit == WEAPON_MODULE_SET_STATE ? WEAPON_RULE_VALUE_PARAM : WEAPON_RULE_EQUALS_PARAM;
+		const char *key = heldParamTextIn(s_held_register_variables, params, WEAPON_RULE_KEY_PARAM,
+			buf, sizeof(buf));
+		const char *flag = heldParamTextIn(s_held_register_variables, params, flag_key, vbuf, sizeof(vbuf));
+		s32 known = 0;
+
+		if (heldParamDeferred(missionGraphParamText(params, WEAPON_RULE_KEY_PARAM))) {
+			key = missionGraphParamText(params, WEAPON_RULE_KEY_PARAM);
+		}
+		if (!key || !key[0] || strlen(key) >= WEAPON_RULE_STATE_KEY_LEN) {
+			snprintf(check->why, sizeof(check->why), "%s needs a key shorter than %d bytes",
+				kind, WEAPON_RULE_STATE_KEY_LEN);
+			return 0;
+		}
+		if (!heldParamDeferred(missionGraphParamText(params, flag_key)) && weaponRulesBoolFromText(flag) < 0) {
+			snprintf(check->why, sizeof(check->why), "%s needs %s true or false", kind, flag_key);
+			return 0;
+		}
+		for (s32 i = 0; i < check->key_count; i++) {
+			if (strcmp(check->keys[i], key) == 0) known = 1;
+		}
+		if (!known) {
+			if (check->key_count >= WEAPON_RULE_MAX_STATES) {
+				snprintf(check->why, sizeof(check->why), "a held program names more than %d state keys",
+					WEAPON_RULE_MAX_STATES);
+				return 0;
+			}
+			snprintf(check->keys[check->key_count], sizeof(check->keys[0]), "%s", key);
+			check->key_count++;
+		}
+	}
+	return 1;
+}
+
+/* held-weapon-events.md slice 2: a module chooses what the seam of its event
+ * does, so one wired to an event whose seam does not apply it would do
+ * nothing; such a program is refused, with the pair named. */
+static s32 heldProgramModulesApply(const mission_graph_program_t *program, char *why, size_t why_cap)
+{
+	held_param_check_t check;
+
+	for (s32 e = 0; weaponRulesEventAt(e) >= 0; e++) {
+		const s32 event_kind = weaponRulesEventAt(e);
+		const u32 applied = weaponRulesEventModules(event_kind);
+
+		for (s32 m = 0; m < WEAPON_MODULE_COUNT; m++) {
+			const u32 bit = 1u << m;
+			const char *module_kind = weaponRulesModuleKind(bit);
+
+			if ((applied & bit) == 0 && module_kind &&
+					missionGraphProgramEventReachesModule(program, event_kind, module_kind)) {
+				snprintf(why, why_cap, "%s has no effect on %s", module_kind,
+					weaponRulesEventName(event_kind));
+				return 0;
+			}
+		}
+	}
+	memset(&check, 0, sizeof(check));
+	if (!missionGraphProgramVisitModuleParams(program, heldProgramParamVisit, &check)) {
+		snprintf(why, why_cap, "%s", check.why);
+		return 0;
+	}
+	return 1;
 }
 
 static void heldProgramsForget(s32 weaponnum)
@@ -900,6 +1065,10 @@ static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
 		why[0] = '\0';
 		program = missionGraphProgramCompileWeapon(ir->held_program_json[f],
 			ir->held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
+		if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+			missionGraphProgramFree(program);
+			program = NULL;
+		}
 		if (!program) {
 			heldProgramsForget(weaponnum);
 			setErr(err, err_cap, "%s %s program refused: %s", ir->asset_id,
@@ -2067,6 +2236,155 @@ static s32 weaponGraphHeldProgramAttach(weapon_graph_ir_t *ir, s32 func,
 	return 0;
 }
 
+/* held-weapon-events.md slice 2: a joined weapon graph (the Weapons
+ * creator's, both functions in one document) holds both functions' programs.
+ * Each program node names its function in "subgraph", and each function's
+ * program is its program nodes with the execution edges between them. A
+ * text that grows as it is written. */
+typedef struct held_text {
+	char *buf;
+	size_t len;
+	size_t cap;
+} held_text_t;
+
+static s32 heldTextAppend(held_text_t *text, const char *start, size_t n)
+{
+	if (text->len + n + 1 > text->cap) {
+		size_t cap = text->cap ? text->cap * 2 : 1024;
+		char *grown;
+		while (cap < text->len + n + 1) cap *= 2;
+		grown = (char *)realloc(text->buf, cap);
+		if (!grown) return -1;
+		text->buf = grown;
+		text->cap = cap;
+	}
+	memcpy(text->buf + text->len, start, n);
+	text->len += n;
+	text->buf[text->len] = '\0';
+	return 0;
+}
+
+static s32 heldTextAppendStr(held_text_t *text, const char *s)
+{
+	return heldTextAppend(text, s, strlen(s));
+}
+
+/* The function a joined graph's program node belongs to (0 or 1), from its
+ * "subgraph"; -1 when it names none. */
+static s32 heldProgramNodeFunction(json_span_t node)
+{
+	char subgraph[16];
+	subgraph[0] = '\0';
+	if (!jsonObjectString(node, "subgraph", subgraph, sizeof(subgraph))) return -1;
+	return strcmp(subgraph, "primary") == 0 ? 0 : strcmp(subgraph, "secondary") == 0 ? 1 : -1;
+}
+
+static s32 weaponGraphHeldProgramAttach(weapon_graph_ir_t *ir, s32 func,
+	const char *json, u32 json_size, char *err, size_t err_cap);
+
+static s32 weaponGraphAttachJoinedPrograms(weapon_graph_ir_t *ir, json_span_t root,
+	char *err, size_t err_cap)
+{
+	held_text_t text[2];
+	json_span_t nodes;
+	json_span_t edges;
+	json_span_t row;
+	const char *cursor;
+	s32 wrote_node[2] = { 0, 0 };
+	s32 wrote_edge[2] = { 0, 0 };
+	s32 result = -1;
+	typedef struct held_program_id {
+		char id[WEAPON_GRAPH_IR_ID_LEN];
+		s32 func;
+	} held_program_id_t;
+	held_program_id_t *ids = (held_program_id_t *)calloc(MISSION_GRAPH_MAX_NODES, sizeof(*ids));
+	s32 id_count = 0;
+
+	memset(text, 0, sizeof(text));
+	if (!ids) {
+		setErr(err, err_cap, "no memory for a joined weapon graph's programs");
+		return -1;
+	}
+	if (jsonObjectRows(root, "nodes", 1, &nodes, err, err_cap) != 1) goto done;
+	for (s32 f = 0; f < 2; f++) {
+		if (heldTextAppendStr(&text[f], "{ \"nodes\": [") != 0) goto done;
+	}
+	cursor = NULL;
+	while (jsonArrayNextObject(nodes, &cursor, &row)) {
+		char kind[96];
+		char id[WEAPON_GRAPH_IR_ID_LEN];
+		s32 f;
+
+		kind[0] = id[0] = '\0';
+		jsonObjectString(row, "kind", kind, sizeof(kind));
+		if (!weaponGraphKindIsProgram(ASSET_WEAPON, kind)) continue;
+		f = heldProgramNodeFunction(row);
+		if (f < 0 || !jsonObjectString(row, "id", id, sizeof(id))) {
+			setErr(err, err_cap, "a joined pd.weapon_graph.v2 graph names each program node's function in subgraph (primary or secondary)");
+			goto done;
+		}
+		if (id_count >= MISSION_GRAPH_MAX_NODES) {
+			setErr(err, err_cap, "a joined weapon graph has more than %d program nodes", MISSION_GRAPH_MAX_NODES);
+			goto done;
+		}
+		copyStr(ids[id_count].id, WEAPON_GRAPH_IR_ID_LEN, id);
+		ids[id_count++].func = f;
+		if ((wrote_node[f] && heldTextAppendStr(&text[f], ",") != 0) ||
+				heldTextAppend(&text[f], row.start - 1, (size_t)(row.end + 1 - (row.start - 1))) != 0) {
+			goto done;
+		}
+		wrote_node[f] = 1;
+	}
+	for (s32 f = 0; f < 2; f++) {
+		if (heldTextAppendStr(&text[f], "], \"edges\": [") != 0) goto done;
+	}
+	if (jsonObjectRows(root, "edges", 0, &edges, err, err_cap) == 1) {
+		cursor = NULL;
+		while (jsonArrayNextObject(edges, &cursor, &row)) {
+			char input[16];
+			char from[WEAPON_GRAPH_IR_ID_LEN];
+			char to[WEAPON_GRAPH_IR_ID_LEN];
+			s32 from_f = -1;
+			s32 to_f = -1;
+
+			input[0] = from[0] = to[0] = '\0';
+			if (!jsonObjectString(row, "input", input, sizeof(input)) || strcmp(input, "exec") != 0) {
+				continue; /* a structural edge of the record */
+			}
+			jsonObjectString(row, "from", from, sizeof(from));
+			jsonObjectString(row, "to", to, sizeof(to));
+			for (s32 i = 0; i < id_count; i++) {
+				if (strcmp(ids[i].id, from) == 0) from_f = ids[i].func;
+				if (strcmp(ids[i].id, to) == 0) to_f = ids[i].func;
+			}
+			if (from_f < 0 || from_f != to_f) {
+				setErr(err, err_cap, "execution edge %s -> %s does not join two program nodes of one function",
+					from, to);
+				goto done;
+			}
+			if ((wrote_edge[from_f] && heldTextAppendStr(&text[from_f], ",") != 0) ||
+					heldTextAppend(&text[from_f], row.start - 1,
+						(size_t)(row.end + 1 - (row.start - 1))) != 0) {
+				goto done;
+			}
+			wrote_edge[from_f] = 1;
+		}
+	}
+	for (s32 f = 0; f < 2; f++) {
+		if (heldTextAppendStr(&text[f], "] }") != 0) goto done;
+		if (wrote_node[f] &&
+				weaponGraphHeldProgramAttach(ir, f, text[f].buf, (u32)text[f].len, err, err_cap) != 0) {
+			goto done;
+		}
+	}
+	result = 0;
+done:
+	free(ids);
+	free(text[0].buf);
+	free(text[1].buf);
+	return result;
+}
+
 /* Whether a schema member names a held function graph with a program: the
  * text is a strict JSON object whose schema is pd.weapon_graph.v2 and that
  * has no profile (held_single_shot.v1 is the profile executor's). */
@@ -2174,12 +2492,13 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 			setErr(err, err_cap, "a pd.weapon_graph.v2 graph with a profile is run by the profile executor, not compiled as a record");
 			goto fail;
 		}
-		if (func < 0) {
-			setErr(err, err_cap, "a pd.weapon_graph.v2 function graph names its function in graph_id (\"primary\" or \"secondary\"), got %s",
-				out->graph_id);
+		/* A function graph names its function in graph_id; any other is a
+		 * joined graph whose program nodes name theirs in subgraph. */
+		if (func >= 0) {
+			if (weaponGraphHeldProgramAttach(out, func, json, json_size, err, err_cap) != 0) goto fail;
+		} else if (weaponGraphAttachJoinedPrograms(out, root, err, err_cap) != 0) {
 			goto fail;
 		}
-		if (weaponGraphHeldProgramAttach(out, func, json, json_size, err, err_cap) != 0) goto fail;
 	}
 
 	if (compileSharedContexts(root, out, err, err_cap) != 0) goto fail;
@@ -2229,7 +2548,37 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 	weapon_graph_ir_t ir;
 	s32 result = weaponGraphCompileJson(graph_type, json, json_size, &ir,
 		err, err_cap);
-	if (result == 0) weaponGraphIrFree(&ir);
+	if (result != 0) {
+		return result; /* the compile freed what it had made */
+	}
+	/* held-weapon-events.md slice 2: a held function's program is checked
+	 * as the weapon's registration would check it. A "$name" setting reads
+	 * a variable this text alone does not have, so it is checked when the
+	 * weapon registers. */
+	if (graph_type == ASSET_WEAPON) {
+		s_held_validate_only = 1;
+		for (s32 f = 0; f < 2 && result == 0; f++) {
+			char why[256];
+			mission_graph_program_t *program;
+
+			if (!ir.held_program_json[f]) continue;
+			why[0] = '\0';
+			program = missionGraphProgramCompileWeapon(ir.held_program_json[f],
+				ir.held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
+			if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+				missionGraphProgramFree(program);
+				program = NULL;
+			}
+			if (!program) {
+				setErr(err, err_cap, "%s %s program refused: %s", ir.asset_id[0] ? ir.asset_id : "weapon",
+					f ? "secondary" : "primary", why[0] ? why : "it does not compile");
+				result = -1;
+			}
+			missionGraphProgramFree(program);
+		}
+		s_held_validate_only = 0;
+	}
+	weaponGraphIrFree(&ir);
 	return result;
 }
 
@@ -5489,10 +5838,15 @@ s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
 			err, err_cap) != 0) {
 		return -1;
 	}
+	/* held-weapon-events.md slice 2: a held program's "$name" settings read
+	 * the weapon's variables while it registers. */
+	s_held_register_variables = &tunables;
 	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		s_held_register_variables = NULL;
 		weaponGraphIrFree(&ir);
 		return -1;
 	}
+	s_held_register_variables = NULL;
 	/* Store AFTER RegisterHeldIr: the ClearWeapon inside it wipes the slot.
 	 * Then layer settings defaults onto held fields whose has_* is still 0. */
 	if (heldIndexValid(weaponnum, 0)) {
@@ -5588,10 +5942,13 @@ s32 weaponGraphRuntimeRegisterWeaponSourceJson(s32 weaponnum,
 	if (result != 0) {
 		return -1;
 	}
+	s_held_register_variables = &tunables;
 	if (weaponGraphRuntimeRegisterHeldIr(weaponnum, &ir, err, err_cap) != 0) {
+		s_held_register_variables = NULL;
 		weaponGraphIrFree(&ir);
 		return -1;
 	}
+	s_held_register_variables = NULL;
 	if (heldIndexValid(weaponnum, 0)) {
 		s_weapon_settings[weaponnum] = tunables;
 		weaponGraphApplySettingsDefaults(weaponnum);

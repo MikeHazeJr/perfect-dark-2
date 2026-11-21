@@ -726,6 +726,15 @@ const struct mission_graph_program *weaponGraphRuntimeProjectileProgram(const ch
  * (pd.weapon_graph.v2 with "profile": "held_single_shot.v1") are not here:
  * weapon_graph_v2_runtime.h runs them. */
 const struct mission_graph_program *weaponGraphRuntimeHeldProgram(s32 weaponnum, s32 funcindex);
+/* held-weapon-events.md slice 2: a held program node's setting `key` as
+ * text. A "$name" setting is the weapon's variable of that name (its
+ * behavior/variables.json), written into buf: a whole number in decimal, a
+ * boolean as "true" or "false", a string as it is. NULL when the node has no
+ * such setting or the variable does not exist (registration refuses a
+ * program that names a missing one). */
+struct mission_graph_params;
+const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_graph_params *params,
+	const char *key, char *buf, size_t cap);
 /* Whether a weapon graph text is a held function graph with a program
  * (pd.weapon_graph.v2 without a "profile"). */
 s32 weaponGraphTextIsHeldProgram(const char *json, u32 json_size);
