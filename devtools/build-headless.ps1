@@ -336,14 +336,23 @@ if (-not $RetainHousekeeping -and (Test-Path -LiteralPath $CcacheExe)) {
                            -RedirectStandardError $probeErr `
                            -WindowStyle Hidden `
                            -PassThru
+    # B-1280: Windows PowerShell 5.1 reports an empty ExitCode for a process
+    # started this way unless its handle was opened before the process exited.
+    # Reading Handle opens and caches it, so ExitCode is real after the wait.
+    $null = $probe.Handle
 
-    if ($probe.WaitForExit(5000) -and $probe.ExitCode -eq 0) {
+    $probeExited = $probe.WaitForExit(5000)
+    $probeExit = $null
+    if ($probeExited) { $probeExit = $probe.ExitCode }
+    if ($probeExited -and $probeExit -eq 0) {
         $CcacheLauncher = "-DCMAKE_C_COMPILER_LAUNCHER=`"$CcacheExe`" -DCMAKE_CXX_COMPILER_LAUNCHER=`"$CcacheExe`""
+        Write-Host "ccache: compiler probe passed; building with the ccache launcher." -ForegroundColor DarkGray
     } else {
         if (-not $probe.HasExited) {
             Stop-Process -Id $probe.Id -Force -ErrorAction SilentlyContinue
         }
-        Write-Warning "ccache compiler probe failed or timed out; building without ccache launcher."
+        $probeState = if ($probeExited) { "exit code '$probeExit'" } else { "no exit within 5 s" }
+        Write-Warning "ccache compiler probe failed ($probeState); building without ccache launcher."
     }
 
     Remove-Item -LiteralPath $probeOut, $probeErr -Force -ErrorAction SilentlyContinue

@@ -62,6 +62,12 @@ $env:MSYSTEM           = "MINGW64"
 $env:MINGW_PREFIX      = "/mingw64"
 $env:CCACHE_SLOPPINESS = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
 $env:CCACHE_BASEDIR    = Split-Path (Split-Path $MyInvocation.MyCommand.Path -Parent) -Parent
+# B-1280: the compiler is MinGW GCC invoked as cc.exe, a name ccache cannot
+# classify. As compiler type "other" it requires every header a precompiled
+# header includes to keep its mtime, so in each fresh build folder the game
+# PCH missed, GCC wrote a .gch with different bytes, and all 717 C files that
+# use it missed too. GCC does not need that rule.
+$env:CCACHE_COMPILERTYPE = "gcc"
 
 # Dev Window / GUI tools set PD_BUILD_ENV_QUIET=1 before dot-sourcing to avoid
 # printing into a visible console during startup.
