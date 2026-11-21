@@ -77,8 +77,10 @@ bool      g_ModManagerInitialized = false;
 static char g_ModEnabledList[2048] = "";
 
 /* Initial selection from the install's bundled samples
- * (modmgr_bundled_samples.h). Saved choices take over. */
-static bool g_BundledDefaultSelected;
+ * (modmgr_bundled_samples.h). Saved choices take over. Per inventory entry:
+ * 1 while the unsaved fresh-profile default has that sample enabled. Only
+ * those entries are held to their bundled package (load, save, rescan). */
+static s32 g_BundledAutoSelected[MODMGR_BUNDLED_MAX];
 static modmgr_bundled_inventory_t g_BundledInventory;
 static const char kBundledInventoryPath[] = "$E/" MODMGR_BUNDLED_INVENTORY_NAME;
 static const char kBundledChanged[] = "A bundled sample package changed. Disable it before applying changes.";
@@ -2110,16 +2112,18 @@ static s32 modmgrFindBundledSample(s32 index)
 		expected, modmgrBundledVerifyFile, NULL);
 }
 
-/* While the unsaved bundled default is in use, every enabled bundled id must
- * still be its verified package before choices are saved or applied. */
+/* While the unsaved bundled default is in use, every enabled sample it
+ * selected must still be its verified package before choices are saved or
+ * applied. A bundled id the default did not select (the player's own copy
+ * won) is the player's to enable and is not checked. */
 static s32 modmgrBundledDefaultCanSave(const char **changed_id)
 {
 	if (changed_id) *changed_id = NULL;
-	if (!g_BundledDefaultSelected) return 1;
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
 		const modinfo_t *mod = &g_ModRegistry[i];
 		if (!mod->enabled || mod->session_only) continue;
-		const s32 index = modmgrBundledIndexOf(&g_BundledInventory, mod->id);
+		const s32 index = modmgrBundledAutoSelectedIndex(&g_BundledInventory,
+			g_BundledAutoSelected, mod->id);
 		if (index >= 0 && modmgrFindBundledSample(index) != i) {
 			if (changed_id) *changed_id = mod->id;
 			return 0;
@@ -2137,7 +2141,7 @@ static bool modmgrSaveModsEnabledJson(void)
 		sysLogPrintf(LOG_WARNING, "modmgr: could not save %s: %s", path, error);
 		return false;
 	}
-	g_BundledDefaultSelected = false;
+	memset(g_BundledAutoSelected, 0, sizeof(g_BundledAutoSelected));
 	sysLogPrintf(LOG_NOTE, "modmgr: saved mods-enabled.json");
 	return true;
 }
@@ -2220,7 +2224,7 @@ void modmgrSaveConfig(void)
 
 void modmgrLoadConfig(void)
 {
-	g_BundledDefaultSelected = false;
+	memset(g_BundledAutoSelected, 0, sizeof(g_BundledAutoSelected));
 	modmgrReadBundledInventory();
 	// Try mods-enabled.json first (primary, ordered)
 	if (modmgrLoadModsEnabledJson() != 0) {
@@ -2241,7 +2245,7 @@ void modmgrLoadConfig(void)
 				continue;
 			}
 			g_ModRegistry[sample].enabled = true;
-			g_BundledDefaultSelected = true;
+			g_BundledAutoSelected[index] = 1;
 			sysLogPrintf(LOG_NOTE, "modmgr: selected bundled sample '%s'", id);
 		}
 	}
@@ -2288,8 +2292,8 @@ static bool modmgrLoadMod(modinfo_t *mod)
 	if (mod->loaded) return true;
 	if (!mod->valid) return false; // Don't load invalid mods
 
-	const s32 bundled_index = g_BundledDefaultSelected && !mod->session_only
-		? modmgrBundledIndexOf(&g_BundledInventory, mod->id) : -1;
+	const s32 bundled_index = !mod->session_only
+		? modmgrBundledAutoSelectedIndex(&g_BundledInventory, g_BundledAutoSelected, mod->id) : -1;
 	if (bundled_index >= 0) {
 		const s32 sample = modmgrFindBundledSample(bundled_index);
 		if (sample < 0 || mod != &g_ModRegistry[sample]) {
@@ -2581,11 +2585,11 @@ void modmgrRescanDirectory(void)
 	 * (a user copy found by this rescan): only the verified package keeps it. */
 	s32 bundled_rows[MODMGR_BUNDLED_MAX];
 	for (s32 index = 0; index < g_BundledInventory.count; index++) {
-		bundled_rows[index] = g_BundledDefaultSelected ? modmgrFindBundledSample(index) : -1;
+		bundled_rows[index] = g_BundledAutoSelected[index] ? modmgrFindBundledSample(index) : -1;
 	}
 	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		const s32 bundled_index = g_BundledDefaultSelected
-			? modmgrBundledIndexOf(&g_BundledInventory, g_ModRegistry[i].id) : -1;
+		const s32 bundled_index = modmgrBundledAutoSelectedIndex(&g_BundledInventory,
+			g_BundledAutoSelected, g_ModRegistry[i].id);
 		if (bundled_index >= 0 && i != bundled_rows[bundled_index]) {
 			continue;
 		}

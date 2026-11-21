@@ -140,6 +140,13 @@ s32 modmgrBundledIndexOf(const modmgr_bundled_inventory_t *inv, const char *id)
 	return -1;
 }
 
+s32 modmgrBundledAutoSelectedIndex(const modmgr_bundled_inventory_t *inv,
+	const s32 *auto_selected, const char *id)
+{
+	const s32 index = auto_selected ? modmgrBundledIndexOf(inv, id) : -1;
+	return index >= 0 && auto_selected[index] ? index : -1;
+}
+
 s32 modmgrBundledFindVerified(const modmgr_bundled_inventory_t *inv, s32 index,
 	const modmgr_bundled_candidate_t *rows, s32 row_count, const char *expected_path,
 	modmgr_bundled_verify_fn verify, void *user)

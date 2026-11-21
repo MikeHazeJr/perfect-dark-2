@@ -90,6 +90,16 @@ s32 modmgrBundledFindVerified(const modmgr_bundled_inventory_t *inv, s32 index,
 	const modmgr_bundled_candidate_t *rows, s32 row_count, const char *expected_path,
 	modmgr_bundled_verify_fn verify, void *user);
 
+/**
+ * The inventory index of `id` when the fresh-profile default enabled that
+ * entry (`auto_selected[index]` nonzero), or -1. Only such entries are held to
+ * their bundled package before a load, a save or across a rescan: a player
+ * who enables their own copy of a bundled id themselves, while the default
+ * enabled other samples, is never refused for it.
+ */
+s32 modmgrBundledAutoSelectedIndex(const modmgr_bundled_inventory_t *inv,
+	const s32 *auto_selected, const char *id);
+
 #ifdef __cplusplus
 }
 #endif

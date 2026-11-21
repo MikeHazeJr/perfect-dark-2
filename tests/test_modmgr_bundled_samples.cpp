@@ -198,6 +198,28 @@ TEST_CASE("a bundled sample is enabled only as its own unchanged package",
 	}
 }
 
+TEST_CASE("only samples the fresh-profile default enabled are held to their bundled package",
+	"[modmgr][bundled][T-RELEASE-007]")
+{
+	/* The player's own crystal_pistol won the scan, so the default enabled
+	 * only blank_room. Enabling the player's pistol by hand must not be held
+	 * to the bundled pistol package (PR 33 review). */
+	const Parsed p = parse(line(kDigestA, "crystal_pistol") + line(kDigestB, "blank_room"));
+	REQUIRE(p.ok);
+	s32 auto_selected[MODMGR_BUNDLED_MAX] = {};
+	auto_selected[1] = 1;
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, auto_selected, "crystal_pistol") == -1);
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, auto_selected, "blank_room") == 1);
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, auto_selected, "needler") == -1);
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, auto_selected, nullptr) == -1);
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, nullptr, "blank_room") == -1);
+	CHECK(modmgrBundledAutoSelectedIndex(nullptr, auto_selected, "blank_room") == -1);
+
+	/* After a save nothing is a default any more. */
+	s32 saved[MODMGR_BUNDLED_MAX] = {};
+	CHECK(modmgrBundledAutoSelectedIndex(&p.inv, saved, "blank_room") == -1);
+}
+
 TEST_CASE("the mod manager and the staging tool agree on the bundled sample names",
 	"[modmgr][bundled][static][T-RELEASE-007]")
 {
@@ -205,6 +227,16 @@ TEST_CASE("the mod manager and the staging tool agree on the bundled sample name
 	CHECK(modmgr.find("\"$E/\" MODMGR_BUNDLED_INVENTORY_NAME") != std::string::npos);
 	CHECK(modmgr.find("modmgrBundledFindVerified(&g_BundledInventory, index, rows,") != std::string::npos);
 	CHECK(modmgr.find("crystal_pistol") == std::string::npos); /* no sample is special-cased */
+	/* The save, load and rescan checks consult the per-sample default, never
+	 * one flag for all samples (PR 33 review). */
+	size_t uses = 0;
+	for (size_t at = modmgr.find("modmgrBundledAutoSelectedIndex("); at != std::string::npos;
+			at = modmgr.find("modmgrBundledAutoSelectedIndex(", at + 1)) {
+		uses++;
+	}
+	CHECK(uses == 3);
+	CHECK(modmgr.find("g_BundledDefaultSelected") == std::string::npos);
+	CHECK(modmgr.find("g_BundledAutoSelected[index] = 1;") != std::string::npos);
 
 	const std::string stager = readSource("tools/stage_bundled_samples.py");
 	CHECK(stager.find(std::string("INVENTORY_NAME = \"") + MODMGR_BUNDLED_INVENTORY_NAME + "\"")
