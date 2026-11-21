@@ -22,7 +22,9 @@ enum NodeType { NODE_DATA, NODE_EVENT, NODE_EVENT_INERT, NODE_GATE, NODE_MODULE 
 // function graph skip them; a projectile program has the projectile events
 // only (projectile-events.md slice 2) and a weapon program the weapon events
 // only (held-weapon-events.md slice 1).
-enum Domain { DOMAIN_MISSION, DOMAIN_LEVEL, DOMAIN_PROJECTILE, DOMAIN_WEAPON };
+enum Domain { DOMAIN_MISSION, DOMAIN_LEVEL, DOMAIN_PROJECTILE, DOMAIN_WEAPON, DOMAIN_MODE };
+// A mode program (gamemode-graphs.md slice 2) skips data nodes too and has
+// the mode events only.
 
 } // namespace
 
@@ -201,14 +203,43 @@ bool isWeaponEventKind(s32 kind)
 		kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE;
 }
 
+// The mode events by name (gamemode-graphs.md slice 2), in kind order.
+const struct {
+	const char *name;
+	s32 kind;
+} kModeEventKinds[] = {
+	{ "event.mode.chosen", MISSION_GRAPH_EVENT_MODE_CHOSEN },
+	{ "event.mode.stage_reset", MISSION_GRAPH_EVENT_MODE_STAGE_RESET },
+	{ "event.mode.intro_pad", MISSION_GRAPH_EVENT_MODE_INTRO_PAD },
+	{ "event.mode.props_init", MISSION_GRAPH_EVENT_MODE_PROPS_INIT },
+	{ "event.mode.tick", MISSION_GRAPH_EVENT_MODE_TICK },
+	{ "event.mode.chr_tick", MISSION_GRAPH_EVENT_MODE_CHR_TICK },
+	{ "event.mode.score", MISSION_GRAPH_EVENT_MODE_SCORE },
+	{ "event.mode.spawn", MISSION_GRAPH_EVENT_MODE_SPAWN },
+	{ "event.mode.token_picked_up", MISSION_GRAPH_EVENT_MODE_TOKEN_PICKED_UP },
+	{ "event.mode.token_dropped", MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED },
+	{ "event.mode.prop_activated", MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED },
+	{ "event.mode.player_died", MISSION_GRAPH_EVENT_MODE_PLAYER_DIED },
+};
+
+// The mode event kind of a node kind, or 0 for none.
+s32 modeEventKindOf(const std::string &kind)
+{
+	for (const auto &entry : kModeEventKinds) {
+		if (kind == entry.name) return entry.kind;
+	}
+	return 0;
+}
+
 // An event kind another kind of program owns (a weapon program refuses it):
-// the mission, volume, object and projectile events.
+// the mission, volume, object, projectile and mode events.
 bool isOtherProgramEvent(const std::string &kind)
 {
 	return kind == "event.objective.status_changed" || kind == "event.mission.completed" ||
 		kind == "event.mission.continue" || kind == "event.mission.phase_changed" ||
 		kind == "event.volume.entered" || kind == "event.volume.left" ||
-		objectEventKindOf(kind) != 0 || projectileEventKindOf(kind) != 0;
+		objectEventKindOf(kind) != 0 || projectileEventKindOf(kind) != 0 ||
+		modeEventKindOf(kind) != 0;
 }
 
 // A node's scalar fields other than id and kind, as text.
@@ -312,10 +343,12 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 	const bool data_nodes = domain != DOMAIN_MISSION;
 	const std::string what = domain == DOMAIN_LEVEL ? "level graph"
 		: domain == DOMAIN_PROJECTILE ? "projectile graph"
-		: domain == DOMAIN_WEAPON ? "weapon graph" : "mission graph";
+		: domain == DOMAIN_WEAPON ? "weapon graph"
+		: domain == DOMAIN_MODE ? "mode graph" : "mission graph";
 	const std::string file = domain == DOMAIN_LEVEL ? "level.graph.json"
 		: domain == DOMAIN_PROJECTILE ? "behavior.graph.json"
-		: domain == DOMAIN_WEAPON ? "the weapon function graph" : "mission.graph.json";
+		: domain == DOMAIN_WEAPON ? "the weapon function graph"
+		: domain == DOMAIN_MODE ? "mode.graph.json" : "mission.graph.json";
 
 	setError(err, err_cap, "");
 	if (!json || !json_size) {
@@ -363,6 +396,20 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 			}
 			if (index.count(compiled.id)) {
 				setError(err, err_cap, "node id '" + compiled.id + "' is used twice");
+				return nullptr;
+			}
+
+			// gamemode-graphs.md slice 2: a mode program has the mode events
+			// and no other; no other graph has them.
+			const s32 mode_kind = modeEventKindOf(compiled.kind);
+			if (domain == DOMAIN_MODE && compiled.kind.rfind("event.", 0) == 0 && mode_kind == 0) {
+				setError(err, err_cap, "event '" + compiled.id + "' (" + compiled.kind +
+					") is not a mode event");
+				return nullptr;
+			}
+			if (mode_kind != 0 && domain != DOMAIN_MODE) {
+				setError(err, err_cap, "mode event '" + compiled.id + "' (" + compiled.kind +
+					") belongs to a mode archive's mode.graph.json");
 				return nullptr;
 			}
 			std::string objective;
@@ -477,6 +524,14 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 						") belongs to the level graph, not the mission graph");
 					return nullptr;
 				}
+			} else if (mode_kind != 0) {
+				// gamemode-graphs.md slice 2: a mode event filters nothing.
+				if (has_objective) {
+					setError(err, err_cap, "mode event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = mode_kind;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -1053,4 +1108,17 @@ extern "C" s32 missionGraphLevelLayoutCompatible(const char *outgoing, size_t ou
 	} catch (...) {
 		return 0;
 	}
+}
+
+// gamemode-graphs.md slice 2: a mode archive's program.
+extern "C" mission_graph_program_t *missionGraphProgramCompileMode(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_MODE);
+}
+
+extern "C" s32 missionGraphEventIsMode(s32 event_kind)
+{
+	return event_kind >= MISSION_GRAPH_EVENT_MODE_CHOSEN &&
+		event_kind <= MISSION_GRAPH_EVENT_MODE_PLAYER_DIED ? 1 : 0;
 }

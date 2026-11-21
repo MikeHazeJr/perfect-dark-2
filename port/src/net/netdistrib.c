@@ -2913,6 +2913,10 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
             if (rf[0]) {
                 distribSetPrimaryFromFile(e, dirpath, rf);
             }
+            /* gamemode-graphs.md slice 2: the mode's program. */
+            strncpy(e->ext.gamemode.mode_graph_file,
+                    iniGet(ini, "mode_graph_file", ""),
+                    sizeof(e->ext.gamemode.mode_graph_file) - 1);
         }
         break;
     case ASSET_SCENARIO:

@@ -13,6 +13,7 @@
 #include "assetcatalog_deps.h"
 #include "constants.h"
 #include "grid_match_package_io.h"
+#include "mode_rules.h"
 #ifndef PD_TESTS
 #include "fs.h"
 #include "system.h"
@@ -369,6 +370,8 @@ void assetRuntimeReset(void)
     for (s32 i = 0; s_Bindings && i < s_BindingCapacity; i++) {
         vehicleGraphProgramFree(s_Bindings[i].vehicle_graph);
         s_Bindings[i].vehicle_graph = NULL;
+        missionGraphProgramFree(s_Bindings[i].mode_graph);
+        s_Bindings[i].mode_graph = NULL;
     }
     if (s_Bindings && s_BindingCapacity > 0) {
         memset(s_Bindings, 0,
@@ -469,11 +472,20 @@ const asset_runtime_binding_t *assetRuntimeFindByTarget(asset_type_e type,
     return NULL;
 }
 
+static void s_freeModeGraph(asset_runtime_binding_t *binding)
+{
+    if (binding && binding->mode_graph) {
+        missionGraphProgramFree(binding->mode_graph);
+        binding->mode_graph = NULL;
+    }
+}
+
 static asset_runtime_binding_t *s_allocBinding(const char *asset_id)
 {
     asset_runtime_binding_t *binding = s_findMutable(asset_id);
     if (binding) {
         s_freeVehicleGraph(binding);
+        s_freeModeGraph(binding);
         memset(binding, 0, sizeof(*binding));
         return binding;
     }
@@ -722,6 +734,10 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
     case ASSET_GAMEMODE:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
                entry->ext.gamemode.rules_file);
+        /* gamemode-graphs.md slice 2: the mode's program, compiled when the
+         * mode hydrates. */
+        s_copy(binding->dependency_b, sizeof(binding->dependency_b),
+               entry->ext.gamemode.mode_graph_file);
         s_copy(binding->gamemode_name, sizeof(binding->gamemode_name),
                entry->ext.gamemode.name);
         s_copy(binding->gamemode_description,
@@ -1144,6 +1160,63 @@ static s32 s_hydrateProp(asset_runtime_binding_t *binding)
     return ok;
 }
 
+/* A refused mode program says why, once per hydration, in the game log. */
+static s32 s_refuseModeGraph(const asset_runtime_binding_t *binding, const char *why)
+{
+#ifndef PD_TESTS
+    sysLogPrintf(LOG_ERROR, "MODE.GRAPH: refused the program of '%s': %s",
+        binding ? binding->id : "?", why && why[0] ? why : "refused");
+#else
+    (void)binding;
+    (void)why;
+#endif
+    return 0;
+}
+
+/*
+ * gamemode-graphs.md slice 2: compile the mode archive's mode.graph.json in
+ * the runner's mode domain with the mode modules (mode_rules.c) and check it
+ * for this mode. A mode without a program, or whose program does not compile
+ * or wires a module the mode cannot run, does not hydrate, so it cannot be
+ * chosen; nothing falls back to the native table. The program is the
+ * binding's until it is released.
+ */
+static s32 s_compileModeGraph(asset_runtime_binding_t *binding, s32 mode)
+{
+    char err[320];
+    u32 size = 0;
+    char *json;
+    mission_graph_program_t *program;
+
+    s_freeModeGraph(binding);
+    if (!binding->dependency_b[0]) {
+        return s_refuseModeGraph(binding, "the archive names no mode_graph_file");
+    }
+    json = s_loadSourceMember(binding, binding->dependency_b, &size);
+    if (!json) {
+        return s_refuseModeGraph(binding, "mode.graph.json could not be read");
+    }
+    err[0] = '\0';
+    program = missionGraphProgramCompileMode(json, size, modeRulesModuleKnown,
+        err, sizeof(err));
+    free(json);
+    if (!program) {
+        return s_refuseModeGraph(binding, err);
+    }
+    if (!modeRulesCheckProgram(program, mode, err, sizeof(err))) {
+        missionGraphProgramFree(program);
+        return s_refuseModeGraph(binding, err);
+    }
+    binding->mode_graph = program;
+#ifndef PD_TESTS
+    sysLogPrintf(LOG_NOTE, "MODE.GRAPH: program '%s' mode=%d nodes=%d exec_edges=%d modules=%d",
+        binding->id, mode, missionGraphProgramNodeCount(program),
+        missionGraphProgramExecEdgeCount(program),
+        missionGraphProgramModuleNodeCount(program));
+#endif
+    return 1;
+}
+
 static s32 s_hydrateGamemode(asset_runtime_binding_t *binding)
 {
     u32 size = 0;
@@ -1177,6 +1250,9 @@ static s32 s_hydrateGamemode(asset_runtime_binding_t *binding)
         requirefeature >= 0 && requirefeature <= 255;
     free(json);
     if (ok) {
+        ok = s_compileModeGraph(binding, mode);
+    }
+    if (ok) {
         binding->runtime_id = mode;
         binding->gamemode_min_players = min_players;
         binding->gamemode_max_players = max_players;
@@ -1185,6 +1261,14 @@ static s32 s_hydrateGamemode(asset_runtime_binding_t *binding)
         binding->source_hydrated = 1;
     }
     return ok;
+}
+
+const mission_graph_program_t *assetRuntimeModeProgram(const char *asset_id)
+{
+    const asset_runtime_binding_t *binding =
+        assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, asset_id);
+    return binding && binding->active && binding->source_hydrated
+        ? binding->mode_graph : NULL;
 }
 
 static s32 s_hydrateBotProfile(asset_runtime_binding_t *binding)
@@ -1789,6 +1873,7 @@ void assetRuntimeReleaseCatalogEntry(const char *asset_id)
          * reset; a binding comes back only through s_allocBinding, which
          * compiles it again. */
         s_freeVehicleGraph(binding);
+        s_freeModeGraph(binding);
         binding->active = 0;
     }
 }

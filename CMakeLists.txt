@@ -986,6 +986,9 @@ set(SRC_TESTS
   # Decision 2: the mission graph runner (events, gates, native modules).
   ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_runner.cpp
   ${CMAKE_SOURCE_DIR}/port/src/mission_graph_runner.cpp
+  # gamemode-graphs.md slice 2: Combat Simulator mode programs and their table.
+  ${CMAKE_SOURCE_DIR}/tests/test_mode_graph_program.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/mode_rules.c
   # Mission flow slice 1: required objectives and the outcome probe.
   ${CMAKE_SOURCE_DIR}/tests/test_mission_outcome_static.cpp
   # Mission flow slice 2: the phase event and gate in the runner.

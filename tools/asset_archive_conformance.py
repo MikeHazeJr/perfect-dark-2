@@ -911,8 +911,8 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     ".pdgamemode": schema(
-        required=["gamemode.ini", "rules.json"],
-        allowed=["gamemode.ini", "rules.json"],
+        required=["gamemode.ini", "rules.json", "mode.graph.json"],
+        allowed=["gamemode.ini", "rules.json", "mode.graph.json"],
         allowed_globs=["dependencies/assets/hud/*.pdhud", "dependencies/assets/audio/*.pdsfx"],
     ),
     ".pdbotprofile": schema(
@@ -4325,6 +4325,245 @@ def validate_arena_source_contract(label: str, zf: zipfile.ZipFile,
         )
 
 
+# Combat Simulator mode programs (gamemode-graphs.md slice 2). A mode archive's
+# mode.graph.json (pd.gamemode_graph.v1) is a program of event.mode.* events and
+# og.mode.* modules joined by execution edges; the game refuses a mode whose
+# program it could not run, so the mode cannot be chosen. Keep in step with
+# port/src/mode_rules.c (s_Events, s_Modules, modeRulesSeamEvent,
+# modeRulesNativeModules, modeRulesCheckProgram) and the runner's mode domain
+# (port/src/mission_graph_runner.cpp, kModeEventKinds); pd-tests hold the two
+# tables equal.
+MODE_GRAPH_SCHEMA = "pd.gamemode_graph.v1"
+MODE_GRAPH_MEMBER = "mode.graph.json"
+MODE_GRAPH_EVENTS = ("event.mode.chosen", "event.mode.stage_reset", "event.mode.intro_pad",
+                     "event.mode.props_init", "event.mode.tick", "event.mode.chr_tick",
+                     "event.mode.score", "event.mode.spawn", "event.mode.token_picked_up",
+                     "event.mode.token_dropped", "event.mode.prop_activated",
+                     "event.mode.player_died")
+# A module is a choice the seam of its event acts on: each event chooses the
+# modules listed for it, one per callback g_MpScenarios[] gives a mode, and the
+# dispatchers' defaults. event.mode.chosen chooses what every peer needs to know
+# about the mode (its setup, extra objects, team count, setup file data and its
+# presenters). The six other events choose nothing until slice 4.
+MODE_GRAPH_EVENT_MODULES = {
+    "event.mode.chosen": (
+        "og.mode.htb.init", "og.mode.htb.num_props", "og.mode.htb.hud",
+        "og.mode.htb.radar_extra", "og.mode.htb.radar_chr", "og.mode.htb.highlight_prop",
+        "og.mode.htm.init", "og.mode.htm.num_props", "og.mode.htm.hud",
+        "og.mode.htm.radar_extra", "og.mode.htm.radar_chr", "og.mode.htm.highlight_prop",
+        "og.mode.pac.init", "og.mode.pac.hud", "og.mode.pac.radar_extra",
+        "og.mode.pac.radar_chr", "og.mode.pac.highlight_prop",
+        "og.mode.koh.init", "og.mode.koh.hud", "og.mode.koh.radar_extra",
+        "og.mode.koh.room_lights", "og.mode.koh.save",
+        "og.mode.ctc.init", "og.mode.ctc.num_props", "og.mode.ctc.radar_extra",
+        "og.mode.ctc.radar_chr", "og.mode.ctc.highlight_prop", "og.mode.ctc.max_teams",
+        "og.mode.ctc.room_lights"),
+    "event.mode.props_init": ("og.mode.htb.init_props", "og.mode.htm.init_props",
+                              "og.mode.pac.init_props", "og.mode.koh.init_props",
+                              "og.mode.ctc.init_props"),
+    "event.mode.tick": ("og.mode.htb.tick", "og.mode.htm.tick", "og.mode.pac.tick",
+                        "og.mode.koh.tick", "og.mode.ctc.tick"),
+    "event.mode.chr_tick": ("og.mode.htb.tick_chr", "og.mode.htm.tick_chr",
+                            "og.mode.ctc.tick_chr"),
+    "event.mode.score": ("og.mode.default.score", "og.mode.htb.score", "og.mode.htm.score",
+                         "og.mode.pac.score", "og.mode.koh.score", "og.mode.ctc.score"),
+    "event.mode.spawn": ("og.mode.default.spawn", "og.mode.ctc.spawn"),
+}
+MODE_GRAPH_MODULES = tuple(module for modules in MODE_GRAPH_EVENT_MODULES.values()
+                           for module in modules)
+MODE_GRAPH_SPAWN_MODULES = ("og.mode.default.spawn", "og.mode.ctc.spawn")
+# The mode keys and the name their modules carry (og.mode.<name>.<seam>);
+# Combat has no modules of its own.
+MODE_GRAPH_MODE_NAMES = {"combat": None, "hold_the_briefcase": "htb",
+                         "hacker_central": "htm", "pop_a_cap": "pac",
+                         "king_of_the_hill": "koh", "capture_the_case": "ctc"}
+MODE_GRAPH_MAX_NODES = 4096
+MODE_GRAPH_MAX_EDGES = 16384
+
+
+def mode_graph_module_owner(kind: str) -> str | None:
+    """The name a mode module carries ("htb", "default"), or None."""
+    if kind not in MODE_GRAPH_MODULES:
+        return None
+    return kind.split(".")[2]
+
+
+def mode_graph_native_wiring(mode_key: str) -> set[tuple[str, str]]:
+    """What the original table runs for a mode, as (event, module) pairs:
+    its own callbacks, the default score when it has none, and the general
+    spawn chooser after its own (modeRulesNativeModules)."""
+    name = MODE_GRAPH_MODE_NAMES.get(mode_key)
+    wiring = {(event, module)
+              for event, modules in MODE_GRAPH_EVENT_MODULES.items()
+              for module in modules
+              if name is not None and mode_graph_module_owner(module) == name}
+    if not any(event == "event.mode.score" for event, _ in wiring):
+        wiring.add(("event.mode.score", "og.mode.default.score"))
+    wiring.add(("event.mode.spawn", "og.mode.default.spawn"))
+    return wiring
+
+
+def validate_mode_graph(where: str, graph: dict, mode_key: object,
+                        catalog_id: str) -> list[str]:
+    """A mode archive's program, as the game compiles and registers it: the
+    schema and catalog id, its event.*, gate.* and og.* nodes (any other
+    node is data), only mode events and mode modules, execution edges from an
+    event, gate or module to a gate or module with the right port, every
+    module on an event that chooses it, only the archive's own mode's modules
+    and the defaults (the modes share one state until slice 5), a spawn
+    module on event.mode.spawn, and for a base archive exactly the original
+    table's wiring."""
+    if not isinstance(graph, dict) or not graph:
+        return [f"{where} is missing or not one JSON object"]
+    errors: list[str] = []
+    if graph.get("schema") != MODE_GRAPH_SCHEMA:
+        errors.append(f"{where} schema must be {MODE_GRAPH_SCHEMA}")
+    if catalog_id and graph.get("catalog_id") != catalog_id:
+        errors.append(f"{where} catalog_id must be the archive's ({catalog_id})")
+    if mode_key not in MODE_GRAPH_MODE_NAMES:
+        return errors + [f"{where} has no mode to run (rules.json mode_key {mode_key!r})"]
+    own = MODE_GRAPH_MODE_NAMES[mode_key]
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return errors + [f"{where} has no nodes array"]
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(nodes):
+        if not (isinstance(node, dict) and _is_graph_program_kind(node.get("kind"))):
+            continue  # data, not the program
+        node_id, kind = node.get("id"), node["kind"]
+        if not isinstance(node_id, str) or not node_id:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("event."):
+            if kind not in MODE_GRAPH_EVENTS:
+                errors.append(f"{where} event {node_id!r} ({kind}) is not a mode event")
+            elif "objective" in node:
+                errors.append(f"{where} mode event {node_id!r} has no objective to filter")
+        elif kind.startswith("og."):
+            if kind not in MODE_GRAPH_MODULES:
+                errors.append(f"{where} native module {kind!r} does not exist")
+            elif mode_graph_module_owner(kind) not in ("default", own):
+                errors.append(f"{where} module {kind!r} is another mode's; a mode program "
+                              "runs its own mode's modules and og.mode.default.*")
+        elif kind == "gate.objective.status":
+            if node.get("status") not in MISSION_GRAPH_STATUSES:
+                errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        elif kind == "gate.mission.phase":
+            if node.get("phase") not in MISSION_GRAPH_PHASES:
+                errors.append(f"{where} gate {node_id!r} needs phase active, complete or failed")
+        else:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+    if len(kinds) > MODE_GRAPH_MAX_NODES:
+        errors.append(f"{where} has more than {MODE_GRAPH_MAX_NODES} program nodes")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    if len(edges) > MODE_GRAPH_MAX_EDGES:
+        errors.append(f"{where} has more than {MODE_GRAPH_MAX_EDGES} edges")
+    exec_out: dict[str, list[str]] = {}
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if "input" not in edge:
+            if src in kinds and dst in kinds and "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue  # a structural edge: never walked
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        if not kinds[dst].startswith(("gate.", "og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({kinds[dst]}), "
+                          "which is not a gate or a native module")
+            continue
+        output = edge.get("output")
+        if kinds[src].startswith("gate."):
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+        exec_out.setdefault(src, []).append(dst)
+    # Every module an event reaches (through any gates, both branches) is one
+    # the event chooses; nothing would run it anywhere else.
+    reached: set[tuple[str, str]] = set()
+    for event_id, event_kind in kinds.items():
+        if event_kind not in MODE_GRAPH_EVENTS:
+            continue
+        chosen = MODE_GRAPH_EVENT_MODULES.get(event_kind, ())
+        seen: set[str] = set()
+        queue = list(exec_out.get(event_id, []))
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node_kind = kinds[node_id]
+            if node_kind in MODE_GRAPH_MODULES:
+                if node_kind not in chosen:
+                    errors.append(f"{where} {node_kind} {node_id!r} has no effect on {event_kind} "
+                                  f"({event_id!r})")
+                reached.add((event_kind, node_kind))
+            queue.extend(exec_out.get(node_id, []))
+    if not any(event == "event.mode.spawn" and module in MODE_GRAPH_SPAWN_MODULES
+               for event, module in reached):
+        errors.append(f"{where} event.mode.spawn reaches no spawn module: a mode must place "
+                      "its players (og.mode.default.spawn is the general chooser)")
+    # A base mode's program is the original table, wired by the extractor.
+    if isinstance(catalog_id, str) and catalog_id.startswith("base:"):
+        native = mode_graph_native_wiring(mode_key)
+        missing = sorted(native - reached)
+        extra = sorted(reached - native)
+        if missing or extra:
+            errors.append(f"{where} is not the original {mode_key} table: missing {missing}, "
+                          f"extra {extra}")
+    return errors
+
+
+# The self-test's valid mode archive: Combat's rules and its base program.
+GAMEMODE_SELFTEST_ENTRIES = {
+    "gamemode.ini": (
+        "[gamemode]\ncatalog_id = test:gamemode\nname = Test\n"
+        "description = Test mode\nmode_key = combat\n"
+        "min_players = 1\nmax_players = 8\nteam_based = 0\n"
+        "requirefeature = 0\nrules_file = rules.json\n"
+        "mode_graph_file = mode.graph.json\n"
+    ),
+    "rules.json": json.dumps({
+        "schema": "pd2.gamemode.rules.v2",
+        "catalog_id": "test:gamemode",
+        "mode_key": "combat",
+        "name": "Test",
+        "description": "Test mode",
+        "players": {"min": 1, "max": 8},
+        "teams": {"required": False},
+        "requirefeature": 0,
+    }),
+    "mode.graph.json": json.dumps({
+        "schema": "pd.gamemode_graph.v1",
+        "catalog_id": "test:gamemode",
+        "nodes": [
+            {"id": "score", "kind": "event.mode.score"},
+            {"id": "score_default", "kind": "og.mode.default.score"},
+            {"id": "spawn", "kind": "event.mode.spawn"},
+            {"id": "spawn_default", "kind": "og.mode.default.spawn"},
+        ],
+        "edges": [
+            {"from": "score", "output": "out", "to": "score_default", "input": "exec"},
+            {"from": "spawn", "output": "out", "to": "spawn_default", "input": "exec"},
+        ],
+    }),
+}
+
+
 def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
                                       name_set: set[str],
                                       errors: list[str]) -> None:
@@ -4340,12 +4579,15 @@ def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
         "team_based": "team flag",
         "requirefeature": "unlock feature",
         "rules_file": "rules source member",
+        "mode_graph_file": "mode program member",
     }
     for field, description in expected.items():
         if not descriptor_value(text, field):
             errors.append(f"{label} gamemode.ini must declare {field} ({description})")
     if descriptor_value(text, "rules_file") != "rules.json":
         errors.append(f"{label} gamemode.ini must declare rules_file = rules.json")
+    if descriptor_value(text, "mode_graph_file") != MODE_GRAPH_MEMBER:
+        errors.append(f"{label} gamemode.ini must declare mode_graph_file = {MODE_GRAPH_MEMBER}")
 
     descriptor_values = parse_ini_values(text)
     rules = read_json_member(zf, "rules.json")
@@ -4396,6 +4638,13 @@ def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} rules.json requirefeature must be an integer "
                 "from 0 to 255"
             )
+        # gamemode-graphs.md slice 2: the mode's program.
+        if MODE_GRAPH_MEMBER not in name_set:
+            errors.append(f"{label} must carry {MODE_GRAPH_MEMBER}, the mode's program")
+        else:
+            errors.extend(validate_mode_graph(
+                f"{label} {MODE_GRAPH_MEMBER}", read_json_member(zf, MODE_GRAPH_MEMBER),
+                rules.get("mode_key"), descriptor_values.get("catalog_id", "")))
 
     if "_meta/manifest.json" not in name_set:
         return
@@ -4413,6 +4662,10 @@ def validate_gamemode_source_contract(label: str, zf: zipfile.ZipFile,
     if manifest.get("rules_file") != "rules.json":
         errors.append(
             f"{label} _meta/manifest.json must declare rules_file = rules.json"
+        )
+    if manifest.get("mode_graph_file") != MODE_GRAPH_MEMBER:
+        errors.append(
+            f"{label} _meta/manifest.json must declare mode_graph_file = {MODE_GRAPH_MEMBER}"
         )
     for field in ("min_players", "max_players", "team_based"):
         if not isinstance(manifest.get(field), int):
@@ -11905,26 +12158,16 @@ def run_selftest() -> int:
         (
             "GAMEMODE",
             validate_gamemode_source_contract,
-            {
-                "gamemode.ini": (
-                    "[gamemode]\ncatalog_id = test:gamemode\nname = Test\n"
-                    "description = Test mode\nmode_key = combat\n"
-                    "min_players = 1\nmax_players = 8\nteam_based = 0\n"
-                    "requirefeature = 0\nrules_file = rules.json\n"
-                ),
-                "rules.json": json.dumps({
-                    "schema": "pd2.gamemode.rules.v2",
-                    "catalog_id": "test:gamemode",
-                    "mode_key": "combat",
-                    "name": "Test",
-                    "description": "Test mode",
-                    "players": {"min": 1, "max": 8},
-                    "teams": {"required": False},
-                    "requirefeature": 0,
-                }),
-            },
+            GAMEMODE_SELFTEST_ENTRIES,
             ("rules.json", '"max": 8', '"max": 99'),
             "1 <= min <= max <= 32",
+        ),
+        (
+            "GAMEMODE-PROGRAM",
+            validate_gamemode_source_contract,
+            GAMEMODE_SELFTEST_ENTRIES,
+            (MODE_GRAPH_MEMBER, '"kind": "event.mode.spawn"', '"kind": "event.mode.tick"'),
+            "has no effect on event.mode.tick",
         ),
         (
             "BOTPROFILE",

@@ -1,6 +1,8 @@
 # Combat Simulator modes as graphs
 
-Status: CORE, 2026-11-19. A survey and a plan for the week note's "Combat
+Status (2026-11-21): slices 1 and 2 written by the Multiplayer and Rules
+session (see "Slice 1 as written" and "Slice 2 as written"); slices 3 to 7
+open. Originally CORE, 2026-11-19: a survey and a plan for the week note's "Combat
 Simulator rules" row ("a mode graph calling native mode modules"), under
 decision 1 ("Players should be able to recreate any existing game behavior
 with the nodes"). Nothing here is built. MULTIPLAYER owns the native mode
@@ -199,6 +201,72 @@ answered in place as the slices land.
   `mp_<mode>_local_smoke`) require the mode's first `chosen` and `tick` lines and a
   stage-end total with ticks and spawns. Static contract:
   `gamemode-graphs slice 1` in `tests/test_match_scenario_start_static.cpp`.
+
+## Slice 2 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
+
+- **The program.** A `.pdgamemode` carries `mode.graph.json`, schema
+  `pd.gamemode_graph.v1`: `catalog_id` (the archive's own), `nodes` and `edges`
+  as in the other programs (an execution edge has `"input": "exec"`; a node
+  that is not `event.*`, `gate.*` or `og.*` is data). `gamemode.ini` and the
+  manifest name it (`mode_graph_file`), and the catalog carries it from every
+  ingress (base registration, the archive walker, the INI scanner, received
+  mods) as `ext.gamemode.mode_graph_file`; the pdmod packer keeps it.
+  `rules.json` stays the data.
+- **The runner's mode domain** (`missionGraphProgramCompileMode`): the twelve
+  events of slice 1 as `event.mode.*`, runner kinds 64 to 75 (a block above the
+  other programs' kinds, so theirs can grow below it). A mode program refuses
+  every other event, every other program refuses these, and they filter
+  nothing.
+- **The modules** (`port/include/mode_rules.h`, `port/src/mode_rules.c`, no game
+  state): `og.mode.<mode>.<seam>` for each callback `g_MpScenarios[]` gives a
+  mode (`htb`, `htm`, `pac`, `koh`, `ctc`; Combat has none of its own) and the
+  dispatchers' defaults `og.mode.default.score` and `og.mode.default.spawn`, 50
+  in all. One event chooses each seam's modules:
+
+  | Event | Chooses |
+  |---|---|
+  | `event.mode.chosen` | `init`, and what every peer needs to know about the mode: `num_props`, `max_teams`, `save` (King of the Hill's hill time in the setup file) and the presenters `hud`, `radar_extra`, `radar_chr`, `highlight_prop`, `room_lights` (the room pair of King of the Hill and Capture the Case) |
+  | `event.mode.props_init` | `init_props` |
+  | `event.mode.tick` | `tick` |
+  | `event.mode.chr_tick` | `tick_chr` |
+  | `event.mode.score` | the mode's `score`, else `og.mode.default.score` |
+  | `event.mode.spawn` | `og.mode.ctc.spawn`, then `og.mode.default.spawn` (the original falls back to the general chooser when a mode's own finds no place) |
+
+  The six other events choose nothing until slice 4 moves the code outside the
+  table behind them. The options dialog belongs to the legacy menu and is not
+  a module.
+- **Base programs.** The extractor writes each base mode's program from the
+  table (`modeRulesBaseProgramJson`; node ids `mode.event.<event>` and
+  `mode.<seam>`, `mode.spawn.default` for Capture the Case's fallback): Combat
+  4 nodes and 2 execution edges, Hold the Briefcase and Hacker Central 17 and
+  11, Pop a Cap and King of the Hill 14 and 9, Capture the Case 19 and 13. The
+  meta kind gains `_modegraph`, so an install re-extracts its meta archives
+  once. pd-tests read `scenarios.c` and hold the table to `g_MpScenarios[]`,
+  so a base program and the original agree by construction.
+- **Registration fails closed.** Hydrating a mode (`s_hydrateGamemode`,
+  `asset_runtime.c`) compiles its program and checks it for the archive's mode
+  (`modeRulesCheckProgram`): every mode module is the mode's own or a default
+  (the five modes share one state, `g_ScenarioData`, until slice 5), every
+  module an event reaches (both branches of a gate) is one the event chooses,
+  and `event.mode.spawn` reaches a spawn module. A mode without a program, or
+  with a refused one, does not hydrate, so the catalog does not activate it
+  (`MODE.GRAPH: refused the program of '<id>': <why>`). A registered mode logs
+  `MODE.GRAPH: program '<id>' mode=<n> nodes=N exec_edges=E modules=M`, and its
+  binding keeps the compiled program for slice 3 (`assetRuntimeModeProgram`).
+  Known gap, B-1292: a refused mod mode stays enabled in the catalog, so the
+  legacy picker would meet it; slice 6's picker skips refused modes.
+- **The validator** (`tools/asset_archive_conformance.py`, `validate_mode_graph`)
+  requires and allows the member, checks the program as the game does, and
+  holds a base archive (`base:`) to exactly the original table's wiring; the
+  example mod's `tri_gamemode` carries Combat's program. Tests:
+  `tests/test_mode_graph_program.cpp` (`[gamemode-graphs][slice2]`),
+  `tools/tests/test_mode_graph_conformance.py` (in CI), the validator's
+  self-test (`GAMEMODE-PROGRAM`).
+- **Nothing runs from the program yet**: the dispatchers still call
+  `g_MpScenarios[]`; slice 3 makes them fire the events and run the callbacks
+  chosen. In the game, any smoke of the finalization batch on a re-extracted
+  base should show six `MODE.GRAPH: program 'base:...'` lines at boot, and the
+  mode smokes should pass as before.
 
 ## Questions for MULTIPLAYER
 

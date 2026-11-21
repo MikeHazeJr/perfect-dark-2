@@ -308,7 +308,7 @@ TEST_CASE("standalone pdmod and received-network qualification preserve exact pa
 		"ignored", "mods/content.pdmod::..\\escape.bin") == 0);
 }
 
-TEST_CASE("all 34 catalog source fields use the repository path capacity",
+TEST_CASE("all 35 catalog source fields use the repository path capacity",
 	"[catalog][pdxxx][path][capacity][T-CATALOG-003]")
 {
 #define PATH_CAP(member) sizeof(((asset_entry_t *)nullptr)->ext.member)
@@ -323,6 +323,7 @@ TEST_CASE("all 34 catalog source fields use the repository path capacity",
 		PATH_CAP(entity.behavior_graph), PATH_CAP(texture.file_path),
 		PATH_CAP(prop.prop_file), PATH_CAP(prop.model_file),
 		PATH_CAP(prop.behavior_graph), PATH_CAP(gamemode.rules_file),
+		PATH_CAP(gamemode.mode_graph_file),
 		PATH_CAP(audio.file_path), PATH_CAP(hud.texture_file),
 		PATH_CAP(hud.layout_file), PATH_CAP(effect.effect_file),
 		PATH_CAP(effect.timeline_file), PATH_CAP(material.material_file),
@@ -332,7 +333,7 @@ TEST_CASE("all 34 catalog source fields use the repository path capacity",
 		PATH_CAP(lang.strings_file), PATH_CAP(bot_profile.profile_file),
 	};
 #undef PATH_CAP
-	REQUIRE(capacities.size() == 34);
+	REQUIRE(capacities.size() == 35);
 	for (size_t capacity : capacities) REQUIRE(capacity == FS_MAXPATH);
 
 	/* Descriptive metadata remains semantically sized. */

@@ -3,6 +3,7 @@
 
 #include "assetcatalog.h"
 #include "character_head_policy.h"
+#include "mission_graph_runner.h"
 #include "vehicle_graph_runner.h"
 
 #ifdef __cplusplus
@@ -129,6 +130,11 @@ typedef struct asset_runtime_binding {
      * assetRuntimeReset. Every hydrated vehicle has one: a v2 behavior file is
      * refused (vehicle-graph-v1.md, "Migration"). */
     vehicle_graph_program_t *vehicle_graph;
+    /* gamemode-graphs.md slice 2: a mode archive's compiled program
+     * (mode.graph.json), owned by this binding and freed with it. Every
+     * hydrated mode has one: registration refuses a mode whose program is
+     * missing, does not compile or wires a module the mode cannot run. */
+    mission_graph_program_t *mode_graph;
 } asset_runtime_binding_t;
 
 void assetRuntimeReset(void);
@@ -170,6 +176,9 @@ const char *assetRuntimeVehicleGraphError(void);
  */
 s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_member,
                                    const char *catalog_id, char *err, size_t err_cap);
+/* gamemode-graphs.md slice 2: the compiled program of the hydrated mode
+ * archive with this catalog id, or NULL. */
+const mission_graph_program_t *assetRuntimeModeProgram(const char *asset_id);
 s32 assetRuntimeSkinAppearance(const char *target_id, f32 out_rgba[4],
                                f32 *out_roughness, f32 *out_metallic,
                                s32 *out_emissive);
