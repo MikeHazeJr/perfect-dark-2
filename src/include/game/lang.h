@@ -11,6 +11,8 @@ void langReset(s32 stagenum);
 void langTick(void);
 
 u32 langGetLangBankIndexFromStagenum(s32 stagenum);
+/* The stage's language bank: its archive's text_bank, else the table above. */
+s32 langGetStageBank(s32 stagenum, s32 prefer_mp);
 struct jpncharpixels *langGetJpnCharPixels(s32 codepoint);
 s32 langGetFileNumOffset(void);
 s32 langGetFileId(s32 bank);

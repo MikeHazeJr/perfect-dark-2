@@ -176,7 +176,34 @@ Each becomes a key here unless it belongs to a room or an object:
 - Escape's gas went into `gas` above (its rooms listed there, as weather's are).
 - Animated textures went into `scene.glb` materials (`animated-surfaces.md`)
   and sparks into `sparks` above.
-- The stage's text bank (`lang.c`), if it is needed before the scenario is read.
+- The stage's text bank (`lang.c`): built 2026-11-21 (Multiplayer and Rules,
+  Mike's order "Stage text banks off lang.c onto graph data"), as a manifest
+  field rather than a `stage.json` key, because the briefing needs it before
+  the stage loads; see "Text bank" below.
+
+## Text bank (the archive manifest, not `stage.json`)
+
+The stage's language bank is named in the scenario archive's
+`_meta/manifest.json` as `"text_bank"`: the locale-independent `ASSET_LANG`
+catalog id (`base:lang_dam`; the catalog picks the bank's locale file as
+before, `langmanifest.c`). The scenario walker (`loader_walker_scenario.c`)
+and the INI scanner read it into `ext.scenario.text_bank` when the archive
+registers, so the three places that asked `lang.c`'s stage table now ask
+`langGetStageBank(stagenum, prefer_mp)`: the mission briefing before the stage
+loads (`setupLoadBriefing`, the solo scenario), the stage's setup load and the
+teardown (`lvStop`, the scenario the stage loaded). The extractor writes the id
+from the game's table (`assetCatalogBaseLangBankId`) into every base scenario
+and rebuilds an archive that lacks it (scenario kind `..._textbank`).
+
+- A stage that names no bank keeps the table: a ROM stage, or a level written
+  before the field (the `..._liftglass` kind still loads).
+- A named id that is not a language bank fails loudly (`LOUDFAIL.LANG.STAGE`)
+  and the table answers, so the stage keeps its text; conformance refuses such
+  an archive (`text_bank` must look like `namespace:lang_name`).
+- Every resolution logs once per stage: `LANG.STAGE: stage=0x.. bank=N
+  source=archive|table scenario='...'`.
+- Open (decision for Mike): a level that wants text of its own needs a bank it
+  owns, while AI commands and objectives still address text as bank and index.
 
 Room-level and object-level rules (Escape's gas rooms, the Extraction chopper
 hum, objects left out of co-op) go on `rooms.json` and `objects.json` rows

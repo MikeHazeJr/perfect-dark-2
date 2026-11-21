@@ -153,17 +153,28 @@ SCENE_CULL_EXPORT_MARK = "_cull_b1267"
 SCENE_TEXGEN_SCALE_MAX = 0xFFFF
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass_textbank"
 )
 # Level formats the game still loads besides the current one
 # (object-events.md, "Levels authored before slice 5"): an arena a mod
 # authored may name one of these older kinds, and the scenario it embeds is
-# then held to what that kind promised (the pickup and door rule wiring, not
-# the lift and glass rules). A base arena names the current kind: an install
+# then held to what that kind promised: a kind of
+# ARENA_SCENARIO_GRAPH_CACHE_KINDS_BEFORE_LIFTGLASS to the pickup and door
+# rule wiring, not the lift and glass rules; the kind before the stage's
+# text bank to every rule. A base arena names the current kind: an install
 # re-extracts it otherwise.
 ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents",
+    # Before the stage's text bank (2026-11-21): such a level names no
+    # text_bank and the game's stage table gives its language bank.
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass",
 )
+ARENA_SCENARIO_GRAPH_CACHE_KINDS_BEFORE_LIFTGLASS = (
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents",
+)
+# The stage's language bank, as its archive names it: a namespace and a
+# lang_ catalog name (base:lang_dam, mod_x:lang_my_level).
+SCENARIO_TEXT_BANK_RE = re.compile(r"[a-z0-9_]+:lang_[a-z0-9_]+")
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 )
@@ -3575,7 +3586,7 @@ MISSION_GRAPH_RULE_EVENTS = ("event.pickup.touched", "event.door.use", "event.do
                              "event.glass.damaged")
 # The rule events a level had to handle before slice 5: what the runtime
 # still requires of every level, and all that conformance requires of a level
-# whose arena names a kind of ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED.
+# whose arena names a kind of ARENA_SCENARIO_GRAPH_CACHE_KINDS_BEFORE_LIFTGLASS.
 LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS = ("event.pickup.touched", "event.door.use",
                                       "event.door.approach")
 
@@ -4202,6 +4213,17 @@ def validate_scenario_source_contract(label: str, zf: zipfile.ZipFile,
     if not manifest:
         errors.append(f"{label} _meta/manifest.json is invalid JSON")
         return
+
+    # Stage text banks off lang.c (2026-11-21): the stage names its language
+    # bank by catalog id (langGetStageBank reads ext.scenario.text_bank).
+    text_bank = manifest.get("text_bank")
+    if text_bank is not None and (
+            not isinstance(text_bank, str)
+            or SCENARIO_TEXT_BANK_RE.fullmatch(text_bank) is None):
+        errors.append(
+            f"{label} _meta/manifest.json text_bank must be a language bank catalog id "
+            f"such as base:lang_dam, not {text_bank!r}"
+        )
 
     source_room_count = parse_scenario_room_count_text(
         label, descriptor_values.get("source_room_count"), errors
@@ -10375,7 +10397,7 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                 rule_events=(
                                     LEVEL_RULE_EVENTS_BEFORE_LIFTGLASS
                                     if parent_scenario_graph_cache
-                                    in ARENA_SCENARIO_GRAPH_CACHE_KINDS_STILL_LOADED
+                                    in ARENA_SCENARIO_GRAPH_CACHE_KINDS_BEFORE_LIFTGLASS
                                     else None)))
                         links = graph.get("links")
                         link_pairs = set()

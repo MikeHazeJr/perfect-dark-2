@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
+Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
+temporary index; HEAD and the shared index never switched), merge proven work to dev. Every commit was
+built from an exact export of itself (`C:\Users\mikeh\Perfect-Dark-2\mprules-src`, bgfx linked from the
+canonical copy, a minimal repo borrowing the canonical objects) so no other session's working files
+leak into a build (SP-99), and passed full pd-tests there. On dev: **D-052** movement rewrite (PR 23,
+`5cdacc72`): every difficulty jumps (reach 90/90/60/40/30), Bot Jumping on by default; seven stale or
+foreign hunks of the parked copies dropped. **B-1277** (PR 24, `ac63aaf1`, protocol v66): setup
+placeholders with pad -1 or a missing container are on no scheduler list on either machine; the
+reconnect world row now carries the host's scheduler presence and a pure planner places every prop.
+**B-1278** and **mode events slice 1** (PR 25, `9134bb8f`): `--launch-offline-room`; record-only
+`MODE.EVENT` at the twelve mode seams. Open: PR 27 (the Room's Load Preset and Quick Start, T-MENUS-009),
+stage text banks (T-MODDING-027, local `7ee7f75f`: each scenario archive names its `text_bank`,
+`langGetStageBank`, scenario kind `_textbank`; decision D-054 for levels with their own text), mode
+graph slices 2 to 7 (T-MODDING-026). Finalization smokes for Integration: the four ledge/tabletop
+smokes, `network_coop_reconnect_smoke`, `coop_ai_buddies_offline_smoke`, the six local mode smokes,
+and a Room preset/Quick Start smoke still to write.
+
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions
 start. The record is `context/audits/2026/repo-cleanup-2026-11-20.md`: what landed, what stays

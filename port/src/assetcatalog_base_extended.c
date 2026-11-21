@@ -625,6 +625,31 @@ static const struct {
 
 #define NUM_BASE_LANG_BANKS (sizeof(s_BaseLangBanks) / sizeof(s_BaseLangBanks[0]))
 
+/* Stage text banks off lang.c (2026-11-21): the locale-independent catalog id
+ * of a base language bank ("base:lang_dam"), the id a stage's archive names as
+ * its text bank. The extractor writes it from the game's stage table; a bank
+ * outside the base table has no base id (returns 0, out empty). */
+s32 assetCatalogBaseLangBankId(s32 bank_id, char *out, size_t out_n)
+{
+	s32 i;
+
+	if (!out || out_n == 0) {
+		return 0;
+	}
+	out[0] = '\0';
+	for (i = 0; i < (s32)NUM_BASE_LANG_BANKS; i++) {
+		if (s_BaseLangBanks[i].bank_id == bank_id) {
+			const int n = snprintf(out, out_n, "base:%s", s_BaseLangBanks[i].slug);
+			if (n <= 0 || (size_t)n >= out_n) {
+				out[0] = '\0';
+				return 0;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /* ========================================================================
  * Public Entry Point
  * ======================================================================== */
