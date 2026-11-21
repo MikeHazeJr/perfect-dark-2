@@ -979,7 +979,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			kind, (unsigned)check->functype);
 		return 0;
 	}
-	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS)) {
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -1010,6 +1010,9 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_MODE) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s cloak, got %s", kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_STYLE) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s magazine, one_at_a_time or regrow, got %s",
+						kind, setting->key, raw);
 				} else {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
 						kind, setting->key, setting->lo, setting->hi, raw);

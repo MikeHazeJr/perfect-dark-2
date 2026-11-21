@@ -46,6 +46,7 @@
 struct hand;
 struct weapon_rule_function;
 struct weapon_rule_trigger;
+struct weapon_rule_reload;
 
 /* bgunSetTriggerOn: the hand's trigger is `on` now and was `previous`. A
  * press waits for the idle seam; a release drops a waiting press and is the
@@ -68,6 +69,11 @@ u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_s
  * idle seam chose while the hand holds that weapon and function, else the
  * original's for the record. Never NULL. */
 const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const struct weapon_rule_function *record);
+
+/* slice 4b: the reload the hand is in, for bgunTickIncReload: the one its
+ * idle seam chose while the hand holds that weapon and function, else the
+ * original's for the record. Never NULL. */
+const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struct weapon_rule_function *record);
 
 /* The attack a press starts for a simulant or a guard: the function's
  * program walked for a ready hand with a loaded clip, reserve to reload

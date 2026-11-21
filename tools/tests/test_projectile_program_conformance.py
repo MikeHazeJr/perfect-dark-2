@@ -675,6 +675,28 @@ class HeldWeaponPrograms(unittest.TestCase):
         graph["edges"].append({"from": "late", "output": "out", "to": "late_shot", "input": "exec"})
         self.assertIn("og.weapon.hitscan 'late_shot' has no effect on event.weapon.reload_done", weapon_errors(graph)[0])
 
+    def test_reload_styles(self):
+        """held-weapon-events.md slice 4b: og.weapon.reload's style and a
+        regrow's time."""
+        for style in ("magazine", "one_at_a_time", "regrow"):
+            with self.subTest(style=style):
+                graph = copy.deepcopy(V2_HELD)
+                for node in graph["nodes"]:
+                    if node["id"] == "primary_reload":
+                        node["style"] = style
+                        node["regrow_time"] = 90
+                self.assertEqual(weapon_errors(graph), [])
+        for field, value, why in (("style", "instant", "needs style magazine, one_at_a_time, regrow"),
+                                  ("regrow_time", 0, "needs regrow_time from 1 to 10000")):
+            with self.subTest(field=field):
+                graph = copy.deepcopy(V2_HELD)
+                for node in graph["nodes"]:
+                    if node["id"] == "primary_reload":
+                        node[field] = value
+                messages = weapon_errors(graph)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
     def test_the_kinds_agree_with_the_runner_and_the_table(self):
         runner = (REPO / "port" / "src" / "mission_graph_runner.cpp").read_text(encoding="utf-8")
         rules = (REPO / "port" / "include" / "weapon_rules.h").read_text(encoding="utf-8")

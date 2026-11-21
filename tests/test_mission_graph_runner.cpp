@@ -1347,7 +1347,7 @@ TEST_CASE("the base idle wiring chooses what the original does, for every hand s
 		"\ts_emitHeldProgramEdge(w, has_ammo, \"fail\", has_reserve, 0);\n"
 		"\ts_emitHeldProgramEdge(w, has_reserve, \"pass\", dry_fire, 0);\n"
 		"\ts_emitHeldProgramEdge(w, clip_empty, \"out\", reload, 1);") != std::string::npos);
-	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);")
+	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan, &reload);")
 		!= std::string::npos);
 	REQUIRE(extractor.find("const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;")
 		!= std::string::npos);
@@ -2115,8 +2115,8 @@ TEST_CASE("the base wiring starts the original's attack, for players and for sim
 	// The extractor writes this wiring from the table's plan, and the record
 	// no longer names the burst's rounds.
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
-	REQUIRE(extractor.find("s_heldNativeTrigger(func, weapon_id, mode, &plan);") != std::string::npos);
-	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);")
+	REQUIRE(extractor.find("s_heldNativeTrigger(func, weapon_id, mode, incremental, &plan, &reload);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan, &reload);")
 		!= std::string::npos);
 	REQUIRE(extractor.find("weaponRulesNativeTrigger(&record, out);") != std::string::npos);
 	REQUIRE(extractor.find("jw_field_f32(w, WEAPON_RULE_RATE_PARAM, plan->rate, 0);") != std::string::npos);
@@ -2709,6 +2709,108 @@ TEST_CASE("a held program's shot is checked against its function when its weapon
 		CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
 	}
 	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("a reload's style is the function's own unless its program names one",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t shotgun = ruleRecord(WEAPON_SHOTGUN, 0, 0x0001, 0, 0);
+	shotgun.incremental = 1;
+	weapon_rule_function_t crystal = ruleRecord(WEAPON_CUSTOM_START, 0, 0x0201, 0, 0);
+	crystal.regrow = 1;
+	crystal.regrow_ticks60 = 45;
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	weapon_rule_reload_t r;
+	weaponRulesNativeReload(&shotgun, &r);
+	CHECK(r.style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME);
+	weaponRulesNativeReload(&crystal, &r);
+	CHECK(r.style == WEAPON_RULE_RELOAD_REGROW);
+	CHECK(r.regrow_time == 45);
+	weaponRulesNativeReload(&falcon, &r);
+	CHECK(r.style == WEAPON_RULE_RELOAD_MAGAZINE);
+	CHECK(std::string(weaponRulesStyleName(WEAPON_RULE_RELOAD_ONE_AT_A_TIME)) == "one_at_a_time");
+	CHECK(weaponRulesStyleFromText("regrow") == WEAPON_RULE_RELOAD_REGROW);
+	CHECK(weaponRulesStyleFromText("instant") == -1);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	CHECK(weaponRulesApplyReloadSettings(Texts::get, &none, &shotgun, &r) == 1);
+	CHECK(r.style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME);
+	Texts regrow;
+	regrow.values["style"] = "regrow";
+	regrow.values["regrow_time"] = "30";
+	CHECK(weaponRulesApplyReloadSettings(Texts::get, &regrow, &falcon, &r) == 1);
+	CHECK(r.style == WEAPON_RULE_RELOAD_REGROW);
+	CHECK(r.regrow_time == 30);
+	Texts bad;
+	bad.values["style"] = "instant";
+	CHECK(weaponRulesApplyReloadSettings(Texts::get, &bad, &shotgun, &r) == 0);
+	CHECK(r.style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME);
+
+	// The clip_empty walk plans the reload with its style.
+	std::string json = baseIdleProgram("primary", 1);
+	const std::string plain = "{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\" }";
+	REQUIRE(json.find(plain) != std::string::npos);
+	json.replace(json.find(plain), plain.size(),
+		"{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\", \"style\": \"regrow\", \"regrow_time\": 20 }");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown,
+		err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	int instance = 0;
+	weapon_rule_walk_t walk{};
+	weapon_rule_states_t states{};
+	walk.weaponnum = -1;
+	walk.hand = weapon_rule_hand_t{ 1, 0, 10, 1, 1 };
+	walk.states = &states;
+	walk.function = &falcon;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_RELOAD) == WEAPON_MODULE_RELOAD);
+	CHECK(walk.reload.style == WEAPON_RULE_RELOAD_REGROW);
+	CHECK(walk.reload.regrow_time == 20);
+	// A press plans no reload.
+	walk.hand = weapon_rule_hand_t{ 1, 5, 10, 1, 1 };
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK(walk.reload.style == 0);
+	missionGraphProgramFree(program);
+
+	// Registration refuses a style it does not know.
+	weaponGraphRuntimeClearAll();
+	std::string badjson = baseIdleProgram("primary", 1);
+	badjson.replace(badjson.find(plain), plain.size(),
+		"{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\", \"style\": \"instant\" }");
+	const std::string secondary = R"({ "schema": "pd.weapon_graph.v1", "asset_id": "base:test__weapon",
+  "graph_id": "secondary", "nodes": [ { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary",
+  "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } } ],
+  "edges": [], "exports": [ { "name": "secondary", "node": "secondary_action" } ] })";
+	CHECK(weaponGraphRuntimeRegisterWeaponSourceJson(2, "base:test__weapon", badjson.data(), (u32)badjson.size(),
+		secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.weapon.reload needs style") != std::string::npos);
+	weaponGraphRuntimeClearAll();
+
+	// bondgun.c and the extractor read and write the style.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("reloadplan = weaponHandReload(hand, &rulerecord);") != std::string::npos);
+	REQUIRE(bondgun.find("if (reloadplan->style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME) {") != std::string::npos);
+	REQUIRE(bondgun.find("grow.regrow_ticks60 = reloadplan->regrow_time;") != std::string::npos);
+	CHECK(bondgun.find("if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {")
+		== std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("s_emitHeldReloadNode(w, ids[i], reload, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0])")
+		!= std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

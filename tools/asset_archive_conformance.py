@@ -2383,6 +2383,9 @@ WEAPON_GRAPH_SETTINGS = {
     "og.weapon.special": {"action": ("choice", ("shoot", "launch", "throw", "melee", "detonate", "boost",
                                                 "revert_boost", "crouch", "melee_no_uncloak", "uplink"))},
     "og.weapon.mode_toggle": {"mode": ("choice", ("cloak",)), "drain": ("number", WEAPON_GRAPH_MAX_RATE)},
+    # Slice 4b: how og.weapon.reload fills the clip.
+    "og.weapon.reload": {"style": ("choice", ("magazine", "one_at_a_time", "regrow")),
+                         "regrow_time": ("whole", 1, 10000)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 

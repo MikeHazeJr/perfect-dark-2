@@ -410,6 +410,27 @@ registers"), `tests/test_projectile_rules.cpp` (the launcher's item agrees
 with the projectile rule's launched object for every base launcher),
 `tools/tests/test_projectile_program_conformance.py`.
 
+## Slice 4b as written (Core Weapons, 2026-11-21)
+
+A reload's style is `og.weapon.reload`'s: `style` (`magazine`, `one_at_a_time`
+or `regrow`) and, for a regrow, `regrow_time` (60 Hz ticks a round, 1 to
+10000). The record's own is the default: a mod magazine whose reload is
+`regrow` (T-MODDING-008) regrows at its `regrow_ticks60`, a clip whose ammo
+carries `AMMOFLAG_INCREMENTALRELOAD` (the Shotgun's shells, the crossbow's
+bolts) loads a round each time the animation loops, the rest load the
+magazine. When the idle seam chooses a reload, the hand keeps its reload plan
+(`weaponHandReload`), and `bgunTickIncReload` reads it where it read the ammo
+flag and the mod magazine: a regrow on a base gun regrows with no seat visuals
+and no sound. The base programs write each reload's style (marker
+`embedded.v20`, cache kind `_heldreloads`); the parity probe's `WEAPON.RULE`
+line names ` reload=... native_reload=...` for a reload decision, and a
+different style counts in `rules.differ`. Registration and conformance refuse
+a style they do not know.
+
+Tests: `tests/test_mission_graph_runner.cpp` ("a reload's style is the
+function's own unless its program names one"),
+`tools/tests/test_projectile_program_conformance.py` (`test_reload_styles`).
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -428,7 +449,9 @@ Listed as each slice lands; none is run by Core Weapons.
 | 3 | `mod_author_weapon_create_smoke`, `mod_author_weapon_play_smoke` | a weapon made from a base one keeps its trigger node and fires |
 | 4 | `held_weapon_shot_smoke` (new) | the rocket launcher, crossbow, Devastator and Super Dragon launch the original's items; the Farsight's, the sedative strike's, the RCP120 cloak's and the Laptop gun's plans equal the original's; `rules.differ=0`; no `WEAPON.SHOT: launch` line |
 | 4 | `held_weapon_cadence_smoke` | its plan lines now end with the shot (`shot=hitscan pellets=6` for the Shotgun, `shot=beam range=300` for the Laser stream) |
-| 4 | `boot_smoke` on a freshly extracted install | `embedded.v19`; every base program registers with its shot node |
+| 4 | `boot_smoke` on a freshly extracted install | `embedded.v20`; every base program registers with its shot node and its reload's style |
+| 4b | any smoke that empties a Shotgun's or crossbow's clip | the clip_empty `WEAPON.RULE` line shows `reload=one_at_a_time native_reload=one_at_a_time`; no `WEAPON.RULE differs` |
+| 4b | `crystal_pistol_bot_charge_smoke` | the crystal pistol (a v1 graph, its record's regrow) still regrows its crystals (`BONDGUN.REGROW` lines) |
 
 ## Where to look
 

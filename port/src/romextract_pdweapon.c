@@ -54,15 +54,17 @@
  * graph survives either. v18 (slice 3): the programs start their attack
  * with a trigger node and spend with og.weapon.use_ammo, which a slice 2
  * program lacks (its og.weapon.fire no longer exists). v19 (slice 4): and
- * end it with its shot node; a throw and a special spend through use_ammo. */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v19"
+ * end it with its shot node; a throw and a special spend through use_ammo.
+ * v20 (slice 4b): and name their reload's style. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v20"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
 /* _heldprograms: the held function graphs carry their programs
  * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
- * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots"
+ * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
+ * styles (slice 4b). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2564,6 +2566,15 @@ static void s_emitHeldTriggerNode(jw_t *w, const char *id, const weapon_rule_tri
 	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
+/* held-weapon-events.md slice 4b: whether a function's clip reloads a round
+ * at a time (its ammo's AMMOFLAG_INCREMENTALRELOAD, as bgunTickIncReload
+ * reads it). */
+static s32 s_functionReloadsIncrementally(const struct weapon *wpn, const struct weaponfunc *f)
+{
+	return wpn && f && (f->ammoindex == 0 || f->ammoindex == 1) && wpn->ammos[f->ammoindex]
+		&& (wpn->ammos[f->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) != 0;
+}
+
 /* held-weapon-events.md slice 4: the shot node of a held function's
  * program, with every setting of the original's shot. */
 static void s_emitHeldShotNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
@@ -2628,8 +2639,8 @@ static void s_emitHeldShotNode(jw_t *w, const char *id, const weapon_rule_trigge
 
 /* The original's plan for a ROM function (weapon_rules.h
  * weaponRulesNativeTrigger), read from the fields the record writes. */
-static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 mode,
-                                weapon_rule_trigger_t *out)
+static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 mode, s32 incremental,
+                                weapon_rule_trigger_t *out, weapon_rule_reload_t *reload)
 {
 	weapon_rule_function_t record;
 
@@ -2637,6 +2648,7 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 	record.weaponnum = weapon_id;
 	record.func = mode;
 	record.ammo_slot = -1;
+	record.incremental = incremental;
 	if (f) {
 		record.functype = f->type;
 		record.flags = f->flags;
@@ -2655,6 +2667,28 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 		}
 	}
 	weaponRulesNativeTrigger(&record, out);
+	weaponRulesNativeReload(&record, reload);
+}
+
+/* held-weapon-events.md slice 4b: og.weapon.reload with its style (the base
+ * weapons' magazine, or the Shotgun's and the crossbow's round at a
+ * time). */
+static void s_emitHeldReloadNode(jw_t *w, const char *id, const weapon_rule_reload_t *reload, s32 last)
+{
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "id", id, 0);
+	jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_RELOAD), 0);
+	if (reload->style == WEAPON_RULE_RELOAD_REGROW) {
+		jw_field_str(w, WEAPON_RULE_STYLE_PARAM, weaponRulesStyleName(reload->style), 0);
+		jw_field_int(w, WEAPON_RULE_REGROW_TIME_PARAM, reload->regrow_time, 1);
+	} else {
+		jw_field_str(w, WEAPON_RULE_STYLE_PARAM, weaponRulesStyleName(reload->style), 1);
+	}
+	w->indent--;
+	jw_indent(w);
+	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
 /*
@@ -2674,7 +2708,7 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
  */
 #define PDWEAPON_HELD_PROGRAM_NODES 10
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
-                                   const weapon_rule_trigger_t *plan)
+                                   const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
@@ -2704,6 +2738,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 		snprintf(ids[i], sizeof(ids[i]), "%s_%s", mode_name, suffix[i]);
 		if (i == 4) {
 			s_emitHeldTriggerNode(w, ids[i], plan, last);
+		} else if (i == 7) {
+			s_emitHeldReloadNode(w, ids[i], reload, last);
 		} else if (i == 9) {
 			s_emitHeldShotNode(w, ids[i], plan, last);
 		} else {
@@ -2747,7 +2783,8 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
                                      s32 mode,
                                      const char *projectile_ref,
                                      const char *entity_ref,
-                                     s32 weapon_id)
+                                     s32 weapon_id,
+                                     s32 incremental)
 {
 	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
 	if (!fp) return -1;
@@ -2766,8 +2803,9 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	 * Slice 3: its attack is the original's plan for the function. */
 	const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;
 	weapon_rule_trigger_t plan;
+	weapon_rule_reload_t reload;
 
-	s_heldNativeTrigger(func, weapon_id, mode, &plan);
+	s_heldNativeTrigger(func, weapon_id, mode, incremental, &plan, &reload);
 
 	fputs("{\n", fp);
 	w.indent = 1;
@@ -2783,7 +2821,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	s_emitWeaponGraphNode(&w, action_node, catalog_id, mode, func,
 		projectile_ref, entity_ref, !program);
 	if (program) {
-		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan);
+		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan, &reload);
 	}
 	jw_close_array(&w, 0);
 
@@ -3082,7 +3120,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 	if (s_emitWeaponModeGraphFile(primary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[0], 0,
-			projectile_refs[0], entity_refs[0], weapon_id) != 0) {
+			projectile_refs[0], entity_refs[0], weapon_id,
+			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		sysMemFree(manifest_bytes);
@@ -3093,7 +3132,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	}
 	if (s_emitWeaponModeGraphFile(secondary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[1], 1,
-			projectile_refs[1], entity_refs[1], weapon_id) != 0) {
+			projectile_refs[1], entity_refs[1], weapon_id,
+			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[1])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		s_removeRelpathIfExists(secondary_tmp_relpath);

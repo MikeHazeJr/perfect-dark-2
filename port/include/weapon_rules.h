@@ -368,6 +368,9 @@ typedef struct weapon_rule_function {
 	u32 flags;
 	s32 ammo_slot;
 	s32 specialfunc; /* a special's HANDATTACKTYPE_* (slice 4) */
+	s32 incremental; /* its clip reloads a round at a time (AMMOFLAG_INCREMENTALRELOAD; slice 4b) */
+	s32 regrow;      /* its clip regrows (a mod magazine's "regrow" reload) */
+	s32 regrow_ticks60; /* 60 Hz ticks a regrowing round takes */
 	s32 has_rate;    /* the record names a rate (an automatic) */
 	f32 initial_rpm;
 	f32 max_rpm;
@@ -592,6 +595,9 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_SETTING_ITEM_FUNCTION 6 /* "gun" or a function, 0 to 2 */
 #define WEAPON_RULE_SETTING_ACTION 7        /* a special's action by name */
 #define WEAPON_RULE_SETTING_MODE 8          /* a toggled mode by name ("cloak") */
+#define WEAPON_RULE_SETTING_STYLE 9         /* a reload style by name */
+#define WEAPON_RULE_STYLE_PARAM "style"
+#define WEAPON_RULE_REGROW_TIME_PARAM "regrow_time"
 #define WEAPON_RULE_PELLETS_PARAM "pellets"
 #define WEAPON_RULE_THROUGH_WALLS_PARAM "through_walls"
 #define WEAPON_RULE_SHIELD_DAMAGE_PARAM "shield_damage"
@@ -609,7 +615,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 19
+#define WEAPON_RULE_SETTING_COUNT 21
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -635,6 +641,8 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_SPECIAL, WEAPON_RULE_ACTION_PARAM, WEAPON_RULE_SETTING_ACTION, 0, 0 },
 		{ WEAPON_MODULE_MODE_TOGGLE, WEAPON_RULE_MODE_PARAM, WEAPON_RULE_SETTING_MODE, 0, 0 },
 		{ WEAPON_MODULE_MODE_TOGGLE, WEAPON_RULE_DRAIN_PARAM, WEAPON_RULE_SETTING_NUMBER, 0, (s32)WEAPON_RULE_MAX_RATE },
+		{ WEAPON_MODULE_RELOAD, WEAPON_RULE_STYLE_PARAM, WEAPON_RULE_SETTING_STYLE, 0, 0 },
+		{ WEAPON_MODULE_RELOAD, WEAPON_RULE_REGROW_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -688,6 +696,55 @@ static inline s32 weaponRulesModeFromText(const char *text)
 	return text && strcmp(text, "cloak") == 0 ? WEAPON_RULE_MODE_CLOAK : -1;
 }
 
+/* held-weapon-events.md slice 4b: how og.weapon.reload fills the clip. */
+#define WEAPON_RULE_RELOAD_MAGAZINE 1      /* the reload animation loads the clip */
+#define WEAPON_RULE_RELOAD_ONE_AT_A_TIME 2 /* a round each time the animation loops; the trigger stops it */
+#define WEAPON_RULE_RELOAD_REGROW 3        /* a round each "regrow_time" ticks, from no reserve */
+#define WEAPON_RULE_DEFAULT_REGROW_TIME 60
+
+static inline const char *weaponRulesStyleName(s32 style)
+{
+	switch (style) {
+	case WEAPON_RULE_RELOAD_MAGAZINE: return "magazine";
+	case WEAPON_RULE_RELOAD_ONE_AT_A_TIME: return "one_at_a_time";
+	case WEAPON_RULE_RELOAD_REGROW: return "regrow";
+	}
+	return NULL;
+}
+
+static inline s32 weaponRulesStyleFromText(const char *text)
+{
+	for (s32 s = WEAPON_RULE_RELOAD_MAGAZINE; s <= WEAPON_RULE_RELOAD_REGROW; s++) {
+		if (text && strcmp(text, weaponRulesStyleName(s)) == 0) return s;
+	}
+	return -1;
+}
+
+/* The reload a function's record gives it: a mod magazine's regrow, the
+ * Shotgun's and the crossbow's round at a time (their ammo's
+ * AMMOFLAG_INCREMENTALRELOAD), else the magazine. */
+typedef struct weapon_rule_reload {
+	s32 style;       /* WEAPON_RULE_RELOAD_*; 0 when none was planned */
+	s32 regrow_time; /* regrow: 60 Hz ticks a round takes */
+} weapon_rule_reload_t;
+
+static inline void weaponRulesNativeReload(const weapon_rule_function_t *f, weapon_rule_reload_t *out)
+{
+	out->style = WEAPON_RULE_RELOAD_MAGAZINE;
+	out->regrow_time = f && f->regrow_ticks60 > 0 ? f->regrow_ticks60 : WEAPON_RULE_DEFAULT_REGROW_TIME;
+	if (f && f->regrow) {
+		out->style = WEAPON_RULE_RELOAD_REGROW;
+	} else if (f && f->incremental) {
+		out->style = WEAPON_RULE_RELOAD_ONE_AT_A_TIME;
+	}
+}
+
+static inline s32 weaponRulesReloadEqual(const weapon_rule_reload_t *a, const weapon_rule_reload_t *b)
+{
+	return a->style == b->style
+		&& (a->style != WEAPON_RULE_RELOAD_REGROW || a->regrow_time == b->regrow_time);
+}
+
 /* "gun" or a function number, 0 to 2: WEAPON_RULE_ITEM_FUNCTION_GUN or the
  * number, -3 for anything else (NULL included). */
 static inline s32 weaponRulesItemFunctionFromText(const char *text)
@@ -739,6 +796,8 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 		return weaponRulesActionFromText(text) > 0;
 	case WEAPON_RULE_SETTING_MODE:
 		return weaponRulesModeFromText(text) > 0;
+	case WEAPON_RULE_SETTING_STYLE:
+		return weaponRulesStyleFromText(text) > 0;
 	}
 	return 0;
 }
@@ -954,6 +1013,27 @@ static inline void weaponRulesSpendRounds(s32 rounds, s32 *loaded)
 	else *loaded = 0;
 }
 
+/* og.weapon.reload's settings (slice 4b): its style and a regrow's time,
+ * defaults the record's. Returns 1, or 0 when one is malformed (it then
+ * keeps its default). */
+static inline s32 weaponRulesApplyReloadSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_reload_t *out)
+{
+	weapon_rule_reload_t native;
+	const char *style_text;
+	s32 style;
+	s32 grow;
+
+	weaponRulesNativeReload(record, &native);
+	style_text = get(WEAPON_RULE_STYLE_PARAM, user);
+	style = style_text ? weaponRulesStyleFromText(style_text) : native.style;
+	grow = weaponRulesWholeFromText(get(WEAPON_RULE_REGROW_TIME_PARAM, user), 1, WEAPON_RULE_MAX_SPIN,
+		native.regrow_time);
+	out->style = style > 0 ? style : native.style;
+	out->regrow_time = grow > 0 ? grow : native.regrow_time;
+	return style > 0 && grow > 0;
+}
+
 /*
  * The hand's cadence as the trigger reads and moves it each tick of the
  * attack (bondgun.c copies these from the hand and back).
@@ -1129,6 +1209,7 @@ typedef struct weapon_rule_walk {
 	weapon_rule_item_fn item_number;        /* a launch's item by catalog id; NULL: none is known */
 	u32 modules;                            /* what the walk chose */
 	weapon_rule_trigger_t plan;             /* the first trigger reached, with use_ammo's rounds */
+	weapon_rule_reload_t reload;            /* the first reload reached (slice 4b) */
 } weapon_rule_walk_t;
 
 typedef struct weapon_rule_setting_read {
@@ -1206,6 +1287,18 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit == WEAPON_MODULE_RELOAD) {
+		/* slice 4b: the first reload reached is the hand's. */
+		if (!(walk->modules & WEAPON_MODULE_RELOAD)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			weaponRulesApplyReloadSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->reload);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit & WEAPON_MODULE_SHOTS) {
 		/* slice 4: the first shot reached is the attack's. */
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
@@ -1250,6 +1343,7 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 
 	walk->modules = 0;
 	memset(&walk->plan, 0, sizeof(walk->plan));
+	memset(&walk->reload, 0, sizeof(walk->reload));
 	walk->plan.aimed_burst = 1;
 	if (!program || !missionGraphProgramHandlesEvent(program, event_kind)) {
 		return 0;
@@ -1263,6 +1357,9 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 		walk->modules = 0;
 	}
 	walk->modules &= weaponRulesEventModules(event_kind);
+	if (!(walk->modules & WEAPON_MODULE_RELOAD)) {
+		memset(&walk->reload, 0, sizeof(walk->reload));
+	}
 	if (!(walk->modules & WEAPON_MODULE_TRIGGERS)) {
 		memset(&walk->plan, 0, sizeof(walk->plan));
 		walk->plan.aimed_burst = 1;

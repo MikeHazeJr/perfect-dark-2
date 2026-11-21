@@ -1675,6 +1675,8 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 {
 	u32 stack;
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
+	weapon_rule_function_t rulerecord;
+	const weapon_rule_reload_t *reloadplan;
 
 	if (g_Vars.currentplayer->isdead) {
 		hand->animmode = HANDANIMMODE_IDLE;
@@ -1685,14 +1687,29 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 		}
 	}
 
-	/* T-MODDING-008: a regrowing mod magazine (crystals regrow in their
-	 * sockets) has no reload animation or reserve; it adds one round at a time. */
-	if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
+	/* held-weapon-events.md slice 4b: the hand's reload style is its plan's
+	 * (og.weapon.reload's style, the record's own when it has none: a
+	 * regrowing mod magazine, the Shotgun's and the crossbow's round at a
+	 * time, else the magazine). T-MODDING-008: a regrowing magazine
+	 * (crystals regrow in their sockets) has no reload animation or reserve;
+	 * it adds one round each regrow_time ticks. */
+	bgunRuleFunctionOf(hand, func, &rulerecord);
+	reloadplan = weaponHandReload(hand, &rulerecord);
+	if (func && (func->ammoindex == 0 || func->ammoindex == 1) && reloadplan->style == WEAPON_RULE_RELOAD_REGROW) {
 		const loader_pool_mod_ammo_t *mod = bgunModAmmo(info->weaponnum, func->ammoindex);
+		loader_pool_mod_ammo_t grow;
 
-		if (mod && mod->regrow) {
-			return bgunModTickIncReloadRegrow(info, handnum, hand, lvupdate, func->ammoindex, mod);
+		if (mod) {
+			grow = *mod;
+		} else {
+			memset(&grow, 0, sizeof(grow));
+			grow.valid = 1;
+			grow.seat_part_base = -1;
+			grow.regrow_sound = -1;
 		}
+		grow.regrow = 1;
+		grow.regrow_ticks60 = reloadplan->regrow_time;
+		return bgunModTickIncReloadRegrow(info, handnum, hand, lvupdate, func->ammoindex, &grow);
 	}
 
 	if (hand->statecycles == 0) {
@@ -1728,7 +1745,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 
 					hand->unk0d0e_07 = true;
 
-					if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
+					if (reloadplan->style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME) {
 						hand->incrementalreloading = true;
 					}
 
@@ -1744,7 +1761,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 				}
 			}
 		} else {
-			if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
+			if (reloadplan->style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME) {
 				if (bgun0f098a44(hand, 1)) {
 					if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
 						s32 value;
@@ -1965,6 +1982,17 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 	if ((functype & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
 		out->specialfunc = graph && graph->has_specialfunc ? graph->specialfunc
 			: (func ? ((struct weaponfunc_special *) func)->specialfunc : 0);
+	}
+	/* slice 4b: how its clip reloads, as bgunTickIncReload read it (the
+	 * function's own ammo index). */
+	if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
+		struct weapon *def = weaponFindById(hand->gset.weaponnum);
+		const loader_pool_mod_ammo_t *mod = bgunModAmmo(hand->gset.weaponnum, func->ammoindex);
+
+		out->incremental = def && def->ammos[func->ammoindex]
+			&& (def->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) != 0;
+		out->regrow = mod && mod->regrow;
+		out->regrow_ticks60 = mod ? mod->regrow_ticks60 : 0;
 	}
 
 	if (weaponRulesFunctionAutomatic(out)) {

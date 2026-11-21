@@ -32,6 +32,9 @@ typedef struct weapon_hand_record {
 	weapon_rule_states_t states;
 	weapon_rule_trigger_t plan;
 	weapon_rule_trigger_t native; /* the original's plan, when none was kept */
+	u8 reload_planned;            /* slice 4b: the reload its idle seam last started */
+	weapon_rule_reload_t reload;
+	weapon_rule_reload_t native_reload;
 } weapon_hand_record_t;
 static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 
@@ -251,7 +254,7 @@ static const char *weaponPlanText(const weapon_rule_trigger_t *plan, char *buf, 
  * with no program. */
 static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native,
 	const weapon_rule_function_t *function, const weapon_rule_trigger_t *native_plan,
-	weapon_rule_trigger_t *plan)
+	weapon_rule_trigger_t *plan, const weapon_rule_reload_t *native_reload, weapon_rule_reload_t *reload)
 {
 	const s32 weaponnum = hand->gset.weaponnum;
 	const s32 func = hand->gset.weaponfunc;
@@ -268,6 +271,9 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 	if (plan && native_plan) {
 		*plan = *native_plan;
 	}
+	if (reload && native_reload) {
+		*reload = *native_reload;
+	}
 	if (!program) {
 		return native; /* a v1 function: the original decides */
 	}
@@ -283,6 +289,9 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 	if (plan && (walk.modules & WEAPON_MODULE_TRIGGERS)) {
 		*plan = walk.plan;
 	}
+	if (reload && (walk.modules & WEAPON_MODULE_RELOAD)) {
+		*reload = walk.reload;
+	}
 	if ((applied & WEAPON_MODULE_IDLE_ACTIONS) && (handled || native)) {
 		char chose[96];
 		char orig[96];
@@ -291,8 +300,13 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 		const u32 chosen = walk.modules & WEAPON_MODULE_IDLE_ACTIONS;
 		/* slice 3: when both start an attack, the attacks are compared too:
 		 * the trigger, its settings and the rounds a shot takes. */
-		const s32 plans_differ = native_plan && (chosen & WEAPON_MODULE_TRIGGERS)
-			&& (native & WEAPON_MODULE_TRIGGERS) && !weaponRulesTriggerEqual(&walk.plan, native_plan);
+		const s32 plans_differ = (native_plan && (chosen & WEAPON_MODULE_TRIGGERS)
+			&& (native & WEAPON_MODULE_TRIGGERS) && !weaponRulesTriggerEqual(&walk.plan, native_plan))
+			|| (native_reload && (chosen & WEAPON_MODULE_RELOAD) && (native & WEAPON_MODULE_RELOAD)
+				&& !weaponRulesReloadEqual(&walk.reload, native_reload));
+		const char *style = (chosen & WEAPON_MODULE_RELOAD) ? weaponRulesStyleName(walk.reload.style) : NULL;
+		const char *native_style = native_reload && (native & WEAPON_MODULE_RELOAD)
+			? weaponRulesStyleName(native_reload->style) : NULL;
 		/* A mod weapon's number has no original rule: its choices are
 		 * logged and not counted. */
 		const s32 counted = weaponnum < WEAPON_CUSTOM_START;
@@ -303,26 +317,34 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 			if (s_WeaponRuleDiffer <= 8) {
 				sysLogPrintf(LOG_WARNING,
 					"WEAPON.RULE differs: %s weapon=%s func=%s hand=%d modules=%s native=%s"
-					" plan=%s native_plan=%s",
+					" plan=%s native_plan=%s reload=%s native_reload=%s",
 					weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 					func == FUNC_SECONDARY ? "secondary" : "primary", handnum,
 					weaponModulesText(chosen, chose, sizeof(chose)),
 					weaponModulesText(native, orig, sizeof(orig)),
 					weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
 					weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
-						orig_plan, sizeof(orig_plan)));
+						orig_plan, sizeof(orig_plan)),
+					style ? style : "-", native_style ? native_style : "-");
 			}
 		}
 		if (weaponEventFirst(weaponnum, func, (s32)(kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED))) {
+			char reload_text[64] = "";
+
+			if (style || native_style) {
+				snprintf(reload_text, sizeof(reload_text), " reload=%s native_reload=%s",
+					style ? style : "-", native_style ? native_style : "-");
+			}
 			sysLogPrintf(LOG_NOTE,
-				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s",
+				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s",
 				weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 				func == FUNC_SECONDARY ? "secondary" : "primary",
 				weaponModulesText(chosen, chose, sizeof(chose)),
 				weaponModulesText(native, orig, sizeof(orig)),
 				weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
 				weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
-					orig_plan, sizeof(orig_plan)));
+					orig_plan, sizeof(orig_plan)),
+				reload_text);
 		}
 	}
 	return walk.modules;
@@ -340,7 +362,8 @@ void weaponEventTrigger(s32 handnum, struct hand *hand, s32 on, s32 previous)
 	} else if (!on && previous) {
 		record->press = 0;
 		if (hand->inuse) {
-			weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, handnum, hand, 0, NULL, NULL, NULL);
+			weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, handnum, hand, 0, NULL, NULL, NULL,
+				NULL, NULL);
 		}
 	}
 }
@@ -363,6 +386,8 @@ u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_s
 {
 	weapon_rule_trigger_t native_plan;
 	weapon_rule_trigger_t plan;
+	weapon_rule_reload_t native_reload;
+	weapon_rule_reload_t reload;
 	weapon_hand_record_t *kept;
 	u32 chosen;
 
@@ -371,19 +396,47 @@ u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_s
 		return native;
 	}
 	weaponRulesNativeTrigger(record, &native_plan);
+	weaponRulesNativeReload(record, &native_reload);
 	/* The original's attack is its plan's trigger. */
 	native &= WEAPON_MODULE_IDLE_ACTIONS;
 	if (native & WEAPON_MODULE_TRIGGERS) {
 		native = (native & ~WEAPON_MODULE_TRIGGERS) | native_plan.module;
 	}
-	chosen = weaponRuleDecide(event_kind, handnum, hand, native, record, &native_plan, &plan)
-		& WEAPON_MODULE_IDLE_ACTIONS;
+	chosen = weaponRuleDecide(event_kind, handnum, hand, native, record, &native_plan, &plan,
+		&native_reload, &reload) & WEAPON_MODULE_IDLE_ACTIONS;
 	kept = weaponHandRecord(handnum, hand);
 	if (kept && (chosen & WEAPON_MODULE_TRIGGERS)) {
 		kept->plan = plan;
 		kept->planned = 1;
 	}
+	if (kept && (chosen & WEAPON_MODULE_RELOAD)) {
+		kept->reload = reload;
+		kept->reload_planned = 1;
+	}
 	return chosen;
+}
+
+const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struct weapon_rule_function *record)
+{
+	static weapon_rule_reload_t s_NativeReload;
+	weapon_hand_record_t *kept = NULL;
+
+	if (hand && g_Vars.currentplayer) {
+		if (hand == &g_Vars.currentplayer->hands[HAND_RIGHT]) {
+			kept = weaponHandRecord(HAND_RIGHT, hand);
+		} else if (hand == &g_Vars.currentplayer->hands[HAND_LEFT]) {
+			kept = weaponHandRecord(HAND_LEFT, hand);
+		}
+	}
+	if (kept && kept->reload_planned) {
+		return &kept->reload;
+	}
+	if (kept) {
+		weaponRulesNativeReload(record, &kept->native_reload);
+		return &kept->native_reload;
+	}
+	weaponRulesNativeReload(record, &s_NativeReload);
+	return &s_NativeReload;
 }
 
 const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const struct weapon_rule_function *record)
@@ -565,7 +618,7 @@ s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
 void weaponEventReloadDone(s32 handnum, struct hand *hand)
 {
 	if (hand && hand->inuse) {
-		weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE, handnum, hand, 0, NULL, NULL, NULL);
+		weaponRuleDecide(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE, handnum, hand, 0, NULL, NULL, NULL, NULL, NULL);
 	}
 }
 
