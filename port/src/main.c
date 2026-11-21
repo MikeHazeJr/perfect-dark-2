@@ -3,6 +3,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <limits.h>
+#include <locale.h>
 #include <math.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
@@ -9836,6 +9837,12 @@ static s32 bootRunStageRepairWorker(void)
 
 int main(int argc, const char **argv)
 {
+	/* Pin the decimal point before anything formats or parses a number:
+	 * profiles, settings, mod caches and extracted JSON are written with
+	 * printf("%g") and read back with strtod, which follow LC_NUMERIC. A
+	 * comma-decimal locale would write "0,5" that the next launch cannot
+	 * read (audit 2026-10-28 PD-01A, CQ-01). Text display does not use it. */
+	setlocale(LC_NUMERIC, "C");
 	sysInitArgs(argc, argv);
 	if (sysArgCheck("--reuse-write-policy-info")) {
 		if (argc != 2) return 2;

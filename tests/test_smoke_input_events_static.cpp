@@ -1759,3 +1759,13 @@ TEST_CASE("B-1281 smoke-injected menu actions drive ImGui navigation while the w
     requireContains(readTextFile("port/include/actionmap.h"),
         "s32 actionmapIsSmokeOwned(s32 player, s32 action);");
 }
+
+TEST_CASE("the client pins LC_NUMERIC to C before anything parses a number",
+    "[startup][locale][static]")
+{
+    const std::string main = readTextFile("port/src/main.c");
+    requireContains(main, "#include <locale.h>");
+    const std::string entry = requireSlice(main, "int main(int argc, const char **argv)",
+        "sysInitArgs(argc, argv);");
+    requireContains(entry, "setlocale(LC_NUMERIC, \"C\");");
+}
