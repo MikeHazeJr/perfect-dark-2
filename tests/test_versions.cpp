@@ -49,7 +49,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 65;
+const u32 g_TestExpectedNetProtocolVer  = 66;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -60,7 +60,8 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-11-17 v65 carries exact Grid match offers, native arena
+     * As of 2026-11-21 v66 carries the host's scheduler presence in each
+     * reconnect world row (B-1277). v65 carries exact Grid match offers, native arena
      * data and private creator traffic. v64 added objective scenario state. v61 authenticated the lobby roster;
      * room messages carry initial settings, access and results (v60). The
      * v59 hoverbike and v58 stage epoch invariants remain required. */

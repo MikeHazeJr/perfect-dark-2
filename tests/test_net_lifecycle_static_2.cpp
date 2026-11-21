@@ -536,7 +536,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
         std::string::npos);
     REQUIRE(enabled_json.find("if (!registry[i].enabled || registry[i].session_only) continue;") !=
         std::string::npos);
-	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 65") != std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 66") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",
@@ -1939,6 +1939,47 @@ TEST_CASE("B-1096 reconnect prop adoption owns exactly one intrusive-link domain
 	REQUIRE(end_read.find("topology=exclusive") != std::string::npos);
 	REQUIRE(end_read.find("local_weapon_pruned=%u") !=
 		std::string::npos);
+}
+
+TEST_CASE("B-1277 reconnect world rows carry and reproduce the host's scheduler presence",
+		  "[net][reconnect][prop][static][b1277]")
+{
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string state_write = function_definition_block(netmsg,
+		"static u32 netmsgSvcReconnectPropStateWrite");
+	const std::string state_read = function_definition_block(netmsg,
+		"u32 netmsgSvcReconnectPropStateRead");
+	const std::string end_read = function_definition_block(netmsg,
+		"u32 netmsgSvcReconnectPropEndRead");
+	const std::string list_prop = function_definition_block(netmsg,
+		"static void netmsgReconnectListWorldProp");
+
+	/* The host publishes its scheduler presence and refuses a corrupt chain. */
+	REQUIRE(state_write.find("netmsgPropSchedulerMembershipCount(prop)") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_PROP_STATE_SCHEDULER_MEMBERSHIP") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_LIFECYCLE_SCHEDULED") !=
+		std::string::npos);
+	/* The row reader admits the bit and only consistent combinations. */
+	REQUIRE(state_read.find("~NET_RECONNECT_LIFECYCLE_WIRE_MASK") !=
+		std::string::npos);
+	REQUIRE(state_read.find("lifecycle_flags & ~7u") == std::string::npos);
+	/* A setup placeholder on no list is a valid row; the receiver places every
+	 * world prop by the planner instead of demanding one list membership. */
+	REQUIRE(end_read.find("netReconnectPlanWorldPropPlacement") !=
+		std::string::npos);
+	REQUIRE(end_read.find("netmsgReconnectListWorldProp(prop") !=
+		std::string::npos);
+	REQUIRE(end_read.find("(!parent && scheduler_membership != 1)") ==
+		std::string::npos);
+	REQUIRE(end_read.find("NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED") !=
+		std::string::npos);
+	/* An authoritative paused row is listed even for a DONTPAUSE prop, and the
+	 * room registration follows the list (SP-92). */
+	REQUIRE(list_prop.find("prop->flags &= ~PROPFLAG_DONTPAUSE") !=
+		std::string::npos);
+	REQUIRE(list_prop.find("propRegisterRooms(prop)") != std::string::npos);
 }
 
 TEST_CASE("B-1097 character model clones preserve packed part lookup state",
