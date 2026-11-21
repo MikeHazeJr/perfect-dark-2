@@ -93,6 +93,26 @@ net_reconnect_player_state_action_e netReconnectPlanPlayerState(
 net_reconnect_prop_placement_e netReconnectPlanPropPlacement(
 	s32 has_parent, s32 wire_active);
 
+/* B-1277: a setup object can have no parent and still be on no scheduler
+ * list: a placeholder whose pad is -1 (a level script places it or hands it
+ * out later) or one whose container was never created (setup.c). The world
+ * snapshot therefore carries the host's scheduler presence as well as its
+ * active bit. The receiver keeps its own active/paused choice (receiver-local
+ * spatial state) only while both sides list the prop; otherwise the host's
+ * presence decides, and a prop placed now starts as the host has it. */
+typedef enum net_reconnect_world_placement_e {
+	NET_RECONNECT_WORLD_PLACEMENT_INVALID = 0,
+	NET_RECONNECT_WORLD_PLACEMENT_ATTACHED,    /* parented: on no list */
+	NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED, /* no parent, on no list */
+	NET_RECONNECT_WORLD_PLACEMENT_KEEP,        /* listed on both sides */
+	NET_RECONNECT_WORLD_PLACEMENT_ACTIVE,      /* list it now, active */
+	NET_RECONNECT_WORLD_PLACEMENT_PAUSED,      /* list it now, paused */
+} net_reconnect_world_placement_e;
+
+net_reconnect_world_placement_e netReconnectPlanWorldPropPlacement(
+	s32 has_parent, s32 wire_scheduled, s32 wire_active,
+	s32 local_scheduled);
+
 /* Reconnect publishes durable authority state, not objects that have already
  * entered terminal teardown. A deleting setup object that can regenerate is
  * retained because its pending transition to GONE owns future gameplay; a

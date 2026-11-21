@@ -15,6 +15,7 @@
 
 #include "game/mplayer/participant.h"
 #include "game/mplayer/mplayer.h"
+#include "game/challenge.h"
 
 #include "scenario_save.h"
 #include "scenario_codec.h"
@@ -975,6 +976,144 @@ s32 scenarioDelete(const char *filepath)
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE, "SCENARIO: deleted '%s'", filepath);
+	return 0;
+}
+
+/* The Room's Load Preset (Mike 2026-11-17: picking one fills every setting
+ * below, including the simulants; 2026-11-21: presets get a working entry).
+ * A preset is one of the original's preset games: g_MpPresets names an
+ * mpconfigs.c setup. It becomes a Room document and goes through the same plan
+ * and commit as a saved setup, so a preset cannot leave a half-applied match
+ * and the humans in the Room keep their slots. Simulants take the preset's
+ * difficulty for this many humans and, when teams are on, the preset's team;
+ * the shield stays out until it is unlocked (as mpApplyConfig); simulants jump
+ * by default, as in every setup. */
+s32 scenarioLoadPreset(s32 slot, s32 humanCount)
+{
+	u8 buffer[sizeof(struct mpconfigfull) + 16];
+	const s32 confignum = mpGetPresetConfigNumBySlot(slot);
+	const struct mpsetup *setup;
+	struct mpconfigfull *config;
+	scenario_document_t document;
+	scenario_load_plan_t plan;
+	u8 teams[SCENARIO_CODEC_MAX_BOTS];
+	char detail[192];
+	const char *name;
+	s32 diffindex;
+	s32 i;
+
+	if (confignum < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.PRESET rejected slot=%d: no unlocked preset in that slot", slot);
+		return -1;
+	}
+	config = challengeLoadConfig(confignum, buffer, sizeof(buffer));
+	if (!config) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.PRESET rejected slot=%d config=%d: the preset setup did not load",
+			slot, confignum);
+		return -1;
+	}
+	setup = &config->config.setup;
+
+	memset(&document, 0, sizeof(document));
+	memset(teams, 0, sizeof(teams));
+	document.present = SCENARIO_DOC_VERSION | SCENARIO_DOC_NAME
+		| SCENARIO_DOC_TIMELIMIT | SCENARIO_DOC_SCORELIMIT
+		| SCENARIO_DOC_TEAMSCORELIMIT | SCENARIO_DOC_OPTIONS | SCENARIO_DOC_BOTS;
+	document.version = SCENARIO_SAVE_VERSION;
+	name = mpGetPresetNameBySlot(slot);
+	strncpy(document.name, name && name[0] ? name : "preset", sizeof(document.name) - 1);
+
+	/* The original table names its stage and mode by number; the planner's
+	 * legacy migration resolves each to its one catalog entry or refuses. */
+	if (setup->stage_id[0]) {
+		document.present |= SCENARIO_DOC_ARENA_ID;
+		strncpy(document.arena_id, setup->stage_id, sizeof(document.arena_id) - 1);
+	} else {
+		document.present |= SCENARIO_DOC_LEGACY_ARENA;
+		document.legacy_arena = setup->stagenum;
+	}
+	document.present |= SCENARIO_DOC_LEGACY_SCENARIO;
+	document.legacy_scenario = setup->scenario;
+	document.timelimit = setup->timelimit;
+	document.scorelimit = setup->scorelimit;
+	document.teamscorelimit = setup->teamscorelimit;
+	document.options = setup->options | MPOPTION_BOTJUMP;
+	for (i = 0; i < NUM_MPWEAPONSLOTS && i < SCENARIO_CODEC_WEAPON_SLOTS; i++) {
+		s32 weapon = setup->weapons[i];
+
+		if (weapon == MPWEAPON_SHIELD
+				&& !challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
+			weapon = MPWEAPON_NONE;
+		}
+		document.legacy_weapons[i] = weapon;
+		document.legacy_weapon_present[i] = 1;
+	}
+
+	diffindex = humanCount - 1;
+	if (diffindex < 0) diffindex = 0;
+	if (diffindex > MAX_PLAYERS - 1) diffindex = MAX_PLAYERS - 1;
+	for (i = 0; i < MAX_BOTS && document.bot_count < SCENARIO_CODEC_MAX_BOTS; i++) {
+		const struct mpconfigsim *sim = &config->config.simulants[i];
+		const s32 difficulty = sim->difficulties[diffindex];
+		scenario_document_bot_t *bot;
+		const char *profile_id;
+
+		if (difficulty < BOTDIFF_MEAT || difficulty > BOTDIFF_DARK) {
+			continue; /* BOTDIFF_DISABLED: no simulant in this slot */
+		}
+		profile_id = mpBotProfileIdForTraits(sim->type, difficulty);
+		if (!profile_id) {
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.PRESET rejected slot=%d config=%d: no simulant profile for type=%d difficulty=%d",
+				slot, confignum, (s32)sim->type, difficulty);
+			return -1;
+		}
+		bot = &document.bots[document.bot_count];
+		bot->present = SCENARIO_BOT_NAME | SCENARIO_BOT_PROFILE_ID | SCENARIO_BOT_DIFFICULTY;
+		strncpy(bot->name, config->strings.aibotnames[i], sizeof(bot->name) - 1);
+		strncpy(bot->profile_id, profile_id, sizeof(bot->profile_id) - 1);
+		bot->difficulty = difficulty;
+		if (sim->body_id[0]) {
+			bot->present |= SCENARIO_BOT_BODY_ID;
+			strncpy(bot->body_id, sim->body_id, sizeof(bot->body_id) - 1);
+		} else {
+			bot->present |= SCENARIO_BOT_LEGACY_BODY;
+			bot->legacy_body = sim->mpbodynum;
+		}
+		if (sim->head_id[0]) {
+			bot->present |= SCENARIO_BOT_HEAD_ID;
+			strncpy(bot->head_id, sim->head_id, sizeof(bot->head_id) - 1);
+		} else {
+			bot->present |= SCENARIO_BOT_LEGACY_HEAD;
+			bot->legacy_head = sim->mpheadnum;
+		}
+		teams[document.bot_count] = sim->team;
+		document.bot_count++;
+	}
+
+	if (!scenarioBuildPlan(&document, humanCount, &plan, detail, sizeof(detail))) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.PRESET rejected slot=%d config=%d name='%s' detail='%s'",
+			slot, confignum, document.name, detail);
+		return -1;
+	}
+	/* The preset's teams, not the planner's balancing, when teams are on. */
+	if (plan.config.options & MPOPTION_TEAMSENABLED) {
+		s32 bot = 0;
+
+		for (i = 0; i < plan.config.numSlots && i < MATCH_MAX_SLOTS; i++) {
+			if (plan.config.slots[i].type == SLOT_BOT && bot < document.bot_count) {
+				plan.config.slots[i].team = teams[bot++];
+			}
+		}
+	}
+	scenarioCommitPlan(&plan);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.PRESET committed slot=%d config=%d name='%s' arena='%s' mode='%s' bots=%d humans=%d",
+		slot, confignum, document.name, plan.config.stage_id, plan.config.scenario_id,
+		plan.bot_count, humanCount);
 	return 0;
 }
 

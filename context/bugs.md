@@ -68,7 +68,16 @@ the `prop.c` delivery path, with one lost seven-line hunk restored from week-pd/
 (dev plus PR 13, d1932f55) built from commits alone, client and test binary, in a clean worktree and passed
 pd-tests in full. SP-99.
 
-## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, open, test only)
+## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, fixed in code 2026-11-21, not yet run in a game)
+
+Fix (claude-pd-mp-rules-20261121): boot flag `--launch-offline-room` (`port/src/main.c`). It drops into CI, keeps the
+Main Menu from auto-opening, and `bootLaunchOfflineRoomTick` (after the `--launch-load-agent` tick in `pdmain.c`)
+waits for the staged agent, marks the file selected as Agent Select leaves it (so CI does not force Agent Select),
+waits for the CI menu gate (`menuCiReadyForMenuOpen`, the gate the CI menus use) and then makes the Main Menu's own
+Combat Simulator call, `menuhandlerMainMenuCombatSimulator(MENUOP_SET, ...)`, so the Room opens by the same code as a
+click. With no active agent it stands down and Agent Select opens as usual. `coop_ai_buddies_offline_smoke` now boots
+with `--launch-load-agent smoke --launch-offline-room` and waits only for gameplay and the results. Pinned by
+`[b1278]` in `tests/test_net_mission_end_static.cpp`. To prove: that smoke in the milestone finalization batch.
 
 Severity low (test only, but it leaves the offline co-op start with simulant buddies unproven in a run).
 `coop_ai_buddies_offline_smoke` failed 20/38 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,
@@ -83,7 +92,26 @@ Fix to make: a way into the offline Room that passes neither Agent Select nor th
 flag that opens the offline Room as `--launch-mp-room` opens a hosted one; `--debug-room-tab campaign` and
 `--debug-auto-start-match` then start the mission as they do in the hosted smoke.
 
-## 2026-11-19 B-1277 A co-op client's rejoin is refused at the scheduler check of the reconnect prop set (T-NETWORKING-007 S2, open, cause not known)
+## 2026-11-19 B-1277 A co-op client's rejoin is refused at the scheduler check of the reconnect prop set (T-NETWORKING-007 S2, fixed in code 2026-11-21 at protocol v66, not yet run in a game)
+
+Cause (found by reading the code, 2026-11-21, claude-pd-mp-rules-20261121): the check assumed every world prop with
+no parent is on the scheduler chain, and the stage setup does not guarantee that. `setupCreateObject`
+(`src/game/setup.c`) gives a prop to an object whose pad is -1 (a level script places it or hands it to a chr
+later) and to one inside another object, and lists neither; an inside object whose container was never created
+also keeps no parent. Such a placeholder is on no list on the host and on the client's fresh stage alike, so a
+co-op mission (Defection here) fails the check while Combat Simulator arenas, which carry none, pass. A second
+gap in the same reader: a child put back into the world with the host's paused bit went through `propPause`,
+which does nothing for a `PROPFLAG_DONTPAUSE` prop, and the host's active bit alone cannot say whether a prop
+with no parent is listed at all.
+
+Fix (v66): the world row's lifecycle byte carries the host's scheduler presence (`NET_RECONNECT_LIFECYCLE_SCHEDULED`,
+bit 8), and the writer refuses a corrupt chain (`NET_RECONNECT_PROP_STATE_SCHEDULER_MEMBERSHIP`). The receiver
+places every world prop with the pure planner `netReconnectPlanWorldPropPlacement` (`port/src/net/net_reconnect.c`):
+on no list where the host has it on none, the receiver's own active/paused choice where both sides list it, and the
+host's active/paused state where only the host lists it (`netmsgReconnectListWorldProp` lists a paused row even for
+a DONTPAUSE prop and registers its rooms, SP-92). Pinned by `[b1277]` in `tests/test_net_reconnect.cpp` and
+`tests/test_net_lifecycle_static_2.cpp`. To prove: `network_coop_reconnect_smoke` in the milestone finalization
+batch.
 
 Severity high for co-op drop-in/drop-out S2 (the partner cannot rejoin; the host's mission carries on, S1).
 `network_coop_reconnect_smoke` failed 50/55 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,

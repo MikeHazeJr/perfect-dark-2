@@ -179,6 +179,7 @@
 #include "grid_match_runtime.h"
 #include "fs.h"
 #include "room.h"
+#include "game/bot.h"
 #include "game/chraction.h"
 #include "game/player.h"
 #include "game/playermgr.h"
@@ -187,8 +188,10 @@
 #include "game/forgemode.h"
 #include "forge_level_io.h"
 #include "game/setuputils.h"
+#include "lib/meshcollision.h"
 #include "scenario_source_runtime.h"
 #include "projectile_events.h"
+#include "mode_events.h"
 #include "constants.h"
 #include "game/inv.h"
 #include "game/bondgun.h"
@@ -274,6 +277,7 @@ typedef enum {
     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
     SMOKE_EVENT_KILL_TOKEN_HOLDER,  /* B-1209: the simulant carrying the scenario token dies */
     SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
+    SMOKE_EVENT_MOVEMENT_LEDGE,
     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
     SMOKE_EVENT_USE_LIFT_DOOR,      /* T-MODDING-011: player 0 uses the nearest lift door */
     SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
@@ -285,6 +289,59 @@ typedef enum {
 } SmokeEventType;
 
 #define SMOKE_MAX_SHOTPATH 256
+
+typedef enum {
+    SMOKE_LEDGE_PLACE_PLAYER,
+    SMOKE_LEDGE_PLACE_BOT,
+    SMOKE_LEDGE_WALK_OFF,
+    SMOKE_LEDGE_VERIFY
+} SmokeLedgeCommand;
+
+typedef enum {
+    SMOKE_SUPPORT_COMPLEX_LEDGE,
+    SMOKE_SUPPORT_VILLA_TABLETOP
+} SmokeSupportFixtureId;
+
+typedef struct {
+    const char *marker;
+    s32 stage;
+    RoomNum room;
+    f32 x;
+    f32 lane_half_width;
+    f32 start_z;
+    f32 lower_y;
+    f32 upper_y;
+    f32 edge_z;
+    f32 upper_min_z;
+    f32 upper_max_z;
+    f32 upper_goal_z;
+    f32 lower_goal_z;
+    f32 lower_return_max_z;
+    s32 table_command;
+    s32 table_pad;
+} SmokeSupportFixture;
+
+typedef struct {
+    const SmokeSupportFixture *fixture;
+    struct prop *actor_prop;
+    struct defaultobj *table;
+    struct prop *table_prop;
+    struct coord table_pos;
+    f32 table_rotation[3][3];
+    s32 actor_chrnum;
+    s32 bot_slot;
+    u32 epoch;
+    s32 last_frame;
+    s32 land_frame;
+    s32 support_samples;
+    s32 took_off;
+    s32 descended;
+    s32 landed;
+    s32 stayed;
+    s32 walk_off;
+    s32 dropped;
+    s32 lower_landed;
+} SmokeLedge;
 
 typedef struct {
     s32            at_ms;
@@ -301,6 +358,8 @@ typedef struct {
     s32            controller_slot;    /* expected player slot for the virtual device */
     s32            client_id;         /* stable target for network events */
     s32            hand;              /* held-weapon event: HAND_RIGHT/LEFT */
+    SmokeLedgeCommand ledge_command;
+    SmokeSupportFixtureId ledge_fixture;
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
     smoke_readiness_condition_t readiness_condition;
@@ -353,6 +412,7 @@ typedef struct {
     u32          retired_network_prop_syncid;
     u32          retired_network_parent_syncid;
     s32          retired_network_client_id;
+    SmokeLedge   ledge;
     s32          events_fired;
     s32          exited;             /* prevent re-entrant exit */
 } SmokeState;
@@ -1248,6 +1308,24 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "kill_simulant")) {
 		ev->type = SMOKE_EVENT_KILL_SIMULANT;
+		return 1;
+	}
+	if (!strcmp(type_str, "movement_ledge") || !strcmp(type_str, "movement_tabletop")) {
+		if (!strcmp(name_str, "place_player")) {
+			ev->ledge_command = SMOKE_LEDGE_PLACE_PLAYER;
+		} else if (!strcmp(name_str, "place_simulant")) {
+			ev->ledge_command = SMOKE_LEDGE_PLACE_BOT;
+		} else if (!strcmp(name_str, "walk_off")) {
+			ev->ledge_command = SMOKE_LEDGE_WALK_OFF;
+		} else if (!strcmp(name_str, "verify")) {
+			ev->ledge_command = SMOKE_LEDGE_VERIFY;
+		} else {
+			sysLogPrintf(LOG_ERROR, "SMOKE: unknown %s command '%s'", type_str, name_str);
+			return 0;
+		}
+		ev->type = SMOKE_EVENT_MOVEMENT_LEDGE;
+		ev->ledge_fixture = !strcmp(type_str, "movement_tabletop")
+			? SMOKE_SUPPORT_VILLA_TABLETOP : SMOKE_SUPPORT_COMPLEX_LEDGE;
 		return 1;
 	}
 	if (!strcmp(type_str, "use_door")) {
@@ -3216,6 +3294,288 @@ static s32 smokeTickReadinessWait(SmokeEvent *ev, u32 now,
     return 0;
 }
 
+#define SMOKE_LEDGE_STAY_TICKS 30
+
+/* Both stock approaches face +Z. Complex uses fixed room collision. Villa
+ * uses the live coffee table from setup_0492 at pad_0428 in the native level. */
+static const SmokeSupportFixture s_SmokeSupportFixtures[] = {
+    [SMOKE_SUPPORT_COMPLEX_LEDGE] = {
+        .marker = "SMOKE.LEDGE", .stage = STAGE_MP_COMPLEX, .room = 24,
+        .x = -1392.0f, .lane_half_width = 30.0f, .start_z = -700.0f,
+        .lower_y = 512.0f, .upper_y = 551.0f, .edge_z = -656.0f,
+        .upper_min_z = -628.0f, .upper_max_z = -500.0f,
+        .upper_goal_z = -560.0f, .lower_goal_z = -745.0f,
+        .lower_return_max_z = -685.0f, .table_command = -1,
+    },
+    [SMOKE_SUPPORT_VILLA_TABLETOP] = {
+        .marker = "SMOKE.TABLETOP", .stage = STAGE_VILLA, .room = 17,
+        .x = -4065.0f, .lane_half_width = 22.0f, .start_z = 2250.0f,
+        .lower_y = -300.0f, .upper_y = -240.0f, .edge_z = 2306.0f,
+        .upper_min_z = 2326.0f, .upper_max_z = 2370.0f,
+        .upper_goal_z = 2348.0f, .lower_goal_z = 2235.0f,
+        .lower_return_max_z = 2270.0f, .table_command = 492, .table_pad = 428,
+    },
+};
+
+static s32 smokeLedgeFail(const char *reason)
+{
+    const SmokeLedge *ledge = &s_State.ledge;
+
+    sysLogPrintf(LOG_ERROR,
+        "%s: result=fail reason=%s chrnum=%d takeoff=%d descended=%d landed=%d stayed=%d walk_off=%d dropped=%d lower_landed=%d",
+        ledge->fixture->marker, reason, ledge->actor_chrnum, ledge->took_off, ledge->descended,
+        ledge->landed, ledge->stayed, ledge->walk_off, ledge->dropped,
+        ledge->lower_landed);
+    smokeHarnessExit(1, "movement_ledge_failed");
+    return 0;
+}
+
+static s32 smokeLedgeStageActive(const SmokeSupportFixture *fixture)
+{
+    return g_NetMode == NETMODE_NONE && g_StageNum == fixture->stage
+        && g_Vars.stagenum == fixture->stage && g_Vars.normmplayerisrunning
+        && s_State.ready_stage_generation != 0
+        && s_State.ready_stage_num == fixture->stage;
+}
+
+static struct chrdata *smokeLedgeActor(s32 bot_slot)
+{
+    struct player *player = g_Vars.players[0];
+    struct chrdata *chr;
+
+    if (bot_slot >= 0) {
+        if (bot_slot >= g_BotCount || bot_slot >= MAX_BOTS) return NULL;
+        chr = g_MpBotChrPtrs[bot_slot];
+        if (!chr || !chr->aibot || chrIsDead(chr)) return NULL;
+    } else {
+        if (!player || !player->prop || player->isdead) return NULL;
+        chr = player->prop->chr;
+        if (!chr || chr->prop != player->prop) return NULL;
+    }
+    return chr->prop && chr->prop->chr == chr ? chr : NULL;
+}
+
+static s32 smokeLedgeTableStable(const SmokeLedge *ledge)
+{
+    struct prop *prop = ledge->table_prop;
+    const struct coord *pos = &prop->pos;
+    const struct coord *initial = &ledge->table_pos;
+
+    return ledge->table->prop == prop && prop->obj == ledge->table
+        && meshPropIsMovementSolid(prop) && meshGetFromProp(prop)
+        && prop->rooms[0] == ledge->fixture->room
+        && fabsf(pos->x - initial->x) <= 0.5f
+        && fabsf(pos->y - initial->y) <= 0.5f
+        && fabsf(pos->z - initial->z) <= 0.5f
+        && memcmp(ledge->table_rotation, ledge->table->realrot,
+            sizeof(ledge->table_rotation)) == 0;
+}
+
+static s32 smokeLedgeTableContact(const SmokeLedge *ledge, const struct coord *pos,
+        f32 feet, struct prop *actor)
+{
+    const RoomNum rooms[] = { ledge->fixture->room, -1 };
+    const struct coord from = { pos->x, feet + 6.0f, pos->z };
+    const struct coord to = { pos->x, feet - 6.0f, pos->z };
+    struct coord normal;
+    f32 fraction = 1.0f;
+    struct prop *hit = NULL;
+
+    return meshRayCastDynamicProps(&from, &to, rooms, actor, &fraction,
+            &normal, &hit)
+        && hit == ledge->table_prop && fabsf(normal.y) > 0.7f
+        && fabsf(6.0f - 12.0f * fraction) <= 3.0f;
+}
+
+static s32 smokeLedgeBindTable(SmokeLedge *ledge, struct prop *actor)
+{
+    const SmokeSupportFixture *fixture = ledge->fixture;
+    struct defaultobj *obj = (struct defaultobj *)setupGetCmdByIndex(fixture->table_command);
+    if (!obj || obj->type != OBJTYPE_BASIC || obj->modelnum != MODEL_CV_COFFEE_TABLE
+            || obj->pad != fixture->table_pad || !obj->prop || obj->prop->obj != obj
+            || obj->prop->rooms[0] != fixture->room) {
+        return smokeLedgeFail("authored_table_missing");
+    }
+
+    ledge->table = obj;
+    ledge->table_prop = obj->prop;
+    ledge->table_pos = obj->prop->pos;
+    memcpy(ledge->table_rotation, obj->realrot, sizeof(ledge->table_rotation));
+    if (!smokeLedgeTableStable(ledge)) return smokeLedgeFail("table_collision_unavailable");
+
+    const struct coord target = { fixture->x, fixture->upper_y, fixture->upper_goal_z };
+    if (!smokeLedgeTableContact(ledge, &target, fixture->upper_y, actor)) {
+        return smokeLedgeFail("authored_tabletop_contact_missing");
+    }
+    sysLogPrintf(LOG_NOTE, "%s: phase=table_bound command=%d model=%s pad=%d room=%d collision=dynamic_mesh",
+        fixture->marker, fixture->table_command, "base:model_cv_coffee_table",
+        fixture->table_pad, fixture->room);
+    return 1;
+}
+
+static s32 smokeLedgeObserve(void)
+{
+    SmokeLedge *ledge = &s_State.ledge;
+
+    if (!ledge->actor_prop) return 1;
+    const SmokeSupportFixture *fixture = ledge->fixture;
+    if (!smokeLedgeStageActive(fixture) || s_State.ready_stage_generation != ledge->epoch) {
+        return smokeLedgeFail("stage_changed");
+    }
+
+    const s32 frame = g_Vars.lvframe60;
+    if (frame == ledge->last_frame) return 1;
+    if (frame < ledge->last_frame) return smokeLedgeFail("simulation_reset");
+    ledge->last_frame = frame;
+
+    struct chrdata *chr = smokeLedgeActor(ledge->bot_slot);
+    if (!chr || chr->prop != ledge->actor_prop || chr->chrnum != ledge->actor_chrnum) {
+        return smokeLedgeFail("actor_changed");
+    }
+    if (ledge->table && !smokeLedgeTableStable(ledge)) return smokeLedgeFail("table_changed");
+
+    const struct player *player = ledge->bot_slot < 0 ? g_Vars.players[0] : NULL;
+    const f32 feet = player ? player->vv_manground : chr->manground;
+    const f32 ground = player ? player->vv_ground : chr->ground;
+    const f32 velocity = player ? player->bdeltapos.y : chr->fallspeed.y;
+    const RoomNum floorroom = player ? player->floorroom : chr->floorroom;
+    const struct coord *pos = &chr->prop->pos;
+    if (!__builtin_isfinite(feet) || !__builtin_isfinite(ground) || !__builtin_isfinite(velocity)
+            || !__builtin_isfinite(pos->x) || !__builtin_isfinite(pos->z)) {
+        return smokeLedgeFail("nonfinite_movement");
+    }
+    const s32 in_lane = fabsf(pos->x - fixture->x) < fixture->lane_half_width;
+    const s32 settled = in_lane && floorroom == fixture->room
+        && fabsf(feet - ground) <= 2.0f && fabsf(velocity) <= 0.25f;
+    const s32 on_ledge = settled && fabsf(feet - fixture->upper_y) <= 2.0f
+        && pos->z >= fixture->upper_min_z && pos->z <= fixture->upper_max_z
+        && (!ledge->table || smokeLedgeTableContact(ledge, pos, feet, chr->prop));
+
+    if (!ledge->took_off && in_lane && pos->z < fixture->edge_z
+            && feet > fixture->lower_y + 4.0f && velocity > 0.25f) {
+        ledge->took_off = 1;
+        sysLogPrintf(LOG_NOTE,
+            "%s: phase=takeoff chrnum=%d frame=%d feet=%.2f velocity=%.2f z=%.2f",
+            fixture->marker, chr->chrnum, frame, feet, velocity, pos->z);
+    }
+    if (ledge->took_off && feet > fixture->upper_y + 2.0f && velocity < -0.25f) {
+        ledge->descended = 1;
+    }
+    if (!ledge->walk_off) {
+        if (!on_ledge && ledge->landed) return smokeLedgeFail("lost_ledge_before_walk_off");
+        if (!on_ledge || !ledge->descended) return 1;
+        if (!ledge->landed) {
+            ledge->landed = 1;
+            ledge->land_frame = frame;
+            sysLogPrintf(LOG_NOTE,
+                "%s: phase=land chrnum=%d frame=%d room=%d feet=%.2f ground=%.2f z=%.2f support=%s",
+                fixture->marker, chr->chrnum, frame, floorroom, feet, ground, pos->z,
+                ledge->table ? "table" : "room");
+        }
+        ledge->support_samples++;
+        if (!ledge->stayed && ledge->support_samples >= 8
+                && frame - ledge->land_frame >= SMOKE_LEDGE_STAY_TICKS) {
+            ledge->stayed = 1;
+            sysLogPrintf(LOG_NOTE,
+                "%s: phase=stay chrnum=%d ticks=%d samples=%d room=%d feet=%.2f support=%s",
+                fixture->marker, chr->chrnum, frame - ledge->land_frame,
+                ledge->support_samples, floorroom, feet, ledge->table ? "table" : "room");
+        }
+        return 1;
+    }
+
+    if (!ledge->dropped && in_lane && pos->z < fixture->edge_z
+            && velocity < -0.25f && feet < fixture->upper_y - 2.0f) {
+        ledge->dropped = 1;
+        sysLogPrintf(LOG_NOTE,
+            "%s: phase=drop chrnum=%d frame=%d feet=%.2f velocity=%.2f z=%.2f",
+            fixture->marker, chr->chrnum, frame, feet, velocity, pos->z);
+    }
+    if (!ledge->lower_landed && ledge->dropped && settled && pos->z <= fixture->lower_return_max_z
+            && fabsf(feet - fixture->lower_y) <= 2.0f) {
+        ledge->lower_landed = 1;
+        sysLogPrintf(LOG_NOTE,
+            "%s: phase=lower_land chrnum=%d frame=%d room=%d feet=%.2f ground=%.2f z=%.2f",
+            fixture->marker, chr->chrnum, frame, floorroom, feet, ground, pos->z);
+    }
+    return 1;
+}
+
+static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand command)
+{
+    SmokeLedge *ledge = &s_State.ledge;
+    const SmokeSupportFixture *fixture = &s_SmokeSupportFixtures[fixture_id];
+    RoomNum rooms[] = { fixture->room, -1 };
+
+    if (ledge->fixture && ledge->fixture != fixture) return smokeLedgeFail("fixture_changed");
+    ledge->fixture = fixture;
+    if (!smokeLedgeStageActive(fixture)) return smokeLedgeFail("wrong_stage");
+    if (command == SMOKE_LEDGE_PLACE_PLAYER || command == SMOKE_LEDGE_PLACE_BOT) {
+        const s32 bot_slot = command == SMOKE_LEDGE_PLACE_BOT ? 0 : -1;
+        if (ledge->actor_prop) return smokeLedgeFail("duplicate_placement");
+        if (bot_slot >= 0 && (g_BotCount != 1 || !(g_MpSetup.options & MPOPTION_BOTJUMP))) {
+            return smokeLedgeFail("simulant_setup");
+        }
+        struct chrdata *chr = smokeLedgeActor(bot_slot);
+        if (!chr) return smokeLedgeFail("actor_missing");
+        if (fixture->table_command >= 0 && !smokeLedgeBindTable(ledge, chr->prop)) return 0;
+
+        struct coord start = { fixture->x, fixture->lower_y + 4.0f, fixture->start_z };
+        const s32 previous_player = g_Vars.currentplayernum;
+        if (bot_slot < 0) setCurrentPlayerNum(0);
+        const s32 placed = chrMoveToPos(chr, &start, rooms, 0.0f, true);
+        if (bot_slot < 0) setCurrentPlayerNum(previous_player);
+        if (!placed || chr->prop->rooms[0] != fixture->room
+                || fabsf(chr->prop->pos.x - start.x) > 1.0f
+                || fabsf(chr->prop->pos.z - start.z) > 1.0f
+                || fabsf(chr->ground - fixture->lower_y) > 2.0f) {
+            sysLogPrintf(LOG_ERROR,
+                "%s: start placed=%d room=%d ground=%.2f x=%.2f z=%.2f",
+                fixture->marker, placed, chr->prop->rooms[0], chr->ground,
+                chr->prop->pos.x, chr->prop->pos.z);
+            return smokeLedgeFail("wrong_start_support");
+        }
+        ledge->actor_prop = chr->prop;
+        ledge->actor_chrnum = chr->chrnum;
+        ledge->bot_slot = bot_slot;
+        ledge->epoch = s_State.ready_stage_generation;
+        ledge->last_frame = g_Vars.lvframe60;
+        sysLogPrintf(LOG_NOTE,
+            "%s: phase=place actor=%s chrnum=%d room=%d feet=%.2f x=%.2f z=%.2f",
+            fixture->marker, bot_slot < 0 ? "player" : "simulant", chr->chrnum,
+            fixture->room, chr->ground, chr->prop->pos.x, chr->prop->pos.z);
+        if (bot_slot >= 0) {
+            struct coord upper = { fixture->x, fixture->upper_y, fixture->upper_goal_z };
+            botApplyHold(chr, &upper, rooms, 0.0f);
+        }
+        return 1;
+    }
+
+    if (!ledge->actor_prop) return smokeLedgeFail("placement_missing");
+    if (command == SMOKE_LEDGE_WALK_OFF) {
+        if (ledge->walk_off) return smokeLedgeFail("duplicate_walk_off");
+        if (!ledge->took_off) return smokeLedgeFail("takeoff_missing");
+        if (!ledge->landed) return smokeLedgeFail("ledge_landing_missing");
+        if (!ledge->stayed) return smokeLedgeFail("sustained_support_missing");
+        if (ledge->bot_slot >= 0) {
+            struct chrdata *chr = smokeLedgeActor(ledge->bot_slot);
+            struct coord lower = { fixture->x, fixture->lower_y, fixture->lower_goal_z };
+            if (!chr || chr->prop != ledge->actor_prop || chr->chrnum != ledge->actor_chrnum) {
+                return smokeLedgeFail("actor_changed");
+            }
+            botApplyHold(chr, &lower, rooms, M_BADPI);
+        }
+        ledge->walk_off = 1;
+        return 1;
+    }
+
+    if (!ledge->walk_off || !ledge->dropped) return smokeLedgeFail("departure_missing");
+    if (!ledge->lower_landed) return smokeLedgeFail("lower_landing_missing");
+    sysLogPrintf(LOG_NOTE, "%s: result=pass actor=%s chrnum=%d",
+        fixture->marker, ledge->bot_slot < 0 ? "player" : "simulant", ledge->actor_chrnum);
+    return 1;
+}
+
 void smokeHarnessTick(void)
 {
     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
@@ -3236,6 +3596,7 @@ void smokeHarnessTick(void)
     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     smokeObserveStageReadyEpoch();
     if (!smokeGridPortalObserve()) return;
+    if (!smokeLedgeObserve()) return;
     u32 script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
         ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
     s32 elapsed = (s32)script_elapsed_ms;
@@ -3317,6 +3678,9 @@ void smokeHarnessTick(void)
                 smokeHarnessExit(1, "grid_retry_failed");
                 return;
             }
+            break;
+        case SMOKE_EVENT_MOVEMENT_LEDGE:
+            if (!smokeLedgeApply(ev->ledge_fixture, ev->ledge_command)) return;
             break;
         case SMOKE_EVENT_KEY_PRESS:
             sysLogPrintf(LOG_NOTE, "SMOKE: press scancode=%d at_ms=%d", ev->scancode, ev->at_ms);
@@ -3844,6 +4208,7 @@ void smokeHarnessTick(void)
              * still logs its object event totals. */
             scenarioSourceGraphObjectEventsReport("smoke_exit");
             projectileEventsReport("smoke_exit");
+            modeEventsReport("smoke_exit");
             s_State.next_event_idx++;
             s_State.events_fired++;
             smokeHarnessExit(0, "scripted_exit");

@@ -766,6 +766,9 @@ void mpInit(bool resetplayers)
 
 	g_MpSetup.options |= MPOPTION_FRIENDLYFIRE;
 
+	/* PC: simulants jump by default (Mike 2026-11-21: "bots must use our jump"). */
+	g_MpSetup.options |= MPOPTION_BOTJUMP;
+
 	g_Vars.mphilltime = 10;
 
 	func0f187fec();
@@ -4546,6 +4549,30 @@ s32 mpGetNumUnlockedPresets(void)
 	return numunlocked;
 }
 
+/* PC (Mike 2026-11-21, the Room's Load Preset): the mpconfigs.c entry of the
+ * slot-th preset this profile can use (slots count unlocked presets only, as
+ * mpGetPresetNameBySlot and mp0f18dec4 do), or -1. */
+s32 mpGetPresetConfigNumBySlot(s32 slot)
+{
+	u32 i;
+
+	if (slot < 0) {
+		return -1;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_MpPresets); i++) {
+		if (mpIsPresetUnlocked(i)) {
+			if (slot == 0) {
+				return (s32)g_MpPresets[i].confignum;
+			}
+
+			slot--;
+		}
+	}
+
+	return -1;
+}
+
 char *mpGetPresetNameBySlot(s32 slot)
 {
 	s32 i;
@@ -4601,6 +4628,11 @@ void mpApplyConfig(struct mpconfigfull *config)
 	 * whole-struct assignment from the challenge template is safe — it
 	 * does not clobber participant state. */
 	g_MpSetup = config->config.setup;
+
+	/* PC: the original preset and challenge table predates simulant jumping,
+	 * so its option words never carry the bit; simulants jump by default
+	 * there too (Mike 2026-11-21: "bots must use our jump"). */
+	g_MpSetup.options |= MPOPTION_BOTJUMP;
 
 	/* PC (finding 10): the challenge and preset table (mpconfigs.c) names its
 	 * stage by number; everything after this keys on the catalog id. */

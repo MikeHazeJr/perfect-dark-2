@@ -254,7 +254,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(check, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass_textbank\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -848,4 +848,49 @@ TEST_CASE("every scenario under PD2_STAGE_RULES_ROOT carries a readable stage.js
 	for (const std::string &n : with_weather) names += " " + n;
 	WARN("read " << checked << " stage.json members under " << root << "; with weather:" << names);
 	CHECK(checked > 0);
+}
+
+TEST_CASE("Stage text banks: a stage names its own language bank in its archive",
+          "[stagerules][text-bank][static]")
+{
+	const std::string lang = readSource("src/game/lang.c");
+	const std::string setup = readSource("src/game/setup.c");
+	const std::string lv = readSource("src/game/lv.c");
+	const std::string walker = readSource("port/src/loader_walker_scenario.c");
+	const std::string scanner = readSource("port/src/assetcatalog_scanner.c");
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The stage's catalog row carries the bank its archive names, read at
+	// registration so the briefing has it before the stage loads.
+	REQUIRE(walker.find("loaderWalkerEnvelopeStrCopy(manifest, manifest_len, \"text_bank\",") != std::string::npos);
+	REQUIRE(scanner.find("iniGet(ini, \"text_bank\", \"\")") != std::string::npos);
+
+	// The three places that asked lang.c's stage table ask the stage now.
+	REQUIRE(setup.find("briefing->langbank = langGetStageBank(stagenum, 0);") != std::string::npos);
+	REQUIRE(setup.find("s32 stagebank = langGetStageBank(stagenum, g_Vars.normmplayerisrunning);") != std::string::npos);
+	REQUIRE(lv.find("s32 bank = langGetStageBank(g_Vars.stagenum, g_Vars.normmplayerisrunning);") != std::string::npos);
+	REQUIRE(setup.find("langGetLangBankIndexFromStagenum(") == std::string::npos);
+	REQUIRE(lv.find("langGetLangBankIndexFromStagenum(") == std::string::npos);
+
+	// The archive's bank wins; a stage that names none keeps the table; a
+	// named id that is not a language bank fails loudly.
+	const size_t resolver = lang.find("s32 langGetStageBank(s32 stagenum, s32 prefer_mp)");
+	REQUIRE(resolver != std::string::npos);
+	const std::string body = lang.substr(resolver, 2600);
+	const size_t named = body.find("scenario->ext.scenario.text_bank[0]");
+	const size_t lang_type = body.find("bank->type == ASSET_LANG");
+	const size_t table = body.find("result = (s32)langGetLangBankIndexFromStagenum(stagenum);");
+	REQUIRE(named != std::string::npos);
+	REQUIRE(lang_type != std::string::npos);
+	REQUIRE(table != std::string::npos);
+	REQUIRE(named < table);
+	REQUIRE(body.find("sysLoudFailf(\"LANG.STAGE\",") != std::string::npos);
+
+	// The extractor writes the bank from the game's table into every base
+	// scenario, an archive without it is rebuilt, and the kind moved.
+	REQUIRE(extractor.find("\",\\n  \\\"text_bank\\\": \\\"%s\\\"\", text_bank);") != std::string::npos);
+	REQUIRE(extractor.find("\"\\\"text_bank\\\": \\\"\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_ruleevents_liftglass_textbank\"") != std::string::npos);
+	REQUIRE(conformance.find("SCENARIO_TEXT_BANK_RE") != std::string::npos);
 }

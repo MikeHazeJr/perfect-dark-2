@@ -99,6 +99,30 @@ net_reconnect_prop_placement_e netReconnectPlanPropPlacement(
 		: NET_RECONNECT_PROP_PLACEMENT_PAUSED;
 }
 
+net_reconnect_world_placement_e netReconnectPlanWorldPropPlacement(
+		s32 has_parent, s32 wire_scheduled, s32 wire_active,
+		s32 local_scheduled)
+{
+	if (has_parent) {
+		/* A child's links belong to its parent's chain. */
+		return wire_scheduled || wire_active
+			? NET_RECONNECT_WORLD_PLACEMENT_INVALID
+			: NET_RECONNECT_WORLD_PLACEMENT_ATTACHED;
+	}
+	if (!wire_scheduled) {
+		/* Only a listed prop can be active. */
+		return wire_active
+			? NET_RECONNECT_WORLD_PLACEMENT_INVALID
+			: NET_RECONNECT_WORLD_PLACEMENT_UNSCHEDULED;
+	}
+	if (local_scheduled) {
+		return NET_RECONNECT_WORLD_PLACEMENT_KEEP;
+	}
+	return wire_active
+		? NET_RECONNECT_WORLD_PLACEMENT_ACTIVE
+		: NET_RECONNECT_WORLD_PLACEMENT_PAUSED;
+}
+
 s32 netReconnectWorldPropShouldSerialize(s32 pending_delete,
 		s32 can_regenerate)
 {

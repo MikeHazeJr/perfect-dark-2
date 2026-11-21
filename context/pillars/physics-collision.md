@@ -109,6 +109,26 @@ Per [constraints.md](../constraints.md):
 
 ## What is in flight
 
+**2026-11-18 movement qualification (T-ENGINE-006, V-010).** The candidate
+stores jump timers on each simulant and initializes them on allocation and
+accepted spawn. A committed landing starts the cooldown. The jump decision
+uses the current movement intent, character gravity, and a bounded swept
+path to sampled support. Player and opted-in simulant support lookups carry
+height, room, material, hazard flags, and lift identity from the selected
+surface. The existing player volume-only compatibility path remains under
+review for hazard and lift ownership.
+
+The first ordinary-client proofs use the Complex room 24 ledge and the
+Villa room 17 coffee table with one player and one NormalSim per fixture
+pair. They require a rise and descent, landing, at least 30 stable game
+ticks, walk-off, and lower-floor landing. Villa also checks contact with the
+specific live table. Source guard and fixture structure passed. The C: build
+and smoke preflights refused admission at 148.85 GiB free against requirements
+of 206 GiB and 204 GiB. Native compilation and gameplay are pending. The
+next movement proofs cover blockers, slopes, seams, lift and hazard support,
+restart and respawn, and remote jump. Swarm acceptance is tracked separately
+under T-BENCHMARKING-006.
+
 - **c038 Jump surface collision fix -- IMPLEMENTED + BUILD/TEST VERIFIED 2026-05-18; pending playtest.** Replaced the incomplete single-center-ray Stage 2 with a generic multi-sample capsule sweep, then replaced the fragile render-owned prop/model substrate with collision-owned mesh data. Stage load now builds `g_WorldMesh` from rendered room triangles; movement-solid props attach local-space `prop->colmesh`; Forge pickups/weapon pads/pass-through/projectile-only objects are movement-pass-through. Dynamic prop collision meshes detach through `meshDetachAllStageProps()` before `MEMPOOL_STAGE` reset, not from stale props in `lvReset()`; the detach pass walks only `g_Vars.activeprops` and prop reset nulls `colmesh` for the pool. Bug ledger: B-335 + B-339 + B-343. Verification: queued isolated `jumpfix` client/tests/focused `[physics][jump]` PASS for the first solver; queued isolated `meshcol` client/updater PASS, tests target PASS, focused `[physics][jump]` PASS (64 assertions / 4 cases), server PASS for the mesh ownership fix; queued isolated `meshdn` client/updater PASS, tests target PASS, focused `[physics][jump]` PASS (85 assertions / 4 cases), server PASS for the detach-before-stage-reset fix; recursive session `smkmis` focused `[physics][jump]` PASS (92 assertions / 4 cases), client PASS, server PASS, `mission_intro_flow` PASS (18/18), and `auto_campaign_first_cycle` PASS (20/20) after reproducing/fixing the Defection -> Investigation stale-free-tail crash.
 - **B-350 Airborne side-entry through overhead blockers -- BUILD/TEST VERIFIED 2026-05-19; pending CI Training playtest.** Follow-up to c038/B-339 after Mike's playtest showed top/bottom blocking improved but side-entry during a jump could still pass through overhead blockers. Root cause was movement order: horizontal movement applied first, then `bwalkUpdateVertical()` only swept `move=(0, verticalDelta, 0)`. `bondwalk.c` now runs an upward diagonal `capsuleSweep()` from `bondprevpos` to current X/Z plus `verticalDelta` before the vertical-only sweep, rolls X/Z back to the safe fraction on any hit, and clamps/kills upward movement on ceiling-class hits. `tests/test_jump_two_stage_design.cpp` now includes side-wall rendered-triangle fixture coverage. Verification: queued isolated `b350side` tests target PASS, focused `[physics][jump]` PASS (99 assertions / 4 cases), and all-target build PASS.
 - **B-367 Airborne lateral wall/ceiling/corner clamp -- BUILD/TEST VERIFIED 2026-05-22; pending Mike playtest.** Follow-up after Mike reported the jumping player still clips into walls, ceilings, or corners. The remaining movement-order gap was horizontal movement committing through the legacy cylinder path before the vertical repair code ran, so apex/descent or same-frame wall/corner contact could enter rendered-only geometry. `bondwalk.c` now runs `bwalkClampAirborneLateralEntry()` immediately after horizontal movement and before speed correction when the player is airborne. The helper performs a horizontal collision-owned capsule mesh sweep from `bondprevpos`, rolls X/Z back to a safe fraction on wall/ceiling/corner hits, ignores floor-class hits, and leaves the existing upward diagonal B-350 sweep in place. Verification: focused `[physics][jump]` PASS (105 assertions / 4 cases) and isolated `jump367` all-target build PASS.

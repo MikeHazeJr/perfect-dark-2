@@ -229,6 +229,8 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
 					}
 
 					aibot->aibotnum = aibotnum;
+					aibot->jumplastevalms = 0;
+					aibot->jumpcooldownuntil60 = 0;
 					aibot->flags = 0;
 					aibot->gotoprop = NULL;
 					aibot->timeuntilreload60[0] = 0;

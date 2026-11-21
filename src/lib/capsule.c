@@ -413,7 +413,9 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
 		return 1.0f;
 	}
 
-	f32 best_frac = meshRayCastWorld(from, to, rooms, out_normal);
+	f32 best_frac = g_WorldMesh.cells
+		? meshRayCastWorldMasked(from, to, 0, out_normal, NULL)
+		: meshRayCastWorld(from, to, rooms, out_normal);
 
 	if (best_frac < 1.0f) {
 		CAPSULE_LOG("stage2 raycast hit frac=%.3f from=(%.1f,%.1f,%.1f) to=(%.1f,%.1f,%.1f)",
@@ -533,6 +535,52 @@ f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
 	CAPSULE_LOG("stage2 floor probe pos=(%.1f,%.1f,%.1f) hit_y=%.1f normal=(%.2f,%.2f,%.2f) prop=%d",
 		pos->x, pos->y, pos->z, hit_y, normal.x, normal.y, normal.z, prop != NULL);
 	return hit_y;
+}
+
+struct capsulesupport capsuleFindSupportForProp(struct prop *selfprop,
+		const struct coord *pos, f32 radius, RoomNum *rooms, f32 support_top)
+{
+	struct capsulesupport support = {.room = -1};
+	struct coord tilepos = *pos;
+	tilepos.y = MIN(tilepos.y, support_top);
+	s32 inlift = false;
+	support.y = cdFindGroundInfoAtCyl(&tilepos, radius, rooms, &support.colour,
+			&support.material, &support.flags, &support.room, &inlift, &support.lift);
+	if (support.room >= 0 && support.y >= support_top - 1.0f) {
+		return support;
+	}
+	/* The legacy mesh fallback has no contact identity and may extrapolate
+	 * a plane above this query. Keep only a real tile as the first candidate. */
+	if (support.room < 0) {
+		support = (struct capsulesupport){.y = -30000.0f, .room = -1, .colour = 0x0fff};
+	}
+
+	const f32 skin = radius * 0.85f;
+	const f32 offsets[5][2] = {{0, 0}, {skin, 0}, {-skin, 0}, {0, skin}, {0, -skin}};
+	f32 nearest = 1.0f;
+	struct meshfloorcontact contact = {.room = -1};
+	for (s32 i = 0; i < ARRAYCOUNT(offsets); i++) {
+		struct coord from = {pos->x + offsets[i][0], support_top, pos->z + offsets[i][1]};
+		struct coord end = {from.x, support_top - CAPSULE_FLOOR_PROBE, from.z};
+		struct meshfloorcontact hit;
+		const f32 fraction = meshRayCastFloor(&from, &end, rooms, selfprop, &hit);
+		if (fraction < nearest) {
+			nearest = fraction;
+			contact = hit;
+		}
+	}
+	if (nearest < 1.0f) {
+		const f32 y = support_top - CAPSULE_FLOOR_PROBE * nearest;
+		if (y > support.y + 1.0f) {
+			support.y = y;
+			support.room = contact.room;
+			support.flags = contact.flags;
+			support.colour = contact.colour;
+			support.material = contact.material;
+			support.lift = contact.flags & GEOFLAG_LIFTFLOOR ? contact.prop : NULL;
+		}
+	}
+	return support;
 }
 
 f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,

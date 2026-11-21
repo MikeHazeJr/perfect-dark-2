@@ -215,7 +215,7 @@ TEST_CASE("the archive checker knows the room table member",
 	REQUIRE(conformance.find("\"rooms.json\",      # authored BG room table sidecar (B-1113)") !=
 		std::string::npos);
 	REQUIRE(conformance.find("\"rooms.json\": slot(") != std::string::npos);
-	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass\"") != std::string::npos);
+	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass_textbank\"") != std::string::npos);
 }
 
 // B-1266: the scene export left out every room whose display data inflated
@@ -274,12 +274,12 @@ TEST_CASE("the scene export sizes a room from its inflated length and leaves non
 	// An install that already has scenes takes them through the per-archive
 	// check again, which compares the scene export version each scene carries.
 	CHECK(extractor.find("_iafix_b945_dyntex_allrooms_b1266_cull_b1267_texgen_b1268\"\n") != std::string::npos);
-	CHECK(extractor.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268\"") !=
+	CHECK(extractor.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268_textbank\"") !=
 		std::string::npos);
 	CHECK(extractor.find("s_existingArchiveEntryContains(check, \"scene.glb\",\n\t\t\tPDSCENARIO_BG_VISUAL_EXPORT_VERSION)") !=
 		std::string::npos);
 	// The scenario kind is the level format authored levels declare: unchanged.
-	CHECK(extractor.find("_catalogargs_assetargs_ruleevents_liftglass\"\n") != std::string::npos);
+	CHECK(extractor.find("_catalogargs_assetargs_ruleevents_liftglass_textbank\"\n") != std::string::npos);
 }
 
 // B-1267: the room display lists set and clear G_CULL_BACK (on Defection

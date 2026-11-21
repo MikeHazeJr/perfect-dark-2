@@ -45,6 +45,7 @@
 #include "net/net.h"                /* g_NetMode: who decides scenario state */
 #include "net/netmsg.h"             /* B-1209: announcing a scenario prop made in the match */
 #include "net/net_scenario_state_wire.h"
+#include "mode_events.h"           /* gamemode-graphs.md slice 1: record-only mode events */
 
 _Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE
 		&& MPSCENARIO_HACKERCENTRAL == NET_SCENARIO_STATE_HACKERCENTRAL
@@ -1048,6 +1049,7 @@ void scenarioInit(void)
 	if (g_MpScenarios[scenario].initfunc) {
 		g_MpScenarios[scenario].initfunc();
 	}
+	modeEventRecord(MODE_EVENT_CHOSEN, -1);
 }
 
 /**
@@ -1075,6 +1077,7 @@ void scenarioInitProps(void)
 	if (g_MpScenarios[scenario].initpropsfunc) {
 		g_MpScenarios[scenario].initpropsfunc();
 	}
+	modeEventRecord(MODE_EVENT_PROPS_INIT, -1);
 }
 
 /**
@@ -1171,6 +1174,7 @@ void scenarioTick(void)
 		if (g_MpScenarios[scenario].tickfunc) {
 			g_MpScenarios[scenario].tickfunc();
 		}
+		modeEventRecord(MODE_EVENT_TICK, -1);
 
 		scenarioLogPointChanges();
 	}
@@ -1187,6 +1191,12 @@ void scenarioTickChr(struct chrdata *chr)
 	s32 scenario = scenarioGetSafeIndex("scenarioTickChr");
 	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].tickchrfunc) {
 		g_MpScenarios[scenario].tickchrfunc(chr);
+	}
+	if (g_Vars.normmplayerisrunning) {
+		const struct chrdata *who = chr ? chr
+			: g_Vars.currentplayer && g_Vars.currentplayer->prop
+				? g_Vars.currentplayer->prop->chr : NULL;
+		modeEventRecord(MODE_EVENT_CHR_TICK, who ? who->chrnum : -1);
 	}
 }
 
@@ -1311,6 +1321,7 @@ void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *sc
 
 		*deaths = mpchr->numdeaths;
 	}
+	modeEventRecord(MODE_EVENT_SCORE, chrnum);
 }
 
 /**
@@ -1439,6 +1450,9 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
 		g_MpSetup.scenario, g_Vars.normmplayerisrunning,
 		(g_Vars.normmplayerisrunning && g_MpScenarios[scenario].spawnfunc) ? 1 : 0,
 		g_NumSpawnPoints);
+	if (g_Vars.normmplayerisrunning) {
+		modeEventRecord(MODE_EVENT_SPAWN, prop && prop->chr ? prop->chr->chrnum : -1);
+	}
 
 	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].spawnfunc &&
 			g_MpScenarios[scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {
@@ -1702,6 +1716,7 @@ void scenarioReset(void)
 	case MPSCENARIO_POPACAP:
 		break;
 	}
+	modeEventRecord(MODE_EVENT_STAGE_RESET, -1);
 
 	if (cmd) {
 		s32 safety = 0;
@@ -1712,6 +1727,7 @@ void scenarioReset(void)
 				break;
 			case INTROCMD_CASE:
 			case INTROCMD_CASERESPAWN:
+				modeEventRecord(MODE_EVENT_INTRO_PAD, -1);
 				if (scenario == MPSCENARIO_CAPTURETHECASE) {
 					ctcAddPad(cmd);
 				} else if (scenario == MPSCENARIO_HACKERCENTRAL) {
@@ -1722,6 +1738,7 @@ void scenarioReset(void)
 				cmd += 3;
 				break;
 			case INTROCMD_HILL:
+				modeEventRecord(MODE_EVENT_INTRO_PAD, -1);
 				if (scenario == MPSCENARIO_KINGOFTHEHILL) {
 					kohAddHill(cmd);
 				}
@@ -2015,6 +2032,11 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 	char text3[64];
 	struct mpchrconfig *mpchr;
 
+	if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE
+			|| g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
+		modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
+	}
+
 	if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
 		// Player or bot has picked up the briefcase
 		g_ScenarioData.htb.token = chr->prop;
@@ -2284,6 +2306,8 @@ void scenarioHandleDroppedToken(struct chrdata *chr, struct prop *prop)
 	Mtxf mtx;
 	RoomNum rooms[2];
 
+	modeEventRecord(MODE_EVENT_TOKEN_DROPPED, chr ? chr->chrnum : -1);
+
 	if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
 		for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
 			if (chr->prop == g_ScenarioData.ctc.tokens[i]) {
@@ -2327,6 +2351,7 @@ s32 scenarioPickUpUplink(struct chrdata *chr, struct prop *prop)
 #if VERSION >= VERSION_NTSC_1_0
 		struct defaultobj *obj = prop->obj;
 #endif
+		modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
 
 		g_ScenarioData.htm.uplink = chr->prop;
 
@@ -2407,6 +2432,8 @@ void scenarioHandleActivatedProp(struct chrdata *chr, struct prop *prop)
 
 		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
 			u32 mpindex = mpPlayerGetIndex(chr);
+
+			modeEventRecord(MODE_EVENT_PROP_ACTIVATED, chr ? chr->chrnum : -1);
 
 			if ((obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND) == 0) {
 				obj->hidden &= 0x0fffffff;

@@ -943,3 +943,54 @@ TEST_CASE("B-1275: a co-op or counter-op lobby start lists every base weapon the
 	REQUIRE(mission < models);
 	REQUIRE(write.rfind("if (gamemode == NETGAMEMODE_MP) {", mission) != npos);
 }
+
+TEST_CASE("B-1278 the offline Room opens from CI through the Main Menu's Combat Simulator entry",
+          "[net][coop][ai-buddies][boot][static][b1278]") {
+	const size_t npos = std::string::npos;
+	const std::string main_c = code_only(read_text_file("port/src/main.c"));
+
+	// The flag drops into CI and keeps the Main Menu from auto-opening
+	const std::string apply = function_body(main_c, "static void bootApplyLaunchOfflineRoom(void)\n{");
+	REQUIRE(apply.find("sysArgCheck(\"--launch-offline-room\")") != npos);
+	REQUIRE(apply.find("g_PostExitMainMenuView = -1;") != npos);
+	REQUIRE(apply.find("g_StageNum = STAGE_CITRAINING;") != npos);
+
+	// The tick waits for the staged agent, marks the file selected (so CI does
+	// not force Agent Select), waits for the CI menu gate, then makes the Main
+	// Menu's own Combat Simulator call
+	const std::string tick = function_body(main_c, "s32 bootLaunchOfflineRoomTick(void)\n{");
+	const size_t agent_armed = tick.find("if (g_BootLoadAgentArmed) {");
+	const size_t agent = tick.find("agent = prefsAgentGetActive();");
+	const size_t selected = tick.find("g_FileState = FILESTATE_SELECTED;");
+	const size_t ready = tick.find("if (!menuCiReadyForMenuOpen()) {");
+	const size_t enter = tick.find("menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);");
+	REQUIRE(agent_armed != npos);
+	REQUIRE(agent != npos);
+	REQUIRE(selected != npos);
+	REQUIRE(ready != npos);
+	REQUIRE(enter != npos);
+	REQUIRE(agent_armed < agent);
+	REQUIRE(agent < selected);
+	REQUIRE(selected < ready);
+	REQUIRE(ready < enter);
+	REQUIRE(tick.find("pdguiSoloRoomOpen") == npos);
+
+	// The tick runs after the agent tick in the main loop
+	const std::string pdmain = code_only(read_text_file("port/src/pdmain.c"));
+	const size_t agent_tick = pdmain.find("(void)bootLaunchLoadAgentTick();");
+	const size_t room_tick = pdmain.find("(void)bootLaunchOfflineRoomTick();");
+	REQUIRE(agent_tick != npos);
+	REQUIRE(room_tick != npos);
+	REQUIRE(agent_tick < room_tick);
+
+	// The menu gate is the one the CI menus use
+	const std::string menutick = code_only(read_text_file("src/game/menutick.c"));
+	const std::string gate = function_body(menutick, "s32 menuCiReadyForMenuOpen(void)\n{");
+	REQUIRE(gate.find("ciReadyForMenuOpen()") != npos);
+
+	// The offline smoke takes this path, not Agent Select and the Main Menu
+	const std::string fixture = read_text_file("tools/smoke-verify/tests/coop_ai_buddies_offline_smoke.json");
+	REQUIRE(fixture.find("\"--launch-offline-room\"") != npos);
+	REQUIRE(fixture.find("\"--launch-load-agent\"") != npos);
+	REQUIRE(fixture.find("\"condition\": \"agent_select_ready\"") == npos);
+}

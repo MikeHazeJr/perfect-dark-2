@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "game/file.h"
@@ -13,6 +14,9 @@
 #include "video.h"
 #include "system.h"
 #include "langmanifest.h"
+#include "assetcatalog.h"
+#include "scenario_source_runtime.h"
+#include "game/stagetable.h"
 
 /**
  * Officially, the NTSC versions are American English only, while the PAL
@@ -245,6 +249,57 @@ u32 langGetLangBankIndexFromStagenum(s32 stagenum)
 	}
 
 	return bank;
+}
+
+/* Stage text banks off lang.c (Mike, 2026-11-21): a stage names its own
+ * language bank in its archive (the manifest's "text_bank", an ASSET_LANG
+ * catalog id read into ext.scenario.text_bank at registration, so the
+ * briefing has it before the stage loads). The table above is what the
+ * extractor writes into every base archive, and what a stage that names no
+ * bank still uses: a ROM stage, or an archive extracted before the field. A
+ * named bank that is not a language bank fails loudly and the table answers,
+ * so the stage keeps its text. prefer_mp picks the stage's multiplayer
+ * scenario, as the stage load does. */
+s32 langGetStageBank(s32 stagenum, s32 prefer_mp)
+{
+	static s32 s_LoggedStage = -1;
+	static s32 s_LoggedBank = -1;
+	catalog_stage_result_t stage;
+	const asset_entry_t *scenario = NULL;
+	const asset_entry_t *bank = NULL;
+	const s32 stageindex = stageGetIndex(stagenum);
+	s32 result;
+
+	memset(&stage, 0, sizeof(stage));
+	if (stageindex >= 0 && catalogGetStageResultByIndex(stageindex, &stage)) {
+		scenario = scenarioSourceFindEntryForStage(&stage, prefer_mp);
+	}
+	if (scenario && scenario->ext.scenario.text_bank[0]) {
+		bank = assetCatalogResolve(scenario->ext.scenario.text_bank);
+		if (bank && bank->type == ASSET_LANG && bank->ext.lang.bank_id > 0) {
+			result = bank->ext.lang.bank_id;
+			if (s_LoggedStage != stagenum || s_LoggedBank != result) {
+				s_LoggedStage = stagenum;
+				s_LoggedBank = result;
+				sysLogPrintf(LOG_NOTE,
+					"LANG.STAGE: stage=0x%02x bank=%d source=archive scenario='%s' text_bank='%s'",
+					stagenum, result, scenario->id, scenario->ext.scenario.text_bank);
+			}
+			return result;
+		}
+		sysLoudFailf("LANG.STAGE",
+			"stage=0x%02x scenario='%s' names text_bank='%s', which is not a language bank; the stage table answers",
+			stagenum, scenario->id, scenario->ext.scenario.text_bank);
+	}
+
+	result = (s32)langGetLangBankIndexFromStagenum(stagenum);
+	if (s_LoggedStage != stagenum || s_LoggedBank != result) {
+		s_LoggedStage = stagenum;
+		s_LoggedBank = result;
+		sysLogPrintf(LOG_NOTE, "LANG.STAGE: stage=0x%02x bank=%d source=table scenario='%s'",
+			stagenum, result, scenario ? scenario->id : "-");
+	}
+	return result;
 }
 
 extern u8 EXT_SEG _fontjpnSegmentRomStart;

@@ -3248,7 +3248,7 @@ void lvStop(void)
 	}
 
 	if (STAGE_IS_GAMEPLAY(g_Vars.stagenum)) {
-		s32 bank = langGetLangBankIndexFromStagenum(g_Vars.stagenum);
+		s32 bank = langGetStageBank(g_Vars.stagenum, g_Vars.normmplayerisrunning);
 		langClearBank(bank);
 		stub0f015270();
 	}

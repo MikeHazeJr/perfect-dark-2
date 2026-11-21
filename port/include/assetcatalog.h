@@ -391,6 +391,10 @@ typedef struct asset_entry {
             s32 stagenum;              /* logical stage ID this scenario content backs */
             s32 mode;                  /* mp, solo, coop (flags or bitmask) */
             s32 source_room_count;     /* canonical room domain, including room 0 */
+            /* The stage's language bank, the ASSET_LANG catalog id its archive
+             * manifest names ("text_bank"; empty: the archive names none). Read
+             * at registration, so the briefing has it before the stage loads. */
+            char text_bank[CATALOG_ID_LEN];
             char scene_file[FS_MAXPATH]; /* DCC-openable runtime scene source */
             char collision_file[FS_MAXPATH]; /* optional collision override */
             char rooms_file[FS_MAXPATH]; /* compatibility rooms/geometry export */
@@ -1326,6 +1330,11 @@ const char *catalogMpHeadId(s32 mp_idx);
  * Returns NULL if not found or runtime_index is out of cache range.
  */
 const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index);
+
+/* The locale-independent catalog id of a base language bank ("base:lang_dam")
+ * for a LANGBANK_* number, the id a stage's archive names as its text bank
+ * (ext.scenario.text_bank). Returns 1 and fills out, or 0 with out empty. */
+s32 assetCatalogBaseLangBankId(s32 bank_id, char *out, size_t out_n);
 
 /**
  * Explicit stage identity helpers. Stages have three legacy integer spaces:

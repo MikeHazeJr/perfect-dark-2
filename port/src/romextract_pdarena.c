@@ -81,6 +81,7 @@
 #include "texture_decode_pure.h"
 #include "memsizes.h"
 #include "game/stagetable.h"
+#include "game/lang.h"
 #include "game/chrai.h"
 #include "game/texdecompress.h"
 #include "game/tex.h"
@@ -104,8 +105,8 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex_allrooms_b1266_cull_b1267_texgen_b1268"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
-#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass"
+#define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945_allrooms_b1266_texgen_b1268_textbank"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs_assetargs_ruleevents_liftglass_textbank"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -9586,6 +9587,9 @@ static s32 s_existingPdscenarioArchiveMatches(existing_archive_check_t *check)
 			"collision_source = collision.obj") &&
 		s_existingArchiveEntryContains(check, "_meta/manifest.json",
 			"\"collision_source\": \"collision.obj\"") &&
+		/* Stage text banks off lang.c: the stage's archive names its bank. */
+		s_existingArchiveEntryContains(check, "_meta/manifest.json",
+			"\"text_bank\": \"") &&
 		s_existingArchiveEntryContains(check, "level.graph.json",
 			"\"collision\": \"collision.obj\"") &&
 		s_existingArchiveEntryContains(check, "level.graph.json",
@@ -11223,6 +11227,25 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		"  \"generated_collision\": \"_meta/generated-collision.json\",\n"
 		"  \"generated_navmesh\": \"_meta/generated-navmesh.json\"",
 		scenario_id, kind, spec->stagenum, spec->slug);
+
+	/* Stage text banks off lang.c (2026-11-21): the stage's archive names its
+	 * language bank by catalog id, written from the game's stage table, so the
+	 * briefing, the stage load and the teardown read it from the stage's own
+	 * catalog row (langGetStageBank). */
+	{
+		char text_bank[CATALOG_ID_LEN];
+
+		if (assetCatalogBaseLangBankId(
+				(s32)langGetLangBankIndexFromStagenum(spec->stagenum),
+				text_bank, sizeof(text_bank))) {
+			n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
+				",\n  \"text_bank\": \"%s\"", text_bank);
+		} else {
+			sysLoudFailf("EXTRACT.PDSCENARIO",
+				"stage 0x%02x of \"%s\" has no base language bank id; the archive names no text_bank",
+				(unsigned)spec->stagenum, scenario_id);
+		}
+	}
 
 	if (has_tiles > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
 		",\n  \"collision_flags\": \"collision.flags.json\""
