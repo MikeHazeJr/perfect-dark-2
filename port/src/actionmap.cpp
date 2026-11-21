@@ -4208,3 +4208,11 @@ s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
         smoke_injected_before, st->smoke_injected);
     return 1;
 }
+
+s32 actionmapIsSmokeOwned(s32 player, s32 action)
+{
+    if (action < 0 || action >= (s32)ACTION_COUNT) {
+        return 0;
+    }
+    return actionStateIsSmokeOwned(player, (InputAction)action);
+}

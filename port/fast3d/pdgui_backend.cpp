@@ -578,7 +578,24 @@ static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
     static PdguiMouseBackGesture mouseBack;
-    const bool navigationActive = pdguiIsActive() && !inputCtxIsFocusLost() &&
+    /* B-1281: physical input must not drive menus while the window lacks
+     * focus (149820cb1), but every game the smoke runner starts lacks focus
+     * (SP-51), so its injected menu taps never reached ImGui. While focus is
+     * lost, admit exactly the actions the smoke harness injected and still
+     * owns. actionmapIsSmokeOwned is always 0 outside the harness, so players
+     * see no change. */
+    const bool focusLost = inputCtxIsFocusLost() != 0;
+    auto navActionAdmitted = [focusLost](InputAction action) {
+        return !focusLost || actionmapIsSmokeOwned(0, action) != 0;
+    };
+    auto navActionHeld = [&navActionAdmitted](InputAction action) {
+        return navActionAdmitted(action) && actionHeld(0, action) != 0;
+    };
+    const bool smokeOwnsNav = focusLost &&
+        (navActionAdmitted(ACTION_MENU_ACCEPT) || navActionAdmitted(ACTION_MENU_CANCEL) ||
+         navActionAdmitted(ACTION_MENU_UP) || navActionAdmitted(ACTION_MENU_DOWN) ||
+         navActionAdmitted(ACTION_MENU_LEFT) || navActionAdmitted(ACTION_MENU_RIGHT));
+    const bool navigationActive = pdguiIsActive() && (!focusLost || smokeOwnsNav) &&
         !pdguiMainMenuBindingCaptureListening();
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
@@ -595,8 +612,9 @@ static void pdguiDriveImGuiNav(void)
     const bool middleHeld = (mouseButtons & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
     const bool keyboardPointerOwner = pdguiTextKeyboardPointerEvent(
         PDGUI_TEXT_POINTER_WHEEL, (float)mouseX, (float)mouseY, 0) != 0;
-    const bool mouseCancel = mouseBack.update(navigationActive && !keyboardPointerOwner, middleHeld,
-        (float)mouseX, (float)mouseY, io.MouseDragThreshold);
+    /* The middle-click back gesture is physical input: never while focus is lost. */
+    const bool mouseCancel = mouseBack.update(navigationActive && !focusLost && !keyboardPointerOwner,
+        middleHeld, (float)mouseX, (float)mouseY, io.MouseDragThreshold);
     pdguiNavSetFrameCancel(mouseCancel ? 1 : 0);
     InputCtxDebugAuthority textAuthority = {};
     inputCtxDebugSnapshotAuthority(&textAuthority);
@@ -604,12 +622,12 @@ static void pdguiDriveImGuiNav(void)
         navigationActive,
         actionmapGetLastDevice() == ACTIONMAP_DEVICE_GAMEPAD,
         !textAuthority.window_focus_lost && textAuthority.focus_settle_remaining_ms == 0,
-        actionHeld(0, ACTION_MENU_ACCEPT) != 0,
-        actionHeld(0, ACTION_MENU_CANCEL) != 0 || mouseCancel,
-        actionHeld(0, ACTION_MENU_UP) != 0,
-        actionHeld(0, ACTION_MENU_DOWN) != 0,
-        actionHeld(0, ACTION_MENU_LEFT) != 0,
-        actionHeld(0, ACTION_MENU_RIGHT) != 0, io.DeltaTime
+        navActionHeld(ACTION_MENU_ACCEPT),
+        navActionHeld(ACTION_MENU_CANCEL) || mouseCancel,
+        navActionHeld(ACTION_MENU_UP),
+        navActionHeld(ACTION_MENU_DOWN),
+        navActionHeld(ACTION_MENU_LEFT),
+        navActionHeld(ACTION_MENU_RIGHT), io.DeltaTime
     };
     const bool textKeyboardOwns = pdguiTextKeyboardBeginFrame(&textInput) != 0;
     std::array<bool, ACTION_COUNT> textHeld = {};

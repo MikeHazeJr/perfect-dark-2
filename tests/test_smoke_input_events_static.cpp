@@ -1716,3 +1716,46 @@ TEST_CASE("B-1291 a placement in a mission can wait for the intro and hold the v
     requireContains(fixture, "\"--debug-spawn-at-look-at\"");
     requireContains(fixture, R"re(look_dot=(0\\.99[0-9]|1\\.000))re");
 }
+
+TEST_CASE("B-1281 smoke-injected menu actions drive ImGui navigation while the window lacks focus",
+    "[smoke][input][menus][b1281][static]")
+{
+    // 149820cb1 keeps physical input out of menus while the window lacks
+    // focus, and every game the smoke runner starts lacks focus (SP-51), so
+    // the gate admits exactly the actions the harness injected and owns.
+    const std::string backend = readTextFile("port/fast3d/pdgui_backend.cpp");
+    const std::string drive = requireSlice(backend, "static void pdguiDriveImGuiNav(void)",
+        "pdguiSubmitNavInput({navigationActive,");
+    requireContains(drive, "const bool focusLost = inputCtxIsFocusLost() != 0;");
+    requireContains(drive, "return !focusLost || actionmapIsSmokeOwned(0, action) != 0;");
+    requireContains(drive, "return navActionAdmitted(action) && actionHeld(0, action) != 0;");
+    requireContains(drive,
+        "const bool navigationActive = pdguiIsActive() && (!focusLost || smokeOwnsNav) &&");
+    for (const char *action : {"ACTION_MENU_ACCEPT", "ACTION_MENU_CANCEL", "ACTION_MENU_UP",
+                               "ACTION_MENU_DOWN", "ACTION_MENU_LEFT", "ACTION_MENU_RIGHT"}) {
+        const std::string admitted = std::string("navActionAdmitted(") + action + ")";
+        const std::string held = std::string("navActionHeld(") + action + ")";
+        requireContains(drive, admitted.c_str());
+        requireContains(drive, held.c_str());
+        // No nav input reads the action map around the admission check.
+        const std::string raw = std::string("actionHeld(0, ") + action + ") != 0,";
+        CAPTURE(raw);
+        CHECK(drive.find(raw) == std::string::npos);
+    }
+    // The pointer back gesture is physical input and stays off while focus is lost.
+    requireContains(drive,
+        "mouseBack.update(navigationActive && !focusLost && !keyboardPointerOwner,");
+
+    // The ownership query is the harness's own state: always 0 outside it.
+    const std::string actionmap = readTextFile("port/src/actionmap.cpp");
+    const std::string query = requireSlice(actionmap,
+        "s32 actionmapIsSmokeOwned(s32 player, s32 action)",
+        "return actionStateIsSmokeOwned(player, (InputAction)action);");
+    requireContains(query, "if (action < 0 || action >= (s32)ACTION_COUNT) {");
+    const std::string owned = requireSlice(actionmap,
+        "static s32 actionStateIsSmokeOwned(s32 player, InputAction action)",
+        "s_State[player][action].smoke_injected != SMOKE_ACTION_NONE;");
+    requireContains(owned, "return smokeHarnessIsActive() &&");
+    requireContains(readTextFile("port/include/actionmap.h"),
+        "s32 actionmapIsSmokeOwned(s32 player, s32 action);");
+}

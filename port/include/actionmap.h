@@ -808,6 +808,14 @@ s32 actionmapResolveByName(const char *name);
  *  or an ownership collision). */
 s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down);
 
+/** B-1281: 1 while the smoke harness owns `action` for `player` (from an
+ *  injected press until its release edge retires), else 0. Always 0 when
+ *  the harness is not active. While the game window lacks focus, menu
+ *  navigation admits only actions this reports as owned, so a game the
+ *  smoke runner started in the background can still press ImGui menus
+ *  while physical input keeps out. */
+s32 actionmapIsSmokeOwned(s32 player, s32 action);
+
 #ifdef __cplusplus
 }
 #endif
