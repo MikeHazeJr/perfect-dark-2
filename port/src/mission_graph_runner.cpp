@@ -899,6 +899,11 @@ bool eventValid(const mission_graph_event_t *event)
 	if (isProjectileEventKind(event->kind) || isWeaponEventKind(event->kind)) {
 		return event->seam == MISSION_GRAPH_SEAM_NONE && event->instance;
 	}
+	// gamemode-graphs.md slice 3: a mode event carries nothing yet; a mode's
+	// plan is the modules each one reaches.
+	if (missionGraphEventIsMode(event->kind)) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE;
+	}
 	return false;
 }
 

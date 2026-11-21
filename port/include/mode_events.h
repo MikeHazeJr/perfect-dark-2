@@ -49,6 +49,14 @@ const char *modeEventKindName(s32 kind);
 /* The match's count of one kind so far (0 for a kind out of range). */
 s32 modeEventTotal(s32 kind);
 
+/* gamemode-graphs.md slice 3: one seam call compared with the original mode
+ * table (g_MpScenarios[]); differ when the mode's plan ran it differently.
+ * The report logs "MODE.PARITY: <why> mode=<catalog id> compared=N differ=M"
+ * first, on every peer, and starts the counts again. */
+void modeParityRecord(s32 differ);
+/* The differences so far this match. */
+s32 modeParityDiffer(void);
+
 /* Logs "MODE.EVENTS: <why> mode=<catalog id> chosen=N stage_reset=N
  * intro_pad=N props_init=N tick=N chr_tick=N score=N spawn=N
  * token_picked_up=N token_dropped=N prop_activated=N player_died=N" and starts

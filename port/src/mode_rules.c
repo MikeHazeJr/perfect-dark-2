@@ -405,3 +405,112 @@ s32 modeRulesCheckProgram(const mission_graph_program_t *program, s32 mode,
 	}
 	return 1;
 }
+
+void modeRulesPlanClear(mode_rules_plan_t *plan)
+{
+	if (!plan) return;
+	for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
+		for (s32 k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			plan->owner[seam][k] = MODE_PLAN_NONE;
+		}
+	}
+	plan->modules = 0;
+}
+
+static void s_planAdd(mode_rules_plan_t *plan, s32 seam, s32 owner)
+{
+	if (seam < 0 || seam >= MODE_SEAM_COUNT) return;
+	for (s32 k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		if (plan->owner[seam][k] == owner) return;
+		if (plan->owner[seam][k] == MODE_PLAN_NONE) {
+			plan->owner[seam][k] = (s8)owner;
+			plan->modules++;
+			return;
+		}
+	}
+}
+
+struct mode_rules_plan_walk {
+	mode_rules_plan_t *plan;
+	s32 event_kind;
+};
+
+/* The walk's module table: a mode module joins the plan when its seam is the
+ * one the event chooses (registration refused any other wiring). */
+static s32 s_planRun(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *user)
+{
+	struct mode_rules_plan_walk *walk = (struct mode_rules_plan_walk *)user;
+	const s32 seam = modeRulesModuleSeam(kind);
+	s32 owner;
+
+	(void)node_id;
+	(void)params;
+	(void)event;
+	if (seam < 0 || !modeRulesModuleMode(kind, &owner)) return 0;
+	if (modeRulesSeamEvent(seam) == walk->event_kind) {
+		s_planAdd(walk->plan, seam, owner);
+	}
+	return 1;
+}
+
+s32 modeRulesPlanFromProgram(const mission_graph_program_t *program, mode_rules_plan_t *plan)
+{
+	if (!plan) return 0;
+	modeRulesPlanClear(plan);
+	if (!program) return 0;
+	for (s32 e = 0; e < MODE_RULES_EVENT_COUNT; e++) {
+		mission_graph_event_t event;
+		struct mode_rules_plan_walk walk;
+		s32 chooses = 0;
+
+		for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
+			if (modeRulesSeamEvent(seam) == s_Events[e].kind) chooses = 1;
+		}
+		if (!chooses) continue;
+		memset(&event, 0, sizeof(event));
+		event.kind = s_Events[e].kind;
+		event.seam = MISSION_GRAPH_SEAM_NONE;
+		event.player = -1;
+		walk.plan = plan;
+		walk.event_kind = event.kind;
+		if (missionGraphProgramFire(program, &event, s_planRun, &walk) < 0) {
+			modeRulesPlanClear(plan);
+			return 0;
+		}
+	}
+	return 1;
+}
+
+void modeRulesNativePlan(s32 mode, mode_rules_plan_t *plan)
+{
+	if (!plan) return;
+	modeRulesPlanClear(plan);
+	if (mode < 0 || mode >= MODE_RULES_MODE_COUNT) return;
+	for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
+		const char *modules[2];
+		const s32 n = modeRulesNativeModules(mode, seam, modules);
+		for (s32 i = 0; i < n; i++) {
+			s32 owner;
+			if (modeRulesModuleMode(modules[i], &owner)) s_planAdd(plan, seam, owner);
+		}
+	}
+}
+
+s32 modeRulesPlanRuns(const mode_rules_plan_t *plan, s32 seam, s32 owner)
+{
+	if (!plan || seam < 0 || seam >= MODE_SEAM_COUNT) return 0;
+	for (s32 k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		if (plan->owner[seam][k] == owner) return 1;
+	}
+	return 0;
+}
+
+s32 modeRulesPlanSeamEqual(const mode_rules_plan_t *a, const mode_rules_plan_t *b, s32 seam)
+{
+	if (!a || !b || seam < 0 || seam >= MODE_SEAM_COUNT) return 0;
+	for (s32 k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		if (a->owner[seam][k] != b->owner[seam][k]) return 0;
+	}
+	return 1;
+}

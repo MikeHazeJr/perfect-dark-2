@@ -1,7 +1,7 @@
 # Combat Simulator modes as graphs
 
-Status (2026-11-21): slices 1 and 2 written by the Multiplayer and Rules
-session (see "Slice 1 as written" and "Slice 2 as written"); slices 3 to 7
+Status (2026-11-21): slices 1 to 3 written by the Multiplayer and Rules
+session (see "Slice 1 as written" to "Slice 3 as written"); slices 4 to 7
 open. Originally CORE, 2026-11-19: a survey and a plan for the week note's "Combat
 Simulator rules" row ("a mode graph calling native mode modules"), under
 decision 1 ("Players should be able to recreate any existing game behavior
@@ -267,6 +267,43 @@ answered in place as the slices land.
   chosen. In the game, any smoke of the finalization batch on a re-extracted
   base should show six `MODE.GRAPH: program 'base:...'` lines at boot, and the
   mode smokes should pass as before.
+
+## Slice 3 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
+
+- **The plan.** `modeRulesPlanFromProgram` (`mode_rules.c`) fires each choosing
+  event into a mode's program once and keeps, per seam, the owners of the
+  modules it reaches in walk order (a mode, or the default), each once and at
+  most two. A mode program's choice reads no game state (none of the mission
+  gates passes for a mode event), so one walk per event is its whole answer.
+  The runner now accepts mode events when they are fired (`eventValid`).
+- **The dispatchers run it** (`scenarios.c`). The plan is made when the mode
+  is chosen (`scenarioInit`, logged `MODE.PLAN: chosen ...`) and at each stage
+  reset (`MODE.PLAN: stage_reset mode=<id> scenario=<n> modules=N`), and every
+  dispatcher runs the `g_MpScenarios[]` callback of each owner its seam names,
+  in order: the score from the first score module (`og.mode.default.score` is
+  the dispatcher's own kills-minus-suicides code; no score module scores
+  nothing), the spawn from each chooser in turn until one places the player
+  (`og.mode.default.spawn` is the general chooser, and an empty plan falls back
+  to it so players still spawn), the setup file's mode data from the save
+  module (without one, the dispatcher's own byte). Nothing calls a mode's
+  callback past its plan any more; the table is read by mode only for the
+  legacy options dialog and two log lines.
+- **A mode with no registered program runs nothing**: its stage reset fails
+  loudly (`LOUDFAIL.MODE.PLAN`); made earlier (a menu pick before the catalog
+  is ready), the plan is only a warning and is made again at the stage reset.
+- **The parity probe.** Every dispatcher call compares the plan's seam with
+  what the original table runs, read from `g_MpScenarios[]` itself (the mode's
+  callback when it has one, the default score without one, the general spawn
+  chooser after the mode's own), on every peer; the first difference of each
+  seam logs both answers (`MODE.PARITY: differ scenario=.. seam=.. native=..
+  program=..`) and the totals go out with the mode events
+  (`MODE.PARITY: <why> mode=<id> compared=N differ=M`, stage end and smoke
+  exit). The six local mode smokes require the stage-reset plan and
+  `differ=0`, and forbid a difference and the loud failure.
+- Base programs are the original table by construction (slice 2), so players
+  see no change; a mod that rewires a mode changes it here (slice 6 lets a mod
+  ship one). Tests: `[gamemode-graphs][slice3]` in
+  `tests/test_mode_graph_program.cpp`.
 
 ## Questions for MULTIPLAYER
 

@@ -124,6 +124,40 @@ s32 modeRulesBaseProgramJson(s32 mode, const char *catalog_id, char *out, size_t
 s32 modeRulesCheckProgram(const mission_graph_program_t *program, s32 mode,
 	char *err, size_t err_cap);
 
+/*
+ * gamemode-graphs.md slice 3: a mode's plan, what each seam runs, in the
+ * order the seam runs it: the owner of each module chosen (a mode,
+ * MPSCENARIO_*, or MODE_RULES_DEFAULT), MODE_PLAN_NONE past the last. The
+ * dispatchers in scenarios.c run the callback of each owner's row in
+ * g_MpScenarios[] (the default module: the dispatcher's own default code).
+ */
+#define MODE_PLAN_NONE (-2)
+#define MODE_PLAN_MAX_PER_SEAM 2
+typedef struct mode_rules_plan {
+	s8 owner[MODE_SEAM_COUNT][MODE_PLAN_MAX_PER_SEAM];
+	s32 modules; /* modules chosen in all */
+} mode_rules_plan_t;
+
+/* Empties the plan: no seam runs anything. */
+void modeRulesPlanClear(mode_rules_plan_t *plan);
+/*
+ * The plan a program chooses: each choosing event (modeRulesSeamEvent) is
+ * fired into the program once, and every mode module it reaches is added to
+ * its seam in walk order (breadth first, authored order). A seam keeps at most
+ * MODE_PLAN_MAX_PER_SEAM modules and a module once. A mode program's gates
+ * read nothing of the game (none of the mission gates passes for a mode
+ * event), so one walk per event is the program's whole answer. Returns 1, or
+ * 0 with an empty plan when the program is NULL or a walk fails.
+ */
+s32 modeRulesPlanFromProgram(const mission_graph_program_t *program, mode_rules_plan_t *plan);
+/* The plan of the original table for a mode (modeRulesNativeModules for
+ * every seam); empty for a mode out of range. */
+void modeRulesNativePlan(s32 mode, mode_rules_plan_t *plan);
+/* Whether the plan runs a module of this owner at the seam. */
+s32 modeRulesPlanRuns(const mode_rules_plan_t *plan, s32 seam, s32 owner);
+/* Whether two plans run the same modules, in the same order, at the seam. */
+s32 modeRulesPlanSeamEqual(const mode_rules_plan_t *a, const mode_rules_plan_t *b, s32 seam);
+
 #ifdef __cplusplus
 }
 #endif
