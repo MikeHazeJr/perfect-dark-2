@@ -85,6 +85,8 @@
 #include "projectile_events.h"
 #include "projectile_rules.h"
 #include "mission_graph_runner.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -1376,6 +1378,66 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 			}
 			return 0;
 		}
+
+		/* held-weapon-events.md slice 2: what an idle hand does is its
+		 * function's program's choice. The trigger is down (a new press, or
+		 * still held) or the clip is empty with the trigger up; the program
+		 * chooses fire, dry fire or reload, and with no program (a v1 graph)
+		 * the original rule answers. The conditions and the order of the
+		 * native branches below are the original's: the trigger counts the
+		 * secondary's activation only while its clip can fire, and the
+		 * reload request and the out-of-ammo handling follow when nothing
+		 * was started. */
+		{
+			const bool trigger = hand->triggeron
+				|| (sp34 > 0 && hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY);
+			const bool none = info->weaponnum == WEAPON_NONE;
+			s32 event = 0;
+			u32 act = 0;
+
+			if (trigger) {
+				event = weaponEventTakePress(handnum) ? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED
+					: MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD;
+			} else if (sp34 == 0) {
+				event = MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY;
+			}
+			if (event) {
+				act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none));
+			}
+
+			if (act & WEAPON_MODULE_FIRE) {
+				if (!none) {
+					g_Vars.currentplayer->doautoselect = false;
+
+					hand->mode = HANDMODE_ATTACK;
+					hand->count = 0;
+					hand->count60 = 0;
+					hand->triggerreleased = false;
+					hand->activatesecondary = false;
+
+					if (bgunSetState(handnum, HANDSTATE_ATTACK)) {
+						return lvupdate;
+					}
+				}
+			} else if (act & WEAPON_MODULE_DRY_FIRE) {
+				if (!none) {
+					hand->unk0cc8_01 = false;
+
+					if (bgunSetState(handnum, HANDSTATE_ATTACKEMPTY)) {
+						return lvupdate;
+					}
+				}
+			} else if (act & WEAPON_MODULE_RELOAD) {
+				hand->count60 = 0;
+				hand->count = 0;
+
+				if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
+					hand->modenext = HANDMODE_NONE;
+					return lvupdate;
+				}
+			}
+		}
+
 		if (sp34 < 0) {
 			// Attempted to shoot with no ammo
 
@@ -1418,41 +1480,8 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 					}
 				}
 			}
-		} else if (sp34 == 0) {
-			// Clip is empty
-			if (hand->triggeron && info->weaponnum != WEAPON_NONE) {
-				hand->unk0cc8_01 = false;
-
-				if (bgunSetState(handnum, HANDSTATE_ATTACKEMPTY)) {
-					return lvupdate;
-				}
-			} else {
-				hand->count60 = 0;
-				hand->count = 0;
-
-				if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-					hand->modenext = HANDMODE_NONE;
-					return lvupdate;
-				}
-			}
-		} else {
-			// Clip has ammo
-			if (hand->triggeron || (hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY)) {
-				if (info->weaponnum != WEAPON_NONE) {
-					g_Vars.currentplayer->doautoselect = false;
-
-					hand->mode = HANDMODE_ATTACK;
-					hand->count = 0;
-					hand->count60 = 0;
-					hand->triggerreleased = false;
-					hand->activatesecondary = false;
-
-					if (bgunSetState(handnum, HANDSTATE_ATTACK)) {
-						return lvupdate;
-					}
-				}
-			}
-
+		} else if (sp34 > 0) {
+			// Clip has ammo and the hand did not start an attack above.
 			// Not attacking, but the player may have attempted
 			// to change guns or reload while firing
 			if (hand->modenext != HANDMODE_NONE) {
@@ -3883,6 +3912,12 @@ bool bgunSetState(s32 handnum, s32 state)
 		hand->statecycles = 0;
 		hand->stateminor = 0;
 		hand->statelastframe = 0;
+
+		/* held-weapon-events.md slice 2: a reload that ends in idle is
+		 * event.weapon.reload_done. */
+		if (prev_state == HANDSTATE_RELOAD && state == HANDSTATE_IDLE) {
+			weaponEventReloadDone(handnum, hand);
+		}
 	}
 
 	/* B-246 round-6 instrumentation: state transitions are the load-bearing
@@ -13604,6 +13639,9 @@ void bgunSetTriggerOn(s32 handnum, bool on)
 	hand->triggerprev = hand->triggeron;
 	hand->triggeron = on;
 	wgV2RuntimeInput(g_Vars.currentplayer, handnum, on && !hand->triggerprev, !on && hand->triggerprev);
+	/* held-weapon-events.md slice 2: a press waits for the idle seam; a
+	 * release is event.weapon.trigger_released. */
+	weaponEventTrigger(handnum, hand, on, hand->triggerprev);
 
 	if (!on) {
 		hand->triggerreleased = true;

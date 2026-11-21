@@ -865,3 +865,84 @@ TEST_CASE("a weapon saved from the editor's graph is a complete mod with the edi
 	CHECK(again.exported("secondary") == "secondary_empty");
 	CHECK(again.scope("secondary_empty") == "secondary");
 }
+
+/* held-weapon-events.md slice 2: a base weapon's function graphs are
+ * pd.weapon_graph.v2, the record plus the function's program. A weapon made
+ * from one keeps its program through the Weapons creator: compose keeps each
+ * program node's settings and each execution edge's ports, the joined
+ * document validates with its programs, and split writes the program back
+ * into its own mode file as v2. */
+TEST_CASE("weapon editor keeps a function's program through compose and split",
+          "[modding][weapon-editor][held-weapon]") {
+	const char *const primary = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "mod:weapon_program",
+  "graph_id": "primary",
+  "nodes": [
+    { "id": "primary_trigger", "kind": "event.trigger_pressed", "subgraph": "primary", "params": { "mode": "primary", "trigger": "pressed" } },
+    { "id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_single", "ammo_slot": 0 } },
+    { "id": "primary_pressed", "kind": "event.weapon.trigger_pressed" },
+    { "id": "primary_has_ammo", "kind": "gate.weapon.has_ammo", "rounds": 2 },
+    { "id": "primary_fire", "kind": "og.weapon.fire" }
+  ],
+  "edges": [
+    { "from": "primary_trigger", "to": "primary_action" },
+    { "from": "primary_pressed", "output": "out", "to": "primary_has_ammo", "input": "exec" },
+    { "from": "primary_has_ammo", "output": "pass", "to": "primary_fire", "input": "exec" }
+  ],
+  "exports": [ { "name": "primary", "node": "primary_action" } ]
+})";
+	const char *const secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "mod:weapon_program",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1 } }
+  ],
+  "edges": [],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	char err[256] = "";
+	IoText editor(weaponGraphEditorCompose(primary, secondary, nullptr, "mod:weapon_program",
+		err, sizeof(err)), &std::free);
+	INFO(err);
+	REQUIRE(editor.get() != nullptr);
+	const std::string joined = editor.get();
+	CHECK(ioStrict(editor.get()));
+	CHECK(joined.find("\"schema\": \"pd.weapon_graph.v2\"") != std::string::npos);
+	CHECK(joined.find("\"rounds\": 2") != std::string::npos);
+	CHECK(joined.find("\"output\": \"pass\"") != std::string::npos);
+	CHECK(joined.find("\"input\": \"exec\"") != std::string::npos);
+	REQUIRE(weaponGraphValidateJson(ASSET_WEAPON, editor.get(), static_cast<u32>(joined.size()),
+		err, sizeof(err)) == 0);
+
+	IoSplit split(editor.get(), "mod:weapon_program");
+	INFO(split.err);
+	REQUIRE(split.ok == 1);
+	const std::string writtenPrimary = split.files.primary;
+	const std::string writtenSecondary = split.files.secondary;
+	CHECK(writtenPrimary.find("\"schema\": \"pd.weapon_graph.v2\"") != std::string::npos);
+	CHECK(writtenPrimary.find("\"rounds\": 2") != std::string::npos);
+	CHECK(writtenPrimary.find("\"output\": \"pass\"") != std::string::npos);
+	CHECK(writtenSecondary.find("\"schema\": \"pd.weapon_graph.v1\"") != std::string::npos);
+	CHECK(ioStrict(split.files.primary));
+
+	IoGraph graph;
+	graph.compileSource("mod:weapon_program", writtenPrimary, writtenSecondary, "");
+	INFO(graph.err);
+	REQUIRE(graph.ok);
+	CHECK(graph.exported("primary") == "primary_action");
+	REQUIRE(graph.ir->held_program_json[0] != nullptr);
+	CHECK(graph.ir->held_program_json[1] == nullptr);
+	CHECK(std::string(graph.ir->held_program_json[0]).find("og.weapon.fire") != std::string::npos);
+
+	/* The joined document's programs are checked as registration checks
+	 * them: a module wired where it does nothing fails validation. */
+	std::string broken = joined;
+	const std::string kind = "\"kind\": \"event.weapon.trigger_pressed\"";
+	REQUIRE(broken.find(kind) != std::string::npos);
+	broken.replace(broken.find(kind), kind.size(), "\"kind\": \"event.weapon.trigger_released\"");
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, broken.data(), static_cast<u32>(broken.size()),
+		err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.weapon.fire has no effect on event.weapon.trigger_released") != std::string::npos);
+}

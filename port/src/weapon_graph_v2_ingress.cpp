@@ -113,6 +113,11 @@ extern "C" int wgV2ArchiveInspect(const void *bytes, uint32_t size,
         const auto schema = text(root, "schema");
         if (schema == "pd.weapon_graph.v1") { if (out) *out = descriptor; return 0; }
         if (schema != "pd.weapon_graph.v2") reject("unsupported public weapon graph schema");
+        /* held-weapon-events.md slice 1: a v2 function graph without a profile
+         * is a record with a program, read by the same path as v1 (its
+         * variables, shared contexts and presentation included); only the
+         * held_single_shot.v1 profile is this executor's. */
+        if (!root.contains("profile")) { if (out) *out = descriptor; return 0; }
         if (!wgV2ArchiveUnusedBindingsAccepted(bytes, size, &descriptor, error, cap)) return -1;
         if (descriptor.primary_graph[0] && descriptor.behavior_graph[0] && std::strcmp(primary, descriptor.behavior_graph))
             reject("v2 weapon has conflicting primary and behavior graph bindings");

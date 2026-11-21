@@ -1,6 +1,11 @@
-/* Executable graph compiler and asynchronous DAG executor.
- * Native callbacks own gameplay admission and action effects. */
+/* Executable graph compiler and asynchronous DAG executor for the
+ * held_single_shot.v1 profile. Native callbacks own gameplay admission and
+ * action effects. held-weapon-events.md slice 1: the profile is validated
+ * here, then compiled and walked by the shared graph runner
+ * (mission_graph_runner.h, the weapon domain); this file keeps the profile's
+ * grammar, the per-hand state, and the native jobs of its actions. */
 #include "weapon_graph_v2.h"
+#include "mission_graph_runner.h"
 #include "modasset_json.h"
 #include "modasset_gltf_document.h"
 #include "crude_json.h" /* existing port/external/imgui-node-editor include path */
@@ -194,12 +199,6 @@ std::unique_ptr<weapon_graph_ir_t, IrDelete> compileAction(Span source, const Js
     }
     return ir;
 }
-const char *portName(Port p) {
-    switch (p) { case Port::Exec: return "exec"; case Port::Pass: return "pass";
-        case Port::Completed: return "completed"; case Port::Blocked: return "blocked";
-        case Port::Failed: return "failed"; case Port::Cancelled: return "cancelled"; }
-    return "invalid";
-}
 Port output(Kind kind, const std::string &value, const std::string &where) {
     const bool event = kind == Kind::Press || kind == Kind::NativeReadyHeld;
     if (event && value == "exec") return Port::Exec;
@@ -211,6 +210,70 @@ Port output(Kind kind, const std::string &value, const std::string &where) {
     if (kind != Kind::StateSet && kind != Kind::StateGate && !event && value == "failed") return Port::Failed;
     bad(where + ": unsupported output port " + value);
 }
+
+/* held-weapon-events.md slice 1: each profile node is one node of the shared
+ * runner's weapon program, in the same place. */
+const char *const kSharedTriggerPressed = "event.weapon.trigger_pressed";
+const char *const kSharedReadyWhileHeld = "event.weapon.ready_while_held";
+const char *const kSharedHasAmmo = "gate.weapon.has_ammo";
+const char *const kSharedReadyToFire = "gate.weapon.ready_to_fire";
+const char *const kSharedStateIs = "gate.weapon.state_is";
+const char *const kSharedSetState = "og.weapon.set_state";
+const char *const kSharedHitscan = "og.fire.hitscan";
+const char *sharedKind(Kind kind) {
+    switch (kind) {
+    case Kind::Press: return kSharedTriggerPressed;
+    case Kind::NativeReadyHeld: return kSharedReadyWhileHeld;
+    case Kind::Ammo: return kSharedHasAmmo;
+    case Kind::Cooldown: return kSharedReadyToFire;
+    case Kind::StateGate: return kSharedStateIs;
+    case Kind::StateSet: return kSharedSetState;
+    case Kind::Hitscan: return kSharedHitscan;
+    }
+    return "";
+}
+/* The profile's port as the shared runner names it: an event or a setter
+ * leaves by "out", a gate that blocks by "fail". */
+const char *sharedPort(Kind kind, Port port) {
+    const bool gate = kind == Kind::Ammo || kind == Kind::Cooldown || kind == Kind::StateGate;
+    switch (port) {
+    case Port::Exec: return "out";
+    case Port::Pass: return "pass";
+    case Port::Blocked: return gate ? "fail" : "blocked";
+    case Port::Failed: return "failed";
+    case Port::Completed: return "completed";
+    case Port::Cancelled: return "cancelled";
+    }
+    return "";
+}
+/* And back, for the trace the profile's callers read. */
+const char *profilePort(Kind kind, const char *port) {
+    if (std::strcmp(port, "out") == 0) return "exec";
+    if (std::strcmp(port, "fail") == 0) return "blocked";
+    (void)kind;
+    return port;
+}
+s32 sharedModuleKnown(const char *kind) {
+    if (!std::strcmp(kind, kSharedHasAmmo) || !std::strcmp(kind, kSharedReadyToFire) ||
+            !std::strcmp(kind, kSharedStateIs) || !std::strcmp(kind, kSharedSetState)) return 1;
+    if (!std::strcmp(kind, kSharedHitscan)) return MISSION_GRAPH_MODULE_ASYNC;
+    return 0;
+}
+/* A JSON string; every control character is escaped, so the strict reader
+ * takes it back as the same text. */
+std::string quote(const std::string &text) {
+    std::string out = "\"";
+    for (const unsigned char c : text) {
+        if (c == '"') out += "\\\"";
+        else if (c == '\\') out += "\\\\";
+        else if (c < 0x20) {
+            char escaped[8];
+            std::snprintf(escaped, sizeof(escaped), "\\u%04x", static_cast<unsigned>(c));
+            out += escaped;
+        } else out += static_cast<char>(c);
+    }
+    return out + "\"";
+}
 }
 
 struct wg_v2_program {
@@ -221,7 +284,46 @@ struct wg_v2_program {
     size_t state_count = 0;
     std::vector<size_t> press_roots;
     std::vector<size_t> native_ready_held_roots;
+    /* held-weapon-events.md slice 1: the same graph as the shared runner's
+     * weapon program, node for node, and each node's place by id. */
+    mission_graph_program_t *shared = nullptr;
+    std::unordered_map<std::string, size_t> places;
+    ~wg_v2_program() { missionGraphProgramFree(shared); }
 };
+
+namespace {
+/* The profile as a weapon program of the shared runner. The profile's own
+ * rules have already held; a graph the runner refuses is refused here. */
+void compileShared(wg_v2_program &program) {
+    std::string text = "{\"nodes\":[";
+    for (size_t i = 0; i < program.nodes.size(); ++i) {
+        if (i) text += ",";
+        text += "{\"id\":" + quote(program.nodes[i].id) + ",\"kind\":\"" + sharedKind(program.nodes[i].kind) + "\"}";
+    }
+    text += "],\"edges\":[";
+    bool first = true;
+    for (const Node &node : program.nodes) {
+        for (const auto &edge : node.outgoing) {
+            if (!first) text += ",";
+            first = false;
+            text += "{\"from\":" + quote(node.id) + ",\"output\":\"" + sharedPort(node.kind, edge.port) +
+                "\",\"to\":" + quote(program.nodes[edge.target].id) + ",\"input\":\"exec\"}";
+        }
+    }
+    text += "]}";
+    char diagnostic[512]{};
+    program.shared = missionGraphProgramCompileWeapon(text.data(), text.size(), sharedModuleKnown,
+        diagnostic, sizeof(diagnostic));
+    if (!program.shared) bad(std::string("shared graph runner: ") + diagnostic);
+    if (missionGraphProgramNodeCount(program.shared) != static_cast<s32>(program.nodes.size()))
+        bad("shared graph runner: node table differs from the profile");
+    for (size_t i = 0; i < program.nodes.size(); ++i) {
+        if (missionGraphProgramNodeIndex(program.shared, program.nodes[i].id.c_str()) != static_cast<s32>(i))
+            bad("shared graph runner: " + program.nodes[i].id + " is not in its place");
+        program.places.emplace(program.nodes[i].id, i);
+    }
+}
+}
 
 extern "C" wg_v2_program *wgV2Compile(const char *json, size_t size, uint64_t generation,
         const char *dependencies, char *err, size_t cap) {
@@ -338,6 +440,7 @@ extern "C" wg_v2_program *wgV2Compile(const char *json, size_t size, uint64_t ge
             for (auto edge : program->nodes[work[i]].outgoing)
                 if (!reached[edge.target]) { reached[edge.target] = 1; work.push_back(edge.target); }
         if (work.size() != rows.size()) bad("nodes: node unreachable from an exported event root");
+        compileShared(*program);
         u8 digest[SHA256_DIGEST_SIZE]; char hexadecimal[SHA256_HEX_SIZE];
         sha256Hash(json, size, digest); sha256ToHex(digest, hexadecimal);
         program->source_hash = hexadecimal;
@@ -393,75 +496,91 @@ struct wg_v2_instance {
     bool active = false, cancelled = false, entered = false;
     wg_v2_result result = WG_V2_COMPLETED;
     char diagnostic[512]{};
-    std::vector<uint8_t> visited;
     std::vector<uint8_t> bool_state;
-    std::vector<size_t> ready;
-    size_t head = 0, jobs_active = 0;
+    size_t jobs_active = 0;
     std::vector<Job> jobs;
+    /* held-weapon-events.md slice 1: the shared runner's walk of the current
+     * activation; it keeps what the event reached while actions are pending. */
+    mission_graph_activation_t *walk = nullptr;
+    mission_graph_event_t event{};
     wg_v2_instance(wg_v2_program *p, const wg_v2_host &h, void *v, uint64_t o)
-        : program(p), ops(h), host(v), owner(o), visited(p->nodes.size()),
+        : program(p), ops(h), host(v), owner(o),
           bool_state(p->state_count), jobs(p->nodes.size()) {
-        ready.reserve(p->nodes.size()); wgV2ProgramRetain(p);
+        wgV2ProgramRetain(p);
+        walk = missionGraphActivationCreate(p->shared);
+        if (walk && ops.trace) missionGraphActivationSetTrace(walk, traced, this);
+        event.instance = this;
     }
-    ~wg_v2_instance() { wgV2ProgramRelease(program); }
+    ~wg_v2_instance() { missionGraphActivationFree(walk); wgV2ProgramRelease(program); }
     wg_v2_action action(size_t i) const {
         wg_v2_action out{};
         wgV2ProgramAction(program, i, &out);
         return out;
     }
-    void enqueue(size_t node) { if (!visited[node]) { visited[node] = 1; ready.push_back(node); } }
-    void route(size_t node, Port port) {
-        if (ops.trace) ops.trace(host, program->nodes[node].id.c_str(), portName(port), activation);
-        for (auto edge : program->nodes[node].outgoing) if (edge.port == port) enqueue(edge.target);
+    static void traced(const char *node, const char *port, void *user) {
+        auto &i = *static_cast<wg_v2_instance *>(user);
+        const auto place = i.program->places.find(node);
+        if (place == i.program->places.end()) return;
+        i.ops.trace(i.host, node, profilePort(i.program->nodes[place->second].kind, port), i.activation);
     }
-    void finish(size_t i, wg_v2_result value) {
+    /* A job's native result: still going (the runner leaves the action
+     * pending), or how it ended (its port is followed). */
+    s32 finish(size_t i, wg_v2_result value) {
         Job &job = jobs[i];
-        if (value == WG_V2_RUNNING || value == WG_V2_WAITING) { job.status = value; return; }
+        if (value == WG_V2_RUNNING || value == WG_V2_WAITING) { job.status = value; return MISSION_GRAPH_RUN_PENDING; }
         auto a = action(i);
         ops.cleanup(host, &a, job.ticket, job.state);
         job.state = nullptr; job.status = WG_V2_IGNORED; --jobs_active;
-        if (value == WG_V2_COMPLETED) route(i, Port::Completed);
-        else if (value == WG_V2_BLOCKED) { result = WG_V2_BLOCKED; route(i, Port::Blocked); }
-        else if (value == WG_V2_CANCELLED) { result = WG_V2_CANCELLED; route(i, Port::Cancelled); }
-        else { result = WG_V2_FAILED; route(i, Port::Failed); }
+        if (value == WG_V2_COMPLETED) return MISSION_GRAPH_RUN_COMPLETED;
+        if (value == WG_V2_BLOCKED) { result = WG_V2_BLOCKED; return MISSION_GRAPH_RUN_BLOCKED; }
+        if (value == WG_V2_CANCELLED) { result = WG_V2_CANCELLED; return MISSION_GRAPH_RUN_CANCELLED; }
+        result = WG_V2_FAILED; return MISSION_GRAPH_RUN_FAILED;
+    }
+    /* The shared runner reached a node: a gate answers, a setter writes the
+     * hand's state, an action starts its native job. */
+    static s32 reached(const char *, const char *node_id, const mission_graph_params_t *,
+            const mission_graph_event_t *, void *user) {
+        auto &i = *static_cast<wg_v2_instance *>(user);
+        const auto place = i.program->places.find(node_id);
+        if (place == i.program->places.end()) return 0;
+        const size_t n = place->second; const Node &node = i.program->nodes[n];
+        if (node.kind == Kind::StateSet) {
+            i.bool_state[node.state_index] = node.state_value;
+            return MISSION_GRAPH_RUN_OUT;
+        }
+        if (node.kind == Kind::StateGate) {
+            if (i.bool_state[node.state_index] == node.state_value) return MISSION_GRAPH_RUN_OUT;
+            i.result = WG_V2_BLOCKED; return 0;
+        }
+        if (node.kind == Kind::Ammo || node.kind == Kind::Cooldown) {
+            const int pass = i.ops.gate(i.host, node.kind == Kind::Ammo ? WG_V2_AMMO_AVAILABLE : WG_V2_COOLDOWN_READY,
+                node.ammo_slot, node.required, i.diagnostic, sizeof(i.diagnostic));
+            if (pass == 1) return MISSION_GRAPH_RUN_OUT;
+            if (pass == 0) { i.result = WG_V2_BLOCKED; return 0; }
+            i.result = WG_V2_FAILED; return MISSION_GRAPH_RUN_GATE_FAILED;
+        }
+        if (node.kind != Kind::Hitscan) return 0;
+        if (i.next_ticket == UINT64_MAX) {
+            i.result = WG_V2_FAILED;
+            error(i.diagnostic, sizeof(i.diagnostic), "native ticket exhaustion");
+            return MISSION_GRAPH_RUN_FAILED;
+        }
+        Job &job = i.jobs[n]; job.ticket = ++i.next_ticket; job.state = nullptr; ++i.jobs_active;
+        auto a = i.action(n);
+        return i.finish(n, i.ops.start(i.host, &a, job.ticket, &job.state, i.diagnostic, sizeof(i.diagnostic)));
     }
     void pump() {
-        while (head < ready.size() && !cancelled) {
-            const size_t i = ready[head++]; const Node &node = program->nodes[i];
-            if (node.kind == Kind::Press || node.kind == Kind::NativeReadyHeld) { route(i, Port::Exec); continue; }
-            if (node.kind == Kind::StateSet) {
-                bool_state[node.state_index] = node.state_value;
-                route(i, Port::Exec); continue;
-            }
-            if (node.kind == Kind::StateGate) {
-                if (bool_state[node.state_index] == node.state_value) route(i, Port::Pass);
-                else { result = WG_V2_BLOCKED; route(i, Port::Blocked); }
-                continue;
-            }
-            if (node.kind != Kind::Hitscan) {
-                const int pass = ops.gate(host, node.kind == Kind::Ammo ? WG_V2_AMMO_AVAILABLE : WG_V2_COOLDOWN_READY,
-                    node.ammo_slot, node.required, diagnostic, sizeof(diagnostic));
-                if (pass == 1) route(i, Port::Pass);
-                else if (pass == 0) { result = WG_V2_BLOCKED; route(i, Port::Blocked); }
-                else { result = WG_V2_FAILED; route(i, Port::Failed); }
-                continue;
-            }
-            if (next_ticket == UINT64_MAX) {
-                result = WG_V2_FAILED;
-                error(diagnostic, sizeof(diagnostic), "native ticket exhaustion");
-                route(i, Port::Failed);
-                continue;
-            }
-            Job &job = jobs[i]; job.ticket = ++next_ticket; job.state = nullptr; ++jobs_active;
-            auto a = action(i);
-            finish(i, ops.start(host, &a, job.ticket, &job.state, diagnostic, sizeof(diagnostic)));
-        }
-        if (!jobs_active && head == ready.size()) active = false;
+        if (!cancelled) missionGraphActivationWalk(walk, &event, reached, this);
+        if (!jobs_active) active = false;
     }
-    void begin(const std::vector<size_t> &roots) {
-        std::fill(visited.begin(), visited.end(), 0); ready.clear(); head = 0;
+    /* A pending action's job ended: its port joins the activation's queue. */
+    void route(size_t i, s32 outcome) {
+        if (outcome != MISSION_GRAPH_RUN_PENDING) missionGraphActivationRoute(walk, static_cast<s32>(i), outcome);
+    }
+    void begin(s32 kind) {
         ++activation; active = true; result = WG_V2_COMPLETED; diagnostic[0] = 0;
-        for (auto root : roots) enqueue(root);
+        event.kind = kind;
+        missionGraphActivationBegin(walk, &event);
         pump();
     }
 };
@@ -473,6 +592,7 @@ extern "C" wg_v2_instance *wgV2Bind(wg_v2_program *program, const wg_v2_host *op
                 !ops->start || !ops->tick || !ops->wake || !ops->cancel || !ops->cleanup)
             bad("bind: complete native lifecycle callbacks and owner generation required");
         auto instance = std::make_unique<wg_v2_instance>(program, *ops, host, owner);
+        if (!instance->walk) bad("bind: allocation failure");
         if (!ops->alive(host, owner)) bad("bind: host generation already retired");
         for (size_t i = 0; i < program->nodes.size(); ++i) if (program->nodes[i].kind == Kind::Hitscan) {
             auto action = instance->action(i);
@@ -531,11 +651,13 @@ extern "C" wg_v2_result wgV2NativeIdle(wg_v2_instance *i, uint64_t visit, int he
     Enter enter(*i); i->last_idle_visit = visit;
     if (!held) { i->pending_press = 0; return WG_V2_IGNORED; }
     if (i->active) return WG_V2_IGNORED;
-    const auto &roots = i->pending_press ? i->program->press_roots : i->program->native_ready_held_roots;
+    const bool press = i->pending_press != 0;
+    const auto &roots = press ? i->program->press_roots : i->program->native_ready_held_roots;
     i->pending_press = 0;
     if (roots.empty()) return WG_V2_IGNORED;
     if (i->activation == UINT64_MAX) { wgV2Cancel(i, "activation identity exhausted"); return WG_V2_FAILED; }
-    i->begin(roots); return status(i);
+    i->begin(press ? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED : MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD);
+    return status(i);
 }
 extern "C" wg_v2_result wgV2Advance(wg_v2_instance *i, uint64_t step, double delta,
         uint64_t owner, uint64_t source) {
@@ -549,7 +671,7 @@ extern "C" wg_v2_result wgV2Advance(wg_v2_instance *i, uint64_t step, double del
         auto &job = i->jobs[n];
         if (job.status != WG_V2_RUNNING || job.ticket > lastTicket) continue;
         auto a = i->action(n);
-        i->finish(n, i->ops.tick(i->host, &a, job.ticket, job.state, delta, i->diagnostic, sizeof(i->diagnostic)));
+        i->route(n, i->finish(n, i->ops.tick(i->host, &a, job.ticket, job.state, delta, i->diagnostic, sizeof(i->diagnostic))));
     }
     i->pump();
     /* Completion never begins pending input. Only the real idle seam may do
@@ -564,7 +686,7 @@ extern "C" wg_v2_result wgV2Wake(wg_v2_instance *i, uint64_t ticket, uint32_t ev
         auto &job = i->jobs[n];
         if (job.status != WG_V2_WAITING || job.ticket != ticket) continue;
         auto a = i->action(n);
-        i->finish(n, i->ops.wake(i->host, &a, ticket, job.state, event, i->diagnostic, sizeof(i->diagnostic)));
+        i->route(n, i->finish(n, i->ops.wake(i->host, &a, ticket, job.state, event, i->diagnostic, sizeof(i->diagnostic))));
         i->pump(); return status(i);
     }
     return WG_V2_IGNORED;

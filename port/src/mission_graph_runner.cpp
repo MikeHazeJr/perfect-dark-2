@@ -18,10 +18,11 @@ namespace {
 enum NodeType { NODE_DATA, NODE_EVENT, NODE_EVENT_INERT, NODE_GATE, NODE_MODULE };
 
 // Which graph a program comes from: a mission graph keeps its data nodes as
-// structure; a level graph and a projectile or entity graph skip them, and a
-// projectile program has the projectile events only (projectile-events.md
-// slice 2).
-enum Domain { DOMAIN_MISSION, DOMAIN_LEVEL, DOMAIN_PROJECTILE };
+// structure; a level graph, a projectile or entity graph and a held weapon
+// function graph skip them; a projectile program has the projectile events
+// only (projectile-events.md slice 2) and a weapon program the weapon events
+// only (held-weapon-events.md slice 1).
+enum Domain { DOMAIN_MISSION, DOMAIN_LEVEL, DOMAIN_PROJECTILE, DOMAIN_WEAPON };
 
 } // namespace
 
@@ -31,7 +32,28 @@ struct mission_graph_params {
 };
 
 namespace {
-enum Port { PORT_OUT, PORT_PASS, PORT_FAIL };
+// A node leaves by one of these. PORT_GATE_FAILED and the four outcomes are a
+// weapon program's (held-weapon-events.md slice 1): a gate that cannot be
+// answered, and how an asynchronous module's work ended.
+enum Port {
+	PORT_OUT, PORT_PASS, PORT_FAIL, PORT_GATE_FAILED,
+	PORT_COMPLETED, PORT_BLOCKED, PORT_OUTCOME_FAILED, PORT_CANCELLED,
+};
+
+const char *portName(Port port)
+{
+	switch (port) {
+	case PORT_OUT: return "out";
+	case PORT_PASS: return "pass";
+	case PORT_FAIL: return "fail";
+	case PORT_GATE_FAILED: return "failed";
+	case PORT_COMPLETED: return "completed";
+	case PORT_BLOCKED: return "blocked";
+	case PORT_OUTCOME_FAILED: return "failed";
+	case PORT_CANCELLED: return "cancelled";
+	}
+	return "out";
+}
 
 struct Edge {
 	int target;
@@ -49,6 +71,7 @@ struct Node {
 	std::string volume; // event.volume.*: the volumes.json volume_id
 	std::string object; // object events: the record_id filter; "" for any
 	bool native_gate = false; // a gate.* the module table evaluates
+	bool async = false; // a weapon program's module that finishes later
 	mission_graph_params params;
 	std::vector<Edge> out;
 };
@@ -150,6 +173,44 @@ bool isProjectileEventKind(s32 kind)
 		kind <= MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
 }
 
+// The held weapon events by name (held-weapon-events.md slice 1).
+const struct {
+	const char *name;
+	s32 kind;
+} kWeaponEventKinds[] = {
+	{ "event.weapon.trigger_pressed", MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED },
+	{ "event.weapon.ready_while_held", MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD },
+	// Slice 2: the idle seam's third rule event and two records.
+	{ "event.weapon.clip_empty", MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY },
+	{ "event.weapon.trigger_released", MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED },
+	{ "event.weapon.reload_done", MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE },
+};
+
+// The weapon event kind of a node kind, or 0 for none.
+s32 weaponEventKindOf(const std::string &kind)
+{
+	for (const auto &entry : kWeaponEventKinds) {
+		if (kind == entry.name) return entry.kind;
+	}
+	return 0;
+}
+
+bool isWeaponEventKind(s32 kind)
+{
+	return kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED &&
+		kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE;
+}
+
+// An event kind another kind of program owns (a weapon program refuses it):
+// the mission, volume, object and projectile events.
+bool isOtherProgramEvent(const std::string &kind)
+{
+	return kind == "event.objective.status_changed" || kind == "event.mission.completed" ||
+		kind == "event.mission.continue" || kind == "event.mission.phase_changed" ||
+		kind == "event.volume.entered" || kind == "event.volume.left" ||
+		objectEventKindOf(kind) != 0 || projectileEventKindOf(kind) != 0;
+}
+
 // A node's scalar fields other than id and kind, as text.
 void readParams(const crude_json::value &node, mission_graph_params &out)
 {
@@ -206,6 +267,18 @@ struct mission_graph_program {
 	std::vector<std::string> volumes; // distinct event.volume.* volumes
 	int exec_edges = 0;
 	int modules = 0;
+	bool weapon = false; // a weapon program (held-weapon-events.md slice 1)
+};
+
+// held-weapon-events.md slice 1: what one event reached, kept so that a walk
+// that stopped at a pending module can go on from it.
+struct mission_graph_activation {
+	const mission_graph_program *program = nullptr;
+	std::vector<char> reached;
+	std::vector<int> queue;
+	size_t head = 0;
+	mission_graph_trace_fn trace = nullptr;
+	void *trace_user = nullptr;
 };
 
 namespace {
@@ -215,6 +288,17 @@ bool isProgramKind(const std::string &kind)
 	return kind.rfind("event.", 0) == 0 || kind.rfind("gate.", 0) == 0 || kind.rfind("og.", 0) == 0;
 }
 
+// held-weapon-events.md slice 2: a held function's record has event.* and
+// gate.* nodes of its own (event.trigger_pressed, gate.cooldown_ready); its
+// program is the weapon events, the weapon gates and the native modules. A
+// known event of another program is kept so that it is refused by name.
+bool isOtherProgramEvent(const std::string &kind);
+bool isWeaponProgramKind(const std::string &kind)
+{
+	return kind.rfind("event.weapon.", 0) == 0 || kind.rfind("gate.weapon.", 0) == 0 ||
+		kind.rfind("og.", 0) == 0 || isOtherProgramEvent(kind);
+}
+
 // level (object-events.md slice 1): the graph is a level graph, whose
 // program is only its event.*, gate.* and og.* nodes; every other node is
 // level data, skipped and not counted, and an edge that is not an
@@ -222,14 +306,16 @@ bool isProgramKind(const std::string &kind)
 mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap, Domain domain)
 {
-	// A level graph and a projectile or entity graph carry data nodes that
-	// are not the program (object-events.md slice 1, projectile-events.md
-	// slice 2).
+	// A level graph, a projectile or entity graph and a weapon function graph
+	// carry data nodes that are not the program (object-events.md slice 1,
+	// projectile-events.md slice 2, held-weapon-events.md slice 1).
 	const bool data_nodes = domain != DOMAIN_MISSION;
 	const std::string what = domain == DOMAIN_LEVEL ? "level graph"
-		: domain == DOMAIN_PROJECTILE ? "projectile graph" : "mission graph";
+		: domain == DOMAIN_PROJECTILE ? "projectile graph"
+		: domain == DOMAIN_WEAPON ? "weapon graph" : "mission graph";
 	const std::string file = domain == DOMAIN_LEVEL ? "level.graph.json"
-		: domain == DOMAIN_PROJECTILE ? "behavior.graph.json" : "mission.graph.json";
+		: domain == DOMAIN_PROJECTILE ? "behavior.graph.json"
+		: domain == DOMAIN_WEAPON ? "the weapon function graph" : "mission.graph.json";
 
 	setError(err, err_cap, "");
 	if (!json || !json_size) {
@@ -253,14 +339,16 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 		}
 
 		auto program = std::make_unique<mission_graph_program>();
+		program->weapon = domain == DOMAIN_WEAPON;
 		std::map<std::string, int> index;
 		for (size_t i = 0; i < nodes.size(); i++) {
 			const crude_json::value &node = nodes[i];
 			Node compiled;
 			if (data_nodes) {
 				std::string kind;
-				if (!node.is_object() || !stringField(node, "kind", kind) || !isProgramKind(kind)) {
-					continue; // level or projectile data, not the program
+				if (!node.is_object() || !stringField(node, "kind", kind) ||
+						!(domain == DOMAIN_WEAPON ? isWeaponProgramKind(kind) : isProgramKind(kind))) {
+					continue; // level, projectile or weapon record data, not the program
 				}
 				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
 					setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) +
@@ -285,6 +373,23 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 			}
 			if (objective == "any") objective.clear();
 
+			// held-weapon-events.md slice 1: a weapon program has the weapon
+			// events and no other program's; no other graph has them. The
+			// function record's own event.* nodes (event.trigger_pressed) are
+			// inert, as any unknown event kind is.
+			const s32 weapon_kind = weaponEventKindOf(compiled.kind);
+			if (domain == DOMAIN_WEAPON && weapon_kind == 0 &&
+					(compiled.kind.rfind("event.weapon.", 0) == 0 || isOtherProgramEvent(compiled.kind))) {
+				setError(err, err_cap, "event '" + compiled.id + "' (" + compiled.kind +
+					") is not a weapon event");
+				return nullptr;
+			}
+			if (weapon_kind != 0 && domain != DOMAIN_WEAPON) {
+				setError(err, err_cap, "weapon event '" + compiled.id + "' (" + compiled.kind +
+					") belongs to a weapon function graph");
+				return nullptr;
+			}
+
 			// projectile-events.md slice 2: a projectile program has the
 			// projectile events and no other; no other graph has them.
 			const s32 projectile_kind = projectileEventKindOf(compiled.kind);
@@ -294,7 +399,14 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 					") is not a projectile event");
 				return nullptr;
 			}
-			if (projectile_kind != 0) {
+			if (weapon_kind != 0) {
+				if (has_objective) {
+					setError(err, err_cap, "weapon event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = weapon_kind;
+			} else if (projectile_kind != 0) {
 				if (domain != DOMAIN_PROJECTILE) {
 					setError(err, err_cap, "projectile event '" + compiled.id + "' (" + compiled.kind +
 						") belongs to a projectile or entity graph");
@@ -399,11 +511,15 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				compiled.type = NODE_GATE;
 				compiled.native_gate = true;
 			} else if (compiled.kind.rfind("og.", 0) == 0) {
-				if (!module_known || !module_known(compiled.kind.c_str())) {
+				const s32 known = module_known ? module_known(compiled.kind.c_str()) : 0;
+				if (!known) {
 					setError(err, err_cap, "native module '" + compiled.kind + "' does not exist");
 					return nullptr;
 				}
 				compiled.type = NODE_MODULE;
+				// held-weapon-events.md slice 1: a weapon program's module may
+				// finish later than the walk that reached it.
+				compiled.async = domain == DOMAIN_WEAPON && known == MISSION_GRAPH_MODULE_ASYNC;
 				program->modules++;
 			}
 			if (compiled.type != NODE_DATA) {
@@ -475,9 +591,27 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				if (from_node.type == NODE_GATE) {
 					if (output == "pass") port = PORT_PASS;
 					else if (output == "fail") port = PORT_FAIL;
-					else {
+					else if (domain == DOMAIN_WEAPON && output == "failed") port = PORT_GATE_FAILED;
+					else if (domain == DOMAIN_WEAPON) {
+						setError(err, err_cap, where + " leaves gate '" + from +
+							"' and needs output \"pass\", \"fail\" or \"failed\"");
+						return nullptr;
+					} else {
 						setError(err, err_cap, where + " leaves gate '" + from +
 							"' and needs output \"pass\" or \"fail\"");
+						return nullptr;
+					}
+				} else if (from_node.async) {
+					// held-weapon-events.md slice 1: a module that finishes
+					// later leaves by how its work ended.
+					if (output == "completed") port = PORT_COMPLETED;
+					else if (output == "blocked") port = PORT_BLOCKED;
+					else if (output == "failed") port = PORT_OUTCOME_FAILED;
+					else if (output == "cancelled") port = PORT_CANCELLED;
+					else {
+						setError(err, err_cap, where + " leaves '" + from + "' (" + from_node.kind +
+							"), which finishes later, and needs output \"completed\", \"blocked\", "
+							"\"failed\" or \"cancelled\"");
 						return nullptr;
 					}
 				} else if (has_output && output != "out") {
@@ -513,6 +647,33 @@ extern "C" mission_graph_program_t *missionGraphProgramCompileProjectile(const c
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
 {
 	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_PROJECTILE);
+}
+
+extern "C" mission_graph_program_t *missionGraphProgramCompileWeapon(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, DOMAIN_WEAPON);
+}
+
+extern "C" s32 missionGraphProgramNodeIndex(const mission_graph_program_t *program, const char *node_id)
+{
+	if (!program || !node_id) return -1;
+	for (size_t i = 0; i < program->nodes.size(); i++) {
+		if (program->nodes[i].id == node_id) return static_cast<s32>(i);
+	}
+	return -1;
+}
+
+extern "C" const char *missionGraphProgramNodeId(const mission_graph_program_t *program, s32 index)
+{
+	if (!program || index < 0 || static_cast<size_t>(index) >= program->nodes.size()) return nullptr;
+	return program->nodes[static_cast<size_t>(index)].id.c_str();
+}
+
+extern "C" const char *missionGraphProgramNodeKind(const mission_graph_program_t *program, s32 index)
+{
+	if (!program || index < 0 || static_cast<size_t>(index) >= program->nodes.size()) return nullptr;
+	return program->nodes[static_cast<size_t>(index)].kind.c_str();
 }
 
 extern "C" const char *missionGraphParamText(const mission_graph_params_t *params, const char *key)
@@ -601,6 +762,11 @@ extern "C" s32 missionGraphEventIsProjectile(s32 event_kind)
 	return isProjectileEventKind(event_kind) ? 1 : 0;
 }
 
+extern "C" s32 missionGraphEventIsWeapon(s32 event_kind)
+{
+	return isWeaponEventKind(event_kind) ? 1 : 0;
+}
+
 extern "C" s32 missionGraphEventIsObjectRule(s32 event_kind)
 {
 	return event_kind == MISSION_GRAPH_EVENT_PICKUP_TOUCHED || event_kind == MISSION_GRAPH_EVENT_DOOR_USE ||
@@ -640,7 +806,196 @@ bool objectiveMatches(const std::string &filter, const mission_graph_event_t *ev
 	return filter.empty() || (event->objective_node && filter == event->objective_node);
 }
 
+// Whether the event is well formed for its kind (the kind is known and it
+// carries what its kind needs).
+bool eventValid(const mission_graph_event_t *event)
+{
+	if (event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED) {
+		return event->status >= MISSION_GRAPH_STATUS_INCOMPLETE && event->status <= MISSION_GRAPH_STATUS_FAILED;
+	}
+	if (event->kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE;
+	}
+	if (event->kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE) {
+		return event->seam == MISSION_GRAPH_SEAM_ENDSCREEN || event->seam == MISSION_GRAPH_SEAM_COOP_STAGE_END;
+	}
+	if (event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE && event->phase >= MISSION_GRAPH_PHASE_ACTIVE &&
+			event->phase <= MISSION_GRAPH_PHASE_FAILED;
+	}
+	if (event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED || event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE && event->volume && event->volume[0] && event->player >= 0;
+	}
+	if (isObjectEventKind(event->kind)) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE && event->object;
+	}
+	if (isProjectileEventKind(event->kind) || isWeaponEventKind(event->kind)) {
+		return event->seam == MISSION_GRAPH_SEAM_NONE && event->instance;
+	}
+	return false;
+}
+
+// A node leaves by a port: the trace sees it, and the port's edges join the
+// queue.
+void routePort(mission_graph_activation &activation, int at, Port port)
+{
+	const Node &node = activation.program->nodes[static_cast<size_t>(at)];
+	if (activation.trace) activation.trace(node.id.c_str(), portName(port), activation.trace_user);
+	for (const Edge &edge : node.out) {
+		if (edge.port == port) activation.queue.push_back(edge.target);
+	}
+}
+
+// Every node may run again, and the event's roots are queued.
+bool beginActivation(mission_graph_activation &activation, const mission_graph_event_t *event)
+{
+	const mission_graph_program &program = *activation.program;
+	std::fill(activation.reached.begin(), activation.reached.end(), 0);
+	activation.queue.clear();
+	activation.head = 0;
+	if (!event || !eventValid(event)) return false;
+	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	const bool volume_event = event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
+		event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT;
+	const bool object_event = isObjectEventKind(event->kind);
+	for (size_t i = 0; i < program.nodes.size(); i++) {
+		const Node &root = program.nodes[i];
+		if (root.type != NODE_EVENT || root.event_kind != event->kind ||
+				(objective_event && !objectiveMatches(root.objective, event)) ||
+				(volume_event && root.volume != event->volume) ||
+				(object_event && !root.object.empty() && root.object != event->object)) {
+			continue;
+		}
+		routePort(activation, static_cast<int>(i), PORT_OUT);
+	}
+	return true;
+}
+
+// The queue runs to empty, breadth first in authored order; each node runs at
+// most once per activation. Returns the modules run, or -1 when a module
+// refused the event (the walk still runs to empty).
+s32 walkActivation(mission_graph_activation &activation, const mission_graph_event_t *event,
+	mission_graph_module_run_fn run, void *user)
+{
+	const mission_graph_program &program = *activation.program;
+	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	s32 ran = 0;
+	bool refused = false;
+	while (activation.head < activation.queue.size()) {
+		const int at = activation.queue[activation.head++];
+		if (activation.reached[static_cast<size_t>(at)]) continue;
+		activation.reached[static_cast<size_t>(at)] = 1;
+		const Node &node = program.nodes[static_cast<size_t>(at)];
+		if (node.type == NODE_GATE) {
+			Port port = PORT_FAIL;
+			if (node.native_gate) {
+				const s32 answer = run(node.kind.c_str(), node.id.c_str(), &node.params, event, user);
+				port = answer > 0 ? PORT_PASS
+					: program.weapon && answer == MISSION_GRAPH_RUN_GATE_FAILED ? PORT_GATE_FAILED : PORT_FAIL;
+			} else {
+				const bool pass = node.gate_phase >= 0
+					? event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED && node.gate_phase == event->phase
+					: objective_event && node.gate_status == event->status &&
+						objectiveMatches(node.objective, event);
+				port = pass ? PORT_PASS : PORT_FAIL;
+			}
+			routePort(activation, at, port);
+		} else if (node.type == NODE_MODULE) {
+			const s32 result = run(node.kind.c_str(), node.id.c_str(), &node.params, event, user);
+			if (!node.async) {
+				if (!result) {
+					refused = true;
+					continue;
+				}
+				ran++;
+				routePort(activation, at, PORT_OUT);
+				continue;
+			}
+			// held-weapon-events.md slice 1: how its work ended, or nothing
+			// yet (the caller routes the outcome when it ends).
+			switch (result) {
+			case MISSION_GRAPH_RUN_PENDING: ran++; break;
+			case MISSION_GRAPH_RUN_COMPLETED: ran++; routePort(activation, at, PORT_COMPLETED); break;
+			case MISSION_GRAPH_RUN_BLOCKED: ran++; routePort(activation, at, PORT_BLOCKED); break;
+			case MISSION_GRAPH_RUN_FAILED: ran++; routePort(activation, at, PORT_OUTCOME_FAILED); break;
+			case MISSION_GRAPH_RUN_CANCELLED: ran++; routePort(activation, at, PORT_CANCELLED); break;
+			default: refused = true; break;
+			}
+		}
+	}
+	return refused ? -1 : ran;
+}
+
 } // namespace
+
+extern "C" mission_graph_activation_t *missionGraphActivationCreate(const mission_graph_program_t *program)
+{
+	if (!program) return nullptr;
+	try {
+		auto activation = std::make_unique<mission_graph_activation>();
+		activation->program = program;
+		activation->reached.assign(program->nodes.size(), 0);
+		activation->queue.reserve(program->nodes.size());
+		return activation.release();
+	} catch (...) {
+		return nullptr;
+	}
+}
+
+extern "C" void missionGraphActivationFree(mission_graph_activation_t *activation)
+{
+	delete activation;
+}
+
+extern "C" void missionGraphActivationSetTrace(mission_graph_activation_t *activation,
+	mission_graph_trace_fn trace, void *user)
+{
+	if (!activation) return;
+	activation->trace = trace;
+	activation->trace_user = user;
+}
+
+extern "C" s32 missionGraphActivationBegin(mission_graph_activation_t *activation,
+	const mission_graph_event_t *event)
+{
+	if (!activation) return 0;
+	try {
+		return beginActivation(*activation, event) ? 1 : 0;
+	} catch (...) {
+		return 0;
+	}
+}
+
+extern "C" s32 missionGraphActivationRoute(mission_graph_activation_t *activation, s32 node_index, s32 outcome)
+{
+	if (!activation || node_index < 0 || static_cast<size_t>(node_index) >= activation->program->nodes.size()) {
+		return 0;
+	}
+	const Node &node = activation->program->nodes[static_cast<size_t>(node_index)];
+	if (node.type != NODE_MODULE || !node.async) return 0;
+	const Port port = outcome == MISSION_GRAPH_RUN_COMPLETED ? PORT_COMPLETED
+		: outcome == MISSION_GRAPH_RUN_BLOCKED ? PORT_BLOCKED
+		: outcome == MISSION_GRAPH_RUN_FAILED ? PORT_OUTCOME_FAILED
+		: outcome == MISSION_GRAPH_RUN_CANCELLED ? PORT_CANCELLED : PORT_OUT;
+	if (port == PORT_OUT) return 0;
+	try {
+		routePort(*activation, node_index, port);
+		return 1;
+	} catch (...) {
+		return 0;
+	}
+}
+
+extern "C" s32 missionGraphActivationWalk(mission_graph_activation_t *activation,
+	const mission_graph_event_t *event, mission_graph_module_run_fn run, void *user)
+{
+	if (!activation || !event || !run || !eventValid(event)) return -1;
+	try {
+		return walkActivation(*activation, event, run, user);
+	} catch (...) {
+		return -1;
+	}
+}
 
 extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 	const mission_graph_event_t *event, mission_graph_module_run_fn run, void *user)
@@ -648,84 +1003,12 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 	if (!program || !event || !run) {
 		return -1;
 	}
-	if (event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED) {
-		if (event->status < MISSION_GRAPH_STATUS_INCOMPLETE || event->status > MISSION_GRAPH_STATUS_FAILED) {
-			return -1;
-		}
-	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED) {
-		if (event->seam != MISSION_GRAPH_SEAM_NONE) return -1;
-	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE) {
-		if (event->seam != MISSION_GRAPH_SEAM_ENDSCREEN && event->seam != MISSION_GRAPH_SEAM_COOP_STAGE_END) {
-			return -1;
-		}
-	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED) {
-		if (event->seam != MISSION_GRAPH_SEAM_NONE || event->phase < MISSION_GRAPH_PHASE_ACTIVE ||
-				event->phase > MISSION_GRAPH_PHASE_FAILED) {
-			return -1;
-		}
-	} else if (event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
-			event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT) {
-		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->volume || !event->volume[0] ||
-				event->player < 0) {
-			return -1;
-		}
-	} else if (isObjectEventKind(event->kind)) {
-		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->object) {
-			return -1;
-		}
-	} else if (isProjectileEventKind(event->kind)) {
-		if (event->seam != MISSION_GRAPH_SEAM_NONE || !event->instance) {
-			return -1;
-		}
-	} else {
-		return -1;
-	}
-	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
-	const bool volume_event = event->kind == MISSION_GRAPH_EVENT_VOLUME_ENTERED ||
-		event->kind == MISSION_GRAPH_EVENT_VOLUME_LEFT;
-	const bool object_event = isObjectEventKind(event->kind);
 	try {
-		std::vector<char> reached(program->nodes.size(), 0);
-		std::vector<int> queue;
-		s32 ran = 0;
-		bool refused = false;
-		for (const Node &root : program->nodes) {
-			if (root.type != NODE_EVENT || root.event_kind != event->kind ||
-					(objective_event && !objectiveMatches(root.objective, event)) ||
-					(volume_event && root.volume != event->volume) ||
-					(object_event && !root.object.empty() && root.object != event->object)) {
-				continue;
-			}
-			for (const Edge &edge : root.out) queue.push_back(edge.target);
-		}
-		// Breadth first in authored order; each node runs at most once per event.
-		for (size_t head = 0; head < queue.size(); head++) {
-			const int at = queue[head];
-			if (reached[at]) continue;
-			reached[at] = 1;
-			const Node &node = program->nodes[at];
-			if (node.type == NODE_GATE) {
-				const bool pass = node.native_gate
-					? run(node.kind.c_str(), node.id.c_str(), &node.params, event, user) > 0
-					: node.gate_phase >= 0
-					? event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED && node.gate_phase == event->phase
-					: objective_event && node.gate_status == event->status &&
-						objectiveMatches(node.objective, event);
-				for (const Edge &edge : node.out) {
-					if ((pass && edge.port == PORT_PASS) || (!pass && edge.port == PORT_FAIL)) {
-						queue.push_back(edge.target);
-					}
-				}
-			} else if (node.type == NODE_MODULE) {
-				if (!run(node.kind.c_str(), node.id.c_str(), &node.params, event, user)) {
-					refused = true;
-					continue;
-				}
-				ran++;
-				for (const Edge &edge : node.out) queue.push_back(edge.target);
-			}
-		}
-		return refused ? -1 : ran;
+		mission_graph_activation activation;
+		activation.program = program;
+		activation.reached.assign(program->nodes.size(), 0);
+		if (!beginActivation(activation, event)) return -1;
+		return walkActivation(activation, event, run, user);
 	} catch (...) {
 		return -1;
 	}
