@@ -841,8 +841,8 @@ struct aibot {
 	/*0x2cc*/ s32 random2ttl60;
 	/*0x2d0*/ u32 random2;
 	/*0x2d4*/ f32 randomfrac;
-	/*0x2d8*/ u32 unk2d8; // unused
-	/*0x2dc*/ u32 unk2dc; // unused
+	/*0x2d8*/ u32 jumplastevalms;
+	/*0x2dc*/ s32 jumpcooldownuntil60;
 };
 
 struct geo {
@@ -2405,11 +2405,8 @@ struct gunctrl {
 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
 	struct modeldef *loadretainedmodel; /* Exact stage-pinned source, independent of current catalog rows. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
-	/* Queue targets use the real object types. They used to be uintptr_t*, so on
-	 * 64-bit every read and write through loadmemremaining covered 8 bytes of a
-	 * 4-byte counter and took masterloadstate, gunloadstate and loadfilenum with it. */
 	/*0x15b8*/ u8 **loadmemptr;
-	/*0x15bc*/ u32 *loadmemremaining; /* memloadremaining, or handmemloadremaining through its unsigned alias */
+	/*0x15bc*/ u32 *loadmemremaining; /* Capacity fields are 32-bit, including the signed hand counter. */
 	/*0x15c0*/ struct texpool texpool;
 	/*0x15d0*/ u32 nexttexturetoload;
 	/*0x15d4*/ struct fileinfo fileinfo; /* Queued model payload sizes, independent of g_FileInfo[]. */

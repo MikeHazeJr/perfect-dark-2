@@ -27,6 +27,7 @@
 #include "game/camera.h"
 #include "game/player.h"
 #include "game/surface_loco.h"
+#include "swarm_audit_pose.h"
 #include "game/mtxf2lbulk.h"
 #include "game/playermgr.h"
 #include "game/rng2.h"
@@ -543,6 +544,90 @@ void chrCalculatePushPos(struct chrdata *chr, struct coord *dstpos, RoomNum *dst
 	}
 }
 
+#if PC_CAPSULE_ENABLED
+static bool chrUsesSimulantSupport(const struct chrdata *chr)
+{
+	return g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_BOTJUMP)
+			&& chr->aibot && chr->aibot->aibotnum >= 0 && !botIsPuppetTick();
+}
+
+static f32 chrSweepVertical(struct chrdata *chr, const struct coord *pos,
+		RoomNum *rooms, f32 delta, f32 radius, f32 ymin, f32 ymax)
+{
+	struct capsulecast sweep;
+	sweep.start = *pos;
+	sweep.radius = radius;
+	sweep.ymin_offset = ymin - chr->prop->pos.y;
+	sweep.ymax_offset = ymax - chr->prop->pos.y;
+	sweep.move.x = 0.0f;
+	sweep.move.y = delta;
+	sweep.move.z = 0.0f;
+	roomsCopy(rooms, sweep.rooms);
+	sweep.cdtypes = CDTYPE_ALL;
+	sweep.selfprop = chr->prop;
+	return capsuleSweep(&sweep);
+}
+
+static bool chrStepSimulantAirborne(struct chrdata *chr, const struct coord *pos,
+		RoomNum *rooms, f32 delta, f32 speed)
+{
+	const f32 tosupport = chr->ground - chr->manground;
+	const bool reaches_support = delta < 0.0f && tosupport <= 0.5f
+			&& delta <= tosupport && chr->ground > -30000.0f;
+	if (reaches_support) {
+		delta = tosupport;
+	}
+
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+	chrGetBbox(chr->prop, &radius, &ymax, &ymin);
+	const f32 safe = chrSweepVertical(chr, pos, rooms, delta, radius, ymin, ymax);
+	chr->manground += delta * safe;
+	chr->fallspeed.y = safe < 1.0f && delta > 0.0f && speed > 0.0f ? 0.0f : speed;
+
+	/* Only the independently sampled ground can complete a landing. A
+	 * side wall or ceiling can shorten the sweep without becoming support. */
+	return reaches_support && safe >= 1.0f;
+}
+#endif
+
+static f32 chrFindMovementGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
+		u16 *flags, bool *inlift, struct prop **lift)
+{
+#if PC_CAPSULE_ENABLED
+	if (chrUsesSimulantSupport(chr)) {
+		const bool airborne = chr->fallspeed.y != 0.0f || chr->manground > chr->ground;
+		const f32 support_top = chr->manground + (airborne ? 0.5f : 20.0f);
+		const struct capsulesupport support = capsuleFindSupportForProp(chr->prop, pos,
+				chr->radius, rooms, support_top);
+		chr->floorcol = support.colour;
+		chr->floortype = support.material;
+		chr->floorroom = support.room;
+		*flags = support.flags;
+		*lift = support.lift;
+		*inlift = support.lift != NULL;
+		return support.y > -30000.0f ? support.y : -100001.0f;
+	}
+#endif
+
+	f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms, &chr->floorcol,
+			&chr->floortype, flags, &chr->floorroom, inlift, lift);
+#if PC_CAPSULE_ENABLED
+	f32 radius;
+	f32 ymax;
+	f32 ymin;
+	struct prop *prop = chr->prop;
+	chrGetBbox(prop, &radius, &ymax, &ymin);
+	const f32 rendered = capsuleFindRenderedFloor(prop, pos, radius,
+			ymin - prop->pos.y, rooms, 240.0f, NULL);
+	if (rendered > ground + 1.0f && rendered <= ymin + 20.0f) {
+		ground = rendered;
+	}
+#endif
+	return ground;
+}
+
 #if VERSION >= VERSION_NTSC_1_0
 bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg3, bool arg4)
 #else
@@ -566,18 +651,8 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
 	chrSetPerimEnabled(chr, false);
 #if PC_CAPSULE_ENABLED
 	if (arg3 != 0.0f) {
-		struct capsulecast sweep;
-		sweep.start = *pos;
-		sweep.radius = radius;
-		sweep.ymax_offset = ymax - chr->prop->pos.y;
-		sweep.ymin_offset = ymin - chr->prop->pos.y;
-		sweep.move.x = 0.0f;
-		sweep.move.y = arg3;
-		sweep.move.z = 0.0f;
-		roomsCopy(rooms, sweep.rooms);
-		sweep.cdtypes = CDTYPE_ALL;
-		sweep.selfprop = chr->prop;
-		result = capsuleSweep(&sweep) < 1.0f ? CDRESULT_COLLISION : CDRESULT_NOCOLLISION;
+		result = chrSweepVertical(chr, pos, rooms, arg3, radius, ymin, ymax) < 1.0f
+				? CDRESULT_COLLISION : CDRESULT_NOCOLLISION;
 	} else
 #endif
 	result = cdTestVolume(&newpos, radius, newrooms, CDTYPE_ALL, CHECKVERTICAL_YES,
@@ -636,24 +711,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 			func0f065e74(&prop->pos, prop->rooms, arg2, spfc);
 		}
 
-		ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc, &chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
-
-#if PC_CAPSULE_ENABLED
-		{
-			f32 bboxradius;
-			f32 bboxymax;
-			f32 bboxymin;
-			struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
-			chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
-			f32 rendered_ground = capsuleFindRenderedFloor(prop, arg2,
-				bboxradius, bboxymin - prop->pos.y, spfc, 240.0f,
-				&rendered_normal);
-			if (rendered_ground > ground + 1.0f
-					&& rendered_ground <= bboxymin + 20.0f) {
-				ground = rendered_ground;
-			}
-		}
-#endif
+		ground = chrFindMovementGround(chr, arg2, spfc, &floorflags, &inlift, &lift);
 
 		if (ground < -1000000) {
 			ground = 0.0f;
@@ -922,25 +980,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 						sp94 = spfc;
 					}
 
-					ground = cdFindGroundInfoAtCyl(sp98, chr->radius, sp94,
-							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
-
-#if PC_CAPSULE_ENABLED
-					{
-						f32 bboxradius;
-						f32 bboxymax;
-						f32 bboxymin;
-						struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
-						chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
-						f32 rendered_ground = capsuleFindRenderedFloor(prop,
-							sp98, bboxradius, bboxymin - prop->pos.y, sp94,
-							240.0f, &rendered_normal);
-						if (rendered_ground > ground + 1.0f
-								&& rendered_ground <= bboxymin + 20.0f) {
-							ground = rendered_ground;
-						}
-					}
-#endif
+					ground = chrFindMovementGround(chr, sp98, sp94, &floorflags, &inlift, &lift);
 
 #if VERSION >= VERSION_NTSC_1_0
 					if (chr->aibot
@@ -962,24 +1002,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						lvupdate60freal = 0.0f;
 
-						ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc,
-								&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
-#if PC_CAPSULE_ENABLED
-						{
-							f32 bboxradius;
-							f32 bboxymax;
-							f32 bboxymin;
-							struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
-							chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
-							f32 rendered_ground = capsuleFindRenderedFloor(prop,
-								arg2, bboxradius, bboxymin - prop->pos.y,
-								spfc, 240.0f, &rendered_normal);
-							if (rendered_ground > ground + 1.0f
-									&& rendered_ground <= bboxymin + 20.0f) {
-								ground = rendered_ground;
-							}
-						}
-#endif
+						ground = chrFindMovementGround(chr, arg2, spfc, &floorflags, &inlift, &lift);
 					}
 #endif
 
@@ -1026,20 +1049,32 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						func0f0965e4(&yincrement, &sp68, VAR(lvupdate60freal));
 
-#if VERSION >= VERSION_NTSC_1_0
-						if (chr0f01f264(chr, arg2, spfc, yincrement, false))
-#else
-						if (chr0f01f264(chr, arg2, spfc, yincrement))
+						bool landed;
+#if PC_CAPSULE_ENABLED
+						if (chrUsesSimulantSupport(chr)) {
+							landed = chrStepSimulantAirborne(chr, arg2, spfc, yincrement, sp68);
+						} else
 #endif
 						{
-							chr->manground += yincrement;
-							chr->fallspeed.y = sp68;
+#if VERSION >= VERSION_NTSC_1_0
+							if (chr0f01f264(chr, arg2, spfc, yincrement, false))
+#else
+							if (chr0f01f264(chr, arg2, spfc, yincrement))
+#endif
+							{
+								chr->manground += yincrement;
+								chr->fallspeed.y = sp68;
+							}
+							landed = chr->manground <= chr->ground;
 						}
 
-						if (chr->manground <= chr->ground) {
+						if (landed) {
 							chr->manground = chr->ground;
 							chr->sumground = chr->ground * (PAL ? 8.4175090789795f : 9.999998f);
 							chr->fallspeed.y = 0.0f;
+							if (!botIsPuppetTick()) {
+								botJumpOnLand(chr);
+							}
 
 							if (floorflags & GEOFLAG_DIE) {
 								die = true;
@@ -3234,6 +3269,7 @@ s32 chrTick(struct prop *prop)
 			anim = model->anim;
 
 			modelSetMatricesWithAnim(&sp210, model);
+			swarmAuditObservePose(chr, "chrTick", (const f32 *)sp210.unk00);
 
 			if (restore) {
 				anim->frac = prevfrac;
@@ -4297,6 +4333,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			}
 
 			modelSetMatricesWithAnim(&renderdata, model);
+			swarmAuditObservePose(chr, "chrRenderFallback", (const f32 *)renderdata.unk00);
 		}
 
 		// Render the chr's model

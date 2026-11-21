@@ -1360,9 +1360,17 @@ void meshAttachModelToProp(struct prop *prop, struct model *model)
 	prop->colmesh = mesh;
 }
 
+static void meshReadFloorContact(const struct meshtri *tri, struct meshfloorcontact *out)
+{
+	out->room = tri->roomnum > 0 ? tri->roomnum : -1;
+	out->flags = tri->flags;
+	out->colour = tri->roomnum > 0 || tri->floorcol != 0 ? tri->floorcol : 0x0fff;
+	out->material = (u8)tri->floortype;
+}
+
 static bool meshRayCastMesh(const struct coord *from, const struct coord *to,
 		const struct colmesh *mesh, const Mtxf *transform,
-		f32 *io_best_frac, struct coord *out_normal)
+		f32 *io_best_frac, struct coord *out_normal, struct meshfloorcontact *out_floor)
 {
 	if (!from || !to || !mesh || mesh->numtris <= 0 || !io_best_frac) {
 		return false;
@@ -1381,10 +1389,13 @@ static bool meshRayCastMesh(const struct coord *from, const struct coord *to,
 		f32 frac;
 		struct coord normal;
 		if (meshRayVsTriangle(from, to, &tri, &frac, &normal)
-				&& frac < *io_best_frac) {
+				&& frac < *io_best_frac && (!out_floor || fabsf(normal.y) >= 0.35f)) {
 			*io_best_frac = frac;
 			if (out_normal) {
 				*out_normal = normal;
+			}
+			if (out_floor) {
+				meshReadFloorContact(&tri, out_floor);
 			}
 			hit = true;
 		}
@@ -1408,7 +1419,7 @@ f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
 	worldmesh.numtris = g_WorldMesh.numtris;
 
 	f32 best_frac = 1.0f;
-	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal);
+	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal, NULL);
 	return best_frac;
 }
 
@@ -1452,9 +1463,9 @@ bool meshWorldHasShotFlags(void)
 	return g_WorldMesh.ready && s_WorldMeshHasShotFlags;
 }
 
-bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+static bool meshRayCastDynamicPropsInternal(const struct coord *from, const struct coord *to,
 		const RoomNum *rooms, struct prop *selfprop, f32 *io_best_frac,
-		struct coord *out_normal, struct prop **out_prop)
+		struct coord *out_normal, struct prop **out_prop, struct meshfloorcontact *out_floor)
 {
 	if (!from || !to || !rooms || !io_best_frac) {
 		return false;
@@ -1476,7 +1487,7 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
 		}
 
 		if (meshRayCastMesh(from, to, prop->colmesh, &transform,
-				io_best_frac, out_normal)) {
+				io_best_frac, out_normal, out_floor)) {
 			if (out_prop) {
 				*out_prop = prop;
 			}
@@ -1485,6 +1496,44 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
 	}
 
 	return hit;
+}
+
+bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct prop *selfprop, f32 *io_best_frac,
+		struct coord *out_normal, struct prop **out_prop)
+{
+	return meshRayCastDynamicPropsInternal(from, to, rooms, selfprop, io_best_frac,
+			out_normal, out_prop, NULL);
+}
+
+f32 meshRayCastFloor(const struct coord *from, const struct coord *to,
+		const RoomNum *rooms, struct prop *selfprop, struct meshfloorcontact *out)
+{
+	*out = (struct meshfloorcontact){.room = -1, .colour = 0x0fff};
+	f32 fraction = 1.0f;
+	if (g_WorldMesh.ready && g_WorldMesh.cells) {
+		/* A vertical ray only visits its starting XZ cell. Test the normal
+		 * before picking a winner so a steeper face cannot hide a floor. */
+		const s32 x = meshGridCell(from->x, g_WorldMesh.originx, g_WorldMesh.cellsx);
+		const s32 z = meshGridCell(from->z, g_WorldMesh.originz, g_WorldMesh.cellsz);
+		const struct meshgridcell *cell = &g_WorldMesh.cells[z * g_WorldMesh.cellsx + x];
+		for (s32 i = 0; i < cell->count; i++) {
+			const struct meshtri *tri = &g_WorldMesh.tris[cell->triindices[i]];
+			f32 hit;
+			if (fabsf(tri->normal.y) >= 0.35f
+					&& meshRayVsTriangle(from, to, tri, &hit, NULL) && hit < fraction) {
+				fraction = hit;
+				meshReadFloorContact(tri, out);
+			}
+		}
+	}
+	if (meshRayCastDynamicPropsInternal(from, to, rooms, selfprop, &fraction, NULL, &out->prop, out)) {
+		out->room = out->prop->rooms[0];
+		if (out->prop->obj->type == OBJTYPE_LIFT) {
+			out->flags |= GEOFLAG_LIFTFLOOR;
+		}
+	}
+	return fraction;
 }
 
 /* ======================================================================== */

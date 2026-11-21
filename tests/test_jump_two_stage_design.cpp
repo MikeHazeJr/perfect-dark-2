@@ -188,6 +188,7 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_YS");
     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_SKINS");
     requireContains(capsule, "meshRayCastWorld");
+    requireContains(capsule, "meshRayCastWorldMasked(from, to, 0, out_normal, NULL)");
     requireContains(capsule, "meshRayCastDynamicProps");
     requireContains(capsule, "capsuleFindRoomsForPos");
     requireContains(capsule, "stage2 vertical probe");
@@ -231,10 +232,11 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
     requireContains(bondwalk, "geomtype == CAPSULE_HIT_FLOOR");
     requireContains(bondwalk, "JUMP_LATERAL_SWEEP");
     requireContains(bondwalk, "JUMP_SIDE_SWEEP");
-    requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
+    requireContains(bondwalk, "capsuleFindSupportForProp(g_Vars.currentplayer->prop");
     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");
     requireContains(chr, "sweep.selfprop = chr->prop");
     requireContains(chr, "capsuleFindRenderedFloor(prop");
+    requireContains(chr, "capsuleFindSupportForProp(chr->prop");
     requireContains(propobj, "objModelMatrixIndexIsValid");
     requireContains(propobj, "mtxindex < model->definition->nummatrices");
     requireContains(propobj, "continue;");
@@ -316,19 +318,47 @@ TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor, ceili
         radius, ymin, ymax, sideWallTri, CAPSULE_HIT_WALL));
 }
 
-TEST_CASE("bot jump obstacle trigger is solver-gated and option-gated",
+TEST_CASE("simulant jumps require a swept arc to safe support",
           "[physics][jump][bot][static]")
 {
     const std::string bot = readTextFile("src/game/bot.c");
+    const std::string chr = readTextFile("src/game/chr.c");
 
     REQUIRE_FALSE(bot.empty());
+    REQUIRE_FALSE(chr.empty());
 
     requireContains(bot, "MPOPTION_BOTJUMP");
-    requireContains(bot, "botJumpProbeObstacle");
-    requireContains(bot, "capsuleSweep(&low) >= 1.0f");
-    requireContains(bot, "capsuleSweep(&raised) < 1.0f");
-    requireContains(bot, "capsuleFindFloorForProp(chr->prop");
-    requireContains(bot, "floor < -100000.0f");
-    requireContains(bot, "return false");
-    requireContains(bot, "*out_reason = 1");
+    requireContains(bot, "const f32 clear_fraction = capsuleSweep(&low);");
+    requireContains(bot, "moved_ticks <= clear_ticks");
+    requireContains(bot, "botJumpProbeFlight");
+    requireContains(bot, "func0f0965e4(&step_y, &impulse,");
+    requireContains(bot, "capsuleFindSupportForProp(body->selfprop");
+    requireContains(bot, "landing = floor > -30000.0f");
+    requireContains(bot, "support.flags & GEOFLAG_DIE");
+    requireContains(bot, "capsuleSweep(&arc) < 1.0f");
+    requireContains(chr, "chrStepSimulantAirborne");
+    requireContains(chr, "chr->manground += delta * safe;");
+    requireContains(chr, "return reaches_support && safe >= 1.0f;");
+}
+
+TEST_CASE("simulant jump cooldown follows the actor through landing and resets on placement",
+          "[physics][jump][bot][static]")
+{
+    const std::string bot = readTextFile("src/game/bot.c");
+    const std::string botmgr = readTextFile("src/game/botmgr.c");
+    const std::string chr = readTextFile("src/game/chr.c");
+
+    REQUIRE_FALSE(bot.empty());
+    REQUIRE_FALSE(botmgr.empty());
+    REQUIRE_FALSE(chr.empty());
+
+    requireNotContains(bot, "botJumpChrIndex");
+    requireNotContains(bot, "s_BotJumpCooldownFrame");
+    requireContains(bot, "aibot->jumpcooldownuntil60 = BOT_JUMP_AWAITING_LANDING;");
+    requireContains(chr, "botJumpOnLand(chr);");
+    requireContains(bot, "aibot->jumpcooldownuntil60 = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;");
+    requireContains(bot, "aibot->jumplastevalms = 0;");
+    requireContains(bot, "aibot->jumpcooldownuntil60 = 0;");
+    requireContains(botmgr, "aibot->jumplastevalms = 0;");
+    requireContains(botmgr, "aibot->jumpcooldownuntil60 = 0;");
 }
