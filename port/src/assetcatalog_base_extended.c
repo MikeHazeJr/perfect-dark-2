@@ -890,6 +890,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			s_buildArchiveMemberPath("gamemodes", idbuf, ".pdgamemode",
 				"rules.json", e->ext.gamemode.rules_file,
 				sizeof(e->ext.gamemode.rules_file));
+			s_buildArchiveMemberPath("gamemodes", idbuf, ".pdgamemode",
+				"mode.graph.json", e->ext.gamemode.mode_graph_file,
+				sizeof(e->ext.gamemode.mode_graph_file));
 			catalogSetPrimaryFile(e, e->ext.gamemode.rules_file);
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			n++;

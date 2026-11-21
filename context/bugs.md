@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-21 B-1292 A refused mod game mode stays in the legacy mode picker, whose ASSET.CHAIN check would stop the game (T-MODDING-026, open, found in review, not seen in a game)
+
+Found while writing gamemode-graphs slice 2 (claude-pd-mp-rules-20261121). When a `.pdgamemode` does not
+hydrate (its `rules.json` is refused, or since slice 2 its `mode.graph.json` is missing or refused),
+`assetRuntimeHydrateCatalogEntry` turns its binding off and the catalog does not activate it, but the entry stays
+`enabled`, and `assetCatalogIterateByType` filters on `enabled` alone. The legacy menu's mode picker
+(`scenarioScenarioMenuHandler` through `assetCatalogIterateUnlockedByType`, `scenarioCtxAccepts`,
+`scenarioBindingForEntry`) would then meet a mode with no hydrated binding and call `sysFatalError` ("ASSET.CHAIN:
+gamemode ... has no active public-source rules binding"). Base modes are not affected: the extractor writes their
+programs and conformance holds them to the original table. The Room lists the six base modes by index
+(`catalogGameModeIdByScenarioIndex`), and no mod mode can be chosen anywhere yet, so only a broken mod mode met by
+the legacy picker reaches it.
+
+Severity low. Fix to make with slice 6 (a mod's mode, the picker): selectors skip a mode whose activation was
+refused and the mod manager shows why; a base mode without a binding stays fatal, as the ASSET.CHAIN policy wants.
+
 ## 2026-11-20 B-1282 The Crystal Pistol ammo smoke fails when one frame stalls during its reload steps (T-MODDING-008, open, test only)
 
 Severity low (test only). `crystal_pistol_ammo_smoke` failed 29/31 on dev plus PR 13 (d1932f55, shared base 14,

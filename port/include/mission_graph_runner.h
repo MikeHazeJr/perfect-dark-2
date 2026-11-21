@@ -71,6 +71,13 @@ extern "C" {
  * Any other event.* kind may only have structural edges (event.mission.load).
  * Mission events carry no objective; "objective" on their nodes is refused,
  * and an objective gate never passes for them.
+ *
+ * Mode programs (gamemode-graphs.md slice 2): event.mode.chosen,
+ * .stage_reset, .intro_pad, .props_init, .tick, .chr_tick, .score, .spawn,
+ * .token_picked_up, .token_dropped, .prop_activated and .player_died belong
+ * to a mode archive's mode.graph.json only (missionGraphProgramCompileMode).
+ * Any other graph that names one is refused, and a mode program refuses every
+ * other event. They filter nothing: "objective" on their nodes is refused.
  */
 
 /* Objective statuses, the native OBJECTIVE_* values. */
@@ -168,6 +175,22 @@ extern "C" {
 #define MISSION_GRAPH_SEAM_NONE 0
 #define MISSION_GRAPH_SEAM_ENDSCREEN 1
 #define MISSION_GRAPH_SEAM_COOP_STAGE_END 2
+
+/* gamemode-graphs.md slice 2: the Combat Simulator mode events, in the order
+ * of slice 1's record (mode_events.h), mode programs only. Their kinds start
+ * at 64 so that the other programs' kinds can grow below them. */
+#define MISSION_GRAPH_EVENT_MODE_CHOSEN 64
+#define MISSION_GRAPH_EVENT_MODE_STAGE_RESET 65
+#define MISSION_GRAPH_EVENT_MODE_INTRO_PAD 66
+#define MISSION_GRAPH_EVENT_MODE_PROPS_INIT 67
+#define MISSION_GRAPH_EVENT_MODE_TICK 68
+#define MISSION_GRAPH_EVENT_MODE_CHR_TICK 69
+#define MISSION_GRAPH_EVENT_MODE_SCORE 70
+#define MISSION_GRAPH_EVENT_MODE_SPAWN 71
+#define MISSION_GRAPH_EVENT_MODE_TOKEN_PICKED_UP 72
+#define MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED 73
+#define MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED 74
+#define MISSION_GRAPH_EVENT_MODE_PLAYER_DIED 75
 
 /* Compile limits; a larger graph is refused, not truncated. */
 #define MISSION_GRAPH_MAX_NODES 4096
@@ -357,6 +380,15 @@ s32 missionGraphProgramFire(const mission_graph_program_t *program,
  * Only its root and the native settings node may change identity. */
 s32 missionGraphLevelLayoutCompatible(const char *outgoing, size_t outgoing_size, const char *outgoing_id,
 	const char *incoming, size_t incoming_size, const char *incoming_id);
+
+/* gamemode-graphs.md slice 2: compile a mode archive's program (its
+ * mode.graph.json, pd.gamemode_graph.v1). As for a level graph, only the
+ * event.*, gate.* and og.* nodes are the program and any other node is data,
+ * skipped and not counted; its events are the mode events and no other. */
+mission_graph_program_t *missionGraphProgramCompileMode(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
+/* Whether the kind is a mode event (MISSION_GRAPH_EVENT_MODE_*). */
+s32 missionGraphEventIsMode(s32 event_kind);
 
 #ifdef __cplusplus
 }

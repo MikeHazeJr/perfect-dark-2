@@ -386,6 +386,10 @@ typedef struct asset_entry {
             s32 team_based;            /* bool: requires teams */
             u8  requirefeature;        /* unlock check (0 = always available) */
             char rules_file[FS_MAXPATH];
+            /* gamemode-graphs.md slice 2: the mode's program,
+             * mode.graph.json (pd.gamemode_graph.v1), qualified like
+             * rules_file. Registration refuses a mode without one. */
+            char mode_graph_file[FS_MAXPATH];
         } gamemode;
         struct {
             s32 stagenum;              /* logical stage ID this scenario content backs */
