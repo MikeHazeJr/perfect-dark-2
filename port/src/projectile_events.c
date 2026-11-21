@@ -20,6 +20,7 @@
 #include "mission_graph_runner.h"
 #include "projectile_rules.h"
 #include "projectile_events.h"
+#include "weapon_events.h"
 
 static const char *const s_ProjectileEventNames[PROJECTILE_EVENT_COUNT] = {
 	"spawned", "bounced", "hit_target", "landed", "ended", "detonated",
@@ -352,6 +353,9 @@ void projectileEventsReport(const char *why)
 	s_ProjectileRuleCompared = 0;
 	s_ProjectileRuleDiffer = 0;
 	s_ProjectileEventSeenCount = 0;
+	/* held-weapon-events.md slice 2: the held weapon totals go out with the
+	 * projectile totals, at the stage end and a smoke's scripted exit. */
+	weaponEventsReport(why);
 }
 
 /* What a projectile program's modules chose for one event. */

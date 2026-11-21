@@ -428,5 +428,143 @@ class Archives(unittest.TestCase):
                 self.assertEqual(len(messages), 4, messages)
 
 
+# held-weapon-events.md slice 2: a base held function graph as the extractor
+# writes it (romextract_pdweapon.c, s_emitHeldProgramNodes and
+# s_emitHeldProgramEdges): the record, then the original's idle rule.
+V2_HELD = {
+    "schema": "pd.weapon_graph.v2",
+    "asset_id": "base:test__weapon",
+    "graph_id": "primary",
+    "nodes": [
+        {"id": "primary_trigger", "kind": "event.trigger_pressed", "subgraph": "primary",
+         "params": {"mode": "primary", "trigger": "pressed"}},
+        {"id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary",
+         "params": {"mode": "primary", "function_type": "shoot_single", "ammo_slot": 0}},
+        {"id": "primary_pressed", "kind": "event.weapon.trigger_pressed"},
+        {"id": "primary_held", "kind": "event.weapon.ready_while_held"},
+        {"id": "primary_has_ammo", "kind": "gate.weapon.has_ammo", "rounds": 2},
+        {"id": "primary_has_reserve", "kind": "gate.weapon.has_reserve"},
+        {"id": "primary_fire", "kind": "og.weapon.fire"},
+        {"id": "primary_dry_fire", "kind": "og.weapon.dry_fire"},
+        {"id": "primary_clip_empty", "kind": "event.weapon.clip_empty"},
+        {"id": "primary_reload", "kind": "og.weapon.reload"},
+    ],
+    "edges": [
+        {"from": "primary_trigger", "to": "primary_action"},
+        {"from": "primary_pressed", "output": "out", "to": "primary_has_ammo", "input": "exec"},
+        {"from": "primary_held", "output": "out", "to": "primary_has_ammo", "input": "exec"},
+        {"from": "primary_has_ammo", "output": "pass", "to": "primary_fire", "input": "exec"},
+        {"from": "primary_has_ammo", "output": "fail", "to": "primary_has_reserve", "input": "exec"},
+        {"from": "primary_has_reserve", "output": "pass", "to": "primary_dry_fire", "input": "exec"},
+        {"from": "primary_clip_empty", "output": "out", "to": "primary_reload", "input": "exec"},
+    ],
+    "exports": [{"name": "primary", "node": "primary_action"}],
+}
+
+
+def weapon_errors(graph: dict, member: str = "behavior/primary.graph.json") -> list[str]:
+    return conf.validate_weapon_function_graph("x", member, json.dumps(graph))
+
+
+class HeldWeaponPrograms(unittest.TestCase):
+    def test_the_base_wiring_and_the_record_are_valid(self):
+        self.assertEqual(weapon_errors(V2_HELD), [])
+        v1 = copy.deepcopy(V2_HELD)
+        v1["schema"] = "pd.weapon_graph.v1"
+        v1["nodes"] = v1["nodes"][:2]
+        v1["edges"] = v1["edges"][:1]
+        self.assertEqual(weapon_errors(v1), [])
+
+    def test_schemas_and_the_profile(self):
+        self.assertIn("schema must be", weapon_errors(dict(V2_HELD, schema="pd.weapon_graph.v3"))[0])
+        # The profile is the profile executor's own grammar.
+        profile = {"schema": "pd.weapon_graph.v2", "profile": "held_single_shot.v1", "nodes": []}
+        self.assertEqual(weapon_errors(profile), [])
+        self.assertIn("profile must be", weapon_errors(dict(profile, profile="held_burst.v1"))[0])
+        # A v1 graph's program nodes would never be read.
+        stale = dict(copy.deepcopy(V2_HELD), schema="pd.weapon_graph.v1")
+        messages = weapon_errors(stale)
+        self.assertEqual(len(messages), 8, messages)
+        self.assertTrue(all("a program needs schema pd.weapon_graph.v2" in m for m in messages))
+        # A v2 function graph names its function.
+        self.assertIn("graph_id", weapon_errors(dict(V2_HELD, graph_id="first"))[0])
+
+    def test_events_modules_and_gates(self):
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "odd", "kind": "event.weapon.trigger_twice"})
+        self.assertIn("is not a weapon event", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "fuse", "kind": "event.projectile.timer_expired"})
+        self.assertIn("is not a weapon event", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "x", "kind": "og.weapon.vanish"})
+        self.assertIn("native module 'og.weapon.vanish' does not exist", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "g", "kind": "gate.weapon.vanish"})
+        self.assertIn("is not executable", weapon_errors(graph)[0])
+        # A record's own gate node (gate.cooldown_ready) is record data.
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "cool", "kind": "gate.cooldown_ready", "params": {}})
+        graph["edges"].append({"from": "primary_trigger", "to": "cool"})
+        self.assertEqual(weapon_errors(graph), [])
+
+    def test_a_module_wired_where_it_does_nothing(self):
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_clip_empty":
+                node["kind"] = "event.weapon.trigger_released"
+        messages = weapon_errors(graph)
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("og.weapon.reload 'primary_reload' has no effect on event.weapon.trigger_released",
+                      messages[0])
+
+    def test_settings(self):
+        for rounds in (0, 256, "two", 2.5, True):
+            with self.subTest(rounds=rounds):
+                graph = copy.deepcopy(V2_HELD)
+                graph["nodes"][4]["rounds"] = rounds
+                self.assertIn("needs rounds from 1 to 255", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"][4]["rounds"] = "$blast_rounds"
+        self.assertEqual(weapon_errors(graph), [])  # the game checks the variable
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "s", "kind": "og.weapon.set_state", "key": "armed", "value": "yes"})
+        graph["edges"].append({"from": "primary_clip_empty", "output": "out", "to": "s", "input": "exec"})
+        self.assertIn("needs value true or false", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "g", "kind": "gate.weapon.state_is", "equals": True})
+        self.assertIn("needs a key", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        for k in range(9):
+            graph["nodes"].append({"id": f"s{k}", "kind": "og.weapon.set_state", "key": f"k{k}", "value": True})
+        self.assertIn("more than 8 state keys", weapon_errors(graph)[0])
+
+    def test_edge_rules(self):
+        graph = copy.deepcopy(V2_HELD)
+        graph["edges"][3]["output"] = "blocked"
+        self.assertIn("needs output pass, fail or failed", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["edges"].append({"from": "primary_trigger", "output": "out", "to": "primary_fire", "input": "exec"})
+        # The record's own event node is record data: no execution edge starts there.
+        self.assertIn("names a missing node", weapon_errors(graph)[0])
+        graph = copy.deepcopy(V2_HELD)
+        graph["edges"].append({"from": "primary_fire", "output": "done", "to": "primary_reload", "input": "exec"})
+        self.assertIn("output must be \"out\"", weapon_errors(graph)[0])
+
+    def test_the_kinds_agree_with_the_runner_and_the_table(self):
+        runner = (REPO / "port" / "src" / "mission_graph_runner.cpp").read_text(encoding="utf-8")
+        rules = (REPO / "port" / "include" / "weapon_rules.h").read_text(encoding="utf-8")
+        for kind in conf.WEAPON_GRAPH_EVENTS:
+            with self.subTest(event=kind):
+                self.assertIn('{ "' + kind + '", MISSION_GRAPH_EVENT_WEAPON_', runner)
+                self.assertIn('"' + kind + '"', rules)
+        for kind in conf.WEAPON_GRAPH_MODULES:
+            with self.subTest(module=kind):
+                self.assertIn('"' + kind + '"', rules)
+        for kind in conf.WEAPON_GRAPH_GATES:
+            with self.subTest(gate=kind):
+                self.assertIn('"' + kind + '"', rules)
+
+
 if __name__ == "__main__":
     unittest.main()

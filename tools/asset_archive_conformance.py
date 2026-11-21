@@ -2331,6 +2331,191 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
     return errors
 
 
+# Held weapon function graphs (held-weapon-events.md slices 1 and 2). v1 is the
+# function's record alone; v2 adds a program of event.weapon.*, gate.* and og.*
+# nodes joined by execution edges (the record's own event.trigger_* node is
+# inert). pd.weapon_graph.v2 with "profile": "held_single_shot.v1" is the
+# offline profile executor's own grammar (weapon_graph_v2.cpp), not checked
+# here. Keep in step with port/src/mission_graph_runner.cpp (kWeaponEventKinds,
+# compileProgram's weapon domain), port/include/weapon_rules.h and
+# port/src/weapon_graph_runtime.c (heldProgramModulesApply).
+WEAPON_GRAPH_SCHEMAS = ("pd.weapon_graph.v1", "pd.weapon_graph.v2")
+WEAPON_GRAPH_PROFILE = "held_single_shot.v1"
+WEAPON_GRAPH_EVENTS = ("event.weapon.trigger_pressed", "event.weapon.ready_while_held",
+                       "event.weapon.clip_empty", "event.weapon.trigger_released",
+                       "event.weapon.reload_done")
+WEAPON_GRAPH_IDLE_ACTIONS = ("og.weapon.fire", "og.weapon.dry_fire", "og.weapon.reload")
+WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state",)
+# A module is a choice the seam of its event acts on: the idle seam's three
+# rule events apply the idle actions and set_state, the records set_state.
+WEAPON_GRAPH_EVENT_MODULES = {
+    "event.weapon.trigger_pressed": WEAPON_GRAPH_MODULES,
+    "event.weapon.ready_while_held": WEAPON_GRAPH_MODULES,
+    "event.weapon.clip_empty": WEAPON_GRAPH_MODULES,
+    "event.weapon.trigger_released": ("og.weapon.set_state",),
+    "event.weapon.reload_done": ("og.weapon.set_state",),
+}
+WEAPON_GRAPH_GATES = ("gate.weapon.has_ammo", "gate.weapon.has_reserve",
+                      "gate.weapon.ready_to_fire", "gate.weapon.state_is")
+WEAPON_GRAPH_MAX_ROUNDS = 255
+WEAPON_GRAPH_STATE_KEY_LEN = 64
+WEAPON_GRAPH_MAX_STATES = 8
+
+
+def _is_weapon_program_kind(kind: object) -> bool:
+    return isinstance(kind, str) and kind.startswith(("event.weapon.", "gate.weapon.", "og."))
+
+
+_OTHER_PROGRAM_EVENT_PREFIXES = ("event.projectile.", "event.objective.", "event.mission.", "event.volume.",
+                                 "event.pickup.", "event.door.", "event.object.", "event.lift.",
+                                 "event.glass.", "event.vehicle.")
+
+
+def _weapon_variable_name(value: object) -> bool:
+    return isinstance(value, str) and len(value) > 1 and value.startswith("$")
+
+
+def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
+    """The program of a v2 held function graph, as the runner compiles it and
+    the weapon registers it: its event.weapon.*, gate.* and og.* nodes (every
+    other node is the function's record), unique ids, only weapon events, only
+    the held modules and gates, execution edges from an event, gate or module
+    to a gate or module with the right output port, every module an event
+    reaches one its seam applies, and the settings the table reads. A "$name"
+    setting is a weapon variable, checked by the game against the weapon's
+    variables when it registers."""
+    errors: list[str] = []
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        return [f"{where} has no nodes array"]
+    if graph.get("graph_id") not in ("primary", "secondary"):
+        errors.append(f"{where} names its function in graph_id (primary or secondary)")
+    kinds: dict[str, str] = {}
+    keys: set[str] = set()
+    for idx, node in enumerate(nodes):
+        if not isinstance(node, dict):
+            continue
+        node_kind = node.get("kind")
+        if not (_is_weapon_program_kind(node_kind) or (isinstance(node_kind, str)
+                and node_kind.startswith(_OTHER_PROGRAM_EVENT_PREFIXES))):
+            continue  # the function's record (its own event.trigger_* and gate.* nodes), not the program
+        node_id, kind = node.get("id"), node["kind"]
+        if not isinstance(node_id, str) or not node_id:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("event."):
+            if kind not in WEAPON_GRAPH_EVENTS:
+                errors.append(f"{where} event {node_id!r} ({kind}) is not a weapon event")
+            if "objective" in node:
+                errors.append(f"{where} weapon event {node_id!r} has no objective to filter")
+        elif kind.startswith("og."):
+            if kind not in WEAPON_GRAPH_MODULES:
+                errors.append(f"{where} native module {kind!r} does not exist")
+        elif kind not in WEAPON_GRAPH_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+        if kind == "gate.weapon.has_ammo" and "rounds" in node:
+            rounds = node["rounds"]
+            if not _weapon_variable_name(rounds) and (isinstance(rounds, bool) or not isinstance(rounds, int)
+                    or not 1 <= rounds <= WEAPON_GRAPH_MAX_ROUNDS):
+                errors.append(f"{where} gate.weapon.has_ammo {node_id!r} needs rounds from 1 to "
+                              f"{WEAPON_GRAPH_MAX_ROUNDS}")
+        if kind in ("gate.weapon.state_is", "og.weapon.set_state"):
+            flag = "equals" if kind == "gate.weapon.state_is" else "value"
+            key = node.get("key")
+            if not isinstance(key, str) or not key or len(key.encode("utf-8")) >= WEAPON_GRAPH_STATE_KEY_LEN:
+                errors.append(f"{where} {kind} {node_id!r} needs a key shorter than "
+                              f"{WEAPON_GRAPH_STATE_KEY_LEN} bytes")
+            elif not _weapon_variable_name(key):
+                keys.add(key)
+            if not isinstance(node.get(flag), bool) and not _weapon_variable_name(node.get(flag)):
+                errors.append(f"{where} {kind} {node_id!r} needs {flag} true or false")
+    if len(keys) > WEAPON_GRAPH_MAX_STATES:
+        errors.append(f"{where} names more than {WEAPON_GRAPH_MAX_STATES} state keys")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    exec_out: dict[str, list[str]] = {}
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if "input" not in edge:
+            if src in kinds and dst in kinds and "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue  # a structural edge of the record: never walked
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if src_kind.startswith("event.") and src_kind not in WEAPON_GRAPH_EVENTS:
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+            continue
+        if not dst_kind.startswith(("gate.", "og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind.startswith("gate."):
+            if output not in ("pass", "fail", "failed"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass, fail or failed")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+        exec_out.setdefault(src, []).append(dst)
+    for event_id, event_kind in kinds.items():
+        if event_kind not in WEAPON_GRAPH_EVENTS:
+            continue
+        applied = WEAPON_GRAPH_EVENT_MODULES.get(event_kind, ())
+        seen: set[str] = set()
+        queue = list(exec_out.get(event_id, []))
+        while queue:
+            node_id = queue.pop(0)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            node_kind = kinds[node_id]
+            if node_kind in WEAPON_GRAPH_MODULES and node_kind not in applied:
+                errors.append(f"{where} {node_kind} {node_id!r} has no effect on {event_kind} "
+                              f"({event_id!r})")
+            queue.extend(exec_out.get(node_id, []))
+    return errors
+
+
+def validate_weapon_function_graph(label: str, member: str, text: str) -> list[str]:
+    """A .pdweapon function graph: one of the two schemas; a v1 graph carries
+    no program node; a v2 graph's program compiles; a profile graph is the
+    profile executor's."""
+    where = f"{label} {member}"
+    try:
+        graph = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is invalid JSON: {exc}"]
+    if not isinstance(graph, dict):
+        return [f"{where} is not one JSON object"]
+    schema = graph.get("schema")
+    if schema not in WEAPON_GRAPH_SCHEMAS:
+        return [f"{where} schema must be {WEAPON_GRAPH_SCHEMAS[0]} or {WEAPON_GRAPH_SCHEMAS[1]}"]
+    if schema == WEAPON_GRAPH_SCHEMAS[1]:
+        if "profile" in graph:
+            if graph["profile"] != WEAPON_GRAPH_PROFILE:
+                return [f"{where} profile must be {WEAPON_GRAPH_PROFILE}"]
+            return []
+        return validate_weapon_graph_program(where, graph)
+    errors = []
+    for node in graph.get("nodes") or []:
+        if isinstance(node, dict) and _is_weapon_program_kind(node.get("kind")):
+            errors.append(f"{where} node {node.get('id')!r} ({node['kind']}) is a program node: "
+                          f"a program needs schema {WEAPON_GRAPH_SCHEMAS[1]}")
+    return errors
+
+
 def validate_projectile_entity_graph(label: str, ext: str, text: str) -> list[str]:
     """behavior.graph.json of a projectile or entity archive: one of its
     family's two schemas; a v1 graph carries no program nodes (the runtime
@@ -10929,6 +11114,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
             if ext == ".pdweapon" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
                 manifest = read_json_member(zf, "_meta/manifest.json")
+                # held-weapon-events.md slices 1 and 2: each function graph's
+                # schema and, for v2, its program.
+                for member in ("behavior/primary.graph.json", "behavior/secondary.graph.json"):
+                    if member in name_set:
+                        result.errors.extend(validate_weapon_function_graph(
+                            label, member, zf.read(member).decode("utf-8", errors="replace")))
                 if "behavior_graph" in text:
                     result.errors.append(
                         f"{label} weapon.ini still declares behavior_graph; use primary_graph/secondary_graph"

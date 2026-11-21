@@ -5,7 +5,11 @@
 // module the original "Objective N: Completed" message.
 #include "catch.hpp"
 
+#include <algorithm>
+#include <cstring>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -19,6 +23,7 @@ extern "C" {
 #include "mission_graph_runner.h"
 #include "modarchive.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_rules.h"
 }
 
 namespace {
@@ -738,6 +743,750 @@ TEST_CASE("a v2 projectile graph registers its record and its program",
 	weaponGraphRuntimeClearAll();
 	CHECK(weaponGraphRuntimeProjectileProgram(id) == nullptr);
 	CHECK(weaponGraphRuntimeProjectileProgram(entityId) == nullptr);
+}
+
+// held-weapon-events.md slice 1: a held weapon function graph's program runs
+// on this runner, in its own domain (missionGraphProgramCompileWeapon).
+TEST_CASE("weapon programs take the weapon events, and only they do",
+	"[mission-graph][weapon-graph][held-weapon]")
+{
+	// The extractor's held function record (romextract_pdweapon.c) plus a
+	// program: the record's own event node is inert, its action node is
+	// record data.
+	const std::string function = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "base:test__weapon",
+  "graph_id": "primary",
+  "nodes": [
+    { "id": "primary_trigger", "kind": "event.trigger_pressed", "subgraph": "primary", "params": { "mode": "primary", "trigger": "pressed" } },
+    { "id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_single", "ammo_slot": 0, "flags": 0, "damage": 1 } },
+    { "id": "pressed", "kind": "event.weapon.trigger_pressed" },
+    { "id": "shot", "kind": "og.test.a" }
+  ],
+  "edges": [
+    { "from": "primary_trigger", "to": "primary_action" },
+    { "from": "pressed", "output": "out", "to": "shot", "input": "exec" }
+  ],
+  "exports": [ { "name": "primary", "node": "primary_action" } ]
+})";
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(function.data(), function.size(),
+		knownModule, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 2); // the event and the module; the record is data
+	CHECK(missionGraphProgramExecEdgeCount(program) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD) == 0);
+	CHECK(missionGraphEventIsWeapon(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) == 1);
+	CHECK(missionGraphEventIsWeapon(MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD) == 1);
+	CHECK(missionGraphEventIsWeapon(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == 0);
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) == 0);
+	CHECK(missionGraphProgramNodeIndex(program, "shot") == 1);
+	CHECK(std::string(missionGraphProgramNodeId(program, 1)) == "shot");
+	CHECK(std::string(missionGraphProgramNodeKind(program, 1)) == "og.test.a");
+	CHECK(missionGraphProgramNodeIndex(program, "primary_action") == -1);
+	CHECK(missionGraphProgramNodeId(program, 2) == nullptr);
+
+	int hand = 0;
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	event.player = -1;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == -1); // no instance
+	event.instance = &hand;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].node == "shot");
+	event.kind = MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD;
+	CHECK(missionGraphProgramFire(program, &event, runModule, nullptr) == 0); // nothing wired
+	missionGraphProgramFree(program);
+
+	// Every other program's events are refused in a weapon program, and an
+	// unknown weapon event; the weapon events are refused everywhere else.
+	const auto weaponRefusal = [&](const std::string &json) {
+		mission_graph_program_t *refused = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			knownModule, err, sizeof(err));
+		CHECK(refused == nullptr);
+		missionGraphProgramFree(refused);
+		return std::string(err);
+	};
+	for (const char *kind : { "event.projectile.timer_expired", "event.objective.status_changed",
+			"event.door.use", "event.weapon.unknown" }) {
+		INFO(kind);
+		const std::string other = graph(std::string(R"({ "id": "e", "kind": ")") + kind +
+			R"(" }, { "id": "m", "kind": "og.test.a" })",
+			R"({ "from": "e", "output": "out", "to": "m", "input": "exec" })");
+		CHECK(weaponRefusal(other).find("is not a weapon event") != std::string::npos);
+	}
+	const std::string weaponEvent = graph(
+		R"({ "id": "w", "kind": "event.weapon.trigger_pressed" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "w", "output": "out", "to": "m", "input": "exec" })");
+	CHECK(refusal(weaponEvent).find("belongs to a weapon function graph") != std::string::npos);
+	using Compile = mission_graph_program_t *(*)(const char *, size_t, mission_graph_module_known_fn,
+		char *, size_t);
+	for (const Compile compile : { Compile(missionGraphProgramCompileLevel),
+			Compile(missionGraphProgramCompileProjectile) }) {
+		mission_graph_program_t *refused = compile(weaponEvent.data(), weaponEvent.size(), knownModule,
+			err, sizeof(err));
+		CHECK(refused == nullptr);
+		CHECK(std::string(err).find("event") != std::string::npos);
+		missionGraphProgramFree(refused);
+	}
+	// The record's own event node is record data: no execution edge can start there.
+	std::string recordExec = function;
+	const std::string recordEdge = R"({ "from": "primary_trigger", "to": "primary_action" })";
+	recordExec.replace(recordExec.find(recordEdge), recordEdge.size(),
+		R"({ "from": "primary_trigger", "output": "out", "to": "shot", "input": "exec" })");
+	CHECK(weaponRefusal(recordExec).find("names a missing node ('primary_trigger')") != std::string::npos);
+	// So is a v1 record's gate node (gate.cooldown_ready); the weapon gates
+	// are the program's.
+	const std::string recordGate = graph(
+		R"({ "id": "cool", "kind": "gate.cooldown_ready" }, { "id": "w", "kind": "event.weapon.trigger_pressed" })",
+		R"({ "from": "w", "output": "out", "to": "cool", "input": "exec" })");
+	CHECK(weaponRefusal(recordGate).find("names a missing node ('cool')") != std::string::npos);
+}
+
+namespace {
+
+std::vector<std::string> g_trace;
+std::map<std::string, s32> g_outcomes; // an asynchronous module's run result, by node
+
+s32 asyncKnown(const char *kind)
+{
+	const std::string k = kind;
+	if (k == "og.test.later") return MISSION_GRAPH_MODULE_ASYNC;
+	return k == "og.test.a" || k == "og.test.b" || k == "og.test.c" || k == "gate.weapon.test_open" ||
+		k == "gate.weapon.test_broken";
+}
+
+s32 asyncRun(const char *kind, const char *node_id, const mission_graph_params_t *,
+	const mission_graph_event_t *event, void *)
+{
+	g_calls.push_back(Call{ kind, node_id, event->status, event->objective_number, event->seam });
+	const std::string k = kind;
+	if (k == "gate.weapon.test_broken") return MISSION_GRAPH_RUN_GATE_FAILED;
+	if (k == "gate.weapon.test_open") return 1;
+	if (k == "og.test.later") return g_outcomes[node_id];
+	return 1;
+}
+
+void traced(const char *node, const char *port, void *)
+{
+	g_trace.push_back(std::string(node) + "." + port);
+}
+
+} // namespace
+
+TEST_CASE("a weapon program's asynchronous modules leave by their outcome, within one activation",
+	"[mission-graph][weapon-graph][held-weapon]")
+{
+	const std::string json = graph(
+		R"({ "id": "press", "kind": "event.weapon.trigger_pressed" },
+		   { "id": "open", "kind": "gate.weapon.test_open" },
+		   { "id": "shot", "kind": "og.test.later" },
+		   { "id": "done", "kind": "og.test.a" },
+		   { "id": "alternative", "kind": "og.test.b" },
+		   { "id": "tidy", "kind": "og.test.c" },
+		   { "id": "broken", "kind": "gate.weapon.test_broken" },
+		   { "id": "unanswered", "kind": "og.test.a" })",
+		R"({ "from": "press", "output": "out", "to": "open", "input": "exec" },
+		   { "from": "press", "output": "out", "to": "tidy", "input": "exec" },
+		   { "from": "press", "output": "out", "to": "broken", "input": "exec" },
+		   { "from": "open", "output": "pass", "to": "shot", "input": "exec" },
+		   { "from": "shot", "output": "completed", "to": "done", "input": "exec" },
+		   { "from": "shot", "output": "blocked", "to": "alternative", "input": "exec" },
+		   { "from": "done", "output": "out", "to": "tidy", "input": "exec" },
+		   { "from": "broken", "output": "fail", "to": "alternative", "input": "exec" },
+		   { "from": "broken", "output": "failed", "to": "unanswered", "input": "exec" })");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+		asyncKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	mission_graph_activation_t *activation = missionGraphActivationCreate(program);
+	REQUIRE(activation != nullptr);
+	missionGraphActivationSetTrace(activation, traced, nullptr);
+
+	int hand = 0;
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	event.player = -1;
+	event.instance = &hand;
+
+	// The shot is accepted and goes on: the walk leaves it pending. A gate
+	// that cannot be answered leaves by "failed", not by "fail".
+	g_calls.clear(); g_trace.clear();
+	g_outcomes["shot"] = MISSION_GRAPH_RUN_PENDING;
+	CHECK(missionGraphActivationBegin(activation, &event) == 1);
+	CHECK(missionGraphActivationWalk(activation, &event, asyncRun, nullptr) == 3); // tidy, shot, unanswered
+	std::vector<std::string> nodes;
+	for (const Call &call : g_calls) nodes.push_back(call.node);
+	CHECK(nodes == std::vector<std::string>{ "open", "tidy", "broken", "shot", "unanswered" });
+	CHECK(g_trace == std::vector<std::string>{ "press.out", "open.pass", "tidy.out", "broken.failed",
+		"unanswered.out" });
+
+	// It completes later: its outcome joins the same activation, and a node
+	// the activation already ran (tidy) does not run again.
+	g_calls.clear(); g_trace.clear();
+	CHECK(missionGraphActivationRoute(activation, missionGraphProgramNodeIndex(program, "shot"),
+		MISSION_GRAPH_RUN_COMPLETED) == 1);
+	CHECK(missionGraphActivationWalk(activation, &event, asyncRun, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].node == "done");
+	CHECK(g_trace == std::vector<std::string>{ "shot.completed", "done.out" });
+	// Only a pending asynchronous module routes, and only by an outcome.
+	CHECK(missionGraphActivationRoute(activation, missionGraphProgramNodeIndex(program, "done"),
+		MISSION_GRAPH_RUN_COMPLETED) == 0);
+	CHECK(missionGraphActivationRoute(activation, missionGraphProgramNodeIndex(program, "shot"),
+		MISSION_GRAPH_RUN_OUT) == 0);
+	CHECK(missionGraphActivationRoute(activation, 99, MISSION_GRAPH_RUN_COMPLETED) == 0);
+
+	// A new activation: every node may run again. A shot blocked at once
+	// leaves by "blocked" in the same breadth-first walk.
+	g_calls.clear(); g_trace.clear();
+	g_outcomes["shot"] = MISSION_GRAPH_RUN_BLOCKED;
+	CHECK(missionGraphActivationBegin(activation, &event) == 1);
+	CHECK(missionGraphActivationWalk(activation, &event, asyncRun, nullptr) == 4);
+	nodes.clear();
+	for (const Call &call : g_calls) nodes.push_back(call.node);
+	CHECK(nodes == std::vector<std::string>{ "open", "tidy", "broken", "shot", "unanswered", "alternative" });
+	CHECK(std::count(nodes.begin(), nodes.end(), "alternative") == 1);
+	// The one-shot walk is the same walk.
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(program, &event, asyncRun, nullptr) == 4);
+	CHECK(g_calls.size() == 6);
+	// A malformed event walks nothing.
+	mission_graph_event_t bare = event;
+	bare.instance = nullptr;
+	CHECK(missionGraphActivationBegin(activation, &bare) == 0);
+	CHECK(missionGraphActivationWalk(activation, &bare, asyncRun, nullptr) == -1);
+	missionGraphActivationFree(activation);
+	missionGraphProgramFree(program);
+
+	// An asynchronous module leaves by its outcome only, a synchronous one by
+	// "out" only, and "failed" is a weapon program's gate port.
+	const auto weaponRefusal = [&](const std::string &edge) {
+		const std::string bad = graph(
+			R"({ "id": "press", "kind": "event.weapon.trigger_pressed" },
+			   { "id": "open", "kind": "gate.weapon.test_open" },
+			   { "id": "shot", "kind": "og.test.later" },
+			   { "id": "done", "kind": "og.test.a" })",
+			R"({ "from": "press", "output": "out", "to": "open", "input": "exec" },)" + edge);
+		mission_graph_program_t *refused = missionGraphProgramCompileWeapon(bad.data(), bad.size(),
+			asyncKnown, err, sizeof(err));
+		CHECK(refused == nullptr);
+		missionGraphProgramFree(refused);
+		return std::string(err);
+	};
+	CHECK(weaponRefusal(R"({ "from": "shot", "output": "out", "to": "done", "input": "exec" })")
+		.find("which finishes later, and needs output") != std::string::npos);
+	CHECK(weaponRefusal(R"({ "from": "shot", "to": "done", "input": "exec" })")
+		.find("which finishes later, and needs output") != std::string::npos);
+	CHECK(weaponRefusal(R"({ "from": "done", "output": "completed", "to": "shot", "input": "exec" })")
+		.find("output must be \"out\"") != std::string::npos);
+	CHECK(weaponRefusal(R"({ "from": "open", "output": "blocked", "to": "shot", "input": "exec" })")
+		.find("needs output \"pass\", \"fail\" or \"failed\"") != std::string::npos);
+	const std::string missionGate = graph(
+		R"({ "id": "s", "kind": "event.objective.status_changed" }, { "id": "g", "kind": "gate.objective.status", "status": "complete" }, { "id": "m", "kind": "og.test.a" })",
+		R"({ "from": "s", "output": "out", "to": "g", "input": "exec" }, { "from": "g", "output": "failed", "to": "m", "input": "exec" })");
+	CHECK(refusal(missionGate).find("needs output \"pass\" or \"fail\"") != std::string::npos);
+	// Outside a weapon program an asynchronous answer is an ordinary module.
+	const std::string projectile = R"({ "nodes": [
+		{ "id": "fuse", "kind": "event.projectile.timer_expired" }, { "id": "later", "kind": "og.test.later" },
+		{ "id": "next", "kind": "og.test.a" } ], "edges": [
+		{ "from": "fuse", "output": "out", "to": "later", "input": "exec" },
+		{ "from": "later", "output": "out", "to": "next", "input": "exec" } ] })";
+	program = missionGraphProgramCompileProjectile(projectile.data(), projectile.size(), asyncKnown,
+		err, sizeof(err));
+	INFO(err);
+	CHECK(program != nullptr);
+	missionGraphProgramFree(program);
+}
+
+// held-weapon-events.md slice 1: a held function graph of pd.weapon_graph.v2
+// is the v1 record plus a program. The record registers as v1's does; the
+// program is the function's, compiled when the weapon registers.
+TEST_CASE("a v2 held function graph registers its record and its program",
+	"[mission-graph][weapon-graph][held-weapon]")
+{
+	const std::string primary = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "base:test__weapon",
+  "graph_id": "primary",
+  "nodes": [
+    { "id": "primary_trigger", "kind": "event.trigger_pressed", "subgraph": "primary", "params": { "mode": "primary", "trigger": "pressed" } },
+    { "id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_single", "ammo_slot": 0, "flags": 0, "damage": 1.5, "spread": 2 } },
+    { "id": "pressed", "kind": "event.weapon.trigger_pressed" }
+  ],
+  "edges": [
+    { "from": "primary_trigger", "to": "primary_action" }
+  ],
+  "exports": [ { "name": "primary", "node": "primary_action" } ]
+})";
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 2;
+	const char *const id = "base:test__weapon";
+	char err[256] = { 0 };
+	CHECK(weaponGraphTextIsHeldProgram(primary.data(), (u32)primary.size()) == 1);
+	CHECK(weaponGraphTextIsHeldProgram(secondary.data(), (u32)secondary.size()) == 0);
+
+	weaponGraphRuntimeClearAll();
+	const s32 registered = weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, id,
+		primary.data(), (u32)primary.size(), secondary.data(), (u32)secondary.size(),
+		nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err, sizeof(err));
+	INFO("registration error: " << err);
+	REQUIRE(registered == 0);
+	const weapon_graph_held_function_t *held = weaponGraphRuntimeGetHeldFunction(weaponnum, 0);
+	REQUIRE(held != nullptr);
+	CHECK(held->has_damage == 1);
+	CHECK(held->damage == Approx(1.5f));
+	CHECK(held->has_spread == 1);
+	REQUIRE(weaponGraphRuntimeGetHeldFunction(weaponnum, 1) != nullptr);
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramNodeCount(program) == 1); // the program's event; the record is data
+	CHECK(missionGraphProgramEventNodeCount(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) == 1);
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 1) == nullptr); // a v1 function
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 2) == nullptr);
+
+	// The program is part of the weapon's identity: the same record without
+	// it, or with another program, digests differently.
+	// Each IR is large; keep them off the stack.
+	std::unique_ptr<weapon_graph_ir_t> with_ir(new weapon_graph_ir_t{}), without_ir(new weapon_graph_ir_t{}),
+		other_ir(new weapon_graph_ir_t{}), refused_ir(new weapon_graph_ir_t{});
+	weapon_graph_ir_t &with = *with_ir, &without = *without_ir, &other = *other_ir;
+	std::string v1 = primary;
+	v1.replace(v1.find("pd.weapon_graph.v2"), std::string("pd.weapon_graph.v2").size(), "pd.weapon_graph.v1");
+	v1.replace(v1.find(R"(,
+    { "id": "pressed", "kind": "event.weapon.trigger_pressed" })"),
+		std::string(R"(,
+    { "id": "pressed", "kind": "event.weapon.trigger_pressed" })").size(), "");
+	std::string ready = primary;
+	ready.replace(ready.find("\"event.weapon.trigger_pressed\""), std::string("\"event.weapon.trigger_pressed\"").size(),
+		"\"event.weapon.ready_while_held\"");
+	REQUIRE(weaponGraphCompileWeaponSourceJson(id, primary.data(), (u32)primary.size(), secondary.data(),
+		(u32)secondary.size(), nullptr, 0, &with, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphCompileWeaponSourceJson(id, v1.data(), (u32)v1.size(), secondary.data(),
+		(u32)secondary.size(), nullptr, 0, &without, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphCompileWeaponSourceJson(id, ready.data(), (u32)ready.size(), secondary.data(),
+		(u32)secondary.size(), nullptr, 0, &other, err, sizeof(err)) == 0);
+	CHECK(with.held_program_json[0] != nullptr);
+	CHECK(with.held_program_json[1] == nullptr);
+	CHECK(without.held_program_json[0] == nullptr);
+	CHECK(with.node_count == without.node_count); // the record is the same
+	CHECK(std::string(with.ir_sha256) != without.ir_sha256);
+	CHECK(std::string(with.ir_sha256) != other.ir_sha256);
+	weaponGraphIrFree(&with);
+	weaponGraphIrFree(&without);
+	weaponGraphIrFree(&other);
+
+	// A program the held module table cannot run refuses the whole weapon.
+	std::string unknown = primary;
+	unknown.replace(unknown.find(R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed" })"),
+		std::string(R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed" })").size(),
+		R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed" }, { "id": "shot", "kind": "og.test.a" })");
+	unknown.replace(unknown.find(R"({ "from": "primary_trigger", "to": "primary_action" })"),
+		std::string(R"({ "from": "primary_trigger", "to": "primary_action" })").size(),
+		R"({ "from": "primary_trigger", "to": "primary_action" }, { "from": "pressed", "output": "out", "to": "shot", "input": "exec" })");
+	CHECK(weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, id, unknown.data(), (u32)unknown.size(),
+		secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0,
+		err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("base:test__weapon primary program refused: native module 'og.test.a' does not exist")
+		!= std::string::npos);
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
+	CHECK(weaponGraphRuntimeGetHeldFunction(weaponnum, 0) == nullptr);
+
+	// The held_single_shot.v1 profile is the profile executor's, not a record.
+	const std::string profile = R"({"schema":"pd.weapon_graph.v2","profile":"held_single_shot.v1",
+		"asset_id":"base:test__weapon","graph_id":"primary","mode":"primary","nodes":[
+		{"id":"press","kind":"event.trigger_pressed"}],"edges":[],"exports":[{"name":"trigger_pressed","node":"press"}]})";
+	CHECK(weaponGraphTextIsHeldProgram(profile.data(), (u32)profile.size()) == 0);
+	weapon_graph_ir_t &refused = *refused_ir;
+	CHECK(weaponGraphCompileJson(ASSET_WEAPON, profile.data(), (u32)profile.size(), &refused,
+		err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("profile executor") != std::string::npos);
+	// A v2 function graph names its function in graph_id; any other v2
+	// weapon graph is a joined one (the Weapons creator's), whose program
+	// nodes name theirs in subgraph (slice 2).
+	std::string unnamed = primary;
+	unnamed.replace(unnamed.find("\"graph_id\": \"primary\""), std::string("\"graph_id\": \"primary\"").size(),
+		"\"graph_id\": \"first\"");
+	CHECK(weaponGraphCompileJson(ASSET_WEAPON, unnamed.data(), (u32)unnamed.size(), &refused,
+		err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("names each program node's function in subgraph") != std::string::npos);
+	std::string joined = unnamed;
+	joined.replace(joined.find(R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed" })"),
+		std::string(R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed" })").size(),
+		R"({ "id": "pressed", "kind": "event.weapon.trigger_pressed", "subgraph": "secondary" })");
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, joined.data(), (u32)joined.size(), &refused,
+		err, sizeof(err)) == 0);
+	CHECK(refused.held_program_json[0] == nullptr);
+	REQUIRE(refused.held_program_json[1] != nullptr);
+	CHECK(std::string(refused.held_program_json[1]).find("event.weapon.trigger_pressed") != std::string::npos);
+	weaponGraphIrFree(&refused);
+
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
+}
+
+// held-weapon-events.md slice 2: the held weapon rule table.
+TEST_CASE("the held weapon rule table names its modules, gates and events",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	for (s32 m = 0; m < WEAPON_MODULE_COUNT; m++) {
+		const u32 bit = 1u << m;
+		const char *kind = weaponRulesModuleKind(bit);
+		REQUIRE(kind != nullptr);
+		CHECK(std::string(kind).rfind("og.weapon.", 0) == 0);
+		CHECK(weaponRulesModuleBit(kind) == bit);
+	}
+	CHECK(weaponRulesModuleKind(WEAPON_MODULE_FIRE | WEAPON_MODULE_RELOAD) == nullptr);
+	CHECK(weaponRulesModuleBit("og.projectile.explode") == 0);
+	CHECK(weaponRulesModuleBit(nullptr) == 0);
+	for (s32 g = 0; g < WEAPON_GATE_COUNT; g++) {
+		const u32 gate = WEAPON_RULE_GATE_HAS_AMMO << g;
+		const char *kind = weaponRulesGateKind(gate);
+		REQUIRE(kind != nullptr);
+		CHECK(std::string(kind).rfind("gate.weapon.", 0) == 0);
+		CHECK(weaponRulesGateBit(kind) == gate);
+	}
+	CHECK(weaponRulesGateBit("gate.projectile.fuse_armed") == 0);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_FIRE)) == "og.weapon.fire");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_DRY_FIRE)) == "og.weapon.dry_fire");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_RELOAD)) == "og.weapon.reload");
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_SET_STATE)) == "og.weapon.set_state");
+
+	// Every weapon event in kind order, the runner's and the table's names
+	// agreeing, with what its seam applies.
+	std::vector<s32> kinds;
+	for (s32 e = 0; weaponRulesEventAt(e) >= 0; e++) kinds.push_back(weaponRulesEventAt(e));
+	CHECK(kinds == std::vector<s32>{ MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED,
+		MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY,
+		MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE });
+	for (s32 kind : kinds) {
+		INFO(kind);
+		CHECK(missionGraphEventIsWeapon(kind) == 1);
+		const std::string name = weaponRulesEventName(kind);
+		const std::string json = graph("{ \"id\": \"e\", \"kind\": \"" + name + "\" }", "");
+		char err[256] = { 0 };
+		mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			knownModule, err, sizeof(err));
+		INFO(err);
+		REQUIRE(program != nullptr);
+		CHECK(missionGraphProgramEventNodeCount(program, kind) == 1);
+		missionGraphProgramFree(program);
+	}
+	CHECK(weaponRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == nullptr);
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED)
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_SET_STATE));
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY)
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_SET_STATE));
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) == WEAPON_MODULE_SET_STATE);
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) == WEAPON_MODULE_SET_STATE);
+
+	// The original's idle rule and its rounds.
+	for (s32 kind : { MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD }) {
+		CHECK(weaponRulesNativeIdle(kind, 3, 0) == WEAPON_MODULE_FIRE);
+		CHECK(weaponRulesNativeIdle(kind, 1, 0) == WEAPON_MODULE_FIRE);
+		CHECK(weaponRulesNativeIdle(kind, 0, 0) == WEAPON_MODULE_DRY_FIRE);
+		CHECK(weaponRulesNativeIdle(kind, -1, 0) == 0);
+		CHECK(weaponRulesNativeIdle(kind, 1, 1) == 0);
+		CHECK(weaponRulesNativeIdle(kind, 0, 1) == WEAPON_MODULE_RELOAD);
+	}
+	CHECK(weaponRulesNativeIdle(MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, 0, 0) == WEAPON_MODULE_RELOAD);
+	CHECK(weaponRulesNativeIdle(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, 0, 0) == 0);
+	CHECK(weaponRulesNativeIdle(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE, 1, 0) == 0);
+	CHECK(weaponRulesNativeRounds(WEAPON_SHOTGUN, FUNC_SECONDARY) == 2);
+	CHECK(weaponRulesNativeRounds(WEAPON_SHOTGUN, FUNC_PRIMARY) == 1);
+	CHECK(weaponRulesNativeRounds(WEAPON_TRANQUILIZER, FUNC_SECONDARY) == 4);
+	CHECK(weaponRulesNativeRounds(WEAPON_TRANQUILIZER, FUNC_PRIMARY) == 1);
+	CHECK(weaponRulesNativeRounds(WEAPON_FALCON2, FUNC_PRIMARY) == 1);
+	// The rounds are the ones bondgun.c's ammunition check needs.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (info->weaponnum == WEAPON_SHOTGUN && funcnum == FUNC_SECONDARY) {\n"
+		"\t\t\t\tminqty = 2;") != std::string::npos);
+	REQUIRE(bondgun.find("if (weaponnum == WEAPON_TRANQUILIZER && funcnum == FUNC_SECONDARY) {\n"
+		"\t\treturn 4;") != std::string::npos);
+
+	CHECK(weaponRulesRoundsFromText(nullptr) == 1);
+	CHECK(weaponRulesRoundsFromText("2") == 2);
+	CHECK(weaponRulesRoundsFromText("255") == 255);
+	for (const char *bad : { "", "0", "256", "-1", "2.5", "two", "$rounds" }) {
+		INFO(bad);
+		CHECK(weaponRulesRoundsFromText(bad) == -1);
+	}
+	CHECK(weaponRulesBoolFromText("true") == 1);
+	CHECK(weaponRulesBoolFromText("false") == 0);
+	CHECK(weaponRulesBoolFromText("1") == -1);
+	CHECK(weaponRulesBoolFromText(nullptr) == -1);
+}
+
+namespace {
+
+// The base idle wiring as the extractor writes it (romextract_pdweapon.c,
+// s_emitHeldProgramNodes and s_emitHeldProgramEdges) for one function.
+std::string baseIdleProgram(const std::string &mode, s32 rounds)
+{
+	const std::string m = mode;
+	return "{ \"schema\": \"pd.weapon_graph.v2\", \"asset_id\": \"base:test__weapon\", \"graph_id\": \"" + m +
+		"\", \"nodes\": ["
+		"{ \"id\": \"" + m + "_trigger\", \"kind\": \"event.trigger_pressed\", \"subgraph\": \"" + m +
+		"\", \"params\": { \"mode\": \"" + m + "\", \"trigger\": \"pressed\" } },"
+		"{ \"id\": \"" + m + "_action\", \"kind\": \"fire.hitscan\", \"subgraph\": \"" + m +
+		"\", \"params\": { \"mode\": \"" + m + "\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0, \"flags\": 0, \"damage\": 1 } },"
+		"{ \"id\": \"" + m + "_pressed\", \"kind\": \"event.weapon.trigger_pressed\" },"
+		"{ \"id\": \"" + m + "_held\", \"kind\": \"event.weapon.ready_while_held\" },"
+		"{ \"id\": \"" + m + "_has_ammo\", \"kind\": \"gate.weapon.has_ammo\", \"rounds\": " + std::to_string(rounds) + " },"
+		"{ \"id\": \"" + m + "_has_reserve\", \"kind\": \"gate.weapon.has_reserve\" },"
+		"{ \"id\": \"" + m + "_fire\", \"kind\": \"og.weapon.fire\" },"
+		"{ \"id\": \"" + m + "_dry_fire\", \"kind\": \"og.weapon.dry_fire\" },"
+		"{ \"id\": \"" + m + "_clip_empty\", \"kind\": \"event.weapon.clip_empty\" },"
+		"{ \"id\": \"" + m + "_reload\", \"kind\": \"og.weapon.reload\" }"
+		"], \"edges\": ["
+		"{ \"from\": \"" + m + "_trigger\", \"to\": \"" + m + "_action\" },"
+		"{ \"from\": \"" + m + "_pressed\", \"output\": \"out\", \"to\": \"" + m + "_has_ammo\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_held\", \"output\": \"out\", \"to\": \"" + m + "_has_ammo\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_has_ammo\", \"output\": \"pass\", \"to\": \"" + m + "_fire\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_has_ammo\", \"output\": \"fail\", \"to\": \"" + m + "_has_reserve\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_has_reserve\", \"output\": \"pass\", \"to\": \"" + m + "_dry_fire\", \"input\": \"exec\" },"
+		"{ \"from\": \"" + m + "_clip_empty\", \"output\": \"out\", \"to\": \"" + m + "_reload\", \"input\": \"exec\" }"
+		"], \"exports\": [ { \"name\": \"" + m + "\", \"node\": \"" + m + "_action\" } ] }";
+}
+
+s32 heldKnown(const char *kind)
+{
+	return weaponRulesModuleBit(kind) != 0 || weaponRulesGateBit(kind) != 0;
+}
+
+struct HeldWalk {
+	weapon_rule_hand_t hand{};
+	u32 modules = 0;
+};
+
+// The gates answered from a hand, as weapon_events.c answers them.
+s32 heldRun(const char *kind, const char *, const mission_graph_params_t *params,
+	const mission_graph_event_t *, void *user)
+{
+	HeldWalk &walk = *static_cast<HeldWalk *>(user);
+	switch (weaponRulesGateBit(kind)) {
+	case WEAPON_RULE_GATE_HAS_AMMO:
+		return weaponRulesHasAmmo(&walk.hand,
+			weaponRulesRoundsFromText(missionGraphParamText(params, WEAPON_RULE_ROUNDS_PARAM)));
+	case WEAPON_RULE_GATE_HAS_RESERVE:
+		return weaponRulesHasReserve(&walk.hand);
+	case WEAPON_RULE_GATE_READY_TO_FIRE:
+		return walk.hand.idle;
+	}
+	walk.modules |= weaponRulesModuleBit(kind);
+	return 1;
+}
+
+} // namespace
+
+TEST_CASE("the base idle wiring chooses what the original does, for every hand state",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	int instance = 0;
+	for (s32 rounds : { 1, 2, 4 }) {
+		const std::string json = baseIdleProgram("primary", rounds);
+		char err[256] = { 0 };
+		mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			heldKnown, err, sizeof(err));
+		INFO(err);
+		REQUIRE(program != nullptr);
+		for (s32 kind : { MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD,
+				MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY }) {
+			for (s32 uses = 0; uses <= 1; uses++)
+			for (s32 clip = 1; clip <= 8; clip++)
+			for (s32 loaded = 0; loaded <= clip; loaded++)
+			for (s32 reserve = 0; reserve <= 1; reserve++) {
+				HeldWalk walk;
+				walk.hand = weapon_rule_hand_t{ uses, loaded, clip, reserve, 1 };
+				mission_graph_event_t event = {};
+				event.kind = kind;
+				event.player = 0;
+				event.instance = &instance;
+				REQUIRE(missionGraphProgramFire(program, &event, heldRun, &walk) >= 0);
+				const u32 chosen = walk.modules & WEAPON_MODULE_IDLE_ACTIONS;
+				const u32 native = weaponRulesNativeIdle(kind,
+					weaponRulesNativeAmmoStatus(&walk.hand, rounds), 0);
+				INFO("rounds=" << rounds << " event=" << kind << " uses=" << uses << " clip=" << clip
+					<< " loaded=" << loaded << " reserve=" << reserve);
+				CHECK(chosen == native);
+			}
+		}
+		missionGraphProgramFree(program);
+	}
+
+	// The extractor writes exactly this wiring, from the table's rounds.
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("jw_field_str(&w, \"schema\", \"pd.weapon_graph.v2\", 0);") != std::string::npos);
+	REQUIRE(extractor.find("\"pressed\", \"held\", \"has_ammo\", \"has_reserve\", \"fire\", \"dry_fire\", "
+		"\"clip_empty\", \"reload\",") != std::string::npos);
+	REQUIRE(extractor.find("\"event.weapon.trigger_pressed\", \"event.weapon.ready_while_held\",\n"
+		"\t\tWEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,\n"
+		"\t\t\"og.weapon.fire\", \"og.weapon.dry_fire\",\n"
+		"\t\t\"event.weapon.clip_empty\", \"og.weapon.reload\",") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, pressed, \"out\", has_ammo, 0);\n"
+		"\ts_emitHeldProgramEdge(w, held, \"out\", has_ammo, 0);\n"
+		"\ts_emitHeldProgramEdge(w, has_ammo, \"pass\", fire, 0);\n"
+		"\ts_emitHeldProgramEdge(w, has_ammo, \"fail\", has_reserve, 0);\n"
+		"\ts_emitHeldProgramEdge(w, has_reserve, \"pass\", dry_fire, 0);\n"
+		"\ts_emitHeldProgramEdge(w, clip_empty, \"out\", reload, 1);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode));")
+		!= std::string::npos);
+	REQUIRE(extractor.find("const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;")
+		!= std::string::npos);
+
+	// The idle seam asks the program where the original decided, and keeps
+	// the original's branches after it.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("act = weaponIdleModules(event, handnum, hand, sp34, weaponRulesNativeIdle(event, sp34, none));")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("event = weaponEventTakePress(handnum) ? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED\n"
+		"\t\t\t\t\t: MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD;") != std::string::npos);
+	REQUIRE(bondgun.find("|| (sp34 > 0 && hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY);")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("weaponEventTrigger(handnum, hand, on, hand->triggerprev);") != std::string::npos);
+	REQUIRE(bondgun.find("if (prev_state == HANDSTATE_RELOAD && state == HANDSTATE_IDLE) {\n"
+		"\t\t\tweaponEventReloadDone(handnum, hand);") != std::string::npos);
+	// The original's own trigger test is gone from the idle seam.
+	CHECK(bondgun.find("if (hand->triggeron || (hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY)) {")
+		== std::string::npos);
+	const std::string events = readSource("port/src/projectile_events.c");
+	REQUIRE(events.find("weaponEventsReport(why);") != std::string::npos);
+}
+
+TEST_CASE("a held program registers only with modules its events apply and settings it can read",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 2;
+	const char *const id = "base:test__weapon";
+	char err[256] = { 0 };
+	const auto registers = [&](const std::string &primary, const char *variables = nullptr) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, id, primary.data(), (u32)primary.size(),
+			secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0,
+			variables, variables ? (u32)std::strlen(variables) : 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+
+	weaponGraphRuntimeClearAll();
+	const std::string base = baseIdleProgram("primary", 2);
+	REQUIRE(registers(base));
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD,
+		"og.weapon.dry_fire") == 1);
+
+	// A module wired to an event whose seam does not apply it is refused.
+	const auto replaced = [&](const std::string &from, const std::string &to) {
+		std::string text = base;
+		REQUIRE(text.find(from) != std::string::npos);
+		text.replace(text.find(from), from.size(), to);
+		return text;
+	};
+	const std::string releaseFires = replaced("\"kind\": \"event.weapon.clip_empty\"",
+		"\"kind\": \"event.weapon.trigger_released\"");
+	CHECK_FALSE(registers(releaseFires));
+	CHECK(std::string(err).find("og.weapon.reload has no effect on event.weapon.trigger_released") != std::string::npos);
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
+
+	// has_ammo's rounds is a whole number from 1 to 255.
+	for (const char *rounds : { "0", "256", "\"two\"", "2.5", "true" }) {
+		INFO(rounds);
+		CHECK_FALSE(registers(replaced("\"rounds\": 2", std::string("\"rounds\": ") + rounds)));
+		CHECK(std::string(err).find("gate.weapon.has_ammo needs rounds from 1 to 255") != std::string::npos);
+	}
+	CHECK(registers(replaced("\"rounds\": 2", "\"rounds\": 255")));
+	CHECK(registers(replaced(", \"rounds\": 2", "")));
+
+	// A "$name" setting reads the weapon's variables, and one that names no
+	// variable refuses the weapon.
+	const std::string fromVariable = replaced("\"rounds\": 2", "\"rounds\": \"$blast_rounds\"");
+	const char *variables = R"({"schema":"pd.weapon_variables.v1","asset_id":"base:test__weapon",
+		"variables":[{"name":"blast_rounds","value":3}]})";
+	CHECK_FALSE(registers(fromVariable));
+	CHECK(std::string(err).find("needs rounds") != std::string::npos);
+	REQUIRE(registers(fromVariable, variables));
+	program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	struct ParamProbe {
+		std::string rounds;
+		static s32 visit(const char *kind, const mission_graph_params_t *params, void *user)
+		{
+			if (weaponRulesGateBit(kind) == WEAPON_RULE_GATE_HAS_AMMO) {
+				char buf[16];
+				const char *text = weaponGraphRuntimeHeldParamText(2, params, WEAPON_RULE_ROUNDS_PARAM, buf, sizeof(buf));
+				static_cast<ParamProbe *>(user)->rounds = text ? text : "";
+			}
+			return 1;
+		}
+	} probe;
+	missionGraphProgramVisitModuleParams(program, ParamProbe::visit, &probe);
+	CHECK(probe.rounds == "3");
+
+	// State gates and setters name a key and a boolean; a hand holds eight
+	// keys.
+	const auto withState = [&](const std::string &nodes, const std::string &edges) {
+		std::string text = base;
+		text.replace(text.find("{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\" }"),
+			std::string("{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\" }").size(),
+			"{ \"id\": \"primary_reload\", \"kind\": \"og.weapon.reload\" }," + nodes);
+		const std::string lastEdge = "\"to\": \"primary_reload\", \"input\": \"exec\" }";
+		text.replace(text.find(lastEdge), lastEdge.size(), lastEdge + "," + edges);
+		return text;
+	};
+	const std::string stateNodes =
+		"{ \"id\": \"armed\", \"kind\": \"gate.weapon.state_is\", \"key\": \"armed\", \"equals\": true },"
+		"{ \"id\": \"arm\", \"kind\": \"og.weapon.set_state\", \"key\": \"armed\", \"value\": true }";
+	const std::string stateEdges =
+		"{ \"from\": \"primary_clip_empty\", \"output\": \"out\", \"to\": \"armed\", \"input\": \"exec\" },"
+		"{ \"from\": \"armed\", \"output\": \"fail\", \"to\": \"arm\", \"input\": \"exec\" }";
+	CHECK(registers(withState(stateNodes, stateEdges)));
+	CHECK_FALSE(registers(withState(
+		"{ \"id\": \"armed\", \"kind\": \"gate.weapon.state_is\", \"equals\": true }",
+		"{ \"from\": \"primary_clip_empty\", \"output\": \"out\", \"to\": \"armed\", \"input\": \"exec\" }")));
+	CHECK(std::string(err).find("gate.weapon.state_is needs a key") != std::string::npos);
+	CHECK_FALSE(registers(withState(
+		"{ \"id\": \"arm\", \"kind\": \"og.weapon.set_state\", \"key\": \"armed\", \"value\": \"yes\" }",
+		"{ \"from\": \"primary_clip_empty\", \"output\": \"out\", \"to\": \"arm\", \"input\": \"exec\" }")));
+	CHECK(std::string(err).find("og.weapon.set_state needs value true or false") != std::string::npos);
+	std::string nine, nineEdges;
+	for (int k = 0; k < 9; k++) {
+		nine += std::string(k ? "," : "") + "{ \"id\": \"s" + std::to_string(k) +
+			"\", \"kind\": \"og.weapon.set_state\", \"key\": \"k" + std::to_string(k) + "\", \"value\": true }";
+		nineEdges += std::string(k ? "," : "") + "{ \"from\": \"primary_clip_empty\", \"output\": \"out\", \"to\": \"s" +
+			std::to_string(k) + "\", \"input\": \"exec\" }";
+	}
+	CHECK_FALSE(registers(withState(nine, nineEdges)));
+	CHECK(std::string(err).find("more than 8 state keys") != std::string::npos);
+
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeHeldProgram(weaponnum, 0) == nullptr);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

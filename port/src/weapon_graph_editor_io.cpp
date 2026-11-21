@@ -191,6 +191,7 @@ struct Node {
     std::string kind;
     std::string scope;    /* "primary", "secondary" or "shared" */
     std::string params;   /* JSON object text */
+    std::string extra;    /* ", \"key\": value" for every other member (a program node's settings) */
     int file;             /* 0 = primary file, 1 = secondary file */
 };
 
@@ -204,6 +205,15 @@ struct Graph {
 bool isScope(const std::string &text)
 {
     return text == "primary" || text == "secondary" || text == "shared";
+}
+
+/* held-weapon-events.md slice 2: a node of a function's program (a weapon
+ * event, a gate or a native module), not of its record. A mode file that
+ * holds one is pd.weapon_graph.v2. */
+bool isProgramKind(const std::string &kind)
+{
+    return kind.compare(0, 13, "event.weapon.") == 0 || kind.compare(0, 12, "gate.weapon.") == 0 ||
+        kind.compare(0, 3, "og.") == 0;
 }
 
 /* Kinds the runtime can make a mode's function from (the opcodes
@@ -301,6 +311,16 @@ bool readNodes(const JsonObject &root, const char *what, int default_file, Graph
         } else {
             node.params = "{}";
         }
+        /* A program node keeps its settings beside id and kind ("rounds",
+         * "key", ...); they go back out as they came in. */
+        for (const auto &entry : *object) {
+            if (entry.first == "id" || entry.first == "kind" || entry.first == "subgraph" ||
+                    entry.first == "params") {
+                continue;
+            }
+            node.extra += ", " + quoted(entry.first) + ": ";
+            writeValue(node.extra, entry.second);
+        }
         node.file = node.scope == "secondary" ? 1 : 0;
         graph.nodes.push_back(std::move(node));
     }
@@ -327,8 +347,12 @@ bool readEdges(const JsonObject &root, const char *what, Graph &graph, char *err
          * may name a node from the other file. It is filed with the
          * secondary mode as soon as either end belongs there. */
         const int file = (graph.nodes[a].file == 1 || graph.nodes[b].file == 1) ? 1 : 0;
-        graph.edges[file].push_back("{ \"from\": " + quoted(*from) + ", \"to\": " +
-            quoted(*to) + " }");
+        /* An execution edge of a function's program keeps its ports. */
+        std::string row = "{ \"from\": " + quoted(*from);
+        if (const std::string *output = memberString(*object, "output")) row += ", \"output\": " + quoted(*output);
+        row += ", \"to\": " + quoted(*to);
+        if (const std::string *input = memberString(*object, "input")) row += ", \"input\": " + quoted(*input);
+        graph.edges[file].push_back(row + " }");
     }
     return true;
 }
@@ -409,7 +433,18 @@ void appendRows(std::string &out, const char *key, const std::vector<std::string
 std::string nodeRow(const Node &node)
 {
     return "{ \"id\": " + quoted(node.id) + ", \"kind\": " + quoted(node.kind) +
-        ", \"subgraph\": " + quoted(node.scope) + ", \"params\": " + node.params + " }";
+        ", \"subgraph\": " + quoted(node.scope) + ", \"params\": " + node.params + node.extra + " }";
+}
+
+/* held-weapon-events.md slice 2: the schema of a graph whose nodes are
+ * these: v2 when any is a program node. mode is a mode file's, or -1 for
+ * every node (the editor's joined graph). */
+const char *schemaFor(const Graph &graph, int mode)
+{
+    for (const Node &node : graph.nodes) {
+        if ((mode < 0 || node.file == mode) && isProgramKind(node.kind)) return "pd.weapon_graph.v2";
+    }
+    return "pd.weapon_graph.v1";
 }
 
 std::string modeText(const Graph &graph, int mode, const std::string &asset_id)
@@ -418,7 +453,7 @@ std::string modeText(const Graph &graph, int mode, const std::string &asset_id)
     for (const Node &node : graph.nodes) {
         if (node.file == mode) rows.push_back(nodeRow(node));
     }
-    std::string out = "{\n  \"schema\": \"pd.weapon_graph.v1\",\n  \"asset_id\": ";
+    std::string out = std::string("{\n  \"schema\": \"") + schemaFor(graph, mode) + "\",\n  \"asset_id\": ";
     out += quoted(asset_id);
     out += ",\n  \"graph_id\": ";
     out += quoted(kModes[mode]);
@@ -573,7 +608,7 @@ char *compose(const char *primary_json, const char *secondary_json,
         exports.insert(exports.end(), graph.exports[file].begin(), graph.exports[file].end());
     }
 
-    std::string out = "{\n  \"schema\": \"pd.weapon_graph.v1\",\n  \"asset_id\": ";
+    std::string out = std::string("{\n  \"schema\": \"") + schemaFor(graph, -1) + "\",\n  \"asset_id\": ";
     out += quoted(asset_id);
     out += ",\n  \"graph_id\": \"custom_modular\",\n";
     appendRows(out, "shared_context", contexts, false);

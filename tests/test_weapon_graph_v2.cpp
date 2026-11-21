@@ -5,7 +5,9 @@
 #include "weapon_graph_v2.h"
 #include <algorithm>
 #include <cstring>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -389,6 +391,30 @@ TEST_CASE("v2 held readiness exports require their exact event and executable po
         Program p(wgV2Compile(source.data(), source.size(), 9, deps, error, sizeof(error)));
         INFO(error); REQUIRE(p == nullptr); REQUIRE(error[0] != 0);
     }
+}
+
+// held-weapon-events.md slice 1: the profile keeps its grammar here, and the
+// shared graph runner compiles and walks it (the weapon domain), so the tests
+// above prove the single-shot profile runs unchanged on the shared runner.
+TEST_CASE("v2 single-shot profile compiles and walks on the shared graph runner", "[graph-v2-draft]") {
+    std::ifstream input("port/src/weapon_graph_v2.cpp", std::ios::binary);
+    REQUIRE(input.good());
+    std::ostringstream text; text << input.rdbuf();
+    const std::string source = text.str();
+    REQUIRE(source.find("program.shared = missionGraphProgramCompileWeapon(") != std::string::npos);
+    REQUIRE(source.find("missionGraphActivationWalk(walk, &event, reached, this)") != std::string::npos);
+    REQUIRE(source.find("missionGraphActivationRoute(walk,") != std::string::npos);
+    REQUIRE(source.find("missionGraphActivationBegin(walk, &event)") != std::string::npos);
+    // No second walker: the executor keeps no ready queue of its own.
+    CHECK(source.find("ready.push_back") == std::string::npos);
+    CHECK(source.find("std::vector<uint8_t> visited") == std::string::npos);
+    // A profile graph is a weapon program node for node.
+    auto p = compile(heldGraph()); Host h; auto i = bind(p, h);
+    REQUIRE(wgV2NativeIdle(i.get(), 1, 1, 41, 9) == WG_V2_RUNNING);
+    REQUIRE(h.trace.size() == 3); // the shot is pending: its outcome is routed later
+    CHECK(h.trace[0] == "1:ready_held.exec");
+    CHECK(h.trace[1] == "1:ammo.pass");
+    CHECK(h.trace[2] == "1:cool.pass");
 }
 
 TEST_CASE("v2 native idle can resume an already held trigger without fabricating a press", "[graph-v2-draft]") {

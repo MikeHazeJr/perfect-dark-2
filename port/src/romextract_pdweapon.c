@@ -44,16 +44,21 @@
 #include "animdata_authored.h"
 #include "mission_graph_runner.h"
 #include "projectile_rules.h"
+#include "weapon_rules.h"
 
 /* v16 (projectile-events.md slice 6): each archive is checked for this marker
  * by itself, with or without the directory's cache stamp, so no weapon
  * archive written before the arm rule survives an extraction (one that did
- * would arm nothing). */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v16"
+ * would arm nothing). v17 (held-weapon-events.md slice 2): the held function
+ * graphs are pd.weapon_graph.v2 with their programs, so no v1 base function
+ * graph survives either. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v17"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules"
+/* _heldprograms: the held function graphs carry their programs
+ * (held-weapon-events.md slice 2). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2490,12 +2495,96 @@ static void s_emitWeaponGraphExport(jw_t *w, const char *name,
 	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
+/* held-weapon-events.md slice 2: one node of a held function's program. */
+static void s_emitHeldProgramNode(jw_t *w, const char *id, const char *kind,
+                                  s32 rounds, s32 last)
+{
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "id", id, 0);
+	if (rounds > 0) {
+		jw_field_str(w, "kind", kind, 0);
+		jw_field_int(w, WEAPON_RULE_ROUNDS_PARAM, rounds, 1);
+	} else {
+		jw_field_str(w, "kind", kind, 1);
+	}
+	w->indent--;
+	jw_indent(w);
+	fputs(last ? "}\n" : "},\n", w->fp);
+}
+
+/* An execution edge of a held function's program. */
+static void s_emitHeldProgramEdge(jw_t *w, const char *from, const char *output,
+                                  const char *to, s32 last)
+{
+	jw_open_object(w, NULL);
+	jw_field_str(w, "from", from, 0);
+	jw_field_str(w, "output", output, 0);
+	jw_field_str(w, "to", to, 0);
+	jw_field_str(w, "input", "exec", 1);
+	jw_close_object(w, last);
+}
+
+/*
+ * held-weapon-events.md slice 2: the original's idle rule as a program
+ * (weapon_rules.h, weaponRulesNativeIdle): a press or a held trigger fires
+ * when the clip holds what a shot needs (has_ammo, whose rounds are the
+ * original's minimum for the weapon and function), clicks when it does not
+ * and there is reserve, and does nothing otherwise; an empty clip with the
+ * trigger up reloads. pd-tests fire this wiring through the runner against
+ * the table for every hand state, so a base program and the original agree
+ * by construction.
+ */
+#define PDWEAPON_HELD_PROGRAM_NODES 8
+static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds)
+{
+	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
+	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
+		"pressed", "held", "has_ammo", "has_reserve", "fire", "dry_fire", "clip_empty", "reload",
+	};
+	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
+		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
+		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
+		"og.weapon.fire", "og.weapon.dry_fire",
+		"event.weapon.clip_empty", "og.weapon.reload",
+	};
+
+	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
+		snprintf(ids[i], sizeof(ids[i]), "%s_%s", mode_name, suffix[i]);
+		s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : 0,
+			i + 1 == PDWEAPON_HELD_PROGRAM_NODES);
+	}
+}
+
+static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name)
+{
+	char pressed[48], held[48], has_ammo[48], has_reserve[48];
+	char fire[48], dry_fire[48], clip_empty[48], reload[48];
+
+	snprintf(pressed, sizeof(pressed), "%s_pressed", mode_name);
+	snprintf(held, sizeof(held), "%s_held", mode_name);
+	snprintf(has_ammo, sizeof(has_ammo), "%s_has_ammo", mode_name);
+	snprintf(has_reserve, sizeof(has_reserve), "%s_has_reserve", mode_name);
+	snprintf(fire, sizeof(fire), "%s_fire", mode_name);
+	snprintf(dry_fire, sizeof(dry_fire), "%s_dry_fire", mode_name);
+	snprintf(clip_empty, sizeof(clip_empty), "%s_clip_empty", mode_name);
+	snprintf(reload, sizeof(reload), "%s_reload", mode_name);
+	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
+	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
+	s_emitHeldProgramEdge(w, has_ammo, "pass", fire, 0);
+	s_emitHeldProgramEdge(w, has_ammo, "fail", has_reserve, 0);
+	s_emitHeldProgramEdge(w, has_reserve, "pass", dry_fire, 0);
+	s_emitHeldProgramEdge(w, clip_empty, "out", reload, 1);
+}
+
 static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
                                      const char *catalog_id,
                                      const struct weaponfunc *func,
                                      s32 mode,
                                      const char *projectile_ref,
-                                     const char *entity_ref)
+                                     const char *entity_ref,
+                                     s32 weapon_id)
 {
 	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
 	if (!fp) return -1;
@@ -2509,9 +2598,13 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	const char *trigger_node = mode == 0 ? "primary_trigger" : "secondary_trigger";
 	const char *action_node = mode == 0 ? "primary_action" : "secondary_action";
 
+	/* held-weapon-events.md slice 2: every function that exists has the
+	 * original's idle rule as its program; an empty function has none. */
+	const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;
+
 	fputs("{\n", fp);
 	w.indent = 1;
-	jw_field_str(&w, "schema", "pd.weapon_graph.v1", 0);
+	jw_field_str(&w, "schema", "pd.weapon_graph.v2", 0);
 	jw_field_str(&w, "asset_id", catalog_id, 0);
 	jw_field_str(&w, "graph_id", mode_name, 0);
 	jw_field_str(&w, "shared_context", PDWEAPON_SHARED_CONTEXT_ENTRY, 0);
@@ -2521,14 +2614,20 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	jw_open_array(&w, "nodes");
 	s_emitWeaponGraphEventNode(&w, trigger_node, catalog_id, mode, func, 0);
 	s_emitWeaponGraphNode(&w, action_node, catalog_id, mode, func,
-		projectile_ref, entity_ref, 1);
+		projectile_ref, entity_ref, !program);
+	if (program) {
+		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode));
+	}
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "edges");
 	jw_open_object(&w, NULL);
 	jw_field_str(&w, "from", trigger_node, 0);
 	jw_field_str(&w, "to", action_node, 1);
-	jw_close_object(&w, 1);
+	jw_close_object(&w, !program);
+	if (program) {
+		s_emitHeldProgramEdges(&w, mode_name);
+	}
 	jw_close_array(&w, 0);
 
 	jw_open_array(&w, "exports");
@@ -2816,7 +2915,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 
 	if (s_emitWeaponModeGraphFile(primary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[0], 0,
-			projectile_refs[0], entity_refs[0]) != 0) {
+			projectile_refs[0], entity_refs[0], weapon_id) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		sysMemFree(manifest_bytes);
@@ -2827,7 +2926,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	}
 	if (s_emitWeaponModeGraphFile(secondary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[1], 1,
-			projectile_refs[1], entity_refs[1]) != 0) {
+			projectile_refs[1], entity_refs[1], weapon_id) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		s_removeRelpathIfExists(secondary_tmp_relpath);
