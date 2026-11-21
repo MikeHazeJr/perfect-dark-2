@@ -949,6 +949,7 @@ const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_
 typedef struct held_param_check {
 	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
 	s32 key_count;
+	s32 functype; /* the function record's type, -1 when unknown (slice 4) */
 	char why[160];
 } held_param_check_t;
 
@@ -972,7 +973,13 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 		}
 		return 1;
 	}
-	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO)) {
+	if ((bit & WEAPON_MODULE_SHOTS) && check->functype >= 0 && !weaponRulesShotFits(bit, check->functype)) {
+		/* slice 4: the attack's states are its record's family. */
+		snprintf(check->why, sizeof(check->why), "%s does not fit this function (its record's function type is 0x%04x)",
+			kind, (unsigned)check->functype);
+		return 0;
+	}
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -988,6 +995,21 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 					snprintf(check->why, sizeof(check->why),
 						"%s needs %s in rounds per minute, above 0 and up to %d, got %s",
 						kind, setting->key, (int)WEAPON_RULE_MAX_RATE, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_NUMBER) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s above 0 and up to %d, got %s",
+						kind, setting->key, setting->hi, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ITEM) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s own or an item's catalog id such as base:rocket, got %s", kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ITEM_FUNCTION) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s gun, 0, 1 or 2, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ACTION) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s detonate, boost, revert_boost, crouch, uplink, shoot, launch, throw, melee or melee_no_uncloak, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_MODE) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s cloak, got %s", kind, setting->key, raw);
 				} else {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
 						kind, setting->key, setting->lo, setting->hi, raw);
@@ -1035,7 +1057,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 /* held-weapon-events.md slice 2: a module chooses what the seam of its event
  * does, so one wired to an event whose seam does not apply it would do
  * nothing; such a program is refused, with the pair named. */
-static s32 heldProgramModulesApply(const mission_graph_program_t *program, char *why, size_t why_cap)
+static s32 heldProgramModulesApply(const mission_graph_program_t *program, s32 functype, char *why, size_t why_cap)
 {
 	held_param_check_t check;
 
@@ -1056,6 +1078,7 @@ static s32 heldProgramModulesApply(const mission_graph_program_t *program, char 
 		}
 	}
 	memset(&check, 0, sizeof(check));
+	check.functype = functype;
 	if (!missionGraphProgramVisitModuleParams(program, heldProgramParamVisit, &check)) {
 		snprintf(why, why_cap, "%s", check.why);
 		return 0;
@@ -1100,7 +1123,10 @@ static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
 		why[0] = '\0';
 		program = missionGraphProgramCompileWeapon(ir->held_program_json[f],
 			ir->held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
-		if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+		if (program && !heldProgramModulesApply(program,
+				s_held_functions[weaponnum][f].valid && s_held_functions[weaponnum][f].has_function_type_id
+					? s_held_functions[weaponnum][f].function_type_id : -1,
+				why, sizeof(why))) {
 			missionGraphProgramFree(program);
 			program = NULL;
 		}
@@ -2578,6 +2604,8 @@ void weaponGraphIrFree(weapon_graph_ir_t *ir)
 	ir->subgraph_capacity = 0;
 }
 
+static s32 heldIrFunctionType(const weapon_graph_ir_t *ir, s32 f);
+
 s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
                             u32 json_size, char *err, size_t err_cap)
 {
@@ -2601,7 +2629,7 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 			why[0] = '\0';
 			program = missionGraphProgramCompileWeapon(ir.held_program_json[f],
 				ir.held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
-			if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+			if (program && !heldProgramModulesApply(program, heldIrFunctionType(&ir, f), why, sizeof(why))) {
 				missionGraphProgramFree(program);
 				program = NULL;
 			}
@@ -5157,6 +5185,28 @@ static s32 weaponGraphValidateRegisteredReticles(s32 weaponnum,
 		}
 	}
 	return 0;
+}
+
+/* held-weapon-events.md slice 4: the record's function type of function f of
+ * an IR, read as weaponGraphRuntimeRegisterHeldIr reads its exports; -1 when
+ * the IR has none. */
+static s32 heldIrFunctionType(const weapon_graph_ir_t *ir, s32 f)
+{
+	for (s32 i = 0; ir && i < ir->export_count; i++) {
+		const s32 node_index = ir->exports[i].node;
+		weapon_graph_held_function_t held;
+
+		if (heldModeToFuncIndex(ir->exports[i].name) != f || node_index < 0 || node_index >= ir->node_count) {
+			continue;
+		}
+		if (!heldOpcodeIsSupported(ir->nodes[node_index].opcode)) {
+			continue;
+		}
+		memset(&held, 0, sizeof(held));
+		heldFunctionFromNode(ir, &ir->nodes[node_index], ir->exports[i].name, &held);
+		return held.has_function_type_id ? held.function_type_id : -1;
+	}
+	return -1;
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,

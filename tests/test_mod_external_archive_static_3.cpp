@@ -3385,8 +3385,10 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	 * (every surface) and explosion scorch marks. */
 	REQUIRE(bg.find("mask = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SHOOT;") != std::string::npos);
 	const std::string prop = readFile("src/game/prop.c");
+	/* held-weapon-events.md slice 4: the Farsight's pass is its
+	 * og.weapon.hitscan's through_walls. */
 	const size_t farsight = prop.find(
-		"if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {");
+		"if (!shotplan->through_walls || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {");
 	const size_t shotmesh = prop.find("bgTestHitScenarioMesh(&shotdata.gunpos3d, &hitpos, true, &sp664, &hitroom)");
 	REQUIRE(farsight != std::string::npos);
 	REQUIRE(shotmesh != std::string::npos);

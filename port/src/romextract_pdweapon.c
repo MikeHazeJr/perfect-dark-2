@@ -53,15 +53,16 @@
  * graphs are pd.weapon_graph.v2 with their programs, so no v1 base function
  * graph survives either. v18 (slice 3): the programs start their attack
  * with a trigger node and spend with og.weapon.use_ammo, which a slice 2
- * program lacks (its og.weapon.fire no longer exists). */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v18"
+ * program lacks (its og.weapon.fire no longer exists). v19 (slice 4): and
+ * end it with its shot node; a throw and a special spend through use_ammo. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v19"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
 /* _heldprograms: the held function graphs carry their programs
  * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
- * and use_ammo nodes (slice 3). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers"
+ * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2563,6 +2564,68 @@ static void s_emitHeldTriggerNode(jw_t *w, const char *id, const weapon_rule_tri
 	fputs(last ? "}\n" : "},\n", w->fp);
 }
 
+/* held-weapon-events.md slice 4: the shot node of a held function's
+ * program, with every setting of the original's shot. */
+static void s_emitHeldShotNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fputs("{\n", w->fp);
+	w->indent++;
+	jw_field_str(w, "id", id, 0);
+	switch (plan->shot) {
+	case WEAPON_MODULE_HITSCAN:
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_HITSCAN), 0);
+		jw_field_int(w, WEAPON_RULE_PELLETS_PARAM, plan->pellets, 0);
+		jw_field_bool(w, WEAPON_RULE_THROUGH_WALLS_PARAM, plan->through_walls, 0);
+		jw_field_f32(w, WEAPON_RULE_SHIELD_DAMAGE_PARAM, plan->shield_damage, 1);
+		break;
+	case WEAPON_MODULE_BEAM:
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_BEAM), 0);
+		jw_field_int(w, WEAPON_RULE_RANGE_PARAM, (s32)plan->range, 1);
+		break;
+	case WEAPON_MODULE_LAUNCH: {
+		const char *item = plan->item >= 0 && plan->item < g_WeaponDataCount && g_WeaponDataCatalogIds[plan->item]
+			? g_WeaponDataCatalogIds[plan->item] : "own";
+		const s32 function = plan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP;
+
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_LAUNCH), 0);
+		jw_field_str(w, WEAPON_RULE_ITEM_PARAM, item, !function);
+		if (plan->item_function == WEAPON_RULE_ITEM_FUNCTION_GUN) {
+			jw_field_str(w, WEAPON_RULE_ITEM_FUNCTION_PARAM, "gun", 1);
+		} else if (function) {
+			jw_field_int(w, WEAPON_RULE_ITEM_FUNCTION_PARAM, plan->item_function, 1);
+		}
+		break;
+	}
+	case WEAPON_MODULE_THROW:
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_THROW), 0);
+		jw_field_bool(w, WEAPON_RULE_GIVE_UP_GUN_PARAM, plan->give_up_gun, 1);
+		break;
+	case WEAPON_MODULE_SPECIAL: {
+		const char *action = weaponRulesActionName(plan->action);
+
+		if (action) {
+			jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_SPECIAL), 0);
+			jw_field_str(w, WEAPON_RULE_ACTION_PARAM, action, 1);
+		} else {
+			jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_SPECIAL), 1);
+		}
+		break;
+	}
+	case WEAPON_MODULE_MODE_TOGGLE:
+		jw_field_str(w, "kind", weaponRulesModuleKind(WEAPON_MODULE_MODE_TOGGLE), 0);
+		jw_field_str(w, WEAPON_RULE_MODE_PARAM, "cloak", 0);
+		jw_field_f32(w, WEAPON_RULE_DRAIN_PARAM, plan->drain, 1);
+		break;
+	default: /* melee */
+		jw_field_str(w, "kind", weaponRulesModuleKind(plan->shot), 1);
+		break;
+	}
+	w->indent--;
+	jw_indent(w);
+	fputs(last ? "}\n" : "},\n", w->fp);
+}
+
 /* The original's plan for a ROM function (weapon_rules.h
  * weaponRulesNativeTrigger), read from the fields the record writes. */
 static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 mode,
@@ -2578,6 +2641,9 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 		record.functype = f->type;
 		record.flags = f->flags;
 		record.ammo_slot = f->ammoindex;
+		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
+			record.specialfunc = ((const struct weaponfunc_special *)f)->specialfunc;
+		}
 		if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
 			const struct weaponfunc_shootauto *sa = (const struct weaponfunc_shootauto *)f;
 
@@ -2606,30 +2672,40 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
  * the table for every hand state, so a base program and the original agree
  * by construction.
  */
-#define PDWEAPON_HELD_PROGRAM_NODES 9
+#define PDWEAPON_HELD_PROGRAM_NODES 10
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo",
+		"use_ammo", "shot",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo",
+		"og.weapon.use_ammo", NULL,
 	};
-	const s32 count = plan->rounds > 0 ? PDWEAPON_HELD_PROGRAM_NODES : PDWEAPON_HELD_PROGRAM_NODES - 1;
+	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
+	s32 count = 0;
 
-	for (s32 i = 0; i < count; i++) {
-		const s32 last = i + 1 == count;
+	/* use_ammo only where the attack spends, the shot only where the
+	 * function has one (a device has none). */
+	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
+		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot)) continue;
+		emit[count++] = i;
+	}
+	for (s32 n = 0; n < count; n++) {
+		const s32 i = emit[n];
+		const s32 last = n + 1 == count;
 
 		snprintf(ids[i], sizeof(ids[i]), "%s_%s", mode_name, suffix[i]);
-		if (!kind[i]) {
+		if (i == 4) {
 			s_emitHeldTriggerNode(w, ids[i], plan, last);
+		} else if (i == 9) {
+			s_emitHeldShotNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2639,7 +2715,7 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_rule_trigger_t *plan)
 {
 	char pressed[48], held[48], has_ammo[48], has_reserve[48];
-	char attack[48], dry_fire[48], clip_empty[48], reload[48], use_ammo[48];
+	char attack[48], dry_fire[48], clip_empty[48], reload[48], use_ammo[48], shot[48];
 
 	snprintf(pressed, sizeof(pressed), "%s_pressed", mode_name);
 	snprintf(held, sizeof(held), "%s_held", mode_name);
@@ -2650,11 +2726,15 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 	snprintf(clip_empty, sizeof(clip_empty), "%s_clip_empty", mode_name);
 	snprintf(reload, sizeof(reload), "%s_reload", mode_name);
 	snprintf(use_ammo, sizeof(use_ammo), "%s_use_ammo", mode_name);
+	snprintf(shot, sizeof(shot), "%s_shot", mode_name);
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, has_ammo, "pass", attack, 0);
 	if (plan->rounds > 0) {
 		s_emitHeldProgramEdge(w, attack, "out", use_ammo, 0);
+	}
+	if (plan->shot) {
+		s_emitHeldProgramEdge(w, plan->rounds > 0 ? use_ammo : attack, "out", shot, 0);
 	}
 	s_emitHeldProgramEdge(w, has_ammo, "fail", has_reserve, 0);
 	s_emitHeldProgramEdge(w, has_reserve, "pass", dry_fire, 0);

@@ -88,6 +88,17 @@ s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native);
  * program. */
 s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native);
 
+/* slice 4: a weapon function's plan as simulants, guards and damage read
+ * it (the shot's settings: a Farsight's shield damage, a simulant's Farsight
+ * through walls): the press plan when the function has a program that
+ * starts one, else the original's for its record. */
+void weaponFunctionPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *out);
+
+/* slice 4: whether one of the weapon's functions toggles the cloak
+ * (og.weapon.mode_toggle, mode cloak): 1 with its drain in rounds a second
+ * and its clip's ammo slot. */
+s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot);
+
 /* bgunSetState: the hand left its reload for idle (event.weapon.reload_done,
  * a record). */
 void weaponEventReloadDone(s32 handnum, struct hand *hand);

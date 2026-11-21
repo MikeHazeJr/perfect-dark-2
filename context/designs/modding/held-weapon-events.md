@@ -352,6 +352,64 @@ simulants"; "a held program's trigger settings are checked when its weapon
 registers"), `tests/test_weapon_graph_editor_io.cpp`,
 `tools/tests/test_projectile_program_conformance.py`.
 
+## Slice 4a as written (Core Weapons, 2026-11-21)
+
+The Shotgun, Farsight, Laser, spawn if-chain, Laptop, cloak and
+Tranquilizer special cases are node settings. The shot joins the attack's
+plan (slice 3): the walk that chooses the trigger also chooses the **shot
+module**, the first one reached after it, with its settings; the native code
+of each attack family runs it, reading the plan where it read a weapon
+number. One shot module per family:
+
+| Module | Family (record's function type) | Settings (default the record's) | Replaces |
+|---|---|---|---|
+| `og.weapon.hitscan` | shoot (single, automatic) | `pellets` (1 to 32; Shotgun 6), `through_walls` (bool; Farsight), `shield_damage` (factor; Farsight 10) | `handTickAttack`'s six Shotgun `shotCreate` calls; `prop.c` Farsight wall skip and kept distance; `chraction.c` Farsight shield x10 and a simulant's Farsight shot through walls |
+| `og.weapon.beam` | shoot | `range` (world units; Laser stream 300) | `prop.c` laser-stream test (Laser secondary) |
+| `og.weapon.launch` | shoot projectile | `item` (catalog id of the item fired, or `own`), `item_function` (`gun`, 0, 1 or 2, or left out) | `bgunCreateFiredProjectile`'s if-chain (rocket launcher and Slayer fire `base:rocket`, crossbow `base:bolt` with the gun's function, Devastator `base:grenaderound` with the gun's, Super Dragon `base:grenaderound` function 2) |
+| `og.weapon.throw` | throw | `give_up_gun` (bool; Laptop gun) | `bgunCreateThrownProjectile`'s Laptop `bgunFreeWeapon` |
+| `og.weapon.melee` | melee | none this slice | (the Tranquilizer's cost moves to `use_ammo`) |
+| `og.weapon.special` | special | `action` (`detonate`, `boost`, `revert_boost`, `crouch`, `uplink`) | the record's `specialfunc` |
+| `og.weapon.mode_toggle` | special | `mode` (`cloak`), `drain` (rounds a second; RCP120 24) | the RCP120 cloak toggle and its per-tick drain (`bondgun.c`, `0.4` a tick) |
+
+`og.weapon.use_ammo` spends for every family: a throw and a special take 1
+round when the function has a clip, the Tranquilizer's sedative strike 4
+(a strike takes up to its rounds, emptying a shorter clip, as the original),
+any other melee none. The base programs wire `has_ammo` → trigger →
+`use_ammo` → shot. A shot module whose family is not the function's is
+refused (the attack's state machine is still the record's family). Devices
+have no shot module. Left native for later slices: wall-hit decals and spark
+colours per weapon (feel, slice 7), throw arcs, the grenade's prime (slice
+5), the Reaper's grind, the alternate-button cloak control and the
+function-switch rules (input). Reload styles (magazine, one round at a time,
+regrow) follow as slice 4b.
+
+- **Where it runs:** `weaponRulesNativeShot` and `weaponRulesApplyShotSettings`
+  (`weapon_rules.h`) plan the shot; the walk takes the first shot reached
+  (a shot left out is the function's own). `bondgun.c`: the launcher's item
+  (`bgunCreateFiredProjectile`), the Laptop gun's `bgunFreeWeapon`, the
+  special's action, the throw's, special's and strike's spending
+  (`weaponRulesSpendRounds`), the cloak's drain and clip. `prop.c`: the
+  pellets in `handTickAttack`, the beam and the wall pass in
+  `shotCalculateHitsSource` (`bgunHandPlan`). `chraction.c`: shield damage and a
+  simulant's shot through walls read `weaponFunctionPlan` (the press plan, or
+  the original's), so simulants, guards and players agree.
+- **Extractor:** the base programs end `has_ammo` → trigger → `use_ammo` →
+  `<mode>_shot`, every setting written; marker `embedded.v19`, cache kind
+  `_heldshots`.
+- **Parity probe:** `WEAPON.RULE` plans carry ` shot=...` with its settings.
+- **Registration and conformance** refuse a shot that does not fit its
+  function ("og.weapon.launch does not fit this function") and settings that
+  are not values of their kinds.
+
+Tests: `tests/test_mission_graph_runner.cpp` ("the shot table plans each base
+function's shot as the original does"; "a shot node's settings default to
+the function's own shot and refuse what they cannot read"; "the base
+wiring's shots are the original's, for players and for simulants"; "a held
+program's shot is checked against its function when its weapon
+registers"), `tests/test_projectile_rules.cpp` (the launcher's item agrees
+with the projectile rule's launched object for every base launcher),
+`tools/tests/test_projectile_program_conformance.py`.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -368,6 +426,9 @@ Listed as each slice lands; none is run by Core Weapons.
 | 3 | `boot_smoke` on a freshly extracted install | every base weapon re-extracts once (`embedded.v18`) and registers its programs with their trigger nodes; no `program refused` line |
 | 3 | a Combat Simulator match with simulants holding automatics (for example `mp_combat_local_scorelimit_smoke` or `combat_sim_simulant_twins`) | no `WEAPON.RULE differs: ticks_per_shot` line: simulants fire base guns at the original rates |
 | 3 | `mod_author_weapon_create_smoke`, `mod_author_weapon_play_smoke` | a weapon made from a base one keeps its trigger node and fires |
+| 4 | `held_weapon_shot_smoke` (new) | the rocket launcher, crossbow, Devastator and Super Dragon launch the original's items; the Farsight's, the sedative strike's, the RCP120 cloak's and the Laptop gun's plans equal the original's; `rules.differ=0`; no `WEAPON.SHOT: launch` line |
+| 4 | `held_weapon_cadence_smoke` | its plan lines now end with the shot (`shot=hitscan pellets=6` for the Shotgun, `shot=beam range=300` for the Laser stream) |
+| 4 | `boot_smoke` on a freshly extracted install | `embedded.v19`; every base program registers with its shot node |
 
 ## Where to look
 

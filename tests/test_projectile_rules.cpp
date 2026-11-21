@@ -21,6 +21,7 @@
 #include "mission_graph_runner.h"
 #include "projectile_events.h"
 #include "projectile_rules.h"
+#include "weapon_rules.h"
 
 #include <utility>
 
@@ -684,15 +685,33 @@ TEST_CASE("projectile rules: the object a weapon function launches", "[projectil
 	CHECK(launched(WEAPON_LAPTOPGUN, FUNC_SECONDARY, true, false).first == -1);
 	projectileRulesLaunchedObject(WEAPON_CROSSBOW, FUNC_PRIMARY, 0, 0, nullptr, nullptr); // no crash
 
-	// bondgun.c is where a fired projectile gets its own weapon number.
+	// bondgun.c is where a fired projectile gets its own weapon number: the
+	// item its function's plan launches (held-weapon-events.md slice 4),
+	// which for a base launcher is the object this rule names.
 	const std::string bgun = readSource("src/game/bondgun.c");
-	REQUIRE(bgun.find("} else if (hand->gset.weaponnum == WEAPON_ROCKETLAUNCHER || hand->gset.weaponnum == WEAPON_SLAYER) {")
+	REQUIRE(bgun.find("} else if (shotplan->item >= 0) {") != std::string::npos);
+	REQUIRE(bgun.find("weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, item, g_Vars.currentplayer->prop->chr);")
 		!= std::string::npos);
-	REQUIRE(bgun.find("weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);")
-		!= std::string::npos);
-	REQUIRE(countOf(bgun, "weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);")
-		== 2);
-	REQUIRE(bgun.find("\t\t\t\t\tweapon->gunfunc = FUNC_2;") != std::string::npos);
+	REQUIRE(bgun.find("if (item == WEAPON_ROCKET && (funcflags & FUNCFLAG_HOMINGROCKET)) {") != std::string::npos);
+	for (const auto &gun : { Pair(WEAPON_ROCKETLAUNCHER, FUNC_PRIMARY), Pair(WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY),
+			Pair(WEAPON_SLAYER, FUNC_PRIMARY), Pair(WEAPON_SLAYER, FUNC_SECONDARY), Pair(WEAPON_CROSSBOW, FUNC_PRIMARY),
+			Pair(WEAPON_CROSSBOW, FUNC_SECONDARY), Pair(WEAPON_DEVASTATOR, FUNC_PRIMARY),
+			Pair(WEAPON_DEVASTATOR, FUNC_SECONDARY), Pair(WEAPON_SUPERDRAGON, FUNC_SECONDARY) }) {
+		INFO(gun.first << " " << gun.second);
+		weapon_rule_function_t record{};
+		record.weaponnum = gun.first;
+		record.func = gun.second;
+		record.functype = 0x0201;
+		record.ammo_slot = 0;
+		weapon_rule_trigger_t plan;
+		weaponRulesNativeTrigger(&record, &plan);
+		REQUIRE(plan.shot == WEAPON_MODULE_LAUNCH);
+		const Pair object = launched(gun.first, gun.second, false, false);
+		CHECK(plan.item == object.first);
+		const s32 function = plan.item_function == WEAPON_RULE_ITEM_FUNCTION_GUN ? gun.second
+			: plan.item_function == WEAPON_RULE_ITEM_FUNCTION_KEEP ? FUNC_PRIMARY : plan.item_function;
+		CHECK(function == object.second);
+	}
 	// A character's shot makes the same objects, and a rocket of the
 	// guards' launcher as well.
 	const std::string chraction = readSource("src/game/chraction.c");
@@ -992,7 +1011,7 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots\"") != std::string::npos);
 	// Every rule event of the table is wired, the arm and the fuse first.
 	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, \"armed\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",

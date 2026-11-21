@@ -1962,6 +1962,10 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 	out->flags = graph ? graph->flags : (func ? func->flags : 0);
 	out->ammo_slot = bgunGetAmmoIndexFromGraph(func, graph);
 	out->has_rate = graph && graph->has_max_rpm;
+	if ((functype & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
+		out->specialfunc = graph && graph->has_specialfunc ? graph->specialfunc
+			: (func ? ((struct weaponfunc_special *) func)->specialfunc : 0);
+	}
 
 	if (weaponRulesFunctionAutomatic(out)) {
 		struct weaponfunc_shootauto *autofunc = (functype & 0xff00) == 0x100 && func
@@ -2249,6 +2253,17 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 		weapon->timer240 =
 			bgunGraphClampTicks240(bgunGraphTicks60To240(timer60));
 	}
+}
+
+/* held-weapon-events.md slice 4: the plan of the attack the hand is in, for
+ * the shot code (prop.c). */
+const struct weapon_rule_trigger *bgunHandPlan(s32 handnum)
+{
+	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
+	weapon_rule_function_t record;
+
+	bgunRuleFunctionOf(hand, gsetGetWeaponFunction(&hand->gset), &record);
+	return weaponHandTrigger(hand, &record);
 }
 
 /*
@@ -2714,6 +2729,8 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc_throw *func = (struct weaponfunc_throw *) gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	u32 funcflags;
 	s32 ammoindex;
 	s32 activationtime60;
@@ -2725,6 +2742,10 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 
 	funcflags = graph ? graph->flags : func->base.flags;
 	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	/* held-weapon-events.md slice 4: a throw takes the plan's rounds
+	 * (og.weapon.use_ammo; 1 for a base throw with a clip). */
+	bgunRuleFunctionOf(hand, &func->base, &record);
+	plan = weaponHandTrigger(hand, &record);
 	activationtime60 = graph && graph->has_activation_time_ticks60 ?
 		graph->activation_time_ticks60 : func->activatetime60;
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
@@ -2768,7 +2789,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_2;
 		return false;
@@ -2811,7 +2832,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT;
 
@@ -2842,6 +2863,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	s32 ammoindex;
 
 	if (func == NULL) {
@@ -2849,6 +2872,10 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	}
 
 	ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
+	/* held-weapon-events.md slice 4: a strike takes the plan's rounds
+	 * (og.weapon.use_ammo; the Tranquilizer's sedative strike 4). */
+	bgunRuleFunctionOf(hand, func, &record);
+	plan = weaponHandTrigger(hand, &record);
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -2908,12 +2935,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_MELEE;
 
-		if (hand->gset.weaponnum == WEAPON_TRANQUILIZER && ammoindex >= 0) {
-			if (hand->loadedammo[ammoindex] > bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
-				hand->loadedammo[ammoindex] -= bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
-			} else {
-				hand->loadedammo[ammoindex] = 0;
-			}
+		if (ammoindex >= 0) {
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
 		if (func->fire_animation) {
@@ -2954,6 +2977,8 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 {
 	struct weaponfunc_special *func = (struct weaponfunc_special *) gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	s32 specialfunc;
 	s32 ammoindex;
 	s32 recoverytime60;
@@ -2964,6 +2989,16 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 
 	specialfunc = graph && graph->has_specialfunc ? graph->specialfunc : func->specialfunc;
 	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	/* held-weapon-events.md slice 4: the action is the plan's shot
+	 * (og.weapon.special's action, og.weapon.mode_toggle's cloak), and it
+	 * takes the plan's rounds (1 for a base special with a clip). */
+	bgunRuleFunctionOf(hand, &func->base, &record);
+	plan = weaponHandTrigger(hand, &record);
+	if (plan->shot == WEAPON_MODULE_MODE_TOGGLE && plan->mode == WEAPON_RULE_MODE_CLOAK) {
+		specialfunc = HANDATTACKTYPE_RCP120CLOAK;
+	} else if (plan->shot == WEAPON_MODULE_SPECIAL && plan->action > 0) {
+		specialfunc = plan->action;
+	}
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
 		graph->recovery_time_ticks60 : func->recoverytime60;
 
@@ -2976,7 +3011,7 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 		hand->attacktype = specialfunc;
 
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
 		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER;
@@ -5947,7 +5982,9 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		}
 	}
 
-	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
+	/* held-weapon-events.md slice 4: og.weapon.throw's give_up_gun (the
+	 * Laptop gun: the thrown object is the gun). */
+	if (bgunHandPlan(handnum)->give_up_gun) {
 		bgunFreeWeapon(handnum);
 	}
 
@@ -6126,6 +6163,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 	f32 reflectangle;
 	s32 soundnum;
 	const weapon_graph_projectile_runtime_t *projectilegraph;
+	const weapon_rule_trigger_t *shotplan;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		return;
@@ -6146,6 +6184,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 			funcdef = (struct weaponfunc_shootprojectile *)tmp;
 			graph = bgunGetHeldGraph(&hand->gset);
 			projectilegraph = bgunGetProjectileGraph(graph);
+			shotplan = bgunHandPlan(handnum);
 			funcflags = bgunGetProjectileFlagsFromGraph(
 				funcdef->base.base.flags, graph, projectilegraph);
 			projectilemodelnum = bgunGetProjectileModelnumFromGraph(
@@ -6262,33 +6301,30 @@ void bgunCreateFiredProjectile(s32 handnum)
 				if (funcflags & FUNCFLAG_HOMINGROCKET) {
 					weapon->weaponnum = WEAPON_HOMINGROCKET;
 				}
-			} else if (hand->gset.weaponnum == WEAPON_ROCKETLAUNCHER || hand->gset.weaponnum == WEAPON_SLAYER) {
-				u32 stack;
-				s32 weaponnum = WEAPON_ROCKET;
+			} else if (shotplan->item >= 0) {
+				/* held-weapon-events.md slice 4: the item the launcher fires
+				 * is the plan's (og.weapon.launch's item and item_function: the
+				 * rocket launcher and the Slayer base:rocket, homing by their
+				 * flag, the crossbow base:bolt and the Devastator
+				 * base:grenaderound with the gun's function, the Super Dragon
+				 * base:grenaderound as function 2). */
+				s32 item = shotplan->item;
 
-				if (funcflags & FUNCFLAG_HOMINGROCKET) {
-					weaponnum = WEAPON_HOMINGROCKET;
+				if (item == WEAPON_ROCKET && (funcflags & FUNCFLAG_HOMINGROCKET)) {
+					item = WEAPON_HOMINGROCKET;
 				}
 
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, weaponnum, g_Vars.currentplayer->prop->chr);
-			} else if (hand->gset.weaponnum == WEAPON_CROSSBOW) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, item, g_Vars.currentplayer->prop->chr);
 
-				if (weapon) {
-					weapon->gunfunc = hand->gset.weaponfunc;
+				if (weapon && shotplan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP) {
+					weapon->gunfunc = shotplan->item_function == WEAPON_RULE_ITEM_FUNCTION_GUN
+						? hand->gset.weaponfunc : shotplan->item_function;
 				}
-			} else if (hand->gset.weaponnum == WEAPON_DEVASTATOR) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = hand->gset.weaponfunc;
-				}
-			} else if (hand->gset.weaponnum == WEAPON_SUPERDRAGON) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = FUNC_2;
-				}
+			} else if (shotplan->item == WEAPON_RULE_ITEM_UNKNOWN) {
+				/* An item no weapon names: nothing is fired. */
+				weapon = NULL;
+				sysLogPrintf(LOG_WARNING, "WEAPON.SHOT: launch weapon=%d func=%d names an unknown item",
+					hand->gset.weaponnum, hand->gset.weaponfunc);
 			} else {
 				weapon = weaponCreateProjectileFromGset(projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
 			}
@@ -9985,6 +10021,8 @@ void bgunTickGameplay2(void)
 	struct hand *hand;
 	u32 stack[3];
 	s32 i;
+	f32 cloakdrain = WEAPON_RULE_DEFAULT_CLOAK_DRAIN;
+	s32 cloakslot = 0;
 
 #if VERSION >= VERSION_NTSC_1_0
 	if (g_Vars.currentplayernum == 0) {
@@ -10092,31 +10130,34 @@ void bgunTickGameplay2(void)
 		}
 	}
 
+	/* held-weapon-events.md slice 4: the weapon's og.weapon.mode_toggle
+	 * cloak drains its drain setting (rounds a second; the RCP120's 24, the
+	 * original's 0.4 a tick) from its function's clip. */
 	if (g_Vars.currentplayer->devicesactive &
 			~g_Vars.currentplayer->devicesinhibit & DEVICE_CLOAKRCP120) {
-		if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+		if (weaponCloakToggle(player->gunctrl.weaponnum, &cloakdrain, &cloakslot)) {
 			struct chrdata *chr = player->prop->chr;
 
 			// Handle RCP120 cloak ammo usage
 			if ((chr->hidden & CHRHFLAG_CLOAKED) && chr->cloakfadefinished == true) {
 				hand = &player->hands[HAND_RIGHT];
-				hand->matmot1 += LVUPDATE60FREAL() * 0.4f;
+				hand->matmot1 += LVUPDATE60FREAL() * (cloakdrain / 60.0f);
 
 				if (hand->matmot1 > 1.0f) {
 					s32 usedqty = hand->matmot1;
 
-					if (usedqty > hand->loadedammo[0]) {
-						usedqty = hand->loadedammo[0];
+					if (usedqty > hand->loadedammo[cloakslot]) {
+						usedqty = hand->loadedammo[cloakslot];
 					}
 
 					hand->matmot1 -= usedqty;
-					hand->loadedammo[0] -= usedqty;
+					hand->loadedammo[cloakslot] -= usedqty;
 
 					// If out of ammo, turn off cloak
-					if (hand->loadedammo[0] == 0 && hand->state != HANDSTATE_RELOAD) {
+					if (hand->loadedammo[cloakslot] == 0 && hand->state != HANDSTATE_RELOAD) {
 						s32 stilltogo = hand->matmot1;
 
-						if (stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[0]]) {
+						if (stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
 							g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
 						}
 					}
@@ -10126,7 +10167,7 @@ void bgunTickGameplay2(void)
 			// No longer using RCP120, so turn off cloak
 			player->devicesactive &= ~DEVICE_CLOAKRCP120;
 		}
-	} else if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+	} else if (weaponCloakToggle(player->gunctrl.weaponnum, &cloakdrain, &cloakslot)) {
 		hand = &player->hands[HAND_RIGHT];
 
 		// I think this is handling situations where the player has turned off
@@ -10135,21 +10176,21 @@ void bgunTickGameplay2(void)
 		if (hand->matmot1 > 1.0f) {
 			s32 usedqty = hand->matmot1;
 
-			if (usedqty > hand->loadedammo[0]) {
-				usedqty = hand->loadedammo[0];
+			if (usedqty > hand->loadedammo[cloakslot]) {
+				usedqty = hand->loadedammo[cloakslot];
 			}
 
 			hand->matmot1 -= usedqty;
-			hand->loadedammo[0] -= usedqty;
+			hand->loadedammo[cloakslot] -= usedqty;
 
 			if (hand->matmot1 > 1.0f) {
 				s32 usedqty = hand->matmot1;
 
-				if (usedqty > player->ammoheldarr[player->gunctrl.ammotypes[0]]) {
-					usedqty = player->ammoheldarr[player->gunctrl.ammotypes[0]];
+				if (usedqty > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
+					usedqty = player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]];
 				}
 
-				player->ammoheldarr[player->gunctrl.ammotypes[0]] -= usedqty;
+				player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]] -= usedqty;
 				hand->matmot1 = 0;
 			}
 		}

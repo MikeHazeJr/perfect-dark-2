@@ -621,6 +621,60 @@ class HeldWeaponPrograms(unittest.TestCase):
         self.assertIn("og.weapon.burst 'late_burst' has no effect on event.weapon.trigger_released",
                       weapon_errors(graph)[0])
 
+    def test_shots_fit_their_function_and_their_settings(self):
+        """held-weapon-events.md slice 4: the shot module of each attack
+        family, fitting only its function's record type, with settings of
+        their kinds."""
+        def with_shot(node: dict, function_type: str = "shoot_single") -> dict:
+            graph = copy.deepcopy(V2_HELD)
+            graph["nodes"][1]["params"]["function_type"] = function_type
+            graph["nodes"].append(dict(node, id="primary_shot"))
+            graph["edges"].append({"from": "primary_use_ammo", "output": "out", "to": "primary_shot",
+                                   "input": "exec"})
+            return graph
+
+        good = [
+            ({"kind": "og.weapon.hitscan", "pellets": 6, "through_walls": False, "shield_damage": 1}, "shoot_single"),
+            ({"kind": "og.weapon.hitscan", "through_walls": True, "shield_damage": 10}, "shoot_automatic"),
+            ({"kind": "og.weapon.beam", "range": 300}, "shoot_automatic"),
+            ({"kind": "og.weapon.launch", "item": "base:rocket"}, "shoot_projectile"),
+            ({"kind": "og.weapon.launch", "item": "base:bolt", "item_function": "gun"}, "shoot_projectile"),
+            ({"kind": "og.weapon.launch", "item": "own", "item_function": 2}, "shoot_projectile"),
+            ({"kind": "og.weapon.throw", "give_up_gun": True}, "throw"),
+            ({"kind": "og.weapon.melee"}, "melee"),
+            ({"kind": "og.weapon.special", "action": "detonate"}, "special"),
+            ({"kind": "og.weapon.mode_toggle", "mode": "cloak", "drain": 24}, "special"),
+            ({"kind": "og.weapon.hitscan", "pellets": "$pellets"}, "shoot_single"),
+        ]
+        for node, function_type in good:
+            with self.subTest(node=node):
+                self.assertEqual(weapon_errors(with_shot(node, function_type)), [])
+        bad = [
+            ({"kind": "og.weapon.launch", "item": "base:rocket"}, "shoot_single", "does not fit this function"),
+            ({"kind": "og.weapon.hitscan"}, "throw", "does not fit this function"),
+            ({"kind": "og.weapon.mode_toggle"}, "melee", "does not fit this function"),
+            ({"kind": "og.weapon.hitscan", "pellets": 33}, "shoot_single", "needs pellets from 1 to 32"),
+            ({"kind": "og.weapon.hitscan", "shield_damage": 0}, "shoot_single", "needs shield_damage above 0"),
+            ({"kind": "og.weapon.hitscan", "through_walls": "yes"}, "shoot_single", "needs through_walls true or false"),
+            ({"kind": "og.weapon.beam", "range": 0}, "shoot_single", "needs range from 1 to 65536"),
+            ({"kind": "og.weapon.launch", "item": "Rocket"}, "shoot_projectile", "needs item own or an item's catalog id"),
+            ({"kind": "og.weapon.launch", "item_function": 3}, "shoot_projectile", "needs item_function gun, 0, 1 or 2"),
+            ({"kind": "og.weapon.special", "action": "cloak"}, "special", "needs action shoot, launch"),
+            ({"kind": "og.weapon.mode_toggle", "mode": "x"}, "special", "needs mode cloak"),
+            ({"kind": "og.weapon.mode_toggle", "drain": -1}, "special", "needs drain above 0"),
+        ]
+        for node, function_type, why in bad:
+            with self.subTest(node=node, function_type=function_type):
+                messages = weapon_errors(with_shot(node, function_type))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        # A shot on a record event does nothing.
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].append({"id": "late", "kind": "event.weapon.reload_done"})
+        graph["nodes"].append({"id": "late_shot", "kind": "og.weapon.hitscan"})
+        graph["edges"].append({"from": "late", "output": "out", "to": "late_shot", "input": "exec"})
+        self.assertIn("og.weapon.hitscan 'late_shot' has no effect on event.weapon.reload_done", weapon_errors(graph)[0])
+
     def test_the_kinds_agree_with_the_runner_and_the_table(self):
         runner = (REPO / "port" / "src" / "mission_graph_runner.cpp").read_text(encoding="utf-8")
         rules = (REPO / "port" / "include" / "weapon_rules.h").read_text(encoding="utf-8")

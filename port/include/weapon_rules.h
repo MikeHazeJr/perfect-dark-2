@@ -40,9 +40,20 @@ extern "C" {
 #define WEAPON_MODULE_BURST     (1u << 4) /* og.weapon.burst: the attack fires "count" rounds, "gap" ticks apart */
 #define WEAPON_MODULE_AUTOMATIC (1u << 5) /* og.weapon.automatic: the attack fires at "rate" while the trigger is held */
 #define WEAPON_MODULE_USE_AMMO  (1u << 6) /* og.weapon.use_ammo: each round of the attack takes "rounds" from the clip */
-#define WEAPON_MODULE_COUNT 7
+/* The shot modules (slice 4), one for each attack family: what each round
+ * of the attack does. */
+#define WEAPON_MODULE_HITSCAN     (1u << 7)  /* og.weapon.hitscan: a bullet ("pellets", "through_walls", "shield_damage") */
+#define WEAPON_MODULE_BEAM        (1u << 8)  /* og.weapon.beam: a short beam ("range") */
+#define WEAPON_MODULE_LAUNCH      (1u << 9)  /* og.weapon.launch: a projectile ("item", "item_function") */
+#define WEAPON_MODULE_THROW       (1u << 10) /* og.weapon.throw: the function's thrown object ("give_up_gun") */
+#define WEAPON_MODULE_MELEE       (1u << 11) /* og.weapon.melee: a strike */
+#define WEAPON_MODULE_SPECIAL     (1u << 12) /* og.weapon.special: an action ("action") */
+#define WEAPON_MODULE_MODE_TOGGLE (1u << 13) /* og.weapon.mode_toggle: a mode on or off ("mode", "drain") */
+#define WEAPON_MODULE_COUNT 14
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
 #define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC)
+#define WEAPON_MODULE_SHOTS (WEAPON_MODULE_HITSCAN | WEAPON_MODULE_BEAM | WEAPON_MODULE_LAUNCH | WEAPON_MODULE_THROW \
+	| WEAPON_MODULE_MELEE | WEAPON_MODULE_SPECIAL | WEAPON_MODULE_MODE_TOGGLE)
 /* The modules that decide what an idle hand does; the seam runs the first
  * chosen of: a trigger (the first the walk reached, with its settings), the
  * empty click, the reload. */
@@ -90,6 +101,8 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 	static const char *const kinds[WEAPON_MODULE_COUNT] = {
 		"og.weapon.fire_once", "og.weapon.dry_fire", "og.weapon.reload", "og.weapon.set_state",
 		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
+		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
+		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -159,15 +172,15 @@ static inline const char *weaponRulesEventName(s32 event_kind)
 
 /* The modules the event's seam applies. The idle seam's three rule events
  * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions,
- * use_ammo (the attack a trigger starts) and set_state; the records
- * (trigger_released, reload_done) apply set_state only. */
+ * use_ammo and the shot modules (the attack a trigger starts) and set_state;
+ * the records (trigger_released, reload_done) apply set_state only. */
 static inline u32 weaponRulesEventModules(s32 event_kind)
 {
 	switch (event_kind) {
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED:
 	case MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD:
 	case MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY:
-		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SET_STATE;
+		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE;
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED:
 	case MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE:
 		return WEAPON_MODULE_SET_STATE;
@@ -316,7 +329,33 @@ typedef struct weapon_rule_trigger {
 	s32 burst;       /* automatic: rounds it fires once started, released or not */
 	s32 aimed_burst; /* automatic: that burst holds while the player aims */
 	s32 rounds;      /* use_ammo: rounds a shot takes; 0 when the attack takes none */
+	/* slice 4: the shot, WEAPON_MODULE_HITSCAN ... _MODE_TOGGLE (0: none, a
+	 * device), and its settings. */
+	u32 shot;
+	s32 pellets;       /* hitscan: bullets each round fires */
+	s32 through_walls; /* hitscan: the bullets pass walls */
+	f32 shield_damage; /* hitscan: a hit on a shield does this many times its damage */
+	f32 range;         /* beam: its reach in world units */
+	s32 item;          /* launch: the weapon number of the item it fires; WEAPON_RULE_ITEM_OWN its own */
+	s32 item_function; /* launch: the item's function; WEAPON_RULE_ITEM_FUNCTION_KEEP as made, _GUN the gun's */
+	s32 give_up_gun;   /* throw: the gun itself goes with the throw */
+	s32 action;        /* special: the HANDATTACKTYPE_* it performs */
+	s32 mode;          /* mode toggle: WEAPON_RULE_MODE_CLOAK */
+	f32 drain;         /* mode toggle: rounds a second while the mode is on */
 } weapon_rule_trigger_t;
+
+#define WEAPON_RULE_ITEM_OWN (-1)              /* the function's own projectile object */
+#define WEAPON_RULE_ITEM_UNKNOWN (-2)          /* an item no weapon number names: nothing is fired */
+#define WEAPON_RULE_ITEM_FUNCTION_KEEP (-1)    /* the item keeps the function it was made with */
+#define WEAPON_RULE_ITEM_FUNCTION_GUN (-2)     /* the item takes the firing gun's function */
+#define WEAPON_RULE_MODE_CLOAK 1               /* the RCP120's cloak (DEVICE_CLOAKRCP120) */
+#define WEAPON_RULE_ATTACK_CLOAK 9             /* HANDATTACKTYPE_RCP120CLOAK */
+#define WEAPON_RULE_MAX_PELLETS 32
+#define WEAPON_RULE_MAX_SHIELD_DAMAGE 100
+#define WEAPON_RULE_MAX_RANGE 65536
+#define WEAPON_RULE_DEFAULT_LASER_RANGE 300
+#define WEAPON_RULE_DEFAULT_CLOAK_DRAIN 24.0f  /* the original's 0.4 rounds a 60 Hz tick */
+#define WEAPON_RULE_ITEM_LEN 64
 
 /* The cadence a function's record describes (bondgun.c reads the same
  * fields): the function type (its family in the low byte, 0x100 for an
@@ -328,6 +367,7 @@ typedef struct weapon_rule_function {
 	s32 functype;
 	u32 flags;
 	s32 ammo_slot;
+	s32 specialfunc; /* a special's HANDATTACKTYPE_* (slice 4) */
 	s32 has_rate;    /* the record names a rate (an automatic) */
 	f32 initial_rpm;
 	f32 max_rpm;
@@ -366,12 +406,123 @@ static inline s32 weaponRulesFunctionAutomatic(const weapon_rule_function_t *f)
  * 2-round one, the plan keeps the 3-round burst while aiming, where the
  * original kept 2.
  */
+/*
+ * held-weapon-events.md slice 4: the original's shot for a function, by its
+ * family: a shooting function's bullet (six pellets for the Shotgun; the
+ * Farsight's pass walls and do ten times their damage to shields), the
+ * Laser stream's 300-unit beam, a projectile launcher's item (the rocket
+ * launcher and the Slayer fire base:rocket, the crossbow base:bolt and the
+ * Devastator base:grenaderound with the gun's function, the Super Dragon
+ * base:grenaderound as function 2; any other launcher its own object), a
+ * throw (the Laptop gun gives up the gun), a strike, a special's action, and
+ * the RCP120's cloak toggle, which drains 24 rounds a second. A device has
+ * none. The rounds each family's attack takes are the plan's (use_ammo): a
+ * throw and a special take 1 when the function has a clip, the
+ * Tranquilizer's sedative strike 4, any other strike none.
+ */
+static inline void weaponRulesNativeShot(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->shot = 0;
+	out->pellets = 1;
+	out->through_walls = 0;
+	out->shield_damage = 1.0f;
+	out->range = 0.0f;
+	out->item = WEAPON_RULE_ITEM_OWN;
+	out->item_function = WEAPON_RULE_ITEM_FUNCTION_KEEP;
+	out->give_up_gun = 0;
+	out->action = 0;
+	out->mode = 0;
+	out->drain = 0.0f;
+	if (!f) return;
+	switch (f->functype & 0xff) {
+	case 1: /* INVENTORYFUNCTYPE_SHOOT */
+		if ((f->functype & 0xff00) == 0x200) {
+			out->shot = WEAPON_MODULE_LAUNCH;
+			if (f->weaponnum == WEAPON_ROCKETLAUNCHER || f->weaponnum == WEAPON_SLAYER) {
+				out->item = WEAPON_ROCKET;
+			} else if (f->weaponnum == WEAPON_CROSSBOW) {
+				out->item = WEAPON_BOLT;
+				out->item_function = WEAPON_RULE_ITEM_FUNCTION_GUN;
+			} else if (f->weaponnum == WEAPON_DEVASTATOR) {
+				out->item = WEAPON_GRENADEROUND;
+				out->item_function = WEAPON_RULE_ITEM_FUNCTION_GUN;
+			} else if (f->weaponnum == WEAPON_SUPERDRAGON) {
+				out->item = WEAPON_GRENADEROUND;
+				out->item_function = FUNC_2;
+			}
+		} else if (f->weaponnum == WEAPON_LASER && f->func == FUNC_SECONDARY) {
+			out->shot = WEAPON_MODULE_BEAM;
+			out->range = (f32)WEAPON_RULE_DEFAULT_LASER_RANGE;
+		} else {
+			out->shot = WEAPON_MODULE_HITSCAN;
+			out->pellets = f->weaponnum == WEAPON_SHOTGUN ? 6 : 1;
+			out->through_walls = f->weaponnum == WEAPON_FARSIGHT;
+			out->shield_damage = f->weaponnum == WEAPON_FARSIGHT ? 10.0f : 1.0f;
+		}
+		break;
+	case 2: /* INVENTORYFUNCTYPE_THROW */
+		out->shot = WEAPON_MODULE_THROW;
+		out->give_up_gun = f->weaponnum == WEAPON_LAPTOPGUN;
+		break;
+	case 3: /* INVENTORYFUNCTYPE_MELEE */
+		out->shot = WEAPON_MODULE_MELEE;
+		break;
+	case 4: /* INVENTORYFUNCTYPE_SPECIAL */
+		if (f->specialfunc == WEAPON_RULE_ATTACK_CLOAK) {
+			out->shot = WEAPON_MODULE_MODE_TOGGLE;
+			out->mode = WEAPON_RULE_MODE_CLOAK;
+			out->drain = WEAPON_RULE_DEFAULT_CLOAK_DRAIN;
+		} else {
+			out->shot = WEAPON_MODULE_SPECIAL;
+			out->action = f->specialfunc;
+		}
+		break;
+	}
+}
+
+/* The family a shot module belongs to (an INVENTORYFUNCTYPE_* low byte, with
+ * 0x200 for a projectile launcher), -1 for none. A program's shot must be
+ * its function's family: the attack's states are still the record's. */
+static inline s32 weaponRulesShotFamily(u32 shot)
+{
+	switch (shot) {
+	case WEAPON_MODULE_HITSCAN:
+	case WEAPON_MODULE_BEAM: return 1;
+	case WEAPON_MODULE_LAUNCH: return 0x201;
+	case WEAPON_MODULE_THROW: return 2;
+	case WEAPON_MODULE_MELEE: return 3;
+	case WEAPON_MODULE_SPECIAL:
+	case WEAPON_MODULE_MODE_TOGGLE: return 4;
+	}
+	return -1;
+}
+
+/* Whether a shot module can be the shot of a function of this type. */
+static inline s32 weaponRulesShotFits(u32 shot, s32 functype)
+{
+	const s32 family = weaponRulesShotFamily(shot);
+
+	if (family < 0) return 0;
+	if (family == 0x201) return (functype & 0xff) == 1 && (functype & 0xff00) == 0x200;
+	if (family == 1) return (functype & 0xff) == 1 && (functype & 0xff00) != 0x200;
+	return (functype & 0xff) == family;
+}
+
 static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
 {
 	memset(out, 0, sizeof(*out));
 	out->aimed_burst = 1;
+	weaponRulesNativeShot(f, out);
 	if (!f || !weaponRulesFunctionShoots(f)) {
 		out->module = WEAPON_MODULE_FIRE_ONCE;
+		if (f && f->ammo_slot >= 0) {
+			if ((f->functype & 0xff) == 2 || (f->functype & 0xff) == 4) {
+				out->rounds = 1; /* a throw or a special */
+			} else if ((f->functype & 0xff) == 3 && f->weaponnum == WEAPON_TRANQUILIZER
+					&& f->func == FUNC_SECONDARY) {
+				out->rounds = 4; /* the sedative strike */
+			}
+		}
 		return;
 	}
 	if (weaponRulesFunctionAutomatic(f)) {
@@ -436,6 +587,21 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_SETTING_WHOLE 1 /* a whole number from lo to hi */
 #define WEAPON_RULE_SETTING_RATE  2 /* rounds per minute, above 0 and up to WEAPON_RULE_MAX_RATE */
 #define WEAPON_RULE_SETTING_BOOL  3 /* true or false */
+#define WEAPON_RULE_SETTING_NUMBER 4        /* a number above 0 and up to hi */
+#define WEAPON_RULE_SETTING_ITEM 5          /* "own" or an item's catalog id (namespace:name) */
+#define WEAPON_RULE_SETTING_ITEM_FUNCTION 6 /* "gun" or a function, 0 to 2 */
+#define WEAPON_RULE_SETTING_ACTION 7        /* a special's action by name */
+#define WEAPON_RULE_SETTING_MODE 8          /* a toggled mode by name ("cloak") */
+#define WEAPON_RULE_PELLETS_PARAM "pellets"
+#define WEAPON_RULE_THROUGH_WALLS_PARAM "through_walls"
+#define WEAPON_RULE_SHIELD_DAMAGE_PARAM "shield_damage"
+#define WEAPON_RULE_RANGE_PARAM "range"
+#define WEAPON_RULE_ITEM_PARAM "item"
+#define WEAPON_RULE_ITEM_FUNCTION_PARAM "item_function"
+#define WEAPON_RULE_GIVE_UP_GUN_PARAM "give_up_gun"
+#define WEAPON_RULE_ACTION_PARAM "action"
+#define WEAPON_RULE_MODE_PARAM "mode"
+#define WEAPON_RULE_DRAIN_PARAM "drain"
 typedef struct weapon_rule_setting {
 	u32 module;
 	const char *key;
@@ -443,7 +609,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 9
+#define WEAPON_RULE_SETTING_COUNT 19
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -458,8 +624,98 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_BURST_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_AUTO_BURST },
 		{ WEAPON_MODULE_AUTOMATIC, WEAPON_RULE_AIMED_BURST_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
 		{ WEAPON_MODULE_USE_AMMO, WEAPON_RULE_ROUNDS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_ROUNDS },
+		{ WEAPON_MODULE_HITSCAN, WEAPON_RULE_PELLETS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_PELLETS },
+		{ WEAPON_MODULE_HITSCAN, WEAPON_RULE_THROUGH_WALLS_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_HITSCAN, WEAPON_RULE_SHIELD_DAMAGE_PARAM, WEAPON_RULE_SETTING_NUMBER, 0,
+			WEAPON_RULE_MAX_SHIELD_DAMAGE },
+		{ WEAPON_MODULE_BEAM, WEAPON_RULE_RANGE_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_RANGE },
+		{ WEAPON_MODULE_LAUNCH, WEAPON_RULE_ITEM_PARAM, WEAPON_RULE_SETTING_ITEM, 0, 0 },
+		{ WEAPON_MODULE_LAUNCH, WEAPON_RULE_ITEM_FUNCTION_PARAM, WEAPON_RULE_SETTING_ITEM_FUNCTION, 0, 2 },
+		{ WEAPON_MODULE_THROW, WEAPON_RULE_GIVE_UP_GUN_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_SPECIAL, WEAPON_RULE_ACTION_PARAM, WEAPON_RULE_SETTING_ACTION, 0, 0 },
+		{ WEAPON_MODULE_MODE_TOGGLE, WEAPON_RULE_MODE_PARAM, WEAPON_RULE_SETTING_MODE, 0, 0 },
+		{ WEAPON_MODULE_MODE_TOGGLE, WEAPON_RULE_DRAIN_PARAM, WEAPON_RULE_SETTING_NUMBER, 0, (s32)WEAPON_RULE_MAX_RATE },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
+}
+
+/* A positive number up to hi: the number, `dflt` for NULL, -1 for anything
+ * else. */
+static inline f32 weaponRulesNumberFromText(const char *text, f32 hi, f32 dflt)
+{
+	char *end = NULL;
+	double value;
+
+	if (!text) return dflt;
+	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
+	value = strtod(text, &end);
+	if (!end || *end || !(value > 0.0) || value > hi) return -1.0f;
+	return (f32)value;
+}
+
+/* A special's action names (HANDATTACKTYPE_*): the cloak is a mode toggle,
+ * 11 is unused. */
+static inline const char *weaponRulesActionName(s32 action)
+{
+	switch (action) {
+	case 1: return "shoot";
+	case 2: return "launch";
+	case 3: return "throw";
+	case 4: return "melee";
+	case 5: return "detonate";
+	case 6: return "boost";
+	case 7: return "revert_boost";
+	case 8: return "crouch";
+	case 10: return "melee_no_uncloak";
+	case 12: return "uplink";
+	}
+	return NULL;
+}
+
+static inline s32 weaponRulesActionFromText(const char *text)
+{
+	if (!text) return -1;
+	for (s32 a = 1; a <= 12; a++) {
+		const char *name = weaponRulesActionName(a);
+
+		if (name && strcmp(name, text) == 0) return a;
+	}
+	return -1;
+}
+
+static inline s32 weaponRulesModeFromText(const char *text)
+{
+	return text && strcmp(text, "cloak") == 0 ? WEAPON_RULE_MODE_CLOAK : -1;
+}
+
+/* "gun" or a function number, 0 to 2: WEAPON_RULE_ITEM_FUNCTION_GUN or the
+ * number, -3 for anything else (NULL included). */
+static inline s32 weaponRulesItemFunctionFromText(const char *text)
+{
+	if (!text) return -3;
+	if (strcmp(text, "gun") == 0) return WEAPON_RULE_ITEM_FUNCTION_GUN;
+	if (text[0] >= '0' && text[0] <= '2' && !text[1]) return text[0] - '0';
+	return -3;
+}
+
+/* An item's catalog id as a setting writes it: a namespace and a name of
+ * lower-case letters, digits and underscores ("base:rocket"). */
+static inline s32 weaponRulesItemIdValid(const char *text)
+{
+	s32 colon = 0;
+	size_t n;
+
+	if (!text || !text[0]) return 0;
+	n = strlen(text);
+	if (n >= WEAPON_RULE_ITEM_LEN || text[0] == ':' || text[n - 1] == ':') return 0;
+	for (const char *p = text; *p; p++) {
+		if (*p == ':') {
+			if (colon++) return 0;
+		} else if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '_')) {
+			return 0;
+		}
+	}
+	return colon == 1;
 }
 
 /* Whether a setting's text (not NULL) is a value of its kind. */
@@ -473,6 +729,16 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 		return weaponRulesRateFromText(text, -1.0f) > 0.0f;
 	case WEAPON_RULE_SETTING_BOOL:
 		return weaponRulesBoolFromText(text) >= 0;
+	case WEAPON_RULE_SETTING_NUMBER:
+		return weaponRulesNumberFromText(text, (f32)setting->hi, -1.0f) > 0.0f;
+	case WEAPON_RULE_SETTING_ITEM:
+		return strcmp(text, "own") == 0 || weaponRulesItemIdValid(text);
+	case WEAPON_RULE_SETTING_ITEM_FUNCTION:
+		return weaponRulesItemFunctionFromText(text) != -3;
+	case WEAPON_RULE_SETTING_ACTION:
+		return weaponRulesActionFromText(text) > 0;
+	case WEAPON_RULE_SETTING_MODE:
+		return weaponRulesModeFromText(text) > 0;
 	}
 	return 0;
 }
@@ -550,7 +816,142 @@ static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const 
 	return a->module == b->module && a->count == b->count && a->gap == b->gap
 		&& a->rate == b->rate && a->start_rate == b->start_rate
 		&& a->spin_up == b->spin_up && a->spin_down == b->spin_down
-		&& a->burst == b->burst && a->aimed_burst == b->aimed_burst && a->rounds == b->rounds;
+		&& a->burst == b->burst && a->aimed_burst == b->aimed_burst && a->rounds == b->rounds
+		&& a->shot == b->shot && a->pellets == b->pellets && a->through_walls == b->through_walls
+		&& a->shield_damage == b->shield_damage && a->range == b->range && a->item == b->item
+		&& a->item_function == b->item_function && a->give_up_gun == b->give_up_gun
+		&& a->action == b->action && a->mode == b->mode && a->drain == b->drain;
+}
+
+/* A catalog id's weapon number, -1 for none (the game reads its weapon
+ * table; pd-tests pass their own). */
+typedef s32 (*weapon_rule_item_fn)(const char *catalog_id);
+
+/*
+ * The settings of one shot module (slice 4), read by `get` on top of the
+ * function's own shot: a setting left out is the record's when the module is
+ * the record's own shot, else the module's default. The shot fields of
+ * `plan` are set; its trigger and rounds are left. Returns 1, or 0 when a
+ * setting is malformed (it then keeps its default). An item that names no
+ * weapon is WEAPON_RULE_ITEM_UNKNOWN.
+ */
+static inline s32 weaponRulesApplyShotSettings(u32 module, weapon_rule_text_fn get, void *user,
+	weapon_rule_item_fn item_number, const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	weapon_rule_trigger_t native;
+	s32 same;
+	s32 ok = 1;
+
+	if (!(module & WEAPON_MODULE_SHOTS) || (module & (module - 1))) {
+		return 0;
+	}
+	memset(&native, 0, sizeof(native));
+	weaponRulesNativeShot(record, &native);
+	same = native.shot == module;
+	plan->shot = module;
+	plan->pellets = 1;
+	plan->through_walls = 0;
+	plan->shield_damage = 1.0f;
+	plan->range = 0.0f;
+	plan->item = WEAPON_RULE_ITEM_OWN;
+	plan->item_function = WEAPON_RULE_ITEM_FUNCTION_KEEP;
+	plan->give_up_gun = 0;
+	plan->action = 0;
+	plan->mode = 0;
+	plan->drain = 0.0f;
+	switch (module) {
+	case WEAPON_MODULE_HITSCAN: {
+		const s32 dpellets = same ? native.pellets : 1;
+		const s32 dwalls = same ? native.through_walls : 0;
+		const f32 dshield = same ? native.shield_damage : 1.0f;
+		const s32 pellets = weaponRulesWholeFromText(get(WEAPON_RULE_PELLETS_PARAM, user), 1,
+			WEAPON_RULE_MAX_PELLETS, dpellets);
+		const char *walls_text = get(WEAPON_RULE_THROUGH_WALLS_PARAM, user);
+		const s32 walls = walls_text ? weaponRulesBoolFromText(walls_text) : dwalls;
+		const f32 shield = weaponRulesNumberFromText(get(WEAPON_RULE_SHIELD_DAMAGE_PARAM, user),
+			(f32)WEAPON_RULE_MAX_SHIELD_DAMAGE, dshield);
+
+		ok = pellets >= 0 && walls >= 0 && shield > 0.0f;
+		plan->pellets = pellets >= 0 ? pellets : dpellets;
+		plan->through_walls = walls >= 0 ? walls : dwalls;
+		plan->shield_damage = shield > 0.0f ? shield : dshield;
+		break;
+	}
+	case WEAPON_MODULE_BEAM: {
+		const s32 drange = same && native.range > 0.0f ? (s32)native.range : WEAPON_RULE_DEFAULT_LASER_RANGE;
+		const s32 range = weaponRulesWholeFromText(get(WEAPON_RULE_RANGE_PARAM, user), 1, WEAPON_RULE_MAX_RANGE,
+			drange);
+
+		ok = range >= 0;
+		plan->range = (f32)(range >= 0 ? range : drange);
+		break;
+	}
+	case WEAPON_MODULE_LAUNCH: {
+		const char *item_text = get(WEAPON_RULE_ITEM_PARAM, user);
+		const char *function_text = get(WEAPON_RULE_ITEM_FUNCTION_PARAM, user);
+
+		plan->item = same ? native.item : WEAPON_RULE_ITEM_OWN;
+		plan->item_function = same ? native.item_function : WEAPON_RULE_ITEM_FUNCTION_KEEP;
+		if (item_text) {
+			if (strcmp(item_text, "own") == 0) {
+				plan->item = WEAPON_RULE_ITEM_OWN;
+			} else if (weaponRulesItemIdValid(item_text)) {
+				const s32 number = item_number ? item_number(item_text) : -1;
+
+				plan->item = number >= 0 ? number : WEAPON_RULE_ITEM_UNKNOWN;
+			} else {
+				ok = 0;
+			}
+		}
+		if (function_text) {
+			const s32 f = weaponRulesItemFunctionFromText(function_text);
+
+			if (f == -3) ok = 0;
+			else plan->item_function = f;
+		}
+		break;
+	}
+	case WEAPON_MODULE_THROW: {
+		const char *text = get(WEAPON_RULE_GIVE_UP_GUN_PARAM, user);
+		const s32 give = text ? weaponRulesBoolFromText(text) : (same ? native.give_up_gun : 0);
+
+		ok = give >= 0;
+		plan->give_up_gun = give >= 0 ? give : (same ? native.give_up_gun : 0);
+		break;
+	}
+	case WEAPON_MODULE_SPECIAL: {
+		const char *text = get(WEAPON_RULE_ACTION_PARAM, user);
+		const s32 daction = same ? native.action
+			: (record && record->specialfunc != WEAPON_RULE_ATTACK_CLOAK ? record->specialfunc : 0);
+		const s32 action = text ? weaponRulesActionFromText(text) : daction;
+
+		ok = action >= 0;
+		plan->action = action >= 0 ? action : daction;
+		break;
+	}
+	case WEAPON_MODULE_MODE_TOGGLE: {
+		const char *mode_text = get(WEAPON_RULE_MODE_PARAM, user);
+		const s32 mode = mode_text ? weaponRulesModeFromText(mode_text) : WEAPON_RULE_MODE_CLOAK;
+		const f32 ddrain = same && native.drain > 0.0f ? native.drain : WEAPON_RULE_DEFAULT_CLOAK_DRAIN;
+		const f32 drain = weaponRulesNumberFromText(get(WEAPON_RULE_DRAIN_PARAM, user), WEAPON_RULE_MAX_RATE, ddrain);
+
+		ok = mode > 0 && drain > 0.0f;
+		plan->mode = mode > 0 ? mode : WEAPON_RULE_MODE_CLOAK;
+		plan->drain = drain > 0.0f ? drain : ddrain;
+		break;
+	}
+	}
+	return ok;
+}
+
+/* A throw, a special or a strike takes its rounds from the clip; a clip
+ * that holds fewer is emptied (bondgun.c's original for each: a throw and a
+ * special take 1, the Tranquilizer's strike 4). */
+static inline void weaponRulesSpendRounds(s32 rounds, s32 *loaded)
+{
+	if (rounds <= 0 || !loaded) return;
+	if (*loaded > rounds) *loaded -= rounds;
+	else *loaded = 0;
 }
 
 /*
@@ -725,6 +1126,7 @@ typedef struct weapon_rule_walk {
 	weapon_rule_states_t *states;           /* the hand's named states; NULL: all false, none written */
 	const weapon_rule_function_t *function; /* the function's record: its settings' defaults */
 	weapon_rule_param_fn param_text;
+	weapon_rule_item_fn item_number;        /* a launch's item by catalog id; NULL: none is known */
 	u32 modules;                            /* what the walk chose */
 	weapon_rule_trigger_t plan;             /* the first trigger reached, with use_ammo's rounds */
 } weapon_rule_walk_t;
@@ -804,6 +1206,19 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit & WEAPON_MODULE_SHOTS) {
+		/* slice 4: the first shot reached is the attack's. */
+		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			weaponRulesApplyShotSettings(bit, weaponRulesWalkSettingText, &read, walk->item_number,
+				walk->function, &walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO)) {
 		const u32 first = (bit & WEAPON_MODULE_TRIGGERS) ? WEAPON_MODULE_TRIGGERS : WEAPON_MODULE_USE_AMMO;
 
@@ -851,8 +1266,14 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 	if (!(walk->modules & WEAPON_MODULE_TRIGGERS)) {
 		memset(&walk->plan, 0, sizeof(walk->plan));
 		walk->plan.aimed_burst = 1;
-	} else if (!(walk->modules & WEAPON_MODULE_USE_AMMO)) {
-		walk->plan.rounds = 0;
+	} else {
+		if (!(walk->modules & WEAPON_MODULE_USE_AMMO)) {
+			walk->plan.rounds = 0;
+		}
+		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
+			/* A shot left out is the function's own. */
+			weaponRulesNativeShot(walk->function, &walk->plan);
+		}
 	}
 	return 1;
 }
