@@ -168,6 +168,38 @@ touches the pickup and drop routines MULTIPLAYER fixed this week (B-1209,
 B-1272); slice 5 changes the wire format and belongs to them or is done
 with them.
 
+## Slice 1 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
+
+Mike assigned this plan to the Multiplayer and Rules session on 2026-11-21, which
+owns the native mode rules and their network state, so the questions below are
+answered in place as the slices land.
+
+- `port/src/mode_events.c` / `port/include/mode_events.h`:
+  `modeEventRecord(kind, who)` counts a match's events and logs the first of each
+  kind for a mode (`MODE.EVENT: <kind> mode=<catalog id> scenario=<n> who=<n or ->`);
+  `modeEventsReport(why)` logs the totals (`MODE.EVENTS: <why> mode=... chosen=N
+  stage_reset=N intro_pad=N props_init=N tick=N chr_tick=N score=N spawn=N
+  token_picked_up=N token_dropped=N prop_activated=N player_died=N`) at the stage
+  end (`mainEndStage`) and at a smoke's scripted exit, then starts again; a match
+  with no events logs nothing. Only the peer that decides records
+  (`scenarioNetIsAuthority`: offline or the listen host), as rule events will.
+- Seams, each after the native decision: `chosen` in `scenarioInit`;
+  `stage_reset` in `scenarioReset` after its per-mode switch, and one `intro_pad`
+  per case, case-respawn or hill pad the stage intro lists; `props_init` in
+  `scenarioInitProps`; `tick` in `scenarioTick` while a match runs; `chr_tick` in
+  `scenarioTickChr` (a simulant, or the current player); `score` in
+  `scenarioCalculatePlayerScore` (who is the Combat Simulator index);
+  `spawn` in `scenarioChooseSpawnLocation`; `token_picked_up` in
+  `scenarioPickUpBriefcase` (Hold the Briefcase, Capture the Case) and
+  `scenarioPickUpUplink` (Hacker Central); `token_dropped` in
+  `scenarioHandleDroppedToken`; `prop_activated` in `scenarioHandleActivatedProp`
+  for the Hacker Central terminal; `player_died` in
+  `mpstatsRecordDeathByRuntimeIndex` (who is the victim's index).
+- The six local mode smokes (`mp_combat_local_scorelimit_smoke` and
+  `mp_<mode>_local_smoke`) require the mode's first `chosen` and `tick` lines and a
+  stage-end total with ticks and spawns. Static contract:
+  `gamemode-graphs slice 1` in `tests/test_match_scenario_start_static.cpp`.
+
 ## Questions for MULTIPLAYER
 
 1. Is `scenarioNetIsAuthority` the one test of "this peer decides"? The

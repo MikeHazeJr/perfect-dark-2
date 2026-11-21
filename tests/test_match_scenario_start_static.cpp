@@ -346,3 +346,48 @@ TEST_CASE("final scores reach the match roster before the stage end message",
 	REQUIRE(arm < clear);
 	REQUIRE(clear < first_flush);
 }
+
+TEST_CASE("gamemode-graphs slice 1: every mode seam records its event",
+          "[scenario][mode-events][static][gamemode-graphs]")
+{
+	const std::string scenarios = read_text_file_scenario_start("src/game/mplayer/scenarios.c");
+	const std::string mpstats = read_text_file_scenario_start("src/game/mpstats.c");
+	const std::string events = read_text_file_scenario_start("port/src/mode_events.c");
+	const std::string pdmain = read_text_file_scenario_start("port/src/pdmain.c");
+	const std::string harness = read_text_file_scenario_start("port/src/smoke_harness.c");
+
+	struct seam { const char *function; const char *record; };
+	const seam seams[] = {
+		{ "void scenarioInit", "modeEventRecord(MODE_EVENT_CHOSEN, -1);" },
+		{ "void scenarioInitProps", "modeEventRecord(MODE_EVENT_PROPS_INIT, -1);" },
+		{ "void scenarioTick", "modeEventRecord(MODE_EVENT_TICK, -1);" },
+		{ "void scenarioTickChr", "modeEventRecord(MODE_EVENT_CHR_TICK," },
+		{ "void scenarioCalculatePlayerScore", "modeEventRecord(MODE_EVENT_SCORE, chrnum);" },
+		{ "f32 scenarioChooseSpawnLocation", "modeEventRecord(MODE_EVENT_SPAWN," },
+		{ "void scenarioReset", "modeEventRecord(MODE_EVENT_STAGE_RESET, -1);" },
+		{ "void scenarioReset", "modeEventRecord(MODE_EVENT_INTRO_PAD, -1);" },
+		{ "s32 scenarioPickUpBriefcase", "modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);" },
+		{ "s32 scenarioPickUpUplink", "modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);" },
+		{ "void scenarioHandleDroppedToken", "modeEventRecord(MODE_EVENT_TOKEN_DROPPED," },
+		{ "void scenarioHandleActivatedProp", "modeEventRecord(MODE_EVENT_PROP_ACTIVATED," },
+	};
+	for (const seam &s : seams) {
+		INFO(s.function << " records " << s.record);
+		const std::string body = function_block_scenario_start(scenarios, s.function);
+		REQUIRE(body.find(s.record) != std::string::npos);
+	}
+	const std::string death = function_block_scenario_start(mpstats, "void mpstatsRecordDeathByRuntimeIndex");
+	REQUIRE(death.find("modeEventRecord(MODE_EVENT_PLAYER_DIED, vplayernum);") != std::string::npos);
+
+	/* Record-only: the peer that decides records, and nothing is returned to
+	 * the seams. */
+	const std::string record = function_block_scenario_start(events, "void modeEventRecord");
+	REQUIRE(record.find("if (!scenarioNetIsAuthority()) {") != std::string::npos);
+	REQUIRE(events.find("\"MODE.EVENT: %s mode=%s scenario=%d who=%d\"") != std::string::npos);
+
+	/* The match's totals go out at the stage end and at a smoke's exit. */
+	const size_t projectile_end = require_position(pdmain, "projectileEventsReport(\"stage_end\");");
+	const size_t mode_end = require_position(pdmain, "modeEventsReport(\"stage_end\");");
+	REQUIRE(projectile_end < mode_end);
+	REQUIRE(harness.find("modeEventsReport(\"smoke_exit\");") != std::string::npos);
+}

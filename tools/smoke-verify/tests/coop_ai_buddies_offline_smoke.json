@@ -1,6 +1,6 @@
 {
   "scenario_name": "coop_ai_buddies_offline_smoke",
-  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. It waits for the title and for Agent Select (readiness, not fixed times: base 9 boots in about 1:52), loads a staged agent through Agent Select, walks the real Main Menu and Play graph into Combat Simulator (the offline Room), opens on the Campaign tab (--debug-room-tab campaign) and fires the Room's own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). The start goes through the mission start Solo Missions uses (menuhandlerAcceptMission) with one player and the buddies, clamped to the original's limit: the staged agent has no co-op completions, so one buddy. The buddy spawns at the player (playerTick, GAILIST_INIT_DEFAULT_BUDDY), the mission plays to its debug end at 40 s (--debug-end-mission, every objective complete) and the results show, with no menu or input watchdog repair. Written 2026-11-17.",
+  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. B-1278 (2026-11-21): the staged agent is loaded with --launch-load-agent and --launch-offline-room opens the offline Room from CI through the Main Menu's own Combat Simulator entry, so the run needs neither Agent Select nor the Main Menu (their readiness waits need window focus a background game never has). The Room opens on the Campaign tab (--debug-room-tab campaign) and fires its own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). A fresh profile has no co-op completions, so the start clamps to one buddy (getMaxAiBuddies); the buddy spawns at the player, the mission plays until --debug-end-mission ends it at 40 s with every objective complete, and the results show.",
   "tags": [
     "campaign",
     "coop",
@@ -37,6 +37,9 @@
     "--portable",
     "--savedir",
     "./coop-ai-buddies-home",
+    "--launch-load-agent",
+    "smoke",
+    "--launch-offline-room",
     "--debug-auto-start-match",
     "--debug-room-tab",
     "campaign",
@@ -49,134 +52,16 @@
     {
       "at_ms": 0,
       "type": "wait_until",
-      "condition": "title_sequence_ready",
-      "timeout_ms": 240000,
-      "stable_ms": 500,
-      "comment": "Boot and extraction done; the title's legal screen is up (script time waits here, so a slow boot does not shift the taps)."
-    },
-    {
-      "at_ms": 16000,
-      "type": "action",
-      "name": "ACTION_USE",
-      "action": "tap",
-      "comment": "On the PD logo (the legal, Rare and Nintendo screens take about 12.6 s): leave the title for Agent Select."
-    },
-    {
-      "at_ms": 17000,
-      "type": "wait_until",
-      "condition": "agent_select_ready",
-      "timeout_ms": 120000,
-      "stable_ms": 1000,
-      "comment": "Agent Select is the current menu and takes input. One second after the tap: a wait cannot begin while a tap is still held (pending_tap)."
-    },
-    {
-      "at_ms": 19000,
-      "type": "action",
-      "name": "ACTION_USE",
-      "action": "tap",
-      "comment": "Activate the only staged JSON profile and enter the live Main Menu."
-    },
-    {
-      "at_ms": 29000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap",
-      "comment": "Clamp restored Main Menu focus to the first Play row without assuming persisted cursor state."
-    },
-    {
-      "at_ms": 29500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 30000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 30500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 31000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 31500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 32000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 32500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 33000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 33500,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 34000,
-      "type": "action",
-      "name": "ACTION_MENU_UP",
-      "action": "tap"
-    },
-    {
-      "at_ms": 35000,
-      "type": "action",
-      "name": "ACTION_USE",
-      "action": "tap",
-      "comment": "Main Menu Play accept."
-    },
-    {
-      "at_ms": 37000,
-      "type": "action",
-      "name": "ACTION_MENU_DOWN",
-      "action": "tap",
-      "comment": "Move from Solo Missions to Combat Simulator in the Play subview."
-    },
-    {
-      "at_ms": 38000,
-      "type": "action",
-      "name": "ACTION_USE",
-      "action": "tap",
-      "comment": "Open the real offline Room; it opens on the Campaign tab and its one-shot Start Match fires once that tab is shown."
-    },
-    {
-      "at_ms": 39000,
-      "type": "wait_until",
       "condition": "offline_gameplay_ready",
-      "timeout_ms": 180000,
+      "timeout_ms": 420000,
       "stable_ms": 2000,
       "assist_action": "ACTION_SKIP_CUTSCENE",
       "assist_condition": "cutscene_skip_ready",
       "assist_hold_ms": 900,
-      "comment": "The co-op mission live and controllable, with one bounded Skip if the authored intro owns input."
+      "comment": "Boot (about 1:52 on base 9), the staged agent, the offline Room from CI, its Campaign Start Match and the co-op mission live and controllable, with one bounded Skip if the authored intro owns input. Script time waits here, so a slow boot shifts nothing."
     },
     {
-      "at_ms": 40000,
+      "at_ms": 1000,
       "type": "wait_until",
       "condition": "endscreen_visible",
       "timeout_ms": 120000,
@@ -184,7 +69,7 @@
       "comment": "The results, after --debug-end-mission ends the mission at 40 s."
     },
     {
-      "at_ms": 44000,
+      "at_ms": 5000,
       "type": "exit",
       "comment": "Scripted clean exit 4 s (script time) after the results."
     }
@@ -192,13 +77,14 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=coop_ai_buddies_offline_smoke",
-      "SMOKE\\.WAIT: satisfied condition=agent_select_ready",
       "SAVE: initialized .*coop-ai-buddies-home",
       "BOOT: --coop-ai-buddies armed: buddies=2",
       "BOOT: --debug-room-tab armed: tab=1",
+      "BOOT: --launch-offline-room armed",
+      "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
       "AGENT\\.SESSION: activation committed name='smoke' source=json",
-      "MENU\\.GRAPH\\.FIRE source=main_menu edge=solo_play",
-      "MENU\\.GRAPH\\.FIRE source=main_solo_view edge=combat_simulator",
+      "BOOT: --launch-offline-room agent='smoke' selected",
+      "BOOT: --launch-offline-room entered the offline Room agent='smoke' room_active=1",
       "MENUPOOL: acquired room",
       "BOOT: --debug-room-tab consumed: tab=1",
       "ROOM: --debug-auto-start-match -- firing Start Match tab=1",
@@ -213,8 +99,17 @@
     ],
     "required_sequences": [
       {
+        "name": "agent-then-offline-room",
+        "patterns": [
+          "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+          "BOOT: --launch-offline-room agent='smoke' selected",
+          "BOOT: --launch-offline-room entered the offline Room agent='smoke' room_active=1"
+        ]
+      },
+      {
         "name": "room-campaign-start-buddies-results",
         "patterns": [
+          "BOOT: --launch-offline-room entered the offline Room agent='smoke' room_active=1",
           "MENUPOOL: acquired room",
           "ROOM: --debug-auto-start-match -- firing Start Match tab=1",
           "COOP\\.AIBUDDIES: offline start stage=",
@@ -241,7 +136,9 @@
       "SMOKE: result=timeout",
       "SMOKE: result=wait_timeout",
       "NET: weapon [0-9]+ .* has no session catalog id",
-      "NET: model [0-9]+ .* has no session catalog id"
+      "NET: model [0-9]+ .* has no session catalog id",
+      "BOOT: --launch-offline-room has no active agent",
+      "BOOT: --launch-offline-room ignored"
     ],
     "required_counts": [
       {

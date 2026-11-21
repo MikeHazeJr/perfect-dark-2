@@ -100,6 +100,9 @@
       "MATCH: stage end reason=scorelimit scorelimit=1 teamscorelimit=0",
       "MATCH\\.RESULT: scenario=0 teams=0 chrs=4 netmode=0",
       "MATCH\\.RESULT\\.CHR: rank=0 chr=[0-9]+ team=[0-9]+ score=[1-9]",
+      "MODE\\.EVENT: chosen mode=base:combat scenario=0",
+      "MODE\\.EVENT: tick mode=base:combat scenario=0 who=-",
+      "MODE\\.EVENTS: stage_end mode=base:combat .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit"
     ],

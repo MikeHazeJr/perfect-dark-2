@@ -343,6 +343,15 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       Starts the challenge in that slot (0-based among the challenges this
  *       profile can play) through matchStartFromChallenge, the ImGui
  *       challenge launch, once the CI boot stage has a player.
+ *   --launch-offline-room
+ *       B-1278: boots into CI and opens the offline Room through the Main
+ *       Menu's own Combat Simulator entry (menuhandlerMainMenuCombatSimulator)
+ *       once the CI fly-in lets a menu open, without the title, Agent Select
+ *       or the Main Menu, so a smoke needs no window focus to get there. It
+ *       needs an active agent: pair it with --launch-load-agent <name> (a
+ *       staged profile); with no agent it stands down and Agent Select opens
+ *       as usual. --debug-room-tab and --debug-auto-start-match then start
+ *       the match from the Room, as in the hosted smokes.
  *
  *       --host-autostart-matches <n> (1..8) starts n matches in the same
  *       room: after each match the start re-arms once the host has left its
@@ -559,6 +568,9 @@ static s32         g_BootLaunchMpMatchPending = 0;
  * Room has no challenge entry yet; this lets a smoke run the fixed table. */
 static s32         g_BootLaunchChallengeSlot = -1;
 static s32         g_BootLaunchChallengePending = 0;
+/* B-1278: --launch-offline-room opens the offline Room from CI through the
+ * Main Menu's Combat Simulator entry (bootLaunchOfflineRoomTick). */
+static s32         g_BootLaunchOfflineRoomPending = 0;
 /* c3845 (2026-06-23): two-process listen-host match smoke infra.
  * --host-autostart fires the SAME high-level lobby-leader start path the
  * Room "Start Match" button uses (netLobbyRequestStartWithSims), but on
@@ -850,6 +862,7 @@ static s32 bootAllowsBackgroundStageRepair(void)
 			sysArgCheck("--boot-stage") || sysArgCheck("--profile") ||
 			sysArgCheck("--launch-mission") || sysArgCheck("--launch-scenario") ||
 			sysArgCheck("--launch-challenge") || sysArgCheck("--launch-mp-room") ||
+			sysArgCheck("--launch-offline-room") ||
 			sysArgCheck("--connect-host") || sysArgCheck("--host-autostart") ||
 			sysArgCheck("--no-background-stage-repair")) return 0;
 	for (s32 i = 0; i < modmgrGetCount(); ++i) {
@@ -1741,6 +1754,33 @@ static void bootApplyLaunchChallenge(void)
 
 	g_BootLaunchChallengePending = 1;
 	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge armed: slot=%d", g_BootLaunchChallengeSlot);
+}
+
+/* B-1278: --launch-offline-room drops into CI like the other Room entry points
+ * and arms bootLaunchOfflineRoomTick. The Main Menu must not auto-open: the
+ * Room is entered from CI directly. */
+static void bootApplyLaunchOfflineRoom(void)
+{
+	if (!sysArgCheck("--launch-offline-room")) {
+		return;
+	}
+	if (sysArgCheck("--host") || sysArgCheck("--connect-host")
+			|| sysArgCheck("--launch-mp-room")) {
+		/* A hosted Room has its own boot path; --launch-mp-room seeds the
+		 * match and starts it directly instead of through the Room. */
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-offline-room ignored with --host, --connect-host or --launch-mp-room");
+		return;
+	}
+
+	g_PostExitMainMenuView = -1;
+
+	if (g_StageNum == STAGE_TITLE) {
+		g_StageNum = STAGE_CITRAINING;
+	}
+
+	g_BootLaunchOfflineRoomPending = 1;
+	sysLogPrintf(LOG_NOTE, "BOOT: --launch-offline-room armed");
 }
 
 /* Mike directive 2026-05-18: --debug-mp-options seed. Applied after
@@ -3354,6 +3394,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
 	bootApplyLaunchChallenge();
+	bootApplyLaunchOfflineRoom();
 	bootApplyDebugMpOptions();
 	if (sysArgCheck("--debug-v006-scenario-transaction")) {
 		s32 result = v006ScenarioTransactionRun();
@@ -4435,6 +4476,60 @@ s32 bootLaunchChallengeTick(void)
 	g_BootLaunchChallengePending = 0;
 	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge firing: slot=%d", g_BootLaunchChallengeSlot);
 	matchStartFromChallenge(g_BootLaunchChallengeSlot);
+	return 1;
+}
+
+/* B-1278: called once per frame from pdmain.c's mainTick while
+ * --launch-offline-room is armed, after the --launch-load-agent tick. Once the
+ * staged agent is active it marks the file selected, as Agent Select leaves it,
+ * so CI does not force Agent Select open; once the fly-in lets a menu open it
+ * enters the offline Room through the Main Menu's own Combat Simulator entry,
+ * the call the Main Menu's Combat Simulator row makes. No agent: stand down and
+ * let Agent Select open as usual. */
+s32 bootLaunchOfflineRoomTick(void)
+{
+	extern MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation,
+		struct menuitem *item, union handlerdata *data);
+	extern s32 menuCiReadyForMenuOpen(void);
+	extern s32 pdguiSoloRoomIsActive(void);
+	const char *agent;
+
+	if (!g_BootLaunchOfflineRoomPending) {
+		return 0;
+	}
+	if (g_Vars.stagenum != STAGE_CITRAINING || g_Vars.lvframenum < 4) {
+		return 0;
+	}
+	if (!g_Vars.players[0]
+			|| !g_Vars.players[0]->prop
+			|| !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+	if (g_BootLoadAgentArmed) {
+		return 0; /* the staged agent activates first */
+	}
+
+	agent = prefsAgentGetActive();
+	if (!agent || !agent[0]) {
+		g_BootLaunchOfflineRoomPending = 0;
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-offline-room has no active agent (use --launch-load-agent <name>); Agent Select opens instead");
+		return 0;
+	}
+	if (g_FileState == FILESTATE_UNSELECTED) {
+		g_FileState = FILESTATE_SELECTED;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --launch-offline-room agent='%s' selected", agent);
+	}
+	if (!menuCiReadyForMenuOpen()) {
+		return 0;
+	}
+
+	g_BootLaunchOfflineRoomPending = 0;
+	menuhandlerMainMenuCombatSimulator(MENUOP_SET, NULL, NULL);
+	sysLogPrintf(pdguiSoloRoomIsActive() ? LOG_NOTE : LOG_WARNING,
+		"BOOT: --launch-offline-room entered the offline Room agent='%s' room_active=%d",
+		agent, pdguiSoloRoomIsActive());
 	return 1;
 }
 

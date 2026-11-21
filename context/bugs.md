@@ -68,7 +68,16 @@ the `prop.c` delivery path, with one lost seven-line hunk restored from week-pd/
 (dev plus PR 13, d1932f55) built from commits alone, client and test binary, in a clean worktree and passed
 pd-tests in full. SP-99.
 
-## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, open, test only)
+## 2026-11-19 B-1278 The offline AI-buddy smoke waits on Agent Select, which a game started in the background never satisfies (T-NETWORKING-007, fixed in code 2026-11-21, not yet run in a game)
+
+Fix (claude-pd-mp-rules-20261121): boot flag `--launch-offline-room` (`port/src/main.c`). It drops into CI, keeps the
+Main Menu from auto-opening, and `bootLaunchOfflineRoomTick` (after the `--launch-load-agent` tick in `pdmain.c`)
+waits for the staged agent, marks the file selected as Agent Select leaves it (so CI does not force Agent Select),
+waits for the CI menu gate (`menuCiReadyForMenuOpen`, the gate the CI menus use) and then makes the Main Menu's own
+Combat Simulator call, `menuhandlerMainMenuCombatSimulator(MENUOP_SET, ...)`, so the Room opens by the same code as a
+click. With no active agent it stands down and Agent Select opens as usual. `coop_ai_buddies_offline_smoke` now boots
+with `--launch-load-agent smoke --launch-offline-room` and waits only for gameplay and the results. Pinned by
+`[b1278]` in `tests/test_net_mission_end_static.cpp`. To prove: that smoke in the milestone finalization batch.
 
 Severity low (test only, but it leaves the offline co-op start with simulant buddies unproven in a run).
 `coop_ai_buddies_offline_smoke` failed 20/38 in rerun 2 (q_20261119011551074_865057f0, ddac61d6 on shared base 9,

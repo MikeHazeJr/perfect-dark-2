@@ -105,6 +105,9 @@
       "MATCH: timelimit override applied seconds=150",
       "MATCH: stage end reason=timelimit",
       "MATCH\\.RESULT: scenario=3 teams=0 chrs=4 netmode=0",
+      "MODE\\.EVENT: chosen mode=base:pop_a_cap scenario=3",
+      "MODE\\.EVENT: tick mode=base:pop_a_cap scenario=3 who=-",
+      "MODE\\.EVENTS: stage_end mode=base:pop_a_cap .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
